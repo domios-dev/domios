@@ -615,6 +615,9 @@ function starterPrompt(params) {
   return params.starterPrompt === "idle_wakeup" ? IDLE_WAKEUP_START_PROMPT : ASSIGNED_TASK_START_PROMPT;
 }
 var plugin = {
+  starterPromptText(prompt) {
+    return prompt === "idle_wakeup" ? IDLE_WAKEUP_START_PROMPT : ASSIGNED_TASK_START_PROMPT;
+  },
   detectFromTitle(title) {
     return TITLE_RE.test(String(title || ""));
   },

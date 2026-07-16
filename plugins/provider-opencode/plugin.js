@@ -47,6 +47,9 @@ var QUESTION_MENU_SELECTORS = [">", "\u276F", "\u25B6", "\u27A4", "\u2192", "\u2
 var PICKER_TITLE_RE = /^(Select model|Connect a provider)\b.*\besc\b/i;
 var lastPromptShape = "horizontal";
 var plugin = {
+  starterPromptText(prompt) {
+    return prompt === "idle_wakeup" ? IDLE_WAKEUP_START_PROMPT : ASSIGNED_TASK_START_PROMPT;
+  },
   detectFromTitle(title) {
     return TITLE_RE.test(String(title || ""));
   },

@@ -547,11 +547,18 @@ impl ServiceContext {
                 crate::service::launch_delivery::fallback_delivery_spec(
                     fallback_bootstrap.as_deref(),
                     bg_task.as_deref(),
+                    self.agent_registry
+                        .with_provider(&agent_cmd, |provider| {
+                            provider.starter_prompt_text(params.starter_prompt)
+                        })
+                        .flatten()
+                        .as_deref(),
                 )
             })
             .flatten()
         {
-            if let Err(error) = self.create_pending_delivery(&pane_id, spec.channel, spec.payload) {
+            if let Err(error) = self.create_pending_delivery(&pane_id, spec.channel, &spec.payload)
+            {
                 let _ = self.close_pane(&pane_id);
                 return Err(error.to_string());
             }

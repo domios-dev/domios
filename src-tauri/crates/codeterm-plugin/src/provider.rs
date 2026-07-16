@@ -50,19 +50,6 @@ pub enum StarterPrompt {
     IdleWakeup,
 }
 
-impl StarterPrompt {
-    pub const fn text(self) -> &'static str {
-        match self {
-            Self::AssignedTask => {
-                "Execute the assigned task. Follow the provided developer instructions."
-            }
-            Self::IdleWakeup => {
-                "You are a newly started agent. Wait for instructions from the user or your orchestration parent."
-            }
-        }
-    }
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct AgentLaunchParams {
     pub agent_name: Option<String>,
@@ -417,6 +404,10 @@ pub trait AgentProvider: Send + Sync {
 
     /// Build the shell command to launch this agent.
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String;
+
+    fn starter_prompt_text(&self, _: StarterPrompt) -> Option<String> {
+        None
+    }
 
     /// How to wait for the agent to be ready after PTY spawn.
     fn readiness_strategy(&self) -> ReadinessStrategy;

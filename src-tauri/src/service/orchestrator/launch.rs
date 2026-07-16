@@ -340,8 +340,15 @@ pub(crate) fn launch_agent_in_background(
             if let Some(spec) = crate::service::launch_delivery::fallback_delivery_spec(
                 fallback_bootstrap.as_deref(),
                 task.as_deref(),
+                registry
+                    .with_provider(&agent_cmd, |provider| {
+                        provider
+                            .starter_prompt_text(crate::agent::provider::StarterPrompt::IdleWakeup)
+                    })
+                    .flatten()
+                    .as_deref(),
             ) {
-                let task_text = spec.payload;
+                let task_text = spec.payload.clone();
                 set_booting(false);
                 {
                     let mut mux = svc.mux.write();
@@ -356,7 +363,7 @@ pub(crate) fn launch_agent_in_background(
                 let consumption = delivery_gate.consume(&svc.mux, &pane_id, &svc, || {
                     let result = crate::service::pty_io::submit_transaction::submit_entry(
                         crate::service::pty_io::submit_transaction::PtySubmitEntry::Direct,
-                        task_text,
+                        &task_text,
                         |text| {
                             svc.send_text_verified(
                                 &pty_id,
@@ -637,7 +644,7 @@ pub(crate) fn build_agent_command(
         }
     }
 
-    let task = registry
+    let launch_task = registry
         .with_provider(agent_cmd, |provider| {
             crate::service::launch_delivery::content_for_descriptor(
                 &provider.system_prompt_delivery(),
@@ -648,7 +655,7 @@ pub(crate) fn build_agent_command(
         .unwrap_or_default();
     let launch_params = AgentLaunchParams {
         agent_name: params.agent_name.clone(),
-        task: task.clone(),
+        task: launch_task.clone(),
         starter_prompt: params.starter_prompt,
         args: if args.is_empty() {
             None
@@ -673,7 +680,7 @@ pub(crate) fn build_agent_command(
         "-",
         agent_cmd,
         &cmd,
-        task.as_deref(),
+        launch_task.as_deref(),
     );
     cmd
 }
