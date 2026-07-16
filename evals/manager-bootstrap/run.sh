@@ -5,9 +5,11 @@ source "$ROOT/evals/_lib/lib.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/helpers.sh"
 CREATED=()
 TEAM_ID=""
+FALLBACK_TEAM_ID=""
 WORKER=""
 await_first() { local pane="$1" end=$((SECONDS+45)) out; while [ "$SECONDS" -lt "$end" ]; do out="$(dc pane chat --pane "$pane" --json | first_assistant)"; [ -n "$out" ] && { printf '%s' "$out"; return; }; sleep 1; done; echo "timeout first assistant $pane" >&2; return 1; }
 cleanup() {
+  [ -z "$FALLBACK_TEAM_ID" ] || dc team close "$FALLBACK_TEAM_ID" --json >/dev/null 2>&1 || true
   [ -z "$TEAM_ID" ] || dc team close "$TEAM_ID" --json >/dev/null 2>&1 || true
   for pane in "${CREATED[@]:-}"; do dc pane close "$pane" >/dev/null 2>&1 || true; done
   dev_get /api/mux/state | python -c 'import json,sys;d=json.load(sys.stdin); ids=set(sys.argv[1:]); assert not any(str(p.get("id")) in ids for p in d.get("panes",[]))' "${CREATED[@]:-}"
@@ -42,18 +44,22 @@ CREATED+=("$WORKER")
 dc pane send --pane "$WORKER" "Who are you?" >/dev/null
 [[ "$(await_first "$WORKER")" == *Worker* ]]
 if [ -n "$FALLBACK" ]; then
+  FALLBACK_TEAMS_BEFORE=$(dc team list --json)
   FALLBACK_PAIR=$(dc orchestration new --orchestrator "$FALLBACK" --planner "$FALLBACK" --workspace "$WS" --json || true)
   FALLBACK_ORCH=$(python -c 'import json,sys;print(json.load(sys.stdin).get("orchestrator_pane_id", ""))' <<<"$FALLBACK_PAIR")
   FALLBACK_PLANNER=$(python -c 'import json,sys;print(json.load(sys.stdin).get("planner_pane_id", ""))' <<<"$FALLBACK_PAIR")
   if [ -n "$FALLBACK_ORCH" ] && [ -n "$FALLBACK_PLANNER" ]; then
+    FALLBACK_TEAM_ID=$(dc team list --json | python -c 'import json,sys;before={x.get("id") for x in json.loads(sys.argv[1])}; now=json.load(sys.stdin);fresh=[x for x in now if x.get("id") not in before];assert len(fresh)==1;print(fresh[0]["id"])' "$FALLBACK_TEAMS_BEFORE")
+    [ -n "$FALLBACK_TEAM_ID" ] || exit 1
     CREATED+=("$FALLBACK_ORCH" "$FALLBACK_PLANNER")
-    for pane in "$FALLBACK_ORCH" "$FALLBACK_PLANNER"; do dc pane send --pane "$pane" "Who are you? What project are you in?" >/dev/null; REPLY="$(await_first "$pane")"; [[ "$REPLY" == *manager-bootstrap-eval* && "$REPLY" == *"not yet established"* && "$REPLY" != *"User work"* ]]; done
+    for pane in "$FALLBACK_ORCH" "$FALLBACK_PLANNER"; do dc pane send --pane "$pane" "Who are you? What project are you in?" >/dev/null; REPLY="$(await_first "$pane")"; [[ "$REPLY" == *manager-bootstrap-eval* && "$REPLY" == *"not yet established"* && "$REPLY" != *"User work"* ]]; case "$pane" in "$FALLBACK_ORCH") [[ "$REPLY" == *Orchestrator* ]];; *) [[ "$REPLY" == *Planner* ]];; esac; done
   else echo "SKIP: fallback descriptor cannot create orchestration pair"; fi
 else
   echo "SKIP: no fallback-capable provider"
 fi
 CLOSED_TEAM="$TEAM_ID"
 dc team close "$CLOSED_TEAM" --json >/dev/null
+if [ -n "$FALLBACK_TEAM_ID" ]; then dc team close "$FALLBACK_TEAM_ID" --json >/dev/null; CLOSED_TEAMS="$CLOSED_TEAM $FALLBACK_TEAM_ID"; FALLBACK_TEAM_ID=""; else CLOSED_TEAMS="$CLOSED_TEAM"; fi
 TEAM_ID=""
-! dev_get /api/mux/state | grep -q "$CLOSED_TEAM"
+for team in $CLOSED_TEAMS; do ! dev_get /api/mux/state | grep -q "$team"; done
 dc workspace close "$WS" >/dev/null
