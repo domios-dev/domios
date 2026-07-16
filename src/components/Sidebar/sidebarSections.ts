@@ -17,10 +17,18 @@ export function initialSidebarExpanded(workspaces: Workspace[], activeWorkspaceI
   ]);
 }
 
-export function ensureProtectedExpanded(expanded: Set<string>, workspaces: Workspace[]): Set<string> {
+export function hydrateProtectedExpanded(
+  expanded: Set<string>,
+  hydratedProtectedIds: Set<string>,
+  workspaces: Workspace[],
+): { expanded: Set<string>; hydratedProtectedIds: Set<string> } {
   const next = new Set(expanded);
+  const hydrated = new Set(hydratedProtectedIds);
   for (const workspace of workspaces) {
-    if (workspace.protected) next.add(workspace.id);
+    if (workspace.protected && !hydrated.has(workspace.id)) {
+      next.add(workspace.id);
+      hydrated.add(workspace.id);
+    }
   }
-  return next;
+  return { expanded: next, hydratedProtectedIds: hydrated };
 }

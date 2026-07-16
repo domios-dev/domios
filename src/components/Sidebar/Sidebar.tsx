@@ -40,7 +40,7 @@ import { SidebarCollapsedActiveTab, SidebarWorkspaceTabs } from "./SidebarWorksp
 import type { SidebarTeamActions } from "./TeamUnit";
 import { GroupCloseConfirmDialog } from "./GroupCloseConfirmDialog";
 import type { OrchestrationGroupMember } from "./orchestrationGroupClose";
-import { ensureProtectedExpanded, initialSidebarExpanded, partitionSidebarWorkspaces } from "./sidebarSections";
+import { hydrateProtectedExpanded, initialSidebarExpanded, partitionSidebarWorkspaces } from "./sidebarSections";
 
 export { buildHierarchyTree, buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 
@@ -205,12 +205,17 @@ export function Sidebar({
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(
     () => initialSidebarExpanded(state.workspaces, state.active_workspace_id),
   );
-  const initializedProtectedWorkspaceRef = useRef(false);
+  const hydratedProtectedWorkspaceIdsRef = useRef<Set<string>>(new Set());
   const [meshEnabledOverride, setMeshEnabledOverride] = useState<boolean | null>(null);
   useEffect(() => {
-    if (!initializedProtectedWorkspaceRef.current && state.workspaces.some((workspace) => workspace.protected)) {
-      initializedProtectedWorkspaceRef.current = true;
-      setExpandedWorkspaces((previous) => ensureProtectedExpanded(previous, state.workspaces));
+    const hydrated = hydrateProtectedExpanded(
+      expandedWorkspaces,
+      hydratedProtectedWorkspaceIdsRef.current,
+      state.workspaces,
+    );
+    if (hydrated.hydratedProtectedIds.size !== hydratedProtectedWorkspaceIdsRef.current.size) {
+      hydratedProtectedWorkspaceIdsRef.current = hydrated.hydratedProtectedIds;
+      setExpandedWorkspaces(hydrated.expanded);
     }
     if (state.active_workspace_id) {
       setExpandedWorkspaces((prev) => {
