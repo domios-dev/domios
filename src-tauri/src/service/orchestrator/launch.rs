@@ -647,9 +647,18 @@ pub(crate) fn build_agent_command(
         }
     }
 
+    let task = registry
+        .with_provider(agent_cmd, |provider| {
+            crate::service::launch_delivery::content_for_descriptor(
+                &provider.system_prompt_delivery(),
+                task,
+            )
+            .system_prompt
+        })
+        .unwrap_or_default();
     let launch_params = AgentLaunchParams {
         agent_name: params.agent_name.clone(),
-        task: task.map(|t| t.to_string()),
+        task: task.clone(),
         args: if args.is_empty() {
             None
         } else {
@@ -668,6 +677,12 @@ pub(crate) fn build_agent_command(
             parts.extend(args.iter().cloned());
             parts.join(" ")
         });
-    crate::service::launch_diagnostics::log_launch("visible_agent", "-", agent_cmd, &cmd, task);
+    crate::service::launch_diagnostics::log_launch(
+        "visible_agent",
+        "-",
+        agent_cmd,
+        &cmd,
+        task.as_deref(),
+    );
     cmd
 }

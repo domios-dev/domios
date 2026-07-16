@@ -229,6 +229,7 @@ pub async fn spawn_agent(
         nudge_cooldown_secs: body.nudge_cooldown_secs,
         max_actions_per_tick: body.max_actions_per_tick,
         activate: body.activate,
+        manager_bootstrap: None,
         structured_prompt_server: None,
     };
     let result = state

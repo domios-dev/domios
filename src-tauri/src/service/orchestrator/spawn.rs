@@ -448,6 +448,19 @@ impl ServiceContext {
             &params.cwd.clone().unwrap_or_default(),
         );
 
+        if let Some(bootstrap) = params.manager_bootstrap.take() {
+            self.emit_boot_stage(
+                &pane_id,
+                crate::service::boot_stage::BootStage::PreparingRoleInstructions,
+                None,
+            );
+            let bootstrap = bootstrap.compose();
+            params.task = Some(match params.task.take() {
+                Some(task) => format!("{bootstrap}\n\n{task}"),
+                None => bootstrap,
+            });
+        }
+
         let bg_task = spawn_onboarding_task(&params);
         // Planner gets a short display hint (pending_greeting, user-facing only)
         // plus its FULL onboarding as real launch input attributed to CodeTerm —
