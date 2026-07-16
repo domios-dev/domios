@@ -305,6 +305,7 @@ export function TeamUnit({
   const [expanded, setExpanded] = useState(true);
   const [workersExpanded, setWorkersExpanded] = useState(true);
   const [headerHovered, setHeaderHovered] = useState(false);
+  const [menuDismissed, setMenuDismissed] = useState(false);
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(team.name?.trim() || "Team");
   const [renameError, setRenameError] = useState<string | null>(null);
@@ -315,6 +316,24 @@ export function TeamUnit({
   );
 
   useEffect(() => setName(team.name?.trim() || "Team"), [team.name]);
+
+  const headerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const isInsideHeader = (target: EventTarget | null) => target instanceof Node && headerRef.current?.contains(target);
+    const dismissMenu = (event: PointerEvent) => {
+      if (!isInsideHeader(event.target)) setMenuDismissed(true);
+    };
+    const restoreKeyboardReveal = (event: FocusEvent) => {
+      if (isInsideHeader(event.target)) setMenuDismissed(false);
+    };
+    document.addEventListener("pointerdown", dismissMenu, true);
+    document.addEventListener("focusin", restoreKeyboardReveal, true);
+    return () => {
+      document.removeEventListener("pointerdown", dismissMenu, true);
+      document.removeEventListener("focusin", restoreKeyboardReveal, true);
+    };
+  }, []);
 
   const commitRename = async () => {
     const trimmed = name.trim();
@@ -380,10 +399,15 @@ export function TeamUnit({
       data-expanded={expanded ? "true" : "false"}
       className="sidebar-team-unit"
     >
-			<div
-				className={`sidebar-team-header${plan && !editing ? " sidebar-team-header-active" : ""}`}
-				data-menu-revealed={headerHovered ? "true" : undefined}
-				onMouseEnter={() => setHeaderHovered(true)}
+      <div
+        ref={headerRef}
+        className={`sidebar-team-header${plan && !editing ? " sidebar-team-header-active" : ""}`}
+        data-menu-revealed={headerHovered ? "true" : undefined}
+        data-menu-dismissed={menuDismissed ? "true" : undefined}
+        onMouseEnter={() => {
+          setHeaderHovered(true);
+          setMenuDismissed(false);
+        }}
 				onMouseLeave={() => setHeaderHovered(false)}
 			>
         <button

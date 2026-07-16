@@ -226,12 +226,26 @@ test("team menu enables staffing only for a Team with a manager", async () => {
   assert(/\.sidebar-team-menu-root \.sidebar-team-kebab\s*\{[^}]*opacity:\s*0;/.test(sidebarStyles), "kebab hides by opacity without removing its slot");
   assert(/\.sidebar-team-menu-root \.sidebar-team-kebab\s*\{[^}]*opacity:\s*0;[^}]*pointer-events:\s*none;/.test(sidebarStyles), "hidden kebab ignores accidental pointer clicks");
   assert(sidebarStyles.includes('.sidebar-team-header[data-menu-revealed="true"] .sidebar-team-menu-root .sidebar-team-kebab'), "hover state swaps the kebab into the fixed slot");
-  assert(sidebarStyles.includes(".sidebar-team-header:focus-within .sidebar-team-menu-root .sidebar-team-kebab"), "keyboard focus swaps the kebab into the fixed slot");
+  assert(sidebarStyles.includes('.sidebar-team-header:not([data-menu-dismissed="true"]):focus-within .sidebar-team-menu-root .sidebar-team-kebab'), "keyboard focus swaps the kebab into the fixed slot unless an outside pointer dismisses it");
   assert(sidebarStyles.includes("[data-touch-mode=\"true\"] .sidebar-team-menu-root .sidebar-team-kebab"), "touch mode persistently exposes the same-slot kebab");
   await act(async () => header?.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
   assert(header?.getAttribute("data-menu-revealed") === "true", "hover records the menu reveal state before pointer interaction");
   await act(async () => header?.dispatchEvent(new MouseEvent("mouseout", { bubbles: true })));
   assert(!header?.hasAttribute("data-menu-revealed"), "leaving the header clears the menu reveal state");
+  const outsideFocus = document.createElement("button");
+  host.appendChild(outsideFocus);
+  await act(async () => {
+    outsideFocus.focus();
+    trigger.focus();
+  });
+  assert(!header?.hasAttribute("data-menu-dismissed"), "keyboard focus inside the header keeps the menu reveal eligible");
+  await act(async () => document.body.dispatchEvent(new Event("pointerdown", { bubbles: true })));
+  assert(header?.getAttribute("data-menu-dismissed") === "true", "outside pointerdown dismisses the menu despite retained header focus");
+  await act(async () => {
+    outsideFocus.focus();
+    trigger.focus();
+  });
+  assert(!header?.hasAttribute("data-menu-dismissed"), "a later keyboard focus restores the focus-within reveal");
   await act(async () => trigger.click());
   const menu = document.querySelector('[data-testid="team-menu"]');
   assert(menu?.textContent?.includes("Rename"), "supported rename remains available");
