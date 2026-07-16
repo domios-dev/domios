@@ -63,15 +63,6 @@ fn planner_profile_uses_planner_suffix() {
 }
 
 #[test]
-fn manager_bootstrap_already_carries_its_role_guidance() {
-    let bootstrap = "## CodeTerm manager identity\nPlanner identity";
-    assert_eq!(
-        role_onboarding_task(Some(bootstrap), Some("Manager"), Some("planner")),
-        Some(bootstrap.into())
-    );
-}
-
-#[test]
 fn manager_watcher_does_not_get_worker_suffix() {
     let task = role_onboarding_task(Some("watch it"), Some("Manager"), Some("watcher")).unwrap();
     assert_eq!(task, "watch it");

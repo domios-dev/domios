@@ -448,7 +448,7 @@ impl ServiceContext {
             &params.cwd.clone().unwrap_or_default(),
         );
 
-        if let Some(bootstrap) = params.manager_bootstrap.take() {
+        if let Some(bootstrap) = params.manager_bootstrap.as_ref() {
             self.emit_boot_stage(
                 &pane_id,
                 crate::service::boot_stage::BootStage::PreparingRoleInstructions,
@@ -461,7 +461,11 @@ impl ServiceContext {
             });
         }
 
-        let bg_task = spawn_onboarding_task(&params);
+        let bg_task = if params.manager_bootstrap.is_some() {
+            params.task.clone()
+        } else {
+            spawn_onboarding_task(&params)
+        };
         // Planner gets a short display hint (pending_greeting, user-facing only)
         // plus its FULL onboarding as real launch input attributed to CodeTerm —
         // never a FROM-<orchestrator> relay, mirroring the Orchestrator's onboarding.
