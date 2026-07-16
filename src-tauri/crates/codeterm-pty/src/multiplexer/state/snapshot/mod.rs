@@ -305,6 +305,7 @@ impl MultiplexerState {
                     title: restored_title,
                     description: description.clone(),
                     cwd: cwd.clone(),
+                    provisioned_cwd: None,
                     url: None,
                     agent_type: restored_agent_type,
                     agent_type_locked: restored_locked,

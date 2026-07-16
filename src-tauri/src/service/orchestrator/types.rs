@@ -92,6 +92,10 @@ pub struct SpawnAgentParams {
     pub agent_name: Option<String>,
     pub args: Option<Vec<String>>,
     pub cwd: Option<String>,
+    /// Exact cwd freshly created by the current spawn operation. This is host
+    /// provenance, never accepted from a CLI/REST payload.
+    #[serde(default, skip_deserializing)]
+    pub provisioned_cwd: Option<String>,
     pub title: Option<String>,
     pub title_provenance: Option<SpawnIdentityProvenance>,
     pub description: Option<String>,

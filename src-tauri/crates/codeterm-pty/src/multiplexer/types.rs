@@ -211,6 +211,8 @@ pub struct Pane {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description: Option<String>,
     pub cwd: Option<String>,
+    #[serde(skip, default)]
+    pub provisioned_cwd: Option<String>,
     /// URL for browser panes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
@@ -438,6 +440,7 @@ mod tests {
             title: "Terminal".to_string(),
             description: None,
             cwd: None,
+            provisioned_cwd: None,
             url: None,
             agent_type: None,
             agent_type_locked: false,
