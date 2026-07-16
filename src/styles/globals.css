@@ -1755,8 +1755,8 @@ button,
   display: none;
 }
 
-/* 156px preserves the compact tally at the 160px sidebar after reclaiming the unit insets. */
-@container (max-width: 156px) {
+/* 159px is the usable Team width inside the 160px sidebar border. */
+@container (max-width: 159px) {
   .sidebar-team-readout {
     flex-wrap: wrap;
     gap: 4px;
