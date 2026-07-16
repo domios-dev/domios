@@ -304,7 +304,6 @@ export function TeamUnit({
 }: TeamUnitProps) {
   const [expanded, setExpanded] = useState(true);
   const [workersExpanded, setWorkersExpanded] = useState(true);
-  const [headerHovered, setHeaderHovered] = useState(false);
   const [menuDismissed, setMenuDismissed] = useState(false);
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(team.name?.trim() || "Team");
@@ -402,13 +401,7 @@ export function TeamUnit({
       <div
         ref={headerRef}
         className={`sidebar-team-header${plan && !editing ? " sidebar-team-header-active" : ""}`}
-        data-menu-revealed={headerHovered ? "true" : undefined}
         data-menu-dismissed={menuDismissed ? "true" : undefined}
-        onPointerEnter={() => {
-          setHeaderHovered(true);
-          setMenuDismissed(false);
-        }}
-				onPointerLeave={() => setHeaderHovered(false)}
 			>
         <button
           type="button"
