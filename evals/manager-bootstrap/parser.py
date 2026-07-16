@@ -90,6 +90,26 @@ def field(name):
     print(value)
 
 
+def mux_absent(ids):
+    payload = load_stdin()
+    if not isinstance(payload, dict):
+        fail("mux envelope must be an object")
+    panes = payload.get("panes")
+    if isinstance(panes, dict):
+        pane_ids = set(panes)
+    elif isinstance(panes, list):
+        pane_ids = {
+            pane.get("id")
+            for pane in panes
+            if isinstance(pane, dict) and isinstance(pane.get("id"), str)
+        }
+    else:
+        fail("mux panes must be an object map or array")
+    remaining = sorted(set(ids) & pane_ids)
+    if remaining:
+        fail(f"mux still contains panes: {', '.join(remaining)}")
+
+
 def await_event(pane, timeout):
     url = "http://127.0.0.1:7686/api/events/stream"
     request = urllib.request.Request(url, headers={"Authorization": os.environ["CODETERM_DEV_AUTH_HEADER"].removeprefix("Authorization: ")})
@@ -125,6 +145,8 @@ def main():
         team_id(sys.argv[2])
     elif command == "field" and len(sys.argv) == 3:
         field(sys.argv[2])
+    elif command == "mux-absent" and len(sys.argv) >= 2:
+        mux_absent(sys.argv[2:])
     elif command == "await-event" and len(sys.argv) == 4:
         await_event(sys.argv[2], float(sys.argv[3]))
     else:

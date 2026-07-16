@@ -5,6 +5,7 @@ provider_id() { parser provider-id "$1"; }
 new_team_id() { parser team-id "$1"; }
 pair_pane_id() { parser field "$1"; }
 staffed_pane_id() { parser field staffed-pane; }
+mux_absent() { parser mux-absent "$@"; }
 spawned_pane_id() { parser field spawned-pane; }
 await_first() { local pane="$1" chat answer; chat="$(capture_json dc pane chat --pane "$pane" --json)"; answer="$(first_assistant <<<"$chat")"; [ -z "$answer" ] || { printf '%s' "$answer"; return; }; parser await-event "$pane" 45; }
 capture_json() { local output; output="$("$@")" || { echo "manager-bootstrap: JSON command failed: $*" >&2; return 1; }; printf '%s' "$output"; }

@@ -13,7 +13,7 @@ cleanup() {
   for pane in "${CREATED[@]:-}"; do dc pane close "$pane" >/dev/null 2>&1 || true; done
   ((${#CREATED[@]})) || return 0
   MUX_STATE=$(dev_get /api/mux/state)
-  python -c 'import json,sys;d=json.load(sys.stdin); ids=set(sys.argv[1:]); assert not any(str(p.get("id")) in ids for p in d.get("panes",[]))' "${CREATED[@]:-}" <<<"$MUX_STATE"
+  mux_absent "${CREATED[@]}" <<<"$MUX_STATE"
 }
 trap cleanup EXIT
 dev_get /api/health >/dev/null || { echo "dev 7686 unavailable" >&2; exit 7; }
