@@ -94,6 +94,7 @@ impl ServiceContext {
             .agent
             .clone()
             .unwrap_or_else(crate::config::default_agent_provider);
+        self.move_chatbackend_task_to_system_prompt(&agent, &mut params)?;
         let title = params
             .title
             .clone()
@@ -187,6 +188,7 @@ impl ServiceContext {
             .agent
             .clone()
             .unwrap_or_else(|| default_provider.clone());
+        self.move_chatbackend_task_to_system_prompt(&agent_cmd, &mut params)?;
         let is_shell = self.classify_spawn_target_for_params(&agent_cmd, &params)?;
         if is_shell {
             let role = params.role.clone();
@@ -652,6 +654,22 @@ impl ServiceContext {
             model.as_deref(),
             None,
         )
+    }
+}
+
+impl ServiceContext {
+    fn move_chatbackend_task_to_system_prompt(
+        &self,
+        agent: &str,
+        params: &mut SpawnAgentParams,
+    ) -> Result<(), String> {
+        if !self.provider_registry.is_spawnable_chat_backend(agent) {
+            return Ok(());
+        }
+        if params.system_prompt.is_none() {
+            params.system_prompt = params.task.take();
+        }
+        Ok(())
     }
 }
 
