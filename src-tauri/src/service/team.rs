@@ -306,10 +306,6 @@ where
     F: FnMut(&mut MultiplexerState, &str) -> Result<Vec<String>, String>,
 {
     authorize_team_manager(mux, team_id, caller_pane_id)?;
-    let plan_transaction = plan_store
-        .detach_and_park_team_plans_transaction(team_id, now_ms)
-        .map_err(|error| error.to_string())?;
-    let changed_plan_ids = plan_transaction.changed_plan_ids().to_vec();
     let member_pane_ids: Vec<String> = mux
         .snapshot()
         .panes
@@ -328,19 +324,23 @@ where
         })
         .collect();
     let mut pty_ids = Vec::new();
+    let mut closed_roots = Vec::new();
+    let mut mux_transaction = mux.begin_team_close_transaction();
     for pane_id in &member_pane_ids {
-        if mux.get_pane(pane_id).is_some() {
-            if let Err(error) = close_member(mux, pane_id) {
-                plan_store
-                    .rollback_team_plan_detach(plan_transaction)
-                    .map_err(|rollback| format!("{error}; plan rollback failed: {rollback}"))?;
-                return Err(error);
-            }
+        if mux_transaction.state_mut().get_pane(pane_id).is_some() {
+            pty_ids.extend(close_member(mux_transaction.state_mut(), pane_id)?);
+            closed_roots.push(pane_id.clone());
         }
     }
-    let team = mux
+    let team = mux_transaction
+        .state_mut()
         .remove_team(team_id)
         .ok_or_else(|| format!("Team {team_id} not found"))?;
+    let plan_transaction = plan_store
+        .detach_and_park_team_plans_transaction(team_id, now_ms)
+        .map_err(|error| error.to_string())?;
+    let changed_plan_ids = plan_transaction.changed_plan_ids().to_vec();
+    mux_transaction.commit(mux, &closed_roots);
     crate::service::publish_mux_state_changed(events);
     Ok((
         team,
@@ -533,10 +533,13 @@ mod tests {
     }
 
     #[test]
-    fn close_team_failure_rolls_back_prepared_plan_detach_without_events() {
+    fn close_team_staging_failure_leaves_mux_and_plan_unchanged_without_events() {
         let dir = tempfile::tempdir().unwrap();
         let plan_store = crate::service::plan::PlanStore::new_for_test(dir.path());
         let (mut mux, team_id, orchestrator, planner, worker) = team_members();
+        let workspace_id = mux.find_workspace_for_pane(&orchestrator).unwrap();
+        let independent = mux.create_tab(&workspace_id).unwrap().1;
+        mux.get_pane_mut(&independent).unwrap().team_id = Some(team_id.clone());
         let plan = plan_store
             .create_plan_for_team(
                 "Bound".into(),
@@ -548,7 +551,13 @@ mod tests {
             )
             .unwrap();
         let before_plan = plan_store.get(&plan.id).unwrap();
-        let before_members = [orchestrator.clone(), planner.clone(), worker.clone()];
+        let before_members = [
+            orchestrator.clone(),
+            planner.clone(),
+            worker.clone(),
+            independent,
+        ];
+        let before_snapshot = snapshot_without_generation(&mux);
         let events = crate::api::events::EventBroadcaster::new();
         let mut subscription = events.subscribe();
 
@@ -559,7 +568,17 @@ mod tests {
             &team_id,
             Some(&orchestrator),
             2,
-            |_, _| Err("forced mux close failure".into()),
+            {
+                let mut calls = 0;
+                move |staged_mux, pane_id| {
+                    calls += 1;
+                    if calls == 2 {
+                        Err("forced mux close failure".into())
+                    } else {
+                        staged_mux.close_pane_for_team_close(pane_id)
+                    }
+                }
+            },
         )
         .unwrap_err();
 
@@ -568,11 +587,18 @@ mod tests {
         assert!(before_members
             .iter()
             .all(|pane_id| mux.get_pane(pane_id).is_some()));
+        assert_eq!(snapshot_without_generation(&mux), before_snapshot);
         assert_eq!(plan_store.get(&plan.id).unwrap(), before_plan);
         assert!(matches!(
             subscription.try_recv(),
             Err(tokio::sync::broadcast::error::TryRecvError::Empty)
         ));
+    }
+
+    fn snapshot_without_generation(mux: &MultiplexerState) -> serde_json::Value {
+        let mut snapshot = serde_json::to_value(mux.snapshot()).unwrap();
+        snapshot["generation"] = serde_json::Value::Null;
+        snapshot
     }
 
     #[test]
