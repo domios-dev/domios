@@ -175,6 +175,7 @@ pub(crate) fn launch_agent_in_background(
     launch_cmd: String,
     agent_cmd: String,
     task: Option<String>,
+    fallback_bootstrap: Option<String>,
     ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
 ) {
     let registry = svc.agent_registry.clone();
@@ -333,13 +334,20 @@ pub(crate) fn launch_agent_in_background(
             delivery,
             crate::service::launch_delivery::LaunchDeliveryMode::ConfirmedFallback
         ) {
-            if let Some(ref task_text) = task {
+            if let Some(task_text) = crate::service::launch_delivery::fallback_payload(
+                fallback_bootstrap.as_deref(),
+                task.as_deref(),
+            ) {
                 set_booting(false);
                 let should_submit = {
                     let mut mux = svc.mux.write();
                     let pane = mux.get_pane_mut(&pane_id).expect("launch pane exists");
                     let pending = pane.pending_delivery.get_or_insert_with(|| {
-                        crate::service::launch_delivery::pending_record_for(task_text)
+                        if fallback_bootstrap.is_some() {
+                            crate::service::launch_delivery::pending_bootstrap_record_for(task_text)
+                        } else {
+                            crate::service::launch_delivery::pending_record_for(task_text)
+                        }
                     });
                     if pending.state() == crate::multiplexer::types::PendingDeliveryState::Confirmed
                     {
