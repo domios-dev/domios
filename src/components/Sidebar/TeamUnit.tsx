@@ -404,11 +404,11 @@ export function TeamUnit({
         className={`sidebar-team-header${plan && !editing ? " sidebar-team-header-active" : ""}`}
         data-menu-revealed={headerHovered ? "true" : undefined}
         data-menu-dismissed={menuDismissed ? "true" : undefined}
-        onMouseEnter={() => {
+        onPointerEnter={() => {
           setHeaderHovered(true);
           setMenuDismissed(false);
         }}
-				onMouseLeave={() => setHeaderHovered(false)}
+				onPointerLeave={() => setHeaderHovered(false)}
 			>
         <button
           type="button"
