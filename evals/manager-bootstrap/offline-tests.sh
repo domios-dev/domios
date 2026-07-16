@@ -1,23 +1,36 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+FIXTURES="$ROOT/evals/manager-bootstrap/fixtures"
 RUN="$ROOT/evals/manager-bootstrap/run.sh"
 source "$ROOT/evals/manager-bootstrap/helpers.sh"
-grep -q 'role.*assistant' "$RUN"
-grep -q 'dev_post_as_pane' "$RUN"
-grep -q 'timeout first assistant' "$RUN"
-grep -q 'exit 7' "$RUN"
-! rg -q 'claude|opus|fable|runner\.py' "$ROOT/evals/manager-bootstrap"
-python - <<'PY' | first_assistant | grep -qx 'Planner manager-bootstrap-eval not yet established'
-import json
-chat={"messages":[{"role":"system","content":"Planner"},{"role":"user","content":"who"},{"role":"assistant","content":"Planner manager-bootstrap-eval not yet established"}]}
-print(json.dumps(chat))
-PY
-PROVIDERS='[{"id":"system","system_prompt_delivery":"cli_flag"},{"id":"fallback","system_prompt_delivery":"external"}]'
-[ "$(provider_id system <<<"$PROVIDERS")" = system ] && [ "$(provider_id external <<<"$PROVIDERS")" = fallback ]
-staff_request system | grep -q '"provider": "system"'
+
+expect_failure() { "$@" >/dev/null 2>&1 && return 1 || return 0; }
+
+[ "$(first_assistant < "$FIXTURES/chat.json")" = 'Planner manager-bootstrap-eval not yet established' ]
+[ "$(first_assistant <<< '[{"role":"assistant","content":"array envelope"}]')" = 'array envelope' ]
+expect_failure first_assistant <<< '{"messages":"not-a-list"}'
+[ "$(provider_id system < "$FIXTURES/providers.json")" = native-agent ]
+[ "$(provider_id external < "$FIXTURES/providers.json")" = external-agent ]
+expect_failure provider_id system <<< '{"providers":[]}'
+[ "$(new_team_id "$(<"$FIXTURES/teams-before.json")" < "$FIXTURES/teams-after.json")" = team_new ]
+expect_failure new_team_id '[]' < "$FIXTURES/teams-after.json"
+[ "$(pair_pane_id orchestrator < "$FIXTURES/pair.json")" = pane_orchestrator ]
+[ "$(pair_pane_id planner < "$FIXTURES/pair.json")" = pane_planner ]
+[ "$(spawned_pane_id < "$FIXTURES/spawn.json")" = pane_worker ]
+[ "$(staffed_pane_id < "$FIXTURES/member.json")" = pane_staffed ]
+
 FAKE="$(mktemp -d)"; trap 'rm -rf "$FAKE"' EXIT
-printf '#!/usr/bin/env bash\nexit 1\n' > "$FAKE/curl"; chmod +x "$FAKE/curl"
+printf '%s\n' '#!/usr/bin/env bash' "python -c 'print(\"[\" + \",\".join(\"0\" for _ in range(200000)) + \"]\")'" 'printf complete > "$1"' > "$FAKE/producer"
+chmod +x "$FAKE/producer"
+PAYLOAD="$(capture_json "$FAKE/producer" "$FAKE/complete")"
+expect_failure provider_id system <<< "$PAYLOAD"
+[ "$(<"$FAKE/complete")" = complete ]
+
+printf '%s\n' '#!/usr/bin/env bash' 'exit 1' > "$FAKE/curl"; chmod +x "$FAKE/curl"
 set +e; out="$(PATH="$FAKE:$PATH" bash "$RUN" 2>&1)"; rc=$?; set -e
 [ "$rc" -eq 7 ] && grep -q 'dev 7686 unavailable' <<<"$out"
-echo "manager-bootstrap offline shape: PASS"
+! rg -q '[s]leep' "$ROOT/evals/manager-bootstrap"
+! rg -q 'claude|opus|fable|runner\\.py' "$ROOT/evals/manager-bootstrap"
+grep -q 'dev_post_as_pane' "$RUN"
+echo "manager-bootstrap offline parser harness: PASS"
