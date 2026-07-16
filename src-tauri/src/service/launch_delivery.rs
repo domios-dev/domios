@@ -295,7 +295,16 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::provider::{
+        AgentLaunchParams, AgentProvider, ReadinessStrategy, TaskDelivery,
+    };
+    use crate::agent::registry::AgentRegistry;
+    use crate::service::orchestrator::{build_agent_command, SpawnAgentParams};
+    use codeterm_util::lock_hold::TimedRwLock;
     use parking_lot::Mutex;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use std::time::Duration;
 
     #[derive(Default)]
     struct RecordingSink(Mutex<Vec<&'static str>>);
@@ -443,7 +452,7 @@ mod tests {
 
     fn assert_recorded_fallback(bootstrap: &str, starter: &str, assigned: bool) {
         let spec = fallback_delivery_spec(Some(bootstrap), None, Some(starter)).unwrap();
-        let mut pending = pending_record_for_spec(spec.clone());
+        let pending = pending_record_for_spec(spec.clone());
         assert_eq!(pending.channel, PendingDeliveryChannel::FallbackBootstrap);
         assert_eq!(
             pending.content_digest,
@@ -455,23 +464,30 @@ mod tests {
             spec.payload.contains("Execute the assigned task."),
             assigned
         );
-        begin_fallback_attempt(
-            &mut pending,
-            DeliveryAttemptProvenance {
-                attempt_id: "recorded".into(),
-                started_at_ms: 1,
-            },
-        )
-        .unwrap();
+        let (mut state, pane_id) = crate::multiplexer::state::MultiplexerState::new();
+        state.get_pane_mut(&pane_id).unwrap().pending_delivery = Some(pending);
+        let mux = Arc::new(TimedRwLock::new("fallback-delivery-test", state));
         let sink = RecordingSink::default();
         let mut submitted = Vec::new();
-        dispatch_initial_delivery(
-            LaunchDeliveryMode::ConfirmedFallback,
-            &sink,
-            "pane",
-            Some(|| submitted.push(spec.payload.clone())),
+        let mut gate = LaunchDeliveryGate::new();
+        gate.mark_shell_ready();
+        gate.mark_provider_ready();
+        assert_eq!(
+            gate.consume(&mux, &pane_id, &sink, || {
+                submitted.push(spec.payload.clone());
+                Ok(true)
+            })
+            .unwrap(),
+            LaunchConsumptionOutcome::Confirmed
         );
-        confirm_fallback(&mut pending, true).unwrap();
+        let pending = mux
+            .read()
+            .get_pane(&pane_id)
+            .unwrap()
+            .pending_delivery
+            .clone()
+            .unwrap();
+        assert_eq!(pending.state(), PendingDeliveryState::Confirmed);
         assert_eq!(submitted.len(), 1);
         assert_eq!(
             pending.content_digest,
@@ -489,15 +505,86 @@ mod tests {
         assert_recorded_fallback("manager identity", "Execute the assigned task.", true);
     }
 
+    struct RecordingInlineProvider;
+
+    impl AgentProvider for RecordingInlineProvider {
+        fn id(&self) -> &str {
+            "recording-inline"
+        }
+
+        fn display_name(&self) -> &str {
+            "Recording Inline"
+        }
+
+        fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
+            let marker = match params.starter_prompt {
+                crate::agent::provider::StarterPrompt::AssignedTask => "INLINE-ASSIGNED",
+                crate::agent::provider::StarterPrompt::IdleWakeup => "INLINE-IDLE",
+            };
+            format!(
+                "recording-inline --system {} {marker}",
+                params.task.as_deref().unwrap_or_default()
+            )
+        }
+
+        fn readiness_strategy(&self) -> ReadinessStrategy {
+            ReadinessStrategy::FixedDelay {
+                duration: Duration::ZERO,
+            }
+        }
+
+        fn task_delivery(&self) -> TaskDelivery {
+            TaskDelivery::InlineFlag
+        }
+
+        fn system_prompt_delivery(&self) -> SystemPromptDelivery {
+            SystemPromptDelivery::CliFlag("--system".into())
+        }
+
+        fn detect_from_title(&self, _: &str) -> bool {
+            false
+        }
+
+        fn detect_from_output(&self, _: &str) -> bool {
+            false
+        }
+
+        fn session_file_path(&self, _: &str, _: &str) -> Option<PathBuf> {
+            None
+        }
+
+        fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
+            None
+        }
+
+        fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+            None
+        }
+    }
+
     #[test]
     fn system_manager_uses_inline_idle_and_zero_fallback_record() {
-        let content = content_for_descriptor(
-            &SystemPromptDelivery::CliFlag("--system".into()),
-            Some("identity"),
+        let registry = AgentRegistry::new();
+        registry.register_provider(Box::new(RecordingInlineProvider));
+        let params = SpawnAgentParams {
+            starter_prompt: crate::agent::provider::StarterPrompt::IdleWakeup,
+            ..Default::default()
+        };
+        let command = build_agent_command(
+            "recording-inline",
+            &params,
+            Some("manager identity"),
+            None,
+            &registry,
         );
-        assert_eq!(content.system_prompt.as_deref(), Some("identity"));
-        assert!(content.fallback.is_none());
-        assert!(fallback_delivery_spec(None, None, None).is_none());
+        assert!(command.contains("--system manager identity"));
+        assert!(command.contains("INLINE-IDLE"));
+        let mode = mode_for_descriptor(&SystemPromptDelivery::CliFlag("--system".into()));
+        assert_eq!(mode, LaunchDeliveryMode::SystemPrompt);
+        let pending_spec = (mode == LaunchDeliveryMode::ConfirmedFallback)
+            .then(|| fallback_delivery_spec(None, None, None))
+            .flatten();
+        assert!(pending_spec.is_none());
     }
 
     #[test]
