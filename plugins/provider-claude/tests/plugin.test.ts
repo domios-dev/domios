@@ -442,6 +442,9 @@ console.log("\n--- POSIX task launch shape ---\n");
   assert(cmd.includes("--append-system-prompt-file '/tmp/ct-task'"), "POSIX task launch passes a task file path");
   assert(!cmd.includes("$(cat "), "POSIX task launch does not expand task into argv");
   assert(!cmd.includes("<location>") && !cmd.includes("whoami") && !cmd.includes("юникод"), "POSIX task body is absent from the command");
+  const idle = p.buildLaunchCommand({ task: "identity", starterPrompt: "idle_wakeup" });
+  assert(idle.includes("You are a newly started agent. Wait for instructions from the user or your orchestration parent."), "Claude JS renders idle starter");
+  assert(!idle.includes("Execute the CodeTerm task provided"), "Claude JS idle starter is not task action");
 }
 
 console.log("\n--- parseUsage reset formats ---\n");

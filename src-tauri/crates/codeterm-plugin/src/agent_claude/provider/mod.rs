@@ -18,8 +18,8 @@ use std::time::Duration;
 
 use crate::provider::{
     AgentLaunchParams, AgentProvider, ModelInfo, ReadinessStrategy, SessionIdInjection,
-    SessionMessage, SessionMetadata, SettingField, SystemPromptDelivery, TaskDelivery,
-    UsageSnapshot, VerifySubmitStrategy,
+    SessionMessage, SessionMetadata, SettingField, StarterPrompt, SystemPromptDelivery,
+    TaskDelivery, UsageSnapshot, VerifySubmitStrategy,
 };
 
 use super::usage_tui::ClaudeTuiUsageParser;
@@ -73,6 +73,10 @@ impl AgentProvider for ClaudeProvider {
 
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
         launch::build_launch_command(params)
+    }
+
+    fn starter_prompt_text(&self, prompt: StarterPrompt) -> Option<String> {
+        Some(launch::starter_prompt_text(prompt).to_string())
     }
 
     fn session_id_injection(&self) -> SessionIdInjection {

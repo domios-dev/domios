@@ -928,6 +928,7 @@ impl ServiceContext {
             let launch_params = crate::agent::provider::AgentLaunchParams {
                 agent_name: None,
                 task: task_for_thread.clone(),
+                starter_prompt: Default::default(),
                 args: if model_args.is_empty() {
                     None
                 } else {

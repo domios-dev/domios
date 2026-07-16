@@ -55,6 +55,7 @@ const NOISE_FRAGMENTS = [
 
 const FILE_TASK_PROMPT =
   "Execute the CodeTerm task provided in the appended system prompt. Follow its reporting instructions exactly.";
+const IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
 
 function xmlTagBody(content: string, tag: string): string | null {
   const open = `<${tag}>`;
@@ -118,6 +119,7 @@ function isBrailleSpinner(ch: string): boolean {
 
 
 const plugin: PluginModule = {
+  starterPromptText(prompt: "assigned_task" | "idle_wakeup"): string { return prompt === "idle_wakeup" ? IDLE_WAKEUP_START_PROMPT : FILE_TASK_PROMPT; },
   detectFromTitle(title: string): boolean {
     const t = String(title || "");
     if (TITLE_RE.test(t)) return true;
@@ -260,7 +262,7 @@ const plugin: PluginModule = {
       parts.push("--append-system-prompt-file");
       parts.push(host.shell.quoteFor(String(visiblePath), host.platform()));
       parts.push("--");
-      parts.push(host.shell.quoteFor(FILE_TASK_PROMPT, host.platform()));
+      parts.push(host.shell.quoteFor(p.starterPrompt === "idle_wakeup" ? IDLE_WAKEUP_START_PROMPT : FILE_TASK_PROMPT, host.platform()));
     }
     return parts.join(" ");
   },

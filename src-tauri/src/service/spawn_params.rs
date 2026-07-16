@@ -110,6 +110,7 @@ impl SpawnPaneSpec {
             plan_id: None,
             can_spawn: agent.can_spawn,
             task: agent.task.clone(),
+            starter_prompt: Default::default(),
             task_id: None,
             plan_task: None,
             allow_shared_checkout: None,
@@ -347,6 +348,7 @@ mod tests {
                     .map(|value| value.compose())
                     .as_deref(),
                 params.task.as_deref(),
+                None,
             )
             .unwrap()
             .channel,

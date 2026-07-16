@@ -60,6 +60,8 @@ export interface LaunchParams {
   agentName?: string;
   sessionId?: string;
   task?: string;
+  /** Provider-visible wake-up turn, selected by the host's task-delivery policy. */
+  starterPrompt?: "assigned_task" | "idle_wakeup";
   /// Fixed local server the host wants this agent's structured-prompt handle to
   /// listen on. Set only for providers that declare `supportsStructuredPrompts`;
   /// the plugin maps it to the provider's own server flags (opencode:
@@ -79,6 +81,7 @@ export interface ParsedPrompt {
 }
 
 export interface AgentProvider {
+  starterPromptText?(prompt: "assigned_task" | "idle_wakeup"): string;
   detectFromTitle?(title: string): boolean;
   detectFromOutput?(text: string): boolean;
   screenHasTui?(screen: string): boolean;
