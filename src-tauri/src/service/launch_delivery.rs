@@ -14,6 +14,12 @@ pub(crate) enum LaunchDeliveryMode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LaunchContent {
+    pub system_prompt: Option<String>,
+    pub fallback: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PendingDelivery {
     pub digest: String,
     pub confirmed: bool,
@@ -42,6 +48,25 @@ pub(crate) fn mode_for_descriptor(descriptor: &SystemPromptDelivery) -> LaunchDe
             LaunchDeliveryMode::SystemPrompt
         }
         SystemPromptDelivery::External => LaunchDeliveryMode::ConfirmedFallback,
+    }
+}
+
+pub(crate) fn content_for_descriptor(
+    descriptor: &SystemPromptDelivery,
+    content: Option<&str>,
+) -> LaunchContent {
+    let content = content
+        .filter(|text| !text.trim().is_empty())
+        .map(str::to_string);
+    match mode_for_descriptor(descriptor) {
+        LaunchDeliveryMode::SystemPrompt => LaunchContent {
+            system_prompt: content,
+            fallback: None,
+        },
+        LaunchDeliveryMode::ConfirmedFallback => LaunchContent {
+            system_prompt: None,
+            fallback: content,
+        },
     }
 }
 
@@ -140,6 +165,24 @@ mod tests {
             mode_for_descriptor(&SystemPromptDelivery::CliFlag("--system".into())),
             LaunchDeliveryMode::SystemPrompt
         );
+    }
+
+    #[test]
+    fn system_prompt_channel_consumes_launch_content_without_a_fallback_turn() {
+        let content = content_for_descriptor(
+            &SystemPromptDelivery::CliFlag("--system".into()),
+            Some("manager identity"),
+        );
+        assert_eq!(content.system_prompt.as_deref(), Some("manager identity"));
+        assert_eq!(content.fallback, None);
+    }
+
+    #[test]
+    fn external_provider_defers_identical_content_to_confirmed_fallback() {
+        let content =
+            content_for_descriptor(&SystemPromptDelivery::External, Some("manager identity"));
+        assert_eq!(content.system_prompt, None);
+        assert_eq!(content.fallback.as_deref(), Some("manager identity"));
     }
 
     #[test]

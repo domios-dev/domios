@@ -127,6 +127,7 @@ impl SpawnPaneSpec {
             planned_model: agent.planned_model.clone(),
             reasoning_effort: agent.reasoning_effort.clone(),
             system_prompt: None,
+            manager_bootstrap: None,
             preset: None,
             resume_session_id: agent.resume_session_id.clone(),
             charter: None,

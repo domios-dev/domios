@@ -148,6 +148,8 @@ pub struct SpawnAgentParams {
     /// `AgentProvider::reasoning_effort_launch_args`.
     pub reasoning_effort: Option<String>,
     pub system_prompt: Option<String>,
+    #[serde(default, skip)]
+    pub(crate) manager_bootstrap: Option<crate::service::role_identity::ManagerBootstrapInputs>,
     pub preset: Option<String>,
     pub resume_session_id: Option<String>,
     pub charter: Option<String>,

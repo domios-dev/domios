@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BootStage {
+    /// Registered pane is composing its role instructions before launch command construction.
+    PreparingRoleInstructions,
     /// Pane exists and is waiting for PTY materialization.
     PtyStarting,
     /// PTY exists and its stream is claimed.
@@ -33,6 +35,7 @@ impl BootStage {
 
     pub fn as_str(&self) -> &'static str {
         match self {
+            BootStage::PreparingRoleInstructions => "preparing_role_instructions",
             BootStage::PtyStarting => "pty_starting",
             BootStage::PtySpawned => "pty_spawned",
             BootStage::ShellReady => "shell_ready",

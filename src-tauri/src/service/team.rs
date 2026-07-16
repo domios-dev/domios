@@ -140,24 +140,12 @@ impl ServiceContext {
             .find(|plan| plan.team_id.as_deref() == Some(team_id))
             .map(|plan| plan.id)
             .unwrap_or_else(|| "no bound plan yet".into());
-        let guidance = if role == "Orchestrator" {
-            crate::prompts::orchestrator_suffix()
-        } else {
-            crate::prompts::planner_suffix()
-        };
-        let bootstrap = crate::service::role_identity::compose_role_identity(
-            crate::service::role_identity::RoleIdentityContext {
-                role,
-                team_id,
-                team_name: &team_name,
-                plan_id: &plan_id,
-                project: &project,
-                role_guidance: &guidance,
-            },
-        );
-        params.task = Some(match params.task.take() {
-            Some(task) => format!("{bootstrap}\n\n{task}"),
-            None => bootstrap,
+        params.manager_bootstrap = Some(crate::service::role_identity::ManagerBootstrapInputs {
+            role: role.into(),
+            team_id: team_id.into(),
+            team_name,
+            plan_id,
+            project,
         });
         Ok(())
     }
