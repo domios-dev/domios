@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use sha2::{Digest, Sha256};
 
@@ -30,9 +31,22 @@ impl std::fmt::Display for PayloadStoreError {
 
 impl std::error::Error for PayloadStoreError {}
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) struct PendingDeliveryPayloadStore {
     dir: PathBuf,
+    sink: Arc<dyn LogPayloadEventSink>,
+}
+
+pub(crate) trait LogPayloadEventSink: Send + Sync {
+    fn emit(&self, event: &str, digest: &str);
+}
+
+struct ProductPayloadLogSink;
+
+impl LogPayloadEventSink for ProductPayloadLogSink {
+    fn emit(&self, event: &str, digest: &str) {
+        log::info!("[pending-delivery] event={} digest={}", event, digest);
+    }
 }
 
 impl PendingDeliveryPayloadStore {
@@ -40,8 +54,17 @@ impl PendingDeliveryPayloadStore {
         data_dir: &Path,
         live_digests: &HashSet<String>,
     ) -> Result<Self, PayloadStoreError> {
+        Self::open_with_sink(data_dir, live_digests, Arc::new(ProductPayloadLogSink))
+    }
+
+    pub(crate) fn open_with_sink(
+        data_dir: &Path,
+        live_digests: &HashSet<String>,
+        sink: Arc<dyn LogPayloadEventSink>,
+    ) -> Result<Self, PayloadStoreError> {
         let store = Self {
             dir: data_dir.join("pending-delivery-payloads"),
+            sink,
         };
         fs::create_dir_all(&store.dir).map_err(|error| store.io("store", error))?;
         store.restrict_dir_permissions()?;
@@ -58,6 +81,7 @@ impl PendingDeliveryPayloadStore {
                 file.write_all(payload.as_bytes())
                     .map_err(|error| self.io(digest, error))?;
                 file.sync_all().map_err(|error| self.io(digest, error))?;
+                self.sink.emit("write", digest);
                 Ok(())
             }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
@@ -84,6 +108,7 @@ impl PendingDeliveryPayloadStore {
             _ => self.io(digest, error),
         })?;
         self.verify_digest(digest, &bytes)?;
+        self.sink.emit("resolve", digest);
         String::from_utf8(bytes).map_err(|error| PayloadStoreError::Io {
             digest: digest.into(),
             message: error.to_string(),
@@ -247,6 +272,42 @@ mod tests {
 
     fn digest(payload: &str) -> String {
         format!("{:x}", Sha256::digest(payload.as_bytes()))
+    }
+
+    #[derive(Default)]
+    struct CapturedPayloadEvents(parking_lot::Mutex<Vec<(String, String)>>);
+
+    impl LogPayloadEventSink for CapturedPayloadEvents {
+        fn emit(&self, event: &str, digest: &str) {
+            self.0.lock().push((event.into(), digest.into()));
+        }
+    }
+
+    #[test]
+    fn payload_store_logs_digest_only_via_sink() {
+        let temp = tempfile::tempdir().unwrap();
+        let payload = "payload-must-not-be-logged";
+        let digest = digest(payload);
+        let events = Arc::new(CapturedPayloadEvents::default());
+        let store = PendingDeliveryPayloadStore::open_with_sink(
+            temp.path(),
+            &HashSet::new(),
+            events.clone(),
+        )
+        .unwrap();
+
+        store.write(&digest, payload).unwrap();
+        assert_eq!(store.resolve(&digest).unwrap(), payload);
+
+        let events = events.0.lock().clone();
+        assert_eq!(
+            events,
+            vec![("write".into(), digest.clone()), ("resolve".into(), digest)]
+        );
+        assert!(events
+            .iter()
+            .all(|(event, captured_digest)| !event.contains(payload)
+                && !captured_digest.contains(payload)));
     }
 
     #[test]
@@ -436,7 +497,7 @@ mod tests {
     }
 
     #[test]
-    fn leakage_serialization_and_log_capture() {
+    fn leakage_serialization_keeps_payload_out_of_snapshot() {
         let payload = "payload-must-never-enter-snapshots-or-logs";
         let digest = digest(payload);
         let (mut state, pane_id) = crate::multiplexer::state::MultiplexerState::new();
@@ -446,11 +507,8 @@ mod tests {
         ));
         let snapshot = state.to_session_snapshot();
         let serialized = serde_json::to_string(&snapshot).unwrap();
-        let log_capture = format!("[pending-delivery] digest={digest}");
 
         assert!(serialized.contains(&digest));
         assert!(!serialized.contains(payload));
-        assert!(log_capture.contains(&digest));
-        assert!(!log_capture.contains(payload));
     }
 }
