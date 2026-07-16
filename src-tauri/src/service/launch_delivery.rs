@@ -7,7 +7,7 @@ use crate::multiplexer::types::{
 };
 use crate::service::boot_stage::{BootStage, BootStageSink};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LaunchDeliveryMode {
     SystemPrompt,
     ConfirmedFallback,
@@ -23,6 +23,12 @@ pub(crate) struct LaunchContent {
 pub(crate) struct PendingDelivery {
     pub digest: String,
     pub confirmed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FallbackDeliverySpec<'a> {
+    pub channel: PendingDeliveryChannel,
+    pub payload: &'a str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,34 +84,33 @@ pub(crate) fn pending_delivery(text: &str) -> PendingDelivery {
     }
 }
 
-pub(crate) fn pending_record_for(text: &str) -> PendingDeliveryRecord {
-    PendingDeliveryRecord::new(
-        pending_delivery(text).digest,
-        PendingDeliveryChannel::InteractiveInput,
-    )
+#[cfg(test)]
+fn pending_record_for(text: &str) -> PendingDeliveryRecord {
+    pending_record_for_spec(FallbackDeliverySpec {
+        channel: PendingDeliveryChannel::InteractiveInput,
+        payload: text,
+    })
 }
 
-pub(crate) fn fallback_payload<'a>(
+pub(crate) fn fallback_delivery_spec<'a>(
     fallback_bootstrap: Option<&'a str>,
     task: Option<&'a str>,
-) -> Option<&'a str> {
-    fallback_bootstrap.or(task)
-}
-
-pub(crate) fn fallback_pending_payload<'a>(
-    fallback_bootstrap: Option<&'a str>,
-    task: Option<&'a str>,
-) -> Option<(PendingDeliveryChannel, &'a str)> {
+) -> Option<FallbackDeliverySpec<'a>> {
     fallback_bootstrap
-        .map(|text| (PendingDeliveryChannel::FallbackBootstrap, text))
-        .or_else(|| task.map(|text| (PendingDeliveryChannel::InteractiveInput, text)))
+        .map(|payload| FallbackDeliverySpec {
+            channel: PendingDeliveryChannel::FallbackBootstrap,
+            payload,
+        })
+        .or_else(|| {
+            task.map(|payload| FallbackDeliverySpec {
+                channel: PendingDeliveryChannel::InteractiveInput,
+                payload,
+            })
+        })
 }
 
-pub(crate) fn pending_bootstrap_record_for(text: &str) -> PendingDeliveryRecord {
-    PendingDeliveryRecord::new(
-        pending_delivery(text).digest,
-        PendingDeliveryChannel::FallbackBootstrap,
-    )
+pub(crate) fn pending_record_for_spec(spec: FallbackDeliverySpec<'_>) -> PendingDeliveryRecord {
+    PendingDeliveryRecord::new(pending_delivery(spec.payload).digest, spec.channel)
 }
 
 pub(crate) fn next_attempt() -> DeliveryAttemptProvenance {
@@ -239,18 +244,19 @@ mod tests {
         assert_eq!(delivery.fallback.as_deref(), Some(bootstrap.as_str()));
         let launch_content = format!("{bootstrap}\n\nUser work must not be submitted here.");
         assert_eq!(
-            fallback_payload(Some(&bootstrap), Some(&launch_content)),
-            Some(bootstrap.as_str())
-        );
-        assert_eq!(
-            fallback_pending_payload(Some(&bootstrap), Some(&launch_content)),
-            Some((
-                PendingDeliveryChannel::FallbackBootstrap,
-                bootstrap.as_str()
-            ))
+            fallback_delivery_spec(Some(&bootstrap), Some(&launch_content)),
+            Some(FallbackDeliverySpec {
+                channel: PendingDeliveryChannel::FallbackBootstrap,
+                payload: bootstrap.as_str(),
+            })
         );
 
-        let mut pending = pending_bootstrap_record_for(&bootstrap);
+        let spec = fallback_delivery_spec(Some(&bootstrap), Some(&launch_content)).unwrap();
+        let mut pending = pending_record_for_spec(spec.clone());
+        assert_eq!(
+            pending.content_digest,
+            pending_delivery(spec.payload).digest
+        );
         assert_eq!(pending.channel, PendingDeliveryChannel::FallbackBootstrap);
         assert_eq!(
             pending.provenance,
