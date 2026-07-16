@@ -365,6 +365,7 @@ mod tests {
                         title_level: Some("User".into()),
                         agent_type: None,
                         agent_type_locked: false,
+                        pending_delivery: None,
                         claude_session_id: None,
                         role: None,
                         role_profile: None,
