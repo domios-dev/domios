@@ -12,6 +12,10 @@ pub enum BootStage {
     ShellReady,
     /// Launch command sent; the agent TUI is coming up.
     AgentLaunching,
+    /// Role-specific instructions are being composed for the launch.
+    PreparingRoleInstructions,
+    /// The initial instructions are being submitted through the fallback channel.
+    DeliveringInstructions,
     /// Agent booted and the initial task (if any) was delivered.
     AgentReady,
     /// Boot aborted; carries a human-readable reason on the event payload.
@@ -33,6 +37,8 @@ impl BootStage {
             BootStage::PtySpawned => "pty_spawned",
             BootStage::ShellReady => "shell_ready",
             BootStage::AgentLaunching => "agent_launching",
+            BootStage::PreparingRoleInstructions => "preparing_role_instructions",
+            BootStage::DeliveringInstructions => "delivering_instructions",
             BootStage::AgentReady => "agent_ready",
             BootStage::SpawnFailed => "spawn_failed",
         }

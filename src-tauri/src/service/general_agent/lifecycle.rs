@@ -588,6 +588,8 @@ fn is_launch_stage(stage: BootStage) -> bool {
             | BootStage::PtySpawned
             | BootStage::ShellReady
             | BootStage::AgentLaunching
+            | BootStage::PreparingRoleInstructions
+            | BootStage::DeliveringInstructions
     )
 }
 
