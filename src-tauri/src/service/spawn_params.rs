@@ -322,3 +322,35 @@ pub(crate) fn validate_watcher_spawn_target(
         )),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn worker_launch_has_no_manager_bootstrap() {
+        let spec = SpawnPaneSpec::from_agent_params(SpawnAgentParams {
+            agent: Some("worker-provider".into()),
+            role: Some("Worker".into()),
+            task: Some("worker task fixture".into()),
+            ..Default::default()
+        });
+        let params = spec.to_agent_params().unwrap();
+        assert_eq!(params.role.as_deref(), Some("Worker"));
+        assert!(params.manager_bootstrap.is_none());
+        assert!(params.system_prompt.is_none());
+        assert_eq!(
+            crate::service::launch_delivery::fallback_delivery_spec(
+                params
+                    .manager_bootstrap
+                    .as_ref()
+                    .map(|value| value.compose())
+                    .as_deref(),
+                params.task.as_deref(),
+            )
+            .unwrap()
+            .channel,
+            crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput
+        );
+    }
+}

@@ -512,6 +512,29 @@ fn launch_adapter_matrix_uses_each_installed_descriptor() {
                 );
             }
         }
+        match provider.system_prompt_delivery() {
+            crate::provider::SystemPromptDelivery::External => {
+                assert!(
+                    !command.contains(task),
+                    "{} external delivery must reserve confirmed fallback",
+                    descriptor.id
+                );
+            }
+            crate::provider::SystemPromptDelivery::CliFlag(_) => {
+                assert!(
+                    !command.contains(task),
+                    "{} system delivery must not use fallback text",
+                    descriptor.id
+                );
+            }
+            crate::provider::SystemPromptDelivery::SessionConfig => {
+                assert!(
+                    !command.contains(task),
+                    "{} session config must not use fallback text",
+                    descriptor.id
+                );
+            }
+        }
     }
 }
 

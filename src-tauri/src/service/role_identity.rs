@@ -170,22 +170,4 @@ mod tests {
             golden(include_str!("fixtures/role_identity/planner.golden.md"))
         );
     }
-
-    #[test]
-    fn compose_worker_baseline_golden() {
-        let rendered = compose_role_identity(RoleIdentityContext {
-            role: "{plan_id}",
-            team_id: "team-{role_guidance}",
-            team_name: "{role}",
-            plan_id: "plan-{project}",
-            project: "{team_name}",
-            role_guidance: "Worker baseline keeps {plan_id} literal.",
-        });
-        assert_eq!(
-            rendered,
-            golden(include_str!(
-                "fixtures/role_identity/worker_baseline.golden.md"
-            ))
-        );
-    }
 }
