@@ -53,4 +53,6 @@ pub struct SendBatchItem {
 }
 
 #[cfg(test)]
+mod restore_replay_tests;
+#[cfg(test)]
 mod tests;
