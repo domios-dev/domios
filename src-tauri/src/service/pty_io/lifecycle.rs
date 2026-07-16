@@ -293,6 +293,18 @@ impl ServiceContext {
                 pane_id
             )
         })?;
+        let restored_task = match self.resolve_pending_delivery(pane_id) {
+            Ok(task) => task,
+            Err(error) => {
+                let error = error.to_string();
+                self.emit_boot_stage(
+                    pane_id,
+                    crate::service::boot_stage::BootStage::SpawnFailed,
+                    Some(&error),
+                );
+                return Err(error);
+            }
+        };
         let scheduled = restore_and_schedule_launch(
             &self.mux,
             pane_id,
@@ -324,7 +336,7 @@ impl ServiceContext {
                     ws_id,
                     launch_cmd,
                     launch.provider_id,
-                    None,
+                    restored_task,
                     None,
                 );
             },

@@ -656,6 +656,23 @@ pub fn run() {
             let plan_turn_counter =
                 Arc::new(crate::service::plan::reminders::TurnCounter::new());
             plan_store.bind_turn_counter(plan_turn_counter.clone());
+            let live_pending_delivery_digests = states
+                .mux
+                .read()
+                .snapshot()
+                .panes
+                .values()
+                .filter_map(|pane| pane.pending_delivery.as_ref())
+                .filter(|record| record.state() == crate::multiplexer::types::PendingDeliveryState::Pending)
+                .map(|record| record.content_digest.clone())
+                .collect();
+            let pending_delivery_payloads = Arc::new(
+                crate::service::pending_delivery_payloads::PendingDeliveryPayloadStore::open(
+                    &crate::paths::data_dir(),
+                    &live_pending_delivery_digests,
+                )
+                .expect("pending delivery payload store init"),
+            );
 
             let user_last_activity = crate::user_last_activity::UserLastActivity::new();
             states.mesh.lock().build_hash = env!("BUILD_HASH").to_string();
@@ -676,6 +693,7 @@ pub fn run() {
                 report_store: states.report_store.clone(),
                 plan_store,
                 plan_turn_counter,
+                pending_delivery_payloads,
                 agent_registry,
                 mem,
                 mem_supervisor,

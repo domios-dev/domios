@@ -402,11 +402,13 @@ pub(crate) fn launch_agent_in_background(
                         .expect("fallback launch owns a pending delivery record");
                     crate::service::launch_delivery::confirm_fallback(pending, submission_observed)
                 };
-                let delivery_error = delivery_result
-                    .err()
-                    .map(|error| error.to_string())
-                    .or_else(|| result.err().map(|error| error.to_string()));
-                if let Some(e) = delivery_error {
+                let result =
+                    result.and_then(|_| delivery_result.map_err(|error| error.to_string()));
+                let result = result.and_then(|_| {
+                    svc.confirm_pending_delivery(&pane_id)
+                        .map_err(|error| error.to_string())
+                });
+                if let Err(e) = result {
                     log::error!(
                         "launch_agent: task delivery failed for pane {} (pty {}): {}",
                         pane_id,

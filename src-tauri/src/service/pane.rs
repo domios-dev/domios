@@ -108,6 +108,12 @@ impl ServiceContext {
             let _ = self.chatbackend_close(&plugin_id, &session_id);
         }
 
+        let pending_digest = self
+            .mux
+            .read()
+            .get_pane(pane_id)
+            .and_then(|pane| pane.pending_delivery.as_ref())
+            .map(|record| record.content_digest.clone());
         let pre_focus = self.mux.read().get_focused_pane_id().map(str::to_string);
         let pty_ids = self.mux.write().close_pane(pane_id)?;
         let post_focus = self.mux.read().get_focused_pane_id().map(str::to_string);
@@ -115,6 +121,15 @@ impl ServiceContext {
         self.flag_bound_tasks_for_gone_pane(pane_id, epoch_ms());
         self.prompt_detector.lock().remove_pane(pane_id);
         crate::service::structured_prompt::clear_pane(pane_id);
+        if let Some(digest) = pending_digest {
+            if let Err(error) = self.pending_delivery_payloads.delete(&digest) {
+                log::warn!(
+                    "[pending-delivery] close cleanup failed for digest {}: {}",
+                    digest,
+                    error
+                );
+            }
+        }
         // Drop any remote-worker ghosts that reported to this (now-closed) pane.
         self.remote_workers.forget_orchestrator(pane_id);
         self.emit_state_changed();
