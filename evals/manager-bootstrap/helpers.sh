@@ -1,3 +1,11 @@
-first_assistant() { python -c 'import json,sys;d=json.load(sys.stdin);ms=d.get("messages",d if isinstance(d,list) else []);print(next((str(m.get("content",m.get("text",""))) for m in ms if str(m.get("role",m.get("author",""))).lower()=="assistant"),""))'; }
-provider_id() { python -c 'import json,sys;d=json.load(sys.stdin);external=sys.argv[1]=="external";print(next((x["id"] for x in d if (x.get("system_prompt_delivery")=="external")==external),""))' "$1"; }
+PARSER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+parser() { python "$PARSER_DIR/parser.py" "$@"; }
+first_assistant() { parser first-assistant; }
+provider_id() { parser provider-id "$1"; }
+new_team_id() { parser team-id "$1"; }
+pair_pane_id() { parser field "$1"; }
+staffed_pane_id() { parser field staffed-pane; }
+spawned_pane_id() { parser field spawned-pane; }
+await_first() { local pane="$1" chat answer; chat="$(capture_json dc pane chat --pane "$pane" --json)"; answer="$(first_assistant <<<"$chat")"; [ -z "$answer" ] || { printf '%s' "$answer"; return; }; parser await-event "$pane" 45; }
+capture_json() { local output; output="$("$@")" || { echo "manager-bootstrap: JSON command failed: $*" >&2; return 1; }; printf '%s' "$output"; }
 staff_request() { python -c 'import json,sys;print(json.dumps({"provider":sys.argv[1],"role":"planner","title":"manager-bootstrap-staffed","task":None,"model":None}))' "$1"; }
