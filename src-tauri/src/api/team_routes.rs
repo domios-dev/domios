@@ -317,6 +317,7 @@ mod tests {
     fn http_close_team_enforces_permission() {
         let (mut mux, team_id, orchestrator, worker) = team_members();
         let events = crate::api::events::EventBroadcaster::new();
+        let plan_store = crate::service::plan::PlanStore::new();
         assert_eq!(
             close_team_adapter(&HeaderMap::new(), team_id.clone(), |_, _| unreachable!())
                 .unwrap_err()
@@ -330,8 +331,10 @@ mod tests {
                 crate::service::close_team_with_state_change(
                     &mut mux,
                     &events,
+                    &plan_store,
                     &team_id,
                     Some(&caller),
+                    1,
                 )
                 .map(|result| result.0)
             })
@@ -347,8 +350,10 @@ mod tests {
                 crate::service::close_team_with_state_change(
                     &mut mux,
                     &events,
+                    &plan_store,
                     &team_id,
                     Some(&caller),
+                    1,
                 )
                 .map(|result| result.0)
             })
@@ -363,8 +368,10 @@ mod tests {
                 crate::service::close_team_with_state_change(
                     &mut mux,
                     &events,
+                    &plan_store,
                     &team_id,
                     Some(&caller),
+                    1,
                 )
                 .map(|result| result.0)
             })

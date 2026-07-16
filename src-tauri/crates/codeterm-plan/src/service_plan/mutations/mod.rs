@@ -339,3 +339,6 @@ pub(super) fn validate_task_status_transition(
 
 mod plan_ops;
 mod task_ops;
+#[cfg(test)]
+mod team_close_transaction_tests;
+mod team_plan_detach;

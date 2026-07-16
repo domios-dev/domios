@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::Serialize;
 use uuid::Uuid;
@@ -76,6 +76,33 @@ pub struct MultiplexerState {
     pub(super) closed_store: ClosedPanesStore,
 }
 
+pub struct TeamCloseTransaction {
+    staged: MultiplexerState,
+}
+
+impl TeamCloseTransaction {
+    pub fn state_mut(&mut self) -> &mut MultiplexerState {
+        &mut self.staged
+    }
+
+    pub fn commit(self, target: &mut MultiplexerState, closed_roots: &[String]) {
+        for pane_id in closed_roots {
+            target.record_cascade_close(pane_id);
+        }
+        target.workspaces = self.staged.workspaces;
+        target.panes = self.staged.panes;
+        target.active_workspace_id = self.staged.active_workspace_id;
+        target.focused_pane_id = self.staged.focused_pane_id;
+        target.pty_to_pane = self.staged.pty_to_pane;
+        target.pane_aliases = self.staged.pane_aliases;
+        target.teams = self.staged.teams;
+        target.generation.store(
+            self.staged.generation.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TeamResolution {
     pub team_id: String,
@@ -109,6 +136,21 @@ pub struct MultiplexerSnapshot {
 }
 
 impl MultiplexerState {
+    pub fn begin_team_close_transaction(&self) -> TeamCloseTransaction {
+        TeamCloseTransaction {
+            staged: Self {
+                workspaces: self.workspaces.clone(),
+                panes: self.panes.clone(),
+                active_workspace_id: self.active_workspace_id.clone(),
+                focused_pane_id: self.focused_pane_id.clone(),
+                pty_to_pane: self.pty_to_pane.clone(),
+                pane_aliases: self.pane_aliases.clone(),
+                teams: self.teams.clone(),
+                generation: AtomicU64::new(self.generation.load(Ordering::Relaxed)),
+                closed_store: ClosedPanesStore::in_memory(),
+            },
+        }
+    }
     /// Create an empty state with no workspaces.
     /// Used when General Agent will create its own workspace.
     pub fn empty() -> Self {

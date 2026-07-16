@@ -860,7 +860,7 @@ mod planning_state_tests {
 mod team_binding_tests {
     use std::sync::{Arc, Barrier};
 
-    use crate::plan::OrchestratorRef;
+    use crate::plan::{OrchestratorRef, PlanMode, PlanStatus};
     use crate::service_plan::{PlanError, PlanStore};
     use tempfile::TempDir;
 
@@ -915,6 +915,57 @@ mod team_binding_tests {
             .find(|e| e.plan_id == plan.id)
             .unwrap();
         assert_eq!(entry.team_id.as_deref(), Some("team_alpha"));
+    }
+
+    #[test]
+    fn detach_and_park_bound_plan_is_resumable_and_rebindable() {
+        let (dir, s) = store();
+        let plan = create(&s, &dir, "Bound", Some("team_closed"), 1).unwrap();
+
+        assert_eq!(
+            s.detach_and_park_team_plans("team_closed", 2).unwrap(),
+            vec![plan.id.clone()]
+        );
+        let parked = s.get(&plan.id).unwrap();
+        assert_eq!(parked.team_id, None);
+        assert_eq!(parked.mode, PlanMode::Paused);
+
+        assert_eq!(s.resume_plan(&plan.id, 3).unwrap(), PlanMode::Planning);
+        let rebound = s.bind_plan_to_team(&plan.id, "team_new", 4).unwrap();
+        assert_eq!(rebound.team_id.as_deref(), Some("team_new"));
+        assert_eq!(rebound.mode, PlanMode::Planning);
+    }
+
+    #[test]
+    fn dangling_team_reconciliation_only_detaches_parked_done_and_archived_plans() {
+        let (dir, s) = store();
+        let parked = create(&s, &dir, "Parked", Some("team_missing"), 1).unwrap();
+        s.set_mode(&parked.id, PlanMode::Paused, 2).unwrap();
+        let done = create(&s, &dir, "Done", Some("team_done"), 3).unwrap();
+        s.set_mode(&done.id, PlanMode::Complete, 4).unwrap();
+        let archived = create(&s, &dir, "Archived", Some("team_archived"), 5).unwrap();
+        s.update_plan(&archived.id, None, Some(PlanStatus::Archived), None, 6)
+            .unwrap();
+        let healthy = create(&s, &dir, "Healthy", Some("team_live"), 7).unwrap();
+        let live = std::collections::BTreeSet::from(["team_live".to_string()]);
+
+        let mut expected = vec![archived.id.clone(), done.id.clone(), parked.id.clone()];
+        expected.sort();
+        assert_eq!(
+            s.detach_and_park_dangling_team_plans(&live, 8).unwrap(),
+            expected
+        );
+        assert_eq!(s.get(&parked.id).unwrap().mode, PlanMode::Paused);
+        assert_eq!(s.get(&done.id).unwrap().mode, PlanMode::Complete);
+        assert_eq!(s.get(&archived.id).unwrap().status, PlanStatus::Archived);
+        assert_eq!(
+            s.get(&healthy.id).unwrap().team_id.as_deref(),
+            Some("team_live")
+        );
+        assert!(s
+            .detach_and_park_dangling_team_plans(&live, 9)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
