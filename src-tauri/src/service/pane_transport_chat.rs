@@ -14,6 +14,58 @@ use crate::agent::provider::ModelInfo;
 use crate::chatbackend::ChatBackendProvider;
 use crate::multiplexer::commands::MuxState;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ChatBackendInstructionDelivery {
+    SessionConfig,
+    Blocked { code: &'static str },
+}
+
+fn has_system_prompt(config: &serde_json::Value) -> bool {
+    config
+        .get("systemPrompt")
+        .and_then(|value| value.as_str())
+        .is_some_and(|prompt| !prompt.trim().is_empty())
+}
+
+pub(crate) fn classify_chatbackend_instruction_delivery(
+    descriptor: &crate::agent::provider::ProviderDescriptor,
+    config: &serde_json::Value,
+) -> ChatBackendInstructionDelivery {
+    use crate::agent::provider::{ProviderTransport, SystemPromptDelivery};
+
+    if !has_system_prompt(config) {
+        return ChatBackendInstructionDelivery::SessionConfig;
+    }
+    match (&descriptor.transport, &descriptor.system_prompt_delivery) {
+        (ProviderTransport::ChatBackend, SystemPromptDelivery::SessionConfig) => {
+            ChatBackendInstructionDelivery::SessionConfig
+        }
+        (ProviderTransport::ChatBackend, _) => ChatBackendInstructionDelivery::Blocked {
+            code: "chat_backend_session_config_required",
+        },
+        _ => ChatBackendInstructionDelivery::Blocked {
+            code: "chat_backend_descriptor_transport_required",
+        },
+    }
+}
+
+fn open_chatbackend_session(
+    provider: &dyn ChatBackendProvider,
+    ctx: serde_json::Value,
+) -> Result<String, String> {
+    match classify_chatbackend_instruction_delivery(&provider.describe(), &ctx) {
+        ChatBackendInstructionDelivery::SessionConfig => provider
+            .open_session(ctx)
+            .map_err(|error| error.to_string()),
+        ChatBackendInstructionDelivery::Blocked { code } => Err(serde_json::json!({
+            "code": code,
+            "delivery": "blocked",
+            "transport": "chat_backend"
+        })
+        .to_string()),
+    }
+}
+
 fn authenticate_chatbackend_pane(
     pane: &mut crate::multiplexer::types::Pane,
     plugin_id: &str,
@@ -281,9 +333,8 @@ impl ServiceContext {
     ) -> Result<String, String> {
         let workspace_id = self.workspace_id_for_pane(pane_id);
         let ctx = build_chatbackend_open_session_ctx(pane_id, workspace_id.as_deref(), config);
-        self.chatbackend_provider(plugin_id)?
-            .open_session(ctx)
-            .map_err(|e| e.to_string())
+        let provider = self.chatbackend_provider(plugin_id)?;
+        open_chatbackend_session(provider.as_ref(), ctx)
     }
 
     fn workspace_id_for_pane(&self, pane_id: &str) -> Option<String> {
@@ -465,6 +516,99 @@ mod tests {
 
     use parking_lot::Mutex;
     use serde_json::json;
+
+    struct InstructionRecordingBackend {
+        session_config: bool,
+        open_contexts: Arc<Mutex<Vec<serde_json::Value>>>,
+    }
+
+    impl crate::chatbackend::ChatBackendProvider for InstructionRecordingBackend {
+        fn id(&self) -> &str {
+            "fixture-backend"
+        }
+
+        fn supports_session_config(&self) -> bool {
+            self.session_config
+        }
+
+        fn open_session(
+            &self,
+            ctx: serde_json::Value,
+        ) -> Result<String, crate::chatbackend::ChatBackendError> {
+            self.open_contexts.lock().push(ctx);
+            Ok("fixture-session".into())
+        }
+
+        fn send_message(
+            &self,
+            _: &str,
+            _: &str,
+        ) -> Result<(), crate::chatbackend::ChatBackendError> {
+            Ok(())
+        }
+
+        fn poll(
+            &self,
+            _: &str,
+            _: Option<&str>,
+        ) -> Result<crate::agent::chat_types::StructuredChat, crate::chatbackend::ChatBackendError>
+        {
+            Ok(crate::agent::chat_types::StructuredChat::default())
+        }
+
+        fn close_session(&self, _: &str) -> Result<(), crate::chatbackend::ChatBackendError> {
+            Ok(())
+        }
+
+        fn list_models(
+            &self,
+        ) -> Result<Vec<crate::agent::provider::ModelInfo>, crate::chatbackend::ChatBackendError>
+        {
+            Ok(Vec::new())
+        }
+    }
+
+    #[test]
+    fn chat_backend_delivers_via_session_config() {
+        let opens = Arc::new(Mutex::new(Vec::new()));
+        let backend = InstructionRecordingBackend {
+            session_config: true,
+            open_contexts: opens.clone(),
+        };
+        let ctx = super::build_chatbackend_open_session_ctx(
+            "pane-1",
+            Some("workspace-1"),
+            json!({ "systemPrompt": "Composed instruction" }),
+        );
+
+        assert_eq!(
+            super::open_chatbackend_session(&backend, ctx),
+            Ok("fixture-session".into())
+        );
+        let contexts = opens.lock();
+        assert_eq!(contexts.len(), 1, "openSession is the sole delivery seam");
+        assert_eq!(contexts[0]["systemPrompt"], "Composed instruction");
+    }
+
+    #[test]
+    fn chat_backend_without_session_config_blocked() {
+        let opens = Arc::new(Mutex::new(Vec::new()));
+        let backend = InstructionRecordingBackend {
+            session_config: false,
+            open_contexts: opens.clone(),
+        };
+        let ctx = super::build_chatbackend_open_session_ctx(
+            "pane-1",
+            None,
+            json!({ "systemPrompt": "Composed instruction" }),
+        );
+
+        let error = super::open_chatbackend_session(&backend, ctx).unwrap_err();
+        let error: serde_json::Value = serde_json::from_str(&error).unwrap();
+        assert_eq!(error["code"], "chat_backend_session_config_required");
+        assert_eq!(error["delivery"], "blocked");
+        assert!(opens.lock().is_empty(), "blocked backends are never opened");
+    }
 
     #[test]
     fn concurrent_chat_reconnect_has_one_open_commit_and_after_effect() {

@@ -72,6 +72,9 @@ pub struct ChatBackendCap {
     /// `{ spawnable: true }` opts in.
     pub spawnable: bool,
     pub watcher: bool,
+    /// The backend accepts host-composed instructions in the `openSession`
+    /// systemPrompt context.
+    pub session_config: bool,
 }
 
 impl ChatBackendCap {
@@ -85,6 +88,10 @@ impl ChatBackendCap {
 
     pub fn watcher(&self) -> bool {
         self.watcher
+    }
+
+    pub fn session_config(&self) -> bool {
+        self.session_config
     }
 }
 
@@ -102,6 +109,8 @@ impl<'de> Deserialize<'de> for ChatBackendCap {
                 spawnable: bool,
                 #[serde(default)]
                 watcher: bool,
+                #[serde(default, rename = "sessionConfig")]
+                session_config: bool,
             },
         }
         Ok(match Raw::deserialize(d)? {
@@ -109,11 +118,17 @@ impl<'de> Deserialize<'de> for ChatBackendCap {
                 enabled,
                 spawnable: false,
                 watcher: false,
+                session_config: false,
             },
-            Raw::Obj { spawnable, watcher } => Self {
+            Raw::Obj {
+                spawnable,
+                watcher,
+                session_config,
+            } => Self {
                 enabled: true,
                 spawnable,
                 watcher,
+                session_config,
             },
         })
     }
@@ -126,15 +141,20 @@ impl Serialize for ChatBackendCap {
     where
         S: serde::Serializer,
     {
-        if self.enabled && (self.spawnable || self.watcher) {
+        if self.enabled && (self.spawnable || self.watcher || self.session_config) {
             use serde::ser::SerializeMap;
-            let len = (if self.spawnable { 1 } else { 0 }) + (if self.watcher { 1 } else { 0 });
+            let len = (if self.spawnable { 1 } else { 0 })
+                + (if self.watcher { 1 } else { 0 })
+                + (if self.session_config { 1 } else { 0 });
             let mut m = s.serialize_map(Some(len))?;
             if self.spawnable {
                 m.serialize_entry("spawnable", &true)?;
             }
             if self.watcher {
                 m.serialize_entry("watcher", &true)?;
+            }
+            if self.session_config {
+                m.serialize_entry("sessionConfig", &true)?;
             }
             m.end()
         } else {
