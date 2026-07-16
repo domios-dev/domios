@@ -1,5 +1,6 @@
 // Run: npx tsx src/components/Sidebar/SidebarWorkspaceTabs.test.tsx
 
+import { readFileSync } from "node:fs";
 import { act, useState } from "react";
 import { Window } from "happy-dom";
 import { createRoot, type Root } from "react-dom/client";
@@ -41,6 +42,8 @@ function setupDom() {
     };
   (globalThis as { cancelAnimationFrame: (id: number) => void }).cancelAnimationFrame = () => {};
 }
+
+const sidebarStyles = readFileSync(new URL("../../styles/globals.css", import.meta.url), "utf8");
 
 async function openTabActionsMenu(tabRow: Element): Promise<void> {
   const trigger = tabRow.querySelector('button[title="Tab actions"]');
@@ -205,6 +208,17 @@ test("team menu enables staffing only for a Team with a manager", async () => {
   });
   const trigger = host.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement | null;
   assert(trigger, "team menu trigger exists");
+  assert(trigger.classList.contains("sidebar-team-kebab"), "team menu uses the reserved kebab control slot");
+  assert(trigger.tabIndex === 0, "team menu trigger remains keyboard focusable when visually hidden");
+  const collapse = host.querySelector('[data-testid="team-collapse-toggle"]') as HTMLButtonElement | null;
+  assert(collapse, "team collapse trigger exists");
+  assert(collapse.classList.contains("sidebar-team-chevron"), "team collapse uses the reserved chevron control slot");
+  assert(collapse.tabIndex === 0, "team collapse remains keyboard focusable when visually hidden");
+  assert(sidebarStyles.includes(".sidebar-team-menu-root .sidebar-team-kebab {\n  opacity: 0;"), "kebab hides by opacity without removing its slot");
+  assert(sidebarStyles.includes(".sidebar-team-menu-root .sidebar-team-kebab {\n  opacity: 0;\n  pointer-events: none;"), "hidden kebab ignores accidental pointer clicks");
+  assert(sidebarStyles.includes(".sidebar-team-header:focus-within .sidebar-team-chevron"), "keyboard focus reveals the chevron");
+  assert(sidebarStyles.includes(".sidebar-team-header:hover .sidebar-team-chevron,\n.sidebar-team-header:focus-within .sidebar-team-chevron,\n.sidebar-team-header:hover .sidebar-team-menu-root .sidebar-team-kebab,\n.sidebar-team-header:focus-within .sidebar-team-menu-root .sidebar-team-kebab {\n  opacity: 1;\n  pointer-events: auto;"), "keyboard focus restores control pointer hit-testing");
+  assert(sidebarStyles.includes("[data-touch-mode=\"true\"] .sidebar-team-chevron"), "touch mode keeps the chevron visible");
   await act(async () => trigger.click());
   const menu = document.querySelector('[data-testid="team-menu"]');
   assert(menu?.textContent?.includes("Rename"), "supported rename remains available");
