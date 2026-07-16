@@ -291,7 +291,7 @@ export function TeamUnit({
             className="sidebar-team-donut"
             aria-label="Task status composition"
             style={{ background: teamDonutBackground(buckets) }}
-          />
+          ><span data-testid="team-donut-hole" className="sidebar-team-donut-hole" /></span>
         ) : (
           <span data-testid="team-icon" className="sidebar-team-icon" aria-hidden><UsersRound size={14} /></span>
         )}

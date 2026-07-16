@@ -203,7 +203,7 @@ export function Sidebar({
   }, [openSessionPicker, onNavigateToTab]);
 
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(
-    () => new Set(state.active_workspace_id ? [state.active_workspace_id] : []),
+    () => new Set(state.workspaces.filter((workspace) => workspace.protected).map((workspace) => workspace.id).concat(state.active_workspace_id ? [state.active_workspace_id] : [])),
   );
   const [meshEnabledOverride, setMeshEnabledOverride] = useState<boolean | null>(null);
   useEffect(() => {
@@ -491,24 +491,11 @@ export function Sidebar({
           ref={sidebarRef}
           data-testid="sidebar"
           data-touch-mode={touchMode ? "true" : "false"}
-          className="shrink-0 h-full min-h-0 bg-[var(--ct-sidebar-bg)] border-r border-[var(--ct-border)] flex flex-col select-none overflow-visible overflow-y-hidden relative"
+          className="shrink-0 h-full min-h-0 bg-[var(--ct-sidebar-bg)] border-r border-[var(--ct-border)] flex flex-col select-none overflow-x-hidden overflow-y-hidden relative"
           style={{ width: visibleSidebarWidth }}
         >
           {!isSidebarCollapsed && (
             <>
-              <div className={`sidebar-structural-header ${isCompact ? "justify-center" : ""}`}>
-                {!isCompact && <span className="sidebar-structural-label">WORKSPACES</span>}
-                <div className="sidebar-structural-action">
-                  <button
-                    onClick={handleNewWorkspace}
-                    className="sidebar-new-workspace"
-                    title="New workspace"
-                  >
-                    <FolderPlusIcon size={12} />
-                  </button>
-                </div>
-              </div>
-
             <div className="flex-1 overflow-y-auto">
               {!isCompact && generalWorkspace && (() => {
                 const generalExpanded = expandedWorkspaces.has(generalWorkspace.id);
@@ -562,6 +549,14 @@ export function Sidebar({
                   </section>
                 );
               })()}
+              <div className={`sidebar-structural-header ${isCompact ? "justify-center" : ""}`}>
+                {!isCompact && <span className="sidebar-structural-label">WORKSPACES</span>}
+                <div className="sidebar-structural-action">
+                  <button onClick={handleNewWorkspace} className="sidebar-new-workspace" title="New workspace">
+                    <FolderPlusIcon size={12} />
+                  </button>
+                </div>
+              </div>
               {isCompact ? (
                 <div className="flex flex-col items-center py-1">
                   {ordinaryWorkspaces.map((ws) => {

@@ -113,11 +113,15 @@ async function assertTeamHeaderGeometry(teamUnit: Locator): Promise<void> {
     const title = unit.querySelector(".sidebar-team-title-block")?.getBoundingClientRect();
     const plan = unit.querySelector('[data-testid="team-plan-button"]')?.getBoundingClientRect();
     const kebab = unit.querySelector('[data-testid="team-menu-trigger"]')?.getBoundingClientRect();
-    return { header, donut, title, plan, kebab, hasInnerIcon: Boolean(unit.querySelector('[data-testid="team-donut"] svg')) };
+    const hole = unit.querySelector('[data-testid="team-donut-hole"]')?.getBoundingClientRect();
+    const donutCenter = donut && hole ? document.elementFromPoint(donut.left + donut.width / 2, donut.top + donut.height / 2) : null;
+    return { header, donut, title, plan, kebab, hole, centerIsHole: donutCenter?.getAttribute("data-testid") === "team-donut-hole", hasInnerIcon: Boolean(unit.querySelector('[data-testid="team-donut"] svg')) };
   });
   expect(geometry.donut?.width, "donut is 22px").toBe(22);
   expect(geometry.donut?.height, "donut is 22px").toBe(22);
   expect(geometry.hasInnerIcon, "donut remains hollow without an icon").toBe(false);
+  expect(geometry.hole?.width, "donut center is visibly punctured").toBe(12);
+  expect(geometry.centerIsHole, "center pixel belongs to the empty hole, not a color segment").toBe(true);
   expect(geometry.title && geometry.donut && Math.abs(geometry.title.y - geometry.donut.y) < geometry.donut.height, "title shares header row with identity").toBe(true);
   expect(geometry.plan && geometry.kebab && geometry.header && geometry.plan.right <= geometry.kebab.left + 2 && geometry.kebab.right <= geometry.header.right + 1, "Plan and kebab anchor at the right edge in DOM order").toBe(true);
   expect(geometry.plan && geometry.donut && geometry.plan.left - geometry.donut.right > 16, "Plan is separated from the identity by flexible title space").toBe(true);
@@ -182,6 +186,8 @@ test("@golden @team-status-tally Team status tally keeps every bucket visible ac
     await expect(page.locator('[data-testid="nav-extensions"]')).toBeVisible();
     await expect(page.locator('[data-testid="nav-memory"]')).toBeVisible();
     await expect(page.locator('[data-testid="nav-mesh"]')).toBeVisible();
+    const sidebarWidths = await page.getByTestId("sidebar").evaluate((sidebar) => ({ clientWidth: sidebar.clientWidth, scrollWidth: sidebar.scrollWidth }));
+    expect(sidebarWidths.scrollWidth, "sidebar has no horizontal scrollbar").toBeLessThanOrEqual(sidebarWidths.clientWidth);
     await page.locator('[data-testid="workspace-item"]').filter({ hasText: workspaceName }).click();
     await expandWorkspaceSidebar(page, workspace.id);
     await expect(page.locator('[data-testid="team-unit"]')).toBeVisible({ timeout: 30_000 });

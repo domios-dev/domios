@@ -1405,13 +1405,12 @@ button,
 }
 
 .sidebar-team-donut {
+  position: relative;
   display: inline-flex;
   width: 22px;
   height: 22px;
   flex: 0 0 auto;
   border-radius: 50%;
-  -webkit-mask: radial-gradient(circle 42% at center, #0000 98%, #000 100%);
-  mask: radial-gradient(circle 42% at center, #0000 98%, #000 100%);
 }
 
 .sidebar-structural-header {
@@ -1503,6 +1502,7 @@ button,
   position: absolute;
   inset: 5px;
   border-radius: 50%;
+  pointer-events: none;
   background: var(--ct-sidebar-bg);
 }
 
