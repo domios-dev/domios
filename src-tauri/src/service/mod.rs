@@ -24,6 +24,7 @@ mod hierarchy;
 mod inject_safety;
 pub mod inject_verify;
 pub mod input_parser;
+pub(crate) mod launch_delivery;
 pub(crate) mod launch_diagnostics;
 pub mod messenger;
 pub mod notification;
