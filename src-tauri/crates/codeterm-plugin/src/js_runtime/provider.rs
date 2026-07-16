@@ -87,7 +87,7 @@ impl From<SerdeSessionMessage> for SessionMessage {
 use crate::provider::{
     self, AgentLaunchParams, AgentProvider, ModelInfo, ProviderTrust, ReadinessStrategy,
     ReasoningEffortInfo, SessionIdInjection, SessionMessage, SessionMetadata, SettingField,
-    TaskDelivery, VerifySubmitStrategy,
+    SystemPromptDelivery, TaskDelivery, VerifySubmitStrategy,
 };
 
 use super::{
@@ -299,6 +299,10 @@ impl AgentProvider for JsProvider {
 
     fn task_delivery(&self) -> TaskDelivery {
         self.manifest.spawn.task_delivery.into()
+    }
+
+    fn system_prompt_delivery(&self) -> SystemPromptDelivery {
+        (&self.manifest.spawn.system_prompt_delivery).into()
     }
 
     fn task_input_warmup(&self) -> Duration {

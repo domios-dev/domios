@@ -16,6 +16,7 @@
       "timeoutSecs": 30
     },
     "taskDelivery": "inline_flag",
+    "systemPromptDelivery": { "kind": "cli_flag", "flag": "-c developer_instructions" },
     "verifySubmit": {
       "kind": "tui_input_drained",
       "timeoutSecs": 15,

@@ -48,7 +48,7 @@ pub(crate) fn should_deliver_spawn_preferences(
     is_planner && onboarding_task.is_some()
 }
 
-pub(crate) use crate::agent::provider::{AgentLaunchParams, TaskDelivery};
+pub(crate) use crate::agent::provider::AgentLaunchParams;
 pub(crate) use crate::agent::registry::AgentRegistry;
 
 fn existing_live_pty(svc: &ServiceContext, pane_id: &str) -> Option<String> {
@@ -222,8 +222,12 @@ pub(crate) fn launch_agent_in_background(
         );
 
         let delivery = registry
-            .with_provider(&agent_cmd, |provider| provider.task_delivery())
-            .unwrap_or(TaskDelivery::PtyInput);
+            .with_provider(&agent_cmd, |provider| {
+                crate::service::launch_delivery::mode_for_descriptor(
+                    &provider.system_prompt_delivery(),
+                )
+            })
+            .unwrap_or(crate::service::launch_delivery::LaunchDeliveryMode::ConfirmedFallback);
         if !crate::service::pty_io::await_bare_shell_prompt(
             &svc.screen_state,
             &pty_id,
@@ -253,8 +257,7 @@ pub(crate) fn launch_agent_in_background(
             echo_timeout: std::time::Duration::from_secs(3),
             submit_timeout: std::time::Duration::from_secs(15),
         };
-        // Use the provider's submit strategy: TUI providers (claude/codex/opencode) hand the shell off to a TUI on launch, so a "new shell prompt"
-        // never appears — TuiInputDrained is the right signal there.
+        // A TUI launch hands the shell off before a new shell prompt can appear.
         let launch_strategy = registry
             .with_provider(&agent_cmd, |p| p.verify_submit_strategy())
             .unwrap_or(crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
@@ -325,14 +328,45 @@ pub(crate) fn launch_agent_in_background(
             return;
         }
 
-        // 4. For PtyInput delivery, send task after the provider reports a ready TUI.
-        let is_pty_input = matches!(delivery, TaskDelivery::PtyInput);
-        if is_pty_input {
+        // The fallback is allowed only after launch and a provider-ready TUI.
+        if matches!(
+            delivery,
+            crate::service::launch_delivery::LaunchDeliveryMode::ConfirmedFallback
+        ) {
             if let Some(ref task_text) = task {
                 set_booting(false);
-                // TUI is visible; use the fast message path without waiting for
-                // this launch thread's own boot flag to clear.
-                if let Err(e) = svc.send_text_to_pty_smart(&pty_id, task_text, true) {
+                let mut pending = crate::service::launch_delivery::pending_delivery(task_text);
+                let strategy = registry
+                    .with_provider(&agent_cmd, |provider| provider.verify_submit_strategy())
+                    .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
+                let result = crate::service::pty_io::submit_transaction::submit_entry(
+                    crate::service::pty_io::submit_transaction::PtySubmitEntry::Direct,
+                    task_text,
+                    |text| {
+                        svc.send_text_verified(
+                            &pty_id,
+                            text,
+                            true,
+                            strategy,
+                            crate::service::inject_verify::VerifyOpts {
+                                require_prompt_first: false,
+                                verify_echo: false,
+                                verify_submit: true,
+                                ..Default::default()
+                            },
+                        )
+                        .map_err(|error| error.to_string())
+                    },
+                );
+                let confirmed = result
+                    .as_ref()
+                    .map(|evidence| evidence.submit_observed)
+                    .unwrap_or(false);
+                let delivery_result =
+                    crate::service::launch_delivery::confirm_fallback(&mut pending, confirmed);
+                if let Err(e) =
+                    result.and_then(|_| delivery_result.map_err(|error| error.to_string()))
+                {
                     log::error!(
                         "launch_agent: task delivery failed for pane {} (pty {}): {}",
                         pane_id,

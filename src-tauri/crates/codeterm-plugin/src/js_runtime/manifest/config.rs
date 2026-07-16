@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::provider::{
-    ModelInfo, ReadinessStrategy, ReasoningEffortInfo, SessionIdInjection, TaskDelivery,
-    VerifySubmitStrategy,
+    ModelInfo, ReadinessStrategy, ReasoningEffortInfo, SessionIdInjection, SystemPromptDelivery,
+    TaskDelivery, VerifySubmitStrategy,
 };
 
 /// Hosts/origins a plugin may reach via `host.fetch`.
@@ -26,6 +26,8 @@ pub struct SubprocessPermission {
 pub struct SpawnConfig {
     pub readiness_strategy: SerdeReadinessStrategy,
     pub task_delivery: SerdeTaskDelivery,
+    #[serde(default)]
+    pub system_prompt_delivery: SerdeSystemPromptDelivery,
     #[serde(default)]
     pub task_input_warmup_ms: u64,
     pub verify_submit: SerdeVerifySubmit,
@@ -60,6 +62,27 @@ pub struct SpawnConfig {
     /// usage poller skips providers without both.
     #[serde(default)]
     pub usage_probe_command: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SerdeSystemPromptDelivery {
+    #[default]
+    External,
+    CliFlag {
+        flag: String,
+    },
+    SessionConfig,
+}
+
+impl From<&SerdeSystemPromptDelivery> for SystemPromptDelivery {
+    fn from(value: &SerdeSystemPromptDelivery) -> Self {
+        match value {
+            SerdeSystemPromptDelivery::External => Self::External,
+            SerdeSystemPromptDelivery::CliFlag { flag } => Self::CliFlag(flag.clone()),
+            SerdeSystemPromptDelivery::SessionConfig => Self::SessionConfig,
+        }
+    }
 }
 
 /// Mirror of `crate::provider::ReadinessStrategy` with snake_case
