@@ -494,10 +494,19 @@ mod tests {
     fn long_prompt_with_truncated_echo_still_reaches_acknowledged_enter() {
         let body = "continuation ".repeat(200);
         let io = ControlledTransport::new(
-            Some(Frame { tail: "> continuation tail", hash: 1 }),
+            Some(Frame {
+                tail: "> continuation tail",
+                hash: 1,
+            }),
             vec![
-                Some(Frame { tail: "working", hash: 2 }),
-                Some(Frame { tail: "working stable", hash: 3 }),
+                Some(Frame {
+                    tail: "working",
+                    hash: 2,
+                }),
+                Some(Frame {
+                    tail: "working stable",
+                    hash: 3,
+                }),
             ],
         );
         let mut no_echo = opts();
