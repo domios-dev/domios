@@ -36,16 +36,16 @@ impl ManagerBootstrapInputs {
 }
 
 pub(crate) fn compose_role_identity(context: RoleIdentityContext<'_>) -> String {
-    codeterm_types::agent::role_identity::render_template(
-        crate::prompts::MANAGER_BOOTSTRAP_TEMPLATE,
-        &[
-            ("{role}", context.role),
-            ("{team_id}", context.team_id),
-            ("{team_name}", context.team_name),
-            ("{plan_id}", context.plan_id),
-            ("{project}", context.project),
-            ("{role_guidance}", context.role_guidance),
-        ],
+    codeterm_types::agent::role_identity::render(
+        codeterm_types::agent::role_identity::RoleIdentity::Manager {
+            template: crate::prompts::MANAGER_BOOTSTRAP_TEMPLATE,
+            role: context.role,
+            team_id: context.team_id,
+            team_name: context.team_name,
+            plan_id: context.plan_id,
+            project: context.project,
+            role_guidance: context.role_guidance,
+        },
     )
 }
 
@@ -115,5 +115,20 @@ mod tests {
         assert!(text.contains("no plan bound yet"));
         assert!(!text.contains("team_"));
         assert!(!text.contains("pl_"));
+    }
+
+    #[test]
+    fn renderer_never_reprocesses_placeholder_literals_in_values() {
+        let rendered = compose_role_identity(RoleIdentityContext {
+            role: "{plan_id}",
+            team_id: "team-{role_guidance}",
+            team_name: "{plan_id}",
+            plan_id: "plan-{role}",
+            project: "{role_guidance}",
+            role_guidance: "keep {plan_id}",
+        });
+        assert!(rendered.contains("team-{role_guidance}"));
+        assert!(rendered.contains("plan-{role}"));
+        assert!(rendered.contains("keep {plan_id}"));
     }
 }

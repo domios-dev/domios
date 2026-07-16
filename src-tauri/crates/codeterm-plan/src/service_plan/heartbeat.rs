@@ -229,12 +229,10 @@ fn role_identity_line(plan: &Plan, pane_id: Option<&str>) -> String {
     let peer_text = peer
         .map(|pane| format!("; peer tab {peer_role} is pane {pane}"))
         .unwrap_or_else(|| format!("; peer tab {peer_role} is unbound"));
-    codeterm_types::agent::role_identity::render_role_identity(
-        "<codeterm-role-identity plan=\"{plan_id}\">\nYou are the {role} for plan {plan_id}{peer_text}.\n</codeterm-role-identity>",
-        codeterm_types::agent::role_identity::RoleIdentityFields {
+    codeterm_types::agent::role_identity::render(
+        codeterm_types::agent::role_identity::RoleIdentity::Heartbeat {
             role,
             plan_id: &plan.id,
-            peer_role,
             peer_text: &peer_text,
         },
     )
