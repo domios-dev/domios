@@ -195,6 +195,10 @@ if [ "$CMD" = "dev" ]; then
   for arg in "${@:2}"; do
     case "$arg" in
       --wait|--wait-build) CT_DEV_WAIT=1 ;;
+      --release-gateway-after-ready)
+        echo "ERROR: --release-gateway-after-ready is obsolete; named dev --wait always skips the shared gateway handoff" >&2
+        exit 2
+        ;;
     esac
   done
 fi
@@ -215,21 +219,12 @@ prepare_named_dev_target() {
   echo "[isolated-dev] cargo target=$CARGO_TARGET_DIR"
 }
 
-CT_RELEASE_GATEWAY_AFTER_READY=0
-if [ "$CMD" = "dev" ]; then
-  for arg in "${@:2}"; do
-    case "$arg" in
-      --release-gateway-after-ready) CT_RELEASE_GATEWAY_AFTER_READY=1 ;;
-    esac
-  done
-  if [ "$CT_RELEASE_GATEWAY_AFTER_READY" = "1" ] && [ -z "$CT_INSTANCE" ]; then
-    echo "ERROR: --release-gateway-after-ready requires a named dev instance" >&2
-    exit 2
-  fi
-fi
-
 if [ "${CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY:-0}" = "1" ]; then
-  printf 'instance=%s\nrelease_gateway_after_ready=%s\n' "$CT_INSTANCE" "$CT_RELEASE_GATEWAY_AFTER_READY"
+  if [ -n "$CT_INSTANCE" ]; then
+    printf 'instance=%s\nshared_gateway_handoff=skipped\n' "$CT_INSTANCE"
+  else
+    printf 'instance=\nshared_gateway_handoff=required\n'
+  fi
   exit 0
 fi
 
@@ -522,6 +517,7 @@ dev_wait_stage() {
 handoff_gateway_to_dev() {
   local dev_pid="$1" monitor_pid monitor_start lock
   lock="$(ct_gateway_dir)/lock"
+  mkdir -p "$lock"
   (
     trap - EXIT INT TERM
     CT_GATEWAY_MUTEX_PID="$BASHPID"
@@ -1016,8 +1012,10 @@ case "$CMD" in
               continue
             fi
             echo "Dev ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', launcher pid $DEV_PID, listener pid $(dev_listener_pid)"
-            if [ "$CT_RELEASE_GATEWAY_AFTER_READY" = "1" ]; then
-              echo "Build gateway released after named dev readiness; launcher $DEV_PID remains harness-owned."
+            # Named --wait startup never acquires the shared gateway, so it must
+            # not claim its canonical lock after readiness.
+            if [ -n "$CT_INSTANCE" ]; then
+              echo "Named dev ready; shared build gateway handoff skipped."
             else
               handoff_gateway_to_dev "$DEV_PID"
             fi
