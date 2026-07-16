@@ -3,7 +3,9 @@ use super::*;
 use crate::plan::{OrchestratorRef, Plan, TaskLaneMetadata};
 use crate::service::plan::{NewTask, PlanStore, TaskLaneUpdate};
 use crate::service::pty_io::lifecycle::{active_pane_lane_base, pane_task_env};
-use crate::service::pty_io::lifecycle::{claim_restored_launch, restore_and_schedule_launch};
+use crate::service::pty_io::lifecycle::{
+    claim_restored_launch, restore_and_schedule_launch, restore_materialization_core,
+};
 
 fn apply_enter(text: &str, enter: bool) -> String {
     if enter && !text.ends_with('\r') && !text.ends_with('\n') {
@@ -116,7 +118,8 @@ fn concurrent_restore_single_winner_cas() {
                     Some("fixture-session"),
                     Some("fixture-cwd"),
                     true,
-                    |_| {
+                    None,
+                    |_, _| {
                         schedules.fetch_add(1, Ordering::SeqCst);
                     },
                 )
@@ -139,6 +142,124 @@ fn concurrent_restore_single_winner_cas() {
     assert_eq!(pane.parent_pane_id.as_deref(), Some(parent_id.as_str()));
     assert_eq!(pane.team_id.as_deref(), Some(team_id.as_str()));
     assert_eq!(pane.agent_session_id.as_deref(), Some("fixture-session"));
+}
+
+#[test]
+fn restore_resolves_payload_into_launch_option() {
+    use crate::multiplexer::commands::MuxState;
+    use crate::multiplexer::state::MultiplexerState;
+    use codeterm_util::lock_hold::TimedRwLock;
+    use sha2::Digest;
+    use std::sync::Arc;
+
+    let payload = "byte-identical restored fallback brief";
+    let digest = format!("{:x}", sha2::Sha256::digest(payload.as_bytes()));
+    let temp = tempfile::tempdir().unwrap();
+    let store = crate::service::pending_delivery_payloads::PendingDeliveryPayloadStore::open(
+        temp.path(),
+        &std::collections::HashSet::new(),
+    )
+    .unwrap();
+    store.write(&digest, payload).unwrap();
+    let (mut state, pane_id) = MultiplexerState::new();
+    let pane = state.get_pane_mut(&pane_id).unwrap();
+    pane.agent_type = Some("fixture-provider".into());
+    pane.cwd = Some("fixture-cwd".into());
+    pane.restored_from_snapshot = true;
+    pane.pending_delivery = Some(crate::multiplexer::types::PendingDeliveryRecord::new(
+        digest.clone(),
+        crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
+    ));
+    let mux: MuxState = Arc::new(TimedRwLock::new("restore-payload-test", state));
+    let resolved = store.resolve(&digest).unwrap();
+    let observed = std::sync::Arc::new(parking_lot::Mutex::new(None));
+    let sink = observed.clone();
+
+    restore_and_schedule_launch(
+        &mux,
+        &pane_id,
+        "fixture-provider",
+        None,
+        Some("fixture-cwd"),
+        false,
+        Some(resolved),
+        move |_, task| *sink.lock() = task,
+    )
+    .unwrap();
+
+    assert_eq!(observed.lock().as_deref(), Some(payload));
+}
+
+#[test]
+fn restore_missing_payload_spawnfailed_zero_launch_pending() {
+    use crate::multiplexer::commands::MuxState;
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::multiplexer::types::{
+        PendingDeliveryChannel, PendingDeliveryRecord, PendingDeliveryState,
+    };
+    use crate::service::boot_stage::BootStage;
+    use codeterm_util::lock_hold::TimedRwLock;
+    use sha2::Digest;
+    use std::sync::Arc;
+
+    let payload = "missing restored fallback brief";
+    let digest = format!("{:x}", sha2::Sha256::digest(payload.as_bytes()));
+    let temp = tempfile::tempdir().unwrap();
+    let store = crate::service::pending_delivery_payloads::PendingDeliveryPayloadStore::open(
+        temp.path(),
+        &std::collections::HashSet::new(),
+    )
+    .unwrap();
+    let (mut state, pane_id) = MultiplexerState::new();
+    let pane = state.get_pane_mut(&pane_id).unwrap();
+    pane.agent_type = Some("fixture-provider".into());
+    pane.cwd = Some("fixture-cwd".into());
+    pane.restored_from_snapshot = true;
+    pane.pending_delivery = Some(PendingDeliveryRecord::new(
+        digest.clone(),
+        PendingDeliveryChannel::InteractiveInput,
+    ));
+    let mux: MuxState = Arc::new(TimedRwLock::new("restore-missing-payload-test", state));
+    let launch_request = parking_lot::Mutex::new(None);
+    let boot_failure = parking_lot::Mutex::new(None);
+
+    let result = restore_materialization_core(
+        &mux,
+        &pane_id,
+        "fixture-provider",
+        None,
+        Some("fixture-cwd"),
+        false,
+        || {
+            store
+                .resolve(&digest)
+                .map(Some)
+                .map_err(|error| error.to_string())
+        },
+        |reason| *boot_failure.lock() = Some((BootStage::SpawnFailed, reason.to_string())),
+        |launch, payload| *launch_request.lock() = Some((launch, payload)),
+    );
+    let error = match result {
+        Err(error) => error,
+        Ok(_) => panic!("missing payload must prevent restored-agent launch"),
+    };
+
+    assert_eq!(error, format!("RestorePayloadMissing: {digest}"));
+    assert_eq!(
+        *boot_failure.lock(),
+        Some((BootStage::SpawnFailed, error.clone()))
+    );
+    assert!(launch_request.lock().is_none());
+    assert_eq!(
+        mux.read()
+            .get_pane(&pane_id)
+            .unwrap()
+            .pending_delivery
+            .as_ref()
+            .unwrap()
+            .state(),
+        PendingDeliveryState::Pending
+    );
 }
 
 #[test]

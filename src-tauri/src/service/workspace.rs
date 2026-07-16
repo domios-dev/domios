@@ -220,10 +220,32 @@ impl ServiceContext {
     }
 
     pub fn close_tab(&self, workspace_id: &str, tab_id: &str) -> Result<(), String> {
+        let pending_digest = {
+            let mux = self.mux.read();
+            mux.get_workspace(workspace_id)
+                .and_then(|workspace| {
+                    workspace
+                        .tabs
+                        .iter()
+                        .find(|tab| tab.id == tab_id)
+                        .and_then(|tab| mux.get_pane(&tab.pane_id))
+                })
+                .and_then(|pane| pane.pending_delivery.as_ref())
+                .map(|record| record.content_digest.clone())
+        };
         let pre_focus = self.mux.read().get_focused_pane_id().map(str::to_string);
         let pty_ids = self.mux.write().close_tab(workspace_id, tab_id)?;
         let post_focus = self.mux.read().get_focused_pane_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
+        if let Some(digest) = pending_digest {
+            if let Err(error) = self.pending_delivery_payloads.delete(&digest) {
+                log::warn!(
+                    "[pending-delivery] tab-close cleanup failed for digest {}: {}",
+                    digest,
+                    error
+                );
+            }
+        }
         self.emit_state_changed();
         if pre_focus != post_focus {
             if let Some(new) = post_focus {
