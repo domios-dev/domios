@@ -1372,7 +1372,7 @@ button,
   align-items: center;
   gap: 4px;
   margin: 0;
-  padding: 5px 3px;
+  padding: 5px 3px 5px 7px;
   border-radius: 7px;
   color: var(--ct-fg);
   cursor: pointer;
@@ -1382,28 +1382,6 @@ button,
   background: var(--ct-hover);
 }
 
-.sidebar-team-chevron {
-  position: absolute;
-  z-index: 1;
-  top: 50%;
-  left: 3px;
-  display: inline-flex;
-  width: 11px;
-  height: 18px;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: color-mix(in srgb, var(--ct-muted-fg) 62%, var(--ct-bg));
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(-50%);
-  transition: opacity 160ms ease;
-}
-
-.sidebar-team-unit[data-expanded="true"] .sidebar-team-chevron svg,
 .sidebar-team-workers-toggle[aria-expanded="true"] svg {
   transform: rotate(90deg);
 }
@@ -1618,19 +1596,26 @@ button,
 }
 
 .sidebar-team-count {
-  flex: 0 0 auto;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: color-mix(in srgb, var(--ct-muted-fg) 62%, var(--ct-bg));
   font-family: var(--font-mono, monospace);
   font-size: 10.5px;
   font-weight: 600;
 }
 
+.sidebar-team-progress-slot {
+  position: relative;
+  width: 24px;
+  height: 20px;
+}
+
 .sidebar-team-menu-root {
   position: absolute;
-  z-index: 1;
-  top: 50%;
-  right: 25px;
-  transform: translateY(-50%);
+  inset: 0;
 }
 
 .sidebar-team-kebab {
@@ -1648,32 +1633,41 @@ button,
 }
 
 .sidebar-team-menu-root .sidebar-team-kebab {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   opacity: 0;
   pointer-events: none;
   transition: opacity 160ms ease;
 }
 
-.sidebar-team-header:hover .sidebar-team-chevron,
-.sidebar-team-header:focus-within .sidebar-team-chevron,
 .sidebar-team-header:hover .sidebar-team-menu-root .sidebar-team-kebab,
 .sidebar-team-header:focus-within .sidebar-team-menu-root .sidebar-team-kebab {
   opacity: 1;
   pointer-events: auto;
 }
 
+.sidebar-team-header:hover .sidebar-team-count,
+.sidebar-team-header:focus-within .sidebar-team-count {
+  opacity: 0;
+}
+
 @media (hover: none), (pointer: coarse) {
-  .sidebar-team-chevron,
   .sidebar-team-menu-root .sidebar-team-kebab {
     opacity: 1;
     pointer-events: auto;
   }
+
+  .sidebar-team-count { opacity: 0; }
 }
 
-[data-touch-mode="true"] .sidebar-team-chevron,
 [data-touch-mode="true"] .sidebar-team-menu-root .sidebar-team-kebab {
   opacity: 1;
   pointer-events: auto;
 }
+
+[data-touch-mode="true"] .sidebar-team-count { opacity: 0; }
 
 .sidebar-team-kebab:hover {
   background: var(--ct-border);
