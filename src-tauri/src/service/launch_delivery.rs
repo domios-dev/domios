@@ -92,6 +92,15 @@ pub(crate) fn fallback_payload<'a>(
     fallback_bootstrap.or(task)
 }
 
+pub(crate) fn fallback_pending_payload<'a>(
+    fallback_bootstrap: Option<&'a str>,
+    task: Option<&'a str>,
+) -> Option<(PendingDeliveryChannel, &'a str)> {
+    fallback_bootstrap
+        .map(|text| (PendingDeliveryChannel::FallbackBootstrap, text))
+        .or_else(|| task.map(|text| (PendingDeliveryChannel::InteractiveInput, text)))
+}
+
 pub(crate) fn pending_bootstrap_record_for(text: &str) -> PendingDeliveryRecord {
     PendingDeliveryRecord::new(
         pending_delivery(text).digest,
@@ -232,6 +241,13 @@ mod tests {
         assert_eq!(
             fallback_payload(Some(&bootstrap), Some(&launch_content)),
             Some(bootstrap.as_str())
+        );
+        assert_eq!(
+            fallback_pending_payload(Some(&bootstrap), Some(&launch_content)),
+            Some((
+                PendingDeliveryChannel::FallbackBootstrap,
+                bootstrap.as_str()
+            ))
         );
 
         let mut pending = pending_bootstrap_record_for(&bootstrap);

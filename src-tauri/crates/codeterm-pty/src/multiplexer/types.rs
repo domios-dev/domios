@@ -226,13 +226,42 @@ pub enum PendingDeliveryState {
     Confirmed,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PendingDeliveryRecord {
     pub content_digest: String,
     pub channel: PendingDeliveryChannel,
     pub provenance: PendingDeliveryProvenance,
     state: PendingDeliveryState,
     attempt_provenance: Option<DeliveryAttemptProvenance>,
+}
+
+#[derive(Deserialize)]
+struct PendingDeliveryRecordWire {
+    content_digest: String,
+    channel: PendingDeliveryChannel,
+    #[serde(default)]
+    provenance: Option<PendingDeliveryProvenance>,
+    state: PendingDeliveryState,
+    attempt_provenance: Option<DeliveryAttemptProvenance>,
+}
+
+impl<'de> Deserialize<'de> for PendingDeliveryRecord {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let wire = PendingDeliveryRecordWire::deserialize(deserializer)?;
+        let provenance = wire
+            .provenance
+            .unwrap_or_else(|| PendingDeliveryProvenance::for_channel(&wire.channel));
+        Ok(Self {
+            content_digest: wire.content_digest,
+            channel: wire.channel,
+            provenance,
+            state: wire.state,
+            attempt_provenance: wire.attempt_provenance,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -243,13 +272,7 @@ pub enum PendingDeliveryTransitionError {
 
 impl PendingDeliveryRecord {
     pub fn new(content_digest: String, channel: PendingDeliveryChannel) -> Self {
-        let provenance = match channel {
-            PendingDeliveryChannel::SystemPrompt => PendingDeliveryProvenance::SystemPrompt,
-            PendingDeliveryChannel::InteractiveInput => PendingDeliveryProvenance::InteractiveInput,
-            PendingDeliveryChannel::FallbackBootstrap => {
-                PendingDeliveryProvenance::FallbackBootstrap
-            }
-        };
+        let provenance = PendingDeliveryProvenance::for_channel(&channel);
         Self {
             content_digest,
             channel,
@@ -302,6 +325,16 @@ impl PendingDeliveryRecord {
         }
         self.state = PendingDeliveryState::Confirmed;
         Ok(())
+    }
+}
+
+impl PendingDeliveryProvenance {
+    fn for_channel(channel: &PendingDeliveryChannel) -> Self {
+        match channel {
+            PendingDeliveryChannel::SystemPrompt => Self::SystemPrompt,
+            PendingDeliveryChannel::InteractiveInput => Self::InteractiveInput,
+            PendingDeliveryChannel::FallbackBootstrap => Self::FallbackBootstrap,
+        }
     }
 }
 
@@ -626,6 +659,24 @@ mod tests {
         assert_eq!(
             delivery.confirm(),
             Err(PendingDeliveryTransitionError::ConfirmedTerminal)
+        );
+    }
+
+    #[test]
+    fn legacy_pending_delivery_defaults_provenance_from_channel() {
+        let record: PendingDeliveryRecord = serde_json::from_str(
+            r#"{
+                "content_digest":"legacy",
+                "channel":"fallback_bootstrap",
+                "state":"pending",
+                "attempt_provenance":null
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(record.channel, PendingDeliveryChannel::FallbackBootstrap);
+        assert_eq!(
+            record.provenance,
+            PendingDeliveryProvenance::FallbackBootstrap
         );
     }
 
