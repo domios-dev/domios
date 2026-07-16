@@ -442,6 +442,75 @@ async function runChatSessionHookTests(): Promise<void> {
     restoreTimers();
     console.log("PASS T8 failed rotations coalesce without polling");
   }
+  {
+    const timers = new FakeTimers();
+    const restoreTimers = timers.install();
+    let handler: ((event: { payload: { pane_id: string; messages: NormalizedChatMessage[] } }) => void) | null = null;
+    __setListenForTest(async (_event, nextHandler) => {
+      handler = nextHandler as typeof handler;
+      return () => {};
+    });
+    const startupText = "You are Theo. You are a frontend worker fixing a transcript projection/dedup defect.";
+    let starts = 0;
+    __setInvokeForTest((async (command: string) => {
+      if (command === "chat_start") {
+        starts += 1;
+        return { text: "", offset: 1, messages: [{
+          id: starts === 1 ? "snapshot-provisional-user-1" : "snapshot-bound-user-1",
+          type: "user", content: startupText, seq: 1,
+        }] };
+      }
+      return {};
+    }) as never);
+    const session = await mountSession(null);
+    await session.render("c73becde");
+    await timers.advance(0);
+    await act(async () => handler?.({ payload: { pane_id: "pane", messages: [{
+      id: "live-bound-user-1", type: "user", content: startupText, seq: 1,
+    }] } }));
+    assert(
+      starts === 2 && session.latest().messages.map((message) => message.id).join(",") === "live-bound-user-1",
+      "P0 provisional-to-bound reattach keeps one attachment lineage",
+    );
+    await act(async () => session.root.unmount());
+    restoreTimers();
+    console.log("PASS P0 provisional-to-bound reattach keeps attachment lineage");
+  }
+
+  {
+    let handler: ((event: { payload: { pane_id: string; messages: NormalizedChatMessage[] } }) => void) | null = null;
+    __setListenForTest(async (_event, nextHandler) => {
+      handler = nextHandler as typeof handler;
+      return () => {};
+    });
+    const startupText = "You are Theo. You are a frontend worker fixing a transcript projection/dedup defect.";
+    __setInvokeForTest((async (command: string) => {
+      if (command === "chat_start") {
+        return { text: "", offset: 1, messages: [{
+          id: "snapshot-c73becde-user-1", type: "user", content: startupText, seq: 1,
+        }] };
+      }
+      return {};
+    }) as never);
+    const session = await mountSession("c73becde");
+    await act(async () => handler?.({ payload: { pane_id: "pane", messages: [{
+      id: "live-c73becde-user-1", type: "user", content: startupText, seq: 1,
+    }] } }));
+    assert(
+      session.latest().messages.map((message) => message.id).join(",") === "live-c73becde-user-1",
+      "P0 launch snapshot/live pair projects one stable seq-1 user bubble",
+    );
+    await act(async () => handler?.({ payload: { pane_id: "pane", messages: [
+      { id: "repeat-user-2", type: "user", content: "continue", seq: 2 },
+      { id: "repeat-user-3", type: "user", content: "continue", seq: 3 },
+    ] } }));
+    assert(
+      session.latest().messages.filter((message) => message.content === "continue").length === 2,
+      "P0 distinct user sequences preserve true repeated text",
+    );
+    await act(async () => session.root.unmount());
+    console.log("PASS P0 snapshot/live stable identity reconciliation");
+  }
   __setInvokeForTest(null);
   __setListenForTest(null);
 }

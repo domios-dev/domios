@@ -69,6 +69,9 @@ export interface NormalizedChatMessage {
    *  index, structured row position). Stable tiebreaker when timestamps are coarse
    *  (codex floors to seconds) or absent (cursor emits none) — see `mergeById`. */
   seq?: number;
+  /** Frontend join context for a parser sequence; sequence values repeat when a
+   * pane rotates to a new agent session. */
+  sourceSessionId?: string;
   /** Frontend-only arrival/send order hint for live optimistic merges. Providers
    *  do not emit this; refresh paths rely on `timestamp`/`seq` instead. */
   clientOrder?: number;
