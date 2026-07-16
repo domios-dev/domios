@@ -120,6 +120,16 @@ export function PaneSessionChat({
   const { setFocusedPane, selectTabByPane, addNotification, setActiveWorkspace } = useMultiplexer();
   const paneSelector = useCallback((s: Parameters<typeof selectPane>[0]) => selectPane(s, paneId), [paneId]);
   const pane = useMuxSelector(paneSelector, paneFieldsEqual);
+  const teamNameSelector = useCallback((state: Parameters<typeof selectPane>[0]) => {
+    const teamId = (state.panes[paneId] as (typeof state.panes)[string] & { team_id?: string | null } | undefined)?.team_id;
+    return teamId ? state.teams.find((team) => team.id === teamId)?.name ?? null : null;
+  }, [paneId]);
+  const teamName = useMuxSelector(teamNameSelector);
+  const projectNameSelector = useCallback((state: Parameters<typeof selectPane>[0]) => {
+    const workspace = state.workspaces.find((candidate) => candidate.tabs.some((tab) => tab.pane_id === paneId));
+    return workspace?.name ?? null;
+  }, [paneId]);
+  const projectName = useMuxSelector(projectNameSelector);
   const paneTitleMap = useMuxSelector(selectPaneTitleMap, paneTitleMapEqual);
   const planNav = useMuxSelector(selectPlanNavContext, planNavContextEqual);
   const paneAgentTypes = useMuxSelector(selectPaneAgentTypes, paneAgentTypesEqual);
@@ -200,6 +210,16 @@ export function PaneSessionChat({
   const handleJumpToShellCommand = useCallback(() => {
     onOpenTerminalFallback?.();
   }, [onOpenTerminalFallback]);
+
+  const handleLaunchRetry = useCallback(() => {
+    void invoke("restart_general_agent_pane", { paneId }).catch((error) =>
+      showComposerError(error instanceof Error ? error.message : String(error)),
+    );
+  }, [paneId, showComposerError]);
+
+  const focusComposer = useCallback(() => {
+    chatRootRef.current?.querySelector<HTMLTextAreaElement>("textarea")?.focus();
+  }, []);
 
   const handleStopAgent = useCallback(() => {
     if (!currentPtyId) {
@@ -514,19 +534,11 @@ export function PaneSessionChat({
             <div className="opacity-50 text-center py-8 text-sm" data-testid="chat-recovering-state">
               Recovering chat history…
             </div>
-          ) : bootSetupView.kind !== "none" ? (
-            <ChatSetupState
-              pane={pane}
-              view={bootSetupView}
-              providerId={provider?.id}
-              providerName={provider?.displayName ?? "the agent"}
-              onOpenTerminal={onOpenTerminalFallback}
-            />
-          ) : (
+          ) : bootSetupView.kind === "none" ? (
             <div className="opacity-50 text-center py-8 text-sm" data-testid="chat-empty-state">
               No messages yet.
             </div>
-          )
+          ) : null
         )}
         {deferredEnrichedMessages.map(({ msg, item, origin }) => {
           let onOriginClick: (() => void) | undefined;
@@ -569,6 +581,19 @@ export function PaneSessionChat({
             </div>
           );
         })}
+        <ChatSetupState
+          pane={pane}
+          view={bootSetupView}
+          providerName={provider?.displayName ?? "the agent"}
+          providerIconSvg={provider?.iconSvg}
+          providerIconColor={provider?.iconColor}
+          providerIconHint={provider?.iconHint}
+          teamName={teamName}
+          projectName={projectName}
+          onRetry={handleLaunchRetry}
+          onOpenTerminal={onOpenTerminalFallback}
+          onEscape={focusComposer}
+        />
         {!inlinePrompt && (deferredEnrichedMessages.length > 0 || liveAgentState.state === "question") && (
           // with the message text instead of the far-left container edge.
           <div className="w-full max-w-4xl min-w-0 mx-auto">
