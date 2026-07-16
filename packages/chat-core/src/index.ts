@@ -25,7 +25,7 @@ export {
   normalizeChatText,
   type FingerprintableChatMessage,
 } from "./normalize";
-export { matchedOptimisticEchoes, type OptimisticEcho } from "./dedupe";
+export { projectTranscriptMessages, transcriptMessageIdentity } from "./dedupe";
 export { mergeTimelineMessages } from "./timeline";
 export { mergeById } from "./merge";
 export { attachToolResults, isRenderableChatMessage } from "./toolResults";

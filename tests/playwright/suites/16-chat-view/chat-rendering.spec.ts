@@ -19,6 +19,7 @@ interface TestChatMessage {
   type: ChatMessageKind;
   content: string;
   timestamp: string;
+  seq?: number;
   provider?: string;
   attachments?: TestChatAttachment[];
   toolName?: string;
@@ -163,6 +164,62 @@ test("@golden ChatView message DOM order matches chronological push order", asyn
   expect(texts[1]).toContain("pw-order-second");
   expect(texts[2]).toContain("pw-order-third");
   await expect(ui.page.locator(`[data-testid="pane-session-chat"][data-pane-id="${paneId}"] [data-testid="chat-empty-state"]`)).toHaveCount(0);
+});
+
+test("@golden ChatView projects the startup overlay by stable transcript identity", async ({
+  api,
+  ui,
+  paneCleanup,
+}) => {
+  await ui.reconnect();
+  const paneId = await openMockChatPane(api, paneCleanup, ui.page);
+  const hasTestHook = await ui.page.evaluate(() => typeof window.__codetermTestChat !== "undefined");
+  test.skip(!hasTestHook, "window.__codetermTestChat not available in this build (macOS web mirror without VITE_CODETERM_TEST=1 build)");
+
+  const startupText = `pw-c73becde-startup-${Date.now()}`;
+  const chat = ui.page.locator(`[data-testid="pane-session-chat"][data-pane-id="${paneId}"]`);
+  const composer = chat.locator('[data-testid="chat-composer"]');
+  await ui.page.evaluate(
+    ({ paneId: targetPaneId }) => window.__codetermTestChat?.pushMessages(targetPaneId, [{
+      id: "startup-context", type: "system", content: "context", timestamp: "1700004000000", provider: "test", seq: 0,
+    }]),
+    { paneId },
+  );
+  await composer.fill(startupText);
+  await composer.press("Enter");
+
+  const startupBubble = chat
+    .locator('[data-testid="chat-message"][data-message-role="user"]')
+    .filter({ hasText: startupText });
+  await expect(startupBubble).toHaveCount(1);
+  await ui.page.evaluate(
+    ({ paneId: targetPaneId, text }) => window.__codetermTestChat?.pushMessages(targetPaneId, [{
+      id: "persisted-startup-user", type: "user", content: text, timestamp: "1700004000001", provider: "test", seq: 1,
+    }]),
+    { paneId, text: startupText },
+  );
+  await expect(startupBubble).toHaveCount(1);
+
+  await ui.page.reload({ waitUntil: "domcontentloaded" });
+  await ui.page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
+  await ui.page.evaluate(
+    ({ paneId: targetPaneId, text }) => window.__codetermTestChat?.pushMessages(targetPaneId, [{
+      id: "persisted-startup-user", type: "user", content: text, timestamp: "1700004000001", provider: "test", seq: 1,
+    }]),
+    { paneId, text: startupText },
+  );
+  await expect(startupBubble).toHaveCount(1);
+  const repeatedText = `${startupText} true-repeat`;
+  await ui.page.evaluate(
+    ({ paneId: targetPaneId, text }) => window.__codetermTestChat?.pushMessages(targetPaneId, [
+      { id: "repeat-1", type: "user", content: text, timestamp: "1700004000002", provider: "test", seq: 2 },
+      { id: "repeat-2", type: "user", content: text, timestamp: "1700004000003", provider: "test", seq: 3 },
+    ]),
+    { paneId, text: repeatedText },
+  );
+  await expect(
+    ui.page.locator(`[data-testid="pane-session-chat"][data-pane-id="${paneId}"] [data-testid="chat-message"][data-message-role="user"]`).filter({ hasText: repeatedText }),
+  ).toHaveCount(2);
 });
 
 test("@golden ChatView transcript remains correct across tool results, focus, and scroll state", async ({
