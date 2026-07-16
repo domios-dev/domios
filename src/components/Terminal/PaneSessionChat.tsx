@@ -127,7 +127,7 @@ export function PaneSessionChat({
   const teamName = useMuxSelector(teamNameSelector);
   const projectNameSelector = useCallback((state: Parameters<typeof selectPane>[0]) => {
     const workspace = state.workspaces.find((candidate) => candidate.tabs.some((tab) => tab.pane_id === paneId));
-    return state.panes[paneId]?.cwd ?? workspace?.cwd ?? workspace?.name ?? null;
+    return workspace?.name ?? null;
   }, [paneId]);
   const projectName = useMuxSelector(projectNameSelector);
   const paneTitleMap = useMuxSelector(selectPaneTitleMap, paneTitleMapEqual);

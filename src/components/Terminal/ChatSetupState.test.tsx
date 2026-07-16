@@ -92,6 +92,17 @@ async function main() {
     assert(stage?.getAttribute("aria-live") === "polite", "stage is polite live region");
   });
 
+  await test("project identity never exposes absolute paths", async () => {
+    const windows = { ...pane("agent_launching"), cwd: "D:\\Developer\\secret-project" } as Pane;
+    const posix = { ...pane("agent_launching"), cwd: "/Users/esme/secret-project" } as Pane;
+    const windowsHost = await render(<ChatSetupState pane={windows} view={chatSetupView(windows)} providerName="Codex" projectName="Workspace Display" />);
+    const posixHost = await render(<ChatSetupState pane={posix} view={chatSetupView(posix)} providerName="Codex" projectName="Workspace Display" />);
+    const rendered = `${windowsHost.textContent}\n${posixHost.textContent}`;
+    assert(rendered.includes("Workspace Display"), "workspace display name is used");
+    assert(!rendered.includes("D:\\Developer\\secret-project"), "Windows path is not rendered");
+    assert(!rendered.includes("/Users/esme/secret-project"), "POSIX path is not rendered");
+  });
+
   await test("history can keep rendering while the compact boot status remains visible", async () => {
     const host = await render(
       <ChatSetupStatusLine pane={pane("pty_spawned")} providerName="Codex" />,

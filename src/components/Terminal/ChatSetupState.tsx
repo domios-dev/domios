@@ -62,10 +62,9 @@ interface ChatSetupStateProps {
 }
 
 function projectFact(pane: Pane | null | undefined, projectName?: string | null): string {
-  if (projectName) return projectName;
-  const cwd = pane?.cwd;
-  if (!cwd) return "workspace";
-  const normalized = cwd.replace(/\\/g, "/").replace(/\/$/, "");
+  const context = projectName || pane?.cwd;
+  if (!context) return "workspace";
+  const normalized = context.replace(/\\/g, "/").replace(/\/$/, "");
   return normalized.slice(normalized.lastIndexOf("/") + 1) || "workspace";
 }
 
