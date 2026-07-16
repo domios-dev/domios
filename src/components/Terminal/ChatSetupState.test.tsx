@@ -55,10 +55,12 @@ async function render(element: React.ReactElement): Promise<HTMLElement> {
 
 async function main() {
   await test("stage labels are launch-event labels", () => {
-    assert(chatSetupStageLabel("pty_starting", "Claude Code") === "Spawn accepted…", "pty_starting");
+    assert(chatSetupStageLabel("pty_starting", "Claude Code") === "Creating pane…", "pty_starting");
     assert(chatSetupStageLabel("pty_spawned", "Claude Code") === "Spawn accepted…", "pty_spawned");
     assert(chatSetupStageLabel("shell_ready", "Claude Code") === "Session attached…", "shell_ready");
-    assert(chatSetupStageLabel("agent_launching", "Claude Code") === "Preparing claude code instructions…", "agent_launching");
+    assert(chatSetupStageLabel("preparing_role_instructions", "Claude Code") === "Preparing claude code instructions…", "preparing_role_instructions");
+    assert(chatSetupStageLabel("agent_launching", "Claude Code") === "Launching provider…", "agent_launching");
+    assert(chatSetupStageLabel("delivering_instructions", "Claude Code") === "Delivering instructions…", "delivering_instructions");
   });
 
   await test("role identity takes precedence over provider during launch", () => {
@@ -70,13 +72,15 @@ async function main() {
 
   await test("view resolves ready to none and launching to starting", () => {
     assert(chatSetupView(pane("agent_ready")).kind === "none", "ready is none");
+    assert(chatSetupView(pane("preparing_role_instructions")).kind === "starting", "preparing is starting");
     assert(chatSetupView(pane("agent_launching")).kind === "starting", "launching is starting");
+    assert(chatSetupView(pane("delivering_instructions")).kind === "starting", "fallback delivery is starting");
     assert(chatSetupView(pane("spawn_failed", "boom")).kind === "failed", "spawn_failed is failed");
     assert(chatSetupView(null).kind === "none", "no pane is none");
   });
 
   await test("starting renders the setup card with the stage label", async () => {
-    const p = { ...pane("agent_launching"), cwd: "/work/identity-card", role: "Worker", agent_session_model: "Focused" } as Pane;
+    const p = { ...pane("preparing_role_instructions"), cwd: "/work/identity-card", role: "Worker", agent_session_model: "Focused" } as Pane;
     const host = await render(
       <ChatSetupState pane={p} view={chatSetupView(p)} providerName="Claude Code" providerIconSvg="<svg><path /></svg>" providerIconColor="#d97757" teamName="Launch Crew" projectName="identity-card" />,
     );

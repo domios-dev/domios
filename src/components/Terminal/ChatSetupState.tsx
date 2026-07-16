@@ -1,19 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ProviderGlyph } from "../ProviderGlyph";
-import type { Pane } from "../../lib/types";
-import { paneBootOverlayView, type PaneBootOverlayView } from "./bootOverlay";
+import type { BootStage, Pane } from "../../lib/types";
+import type { PaneBootOverlayView } from "./bootOverlay";
 
-const STAGE_PROGRESS: Record<string, number> = {
-  spawn_accepted: 16,
-  pty_starting: 16,
-  pty_spawned: 32,
-  session_attached: 50,
-  shell_ready: 50,
-  preparing_role_instructions: 72,
-  agent_launching: 72,
-  delivering_instructions: 88,
-  ready: 100,
+const STAGE_PROGRESS: Record<BootStage, number> = {
+  pty_starting: 8,
+  pty_spawned: 20,
+  shell_ready: 36,
+  preparing_role_instructions: 52,
+  agent_launching: 68,
+  delivering_instructions: 84,
   agent_ready: 100,
+  spawn_failed: 0,
 };
 
 export function chatSetupSubject(pane: Pane | null | undefined, providerName: string): string {
@@ -24,27 +22,55 @@ export function chatSetupSubject(pane: Pane | null | undefined, providerName: st
   return providerName;
 }
 
-export function chatSetupStageLabel(stage: Pane["boot_stage"], subject: string): string {
-  switch (stage as string | null | undefined) {
-    case "spawn_accepted":
+export function chatSetupStageLabel(stage: BootStage | null | undefined, subject: string): string {
+  if (!stage) return "Preparing launch…";
+  switch (stage) {
     case "pty_starting":
+      return "Creating pane…";
     case "pty_spawned":
       return "Spawn accepted…";
-    case "session_attached":
     case "shell_ready":
       return "Session attached…";
     case "preparing_role_instructions":
-    case "agent_launching":
       return `Preparing ${subject.toLowerCase()} instructions…`;
+    case "agent_launching":
+      return "Launching provider…";
     case "delivering_instructions":
       return "Delivering instructions…";
-    default:
-      return "Preparing launch…";
+    case "agent_ready":
+      return "Ready";
+    case "spawn_failed":
+      return "Launch failed";
   }
+  return unreachableBootStage(stage);
+}
+
+function unreachableBootStage(stage: never): never {
+  throw new Error(`Unexpected boot stage: ${stage}`);
 }
 
 export function chatSetupView(pane: Pane | null | undefined): PaneBootOverlayView {
-  return paneBootOverlayView(pane);
+  const stage = pane?.boot_stage;
+  if (!stage || stage === "agent_ready") return { kind: "none" };
+  if (stage === "spawn_failed") {
+    return {
+      kind: "failed",
+      reason: pane?.boot_failure_reason ?? null,
+      canRetry: pane?.protected === true,
+    };
+  }
+  switch (stage) {
+    case "pty_starting":
+    case "pty_spawned":
+    case "shell_ready":
+    case "preparing_role_instructions":
+    case "agent_launching":
+    case "delivering_instructions":
+      return { kind: "starting", label: "Starting" };
+    case "agent_ready":
+    case "spawn_failed":
+      return unreachableBootStage(stage);
+  }
 }
 
 interface ChatSetupStateProps {
@@ -206,7 +232,7 @@ export function ChatSetupState({
 
   if (view.kind !== "starting" && transitionState !== "exiting") return null;
 
-  const progress = STAGE_PROGRESS[pane?.boot_stage ?? ""] ?? 16;
+  const progress = pane?.boot_stage ? STAGE_PROGRESS[pane.boot_stage] : STAGE_PROGRESS.pty_starting;
   const project = projectFact(pane, projectName);
   const facts = [providerName, pane?.agent_session_model, project].filter(Boolean).join(" · ");
   const eyebrow = teamName?.trim() || `Project: ${project}`;
