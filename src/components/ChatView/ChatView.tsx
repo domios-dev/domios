@@ -70,7 +70,6 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
   const touchMode = useTouchOptimizedUi();
   const [allMessages, setAllMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = usePersistentDraft(`chat-view:${paneId}`);
-  const [isLoading, _setIsLoading] = useState(false);
   const [visibleCount, setVisibleCount] = useState(50);
   const [waitingForReply, setWaitingForReply] = useState(false);
   const [inputExpanded, setInputExpanded] = useState(false);
@@ -403,18 +402,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
         className="flex-1 overflow-y-auto py-4 px-4 select-text cursor-text"
         data-testid="direct-chat-messages"
       >
-        {isLoading ? (
-          <div className="flex flex-col items-center justify-center h-full gap-3" data-testid="direct-chat-loading">
-            <div className="flex gap-1">
-              <div className="w-2 h-2 rounded-full bg-[var(--ct-blue)] animate-bounce" style={{ animationDelay: '0ms' }} />
-              <div className="w-2 h-2 rounded-full bg-[var(--ct-blue)] animate-bounce" style={{ animationDelay: '150ms' }} />
-              <div className="w-2 h-2 rounded-full bg-[var(--ct-blue)] animate-bounce" style={{ animationDelay: '300ms' }} />
-            </div>
-            <span className="text-xs" style={{ color: "var(--ct-muted, #8b949e)" }}>
-              Loading conversation...
-            </span>
-          </div>
-        ) : allTimelineItems.length === 0 && !pendingPrompt ? (
+        {allTimelineItems.length === 0 && !pendingPrompt ? (
           <div className="flex items-center justify-center h-full" data-testid="direct-chat-empty">
             <span
               className="text-xs"

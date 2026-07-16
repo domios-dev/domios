@@ -2000,19 +2000,78 @@ button,
   }
 }
 
-/* Chat setup card — provider glyph breathes while the pane boots. */
-@keyframes chat-setup-glyph-breathe {
-  0%, 100% { transform: scale(1); opacity: 0.85; }
-  50% { transform: scale(1.06); opacity: 1; }
+.chat-launch-ring {
+  --launch-progress: 16%;
+  align-items: center;
+  background: conic-gradient(var(--ct-accent, #58a6ff) var(--launch-progress), color-mix(in srgb, var(--ct-muted-fg, #8b949e) 20%, transparent) 0);
+  border-radius: 9999px;
+  display: flex;
+  height: 72px;
+  justify-content: center;
+  position: relative;
+  transition: background 120ms ease;
+  width: 72px;
 }
 
-.chat-setup-glyph {
-  animation: chat-setup-glyph-breathe 2.4s ease-in-out infinite;
+.chat-launch-overlay {
+  background: var(--ct-bg, #0d1117);
+  inset: 0;
+  position: absolute;
+  z-index: 1;
+}
+
+.chat-launch-ring::before {
+  background: var(--ct-bg, #0d1117);
+  border-radius: inherit;
+  content: "";
+  inset: 2px;
+  position: absolute;
+}
+
+.chat-launch-ring-failed {
+  background: conic-gradient(var(--ct-red, #f85149) var(--launch-progress), color-mix(in srgb, var(--ct-muted-fg, #8b949e) 20%, transparent) 0);
+}
+
+.chat-launch-glyph {
+  align-items: center;
+  display: flex;
+  height: 56px;
+  justify-content: center;
+  position: relative;
+  width: 56px;
+  z-index: 1;
+}
+
+.chat-launch-glyph .agent-icon {
+  line-height: 0;
+}
+
+.chat-launch-ticks {
+  display: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .chat-setup-glyph {
-    animation: none;
+  .chat-launch-ring {
+    background: repeating-conic-gradient(var(--ct-accent, #58a6ff) 0deg 3deg, transparent 3deg 45deg);
+    transition: none;
+  }
+
+  .chat-launch-ring-failed {
+    background: repeating-conic-gradient(var(--ct-red, #f85149) 0deg 3deg, transparent 3deg 45deg);
+  }
+
+  .chat-launch-ticks {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    inset: -2px;
+    pointer-events: none;
+    position: absolute;
+  }
+
+  .chat-launch-ticks i {
+    border-left: 1px solid var(--ct-muted-fg, #8b949e);
+    height: 4px;
+    justify-self: center;
   }
 }
 
