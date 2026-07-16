@@ -1366,7 +1366,7 @@ button,
 
 .sidebar-team-header {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto auto;
   min-width: 0;
   align-items: center;
   gap: 8px;
@@ -1405,14 +1405,98 @@ button,
 }
 
 .sidebar-team-donut {
-  position: relative;
   display: inline-flex;
   width: 22px;
   height: 22px;
   flex: 0 0 auto;
+  border-radius: 50%;
+  -webkit-mask: radial-gradient(circle 42% at center, #0000 98%, #000 100%);
+  mask: radial-gradient(circle 42% at center, #0000 98%, #000 100%);
+}
+
+.sidebar-structural-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  border-top: 1px solid color-mix(in srgb, var(--ct-border) 70%, transparent);
+  padding: 6px 12px 5px;
+}
+
+.sidebar-general-section > .sidebar-structural-header {
+  margin-top: 0;
+  border-top: 0;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  text-align: left;
+}
+
+.sidebar-structural-label {
+  color: var(--ct-muted-fg);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .14em;
+}
+
+.sidebar-structural-action {
+  display: inline-flex;
+  margin-left: auto;
+}
+
+.sidebar-new-workspace {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ct-muted-fg);
+}
+
+.sidebar-new-workspace:hover { background: var(--ct-hover); color: var(--ct-fg); }
+
+.sidebar-workspace-row {
+  margin: 0 6px;
+  border-radius: 7px;
+}
+
+[data-testid="workspace-group"] + [data-testid="workspace-group"] {
+  border-top: 1px solid color-mix(in srgb, var(--ct-border) 55%, transparent);
+  padding-top: 3px;
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  border-top: 1px solid var(--ct-border);
+  padding: 7px 0;
+  gap: 1px;
+}
+
+.sidebar-footer > button,
+.sidebar-footer > div {
+  margin: 0 5px;
+}
+
+.sidebar-new-session {
+  margin: 1px 6px 4px;
+  padding: 6px 10px;
+  font-size: 12.5px;
+}
+
+.sidebar-recently-closed {
+  margin-top: 4px;
+  padding-top: 6px;
+}
+
+.sidebar-recently-closed > button {
+  padding: 6px 12px 5px;
+  color: var(--ct-muted-fg);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .14em;
+  text-transform: uppercase;
 }
 
 .sidebar-team-donut-hole {
@@ -1434,12 +1518,16 @@ button,
 
 .sidebar-team-title-block {
   display: flex;
-  grid-column: 1 / -1;
-  grid-row: 2;
   min-width: 0;
   flex-direction: column;
   line-height: 1.2;
   container-type: inline-size;
+}
+
+.sidebar-team-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .sidebar-team-name,
