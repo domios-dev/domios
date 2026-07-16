@@ -313,6 +313,31 @@ test("pane header reconnect control requests a hook-owned reattach", async () =>
   host.remove();
 });
 
+test("pane header does not repeat the mobile top safe area", async () => {
+  const { PaneTopBar } = await import("./PaneTopBar");
+  document.documentElement.style.setProperty("--ct-safe-top", "44px");
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(
+      <PaneTopBar
+        paneId="mobile-header-pane"
+        cwd={null}
+        showSwitch={false}
+        chatFirst={false}
+        chatDefaultPrompted={true}
+      />,
+    );
+  });
+  const header = host.querySelector('[data-testid="pane-top-bar"]') as HTMLDivElement | null;
+  assert(header?.style.paddingTop === "6px", "pane header keeps only its local 6px padding");
+  assert(!header.style.paddingTop.includes("safe-top"), "titlebar remains the sole top safe-area owner");
+  await act(async () => root.unmount());
+  host.remove();
+  document.documentElement.style.removeProperty("--ct-safe-top");
+});
+
 async function main() {
   let failed = 0;
   for (const [name, fn] of tests) {
