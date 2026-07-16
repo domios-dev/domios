@@ -134,6 +134,8 @@ export type BootStage =
   | "pty_spawned"
   | "shell_ready"
   | "agent_launching"
+  | "preparing_role_instructions"
+  | "delivering_instructions"
   | "agent_ready"
   | "spawn_failed";
 

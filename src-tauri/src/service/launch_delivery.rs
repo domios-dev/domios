@@ -5,6 +5,7 @@ use crate::multiplexer::types::{
     DeliveryAttemptProvenance, PendingDeliveryChannel, PendingDeliveryRecord, PendingDeliveryState,
     PendingDeliveryTransitionError,
 };
+use crate::service::boot_stage::{BootStage, BootStageSink};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LaunchDeliveryMode {
@@ -95,9 +96,43 @@ pub(crate) fn confirm_fallback(
     pending.confirm().map_err(DeliveryError::RecordTransition)
 }
 
+pub(crate) fn dispatch_initial_delivery<T, F>(
+    mode: LaunchDeliveryMode,
+    sink: &impl BootStageSink,
+    pane_id: &str,
+    transaction: Option<F>,
+) -> Option<T>
+where
+    F: FnOnce() -> T,
+{
+    match mode {
+        LaunchDeliveryMode::SystemPrompt => None,
+        LaunchDeliveryMode::ConfirmedFallback => transaction.map(|transaction| {
+            sink.record(pane_id, BootStage::DeliveringInstructions, None);
+            transaction()
+        }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use parking_lot::Mutex;
+
+    #[derive(Default)]
+    struct RecordingSink(Mutex<Vec<&'static str>>);
+
+    impl BootStageSink for RecordingSink {
+        fn record(&self, _: &str, stage: BootStage, _: Option<&str>) {
+            self.0.lock().push(stage.as_str());
+        }
+    }
+
+    impl RecordingSink {
+        fn record_transaction(&self) {
+            self.0.lock().push("transaction");
+        }
+    }
 
     #[test]
     fn delivery_prefers_system_prompt_when_declared() {
@@ -176,5 +211,40 @@ mod tests {
         assert_eq!(pending.attempt_provenance().unwrap().attempt_id, "retry");
         confirm_fallback(&mut pending, true).unwrap();
         assert_eq!(pending.state(), PendingDeliveryState::Confirmed);
+    }
+
+    #[test]
+    fn fallback_emits_delivering_after_tui_ready() {
+        let sink = RecordingSink::default();
+        sink.record("pane-1", BootStage::AgentLaunching, None);
+        dispatch_initial_delivery(
+            LaunchDeliveryMode::ConfirmedFallback,
+            &sink,
+            "pane-1",
+            Some(|| sink.record_transaction()),
+        );
+
+        assert_eq!(
+            sink.0.lock().as_slice(),
+            ["agent_launching", "delivering_instructions", "transaction"]
+        );
+    }
+
+    #[test]
+    fn system_prompt_channel_never_emits_delivering() {
+        let sink = RecordingSink::default();
+        let mut transactions = 0;
+        sink.record("pane-1", BootStage::AgentLaunching, None);
+
+        let result = dispatch_initial_delivery(
+            mode_for_descriptor(&SystemPromptDelivery::SessionConfig),
+            &sink,
+            "pane-1",
+            Some(|| transactions += 1),
+        );
+
+        assert_eq!(result, None);
+        assert_eq!(transactions, 0);
+        assert_eq!(sink.0.lock().as_slice(), ["agent_launching"]);
     }
 }

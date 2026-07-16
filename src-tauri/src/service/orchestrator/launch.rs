@@ -363,25 +363,33 @@ pub(crate) fn launch_agent_in_background(
                 let strategy = registry
                     .with_provider(&agent_cmd, |provider| provider.verify_submit_strategy())
                     .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
-                let result = crate::service::pty_io::submit_transaction::submit_entry(
-                    crate::service::pty_io::submit_transaction::PtySubmitEntry::Direct,
-                    task_text,
-                    |text| {
-                        svc.send_text_verified(
-                            &pty_id,
-                            text,
-                            true,
-                            strategy,
-                            crate::service::inject_verify::VerifyOpts {
-                                require_prompt_first: false,
-                                verify_echo: false,
-                                verify_submit: true,
-                                ..Default::default()
+                let result = crate::service::launch_delivery::dispatch_initial_delivery(
+                    delivery,
+                    &svc,
+                    &pane_id,
+                    Some(|| {
+                        crate::service::pty_io::submit_transaction::submit_entry(
+                            crate::service::pty_io::submit_transaction::PtySubmitEntry::Direct,
+                            task_text,
+                            |text| {
+                                svc.send_text_verified(
+                                    &pty_id,
+                                    text,
+                                    true,
+                                    strategy,
+                                    crate::service::inject_verify::VerifyOpts {
+                                        require_prompt_first: false,
+                                        verify_echo: false,
+                                        verify_submit: true,
+                                        ..Default::default()
+                                    },
+                                )
+                                .map_err(|error| error.to_string())
                             },
                         )
-                        .map_err(|error| error.to_string())
-                    },
-                );
+                    }),
+                )
+                .expect("confirmed fallback dispatch executes the transaction");
                 let submission_observed = result
                     .as_ref()
                     .map(|evidence| evidence.submit_observed)
@@ -417,6 +425,10 @@ pub(crate) fn launch_agent_in_background(
                     return;
                 }
             }
+        } else if task.is_some() {
+            let _ = crate::service::launch_delivery::dispatch_initial_delivery::<(), fn()>(
+                delivery, &svc, &pane_id, None,
+            );
         }
 
         set_booting(false);
