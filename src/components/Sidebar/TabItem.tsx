@@ -20,6 +20,7 @@ import type { Pane, PaneStatus, Tab } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { SidebarModelBadge } from "./SidebarModelBadge";
+import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RoleBadge } from "./RoleBadge";
 import { roleShieldLabel } from "./orchestrationSections";
 import { ActiveTabPill } from "./ActiveTabPill";
@@ -72,32 +73,18 @@ function GroupCollapseChevron({
   onToggleCollapse?: () => void;
 }) {
   return (
-    <button
-      type="button"
+    <SidebarDisclosure
       data-testid="group-collapse-toggle"
       data-collapsed={collapsed ? "true" : "false"}
       onClick={(e) => {
         e.stopPropagation();
         onToggleCollapse?.();
       }}
-      className={`sidebar-group-chevron ${touchMode ? "sidebar-group-chevron-touch" : ""}`}
+      touchMode={touchMode}
+      className="shrink-0"
       title={collapsed ? "Expand orchestration" : "Collapse orchestration"}
-      aria-expanded={!collapsed}
-    >
-      <svg
-        width="8"
-        height="8"
-        viewBox="0 0 8 8"
-        fill="currentColor"
-        className="transition-transform duration-[320ms]"
-        style={{
-          transform: collapsed ? "rotate(0deg)" : "rotate(90deg)",
-          transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
-        }}
-      >
-        <path d="M2 1l4 3-4 3V1z" />
-      </svg>
-    </button>
+      expanded={!collapsed}
+    />
   );
 }
 

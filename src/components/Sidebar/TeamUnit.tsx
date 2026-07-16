@@ -7,6 +7,7 @@ import { ProviderGlyph } from "../ProviderGlyph";
 import type { Plan } from "../Canvas/types";
 import { BOARD_COLUMN_DEFS, groupTasksIntoColumns } from "../Canvas/planView/boardModel";
 import { summarizeWorkers } from "./orchestrationSections";
+import { SidebarDisclosure } from "./SidebarDisclosure";
 
 export type TeamMemberRole = "planner" | "worker";
 
@@ -403,19 +404,15 @@ export function TeamUnit({
         className={`sidebar-team-header${plan && !editing ? " sidebar-team-header-active" : ""}`}
         data-menu-dismissed={menuDismissed ? "true" : undefined}
 			>
-        <button
-          type="button"
+        <SidebarDisclosure
           data-testid="team-collapse-toggle"
           aria-label={expanded ? "Collapse Team" : "Expand Team"}
-          aria-expanded={expanded}
-          className="sidebar-team-chevron"
+          expanded={expanded}
           onClick={(event) => {
             event.stopPropagation();
             setExpanded((value) => !value);
           }}
-        >
-          <ChevronRight size={13} aria-hidden />
-        </button>
+        />
         {plan && !editing ? (
           <button
             type="button"
@@ -474,15 +471,12 @@ export function TeamUnit({
           )}
           {workerCount > 0 && (
             <div data-testid="workers-section" className="sidebar-team-section">
-              <button
-                type="button"
+              <SidebarDisclosure
                 data-testid="workers-collapse-toggle"
-                aria-expanded={workersExpanded}
+                expanded={workersExpanded}
                 className="sidebar-team-workers-toggle"
                 onClick={() => setWorkersExpanded((value) => !value)}
-              >
-                <ChevronRight size={9} /> WORKERS {workerCount}
-              </button>
+              >WORKERS {workerCount}</SidebarDisclosure>
               {workersExpanded ? (
                 <div className="sidebar-team-member-list">{workers}</div>
               ) : (
