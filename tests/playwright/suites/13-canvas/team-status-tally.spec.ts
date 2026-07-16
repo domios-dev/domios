@@ -127,7 +127,38 @@ async function assertTeamHeaderGeometry(teamUnit: Locator): Promise<void> {
   expect(geometry.plan && geometry.donut && geometry.plan.left - geometry.donut.right > 16, "Plan is separated from the identity by flexible title space").toBe(true);
 }
 
-test("@golden @team-status-tally Team status tally keeps every bucket visible across sidebar widths", async ({ api, webBrowser, paneCleanup }) => {
+async function assertTeamTitleFits(teamUnit: Locator): Promise<void> {
+  const title = teamUnit.getByTestId("team-name");
+  await expect(title).toHaveText("Team UI QA");
+  const geometry = await title.evaluate((element) => {
+    const unit = element.closest('[data-testid="team-unit"]')?.getBoundingClientRect();
+    const header = element.closest(".sidebar-team-header")?.getBoundingClientRect();
+    return {
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      text: element.textContent,
+      unitWidth: unit?.width,
+      headerInset: unit && header ? unit.width - header.width : undefined,
+    };
+  });
+  expect(geometry.text, "Team fixture title remains intact").toBe("Team UI QA");
+  expect(geometry.scrollWidth, "Team fixture title has no ellipsis or clipping").toBeLessThanOrEqual(geometry.clientWidth);
+  expect(geometry.unitWidth, "edge-to-edge Team unit reclaims the 220px sidebar").toBeGreaterThanOrEqual(218);
+  expect(geometry.headerInset, "header no longer adds horizontal inset inside the tint block").toBe(0);
+}
+
+async function assertReservedControlsDoNotShiftPlan(teamUnit: Locator): Promise<void> {
+  const plan = teamUnit.getByTestId("team-plan-button");
+  const before = await plan.boundingBox();
+  await teamUnit.locator(".sidebar-team-header").hover();
+  const onHover = await plan.boundingBox();
+  await teamUnit.getByTestId("team-menu-trigger").focus();
+  const onFocus = await plan.boundingBox();
+  expect(onHover, "hover reveal preserves Plan position").toEqual(before);
+  expect(onFocus, "focus reveal preserves Plan position").toEqual(before);
+}
+
+test("@golden @team-status-tally Team status tally keeps every bucket visible across sidebar widths", async ({ api, webBrowser, paneCleanup }, testInfo) => {
   const projectPath = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "codeterm-team-status-tally-")));
   const workspaceName = "team status tally";
   await api.createWorkspace(workspaceName, projectPath);
@@ -192,14 +223,25 @@ test("@golden @team-status-tally Team status tally keeps every bucket visible ac
     await expandWorkspaceSidebar(page, workspace.id);
     await expect(page.locator('[data-testid="team-unit"]')).toBeVisible({ timeout: 30_000 });
 
-    await setSidebarWidth(session, 220);
     const teamUnit = page.locator(`[data-testid="team-unit"][data-team-id="${created.team_id}"]`);
+    await teamUnit.getByTestId("team-menu-trigger").click();
+    await page.getByTestId("team-menu").getByRole("button", { name: "Rename", exact: true }).click();
+    await teamUnit.getByTestId("team-name-input").fill("Team UI QA");
+    await teamUnit.getByTestId("team-name-input").press("Enter");
+    await expect(teamUnit.getByTestId("team-name")).toHaveText("Team UI QA");
+
+    await setSidebarWidth(session, 220);
+    await assertTeamTitleFits(teamUnit);
     await assertTally(teamUnit, false);
     await assertTeamHeaderGeometry(teamUnit);
+    await assertReservedControlsDoNotShiftPlan(teamUnit);
+    await page.screenshot({ path: testInfo.outputPath("wave2b-team-220.png"), fullPage: false });
     await setSidebarWidth(session, 272);
     await assertTally(teamUnit, false);
+    await page.screenshot({ path: testInfo.outputPath("wave2b-team-272.png"), fullPage: false });
     await setSidebarWidth(session, 160);
     await assertTally(teamUnit, true);
+    await page.screenshot({ path: testInfo.outputPath("wave2b-team-160.png"), fullPage: false });
   } finally {
     await closeTallyPage(session);
   }
@@ -210,7 +252,11 @@ test("@golden @team-status-tally Team status tally keeps every bucket visible ac
     await page.locator('[data-testid="workspace-item"]').filter({ hasText: workspaceName }).click();
     await expandWorkspaceSidebar(page, workspace.id);
     await expect(page.locator('[data-testid="sidebar"]')).toHaveAttribute("data-touch-mode", "true");
-    await assertTally(page.locator(`[data-testid="team-unit"][data-team-id="${created.team_id}"]`), "content-fit");
+    const teamUnit = page.locator(`[data-testid="team-unit"][data-team-id="${created.team_id}"]`);
+    await assertTally(teamUnit, "content-fit");
+    await expect(teamUnit.getByTestId("team-collapse-toggle")).toHaveCSS("opacity", "1");
+    await expect(teamUnit.getByTestId("team-menu-trigger")).toHaveCSS("opacity", "1");
+    await page.screenshot({ path: testInfo.outputPath("wave2b-team-touch.png"), fullPage: false });
   } finally {
     await closeTallyPage(touchSession);
     await api.deletePlan(created.plan_id).catch(() => {});
