@@ -68,6 +68,19 @@ function projectFact(pane: Pane | null | undefined, projectName?: string | null)
   return normalized.slice(normalized.lastIndexOf("/") + 1) || "workspace";
 }
 
+function useReducedMotion(): boolean {
+  const read = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+  const [reduced, setReduced] = useState(read);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setReduced(query.matches);
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  return reduced;
+}
+
 interface LaunchGlyphProps {
   providerName: string;
   iconSvg?: string | null;
@@ -117,10 +130,27 @@ export function ChatSetupState({
   onEscape,
 }: ChatSetupStateProps) {
   const retryRef = useRef<HTMLButtonElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
   const [failureCount, setFailureCount] = useState(0);
+  const [transitionState, setTransitionState] = useState<"hidden" | "present" | "exiting">(
+    view.kind === "none" ? "hidden" : "present",
+  );
   const wasFailed = useRef(false);
   const subject = chatSetupSubject(pane, providerName);
   const isFailed = view.kind === "failed";
+  const reducedMotion = useReducedMotion();
+
+  useEffect(() => {
+    if (view.kind !== "none") {
+      setTransitionState("present");
+      return;
+    }
+    if (reducedMotion) {
+      setTransitionState("hidden");
+    } else {
+      setTransitionState((state) => state === "present" ? "exiting" : state);
+    }
+  }, [reducedMotion, view.kind]);
 
   useEffect(() => {
     if (isFailed && !wasFailed.current) setFailureCount((count) => count + 1);
@@ -137,9 +167,22 @@ export function ChatSetupState({
     onEscape?.();
   }, [onEscape]);
 
+  const handleTransitionEnd = useCallback((event: React.TransitionEvent<HTMLDivElement>) => {
+    if (event.target !== cardRef.current || event.propertyName !== "opacity" || transitionState !== "exiting") return;
+    setTransitionState("hidden");
+  }, [transitionState]);
+
+  if (transitionState === "hidden") return null;
+
+  const cardStyle: React.CSSProperties = {
+    opacity: transitionState === "exiting" ? 0 : 1,
+    pointerEvents: transitionState === "exiting" ? "none" : undefined,
+    transition: reducedMotion ? "none" : "opacity 120ms ease",
+  };
+
   if (isFailed) {
     return (
-      <div className="flex justify-center px-4 py-10" data-testid="chat-launch-failed" onKeyDown={handleKeyDown}>
+      <div ref={cardRef} className="chat-launch-overlay flex justify-center px-4 py-10" data-testid="chat-launch-failed" data-transition-state={transitionState} onKeyDown={handleKeyDown} onTransitionEnd={handleTransitionEnd} style={cardStyle}>
         <div className="flex w-full max-w-sm flex-col items-center text-center">
           <div
             className="chat-launch-ring chat-launch-ring-failed"
@@ -161,15 +204,15 @@ export function ChatSetupState({
     );
   }
 
-  if (view.kind !== "starting") return null;
+  if (view.kind !== "starting" && transitionState !== "exiting") return null;
 
   const progress = STAGE_PROGRESS[pane?.boot_stage ?? ""] ?? 16;
   const project = projectFact(pane, projectName);
   const facts = [providerName, pane?.agent_session_model, project].filter(Boolean).join(" · ");
   const eyebrow = teamName?.trim() || `Project: ${project}`;
   return (
-    <div className="flex justify-center px-4 py-12" data-testid="chat-setup-state" onKeyDown={handleKeyDown}>
-      <div className="flex w-full max-w-sm flex-col items-center text-center" style={{ transition: "opacity 120ms ease" }}>
+    <div ref={cardRef} className="chat-launch-overlay flex justify-center px-4 py-12" data-testid="chat-setup-state" data-transition-state={transitionState} onKeyDown={handleKeyDown} onTransitionEnd={handleTransitionEnd} style={cardStyle}>
+      <div className="flex w-full max-w-sm flex-col items-center text-center">
         <div className="chat-launch-ring" data-testid="chat-launch-ring" style={{ "--launch-progress": `${progress}%` } as React.CSSProperties}>
           <LaunchGlyph providerName={providerName} iconSvg={providerIconSvg} iconColor={providerIconColor} iconHint={providerIconHint} />
           <span className="chat-launch-ticks" data-testid="chat-launch-ticks" aria-hidden>{Array.from({ length: 8 }, (_, index) => <i key={index} />)}</span>

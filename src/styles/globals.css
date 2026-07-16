@@ -2013,6 +2013,13 @@ button,
   width: 72px;
 }
 
+.chat-launch-overlay {
+  background: var(--ct-bg, #0d1117);
+  inset: 0;
+  position: absolute;
+  z-index: 1;
+}
+
 .chat-launch-ring::before {
   background: var(--ct-bg, #0d1117);
   border-radius: inherit;
