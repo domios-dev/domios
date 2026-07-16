@@ -8,8 +8,8 @@ const ASSIGNED_TASK_START_PROMPT: &str =
 const IDLE_WAKEUP_START_PROMPT: &str =
     "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
 
-fn starter_prompt(params: &AgentLaunchParams) -> &'static str {
-    match params.starter_prompt {
+pub(super) fn starter_prompt_text(prompt: crate::provider::StarterPrompt) -> &'static str {
+    match prompt {
         crate::provider::StarterPrompt::AssignedTask => ASSIGNED_TASK_START_PROMPT,
         crate::provider::StarterPrompt::IdleWakeup => IDLE_WAKEUP_START_PROMPT,
     }
@@ -44,7 +44,9 @@ pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
         parts.push("--append-system-prompt-file".to_string());
         parts.push(ShellSyntax::quote(&path));
         parts.push("--".to_string());
-        parts.push(ShellSyntax::quote(starter_prompt(params)));
+        parts.push(ShellSyntax::quote(starter_prompt_text(
+            params.starter_prompt,
+        )));
     }
 
     parts.join(" ")

@@ -37,6 +37,9 @@ var TUI_FRAGMENTS = [
   "run everything"
 ];
 var plugin = {
+  starterPromptText(prompt) {
+    return prompt === "idle_wakeup" ? "You are a newly started agent. Wait for instructions from the user or your orchestration parent." : "Execute the assigned task.";
+  },
   detectFromTitle(title) {
     return TITLE_RE.test(String(title || ""));
   },

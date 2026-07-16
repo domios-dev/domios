@@ -37,9 +37,9 @@ pub(crate) struct PendingDelivery {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct FallbackDeliverySpec<'a> {
+pub(crate) struct FallbackDeliverySpec {
     pub channel: PendingDeliveryChannel,
-    pub payload: &'a str,
+    pub payload: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -206,29 +206,36 @@ pub(crate) fn pending_delivery(text: &str) -> PendingDelivery {
 fn pending_record_for(text: &str) -> PendingDeliveryRecord {
     pending_record_for_spec(FallbackDeliverySpec {
         channel: PendingDeliveryChannel::InteractiveInput,
-        payload: text,
+        payload: text.to_owned(),
     })
 }
 
-pub(crate) fn fallback_delivery_spec<'a>(
-    fallback_bootstrap: Option<&'a str>,
-    task: Option<&'a str>,
-) -> Option<FallbackDeliverySpec<'a>> {
+pub(crate) fn fallback_delivery_spec(
+    fallback_bootstrap: Option<&str>,
+    task: Option<&str>,
+    starter_text: Option<&str>,
+) -> Option<FallbackDeliverySpec> {
+    if let (Some(bootstrap), Some(starter)) = (fallback_bootstrap, starter_text) {
+        return Some(FallbackDeliverySpec {
+            channel: PendingDeliveryChannel::FallbackBootstrap,
+            payload: format!("{bootstrap}\n\n{starter}"),
+        });
+    }
     fallback_bootstrap
         .map(|payload| FallbackDeliverySpec {
             channel: PendingDeliveryChannel::FallbackBootstrap,
-            payload,
+            payload: payload.to_owned(),
         })
         .or_else(|| {
             task.map(|payload| FallbackDeliverySpec {
                 channel: PendingDeliveryChannel::InteractiveInput,
-                payload,
+                payload: payload.to_owned(),
             })
         })
 }
 
-pub(crate) fn pending_record_for_spec(spec: FallbackDeliverySpec<'_>) -> PendingDeliveryRecord {
-    PendingDeliveryRecord::new(pending_delivery(spec.payload).digest, spec.channel)
+pub(crate) fn pending_record_for_spec(spec: FallbackDeliverySpec) -> PendingDeliveryRecord {
+    PendingDeliveryRecord::new(pending_delivery(&spec.payload).digest, spec.channel)
 }
 
 pub(crate) fn next_attempt() -> DeliveryAttemptProvenance {
@@ -316,10 +323,7 @@ mod tests {
     #[test]
     fn no_task_manager_starter_is_idle_only() {
         let starter = starter_prompt_for_assignment(false);
-        assert_eq!(starter.text(), "You are a newly started agent. Wait for instructions from the user or your orchestration parent.");
-        for forbidden in ["execute", "scan", "plan", "tool"] {
-            assert!(!starter.text().to_ascii_lowercase().contains(forbidden));
-        }
+        assert_eq!(starter, crate::agent::provider::StarterPrompt::IdleWakeup);
         let identity = crate::service::role_identity::ManagerBootstrapInputs {
             role: "Orchestrator".into(),
             team_id: "not yet established".into(),
@@ -336,8 +340,8 @@ mod tests {
     #[test]
     fn task_bound_worker_starter_unchanged() {
         assert_eq!(
-            starter_prompt_for_assignment(true).text(),
-            "Execute the assigned task. Follow the provided developer instructions."
+            starter_prompt_for_assignment(true),
+            crate::agent::provider::StarterPrompt::AssignedTask
         );
     }
 
@@ -390,18 +394,18 @@ mod tests {
         assert_eq!(delivery.fallback.as_deref(), Some(bootstrap.as_str()));
         let launch_content = format!("{bootstrap}\n\nUser work must not be submitted here.");
         assert_eq!(
-            fallback_delivery_spec(Some(&bootstrap), Some(&launch_content)),
+            fallback_delivery_spec(Some(&bootstrap), Some(&launch_content), None),
             Some(FallbackDeliverySpec {
                 channel: PendingDeliveryChannel::FallbackBootstrap,
-                payload: bootstrap.as_str(),
+                payload: bootstrap.clone(),
             })
         );
 
-        let spec = fallback_delivery_spec(Some(&bootstrap), Some(&launch_content)).unwrap();
+        let spec = fallback_delivery_spec(Some(&bootstrap), Some(&launch_content), None).unwrap();
         let mut pending = pending_record_for_spec(spec.clone());
         assert_eq!(
             pending.content_digest,
-            pending_delivery(spec.payload).digest
+            pending_delivery(&spec.payload).digest
         );
         assert_eq!(pending.channel, PendingDeliveryChannel::FallbackBootstrap);
         assert_eq!(

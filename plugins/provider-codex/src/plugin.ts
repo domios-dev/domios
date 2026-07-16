@@ -28,6 +28,7 @@ function starterPrompt(params: LaunchParams): string {
 }
 
 const plugin: PluginModule = {
+  starterPromptText(prompt: "assigned_task" | "idle_wakeup"): string { return prompt === "idle_wakeup" ? IDLE_WAKEUP_START_PROMPT : ASSIGNED_TASK_START_PROMPT; },
   detectFromTitle(title: string): boolean {
     return TITLE_RE.test(String(title || ""));
   },

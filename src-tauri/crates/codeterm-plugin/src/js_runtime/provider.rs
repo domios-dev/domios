@@ -294,6 +294,10 @@ impl AgentProvider for JsProvider {
             .unwrap_or_default()
     }
 
+    fn starter_prompt_text(&self, prompt: crate::provider::StarterPrompt) -> Option<String> {
+        self.try_call::<String>("starterPromptText", &[json!(prompt)])
+    }
+
     fn readiness_strategy(&self) -> ReadinessStrategy {
         (&self.manifest.spawn.readiness_strategy).into()
     }

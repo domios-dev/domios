@@ -81,6 +81,7 @@ export interface ParsedPrompt {
 }
 
 export interface AgentProvider {
+  starterPromptText?(prompt: "assigned_task" | "idle_wakeup"): string;
   detectFromTitle?(title: string): boolean;
   detectFromOutput?(text: string): boolean;
   screenHasTui?(screen: string): boolean;

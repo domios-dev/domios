@@ -17,6 +17,7 @@ const TUI_FRAGMENTS = [
 ];
 
 const plugin: PluginModule = {
+  starterPromptText(prompt: "assigned_task" | "idle_wakeup"): string { return prompt === "idle_wakeup" ? "You are a newly started agent. Wait for instructions from the user or your orchestration parent." : "Execute the assigned task."; },
   detectFromTitle(title: string): boolean {
     return TITLE_RE.test(String(title || ""));
   },

@@ -348,6 +348,7 @@ mod tests {
                     .map(|value| value.compose())
                     .as_deref(),
                 params.task.as_deref(),
+                None,
             )
             .unwrap()
             .channel,
