@@ -18,8 +18,8 @@ use std::time::Duration;
 
 use crate::provider::{
     AgentLaunchParams, AgentProvider, ModelInfo, ReadinessStrategy, SessionIdInjection,
-    SessionMessage, SessionMetadata, SettingField, TaskDelivery, UsageSnapshot,
-    VerifySubmitStrategy,
+    SessionMessage, SessionMetadata, SettingField, SystemPromptDelivery, TaskDelivery,
+    UsageSnapshot, VerifySubmitStrategy,
 };
 
 use super::usage_tui::ClaudeTuiUsageParser;
@@ -103,6 +103,10 @@ impl AgentProvider for ClaudeProvider {
 
     fn task_delivery(&self) -> TaskDelivery {
         TaskDelivery::InlineFlag
+    }
+
+    fn system_prompt_delivery(&self) -> SystemPromptDelivery {
+        SystemPromptDelivery::CliFlag("--append-system-prompt-file".into())
     }
 
     fn verify_submit_strategy(&self) -> VerifySubmitStrategy {
