@@ -210,7 +210,7 @@ test("team menu enables staffing only for a Team with a manager", async () => {
   assert(trigger, "team menu trigger exists");
   assert(trigger.classList.contains("sidebar-team-kebab"), "team menu uses the overlay kebab control");
   assert(trigger.tabIndex === 0, "team menu trigger remains keyboard focusable when visually hidden");
-  assert(/\.sidebar-team-unit\s*\{[^}]*margin:\s*3px 1px;/.test(sidebarStyles), "Team tint uses the reclaimed 1px horizontal inset");
+  assert(/\.sidebar-team-unit\s*\{[^}]*margin:\s*3px 0;/.test(sidebarStyles), "Team tint reaches the full sidebar width while preserving vertical cadence");
   assert(/\.sidebar-team-header\s*\{[^}]*gap:\s*4px;[^}]*margin:\s*0;[^}]*padding:\s*5px 3px;/.test(sidebarStyles), "Team header keeps the recorded 4px gap and 3px horizontal padding");
   assert(/@container \(max-width:\s*156px\)/.test(sidebarStyles), "compact tally threshold preserves the 160px Team matrix after inset reclaim");
   const collapse = host.querySelector('[data-testid="team-collapse-toggle"]') as HTMLButtonElement | null;
