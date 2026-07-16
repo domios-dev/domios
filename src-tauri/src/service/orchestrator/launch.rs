@@ -79,10 +79,6 @@ fn spawn_backend_pty(svc: &ServiceContext, pane_id: &str) -> Result<String, Stri
 
     let svc_arc = std::sync::Arc::new(svc.clone());
     let prepared = crate::service::pty_lifecycle::prepare_backend_reader(&svc_arc, &pty_id);
-    if let Some(orphan) = svc.mux.write().link_pty(pane_id, pty_id.clone()) {
-        svc.kill_ptys(&[orphan]);
-    }
-    super::pane_relink_signal::notify_pane_relinked();
 
     match prepared {
         Ok(Some(prepared)) => {
@@ -192,7 +188,8 @@ pub(crate) fn launch_agent_in_background(
                 p.agent_booting = value;
             }
         };
-        let mut pty_id = match existing_live_pty(&svc, &pane_id) {
+        let pty_claim = svc.pty_ownership.acquire(&pane_id);
+        let candidate_pty_id = match existing_live_pty(&svc, &pane_id) {
             Some(pty_id) => pty_id,
             None => match spawn_backend_pty(&svc, &pane_id) {
                 Ok(pty_id) => pty_id,
@@ -216,6 +213,19 @@ pub(crate) fn launch_agent_in_background(
                 }
             },
         };
+        let selection = svc.link_pty_with_claim(&pty_claim, &pane_id, candidate_pty_id, true);
+        drop(pty_claim);
+        if !selection.linked {
+            let error = "pane closed before its launch PTY could be linked".to_string();
+            svc.emit_boot_stage(&pane_id, BootStage::SpawnFailed, Some(&error));
+            set_booting(false);
+            let _ = svc.close_tab(&ws_id, &tab_id);
+            if let Some(tx) = ready_tx {
+                let _ = tx.send(Err(error));
+            }
+            return;
+        }
+        let mut pty_id = selection.pty_id;
         svc.emit_boot_stage(&pane_id, BootStage::PtySpawned, None);
         log::info!(
             "launch_agent: pty ready for pane {} after {}ms",
