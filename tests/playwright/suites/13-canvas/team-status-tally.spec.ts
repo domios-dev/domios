@@ -327,7 +327,7 @@ test("@golden @team-status-tally Team status tally keeps every bucket visible ac
     await chevron.press("Enter");
     await expect(chevron).toHaveAttribute("aria-expanded", "true");
     await teamUnit.getByTestId("team-card-activation").press("Enter");
-    await expect(page.getByTestId("canvas-view")).toBeVisible();
+    await expect(page.getByTestId("plan-view-shell")).toBeVisible();
   } finally {
     await closeTallyPage(session);
   }
