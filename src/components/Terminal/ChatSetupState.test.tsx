@@ -54,11 +54,11 @@ async function render(element: React.ReactElement): Promise<HTMLElement> {
 }
 
 async function main() {
-  await test("stage label maps pty stages to terminal prep and launch stages to the provider", () => {
-    assert(chatSetupStageLabel("pty_starting", "Claude Code") === "Preparing Claude Code", "pty_starting");
-    assert(chatSetupStageLabel("pty_spawned", "Claude Code") === "Preparing Claude Code", "pty_spawned");
-    assert(chatSetupStageLabel("shell_ready", "Claude Code") === "Starting Claude Code", "shell_ready");
-    assert(chatSetupStageLabel("agent_launching", "Claude Code") === "Starting Claude Code", "agent_launching");
+  await test("stage labels are launch-event labels", () => {
+    assert(chatSetupStageLabel("pty_starting", "Claude Code") === "Spawn accepted…", "pty_starting");
+    assert(chatSetupStageLabel("pty_spawned", "Claude Code") === "Spawn accepted…", "pty_spawned");
+    assert(chatSetupStageLabel("shell_ready", "Claude Code") === "Session attached…", "shell_ready");
+    assert(chatSetupStageLabel("agent_launching", "Claude Code") === "Preparing claude code instructions…", "agent_launching");
   });
 
   await test("role identity takes precedence over provider during launch", () => {
@@ -78,11 +78,16 @@ async function main() {
   await test("starting renders the setup card with the stage label", async () => {
     const p = pane("agent_launching");
     const host = await render(
-      <ChatSetupState pane={p} view={chatSetupView(p)} providerId="claude" providerName="Claude Code" />,
+      <ChatSetupState pane={p} view={chatSetupView(p)} providerName="Claude Code" providerIconSvg="<svg><path /></svg>" providerIconColor="#d97757" />,
     );
     assert(host.querySelector('[data-testid="chat-setup-state"]'), "setup card rendered");
     const stage = host.querySelector('[data-testid="chat-setup-stage"]');
-    assert(stage?.textContent?.includes("Starting Claude Code"), "stage label shows the provider");
+    assert(stage?.textContent?.includes("Preparing claude code instructions"), "stage label shows the launch event");
+    assert(host.querySelector('[data-testid="chat-launch-glyph"]')?.getAttribute("aria-label") === "Claude Code", "glyph is named by descriptor display name");
+    assert(host.querySelector('[data-testid="chat-launch-ring"]'), "thin conic ring rendered");
+    assert(host.querySelector('[data-testid="chat-launch-role"]')?.textContent === "Claude Code", "role line rendered");
+    assert(host.querySelector('[data-testid="chat-launch-facts"]')?.textContent?.includes("Claude Code"), "facts line rendered");
+    assert(stage?.getAttribute("aria-live") === "polite", "stage is polite live region");
   });
 
   await test("history can keep rendering while the compact boot status remains visible", async () => {
@@ -91,7 +96,7 @@ async function main() {
     );
     const status = host.querySelector('[data-testid="chat-setup-status-line"]');
     assert(status, "compact status rendered");
-    assert(status.textContent?.includes("Preparing Codex"), "real boot stage is shown");
+    assert(status.textContent?.includes("Spawn accepted"), "real boot stage is shown");
   });
 
   await test("compact boot status disappears when the provider is ready", async () => {
@@ -101,15 +106,16 @@ async function main() {
     assert(!host.querySelector('[data-testid="chat-setup-status-line"]'), "ready status hidden");
   });
 
-  await test("failed renders the reason and an Inspect-in-Terminal action", async () => {
-    const p = pane("spawn_failed", "pty is closed");
+  await test("failed renders plain language without raw backend failure text", async () => {
+    const p = pane("spawn_failed", "SYSTEM REMINDER: secret launch details");
     let opened = false;
+    let retried = false;
     const host = await render(
       <ChatSetupState
         pane={p}
         view={chatSetupView(p)}
-        providerId="claude"
         providerName="Claude Code"
+        onRetry={() => { retried = true; }}
         onOpenTerminal={() => {
           opened = true;
         }}
@@ -117,20 +123,21 @@ async function main() {
     );
     const card = host.querySelector('[data-testid="chat-launch-failed"]');
     assert(card, "failed card rendered");
-    assert(card.textContent?.includes("Claude Code failed to launch"), "names the provider");
-    assert(card.textContent?.includes("pty is closed"), "shows the reason");
-    const btn = host.querySelector('[data-testid="chat-launch-failed-open-terminal"]') as HTMLButtonElement | null;
-    assert(btn, "inspect button present");
+    assert(card.textContent?.includes("Claude Code could not start"), "names the provider");
+    assert(!card.textContent?.includes("SYSTEM REMINDER"), "raw reminder text is never rendered");
+    const btn = host.querySelector('[data-testid="chat-launch-retry"]') as HTMLButtonElement | null;
+    assert(btn, "retry button present");
     await act(async () => {
       btn.click();
     });
-    assert(opened, "inspect button opens the terminal");
+    assert(retried, "retry routes through launch retry callback");
+    assert(!opened, "show log is withheld until a second failure");
   });
 
   await test("ready renders nothing (empty-state text stays the caller's job)", async () => {
     const p = pane("agent_ready");
     const host = await render(
-      <ChatSetupState pane={p} view={chatSetupView(p)} providerId="claude" providerName="Claude Code" />,
+      <ChatSetupState pane={p} view={chatSetupView(p)} providerName="Claude Code" />,
     );
     assert(!host.querySelector('[data-testid="chat-setup-state"]'), "no setup card");
     assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "no failed card");

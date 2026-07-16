@@ -201,6 +201,16 @@ export function PaneSessionChat({
     onOpenTerminalFallback?.();
   }, [onOpenTerminalFallback]);
 
+  const handleLaunchRetry = useCallback(() => {
+    void invoke("restart_general_agent_pane", { paneId }).catch((error) =>
+      showComposerError(error instanceof Error ? error.message : String(error)),
+    );
+  }, [paneId, showComposerError]);
+
+  const focusComposer = useCallback(() => {
+    chatRootRef.current?.querySelector<HTMLTextAreaElement>("textarea")?.focus();
+  }, []);
+
   const handleStopAgent = useCallback(() => {
     if (!currentPtyId) {
       showComposerError("Pane has no PTY");
@@ -518,9 +528,13 @@ export function PaneSessionChat({
             <ChatSetupState
               pane={pane}
               view={bootSetupView}
-              providerId={provider?.id}
               providerName={provider?.displayName ?? "the agent"}
+              providerIconSvg={provider?.iconSvg}
+              providerIconColor={provider?.iconColor}
+              providerIconHint={provider?.iconHint}
+              onRetry={handleLaunchRetry}
               onOpenTerminal={onOpenTerminalFallback}
+              onEscape={focusComposer}
             />
           ) : (
             <div className="opacity-50 text-center py-8 text-sm" data-testid="chat-empty-state">
