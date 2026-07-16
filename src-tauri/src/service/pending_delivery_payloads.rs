@@ -179,7 +179,8 @@ impl PendingDeliveryPayloadStore {
 
     #[cfg(windows)]
     fn restrict_file_permissions(&self, path: &Path) -> Result<(), PayloadStoreError> {
-        restrict_windows_acl(path).map_err(|error| self.io("payload", error))
+        let _ = path;
+        Ok(())
     }
 
     #[cfg(not(any(unix, windows)))]
@@ -195,6 +196,8 @@ impl PendingDeliveryPayloadStore {
 
 #[cfg(windows)]
 fn restrict_windows_acl(path: &Path) -> std::io::Result<()> {
+    #[cfg(test)]
+    ACL_SETUP_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let username = std::env::var("USERNAME")
         .ok()
         .filter(|username| !username.is_empty())
@@ -204,16 +207,36 @@ fn restrict_windows_acl(path: &Path) -> std::io::Result<()> {
         path.as_os_str(),
         std::ffi::OsStr::new("/inheritance:r"),
         std::ffi::OsStr::new("/grant:r"),
-        std::ffi::OsStr::new(&format!("{username}:(F)")),
+        std::ffi::OsStr::new(&format!("{username}:(OI)(CI)(F)")),
     ]);
     crate::process_util::no_window_std(&mut command);
     let output = command.output()?;
-    if output.status.success() {
-        Ok(())
-    } else {
+    if !output.status.success() {
         Err(std::io::Error::other("icacls rejected payload ACL"))
+    } else {
+        let mut verify = std::process::Command::new("icacls");
+        verify.arg(path);
+        crate::process_util::no_window_std(&mut verify);
+        let output = verify.output()?;
+        let acl = String::from_utf8_lossy(&output.stdout).to_ascii_lowercase();
+        let user = username.to_ascii_lowercase();
+        if acl.contains(&user)
+            && acl.contains("(oi)")
+            && acl.contains("(ci)")
+            && !acl.contains("builtin\\users")
+            && !acl.contains("everyone:")
+        {
+            Ok(())
+        } else {
+            Err(std::io::Error::other(
+                "payload directory ACL is not restrictive",
+            ))
+        }
     }
 }
+
+#[cfg(all(windows, test))]
+static ACL_SETUP_CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 #[cfg(test)]
 mod tests {
@@ -346,7 +369,32 @@ mod tests {
                 .unwrap();
             let acl = String::from_utf8_lossy(&output.stdout).to_ascii_lowercase();
             assert!(acl.contains(&std::env::var("USERNAME").unwrap().to_ascii_lowercase()));
+            assert!(!acl.contains("builtin\\users"));
+            assert!(!acl.contains("everyone:"));
         }
+    }
+
+    #[test]
+    fn write_and_replace_do_not_run_acl_setup_after_open() {
+        let temp = tempfile::tempdir().unwrap();
+        let first = "first payload";
+        let second = "second payload";
+        let first_digest = digest(first);
+        let second_digest = digest(second);
+        let store = PendingDeliveryPayloadStore::open(temp.path(), &HashSet::new()).unwrap();
+        #[cfg(windows)]
+        let calls_after_open = ACL_SETUP_CALLS.load(std::sync::atomic::Ordering::Relaxed);
+
+        store.write(&first_digest, first).unwrap();
+        store
+            .replace(Some(&first_digest), &second_digest, second)
+            .unwrap();
+
+        #[cfg(windows)]
+        assert_eq!(
+            ACL_SETUP_CALLS.load(std::sync::atomic::Ordering::Relaxed),
+            calls_after_open
+        );
     }
 
     #[test]
