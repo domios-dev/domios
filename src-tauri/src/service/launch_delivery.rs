@@ -85,6 +85,20 @@ pub(crate) fn pending_record_for(text: &str) -> PendingDeliveryRecord {
     )
 }
 
+pub(crate) fn fallback_payload<'a>(
+    fallback_bootstrap: Option<&'a str>,
+    task: Option<&'a str>,
+) -> Option<&'a str> {
+    fallback_bootstrap.or(task)
+}
+
+pub(crate) fn pending_bootstrap_record_for(text: &str) -> PendingDeliveryRecord {
+    PendingDeliveryRecord::new(
+        pending_delivery(text).digest,
+        PendingDeliveryChannel::FallbackBootstrap,
+    )
+}
+
 pub(crate) fn next_attempt() -> DeliveryAttemptProvenance {
     let started_at_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -200,6 +214,59 @@ mod tests {
         confirm_fallback(&mut pending, true).unwrap();
         assert_eq!(pending.state(), PendingDeliveryState::Confirmed);
         confirm_fallback(&mut pending, false).unwrap();
+    }
+
+    #[test]
+    fn pair_fallback_bootstrap_submits_identity_once_without_work() {
+        let bootstrap = crate::service::role_identity::ManagerBootstrapInputs {
+            role: "Orchestrator".into(),
+            team_id: "not yet established".into(),
+            team_name: "not yet established".into(),
+            plan_id: "no plan bound yet".into(),
+            project: "Manager Bootstrap Fixture".into(),
+        }
+        .compose();
+        let delivery = content_for_descriptor(&SystemPromptDelivery::External, Some(&bootstrap));
+        assert_eq!(delivery.fallback.as_deref(), Some(bootstrap.as_str()));
+        let launch_content = format!("{bootstrap}\n\nUser work must not be submitted here.");
+        assert_eq!(
+            fallback_payload(Some(&bootstrap), Some(&launch_content)),
+            Some(bootstrap.as_str())
+        );
+
+        let mut pending = pending_bootstrap_record_for(&bootstrap);
+        assert_eq!(pending.channel, PendingDeliveryChannel::FallbackBootstrap);
+        assert_eq!(
+            pending.provenance,
+            crate::multiplexer::types::PendingDeliveryProvenance::FallbackBootstrap
+        );
+        begin_fallback_attempt(
+            &mut pending,
+            DeliveryAttemptProvenance {
+                attempt_id: "bootstrap".into(),
+                started_at_ms: 1,
+            },
+        )
+        .unwrap();
+
+        let sink = RecordingSink::default();
+        let mut submissions = 0;
+        dispatch_initial_delivery(
+            LaunchDeliveryMode::ConfirmedFallback,
+            &sink,
+            "pair-pane",
+            Some(|| submissions += 1),
+        );
+        confirm_fallback(&mut pending, true).unwrap();
+        if pending.state() != PendingDeliveryState::Confirmed {
+            dispatch_initial_delivery(
+                LaunchDeliveryMode::ConfirmedFallback,
+                &sink,
+                "pair-pane",
+                Some(|| submissions += 1),
+            );
+        }
+        assert_eq!(submissions, 1);
     }
 
     #[test]

@@ -448,7 +448,7 @@ impl ServiceContext {
             &params.cwd.clone().unwrap_or_default(),
         );
 
-        if let Some(bootstrap) = params.manager_bootstrap.as_ref() {
+        let fallback_bootstrap = if let Some(bootstrap) = params.manager_bootstrap.as_ref() {
             self.emit_boot_stage(
                 &pane_id,
                 crate::service::boot_stage::BootStage::PreparingRoleInstructions,
@@ -457,9 +457,12 @@ impl ServiceContext {
             let bootstrap = bootstrap.compose();
             params.task = Some(match params.task.take() {
                 Some(task) => format!("{bootstrap}\n\n{task}"),
-                None => bootstrap,
+                None => bootstrap.clone(),
             });
-        }
+            Some(bootstrap)
+        } else {
+            None
+        };
 
         let bg_task = if params.manager_bootstrap.is_some() {
             params.task.clone()
@@ -555,6 +558,7 @@ impl ServiceContext {
             launch_cmd,
             agent_cmd.clone(),
             bg_task,
+            fallback_bootstrap,
             ready_tx,
         );
 

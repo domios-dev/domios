@@ -202,6 +202,15 @@ pub enum PaneBacking {
 pub enum PendingDeliveryChannel {
     SystemPrompt,
     InteractiveInput,
+    FallbackBootstrap,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PendingDeliveryProvenance {
+    SystemPrompt,
+    InteractiveInput,
+    FallbackBootstrap,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -221,6 +230,7 @@ pub enum PendingDeliveryState {
 pub struct PendingDeliveryRecord {
     pub content_digest: String,
     pub channel: PendingDeliveryChannel,
+    pub provenance: PendingDeliveryProvenance,
     state: PendingDeliveryState,
     attempt_provenance: Option<DeliveryAttemptProvenance>,
 }
@@ -233,9 +243,17 @@ pub enum PendingDeliveryTransitionError {
 
 impl PendingDeliveryRecord {
     pub fn new(content_digest: String, channel: PendingDeliveryChannel) -> Self {
+        let provenance = match channel {
+            PendingDeliveryChannel::SystemPrompt => PendingDeliveryProvenance::SystemPrompt,
+            PendingDeliveryChannel::InteractiveInput => PendingDeliveryProvenance::InteractiveInput,
+            PendingDeliveryChannel::FallbackBootstrap => {
+                PendingDeliveryProvenance::FallbackBootstrap
+            }
+        };
         Self {
             content_digest,
             channel,
+            provenance,
             state: PendingDeliveryState::Pending,
             attempt_provenance: None,
         }
