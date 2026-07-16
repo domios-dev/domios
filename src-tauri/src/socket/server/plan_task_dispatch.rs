@@ -176,7 +176,7 @@ pub(super) fn dispatch(
     // A personality is the executor persona: it names the pane and opens the brief.
     let (explicit_persona, title_provenance) = dispatch_worker_identity(&detail.task);
 
-    let spawn_params = SpawnAgentParams {
+    let mut spawn_params = SpawnAgentParams {
         agent: routing.agent.clone(),
         cwd: owned_str(p, "cwd"),
         title: explicit_persona,
@@ -193,8 +193,20 @@ pub(super) fn dispatch(
         ..Default::default()
     };
 
+    let lane_label = format!("{plan_id}-{task_id}");
+    let lane = svc
+        .provision_worker_lane_for_spawn(&mut spawn_params, &lane_label)
+        .map_err(spawn_failed)?;
     // Spawn first: a spawn failure leaves the task untouched — nothing to undo.
-    let spawn = svc.spawn_agent_sync(spawn_params).map_err(spawn_failed)?;
+    let spawn = match svc.spawn_agent_sync(spawn_params) {
+        Ok(spawn) => spawn,
+        Err(error) => {
+            if let Some(lane) = lane {
+                lane.cleanup();
+            }
+            return Err(spawn_failed(error));
+        }
+    };
     let pane_id = spawn.pane_id.clone();
 
     let outcome = (|| -> Result<(), JsonRpcError> {

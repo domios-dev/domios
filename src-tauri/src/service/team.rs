@@ -48,10 +48,27 @@ impl ServiceContext {
                 },
             )?
         };
-        let pane_id = self
-            .spawn_agent_with_state_change(prepared.spawn_params, None, false)
-            .await?
-            .pane_id;
+        let mut spawn_params = prepared.spawn_params;
+        let lane_label = format!("team-{team_id}");
+        let service = self.clone();
+        let (spawn_params, mut lane) = tauri::async_runtime::spawn_blocking(move || {
+            let lane = service.provision_worker_lane_for_spawn(&mut spawn_params, &lane_label)?;
+            Ok::<_, String>((spawn_params, lane))
+        })
+        .await
+        .map_err(|error| format!("worker lane provisioning failed: {error}"))??;
+        let spawn = self
+            .spawn_agent_with_state_change(spawn_params, None, false)
+            .await;
+        let pane_id = match spawn {
+            Ok(spawn) => spawn.pane_id,
+            Err(error) => {
+                if let Some(lane) = lane.take() {
+                    let _ = tauri::async_runtime::spawn_blocking(move || lane.cleanup()).await;
+                }
+                return Err(error);
+            }
+        };
         let result = {
             let mut mux = self.mux.write();
             commit_team_member_spawn(
@@ -63,7 +80,16 @@ impl ServiceContext {
                 &prepared.expected_role,
                 &prepared.expected_profile,
             )
-        }?;
+        };
+        let result = match result {
+            Ok(result) => result,
+            Err(error) => {
+                if let Some(lane) = lane.take() {
+                    let _ = tauri::async_runtime::spawn_blocking(move || lane.cleanup()).await;
+                }
+                return Err(error);
+            }
+        };
         self.emit_state_changed_after_bus_publish();
         Ok(result)
     }
