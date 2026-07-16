@@ -461,6 +461,28 @@ impl ServiceContext {
                 &pane_id,
                 &resolved_cwd.clone().unwrap_or_default(),
             );
+        if let Some(task) = role_suffixed_task.as_deref().filter(|_| {
+            self.agent_registry
+                .with_provider(&agent_cmd, |provider| {
+                    matches!(
+                        crate::service::launch_delivery::mode_for_descriptor(
+                            &provider.system_prompt_delivery(),
+                        ),
+                        crate::service::launch_delivery::LaunchDeliveryMode::ConfirmedFallback
+                    )
+                })
+                .unwrap_or(true)
+        }) {
+            if let Err(error) = self.create_pending_delivery(
+                &pane_id,
+                crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
+                task,
+            ) {
+                let _ = self.mux.write().close_tab(&ws_id, &tab_id);
+                self.emit_state_changed();
+                return Err(error.to_string());
+            }
+        }
         let launch_cmd = build_agent_command(
             &agent_cmd,
             &legacy_params,

@@ -39,6 +39,7 @@ pub mod pane_budget;
 pub mod pane_chat;
 pub mod pane_transport;
 pub mod pane_transport_chat;
+pub(crate) mod pending_delivery_payloads;
 pub mod plan;
 mod plan_reconcile;
 pub mod plugin_host;
@@ -229,6 +230,8 @@ pub struct ServiceContext {
         Arc<parking_lot::Mutex<std::collections::HashSet<std::path::PathBuf>>>,
     pub plan_startup_loaded: Arc<AtomicBool>,
     pub plan_turn_counter: Arc<crate::service::plan::reminders::TurnCounter>,
+    pub(crate) pending_delivery_payloads:
+        Arc<pending_delivery_payloads::PendingDeliveryPayloadStore>,
     pub(crate) worker_identity_allocator:
         Arc<parking_lot::Mutex<worker_persona::WorkerPersonaReservations>>,
 }
@@ -264,6 +267,104 @@ pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
 }
 
 impl ServiceContext {
+    pub(crate) fn create_pending_delivery(
+        &self,
+        pane_id: &str,
+        channel: crate::multiplexer::types::PendingDeliveryChannel,
+        payload: &str,
+    ) -> Result<String, pending_delivery_payloads::PayloadStoreError> {
+        use sha2::Digest;
+        let digest = format!("{:x}", sha2::Sha256::digest(payload.as_bytes()));
+        self.pending_delivery_payloads.write(&digest, payload)?;
+        let mut mux = self.mux.write();
+        let pane = mux.get_pane_mut(pane_id).ok_or_else(|| {
+            pending_delivery_payloads::PayloadStoreError::Io {
+                digest: digest.clone(),
+                message: format!("pane {pane_id} vanished while creating pending delivery"),
+            }
+        })?;
+        pane.pending_delivery = Some(crate::multiplexer::types::PendingDeliveryRecord::new(
+            digest.clone(),
+            channel,
+        ));
+        drop(mux);
+        crate::service::session_persist::persist_session_after_mutation(
+            self,
+            crate::service::session_persist::SessionPersistUrgency::Prompt,
+        )
+        .map_err(|message| pending_delivery_payloads::PayloadStoreError::Io {
+            digest: digest.clone(),
+            message,
+        })?;
+        Ok(digest)
+    }
+
+    pub(crate) fn resolve_pending_delivery(
+        &self,
+        pane_id: &str,
+    ) -> Result<Option<String>, pending_delivery_payloads::PayloadStoreError> {
+        use crate::multiplexer::types::{PendingDeliveryChannel, PendingDeliveryState};
+        let pending = self
+            .mux
+            .read()
+            .get_pane(pane_id)
+            .and_then(|pane| pane.pending_delivery.clone());
+        match pending {
+            Some(record)
+                if record.state() == PendingDeliveryState::Pending
+                    && record.channel == PendingDeliveryChannel::InteractiveInput =>
+            {
+                self.pending_delivery_payloads
+                    .resolve(&record.content_digest)
+                    .map(Some)
+            }
+            _ => Ok(None),
+        }
+    }
+
+    pub(crate) fn confirm_pending_delivery(
+        &self,
+        pane_id: &str,
+    ) -> Result<(), pending_delivery_payloads::PayloadStoreError> {
+        use crate::multiplexer::types::{PendingDeliveryChannel, PendingDeliveryState};
+        let digest = self
+            .mux
+            .read()
+            .get_pane(pane_id)
+            .and_then(|pane| pane.pending_delivery.as_ref())
+            .filter(|record| {
+                record.state() == PendingDeliveryState::Pending
+                    && record.channel == PendingDeliveryChannel::InteractiveInput
+            })
+            .map(|record| record.content_digest.clone());
+        let Some(digest) = digest else { return Ok(()) };
+        let mut mux = self.mux.write();
+        let pane = mux.get_pane_mut(pane_id).ok_or_else(|| {
+            pending_delivery_payloads::PayloadStoreError::Io {
+                digest: digest.clone(),
+                message: "pane vanished while confirming pending delivery".into(),
+            }
+        })?;
+        if let Some(record) = pane.pending_delivery.as_mut() {
+            record
+                .confirm()
+                .map_err(|error| pending_delivery_payloads::PayloadStoreError::Io {
+                    digest: record.content_digest.clone(),
+                    message: format!("{error:?}"),
+                })?;
+        }
+        drop(mux);
+        crate::service::session_persist::persist_session_after_mutation(
+            self,
+            crate::service::session_persist::SessionPersistUrgency::Prompt,
+        )
+        .map_err(|message| pending_delivery_payloads::PayloadStoreError::Io {
+            digest: digest.clone(),
+            message,
+        })?;
+        self.pending_delivery_payloads.delete(&digest)?;
+        Ok(())
+    }
     // ── Event helpers (used by all sub-modules) ─────────────────────
 
     /// Notify the UI that an orchestrator's remote (cross-mesh) workers changed.
