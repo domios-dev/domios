@@ -126,7 +126,7 @@ export function Sidebar({
   const [claudeSkipPerms, setClaudeSkipPerms] = useState(false);
   const [claudeRememberChoice, setClaudeRememberChoice] = useState(false);
   const [orchestrationModal, setOrchestrationModal] = useState<{ workspaceId: string } | null>(null);
-  const { providers } = useAgentProviders();
+  const { providers, loading: providersLoading } = useAgentProviders();
   const { index: planIndex } = usePlanIndexOptional();
   const fullPlans = useFullPlansOptional();
   const activeWork = useMemo(
@@ -569,6 +569,7 @@ export function Sidebar({
                       activeWork={activeWork}
                       remoteWorkers={remoteWorkers}
                       providers={visibleProviders}
+                      providersLoading={providersLoading}
                       closingTabIds={new Set(closingTabs.keys())}
                       appearingTabIds={appearingTabs}
                       isActiveVisual={generalActive}
@@ -736,6 +737,7 @@ export function Sidebar({
                           activeWork={activeWork}
                           remoteWorkers={remoteWorkers}
                           providers={visibleProviders}
+                          providersLoading={providersLoading}
                           closingTabIds={new Set(closingTabs.keys())}
                           appearingTabIds={appearingTabs}
                           isActiveVisual={isActiveVisual}

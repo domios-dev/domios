@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { ClipboardList, ChevronRight, LogOut, UsersRound } from "lucide-react";
 import type { Pane, ProviderDescriptor, Team } from "../../lib/types";
 import { TASK_STATUS_COLORS } from "../Canvas/settings";
+import { ProviderGlyph } from "../ProviderGlyph";
 import type { Plan } from "../Canvas/types";
 import { BOARD_COLUMN_DEFS, groupTasksIntoColumns } from "../Canvas/planView/boardModel";
 import { summarizeWorkers } from "./orchestrationSections";
@@ -16,6 +17,7 @@ export interface SidebarTeamActions {
     role: TeamMemberRole,
     providerId: string,
     managerPaneId: string,
+    model?: string,
   ) => void | Promise<void>;
   onCloseTeam?: (teamId: string, managerPaneId: string) => void | Promise<void>;
 }
@@ -70,19 +72,23 @@ export function teamDonutBackground(buckets: TeamTaskBucket[]): string {
 
 interface TeamMenuProps {
   providers: ProviderDescriptor[];
+  providersLoading?: boolean;
   onRename?: () => void;
-  onAddMember?: (role: TeamMemberRole, providerId: string) => void | Promise<void>;
+  onAddMember?: (role: TeamMemberRole, providerId: string, model?: string) => void | Promise<void>;
   onCloseTeam?: () => void;
 }
 
-function TeamMenu({ providers, onRename, onAddMember, onCloseTeam }: TeamMenuProps) {
+function TeamMenu({ providers, providersLoading = false, onRename, onAddMember, onCloseTeam }: TeamMenuProps) {
   const [open, setOpen] = useState(false);
   const [providerRole, setProviderRole] = useState<TeamMemberRole | null>(null);
+  const [selectedProvider, setSelectedProvider] = useState<ProviderDescriptor | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [addingMember, setAddingMember] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const providerStepRefs = useRef(new Map<string, HTMLButtonElement>());
+  const pendingProviderFocus = useRef<string | null>(null);
   const addingMemberRef = useRef(false);
   const spawnProviders = providers.filter(
     (provider) => provider.transport === "pty" || provider.transport === "chat_backend",
@@ -95,27 +101,37 @@ function TeamMenu({ providers, onRename, onAddMember, onCloseTeam }: TeamMenuPro
       if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) {
         setOpen(false);
         setProviderRole(null);
+        setSelectedProvider(null);
       }
     };
     document.addEventListener("mousedown", close, true);
     return () => document.removeEventListener("mousedown", close, true);
   }, [open]);
 
+  useEffect(() => {
+    const providerId = pendingProviderFocus.current;
+    if (selectedProvider || !providerId) return;
+    pendingProviderFocus.current = null;
+    providerStepRefs.current.get(providerId)?.focus();
+  }, [selectedProvider]);
+
   const run = (action: () => void) => {
     setOpen(false);
     setProviderRole(null);
+    setSelectedProvider(null);
     action();
   };
 
-  const addMember = async (role: TeamMemberRole, providerId: string) => {
+  const addMember = async (role: TeamMemberRole, providerId: string, model?: string) => {
     if (!onAddMember || addingMemberRef.current) return;
     addingMemberRef.current = true;
     setAddingMember(true);
     setActionError(null);
     try {
-      await onAddMember(role, providerId);
+      await onAddMember(role, providerId, model);
       setOpen(false);
       setProviderRole(null);
+      setSelectedProvider(null);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "Could not add team member. Try again.");
     } finally {
@@ -153,20 +169,72 @@ function TeamMenu({ providers, onRename, onAddMember, onCloseTeam }: TeamMenuPro
           className="sidebar-team-menu"
           style={position}
           onClick={(e) => e.stopPropagation()}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              setOpen(false);
+              setProviderRole(null);
+              setSelectedProvider(null);
+              return;
+            }
+            if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+            const buttons = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []);
+            const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+            const next = (current + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
+            event.preventDefault();
+            buttons[next]?.focus();
+          }}
         >
-          {providerRole ? (
+          {providerRole && selectedProvider ? (
+            <>
+              <button type="button" onClick={() => {
+                pendingProviderFocus.current = selectedProvider.id;
+                setSelectedProvider(null);
+              }}>
+                <ChevronRight size={11} className="rotate-180" /> Back
+              </button>
+              <div className="sidebar-team-menu-label">Choose model</div>
+              {selectedProvider.available_models?.length ? selectedProvider.available_models.map((model) => (
+                <button
+                  type="button"
+                  key={model.id}
+                  data-testid={`team-picker-model-${model.id}`}
+                  role="radio"
+                  aria-checked={model.id === selectedProvider.default_model}
+                  disabled={addingMember || model.available === false}
+                  onClick={() => void addMember(providerRole, selectedProvider.id, model.id)}
+                >
+                  {model.display_name}
+                </button>
+              )) : (
+                <div data-testid="team-picker-no-models" role="status">This provider requires a model, but none are available.</div>
+              )}
+            </>
+          ) : providerRole ? (
             <>
               <button type="button" onClick={() => setProviderRole(null)}>
                 <ChevronRight size={11} className="rotate-180" /> Back
               </button>
               <div className="sidebar-team-menu-label">Choose agent</div>
-              {onAddMember && spawnProviders.map((provider) => (
+              {providersLoading ? <div data-testid="team-picker-loading" role="status">Loading available providers…</div> : null}
+              {!providersLoading && spawnProviders.length === 0 ? <div data-testid="team-picker-empty" role="status">No providers are available to add.</div> : null}
+              {onAddMember && !providersLoading && spawnProviders.map((provider) => (
                 <button
                   type="button"
                   key={provider.id}
+                  ref={(element) => {
+                    if (element) providerStepRefs.current.set(provider.id, element);
+                  }}
                   disabled={addingMember}
-                  onClick={() => void addMember(providerRole, provider.id)}
+                  onClick={() => {
+                    if ((provider.behavior_config?.model ?? "none") === "none") {
+                      void addMember(providerRole, provider.id);
+                      return;
+                    }
+                    setSelectedProvider(provider);
+                  }}
                 >
+                  <ProviderGlyph iconSvg={provider.icon_svg} iconColor={provider.icon_color} iconHint={provider.icon_hint} title={provider.display_name} />
                   {provider.display_name}
                 </button>
               ))}
@@ -205,9 +273,10 @@ export interface TeamUnitProps {
   workerCount: number;
   workingWorkerCount: number;
   providers: ProviderDescriptor[];
+  providersLoading?: boolean;
   onRenameTeam?: (teamId: string, name: string) => void | Promise<void>;
   onOpenEffort: (target: TeamEffortTarget) => void;
-  onAddMember?: (role: TeamMemberRole, providerId: string) => void | Promise<void>;
+  onAddMember?: (role: TeamMemberRole, providerId: string, model?: string) => void | Promise<void>;
   onCloseTeam?: (teamId: string) => void;
 }
 
@@ -227,6 +296,7 @@ export function TeamUnit({
   workerCount,
   workingWorkerCount,
   providers,
+  providersLoading,
   onRenameTeam,
   onOpenEffort,
   onAddMember,
@@ -330,6 +400,7 @@ export function TeamUnit({
           )}
             <TeamMenu
               providers={providers}
+              providersLoading={providersLoading}
               onRename={onRenameTeam ? () => {
                 setRenameError(null);
                 setEditing(true);

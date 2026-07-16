@@ -27,7 +27,7 @@ async function run() {
   assert(!JSON.stringify(calls[0]?.args).includes("focused_pane_id"), "rename never sends focus state");
   assert(actions.onAddTeamMember, "staffing is enabled when the bridge is available");
   const callsBeforeStaffing = calls.length;
-  await actions.onAddTeamMember("team-1", "worker", "registry-provider", "manager-pane");
+  await actions.onAddTeamMember("team-1", "worker", "registry-provider", "manager-pane", "model-2");
   assert(calls.length === callsBeforeStaffing + 1, "staffing invokes exactly once");
   const staffingCall = calls[calls.length - 1];
   assert(staffingCall?.command === "mux_add_team_member", "staffing uses the bridge command");
@@ -36,10 +36,24 @@ async function run() {
       teamId: "team-1",
       role: "worker",
       provider: "registry-provider",
+      model: "model-2",
       callerTabId: "manager-pane",
     }),
     "staffing uses the selected manager as caller identity and keeps UI-only ids off the wire",
   );
+  await actions.onAddTeamMember("team-1", "worker", "registry-provider", "manager-pane");
+  const noModelCall = calls[calls.length - 1];
+  assert(
+    JSON.stringify(noModelCall?.args) === JSON.stringify({
+      teamId: "team-1",
+      role: "worker",
+      provider: "registry-provider",
+      callerTabId: "manager-pane",
+    }),
+    "model is absent when the descriptor does not require one",
+  );
+  assert(!JSON.stringify(noModelCall?.args).includes("parentPaneId"), "staffing payload omits parent pane ids");
+  assert(!JSON.stringify(noModelCall?.args).includes("providerId"), "staffing payload uses only the bridge provider key");
   const callsBeforeClose = calls.length;
   await actions.onCloseTeam("team-1", "O1");
   assert(calls.length === callsBeforeClose + 1, "close invokes exactly once");

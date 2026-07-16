@@ -5,6 +5,7 @@ export interface TeamActions {
     role: TeamMemberRole,
     providerId: string,
     managerPaneId: string,
+    model?: string,
   ) => Promise<void>;
   onCloseTeam: (teamId: string, managerPaneId: string) => Promise<void>;
 }
@@ -22,11 +23,12 @@ export function buildTeamActions({
     async onRenameTeam(teamId, name, managerPaneId) {
       await invoke("mux_rename_team", { teamId, name, callerTabId: managerPaneId });
     },
-    async onAddTeamMember(teamId, role, providerId, managerPaneId) {
+    async onAddTeamMember(teamId, role, providerId, managerPaneId, model) {
       await invoke("mux_add_team_member", {
         teamId,
         role,
         provider: providerId,
+        ...(model ? { model } : {}),
         callerTabId: managerPaneId,
       });
     },
