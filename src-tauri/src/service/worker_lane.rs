@@ -40,6 +40,7 @@ impl ServiceContext {
 
         let lane = provision_lane(&cwd, lane_label)?;
         params.cwd = Some(lane.cwd.clone());
+        params.provisioned_cwd = Some(lane.cwd.clone());
         Ok(Some(lane))
     }
 
