@@ -73,18 +73,54 @@ pub(crate) fn restore_and_schedule_launch<F>(
     session_id: Option<&str>,
     cwd: Option<&str>,
     session_valid: bool,
+    payload: Option<String>,
     schedule: F,
 ) -> Result<Option<RestoredLaunch>, String>
 where
-    F: FnOnce(RestoredLaunch),
+    F: FnOnce(RestoredLaunch, Option<String>),
 {
     let Some(launch) =
         claim_restored_launch(mux, pane_id, provider_id, session_id, cwd, session_valid)?
     else {
         return Ok(None);
     };
-    schedule(launch.clone());
+    schedule(launch.clone(), payload);
     Ok(Some(launch))
+}
+
+pub(crate) fn restore_materialization_core<R, B, L>(
+    mux: &MuxState,
+    pane_id: &str,
+    provider_id: &str,
+    session_id: Option<&str>,
+    cwd: Option<&str>,
+    session_valid: bool,
+    resolve_payload: R,
+    boot_stage: B,
+    launcher: L,
+) -> Result<Option<RestoredLaunch>, String>
+where
+    R: FnOnce() -> Result<Option<String>, String>,
+    B: FnOnce(&str),
+    L: FnOnce(RestoredLaunch, Option<String>),
+{
+    let payload = match resolve_payload() {
+        Ok(payload) => payload,
+        Err(error) => {
+            boot_stage(&error);
+            return Err(error);
+        }
+    };
+    restore_and_schedule_launch(
+        mux,
+        pane_id,
+        provider_id,
+        session_id,
+        cwd,
+        session_valid,
+        payload,
+        launcher,
+    )
 }
 
 pub(crate) fn active_pane_lane_base(plan_store: &PlanStore, pane_id: &str) -> Option<String> {
@@ -293,14 +329,25 @@ impl ServiceContext {
                 pane_id
             )
         })?;
-        let scheduled = restore_and_schedule_launch(
+        let scheduled = restore_materialization_core(
             &self.mux,
             pane_id,
             &provider_id,
             session_id.as_deref(),
             cwd.as_deref(),
             session_valid,
-            |launch| {
+            || {
+                self.resolve_pending_delivery(pane_id)
+                    .map_err(|error| error.to_string())
+            },
+            |error| {
+                self.emit_boot_stage(
+                    pane_id,
+                    crate::service::boot_stage::BootStage::SpawnFailed,
+                    Some(error),
+                )
+            },
+            |launch, restored_task| {
                 let pc = crate::config::provider_config(&launch.provider_id);
                 let params = crate::service::SpawnAgentParams {
                     agent: Some(launch.provider_id.clone()),
@@ -324,7 +371,7 @@ impl ServiceContext {
                     ws_id,
                     launch_cmd,
                     launch.provider_id,
-                    None,
+                    restored_task,
                     None,
                 );
             },
