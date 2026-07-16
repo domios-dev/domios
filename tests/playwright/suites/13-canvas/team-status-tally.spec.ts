@@ -137,17 +137,19 @@ async function assertTeamTitleFits(teamUnit: Locator): Promise<void> {
   const geometry = await title.evaluate((element) => {
     const unit = element.closest('[data-testid="team-unit"]')?.getBoundingClientRect();
     const header = element.closest(".sidebar-team-header")?.getBoundingClientRect();
+    const sidebar = element.closest('[data-testid="sidebar"]')?.getBoundingClientRect();
     return {
       clientWidth: element.clientWidth,
       scrollWidth: element.scrollWidth,
       text: element.textContent,
       unitWidth: unit?.width,
+      sidebarWidth: sidebar?.width,
       headerInset: unit && header ? unit.width - header.width : undefined,
     };
   });
   expect(geometry.text, "Team fixture title remains intact").toBe("Team UI QA");
   expect(geometry.scrollWidth, "Team fixture title has no ellipsis or clipping").toBeLessThanOrEqual(geometry.clientWidth);
-  expect(geometry.unitWidth, "edge-to-edge Team unit reclaims the 220px sidebar").toBeGreaterThanOrEqual(218);
+  expect(geometry.unitWidth, "Team unit consumes the sidebar's full available width").toBe(geometry.sidebarWidth);
   expect(geometry.headerInset, "header no longer adds horizontal inset inside the tint block").toBe(0);
 }
 
