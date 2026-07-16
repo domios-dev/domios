@@ -8,6 +8,33 @@ pub(crate) struct RoleIdentityContext<'a> {
     pub role_guidance: &'a str,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ManagerBootstrapInputs {
+    pub role: String,
+    pub team_id: String,
+    pub team_name: String,
+    pub plan_id: String,
+    pub project: String,
+}
+
+impl ManagerBootstrapInputs {
+    pub(crate) fn compose(&self) -> String {
+        let role_guidance = if self.role == "Orchestrator" {
+            crate::prompts::orchestrator_suffix()
+        } else {
+            crate::prompts::planner_suffix()
+        };
+        compose_role_identity(RoleIdentityContext {
+            role: &self.role,
+            team_id: &self.team_id,
+            team_name: &self.team_name,
+            plan_id: &self.plan_id,
+            project: &self.project,
+            role_guidance: &role_guidance,
+        })
+    }
+}
+
 pub(crate) fn compose_role_identity(context: RoleIdentityContext<'_>) -> String {
     crate::prompts::MANAGER_BOOTSTRAP_TEMPLATE
         .replace("{role}", context.role)
