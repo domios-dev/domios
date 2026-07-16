@@ -271,20 +271,20 @@ export function TeamUnit({
       data-expanded={expanded ? "true" : "false"}
       className="sidebar-team-unit"
     >
-      <div className="sidebar-team-header" onClick={() => setExpanded((value) => !value)}>
-        <button
-          type="button"
-          data-testid="team-collapse-toggle"
-          aria-label={expanded ? "Collapse team" : "Expand team"}
-          aria-expanded={expanded}
-          className="sidebar-team-chevron"
-          onClick={(event) => {
-            event.stopPropagation();
+      <div
+        className="sidebar-team-header"
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        onClick={() => setExpanded((value) => !value)}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
             setExpanded((value) => !value);
-          }}
-        >
-          <ChevronRight size={11} />
-        </button>
+          }
+        }}
+      >
         {plan ? (
           <span
             data-testid="team-donut"
@@ -322,7 +322,22 @@ export function TeamUnit({
           {renameError && <div data-testid="team-rename-error" role="alert">{renameError}</div>}
         </span>
         {!expanded && workingWorkerCount > 0 && <span className="sidebar-hierarchy-typing-dots" aria-hidden><span /><span /><span /></span>}
-        {plan && <span data-testid="team-done-count" className="sidebar-team-count">{buckets.find((bucket) => bucket.key === "done")?.count ?? 0}/{buckets.reduce((sum, bucket) => sum + bucket.count, 0)}</span>}
+        <span data-testid="team-progress-slot" className="sidebar-team-progress-slot">
+          {plan && (
+            <span data-testid="team-done-count" className="sidebar-team-count">
+              {buckets.find((bucket) => bucket.key === "done")?.count ?? 0}/{buckets.reduce((sum, bucket) => sum + bucket.count, 0)}
+            </span>
+          )}
+            <TeamMenu
+              providers={providers}
+              onRename={onRenameTeam ? () => {
+                setRenameError(null);
+                setEditing(true);
+              } : undefined}
+              onAddMember={onAddMember}
+              onCloseTeam={onCloseTeam ? () => onCloseTeam(team.id) : undefined}
+            />
+        </span>
         {plan && (
           <span className="sidebar-team-controls">
           <button
@@ -340,15 +355,6 @@ export function TeamUnit({
           </button>
           </span>
         )}
-        <TeamMenu
-          providers={providers}
-          onRename={onRenameTeam ? () => {
-            setRenameError(null);
-            setEditing(true);
-          } : undefined}
-          onAddMember={onAddMember}
-          onCloseTeam={onCloseTeam ? () => onCloseTeam(team.id) : undefined}
-        />
       </div>
       {expanded && (
         <div className="sidebar-team-body">
