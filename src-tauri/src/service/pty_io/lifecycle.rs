@@ -73,17 +73,18 @@ pub(crate) fn restore_and_schedule_launch<F>(
     session_id: Option<&str>,
     cwd: Option<&str>,
     session_valid: bool,
+    payload: Option<String>,
     schedule: F,
 ) -> Result<Option<RestoredLaunch>, String>
 where
-    F: FnOnce(RestoredLaunch),
+    F: FnOnce(RestoredLaunch, Option<String>),
 {
     let Some(launch) =
         claim_restored_launch(mux, pane_id, provider_id, session_id, cwd, session_valid)?
     else {
         return Ok(None);
     };
-    schedule(launch.clone());
+    schedule(launch.clone(), payload);
     Ok(Some(launch))
 }
 
@@ -312,7 +313,8 @@ impl ServiceContext {
             session_id.as_deref(),
             cwd.as_deref(),
             session_valid,
-            |launch| {
+            restored_task,
+            |launch, restored_task| {
                 let pc = crate::config::provider_config(&launch.provider_id);
                 let params = crate::service::SpawnAgentParams {
                     agent: Some(launch.provider_id.clone()),
