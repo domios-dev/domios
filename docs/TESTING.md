@@ -78,7 +78,7 @@ dev daemon or an app bundle; run each oracle under the capped runner:
 ```bash
 TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib service::role_identity::tests::compose_orchestrator_golden -- --exact
 TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib service::role_identity::tests::compose_planner_golden -- --exact
-TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib service::role_identity::tests::compose_worker_baseline_golden -- --exact
+TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib service::spawn_params::tests::worker_launch_has_no_manager_bootstrap -- --exact
 TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm-plugin --lib js_runtime::parity_test::launch_adapter_matrix_uses_each_installed_descriptor -- --exact
 TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib service::pty_io::submit_transaction::tests::submission_ack_harness_text_present_enter_absent_is_error -- --exact
 TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib service::pty_io::submit_transaction::tests::submission_ack_harness_exactly_once_on_submission_evidence -- --exact
