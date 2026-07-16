@@ -12,9 +12,9 @@ import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import type { AppConfig } from "../../lib/types";
 import { TerminalIcon, FolderIcon, FolderPlusIcon, ExtensionsIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
-import { ChevronRight } from "lucide-react";
 import { OrchestrationCreate, type OrchestrationCreateResult } from "./OrchestrationCreate";
 import { WorkspaceItem } from "./WorkspaceItem";
+import { SidebarDisclosure } from "./SidebarDisclosure";
 import { WorkspacePlanTreeSlot } from "./WorkspacePlanEntry";
 import { RecentlyClosed } from "./RecentlyClosed";
 import { useRemoteWorkers } from "../../hooks/useRemoteWorkers";
@@ -547,16 +547,14 @@ export function Sidebar({
                 const generalOrchestrators = Object.values(state.panes).filter((pane) => pane.role === "Orchestrator");
                 return (
                   <section data-testid="general-section" className="sidebar-general-section">
-                    <button
-                      type="button"
+                    <SidebarDisclosure
                       data-testid="general-section-toggle"
                       className="sidebar-structural-header w-full"
-                      aria-expanded={generalExpanded}
+                      expanded={generalExpanded}
                       onClick={() => toggleExpanded(generalWorkspace.id)}
                     >
-                      <ChevronRight size={11} className={generalExpanded ? "rotate-90" : ""} />
                       <span className="sidebar-structural-label">GENERAL</span>
-                    </button>
+                    </SidebarDisclosure>
                     {generalExpanded && <SidebarWorkspaceTabs
                       workspace={generalWorkspace}
                       activeTabId={state.activeTabIds[generalWorkspace.id] ?? null}
@@ -594,16 +592,14 @@ export function Sidebar({
                 );
               })()}
               <div className={`sidebar-structural-header ${isCompact ? "justify-center" : ""}`}>
-                {!isCompact && <button
-                  type="button"
+                {!isCompact && <SidebarDisclosure
                   data-testid="workspaces-section-toggle"
                   className="sidebar-structural-toggle"
-                  aria-expanded={workspacesSectionExpanded}
+                  expanded={workspacesSectionExpanded}
                   onClick={toggleWorkspacesSection}
                 >
-                  <ChevronRight size={11} className={workspacesSectionExpanded ? "rotate-90" : ""} />
                   <span className="sidebar-structural-label">WORKSPACES</span>
-                </button>}
+                </SidebarDisclosure>}
                 <div className="sidebar-structural-action">
                   <button onClick={handleNewWorkspace} className="sidebar-new-workspace" title="New workspace">
                     <FolderPlusIcon size={12} />
