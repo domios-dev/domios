@@ -452,6 +452,34 @@ async function runChatSessionHookTests(): Promise<void> {
     __setInvokeForTest((async (command: string) => {
       if (command === "chat_start") {
         return { text: "", offset: 1, messages: [{
+          id: "snapshot-provisional-user-1", type: "user", content: startupText, seq: 1,
+        }] };
+      }
+      return {};
+    }) as never);
+    const session = await mountSession(null);
+    await session.render("c73becde");
+    await act(async () => handler?.({ payload: { pane_id: "pane", messages: [{
+      id: "live-bound-user-1", type: "user", content: startupText, seq: 1,
+    }] } }));
+    assert(
+      session.latest().messages.map((message) => message.id).join(",") === "live-bound-user-1",
+      "P0 provisional snapshot and bound live event share the attachment source scope",
+    );
+    await act(async () => session.root.unmount());
+    console.log("PASS P0 provisional-to-bound attachment scope stays stable");
+  }
+
+  {
+    let handler: ((event: { payload: { pane_id: string; messages: NormalizedChatMessage[] } }) => void) | null = null;
+    __setListenForTest(async (_event, nextHandler) => {
+      handler = nextHandler as typeof handler;
+      return () => {};
+    });
+    const startupText = "You are Theo. You are a frontend worker fixing a transcript projection/dedup defect.";
+    __setInvokeForTest((async (command: string) => {
+      if (command === "chat_start") {
+        return { text: "", offset: 1, messages: [{
           id: "snapshot-c73becde-user-1", type: "user", content: startupText, seq: 1,
         }] };
       }

@@ -260,6 +260,7 @@ export function useChatSession({
   const nextClientOrderRef = useRef(0);
   const activeRef = useRef(active);
   const agentSessionIdRef = useRef(agentSessionId);
+  const attachmentSourceSessionIdRef = useRef(agentSessionId);
   const previousSessionIdRef = useRef(agentSessionId);
   const rotationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lifecycleRef = useRef(0);
@@ -291,6 +292,7 @@ export function useChatSession({
   }, []);
 
   const requestAttach = useCallback(() => {
+    attachmentSourceSessionIdRef.current = agentSessionIdRef.current;
     setError(null);
     setAttachmentState("attaching");
     setAttachGeneration((generation) => {
@@ -316,6 +318,7 @@ export function useChatSession({
     }
     const lifecycle = lifecycleRef.current + 1;
     lifecycleRef.current = lifecycle;
+    attachmentSourceSessionIdRef.current = agentSessionIdRef.current;
     let unlisten: UnlistenFn | null = null;
     let unlistenTest: (() => void) | null = null;
     if (knownPaneIdRef.current !== paneId) {
@@ -331,7 +334,7 @@ export function useChatSession({
           `pane-chat-msg-${paneId}`,
           (ev) => {
             if (lifecycleRef.current !== lifecycle) return;
-            applyChatMsgEvent(ev.payload, paneId, setStructured, nextClientOrder, agentSessionIdRef.current);
+            applyChatMsgEvent(ev.payload, paneId, setStructured, nextClientOrder, attachmentSourceSessionIdRef.current);
             if (attachmentStateRef.current !== "attached") markAttached();
           },
         );
@@ -365,6 +368,7 @@ export function useChatSession({
     if (!active || !listenerReady) return;
     const lifecycle = lifecycleRef.current;
     const generation = attachGeneration;
+    const sourceSessionId = attachmentSourceSessionIdRef.current;
     let cancelled = false;
     (async () => {
       try {
@@ -383,7 +387,7 @@ export function useChatSession({
         markAttached();
         setStructured((prev) => mergeById(
           prev ?? [],
-          withPreservedClientOrder(res.messages ?? [], prev ?? [], nextClientOrder, agentSessionIdRef.current),
+          withPreservedClientOrder(res.messages ?? [], prev ?? [], nextClientOrder, sourceSessionId),
         ));
       } catch (e) {
         if (cancelled || lifecycleRef.current !== lifecycle || attachGenerationRef.current !== generation) return;
