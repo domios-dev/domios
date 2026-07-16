@@ -122,65 +122,6 @@ impl PlanStore {
         })
     }
 
-    /// Detach every plan bound to a closed team. Active work is parked in the
-    /// same plan write; paused, complete, and archived plans only lose the stale binding.
-    pub fn detach_and_park_team_plans(
-        &self,
-        team_id: &str,
-        now_ms: u64,
-    ) -> Result<Vec<String>, PlanError> {
-        let _team_plan_guard = self.team_plan_lock.lock();
-        self.detach_and_park_matching_team_plans(|bound_team_id| bound_team_id == team_id, now_ms)
-    }
-
-    /// Repair bindings whose team no longer exists. The caller supplies the
-    /// authoritative mux team ids so this crate stays independent of mux state.
-    pub fn detach_and_park_dangling_team_plans(
-        &self,
-        live_team_ids: &std::collections::BTreeSet<String>,
-        now_ms: u64,
-    ) -> Result<Vec<String>, PlanError> {
-        let _team_plan_guard = self.team_plan_lock.lock();
-        self.detach_and_park_matching_team_plans(
-            |bound_team_id| !live_team_ids.contains(bound_team_id),
-            now_ms,
-        )
-    }
-
-    fn detach_and_park_matching_team_plans<F>(
-        &self,
-        matches_team: F,
-        now_ms: u64,
-    ) -> Result<Vec<String>, PlanError>
-    where
-        F: Fn(&str) -> bool,
-    {
-        let mut plan_ids: Vec<_> = self
-            .list_full()
-            .into_iter()
-            .filter_map(|plan| {
-                plan.team_id
-                    .as_deref()
-                    .filter(|team_id| matches_team(team_id))
-                    .map(|_| plan.id)
-            })
-            .collect();
-        plan_ids.sort();
-        for plan_id in &plan_ids {
-            self.with_plan(plan_id, now_ms, |plan| {
-                plan.team_id = None;
-                if plan.status == PlanStatus::Active
-                    && !matches!(plan.mode, PlanMode::Paused | PlanMode::Complete)
-                {
-                    plan.paused_from_mode = Some(plan.mode.clone());
-                    plan.mode = PlanMode::Paused;
-                }
-                Ok(())
-            })?;
-        }
-        Ok(plan_ids)
-    }
-
     pub fn update_plan(
         &self,
         plan_id: &str,
