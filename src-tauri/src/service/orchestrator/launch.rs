@@ -452,7 +452,9 @@ pub(crate) fn launch_agent_in_background(
 
 #[cfg(test)]
 mod tests {
-    use super::{replacement_pty_candidate, spawn_onboarding_task};
+    use super::{
+        build_agent_command, replacement_pty_candidate, spawn_onboarding_task, AgentRegistry,
+    };
     use crate::chatbackend::{ChatBackendError, ChatBackendProvider, ChatBackendRegistry};
     use crate::multiplexer::state::MultiplexerState;
     use crate::multiplexer::types::AgentRole;
@@ -522,6 +524,22 @@ mod tests {
             spawn_onboarding_task(&orchestrator_params(Some("inspect launch"))),
             Some("inspect launch".into())
         );
+    }
+
+    #[test]
+    fn system_capable_pty_launch_carries_manager_bootstrap_without_fallback_content() {
+        let registry = AgentRegistry::new();
+        registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
+        let content = "## CodeTerm manager identity\nTeam Alpha";
+        let command = build_agent_command(
+            "claude",
+            &orchestrator_params(None),
+            Some(content),
+            None,
+            &registry,
+        );
+        assert!(command.contains("--append-system-prompt-file"));
+        assert!(!command.contains(content));
     }
 
     #[test]
