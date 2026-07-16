@@ -98,6 +98,14 @@ fn provision_lane(project_cwd: &str, lane_label: &str) -> Result<ProvisionedWork
     })
 }
 
+#[cfg(test)]
+pub(crate) fn provision_lane_for_test(
+    project_cwd: &str,
+    lane_label: &str,
+) -> Result<ProvisionedWorkerLane, String> {
+    provision_lane(project_cwd, lane_label)
+}
+
 fn lane_slug(value: &str) -> String {
     let slug: String = value
         .chars()
