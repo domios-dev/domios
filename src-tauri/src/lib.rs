@@ -788,6 +788,14 @@ pub fn run() {
                     log::warn!("[plan] startup scan failed for {}: {}", cwd, e);
                 }
             }
+            if let Err(e) = service_state.reconcile_dangling_team_plan_bindings(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64,
+            ) {
+                log::warn!("[plan] dangling team-binding reconciliation failed: {e}");
+            }
             service_state.mark_plans_startup_loaded();
 
             {

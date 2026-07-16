@@ -26,6 +26,20 @@ pub(crate) enum TeamPlanError {
 }
 
 impl ServiceContext {
+    pub(crate) fn reconcile_dangling_team_plan_bindings(
+        &self,
+        now_ms: u64,
+    ) -> Result<Vec<String>, crate::service::plan::PlanError> {
+        let changed_plan_ids = {
+            let mux = self.mux.read();
+            reconcile_dangling_team_plan_bindings(&mux, &self.plan_store, now_ms)?
+        };
+        for plan_id in &changed_plan_ids {
+            self.emit_plan_changed(plan_id);
+        }
+        Ok(changed_plan_ids)
+    }
+
     pub(crate) async fn add_team_member(
         &self,
         team_id: &str,
@@ -113,10 +127,20 @@ impl ServiceContext {
         team_id: &str,
         caller_pane_id: Option<&str>,
     ) -> Result<Team, String> {
-        let (team, cleanup) = {
+        let (team, cleanup, changed_plan_ids) = {
             let mut mux = self.mux.write();
-            close_team_with_state_change(&mut mux, &self.events, team_id, caller_pane_id)?
+            close_team_with_state_change(
+                &mut mux,
+                &self.events,
+                &self.plan_store,
+                team_id,
+                caller_pane_id,
+                now_ms(),
+            )?
         };
+        for plan_id in changed_plan_ids {
+            self.emit_plan_changed(&plan_id);
+        }
         for pane_id in &cleanup.member_pane_ids {
             self.chat_registry.stop(pane_id);
         }
@@ -279,9 +303,34 @@ pub(crate) fn rename_team_with_state_change(
 pub(crate) fn close_team_with_state_change(
     mux: &mut MultiplexerState,
     events: &crate::api::events::EventBroadcaster,
+    plan_store: &crate::service::plan::PlanStore,
     team_id: &str,
     caller_pane_id: Option<&str>,
-) -> Result<(Team, CloseTeamCleanup), String> {
+    now_ms: u64,
+) -> Result<(Team, CloseTeamCleanup, Vec<String>), String> {
+    close_team_with_state_change_using(
+        mux,
+        events,
+        plan_store,
+        team_id,
+        caller_pane_id,
+        now_ms,
+        |mux, pane_id| mux.close_pane_for_team_close(pane_id),
+    )
+}
+
+fn close_team_with_state_change_using<F>(
+    mux: &mut MultiplexerState,
+    events: &crate::api::events::EventBroadcaster,
+    plan_store: &crate::service::plan::PlanStore,
+    team_id: &str,
+    caller_pane_id: Option<&str>,
+    now_ms: u64,
+    mut close_member: F,
+) -> Result<(Team, CloseTeamCleanup, Vec<String>), String>
+where
+    F: FnMut(&mut MultiplexerState, &str) -> Result<Vec<String>, String>,
+{
     authorize_team_manager(mux, team_id, caller_pane_id)?;
     let member_pane_ids: Vec<String> = mux
         .snapshot()
@@ -301,14 +350,23 @@ pub(crate) fn close_team_with_state_change(
         })
         .collect();
     let mut pty_ids = Vec::new();
+    let mut closed_roots = Vec::new();
+    let mut mux_transaction = mux.begin_team_close_transaction();
     for pane_id in &member_pane_ids {
-        if mux.get_pane(pane_id).is_some() {
-            pty_ids.extend(mux.close_pane_for_team_close(pane_id)?);
+        if mux_transaction.state_mut().get_pane(pane_id).is_some() {
+            pty_ids.extend(close_member(mux_transaction.state_mut(), pane_id)?);
+            closed_roots.push(pane_id.clone());
         }
     }
-    let team = mux
+    let team = mux_transaction
+        .state_mut()
         .remove_team(team_id)
         .ok_or_else(|| format!("Team {team_id} not found"))?;
+    let plan_transaction = plan_store
+        .detach_and_park_team_plans_transaction(team_id, now_ms)
+        .map_err(|error| error.to_string())?;
+    let changed_plan_ids = plan_transaction.changed_plan_ids().to_vec();
+    mux_transaction.commit(mux, &closed_roots);
     crate::service::publish_mux_state_changed(events);
     Ok((
         team,
@@ -317,7 +375,24 @@ pub(crate) fn close_team_with_state_change(
             chat_backings,
             pty_ids,
         },
+        changed_plan_ids,
     ))
+}
+
+pub(crate) fn reconcile_dangling_team_plan_bindings(
+    mux: &MultiplexerState,
+    plan_store: &crate::service::plan::PlanStore,
+    now_ms: u64,
+) -> Result<Vec<String>, crate::service::plan::PlanError> {
+    let live_team_ids = mux.list_teams().into_iter().map(|team| team.id).collect();
+    plan_store.detach_and_park_dangling_team_plans(&live_team_ids, now_ms)
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 fn authorize_team_manager(
@@ -402,6 +477,7 @@ mod tests {
     #[test]
     fn close_team_removes_registry_and_members_with_one_state_change() {
         let (mut mux, team_id, orchestrator, _, _) = team_members();
+        let plan_store = crate::service::plan::PlanStore::new();
         let workspace_id = mux.find_workspace_for_pane(&orchestrator).unwrap();
         let worker_a = spawn_fixture_member(
             &mut mux,
@@ -420,8 +496,15 @@ mod tests {
         let events = crate::api::events::EventBroadcaster::new();
         let mut subscription = events.subscribe();
 
-        let (closed, _) =
-            close_team_with_state_change(&mut mux, &events, &team_id, Some(&orchestrator)).unwrap();
+        let (closed, _, _) = close_team_with_state_change(
+            &mut mux,
+            &events,
+            &plan_store,
+            &team_id,
+            Some(&orchestrator),
+            1,
+        )
+        .unwrap();
 
         assert_eq!(closed.id, team_id);
         assert!(mux.get_team(&team_id).is_none());
@@ -439,48 +522,207 @@ mod tests {
     }
 
     #[test]
+    fn close_team_parks_and_detaches_bound_plan() {
+        let dir = tempfile::tempdir().unwrap();
+        let plan_store = crate::service::plan::PlanStore::new_for_test(dir.path());
+        let (mut mux, team_id, orchestrator, _, _) = team_members();
+        let plan = plan_store
+            .create_plan_for_team(
+                "Bound".into(),
+                dir.path().display().to_string(),
+                crate::plan::OrchestratorRef::from_pane(&orchestrator),
+                Some(team_id.clone()),
+                vec![],
+                1,
+            )
+            .unwrap();
+        let events = crate::api::events::EventBroadcaster::new();
+        let (_, _, changed_plan_ids) = close_team_with_state_change(
+            &mut mux,
+            &events,
+            &plan_store,
+            &team_id,
+            Some(&orchestrator),
+            2,
+        )
+        .unwrap();
+
+        let parked = plan_store.get(&plan.id).unwrap();
+        assert!(mux.get_team(&team_id).is_none());
+        assert_eq!(changed_plan_ids, vec![plan.id.clone()]);
+        assert_eq!(parked.team_id, None);
+        assert_eq!(parked.mode, crate::plan::PlanMode::Paused);
+        assert!(plan_store
+            .list_index()
+            .iter()
+            .any(|entry| entry.plan_id == plan.id));
+    }
+
+    #[test]
+    fn close_team_staging_failure_leaves_mux_and_plan_unchanged_without_events() {
+        let dir = tempfile::tempdir().unwrap();
+        let plan_store = crate::service::plan::PlanStore::new_for_test(dir.path());
+        let (mut mux, team_id, orchestrator, planner, worker) = team_members();
+        let workspace_id = mux.find_workspace_for_pane(&orchestrator).unwrap();
+        let independent = mux.create_tab(&workspace_id).unwrap().1;
+        mux.get_pane_mut(&independent).unwrap().team_id = Some(team_id.clone());
+        let plan = plan_store
+            .create_plan_for_team(
+                "Bound".into(),
+                dir.path().display().to_string(),
+                crate::plan::OrchestratorRef::from_pane(&orchestrator),
+                Some(team_id.clone()),
+                vec![],
+                1,
+            )
+            .unwrap();
+        let before_plan = plan_store.get(&plan.id).unwrap();
+        let before_members = [
+            orchestrator.clone(),
+            planner.clone(),
+            worker.clone(),
+            independent,
+        ];
+        let before_snapshot = snapshot_without_generation(&mux);
+        let events = crate::api::events::EventBroadcaster::new();
+        let mut subscription = events.subscribe();
+
+        let error = close_team_with_state_change_using(
+            &mut mux,
+            &events,
+            &plan_store,
+            &team_id,
+            Some(&orchestrator),
+            2,
+            {
+                let mut calls = 0;
+                move |staged_mux, pane_id| {
+                    calls += 1;
+                    if calls == 2 {
+                        Err("forced mux close failure".into())
+                    } else {
+                        staged_mux.close_pane_for_team_close(pane_id)
+                    }
+                }
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(error, "forced mux close failure");
+        assert!(mux.get_team(&team_id).is_some());
+        assert!(before_members
+            .iter()
+            .all(|pane_id| mux.get_pane(pane_id).is_some()));
+        assert_eq!(snapshot_without_generation(&mux), before_snapshot);
+        assert_eq!(plan_store.get(&plan.id).unwrap(), before_plan);
+        assert!(matches!(
+            subscription.try_recv(),
+            Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+        ));
+    }
+
+    fn snapshot_without_generation(mux: &MultiplexerState) -> serde_json::Value {
+        let mut snapshot = serde_json::to_value(mux.snapshot()).unwrap();
+        snapshot["generation"] = serde_json::Value::Null;
+        snapshot
+    }
+
+    #[test]
+    fn dangling_binding_sweep_parks_orphan_plans_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let plan_store = crate::service::plan::PlanStore::new_for_test(dir.path());
+        let (mux, _, orchestrator, _, _) = team_members();
+        let plan = plan_store
+            .create_plan_for_team(
+                "Orphan".into(),
+                dir.path().display().to_string(),
+                crate::plan::OrchestratorRef::from_pane(&orchestrator),
+                Some("team_missing".into()),
+                vec![],
+                1,
+            )
+            .unwrap();
+
+        assert_eq!(
+            reconcile_dangling_team_plan_bindings(&mux, &plan_store, 2).unwrap(),
+            vec![plan.id.clone()]
+        );
+        let repaired = plan_store.get(&plan.id).unwrap();
+        assert_eq!(repaired.team_id, None);
+        assert_eq!(repaired.mode, crate::plan::PlanMode::Paused);
+        assert!(reconcile_dangling_team_plan_bindings(&mux, &plan_store, 3)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
     fn ordinary_close_preserves_team_but_explicit_close_removes_it() {
         let (mut mux, team_id, orchestrator, planner, worker) = team_members();
+        let plan_store = crate::service::plan::PlanStore::new();
         mux.close_pane(&orchestrator).unwrap();
         mux.close_pane(&planner).unwrap();
         mux.close_pane(&worker).unwrap();
         assert!(mux.get_team(&team_id).is_some());
         let events = crate::api::events::EventBroadcaster::new();
-        close_team_with_state_change(&mut mux, &events, &team_id, None).unwrap();
+        close_team_with_state_change(&mut mux, &events, &plan_store, &team_id, None, 1).unwrap();
         assert!(mux.get_team(&team_id).is_none());
     }
 
     #[test]
     fn close_team_unknown_and_repeat_are_structured_errors() {
         let (mut mux, team_id, orchestrator, _, _) = team_members();
+        let plan_store = crate::service::plan::PlanStore::new();
         let events = crate::api::events::EventBroadcaster::new();
         assert!(close_team_with_state_change(
             &mut mux,
             &events,
+            &plan_store,
             "team_missing",
             Some(&orchestrator),
+            1,
         )
         .unwrap_err()
         .contains("not found"));
-        close_team_with_state_change(&mut mux, &events, &team_id, Some(&orchestrator)).unwrap();
-        assert!(
-            close_team_with_state_change(&mut mux, &events, &team_id, Some(&orchestrator),)
-                .unwrap_err()
-                .contains("not found")
-        );
+        close_team_with_state_change(
+            &mut mux,
+            &events,
+            &plan_store,
+            &team_id,
+            Some(&orchestrator),
+            1,
+        )
+        .unwrap();
+        assert!(close_team_with_state_change(
+            &mut mux,
+            &events,
+            &plan_store,
+            &team_id,
+            Some(&orchestrator),
+            1,
+        )
+        .unwrap_err()
+        .contains("not found"));
     }
 
     #[test]
     fn close_team_removes_chat_backend_member_and_registry() {
         let (mut mux, team_id, orchestrator, _, worker) = team_members();
+        let plan_store = crate::service::plan::PlanStore::new();
         mux.get_pane_mut(&worker).unwrap().backing = PaneBacking::ChatBackend {
             plugin_id: "chat-backend".into(),
             session_id: "session-1".into(),
         };
         let events = crate::api::events::EventBroadcaster::new();
 
-        let (_, cleanup) =
-            close_team_with_state_change(&mut mux, &events, &team_id, Some(&orchestrator)).unwrap();
+        let (_, cleanup, _) = close_team_with_state_change(
+            &mut mux,
+            &events,
+            &plan_store,
+            &team_id,
+            Some(&orchestrator),
+            1,
+        )
+        .unwrap();
 
         assert!(mux.get_team(&team_id).is_none());
         assert!(mux.get_pane(&worker).is_none());
