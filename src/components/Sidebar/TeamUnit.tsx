@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ClipboardList, ChevronRight, LogOut, UsersRound } from "lucide-react";
+import { ChevronRight, LogOut, UsersRound } from "lucide-react";
 import type { Pane, ProviderDescriptor, Team } from "../../lib/types";
 import { TASK_STATUS_COLORS } from "../Canvas/settings";
 import { ProviderGlyph } from "../ProviderGlyph";
@@ -304,6 +304,7 @@ export function TeamUnit({
 }: TeamUnitProps) {
   const [expanded, setExpanded] = useState(true);
   const [workersExpanded, setWorkersExpanded] = useState(true);
+  const [headerHovered, setHeaderHovered] = useState(false);
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(team.name?.trim() || "Team");
   const [renameError, setRenameError] = useState<string | null>(null);
@@ -334,6 +335,44 @@ export function TeamUnit({
     }
   };
 
+  const cardContents = <>
+    {plan ? (
+      <span
+        data-testid="team-donut"
+        className="sidebar-team-donut"
+        aria-label="Task status composition"
+        style={{ background: teamDonutBackground(buckets) }}
+      ><span data-testid="team-donut-hole" className="sidebar-team-donut-hole" /></span>
+    ) : (
+      <span data-testid="team-icon" className="sidebar-team-icon" aria-hidden><UsersRound size={14} /></span>
+    )}
+    <span className="sidebar-team-title-block">
+      {editing ? (
+        <input
+          autoFocus
+          data-testid="team-name-input"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          disabled={renaming}
+          onBlur={() => { void commitRename(); }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.currentTarget.blur();
+            }
+            if (event.key === "Escape") {
+              setName(team.name?.trim() || "Team");
+              setEditing(false);
+            }
+          }}
+        />
+      ) : (
+        <span data-testid="team-name" className="sidebar-team-name">{team.name?.trim() || "Team"}</span>
+      )}
+      {plan && <span data-testid="team-effort" className="sidebar-team-effort">{plan.title}</span>}
+      {renameError && <div data-testid="team-rename-error" role="alert">{renameError}</div>}
+    </span>
+  </>;
+
   return (
     <section
       data-testid="team-unit"
@@ -342,57 +381,44 @@ export function TeamUnit({
       className="sidebar-team-unit"
     >
       <div
-        className="sidebar-team-header"
-        role="button"
-        tabIndex={0}
-        aria-expanded={expanded}
-        onClick={() => setExpanded((value) => !value)}
-        onKeyDown={(event) => {
-          if (event.target !== event.currentTarget) return;
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            setExpanded((value) => !value);
-          }
-        }}
+        className={`sidebar-team-header${plan && !editing ? " sidebar-team-header-active" : ""}`}
+        data-menu-revealed={headerHovered ? "true" : undefined}
+        onMouseEnter={() => setHeaderHovered(true)}
+        onMouseLeave={() => setHeaderHovered(false)}
       >
-        {plan ? (
-          <span
-            data-testid="team-donut"
-            className="sidebar-team-donut"
-            aria-label="Task status composition"
-            style={{ background: teamDonutBackground(buckets) }}
-          ><span data-testid="team-donut-hole" className="sidebar-team-donut-hole" /></span>
+        <button
+          type="button"
+          data-testid="team-collapse-toggle"
+          aria-label={expanded ? "Collapse Team" : "Expand Team"}
+          aria-expanded={expanded}
+          className="sidebar-team-chevron"
+          onClick={(event) => {
+            event.stopPropagation();
+            setExpanded((value) => !value);
+          }}
+        >
+          <ChevronRight size={13} aria-hidden />
+        </button>
+        {plan && !editing ? (
+          <button
+            type="button"
+            data-testid="team-card-activation"
+            className="sidebar-team-card-activation"
+            aria-label={`Open ${plan.title}`}
+            onClick={() => onOpenEffort({ teamId: team.id, managerPaneId: null, planId: plan.id })}
+          >
+            {cardContents}
+          </button>
         ) : (
-          <span data-testid="team-icon" className="sidebar-team-icon" aria-hidden><UsersRound size={14} /></span>
+          <div className="sidebar-team-card-static">{cardContents}</div>
         )}
-        <span className="sidebar-team-title-block">
-          {editing ? (
-            <input
-              autoFocus
-              data-testid="team-name-input"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              onClick={(event) => event.stopPropagation()}
-              disabled={renaming}
-              onBlur={() => { void commitRename(); }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.currentTarget.blur();
-                }
-                if (event.key === "Escape") {
-                  setName(team.name?.trim() || "Team");
-                  setEditing(false);
-                }
-              }}
-            />
-          ) : (
-            <span data-testid="team-name" className="sidebar-team-name">{team.name?.trim() || "Team"}</span>
-          )}
-          {plan && <span data-testid="team-effort" className="sidebar-team-effort">{plan.title}</span>}
-          {renameError && <div data-testid="team-rename-error" role="alert">{renameError}</div>}
-        </span>
         {!expanded && workingWorkerCount > 0 && <span className="sidebar-hierarchy-typing-dots" aria-hidden><span /><span /><span /></span>}
-        <span data-testid="team-progress-slot" className="sidebar-team-progress-slot">
+        <span
+          data-testid="team-progress-slot"
+          className="sidebar-team-progress-slot"
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
           {plan && (
             <span data-testid="team-done-count" className="sidebar-team-count">
               {buckets.find((bucket) => bucket.key === "done")?.count ?? 0}/{buckets.reduce((sum, bucket) => sum + bucket.count, 0)}
@@ -409,23 +435,6 @@ export function TeamUnit({
               onCloseTeam={onCloseTeam ? () => onCloseTeam(team.id) : undefined}
             />
         </span>
-        {plan && (
-          <span className="sidebar-team-controls">
-          <button
-            type="button"
-            data-testid="team-plan-button"
-            aria-label="Open plan"
-            title="Open plan"
-            className="sidebar-team-kebab"
-            onClick={(event) => {
-              event.stopPropagation();
-              onOpenEffort({ teamId: team.id, managerPaneId: null, planId: plan.id });
-            }}
-          >
-            <ClipboardList size={13} aria-hidden />
-          </button>
-          </span>
-        )}
       </div>
       {expanded && (
         <div className="sidebar-team-body">
