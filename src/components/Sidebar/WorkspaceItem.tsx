@@ -113,7 +113,7 @@ function WorkspaceItemInner({
       data-workspace-id={workspace.id}
       data-workspace-name={workspace.name}
       className={`
-        group relative flex items-center justify-between cursor-pointer transition-colors
+        sidebar-workspace-row group relative flex items-center justify-between cursor-pointer transition-colors
         ${touchMode ? "min-h-11 px-2 py-2" : "px-1 py-2"}
         ${isActive ? "bg-[var(--ct-active)] text-[var(--ct-fg)]" : "text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"}
       `}

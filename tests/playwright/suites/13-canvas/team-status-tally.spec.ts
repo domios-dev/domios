@@ -92,18 +92,39 @@ async function assertTally(teamUnit: Locator, compact: boolean | "content-fit"):
 
   const geometry = await tally.evaluate((element) => {
     const tallyBox = element.getBoundingClientRect();
-    const titleBox = element.closest(".sidebar-team-title-block")?.getBoundingClientRect();
+    const unitBox = element.closest('[data-testid="team-unit"]')?.getBoundingClientRect();
     const itemBoxes = Array.from(element.querySelectorAll('[data-testid^="team-status-"]')).map((item) => item.getBoundingClientRect());
     return {
       clientWidth: element.clientWidth,
       scrollWidth: element.scrollWidth,
-      centered: titleBox ? Math.abs((tallyBox.left + tallyBox.right) - (titleBox.left + titleBox.right)) <= 2 : false,
+      centered: unitBox ? Math.abs((tallyBox.left + tallyBox.right) - (unitBox.left + unitBox.right)) <= 4 : false,
       visible: itemBoxes.every((box) => box.left >= tallyBox.left && box.right <= tallyBox.right),
     };
   });
   expect(geometry.scrollWidth, "tally has no horizontal overflow").toBeLessThanOrEqual(geometry.clientWidth);
   expect(geometry.visible, "every bucket stays inside the tally viewport").toBe(true);
-  expect(geometry.centered, "tally is centered in the Team header title column").toBe(true);
+  expect(geometry.centered, "tally is centered in the Team unit").toBe(true);
+}
+
+async function assertTeamHeaderGeometry(teamUnit: Locator): Promise<void> {
+  const geometry = await teamUnit.evaluate((unit) => {
+    const header = unit.querySelector(".sidebar-team-header")?.getBoundingClientRect();
+    const donut = unit.querySelector('[data-testid="team-donut"]')?.getBoundingClientRect();
+    const title = unit.querySelector(".sidebar-team-title-block")?.getBoundingClientRect();
+    const plan = unit.querySelector('[data-testid="team-plan-button"]')?.getBoundingClientRect();
+    const kebab = unit.querySelector('[data-testid="team-menu-trigger"]')?.getBoundingClientRect();
+    const hole = unit.querySelector('[data-testid="team-donut-hole"]')?.getBoundingClientRect();
+    const donutCenter = donut && hole ? document.elementFromPoint(donut.left + donut.width / 2, donut.top + donut.height / 2) : null;
+    return { header, donut, title, plan, kebab, hole, centerIsHole: donutCenter?.getAttribute("data-testid") === "team-donut-hole", hasInnerIcon: Boolean(unit.querySelector('[data-testid="team-donut"] svg')) };
+  });
+  expect(geometry.donut?.width, "donut is 22px").toBe(22);
+  expect(geometry.donut?.height, "donut is 22px").toBe(22);
+  expect(geometry.hasInnerIcon, "donut remains hollow without an icon").toBe(false);
+  expect(geometry.hole?.width, "donut center is visibly punctured").toBe(12);
+  expect(geometry.centerIsHole, "center pixel belongs to the empty hole, not a color segment").toBe(true);
+  expect(geometry.title && geometry.donut && Math.abs(geometry.title.y - geometry.donut.y) < geometry.donut.height, "title shares header row with identity").toBe(true);
+  expect(geometry.plan && geometry.kebab && geometry.header && geometry.plan.right <= geometry.kebab.left + 2 && geometry.kebab.right <= geometry.header.right + 1, "Plan and kebab anchor at the right edge in DOM order").toBe(true);
+  expect(geometry.plan && geometry.donut && geometry.plan.left - geometry.donut.right > 16, "Plan is separated from the identity by flexible title space").toBe(true);
 }
 
 test("@golden @team-status-tally Team status tally keeps every bucket visible across sidebar widths", async ({ api, webBrowser, paneCleanup }) => {
@@ -159,6 +180,14 @@ test("@golden @team-status-tally Team status tally keeps every bucket visible ac
   const session = await openTallyPage(webBrowser);
   try {
     const { page } = session;
+    await expect(page.getByTestId("general-section")).toBeVisible();
+    await expect(page.getByTestId("general-section-toggle")).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByTestId("general-section").locator('[data-testid="workspace-group"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="nav-extensions"]')).toBeVisible();
+    await expect(page.locator('[data-testid="nav-memory"]')).toBeVisible();
+    await expect(page.locator('[data-testid="nav-mesh"]')).toBeVisible();
+    const sidebarWidths = await page.getByTestId("sidebar").evaluate((sidebar) => ({ clientWidth: sidebar.clientWidth, scrollWidth: sidebar.scrollWidth }));
+    expect(sidebarWidths.scrollWidth, "sidebar has no horizontal scrollbar").toBeLessThanOrEqual(sidebarWidths.clientWidth);
     await page.locator('[data-testid="workspace-item"]').filter({ hasText: workspaceName }).click();
     await expandWorkspaceSidebar(page, workspace.id);
     await expect(page.locator('[data-testid="team-unit"]')).toBeVisible({ timeout: 30_000 });
@@ -166,6 +195,7 @@ test("@golden @team-status-tally Team status tally keeps every bucket visible ac
     await setSidebarWidth(session, 220);
     const teamUnit = page.locator(`[data-testid="team-unit"][data-team-id="${created.team_id}"]`);
     await assertTally(teamUnit, false);
+    await assertTeamHeaderGeometry(teamUnit);
     await setSidebarWidth(session, 272);
     await assertTally(teamUnit, false);
     await setSidebarWidth(session, 160);
