@@ -225,13 +225,10 @@ test("team menu enables staffing only for a Team with a manager", async () => {
   assert(/\.sidebar-team-readout-label\s*\{[^}]*margin-left:\s*3px;/.test(sidebarStyles), "full tally labels have explicit count spacing");
   assert(/\.sidebar-team-menu-root \.sidebar-team-kebab\s*\{[^}]*opacity:\s*0;/.test(sidebarStyles), "kebab hides by opacity without removing its slot");
   assert(/\.sidebar-team-menu-root \.sidebar-team-kebab\s*\{[^}]*opacity:\s*0;[^}]*pointer-events:\s*none;/.test(sidebarStyles), "hidden kebab ignores accidental pointer clicks");
-  assert(sidebarStyles.includes('.sidebar-team-header[data-menu-revealed="true"] .sidebar-team-menu-root .sidebar-team-kebab'), "hover state swaps the kebab into the fixed slot");
+  assert(sidebarStyles.includes(".sidebar-team-header:hover .sidebar-team-menu-root .sidebar-team-kebab"), "CSS hover swaps the kebab into the fixed slot");
   assert(sidebarStyles.includes('.sidebar-team-header:not([data-menu-dismissed="true"]):focus-within .sidebar-team-menu-root .sidebar-team-kebab'), "keyboard focus swaps the kebab into the fixed slot unless an outside pointer dismisses it");
   assert(sidebarStyles.includes("[data-touch-mode=\"true\"] .sidebar-team-menu-root .sidebar-team-kebab"), "touch mode persistently exposes the same-slot kebab");
-  await act(async () => header?.dispatchEvent(new Event("pointerover", { bubbles: true })));
-  assert(header?.getAttribute("data-menu-revealed") === "true", "pointer enter records the menu reveal state before pointer interaction");
-  await act(async () => header?.dispatchEvent(new Event("pointerout", { bubbles: true })));
-  assert(!header?.hasAttribute("data-menu-revealed"), "pointer leave clears the menu reveal state");
+  assert(!sidebarStyles.includes("data-menu-revealed"), "hover visibility has no React state attribute");
   const outsideFocus = document.createElement("button");
   host.appendChild(outsideFocus);
   await act(async () => {
