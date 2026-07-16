@@ -85,7 +85,7 @@ function planIndexEntry(planId = "plan-team", teamId: string | null = TEAM.id): 
   return {
     plan_id: planId,
     file_path: "/workspace/.codeterm/plans/active/plan-team/plan.json",
-    owner: { pane_id: "orch", session_id: null },
+    owner: { pane_id: "orch", session_id: null, title: null },
     title: "Sidebar team effort",
     status: "active",
     updated_at: 1,
@@ -127,9 +127,19 @@ async function renderSidebar({
   onActivateTab?: (tabId: string) => void;
   onCloseTab?: (tabId: string) => void;
   onRenameTeam?: (teamId: string, name: string, managerPaneId: string) => void | Promise<void>;
-  onAddTeamMember?: (teamId: string, role: "planner" | "worker", providerId: string, managerPaneId: string) => void;
+  onAddTeamMember?: (
+    teamId: string,
+    role: "planner" | "worker",
+    providerId: string,
+    managerPaneId: string,
+    model?: string,
+  ) => void;
   onCloseTeam?: (teamId: string) => void;
-}): Promise<{ host: HTMLDivElement; root: Root; rerender: (nextPlans: Plan[], nextPlanIndex: PlanIndexEntry[]) => Promise<void> }> {
+}): Promise<{
+  host: HTMLDivElement;
+  root: Root;
+  rerender: (nextPlans: Plan[], nextPlanIndex?: PlanIndexEntry[]) => Promise<void>;
+}> {
   const workspace: Workspace = {
     id: "workspace",
     name: "Workspace",
