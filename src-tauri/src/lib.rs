@@ -500,7 +500,7 @@ pub fn run() {
                 #[cfg(debug_assertions)]
                 let workspace_root = Some(PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/..")));
                 #[cfg(not(debug_assertions))]
-                let workspace_root = None;
+                let workspace_root: Option<std::path::PathBuf> = None;
                 let roots = plugin::js_runtime::default_roots(workspace_root.as_deref());
                 let (providers, report) = plugin::js_runtime::scan_roots(&roots);
                 for outcome in &report {
