@@ -520,7 +520,16 @@ fn launch_adapter_matrix_uses_each_installed_descriptor() {
                     descriptor.id
                 );
             }
-            crate::provider::SystemPromptDelivery::CliFlag(_) => {
+            crate::provider::SystemPromptDelivery::CliFlag(mechanism) => {
+                let marker = mechanism
+                    .split_whitespace()
+                    .last()
+                    .expect("CLI system prompt mechanism must not be empty");
+                assert!(
+                    command.contains(marker),
+                    "{} system delivery must use declared mechanism {marker}",
+                    descriptor.id
+                );
                 assert!(
                     !command.contains(task),
                     "{} system delivery must not use fallback text",
