@@ -12,6 +12,7 @@ import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import type { AppConfig } from "../../lib/types";
 import { TerminalIcon, FolderIcon, FolderPlusIcon, ExtensionsIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
+import { ChevronRight } from "lucide-react";
 import { OrchestrationCreate, type OrchestrationCreateResult } from "./OrchestrationCreate";
 import { WorkspaceItem } from "./WorkspaceItem";
 import { WorkspacePlanTreeSlot } from "./WorkspacePlanEntry";
@@ -39,6 +40,7 @@ import { SidebarCollapsedActiveTab, SidebarWorkspaceTabs } from "./SidebarWorksp
 import type { SidebarTeamActions } from "./TeamUnit";
 import { GroupCloseConfirmDialog } from "./GroupCloseConfirmDialog";
 import type { OrchestrationGroupMember } from "./orchestrationGroupClose";
+import { initialSidebarExpanded, partitionSidebarWorkspaces } from "./sidebarSections";
 
 export { buildHierarchyTree, buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 
@@ -201,7 +203,7 @@ export function Sidebar({
   }, [openSessionPicker, onNavigateToTab]);
 
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(
-    () => new Set(state.active_workspace_id ? [state.active_workspace_id] : []),
+    () => initialSidebarExpanded(state.workspaces, state.active_workspace_id),
   );
   const [meshEnabledOverride, setMeshEnabledOverride] = useState<boolean | null>(null);
   useEffect(() => {
@@ -459,13 +461,17 @@ export function Sidebar({
   }, [config?.keybindings, state, planIndex, workspaceCanvasActive, setActiveTab, onNavigateToTab]);
 
   const sortedWorkspaces = useMemo(() => sortByOrder(state.workspaces), [state.workspaces]);
-  const workspaceSortIds = useMemo(
-    () => sortedWorkspaces.map((ws) => `${WS_PREFIX}${ws.id}`),
+  const { general: generalWorkspace, workspaces: ordinaryWorkspaces } = useMemo(
+    () => partitionSidebarWorkspaces(sortedWorkspaces),
     [sortedWorkspaces],
   );
+  const workspaceSortIds = useMemo(
+    () => ordinaryWorkspaces.map((ws) => `${WS_PREFIX}${ws.id}`),
+    [ordinaryWorkspaces],
+  );
   const pinnedWorkspaceIds = useMemo(
-    () => sortedWorkspaces.filter((ws) => ws.protected).map((ws) => `${WS_PREFIX}${ws.id}`),
-    [sortedWorkspaces],
+    () => [] as string[],
+    [],
   );
   const dndHandlers = useMemo(
     () => ({ reorderTabs, reorderWorkspaces }),
@@ -485,27 +491,75 @@ export function Sidebar({
           ref={sidebarRef}
           data-testid="sidebar"
           data-touch-mode={touchMode ? "true" : "false"}
-          className="shrink-0 h-full min-h-0 bg-[var(--ct-sidebar-bg)] border-r border-[var(--ct-border)] flex flex-col select-none overflow-visible overflow-y-hidden relative"
+          className="shrink-0 h-full min-h-0 bg-[var(--ct-sidebar-bg)] border-r border-[var(--ct-border)] flex flex-col select-none overflow-x-hidden overflow-y-hidden relative"
           style={{ width: visibleSidebarWidth }}
         >
           {!isSidebarCollapsed && (
             <>
-              <div className={`flex items-center ${isCompact ? "justify-center" : "justify-end"} px-3 py-2`}>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={handleNewWorkspace}
-                    className="flex items-center justify-center w-6 h-6 rounded border border-[var(--ct-border)] hover:bg-[var(--ct-hover)] hover:border-[var(--ct-muted)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
-                    title="New workspace"
-                  >
+            <div className="flex-1 overflow-y-auto">
+              {!isCompact && generalWorkspace && (() => {
+                const generalExpanded = expandedWorkspaces.has(generalWorkspace.id);
+                const generalActive = generalWorkspace.id === state.active_workspace_id && isWorkspaceMode;
+                const generalTabs = sortByOrder(generalWorkspace.tabs);
+                const generalOrchestrators = Object.values(state.panes).filter((pane) => pane.role === "Orchestrator");
+                return (
+                  <section data-testid="general-section" className="sidebar-general-section">
+                    <button
+                      type="button"
+                      data-testid="general-section-toggle"
+                      className="sidebar-structural-header w-full"
+                      aria-expanded={generalExpanded}
+                      onClick={() => toggleExpanded(generalWorkspace.id)}
+                    >
+                      <ChevronRight size={11} className={generalExpanded ? "rotate-90" : ""} />
+                      <span className="sidebar-structural-label">GENERAL</span>
+                    </button>
+                    {generalExpanded && <SidebarWorkspaceTabs
+                      workspace={generalWorkspace}
+                      activeTabId={state.activeTabIds[generalWorkspace.id] ?? null}
+                      sortedTabs={generalTabs}
+                      panes={state.panes}
+                      paneStatuses={state.paneStatuses}
+                      teams={state.teams}
+                      planIndex={planIndex}
+                      plans={fullPlans.plans}
+                      activeWork={activeWork}
+                      remoteWorkers={remoteWorkers}
+                      providers={visibleProviders}
+                      closingTabIds={new Set(closingTabs.keys())}
+                      appearingTabIds={appearingTabs}
+                      isActiveVisual={generalActive}
+                      workspaceCanvasActive={workspaceCanvasActive}
+                      touchMode={touchMode}
+                      uiFontScale={uiFontScale}
+                      compact={false}
+                      sidebarActionText={sidebarActionText}
+                      orchestrators={generalOrchestrators}
+                      onBeforeOpenPlan={() => { setActiveWorkspace(generalWorkspace.id); onNavigateToTab?.(); }}
+                      onActivateTab={(tabId) => { setActiveTab(generalWorkspace.id, tabId); onNavigateToTab?.(); }}
+                      onCloseTab={(tabId) => animatedCloseTab(generalWorkspace.id, tabId)}
+                      onRenameTab={(tabId, title) => setTabTitle(generalWorkspace.id, tabId, title)}
+                      onNewSession={() => handleNewSession(generalWorkspace.id, generalWorkspace.cwd ?? null)}
+                      onRenameTeam={teamActions?.onRenameTeam}
+                      onAddTeamMember={teamActions?.onAddTeamMember}
+                      onCloseTeam={teamActions?.onCloseTeam
+                        ? (teamId, managerPaneId) => requestTeamClose(generalWorkspace.id, teamId, managerPaneId)
+                        : undefined}
+                    />}
+                  </section>
+                );
+              })()}
+              <div className={`sidebar-structural-header ${isCompact ? "justify-center" : ""}`}>
+                {!isCompact && <span className="sidebar-structural-label">WORKSPACES</span>}
+                <div className="sidebar-structural-action">
+                  <button onClick={handleNewWorkspace} className="sidebar-new-workspace" title="New workspace">
                     <FolderPlusIcon size={12} />
                   </button>
                 </div>
               </div>
-
-            <div className="flex-1 overflow-y-auto">
               {isCompact ? (
                 <div className="flex flex-col items-center py-1">
-                  {sortedWorkspaces.map((ws) => {
+                  {ordinaryWorkspaces.map((ws) => {
                     const isActive = ws.id === state.active_workspace_id;
                     const isActiveVisual = isActive && isWorkspaceMode;
                     const isExpanded = expandedWorkspaces.has(ws.id);
@@ -576,7 +630,7 @@ export function Sidebar({
               ) : (
                 <SidebarDnd handlers={dndHandlers}>
                 <SortableContext items={workspaceSortIds} strategy={verticalListSortingStrategy}>
-                {sortedWorkspaces.map((ws) => {
+                {ordinaryWorkspaces.map((ws) => {
                 const sortedTabs = sortByOrder(ws.tabs);
                 const allPaneIds = sortedTabs.flatMap((t) => collectPaneIds(t, state.panes));
                 const wsStatus = aggregateTabStatus(allPaneIds, state.paneStatuses);
@@ -704,7 +758,7 @@ export function Sidebar({
                 />
               );
             })()}
-            <div className={`border-t border-[var(--ct-border)] mt-auto ${isCompact ? "px-1 py-2 flex flex-col items-center gap-1" : "px-3 py-2 flex flex-col gap-1"}`}>
+            <div className={`sidebar-footer ${isCompact ? "px-1 py-2 flex flex-col items-center" : "flex flex-col"}`}>
               <button
                 data-testid="nav-extensions"
                 onClick={onOpenExtensions}
