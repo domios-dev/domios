@@ -468,6 +468,53 @@ fn all_workspace_plugins_load() {
     }
 }
 
+#[test]
+fn launch_adapter_matrix_uses_each_installed_descriptor() {
+    let Some(root) = require_plugins() else {
+        return;
+    };
+    let task = "adapter-task-fixture";
+    let mut plugin_dirs = std::fs::read_dir(root)
+        .expect("read bundled plugin directory")
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with("provider-"))
+        .filter(|entry| entry.path().join("plugin.json").is_file())
+        .collect::<Vec<_>>();
+    plugin_dirs.sort_by_key(|entry| entry.file_name());
+
+    assert!(
+        !plugin_dirs.is_empty(),
+        "installed descriptor matrix is empty"
+    );
+    for entry in plugin_dirs {
+        let manifest = entry.path().join("plugin.json");
+        let provider = load_one(&manifest)
+            .unwrap_or_else(|error| panic!("load {}: {error}", manifest.display()));
+        let descriptor = provider.describe();
+        let command = provider.build_launch_command(&AgentLaunchParams {
+            task: Some(task.into()),
+            ..Default::default()
+        });
+
+        assert!(
+            !command.trim().is_empty(),
+            "{} launch command",
+            descriptor.id
+        );
+        match provider.task_delivery() {
+            crate::provider::TaskDelivery::InlineFlag => {}
+            crate::provider::TaskDelivery::PtyInput => {
+                assert!(
+                    !command.contains(task),
+                    "{} PTY delivery must preserve first-message fallback",
+                    descriptor.id
+                );
+            }
+        }
+    }
+}
+
 /// Structured-prompt-server capability contract across the bundled providers.
 /// JS-only providers have no native counterpart to diff against, so the honest
 /// "parity" is plugin-output-vs-documented-contract: opencode is the ONLY
