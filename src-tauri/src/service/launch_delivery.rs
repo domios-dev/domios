@@ -441,6 +441,65 @@ mod tests {
         assert_eq!(submissions, 1);
     }
 
+    fn assert_recorded_fallback(bootstrap: &str, starter: &str, assigned: bool) {
+        let spec = fallback_delivery_spec(Some(bootstrap), None, Some(starter)).unwrap();
+        let mut pending = pending_record_for_spec(spec.clone());
+        assert_eq!(pending.channel, PendingDeliveryChannel::FallbackBootstrap);
+        assert_eq!(
+            pending.content_digest,
+            pending_delivery(&spec.payload).digest
+        );
+        assert!(spec.payload.contains(bootstrap));
+        assert!(spec.payload.contains(starter));
+        assert_eq!(
+            spec.payload.contains("Execute the assigned task."),
+            assigned
+        );
+        begin_fallback_attempt(
+            &mut pending,
+            DeliveryAttemptProvenance {
+                attempt_id: "recorded".into(),
+                started_at_ms: 1,
+            },
+        )
+        .unwrap();
+        let sink = RecordingSink::default();
+        let mut submitted = Vec::new();
+        dispatch_initial_delivery(
+            LaunchDeliveryMode::ConfirmedFallback,
+            &sink,
+            "pane",
+            Some(|| submitted.push(spec.payload.clone())),
+        );
+        confirm_fallback(&mut pending, true).unwrap();
+        assert_eq!(submitted.len(), 1);
+        assert_eq!(
+            pending.content_digest,
+            pending_delivery(&submitted[0]).digest
+        );
+    }
+
+    #[test]
+    fn fallback_no_task_manager_persists_and_submits_one_identical_idle_payload() {
+        assert_recorded_fallback("manager identity", "You are a newly started agent. Wait for instructions from the user or your orchestration parent.", false);
+    }
+
+    #[test]
+    fn fallback_task_manager_persists_and_submits_one_identical_assigned_payload() {
+        assert_recorded_fallback("manager identity", "Execute the assigned task.", true);
+    }
+
+    #[test]
+    fn system_manager_uses_inline_idle_and_zero_fallback_record() {
+        let content = content_for_descriptor(
+            &SystemPromptDelivery::CliFlag("--system".into()),
+            Some("identity"),
+        );
+        assert_eq!(content.system_prompt.as_deref(), Some("identity"));
+        assert!(content.fallback.is_none());
+        assert!(fallback_delivery_spec(None, None, None).is_none());
+    }
+
     #[test]
     fn fallback_deadline_yields_structured_error() {
         let mut pending = pending_record_for("task");
