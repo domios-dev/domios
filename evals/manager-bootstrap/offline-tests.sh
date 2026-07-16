@@ -16,5 +16,8 @@ PY
 PROVIDERS='[{"id":"system","system_prompt_delivery":"cli_flag"},{"id":"fallback","system_prompt_delivery":"external"}]'
 [ "$(provider_id system <<<"$PROVIDERS")" = system ] && [ "$(provider_id external <<<"$PROVIDERS")" = fallback ]
 staff_request system | grep -q '"provider": "system"'
-set +e; bash "$RUN" >/dev/null 2>&1; rc=$?; set -e; [ "$rc" -eq 7 ]
+FAKE="$(mktemp -d)"; trap 'rm -rf "$FAKE"' EXIT
+printf '#!/usr/bin/env bash\nexit 1\n' > "$FAKE/curl"; chmod +x "$FAKE/curl"
+set +e; out="$(PATH="$FAKE:$PATH" bash "$RUN" 2>&1)"; rc=$?; set -e
+[ "$rc" -eq 7 ] && grep -q 'dev 7686 unavailable' <<<"$out"
 echo "manager-bootstrap offline shape: PASS"
