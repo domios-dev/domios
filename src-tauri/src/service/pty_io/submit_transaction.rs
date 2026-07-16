@@ -177,6 +177,21 @@ fn wait_for_paste<T: SubmitTransport>(
     }
 }
 
+fn wait_for_paste_activity<T: SubmitTransport>(
+    transport: &T,
+    text: &str,
+    armed_generation: u64,
+    deadline: Instant,
+) -> Result<(Observation, u64), HelperErr> {
+    if !text.is_empty()
+        && transport.generation() == armed_generation
+        && !transport.wait_after(armed_generation, deadline)
+    {
+        return Err(HelperErr::Timeout(transport.observe()?.tail));
+    }
+    Ok((transport.observe()?, transport.generation()))
+}
+
 fn run<T: SubmitTransport>(
     transport: &T,
     text: &str,
@@ -192,11 +207,12 @@ fn run<T: SubmitTransport>(
     let armed_generation = transport.generation();
     let initial = transport.observe().map_err(helper_to_closed)?;
     let bytes_written = transport.write_paste(text)?;
-    let (paste_observation, mut generation) = if enter || opts.verify_echo {
+    let (paste_observation, mut generation) = if opts.verify_echo {
         wait_for_paste(transport, text, armed_generation, deadline)
             .map_err(|error| helper_to_injection(error, started, text, true))?
     } else {
-        (initial.clone(), armed_generation)
+        wait_for_paste_activity(transport, text, armed_generation, deadline)
+            .map_err(|error| helper_to_injection(error, started, text, true))?
     };
     let echo_observed = text.is_empty() || screen_contains_echo(&paste_observation.tail, text);
 
@@ -472,6 +488,29 @@ mod tests {
             Err(InjectionError::SubmitNeverConfirmed { .. })
         ));
         assert_eq!(&*io.writes.borrow(), &["paste:hello", "enter:hello"]);
+    }
+
+    #[test]
+    fn long_prompt_with_truncated_echo_still_reaches_acknowledged_enter() {
+        let body = "continuation ".repeat(200);
+        let io = ControlledTransport::new(
+            Some(Frame { tail: "> continuation tail", hash: 1 }),
+            vec![
+                Some(Frame { tail: "working", hash: 2 }),
+                Some(Frame { tail: "working stable", hash: 3 }),
+            ],
+        );
+        let mut no_echo = opts();
+        no_echo.verify_echo = false;
+
+        let result = run(&io, &body, true, tui(), no_echo).unwrap();
+
+        assert!(!result.echo_observed);
+        assert!(result.submit_observed);
+        assert_eq!(
+            &*io.writes.borrow(),
+            &[format!("paste:{body}"), format!("enter:{body}")]
+        );
     }
 
     #[test]
