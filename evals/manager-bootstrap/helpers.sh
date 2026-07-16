@@ -1,0 +1,3 @@
+first_assistant() { python -c 'import json,sys;d=json.load(sys.stdin);ms=d.get("messages",d if isinstance(d,list) else []);print(next((str(m.get("content",m.get("text",""))) for m in ms if str(m.get("role",m.get("author",""))).lower()=="assistant"),""))'; }
+provider_id() { python -c 'import json,sys;d=json.load(sys.stdin);external=sys.argv[1]=="external";print(next((x["id"] for x in d if (x.get("system_prompt_delivery")=="external")==external),""))' "$1"; }
+staff_request() { python -c 'import json,sys;print(json.dumps({"provider":sys.argv[1],"role":"planner","title":"manager-bootstrap-staffed","task":None,"model":None}))' "$1"; }
