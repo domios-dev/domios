@@ -12,7 +12,10 @@
 
 use std::path::PathBuf;
 
-use crate::provider::{AgentLaunchParams, AgentProvider, ModelInfo};
+use crate::{
+    chatbackend_provider::{ChatBackendError, ChatBackendProvider},
+    provider::{AgentLaunchParams, AgentProvider, ModelInfo},
+};
 
 use super::{load_one, JsProvider};
 
@@ -167,6 +170,68 @@ impl AgentProvider for DiscoverModelsNativeStub {
     async fn discover_models(&self) -> Option<Vec<ModelInfo>> {
         Some(discover_models_fixture())
     }
+}
+
+struct SessionConfigNativeStub;
+
+impl ChatBackendProvider for SessionConfigNativeStub {
+    fn id(&self) -> &str {
+        "session-config-fixture"
+    }
+
+    fn supports_session_config(&self) -> bool {
+        true
+    }
+
+    fn open_session(&self, _: serde_json::Value) -> Result<String, ChatBackendError> {
+        unreachable!("descriptor parity does not open a session")
+    }
+
+    fn send_message(&self, _: &str, _: &str) -> Result<(), ChatBackendError> {
+        unreachable!("descriptor parity does not send messages")
+    }
+
+    fn poll(
+        &self,
+        _: &str,
+        _: Option<&str>,
+    ) -> Result<codeterm_types::agent::chat_types::StructuredChat, ChatBackendError> {
+        unreachable!("descriptor parity does not poll sessions")
+    }
+
+    fn close_session(&self, _: &str) -> Result<(), ChatBackendError> {
+        unreachable!("descriptor parity does not close sessions")
+    }
+
+    fn list_models(&self) -> Result<Vec<ModelInfo>, ChatBackendError> {
+        unreachable!("descriptor parity does not list models")
+    }
+}
+
+#[test]
+fn chatbackend_session_config_descriptor_native_js_parity() {
+    use std::sync::Arc;
+
+    let manifest_json = r#"{
+        "id":"session-config-fixture",
+        "version":"0.1.0",
+        "displayName":"Session Config Fixture",
+        "capabilities":{"chatBackend":{"sessionConfig":true}}
+    }"#;
+    let manifest: super::PluginManifest = serde_json::from_str(manifest_json).unwrap();
+    let vm = super::PluginVm::from_source_with(
+        "session-config-fixture",
+        "module.exports.default = {};".into(),
+        Some(manifest_json.into()),
+    )
+    .unwrap();
+    let js = super::JsChatBackend::from_manifest(Arc::new(vm), &manifest);
+    let native = SessionConfigNativeStub;
+
+    assert_eq!(
+        js.describe().system_prompt_delivery,
+        native.describe().system_prompt_delivery
+    );
 }
 
 #[tokio::test]
