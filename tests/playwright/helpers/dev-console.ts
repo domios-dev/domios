@@ -6,7 +6,7 @@
  * which exposes the Chrome DevTools Protocol from the dev Tauri config.
  * Playwright connects to the REAL app over CDP, no separate browser.
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { chromium, type Browser, type Page } from "@playwright/test";
 import fs from "node:fs";
 import net from "node:net";
@@ -160,6 +160,69 @@ export function killDevConsole(instance = currentDevInstance()): void {
   killDevLeftovers(instance);
 }
 
+export function runProcessStreaming(
+  command: string,
+  args: string[],
+  options: {
+    cwd: string;
+    env: NodeJS.ProcessEnv;
+    timeoutMs: number;
+    phase: string;
+    onOutput?: (chunk: string) => void;
+  },
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: options.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let timedOut = false;
+    const forward = (chunk: Buffer, write: (text: string) => boolean) => {
+      const text = chunk.toString();
+      write(text);
+      options.onOutput?.(text);
+    };
+    child.stdout.on("data", (chunk: Buffer) => forward(chunk, (text) => process.stdout.write(text)));
+    child.stderr.on("data", (chunk: Buffer) => forward(chunk, (text) => process.stderr.write(text)));
+    const heartbeat = setInterval(() => {
+      progress(options.phase, `still running; child output is streamed live (deadline ${options.timeoutMs}ms)`);
+    }, 5_000);
+    const deadline = setTimeout(() => {
+      timedOut = true;
+      progress(options.phase, `deadline ${options.timeoutMs}ms exceeded; terminating child`);
+      child.kill();
+    }, options.timeoutMs);
+    const finish = () => {
+      clearInterval(heartbeat);
+      clearTimeout(deadline);
+    };
+    child.once("error", (error) => {
+      finish();
+      reject(error);
+    });
+    child.once("close", (code, signal) => {
+      finish();
+      if (timedOut) {
+        reject(new Error(`${command} ${args.join(" ")} timed out after ${options.timeoutMs}ms`));
+      } else if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`${command} ${args.join(" ")} exited with ${signal ?? `code ${code}`}`));
+      }
+    });
+  });
+}
+
+function bashStreaming(instance: DevInstance, args: string[], timeoutMs: number): Promise<void> {
+  return runProcessStreaming(BASH_EXE, args, {
+    cwd: REPO_ROOT,
+    env: buildDevInstanceEnv(instance),
+    timeoutMs,
+    phase: "dev --wait",
+  });
+}
+
 /**
  * Windows recovery for the recurring crash-leftover states build.sh kill
  * can't see: orphan dev binaries (no 7686 listener but still holding
@@ -285,7 +348,7 @@ export async function ensureDevConsole(instance = currentDevInstance()): Promise
   progress("spawn guard", "all Playwright instance listeners are verified free");
   try {
     progress("dev --wait", "starting build.sh dev --wait (deadline 600000ms)");
-    bash(instance, devStartArgs(), 600_000);
+    await bashStreaming(instance, devStartArgs(), 600_000);
   } catch (first) {
     dumpBuildGatewayLogs(`first ./build.sh dev --wait failed: ${first}`);
     if ((first as NodeJS.ErrnoException).code === "ETIMEDOUT") throw first;
@@ -294,7 +357,7 @@ export async function ensureDevConsole(instance = currentDevInstance()): Promise
     try {
       await assertDevConsoleStopped(instance);
       progress("dev --wait", "retrying build.sh dev --wait after verified cleanup (deadline 600000ms)");
-      bash(instance, devStartArgs(), 600_000);
+      await bashStreaming(instance, devStartArgs(), 600_000);
     } catch (second) {
       dumpBuildGatewayLogs(`second ./build.sh dev --wait failed: ${second}`);
       throw second;

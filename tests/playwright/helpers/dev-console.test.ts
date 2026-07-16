@@ -6,6 +6,7 @@ import {
   emitDevConsoleProgress,
   isWebUiDocument,
   nonAdoptableCdpError,
+  runProcessStreaming,
   windowsCleanupArgs,
 } from "./dev-console";
 import { devInstanceForSlot, type DevInstance } from "./dev-instance";
@@ -86,6 +87,50 @@ test("progress emitter attributes each bootstrap phase", () => {
     "[dev-console] dev --wait: starting with deadline",
     "[dev-console] post-start CDP readiness: waiting for CDP",
   ]);
+});
+
+test("child output is forwarded before the streaming launch completes", async () => {
+  const server = net.createServer();
+  const port = await listen(server);
+  let socket: net.Socket | undefined;
+  const connected = new Promise<void>((resolve) => server.once("connection", (next) => {
+    socket = next;
+    socket.on("error", () => {});
+    resolve();
+  }));
+  let outputSeen!: () => void;
+  const output = new Promise<void>((resolve) => {
+    outputSeen = resolve;
+  });
+  let completed = false;
+  const run = runProcessStreaming(
+    process.execPath,
+    [
+      "-e",
+      "const socket=require('node:net').connect(process.argv[1]);socket.on('connect',()=>{process.stdout.write('child-ready\\n');socket.once('data',()=>process.exit(0));});",
+      String(port),
+    ],
+    {
+      cwd: process.cwd(),
+      env: process.env,
+      timeoutMs: 30_000,
+      phase: "test child",
+      onOutput: (chunk) => {
+        if (chunk.includes("child-ready")) outputSeen();
+      },
+    },
+  ).then(() => {
+    completed = true;
+  });
+  try {
+    await Promise.all([connected, output]);
+    assert.equal(completed, false, "output must arrive before child completion");
+    socket!.write("continue");
+    await run;
+  } finally {
+    socket?.destroy();
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
 });
 
 test("web UI adoption accepts only the application document", () => {
