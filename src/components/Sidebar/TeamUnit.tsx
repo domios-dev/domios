@@ -323,8 +323,8 @@ export function TeamUnit({
         </span>
         {!expanded && workingWorkerCount > 0 && <span className="sidebar-hierarchy-typing-dots" aria-hidden><span /><span /><span /></span>}
         {plan && <span data-testid="team-done-count" className="sidebar-team-count">{buckets.find((bucket) => bucket.key === "done")?.count ?? 0}/{buckets.reduce((sum, bucket) => sum + bucket.count, 0)}</span>}
-        <span className="sidebar-team-controls">
         {plan && (
+          <span className="sidebar-team-controls">
           <button
             type="button"
             data-testid="team-plan-button"
@@ -338,6 +338,7 @@ export function TeamUnit({
           >
             <ClipboardList size={13} aria-hidden />
           </button>
+          </span>
         )}
         <TeamMenu
           providers={providers}
@@ -348,7 +349,6 @@ export function TeamUnit({
           onAddMember={onAddMember}
           onCloseTeam={onCloseTeam ? () => onCloseTeam(team.id) : undefined}
         />
-        </span>
       </div>
       {expanded && (
         <div className="sidebar-team-body">
@@ -357,7 +357,8 @@ export function TeamUnit({
               {buckets.map((bucket) => (
                 <span key={bucket.key} data-testid={`team-status-${bucket.key}`} className="sidebar-team-readout-item" style={{ color: bucket.color }}>
                   <span className="sidebar-team-readout-compact-dot" aria-hidden />
-                  <span>{bucket.count}</span><span className="sidebar-team-readout-label"> {bucket.label}</span>
+                  <span className="sidebar-team-readout-count">{bucket.count}</span>
+                  <span className="sidebar-team-readout-label"> {bucket.label}</span>
                 </span>
               ))}
             </span>

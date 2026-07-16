@@ -88,6 +88,10 @@ async function assertTally(teamUnit: Locator, compact: boolean | "content-fit"):
       "display",
       compactDisplay,
     );
+    expect(await item.locator(".sidebar-team-readout-label").textContent(), "count and label retain a text gap").toBe(` ${key}`);
+    if (compact === false) {
+      await expect(item.locator(".sidebar-team-readout-label")).toHaveCSS("margin-left", "3px");
+    }
   }
 
   const geometry = await tally.evaluate((element) => {
@@ -148,14 +152,43 @@ async function assertTeamTitleFits(teamUnit: Locator): Promise<void> {
 }
 
 async function assertReservedControlsDoNotShiftPlan(teamUnit: Locator): Promise<void> {
-  const plan = teamUnit.getByTestId("team-plan-button");
-  const before = await plan.boundingBox();
+  const boxes = async () => teamUnit.evaluate((unit) => {
+    const box = (selector: string) => {
+      const rect = unit.querySelector(selector)?.getBoundingClientRect();
+      return rect && { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+    };
+    return {
+      plan: box('[data-testid="team-plan-button"]'),
+      title: box('.sidebar-team-title-block'),
+      subtitle: box('[data-testid="team-effort"]'),
+      donut: box('[data-testid="team-donut"]'),
+      tally: box('[data-testid="team-status-tally"]'),
+    };
+  });
+  const before = await boxes();
   await teamUnit.locator(".sidebar-team-header").hover();
-  const onHover = await plan.boundingBox();
+  const onHover = await boxes();
   await teamUnit.getByTestId("team-menu-trigger").focus();
-  const onFocus = await plan.boundingBox();
-  expect(onHover, "hover reveal preserves Plan position").toEqual(before);
-  expect(onFocus, "focus reveal preserves Plan position").toEqual(before);
+  const onFocus = await boxes();
+  expect(onHover, "hover reveal preserves every Team geometry box").toEqual(before);
+  expect(onFocus, "focus reveal preserves every Team geometry box").toEqual(before);
+
+  const restSlots = await teamUnit.evaluate((unit) => {
+    const header = unit.querySelector('.sidebar-team-header') as HTMLElement;
+    const chevron = unit.querySelector('[data-testid="team-collapse-toggle"]') as HTMLElement;
+    const kebab = unit.querySelector('[data-testid="team-menu-trigger"]') as HTMLElement;
+    const title = unit.querySelector('.sidebar-team-title-block') as HTMLElement;
+    return {
+      columns: getComputedStyle(header).gridTemplateColumns,
+      chevronPosition: getComputedStyle(chevron).position,
+      kebabPosition: getComputedStyle(kebab.parentElement as HTMLElement).position,
+      titleWidth: title.getBoundingClientRect().width,
+    };
+  });
+  expect(restSlots.columns.split(" "), "rest grid has no chevron or kebab columns").toHaveLength(4);
+  expect(restSlots.chevronPosition, "chevron is outside row layout").toBe("absolute");
+  expect(restSlots.kebabPosition, "kebab is outside row layout").toBe("absolute");
+  expect(restSlots.titleWidth, "220px title receives reclaimed control width").toBeGreaterThan(130);
 }
 
 test("@golden @team-status-tally Team status tally keeps every bucket visible across sidebar widths", async ({ api, webBrowser, paneCleanup }, testInfo) => {
@@ -224,7 +257,12 @@ test("@golden @team-status-tally Team status tally keeps every bucket visible ac
     await expect(page.locator('[data-testid="team-unit"]')).toBeVisible({ timeout: 30_000 });
 
     const teamUnit = page.locator(`[data-testid="team-unit"][data-team-id="${created.team_id}"]`);
-    await teamUnit.getByTestId("team-menu-trigger").click();
+    const header = teamUnit.locator(".sidebar-team-header");
+    const menuTrigger = teamUnit.getByTestId("team-menu-trigger");
+    await header.hover();
+    await expect(menuTrigger).toHaveCSS("opacity", "1");
+    await expect(menuTrigger).toHaveCSS("pointer-events", "auto");
+    await menuTrigger.click();
     await page.getByTestId("team-menu").getByRole("button", { name: "Rename", exact: true }).click();
     await teamUnit.getByTestId("team-name-input").fill("Team UI QA");
     await teamUnit.getByTestId("team-name-input").press("Enter");

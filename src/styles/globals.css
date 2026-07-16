@@ -1366,7 +1366,8 @@ button,
 
 .sidebar-team-header {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto auto auto;
+  position: relative;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   min-width: 0;
   align-items: center;
   gap: 4px;
@@ -1382,6 +1383,10 @@ button,
 }
 
 .sidebar-team-chevron {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 3px;
   display: inline-flex;
   width: 11px;
   height: 18px;
@@ -1394,6 +1399,7 @@ button,
   color: color-mix(in srgb, var(--ct-muted-fg) 62%, var(--ct-bg));
   opacity: 0;
   pointer-events: none;
+  transform: translateY(-50%);
   transition: opacity 160ms ease;
 }
 
@@ -1620,8 +1626,11 @@ button,
 }
 
 .sidebar-team-menu-root {
-  position: relative;
-  flex: 0 0 auto;
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  right: 25px;
+  transform: translateY(-50%);
 }
 
 .sidebar-team-kebab {
@@ -1736,6 +1745,10 @@ button,
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
+}
+
+.sidebar-team-readout-label {
+  margin-left: 3px;
 }
 
 .sidebar-team-readout-compact-dot {
