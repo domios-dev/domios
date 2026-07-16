@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 use super::orchestrator::SpawnAgentParams;
@@ -147,6 +147,7 @@ fn run_git<'a>(project_cwd: &str, args: impl IntoIterator<Item = &'a str>) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     fn git(dir: &Path, args: &[&str]) {
         let output = Command::new("git")
