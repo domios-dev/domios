@@ -137,13 +137,13 @@ async function assertTeamTitleFits(teamUnit: Locator): Promise<void> {
   const geometry = await title.evaluate((element) => {
     const unit = element.closest('[data-testid="team-unit"]')?.getBoundingClientRect();
     const header = element.closest(".sidebar-team-header")?.getBoundingClientRect();
-    const sidebar = element.closest('[data-testid="sidebar"]')?.getBoundingClientRect();
+    const sidebar = element.closest('[data-testid="sidebar"]');
     return {
       clientWidth: element.clientWidth,
       scrollWidth: element.scrollWidth,
       text: element.textContent,
       unitWidth: unit?.width,
-      sidebarWidth: sidebar?.width,
+      sidebarWidth: sidebar?.clientWidth,
       headerInset: unit && header ? unit.width - header.width : undefined,
     };
   });
@@ -153,7 +153,7 @@ async function assertTeamTitleFits(teamUnit: Locator): Promise<void> {
   expect(geometry.headerInset, "header no longer adds horizontal inset inside the tint block").toBe(0);
 }
 
-async function assertReservedControlsDoNotShiftPlan(teamUnit: Locator): Promise<void> {
+async function assertOverlayControlsDoNotShiftPlan(teamUnit: Locator): Promise<void> {
   const boxes = async () => teamUnit.evaluate((unit) => {
     const box = (selector: string) => {
       const rect = unit.querySelector(selector)?.getBoundingClientRect();
@@ -270,11 +270,14 @@ test("@golden @team-status-tally Team status tally keeps every bucket visible ac
     await teamUnit.getByTestId("team-name-input").press("Enter");
     await expect(teamUnit.getByTestId("team-name")).toHaveText("Team UI QA");
 
+    await page.mouse.click(500, 500);
+    await expect(menuTrigger).toHaveCSS("opacity", "0");
+    await expect(teamUnit.getByTestId("team-collapse-toggle")).toHaveCSS("opacity", "0");
     await setSidebarWidth(session, 220);
     await assertTeamTitleFits(teamUnit);
     await assertTally(teamUnit, false);
     await assertTeamHeaderGeometry(teamUnit);
-    await assertReservedControlsDoNotShiftPlan(teamUnit);
+    await assertOverlayControlsDoNotShiftPlan(teamUnit);
     await page.screenshot({ path: testInfo.outputPath("wave2b-team-220.png"), fullPage: false });
     await setSidebarWidth(session, 272);
     await assertTally(teamUnit, false);
