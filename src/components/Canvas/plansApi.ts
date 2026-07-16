@@ -10,6 +10,7 @@ export interface PlanIndexEntry {
   title: string;
   status: PlanStatus;
   updated_at: number;
+  team_id?: string | null;
   assigned_pane_ids: string[];
   task_count?: number;
   open_task_count?: number;

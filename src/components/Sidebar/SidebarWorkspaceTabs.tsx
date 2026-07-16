@@ -30,7 +30,12 @@ import {
 
 type TeamPane = Pane & { team_id?: string | null };
 type TeamPlan = Plan & { team_id?: string | null };
-type TeamPlanIndexEntry = PlanIndexEntry & { team_id?: string | null };
+
+export function excludeTeamBoundPlanIndex(
+  planIndex: readonly PlanIndexEntry[],
+): PlanIndexEntry[] {
+  return planIndex.filter((entry) => !entry.team_id);
+}
 
 interface TeamTabMember {
   tab: Tab;
@@ -291,7 +296,10 @@ export function SidebarWorkspaceTabs({
     );
   }
 
-  const teamlessPlanIndex = (planIndex as TeamPlanIndexEntry[]).filter((entry) => !entry.team_id);
+  const teamlessPlanIndex = useMemo(
+    () => excludeTeamBoundPlanIndex(planIndex),
+    [planIndex],
+  );
 
   return (
     <>

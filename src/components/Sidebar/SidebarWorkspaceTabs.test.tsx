@@ -5,6 +5,7 @@ import { act, useState } from "react";
 import { Window } from "happy-dom";
 import { createRoot, type Root } from "react-dom/client";
 import type { Pane, ProviderDescriptor, Tab, Team, Workspace } from "../../lib/types";
+import type { PlanIndexEntry } from "../Canvas/plansApi";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "../Canvas/cards/fixtures.testdata";
 import { TASK_STATUS_COLORS } from "../Canvas/settings";
 import { TaskStatus, type Plan, type Task } from "../Canvas/types";
@@ -80,6 +81,20 @@ function plan(tasks: Task[]): Plan {
   return { ...FIXTURE_PLAN, id: "plan-team", title: "Sidebar team effort", team_id: "team-one", tasks } as Plan;
 }
 
+function planIndexEntry(planId = "plan-team", teamId: string | null = TEAM.id): PlanIndexEntry {
+  return {
+    plan_id: planId,
+    file_path: "/workspace/.codeterm/plans/active/plan-team/plan.json",
+    owner: { pane_id: "orch", session_id: null },
+    title: "Sidebar team effort",
+    status: "active",
+    updated_at: 1,
+    team_id: teamId,
+    assigned_pane_ids: ["orch"],
+    task_count: 1,
+  };
+}
+
 const TEAM: Team = {
   id: "team-one",
   name: "Sidebar team",
@@ -92,6 +107,7 @@ async function renderSidebar({
   panes,
   tabs,
   plans = [],
+  planIndex = [],
   statuses = {},
   providers = [],
   activeTabId,
@@ -104,6 +120,7 @@ async function renderSidebar({
   panes: Record<string, Pane>;
   tabs: Tab[];
   plans?: Plan[];
+  planIndex?: PlanIndexEntry[];
   statuses?: Record<string, "Working" | "Waiting" | "Idle" | "Dead">;
   providers?: ProviderDescriptor[];
   activeTabId?: string | null;
@@ -112,18 +129,18 @@ async function renderSidebar({
   onRenameTeam?: (teamId: string, name: string, managerPaneId: string) => void | Promise<void>;
   onAddTeamMember?: (teamId: string, role: "planner" | "worker", providerId: string, managerPaneId: string) => void;
   onCloseTeam?: (teamId: string) => void;
-}): Promise<{ host: HTMLDivElement; root: Root; rerender: (nextPlans: Plan[]) => Promise<void> }> {
+}): Promise<{ host: HTMLDivElement; root: Root; rerender: (nextPlans: Plan[], nextPlanIndex: PlanIndexEntry[]) => Promise<void> }> {
   const workspace: Workspace = {
     id: "workspace",
     name: "Workspace",
     tabs,
     active_tab_id: activeTabId ?? tabs[0]?.id ?? null,
-    cwd: null,
+    cwd: "/workspace",
   };
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  const rerender = async (nextPlans: Plan[]) => act(async () => {
+  const rerender = async (nextPlans: Plan[], nextPlanIndex = planIndex) => act(async () => {
     root.render(
       <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
         <SidebarWorkspaceTabs
@@ -133,7 +150,7 @@ async function renderSidebar({
           panes={panes}
           paneStatuses={statuses}
           teams={[TEAM]}
-          planIndex={[]}
+          planIndex={nextPlanIndex}
           plans={nextPlans}
           activeWork={null}
           remoteWorkers={{}}
@@ -158,7 +175,7 @@ async function renderSidebar({
       </SidebarDnd>,
     );
   });
-  await rerender(plans);
+  await rerender(plans, planIndex);
   return { host, root, rerender };
 }
 
@@ -191,6 +208,33 @@ test("team_renders_flat_sections", async () => {
   );
   assert(workers.querySelectorAll('[data-testid="tab-item"]').length === 3, "three workers render once");
   assert(!team.querySelector(".sidebar-hierarchy-level"), "no nested member tree nodes");
+  await act(async () => root.unmount());
+});
+
+test("team-bound plans have one Team-owned sidebar home across adopt and detach updates", async () => {
+  const panes = {
+    orch: pane({ id: "orch", title: "Orchestrator", role: "Orchestrator", team_id: TEAM.id }),
+  };
+  const tabs = [tab("tab-orch", "orch", 0)];
+  const bound = plan([]);
+  const detached = { ...bound, team_id: null } as Plan;
+  const { host, root, rerender } = await renderSidebar({
+    panes,
+    tabs,
+    plans: [bound],
+    planIndex: [planIndexEntry()],
+  });
+
+  assert(host.querySelector('[data-testid="team-effort"]')?.textContent === bound.title, "bound plan is in its Team card");
+  assert(!host.querySelector('[data-testid="workspace-plan-entry"]'), "bound plan has no standalone row");
+
+  await rerender([detached], [planIndexEntry("plan-team", null)]);
+  assert(!host.querySelector('[data-testid="team-effort"]'), "detach removes the plan from the Team card");
+  assert(host.querySelector('[data-testid="workspace-plan-title"]')?.textContent === detached.title, "detach restores one standalone row");
+
+  await rerender([bound], [planIndexEntry()]);
+  assert(host.querySelector('[data-testid="team-effort"]')?.textContent === bound.title, "adopt restores the Team-owned plan");
+  assert(!host.querySelector('[data-testid="workspace-plan-entry"]'), "adopt removes the standalone row without reload");
   await act(async () => root.unmount());
 });
 
