@@ -214,10 +214,10 @@ test("team menu enables staffing only for a Team with a manager", async () => {
   assert(collapse, "team collapse trigger exists");
   assert(collapse.classList.contains("sidebar-team-chevron"), "team collapse uses the reserved chevron control slot");
   assert(collapse.tabIndex === 0, "team collapse remains keyboard focusable when visually hidden");
-  assert(sidebarStyles.includes(".sidebar-team-menu-root .sidebar-team-kebab {\n  opacity: 0;"), "kebab hides by opacity without removing its slot");
-  assert(sidebarStyles.includes(".sidebar-team-menu-root .sidebar-team-kebab {\n  opacity: 0;\n  pointer-events: none;"), "hidden kebab ignores accidental pointer clicks");
+  assert(/\.sidebar-team-menu-root \.sidebar-team-kebab\s*\{\s*opacity:\s*0;/.test(sidebarStyles), "kebab hides by opacity without removing its slot");
+  assert(/\.sidebar-team-menu-root \.sidebar-team-kebab\s*\{\s*opacity:\s*0;\s*pointer-events:\s*none;/.test(sidebarStyles), "hidden kebab ignores accidental pointer clicks");
   assert(sidebarStyles.includes(".sidebar-team-header:focus-within .sidebar-team-chevron"), "keyboard focus reveals the chevron");
-  assert(sidebarStyles.includes(".sidebar-team-header:hover .sidebar-team-chevron,\n.sidebar-team-header:focus-within .sidebar-team-chevron,\n.sidebar-team-header:hover .sidebar-team-menu-root .sidebar-team-kebab,\n.sidebar-team-header:focus-within .sidebar-team-menu-root .sidebar-team-kebab {\n  opacity: 1;\n  pointer-events: auto;"), "keyboard focus restores control pointer hit-testing");
+  assert(/\.sidebar-team-header:hover \.sidebar-team-chevron,\s*\.sidebar-team-header:focus-within \.sidebar-team-chevron,\s*\.sidebar-team-header:hover \.sidebar-team-menu-root \.sidebar-team-kebab,\s*\.sidebar-team-header:focus-within \.sidebar-team-menu-root \.sidebar-team-kebab\s*\{\s*opacity:\s*1;\s*pointer-events:\s*auto;/.test(sidebarStyles), "keyboard focus restores control pointer hit-testing");
   assert(sidebarStyles.includes("[data-touch-mode=\"true\"] .sidebar-team-chevron"), "touch mode keeps the chevron visible");
   await act(async () => trigger.click());
   const menu = document.querySelector('[data-testid="team-menu"]');
