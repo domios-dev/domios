@@ -201,6 +201,7 @@ mod tests {
             title: "Terminal".to_string(),
             description: None,
             cwd: None,
+            provisioned_cwd: None,
             url: None,
             agent_type: None,
             agent_type_locked: false,
