@@ -4,11 +4,12 @@ import {
   reduceToolEvents,
   lastSessionResetIndex,
   mergeById,
-  projectTranscriptMessages,
-  transcriptMessageIdentity,
+  mergeTimelineMessages,
+  matchedOptimisticEchoes,
   trimAfterSessionReset,
   type NormalizedChatMessage as ChatMessage,
   type TimelineItem,
+  type OptimisticEcho,
 } from "@codeterm/chat-core";
 import { detectChatPrefix, splitChatPrefixedMessages, type ChatOrigin } from "../../lib/chatPrefixes";
 import { CHAT_REATTACHED_EVENT } from "./chatReattach";
@@ -168,13 +169,14 @@ function applyChatMsgEvent(
   paneId: string,
   setStructured: Dispatch<SetStateAction<ChatMessage[] | null>>,
   nextOrder: () => number,
+  sourceSessionId: string | null = null,
 ): void {
   if (payload.pane_id !== paneId) return;
   if (!payload.messages.length) return;
   startTransition(() => {
     setStructured((prev) => {
       const existing = prev ?? [];
-      return mergeById(existing, withPreservedClientOrder(payload.messages, existing, nextOrder));
+      return mergeById(existing, withPreservedClientOrder(payload.messages, existing, nextOrder, sourceSessionId));
     });
   });
 }
@@ -202,15 +204,22 @@ export function listenForTestChatReplies(
   };
 }
 
+function toEchoes(msgs: ChatMessage[]): OptimisticEcho[] {
+  return msgs.map((m) => ({ id: m.id, content: m.content, sentAtMs: Number(m.timestamp) || 0 }));
+}
+
 function withPreservedClientOrder(
   messages: ChatMessage[],
   previous: ChatMessage[],
   nextOrder: () => number,
+  sourceSessionId: string | null = null,
 ): ChatMessage[] {
   const orders = new Map(previous.map((message) => [message.id, message.clientOrder]));
   return messages.map((message) => {
     const clientOrder = message.clientOrder ?? orders.get(message.id) ?? nextOrder();
-    return message.clientOrder === clientOrder ? message : { ...message, clientOrder };
+    const sessionId = message.sourceSessionId ?? sourceSessionId ?? undefined;
+    if (message.clientOrder === clientOrder && message.sourceSessionId === sessionId) return message;
+    return { ...message, clientOrder, sourceSessionId: sessionId };
   });
 }
 
@@ -249,9 +258,6 @@ export function useChatSession({
   const [optimistic, setOptimistic] = useState<ChatMessage[]>([]);
   const onErrorRef = useRef(onError);
   const nextClientOrderRef = useRef(0);
-  // JSONL line zero is the session metadata/context record; the first user
-  // transcript message is therefore parser sequence one on a fresh session.
-  const nextOptimisticSeqRef = useRef(1);
   const activeRef = useRef(active);
   const agentSessionIdRef = useRef(agentSessionId);
   const previousSessionIdRef = useRef(agentSessionId);
@@ -325,7 +331,7 @@ export function useChatSession({
           `pane-chat-msg-${paneId}`,
           (ev) => {
             if (lifecycleRef.current !== lifecycle) return;
-            applyChatMsgEvent(ev.payload, paneId, setStructured, nextClientOrder);
+            applyChatMsgEvent(ev.payload, paneId, setStructured, nextClientOrder, agentSessionIdRef.current);
             if (attachmentStateRef.current !== "attached") markAttached();
           },
         );
@@ -377,7 +383,7 @@ export function useChatSession({
         markAttached();
         setStructured((prev) => mergeById(
           prev ?? [],
-          withPreservedClientOrder(res.messages ?? [], prev ?? [], nextClientOrder),
+          withPreservedClientOrder(res.messages ?? [], prev ?? [], nextClientOrder, agentSessionIdRef.current),
         ));
       } catch (e) {
         if (cancelled || lifecycleRef.current !== lifecycle || attachGenerationRef.current !== generation) return;
@@ -429,11 +435,6 @@ export function useChatSession({
 
   const parsed = useMemo<ChatMessage[]>(() => structured ?? [], [structured]);
   const resetParsed = useMemo(() => trimAfterSessionReset(parsed), [parsed]);
-  const nextParserSeq = useMemo(
-    () => resetParsed.reduce((next, message) => Math.max(next, (message.seq ?? -1) + 1), 0),
-    [resetParsed],
-  );
-  if (nextOptimisticSeqRef.current < nextParserSeq) nextOptimisticSeqRef.current = nextParserSeq;
   const resetCutoffMs = useMemo(() => {
     const index = lastSessionResetIndex(parsed);
     return index >= 0 ? timestampMs(parsed[index]?.timestamp) : null;
@@ -447,8 +448,14 @@ export function useChatSession({
   }, [optimistic, resetCutoffMs]);
 
   const allMessages = useMemo(() => {
-    return projectTranscriptMessages(resetParsed, liveOptimistic, agentSessionId);
-  }, [agentSessionId, resetParsed, liveOptimistic]);
+    if (liveOptimistic.length === 0) return resetParsed;
+    // content-collapse that would swallow a legitimately repeated message).
+    const parsedUsers = resetParsed.filter((m) => m.type === "user" || m.type === "local_command");
+    const { matchedIds } = matchedOptimisticEchoes(toEchoes(liveOptimistic), parsedUsers);
+    const matched = new Set(matchedIds);
+    const stillPending = liveOptimistic.filter((m) => !matched.has(m.id));
+    return mergeTimelineMessages(resetParsed, stillPending);
+  }, [resetParsed, liveOptimistic]);
 
   const allTimelineItems = useMemo(() => reduceToolEvents(allMessages), [allMessages]);
 
@@ -498,7 +505,6 @@ export function useChatSession({
 
   const addOptimistic = useCallback((content: string) => {
     const id = `opt-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-    const seq = nextOptimisticSeqRef.current++;
     setOptimistic((prev) => [
       ...prev,
       {
@@ -506,13 +512,11 @@ export function useChatSession({
         type: "user",
         content,
         timestamp: String(Date.now()),
-        seq,
-        transcriptIdentity: transcriptMessageIdentity({ id, seq }, agentSessionId),
         clientOrder: nextClientOrder(),
       },
     ]);
     return id;
-  }, [agentSessionId, nextClientOrder]);
+  }, [nextClientOrder]);
 
   /** Replace an optimistic bubble's content in place — used to morph a
    * "transcribing…" placeholder into the final transcript (or an error)
@@ -525,19 +529,19 @@ export function useChatSession({
 
   useEffect(() => {
     if (optimistic.length === 0) return;
-    const confirmedIdentities = new Set(
-      resetParsed.map((message) => transcriptMessageIdentity(message, agentSessionId)),
-    );
+    const parsedUsers = resetParsed.filter((m) => m.type === "user" || m.type === "local_command");
+    const { matchedIds } = matchedOptimisticEchoes(toEchoes(optimistic), parsedUsers);
+    const matched = new Set(matchedIds);
     setOptimistic((prev) => {
       const next = prev.filter((m) => {
-        if (confirmedIdentities.has(transcriptMessageIdentity(m, agentSessionId))) return false;
+        if (matched.has(m.id)) return false;
         if (resetCutoffMs == null) return true;
         const ts = timestampMs(m.timestamp);
         return ts == null || ts >= resetCutoffMs;
       });
       return next.length === prev.length ? prev : next;
     });
-  }, [agentSessionId, resetParsed, resetCutoffMs, optimistic]);
+  }, [resetParsed, resetCutoffMs, optimistic]);
 
   return {
     loading,
