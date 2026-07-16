@@ -7,16 +7,28 @@ use crate::multiplexer::types::{
 };
 use crate::service::boot_stage::{BootStage, BootStageSink};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum LaunchDeliveryMode {
     SystemPrompt,
     ConfirmedFallback,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LaunchContent {
+    pub system_prompt: Option<String>,
+    pub fallback: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PendingDelivery {
     pub digest: String,
     pub confirmed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FallbackDeliverySpec<'a> {
+    pub channel: PendingDeliveryChannel,
+    pub payload: &'a str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,6 +57,25 @@ pub(crate) fn mode_for_descriptor(descriptor: &SystemPromptDelivery) -> LaunchDe
     }
 }
 
+pub(crate) fn content_for_descriptor(
+    descriptor: &SystemPromptDelivery,
+    content: Option<&str>,
+) -> LaunchContent {
+    let content = content
+        .filter(|text| !text.trim().is_empty())
+        .map(str::to_string);
+    match mode_for_descriptor(descriptor) {
+        LaunchDeliveryMode::SystemPrompt => LaunchContent {
+            system_prompt: content,
+            fallback: None,
+        },
+        LaunchDeliveryMode::ConfirmedFallback => LaunchContent {
+            system_prompt: None,
+            fallback: content,
+        },
+    }
+}
+
 pub(crate) fn pending_delivery(text: &str) -> PendingDelivery {
     let digest = Sha256::digest(text.as_bytes());
     PendingDelivery {
@@ -53,11 +84,33 @@ pub(crate) fn pending_delivery(text: &str) -> PendingDelivery {
     }
 }
 
-pub(crate) fn pending_record_for(text: &str) -> PendingDeliveryRecord {
-    PendingDeliveryRecord::new(
-        pending_delivery(text).digest,
-        PendingDeliveryChannel::InteractiveInput,
-    )
+#[cfg(test)]
+fn pending_record_for(text: &str) -> PendingDeliveryRecord {
+    pending_record_for_spec(FallbackDeliverySpec {
+        channel: PendingDeliveryChannel::InteractiveInput,
+        payload: text,
+    })
+}
+
+pub(crate) fn fallback_delivery_spec<'a>(
+    fallback_bootstrap: Option<&'a str>,
+    task: Option<&'a str>,
+) -> Option<FallbackDeliverySpec<'a>> {
+    fallback_bootstrap
+        .map(|payload| FallbackDeliverySpec {
+            channel: PendingDeliveryChannel::FallbackBootstrap,
+            payload,
+        })
+        .or_else(|| {
+            task.map(|payload| FallbackDeliverySpec {
+                channel: PendingDeliveryChannel::InteractiveInput,
+                payload,
+            })
+        })
+}
+
+pub(crate) fn pending_record_for_spec(spec: FallbackDeliverySpec<'_>) -> PendingDeliveryRecord {
+    PendingDeliveryRecord::new(pending_delivery(spec.payload).digest, spec.channel)
 }
 
 pub(crate) fn next_attempt() -> DeliveryAttemptProvenance {
@@ -143,6 +196,24 @@ mod tests {
     }
 
     #[test]
+    fn system_prompt_channel_consumes_launch_content_without_a_fallback_turn() {
+        let content = content_for_descriptor(
+            &SystemPromptDelivery::CliFlag("--system".into()),
+            Some("manager identity"),
+        );
+        assert_eq!(content.system_prompt.as_deref(), Some("manager identity"));
+        assert_eq!(content.fallback, None);
+    }
+
+    #[test]
+    fn external_provider_defers_identical_content_to_confirmed_fallback() {
+        let content =
+            content_for_descriptor(&SystemPromptDelivery::External, Some("manager identity"));
+        assert_eq!(content.system_prompt, None);
+        assert_eq!(content.fallback.as_deref(), Some("manager identity"));
+    }
+
+    #[test]
     fn fallback_first_message_confirmed_exactly_once() {
         let mut pending = pending_record_for("task");
         begin_fallback_attempt(
@@ -157,6 +228,67 @@ mod tests {
         confirm_fallback(&mut pending, true).unwrap();
         assert_eq!(pending.state(), PendingDeliveryState::Confirmed);
         confirm_fallback(&mut pending, false).unwrap();
+    }
+
+    #[test]
+    fn pair_fallback_bootstrap_submits_identity_once_without_work() {
+        let bootstrap = crate::service::role_identity::ManagerBootstrapInputs {
+            role: "Orchestrator".into(),
+            team_id: "not yet established".into(),
+            team_name: "not yet established".into(),
+            plan_id: "no plan bound yet".into(),
+            project: "Manager Bootstrap Fixture".into(),
+        }
+        .compose();
+        let delivery = content_for_descriptor(&SystemPromptDelivery::External, Some(&bootstrap));
+        assert_eq!(delivery.fallback.as_deref(), Some(bootstrap.as_str()));
+        let launch_content = format!("{bootstrap}\n\nUser work must not be submitted here.");
+        assert_eq!(
+            fallback_delivery_spec(Some(&bootstrap), Some(&launch_content)),
+            Some(FallbackDeliverySpec {
+                channel: PendingDeliveryChannel::FallbackBootstrap,
+                payload: bootstrap.as_str(),
+            })
+        );
+
+        let spec = fallback_delivery_spec(Some(&bootstrap), Some(&launch_content)).unwrap();
+        let mut pending = pending_record_for_spec(spec.clone());
+        assert_eq!(
+            pending.content_digest,
+            pending_delivery(spec.payload).digest
+        );
+        assert_eq!(pending.channel, PendingDeliveryChannel::FallbackBootstrap);
+        assert_eq!(
+            pending.provenance,
+            crate::multiplexer::types::PendingDeliveryProvenance::FallbackBootstrap
+        );
+        begin_fallback_attempt(
+            &mut pending,
+            DeliveryAttemptProvenance {
+                attempt_id: "bootstrap".into(),
+                started_at_ms: 1,
+            },
+        )
+        .unwrap();
+
+        let sink = RecordingSink::default();
+        let mut submissions = 0;
+        dispatch_initial_delivery(
+            LaunchDeliveryMode::ConfirmedFallback,
+            &sink,
+            "pair-pane",
+            Some(|| submissions += 1),
+        );
+        confirm_fallback(&mut pending, true).unwrap();
+        if pending.state() != PendingDeliveryState::Confirmed {
+            dispatch_initial_delivery(
+                LaunchDeliveryMode::ConfirmedFallback,
+                &sink,
+                "pair-pane",
+                Some(|| submissions += 1),
+            );
+        }
+        assert_eq!(submissions, 1);
     }
 
     #[test]

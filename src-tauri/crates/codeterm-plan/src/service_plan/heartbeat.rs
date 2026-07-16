@@ -229,9 +229,12 @@ fn role_identity_line(plan: &Plan, pane_id: Option<&str>) -> String {
     let peer_text = peer
         .map(|pane| format!("; peer tab {peer_role} is pane {pane}"))
         .unwrap_or_else(|| format!("; peer tab {peer_role} is unbound"));
-    format!(
-        "<codeterm-role-identity plan=\"{}\">\nYou are the {role} for plan {}{peer_text}.\n</codeterm-role-identity>",
-        plan.id, plan.id
+    codeterm_types::agent::role_identity::render(
+        codeterm_types::agent::role_identity::RoleIdentity::Heartbeat {
+            role,
+            plan_id: &plan.id,
+            peer_text: &peer_text,
+        },
     )
 }
 

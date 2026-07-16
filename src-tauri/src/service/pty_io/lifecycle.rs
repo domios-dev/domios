@@ -373,6 +373,7 @@ impl ServiceContext {
                     launch.provider_id,
                     restored_task,
                     None,
+                    None,
                 );
             },
         );

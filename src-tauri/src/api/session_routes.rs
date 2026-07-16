@@ -243,6 +243,7 @@ pub async fn resume_session_api(
         nudge_cooldown_secs: None,
         max_actions_per_tick: None,
         activate: None,
+        manager_bootstrap: None,
         structured_prompt_server: None,
     };
     let spawned = state
