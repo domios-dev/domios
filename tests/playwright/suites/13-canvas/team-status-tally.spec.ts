@@ -268,7 +268,28 @@ test("@golden @team-status-tally Team status tally keeps every bucket visible ac
     const teamUnit = page.locator(`[data-testid="team-unit"][data-team-id="${created.team_id}"]`);
     const header = teamUnit.locator(".sidebar-team-header");
     const menuTrigger = teamUnit.getByTestId("team-menu-trigger");
+    await page.getByTestId("nav-extensions").focus();
     await header.hover();
+    await expect(menuTrigger).toHaveCSS("opacity", "1");
+    await expect(menuTrigger).toHaveCSS("pointer-events", "auto");
+    await expect(teamUnit.getByTestId("team-done-count")).toHaveCSS("opacity", "0");
+    await page.mouse.move(500, 500);
+    await expect(menuTrigger).toHaveCSS("opacity", "0");
+    await expect(menuTrigger).toHaveCSS("pointer-events", "none");
+    await expect(teamUnit.getByTestId("team-done-count")).toHaveCSS("opacity", "1");
+
+    await menuTrigger.focus();
+    await expect(menuTrigger).toHaveCSS("opacity", "1");
+    await expect(menuTrigger).toHaveCSS("pointer-events", "auto");
+    await page.mouse.move(500, 500);
+    await expect(menuTrigger).toHaveCSS("opacity", "1");
+    await expect(menuTrigger).toHaveCSS("pointer-events", "auto");
+    await page.getByTestId("terminal-pane").click({ position: { x: 10, y: 10 } });
+    await expect(header).toHaveAttribute("data-menu-dismissed", "true");
+    await expect(menuTrigger).toHaveCSS("opacity", "0");
+    await expect(teamUnit.getByTestId("team-done-count")).toHaveCSS("opacity", "1");
+    await menuTrigger.focus();
+    await expect(header).not.toHaveAttribute("data-menu-dismissed");
     await expect(menuTrigger).toHaveCSS("opacity", "1");
     await expect(menuTrigger).toHaveCSS("pointer-events", "auto");
     await menuTrigger.click();
@@ -276,16 +297,6 @@ test("@golden @team-status-tally Team status tally keeps every bucket visible ac
     await teamUnit.getByTestId("team-name-input").fill("Team UI QA");
     await teamUnit.getByTestId("team-name-input").press("Enter");
     await expect(teamUnit.getByTestId("team-name")).toHaveText("Team UI QA");
-
-    await menuTrigger.focus();
-    await page.mouse.move(500, 500);
-    await expect(header).not.toHaveAttribute("data-menu-revealed", "true");
-    await expect(menuTrigger).toHaveCSS("opacity", "1");
-    await expect(menuTrigger).toHaveCSS("pointer-events", "auto");
-    await page.getByTestId("terminal-pane").click({ position: { x: 10, y: 10 } });
-    await expect(header).toHaveAttribute("data-menu-dismissed", "true");
-    await expect(menuTrigger).toHaveCSS("opacity", "0");
-    await expect(teamUnit.getByTestId("team-done-count")).toHaveCSS("opacity", "1");
     await expect(teamUnit.getByTestId("team-collapse-toggle")).toHaveAttribute("aria-expanded", "true");
     await setSidebarWidth(session, 220);
     await assertTeamTitleFits(teamUnit);
