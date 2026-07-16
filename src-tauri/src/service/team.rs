@@ -282,10 +282,34 @@ pub(crate) fn close_team_with_state_change(
     caller_pane_id: Option<&str>,
     now_ms: u64,
 ) -> Result<(Team, CloseTeamCleanup, Vec<String>), String> {
+    close_team_with_state_change_using(
+        mux,
+        events,
+        plan_store,
+        team_id,
+        caller_pane_id,
+        now_ms,
+        |mux, pane_id| mux.close_pane_for_team_close(pane_id),
+    )
+}
+
+fn close_team_with_state_change_using<F>(
+    mux: &mut MultiplexerState,
+    events: &crate::api::events::EventBroadcaster,
+    plan_store: &crate::service::plan::PlanStore,
+    team_id: &str,
+    caller_pane_id: Option<&str>,
+    now_ms: u64,
+    mut close_member: F,
+) -> Result<(Team, CloseTeamCleanup, Vec<String>), String>
+where
+    F: FnMut(&mut MultiplexerState, &str) -> Result<Vec<String>, String>,
+{
     authorize_team_manager(mux, team_id, caller_pane_id)?;
-    let changed_plan_ids = plan_store
-        .detach_and_park_team_plans(team_id, now_ms)
+    let plan_transaction = plan_store
+        .detach_and_park_team_plans_transaction(team_id, now_ms)
         .map_err(|error| error.to_string())?;
+    let changed_plan_ids = plan_transaction.changed_plan_ids().to_vec();
     let member_pane_ids: Vec<String> = mux
         .snapshot()
         .panes
@@ -306,7 +330,12 @@ pub(crate) fn close_team_with_state_change(
     let mut pty_ids = Vec::new();
     for pane_id in &member_pane_ids {
         if mux.get_pane(pane_id).is_some() {
-            pty_ids.extend(mux.close_pane_for_team_close(pane_id)?);
+            if let Err(error) = close_member(mux, pane_id) {
+                plan_store
+                    .rollback_team_plan_detach(plan_transaction)
+                    .map_err(|rollback| format!("{error}; plan rollback failed: {rollback}"))?;
+                return Err(error);
+            }
         }
     }
     let team = mux
@@ -501,6 +530,49 @@ mod tests {
             .list_index()
             .iter()
             .any(|entry| entry.plan_id == plan.id));
+    }
+
+    #[test]
+    fn close_team_failure_rolls_back_prepared_plan_detach_without_events() {
+        let dir = tempfile::tempdir().unwrap();
+        let plan_store = crate::service::plan::PlanStore::new_for_test(dir.path());
+        let (mut mux, team_id, orchestrator, planner, worker) = team_members();
+        let plan = plan_store
+            .create_plan_for_team(
+                "Bound".into(),
+                dir.path().display().to_string(),
+                crate::plan::OrchestratorRef::from_pane(&orchestrator),
+                Some(team_id.clone()),
+                vec![],
+                1,
+            )
+            .unwrap();
+        let before_plan = plan_store.get(&plan.id).unwrap();
+        let before_members = [orchestrator.clone(), planner.clone(), worker.clone()];
+        let events = crate::api::events::EventBroadcaster::new();
+        let mut subscription = events.subscribe();
+
+        let error = close_team_with_state_change_using(
+            &mut mux,
+            &events,
+            &plan_store,
+            &team_id,
+            Some(&orchestrator),
+            2,
+            |_, _| Err("forced mux close failure".into()),
+        )
+        .unwrap_err();
+
+        assert_eq!(error, "forced mux close failure");
+        assert!(mux.get_team(&team_id).is_some());
+        assert!(before_members
+            .iter()
+            .all(|pane_id| mux.get_pane(pane_id).is_some()));
+        assert_eq!(plan_store.get(&plan.id).unwrap(), before_plan);
+        assert!(matches!(
+            subscription.try_recv(),
+            Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+        ));
     }
 
     #[test]
