@@ -46,6 +46,7 @@ pub mod plugin_host;
 pub(crate) mod pty_activation;
 pub mod pty_io;
 pub mod pty_lifecycle;
+pub(crate) mod pty_ownership;
 pub mod push;
 pub mod remote_workers;
 mod role_identity;
@@ -143,6 +144,7 @@ pub struct ServiceContext {
     pub plugin_activity: Arc<crate::plugin::activity::PluginActivityRegistry>,
     pub worker_pool: Arc<crate::mem::worker_pool::WorkerPool>,
     pub prompt_detector: PromptDetectorState,
+    pub(crate) pty_ownership: pty_ownership::PtyOwnership,
     // Stable pane→pty map for hidden agent runs; survives close_pane so the unified AgentRun log endpoints can read closed-worker output.
     pub agent_run_pty_map: Arc<parking_lot::Mutex<std::collections::HashMap<String, String>>>,
     // codeterm cron complete / mem worker report itself.
@@ -514,6 +516,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn kill_ptys(&self, pty_ids: &[String]) {
+        self.pty_ownership.release_ptys(pty_ids);
         let mut manager = self.pty.lock();
         for id in pty_ids {
             let _ = manager.kill(id);

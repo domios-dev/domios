@@ -176,17 +176,46 @@ impl ServiceContext {
         )
     }
 
-    pub fn link_pty(&self, pane_id: &str, pty_id: String) {
-        if let Some(orphan) = self.mux.write().link_pty(pane_id, pty_id) {
-            log::warn!(
-                "[link_pty] pane {} relinked — killing orphan pty {}",
-                pane_id,
-                &orphan[..orphan.len().min(8)]
-            );
-            self.kill_ptys(&[orphan]);
-        }
-        crate::service::orchestrator::pane_relink_signal::notify_pane_relinked();
-        self.emit_state_changed();
+    pub fn link_pty(&self, pane_id: &str, pty_id: String) -> String {
+        let claim = self.pty_ownership.acquire(pane_id);
+        self.link_pty_with_claim(&claim, pane_id, pty_id, false)
+            .pty_id
+    }
+
+    pub(crate) fn link_pty_with_claim(
+        &self,
+        claim: &crate::service::pty_ownership::PanePtyClaim,
+        pane_id: &str,
+        pty_id: String,
+        launch_owned: bool,
+    ) -> crate::service::pty_ownership::PtySelection {
+        claim.settle(
+            pty_id,
+            launch_owned,
+            |candidate| self.pty.lock().get_session(candidate).is_some(),
+            |selected| {
+                let mut mux = self.mux.write();
+                if mux.get_pane(pane_id).is_none() {
+                    crate::service::pty_ownership::LinkOutcome::PaneMissing
+                } else {
+                    crate::service::pty_ownership::LinkOutcome::Linked(
+                        mux.link_pty(pane_id, selected.to_string()),
+                    )
+                }
+            },
+            |orphan| {
+                log::warn!(
+                    "[link_pty] pane {} rejected orphan pty {}",
+                    pane_id,
+                    &orphan[..orphan.len().min(8)]
+                );
+                self.kill_ptys(&[orphan.to_string()]);
+            },
+            |_| {
+                crate::service::orchestrator::pane_relink_signal::notify_pane_relinked();
+                self.emit_state_changed();
+            },
+        )
     }
 
     pub fn update_pane_cwd(&self, pane_id: &str, cwd: String) {

@@ -245,28 +245,32 @@ impl ServiceContext {
     }
 
     pub(crate) fn ensure_pane_pty_for_send(&self, pane_id: &str) -> Result<(), String> {
-        let _activation_permit = crate::service::pty_activation::acquire(pane_id);
-        self.ensure_pane_pty_for_send_inner(pane_id)
-    }
-
-    fn ensure_pane_pty_for_send_inner(&self, pane_id: &str) -> Result<(), String> {
-        if self.pane_chat_backing(pane_id).is_some() {
-            return Ok(());
-        }
         let resolved = self
             .mux
             .read()
             .resolve_pane_id(pane_id)
             .ok_or_else(|| format!("Pane {} not found or has no PTY", pane_id))?;
-        if self.resolve_pty_id(&resolved).is_ok() {
-            self.materialize_restored_agent_for_send(&resolved)?;
+        if self.pane_chat_backing(&resolved).is_some() {
+            return Ok(());
+        }
+        let pty_claim = self.pty_ownership.acquire(&resolved);
+        self.ensure_pane_pty_for_send_inner(&resolved, &pty_claim)
+    }
+
+    fn ensure_pane_pty_for_send_inner(
+        &self,
+        pane_id: &str,
+        pty_claim: &crate::service::pty_ownership::PanePtyClaim,
+    ) -> Result<(), String> {
+        if self.resolve_pty_id(pane_id).is_ok() {
+            self.materialize_restored_agent_for_send(pane_id)?;
             return Ok(());
         }
 
         let (cwd, protected, agent_type) = {
             let mux = self.mux.read();
             let pane = mux
-                .get_pane(&resolved)
+                .get_pane(pane_id)
                 .ok_or_else(|| format!("Pane {} not found or has no PTY", pane_id))?;
             (pane.cwd.clone(), pane.protected, pane.agent_type.clone())
         };
@@ -277,7 +281,7 @@ impl ServiceContext {
             ));
         }
 
-        let env_vars = self.pane_env(&resolved);
+        let env_vars = self.pane_env(pane_id);
         let cols = if agent_type.is_some() {
             SEND_AGENT_BACKEND_COLS
         } else {
@@ -288,14 +292,19 @@ impl ServiceContext {
         let (pty_id, _) = self.pty.lock().register_session(None, built);
         log::info!(
             "[ensure-pty] pane {} activated backend pty {} (build={}ms)",
-            resolved,
+            pane_id,
             &pty_id[..pty_id.len().min(8)],
             t0.elapsed().as_millis()
         );
-        self.link_pty(&resolved, pty_id.clone());
-        self.start_backend_reader_for(pty_id);
+        let selection = self.link_pty_with_claim(pty_claim, pane_id, pty_id, false);
+        if !selection.linked {
+            return Err(format!("Pane {} closed before PTY link", pane_id));
+        }
+        if let Some(reader_pty_id) = selection.reader_pty_id() {
+            self.start_backend_reader_for(reader_pty_id.to_string());
+        }
 
-        self.materialize_restored_agent_for_send(&resolved)?;
+        self.materialize_restored_agent_for_send(pane_id)?;
         Ok(())
     }
 
@@ -406,6 +415,7 @@ impl ServiceContext {
             return self.chatbackend_close(&plugin_id, &session_id);
         }
         let pty_id = self.resolve_pty_id(pane_id)?;
+        self.pty_ownership.release_pty(&pty_id);
         kill_live_pane_pty(&mut self.pty.lock(), &pty_id)?;
         Ok(())
     }

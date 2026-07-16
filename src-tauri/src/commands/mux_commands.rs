@@ -443,9 +443,8 @@ pub fn mux_link_pty(
     svc: State<'_, ServiceState>,
     pane_id: String,
     pty_id: String,
-) -> Result<(), String> {
-    svc.link_pty(&pane_id, pty_id);
-    Ok(())
+) -> Result<String, String> {
+    Ok(svc.link_pty(&pane_id, pty_id))
 }
 
 /// Rename a pane (User-level — highest priority, blocks auto-rename).
