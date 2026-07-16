@@ -207,6 +207,7 @@ pub async fn resume_session_api(
         agent_name: None,
         args: None,
         cwd: Some(cwd.clone()),
+        provisioned_cwd: None,
         title: body.title.or_else(|| {
             meta.title
                 .clone()
