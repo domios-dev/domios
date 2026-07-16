@@ -7,6 +7,7 @@ import { useConfig } from "../../hooks/useConfig";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { FolderIcon, ShieldCheckIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
+import { SidebarDisclosure } from "./SidebarDisclosure";
 import type { PaneStatus, Workspace } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 
@@ -119,29 +120,16 @@ function WorkspaceItemInner({
       `}
     >
       <div className={`flex items-center min-w-0 ${touchMode ? "gap-2" : "gap-1"}`}>
-        {/* Chevron toggle — rotates on expand/collapse */}
-        <button
+        <SidebarDisclosure
+          expanded={isExpanded}
+          touchMode={touchMode}
           onClick={(e) => {
             e.stopPropagation();
             onToggleExpand();
           }}
-          className={`${touchMode ? "w-8 h-8" : "w-4 h-4"} flex items-center justify-center shrink-0 text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] transition-colors`}
+          className="shrink-0"
           title={isExpanded ? "Collapse" : "Expand"}
-        >
-          <svg
-            width="8"
-            height="8"
-            viewBox="0 0 8 8"
-            fill="currentColor"
-            className="transition-transform duration-[320ms]"
-            style={{
-              transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)",
-              transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
-            }}
-          >
-            <path d="M2 1l4 3-4 3V1z" />
-          </svg>
-        </button>
+        />
         {/* Icon + name (click to activate, double-click to rename) */}
         <div className={`flex items-center min-w-0 ${touchMode ? "gap-2.5" : "gap-2"}`} onClick={onClick}>
           {workspace.protected ? (
