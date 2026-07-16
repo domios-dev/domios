@@ -138,6 +138,8 @@ pub enum SplitNodeSnapshot {
         /// Watcher-mode machine state for chatBackend panes.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         watcher: Option<crate::multiplexer::types::WatcherSpec>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pending_delivery: Option<crate::multiplexer::types::PendingDeliveryRecord>,
     },
     Split {
         orientation: String,

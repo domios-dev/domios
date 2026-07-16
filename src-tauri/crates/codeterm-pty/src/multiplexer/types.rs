@@ -197,6 +197,85 @@ pub enum PaneBacking {
     },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PendingDeliveryChannel {
+    SystemPrompt,
+    InteractiveInput,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeliveryAttemptProvenance {
+    pub attempt_id: String,
+    pub started_at_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PendingDeliveryState {
+    Pending,
+    Confirmed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PendingDeliveryRecord {
+    pub content_digest: String,
+    pub channel: PendingDeliveryChannel,
+    state: PendingDeliveryState,
+    attempt_provenance: Option<DeliveryAttemptProvenance>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PendingDeliveryTransitionError {
+    ConfirmedTerminal,
+    AttemptAlreadyInFlight,
+}
+
+impl PendingDeliveryRecord {
+    pub fn new(content_digest: String, channel: PendingDeliveryChannel) -> Self {
+        Self {
+            content_digest,
+            channel,
+            state: PendingDeliveryState::Pending,
+            attempt_provenance: None,
+        }
+    }
+
+    pub fn state(&self) -> PendingDeliveryState {
+        self.state
+    }
+
+    pub fn attempt_provenance(&self) -> Option<&DeliveryAttemptProvenance> {
+        self.attempt_provenance.as_ref()
+    }
+
+    pub fn begin_attempt(
+        &mut self,
+        provenance: DeliveryAttemptProvenance,
+    ) -> Result<(), PendingDeliveryTransitionError> {
+        match self.state {
+            PendingDeliveryState::Confirmed => {
+                Err(PendingDeliveryTransitionError::ConfirmedTerminal)
+            }
+            PendingDeliveryState::Pending if self.attempt_provenance.is_some() => {
+                Err(PendingDeliveryTransitionError::AttemptAlreadyInFlight)
+            }
+            PendingDeliveryState::Pending => {
+                self.attempt_provenance = Some(provenance);
+                Ok(())
+            }
+        }
+    }
+
+    pub fn confirm(&mut self) -> Result<(), PendingDeliveryTransitionError> {
+        if self.state == PendingDeliveryState::Confirmed {
+            return Err(PendingDeliveryTransitionError::ConfirmedTerminal);
+        }
+        self.state = PendingDeliveryState::Confirmed;
+        Ok(())
+    }
+}
+
 /// A pane represents a single terminal or browser panel.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pane {
@@ -207,6 +286,8 @@ pub struct Pane {
     #[serde(default)]
     pub backing: PaneBacking,
     pub pane_type: PaneType,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub pending_delivery: Option<PendingDeliveryRecord>,
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description: Option<String>,
@@ -437,6 +518,7 @@ mod tests {
             pty_id: None,
             backing,
             pane_type: PaneType::Terminal,
+            pending_delivery: None,
             title: "Terminal".to_string(),
             description: None,
             cwd: None,
@@ -491,6 +573,50 @@ mod tests {
     fn pty_pane_is_not_chat_backend() {
         let p = pane_with("a", PaneBacking::Pty);
         assert!(!p.is_chat_backend());
+    }
+
+    #[test]
+    fn confirmed_is_terminal() {
+        let mut delivery =
+            PendingDeliveryRecord::new("digest".into(), PendingDeliveryChannel::InteractiveInput);
+        delivery
+            .begin_attempt(DeliveryAttemptProvenance {
+                attempt_id: "attempt-1".into(),
+                started_at_ms: 42,
+            })
+            .unwrap();
+        assert_eq!(delivery.confirm(), Ok(()));
+        assert_eq!(delivery.state(), PendingDeliveryState::Confirmed);
+        assert_eq!(
+            delivery.begin_attempt(DeliveryAttemptProvenance {
+                attempt_id: "attempt-2".into(),
+                started_at_ms: 43,
+            }),
+            Err(PendingDeliveryTransitionError::ConfirmedTerminal)
+        );
+        assert_eq!(
+            delivery.confirm(),
+            Err(PendingDeliveryTransitionError::ConfirmedTerminal)
+        );
+    }
+
+    #[test]
+    fn pending_allows_one_inflight_attempt() {
+        let mut delivery =
+            PendingDeliveryRecord::new("digest".into(), PendingDeliveryChannel::InteractiveInput);
+        delivery
+            .begin_attempt(DeliveryAttemptProvenance {
+                attempt_id: "attempt-1".into(),
+                started_at_ms: 42,
+            })
+            .unwrap();
+        assert_eq!(
+            delivery.begin_attempt(DeliveryAttemptProvenance {
+                attempt_id: "attempt-2".into(),
+                started_at_ms: 43,
+            }),
+            Err(PendingDeliveryTransitionError::AttemptAlreadyInFlight)
+        );
     }
 
     #[test]
