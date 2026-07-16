@@ -821,8 +821,10 @@ pub async fn link_pty(
     Json(body): Json<LinkPtyBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    state.svc.link_pty(&pane_id, body.pty_id);
-    Ok(Json(serde_json::json!({"ok": true})))
+    let selected_pty_id = state.svc.link_pty(&pane_id, body.pty_id);
+    Ok(Json(
+        serde_json::json!({"ok": true, "pty_id": selected_pty_id}),
+    ))
 }
 
 #[cfg(test)]
