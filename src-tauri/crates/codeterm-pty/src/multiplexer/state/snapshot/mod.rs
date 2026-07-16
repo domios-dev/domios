@@ -133,6 +133,7 @@ impl MultiplexerState {
                 chatbackend_plugin_id,
                 chatbackend_session_id,
                 watcher: pane.and_then(|p| p.watcher.clone()),
+                pending_delivery: pane.and_then(|p| p.pending_delivery.clone()),
             }
         }
 
@@ -236,6 +237,7 @@ impl MultiplexerState {
                 chatbackend_plugin_id,
                 chatbackend_session_id,
                 watcher,
+                pending_delivery,
             } = leaf
             else {
                 return None;
@@ -302,6 +304,7 @@ impl MultiplexerState {
                     pty_id: None,
                     backing: restored_backing,
                     pane_type: PaneType::Terminal,
+                    pending_delivery: pending_delivery.clone(),
                     title: restored_title,
                     description: description.clone(),
                     cwd: cwd.clone(),
