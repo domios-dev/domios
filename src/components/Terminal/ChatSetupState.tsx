@@ -54,12 +54,15 @@ interface ChatSetupStateProps {
   providerIconSvg?: string | null;
   providerIconColor?: string | null;
   providerIconHint?: string | null;
+  teamName?: string | null;
+  projectName?: string | null;
   onRetry?: () => void;
   onOpenTerminal?: () => void;
   onEscape?: () => void;
 }
 
-function projectFact(pane: Pane | null | undefined): string {
+function projectFact(pane: Pane | null | undefined, projectName?: string | null): string {
+  if (projectName) return projectName;
   const cwd = pane?.cwd;
   if (!cwd) return "workspace";
   const normalized = cwd.replace(/\\/g, "/").replace(/\/$/, "");
@@ -108,6 +111,8 @@ export function ChatSetupState({
   providerIconSvg,
   providerIconColor,
   providerIconHint,
+  teamName,
+  projectName,
   onRetry,
   onOpenTerminal,
   onEscape,
@@ -160,14 +165,17 @@ export function ChatSetupState({
   if (view.kind !== "starting") return null;
 
   const progress = STAGE_PROGRESS[pane?.boot_stage ?? ""] ?? 16;
-  const facts = [providerName, pane?.agent_session_model, projectFact(pane)].filter(Boolean).join(" · ");
+  const project = projectFact(pane, projectName);
+  const facts = [providerName, pane?.agent_session_model, project].filter(Boolean).join(" · ");
+  const eyebrow = teamName?.trim() || `Project: ${project}`;
   return (
     <div className="flex justify-center px-4 py-12" data-testid="chat-setup-state" onKeyDown={handleKeyDown}>
       <div className="flex w-full max-w-sm flex-col items-center text-center" style={{ transition: "opacity 120ms ease" }}>
         <div className="chat-launch-ring" data-testid="chat-launch-ring" style={{ "--launch-progress": `${progress}%` } as React.CSSProperties}>
           <LaunchGlyph providerName={providerName} iconSvg={providerIconSvg} iconColor={providerIconColor} iconHint={providerIconHint} />
+          <span className="chat-launch-ticks" data-testid="chat-launch-ticks" aria-hidden>{Array.from({ length: 8 }, (_, index) => <i key={index} />)}</span>
         </div>
-        <div className="mt-4 text-[10px] font-semibold uppercase tracking-[0.16em]" data-testid="chat-launch-eyebrow" style={{ color: "var(--ct-muted-fg)" }}>Team</div>
+        <div className="mt-4 text-[10px] font-semibold uppercase" data-testid="chat-launch-eyebrow" style={{ color: "var(--ct-muted-fg)" }}>{eyebrow}</div>
         <div className="mt-1 text-sm font-semibold" data-testid="chat-launch-role" style={{ color: "var(--ct-fg)" }}>{subject}</div>
         <div className="mt-1 font-mono text-[11px]" data-testid="chat-launch-facts" style={{ color: "var(--ct-muted-fg)" }}>{facts}</div>
         <div className="mt-4 min-h-5 text-xs" data-testid="chat-setup-stage" aria-live="polite" style={{ color: "var(--ct-fg)" }}>

@@ -120,6 +120,16 @@ export function PaneSessionChat({
   const { setFocusedPane, selectTabByPane, addNotification, setActiveWorkspace } = useMultiplexer();
   const paneSelector = useCallback((s: Parameters<typeof selectPane>[0]) => selectPane(s, paneId), [paneId]);
   const pane = useMuxSelector(paneSelector, paneFieldsEqual);
+  const teamNameSelector = useCallback((state: Parameters<typeof selectPane>[0]) => {
+    const teamId = (state.panes[paneId] as (typeof state.panes)[string] & { team_id?: string | null } | undefined)?.team_id;
+    return teamId ? state.teams.find((team) => team.id === teamId)?.name ?? null : null;
+  }, [paneId]);
+  const teamName = useMuxSelector(teamNameSelector);
+  const projectNameSelector = useCallback((state: Parameters<typeof selectPane>[0]) => {
+    const workspace = state.workspaces.find((candidate) => candidate.tabs.some((tab) => tab.pane_id === paneId));
+    return state.panes[paneId]?.cwd ?? workspace?.cwd ?? workspace?.name ?? null;
+  }, [paneId]);
+  const projectName = useMuxSelector(projectNameSelector);
   const paneTitleMap = useMuxSelector(selectPaneTitleMap, paneTitleMapEqual);
   const planNav = useMuxSelector(selectPlanNavContext, planNavContextEqual);
   const paneAgentTypes = useMuxSelector(selectPaneAgentTypes, paneAgentTypesEqual);
@@ -532,6 +542,8 @@ export function PaneSessionChat({
               providerIconSvg={provider?.iconSvg}
               providerIconColor={provider?.iconColor}
               providerIconHint={provider?.iconHint}
+              teamName={teamName}
+              projectName={projectName}
               onRetry={handleLaunchRetry}
               onOpenTerminal={onOpenTerminalFallback}
               onEscape={focusComposer}

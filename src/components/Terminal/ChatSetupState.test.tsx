@@ -76,17 +76,19 @@ async function main() {
   });
 
   await test("starting renders the setup card with the stage label", async () => {
-    const p = pane("agent_launching");
+    const p = { ...pane("agent_launching"), cwd: "/work/identity-card", role: "Worker", agent_session_model: "Focused" } as Pane;
     const host = await render(
-      <ChatSetupState pane={p} view={chatSetupView(p)} providerName="Claude Code" providerIconSvg="<svg><path /></svg>" providerIconColor="#d97757" />,
+      <ChatSetupState pane={p} view={chatSetupView(p)} providerName="Claude Code" providerIconSvg="<svg><path /></svg>" providerIconColor="#d97757" teamName="Launch Crew" projectName="identity-card" />,
     );
     assert(host.querySelector('[data-testid="chat-setup-state"]'), "setup card rendered");
     const stage = host.querySelector('[data-testid="chat-setup-stage"]');
-    assert(stage?.textContent?.includes("Preparing claude code instructions"), "stage label shows the launch event");
+    assert(stage?.textContent?.includes("Preparing worker instructions"), "stage label shows the launch event");
     assert(host.querySelector('[data-testid="chat-launch-glyph"]')?.getAttribute("aria-label") === "Claude Code", "glyph is named by descriptor display name");
     assert(host.querySelector('[data-testid="chat-launch-ring"]'), "thin conic ring rendered");
-    assert(host.querySelector('[data-testid="chat-launch-role"]')?.textContent === "Claude Code", "role line rendered");
-    assert(host.querySelector('[data-testid="chat-launch-facts"]')?.textContent?.includes("Claude Code"), "facts line rendered");
+    assert(host.querySelector('[data-testid="chat-launch-eyebrow"]')?.textContent === "Launch Crew", "actual Team name is rendered");
+    assert(host.querySelector('[data-testid="chat-launch-role"]')?.textContent === "Worker", "role line rendered");
+    assert(host.querySelector('[data-testid="chat-launch-facts"]')?.textContent === "Claude Code · Focused · identity-card", "honest provider/model/project facts rendered");
+    assert(host.querySelectorAll('[data-testid="chat-launch-ticks"] i').length === 8, "static reduced-motion tick marks are present");
     assert(stage?.getAttribute("aria-live") === "polite", "stage is polite live region");
   });
 
@@ -132,6 +134,23 @@ async function main() {
     });
     assert(retried, "retry routes through launch retry callback");
     assert(!opened, "show log is withheld until a second failure");
+  });
+
+  await test("second launch failure exposes the terminal log action", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const renderState = async (stage: Pane["boot_stage"]) => {
+      const current = pane(stage);
+      await act(async () => {
+        root.render(<ChatSetupState pane={current} view={chatSetupView(current)} providerName="Claude Code" onRetry={() => {}} onOpenTerminal={() => {}} />);
+      });
+    };
+    await renderState("spawn_failed");
+    assert(!host.querySelector('[data-testid="chat-launch-show-log"]'), "first failure does not expose log action");
+    await renderState("pty_starting");
+    await renderState("spawn_failed");
+    assert(host.querySelector('[data-testid="chat-launch-show-log"]'), "second failure exposes log action");
   });
 
   await test("ready renders nothing (empty-state text stays the caller's job)", async () => {
