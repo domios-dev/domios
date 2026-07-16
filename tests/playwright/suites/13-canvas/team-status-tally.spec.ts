@@ -297,6 +297,10 @@ test("@golden @team-status-tally Team status tally keeps every bucket visible ac
     await teamUnit.getByTestId("team-name-input").fill("Team UI QA");
     await teamUnit.getByTestId("team-name-input").press("Enter");
     await expect(teamUnit.getByTestId("team-name")).toHaveText("Team UI QA");
+    const neutralNav = page.getByTestId("nav-extensions");
+    await neutralNav.focus();
+    await expect(neutralNav).toBeFocused();
+    expect(await teamUnit.evaluate((unit) => !unit.contains(document.activeElement)), "rest geometry starts with focus outside the Team unit").toBe(true);
     await expect(teamUnit.getByTestId("team-collapse-toggle")).toHaveAttribute("aria-expanded", "true");
     await setSidebarWidth(session, 220);
     await assertTeamTitleFits(teamUnit);
