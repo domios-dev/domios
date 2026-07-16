@@ -267,6 +267,17 @@ impl PendingDeliveryRecord {
         }
     }
 
+    pub fn replace_attempt(
+        &mut self,
+        provenance: DeliveryAttemptProvenance,
+    ) -> Result<(), PendingDeliveryTransitionError> {
+        if self.state == PendingDeliveryState::Confirmed {
+            return Err(PendingDeliveryTransitionError::ConfirmedTerminal);
+        }
+        self.attempt_provenance = Some(provenance);
+        Ok(())
+    }
+
     pub fn confirm(&mut self) -> Result<(), PendingDeliveryTransitionError> {
         if self.state == PendingDeliveryState::Confirmed {
             return Err(PendingDeliveryTransitionError::ConfirmedTerminal);
