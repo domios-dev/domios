@@ -41,8 +41,8 @@ pub async fn spawn_pty_core(
     predicted_id: Option<String>,
     pane_id: Option<String>,
 ) -> Result<String, String> {
-    let _activation_permit = match pane_id.clone() {
-        Some(id) => Some(crate::service::pty_activation::acquire_async(id).await?),
+    let mut pty_claim = match pane_id.clone() {
+        Some(id) => Some(svc.pty_ownership.acquire_async(id).await?),
         None => None,
     };
     let state = &svc.pty;
@@ -62,15 +62,25 @@ pub async fn spawn_pty_core(
         if let Some(existing) = existing {
             let alive = state.lock().get_session(&existing).is_some();
             if alive {
+                let selected = svc.link_pty_with_claim(
+                    pty_claim.as_ref().expect("pane claim"),
+                    pid,
+                    existing,
+                    false,
+                );
+                if !selected.linked {
+                    return Err(format!("Pane {} closed before PTY link", pid));
+                }
                 log::info!(
                     "[spawn_pty] pane {} already has live pty {} — reusing",
                     pid,
-                    existing,
+                    selected.pty_id,
                 );
-                return Ok(existing);
+                return Ok(selected.pty_id);
             }
         }
         if is_protected {
+            drop(pty_claim.take());
             let svc_wait = svc.clone();
             let pane_wait = pid.clone();
             let relinked = tokio::task::spawn_blocking(move || {
@@ -85,6 +95,7 @@ pub async fn spawn_pty_core(
                 "[spawn_pty] protected pane {} still has no backend pty after 5s — falling through",
                 pid,
             );
+            pty_claim = Some(svc.pty_ownership.acquire_async(pid.clone()).await?);
         }
     }
 
@@ -145,18 +156,31 @@ pub async fn spawn_pty_core(
     .map_err(|e| format!("spawn_pty join error: {}", e))??;
     let build_ms = t0.elapsed().as_millis();
 
-    let (pty_id, _session) = state.lock().register_session(predicted_id, built);
+    let (mut pty_id, _session) = state.lock().register_session(predicted_id, built);
     log::info!("PTY {} spawned (build={}ms)", pty_id, build_ms);
 
-    if let Some(ref pid) = pane_id {
-        svc.link_pty(pid, pty_id.clone());
-    }
-    if let Err(e) = crate::service::pty_lifecycle::start_backend_reader(&svc, &pty_id, false) {
-        log::warn!(
-            "[spawn_pty] failed to start backend reader for {}: {}",
-            &pty_id[..pty_id.len().min(8)],
-            e
-        );
+    let reader_pty_id = if let Some(ref pid) = pane_id {
+        let selected =
+            svc.link_pty_with_claim(pty_claim.as_ref().expect("pane claim"), pid, pty_id, false);
+        if !selected.linked {
+            return Err(format!("Pane {} closed before PTY link", pid));
+        }
+        let reader_pty_id = selected.reader_pty_id().map(str::to_string);
+        pty_id = selected.pty_id;
+        reader_pty_id
+    } else {
+        Some(pty_id.clone())
+    };
+    if let Some(reader_pty_id) = reader_pty_id {
+        if let Err(e) =
+            crate::service::pty_lifecycle::start_backend_reader(&svc, &reader_pty_id, false)
+        {
+            log::warn!(
+                "[spawn_pty] failed to start backend reader for {}: {}",
+                &reader_pty_id[..reader_pty_id.len().min(8)],
+                e
+            );
+        }
     }
 
     // Auto-resume pane session after shell is ready.

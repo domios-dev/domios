@@ -20,14 +20,24 @@ pub struct PaneActivationPermit {
 }
 
 pub fn acquire(pane_id: &str) -> PaneActivationPermit {
+    acquire_inner(pane_id, || {})
+}
+
+fn acquire_inner(pane_id: &str, mut waiting: impl FnMut()) -> PaneActivationPermit {
     let gates = gates();
     let mut active = gates.active.lock();
     while !active.insert(pane_id.to_string()) {
+        waiting();
         gates.changed.wait(&mut active);
     }
     PaneActivationPermit {
         pane_id: pane_id.to_string(),
     }
+}
+
+#[cfg(test)]
+pub fn acquire_with_wait_hook(pane_id: &str, waiting: impl FnMut()) -> PaneActivationPermit {
+    acquire_inner(pane_id, waiting)
 }
 
 pub async fn acquire_async(pane_id: String) -> Result<PaneActivationPermit, String> {
