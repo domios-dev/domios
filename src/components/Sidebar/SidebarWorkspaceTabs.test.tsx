@@ -211,16 +211,16 @@ test("team menu enables staffing only for a Team with a manager", async () => {
   assert(trigger.classList.contains("sidebar-team-kebab"), "team menu uses the same-slot kebab control");
   assert(trigger.tabIndex === 0, "team menu trigger remains keyboard reachable for the focus swap");
   assert(/\.sidebar-team-unit\s*\{[^}]*margin:\s*3px 0;/.test(sidebarStyles), "Team tint reaches the full sidebar width while preserving vertical cadence");
-  assert(/\.sidebar-team-header\s*\{[^}]*gap:\s*4px;[^}]*margin:\s*0;[^}]*padding:\s*5px 3px 5px 7px;/.test(sidebarStyles), "Team header gives the donut a deliberate left inset");
+  assert(/\.sidebar-team-header\s*\{[^}]*grid-template-columns:\s*20px minmax\(0, 1fr\) auto;[^}]*gap:\s*4px;[^}]*margin:\s*0;[^}]*padding:\s*5px 3px;/.test(sidebarStyles), "Team header reserves the reclaimed left inset for the chevron");
   assert(/@container \(max-width:\s*159px\)/.test(sidebarStyles), "compact tally threshold preserves the 160px Team matrix after inset reclaim");
   const header = host.querySelector('.sidebar-team-header') as HTMLDivElement | null;
-  assert(header?.getAttribute("aria-expanded") === "true", "established Team header exposes its collapse state");
-  assert(header?.tabIndex === 0, "visible Team header keeps the established collapse interaction keyboard reachable");
-  assert(!host.querySelector('[data-testid="team-collapse-toggle"], .sidebar-team-chevron'), "Team renders no collapse chevron or hidden substitute");
-  await act(async () => header?.click());
-  assert(header?.getAttribute("aria-expanded") === "false", "established visible header click still collapses Team");
-  await act(async () => header?.click());
-  assert(header?.getAttribute("aria-expanded") === "true", "established visible header click still expands Team");
+  const chevron = host.querySelector('[data-testid="team-collapse-toggle"]') as HTMLButtonElement | null;
+  assert(!header?.hasAttribute("role") && header?.tabIndex === -1, "Team header is a non-interactive control container");
+  assert(chevron?.getAttribute("aria-expanded") === "true", "restored chevron exposes the Team collapse state");
+  await act(async () => chevron?.click());
+  assert(chevron?.getAttribute("aria-expanded") === "false", "chevron click collapses Team");
+  await act(async () => chevron?.click());
+  assert(chevron?.getAttribute("aria-expanded") === "true", "chevron click expands Team");
   assert(/\.sidebar-team-progress-slot\s*\{[^}]*width:\s*24px;[^}]*height:\s*20px;/.test(sidebarStyles), "done/total and kebab share one fixed slot");
   assert(/\.sidebar-team-readout-label\s*\{[^}]*margin-left:\s*3px;/.test(sidebarStyles), "full tally labels have explicit count spacing");
   assert(/\.sidebar-team-menu-root \.sidebar-team-kebab\s*\{[^}]*opacity:\s*0;/.test(sidebarStyles), "kebab hides by opacity without removing its slot");
@@ -549,16 +549,16 @@ test("team header renders the live compact status tally", async () => {
   assert(items.length === 4, "tally exposes all four status buckets");
   assert(items.every((item) => item.querySelector(".sidebar-team-readout-compact-dot")), "every bucket emits compact dot markup");
   assert(items.map((item) => item.querySelector(".sidebar-team-readout-label")?.textContent?.trim()).join(",") === "todo,review,blocked,done", "full labels remain available when the title column fits");
-  const planButtons = host.querySelectorAll('[data-testid="team-plan-button"]');
-  assert(planButtons.length === 1, "exactly one bound-plan button is rendered");
-  assert(planButtons[0].textContent === "", "plan button is icon-only");
+  const card = host.querySelector('[data-testid="team-card-activation"]') as HTMLButtonElement | null;
+  assert(card, "bound Team exposes a dedicated plan activation surface");
+  assert(!host.querySelector('[data-testid="team-plan-button"]'), "superseded Plan button is absent");
   assert(/3\s*\/\s*8/.test(host.querySelector(".sidebar-team-header")?.textContent ?? ""), "header shows done/total progress fraction");
   assert(!host.textContent?.includes("Open effort"), "Team unit has no Open effort chrome");
   canvasFocusStore.closeWorkspace();
-  await act(async () => (planButtons[0] as HTMLButtonElement).click());
+  await act(async () => card.click());
   assert(
     canvasFocusStore.getWorkspaceTarget()?.planId === currentPlan.id,
-    "plan button opens the exact bound plan through the Team canvas entry",
+    "bound Team card opens the exact bound plan through the Team canvas entry",
   );
 
   const updatedPlan = plan(currentPlan.tasks.map((item) =>
@@ -570,6 +570,62 @@ test("team header renders the live compact status tally", async () => {
     "live plan updates replace the tally counts",
   );
   await act(async () => root.unmount());
+});
+
+test("Team card keeps plan activation separate from collapse and menu controls", async () => {
+  const panes = {
+    orchestrator: pane({ id: "orchestrator", title: "Orchestrator", role: "Orchestrator", team_id: TEAM.id }),
+  };
+  const currentPlan = plan([task("done", TaskStatus.Done)]);
+  canvasFocusStore.closeWorkspace();
+  const { host, root } = await renderSidebar({
+    panes,
+    tabs: [tab("tab-orchestrator", "orchestrator", 0)],
+    plans: [currentPlan],
+    onRenameTeam: () => {},
+  });
+  const card = host.querySelector('[data-testid="team-card-activation"]') as HTMLButtonElement;
+  const chevron = host.querySelector('[data-testid="team-collapse-toggle"]') as HTMLButtonElement;
+  const menu = host.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement;
+  const header = host.querySelector('.sidebar-team-header') as HTMLElement;
+  assert(card.tabIndex === 0 && chevron.tabIndex === 0 && menu.tabIndex === 0, "card, chevron, and menu are distinct keyboard stops");
+  assert(!header.hasAttribute("role"), "header does not nest controls in a button role");
+  for (const key of ["Enter", " "]) {
+    canvasFocusStore.closeWorkspace();
+    const keydown = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+    await act(async () => {
+      card.focus();
+      card.dispatchEvent(keydown);
+      if (!keydown.defaultPrevented) card.click();
+    });
+    assert(document.activeElement === card, `${key} keeps the card focused`);
+    assert(!keydown.defaultPrevented, `${key} keeps native button activation enabled`);
+    assert(canvasFocusStore.getWorkspaceTarget()?.planId === currentPlan.id, `${key} opens the bound plan`);
+  }
+  canvasFocusStore.closeWorkspace();
+  await act(async () => chevron.click());
+  assert(chevron.getAttribute("aria-expanded") === "false", "chevron changes only collapse state");
+  assert(canvasFocusStore.getWorkspaceTarget() === null, "chevron never opens a plan");
+  await act(async () => (host.querySelector('[data-testid="team-done-count"]') as HTMLElement).click());
+  assert(canvasFocusStore.getWorkspaceTarget() === null, "same-slot done total never opens a plan");
+  await act(async () => menu.click());
+  assert(document.querySelector('[data-testid="team-menu"]'), "kebab opens the Team menu");
+  assert(canvasFocusStore.getWorkspaceTarget() === null, "kebab never opens a plan");
+  await act(async () => root.unmount());
+
+  const unbound = await renderSidebar({
+    panes,
+    tabs: [tab("tab-orchestrator", "orchestrator", 0)],
+    onRenameTeam: () => {},
+  });
+  const unboundHeader = unbound.host.querySelector('.sidebar-team-header') as HTMLElement;
+  assert(!unbound.host.querySelector('[data-testid="team-card-activation"]'), "unbound Team exposes no deceptive activation surface");
+  assert(!unboundHeader.classList.contains("sidebar-team-header-active"), "unbound Team has no pointer or press affordance class");
+  await act(async () => unboundHeader.click());
+  assert(canvasFocusStore.getWorkspaceTarget() === null, "unbound card click has no plan-open side effect");
+  await act(async () => (unbound.host.querySelector('[data-testid="team-collapse-toggle"]') as HTMLButtonElement).click());
+  assert(unbound.host.querySelector('[data-testid="team-collapse-toggle"]')?.getAttribute("aria-expanded") === "false", "unbound chevron remains functional");
+  await act(async () => unbound.root.unmount());
 });
 
 
