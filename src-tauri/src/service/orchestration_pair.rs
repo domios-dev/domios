@@ -338,6 +338,12 @@ impl ServiceContext {
                 .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
                 .ok_or_else(|| "No workspace found".to_string())?
         };
+        let project = self
+            .mux
+            .read()
+            .get_workspace(&workspace_id)
+            .map(|workspace| workspace.name.clone())
+            .unwrap_or_else(|| workspace_id.clone());
 
         let orchestrator_model = params
             .orchestrator_model
@@ -365,6 +371,13 @@ impl ServiceContext {
             workspace_id: Some(workspace_id.clone()),
             spawned_by_pane_id: params.spawned_by_pane_id.clone(),
             task: None,
+            manager_bootstrap: Some(crate::service::role_identity::ManagerBootstrapInputs {
+                role: "Orchestrator".into(),
+                team_id: "not yet established".into(),
+                team_name: "not yet established".into(),
+                plan_id: "no plan bound yet".into(),
+                project: project.clone(),
+            }),
             existing_tab_id: params.existing_tab_id.clone(),
             skip_orchestrator_onboarding: Some(true),
             ..Default::default()
@@ -406,6 +419,13 @@ impl ServiceContext {
             workspace_id: Some(workspace_id.clone()),
             spawned_by_pane_id: Some(orch_pane_id.clone()),
             task: None,
+            manager_bootstrap: Some(crate::service::role_identity::ManagerBootstrapInputs {
+                role: "Planner".into(),
+                team_id: "not yet established".into(),
+                team_name: "not yet established".into(),
+                plan_id: "no plan bound yet".into(),
+                project,
+            }),
             ..Default::default()
         };
 
