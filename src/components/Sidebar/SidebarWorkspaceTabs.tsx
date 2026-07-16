@@ -59,6 +59,7 @@ export interface SidebarWorkspaceTabsProps {
   activeWork: ActiveWorkSnapshot | null;
   remoteWorkers: RemoteWorkersByOrchestrator;
   providers: ProviderDescriptor[];
+  providersLoading?: boolean;
   closingTabIds: Set<string>;
   appearingTabIds: Set<string>;
   isActiveVisual: boolean;
@@ -79,6 +80,7 @@ export interface SidebarWorkspaceTabsProps {
     role: TeamMemberRole,
     providerId: string,
     managerPaneId: string,
+    model?: string,
   ) => void | Promise<void>;
   onCloseTeam?: (teamId: string, managerPaneId: string) => void;
 }
@@ -95,6 +97,7 @@ export function SidebarWorkspaceTabs({
   activeWork,
   remoteWorkers,
   providers,
+  providersLoading,
   closingTabIds,
   appearingTabIds,
   isActiveVisual,
@@ -270,6 +273,7 @@ export function SidebarWorkspaceTabs({
           </>
         }
         providers={providers}
+        providersLoading={providersLoading}
         onRenameTeam={onRenameTeam && managerPaneId
           ? (teamId, name) => onRenameTeam(teamId, name, managerPaneId)
           : undefined}
@@ -278,7 +282,7 @@ export function SidebarWorkspaceTabs({
           openTeamPlanCanvas({ ...target, managerPaneId });
         }}
         onAddMember={onAddTeamMember && managerPaneId
-          ? (role, providerId) => onAddTeamMember(teamId, role, providerId, managerPaneId)
+          ? (role, providerId, model) => onAddTeamMember(teamId, role, providerId, managerPaneId, model)
           : undefined}
         onCloseTeam={onCloseTeam && managerPaneId
           ? (teamId) => onCloseTeam(teamId, managerPaneId)
