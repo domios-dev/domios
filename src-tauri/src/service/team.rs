@@ -63,6 +63,7 @@ impl ServiceContext {
             )?
         };
         let mut spawn_params = prepared.spawn_params;
+        self.attach_manager_bootstrap(team_id, &mut spawn_params)?;
         let lane_label = format!("team-{team_id}");
         let service = self.clone();
         let (spawn_params, mut lane) = tauri::async_runtime::spawn_blocking(move || {
@@ -106,6 +107,59 @@ impl ServiceContext {
         };
         self.emit_state_changed_after_bus_publish();
         Ok(result)
+    }
+
+    fn attach_manager_bootstrap(
+        &self,
+        team_id: &str,
+        params: &mut crate::service::SpawnAgentParams,
+    ) -> Result<(), String> {
+        let role = match (params.role.as_deref(), params.role_profile.as_deref()) {
+            (Some("Orchestrator"), _) => "Orchestrator",
+            (Some("Manager"), Some("planner")) => "Planner",
+            _ => return Ok(()),
+        };
+        let (team_name, project) = {
+            let mux = self.mux.read();
+            let team = mux
+                .get_team(team_id)
+                .ok_or_else(|| format!("Team {team_id} not found"))?;
+            let project = mux
+                .get_workspace(&team.workspace_id)
+                .map(|workspace| workspace.name.clone())
+                .unwrap_or_else(|| team.workspace_id.clone());
+            (
+                team.name.clone().unwrap_or_else(|| "Unnamed Team".into()),
+                project,
+            )
+        };
+        let plan_id = self
+            .plan_store
+            .list_full()
+            .into_iter()
+            .find(|plan| plan.team_id.as_deref() == Some(team_id))
+            .map(|plan| plan.id)
+            .unwrap_or_else(|| "no bound plan yet".into());
+        let guidance = if role == "Orchestrator" {
+            crate::prompts::orchestrator_suffix()
+        } else {
+            crate::prompts::planner_suffix()
+        };
+        let bootstrap = crate::service::role_identity::compose_role_identity(
+            crate::service::role_identity::RoleIdentityContext {
+                role,
+                team_id,
+                team_name: &team_name,
+                plan_id: &plan_id,
+                project: &project,
+                role_guidance: &guidance,
+            },
+        );
+        params.task = Some(match params.task.take() {
+            Some(task) => format!("{bootstrap}\n\n{task}"),
+            None => bootstrap,
+        });
+        Ok(())
     }
 
     pub(crate) fn rename_team(
@@ -272,8 +326,9 @@ fn team_member_role(requested: &str) -> Result<(String, Option<String>), String>
     match requested.trim().to_ascii_lowercase().as_str() {
         "worker" => Ok(("Worker".into(), None)),
         "planner" => Ok(("Manager".into(), Some("planner".into()))),
+        "orchestrator" => Ok(("Orchestrator".into(), None)),
         other => Err(format!(
-            "Team member role must be worker or planner, got '{other}'"
+            "Team member role must be worker, planner, or orchestrator, got '{other}'"
         )),
     }
 }
@@ -835,6 +890,14 @@ mod tests {
             subscription.try_recv(),
             Err(tokio::sync::broadcast::error::TryRecvError::Empty)
         ));
+    }
+
+    #[test]
+    fn team_member_role_accepts_orchestrator() {
+        assert_eq!(
+            team_member_role("orchestrator").unwrap(),
+            ("Orchestrator".into(), None)
+        );
     }
 
     #[test]

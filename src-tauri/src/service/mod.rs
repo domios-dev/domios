@@ -48,6 +48,7 @@ pub mod pty_io;
 pub mod pty_lifecycle;
 pub mod push;
 pub mod remote_workers;
+mod role_identity;
 mod role_profile;
 pub mod session_persist;
 pub mod smart_add;
