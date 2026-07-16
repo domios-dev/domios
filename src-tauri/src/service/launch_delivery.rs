@@ -14,6 +14,16 @@ pub(crate) enum LaunchDeliveryMode {
     ConfirmedFallback,
 }
 
+pub(crate) fn starter_prompt_for_assignment(
+    has_concrete_assignment: bool,
+) -> crate::agent::provider::StarterPrompt {
+    if has_concrete_assignment {
+        crate::agent::provider::StarterPrompt::AssignedTask
+    } else {
+        crate::agent::provider::StarterPrompt::IdleWakeup
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LaunchContent {
     pub system_prompt: Option<String>,
@@ -27,9 +37,9 @@ pub(crate) struct PendingDelivery {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct FallbackDeliverySpec<'a> {
+pub(crate) struct FallbackDeliverySpec {
     pub channel: PendingDeliveryChannel,
-    pub payload: &'a str,
+    pub payload: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -196,29 +206,36 @@ pub(crate) fn pending_delivery(text: &str) -> PendingDelivery {
 fn pending_record_for(text: &str) -> PendingDeliveryRecord {
     pending_record_for_spec(FallbackDeliverySpec {
         channel: PendingDeliveryChannel::InteractiveInput,
-        payload: text,
+        payload: text.to_owned(),
     })
 }
 
-pub(crate) fn fallback_delivery_spec<'a>(
-    fallback_bootstrap: Option<&'a str>,
-    task: Option<&'a str>,
-) -> Option<FallbackDeliverySpec<'a>> {
+pub(crate) fn fallback_delivery_spec(
+    fallback_bootstrap: Option<&str>,
+    task: Option<&str>,
+    starter_text: Option<&str>,
+) -> Option<FallbackDeliverySpec> {
+    if let (Some(bootstrap), Some(starter)) = (fallback_bootstrap, starter_text) {
+        return Some(FallbackDeliverySpec {
+            channel: PendingDeliveryChannel::FallbackBootstrap,
+            payload: format!("{bootstrap}\n\n{starter}"),
+        });
+    }
     fallback_bootstrap
         .map(|payload| FallbackDeliverySpec {
             channel: PendingDeliveryChannel::FallbackBootstrap,
-            payload,
+            payload: payload.to_owned(),
         })
         .or_else(|| {
             task.map(|payload| FallbackDeliverySpec {
                 channel: PendingDeliveryChannel::InteractiveInput,
-                payload,
+                payload: payload.to_owned(),
             })
         })
 }
 
-pub(crate) fn pending_record_for_spec(spec: FallbackDeliverySpec<'_>) -> PendingDeliveryRecord {
-    PendingDeliveryRecord::new(pending_delivery(spec.payload).digest, spec.channel)
+pub(crate) fn pending_record_for_spec(spec: FallbackDeliverySpec) -> PendingDeliveryRecord {
+    PendingDeliveryRecord::new(pending_delivery(&spec.payload).digest, spec.channel)
 }
 
 pub(crate) fn next_attempt() -> DeliveryAttemptProvenance {
@@ -278,7 +295,16 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::provider::{
+        AgentLaunchParams, AgentProvider, ReadinessStrategy, TaskDelivery,
+    };
+    use crate::agent::registry::AgentRegistry;
+    use crate::service::orchestrator::{build_agent_command, SpawnAgentParams};
+    use codeterm_util::lock_hold::TimedRwLock;
     use parking_lot::Mutex;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use std::time::Duration;
 
     #[derive(Default)]
     struct RecordingSink(Mutex<Vec<&'static str>>);
@@ -300,6 +326,31 @@ mod tests {
         assert_eq!(
             mode_for_descriptor(&SystemPromptDelivery::CliFlag("--system".into())),
             LaunchDeliveryMode::SystemPrompt
+        );
+    }
+
+    #[test]
+    fn no_task_manager_starter_is_idle_only() {
+        let starter = starter_prompt_for_assignment(false);
+        assert_eq!(starter, crate::agent::provider::StarterPrompt::IdleWakeup);
+        let identity = crate::service::role_identity::ManagerBootstrapInputs {
+            role: "Orchestrator".into(),
+            team_id: "not yet established".into(),
+            team_name: "not yet established".into(),
+            plan_id: "no plan bound yet".into(),
+            project: "Idle Starter Fixture".into(),
+        }
+        .compose();
+        assert!(identity.contains("Orchestrator"));
+        assert!(identity.contains("Idle Starter Fixture"));
+        assert!(identity.contains("no plan bound yet"));
+    }
+
+    #[test]
+    fn task_bound_worker_starter_unchanged() {
+        assert_eq!(
+            starter_prompt_for_assignment(true),
+            crate::agent::provider::StarterPrompt::AssignedTask
         );
     }
 
@@ -352,18 +403,18 @@ mod tests {
         assert_eq!(delivery.fallback.as_deref(), Some(bootstrap.as_str()));
         let launch_content = format!("{bootstrap}\n\nUser work must not be submitted here.");
         assert_eq!(
-            fallback_delivery_spec(Some(&bootstrap), Some(&launch_content)),
+            fallback_delivery_spec(Some(&bootstrap), Some(&launch_content), None),
             Some(FallbackDeliverySpec {
                 channel: PendingDeliveryChannel::FallbackBootstrap,
-                payload: bootstrap.as_str(),
+                payload: bootstrap.clone(),
             })
         );
 
-        let spec = fallback_delivery_spec(Some(&bootstrap), Some(&launch_content)).unwrap();
+        let spec = fallback_delivery_spec(Some(&bootstrap), Some(&launch_content), None).unwrap();
         let mut pending = pending_record_for_spec(spec.clone());
         assert_eq!(
             pending.content_digest,
-            pending_delivery(spec.payload).digest
+            pending_delivery(&spec.payload).digest
         );
         assert_eq!(pending.channel, PendingDeliveryChannel::FallbackBootstrap);
         assert_eq!(
@@ -397,6 +448,143 @@ mod tests {
             );
         }
         assert_eq!(submissions, 1);
+    }
+
+    fn assert_recorded_fallback(bootstrap: &str, starter: &str, assigned: bool) {
+        let spec = fallback_delivery_spec(Some(bootstrap), None, Some(starter)).unwrap();
+        let pending = pending_record_for_spec(spec.clone());
+        assert_eq!(pending.channel, PendingDeliveryChannel::FallbackBootstrap);
+        assert_eq!(
+            pending.content_digest,
+            pending_delivery(&spec.payload).digest
+        );
+        assert!(spec.payload.contains(bootstrap));
+        assert!(spec.payload.contains(starter));
+        assert_eq!(
+            spec.payload.contains("Execute the assigned task."),
+            assigned
+        );
+        let (mut state, pane_id) = crate::multiplexer::state::MultiplexerState::new();
+        state.get_pane_mut(&pane_id).unwrap().pending_delivery = Some(pending);
+        let mux = Arc::new(TimedRwLock::new("fallback-delivery-test", state));
+        let sink = RecordingSink::default();
+        let mut submitted = Vec::new();
+        let mut gate = LaunchDeliveryGate::new();
+        gate.mark_shell_ready();
+        gate.mark_provider_ready();
+        assert_eq!(
+            gate.consume(&mux, &pane_id, &sink, || {
+                submitted.push(spec.payload.clone());
+                Ok(true)
+            })
+            .unwrap(),
+            LaunchConsumptionOutcome::Confirmed
+        );
+        let pending = mux
+            .read()
+            .get_pane(&pane_id)
+            .unwrap()
+            .pending_delivery
+            .clone()
+            .unwrap();
+        assert_eq!(pending.state(), PendingDeliveryState::Confirmed);
+        assert_eq!(submitted.len(), 1);
+        assert_eq!(
+            pending.content_digest,
+            pending_delivery(&submitted[0]).digest
+        );
+    }
+
+    #[test]
+    fn fallback_no_task_manager_persists_and_submits_one_identical_idle_payload() {
+        assert_recorded_fallback("manager identity", "You are a newly started agent. Wait for instructions from the user or your orchestration parent.", false);
+    }
+
+    #[test]
+    fn fallback_task_manager_persists_and_submits_one_identical_assigned_payload() {
+        assert_recorded_fallback("manager identity", "Execute the assigned task.", true);
+    }
+
+    struct RecordingInlineProvider;
+
+    impl AgentProvider for RecordingInlineProvider {
+        fn id(&self) -> &str {
+            "recording-inline"
+        }
+
+        fn display_name(&self) -> &str {
+            "Recording Inline"
+        }
+
+        fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
+            let marker = match params.starter_prompt {
+                crate::agent::provider::StarterPrompt::AssignedTask => "INLINE-ASSIGNED",
+                crate::agent::provider::StarterPrompt::IdleWakeup => "INLINE-IDLE",
+            };
+            format!(
+                "recording-inline --system {} {marker}",
+                params.task.as_deref().unwrap_or_default()
+            )
+        }
+
+        fn readiness_strategy(&self) -> ReadinessStrategy {
+            ReadinessStrategy::FixedDelay {
+                duration: Duration::ZERO,
+            }
+        }
+
+        fn task_delivery(&self) -> TaskDelivery {
+            TaskDelivery::InlineFlag
+        }
+
+        fn system_prompt_delivery(&self) -> SystemPromptDelivery {
+            SystemPromptDelivery::CliFlag("--system".into())
+        }
+
+        fn detect_from_title(&self, _: &str) -> bool {
+            false
+        }
+
+        fn detect_from_output(&self, _: &str) -> bool {
+            false
+        }
+
+        fn session_file_path(&self, _: &str, _: &str) -> Option<PathBuf> {
+            None
+        }
+
+        fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
+            None
+        }
+
+        fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+            None
+        }
+    }
+
+    #[test]
+    fn system_manager_uses_inline_idle_and_zero_fallback_record() {
+        let registry = AgentRegistry::new();
+        registry.register_provider(Box::new(RecordingInlineProvider));
+        let params = SpawnAgentParams {
+            starter_prompt: crate::agent::provider::StarterPrompt::IdleWakeup,
+            ..Default::default()
+        };
+        let command = build_agent_command(
+            "recording-inline",
+            &params,
+            Some("manager identity"),
+            None,
+            &registry,
+        );
+        assert!(command.contains("--system manager identity"));
+        assert!(command.contains("INLINE-IDLE"));
+        let mode = mode_for_descriptor(&SystemPromptDelivery::CliFlag("--system".into()));
+        assert_eq!(mode, LaunchDeliveryMode::SystemPrompt);
+        let pending_spec = (mode == LaunchDeliveryMode::ConfirmedFallback)
+            .then(|| fallback_delivery_spec(None, None, None))
+            .flatten();
+        assert!(pending_spec.is_none());
     }
 
     #[test]

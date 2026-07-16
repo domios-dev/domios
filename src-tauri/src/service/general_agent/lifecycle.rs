@@ -333,6 +333,7 @@ pub fn start_general_agent(
         let params = crate::agent::provider::AgentLaunchParams {
             agent_name: None,
             task: None,
+            starter_prompt: Default::default(),
             args: None,
             skip_permissions: true,
             session_id: pre_session_id,

@@ -34,6 +34,7 @@ impl SpawnAgentParams {
             plan_id: json_str(params, "plan_id").or_else(|| json_str(params, "plan")),
             can_spawn: params.get("can_spawn").and_then(|v| v.as_bool()),
             task: json_str(params, "task"),
+            starter_prompt: Default::default(),
             task_id: json_str(params, "task_id"),
             plan_task: json_str(params, "plan_task").or_else(|| json_str(params, "plan-task")),
             allow_shared_checkout: params

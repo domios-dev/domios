@@ -41,10 +41,20 @@ pub enum TaskDelivery {
     PtyInput,
 }
 
+/// The single visible turn that starts an interactive provider session.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StarterPrompt {
+    #[default]
+    AssignedTask,
+    IdleWakeup,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct AgentLaunchParams {
     pub agent_name: Option<String>,
     pub task: Option<String>,
+    pub starter_prompt: StarterPrompt,
     pub args: Option<Vec<String>>,
     pub skip_permissions: bool,
     // ignore it (they generate ids themselves and CodeTerm has to detect after launch).
@@ -394,6 +404,10 @@ pub trait AgentProvider: Send + Sync {
 
     /// Build the shell command to launch this agent.
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String;
+
+    fn starter_prompt_text(&self, _: StarterPrompt) -> Option<String> {
+        None
+    }
 
     /// How to wait for the agent to be ready after PTY spawn.
     fn readiness_strategy(&self) -> ReadinessStrategy;

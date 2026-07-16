@@ -448,6 +448,10 @@ impl ServiceContext {
             &params.cwd.clone().unwrap_or_default(),
         );
 
+        let has_concrete_assignment = params
+            .task
+            .as_deref()
+            .is_some_and(|task| !task.trim().is_empty());
         let fallback_bootstrap = if let Some(bootstrap) = params.manager_bootstrap.as_ref() {
             self.emit_boot_stage(
                 &pane_id,
@@ -463,6 +467,11 @@ impl ServiceContext {
         } else {
             None
         };
+        if params.manager_bootstrap.is_some() {
+            params.starter_prompt = crate::service::launch_delivery::starter_prompt_for_assignment(
+                has_concrete_assignment,
+            );
+        }
 
         let bg_task = if params.manager_bootstrap.is_some() {
             params.task.clone()
@@ -533,16 +542,24 @@ impl ServiceContext {
                 )
             })
             .unwrap_or(true);
-        if let Some(spec) = fallback_delivery
+        let fallback_spec = fallback_delivery
             .then(|| {
                 crate::service::launch_delivery::fallback_delivery_spec(
                     fallback_bootstrap.as_deref(),
                     bg_task.as_deref(),
+                    self.agent_registry
+                        .with_provider(&agent_cmd, |provider| {
+                            provider.starter_prompt_text(params.starter_prompt)
+                        })
+                        .flatten()
+                        .as_deref(),
                 )
             })
-            .flatten()
-        {
-            if let Err(error) = self.create_pending_delivery(&pane_id, spec.channel, spec.payload) {
+            .flatten();
+        if let Some(spec) = fallback_spec.as_ref() {
+            if let Err(error) =
+                self.create_pending_delivery(&pane_id, spec.channel.clone(), &spec.payload)
+            {
                 let _ = self.close_pane(&pane_id);
                 return Err(error.to_string());
             }
@@ -562,7 +579,7 @@ impl ServiceContext {
             launch_cmd,
             agent_cmd.clone(),
             bg_task,
-            fallback_bootstrap,
+            fallback_spec,
             ready_tx,
         );
 
