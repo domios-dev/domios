@@ -533,16 +533,16 @@ impl ServiceContext {
                 )
             })
             .unwrap_or(true);
-        if let Some((channel, payload)) = fallback_delivery
+        if let Some(spec) = fallback_delivery
             .then(|| {
-                crate::service::launch_delivery::fallback_pending_payload(
+                crate::service::launch_delivery::fallback_delivery_spec(
                     fallback_bootstrap.as_deref(),
                     bg_task.as_deref(),
                 )
             })
             .flatten()
         {
-            if let Err(error) = self.create_pending_delivery(&pane_id, channel, payload) {
+            if let Err(error) = self.create_pending_delivery(&pane_id, spec.channel, spec.payload) {
                 let _ = self.close_pane(&pane_id);
                 return Err(error.to_string());
             }
