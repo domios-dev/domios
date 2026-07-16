@@ -292,7 +292,11 @@ export function useChatSession({
   }, []);
 
   const requestAttach = useCallback(() => {
-    attachmentSourceSessionIdRef.current = agentSessionIdRef.current;
+    const nextSessionId = agentSessionIdRef.current;
+    const lineageSessionId = attachmentSourceSessionIdRef.current;
+    if (lineageSessionId != null && nextSessionId != null && lineageSessionId !== nextSessionId) {
+      attachmentSourceSessionIdRef.current = nextSessionId;
+    }
     setError(null);
     setAttachmentState("attaching");
     setAttachGeneration((generation) => {
