@@ -40,7 +40,7 @@ import { SidebarCollapsedActiveTab, SidebarWorkspaceTabs } from "./SidebarWorksp
 import type { SidebarTeamActions } from "./TeamUnit";
 import { GroupCloseConfirmDialog } from "./GroupCloseConfirmDialog";
 import type { OrchestrationGroupMember } from "./orchestrationGroupClose";
-import { initialSidebarExpanded, partitionSidebarWorkspaces } from "./sidebarSections";
+import { ensureProtectedExpanded, initialSidebarExpanded, partitionSidebarWorkspaces } from "./sidebarSections";
 
 export { buildHierarchyTree, buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 
@@ -205,8 +205,13 @@ export function Sidebar({
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(
     () => initialSidebarExpanded(state.workspaces, state.active_workspace_id),
   );
+  const initializedProtectedWorkspaceRef = useRef(false);
   const [meshEnabledOverride, setMeshEnabledOverride] = useState<boolean | null>(null);
   useEffect(() => {
+    if (!initializedProtectedWorkspaceRef.current && state.workspaces.some((workspace) => workspace.protected)) {
+      initializedProtectedWorkspaceRef.current = true;
+      setExpandedWorkspaces((previous) => ensureProtectedExpanded(previous, state.workspaces));
+    }
     if (state.active_workspace_id) {
       setExpandedWorkspaces((prev) => {
         const next = new Set(prev);
@@ -214,7 +219,7 @@ export function Sidebar({
         return next;
       });
     }
-  }, [state.active_workspace_id]);
+  }, [state.active_workspace_id, state.workspaces]);
 
   const handleNewWorkspace = useCallback(async () => {
     let folder: string | null;

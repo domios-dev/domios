@@ -16,3 +16,11 @@ export function initialSidebarExpanded(workspaces: Workspace[], activeWorkspaceI
     ...(activeWorkspaceId ? [activeWorkspaceId] : []),
   ]);
 }
+
+export function ensureProtectedExpanded(expanded: Set<string>, workspaces: Workspace[]): Set<string> {
+  const next = new Set(expanded);
+  for (const workspace of workspaces) {
+    if (workspace.protected) next.add(workspace.id);
+  }
+  return next;
+}
