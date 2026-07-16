@@ -4,7 +4,7 @@ Run only against an exact-head dev daemon:
 
 ```bash
 source ../_lib/lib.sh
-python runner.py --suite manager-bootstrap
+bash run.sh
 ```
 
 The runner uses `dc` only. It creates a fresh orchestration pair and staffed
