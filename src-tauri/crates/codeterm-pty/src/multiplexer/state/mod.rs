@@ -224,6 +224,7 @@ impl MultiplexerState {
             title: names::generate_tab_name(),
             description: None,
             cwd: None,
+            provisioned_cwd: None,
             url: None,
             agent_type: None,
             agent_type_locked: false,

@@ -98,6 +98,16 @@ const plugin: PluginModule = {
     return responseKeysForIndex(optionIndex, String(screen || ""));
   },
 
+  directoryTrustPromptResponse(prompt: ParsedPrompt, screen?: string): string[] | null {
+    const question = String(prompt.question || "").toLowerCase();
+    const first = prompt.options[0];
+    const firstLabel = Array.isArray(first) ? first[1] : (first as unknown as { label?: string }).label;
+    if (!question.includes("trust the contents of this directory") || !firstLabel || !/^yes\b/i.test(firstLabel)) {
+      return null;
+    }
+    return responseKeysForIndex(0, String(screen || ""));
+  },
+
   // Codex CLI has no model-list subcommand; its local cache is the only sync account-scoped source. Missing => seed.
   discoverModels(): ModelInfo[] {
     return discoverCodexModels();

@@ -89,6 +89,7 @@ export interface AgentProvider {
   buildLaunchCommand?(params: LaunchParams): string;
   buildResumeCommand?(sessionId: string, skipPermissions?: boolean): string;
   buildPromptResponse?(optionIndex: number, screen?: string): string[];
+  directoryTrustPromptResponse?(prompt: ParsedPrompt, screen?: string): string[] | null;
   parsePrompt?(text: string): ParsedPrompt | null;
   sessionFilePath?(cwd: string, sessionId: string): string | null;
   sessionJsonlPath?(cwd: string, sessionId: string): string | null;

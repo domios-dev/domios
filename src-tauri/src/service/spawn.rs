@@ -91,6 +91,8 @@ pub struct AgentSpawnSpec {
     pub agent_name: Option<String>,
     #[serde(default)]
     pub extra_args: Vec<String>,
+    #[serde(default, skip_deserializing)]
+    pub provisioned_cwd: Option<String>,
     #[serde(default)]
     pub role: Option<String>,
     #[serde(default)]
@@ -333,6 +335,11 @@ impl ServiceContext {
             if let Some(ref dir) = resolved_cwd {
                 if let Some(pane) = mux.get_pane_mut(&result.1) {
                     pane.cwd = Some(dir.clone());
+                }
+            }
+            if let Some(ref provisioned_cwd) = agent.provisioned_cwd {
+                if let Some(pane) = mux.get_pane_mut(&result.1) {
+                    pane.provisioned_cwd = Some(provisioned_cwd.clone());
                 }
             }
             if let Some(pane) = mux.get_pane_mut(&result.1) {

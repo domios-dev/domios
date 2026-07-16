@@ -88,6 +88,41 @@ fn build_resume_command_shape() {
 }
 
 #[test]
+fn directory_trust_prompt_response_is_provider_declared() {
+    if require_plugins().is_none() {
+        return;
+    }
+    use codeterm_types::pty::{PendingPrompt, PromptOption};
+    let prompt = PendingPrompt {
+        question: "Do you trust the contents of this directory?".into(),
+        options: vec![
+            PromptOption {
+                label: "Yes, continue".into(),
+                value: "1".into(),
+            },
+            PromptOption {
+                label: "No, quit".into(),
+                value: "2".into(),
+            },
+        ],
+        sections: None,
+        multi_select: None,
+        submit_available: None,
+        selected_values: None,
+    };
+    assert!(codex()
+        .directory_trust_prompt_response(&prompt, "1. Yes, continue")
+        .is_some());
+    let foreign_prompt = PendingPrompt {
+        question: "Approve this command?".into(),
+        ..prompt
+    };
+    assert!(codex()
+        .directory_trust_prompt_response(&foreign_prompt, "1. Yes, continue")
+        .is_none());
+}
+
+#[test]
 fn parse_session_delta_maps_response_items() {
     if require_plugins().is_none() {
         return;
