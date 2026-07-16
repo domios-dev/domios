@@ -221,6 +221,7 @@ impl MultiplexerState {
             pty_id: None,
             backing: PaneBacking::default(),
             pane_type: PaneType::Terminal,
+            pending_delivery: None,
             title: names::generate_tab_name(),
             description: None,
             cwd: None,
