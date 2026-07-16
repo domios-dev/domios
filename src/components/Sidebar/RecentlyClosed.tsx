@@ -173,7 +173,7 @@ function RecentlyClosedInner({
   };
 
   return (
-    <div data-testid="recently-closed" className="mt-0.5 mb-1 border-t border-[var(--ct-border)] pt-1">
+    <div data-testid="recently-closed" className="sidebar-recently-closed mt-0.5 mb-1 border-t border-[var(--ct-border)] pt-1">
       <button
         onClick={() => setOpen((v) => !v)}
         className={`flex items-center gap-1.5 w-full px-2 ${touchMode ? "py-2" : "py-1"} rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] transition-colors`}
