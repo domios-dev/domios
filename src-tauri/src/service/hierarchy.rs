@@ -641,13 +641,22 @@ impl ServiceContext {
                 let envelope =
                     crate::service::messenger::MessageEnvelope::report(&from_title, pane_id)
                         .model(model.clone());
-                let delivery = crate::service::messenger::Messenger::deliver(
+                // The target is a TUI that owns its screen: it reflows, collapses
+                // long input to a paste placeholder, and queues while busy. Echo
+                // scraping cannot decide delivery there, and its false negatives
+                // failed reports that had already landed. The report is stored and
+                // broadcast above; the write is the guarantee.
+                match crate::service::messenger::Messenger::deliver(
                     self,
                     &target_id,
                     envelope,
                     &report.inject_body(),
-                )?;
-                log::info!("[report] target={} delivered via {:?}", target_id, delivery);
+                ) {
+                    Ok(delivery) => {
+                        log::info!("[report] target={} delivered via {:?}", target_id, delivery)
+                    }
+                    Err(error) => log::warn!("[report] target={} deliver: {}", target_id, error),
+                }
             }
         }
 
