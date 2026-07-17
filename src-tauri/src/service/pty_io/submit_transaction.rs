@@ -292,7 +292,7 @@ fn run<T: SubmitTransport>(
                 }
             }
             if !transport.wait_after(generation, submit_deadline) {
-                if attempt + 1 < MAX_ENTER_ATTEMPTS && body_present {
+                if attempt + 1 < MAX_ENTER_ATTEMPTS {
                     break;
                 }
                 return Err(InjectionError::SubmitNeverConfirmed {
@@ -619,6 +619,42 @@ mod tests {
     }
 
     #[test]
+    fn truncated_tui_draft_retries_after_an_unconfirmed_enter() {
+        let body = "-=-codeterm:pane label=CodeTerm pane=system-=-".repeat(8);
+        let io = ControlledTransport::new(
+            Some(Frame {
+                tail: "> -=-codeterm:pane label=CodeTerm pane=system-=-",
+                hash: 1,
+            }),
+            vec![
+                None,
+                Some(Frame {
+                    tail: "working",
+                    hash: 2,
+                }),
+                Some(Frame {
+                    tail: "working stable",
+                    hash: 3,
+                }),
+            ],
+        );
+        let mut no_echo = opts();
+        no_echo.verify_echo = false;
+
+        let result = run(&io, &body, true, tui(), no_echo).unwrap();
+
+        assert!(result.submit_observed);
+        assert_eq!(
+            io.writes
+                .borrow()
+                .iter()
+                .filter(|write| write.starts_with("enter:"))
+                .count(),
+            2
+        );
+    }
+
+    #[test]
     fn submit_transaction_deadline_fails_without_submission() {
         let io = ControlledTransport::new(
             Some(Frame {
@@ -815,7 +851,10 @@ mod tests {
             matches!(result, Err(InjectionError::SubmitNeverConfirmed { .. })),
             "a single absent generation must not count as submission"
         );
-        assert_eq!(&*blink.writes.borrow(), &["paste:hello", "enter:hello"]);
+        assert_eq!(
+            &*blink.writes.borrow(),
+            &["paste:hello", "enter:hello", "enter:hello"]
+        );
 
         // Green twin: the same stream with one more quiet generation confirms.
         let drained = ControlledTransport::new(
