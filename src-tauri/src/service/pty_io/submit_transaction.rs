@@ -613,6 +613,45 @@ mod tests {
     }
 
     #[test]
+    fn spawn_introduction_waits_for_codex_to_render_before_enter() {
+        let intro = "-=-codeterm:pane label=CodeTerm pane=system-=-You are the Orchestrator of this team. Your Planner counterpart is Rodin.";
+        let io = ControlledTransport::new(
+            Some(Frame {
+                tail: "> ingesting bracketed paste",
+                hash: 1,
+            }),
+            vec![
+                Some(Frame {
+                    tail: "-=-codeterm:pane label=CodeTerm pane=system-=-You are the Orchestrator of this team. Your Planner counterpart is Rodin.",
+                    hash: 2,
+                }),
+                Some(Frame {
+                    tail: "working",
+                    hash: 3,
+                }),
+                Some(Frame {
+                    tail: "working stable",
+                    hash: 4,
+                }),
+            ],
+        );
+        let mut messenger_opts = opts();
+        messenger_opts.verify_echo = false;
+
+        let result = submit_entry(PtySubmitEntry::Messenger, intro, |body| {
+            run(&io, body, true, tui(), messenger_opts)
+        })
+        .unwrap();
+
+        assert!(result.submit_observed);
+        assert_eq!(
+            &*io.writes.borrow(),
+            &[format!("paste:{intro}"), format!("enter:{intro}")],
+            "spawn intro must receive one Enter only after Codex renders it"
+        );
+    }
+
+    #[test]
     fn submit_transaction_retries_only_on_new_generation() {
         let stale = ControlledTransport::new(
             Some(Frame {

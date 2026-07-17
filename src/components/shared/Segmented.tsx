@@ -15,6 +15,8 @@ interface SegmentedProps<T extends string> {
   height?: number;
   className?: string;
   "data-testid"?: string;
+  "data-pane-id"?: string;
+  "aria-label"?: string;
 }
 
 /**
@@ -38,6 +40,8 @@ export function Segmented<T extends string>({
     <div
       role="tablist"
       data-testid={rest["data-testid"]}
+      data-pane-id={rest["data-pane-id"]}
+      aria-label={rest["aria-label"]}
       className={`relative inline-grid select-none rounded-full p-[2px] ${className}`}
       style={{
         height,
@@ -66,6 +70,7 @@ export function Segmented<T extends string>({
             key={o.value}
             type="button"
             role="tab"
+            data-value={o.value}
             aria-selected={active}
             title={o.title ?? o.label}
             onMouseDown={(e) => e.preventDefault()}
