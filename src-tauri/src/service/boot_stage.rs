@@ -3,11 +3,21 @@
 //! attachers and live subscribers see where a spawn actually is.
 
 use super::ServiceContext;
+use crate::multiplexer::types::Pane;
 
 pub use codeterm_types::pty::{BootStage, BootStageSink};
 
 pub(crate) fn allows_shell_prompt_exit(stage: Option<BootStage>) -> bool {
     matches!(stage, Some(BootStage::AgentReady))
+}
+
+/// Record a stage on the pane. Only SpawnFailed carries a reason, so any other
+/// stage clears a previously latched failure.
+pub(crate) fn apply_boot_stage(pane: &mut Pane, stage: BootStage, reason: Option<&str>) {
+    pane.boot_stage = Some(stage);
+    pane.boot_failure_reason = (stage == BootStage::SpawnFailed)
+        .then(|| reason.map(str::to_string))
+        .flatten();
 }
 
 impl BootStageSink for ServiceContext {
@@ -22,12 +32,7 @@ impl ServiceContext {
     /// — never blocks the launch thread.
     pub(crate) fn emit_boot_stage(&self, pane_id: &str, stage: BootStage, reason: Option<&str>) {
         if let Some(p) = self.mux.write().get_pane_mut(pane_id) {
-            p.boot_stage = Some(stage);
-            p.boot_failure_reason = if stage == BootStage::SpawnFailed {
-                reason.map(str::to_string)
-            } else {
-                None
-            };
+            apply_boot_stage(p, stage, reason);
         }
         super::boot_wait::notify_boot_changed();
         crate::api::events::emit_everywhere(
