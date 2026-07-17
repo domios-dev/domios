@@ -33,7 +33,7 @@ fn parse_full_manifest() {
                 "readinessStrategy": { "kind": "poll_shell_prompt", "timeoutSecs": 30 },
                 "taskDelivery": "inline_flag",
                 "taskInputWarmupMs": 0,
-                "verifySubmit": { "kind": "tui_input_drained", "timeoutSecs": 15, "idleAfterDrainMs": 800 },
+                "verifySubmit": { "kind": "tui_input_drained" },
                 "sessionIdInjection": "fresh_and_fork",
                 "statusBarRows": 3,
                 "preservesContextOnResume": true,
@@ -84,7 +84,7 @@ fn parse_full_manifest() {
     assert_eq!(m.spawn.status_bar_rows, 3);
     assert!(matches!(
         m.spawn.verify_submit,
-        SerdeVerifySubmit::TuiInputDrained { .. }
+        SerdeVerifySubmit::TuiInputDrained
     ));
     assert!(matches!(
         m.spawn.session_id_injection,
@@ -308,19 +308,10 @@ fn readiness_conversion() {
 
 #[test]
 fn verify_submit_conversion() {
-    let s = SerdeVerifySubmit::TuiInputDrained {
-        timeout_secs: 15,
-        idle_after_drain_ms: 800,
-    };
+    let s = SerdeVerifySubmit::TuiInputDrained;
     let v: VerifySubmitStrategy = (&s).into();
     match v {
-        VerifySubmitStrategy::TuiInputDrained {
-            timeout,
-            idle_after_drain,
-        } => {
-            assert_eq!(timeout.as_secs(), 15);
-            assert_eq!(idle_after_drain.as_millis(), 800);
-        }
+        VerifySubmitStrategy::TuiInputDrained => {}
         _ => panic!(),
     }
 }

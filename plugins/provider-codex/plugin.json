@@ -17,11 +17,7 @@
     },
     "taskDelivery": "inline_flag",
     "systemPromptDelivery": { "kind": "cli_flag", "flag": "-c developer_instructions" },
-    "verifySubmit": {
-      "kind": "tui_input_drained",
-      "timeoutSecs": 15,
-      "idleAfterDrainMs": 800
-    },
+    "verifySubmit": { "kind": "tui_input_drained" },
     "sessionIdInjection": "none",
     "statusBarRows": 1,
     "preservesContextOnResume": false,

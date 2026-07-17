@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, Weak};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use parking_lot::Mutex;
 
@@ -209,7 +209,7 @@ fn run<T: SubmitTransport>(
     let ingest_deadline = started + opts.echo_timeout;
     let turn_deadline = started + opts.echo_timeout.saturating_add(opts.submit_timeout);
     // Two-phase acknowledgement only where the provider exposes a live TUI turn.
-    let two_phase = matches!(strategy, VerifySubmitStrategy::TuiInputDrained { .. });
+    let two_phase = matches!(strategy, VerifySubmitStrategy::TuiInputDrained);
 
     let armed = transport.generation();
     let bytes_written = transport.write_paste(text, turn_deadline)?;
@@ -304,6 +304,7 @@ pub(crate) fn write_terminal_reply(
 mod tests {
     use super::*;
     use std::cell::{Cell, RefCell};
+    use std::time::Duration;
 
     /// Deterministic model of a live TUI (codex/opencode/claude) at the PTY seam.
     ///
@@ -488,10 +489,7 @@ mod tests {
     }
 
     fn tui() -> VerifySubmitStrategy {
-        VerifySubmitStrategy::TuiInputDrained {
-            timeout: Duration::ZERO,
-            idle_after_drain: Duration::ZERO,
-        }
+        VerifySubmitStrategy::TuiInputDrained
     }
 
     #[test]
@@ -573,10 +571,7 @@ mod tests {
     #[test]
     fn every_pty_provider_strategy_preserves_paste_then_enter_order() {
         let strategies = [
-            VerifySubmitStrategy::TuiInputDrained {
-                timeout: Duration::ZERO,
-                idle_after_drain: Duration::ZERO,
-            },
+            VerifySubmitStrategy::TuiInputDrained,
             VerifySubmitStrategy::ShellPrompt {
                 timeout: Duration::ZERO,
             },

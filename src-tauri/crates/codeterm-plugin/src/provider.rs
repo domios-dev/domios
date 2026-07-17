@@ -19,14 +19,9 @@ pub enum VerifySubmitStrategy {
     /// Wait for a new shell prompt to appear (default for plain shells and
     /// providers that pipe through the shell unchanged).
     ShellPrompt { timeout: Duration },
-    /// Wait for the TUI's input box to drain — the typed text disappears
-    /// from the bottom rows. Cheap heuristic: poll the last few rows; once
-    /// the needle is gone, wait `idle_after_drain` of no-screen-change
-    /// before declaring submitted.
-    TuiInputDrained {
-        timeout: Duration,
-        idle_after_drain: Duration,
-    },
+    /// Submit through an interactive TUI. The PTY boundary waits for a
+    /// rendered draft before Enter, then observes the provider turn.
+    TuiInputDrained,
     /// No verification — for providers where post-submit state is not
     /// observable from the PTY (session-id-injection, headless flag delivery, etc.).
     None,
