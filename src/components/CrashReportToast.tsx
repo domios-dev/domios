@@ -11,6 +11,7 @@ interface CrashPayload {
 
 interface RecoveryState {
   current: { epoch: string; pid: number; started_at: number; last_healthy_at: number };
+  crash_presentation: "active" | "settled";
   last_crash?: {
     classification: string;
     detected_at: number;
@@ -22,7 +23,7 @@ interface RecoveryState {
       crash_count_in_window: number;
     };
     work_policy: {
-      ambiguous_execution: string;
+      ambiguous_execution: { restored_bindings: number; disposition: string } | null;
       duplicate_worker_guard: string;
       report_route_guard: string;
     };
@@ -60,7 +61,7 @@ export function RecoveryStatusBanner() {
   }, []);
 
   const crash = recovery?.last_crash;
-  if (!crash || crash.new_epoch !== recovery?.current.epoch) return null;
+  if (!crash || recovery?.crash_presentation !== "active") return null;
   const crashKey = `${crash.previous.epoch}:${crash.previous.pid}:${crash.new_epoch}`;
   if (dismissedCrashKey === crashKey) return null;
 
@@ -117,9 +118,13 @@ export function RecoveryStatusBanner() {
             <div className="mt-1 truncate text-[11px] text-[var(--ct-muted-fg)]">
               {reportText}
             </div>
-            <div className="mt-1 text-[11px] leading-relaxed text-[var(--ct-muted-fg)]">
-              Ambiguous work: {crash.work_policy.ambiguous_execution}
-            </div>
+            {crash.work_policy.ambiguous_execution && (
+              <div className="mt-1 text-[11px] leading-relaxed text-[var(--ct-muted-fg)]">
+                Ambiguous work: {crash.work_policy.ambiguous_execution.restored_bindings} restored binding
+                {crash.work_policy.ambiguous_execution.restored_bindings === 1 ? "" : "s"} ·{" "}
+                {crash.work_policy.ambiguous_execution.disposition}
+              </div>
+            )}
             {payload?.dir && (
               <button
                 onClick={openFolder}

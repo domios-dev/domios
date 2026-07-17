@@ -23,9 +23,17 @@ Durable marker location is `<data_dir>/state/recovery/`:
 
 Crash report artifacts remain in `<data_dir>/crashes/`. Recovery markers are small and retained until overwritten; crash history is pruned to the loop-protection window.
 
+## Classification Evidence
+
+Classification describes the dead epoch, never the restart. The daemon reads only what the previous epoch recorded about itself: an epoch whose healthy lifetime (`last_healthy_at - started_at`) never reached 30s is `fast_fail`; any other unclean epoch is `abnormal_exit`. Elapsed time between the death and the next launch is downtime, not evidence — a machine left off overnight restarts into a plain `abnormal_exit`, not a kill report.
+
+`power_loss_or_kill` is reserved for an external observer that actually watched the process die. Only `pending_crash.json`, written by `codeterm system supervise`, carries it; the daemon promotes that observation verbatim and never infers it.
+
 ## Work Recovery Policy
 
-Startup restores session snapshots and task bindings before any worker spawn. Existing task execution bindings are authoritative. Safe idempotent work may resume only when the provider/session contract proves the same attempt can continue without duplicate side effects. Ambiguous active execution is marked `needs-review/reassign`; it is never marked safe by absence of evidence.
+Startup restores session snapshots and task bindings before any worker spawn. Existing task execution bindings are authoritative. Safe idempotent work may resume only when the provider/session contract proves the same attempt can continue without duplicate side effects.
+
+`work_policy.ambiguous_execution` is `null` until restored bindings prove work was in flight. Once the session snapshot is restored, the count of restored role-bearing panes is bound to the crash record; a non-zero count yields `{ restored_bindings, disposition: "needs-review/reassign" }`. Zero restored bindings means no ambiguous-work claim — a crash with nothing in flight accuses nothing. Absence of evidence never marks work safe, and it never manufactures an accusation either.
 
 Report routing follows restored owner/planner bindings. Duplicate worker and report checks are required before any supervisor-assisted recovery can dispatch more work.
 
@@ -33,10 +41,14 @@ The supervisor never resumes workers. It only restarts the app process; restored
 
 ## UI Placement
 
-Recovery status is a durable full-width top-level banner surfaced from `get_recovery_state`, with event refresh on new crash-report discovery. It has a stable `recovery-status-banner` test selector and no dismiss action. The banner is visible only when the crash record is bound to the current recovery epoch, so a later clean launch supersedes it without deleting audit history.
+Recovery status is a toast surfaced from `get_recovery_state`, with event refresh on new crash-report discovery. It has a stable `recovery-status-banner` test selector and a dismiss action.
+
+Presentation is driven by `crash_presentation`, recomputed on every read rather than by the record's existence. It is `active` only while the crash is bound to the current epoch and that epoch has not yet proven itself healthy. Once the current epoch accumulates 120s of heartbeat-proven runtime, or a later epoch supersedes the record, it becomes `settled` and the toast stays gone across refresh and reconnect. `last_crash.json` and `crash_history.json` survive the transition untouched — the audit stays readable while the accusation retires.
 
 ## Platform Oracle
 
 - Windows: the scheduled task starts immediately when enabled and at logon. Force-kill the supervised app, assert `pending_crash.json` precedes the replacement epoch, then verify the task remains one supervisor with one app child. `/End` plus `/Delete` owns disable.
 - macOS: the loaded LaunchAgent runs one CLI supervisor with `KeepAlive=false`. Repeat the kill, clean-exit, replacement-handoff, and loop-threshold oracle; validate the generated plist with `plutil`.
 - Linux: the enabled user unit runs one CLI supervisor with `Restart=no`. Repeat the same oracle and validate the generated unit with `systemd-analyze --user verify`; quoted `ExecStart` paths must survive spaces.
+
+<!-- revision: 1 -->
