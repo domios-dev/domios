@@ -5,6 +5,10 @@ use crate::multiplexer::types::{AgentRole, PaneBacking};
 use crate::service::plan::PlanError;
 use crate::service::ServiceContext;
 
+/// Bounded failure deadline for delivering a booting team member's pairing
+/// intro. Elapsed time is a failure signal, never treated as readiness.
+const MEMBER_INTRO_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
+
 #[derive(Debug, Clone)]
 pub(crate) struct AddTeamMemberParams {
     pub provider: String,
@@ -72,8 +76,9 @@ impl ServiceContext {
         })
         .await
         .map_err(|error| format!("worker lane provisioning failed: {error}"))??;
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
         let spawn = self
-            .spawn_agent_with_state_change(spawn_params, None, false)
+            .spawn_agent_with_state_change(spawn_params, Some(ready_tx), false)
             .await;
         let pane_id = match spawn {
             Ok(spawn) => spawn.pane_id,
@@ -109,6 +114,7 @@ impl ServiceContext {
             caller_pane_id,
             &pane_id,
             prepared.expected_profile.as_deref(),
+            ready_rx,
         );
         self.emit_state_changed_after_bus_publish();
         Ok(result)
@@ -116,13 +122,17 @@ impl ServiceContext {
 
     /// When a team gains a Planner under its Orchestrator, introduce the pair as
     /// real codeterm messages so neither rediscovers the other (replaces the
-    /// generic "newly started agent" first message). Best-effort — a member that
-    /// is still booting is logged and skipped, never fatal.
+    /// generic "newly started agent" first message). The live caller is
+    /// introduced immediately; the still-booting member's intro is gated on its
+    /// launch readiness so it lands as the member's FIRST delivered message —
+    /// never before boot, never silently dropped (a missed readiness deadline
+    /// warns with both pane ids).
     fn introduce_team_member_pairing(
         &self,
         caller_pane_id: &str,
         member_pane_id: &str,
         member_profile: Option<&str>,
+        member_ready: tokio::sync::oneshot::Receiver<Result<(), String>>,
     ) {
         if member_profile != Some("planner") {
             return;
@@ -143,18 +153,48 @@ impl ServiceContext {
                 mux.display_label_for_pane(member_pane_id),
             )
         };
-        self.deliver_pairing_introductions(
-            &crate::service::spawn_factory::Counterpart::new(
-                "Orchestrator",
-                caller_label,
-                caller_pane_id,
-            ),
-            &crate::service::spawn_factory::Counterpart::new(
-                "Planner",
-                member_label,
-                member_pane_id,
-            ),
+        let caller = crate::service::spawn_factory::Counterpart::new(
+            "Orchestrator",
+            caller_label,
+            caller_pane_id,
         );
+        let member = crate::service::spawn_factory::Counterpart::new(
+            "Planner",
+            member_label,
+            member_pane_id,
+        );
+
+        // Caller is a live agent (it issued this request) — introduce it now.
+        self.introduce_to(&caller, &member);
+
+        // Member is booting — deliver its intro only once launch-ready.
+        let svc = self.clone();
+        let deliver_member = {
+            let svc = svc.clone();
+            let member = member.clone();
+            let caller = caller.clone();
+            move || svc.try_introduce(&member, &caller)
+        };
+        tauri::async_runtime::spawn(async move {
+            let outcome = match tokio::time::timeout(
+                MEMBER_INTRO_READY_TIMEOUT,
+                crate::service::spawn_factory::deliver_when_ready(member_ready, deliver_member),
+            )
+            .await
+            {
+                Ok(outcome) => outcome,
+                Err(_) => crate::service::spawn_factory::IntroDelivery::NotReady(
+                    "member launch readiness deadline exceeded".into(),
+                ),
+            };
+            if let crate::service::spawn_factory::IntroDelivery::NotReady(reason) = outcome {
+                log::warn!(
+                    "[spawn-factory] team member intro to {} (counterpart {}) not delivered: {reason}",
+                    member.pane_id,
+                    caller.pane_id
+                );
+            }
+        });
     }
 
     fn attach_manager_bootstrap(
