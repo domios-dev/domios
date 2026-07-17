@@ -4,6 +4,8 @@ import { Window } from "happy-dom";
 import { InboundReportCard, parseInboundReport } from "./InboundReportCard";
 import { MessageBubble } from "../MessageBubble";
 import { decodeCliMessageText, normalizeMessageText } from "./messageText";
+import { CURIE_PARTIAL_REPORT, CURIE_PARTIAL_REPORT_BODY_MARKERS } from "./inboundReportFixtures.testdata";
+import { mountInboundReportCardHarness } from "./InboundReportCard.browserHarness";
 
 const window = new Window({ url: "http://localhost/" });
 for (const [name, value] of Object.entries({ window, document: window.document, navigator: window.navigator, HTMLElement: window.HTMLElement, Element: window.Element, Node: window.Node })) {
@@ -20,6 +22,46 @@ if (!escapedDescriptor.fields.some((field) => field.label === "changes" && field
 if (descriptor.task !== "pl_d17yp2/task_2iw42e") throw new Error("report task parse regression");
 if (descriptor.status !== "in_review") throw new Error("latest report status must win");
 if (!descriptor.fields.some((field) => field.label === "changes" && field.value === "Added provider matrix")) throw new Error("compound report fields parse regression");
+if (descriptor.body !== "") throw new Error("a fully structured report must not invent a body");
+
+// Real Curie payload: structured status plus a free-form multiline message.
+const curie = parseInboundReport(CURIE_PARTIAL_REPORT);
+if (curie.status !== "Partial") throw new Error(`report status regression: got ${JSON.stringify(curie.status)}`);
+for (const marker of CURIE_PARTIAL_REPORT_BODY_MARKERS) {
+  if (!curie.body.includes(marker)) throw new Error(`report body dropped line: ${JSON.stringify(marker)}`);
+}
+if (curie.body !== CURIE_PARTIAL_REPORT.split("\n").slice(1).join("\n").trim()) throw new Error("report body must survive verbatim below the structured block");
+
+const curieHost = document.createElement("div");
+document.body.append(curieHost);
+const curieRoot = createRoot(curieHost);
+await act(async () => curieRoot.render(
+  <MessageBubble
+    message={{ id: "report-curie", type: "user", content: CURIE_PARTIAL_REPORT, fromLabel: "Curie", fromPane: "02d1339c", inboundKind: "report" }}
+  />,
+));
+if (!curieHost.querySelector('[data-testid="chat-inbound-report-body"]')) throw new Error("report card renders no body element");
+for (const marker of CURIE_PARTIAL_REPORT_BODY_MARKERS) {
+  if (!curieHost.textContent?.includes(marker)) throw new Error(`report card dropped body line: ${JSON.stringify(marker)}`);
+}
+if (!curieHost.textContent?.includes("Partial")) throw new Error("report card dropped the status chip");
+await act(async () => curieRoot.unmount());
+curieHost.remove();
+
+// The Playwright harness mounts the same fixture; keep its selectors honest here.
+const harnessHost = document.createElement("div");
+document.body.append(harnessHost);
+let harnessRoot: ReturnType<typeof mountInboundReportCardHarness>;
+await act(async () => { harnessRoot = mountInboundReportCardHarness(harnessHost); });
+for (const variant of ["local", "mesh"]) {
+  const card = harnessHost.querySelector(`[data-testid="report-variant-${variant}"] [data-testid="chat-inbound-report"]`);
+  if (!card) throw new Error(`harness ${variant} report card missing`);
+  const body = card.querySelector('[data-testid="chat-inbound-report-body"]');
+  if (!body?.textContent?.includes("REPORT NOT SENT")) throw new Error(`harness ${variant} report body missing`);
+  if (!card.textContent?.includes("Partial")) throw new Error(`harness ${variant} status chip missing`);
+}
+await act(async () => harnessRoot!.unmount());
+harnessHost.remove();
 
 const host = document.createElement("div");
 document.body.append(host);
