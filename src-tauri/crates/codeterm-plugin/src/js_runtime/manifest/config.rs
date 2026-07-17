@@ -148,13 +148,8 @@ impl From<SerdeTaskDelivery> for TaskDelivery {
 )]
 #[allow(clippy::enum_variant_names)]
 pub enum SerdeVerifySubmit {
-    ShellPrompt {
-        timeout_secs: u64,
-    },
-    TuiInputDrained {
-        timeout_secs: u64,
-        idle_after_drain_ms: u64,
-    },
+    ShellPrompt { timeout_secs: u64 },
+    TuiInputDrained,
     None,
 }
 
@@ -170,13 +165,7 @@ impl From<&SerdeVerifySubmit> for VerifySubmitStrategy {
             SerdeVerifySubmit::ShellPrompt { timeout_secs } => Self::ShellPrompt {
                 timeout: std::time::Duration::from_secs(*timeout_secs),
             },
-            SerdeVerifySubmit::TuiInputDrained {
-                timeout_secs,
-                idle_after_drain_ms,
-            } => Self::TuiInputDrained {
-                timeout: std::time::Duration::from_secs(*timeout_secs),
-                idle_after_drain: std::time::Duration::from_millis(*idle_after_drain_ms),
-            },
+            SerdeVerifySubmit::TuiInputDrained => Self::TuiInputDrained,
             SerdeVerifySubmit::None => Self::None,
         }
     }
