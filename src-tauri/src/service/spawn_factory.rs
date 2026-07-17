@@ -47,13 +47,6 @@ impl Counterpart {
     }
 }
 
-/// One member's first-message introduction to its counterpart.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Introduction {
-    pub to_pane: String,
-    pub body: String,
-}
-
 /// The exact reach command a member uses to message its counterpart. `--tab`
 /// accepts the pane id (see prompts/codeterm_rule.md).
 pub(crate) fn reach_command(pane_id: &str) -> String {
@@ -73,53 +66,69 @@ pub(crate) fn introduction_body(me: &Counterpart, other: &Counterpart) -> String
     )
 }
 
-/// Bidirectional introductions for a freshly-formed pairing. Both members get a
-/// first codeterm message naming the counterpart's pane id + reach command.
-pub(crate) fn pair_introductions(a: &Counterpart, b: &Counterpart) -> [Introduction; 2] {
-    [
-        Introduction {
-            to_pane: a.pane_id.clone(),
-            body: introduction_body(a, b),
+/// Outcome of a readiness-gated introduction delivery.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum IntroDelivery {
+    Delivered,
+    NotReady(String),
+}
+
+/// Deliver a still-booting recipient's introduction ONLY once its launch
+/// readiness signal resolves Ok — the first-message guarantee. Nothing is sent
+/// before the pane is live; a readiness failure returns `NotReady` (the caller
+/// warns with pane ids) rather than dropping the intro silently.
+pub(crate) async fn deliver_when_ready<F>(
+    ready: tokio::sync::oneshot::Receiver<Result<(), String>>,
+    deliver: F,
+) -> IntroDelivery
+where
+    F: FnOnce() -> Result<(), String>,
+{
+    match ready.await {
+        Ok(Ok(())) => match deliver() {
+            Ok(()) => IntroDelivery::Delivered,
+            Err(e) => IntroDelivery::NotReady(e),
         },
-        Introduction {
-            to_pane: b.pane_id.clone(),
-            body: introduction_body(b, a),
-        },
-    ]
+        Ok(Err(e)) => IntroDelivery::NotReady(e),
+        Err(_) => IntroDelivery::NotReady("readiness channel closed before launch".into()),
+    }
 }
 
 impl ServiceContext {
-    fn deliver_intro(&self, intro: &Introduction) {
-        if let Err(e) = Messenger::deliver(
+    /// Deliver a single introduction as a real codeterm message from CodeTerm:
+    /// `to` learns about `other` (name, pane id, reach command). Returns the
+    /// delivery error so a caller can gate/report it; never panics.
+    pub(crate) fn try_introduce(
+        &self,
+        to: &Counterpart,
+        other: &Counterpart,
+    ) -> Result<(), String> {
+        Messenger::deliver(
             self,
-            &intro.to_pane,
+            &to.pane_id,
             MessageEnvelope::from_codeterm(),
-            &intro.body,
-        ) {
+            &introduction_body(to, other),
+        )
+        .map(|_| ())
+    }
+
+    /// Introduce a LIVE recipient to `other` now. A recipient that is not a live
+    /// agent is logged and skipped, never fatal.
+    pub(crate) fn introduce_to(&self, to: &Counterpart, other: &Counterpart) {
+        if let Err(e) = self.try_introduce(to, other) {
             log::warn!(
                 "[spawn-factory] introduction to {} not delivered: {e}",
-                intro.to_pane
+                to.pane_id
             );
         }
     }
 
-    /// Deliver a single introduction as a real codeterm message from CodeTerm:
-    /// `to` learns about `other` (name, pane id, reach command). Best-effort — a
-    /// recipient that is not a live agent is logged and skipped, never fatal.
-    pub(crate) fn introduce_to(&self, to: &Counterpart, other: &Counterpart) {
-        self.deliver_intro(&Introduction {
-            to_pane: to.pane_id.clone(),
-            body: introduction_body(to, other),
-        });
-    }
-
-    /// Deliver both directions of a pairing introduction, replacing the
-    /// one-directional `pending_greeting` hacks and the superseded
+    /// Deliver both directions of a pairing introduction between two LIVE panes,
+    /// replacing the one-directional `pending_greeting` hacks and the superseded
     /// "planner is live" reminder.
     pub(crate) fn deliver_pairing_introductions(&self, a: &Counterpart, b: &Counterpart) {
-        for intro in pair_introductions(a, b) {
-            self.deliver_intro(&intro);
-        }
+        self.introduce_to(a, b);
+        self.introduce_to(b, a);
     }
 }
 
@@ -142,40 +151,87 @@ mod tests {
     #[test]
     fn pair_introductions_name_both_counterpart_pane_ids_and_reach_commands() {
         let (o, p) = (orch(), planner());
-        let intros = pair_introductions(&o, &p);
-
-        let to_orch = intros
-            .iter()
-            .find(|i| i.to_pane == o.pane_id)
-            .expect("orchestrator gets an introduction");
-        let to_planner = intros
-            .iter()
-            .find(|i| i.to_pane == p.pane_id)
-            .expect("planner gets an introduction");
+        let to_orch = introduction_body(&o, &p);
+        let to_planner = introduction_body(&p, &o);
 
         // Orchestrator learns the planner's pane id + reach command.
-        assert!(to_orch.body.contains(&p.pane_id), "names planner pane id");
-        assert!(to_orch.body.contains("Euler"), "names planner");
+        assert!(to_orch.contains(&p.pane_id), "names planner pane id");
+        assert!(to_orch.contains("Euler"), "names planner");
         assert!(
-            to_orch.body.contains(&reach_command(&p.pane_id)),
+            to_orch.contains(&reach_command(&p.pane_id)),
             "carries the reach command for the planner"
         );
 
         // Planner learns the orchestrator's pane id + reach command.
-        assert!(to_planner.body.contains(&o.pane_id), "names orch pane id");
-        assert!(to_planner.body.contains("Kepler"), "names orchestrator");
+        assert!(to_planner.contains(&o.pane_id), "names orch pane id");
+        assert!(to_planner.contains("Kepler"), "names orchestrator");
         assert!(
-            to_planner.body.contains(&reach_command(&o.pane_id)),
+            to_planner.contains(&reach_command(&o.pane_id)),
             "carries the reach command for the orchestrator"
         );
 
         // Both are told not to duplicate the already-live counterpart.
-        for intro in &intros {
+        for body in [&to_orch, &to_planner] {
             assert!(
-                intro.body.contains("never spawn a duplicate"),
+                body.contains("never spawn a duplicate"),
                 "each member is warned against duplicating its pair"
             );
         }
+    }
+
+    // A newly-added team member is still booting when its intro is scheduled.
+    // The intro must NOT be sent before the pane's launch readiness resolves,
+    // and once it flips ready it is delivered exactly once as the first message.
+    // Red on best-effort code, which delivers immediately regardless of boot.
+    #[tokio::test]
+    async fn member_intro_waits_for_readiness_then_delivers_first_message() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let delivered = Arc::new(AtomicUsize::new(0));
+        let seen = delivered.clone();
+        let handle = tokio::spawn(deliver_when_ready(rx, move || {
+            seen.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }));
+
+        // Still booting: nothing delivered yet.
+        tokio::task::yield_now().await;
+        assert_eq!(
+            delivered.load(Ordering::SeqCst),
+            0,
+            "intro must not reach a still-booting member"
+        );
+
+        // Readiness flips → intro delivered exactly once.
+        tx.send(Ok(())).unwrap();
+        assert_eq!(handle.await.unwrap(), IntroDelivery::Delivered);
+        assert_eq!(delivered.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn member_intro_reports_readiness_failure_without_delivering() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let called = Arc::new(AtomicBool::new(false));
+        let seen = called.clone();
+        let handle = tokio::spawn(deliver_when_ready(rx, move || {
+            seen.store(true, Ordering::SeqCst);
+            Ok(())
+        }));
+
+        tx.send(Err("boot failed".into())).unwrap();
+        match handle.await.unwrap() {
+            IntroDelivery::NotReady(e) => assert!(e.contains("boot failed")),
+            other => panic!("expected NotReady, got {other:?}"),
+        }
+        assert!(
+            !called.load(Ordering::SeqCst),
+            "a member that never became ready must not have its intro delivered"
+        );
     }
 
     #[test]
