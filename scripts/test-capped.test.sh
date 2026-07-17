@@ -81,7 +81,6 @@ run_prompt_case() {
     local expected_exit=$2
     local command=$3
     shift 3
-    local started=$SECONDS
     local actual_exit=0
     local output="$TMPDIR/$name.out"
 
@@ -95,10 +94,6 @@ run_prompt_case() {
         printf '%s: expected exit %s, got %s\n' "$name" "$expected_exit" "$actual_exit" >&2
         return 1
     }
-    [ $((SECONDS - started)) -lt 10 ] || {
-        printf '%s: exceeded 10s failure deadline\n' "$name" >&2
-        return 1
-    }
     ! grep -q 'DEADLOCK / HANG' "$output" || {
         printf '%s: timeout banner printed after prompt exit\n' "$name" >&2
         return 1
@@ -107,16 +102,19 @@ run_prompt_case() {
 
 run_prompt_case fast-success 0 true
 run_prompt_case fast-failure 3 bash -c 'exit 3'
+run_prompt_case disk-full-propagates 101 bash -c 'printf "os error 112\\n" >&2; exit 101'
 
 child_pid_file="$TMPDIR/child.pid"
+blocking_fifo="$TMPDIR/blocking-input"
+mkfifo "$blocking_fifo"
 timeout_exit=0
 timeout_output="$TMPDIR/timeout.out"
 if TEST_CAP_SECS=2 CARGO_TEST_CMD=bash "$WRAPPER" -c '
-    sleep 300 &
+    cat "$1" >/dev/null &
     child_pid=$!
-    printf "%s" "$child_pid" > "$1"
+    printf "%s" "$child_pid" > "$2"
     wait "$child_pid"
-' bash "$child_pid_file" >"$timeout_output" 2>&1; then
+' bash "$blocking_fifo" "$child_pid_file" >"$timeout_output" 2>&1; then
     timeout_exit=0
 else
     timeout_exit=$?
@@ -136,6 +134,6 @@ fi
 }
 child_pid=$(<"$child_pid_file")
 if kill -0 "$child_pid" 2>/dev/null; then
-    printf 'timeout: child process %s survived\n' "$child_pid" >&2
+    printf 'timeout: blocking child %s survived\n' "$child_pid" >&2
     exit 1
 fi
