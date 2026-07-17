@@ -313,6 +313,9 @@ pub enum BridgeAction {
         /// Message text (also used as caption for media types)
         #[arg(allow_hyphen_values = true)]
         text: Option<String>,
+        /// Preserve literal escape sequences instead of decoding \n into a newline
+        #[arg(long)]
+        raw_text: bool,
         /// Target service
         #[arg(long, default_value = "telegram")]
         service: String,
