@@ -452,13 +452,35 @@ pub async fn mesh_relay(
     Ok(Json(crate::mesh::types::RelayResponse {
         ok: status < 400,
         status,
-        data: Some(data),
         error: if status >= 400 {
-            Some(format!("HTTP {}", status))
+            Some(relay_error_summary(status, &data))
         } else {
             None
         },
+        data: Some(data),
     }))
+}
+
+/// Surface a structured delivery error (`pane_not_reachable_on_peer`,
+/// `pane_busy_refused`, `submit_unconfirmed`) across the relay boundary instead
+/// of a bare `HTTP <status>`. `bytes_written` is echoed so a caller can never
+/// read a failure as "nothing happened" when the payload already landed.
+fn relay_error_summary(status: u16, data: &serde_json::Value) -> String {
+    let Some(err) = data.get("error").filter(|e| e.is_object()) else {
+        return format!("HTTP {}", status);
+    };
+    let Some(code) = err.get("code").and_then(|v| v.as_str()) else {
+        return format!("HTTP {}", status);
+    };
+    let message = err
+        .get("message")
+        .and_then(|v| v.as_str())
+        .unwrap_or("delivery failed");
+    match err.get("bytes_written").and_then(|v| v.as_bool()) {
+        Some(true) => format!("{code}: {message} (bytes reached the target PTY)"),
+        Some(false) => format!("{code}: {message} (nothing written to the target PTY)"),
+        None => format!("{code}: {message}"),
+    }
 }
 
 /// The only two cursor'd SSE streams a relay target may serve. Both carry D1
@@ -620,8 +642,63 @@ mod tests {
         tag_relay_send_source, tag_relay_spawn_source, validate_relay_path,
     };
 
+    use super::relay_error_summary;
     use super::spawn_registration_from_relay;
     use crate::mesh::types::RelayResponse;
+
+    #[test]
+    fn relay_forwards_structured_delivery_code_not_bare_status() {
+        let body = crate::service::delivery_error::DeliveryError::SubmitUnconfirmed {
+            pane: "53854ac8".into(),
+            detail: "submit not confirmed after 3s".into(),
+        }
+        .to_json();
+        let summary = relay_error_summary(502, &body);
+        assert!(summary.contains("submit_unconfirmed"), "got: {summary}");
+        assert!(
+            summary.contains("bytes reached the target PTY"),
+            "caller must learn the payload landed; got: {summary}"
+        );
+        assert!(!summary.starts_with("HTTP "));
+    }
+
+    #[test]
+    fn relay_marks_zero_byte_refusals_explicitly() {
+        let body = crate::service::delivery_error::DeliveryError::PaneBusyRefused {
+            pane: "53854ac8".into(),
+            detail: "still booting".into(),
+        }
+        .to_json();
+        let summary = relay_error_summary(409, &body);
+        assert!(summary.contains("pane_busy_refused"), "got: {summary}");
+        assert!(summary.contains("nothing written"), "got: {summary}");
+    }
+
+    #[test]
+    fn relay_unreachable_pane_is_named_not_bare_404() {
+        let body = crate::service::delivery_error::DeliveryError::PaneNotReachableOnPeer {
+            pane: "ghost".into(),
+        }
+        .to_json();
+        let summary = relay_error_summary(404, &body);
+        assert!(
+            summary.contains("pane_not_reachable_on_peer"),
+            "got: {summary}"
+        );
+        assert!(summary.contains("nothing written"), "got: {summary}");
+    }
+
+    #[test]
+    fn relay_falls_back_to_status_for_unstructured_bodies() {
+        assert_eq!(
+            relay_error_summary(500, &serde_json::json!(null)),
+            "HTTP 500"
+        );
+        assert_eq!(
+            relay_error_summary(403, &serde_json::json!({"error": "plain string"})),
+            "HTTP 403"
+        );
+    }
 
     fn ok_resp(data: serde_json::Value) -> RelayResponse {
         RelayResponse {

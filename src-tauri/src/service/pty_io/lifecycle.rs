@@ -6,6 +6,7 @@ use super::{
 };
 use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::types::Pane;
+use crate::service::boot_stage::BootStage;
 use crate::service::plan::PlanStore;
 use crate::service::ServiceContext;
 use std::collections::HashMap;
@@ -88,6 +89,19 @@ where
     Ok(Some(launch))
 }
 
+/// A restore fault is a spawn failure only when the pane has no live PTY. With
+/// a live PTY the process exists, so latching SpawnFailed would lie about it.
+pub(crate) fn restore_failure_boot_stage(pty_live: bool) -> Option<BootStage> {
+    (!pty_live).then_some(BootStage::SpawnFailed)
+}
+
+/// Proven reattach of a live PTY must clear a stale failure; every other stage
+/// already describes the pane honestly and is left alone.
+pub(crate) fn reattach_boot_stage(current: Option<BootStage>) -> Option<BootStage> {
+    matches!(current, Some(BootStage::SpawnFailed)).then_some(BootStage::PtyReattached)
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn restore_materialization_core<R, B, L>(
     mux: &MuxState,
     pane_id: &str,
@@ -95,19 +109,22 @@ pub(crate) fn restore_materialization_core<R, B, L>(
     session_id: Option<&str>,
     cwd: Option<&str>,
     session_valid: bool,
+    pty_live: bool,
     resolve_payload: R,
     boot_stage: B,
     launcher: L,
 ) -> Result<Option<RestoredLaunch>, String>
 where
     R: FnOnce() -> Result<Option<String>, String>,
-    B: FnOnce(&str),
+    B: FnOnce(BootStage, &str),
     L: FnOnce(RestoredLaunch, Option<String>),
 {
     let payload = match resolve_payload() {
         Ok(payload) => payload,
         Err(error) => {
-            boot_stage(&error);
+            if let Some(stage) = restore_failure_boot_stage(pty_live) {
+                boot_stage(stage, &error);
+            }
             return Err(error);
         }
     };
@@ -263,6 +280,7 @@ impl ServiceContext {
         pty_claim: &crate::service::pty_ownership::PanePtyClaim,
     ) -> Result<(), String> {
         if self.resolve_pty_id(pane_id).is_ok() {
+            self.emit_pty_reattached(pane_id);
             self.materialize_restored_agent_for_send(pane_id)?;
             return Ok(());
         }
@@ -308,6 +326,13 @@ impl ServiceContext {
         Ok(())
     }
 
+    fn emit_pty_reattached(&self, pane_id: &str) {
+        let current = self.mux.read().get_pane(pane_id).and_then(|p| p.boot_stage);
+        if let Some(stage) = reattach_boot_stage(current) {
+            self.emit_boot_stage(pane_id, stage, None);
+        }
+    }
+
     pub(crate) fn materialize_restored_agent_for_send(&self, pane_id: &str) -> Result<(), String> {
         let (provider_id, session_id, cwd) = {
             let mux = self.mux.read();
@@ -345,17 +370,12 @@ impl ServiceContext {
             session_id.as_deref(),
             cwd.as_deref(),
             session_valid,
+            self.resolve_pty_id(pane_id).is_ok(),
             || {
                 self.resolve_pending_delivery(pane_id)
                     .map_err(|error| error.to_string())
             },
-            |error| {
-                self.emit_boot_stage(
-                    pane_id,
-                    crate::service::boot_stage::BootStage::SpawnFailed,
-                    Some(error),
-                )
-            },
+            |stage, error| self.emit_boot_stage(pane_id, stage, Some(error)),
             |launch, restored_task| {
                 let pc = crate::config::provider_config(&launch.provider_id);
                 let params = crate::service::SpawnAgentParams {
@@ -481,6 +501,184 @@ pub(crate) fn kill_live_pane_pty(
     pty_id: &str,
 ) -> Result<(), String> {
     manager.kill(pty_id)
+}
+
+#[cfg(test)]
+mod restore_boot_stage_tests {
+    use super::{reattach_boot_stage, restore_failure_boot_stage, restore_materialization_core};
+    use crate::multiplexer::commands::MuxState;
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::multiplexer::types::{PendingDeliveryChannel, PendingDeliveryRecord};
+    use crate::service::boot_stage::{apply_boot_stage, BootStage};
+    use codeterm_util::lock_hold::TimedRwLock;
+    use sha2::Digest;
+    use std::sync::Arc;
+
+    struct RestoreFixture {
+        _temp: tempfile::TempDir,
+        store: crate::service::pending_delivery_payloads::PendingDeliveryPayloadStore,
+        mux: MuxState,
+        pane_id: String,
+        digest: String,
+    }
+
+    /// A restored agent pane whose pending-delivery payload is absent from the
+    /// store, so the resolve step is guaranteed to fail.
+    fn unresolvable_restored_pane(live_pty: bool) -> RestoreFixture {
+        let digest = format!(
+            "{:x}",
+            sha2::Sha256::digest("missing restored fallback brief".as_bytes())
+        );
+        let temp = tempfile::tempdir().unwrap();
+        let store = crate::service::pending_delivery_payloads::PendingDeliveryPayloadStore::open(
+            temp.path(),
+            &std::collections::HashSet::new(),
+        )
+        .unwrap();
+        let (mut state, pane_id) = MultiplexerState::new();
+        let pane = state.get_pane_mut(&pane_id).unwrap();
+        pane.agent_type = Some("fixture-provider".into());
+        pane.cwd = Some("fixture-cwd".into());
+        pane.restored_from_snapshot = true;
+        pane.pty_id = live_pty.then(|| "live-pty".to_string());
+        pane.pending_delivery = Some(PendingDeliveryRecord::new(
+            digest.clone(),
+            PendingDeliveryChannel::InteractiveInput,
+        ));
+        RestoreFixture {
+            _temp: temp,
+            store,
+            mux: Arc::new(TimedRwLock::new("restore-boot-stage-test", state)),
+            pane_id,
+            digest,
+        }
+    }
+
+    fn restore_with_failing_resolve(
+        fixture: &RestoreFixture,
+        pty_live: bool,
+    ) -> (Result<(), String>, Vec<(BootStage, String)>, bool) {
+        let emitted = parking_lot::Mutex::new(Vec::new());
+        let launched = parking_lot::Mutex::new(false);
+        let result = restore_materialization_core(
+            &fixture.mux,
+            &fixture.pane_id,
+            "fixture-provider",
+            None,
+            Some("fixture-cwd"),
+            false,
+            pty_live,
+            || {
+                fixture
+                    .store
+                    .resolve(&fixture.digest)
+                    .map(Some)
+                    .map_err(|error| error.to_string())
+            },
+            |stage, reason| emitted.lock().push((stage, reason.to_string())),
+            |_, _| *launched.lock() = true,
+        );
+        let stages = emitted.lock().clone();
+        let launched = *launched.lock();
+        (result.map(|_| ()), stages, launched)
+    }
+
+    #[test]
+    fn restore_binding_failure_on_live_pty_never_latches_spawn_failed() {
+        let fixture = unresolvable_restored_pane(true);
+        let (result, stages, launched) = restore_with_failing_resolve(&fixture, true);
+
+        assert_eq!(
+            result.unwrap_err(),
+            format!("RestorePayloadMissing: {}", fixture.digest),
+            "the resolve error must still surface to the caller"
+        );
+        assert!(
+            stages.is_empty(),
+            "a binding failure over a live PTY must emit no boot-stage failure: {stages:?}"
+        );
+        assert!(!launched, "a failed resolve must not launch an agent");
+    }
+
+    #[test]
+    fn restore_failure_without_live_pty_still_reports_spawn_failed() {
+        let fixture = unresolvable_restored_pane(false);
+        let (result, stages, launched) = restore_with_failing_resolve(&fixture, false);
+
+        assert!(result.is_err());
+        assert_eq!(
+            stages,
+            vec![(
+                BootStage::SpawnFailed,
+                format!("RestorePayloadMissing: {}", fixture.digest)
+            )],
+            "with no live PTY a real spawn failure must stay distinguishable"
+        );
+        assert!(!launched);
+    }
+
+    #[test]
+    fn proven_reattach_clears_a_latched_failure_without_restart() {
+        let (mut state, pane_id) = MultiplexerState::new();
+        let pane = state.get_pane_mut(&pane_id).unwrap();
+        let mut sequence = Vec::new();
+
+        apply_boot_stage(
+            pane,
+            BootStage::SpawnFailed,
+            Some("RestorePayloadMissing: deadbeef"),
+        );
+        sequence.push(pane.boot_stage.unwrap());
+        assert_eq!(
+            pane.boot_failure_reason.as_deref(),
+            Some("RestorePayloadMissing: deadbeef"),
+            "precondition: the pane starts with a latched failure"
+        );
+
+        let reattached = reattach_boot_stage(pane.boot_stage).expect("reattach clears the latch");
+        apply_boot_stage(pane, reattached, None);
+        sequence.push(pane.boot_stage.unwrap());
+
+        assert_eq!(
+            sequence,
+            vec![BootStage::SpawnFailed, BootStage::PtyReattached],
+            "the UI-visible stage must transition out of the failure on reattach"
+        );
+        assert_eq!(
+            pane.boot_failure_reason, None,
+            "the latched failure reason must be cleared, not merely overdrawn"
+        );
+        assert!(
+            reattach_boot_stage(pane.boot_stage).is_none(),
+            "reattach is idempotent"
+        );
+    }
+
+    #[test]
+    fn reattach_never_rewrites_an_already_honest_stage() {
+        for stage in [
+            None,
+            Some(BootStage::AgentReady),
+            Some(BootStage::ShellReady),
+            Some(BootStage::AgentLaunching),
+            Some(BootStage::PtyReattached),
+        ] {
+            assert_eq!(
+                reattach_boot_stage(stage),
+                None,
+                "reattach must not stomp an in-flight or ready boot: {stage:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn spawn_failure_taxonomy_keys_off_pty_liveness() {
+        assert_eq!(
+            restore_failure_boot_stage(false),
+            Some(BootStage::SpawnFailed)
+        );
+        assert_eq!(restore_failure_boot_stage(true), None);
+    }
 }
 
 #[cfg(test)]

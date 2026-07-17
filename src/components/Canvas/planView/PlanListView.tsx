@@ -82,6 +82,9 @@ export function PlanListView({
   planId,
   orchestratorPaneId,
   panes = {},
+  workspaceId,
+  workspaces,
+  teams,
   onOpenPane,
   api,
   onClose,
@@ -100,19 +103,19 @@ export function PlanListView({
 
   const filteredPlans = useMemo(
     () => {
-      const active = filterPlansForBoard(effectivePlans, mode, { planId, orchestratorPaneId, panes });
+      const active = filterPlansForBoard(effectivePlans, mode, { planId, orchestratorPaneId, panes, workspaceId, workspaces, teams });
       if (!manualPlanId || active.some((p) => p.id === manualPlanId)) return active;
       const archivedPlan = plans.find((p) => p.id === manualPlanId && p.status === "archived");
       if (!archivedPlan || (mode === "focus" && planId && planId !== archivedPlan.id)) return active;
       return [...active, archivedPlan];
     },
-    [effectivePlans, manualPlanId, mode, planId, orchestratorPaneId, panes, plans],
+    [effectivePlans, manualPlanId, mode, planId, orchestratorPaneId, panes, workspaceId, workspaces, teams, plans],
   );
   const orderedPlans = useMemo(() => orderPlansByActivity(filteredPlans), [filteredPlans]);
 
   const defaultPlanId = useMemo(
-    () => selectDefaultPlanId(orderedPlans, { planId, orchestratorPaneId, panes }),
-    [orderedPlans, planId, orchestratorPaneId, panes],
+    () => selectDefaultPlanId(orderedPlans, { planId, orchestratorPaneId, panes, workspaceId, workspaces, teams }),
+    [orderedPlans, planId, orchestratorPaneId, panes, workspaceId, workspaces, teams],
   );
 
   const [navStack, setNavStack] = useState<NavStack>(EMPTY_NAV_STACK);

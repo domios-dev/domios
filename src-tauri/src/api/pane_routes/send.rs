@@ -1,13 +1,56 @@
 use axum::{
     extract::{Path, State as AxumState},
     http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
     Json,
 };
 use serde::Deserialize;
 
 use crate::api::routes::{check_auth, resolve_pane};
+use crate::service::delivery_error::DeliveryError;
 
 use super::AppState;
+
+/// Classify a failed PTY delivery for the caller (local or mesh relay). The pane
+/// resolved before any write was attempted, so a failure here is never "missing".
+fn classify_delivery_failure(pane: &str, err: &str) -> DeliveryError {
+    DeliveryError::from_opaque(pane, err)
+}
+
+/// Error surface for `/send`. Delivery failures serialize the structured
+/// taxonomy so the mesh relay can forward `code` + `bytes_written` verbatim
+/// instead of collapsing them into a bare status line.
+pub struct SendRejection {
+    status: StatusCode,
+    body: serde_json::Value,
+}
+
+impl IntoResponse for SendRejection {
+    fn into_response(self) -> Response {
+        (self.status, Json(self.body)).into_response()
+    }
+}
+
+impl From<(StatusCode, &'static str)> for SendRejection {
+    fn from((status, message): (StatusCode, &'static str)) -> Self {
+        Self {
+            status,
+            body: serde_json::json!({
+                "ok": false,
+                "error": {"code": "bad_request", "message": message},
+            }),
+        }
+    }
+}
+
+impl From<DeliveryError> for SendRejection {
+    fn from(err: DeliveryError) -> Self {
+        Self {
+            status: err.status(),
+            body: err.to_json(),
+        }
+    }
+}
 
 pub(super) use self::await_pty_link as wait_for_pty_link;
 
@@ -125,7 +168,7 @@ pub async fn send_text(
     headers: HeaderMap,
     Path(raw_pane_id): Path<String>,
     Json(body): Json<SendTextBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+) -> Result<Json<serde_json::Value>, SendRejection> {
     let svc_token_match = headers
         .get("Authorization")
         .and_then(|v| v.to_str().ok())
@@ -138,7 +181,12 @@ pub async fn send_text(
     if svc_token_match.is_none() {
         check_auth(&state, &headers)?;
     }
-    let pane_id = resolve_pane(&state, &raw_pane_id)?;
+    // Reachability is the FIRST fallible step and the only one allowed to report
+    // a missing pane — everything past it has resolved a real target.
+    let pane_id =
+        resolve_pane(&state, &raw_pane_id).map_err(|_| DeliveryError::PaneNotReachableOnPeer {
+            pane: raw_pane_id.clone(),
+        })?;
 
     let target_is_chat = state.svc.pane_chat_backing(&pane_id).is_some();
     // The return-address marker is meaningful only to an AGENT reading its input.
@@ -172,17 +220,22 @@ pub async fn send_text(
         }
     }
 
+    // Preflight: the PTY must exist and be linked BEFORE any byte is written.
+    // Both failures are pre-write, so they guarantee an untouched target.
     if !target_is_chat {
-        state
-            .svc
-            .ensure_pane_pty_for_send(&pane_id)
-            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+        state.svc.ensure_pane_pty_for_send(&pane_id).map_err(|e| {
+            DeliveryError::PtyUnavailable {
+                pane: pane_id.clone(),
+                detail: e.to_string(),
+            }
+        })?;
 
         if !await_pty_link(&state, &pane_id).await {
-            return Err((
-                StatusCode::NOT_FOUND,
-                "Pane not found or PTY did not start within 3s",
-            ));
+            return Err(DeliveryError::PtyUnavailable {
+                pane: pane_id.clone(),
+                detail: "PTY did not link within 15s".into(),
+            }
+            .into());
         }
     }
 
@@ -254,7 +307,7 @@ pub async fn send_text(
 
     if let Some(actions) = body.actions {
         if actions.is_empty() {
-            return Err((StatusCode::BAD_REQUEST, "actions cannot be empty"));
+            return Err((StatusCode::BAD_REQUEST, "actions cannot be empty").into());
         }
         let mut ordered = Vec::with_capacity(actions.len());
         for action in &actions {
@@ -266,7 +319,7 @@ pub async fn send_text(
                 }
                 SendAction::Key { key } => {
                     let Some(bytes) = send_action_bytes(key) else {
-                        return Err((StatusCode::BAD_REQUEST, "unknown action key"));
+                        return Err((StatusCode::BAD_REQUEST, "unknown action key").into());
                     };
                     if bytes == b"\r" {
                         ordered.push(crate::service::pty_io::OrderedPtyAction::Submit);
@@ -285,7 +338,7 @@ pub async fn send_text(
                     .svc
                     .send_text_when_ready(&pane_id, &text, false)
                     .await
-                    .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
+                    .map_err(|e| classify_delivery_failure(&pane_id, &e))?;
             }
         } else {
             let svc = state.svc.clone();
@@ -306,12 +359,7 @@ pub async fn send_text(
                     "action delivery task failed",
                 )
             })?
-            .map_err(|_| {
-                (
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "PTY action delivery was not acknowledged",
-                )
-            })?;
+            .map_err(|e| classify_delivery_failure(&pane_id, &e))?;
         }
 
         let preview = if raw_text.is_empty() {
@@ -350,12 +398,7 @@ pub async fn send_text(
                     "batch delivery task failed",
                 )
             })?
-            .map_err(|_| {
-                (
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "batch delivery was not acknowledged",
-                )
-            })?;
+            .map_err(|e| classify_delivery_failure(&pane_id, &e))?;
         record_push_activity(&state, &svc_token_match, &pane_id, &preview);
         if !preview.trim().is_empty() {
             state.svc.maybe_send_owned_plan_reminder(&pane_id);
@@ -370,10 +413,12 @@ pub async fn send_text(
         if body.enter && !buf.ends_with('\r') {
             buf.push('\r');
         }
-        state
-            .svc
-            .write_raw(&pane_id, buf.as_bytes())
-            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+        state.svc.write_raw(&pane_id, buf.as_bytes()).map_err(|e| {
+            DeliveryError::PtyUnavailable {
+                pane: pane_id.clone(),
+                detail: e.to_string(),
+            }
+        })?;
         record_push_activity(&state, &svc_token_match, &pane_id, &raw_text);
         return Ok(Json(serde_json::json!({"ok": true})));
     }
@@ -381,7 +426,7 @@ pub async fn send_text(
     let raw_text = body.text.unwrap_or_default();
     if let Some(envelope) = source_envelope {
         crate::service::messenger::Messenger::deliver(&state.svc, &pane_id, envelope, &raw_text)
-            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
+            .map_err(|e| classify_delivery_failure(&pane_id, &e))?;
         record_push_activity(&state, &svc_token_match, &pane_id, &raw_text);
         if !raw_text.trim().is_empty() {
             state.svc.maybe_send_owned_plan_reminder(&pane_id);
@@ -395,12 +440,39 @@ pub async fn send_text(
         .svc
         .send_text_when_ready(&pane_id, &text, body.enter)
         .await
-        .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+        .map_err(|e| classify_delivery_failure(&pane_id, &e))?;
     record_push_activity(&state, &svc_token_match, &pane_id, &text);
     if has_text {
         state.svc.maybe_send_owned_plan_reminder(&pane_id);
     }
     Ok(Json(serde_json::json!({"ok": true})))
+}
+
+#[cfg(test)]
+mod delivery_classification_tests {
+    use super::classify_delivery_failure;
+
+    /// #240: a submit that failed AFTER the paste reached the PTY must never be
+    /// reported as a missing pane — the caller would retry onto parked text.
+    #[test]
+    fn submit_failure_is_not_reported_as_missing_pane() {
+        let err = classify_delivery_failure(
+            "53854ac8",
+            "submit not confirmed after 3s; screen_tail: \"> parked body\"",
+        );
+        assert_eq!(err.code(), "submit_unconfirmed");
+        assert!(err.bytes_written());
+    }
+
+    #[test]
+    fn booting_pane_refusal_is_a_zero_byte_busy_error() {
+        let err = classify_delivery_failure(
+            "53854ac8",
+            "Agent in pane 53854ac8 is still booting — input would be lost",
+        );
+        assert_eq!(err.code(), "pane_busy_refused");
+        assert!(!err.bytes_written());
+    }
 }
 
 #[cfg(test)]

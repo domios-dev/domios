@@ -76,6 +76,7 @@ async function main() {
     assert(chatSetupView(pane("agent_launching")).kind === "starting", "launching is starting");
     assert(chatSetupView(pane("delivering_instructions")).kind === "starting", "fallback delivery is starting");
     assert(chatSetupView(pane("spawn_failed", "boom")).kind === "failed", "spawn_failed is failed");
+    assert(chatSetupView(pane("pty_reattached")).kind === "none", "a reattached live PTY is not booting");
     assert(chatSetupView(null).kind === "none", "no pane is none");
   });
 

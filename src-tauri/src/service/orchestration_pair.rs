@@ -371,13 +371,10 @@ impl ServiceContext {
             workspace_id: Some(workspace_id.clone()),
             spawned_by_pane_id: params.spawned_by_pane_id.clone(),
             task: None,
-            manager_bootstrap: Some(crate::service::role_identity::ManagerBootstrapInputs {
-                role: "Orchestrator".into(),
-                team_id: "not yet established".into(),
-                team_name: "not yet established".into(),
-                plan_id: "no plan bound yet".into(),
-                project: project.clone(),
-            }),
+            manager_bootstrap: Some(crate::service::spawn_factory::forming_identity(
+                "Orchestrator",
+                project.clone(),
+            )),
             existing_tab_id: params.existing_tab_id.clone(),
             skip_orchestrator_onboarding: Some(true),
             ..Default::default()
@@ -419,13 +416,9 @@ impl ServiceContext {
             workspace_id: Some(workspace_id.clone()),
             spawned_by_pane_id: Some(orch_pane_id.clone()),
             task: None,
-            manager_bootstrap: Some(crate::service::role_identity::ManagerBootstrapInputs {
-                role: "Planner".into(),
-                team_id: "not yet established".into(),
-                team_name: "not yet established".into(),
-                plan_id: "no plan bound yet".into(),
-                project,
-            }),
+            manager_bootstrap: Some(crate::service::spawn_factory::forming_identity(
+                "Planner", project,
+            )),
             ..Default::default()
         };
 
@@ -436,25 +429,19 @@ impl ServiceContext {
         {
             Ok(planner_result) => {
                 let planner_pane_id = planner_result.pane_id.clone();
-                let planner_label = self
-                    .agent_registry
-                    .with_provider(&params.planner_agent, |p| p.display_name().to_string())
-                    .unwrap_or_else(|| params.planner_agent.clone());
-                if let Some(pane) = self.mux.write().get_pane_mut(&orch_pane_id) {
-                    pane.pending_greeting =
-                        Some(crate::prompts::peer_orch_greeting(&planner_label));
-                }
-                // boots into silence — names its Orchestrator + charter.
-                let orch_label = self.mux.read().display_label_for_pane(&orch_pane_id);
-                if let Some(pane) = self.mux.write().get_pane_mut(&planner_pane_id) {
-                    pane.pending_greeting = Some(crate::prompts::peer_planner_greeting(
-                        &orch_label,
-                        &orch_pane_id,
-                    ));
-                }
                 if let Some(pane) = self.mux.write().get_pane_mut(&orch_pane_id) {
                     pane.pending_paired_planner_pane_id = Some(planner_pane_id.clone());
                 }
+                let orch_counterpart = crate::service::spawn_factory::Counterpart::new(
+                    "Orchestrator",
+                    self.mux.read().display_label_for_pane(&orch_pane_id),
+                    &orch_pane_id,
+                );
+                let planner_counterpart = crate::service::spawn_factory::Counterpart::new(
+                    "Planner",
+                    self.mux.read().display_label_for_pane(&planner_pane_id),
+                    &planner_pane_id,
+                );
                 let (orch_ready, planner_ready) = tokio::join!(
                     self.await_pair_agent_ready(
                         &orch_pane_id,
@@ -470,7 +457,12 @@ impl ServiceContext {
                     )
                 );
                 let warning = match (orch_ready, planner_ready) {
-                    (Ok(()), Ok(())) => None,
+                    (Ok(()), Ok(())) => {
+                        // Both live — introduce them to each other as real
+                        // codeterm messages so neither rediscovers its pair.
+                        self.deliver_pairing_introductions(&orch_counterpart, &planner_counterpart);
+                        None
+                    }
                     (orch_status, planner_status) => {
                         let orch_error = orch_status.err();
                         let planner_error = planner_status.err();

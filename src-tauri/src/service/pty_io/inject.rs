@@ -24,8 +24,8 @@ impl ServiceContext {
         Ok(())
     }
 
-    /// Acknowledged text injection under one deadline. The transaction arms its
-    /// screen generation before paste and cannot report success until submission.
+    /// Submit text through one ordered PTY write, with screen state retained for
+    /// diagnostics rather than as a gate for the Enter key.
     pub fn send_text_verified(
         &self,
         pty_id: &str,
@@ -164,12 +164,11 @@ impl ServiceContext {
             false
         };
 
-        InjectionResult {
+        Ok(InjectionResult {
             bytes_written,
             echo_observed: false,
             submit_observed,
             elapsed: started.elapsed(),
-        }
-        .require_submission(opts.verify_submit, started.elapsed(), String::new())
+        })
     }
 }

@@ -172,6 +172,22 @@ export function usePtyConnection({
     const setupAndConnect = async () => {
       const predictedId = ptyId || uid();
       connectedPtyRef.current = predictedId;
+      if (ptyId && resizeClientId) {
+        requestAnimationFrame(() => {
+          if (disposed || !localFitEnabledRef.current) return;
+          try {
+            fitAddonRef.current?.fit();
+            if (term.cols > 0 && term.rows > 0) {
+              void invoke("resize_pty", {
+                ptyId: predictedId,
+                cols: term.cols,
+                rows: term.rows,
+                clientId: resizeClientId,
+              });
+            }
+          } catch { /* teardown */ }
+        });
+      }
       // user killswitched it back via localStorage `codeterm-web-output-stream=off`.
       const useOutputStream = webOutputStreamActive();
 

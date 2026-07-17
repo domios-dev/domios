@@ -178,7 +178,15 @@ test("normal chat_backend pane keeps composer and hides read-only bar", async ()
     [paneId]: paneBase(paneId),
   });
   const { host, root } = await renderPaneSessionChat(paneId, state);
-  assert(host.querySelector('[data-testid="chat-composer"]'), "composer present");
+  const chat = host.querySelector('[data-testid="pane-session-chat"]');
+  const messages = host.querySelector('[data-testid="pane-session-chat-messages"]');
+  const composer = host.querySelector('[data-testid="chat-composer"]');
+  assert(chat?.getAttribute("role") === "region", "chat is an accessible region");
+  assert(chat?.getAttribute("aria-label") === "Pane chat", "chat region is named");
+  assert(messages?.getAttribute("role") === "log", "conversation is an accessible log");
+  assert(messages?.getAttribute("aria-label") === "Conversation", "conversation log is named");
+  assert(composer?.getAttribute("aria-label") === "Message composer", "composer is named");
+  assert(composer?.getAttribute("data-pane-id") === paneId, "composer exposes stable pane scope");
   assert(!host.querySelector('[data-testid="watcher-readonly-bar"]'), "read-only bar absent");
   await act(async () => root.unmount());
 });

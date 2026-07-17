@@ -800,6 +800,8 @@ function ChatComposerImpl({
           />
           <textarea
             data-testid="chat-composer"
+            data-pane-id={paneId}
+            aria-label="Message composer"
             ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}

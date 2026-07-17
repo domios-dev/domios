@@ -18,6 +18,8 @@ pub enum BootStage {
     DeliveringInstructions,
     /// Agent booted and the initial task (if any) was delivered.
     AgentReady,
+    /// A restored pane proved its PTY is live and re-attached without a spawn.
+    PtyReattached,
     /// Boot aborted; carries a human-readable reason on the event payload.
     SpawnFailed,
 }
@@ -40,6 +42,7 @@ impl BootStage {
             BootStage::PreparingRoleInstructions => "preparing_role_instructions",
             BootStage::DeliveringInstructions => "delivering_instructions",
             BootStage::AgentReady => "agent_ready",
+            BootStage::PtyReattached => "pty_reattached",
             BootStage::SpawnFailed => "spawn_failed",
         }
     }
