@@ -2,9 +2,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use parking_lot::Mutex;
-use rusqlite::{params, Connection};
-
 use crate::service::activity::{ActivityEvent, ActivityWriter};
 use crate::service::store::{HealthMode, HealthSnapshot, HealthStatus, ServiceKind, ServicesStore};
 
@@ -50,14 +47,13 @@ async fn run_tick(
         }
     };
 
-    let conn = store.conn();
     for svc in services {
         if matches!(svc.kind, ServiceKind::Cron) {
             continue;
         }
 
         let snap = probe_one(&svc).await;
-        persist_snapshot(&conn, &svc.id, &snap);
+        persist_snapshot(store, &svc.id, &snap);
 
         let entry = state.entry(svc.id.clone()).or_default();
         let confirmed = entry.confirmed;
@@ -124,25 +120,8 @@ async fn probe_one(svc: &crate::service::store::Service) -> HealthSnapshot {
     }
 }
 
-fn persist_snapshot(conn: &Arc<Mutex<Connection>>, service_id: &str, snap: &HealthSnapshot) {
-    let probed_at = snap.probed_at.unwrap_or(0);
-    let latency = snap.latency_ms.map(|v| v as i64);
-    let response = serde_json::to_string(&snap.extra).ok();
-    let res = {
-        let c = conn.lock();
-        c.execute(
-            "INSERT OR REPLACE INTO service_health
-                (service_id, probed_at, status, response, latency_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
-                service_id,
-                probed_at,
-                status_str(snap.status),
-                response,
-                latency,
-            ],
-        )
-    };
+fn persist_snapshot(store: &ServicesStore, service_id: &str, snap: &HealthSnapshot) {
+    let res = store.record_health_snapshot(service_id, snap);
     if let Err(e) = res {
         log::warn!("[services] persist health snapshot {}: {}", service_id, e);
     }
