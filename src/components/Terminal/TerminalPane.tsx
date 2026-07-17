@@ -295,12 +295,13 @@ export const TerminalPane = memo(function TerminalPane({
       const term = termRef.current;
       if (!term) return;
       try {
+        fitAddonRef.current?.fit();
         term.refresh(0, term.rows - 1);
       } catch { /* ignore */ }
       termRef.current?.focus();
     });
     return () => cancelAnimationFrame(raf);
-  }, [terminalVisible, isVisible, showTerminalKeyBar, termReady, termRef]);
+  }, [terminalVisible, isVisible, showTerminalKeyBar, termReady, termRef, fitAddonRef]);
 
   useEffect(() => {
     if (!terminalFallbackOpen || uiMode !== "chat") return;
