@@ -86,11 +86,19 @@ test.describe("@golden composer draft isolation", () => {
 
     // The user journey, driven the way a person (or screen reader) would:
     // open the workspace, start a new session, pick Orchestration, start it.
-    const workspaceRow = page.getByRole("button", { name: `Open workspace ${ws.name}`, exact: true });
-    await expect(workspaceRow).toBeVisible({ timeout: 15_000 });
-    const expand = page.getByRole("button", { name: "Expand", expanded: false });
-    if (await expand.first().isVisible().catch(() => false)) await expand.first().click();
-    await page.getByRole("button", { name: "New session" }).first().click();
+    // Scope every control to THIS workspace's accessible group so a sibling
+    // workspace's identically-named "New session"/"Expand" is never hit.
+    const group = page.getByRole("group", { name: ws.name, exact: true });
+    await expect(group).toBeVisible({ timeout: 15_000 });
+    await group.getByRole("button", { name: `Open workspace ${ws.name}`, exact: true }).click();
+
+    // Activating a workspace auto-expands it; expand explicitly only if the
+    // disclosure is still collapsed, then the workspace's "New session" shows.
+    const expand = group.getByRole("button", { name: "Expand", expanded: false });
+    if (await expand.isVisible().catch(() => false)) await expand.click();
+    const newSession = group.getByRole("button", { name: "New session" });
+    await expect(newSession).toBeVisible({ timeout: 10_000 });
+    await newSession.click();
 
     const picker = page.getByRole("dialog", { name: "Start a session" });
     await expect(picker).toBeVisible({ timeout: 10_000 });
