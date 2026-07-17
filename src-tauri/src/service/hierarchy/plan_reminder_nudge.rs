@@ -363,6 +363,21 @@ impl ServiceContext {
         kind: crate::service::plan::reminders::NudgeKind,
     ) -> Result<(), String> {
         self.ensure_plan_reminder_routable(pane_id)?;
+        let state_key = match target {
+            PlanReminderTarget::Owner { plan_id } => self
+                .plan_store
+                .get(plan_id)
+                .map(|plan| format!("owner:{plan_id}:{}:{kind:?}", plan.updated_at))
+                .unwrap_or_else(|| format!("owner:{plan_id}:{kind:?}")),
+            PlanReminderTarget::Worker => format!("worker:{pane_id}:{kind:?}"),
+        };
+        let now = current_epoch_secs();
+        if !self
+            .plan_turn_counter
+            .reminder_content_due(pane_id, &state_key, now)
+        {
+            return Ok(());
+        }
         let mut text = crate::service::plan::reminders::nudge_text(kind);
         let text = match target {
             PlanReminderTarget::Owner { plan_id } => {
@@ -402,6 +417,10 @@ impl ServiceContext {
                 .prepend_worker_charter_for_pane(pane_id, &text),
         };
         self.deliver_automated_plan_reminder(pane_id, &text)
+            .map(|()| {
+                self.plan_turn_counter
+                    .mark_reminder_content_delivered(pane_id, state_key, now);
+            })
     }
 
     fn ensure_plan_reminder_routable(&self, pane_id: &str) -> Result<(), String> {
