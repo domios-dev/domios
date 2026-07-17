@@ -38,6 +38,16 @@ pub(crate) struct AppStates {
     pub(crate) resize_owner: ResizeOwnerState,
 }
 
+/// Orchestration bindings the crashed epoch left in its own session snapshot.
+/// Roleless panes are ordinary terminals, not in-flight work.
+fn restored_role_bindings(mux: &crate::multiplexer::state::MultiplexerState) -> u32 {
+    mux.snapshot()
+        .panes
+        .values()
+        .filter(|pane| pane.role.is_some())
+        .count() as u32
+}
+
 /// Scrub prod-targeting CodeTerm env inherited when dev starts inside prod.
 /// PTYs inherit daemon env, so every child must see this instance's API target.
 pub(crate) fn scrub_inherited_api_env(config_state: &ConfigState) {
@@ -171,6 +181,9 @@ pub(crate) fn init_states() -> AppStates {
             ghost_count
         );
     }
+    crate::crash::lifecycle::assess_restored_work(crate::crash::lifecycle::RestoredWorkEvidence {
+        restored_bindings: restored_role_bindings(&mux_state_inner),
+    });
     if general_config.enabled {
         service::general_agent::ensure_directories();
         let mut general_config = general_config;
