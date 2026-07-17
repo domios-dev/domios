@@ -363,7 +363,16 @@ pub async fn exec_in_pane(
 
     let (raw_output, offset, timed_out) = result;
     let output = if body.strip_ansi.unwrap_or(false) {
-        crate::pty::ansi::clean_terminal_output(&raw_output)
+        // Re-emulate at the pty's REAL width: shell partial-line redraws
+        // (zsh's % padding) erase the last output line at any other width.
+        let cols = state
+            .svc
+            .pty
+            .lock()
+            .size(&pty_id)
+            .map(|(c, _)| c)
+            .unwrap_or(200);
+        crate::pty::ansi::clean_terminal_output_sized(&raw_output, 500, cols)
     } else {
         raw_output
     };

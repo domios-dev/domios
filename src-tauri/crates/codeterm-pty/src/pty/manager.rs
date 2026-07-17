@@ -473,6 +473,12 @@ impl PtyManager {
         Ok(())
     }
 
+    /// Current (cols, rows) of a PTY, as last applied by spawn or resize.
+    pub fn size(&self, pty_id: &str) -> Option<(u16, u16)> {
+        let session = self.sessions.get(pty_id)?;
+        session.size.lock().ok().map(|s| *s)
+    }
+
     /// Kill/remove PTY. Returns error if PTY not found (already killed).
     pub fn kill(&mut self, pty_id: &str) -> Result<(), String> {
         let reaper = self.begin_kill(pty_id)?;
