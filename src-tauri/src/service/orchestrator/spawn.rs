@@ -498,9 +498,23 @@ impl ServiceContext {
                         .map(|p| self.mux.read().display_label_for_pane(p))
                         .unwrap_or_else(|| "your Orchestrator".to_string());
                     let orch_tab = orch_pane.as_deref().unwrap_or("unknown");
-                    if let Some(pane) = self.mux.write().get_pane_mut(&pane_id) {
-                        pane.pending_greeting =
-                            Some(crate::prompts::peer_planner_greeting(&orch_label, orch_tab));
+                    // Introduce this new planner to its already-live orchestrator
+                    // so the owner learns the planner's pane id and never spawns
+                    // a duplicate (replaces the "planner is live" reminder).
+                    if let Some(orch_pane) = orch_pane.as_deref() {
+                        let planner_label = self.mux.read().display_label_for_pane(&pane_id);
+                        self.introduce_to(
+                            &crate::service::spawn_factory::Counterpart::new(
+                                "Orchestrator",
+                                &orch_label,
+                                orch_pane,
+                            ),
+                            &crate::service::spawn_factory::Counterpart::new(
+                                "Planner",
+                                planner_label,
+                                &pane_id,
+                            ),
+                        );
                     }
                     let onboard =
                         crate::prompts::planner_onboarding_task(&orch_label, orch_tab, plan_id);
