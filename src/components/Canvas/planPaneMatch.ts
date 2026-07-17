@@ -13,8 +13,12 @@ export interface PlanFilterOpts extends PlanWorkspaceContext {
   planId?: string;
   orchestratorPaneId?: string;
   panes?: Record<string, Pane>;
-  /** Current workspace; workspace-mode filtering scopes to plans bound here. */
-  workspaceId?: string;
+  /** Current workspace, or `undefined` for unscoped focus/companion contexts.
+   *  Required (never optional) so a workspace-mode caller cannot silently omit
+   *  scoping and fall back to every plan. */
+  workspaceId: string | undefined;
+  /** Explicit opt-out of workspace scoping (the canvas "all plans" toggle). */
+  allPlans?: boolean;
 }
 
 /** True when a plan belongs to this workspace via its team binding or its owner
@@ -126,7 +130,9 @@ export function filterPlansForCanvas(
 ): Plan[] {
   const active = plans.filter((p) => p.status === "active");
   if (mode === "workspace") {
-    if (!opts.workspaceId) return active;
+    if (opts.allPlans) return active;
+    // No workspace scope → no board, never every plan (the bug we removed).
+    if (!opts.workspaceId) return [];
     return active.filter((p) => planBelongsToWorkspace(p, opts.workspaceId!, opts));
   }
   if (opts.planId) return active.filter((p) => p.id === opts.planId);

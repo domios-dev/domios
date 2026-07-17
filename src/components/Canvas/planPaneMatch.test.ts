@@ -69,7 +69,7 @@ test("findPlansForPane ignores archived plans", () => {
 
 test("filterPlansForCanvas focus by planId", () => {
   const other = { ...FIXTURE_PLAN, id: "plan-beta", title: "Beta" };
-  const out = filterPlansForCanvas([FIXTURE_PLAN, other], "focus", { planId: FIXTURE_PLAN.id });
+  const out = filterPlansForCanvas([FIXTURE_PLAN, other], "focus", { planId: FIXTURE_PLAN.id, workspaceId: undefined });
   assert(out.length === 1 && out[0].id === FIXTURE_PLAN.id, "single plan focus");
 });
 
@@ -125,6 +125,15 @@ test("workspace mode excludes a team-bound plan of another workspace", () => {
     teams: scopeTeams,
   });
   assert(out.length === 0, `another workspace's team plan must not appear (got ${out.length})`);
+});
+
+test("workspace mode with a missing workspaceId returns [] (never every plan)", () => {
+  const out = filterPlansForCanvas([{ ...FIXTURE_PLAN }], "workspace", {
+    workspaceId: undefined,
+    workspaces: scopeWorkspaces,
+    teams: scopeTeams,
+  });
+  assert(out.length === 0, `unscoped workspace mode must not leak plans (got ${out.length})`);
 });
 
 test("workspace mode keeps plans bound via owner pane or team", () => {

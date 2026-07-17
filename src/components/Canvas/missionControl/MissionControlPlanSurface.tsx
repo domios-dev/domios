@@ -55,13 +55,13 @@ export function MissionControlPlanSurface({
   );
 
   const filteredPlans = useMemo(
-    () => filterPlansForCanvas(effectivePlans, mode, { planId, orchestratorPaneId, panes, workspaceId, workspaces, teams }),
-    [effectivePlans, mode, planId, orchestratorPaneId, panes, workspaceId, workspaces, teams],
+    () => filterPlansForCanvas(effectivePlans, mode, { planId, orchestratorPaneId, panes, workspaceId, workspaces, teams, allPlans }),
+    [effectivePlans, mode, planId, orchestratorPaneId, panes, workspaceId, workspaces, teams, allPlans],
   );
   const orderedPlans = useMemo(() => orderPlansByActivity(filteredPlans), [filteredPlans]);
   const defaultPlanId = useMemo(
-    () => selectDefaultPlanId(orderedPlans, { planId, orchestratorPaneId, panes, workspaceId, workspaces, teams }),
-    [orderedPlans, planId, orchestratorPaneId, panes, workspaceId, workspaces, teams],
+    () => selectDefaultPlanId(orderedPlans, { planId, orchestratorPaneId, panes, workspaceId, workspaces, teams, allPlans }),
+    [orderedPlans, planId, orchestratorPaneId, panes, workspaceId, workspaces, teams, allPlans],
   );
 
   const [manualPlanId, setManualPlanId] = useState<string | null>(readStoredPlanId);
