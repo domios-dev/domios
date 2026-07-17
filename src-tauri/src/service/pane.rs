@@ -658,6 +658,7 @@ impl ServiceContext {
     /// atomically. Resume/snapshot rehydrate paths intentionally re-set the
     /// same id on the same pane and are unaffected.
     pub fn set_agent_session_id(&self, pane_id: &str, session_id: Option<String>) {
+        let session_bound = session_id.is_some();
         let mut mux = self.mux.write();
         if let Some(ref new_sid) = session_id {
             let conflict = mux
@@ -681,6 +682,9 @@ impl ServiceContext {
             }
         }
         drop(mux);
+        if session_bound {
+            crate::service::general_agent::binding_wait::notify_session_bound();
+        }
         self.bind_planner_session(pane_id);
     }
 

@@ -1,6 +1,6 @@
 //! Start / restart / readiness-poll for the General Agent PTY+launch flow.
 
-use super::{general_dir, instructions, state, GENERAL_ALIAS};
+use super::{binding_wait, general_dir, instructions, state, GENERAL_ALIAS};
 use codeterm_types::pty::BootStage;
 
 /// Start the General Agent — called from start_servers on a background thread.
@@ -417,17 +417,16 @@ pub fn start_general_agent(
 
     // no longer inject --session-id), so the next restart can resume this exact session.
     if !use_resume {
-        for _ in 0..20 {
-            let bound = mux
-                .write()
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        if let Some(sid) = binding_wait::wait_for_session_binding(deadline, || {
+            mux.read()
                 .get_pane(&pane_id)
-                .and_then(|p| p.agent_session_id.clone());
-            if let Some(sid) = bound {
-                state::persist_session_id(provider_name, &sid);
-                log::info!("[general-agent] Persisted hook-bound session {}", sid);
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(500));
+                .and_then(|pane| pane.agent_session_id.clone())
+        }) {
+            state::persist_session_id(provider_name, &sid);
+            log::info!("[general-agent] Persisted hook-bound session {}", sid);
+        } else {
+            log::warn!("[general-agent] Session binding was not reported before deadline");
         }
     }
 
