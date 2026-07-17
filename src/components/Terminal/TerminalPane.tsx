@@ -296,12 +296,13 @@ export const TerminalPane = memo(function TerminalPane({
       if (!term) return;
       try {
         fitAddonRef.current?.fit();
+        commitResize();
         term.refresh(0, term.rows - 1);
       } catch { /* ignore */ }
       termRef.current?.focus();
     });
     return () => cancelAnimationFrame(raf);
-  }, [terminalVisible, isVisible, showTerminalKeyBar, termReady, termRef, fitAddonRef]);
+  }, [terminalVisible, isVisible, showTerminalKeyBar, termReady, termRef, fitAddonRef, commitResize]);
 
   useEffect(() => {
     if (!terminalFallbackOpen || uiMode !== "chat") return;
