@@ -230,13 +230,14 @@ fn restore_missing_payload_spawnfailed_zero_launch_pending() {
         None,
         Some("fixture-cwd"),
         false,
+        false,
         || {
             store
                 .resolve(&digest)
                 .map(Some)
                 .map_err(|error| error.to_string())
         },
-        |reason| *boot_failure.lock() = Some((BootStage::SpawnFailed, reason.to_string())),
+        |stage, reason| *boot_failure.lock() = Some((stage, reason.to_string())),
         |launch, payload| *launch_request.lock() = Some((launch, payload)),
     );
     let error = match result {
@@ -260,6 +261,102 @@ fn restore_missing_payload_spawnfailed_zero_launch_pending() {
             .state(),
         PendingDeliveryState::Pending
     );
+}
+
+#[test]
+fn restore_binding_failure_on_live_pty_never_latches_spawn_failed() {
+    use crate::multiplexer::commands::MuxState;
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::multiplexer::types::{PendingDeliveryChannel, PendingDeliveryRecord};
+    use codeterm_util::lock_hold::TimedRwLock;
+    use sha2::Digest;
+    use std::sync::Arc;
+
+    let payload = "missing restored fallback brief";
+    let digest = format!("{:x}", sha2::Sha256::digest(payload.as_bytes()));
+    let temp = tempfile::tempdir().unwrap();
+    let store = crate::service::pending_delivery_payloads::PendingDeliveryPayloadStore::open(
+        temp.path(),
+        &std::collections::HashSet::new(),
+    )
+    .unwrap();
+    let (mut state, pane_id) = MultiplexerState::new();
+    let pane = state.get_pane_mut(&pane_id).unwrap();
+    pane.agent_type = Some("fixture-provider".into());
+    pane.cwd = Some("fixture-cwd".into());
+    pane.restored_from_snapshot = true;
+    pane.pty_id = Some("live-pty".into());
+    pane.pending_delivery = Some(PendingDeliveryRecord::new(
+        digest.clone(),
+        PendingDeliveryChannel::InteractiveInput,
+    ));
+    let mux: MuxState = Arc::new(TimedRwLock::new("restore-live-pty-binding-test", state));
+    let launch_request = parking_lot::Mutex::new(None);
+    let boot_stages = parking_lot::Mutex::new(Vec::new());
+
+    let result = restore_materialization_core(
+        &mux,
+        &pane_id,
+        "fixture-provider",
+        None,
+        Some("fixture-cwd"),
+        false,
+        true,
+        || {
+            store
+                .resolve(&digest)
+                .map(Some)
+                .map_err(|error| error.to_string())
+        },
+        |stage, reason| boot_stages.lock().push((stage, reason.to_string())),
+        |launch, payload| *launch_request.lock() = Some((launch, payload)),
+    );
+
+    let error = match result {
+        Err(error) => error,
+        Ok(_) => panic!("missing payload must prevent restored-agent launch"),
+    };
+    assert_eq!(error, format!("RestorePayloadMissing: {digest}"));
+    assert!(
+        boot_stages.lock().is_empty(),
+        "a binding failure on a live PTY must not emit a boot-stage failure: {:?}",
+        boot_stages.lock()
+    );
+    assert!(launch_request.lock().is_none());
+}
+
+#[test]
+fn live_pty_reattach_clears_a_stale_spawn_failure() {
+    use crate::service::boot_stage::BootStage;
+    use crate::service::pty_io::lifecycle::reattach_boot_stage;
+
+    assert_eq!(
+        reattach_boot_stage(Some(BootStage::SpawnFailed)),
+        Some(BootStage::PtyReattached)
+    );
+    for stage in [
+        None,
+        Some(BootStage::AgentReady),
+        Some(BootStage::ShellReady),
+    ] {
+        assert_eq!(
+            reattach_boot_stage(stage),
+            None,
+            "reattach must not rewrite an already-honest stage: {stage:?}"
+        );
+    }
+}
+
+#[test]
+fn restore_failure_without_live_pty_stays_a_spawn_failure() {
+    use crate::service::boot_stage::BootStage;
+    use crate::service::pty_io::lifecycle::restore_failure_boot_stage;
+
+    assert_eq!(
+        restore_failure_boot_stage(false),
+        Some(BootStage::SpawnFailed)
+    );
+    assert_eq!(restore_failure_boot_stage(true), None);
 }
 
 #[test]
