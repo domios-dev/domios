@@ -34,6 +34,10 @@ pub struct InjectionResult {
     pub bytes_written: usize,
     pub echo_observed: bool,
     pub submit_observed: bool,
+    /// The submit succeeded only via the bounded recovery path (the paste render
+    /// event was never observed and one forced Enter was issued). Success still
+    /// required the provider turn transition; this flags the transport anomaly.
+    pub submit_anomaly: bool,
     pub elapsed: Duration,
 }
 
@@ -326,6 +330,7 @@ mod tests {
             bytes_written: 10,
             echo_observed: true,
             submit_observed: false,
+            submit_anomaly: false,
             elapsed: Duration::ZERO,
         };
         assert!(matches!(
