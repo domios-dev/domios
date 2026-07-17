@@ -1,6 +1,7 @@
 mod client;
 mod cmd;
 mod mesh_cli;
+mod stdout;
 
 use cmd::print::{handle_result, print_human, print_object};
 
@@ -220,6 +221,10 @@ pub use args::usage::UsageAction;
 /// This ensures commands like `pane split` always target the caller's pane,
 /// not whatever pane the user happens to have focused.
 fn main() {
+    stdout::run(main_impl);
+}
+
+fn main_impl() {
     let args: Vec<String> = normalize_agent_spawn_label_args(std::env::args().collect());
     let cli = Cli::try_parse_from(&args).unwrap_or_else(|e| {
         if is_plan_dash_leading_text_error(&args, &e) {
