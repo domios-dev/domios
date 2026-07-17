@@ -106,3 +106,77 @@ fn active_task_query_excludes_paused_but_keeps_pending() {
         Some("operator hold")
     );
 }
+
+#[test]
+fn new_task_defaults_to_actionable_pending() {
+    let (store, plan_id, _) = store_with_task(&["status_update"]);
+    let task_id = store
+        .add_task(
+            &plan_id,
+            NewTask {
+                name: "new task".into(),
+                kind: "implement".into(),
+                competition: None,
+                ..Default::default()
+            },
+            4,
+        )
+        .unwrap();
+
+    let detail = store.show_task(&task_id).expect("new task detail");
+    assert_eq!(detail.task.status, TaskStatus::Pending);
+    assert_eq!(
+        detail.presentation,
+        crate::service_plan::TaskPresentation::ActionablePending
+    );
+}
+
+#[test]
+fn task_detail_marks_unfinished_dependency_as_waiting_not_paused() {
+    let (store, plan_id, dependency_id) = store_with_task(&["status_update"]);
+    store
+        .update_task(
+            &plan_id,
+            &dependency_id,
+            None,
+            None,
+            None,
+            None,
+            Some("blocked"),
+            Some(Some("external prerequisite")),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &[],
+            None,
+            None,
+            4,
+        )
+        .unwrap();
+    let task_id = store
+        .add_task(
+            &plan_id,
+            NewTask {
+                name: "after dependency".into(),
+                kind: "implement".into(),
+                depends_on: vec![dependency_id.clone()],
+                competition: None,
+                ..Default::default()
+            },
+            5,
+        )
+        .unwrap();
+
+    let detail = store.show_task(&task_id).expect("dependent task detail");
+    assert_eq!(detail.task.status, TaskStatus::Pending);
+    assert_eq!(
+        detail.presentation,
+        crate::service_plan::TaskPresentation::WaitingOnDependencies
+    );
+    assert_eq!(detail.dependency_waits.len(), 1);
+    assert_eq!(detail.dependency_waits[0].task_id, dependency_id);
+}

@@ -271,6 +271,7 @@ fn print_task_result(json: bool, val: &Value, show_opts: Option<TaskShowOpts>) {
             .unwrap_or("?");
         println!("{id}\t{status}\t{plan}\t{name}");
         println!("plan: {plan_title} ({plan})");
+        print_task_presentation(val);
         print_competition(task, plan, id);
         print_executor_role(task);
         if let Some(body) = task
@@ -306,6 +307,46 @@ fn print_task_result(json: bool, val: &Value, show_opts: Option<TaskShowOpts>) {
         print_object(val);
     }
     print_hints_stderr(&hints);
+}
+
+fn print_task_presentation(val: &Value) {
+    if let Some(line) = task_presentation_line(val) {
+        println!("{line}");
+    }
+}
+
+fn task_presentation_line(val: &Value) -> Option<String> {
+    match val.get("presentation").and_then(|value| value.as_str()) {
+        Some("actionable_pending") => Some("presentation: actionable pending".into()),
+        Some("waiting_on_dependencies") => {
+            let dependencies = val
+                .get("dependency_waits")
+                .and_then(|value| value.as_array())
+                .map(|waits| {
+                    waits
+                        .iter()
+                        .map(|wait| {
+                            let id = wait
+                                .get("task_id")
+                                .and_then(|value| value.as_str())
+                                .unwrap_or("?");
+                            let name = wait
+                                .get("name")
+                                .and_then(|value| value.as_str())
+                                .unwrap_or("dependency");
+                            format!("{id} ({name})")
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .unwrap_or_default();
+            Some(format!(
+                "presentation: waiting on dependency — {dependencies}"
+            ))
+        }
+        Some("paused") => Some("presentation: paused (explicit operator hold)".into()),
+        _ => None,
+    }
 }
 
 fn is_closed_sibling_status(status: &str) -> bool {
@@ -717,6 +758,24 @@ mod executor_role_render_tests {
         assert!(executor_role_line(&json!({ "id": "task_1" })).is_none());
         assert!(executor_role_line(&json!({ "executor_role": "  " })).is_none());
         assert!(executor_role_line(&json!({ "executor_role": null })).is_none());
+    }
+}
+
+#[cfg(test)]
+mod task_presentation_render_tests {
+    use super::task_presentation_line;
+    use serde_json::json;
+
+    #[test]
+    fn renders_waiting_dependency_as_pending_not_paused() {
+        let task = json!({
+            "presentation": "waiting_on_dependencies",
+            "dependency_waits": [{"task_id": "task_before", "name": "Before"}],
+        });
+        assert_eq!(
+            task_presentation_line(&task).as_deref(),
+            Some("presentation: waiting on dependency — task_before (Before)")
+        );
     }
 }
 
