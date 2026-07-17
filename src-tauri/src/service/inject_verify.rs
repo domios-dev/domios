@@ -194,34 +194,6 @@ pub fn screen_contains_echo(screen_tail: &str, expected: &str) -> bool {
     false
 }
 
-pub fn wait_for_echo(
-    screen_state: &ScreenStateHandle,
-    pty_id: &str,
-    expected: &str,
-    timeout: Duration,
-    tail_rows: usize,
-) -> Result<String, HelperErr> {
-    let signal = screen_state.lock().arm_screen_change_signal(pty_id);
-    let deadline = std::time::Instant::now() + timeout;
-    let mut generation = signal.generation();
-    loop {
-        let tail = match screen_state.lock().tail_text(pty_id, tail_rows) {
-            Some(t) => t,
-            None => return Err(HelperErr::PtyUnknown(pty_id.to_string())),
-        };
-        if screen_contains_echo(&tail, expected) {
-            return Ok(tail);
-        }
-        let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
-            return Err(HelperErr::Timeout(tail));
-        };
-        if !signal.wait_after(generation, remaining) {
-            return Err(HelperErr::Timeout(tail));
-        }
-        generation = signal.generation();
-    }
-}
-
 pub fn snapshot_prompt_line(
     screen_state: &ScreenStateHandle,
     pty_id: &str,
@@ -270,35 +242,6 @@ pub fn wait_for_submit_shell(
         };
         if !signal.wait_after(generation, remaining) {
             return Err(HelperErr::Timeout(tail));
-        }
-        generation = signal.generation();
-    }
-}
-
-pub fn wait_for_submit_tui_drained(
-    screen_state: &ScreenStateHandle,
-    pty_id: &str,
-    submitted_text: &str,
-    timeout: Duration,
-    _idle_after_drain: Duration,
-    tail_rows: usize,
-) -> Result<String, HelperErr> {
-    let signal = screen_state.lock().arm_screen_change_signal(pty_id);
-    let deadline = std::time::Instant::now() + timeout;
-    let mut generation = signal.generation();
-    loop {
-        let t = match screen_state.lock().tail_text(pty_id, tail_rows) {
-            Some(t) => t,
-            None => return Err(HelperErr::PtyUnknown(pty_id.to_string())),
-        };
-        if submitted_text.is_empty() || !screen_contains_echo(&t, submitted_text) {
-            return Ok(t);
-        }
-        let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
-            return Err(HelperErr::Timeout(t));
-        };
-        if !signal.wait_after(generation, remaining) {
-            return Err(HelperErr::Timeout(t));
         }
         generation = signal.generation();
     }
@@ -475,65 +418,6 @@ mod tests {
     const TEST_TAIL_ROWS: usize = 60;
 
     #[test]
-    fn wait_for_echo_returns_immediately_when_text_already_present() {
-        let h = handle();
-        feed(&h, "p1", b"user@host:~$ ls -la\n");
-        let start = std::time::Instant::now();
-        let res = wait_for_echo(&h, "p1", "ls -la", Duration::from_secs(1), TEST_TAIL_ROWS);
-        assert!(res.is_ok());
-        assert!(start.elapsed() < Duration::from_millis(100));
-    }
-
-    #[test]
-    fn wait_for_echo_times_out_when_text_never_arrives() {
-        let h = handle();
-        feed(&h, "p1", b"user@host:~$ \n");
-        let start = std::time::Instant::now();
-        let res = wait_for_echo(
-            &h,
-            "p1",
-            "missing-token",
-            Duration::from_millis(150),
-            TEST_TAIL_ROWS,
-        );
-        assert!(matches!(res, Err(HelperErr::Timeout(_))), "got {:?}", res);
-        let elapsed = start.elapsed();
-        assert!(
-            elapsed >= Duration::from_millis(140),
-            "elapsed {:?}",
-            elapsed
-        );
-        assert!(
-            elapsed < Duration::from_millis(250),
-            "elapsed {:?} too long — deadline check might be broken",
-            elapsed
-        );
-    }
-
-    #[test]
-    fn wait_for_echo_returns_pty_unknown_when_pty_not_bound() {
-        let h = handle();
-        let start = std::time::Instant::now();
-        let res = wait_for_echo(
-            &h,
-            "nonexistent-pty",
-            "any",
-            Duration::from_secs(5),
-            TEST_TAIL_ROWS,
-        );
-        match res {
-            Err(HelperErr::PtyUnknown(id)) => assert_eq!(id, "nonexistent-pty"),
-            other => panic!("expected PtyUnknown, got {:?}", other),
-        }
-        // Must short-circuit, not wait for the 5s timeout.
-        assert!(
-            start.elapsed() < Duration::from_millis(50),
-            "expected immediate return, took {:?}",
-            start.elapsed()
-        );
-    }
-
-    #[test]
     fn wait_for_submit_shell_succeeds_when_new_prompt_appears() {
         let h = handle();
         feed(&h, "p1", b"user@host:~$ ls -la");
@@ -573,99 +457,6 @@ mod tests {
             elapsed < Duration::from_millis(220),
             "elapsed {:?} too long — deadline check might be broken",
             elapsed
-        );
-    }
-
-    #[test]
-    fn wait_for_submit_tui_drained_succeeds_when_needle_disappears() {
-        let h = handle();
-        feed(&h, "p1", b"prompt> hello world");
-        feed(&h, "p1", b"\x1b[2J\x1b[Hresult line\nprompt> ");
-        let res = wait_for_submit_tui_drained(
-            &h,
-            "p1",
-            "hello world",
-            Duration::from_secs(2),
-            Duration::from_millis(100),
-            TEST_TAIL_ROWS,
-        );
-        assert!(res.is_ok(), "expected drained needle to settle");
-    }
-
-    #[test]
-    fn wait_for_submit_tui_drained_times_out_when_needle_persists() {
-        let h = handle();
-        feed(&h, "p1", b"prompt> hello world");
-        let start = std::time::Instant::now();
-        let res = wait_for_submit_tui_drained(
-            &h,
-            "p1",
-            "hello world",
-            Duration::from_millis(200),
-            Duration::from_millis(50),
-            TEST_TAIL_ROWS,
-        );
-        assert!(matches!(res, Err(HelperErr::Timeout(_))), "got {:?}", res);
-        let elapsed = start.elapsed();
-        assert!(
-            elapsed >= Duration::from_millis(190),
-            "elapsed {:?}",
-            elapsed
-        );
-        assert!(
-            elapsed < Duration::from_millis(300),
-            "elapsed {:?} too long — deadline check might be broken",
-            elapsed
-        );
-    }
-
-    #[test]
-    fn wait_for_submit_tui_drained_long_paste_not_falsely_drained() {
-        let h = handle();
-        let long = "A".repeat(2000);
-        // the visible window (exactly the multi-KB codex/claude case).
-        let visible_tail = format!("prompt> {}", &long[long.len() - 200..]);
-        feed(&h, "p1", visible_tail.as_bytes());
-        let start = std::time::Instant::now();
-        let res = wait_for_submit_tui_drained(
-            &h,
-            "p1",
-            &long,
-            Duration::from_millis(200),
-            Duration::from_millis(50),
-            TEST_TAIL_ROWS,
-        );
-        assert!(
-            matches!(res, Err(HelperErr::Timeout(_))),
-            "long paste still on screen must NOT be reported as drained; got {:?}",
-            res
-        );
-        assert!(
-            start.elapsed() >= Duration::from_millis(190),
-            "must have reached the deadline, elapsed {:?}",
-            start.elapsed()
-        );
-    }
-
-    #[test]
-    fn wait_for_submit_tui_drained_long_paste_drains_when_cleared() {
-        let h = handle();
-        let long = "B".repeat(2000);
-        let visible_tail = format!("prompt> {}", &long[long.len() - 200..]);
-        feed(&h, "p1", visible_tail.as_bytes());
-        feed(&h, "p1", b"\x1b[2J\x1b[Hassistant reply\nprompt> ");
-        let res = wait_for_submit_tui_drained(
-            &h,
-            "p1",
-            &long,
-            Duration::from_secs(2),
-            Duration::from_millis(80),
-            TEST_TAIL_ROWS,
-        );
-        assert!(
-            res.is_ok(),
-            "long paste cleared from composer must be reported as drained; got {:?}",
-            res
         );
     }
 }

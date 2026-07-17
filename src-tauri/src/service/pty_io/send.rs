@@ -82,28 +82,6 @@ pub fn await_bare_shell_prompt(
     ready
 }
 
-/// Cap a provider's submit-verify timeout: keep verification but don't let the
-/// full provider timeout compound across retries into a minute-long stall.
-fn cap_submit_timeout(
-    strategy: crate::agent::provider::VerifySubmitStrategy,
-    max: std::time::Duration,
-) -> crate::agent::provider::VerifySubmitStrategy {
-    use crate::agent::provider::VerifySubmitStrategy as S;
-    match strategy {
-        S::ShellPrompt { timeout } => S::ShellPrompt {
-            timeout: timeout.min(max),
-        },
-        S::TuiInputDrained {
-            timeout,
-            idle_after_drain,
-        } => S::TuiInputDrained {
-            timeout: timeout.min(max),
-            idle_after_drain,
-        },
-        S::None => S::None,
-    }
-}
-
 fn authenticated_pty_target(
     pane: &crate::multiplexer::types::Pane,
     expected_session_id: &str,
@@ -183,12 +161,10 @@ impl ServiceContext {
         };
 
         let (pty_id, provider_id) = target()?;
-        let strategy = cap_submit_timeout(
-            self.agent_registry
-                .with_provider(&provider_id, |provider| provider.verify_submit_strategy())
-                .ok_or_else(|| "agent_unavailable: unknown planner provider".to_string())?,
-            std::time::Duration::from_secs(3),
-        );
+        let strategy = self
+            .agent_registry
+            .with_provider(&provider_id, |provider| provider.verify_submit_strategy())
+            .ok_or_else(|| "agent_unavailable: unknown planner provider".to_string())?;
         if target()? != (pty_id.clone(), provider_id.clone()) {
             return Err("agent_unavailable: planner transport changed".into());
         }
@@ -250,13 +226,10 @@ impl ServiceContext {
         }
         if let Some(ref agent_id) = agent_type {
             let text = sanitize_agent_prompt_input(text);
-            // codex/opencode swallow a `\r` while ingesting the paste, so verification stays — but capped so retries don't stall a minute.
-            let strategy = cap_submit_timeout(
-                self.agent_registry
-                    .with_provider(agent_id, |p| p.verify_submit_strategy())
-                    .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None),
-                std::time::Duration::from_secs(3),
-            );
+            let strategy = self
+                .agent_registry
+                .with_provider(agent_id, |p| p.verify_submit_strategy())
+                .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
             let opts = crate::service::inject_verify::VerifyOpts {
                 // A live TUI's last line is its footer, not a shell prompt.
                 require_prompt_first: false,
