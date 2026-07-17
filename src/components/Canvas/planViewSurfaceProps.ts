@@ -1,4 +1,4 @@
-import type { ApiConfig, Pane, Workspace } from "../../lib/types";
+import type { ApiConfig, Pane, Team, Workspace } from "../../lib/types";
 import type { CanvasWorkspaceTarget } from "./canvasFocusStore";
 import type { Plan } from "./types";
 
@@ -15,6 +15,9 @@ export interface PlanViewSurfaceProps {
   focusPaneId?: string | null;
   panes?: Record<string, Pane>;
   workspaces?: Workspace[];
+  /** Current workspace; workspace mode scopes plans to those bound here. */
+  workspaceId?: string;
+  teams?: Team[];
   focusedPaneId?: string | null;
   projectPath?: string | null;
   workspaceTarget?: CanvasWorkspaceTarget | null;
