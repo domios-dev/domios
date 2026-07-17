@@ -328,7 +328,7 @@ impl ServiceContext {
         let deadline = std::time::Instant::now() + timeout;
         let mut generation = signal.generation();
         loop {
-            let (screen, composer_ready, cursor) = {
+            let (screen, composer_ready) = {
                 let screen_state = self.screen_state.lock();
                 let screen = screen_state.get_screen_text(pty_id).unwrap_or_default();
                 let cursor = screen_state.cursor_input_state(pty_id);
@@ -339,7 +339,7 @@ impl ServiceContext {
                         )
                     })
                     .unwrap_or(false);
-                (screen, composer_ready, cursor)
+                (screen, composer_ready)
             };
             let provider_ready = self
                 .agent_registry
