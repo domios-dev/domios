@@ -168,6 +168,7 @@ impl ServiceContext {
             bytes_written,
             echo_observed: false,
             submit_observed,
+            submit_anomaly: false,
             elapsed: started.elapsed(),
         })
     }
