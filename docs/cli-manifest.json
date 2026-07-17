@@ -759,6 +759,14 @@
               "aliases": []
             },
             {
+              "name": "raw-text",
+              "positional": false,
+              "value_name": "RAW_TEXT",
+              "default": null,
+              "help": "Preserve literal escape sequences instead of decoding \\n into a newline",
+              "aliases": []
+            },
+            {
               "name": "service",
               "positional": false,
               "value_name": "SERVICE",

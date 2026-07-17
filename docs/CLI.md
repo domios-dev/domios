@@ -176,6 +176,7 @@ Send a message to Telegram or other service
 - `--caption` — Caption for media (alternative to positional text)
 - `--file` — File path for media types
 - `--filename` — Override filename for document uploads
+- `--raw-text` — Preserve literal escape sequences instead of decoding \n into a newline
 - `--service` — Target service
 - `<text>` — Message text (also used as caption for media types)
 - `--to` — Recipient chat/user ID
