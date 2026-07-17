@@ -230,10 +230,10 @@ pub async fn chat_start(
 /// Shared by the Tauri command and the web mirror's
 /// POST /api/panes/{id}/chat-raw/start — identical result shape, so the
 /// chat view renders the same in both shells.
-/// Prepends the pane's pending orchestrator greeting (task_e0ddee08) as a
-/// synthetic assistant `ChatMsg` — verbatim from [`crate::prompts::PEER_ORCH_GREETING`],
-/// never model-generated. Ordered first via a sentinel `seq` below any real
-/// transcript entry. No-op (returns `messages` unchanged) when unset.
+/// Prepends the pane's pending orchestrator greeting (set on orchestrator
+/// promotion) as a synthetic assistant `ChatMsg`, never model-generated.
+/// Ordered first via a sentinel `seq` below any real transcript entry.
+/// No-op (returns `messages` unchanged) when unset.
 fn prepend_pending_greeting(
     svc: &ServiceState,
     pane_id: &str,
