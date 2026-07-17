@@ -91,32 +91,10 @@ pub const PEER_PAIRING_MANDATE_BLOCK: &str = "\
 This plan requires an attached Planner specialist. Spawn it with `{spawn_cmd}` if it is not live. \
 The Orchestrator remains the single authority for plan structure, execution, and acceptance.";
 
-/// Orchestrator's opening greeting on a fresh pair spawn — rendered verbatim
-/// as the pane's first assistant message (never model-improvised), so the
-/// user always lands on a ready, invitational state. `{planner}` is filled
-/// with the Planner's display name.
-pub const PEER_ORCH_GREETING: &str =
-    "Ready — {planner} is attached as my Planner specialist. Tell me the goal; I will own the plan and delegate drafting to the Planner where useful. Until you state a goal, we hold — no scanning the project for work.";
-
-/// Fills the `{planner}` placeholder in [`PEER_ORCH_GREETING`].
-pub fn peer_orch_greeting(planner: &str) -> String {
-    PEER_ORCH_GREETING.replace("{planner}", planner)
-}
-
 /// Short user-facing hint shown in the tab for a freshly-promoted Orchestrator
 /// (display only — the detailed onboarding is delivered separately as real input).
 pub fn orchestrator_display_hint() -> String {
     "Orchestrator for this tab — I own the plan's execution: I dispatch tasks to workers and accept or bounce their results. Tell me the goal; until then, we hold.".to_string()
-}
-
-/// Planner's opening greeting — the mirror of [`PEER_ORCH_GREETING`] for the
-/// subordinate side, rendered verbatim as the Planner pane's first assistant
-/// message so it never boots into silence. Identity framing only; the
-/// subordination prose is reused from the shared charter/deference constants.
-pub fn peer_planner_greeting(orchestrator_label: &str, _orchestrator_pane_id: &str) -> String {
-    format!(
-        "Planner specialist paired with Orchestrator {orchestrator_label} — I draft the GOAL, spec, and plan structure and cut the tasks when a plan exists. Ready; I will wait for the goal before doing anything."
-    )
 }
 
 /// The Planner's detailed onboarding, delivered as its own real launch input by
@@ -283,17 +261,6 @@ mod tests {
         assert!(full.contains("single authority"));
         assert!(!full.contains("Peer contract"));
         assert!(!full.contains("Planner acknowledgment"));
-    }
-
-    #[test]
-    fn peer_planner_greeting_is_a_short_user_hint() {
-        let g = peer_planner_greeting("Opus Orchestrator", "pane_orch_9");
-        assert!(g.contains("Opus Orchestrator"), "names the orchestrator");
-        assert!(g.contains("Planner"), "identifies the role");
-        assert!(g.contains("wait for the goal"), "conveys the hold state");
-        // Display hint only — no CLI commands, no docs/toolset detail.
-        assert!(!g.contains("codeterm "), "greeting carries no commands");
-        assert!(!g.contains("--personality"), "greeting carries no flags");
     }
 
     #[test]
