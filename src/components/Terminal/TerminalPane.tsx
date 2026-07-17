@@ -384,9 +384,9 @@ export const TerminalPane = memo(function TerminalPane({
   const terminalBackground = theme.background;
   const terminalKeyBar = <TerminalKeyBar onSendKey={writePty} className="w-full" />;
   const bootOverlay = paneBootOverlayView(pane);
-  const retryGeneralAgent = useCallback(() => {
-    invoke("restart_general_agent_pane", { paneId }).catch((e) =>
-      console.warn("restart_general_agent_pane failed:", e),
+  const retryAgent = useCallback(() => {
+    invoke("restart_agent_pane", { paneId }).catch((e) =>
+      console.warn("restart_agent_pane failed:", e),
     );
   }, [paneId]);
 
@@ -683,7 +683,7 @@ export const TerminalPane = memo(function TerminalPane({
         view={bootOverlay}
         shellReady={shell.shellReady}
         overlayVisible={shell.overlayVisible}
-        onRetry={retryGeneralAgent}
+        onRetry={retryAgent}
       />
 
       {/* Context menu */}
