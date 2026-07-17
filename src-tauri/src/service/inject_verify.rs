@@ -38,11 +38,6 @@ pub struct InjectionResult {
 }
 
 impl InjectionResult {
-    /// Delivery is optimistic: a live PTY that accepted the write has the bytes.
-    /// The screen belongs to the receiving TUI — it reflows, collapses long input
-    /// to a paste placeholder and queues while busy — so an unobserved submit is
-    /// an observation gap, never proof the text did not land. Only a dead PTY is
-    /// a delivery failure, and that is raised at the write.
     pub fn require_submission(
         self,
         required: bool,
@@ -50,11 +45,10 @@ impl InjectionResult {
         screen_tail: String,
     ) -> Result<Self, InjectionError> {
         if required && !self.submit_observed {
-            log::debug!(
-                "submit unobserved after {:?}; delivery assumed: {:?}",
+            return Err(InjectionError::SubmitNeverConfirmed {
                 waited,
-                screen_tail
-            );
+                screen_tail,
+            });
         }
         Ok(self)
     }
@@ -327,20 +321,17 @@ mod tests {
     }
 
     #[test]
-    fn unobserved_submit_delivers_without_claiming_observation() {
+    fn required_submit_cannot_succeed_unobserved() {
         let result = InjectionResult {
             bytes_written: 10,
             echo_observed: true,
             submit_observed: false,
             elapsed: Duration::ZERO,
         };
-        let delivered = result
-            .require_submission(true, Duration::ZERO, "> parked".into())
-            .expect("delivery is optimistic: the screen cannot veto a completed write");
-        assert!(
-            !delivered.submit_observed,
-            "an unobserved submit must stay unobserved, never be upgraded to confirmed"
-        );
+        assert!(matches!(
+            result.require_submission(true, Duration::ZERO, "> parked".into()),
+            Err(InjectionError::SubmitNeverConfirmed { .. })
+        ));
     }
 
     #[test]
