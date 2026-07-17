@@ -153,17 +153,11 @@ impl ServiceContext {
                 Err(HelperErr::PtyUnknown(id)) => {
                     return Err(InjectionError::PtyClosed { pty_id: id });
                 }
-                // The screen belongs to the receiving TUI: it reflows, collapses
-                // long input to a paste placeholder, and queues while busy. It
-                // cannot decide delivery — a live PTY that took the write has it.
                 Err(HelperErr::Timeout(screen_tail)) => {
-                    log::debug!(
-                        "submit unobserved on pty {} after {:?}; delivery assumed: {:?}",
-                        pty_id,
-                        started.elapsed(),
-                        screen_tail
-                    );
-                    false
+                    return Err(InjectionError::SubmitNeverConfirmed {
+                        waited: started.elapsed(),
+                        screen_tail,
+                    });
                 }
             }
         } else {
