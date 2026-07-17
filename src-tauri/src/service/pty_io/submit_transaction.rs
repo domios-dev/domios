@@ -155,7 +155,9 @@ fn submitted(
                 false
             }
         }
-        VerifySubmitStrategy::None => current_generation != enter_generation,
+        VerifySubmitStrategy::None => {
+            current_generation != enter_generation && observation.hash != hash_before
+        }
     }
 }
 
@@ -520,6 +522,31 @@ mod tests {
             &*io.writes.borrow(),
             &[format!("paste:{body}"), format!("enter:{body}")]
         );
+    }
+
+    #[test]
+    fn none_strategy_rejects_generation_only_submission_evidence() {
+        let observation = Observation {
+            tail: "unchanged".to_string(),
+            hash: [7; 32],
+        };
+
+        assert!(!submitted(
+            &VerifySubmitStrategy::None,
+            &observation,
+            [7; 32],
+            "payload",
+            4,
+            5,
+        ));
+        assert!(submitted(
+            &VerifySubmitStrategy::None,
+            &observation,
+            [6; 32],
+            "payload",
+            4,
+            5,
+        ));
     }
 
     #[test]
