@@ -10,6 +10,7 @@
 import { expect, test } from "../../helpers/fixtures";
 import { pollUntil } from "../../helpers/poll";
 import type { ApiClient } from "../../helpers/api-client";
+import path from "node:path";
 
 const PROVIDERS = ["claude", "codex", "opencode"] as const;
 
@@ -66,13 +67,19 @@ for (const provider of PROVIDERS) {
     );
 
     const marker = `PWSTUB${Date.now()}`;
-    await api.post(`/panes/${spawned.pane_id}/send`, { text: `STUB_ECHO ${marker}`, enter: true });
-    await pollUntil(
-      async () => (await paneOutput(api, spawned.pane_id)).includes(`ack ${marker}`),
-      30_000,
-      250,
-      `${provider} marker ack`,
-    );
+    const capture = path.join(process.cwd(), "scratchpad", `${provider}-${marker}.cast`);
+    await api.post(`/panes/${spawned.pane_id}/capture/start`, { out: capture });
+    try {
+      await api.post(`/panes/${spawned.pane_id}/send`, { text: `STUB_ECHO ${marker}`, enter: true });
+      await pollUntil(
+        async () => (await paneOutput(api, spawned.pane_id)).includes(`ack ${marker}`),
+        30_000,
+        250,
+        `${provider} marker ack`,
+      );
+    } finally {
+      await api.post(`/panes/${spawned.pane_id}/capture/stop`).catch(() => {});
+    }
 
     const tool = `PWTOOL${Date.now()}`;
     await api.post(`/panes/${spawned.pane_id}/send`, { text: `STUB_TOOL ${tool}`, enter: true });

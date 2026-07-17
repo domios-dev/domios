@@ -76,6 +76,7 @@ fn spawn_backend_pty(svc: &ServiceContext, pane_id: &str) -> Result<String, Stri
         .lock()
         .spawn(None, cwd, 120, 40, env_vars)
         .map_err(|error| error.to_string())?;
+    svc.screen_state.lock().resize(&pty_id, 120, 40);
 
     let svc_arc = std::sync::Arc::new(svc.clone());
     let prepared = crate::service::pty_lifecycle::prepare_backend_reader(&svc_arc, &pty_id);
@@ -331,7 +332,11 @@ pub(crate) fn launch_agent_in_background(
             return;
         }
 
-        if !svc.await_agent_tui_on_screen(&pty_id, &agent_cmd, std::time::Duration::from_secs(30)) {
+        if !svc.await_agent_tui_frame_on_screen(
+            &pty_id,
+            &agent_cmd,
+            std::time::Duration::from_secs(30),
+        ) {
             let error = format!("{} TUI did not become ready", agent_cmd);
             svc.emit_boot_stage(&pane_id, BootStage::SpawnFailed, Some(&error));
             set_booting(false);

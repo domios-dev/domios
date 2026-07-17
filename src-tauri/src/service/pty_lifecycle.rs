@@ -174,7 +174,16 @@ async fn backend_read_loop(
                 let mut reply_count = 0;
                 for reply in terminal_query_replies(&data, headless) {
                     reply_count += 1;
-                    let _ = svc.pty.lock().write(&pty_id, reply);
+                    let reply_svc = svc.clone();
+                    let reply_pty_id = pty_id.clone();
+                    let reply = reply.to_vec();
+                    tokio::task::spawn_blocking(move || {
+                        let _ = crate::service::pty_io::submit_transaction::write_terminal_reply(
+                            &reply_svc,
+                            &reply_pty_id,
+                            &reply,
+                        );
+                    });
                 }
                 let _ = frontend_tx.try_send(data.clone());
                 let data_len = data.len();

@@ -227,9 +227,8 @@ impl ServiceContext {
         self.send_text_to_pty_smart(&pty_id, text, enter)
     }
 
-    /// Verified injection for agent panes, naive paste for shells: a booting TUI
-    /// can swallow the naive `\r`, so the verified path re-sends Enter until the
-    /// input drains (the "no reply" bug). Blocking — call from sync/spawn_blocking.
+    /// A ready agent owns the PTY input stream. Screen state is diagnostic only:
+    /// ConPTY local echo cannot prove that a provider has consumed a paste.
     pub fn send_text_to_pty_smart(
         &self,
         pty_id: &str,
@@ -246,29 +245,8 @@ impl ServiceContext {
                 None => (None, None),
             }
         };
-        // A booting TUI silently swallows bracket-paste — wait it out, else the message vanishes silently.
-        let was_booting = pane_id
-            .as_ref()
-            .map(|pid| {
-                self.mux
-                    .read()
-                    .get_pane(pid)
-                    .map(|p| p.agent_booting)
-                    .unwrap_or(false)
-            })
-            .unwrap_or(false);
         if let Some(ref pid) = pane_id {
             self.await_agent_boot_blocking(pid, std::time::Duration::from_secs(90))?;
-        }
-        // Only for a just-booted agent: the boot flag can clear before the TUI renders its input, so wait for its fingerprint.
-        if was_booting {
-            if let Some(ref agent_id) = agent_type {
-                self.await_agent_tui_on_screen(
-                    pty_id,
-                    agent_id,
-                    std::time::Duration::from_secs(10),
-                );
-            }
         }
         if let Some(ref agent_id) = agent_type {
             let text = sanitize_agent_prompt_input(text);
@@ -318,22 +296,51 @@ impl ServiceContext {
         self.pty.lock().write(pty_id, &payload)
     }
 
-    /// Wait for the terminal screen-state signal that a structural agent TUI appeared.
+    /// Wait until an agent has rendered a structural TUI frame. This proves a
+    /// shell launch command ran; it does not claim the input composer is ready.
+    pub(crate) fn await_agent_tui_frame_on_screen(
+        &self,
+        pty_id: &str,
+        agent_id: &str,
+        timeout: std::time::Duration,
+    ) -> bool {
+        self.await_agent_tui_screen(pty_id, agent_id, timeout, false)
+    }
+
+    /// Wait until a structural agent TUI exposes an operable composer.
     pub(crate) fn await_agent_tui_on_screen(
         &self,
         pty_id: &str,
         agent_id: &str,
         timeout: std::time::Duration,
     ) -> bool {
+        self.await_agent_tui_screen(pty_id, agent_id, timeout, true)
+    }
+
+    fn await_agent_tui_screen(
+        &self,
+        pty_id: &str,
+        agent_id: &str,
+        timeout: std::time::Duration,
+        require_composer: bool,
+    ) -> bool {
         let signal = self.screen_state.lock().arm_screen_change_signal(pty_id);
         let deadline = std::time::Instant::now() + timeout;
         let mut generation = signal.generation();
         loop {
-            let screen = self
-                .screen_state
-                .lock()
-                .get_screen_text(pty_id)
-                .unwrap_or_default();
+            let (screen, composer_ready, cursor) = {
+                let screen_state = self.screen_state.lock();
+                let screen = screen_state.get_screen_text(pty_id).unwrap_or_default();
+                let cursor = screen_state.cursor_input_state(pty_id);
+                let composer_ready = cursor
+                    .map(|(_alt, visible, row, rows)| {
+                        crate::agent::offline_state_classifier::composer_cursor_ready(
+                            visible, row, rows,
+                        )
+                    })
+                    .unwrap_or(false);
+                (screen, composer_ready, cursor)
+            };
             let provider_ready = self
                 .agent_registry
                 .with_provider(agent_id, |provider| provider.screen_has_tui(&screen));
@@ -341,7 +348,7 @@ impl ServiceContext {
                 provider_ready,
                 codeterm_pty::pty::screen_state::screen_has_agent_tui(&screen),
             );
-            if ready {
+            if ready && (!require_composer || composer_ready) {
                 return true;
             }
             let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {

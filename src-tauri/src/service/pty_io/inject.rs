@@ -131,7 +131,7 @@ impl ServiceContext {
                         .map(|_| ())
                 }
                 VerifySubmitStrategy::TuiInputDrained { timeout, .. } => {
-                    if self.await_agent_tui_on_screen(pty_id, agent_id, timeout) {
+                    if self.await_agent_tui_frame_on_screen(pty_id, agent_id, timeout) {
                         Ok(())
                     } else {
                         log::debug!(

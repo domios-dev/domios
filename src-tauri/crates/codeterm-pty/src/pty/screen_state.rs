@@ -137,6 +137,14 @@ impl ScreenState {
         }
     }
 
+    pub fn resize(&mut self, pty_id: &str, cols: u16, rows: u16) {
+        let parser = self
+            .parsers
+            .entry(pty_id.to_string())
+            .or_insert_with(|| vt100::Parser::new(rows, cols, 500));
+        parser.screen_mut().set_size(rows, cols);
+    }
+
     pub fn get_screen_text(&self, pty_id: &str) -> Option<String> {
         self.parsers.get(pty_id).map(|p| p.screen().contents())
     }
@@ -539,6 +547,34 @@ mod tests {
         let hash_all = ss.get_content_hash("pty1", 0).unwrap();
         let hash_no_bottom = ss.get_content_hash("pty1", 3).unwrap();
         assert_ne!(hash_all, hash_no_bottom);
+    }
+
+    #[test]
+    fn cursor_input_state_clamps_a_composer_to_the_bottom_row() {
+        let mut ss = ScreenState::new();
+        ss.process("pty1", b"\x1b[999;1H\x1b[2m\xe2\x96\x8c\x1b[0m ");
+
+        let (_alternate, visible, row, rows) = ss.cursor_input_state("pty1").unwrap();
+        assert!(visible);
+        assert!(
+            row + 4 >= rows,
+            "cursor row {row} must be near bottom {rows}"
+        );
+    }
+
+    #[test]
+    fn resize_keeps_cursor_geometry_in_sync_with_the_pty() {
+        let mut ss = ScreenState::new();
+        ss.process("pty1", b"\x1b[40;1H\x1b[2m\xe2\x96\x8c\x1b[0m ");
+        ss.resize("pty1", 120, 40);
+
+        let (_alternate, visible, row, rows) = ss.cursor_input_state("pty1").unwrap();
+        assert!(visible);
+        assert_eq!(rows, 40);
+        assert!(
+            row + 4 >= rows,
+            "cursor row {row} must be near bottom {rows}"
+        );
     }
 
     #[test]
