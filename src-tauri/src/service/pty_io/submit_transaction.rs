@@ -209,12 +209,27 @@ fn run<T: SubmitTransport>(
     let armed_generation = transport.generation();
     let initial = transport.observe().map_err(helper_to_closed)?;
     let bytes_written = transport.write_paste(text)?;
-    let (paste_observation, mut generation) = if opts.verify_echo {
+    let paste_wait = if opts.verify_echo {
         wait_for_paste(transport, text, armed_generation, deadline)
-            .map_err(|error| helper_to_injection(error, started, text, true))?
     } else {
         wait_for_paste_activity(transport, text, armed_generation, deadline)
-            .map_err(|error| helper_to_injection(error, started, text, true))?
+    };
+    // An unechoed paste is the TUI's rendering choice (placeholder, reflow,
+    // queued input), not evidence the write missed. Carry on optimistically.
+    let (paste_observation, mut generation) = match paste_wait {
+        Ok(observed) => observed,
+        Err(HelperErr::PtyUnknown(pty_id)) => return Err(InjectionError::PtyClosed { pty_id }),
+        Err(HelperErr::Timeout(screen_tail)) => {
+            log::debug!(
+                "paste unechoed after {:?}; delivery assumed: {:?}",
+                started.elapsed(),
+                screen_tail
+            );
+            (
+                transport.observe().map_err(helper_to_closed)?,
+                transport.generation(),
+            )
+        }
     };
     let echo_observed = text.is_empty() || screen_contains_echo(&paste_observation.tail, text);
 
@@ -291,21 +306,31 @@ fn run<T: SubmitTransport>(
                 }
             }
             if !transport.wait_after(generation, deadline) {
-                return Err(InjectionError::SubmitNeverConfirmed {
-                    waited: started.elapsed(),
-                    screen_tail: observation.tail,
+                log::debug!(
+                    "submit deadline elapsed after {:?}; delivery assumed: {:?}",
+                    started.elapsed(),
+                    observation.tail
+                );
+                return Ok(InjectionResult {
+                    bytes_written,
+                    echo_observed,
+                    submit_observed: false,
+                    elapsed: started.elapsed(),
                 });
             }
         }
     }
 
-    let tail = transport
-        .observe()
-        .map(|observation| observation.tail)
-        .unwrap_or_default();
-    Err(InjectionError::SubmitNeverConfirmed {
-        waited: started.elapsed(),
-        screen_tail: tail,
+    log::debug!(
+        "submit unobserved across {} enter attempts after {:?}; delivery assumed",
+        MAX_ENTER_ATTEMPTS,
+        started.elapsed()
+    );
+    Ok(InjectionResult {
+        bytes_written,
+        echo_observed,
+        submit_observed: false,
+        elapsed: started.elapsed(),
     })
 }
 
@@ -484,11 +509,11 @@ mod tests {
             }),
             vec![None],
         );
-        let result = run(&io, "hello", true, tui(), opts());
-        assert!(matches!(
-            result,
-            Err(InjectionError::SubmitNeverConfirmed { .. })
-        ));
+        let result = run(&io, "hello", true, tui(), opts()).expect("delivery is optimistic");
+        assert!(
+            !result.submit_observed,
+            "an unobserved submit must not be reported as observed"
+        );
         assert_eq!(&*io.writes.borrow(), &["paste:hello", "enter:hello"]);
     }
 
@@ -581,7 +606,12 @@ mod tests {
             }),
             vec![None],
         );
-        assert!(run(&stale, "hello", true, tui(), opts()).is_err());
+        assert!(
+            !run(&stale, "hello", true, tui(), opts())
+                .expect("delivery is optimistic")
+                .submit_observed,
+            "a stale generation must not count as submission"
+        );
         assert_eq!(&*stale.writes.borrow(), &["paste:hello", "enter:hello"]);
 
         let progressed = ControlledTransport::new(
@@ -620,10 +650,12 @@ mod tests {
             }),
             vec![None],
         );
-        assert!(matches!(
-            run(&io, "hello", true, tui(), opts()),
-            Err(InjectionError::SubmitNeverConfirmed { .. })
-        ));
+        assert!(
+            !run(&io, "hello", true, tui(), opts())
+                .expect("delivery is optimistic")
+                .submit_observed,
+            "an unobserved submit must not be reported as observed"
+        );
     }
 
     #[test]
@@ -735,11 +767,11 @@ mod tests {
                 None,
             ],
         );
-        let result = run(&io, "hello", true, tui(), opts());
-        assert!(matches!(
-            result,
-            Err(InjectionError::SubmitNeverConfirmed { .. })
-        ));
+        let result = run(&io, "hello", true, tui(), opts()).expect("delivery is optimistic");
+        assert!(
+            !result.submit_observed,
+            "an unobserved submit must not be reported as observed"
+        );
         let writes = io.writes.borrow();
         assert_eq!(
             writes
@@ -803,9 +835,9 @@ mod tests {
                 None,
             ],
         );
-        let result = run(&blink, "hello", true, tui(), opts());
+        let result = run(&blink, "hello", true, tui(), opts()).expect("delivery is optimistic");
         assert!(
-            matches!(result, Err(InjectionError::SubmitNeverConfirmed { .. })),
+            !result.submit_observed,
             "a single absent generation must not count as submission"
         );
         assert_eq!(&*blink.writes.borrow(), &["paste:hello", "enter:hello"]);
