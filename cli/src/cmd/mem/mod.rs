@@ -3,6 +3,7 @@ mod graph;
 pub(crate) mod item;
 mod skill;
 mod tail;
+pub(crate) mod transport;
 mod worker;
 
 use crate::cmd::print::handle_result;
@@ -155,7 +156,10 @@ fn mem_get_request(
     http: &reqwest::blocking::Client,
     url: &str,
 ) -> Result<serde_json::Value, String> {
-    let resp = http.get(url).send().map_err(|e| e.to_string())?;
+    let resp = http
+        .get(url)
+        .send()
+        .map_err(|e| transport::mem_transport_error(url, &e))?;
     let status = resp.status();
     let val: serde_json::Value = resp.json().unwrap_or_default();
     if !status.is_success() {
@@ -177,7 +181,7 @@ fn mem_post_request(
         .post(url)
         .json(body)
         .send()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| transport::mem_transport_error(url, &e))?;
     let status = resp.status();
     let text = resp.text().unwrap_or_default();
     let val: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();

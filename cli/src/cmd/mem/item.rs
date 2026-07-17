@@ -1,5 +1,6 @@
 use std::io::Read;
 
+use super::transport::mem_transport_error;
 use super::{mem_get_request, mem_post_request};
 use crate::MemAction;
 
@@ -172,22 +173,20 @@ pub(crate) fn handle_mem_items(
         }
         MemAction::Get { id } => mem_get_request(http, &format!("{}/api/mem/items/{}", base, id)),
         MemAction::Delete { id } => {
+            let url = format!("{}/api/mem/items/{}", base, id);
             let resp = http
-                .delete(format!("{}/api/mem/items/{}", base, id))
+                .delete(&url)
                 .send()
-                .map_err(|e| e.to_string());
+                .map_err(|e| mem_transport_error(&url, &e));
             resp.map(|r| serde_json::json!({"deleted": r.status().is_success()}))
         }
         MemAction::Forget { area, yes } => {
             validate_mem_forget_confirmation(&area, yes)?;
+            let url = format!("{}/api/mem/forget/{}", base, urlencoding::encode(&area));
             let resp = http
-                .delete(format!(
-                    "{}/api/mem/forget/{}",
-                    base,
-                    urlencoding::encode(&area)
-                ))
+                .delete(&url)
                 .send()
-                .map_err(|e| e.to_string());
+                .map_err(|e| mem_transport_error(&url, &e));
             resp.map(|r| {
                 if let Ok(v) = r.json::<serde_json::Value>() {
                     v
@@ -224,9 +223,8 @@ pub(crate) fn handle_mem_items(
                 "title": title, "summary": summary, "area": area,
                 "tags": tag_list, "body": body, "importance": importance,
             });
-            let mut req = http
-                .patch(format!("{}/api/mem/items/{}", base, id))
-                .json(&payload);
+            let url = format!("{}/api/mem/items/{}", base, id);
+            let mut req = http.patch(&url).json(&payload);
             if let Some(actor) = &changed_by {
                 let trimmed = actor.trim();
                 if trimmed.is_empty() {
@@ -235,7 +233,7 @@ pub(crate) fn handle_mem_items(
                 }
                 req = req.header("X-CodeTerm-Actor", trimmed);
             }
-            let resp = req.send().map_err(|e| e.to_string());
+            let resp = req.send().map_err(|e| mem_transport_error(&url, &e));
             match resp {
                 Ok(r) => {
                     let status = r.status();
@@ -251,11 +249,12 @@ pub(crate) fn handle_mem_items(
         }
         MemAction::Pin { id } => {
             let payload = serde_json::json!({ "pinned": true });
+            let url = format!("{}/api/mem/items/{}", base, id);
             let resp = http
-                .patch(format!("{}/api/mem/items/{}", base, id))
+                .patch(&url)
                 .json(&payload)
                 .send()
-                .map_err(|e| e.to_string());
+                .map_err(|e| mem_transport_error(&url, &e));
             match resp {
                 Ok(r) => {
                     let status = r.status();
@@ -271,11 +270,12 @@ pub(crate) fn handle_mem_items(
         }
         MemAction::Unpin { id } => {
             let payload = serde_json::json!({ "pinned": false });
+            let url = format!("{}/api/mem/items/{}", base, id);
             let resp = http
-                .patch(format!("{}/api/mem/items/{}", base, id))
+                .patch(&url)
                 .json(&payload)
                 .send()
-                .map_err(|e| e.to_string());
+                .map_err(|e| mem_transport_error(&url, &e));
             match resp {
                 Ok(r) => {
                     let status = r.status();
