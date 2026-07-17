@@ -18,7 +18,7 @@ use winapi::um::jobapi2::{AssignProcessToJobObject, CreateJobObjectW, SetInforma
 use winapi::um::processthreadsapi::*;
 use winapi::um::winbase::{
     CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT,
-    STARTF_USESHOWWINDOW, STARTUPINFOEXW,
+    STARTF_USESHOWWINDOW, STARTF_USESTDHANDLES, STARTUPINFOEXW,
 };
 use winapi::um::wincon::COORD;
 use winapi::um::winnt::{
@@ -215,23 +215,24 @@ impl PsuedoCon {
 fn conpty_startup_info() -> STARTUPINFOEXW {
     let mut si: STARTUPINFOEXW = unsafe { mem::zeroed() };
     si.StartupInfo.cb = mem::size_of::<STARTUPINFOEXW>() as u32;
-    si.StartupInfo.dwFlags = STARTF_USESHOWWINDOW;
+    si.StartupInfo.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
     si.StartupInfo.wShowWindow = SW_HIDE as u16;
+    si.StartupInfo.hStdInput = INVALID_HANDLE_VALUE;
+    si.StartupInfo.hStdOutput = INVALID_HANDLE_VALUE;
+    si.StartupInfo.hStdError = INVALID_HANDLE_VALUE;
     si
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use winapi::um::winbase::STARTF_USESTDHANDLES;
-
     #[test]
-    fn conpty_child_uses_pseudoconsole_stdio_only() {
+    fn conpty_child_does_not_inherit_daemon_stdio() {
         let startup = conpty_startup_info();
-        assert_eq!(startup.StartupInfo.dwFlags & STARTF_USESTDHANDLES, 0);
-        assert!(startup.StartupInfo.hStdInput.is_null());
-        assert!(startup.StartupInfo.hStdOutput.is_null());
-        assert!(startup.StartupInfo.hStdError.is_null());
+        assert_ne!(startup.StartupInfo.dwFlags & STARTF_USESTDHANDLES, 0);
+        assert_eq!(startup.StartupInfo.hStdInput, INVALID_HANDLE_VALUE);
+        assert_eq!(startup.StartupInfo.hStdOutput, INVALID_HANDLE_VALUE);
+        assert_eq!(startup.StartupInfo.hStdError, INVALID_HANDLE_VALUE);
     }
 }
 
