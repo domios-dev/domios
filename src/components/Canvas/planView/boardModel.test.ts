@@ -301,9 +301,9 @@ test("selectDefaultPlanId honors explicit id, then orchestrator ownership, then 
   const a: Plan = { ...FIXTURE_PLAN, id: "p-a", title: "Alpha", created_at: 0, updated_at: 5, tasks: [] };
   const b: Plan = { ...FIXTURE_PLAN, id: "p-b", title: "Beta", created_at: 0, updated_at: 99, tasks: [] };
   const ordered = orderPlansByActivity([a, b]);
-  assert(selectDefaultPlanId(ordered, {}) === "p-b", "freshest fallback");
-  assert(selectDefaultPlanId(ordered, { planId: "p-a" }) === "p-a", "explicit id wins");
-  assert(selectDefaultPlanId([], {}) === null, "empty -> null");
+  assert(selectDefaultPlanId(ordered, { workspaceId: undefined }) === "p-b", "freshest fallback");
+  assert(selectDefaultPlanId(ordered, { planId: "p-a", workspaceId: undefined }) === "p-a", "explicit id wins");
+  assert(selectDefaultPlanId([], { workspaceId: undefined }) === null, "empty -> null");
 });
 
 test("selectDefaultPlanId prefers a plan with real work over a fresh junk 0-task plan", () => {
@@ -318,7 +318,7 @@ test("selectDefaultPlanId prefers a plan with real work over a fresh junk 0-task
   };
   const ordered = orderPlansByActivity([junk, bound]); // junk is freshest
   assert(ordered[0].id === "p-junk", "junk sorts first by freshness");
-  assert(selectDefaultPlanId(ordered, {}) === "p-bound", "but selector picks the plan with actionable work");
+  assert(selectDefaultPlanId(ordered, { workspaceId: undefined }) === "p-bound", "but selector picks the plan with actionable work");
 });
 
 const WS_CURRENT = "ws-current";

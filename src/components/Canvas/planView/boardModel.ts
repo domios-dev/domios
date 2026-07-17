@@ -342,12 +342,16 @@ export function selectDefaultPlanId(
     const owned = filterPlansForCanvas([...orderedPlans], "focus", {
       orchestratorPaneId: opts.orchestratorPaneId,
       panes: opts.panes,
+      workspaceId: undefined,
     });
     const ownedIds = new Set(owned.map((p) => p.id));
     const first = orderedPlans.find((p) => ownedIds.has(p.id));
     if (first) return first.id;
   }
-  const scoped = opts.workspaceId
+  // workspaceId undefined = unscoped focus/companion context; allPlans is the
+  // explicit canvas opt-out. Workspace mode scopes upstream in filterPlansForCanvas
+  // (empty when unscoped), so no plan from another workspace can reach this fallback.
+  const scoped = opts.workspaceId && !opts.allPlans
     ? orderedPlans.filter((p) => planBelongsToWorkspace(p, opts.workspaceId!, opts))
     : orderedPlans;
   if (!scoped.length) return null;
