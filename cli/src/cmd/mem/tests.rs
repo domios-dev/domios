@@ -1,9 +1,18 @@
-use super::mem_post_request;
+use super::transport::mem_unavailable_message;
+use super::{mem_get_request, mem_post_request};
 use crate::{Cli, Commands, MemAction};
 use clap::Parser;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::mpsc;
+
+/// A base URL whose port has no listener — reproduces an HTTP-down daemon.
+fn closed_port_base() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    format!("http://{}", addr)
+}
 
 fn one_response_server(status: &'static str, body: &'static str) -> String {
     let (url, _) = capture_response_server(status, body);
@@ -39,6 +48,69 @@ fn mem_post_request_reports_status_and_plain_text_body() {
     let url = one_response_server("400 Bad Request", "text required");
     let err = mem_post_request(&http, &url, &serde_json::json!({})).unwrap_err();
     assert_eq!(err, "400 Bad Request text required");
+}
+
+#[test]
+fn mem_get_request_reports_unavailable_when_http_is_down() {
+    let http = reqwest::blocking::Client::new();
+    let base = closed_port_base();
+    let err = mem_get_request(&http, &format!("{}/api/mem/items", base)).unwrap_err();
+
+    assert!(
+        err.starts_with("CodeTerm memory is unavailable:"),
+        "expected an actionable unavailable error, got: {err}"
+    );
+    assert!(err.contains(&base), "error must name the HTTP base: {err}");
+    assert!(
+        err.contains("CODETERM_API_PORT"),
+        "error must tell the user what to do: {err}"
+    );
+    assert!(
+        !err.contains("os error") && !err.contains("error sending request"),
+        "raw reqwest text must not leak: {err}"
+    );
+}
+
+#[test]
+fn mem_post_request_reports_unavailable_when_http_is_down() {
+    let http = reqwest::blocking::Client::new();
+    let base = closed_port_base();
+    let err = mem_post_request(
+        &http,
+        &format!("{}/api/mem/items", base),
+        &serde_json::json!({}),
+    )
+    .unwrap_err();
+
+    assert!(
+        err.starts_with("CodeTerm memory is unavailable:"),
+        "expected an actionable unavailable error, got: {err}"
+    );
+    assert!(
+        !err.contains("os error"),
+        "raw reqwest text must not leak: {err}"
+    );
+}
+
+#[test]
+fn unavailable_message_explains_socket_alive_but_http_down() {
+    let msg = mem_unavailable_message("http://127.0.0.1:7686", Some("codeterm-dev.sock"));
+
+    assert!(msg.contains("codeterm-dev.sock"));
+    assert!(msg.contains("http://127.0.0.1:7686"));
+    assert!(
+        msg.contains("HTTP-only"),
+        "must explain a live socket does not carry mem: {msg}"
+    );
+    assert!(msg.contains("CODETERM_API_PORT"));
+}
+
+#[test]
+fn unavailable_message_reports_no_daemon_when_socket_is_dead_too() {
+    let msg = mem_unavailable_message("http://127.0.0.1:7686", None);
+
+    assert!(msg.contains("no CodeTerm daemon is reachable"));
+    assert!(msg.contains("Start CodeTerm"));
 }
 
 #[test]
