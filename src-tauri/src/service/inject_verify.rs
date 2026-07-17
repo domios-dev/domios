@@ -137,7 +137,10 @@ fn last_nonempty_line(s: &str) -> &str {
 /// screen, so substring search against `expected` will never match.
 fn paste_placeholder_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"\[Pasted text #\d+( \+\d+ lines?)?\]").unwrap())
+    RE.get_or_init(|| {
+        Regex::new(r"\[(?:Pasted text #\d+( \+\d+ lines?)?|Pasted Content \d+ chars(?: #\d+)?)\]")
+            .unwrap()
+    })
 }
 
 fn screen_has_paste_placeholder(screen: &str) -> bool {
@@ -444,6 +447,23 @@ mod tests {
         assert!(screen_has_paste_placeholder("> [Pasted text #1]"));
         // Bracket pair is required; the unbracketed prose form must not match.
         assert!(!screen_has_paste_placeholder("Pasted text #1 +1 line"));
+    }
+
+    #[test]
+    fn pasted_content_placeholder_counts_as_echo_only_for_eligible_input() {
+        let expected = "x".repeat(2256);
+        assert!(screen_contains_echo(
+            "[Pasted Content 2256 chars]",
+            &expected
+        ));
+        assert!(screen_contains_echo(
+            "[Pasted Content 2256 chars] #2",
+            &expected
+        ));
+        assert!(!screen_contains_echo(
+            "[Pasted Content 2256 chars]",
+            "short input"
+        ));
     }
 
     // vt100 default is 50 rows; tail_rows >= 50 scans the whole screen.
