@@ -1,5 +1,6 @@
 // Run: npx tsx src/components/Canvas/planView/boardModel.test.ts
 
+import type { Team, Workspace } from "../../../lib/types";
 import { FIXTURE_PLAN, FIXTURE_SECTION, FIXTURE_TASK } from "../cards/fixtures.testdata";
 import { TaskStatus, type Plan, type Section, type Task } from "../types";
 import {
@@ -318,6 +319,51 @@ test("selectDefaultPlanId prefers a plan with real work over a fresh junk 0-task
   const ordered = orderPlansByActivity([junk, bound]); // junk is freshest
   assert(ordered[0].id === "p-junk", "junk sorts first by freshness");
   assert(selectDefaultPlanId(ordered, {}) === "p-bound", "but selector picks the plan with actionable work");
+});
+
+const WS_CURRENT = "ws-current";
+const WS_OTHER = "ws-other";
+const scopeWorkspaces: Workspace[] = [
+  { id: WS_CURRENT, name: WS_CURRENT, tabs: [{ id: "t-cur", pane_id: "orch-current" }], active_tab_id: null, cwd: null },
+  { id: WS_OTHER, name: WS_OTHER, tabs: [{ id: "t-oth", pane_id: "orch-other" }], active_tab_id: null, cwd: null },
+];
+const scopeTeams: Team[] = [
+  { id: "team-other", lifecycle: "active", created_at: 0, workspace_id: WS_OTHER },
+];
+
+test("selectDefaultPlanId returns null when no plan is bound to the workspace (no fallback)", () => {
+  const foreign: Plan = {
+    ...FIXTURE_PLAN,
+    id: "p-foreign",
+    team_id: "team-other",
+    owner: { pane_id: "orch-other", session_id: null, title: "Other" },
+    tasks: [{ ...FIXTURE_TASK, id: "t1", status: TaskStatus.InProgress }],
+  };
+  const ordered = orderPlansByActivity([foreign]);
+  const id = selectDefaultPlanId(ordered, {
+    workspaceId: WS_CURRENT,
+    workspaces: scopeWorkspaces,
+    teams: scopeTeams,
+  });
+  assert(id === null, `no workspace-bound plan → null default, got ${id}`);
+});
+
+test("selectDefaultPlanId still honors explicit planId under workspace scope", () => {
+  const foreign: Plan = {
+    ...FIXTURE_PLAN,
+    id: "p-foreign",
+    team_id: "team-other",
+    owner: { pane_id: "orch-other", session_id: null, title: "Other" },
+    tasks: [],
+  };
+  const ordered = orderPlansByActivity([foreign]);
+  const id = selectDefaultPlanId(ordered, {
+    planId: "p-foreign",
+    workspaceId: WS_CURRENT,
+    workspaces: scopeWorkspaces,
+    teams: scopeTeams,
+  });
+  assert(id === "p-foreign", `explicit planId wins even across workspace scope, got ${id}`);
 });
 
 let passed = 0;

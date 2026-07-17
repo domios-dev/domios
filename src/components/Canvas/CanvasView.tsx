@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { listen } from "../../lib/bridge";
-import type { ApiConfig, Pane, Workspace } from "../../lib/types";
+import type { ApiConfig, Pane, Team, Workspace } from "../../lib/types";
 import { useMultiplexer, useMuxState } from "../../store/multiplexer";
 import { resolveCanvasFocusNodeIds, type CanvasFocusPayload } from "./canvasFocusPayload";
 import { CanvasEmptyActions } from "./CanvasEmptyActions";
@@ -74,6 +74,9 @@ export interface CanvasViewInnerProps {
   focusPaneId?: string | null;
   panes?: Record<string, Pane>;
   workspaces?: Workspace[];
+  /** Current workspace; workspace mode scopes plans to those bound here. */
+  workspaceId?: string;
+  teams?: Team[];
   focusedPaneId?: string | null;
   projectPath?: string | null;
   workspaceTarget?: CanvasWorkspaceTarget | null;
@@ -105,6 +108,8 @@ export function CanvasViewInner({
   focusPaneId = null,
   panes = {},
   workspaces = EMPTY_WORKSPACES,
+  workspaceId,
+  teams,
   focusedPaneId = null,
   projectPath = null,
   workspaceTarget = null,
@@ -124,8 +129,8 @@ export function CanvasViewInner({
     .map((p) => [p.id, p.status, p.owner.pane_id ?? "", p.owner.session_id ?? ""].join(":"))
     .join("\0");
   const filteredPlans = useMemo(
-    () => filterPlansForCanvas(plans, mode, { planId, orchestratorPaneId, panes }),
-    [plans, plansRevision, planFilterRevision, mode, planId, orchestratorPaneId, panes],
+    () => filterPlansForCanvas(plans, mode, { planId, orchestratorPaneId, panes, workspaceId, workspaces, teams }),
+    [plans, plansRevision, planFilterRevision, mode, planId, orchestratorPaneId, panes, workspaceId, workspaces, teams],
   );
 
   const activeWork = useMemo(
@@ -864,7 +869,7 @@ export interface CanvasViewProps {
   onClose?: () => void;
 }
 
-export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api, onClose }: CanvasViewProps) {
+export function CanvasView({ mode, workspaceId, planId, orchestratorPaneId, focusPaneId, api, onClose }: CanvasViewProps) {
   const { setFocusedPane, setActiveTab } = useMultiplexer();
   const state = useMuxState();
   const onOpenPane = useCallback(
@@ -934,6 +939,8 @@ export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api,
       focusPaneId={focusPaneId}
       panes={panes}
       workspaces={state.workspaces}
+      workspaceId={mode === "workspace" ? workspaceId ?? state.active_workspace_id ?? undefined : undefined}
+      teams={state.teams}
       focusedPaneId={state.focused_pane_id}
       projectPath={projectPath}
       workspaceTarget={mode === "workspace" ? workspaceTarget : null}
