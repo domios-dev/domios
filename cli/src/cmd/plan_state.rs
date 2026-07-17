@@ -312,10 +312,12 @@ pub fn render_state(val: &Value) -> String {
                         format!(" competition:{c} live:{live}")
                     })
                     .unwrap_or_default();
+                let presentation = lane_presentation(l);
                 out.push_str(&format!(
-                    "  - {} [{}]{}{} {}\n",
+                    "  - {} [{}; {}]{}{} {}\n",
                     s(l, "task_id"),
                     s(l, "status"),
+                    presentation,
                     role_part,
                     competition_part,
                     s(l, "name"),
@@ -357,6 +359,30 @@ pub fn render_state(val: &Value) -> String {
     out
 }
 
+fn lane_presentation(lane: &Value) -> String {
+    match s(lane, "presentation") {
+        "actionable_pending" => "actionable pending".into(),
+        "waiting_on_dependencies" => {
+            let waits = lane
+                .get("dependency_waits")
+                .and_then(|value| value.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .map(|wait| s(wait, "task_id"))
+                        .filter(|id| !id.is_empty())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .filter(|ids| !ids.is_empty())
+                .unwrap_or_else(|| "dependencies".into());
+            format!("waiting on dependency: {waits}")
+        }
+        "" => s(lane, "status").into(),
+        other => other.replace('_', " "),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -377,7 +403,7 @@ mod tests {
             "drift": {"total": 1, "by_kind": {"in_progress_pane_gone": 1}},
             "heartbeat": {"current_focus": "foundation", "active_lanes": ["loop-state"]},
             "loops": [{"id": "lp_1", "status": "running", "target": "harden", "count": 2, "budget": 5, "stop_when": "0 bugs"}],
-            "open_lanes": [{"task_id": "t_p", "status": "pending", "name": "pend"}],
+            "open_lanes": [{"task_id": "t_p", "status": "pending", "presentation": "actionable_pending", "name": "pend"}],
             "live_agents": [{"task_id": "t_r", "pane_id": "pane_live", "name": "rev"}],
             "recent_strides": [{"kind": "decision", "text": "did a thing"}]
         });
@@ -389,9 +415,29 @@ mod tests {
         assert!(out.contains("drift: 1 (in_progress_pane_gone 1)"));
         assert!(out.contains("focus: foundation"));
         assert!(out.contains("lp_1 [running] harden: 2/5; stop_when: 0 bugs"));
-        assert!(out.contains("t_p [pending] pend"));
+        assert!(out.contains("t_p [pending; actionable pending] pend"));
         assert!(out.contains("t_r -> pane_live (rev)"));
         assert!(out.contains("[decision] did a thing"));
+    }
+
+    #[test]
+    fn renders_dependency_waiting_pending_as_distinct_from_paused() {
+        let val = json!({
+            "plan_id": "pl_1",
+            "title": "Sequenced",
+            "status": "active",
+            "mode": "execution",
+            "task_counts": {"total": 2, "done": 0, "in_progress": 1, "in_review": 0, "pending": 1, "blocked": 0, "cancelled": 0},
+            "percent_done": 0.0,
+            "open_lanes": [
+                {"task_id": "task_ready", "status": "pending", "presentation": "actionable_pending", "name": "Ready"},
+                {"task_id": "task_after", "status": "pending", "presentation": "waiting_on_dependencies", "dependency_waits": [{"task_id": "task_before"}], "name": "After"}
+            ]
+        });
+        let out = render_state(&val);
+        assert!(out.contains("task_ready [pending; actionable pending] Ready"));
+        assert!(out.contains("task_after [pending; waiting on dependency: task_before] After"));
+        assert!(!out.contains("parked"));
     }
 
     #[test]

@@ -101,6 +101,7 @@ pub use relink::relink_to_owner;
 pub use state::{
     build_plan_state_snapshot, planning_approval_blockers, HeartbeatSnapshot, LiveAgent,
     LoopSnapshot, OpenLane, PlanStateSnapshot, PlanningReadiness, StrideSnapshot, TaskCounts,
+    TaskPresentation,
 };
 pub use store_watch::WatchOutcome;
 pub use types::{
