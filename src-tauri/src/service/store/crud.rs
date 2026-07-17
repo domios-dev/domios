@@ -1,6 +1,7 @@
 use rusqlite::{params, OptionalExtension};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use super::schema::{COMPACT_SERVICE_HEALTH_SQL, SERVICE_HEALTH_RETENTION};
 use super::types::*;
 use super::ServicesStore;
 
@@ -141,11 +142,13 @@ impl ServicesStore {
                     s.health_json_field, s.health_ok_values, s.health_degraded_values,
                     h.status, h.probed_at, h.latency_ms, h.response
              FROM services s
-             LEFT JOIN (
-                SELECT service_id, status, probed_at, latency_ms, response,
-                       ROW_NUMBER() OVER (PARTITION BY service_id ORDER BY probed_at DESC) AS rn
-                FROM service_health
-             ) h ON h.service_id = s.id AND h.rn = 1
+             LEFT JOIN service_health h ON h.rowid = (
+                SELECT latest.rowid
+                FROM service_health latest
+                WHERE latest.service_id = s.id
+                ORDER BY latest.probed_at DESC
+                LIMIT 1
+             )
              WHERE s.id = ?1",
             [id],
             row_to_service,
@@ -168,11 +171,13 @@ impl ServicesStore {
                     s.health_json_field, s.health_ok_values, s.health_degraded_values,
                     h.status, h.probed_at, h.latency_ms, h.response
              FROM services s
-             LEFT JOIN (
-                SELECT service_id, status, probed_at, latency_ms, response,
-                       ROW_NUMBER() OVER (PARTITION BY service_id ORDER BY probed_at DESC) AS rn
-                FROM service_health
-             ) h ON h.service_id = s.id AND h.rn = 1
+             LEFT JOIN service_health h ON h.rowid = (
+                SELECT latest.rowid
+                FROM service_health latest
+                WHERE latest.service_id = s.id
+                ORDER BY latest.probed_at DESC
+                LIMIT 1
+             )
              WHERE 1=1",
         );
         if let Some(k) = &kind {
@@ -295,6 +300,41 @@ impl ServicesStore {
         let conn = conn.lock();
         conn.execute("DELETE FROM services WHERE id=?1", [id])?;
         Ok(())
+    }
+
+    pub(crate) fn record_health_snapshot(
+        &self,
+        service_id: &str,
+        snapshot: &HealthSnapshot,
+    ) -> rusqlite::Result<()> {
+        let response = serde_json::to_string(&snapshot.extra).ok();
+        let latency = snapshot.latency_ms.map(|value| value as i64);
+        let conn = self.conn();
+        let mut conn = conn.lock();
+        let tx = conn.transaction()?;
+        tx.execute(
+            "INSERT OR REPLACE INTO service_health
+                (service_id, probed_at, status, response, latency_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                service_id,
+                snapshot.probed_at.unwrap_or_default(),
+                status_to_str(snapshot.status),
+                response,
+                latency,
+            ],
+        )?;
+        tx.execute(COMPACT_SERVICE_HEALTH_SQL, [SERVICE_HEALTH_RETENTION])?;
+        tx.commit()
+    }
+}
+
+fn status_to_str(status: HealthStatus) -> &'static str {
+    match status {
+        HealthStatus::Healthy => "healthy",
+        HealthStatus::Degraded => "degraded",
+        HealthStatus::Down => "down",
+        HealthStatus::Unknown => "unknown",
     }
 }
 
