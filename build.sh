@@ -939,7 +939,9 @@ case "$CMD" in
     echo "Building CLI..."
     cargo build --release --manifest-path cli/Cargo.toml
     if [ -z "$CT_INSTANCE" ]; then
-      install_cli_to "$HOME/.codeterm/bin"
+      if ! install_cli_to "$HOME/.codeterm/bin"; then
+        echo "WARNING: shared CLI is in use; continuing with the isolated dev CLI install." >&2
+      fi
     else
       echo "Skipping prod CLI install for named dev instance ($CT_INSTANCE)"
     fi
