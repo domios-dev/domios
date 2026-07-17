@@ -695,7 +695,7 @@ export function Sidebar({
                 );
 
                 return (
-                  <div key={ws.id} data-testid="workspace-group" data-workspace-id={ws.id}>
+                  <div key={ws.id} data-testid="workspace-group" data-workspace-id={ws.id} role="group" aria-label={ws.name}>
                     <SortableRow
                       id={`${WS_PREFIX}${ws.id}`}
                       disabled={ws.protected}
