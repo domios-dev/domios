@@ -315,7 +315,7 @@ export function PaneSessionChat({
   const visiblePlanRefsRef = useRef<{
     key: string;
     value: Array<{ planId: string; targetId?: string; targetKind: "plan" | "task" | "section" }>;
-  }>({ key: " ", value: [] });
+  }>({ key: "", value: [] });
   const visiblePlanRefs = useMemo(() => {
     const refs: Array<{ planId: string; targetId?: string; targetKind: "plan" | "task" | "section" }> = [];
     for (const { msg } of deferredEnrichedMessages) {

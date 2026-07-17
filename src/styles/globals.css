@@ -1,6 +1,7 @@
 @import "./tokens.css";
 @import "./syntax-highlight.css";
-@import "tailwindcss";
+@import "tailwindcss" source(none);
+@source "../";
 @import "@xterm/xterm/css/xterm.css";
 @import "./agent-state.css";
 @import "../components/Canvas/missionControl/missionControl.css";
