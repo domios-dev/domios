@@ -711,6 +711,127 @@ mod tests {
     }
 
     #[test]
+    fn stale_generations_keep_enter_retries_bounded() {
+        // 3+ new generations with the body still visible (enter not taking)
+        // must spend at most MAX_ENTER_ATTEMPTS enters, then fail honestly.
+        let io = ControlledTransport::new(
+            Some(Frame {
+                tail: "> hello",
+                hash: 1,
+            }),
+            vec![
+                Some(Frame {
+                    tail: "> hello",
+                    hash: 2,
+                }),
+                Some(Frame {
+                    tail: "> hello",
+                    hash: 3,
+                }),
+                Some(Frame {
+                    tail: "> hello",
+                    hash: 4,
+                }),
+                None,
+            ],
+        );
+        let result = run(&io, "hello", true, tui(), opts());
+        assert!(matches!(
+            result,
+            Err(InjectionError::SubmitNeverConfirmed { .. })
+        ));
+        let writes = io.writes.borrow();
+        assert_eq!(
+            writes
+                .iter()
+                .filter(|write| *write == "enter:hello")
+                .count(),
+            MAX_ENTER_ATTEMPTS,
+            "stale generations must not mint unbounded enter retries: {writes:?}"
+        );
+        assert_eq!(io.consumed_frames.get(), 3, "all stale frames observed");
+    }
+
+    #[test]
+    fn wrapped_body_reappearance_blocks_retry_and_still_confirms() {
+        // Wrap/scroll artifact: body vanishes (absence candidate), reappears
+        // (candidate voided), then drains for real. The reappearance must not
+        // trigger an enter retry, and the final absence must confirm.
+        let io = ControlledTransport::new(
+            Some(Frame {
+                tail: "> hello",
+                hash: 1,
+            }),
+            vec![
+                Some(Frame {
+                    tail: "scrolled view",
+                    hash: 2,
+                }),
+                Some(Frame {
+                    tail: "> hello wrapped back",
+                    hash: 3,
+                }),
+                Some(Frame {
+                    tail: "working",
+                    hash: 4,
+                }),
+            ],
+        );
+        let result = run(&io, "hello", true, tui(), opts()).unwrap();
+        assert!(result.submit_observed);
+        assert_eq!(
+            &*io.writes.borrow(),
+            &["paste:hello", "enter:hello"],
+            "reappeared body must suppress the retry break"
+        );
+    }
+
+    #[test]
+    fn single_generation_absence_is_rejected_as_false_drain() {
+        // One tick with the body absent is a rendering blink, not a drain:
+        // confirmation needs a SECOND distinct generation past the candidate.
+        let blink = ControlledTransport::new(
+            Some(Frame {
+                tail: "> hello",
+                hash: 1,
+            }),
+            vec![
+                Some(Frame {
+                    tail: "working",
+                    hash: 2,
+                }),
+                None,
+            ],
+        );
+        let result = run(&blink, "hello", true, tui(), opts());
+        assert!(
+            matches!(result, Err(InjectionError::SubmitNeverConfirmed { .. })),
+            "a single absent generation must not count as submission"
+        );
+        assert_eq!(&*blink.writes.borrow(), &["paste:hello", "enter:hello"]);
+
+        // Green twin: the same stream with one more quiet generation confirms.
+        let drained = ControlledTransport::new(
+            Some(Frame {
+                tail: "> hello",
+                hash: 1,
+            }),
+            vec![
+                Some(Frame {
+                    tail: "working",
+                    hash: 2,
+                }),
+                Some(Frame {
+                    tail: "working stable",
+                    hash: 3,
+                }),
+            ],
+        );
+        let result = run(&drained, "hello", true, tui(), opts()).unwrap();
+        assert!(result.submit_observed);
+    }
+
+    #[test]
     fn transaction_lock_registry_retires_closed_ptys() {
         let lock = transaction_lock("closed-pty");
         assert!(transaction_locks().lock().contains_key("closed-pty"));
