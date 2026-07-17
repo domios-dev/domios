@@ -908,7 +908,6 @@ mod tests {
         assert!(!got.is_empty(), "ConPTY child produced no output");
 
         let child_pid = child.process_id().expect("child pid");
-        std::thread::sleep(std::time::Duration::from_millis(300));
         let legacy = legacy_conhost_children(child_pid);
         assert!(
             legacy.is_empty(),

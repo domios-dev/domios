@@ -150,11 +150,9 @@ mod tests {
     use std::path::PathBuf;
 
     fn git(dir: &Path, args: &[&str]) {
-        let output = Command::new("git")
-            .current_dir(dir)
-            .args(args)
-            .output()
-            .unwrap();
+        let mut command = Command::new("git");
+        process_util::no_window_std(&mut command);
+        let output = command.current_dir(dir).args(args).output().unwrap();
         assert!(
             output.status.success(),
             "{}",
