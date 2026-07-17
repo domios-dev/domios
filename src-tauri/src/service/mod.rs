@@ -18,6 +18,7 @@ pub mod boot_stage;
 mod boot_wait;
 mod command_port_impl;
 pub mod cron;
+pub mod delivery_error;
 pub mod general_agent;
 pub mod health;
 mod hierarchy;
