@@ -129,6 +129,61 @@ fn normalize_ws(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+fn normalize_ws_with_line_boundaries(s: &str) -> (String, Vec<usize>) {
+    let mut normalized = String::new();
+    let mut boundaries = Vec::new();
+    let mut previous_line = None;
+
+    for (line_index, line) in s.lines().enumerate() {
+        for word in line.split_whitespace() {
+            if !normalized.is_empty() {
+                if previous_line != Some(line_index) {
+                    boundaries.push(normalized.chars().count());
+                }
+                normalized.push(' ');
+            }
+            normalized.push_str(word);
+            previous_line = Some(line_index);
+        }
+    }
+
+    (normalized, boundaries)
+}
+
+fn soft_wrap_elision_matches(screen_tail: &str, expected: &str) -> bool {
+    let (tail, boundaries) = normalize_ws_with_line_boundaries(screen_tail);
+    let tail: Vec<char> = tail.chars().collect();
+    let expected: Vec<char> = normalize_ws(expected).chars().collect();
+
+    for boundary in boundaries {
+        for omitted in 0..expected.len().saturating_sub(1) {
+            if expected[omitted].is_whitespace() || !expected[omitted + 1].is_whitespace() {
+                continue;
+            }
+            let Some(start) = boundary.checked_sub(omitted) else {
+                continue;
+            };
+            if start + expected.len().saturating_sub(1) > tail.len() {
+                continue;
+            }
+
+            let matches = expected
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| *index != omitted)
+                .enumerate()
+                .all(|(tail_offset, (_, expected_char))| {
+                    tail[start + tail_offset] == *expected_char
+                });
+            if matches {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 fn last_nonempty_line(s: &str) -> &str {
     s.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("")
 }
@@ -177,6 +232,9 @@ pub fn screen_contains_echo(screen_tail: &str, expected: &str) -> bool {
     let flat = screen_tail.replace('\n', "");
     let n_flat = normalize_ws(&flat);
     if n_flat.contains(&n_expected) {
+        return true;
+    }
+    if soft_wrap_elision_matches(screen_tail, expected) {
         return true;
     }
     // paste still is — match the last N chars instead. Gated on input size so a ~90-char command with a corrupted prefix is still caught by the strict substring check above.
@@ -303,6 +361,30 @@ mod tests {
         let screen = "user@host codeterm % nset CLAUDECODE && claude --dangerously-skip-permissions \"$(cat /tmp/.ct-task-01219c41)\")\"";
         let expected = r#"unset CLAUDECODE && claude --dangerously-skip-permissions "$(cat /tmp/.ct-task-01219c41)""#;
         assert!(!screen_contains_echo(screen, expected));
+    }
+
+    #[test]
+    fn wrap_boundary_elision_fixture_matches_only_the_lost_wrap_character() {
+        // Literal sub-defect 3 fixture from sec_gnk2xm: the composer rendered
+        // `liv` at a soft wrap where the sent report contained `live`.
+        let expected = "status+body; live payloads confirm";
+        let captured_tail = "status+body; liv\npayloads confirm";
+        assert!(screen_contains_echo(captured_tail, expected));
+    }
+
+    #[test]
+    fn tail_text_preserves_the_wrap_column_character() {
+        let h = handle();
+        {
+            let mut state = h.lock();
+            state.resize("p1", 16, 50);
+            state.process("p1", b"status+body; live payloads confirm");
+        }
+        let tail = h.lock().tail_text("p1", TEST_TAIL_ROWS).unwrap();
+        assert!(
+            tail.replace('\n', "").contains("status+body; live"),
+            "tail_text must retain the final character before the wrap: {tail:?}"
+        );
     }
 
     #[test]
