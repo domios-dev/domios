@@ -86,7 +86,7 @@ test.describe("@golden composer draft isolation", () => {
 
     // The user journey, driven the way a person (or screen reader) would:
     // open the workspace, start a new session, pick Orchestration, start it.
-    const workspaceRow = page.getByRole("button", { name: `Open workspace ${ws.name}` });
+    const workspaceRow = page.getByRole("button", { name: `Open workspace ${ws.name}`, exact: true });
     await expect(workspaceRow).toBeVisible({ timeout: 15_000 });
     const expand = page.getByRole("button", { name: "Expand", expanded: false });
     if (await expand.first().isVisible().catch(() => false)) await expand.first().click();
