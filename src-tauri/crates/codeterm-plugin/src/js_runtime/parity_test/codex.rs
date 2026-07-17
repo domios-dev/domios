@@ -81,9 +81,15 @@ fn idle_starter_case() {
         starter_prompt: crate::provider::StarterPrompt::IdleWakeup,
         ..Default::default()
     });
-    assert!(assigned.contains(crate::provider::StarterPrompt::AssignedTask.text()));
-    assert!(idle.contains(crate::provider::StarterPrompt::IdleWakeup.text()));
-    assert!(!idle.contains(crate::provider::StarterPrompt::AssignedTask.text()));
+    let assigned_prompt = provider
+        .starter_prompt_text(crate::provider::StarterPrompt::AssignedTask)
+        .expect("Codex plugin must provide the assigned-task starter");
+    let idle_prompt = provider
+        .starter_prompt_text(crate::provider::StarterPrompt::IdleWakeup)
+        .expect("Codex plugin must provide the idle starter");
+    assert!(assigned.contains(&assigned_prompt));
+    assert!(idle.contains(&idle_prompt));
+    assert!(!idle.contains(&assigned_prompt));
 }
 
 #[test]

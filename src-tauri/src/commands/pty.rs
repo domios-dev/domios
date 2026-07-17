@@ -157,6 +157,7 @@ pub async fn spawn_pty_core(
     let build_ms = t0.elapsed().as_millis();
 
     let (mut pty_id, _session) = state.lock().register_session(predicted_id, built);
+    svc.screen_state.lock().resize(&pty_id, cols, rows);
     log::info!("PTY {} spawned (build={}ms)", pty_id, build_ms);
 
     let reader_pty_id = if let Some(ref pid) = pane_id {
@@ -896,6 +897,7 @@ fn parse_pty_input(
 #[tauri::command]
 pub async fn resize_pty(
     state: tauri::State<'_, PtyState>,
+    screen_state: tauri::State<'_, ScreenStateHandle>,
     resize_owner: tauri::State<'_, crate::ResizeOwnerState>,
     pty_id: String,
     cols: u16,
@@ -907,7 +909,7 @@ pub async fn resize_pty(
             return Ok(());
         }
     }
-    resize_pty_core(&state, pty_id, cols, rows)
+    resize_pty_core(&state, &screen_state, pty_id, cols, rows)
 }
 
 #[tauri::command]
@@ -939,6 +941,7 @@ pub async fn claim_resize_owner(
 /// Shared by the Tauri command and the web mirror's POST /api/pty/{id}/resize.
 pub fn resize_pty_core(
     state: &PtyState,
+    screen_state: &ScreenStateHandle,
     pty_id: String,
     cols: u16,
     rows: u16,
@@ -951,6 +954,7 @@ pub fn resize_pty_core(
     };
 
     let _ = session.resize(cols, rows)?;
+    screen_state.lock().resize(&pty_id, cols, rows);
     crate::pty::capture::CaptureRegistry::global().tap_resize(&pty_id, cols, rows);
     Ok(())
 }

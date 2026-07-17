@@ -5,9 +5,8 @@ use std::time::{Duration, Instant};
 use parking_lot::Mutex;
 
 use crate::agent::provider::VerifySubmitStrategy;
-use crate::pty::screen_state::ScreenChangeSignal;
 use crate::service::inject_verify::{
-    screen_contains_echo, HelperErr, InjectionError, InjectionResult, VerifyOpts,
+    screen_contains_echo, InjectionError, InjectionResult, VerifyOpts,
 };
 use crate::service::ServiceContext;
 
@@ -61,17 +60,14 @@ struct Observation {
 }
 
 trait SubmitTransport {
-    fn generation(&self) -> u64;
-    fn observe(&self) -> Result<Observation, HelperErr>;
-    fn wait_after(&self, generation: u64, deadline: Instant) -> bool;
-    fn write_paste(&self, text: &str) -> Result<usize, InjectionError>;
-    fn write_enter(&self) -> Result<(), InjectionError>;
+    fn observe(&self) -> Option<Observation>;
+    fn write_paste(&self, text: &str, deadline: Instant) -> Result<usize, InjectionError>;
+    fn write_enter(&self, deadline: Instant) -> Result<(), InjectionError>;
 }
 
 struct PtySubmitTransport<'a> {
     svc: &'a ServiceContext,
     pty_id: &'a str,
-    signal: Arc<ScreenChangeSignal>,
 }
 
 fn bracketed_paste(text: &str) -> String {
@@ -80,25 +76,14 @@ fn bracketed_paste(text: &str) -> String {
 }
 
 impl SubmitTransport for PtySubmitTransport<'_> {
-    fn generation(&self) -> u64 {
-        self.signal.generation()
-    }
-
-    fn observe(&self) -> Result<Observation, HelperErr> {
+    fn observe(&self) -> Option<Observation> {
         let state = self.svc.screen_state.lock();
-        let tail = state
+        state
             .tail_text(self.pty_id, TAIL_ROWS)
-            .ok_or_else(|| HelperErr::PtyUnknown(self.pty_id.to_string()))?;
-        Ok(Observation { tail })
+            .map(|tail| Observation { tail })
     }
 
-    fn wait_after(&self, generation: u64, deadline: Instant) -> bool {
-        deadline
-            .checked_duration_since(Instant::now())
-            .is_some_and(|remaining| self.signal.wait_after(generation, remaining))
-    }
-
-    fn write_paste(&self, text: &str) -> Result<usize, InjectionError> {
+    fn write_paste(&self, text: &str, deadline: Instant) -> Result<usize, InjectionError> {
         if text.is_empty() {
             return Ok(0);
         }
@@ -106,95 +91,48 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         self.svc
             .pty
             .lock()
-            .write(self.pty_id, paste.as_bytes())
+            .write_and_flush(
+                self.pty_id,
+                paste.as_bytes(),
+                deadline.saturating_duration_since(Instant::now()),
+            )
             .map_err(|_| InjectionError::PtyClosed {
                 pty_id: self.pty_id.to_string(),
             })?;
         Ok(paste.len())
     }
 
-    fn write_enter(&self) -> Result<(), InjectionError> {
+    fn write_enter(&self, deadline: Instant) -> Result<(), InjectionError> {
         self.svc
             .pty
             .lock()
-            .write(self.pty_id, b"\r")
+            .write_and_flush(
+                self.pty_id,
+                b"\r",
+                deadline.saturating_duration_since(Instant::now()),
+            )
             .map_err(|_| InjectionError::PtyClosed {
                 pty_id: self.pty_id.to_string(),
             })
     }
 }
 
-fn strategy_timeout(strategy: &VerifySubmitStrategy, fallback: Duration) -> Duration {
-    match strategy {
-        VerifySubmitStrategy::ShellPrompt { timeout }
-        | VerifySubmitStrategy::TuiInputDrained { timeout, .. } => *timeout,
-        VerifySubmitStrategy::None => fallback,
-    }
-}
-
-fn wait_for_paste<T: SubmitTransport>(
-    transport: &T,
-    text: &str,
-    mut generation: u64,
-    deadline: Instant,
-) -> Result<(Observation, u64), HelperErr> {
-    loop {
-        let observation = transport.observe()?;
-        if text.is_empty() || screen_contains_echo(&observation.tail, text) {
-            return Ok((observation, transport.generation()));
-        }
-        if !transport.wait_after(generation, deadline) {
-            return Err(HelperErr::Timeout(observation.tail));
-        }
-        generation = transport.generation();
-    }
-}
-
-fn wait_for_paste_activity<T: SubmitTransport>(
-    transport: &T,
-    text: &str,
-    armed_generation: u64,
-    deadline: Instant,
-) -> Result<(Observation, u64), HelperErr> {
-    if !text.is_empty()
-        && transport.generation() == armed_generation
-        && !transport.wait_after(armed_generation, deadline)
-    {
-        return Err(HelperErr::Timeout(transport.observe()?.tail));
-    }
-    Ok((transport.observe()?, transport.generation()))
-}
-
 fn run<T: SubmitTransport>(
     transport: &T,
     text: &str,
     enter: bool,
-    strategy: VerifySubmitStrategy,
+    _strategy: VerifySubmitStrategy,
     opts: VerifyOpts,
 ) -> Result<InjectionResult, InjectionError> {
     let started = Instant::now();
-    let deadline = started
-        + opts
-            .echo_timeout
-            .saturating_add(strategy_timeout(&strategy, opts.submit_timeout));
-    let armed_generation = transport.generation();
-    let bytes_written = transport.write_paste(text)?;
-    let paste_wait = if enter {
-        wait_for_paste_activity(transport, text, armed_generation, deadline)
-    } else if opts.verify_echo {
-        wait_for_paste(transport, text, armed_generation, deadline)
-    } else {
-        wait_for_paste_activity(transport, text, armed_generation, deadline)
-    };
-    let (paste_observation, _) = match paste_wait {
-        Ok(observed) => observed,
-        Err(HelperErr::PtyUnknown(pty_id)) => return Err(InjectionError::PtyClosed { pty_id }),
-        Err(error) => return Err(helper_to_injection(error, started, text, true)),
-    };
-    let echo_observed = text.is_empty() || screen_contains_echo(&paste_observation.tail, text);
+    let deadline = started + opts.echo_timeout.saturating_add(opts.submit_timeout);
+    let bytes_written = transport.write_paste(text, deadline)?;
+    let echo_observed = transport.observe().is_some_and(|observation| {
+        text.is_empty() || screen_contains_echo(&observation.tail, text)
+    });
 
     if enter {
-        transport.write_enter()?;
+        transport.write_enter(deadline)?;
         return Ok(InjectionResult {
             bytes_written,
             echo_observed,
@@ -211,25 +149,6 @@ fn run<T: SubmitTransport>(
     })
 }
 
-fn helper_to_injection(
-    error: HelperErr,
-    started: Instant,
-    text: &str,
-    paste_phase: bool,
-) -> InjectionError {
-    match error {
-        HelperErr::PtyUnknown(pty_id) => InjectionError::PtyClosed { pty_id },
-        HelperErr::Timeout(screen_tail) if paste_phase => InjectionError::EchoMismatch {
-            expected_substr: text.to_string(),
-            screen_tail,
-        },
-        HelperErr::Timeout(screen_tail) => InjectionError::SubmitNeverConfirmed {
-            waited: started.elapsed(),
-            screen_tail,
-        },
-    }
-}
-
 pub(crate) fn submit_text(
     svc: &ServiceContext,
     pty_id: &str,
@@ -240,13 +159,8 @@ pub(crate) fn submit_text(
 ) -> Result<InjectionResult, InjectionError> {
     let lock = transaction_lock(pty_id);
     let transaction = lock.lock();
-    let signal = svc.screen_state.lock().arm_screen_change_signal(pty_id);
     svc.feed_input_parser(pty_id, text, enter);
-    let transport = PtySubmitTransport {
-        svc,
-        pty_id,
-        signal,
-    };
+    let transport = PtySubmitTransport { svc, pty_id };
     let required = enter && opts.verify_submit;
     let result = run(&transport, text, enter, strategy, opts)
         .and_then(|result| result.require_submission(required, Duration::ZERO, String::new()));
@@ -255,11 +169,23 @@ pub(crate) fn submit_text(
     result
 }
 
+pub(crate) fn write_terminal_reply(
+    svc: &ServiceContext,
+    pty_id: &str,
+    reply: &[u8],
+) -> Result<(), String> {
+    let lock = transaction_lock(pty_id);
+    let transaction = lock.lock();
+    let result = svc.pty.lock().write(pty_id, reply);
+    drop(transaction);
+    retire_transaction_lock(pty_id, &lock);
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::{Cell, RefCell};
-    use std::collections::VecDeque;
+    use std::cell::RefCell;
 
     #[derive(Clone)]
     struct Frame {
@@ -267,77 +193,36 @@ mod tests {
     }
 
     struct ControlledTransport {
-        generation: Cell<u64>,
         frame: RefCell<Frame>,
-        after_paste: RefCell<VecDeque<Frame>>,
-        waits: RefCell<VecDeque<Option<Frame>>>,
         current_body: RefCell<String>,
         writes: RefCell<Vec<String>>,
-        enter_before_render: Cell<bool>,
     }
 
     impl ControlledTransport {
-        fn new(after_paste: Option<Frame>, waits: Vec<Option<Frame>>) -> Self {
-            Self::sequence(after_paste.into_iter().collect(), waits)
-        }
-
-        fn sequence(after_paste: Vec<Frame>, waits: Vec<Option<Frame>>) -> Self {
+        fn new(tail: &'static str) -> Self {
             Self {
-                generation: Cell::new(0),
-                frame: RefCell::new(Frame { tail: "> " }),
-                after_paste: RefCell::new(after_paste.into()),
-                waits: RefCell::new(waits.into()),
+                frame: RefCell::new(Frame { tail }),
                 current_body: RefCell::new(String::new()),
                 writes: RefCell::new(Vec::new()),
-                enter_before_render: Cell::new(false),
             }
-        }
-
-        fn advance(&self, frame: Frame) {
-            *self.frame.borrow_mut() = frame;
-            self.generation.set(self.generation.get() + 1);
         }
     }
 
     impl SubmitTransport for ControlledTransport {
-        fn generation(&self) -> u64 {
-            self.generation.get()
-        }
-
-        fn observe(&self) -> Result<Observation, HelperErr> {
+        fn observe(&self) -> Option<Observation> {
             let frame = self.frame.borrow();
-            Ok(Observation {
+            Some(Observation {
                 tail: frame.tail.to_string(),
             })
         }
 
-        fn wait_after(&self, generation: u64, _deadline: Instant) -> bool {
-            if self.generation.get() != generation {
-                return true;
-            }
-            if let Some(frame) = self.after_paste.borrow_mut().pop_front() {
-                self.advance(frame);
-                return true;
-            }
-            match self.waits.borrow_mut().pop_front().flatten() {
-                Some(frame) => {
-                    self.advance(frame);
-                    true
-                }
-                None => false,
-            }
-        }
-
-        fn write_paste(&self, text: &str) -> Result<usize, InjectionError> {
+        fn write_paste(&self, text: &str, _deadline: Instant) -> Result<usize, InjectionError> {
             *self.current_body.borrow_mut() = text.to_string();
             self.writes.borrow_mut().push(format!("paste:{text}"));
             Ok(4)
         }
 
-        fn write_enter(&self) -> Result<(), InjectionError> {
-            if self.generation.get() == 0 {
-                self.enter_before_render.set(true);
-            }
+        fn write_enter(&self, _deadline: Instant) -> Result<(), InjectionError> {
             self.writes
                 .borrow_mut()
                 .push(format!("enter:{}", self.current_body.borrow()));
@@ -364,7 +249,7 @@ mod tests {
     }
 
     #[test]
-    fn every_pty_provider_strategy_waits_for_paste_render_then_enters() {
+    fn every_pty_provider_strategy_preserves_paste_then_enter_order() {
         let strategies = [
             VerifySubmitStrategy::TuiInputDrained {
                 timeout: Duration::ZERO,
@@ -377,10 +262,9 @@ mod tests {
         ];
 
         for strategy in strategies {
-            let io = ControlledTransport::new(Some(Frame { tail: "> rendered" }), vec![]);
+            let io = ControlledTransport::new("> provider-neutral prompt");
             let result = run(&io, "provider-neutral prompt", true, strategy, opts()).unwrap();
             assert!(result.submit_observed);
-            assert!(!io.enter_before_render.get());
             assert_eq!(
                 &*io.writes.borrow(),
                 &[
@@ -392,19 +276,13 @@ mod tests {
     }
 
     #[test]
-    fn long_wrapped_chat_message_enters_after_render_without_full_echo() {
+    fn long_wrapped_chat_message_enters_after_paste_placeholder_echo() {
         let body = "continuation ".repeat(200);
-        let io = ControlledTransport::new(
-            Some(Frame {
-                tail: "> final wrapped line",
-            }),
-            vec![],
-        );
+        let io = ControlledTransport::new("> [Pasted Content 2600 chars]");
         let result = run(&io, &body, true, tui(), opts()).unwrap();
 
         assert!(result.submit_observed);
-        assert!(!result.echo_observed);
-        assert!(!io.enter_before_render.get());
+        assert!(result.echo_observed);
         assert_eq!(
             &*io.writes.borrow(),
             &[format!("paste:{body}"), format!("enter:{body}")]
@@ -413,22 +291,29 @@ mod tests {
 
     #[test]
     fn complete_echo_is_diagnostic_but_not_required_for_enter() {
-        let io = ControlledTransport::new(Some(Frame { tail: "> hello" }), vec![]);
+        let io = ControlledTransport::new("> hello");
         let result = run(&io, "hello", true, tui(), opts()).unwrap();
         assert!(result.echo_observed);
         assert!(result.submit_observed);
-        assert!(!io.enter_before_render.get());
     }
 
     #[test]
-    fn spawn_introduction_uses_the_same_render_then_enter_contract() {
-        let intro = "-=-codeterm:pane label=CodeTerm pane=system-=-You are the Orchestrator of this team. Your Planner counterpart is Rodin.";
-        let io = ControlledTransport::new(
-            Some(Frame {
-                tail: "> wrapped introduction",
-            }),
-            vec![],
+    fn unrelated_screen_churn_is_diagnostic_only() {
+        let io = ControlledTransport::new("loading provider");
+        let result = run(&io, "hello", true, tui(), opts()).unwrap();
+
+        assert!(!result.echo_observed);
+        assert_eq!(
+            &*io.writes.borrow(),
+            &["paste:hello", "enter:hello"],
+            "screen churn cannot block the physical submit transaction"
         );
+    }
+
+    #[test]
+    fn spawn_introduction_uses_the_same_paste_then_enter_contract() {
+        let intro = "-=-codeterm:pane label=CodeTerm pane=system-=-You are the Orchestrator of this team. Your Planner counterpart is Rodin.";
+        let io = ControlledTransport::new("> ");
 
         let result = submit_entry(PtySubmitEntry::Messenger, intro, |body| {
             run(&io, body, true, tui(), opts())
@@ -436,7 +321,6 @@ mod tests {
         .unwrap();
 
         assert!(result.submit_observed);
-        assert!(!io.enter_before_render.get());
         assert_eq!(
             &*io.writes.borrow(),
             &[format!("paste:{intro}"), format!("enter:{intro}")]
@@ -444,19 +328,17 @@ mod tests {
     }
 
     #[test]
-    fn no_render_event_never_sends_enter() {
-        let io = ControlledTransport::new(None, vec![None]);
-        let error = run(&io, "hello", true, tui(), opts()).unwrap_err();
-        assert!(matches!(error, InjectionError::EchoMismatch { .. }));
-        assert_eq!(&*io.writes.borrow(), &["paste:hello"]);
+    fn no_render_event_still_sends_enter() {
+        let io = ControlledTransport::new("> ");
+        let result = run(&io, "hello", true, tui(), opts()).unwrap();
+        assert!(!result.echo_observed);
+        assert!(result.submit_observed);
+        assert_eq!(&*io.writes.borrow(), &["paste:hello", "enter:hello"]);
     }
 
     #[test]
-    fn each_submission_sends_exactly_one_enter_after_its_render_event() {
-        let io = ControlledTransport::sequence(
-            vec![Frame { tail: "> body-a" }, Frame { tail: "> body-b" }],
-            vec![],
-        );
+    fn each_submission_sends_exactly_one_enter() {
+        let io = ControlledTransport::new("> ");
         assert!(run(&io, "body-a", true, tui(), opts()).is_ok());
         assert!(run(&io, "body-b", true, tui(), opts()).is_ok());
 
@@ -506,7 +388,7 @@ mod tests {
 
     #[test]
     fn screen_churn_cannot_mint_extra_enters() {
-        let io = ControlledTransport::new(Some(Frame { tail: "> hello" }), vec![]);
+        let io = ControlledTransport::new("> hello");
         assert!(
             run(&io, "hello", true, tui(), opts())
                 .unwrap()
@@ -529,5 +411,25 @@ mod tests {
         assert!(transaction_locks().lock().contains_key("closed-pty"));
         retire_transaction_lock("closed-pty", &lock);
         assert!(!transaction_locks().lock().contains_key("closed-pty"));
+    }
+
+    #[test]
+    fn terminal_replies_wait_for_an_active_submit_transaction() {
+        let lock = transaction_lock("reply-lock");
+        let submit = lock.lock();
+        let (entered, receiver) = std::sync::mpsc::sync_channel(1);
+        let reply_lock = lock.clone();
+        let worker = std::thread::spawn(move || {
+            let _reply = reply_lock.lock();
+            let _ = entered.send(());
+        });
+
+        assert!(receiver.recv_timeout(Duration::from_millis(1)).is_err());
+        drop(submit);
+        receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("terminal reply must run after submit completion");
+        worker.join().unwrap();
+        retire_transaction_lock("reply-lock", &lock);
     }
 }

@@ -86,7 +86,7 @@ const STYLE = {
     idle: "[2m❯[0m ",
   },
   codex: {
-    banner: `[36m>_ Codex (stub replay)[0m  model: ${model ?? "default"}`,
+    banner: `[36mOpenAI Codex (stub replay)[0m  model: ${model ?? "default"}`,
     turn: (text) => `[1mcodex[0m  ${text}`,
     tool: (marker) => `[2mexec[0m echo ${marker}\n${marker}`,
     idle: "[2m▌[0m ",
@@ -102,6 +102,11 @@ const style = STYLE[provider] ?? STYLE.claude;
 
 function out(text) {
   process.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
+}
+
+function writeComposer(draft = "") {
+  const frame = provider === "codex" ? "OpenAI Codex · " : "";
+  process.stdout.write(`\x1b[40;1H${frame}${style.idle}${draft}`);
 }
 
 function canonicalCwd() {
@@ -148,10 +153,19 @@ function replayCast() {
     : path.join(REPO, castPath);
   try {
     const lines = readFileSync(resolved, "utf8").split("\n").slice(1);
+    const byteCap = Number(process.env.CODETERM_STUB_REPLAY_BYTE_CAP ?? 12_000);
+    let bytesWritten = 0;
     for (const line of lines) {
       if (!line.trim()) continue;
       const [, kind, data] = JSON.parse(line);
-      if (kind === "o") process.stdout.write(data);
+      if (kind !== "o") continue;
+      const chunk = stripTerminalQueries(data);
+      const remaining = byteCap - bytesWritten;
+      if (remaining <= 0) break;
+      const visible = chunk.slice(0, remaining);
+      process.stdout.write(visible);
+      bytesWritten += Buffer.byteLength(visible);
+      if (bytesWritten >= byteCap) break;
     }
     process.stdout.write("\r\n");
   } catch (e) {
@@ -261,7 +275,7 @@ function handleLine(line) {
     out(style.turn(`received: ${line.trim().slice(0, 120)}`));
     persistTurn(line.trim(), `received: ${line.trim().slice(0, 120)}`);
   }
-  process.stdout.write(style.idle);
+  writeComposer();
 }
 
 out(style.banner);
@@ -273,11 +287,75 @@ await announceSession();
 const initialTask =
   process.env.CODETERM_STUB_TASK || readAppendedTask(appendedTaskFile) || task;
 if (initialTask) handleLine(initialTask.replace(/\r?\n/g, " "));
-process.stdout.write(style.idle);
+writeComposer();
 
 let buf = "";
 process.stdin.setEncoding("utf8");
+process.stdin.setRawMode?.(true);
+const rawInput = Boolean(process.stdin.isTTY);
+let codexDraft = "";
+let codexInput = "";
+let rawDraft = "";
+let rawInputBuffer = "";
+
+function handleCodexInput(chunk) {
+  codexInput = `${codexInput}${chunk}`
+    .replaceAll("\u001b[?1;2c", "")
+    .replaceAll("\u001b[0n", "")
+    .replaceAll("\u001b[1;1R", "");
+  while (codexInput) {
+    if (codexInput.startsWith("\u001b[200~")) {
+      const close = codexInput.indexOf("\u001b[201~", 6);
+      if (close === -1) return;
+      codexDraft += codexInput.slice(6, close).replace(/^ /, "");
+      codexInput = codexInput.slice(close + 6);
+      continue;
+    }
+    if ("\u001b[200~".startsWith(codexInput)) return;
+    const terminator = codexInput.search(/[\r\n]/);
+    if (terminator === -1) {
+      codexDraft += codexInput.replace(/^ /, "");
+      codexInput = "";
+      return;
+    }
+    codexDraft += codexInput.slice(0, terminator).replace(/^ /, "");
+    codexInput = codexInput.slice(terminator + 1);
+    handleLine(codexDraft);
+    codexDraft = "";
+  }
+}
+
+function stripTerminalQueries(data) {
+  return data
+    .replaceAll("\u001b[c", "")
+    .replaceAll("\u001b[6n", "")
+    .replaceAll("\u001b]10;?\u001b\\", "")
+    .replaceAll("\u001b]11;?\u001b\\", "");
+}
+
+function handleRawInput(chunk) {
+  rawInputBuffer += chunk;
+  let terminator = rawInputBuffer.search(/[\r\n]/);
+  while (terminator !== -1) {
+    rawDraft += rawInputBuffer.slice(0, terminator);
+    rawInputBuffer = rawInputBuffer.slice(terminator + 1);
+    handleLine(rawDraft);
+    rawDraft = "";
+    terminator = rawInputBuffer.search(/[\r\n]/);
+  }
+  rawDraft += rawInputBuffer;
+  rawInputBuffer = "";
+}
+
 process.stdin.on("data", (chunk) => {
+  if (provider === "codex") {
+    handleCodexInput(chunk);
+    return;
+  }
+  if (rawInput) {
+    handleRawInput(chunk);
+    return;
+  }
   buf += chunk.replace(/\r/g, "\n");
   let nl;
   while ((nl = buf.indexOf("\n")) !== -1) {

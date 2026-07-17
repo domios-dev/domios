@@ -463,6 +463,20 @@ impl PtyManager {
         session.write_queue.send(data.to_vec())
     }
 
+    pub fn write_and_flush(
+        &self,
+        pty_id: &str,
+        data: &[u8],
+        timeout: std::time::Duration,
+    ) -> Result<(), String> {
+        let session = self
+            .sessions
+            .get(pty_id)
+            .ok_or_else(|| format!("PTY not found: {pty_id}"))?;
+        crate::pty::capture::CaptureRegistry::global().tap_input(pty_id, "pty.write", data);
+        session.write_queue.send_and_wait(data.to_vec(), timeout)
+    }
+
     /// Resize PTY
     pub fn resize(&mut self, pty_id: &str, cols: u16, rows: u16) -> Result<(), String> {
         let session = self
