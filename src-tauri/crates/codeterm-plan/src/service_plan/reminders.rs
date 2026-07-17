@@ -61,6 +61,7 @@ const SECONDS_PER_DAY: u64 = 86_400;
 
 // Consecutive coordinator polls of a worker pane before one anti-polling nudge fires.
 pub const POLL_NUDGE_THRESHOLD: u32 = 3;
+pub const UNCHANGED_REMINDER_COOLDOWN_SECS: u64 = 300;
 
 pub fn polling_nudge_text() -> String {
     "Polling smell: worker reports auto-inject into this tab the moment they land — repeatedly reading a worker tab's output/text/chat just burns your turn. Wait for the report; don't poll.".to_string()
@@ -133,6 +134,7 @@ pub struct TurnCounter {
     idle: Mutex<HashMap<String, IdlePokeState>>,
     complete_wrapup: Mutex<HashSet<String>>,
     polls: Mutex<HashMap<String, PollState>>,
+    reminder_content: Mutex<HashMap<String, (String, u64)>>,
 }
 
 impl TurnCounter {
@@ -194,6 +196,29 @@ impl TurnCounter {
         self.timed.lock().insert(pane_id.to_string(), now_secs);
     }
 
+    pub fn reminder_content_due(
+        &self,
+        pane_id: &str,
+        state_key: &str,
+        now_secs: u64,
+    ) -> bool {
+        self.reminder_content.lock().get(pane_id).is_none_or(|(last_key, last_at)| {
+            last_key != state_key
+                || now_secs.saturating_sub(*last_at) >= UNCHANGED_REMINDER_COOLDOWN_SECS
+        })
+    }
+
+    pub fn mark_reminder_content_delivered(
+        &self,
+        pane_id: &str,
+        state_key: String,
+        now_secs: u64,
+    ) {
+        self.reminder_content
+            .lock()
+            .insert(pane_id.to_string(), (state_key, now_secs));
+    }
+
     /// Reset counters coupled to normal pane activity, without touching the
     /// independent time-reminder deadline. Use this for Idle->Working and
     /// ordinary reports.
@@ -204,6 +229,7 @@ impl TurnCounter {
             .retain(|key, _| !key.starts_with(pane_id));
         self.idle.lock().remove(pane_id);
         self.polls.lock().remove(pane_id);
+        self.reminder_content.lock().remove(pane_id);
     }
 
     /// Clear all reminder state when a pane is no longer reminder-eligible.
@@ -502,6 +528,20 @@ mod tests {
         assert!(counter.time_nudge_due("orch", interval + 60, interval));
         counter.mark_time_nudged("orch", interval + 60);
         assert!(!counter.time_nudge_due("orch", interval + 61, interval));
+    }
+
+    #[test]
+    fn unchanged_reminder_content_is_rate_limited_until_state_changes() {
+        let counter = TurnCounter::new();
+        assert!(counter.reminder_content_due("orch", "plan:1", 100));
+        counter.mark_reminder_content_delivered("orch", "plan:1".into(), 100);
+        assert!(!counter.reminder_content_due("orch", "plan:1", 101));
+        assert!(counter.reminder_content_due("orch", "plan:2", 101));
+        assert!(counter.reminder_content_due(
+            "orch",
+            "plan:1",
+            100 + UNCHANGED_REMINDER_COOLDOWN_SECS
+        ));
     }
 
     #[test]
