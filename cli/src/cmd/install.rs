@@ -83,15 +83,12 @@ pub fn run_install_from_file(
         "@echo off\r\n\
         set \"LOG={log}\"\r\n\
         echo [self-install] starting at %date% %time% > \"%LOG%\"\r\n\
-        timeout /t 2 /nobreak > nul\r\n\
         taskkill /F /IM codeterm.exe >> \"%LOG%\" 2>&1\r\n\
         taskkill /F /IM codeterm-embed.exe >> \"%LOG%\" 2>&1\r\n\
-        timeout /t 2 /nobreak > nul\r\n\
         echo [self-install] running installer >> \"%LOG%\"\r\n\
         \"{installer}\" /S >> \"%LOG%\" 2>&1\r\n\
         echo [self-install] installer exited %errorlevel% >> \"%LOG%\"\r\n\
-        timeout /t 1 /nobreak > nul\r\n\
-        start \"\" /B \"{target}\"\r\n\
+        start \"\" \"{target}\"\r\n\
         echo [self-install] launched {target} >> \"%LOG%\"\r\n\
         {continue_block}\
         del \"%~f0\" 2>nul\r\n",
