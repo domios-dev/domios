@@ -38,8 +38,24 @@ pub(crate) struct AppStates {
     pub(crate) resize_owner: ResizeOwnerState,
 }
 
-/// Orchestration bindings the crashed epoch left in its own session snapshot.
+/// Orchestration bindings the dead epoch persisted, versus what came back.
 /// Roleless panes are ordinary terminals, not in-flight work.
+fn snapshot_role_bindings(snapshot: &crate::session::store::SessionSnapshot) -> u32 {
+    use crate::session::store::SplitNodeSnapshot;
+    fn count_node(node: &SplitNodeSnapshot) -> u32 {
+        match node {
+            SplitNodeSnapshot::Leaf { role, .. } => role.is_some() as u32,
+            SplitNodeSnapshot::Split { children, .. } => children.iter().map(count_node).sum(),
+        }
+    }
+    snapshot
+        .workspaces
+        .iter()
+        .flat_map(|ws| ws.tabs.iter())
+        .map(|tab| count_node(&tab.split_tree))
+        .sum()
+}
+
 fn restored_role_bindings(mux: &crate::multiplexer::state::MultiplexerState) -> u32 {
     mux.snapshot()
         .panes
@@ -123,10 +139,12 @@ pub(crate) fn init_states() -> AppStates {
     }));
 
     let ga_enabled = config_state.lock().general_agent.enabled;
+    let mut bound_at_shutdown = 0u32;
     let mux_state_inner = {
         let last = session_state.lock().load_last();
         match last {
             Ok(Some(snapshot)) if !snapshot.workspaces.is_empty() => {
+                bound_at_shutdown = snapshot_role_bindings(&snapshot);
                 log::info!(
                     "Restoring session with {} workspaces, {} tabs total",
                     snapshot.workspaces.len(),
@@ -181,8 +199,9 @@ pub(crate) fn init_states() -> AppStates {
             ghost_count
         );
     }
-    crate::crash::lifecycle::assess_restored_work(crate::crash::lifecycle::RestoredWorkEvidence {
-        restored_bindings: restored_role_bindings(&mux_state_inner),
+    crate::crash::lifecycle::note_restored_bindings(crate::crash::lifecycle::BindingEvidence {
+        bound_at_shutdown,
+        restored: restored_role_bindings(&mux_state_inner),
     });
     if general_config.enabled {
         service::general_agent::ensure_directories();

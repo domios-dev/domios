@@ -111,7 +111,7 @@ test("a settled crash record does not resurface on refresh", async () => {
   __setListenForTest(null);
 });
 
-test("ambiguous work is omitted without restored binding evidence", async () => {
+test("fully restored bindings raise no ambiguous-work claim", async () => {
   setupDom();
   stubRecovery(recoveryState());
 
@@ -120,26 +120,26 @@ test("ambiguous work is omitted without restored binding evidence", async () => 
   assert(toast, "recovery toast should render");
   assert(
     !toast.textContent?.includes("Ambiguous work"),
-    "no restored bindings means no ambiguous-work claim",
+    "nothing was lost, so nothing is ambiguous",
   );
   await act(async () => root.unmount());
   __setInvokeForTest(null);
   __setListenForTest(null);
 });
 
-test("ambiguous work reports the restored bindings that prove it", async () => {
+test("ambiguous work reports the bindings that never came back", async () => {
   setupDom();
   const state = recoveryState();
   state.last_crash.work_policy.ambiguous_execution = {
-    restored_bindings: 2,
+    missing_bindings: 2,
     disposition: "needs-review/reassign",
   } as never;
   stubRecovery(state);
 
   const { host, root } = await render(<RecoveryStatusBanner />);
   const text = host.querySelector('[data-testid="recovery-status-banner"]')?.textContent ?? "";
-  assert(text.includes("Ambiguous work"), "real evidence must surface");
-  assert(text.includes("2 restored bindings"), "the claim must cite the binding count");
+  assert(text.includes("Ambiguous work"), "a lost binding must surface");
+  assert(text.includes("2 bindings not restored"), "the claim must cite the lost bindings");
   assert(text.includes("needs-review/reassign"), "the disposition must remain visible");
   await act(async () => root.unmount());
   __setInvokeForTest(null);

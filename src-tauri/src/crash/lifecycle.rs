@@ -7,9 +7,6 @@ const LOOP_WINDOW_SECS: i64 = 300;
 const LOOP_THRESHOLD: u32 = 3;
 const MAX_BACKOFF_SECS: u64 = 30;
 const FAST_FAIL_SECS: i64 = 30;
-/// Healthy runtime the current epoch must accumulate before a recovered crash
-/// stops being presented as a live accusation.
-const HEALTH_PROOF_SECS: i64 = 120;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -47,6 +44,12 @@ pub struct CrashRecord {
     pub new_epoch: String,
     pub supervisor_action: SupervisorAction,
     pub work_policy: WorkRecoveryPolicy,
+    /// Set once the new epoch restored every binding the dead one held. The
+    /// record survives as audit; the warning does not.
+    #[serde(default)]
+    pub healed_at: Option<i64>,
+    #[serde(default)]
+    pub bindings: Option<BindingEvidence>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,13 +81,26 @@ pub struct WorkRecoveryPolicy {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AmbiguousWork {
-    pub restored_bindings: u32,
+    pub missing_bindings: u32,
     pub disposition: String,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct RestoredWorkEvidence {
-    pub restored_bindings: u32,
+/// What the dead epoch had bound versus what actually came back. This is the
+/// only input to ambiguity and health — never elapsed time.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BindingEvidence {
+    pub bound_at_shutdown: u32,
+    pub restored: u32,
+}
+
+impl BindingEvidence {
+    pub fn missing(&self) -> u32 {
+        self.bound_at_shutdown.saturating_sub(self.restored)
+    }
+
+    pub fn fully_restored(&self) -> bool {
+        self.missing() == 0
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -148,19 +164,45 @@ pub fn record_startup() -> RecoveryState {
     }
 }
 
-/// Bind the ambiguous-work assessment to bindings the daemon actually restored
-/// from the crashed epoch. Without restored bindings the record makes no claim.
-pub fn assess_restored_work(evidence: RestoredWorkEvidence) {
+/// Record what the dead epoch had bound versus what came back. Ambiguity is the
+/// shortfall; a full restore leaves no claim regardless of how long we were down.
+pub fn note_restored_bindings(evidence: BindingEvidence) {
+    update_current_crash(|crash| {
+        crash.bindings = Some(evidence);
+        crash.work_policy.ambiguous_execution = ambiguous_work(&evidence);
+    });
+}
+
+/// End the warning's life at proven health: every binding the dead epoch held is
+/// back and its agent is ready. Durable, so the refresh path cannot resurrect it.
+pub fn heal_current_epoch(ready_bindings: u32) {
+    update_current_crash(|crash| {
+        let evidence = BindingEvidence {
+            bound_at_shutdown: crash.bindings.map_or(0, |b| b.bound_at_shutdown),
+            restored: ready_bindings,
+        };
+        if !evidence.fully_restored() {
+            return;
+        }
+        crash.bindings = Some(evidence);
+        crash.work_policy.ambiguous_execution = None;
+        crash.healed_at = Some(now_ts());
+    });
+}
+
+/// Mutate the crash record bound to THIS epoch, then persist it. A record from
+/// an earlier epoch is audit and is never rewritten.
+fn update_current_crash(mutate: impl FnOnce(&mut CrashRecord)) {
     let Some(current) = read_json::<ProcessEpoch>(&current_path()) else {
         return;
     };
     let Some(mut crash) = read_json::<CrashRecord>(&last_crash_path()) else {
         return;
     };
-    if crash.new_epoch != current.epoch {
+    if crash.new_epoch != current.epoch || crash.healed_at.is_some() {
         return;
     }
-    crash.work_policy.ambiguous_execution = ambiguous_work(&evidence);
+    mutate(&mut crash);
     write_json(&last_crash_path(), &crash);
 }
 
@@ -201,8 +243,8 @@ pub fn recovery_state() -> RecoveryState {
     }
 }
 
-/// A crash stops being presented once its own epoch proves healthy, or once a
-/// later epoch supersedes it. The record itself is never removed.
+/// Presentation reads persisted state only — no clock. A healed record stays
+/// healed across every re-read, which is what makes the refresh path safe.
 fn crash_presentation(
     current: &ProcessEpoch,
     last_crash: Option<&CrashRecord>,
@@ -210,11 +252,7 @@ fn crash_presentation(
     let Some(crash) = last_crash else {
         return CrashPresentation::Settled;
     };
-    let healthy_for = current
-        .last_healthy_at
-        .saturating_sub(current.started_at)
-        .max(0);
-    if crash.new_epoch != current.epoch || healthy_for >= HEALTH_PROOF_SECS {
+    if crash.new_epoch != current.epoch || crash.healed_at.is_some() {
         CrashPresentation::Settled
     } else {
         CrashPresentation::Active
@@ -247,6 +285,8 @@ fn classify_previous(previous: ProcessEpoch, current: &ProcessEpoch, now: i64) -
             crash_count_in_window: crash_count,
         },
         work_policy: work_recovery_policy(),
+        healed_at: None,
+        bindings: None,
     }
 }
 
@@ -267,12 +307,15 @@ fn finalize_pending(pending: PendingCrashRecord, current: &ProcessEpoch) -> Cras
         new_epoch: current.epoch.clone(),
         supervisor_action: pending.supervisor_action,
         work_policy: work_recovery_policy(),
+        healed_at: None,
+        bindings: None,
     }
 }
 
-fn ambiguous_work(evidence: &RestoredWorkEvidence) -> Option<AmbiguousWork> {
-    (evidence.restored_bindings > 0).then(|| AmbiguousWork {
-        restored_bindings: evidence.restored_bindings,
+/// Only a binding that did NOT come back is ambiguous work.
+fn ambiguous_work(evidence: &BindingEvidence) -> Option<AmbiguousWork> {
+    (!evidence.fully_restored()).then(|| AmbiguousWork {
+        missing_bindings: evidence.missing(),
         disposition: "needs-review/reassign".into(),
     })
 }
@@ -657,34 +700,6 @@ mod tests {
     }
 
     #[test]
-    fn proven_healthy_current_epoch_settles_crash_but_keeps_record() {
-        let mut current = ProcessEpoch {
-            epoch: "new".into(),
-            pid: 2,
-            started_at: 1_000,
-            last_healthy_at: 1_010,
-            build_hash: "h".into(),
-            platform: "windows".into(),
-        };
-        let crash = classify_previous(previous_epoch(), &current, 1_000);
-        assert_eq!(
-            crash_presentation(&current, Some(&crash)),
-            CrashPresentation::Active
-        );
-
-        current.last_healthy_at = current.started_at + HEALTH_PROOF_SECS;
-        assert_eq!(
-            crash_presentation(&current, Some(&crash)),
-            CrashPresentation::Settled,
-            "proven health must settle the warning"
-        );
-        assert_eq!(
-            crash.previous.pid, 41,
-            "audit record must survive the transition"
-        );
-    }
-
-    #[test]
     fn crash_from_an_earlier_epoch_never_presents() {
         let current = ProcessEpoch {
             epoch: "newest".into(),
@@ -710,24 +725,97 @@ mod tests {
     }
 
     #[test]
-    fn ambiguous_work_absent_without_restored_bindings() {
-        assert_eq!(work_recovery_policy().ambiguous_execution, None);
+    fn long_downtime_with_fully_restored_bindings_is_healthy_not_ambiguous() {
+        let current = ProcessEpoch {
+            epoch: "new".into(),
+            pid: 2,
+            started_at: 900_000,
+            last_healthy_at: 900_000,
+            build_hash: "h2".into(),
+            platform: "linux".into(),
+        };
+        let mut crash = classify_previous(previous_epoch(), &current, 900_000);
+        let evidence = BindingEvidence {
+            bound_at_shutdown: 3,
+            restored: 3,
+        };
+        crash.bindings = Some(evidence);
+        crash.work_policy.ambiguous_execution = ambiguous_work(&evidence);
+
         assert_eq!(
-            ambiguous_work(&RestoredWorkEvidence {
-                restored_bindings: 0
-            }),
-            None
+            crash.classification,
+            CrashClassification::AbnormalExit,
+            "15 minutes of downtime is not a kill report"
+        );
+        assert_eq!(
+            crash.work_policy.ambiguous_execution, None,
+            "every binding came back, so nothing is ambiguous"
         );
     }
 
     #[test]
-    fn ambiguous_work_reports_real_restored_bindings() {
-        let work = ambiguous_work(&RestoredWorkEvidence {
-            restored_bindings: 2,
+    fn ambiguity_counts_only_bindings_that_never_came_back() {
+        assert_eq!(work_recovery_policy().ambiguous_execution, None);
+        assert_eq!(
+            ambiguous_work(&BindingEvidence {
+                bound_at_shutdown: 0,
+                restored: 0
+            }),
+            None
+        );
+        let work = ambiguous_work(&BindingEvidence {
+            bound_at_shutdown: 3,
+            restored: 1,
         })
-        .expect("restored bindings are real evidence");
-        assert_eq!(work.restored_bindings, 2);
+        .expect("a lost binding is real evidence");
+        assert_eq!(work.missing_bindings, 2);
         assert_eq!(work.disposition, "needs-review/reassign");
+    }
+
+    #[test]
+    fn healed_epoch_stays_settled_across_re_reads() {
+        let current = ProcessEpoch {
+            epoch: "new".into(),
+            pid: 2,
+            started_at: 1_000,
+            last_healthy_at: 1_001,
+            build_hash: "h".into(),
+            platform: "windows".into(),
+        };
+        let mut crash = classify_previous(previous_epoch(), &current, 1_000);
+        assert_eq!(
+            crash_presentation(&current, Some(&crash)),
+            CrashPresentation::Active
+        );
+
+        crash.healed_at = Some(1_002);
+        for _ in 0..3 {
+            assert_eq!(
+                crash_presentation(&current, Some(&crash)),
+                CrashPresentation::Settled,
+                "the refresh path must never resurrect a healed warning"
+            );
+        }
+        assert_eq!(crash.previous.pid, 41, "audit survives the heal");
+    }
+
+    #[test]
+    fn presentation_ignores_the_clock_entirely() {
+        let mut current = ProcessEpoch {
+            epoch: "new".into(),
+            pid: 2,
+            started_at: 1_000,
+            last_healthy_at: 1_000,
+            build_hash: "h".into(),
+            platform: "windows".into(),
+        };
+        let crash = classify_previous(previous_epoch(), &current, 1_000);
+        current.last_healthy_at = current.started_at + 86_400;
+        assert_eq!(
+            crash_presentation(&current, Some(&crash)),
+            CrashPresentation::Active,
+            "a day of uptime is not proof; only restored bindings are"
+        );
     }
 
     fn previous_epoch() -> ProcessEpoch {
