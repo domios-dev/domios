@@ -70,8 +70,8 @@ export function PaneBootOverlay({
             <button
               type="button"
               className="mt-2 rounded-md border px-2 py-1 text-xs font-medium"
-              aria-label="Retry General Agent launch"
-              title="Retry General Agent launch"
+              aria-label="Retry agent launch"
+              title="Retry agent launch"
               onMouseDown={(e) => e.preventDefault()}
               onClick={onRetry}
             >

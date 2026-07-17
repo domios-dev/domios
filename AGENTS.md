@@ -99,6 +99,9 @@ Full testing guide: `docs/TESTING.md`; Playwright operations: `tests/playwright/
    test with `--trace on`, read the trace (it names the awaited selector), fix
    the selector/await — do not re-run the batch blind, and never raise the cap
    to "give it time".
+6. **Accessibility first.** If Playwright cannot identify or operate a surface
+   reliably, improve its real screen-reader semantics, then select it by role
+   and accessible name; never add a test-only hook instead of accessible UX.
 
 On Windows invoke repo commands through `.\build.ps1`; run capped Rust tests from PowerShell foreground so the process-group timeout owns Cargo and its children.
 
@@ -241,4 +244,4 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

@@ -43,9 +43,10 @@ async function render(ui: React.ReactElement): Promise<{ host: HTMLDivElement; r
   return { host, root };
 }
 
-function recoveryState() {
+function recoveryState(overrides: Record<string, unknown> = {}) {
   return {
     current: { epoch: "epoch-current", pid: 42, started_at: 1, last_healthy_at: 2 },
+    crash_presentation: "active",
     last_crash: {
       classification: "abnormal_exit",
       detected_at: 3,
@@ -57,21 +58,26 @@ function recoveryState() {
         crash_count_in_window: 1,
       },
       work_policy: {
-        ambiguous_execution: "needs-review/reassign",
+        ambiguous_execution: null,
         duplicate_worker_guard: "guarded",
         report_route_guard: "guarded",
       },
     },
+    ...overrides,
   };
+}
+
+function stubRecovery(state: unknown) {
+  __setInvokeForTest(async <T,>(cmd: string): Promise<T> => {
+    assert(cmd === "get_recovery_state", "only recovery state should be requested");
+    return state as T;
+  });
+  __setListenForTest(async () => () => undefined);
 }
 
 test("crash recovery renders as a dismissible toast, not a full-width banner", async () => {
   setupDom();
-  __setInvokeForTest(async <T,>(cmd: string): Promise<T> => {
-    assert(cmd === "get_recovery_state", "only recovery state should be requested");
-    return recoveryState() as T;
-  });
-  __setListenForTest(async () => () => undefined);
+  stubRecovery(recoveryState());
 
   const { host, root } = await render(<RecoveryStatusBanner />);
   const toast = host.querySelector('[data-testid="recovery-status-banner"]');
@@ -86,6 +92,55 @@ test("crash recovery renders as a dismissible toast, not a full-width banner", a
   });
 
   assert(!host.querySelector('[data-testid="recovery-status-banner"]'), "dismiss should hide this crash");
+  await act(async () => root.unmount());
+  __setInvokeForTest(null);
+  __setListenForTest(null);
+});
+
+test("a settled crash record does not resurface on refresh", async () => {
+  setupDom();
+  stubRecovery(recoveryState({ crash_presentation: "settled" }));
+
+  const { host, root } = await render(<RecoveryStatusBanner />);
+  assert(
+    !host.querySelector('[data-testid="recovery-status-banner"]'),
+    "a healthy current epoch must not carry a stale crash accusation",
+  );
+  await act(async () => root.unmount());
+  __setInvokeForTest(null);
+  __setListenForTest(null);
+});
+
+test("ambiguous work is omitted without restored binding evidence", async () => {
+  setupDom();
+  stubRecovery(recoveryState());
+
+  const { host, root } = await render(<RecoveryStatusBanner />);
+  const toast = host.querySelector('[data-testid="recovery-status-banner"]');
+  assert(toast, "recovery toast should render");
+  assert(
+    !toast.textContent?.includes("Ambiguous work"),
+    "no restored bindings means no ambiguous-work claim",
+  );
+  await act(async () => root.unmount());
+  __setInvokeForTest(null);
+  __setListenForTest(null);
+});
+
+test("ambiguous work reports the restored bindings that prove it", async () => {
+  setupDom();
+  const state = recoveryState();
+  state.last_crash.work_policy.ambiguous_execution = {
+    restored_bindings: 2,
+    disposition: "needs-review/reassign",
+  } as never;
+  stubRecovery(state);
+
+  const { host, root } = await render(<RecoveryStatusBanner />);
+  const text = host.querySelector('[data-testid="recovery-status-banner"]')?.textContent ?? "";
+  assert(text.includes("Ambiguous work"), "real evidence must surface");
+  assert(text.includes("2 restored bindings"), "the claim must cite the binding count");
+  assert(text.includes("needs-review/reassign"), "the disposition must remain visible");
   await act(async () => root.unmount());
   __setInvokeForTest(null);
   __setListenForTest(null);

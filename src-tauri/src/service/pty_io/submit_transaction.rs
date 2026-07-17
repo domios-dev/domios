@@ -5,14 +5,13 @@ use std::time::{Duration, Instant};
 use parking_lot::Mutex;
 
 use crate::agent::provider::VerifySubmitStrategy;
-use crate::pty::screen_state::{screen_has_shell_prompt, ScreenChangeSignal};
+use crate::pty::screen_state::ScreenChangeSignal;
 use crate::service::inject_verify::{
     screen_contains_echo, HelperErr, InjectionError, InjectionResult, VerifyOpts,
 };
 use crate::service::ServiceContext;
 
 const TAIL_ROWS: usize = 8;
-const MAX_ENTER_ATTEMPTS: usize = 2;
 
 fn transaction_locks() -> &'static Mutex<HashMap<String, Weak<Mutex<()>>>> {
     static LOCKS: OnceLock<Mutex<HashMap<String, Weak<Mutex<()>>>>> = OnceLock::new();
@@ -59,7 +58,6 @@ pub(crate) fn submit_entry<T, E>(
 #[derive(Clone)]
 struct Observation {
     tail: String,
-    hash: [u8; 32],
 }
 
 trait SubmitTransport {
@@ -76,6 +74,11 @@ struct PtySubmitTransport<'a> {
     signal: Arc<ScreenChangeSignal>,
 }
 
+fn bracketed_paste(text: &str) -> String {
+    let leading_space = if cfg!(windows) { " " } else { "" };
+    format!("\x1b[200~{leading_space}{text}\x1b[201~")
+}
+
 impl SubmitTransport for PtySubmitTransport<'_> {
     fn generation(&self) -> u64 {
         self.signal.generation()
@@ -86,10 +89,7 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         let tail = state
             .tail_text(self.pty_id, TAIL_ROWS)
             .ok_or_else(|| HelperErr::PtyUnknown(self.pty_id.to_string()))?;
-        let hash = state
-            .get_content_hash(self.pty_id, 0)
-            .ok_or_else(|| HelperErr::PtyUnknown(self.pty_id.to_string()))?;
-        Ok(Observation { tail, hash })
+        Ok(Observation { tail })
     }
 
     fn wait_after(&self, generation: u64, deadline: Instant) -> bool {
@@ -102,11 +102,7 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         if text.is_empty() {
             return Ok(0);
         }
-        let paste = if cfg!(windows) {
-            format!("\x1b[200~ {}\x1b[201~", text)
-        } else {
-            format!("\x1b[200~{}\x1b[201~", text)
-        };
+        let paste = bracketed_paste(text);
         self.svc
             .pty
             .lock()
@@ -133,29 +129,6 @@ fn strategy_timeout(strategy: &VerifySubmitStrategy, fallback: Duration) -> Dura
         VerifySubmitStrategy::ShellPrompt { timeout }
         | VerifySubmitStrategy::TuiInputDrained { timeout, .. } => *timeout,
         VerifySubmitStrategy::None => fallback,
-    }
-}
-
-fn submitted(
-    strategy: &VerifySubmitStrategy,
-    observation: &Observation,
-    hash_before: [u8; 32],
-    text: &str,
-    enter_generation: u64,
-    current_generation: u64,
-) -> bool {
-    match strategy {
-        VerifySubmitStrategy::ShellPrompt { .. } => {
-            observation.hash != hash_before && screen_has_shell_prompt(&observation.tail)
-        }
-        VerifySubmitStrategy::TuiInputDrained { .. } => {
-            if text.is_empty() {
-                current_generation != enter_generation
-            } else {
-                false
-            }
-        }
-        VerifySubmitStrategy::None => current_generation != enter_generation,
     }
 }
 
@@ -205,116 +178,37 @@ fn run<T: SubmitTransport>(
             .echo_timeout
             .saturating_add(strategy_timeout(&strategy, opts.submit_timeout));
     let armed_generation = transport.generation();
-    let initial = transport.observe().map_err(helper_to_closed)?;
     let bytes_written = transport.write_paste(text)?;
-    let (paste_observation, mut generation) = if opts.verify_echo {
+    let paste_wait = if enter {
+        wait_for_paste_activity(transport, text, armed_generation, deadline)
+    } else if opts.verify_echo {
         wait_for_paste(transport, text, armed_generation, deadline)
-            .map_err(|error| helper_to_injection(error, started, text, true))?
     } else {
         wait_for_paste_activity(transport, text, armed_generation, deadline)
-            .map_err(|error| helper_to_injection(error, started, text, true))?
+    };
+    let (paste_observation, _) = match paste_wait {
+        Ok(observed) => observed,
+        Err(HelperErr::PtyUnknown(pty_id)) => return Err(InjectionError::PtyClosed { pty_id }),
+        Err(error) => return Err(helper_to_injection(error, started, text, true)),
     };
     let echo_observed = text.is_empty() || screen_contains_echo(&paste_observation.tail, text);
 
-    if !enter {
+    if enter {
+        transport.write_enter()?;
         return Ok(InjectionResult {
             bytes_written,
             echo_observed,
-            submit_observed: false,
+            submit_observed: true,
             elapsed: started.elapsed(),
         });
     }
 
-    for attempt in 0..MAX_ENTER_ATTEMPTS {
-        let enter_generation = generation;
-        let enter_hash = transport.observe().map_err(helper_to_closed)?.hash;
-        let mut absent_candidate = None;
-        let mut body_reappeared_after_candidate = false;
-        transport.write_enter()?;
-        if !opts.verify_submit {
-            return Ok(InjectionResult {
-                bytes_written,
-                echo_observed,
-                submit_observed: false,
-                elapsed: started.elapsed(),
-            });
-        }
-        loop {
-            let observation = transport.observe().map_err(helper_to_closed)?;
-            let current_generation = transport.generation();
-            let body_present = screen_contains_echo(&observation.tail, text);
-            let tui_confirmed = matches!(&strategy, VerifySubmitStrategy::TuiInputDrained { .. })
-                && !text.is_empty()
-                && !body_present
-                && current_generation != enter_generation
-                && (body_reappeared_after_candidate
-                    || absent_candidate.is_some_and(|candidate| current_generation != candidate));
-            if tui_confirmed
-                || submitted(
-                    &strategy,
-                    &observation,
-                    initial.hash,
-                    text,
-                    enter_generation,
-                    current_generation,
-                )
-            {
-                return Ok(InjectionResult {
-                    bytes_written,
-                    echo_observed,
-                    submit_observed: true,
-                    elapsed: started.elapsed(),
-                });
-            }
-            if matches!(&strategy, VerifySubmitStrategy::TuiInputDrained { .. })
-                && !text.is_empty()
-                && current_generation != enter_generation
-            {
-                if body_present {
-                    if absent_candidate.take().is_some() {
-                        body_reappeared_after_candidate = true;
-                    }
-                } else if absent_candidate.is_none() {
-                    absent_candidate = Some(current_generation);
-                }
-            }
-            if current_generation != generation {
-                generation = current_generation;
-                if attempt + 1 < MAX_ENTER_ATTEMPTS
-                    && observation.hash != enter_hash
-                    && body_present
-                    && !body_reappeared_after_candidate
-                {
-                    break;
-                }
-            }
-            if !transport.wait_after(generation, deadline) {
-                return Err(InjectionError::SubmitNeverConfirmed {
-                    waited: started.elapsed(),
-                    screen_tail: observation.tail,
-                });
-            }
-        }
-    }
-
-    let tail = transport
-        .observe()
-        .map(|observation| observation.tail)
-        .unwrap_or_default();
-    Err(InjectionError::SubmitNeverConfirmed {
-        waited: started.elapsed(),
-        screen_tail: tail,
+    Ok(InjectionResult {
+        bytes_written,
+        echo_observed,
+        submit_observed: false,
+        elapsed: started.elapsed(),
     })
-}
-
-fn helper_to_closed(error: HelperErr) -> InjectionError {
-    match error {
-        HelperErr::PtyUnknown(pty_id) => InjectionError::PtyClosed { pty_id },
-        HelperErr::Timeout(screen_tail) => InjectionError::SubmitNeverConfirmed {
-            waited: Duration::ZERO,
-            screen_tail,
-        },
-    }
 }
 
 fn helper_to_injection(
@@ -370,7 +264,6 @@ mod tests {
     #[derive(Clone)]
     struct Frame {
         tail: &'static str,
-        hash: u8,
     }
 
     struct ControlledTransport {
@@ -378,9 +271,9 @@ mod tests {
         frame: RefCell<Frame>,
         after_paste: RefCell<VecDeque<Frame>>,
         waits: RefCell<VecDeque<Option<Frame>>>,
-        consumed_frames: Cell<usize>,
         current_body: RefCell<String>,
         writes: RefCell<Vec<String>>,
+        enter_before_render: Cell<bool>,
     }
 
     impl ControlledTransport {
@@ -391,15 +284,12 @@ mod tests {
         fn sequence(after_paste: Vec<Frame>, waits: Vec<Option<Frame>>) -> Self {
             Self {
                 generation: Cell::new(0),
-                frame: RefCell::new(Frame {
-                    tail: "> ",
-                    hash: 0,
-                }),
+                frame: RefCell::new(Frame { tail: "> " }),
                 after_paste: RefCell::new(after_paste.into()),
                 waits: RefCell::new(waits.into()),
-                consumed_frames: Cell::new(0),
                 current_body: RefCell::new(String::new()),
                 writes: RefCell::new(Vec::new()),
+                enter_before_render: Cell::new(false),
             }
         }
 
@@ -416,11 +306,8 @@ mod tests {
 
         fn observe(&self) -> Result<Observation, HelperErr> {
             let frame = self.frame.borrow();
-            let mut hash = [0; 32];
-            hash[0] = frame.hash;
             Ok(Observation {
                 tail: frame.tail.to_string(),
-                hash,
             })
         }
 
@@ -428,9 +315,12 @@ mod tests {
             if self.generation.get() != generation {
                 return true;
             }
+            if let Some(frame) = self.after_paste.borrow_mut().pop_front() {
+                self.advance(frame);
+                return true;
+            }
             match self.waits.borrow_mut().pop_front().flatten() {
                 Some(frame) => {
-                    self.consumed_frames.set(self.consumed_frames.get() + 1);
                     self.advance(frame);
                     true
                 }
@@ -441,13 +331,13 @@ mod tests {
         fn write_paste(&self, text: &str) -> Result<usize, InjectionError> {
             *self.current_body.borrow_mut() = text.to_string();
             self.writes.borrow_mut().push(format!("paste:{text}"));
-            if let Some(frame) = self.after_paste.borrow_mut().pop_front() {
-                self.advance(frame);
-            }
             Ok(4)
         }
 
         fn write_enter(&self) -> Result<(), InjectionError> {
+            if self.generation.get() == 0 {
+                self.enter_before_render.set(true);
+            }
             self.writes
                 .borrow_mut()
                 .push(format!("enter:{}", self.current_body.borrow()));
@@ -474,48 +364,47 @@ mod tests {
     }
 
     #[test]
-    fn submission_ack_harness_text_present_enter_absent_is_error() {
-        let io = ControlledTransport::new(
-            Some(Frame {
-                tail: "> hello",
-                hash: 1,
-            }),
-            vec![None],
-        );
-        let result = run(&io, "hello", true, tui(), opts());
-        assert!(matches!(
-            result,
-            Err(InjectionError::SubmitNeverConfirmed { .. })
-        ));
-        assert_eq!(&*io.writes.borrow(), &["paste:hello", "enter:hello"]);
+    fn every_pty_provider_strategy_waits_for_paste_render_then_enters() {
+        let strategies = [
+            VerifySubmitStrategy::TuiInputDrained {
+                timeout: Duration::ZERO,
+                idle_after_drain: Duration::ZERO,
+            },
+            VerifySubmitStrategy::ShellPrompt {
+                timeout: Duration::ZERO,
+            },
+            VerifySubmitStrategy::None,
+        ];
+
+        for strategy in strategies {
+            let io = ControlledTransport::new(Some(Frame { tail: "> rendered" }), vec![]);
+            let result = run(&io, "provider-neutral prompt", true, strategy, opts()).unwrap();
+            assert!(result.submit_observed);
+            assert!(!io.enter_before_render.get());
+            assert_eq!(
+                &*io.writes.borrow(),
+                &[
+                    "paste:provider-neutral prompt",
+                    "enter:provider-neutral prompt"
+                ]
+            );
+        }
     }
 
     #[test]
-    fn long_prompt_with_truncated_echo_still_reaches_acknowledged_enter() {
+    fn long_wrapped_chat_message_enters_after_render_without_full_echo() {
         let body = "continuation ".repeat(200);
         let io = ControlledTransport::new(
             Some(Frame {
-                tail: "> continuation tail",
-                hash: 1,
+                tail: "> final wrapped line",
             }),
-            vec![
-                Some(Frame {
-                    tail: "working",
-                    hash: 2,
-                }),
-                Some(Frame {
-                    tail: "working stable",
-                    hash: 3,
-                }),
-            ],
+            vec![],
         );
-        let mut no_echo = opts();
-        no_echo.verify_echo = false;
+        let result = run(&io, &body, true, tui(), opts()).unwrap();
 
-        let result = run(&io, &body, true, tui(), no_echo).unwrap();
-
-        assert!(!result.echo_observed);
         assert!(result.submit_observed);
+        assert!(!result.echo_observed);
+        assert!(!io.enter_before_render.get());
         assert_eq!(
             &*io.writes.borrow(),
             &[format!("paste:{body}"), format!("enter:{body}")]
@@ -523,129 +412,55 @@ mod tests {
     }
 
     #[test]
-    fn submit_transaction_arms_generation_before_paste() {
-        let io = ControlledTransport::new(
-            Some(Frame {
-                tail: "> hello",
-                hash: 1,
-            }),
-            vec![
-                Some(Frame {
-                    tail: "working",
-                    hash: 2,
-                }),
-                Some(Frame {
-                    tail: "working stable",
-                    hash: 3,
-                }),
-            ],
-        );
+    fn complete_echo_is_diagnostic_but_not_required_for_enter() {
+        let io = ControlledTransport::new(Some(Frame { tail: "> hello" }), vec![]);
         let result = run(&io, "hello", true, tui(), opts()).unwrap();
         assert!(result.echo_observed);
         assert!(result.submit_observed);
+        assert!(!io.enter_before_render.get());
     }
 
     #[test]
-    fn submit_transaction_retries_only_on_new_generation() {
-        let stale = ControlledTransport::new(
-            Some(Frame {
-                tail: "> hello",
-                hash: 1,
-            }),
-            vec![None],
-        );
-        assert!(run(&stale, "hello", true, tui(), opts()).is_err());
-        assert_eq!(&*stale.writes.borrow(), &["paste:hello", "enter:hello"]);
-
-        let progressed = ControlledTransport::new(
-            Some(Frame {
-                tail: "> hello",
-                hash: 1,
-            }),
-            vec![
-                Some(Frame {
-                    tail: "> hello",
-                    hash: 2,
-                }),
-                Some(Frame {
-                    tail: "working",
-                    hash: 3,
-                }),
-                Some(Frame {
-                    tail: "working stable",
-                    hash: 4,
-                }),
-            ],
-        );
-        assert!(run(&progressed, "hello", true, tui(), opts()).is_ok());
-        assert_eq!(
-            &*progressed.writes.borrow(),
-            &["paste:hello", "enter:hello", "enter:hello"]
-        );
-    }
-
-    #[test]
-    fn submit_transaction_deadline_fails_without_submission() {
+    fn spawn_introduction_uses_the_same_render_then_enter_contract() {
+        let intro = "-=-codeterm:pane label=CodeTerm pane=system-=-You are the Orchestrator of this team. Your Planner counterpart is Rodin.";
         let io = ControlledTransport::new(
             Some(Frame {
-                tail: "> hello",
-                hash: 1,
+                tail: "> wrapped introduction",
             }),
-            vec![None],
+            vec![],
         );
-        assert!(matches!(
-            run(&io, "hello", true, tui(), opts()),
-            Err(InjectionError::SubmitNeverConfirmed { .. })
-        ));
+
+        let result = submit_entry(PtySubmitEntry::Messenger, intro, |body| {
+            run(&io, body, true, tui(), opts())
+        })
+        .unwrap();
+
+        assert!(result.submit_observed);
+        assert!(!io.enter_before_render.get());
+        assert_eq!(
+            &*io.writes.borrow(),
+            &[format!("paste:{intro}"), format!("enter:{intro}")]
+        );
     }
 
     #[test]
-    fn submission_ack_harness_exactly_once_on_submission_evidence() {
+    fn no_render_event_never_sends_enter() {
+        let io = ControlledTransport::new(None, vec![None]);
+        let error = run(&io, "hello", true, tui(), opts()).unwrap_err();
+        assert!(matches!(error, InjectionError::EchoMismatch { .. }));
+        assert_eq!(&*io.writes.borrow(), &["paste:hello"]);
+    }
+
+    #[test]
+    fn each_submission_sends_exactly_one_enter_after_its_render_event() {
         let io = ControlledTransport::sequence(
-            vec![
-                Frame {
-                    tail: "> body-a",
-                    hash: 1,
-                },
-                Frame {
-                    tail: "> body-b",
-                    hash: 4,
-                },
-            ],
-            vec![
-                Some(Frame {
-                    tail: "a submitted",
-                    hash: 2,
-                }),
-                Some(Frame {
-                    tail: "a stable",
-                    hash: 3,
-                }),
-                Some(Frame {
-                    tail: "stale a submitted",
-                    hash: 2,
-                }),
-                Some(Frame {
-                    tail: "> body-b",
-                    hash: 4,
-                }),
-                Some(Frame {
-                    tail: "b submitted",
-                    hash: 5,
-                }),
-            ],
+            vec![Frame { tail: "> body-a" }, Frame { tail: "> body-b" }],
+            vec![],
         );
         assert!(run(&io, "body-a", true, tui(), opts()).is_ok());
         assert!(run(&io, "body-b", true, tui(), opts()).is_ok());
 
         let writes = io.writes.borrow();
-        let replacement = writes
-            .iter()
-            .position(|write| write == "paste:body-b")
-            .unwrap();
-        assert!(!writes[replacement..]
-            .iter()
-            .any(|write| write == "enter:body-a"));
         assert_eq!(
             writes
                 .iter()
@@ -653,9 +468,15 @@ mod tests {
                 .count(),
             1
         );
-        assert_eq!(writes.last().unwrap(), "enter:body-b");
-        assert_eq!(io.consumed_frames.get(), 5);
-        assert_eq!(io.generation.get(), 7);
+        assert_eq!(
+            writes.as_slice(),
+            [
+                "paste:body-a",
+                "enter:body-a",
+                "paste:body-b",
+                "enter:body-b"
+            ]
+        );
     }
 
     #[test]
@@ -681,6 +502,25 @@ mod tests {
             ));
             assert_eq!(submit_calls, 1);
         }
+    }
+
+    #[test]
+    fn screen_churn_cannot_mint_extra_enters() {
+        let io = ControlledTransport::new(Some(Frame { tail: "> hello" }), vec![]);
+        assert!(
+            run(&io, "hello", true, tui(), opts())
+                .unwrap()
+                .submit_observed
+        );
+        let writes = io.writes.borrow();
+        assert_eq!(
+            writes
+                .iter()
+                .filter(|write| *write == "enter:hello")
+                .count(),
+            1,
+            "screen churn must not mint additional Enter writes: {writes:?}"
+        );
     }
 
     #[test]

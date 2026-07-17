@@ -315,7 +315,7 @@ export function PaneSessionChat({
   const visiblePlanRefsRef = useRef<{
     key: string;
     value: Array<{ planId: string; targetId?: string; targetKind: "plan" | "task" | "section" }>;
-  }>({ key: " ", value: [] });
+  }>({ key: "", value: [] });
   const visiblePlanRefs = useMemo(() => {
     const refs: Array<{ planId: string; targetId?: string; targetKind: "plan" | "task" | "section" }> = [];
     for (const { msg } of deferredEnrichedMessages) {
@@ -460,6 +460,9 @@ export function PaneSessionChat({
       className="w-full h-full flex flex-col relative"
       data-testid="pane-session-chat"
       data-pane-id={paneId}
+      role="region"
+      aria-label="Pane chat"
+      aria-busy={loading || recovering}
       style={{
         background: "var(--ct-bg, #0d1117)",
         color: "var(--ct-fg, #c9d1d9)",
@@ -489,6 +492,9 @@ export function PaneSessionChat({
         }}
         className="absolute inset-0 overflow-y-auto overscroll-contain p-3"
         data-testid="pane-session-chat-messages"
+        role="log"
+        aria-label="Conversation"
+        aria-live="polite"
       >
         {touchMode && (
           <div
@@ -556,6 +562,8 @@ export function PaneSessionChat({
               key={msg.id}
               data-testid="chat-message"
               data-message-role={msg.type}
+              role="article"
+              aria-label={`${msg.type} message`}
             >
               <MessageBubble
                 message={msg}

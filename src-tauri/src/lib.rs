@@ -192,6 +192,7 @@ pub fn run() {
             commands::restart_app,
             commands::restart_general_agent,
             commands::restart_general_agent_pane,
+            commands::restart_agent_pane,
             commands::complete_general_agent_first_run,
             commands::get_network_info,
             commands::get_serve_status,

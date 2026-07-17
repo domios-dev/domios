@@ -230,13 +230,14 @@ fn restore_missing_payload_spawnfailed_zero_launch_pending() {
         None,
         Some("fixture-cwd"),
         false,
+        false,
         || {
             store
                 .resolve(&digest)
                 .map(Some)
                 .map_err(|error| error.to_string())
         },
-        |reason| *boot_failure.lock() = Some((BootStage::SpawnFailed, reason.to_string())),
+        |stage, reason| *boot_failure.lock() = Some((stage, reason.to_string())),
         |launch, payload| *launch_request.lock() = Some((launch, payload)),
     );
     let error = match result {

@@ -3,6 +3,7 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { __setListenForTest } from "../../lib/bridge";
+import type { Workspace } from "../../lib/types";
 import { FIXTURE_PLAN, FIXTURE_SECTION, FIXTURE_TASK } from "./cards/fixtures.testdata";
 import { CanvasViewInner } from "./CanvasView";
 import type { RenderReadbackNode } from "./canvasRender/drawScene";
@@ -18,7 +19,18 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 const STABLE_PANES = {};
-const CANVAS_PROPS = { mode: "workspace" as const, panes: STABLE_PANES, viewportPadding: 10000 };
+// FIXTURE_PLAN owner is orch-1 → bind it to the current workspace for scoping.
+const WS_ID = "ws-test";
+const WORKSPACES: Workspace[] = [
+  { id: WS_ID, name: "Test", tabs: [{ id: "tab-orch", pane_id: "orch-1" }], active_tab_id: null, cwd: null },
+];
+const CANVAS_PROPS = {
+  mode: "workspace" as const,
+  panes: STABLE_PANES,
+  viewportPadding: 10000,
+  workspaceId: WS_ID,
+  workspaces: WORKSPACES,
+};
 
 function setupDom() {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

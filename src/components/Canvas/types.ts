@@ -294,6 +294,8 @@ export interface Plan {
   planning_state?: PlanningState;
   owner: OrchestratorRef;
   planner?: PlannerRef | null;
+  /** Optional 1:1 team binding; absent keeps legacy plans teamless. */
+  team_id?: string | null;
   project_path: string;
   created_at: number;
   updated_at: number;
