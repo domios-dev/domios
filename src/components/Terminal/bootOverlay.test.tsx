@@ -79,7 +79,7 @@ async function main() {
     assert(button !== null, "retry button rendered");
     assert(button.getAttribute("type") === "button", "retry is not submit");
     assert(
-      button.getAttribute("aria-label") === "Retry General Agent launch",
+      button.getAttribute("aria-label") === "Retry agent launch",
       "retry has accessible name",
     );
     button.click();
