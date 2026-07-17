@@ -137,6 +137,7 @@ export type BootStage =
   | "preparing_role_instructions"
   | "delivering_instructions"
   | "agent_ready"
+  | "pty_reattached"
   | "spawn_failed";
 
 /** Payload of the `pane-boot-stage` event. */

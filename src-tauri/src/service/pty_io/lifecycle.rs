@@ -6,6 +6,7 @@ use super::{
 };
 use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::types::Pane;
+use crate::service::boot_stage::BootStage;
 use crate::service::plan::PlanStore;
 use crate::service::ServiceContext;
 use std::collections::HashMap;
@@ -88,6 +89,19 @@ where
     Ok(Some(launch))
 }
 
+/// A restore fault is a spawn failure only when the pane has no live PTY. With
+/// a live PTY the process exists, so latching SpawnFailed would lie about it.
+pub(crate) fn restore_failure_boot_stage(pty_live: bool) -> Option<BootStage> {
+    (!pty_live).then_some(BootStage::SpawnFailed)
+}
+
+/// Proven reattach of a live PTY must clear a stale failure; every other stage
+/// already describes the pane honestly and is left alone.
+pub(crate) fn reattach_boot_stage(current: Option<BootStage>) -> Option<BootStage> {
+    matches!(current, Some(BootStage::SpawnFailed)).then_some(BootStage::PtyReattached)
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn restore_materialization_core<R, B, L>(
     mux: &MuxState,
     pane_id: &str,
@@ -95,19 +109,22 @@ pub(crate) fn restore_materialization_core<R, B, L>(
     session_id: Option<&str>,
     cwd: Option<&str>,
     session_valid: bool,
+    pty_live: bool,
     resolve_payload: R,
     boot_stage: B,
     launcher: L,
 ) -> Result<Option<RestoredLaunch>, String>
 where
     R: FnOnce() -> Result<Option<String>, String>,
-    B: FnOnce(&str),
+    B: FnOnce(BootStage, &str),
     L: FnOnce(RestoredLaunch, Option<String>),
 {
     let payload = match resolve_payload() {
         Ok(payload) => payload,
         Err(error) => {
-            boot_stage(&error);
+            if let Some(stage) = restore_failure_boot_stage(pty_live) {
+                boot_stage(stage, &error);
+            }
             return Err(error);
         }
     };
@@ -263,6 +280,7 @@ impl ServiceContext {
         pty_claim: &crate::service::pty_ownership::PanePtyClaim,
     ) -> Result<(), String> {
         if self.resolve_pty_id(pane_id).is_ok() {
+            self.emit_pty_reattached(pane_id);
             self.materialize_restored_agent_for_send(pane_id)?;
             return Ok(());
         }
@@ -308,6 +326,13 @@ impl ServiceContext {
         Ok(())
     }
 
+    fn emit_pty_reattached(&self, pane_id: &str) {
+        let current = self.mux.read().get_pane(pane_id).and_then(|p| p.boot_stage);
+        if let Some(stage) = reattach_boot_stage(current) {
+            self.emit_boot_stage(pane_id, stage, None);
+        }
+    }
+
     pub(crate) fn materialize_restored_agent_for_send(&self, pane_id: &str) -> Result<(), String> {
         let (provider_id, session_id, cwd) = {
             let mux = self.mux.read();
@@ -345,17 +370,12 @@ impl ServiceContext {
             session_id.as_deref(),
             cwd.as_deref(),
             session_valid,
+            self.resolve_pty_id(pane_id).is_ok(),
             || {
                 self.resolve_pending_delivery(pane_id)
                     .map_err(|error| error.to_string())
             },
-            |error| {
-                self.emit_boot_stage(
-                    pane_id,
-                    crate::service::boot_stage::BootStage::SpawnFailed,
-                    Some(error),
-                )
-            },
+            |stage, error| self.emit_boot_stage(pane_id, stage, Some(error)),
             |launch, restored_task| {
                 let pc = crate::config::provider_config(&launch.provider_id);
                 let params = crate::service::SpawnAgentParams {
