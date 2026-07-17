@@ -323,6 +323,8 @@ export function NewSessionPicker({
   return (
     <div
       data-testid="new-session-picker"
+      role="dialog"
+      aria-labelledby="new-session-picker-title"
       className="new-session-picker flex h-full w-full items-center justify-center p-6"
       style={{ background: "var(--ct-bg)" }}
     >
@@ -333,7 +335,7 @@ export function NewSessionPicker({
           data-mode={choice.mode}
         />
         <div className="relative mb-4">
-          <div className="text-[15px] font-medium text-[var(--ct-fg)]">Start a session</div>
+          <h2 id="new-session-picker-title" className="text-[15px] font-medium text-[var(--ct-fg)]">Start a session</h2>
           <div className="mt-1 text-[12px] text-[var(--ct-muted-fg)]">
             Choose a single agent or an Orchestrator + Planner pair. Your last choice is remembered.
           </div>
