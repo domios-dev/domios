@@ -21,7 +21,10 @@ mod tests {
     #[test]
     fn partial_line_output_survives_at_matching_width() {
         let out = clean_terminal_output_sized(ZSH_120COL, 40, 120);
-        assert!(out.contains("MARKER_RED_TEST"), "marker erased at real width: {out:?}");
+        assert!(
+            out.contains("MARKER_RED_TEST"),
+            "marker erased at real width: {out:?}"
+        );
     }
 
     #[test]
@@ -30,6 +33,9 @@ mod tests {
         // emulation of a 120-col stream never wraps zsh's %-padding, so the
         // redraw erases the output line.
         let out = clean_terminal_output(ZSH_120COL);
-        assert!(!out.contains("MARKER_RED_TEST"), "width sensitivity gone — revisit call sites: {out:?}");
+        assert!(
+            !out.contains("MARKER_RED_TEST"),
+            "width sensitivity gone — revisit call sites: {out:?}"
+        );
     }
 }
