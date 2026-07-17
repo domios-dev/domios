@@ -1,6 +1,6 @@
 import type { Pane } from "../../../lib/types";
 import { flattenSections } from "../sectionRows";
-import { filterPlansForCanvas } from "../planPaneMatch";
+import { filterPlansForCanvas, planBelongsToWorkspace, type PlanFilterOpts } from "../planPaneMatch";
 import { resolvePlanExclusivePaneTasks } from "../paneCurrentTask";
 import { buildTaskPresence } from "../taskPresence";
 import { historicalExecutorForTask } from "../taskExecutorHistory";
@@ -329,10 +329,12 @@ export function orderPlansByActivity(plans: readonly Plan[]): Plan[] {
   });
 }
 
-/** Default board plan: explicit planId → orchestrator-owned freshest → freshest overall. */
+/** Default board plan: explicit planId → orchestrator-owned freshest → freshest
+ *  workspace-bound. No workspace-bound plan means no default (empty state), never
+ *  a plan from another workspace. */
 export function selectDefaultPlanId(
   orderedPlans: readonly Plan[],
-  opts: { planId?: string; orchestratorPaneId?: string; panes?: Record<string, Pane> },
+  opts: PlanFilterOpts,
 ): string | null {
   if (!orderedPlans.length) return null;
   if (opts.planId && orderedPlans.some((p) => p.id === opts.planId)) return opts.planId;
@@ -345,12 +347,16 @@ export function selectDefaultPlanId(
     const first = orderedPlans.find((p) => ownedIds.has(p.id));
     if (first) return first.id;
   }
-  // Prefer the workspace's real bound plan over a stale/empty shell: a plan with
-  // actionable (non-terminal) work first, then any non-empty plan, then freshest.
+  const scoped = opts.workspaceId
+    ? orderedPlans.filter((p) => planBelongsToWorkspace(p, opts.workspaceId!, opts))
+    : orderedPlans;
+  if (!scoped.length) return null;
+  // Prefer a plan with actionable (non-terminal) work, then any non-empty plan,
+  // then the freshest within the workspace scope.
   const hasActionable = (p: Plan) =>
     p.tasks.some((t) => t.status !== TaskStatus.Done && t.status !== TaskStatus.Cancelled);
   const hasWork = (p: Plan) => p.tasks.some((t) => t.status !== TaskStatus.Cancelled);
-  return (orderedPlans.find(hasActionable) ?? orderedPlans.find(hasWork) ?? orderedPlans[0]).id;
+  return (scoped.find(hasActionable) ?? scoped.find(hasWork) ?? scoped[0]).id;
 }
 
 export function buildBoardModels(
@@ -379,7 +385,7 @@ export function boundDoneColumnCards(
 export function filterPlansForBoard(
   plans: readonly Plan[],
   mode: "workspace" | "focus",
-  opts: { planId?: string; orchestratorPaneId?: string; panes?: Record<string, Pane> },
+  opts: PlanFilterOpts,
 ): Plan[] {
   return filterPlansForCanvas([...plans], mode, opts);
 }
