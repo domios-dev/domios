@@ -46,7 +46,22 @@ impl ServiceContext {
         );
         if stage == BootStage::AgentReady {
             self.schedule_planner_replay(pane_id);
+            self.heal_recovery_state_if_ready();
         }
+    }
+
+    /// Proven health for the recovery record: every role-bearing pane has its
+    /// agent up. Read from live pane state at a real transition, never a timer.
+    fn heal_recovery_state_if_ready(&self) {
+        let ready = {
+            let mux = self.mux.read();
+            mux.snapshot()
+                .panes
+                .values()
+                .filter(|p| p.role.is_some() && p.boot_stage == Some(BootStage::AgentReady))
+                .count() as u32
+        };
+        crate::crash::lifecycle::heal_current_epoch(ready);
     }
 }
 
