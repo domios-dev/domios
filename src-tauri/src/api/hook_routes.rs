@@ -308,6 +308,7 @@ pub async fn hook_session_start(
         &sid,
         report_nonce.as_deref(),
     )?;
+    crate::service::general_agent::binding_wait::notify_session_bound();
 
     // while it runs — not only after completion.
     propagate_run_session(&state, &pane_id, &sid);
