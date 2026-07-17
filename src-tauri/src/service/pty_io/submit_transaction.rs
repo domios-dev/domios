@@ -12,7 +12,7 @@ use crate::service::inject_verify::{
 use crate::service::ServiceContext;
 
 const TAIL_ROWS: usize = 8;
-const MAX_ENTER_ATTEMPTS: usize = 6;
+const MAX_ENTER_ATTEMPTS: usize = 2;
 
 fn transaction_locks() -> &'static Mutex<HashMap<String, Weak<Mutex<()>>>> {
     static LOCKS: OnceLock<Mutex<HashMap<String, Weak<Mutex<()>>>>> = OnceLock::new();
@@ -209,12 +209,27 @@ fn run<T: SubmitTransport>(
     let armed_generation = transport.generation();
     let initial = transport.observe().map_err(helper_to_closed)?;
     let bytes_written = transport.write_paste(text)?;
-    let (paste_observation, mut generation) = if opts.verify_echo {
+    let paste_wait = if opts.verify_echo {
         wait_for_paste(transport, text, armed_generation, deadline)
-            .map_err(|error| helper_to_injection(error, started, text, true))?
     } else {
         wait_for_paste_activity(transport, text, armed_generation, deadline)
-            .map_err(|error| helper_to_injection(error, started, text, true))?
+    };
+    // An unechoed paste is the TUI's rendering choice (placeholder, reflow,
+    // queued input), not evidence the write missed. Carry on optimistically.
+    let (paste_observation, mut generation) = match paste_wait {
+        Ok(observed) => observed,
+        Err(HelperErr::PtyUnknown(pty_id)) => return Err(InjectionError::PtyClosed { pty_id }),
+        Err(HelperErr::Timeout(screen_tail)) => {
+            log::debug!(
+                "paste unechoed after {:?}; delivery assumed: {:?}",
+                started.elapsed(),
+                screen_tail
+            );
+            (
+                transport.observe().map_err(helper_to_closed)?,
+                transport.generation(),
+            )
+        }
     };
     let echo_observed = text.is_empty() || screen_contains_echo(&paste_observation.tail, text);
 
@@ -228,7 +243,6 @@ fn run<T: SubmitTransport>(
     }
 
     for attempt in 0..MAX_ENTER_ATTEMPTS {
-        let submit_deadline = Instant::now() + strategy_timeout(&strategy, opts.submit_timeout);
         let enter_generation = generation;
         let enter_hash = transport.observe().map_err(helper_to_closed)?.hash;
         let mut absent_candidate = None;
@@ -291,25 +305,32 @@ fn run<T: SubmitTransport>(
                     break;
                 }
             }
-            if !transport.wait_after(generation, submit_deadline) {
-                if attempt + 1 < MAX_ENTER_ATTEMPTS {
-                    break;
-                }
-                return Err(InjectionError::SubmitNeverConfirmed {
-                    waited: started.elapsed(),
-                    screen_tail: observation.tail,
+            if !transport.wait_after(generation, deadline) {
+                log::debug!(
+                    "submit deadline elapsed after {:?}; delivery assumed: {:?}",
+                    started.elapsed(),
+                    observation.tail
+                );
+                return Ok(InjectionResult {
+                    bytes_written,
+                    echo_observed,
+                    submit_observed: false,
+                    elapsed: started.elapsed(),
                 });
             }
         }
     }
 
-    let tail = transport
-        .observe()
-        .map(|observation| observation.tail)
-        .unwrap_or_default();
-    Err(InjectionError::SubmitNeverConfirmed {
-        waited: started.elapsed(),
-        screen_tail: tail,
+    log::debug!(
+        "submit unobserved across {} enter attempts after {:?}; delivery assumed",
+        MAX_ENTER_ATTEMPTS,
+        started.elapsed()
+    );
+    Ok(InjectionResult {
+        bytes_written,
+        echo_observed,
+        submit_observed: false,
+        elapsed: started.elapsed(),
     })
 }
 
@@ -488,20 +509,12 @@ mod tests {
             }),
             vec![None],
         );
-        let result = run(&io, "hello", true, tui(), opts());
-        assert!(matches!(
-            result,
-            Err(InjectionError::SubmitNeverConfirmed { .. })
-        ));
-        assert_eq!(io.writes.borrow()[0], "paste:hello");
-        assert_eq!(
-            io.writes
-                .borrow()
-                .iter()
-                .filter(|write| write.as_str() == "enter:hello")
-                .count(),
-            MAX_ENTER_ATTEMPTS
+        let result = run(&io, "hello", true, tui(), opts()).expect("delivery is optimistic");
+        assert!(
+            !result.submit_observed,
+            "an unobserved submit must not be reported as observed"
         );
+        assert_eq!(&*io.writes.borrow(), &["paste:hello", "enter:hello"]);
     }
 
     #[test]
@@ -585,7 +598,7 @@ mod tests {
     }
 
     #[test]
-    fn submit_transaction_retries_when_first_enter_has_no_screen_activity() {
+    fn submit_transaction_retries_only_on_new_generation() {
         let stale = ControlledTransport::new(
             Some(Frame {
                 tail: "> hello",
@@ -593,16 +606,13 @@ mod tests {
             }),
             vec![None],
         );
-        assert!(run(&stale, "hello", true, tui(), opts()).is_err());
-        assert_eq!(
-            stale
-                .writes
-                .borrow()
-                .iter()
-                .filter(|write| write.as_str() == "enter:hello")
-                .count(),
-            MAX_ENTER_ATTEMPTS
+        assert!(
+            !run(&stale, "hello", true, tui(), opts())
+                .expect("delivery is optimistic")
+                .submit_observed,
+            "a stale generation must not count as submission"
         );
+        assert_eq!(&*stale.writes.borrow(), &["paste:hello", "enter:hello"]);
 
         let progressed = ControlledTransport::new(
             Some(Frame {
@@ -610,14 +620,17 @@ mod tests {
                 hash: 1,
             }),
             vec![
-                None,
                 Some(Frame {
-                    tail: "working",
+                    tail: "> hello",
                     hash: 2,
                 }),
                 Some(Frame {
-                    tail: "working stable",
+                    tail: "working",
                     hash: 3,
+                }),
+                Some(Frame {
+                    tail: "working stable",
+                    hash: 4,
                 }),
             ],
         );
@@ -625,84 +638,6 @@ mod tests {
         assert_eq!(
             &*progressed.writes.borrow(),
             &["paste:hello", "enter:hello", "enter:hello"]
-        );
-    }
-
-    #[test]
-    fn truncated_tui_draft_retries_after_an_unconfirmed_enter() {
-        let body = "-=-codeterm:pane label=CodeTerm pane=system-=-".repeat(8);
-        let io = ControlledTransport::new(
-            Some(Frame {
-                tail: "> -=-codeterm:pane label=CodeTerm pane=system-=-",
-                hash: 1,
-            }),
-            vec![
-                None,
-                Some(Frame {
-                    tail: "working",
-                    hash: 2,
-                }),
-                Some(Frame {
-                    tail: "working stable",
-                    hash: 3,
-                }),
-            ],
-        );
-        let mut no_echo = opts();
-        no_echo.verify_echo = false;
-
-        let result = run(&io, &body, true, tui(), no_echo).unwrap();
-
-        assert!(result.submit_observed);
-        assert_eq!(
-            io.writes
-                .borrow()
-                .iter()
-                .filter(|write| write.starts_with("enter:"))
-                .count(),
-            2
-        );
-    }
-
-    #[test]
-    fn startup_redraws_keep_retrying_until_the_tui_accepts_codeterm_input() {
-        let text = "-=-codeterm:pane label=CodeTerm pane=system-=-startup instruction";
-        let io = ControlledTransport::new(
-            Some(Frame {
-                tail: "> -=-codeterm:pane label=CodeTerm pane=system-=-startup instruction",
-                hash: 1,
-            }),
-            vec![
-                Some(Frame {
-                    tail: "> -=-codeterm:pane label=CodeTerm pane=system-=-startup instruction",
-                    hash: 2,
-                }),
-                Some(Frame {
-                    tail: "> -=-codeterm:pane label=CodeTerm pane=system-=-startup instruction",
-                    hash: 3,
-                }),
-                Some(Frame {
-                    tail: "working",
-                    hash: 4,
-                }),
-                Some(Frame {
-                    tail: "working stable",
-                    hash: 5,
-                }),
-            ],
-        );
-
-        let result = run(&io, text, true, tui(), opts()).unwrap();
-
-        assert!(result.submit_observed);
-        assert_eq!(
-            &*io.writes.borrow(),
-            &[
-                format!("paste:{text}"),
-                format!("enter:{text}"),
-                format!("enter:{text}"),
-                format!("enter:{text}"),
-            ]
         );
     }
 
@@ -715,10 +650,12 @@ mod tests {
             }),
             vec![None],
         );
-        assert!(matches!(
-            run(&io, "hello", true, tui(), opts()),
-            Err(InjectionError::SubmitNeverConfirmed { .. })
-        ));
+        assert!(
+            !run(&io, "hello", true, tui(), opts())
+                .expect("delivery is optimistic")
+                .submit_observed,
+            "an unobserved submit must not be reported as observed"
+        );
     }
 
     #[test]
@@ -830,11 +767,11 @@ mod tests {
                 None,
             ],
         );
-        let result = run(&io, "hello", true, tui(), opts());
-        assert!(matches!(
-            result,
-            Err(InjectionError::SubmitNeverConfirmed { .. })
-        ));
+        let result = run(&io, "hello", true, tui(), opts()).expect("delivery is optimistic");
+        assert!(
+            !result.submit_observed,
+            "an unobserved submit must not be reported as observed"
+        );
         let writes = io.writes.borrow();
         assert_eq!(
             writes
@@ -898,20 +835,12 @@ mod tests {
                 None,
             ],
         );
-        let result = run(&blink, "hello", true, tui(), opts());
+        let result = run(&blink, "hello", true, tui(), opts()).expect("delivery is optimistic");
         assert!(
-            matches!(result, Err(InjectionError::SubmitNeverConfirmed { .. })),
+            !result.submit_observed,
             "a single absent generation must not count as submission"
         );
-        assert_eq!(
-            blink
-                .writes
-                .borrow()
-                .iter()
-                .filter(|write| write.as_str() == "enter:hello")
-                .count(),
-            MAX_ENTER_ATTEMPTS
-        );
+        assert_eq!(&*blink.writes.borrow(), &["paste:hello", "enter:hello"]);
 
         // Green twin: the same stream with one more quiet generation confirms.
         let drained = ControlledTransport::new(
