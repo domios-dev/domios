@@ -360,7 +360,7 @@ pub async fn task_update(
     state
         .svc
         .plan_store
-        .update_task(
+        .update_task_with_lane(
             &id,
             &tid,
             body.get("name").and_then(|v| v.as_str()),
@@ -379,6 +379,7 @@ pub async fn task_update(
             &tags,
             body.get("primary").and_then(|v| v.as_str()),
             body.get("handle").and_then(|v| v.as_str()),
+            lane,
             epoch_ms(),
         )
         .map_err(plan_err)?;
@@ -421,13 +422,6 @@ pub async fn task_update(
                 provenance,
                 epoch_ms(),
             )
-            .map_err(plan_err)?;
-    }
-    if let Some(lane) = lane {
-        state
-            .svc
-            .plan_store
-            .update_task_lane(&id, &tid, lane, epoch_ms())
             .map_err(plan_err)?;
     }
     if let Some(value) = body.get("competition") {

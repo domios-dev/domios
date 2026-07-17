@@ -417,20 +417,13 @@ pub(super) fn dispatch(
             let test_plan = optional_string_field(p, "test_plan");
             let correctness = optional_string_field(p, "correctness");
             let lane = lane_update_field(p)?;
-            // Lane binds BEFORE the status write so `--status in_progress --pane X`
-            // satisfies pane-requiring transition invariants in one command.
-            if let Some(lane) = lane.clone() {
-                store
-                    .update_task_lane(&id, &tid, lane, now)
-                    .map_err(plan_rpc_err)?;
-            }
             if let Some(depends_on) = dependency_vec_field(p)? {
                 store
                     .update_task_dependencies(&id, &tid, depends_on, now)
                     .map_err(plan_rpc_err)?;
             }
             store
-                .update_task(
+                .update_task_with_lane(
                     &id,
                     &tid,
                     p.and_then(|x| x.get("name")).and_then(|v| v.as_str()),
@@ -452,6 +445,7 @@ pub(super) fn dispatch(
                     &tags_field(p),
                     p.and_then(|x| x.get("primary")).and_then(|v| v.as_str()),
                     p.and_then(|x| x.get("handle")).and_then(|v| v.as_str()),
+                    lane,
                     now,
                 )
                 .map_err(plan_rpc_err)?;
