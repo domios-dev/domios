@@ -11,6 +11,7 @@
 //! `service::general_agent::ensure_directories`, `start_general_agent`,
 //! `GENERAL_ALIAS`, etc., unchanged.
 
+pub(crate) mod binding_wait;
 pub mod blocker;
 mod first_run;
 mod instructions;
