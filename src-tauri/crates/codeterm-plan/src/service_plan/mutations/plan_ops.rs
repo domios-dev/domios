@@ -303,7 +303,14 @@ impl PlanStore {
             .cloned()
             .ok_or(PlanError::NotFound)?;
         let mut guard = arc.lock();
-        let out = f(&mut guard)?;
+        let before = guard.clone();
+        let out = match f(&mut guard) {
+            Ok(out) => out,
+            Err(error) => {
+                *guard = before;
+                return Err(error);
+            }
+        };
         guard.updated_at = now_ms;
         if guard.canonical_project_path.trim().is_empty() {
             guard.canonical_project_path = guard.project_path.clone();

@@ -23,7 +23,55 @@ impl PlanStore {
         handle: Option<&str>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
+        self.update_task_with_lane(
+            plan_id,
+            task_id,
+            name,
+            kind,
+            model,
+            model_rationale,
+            status,
+            status_label,
+            priority,
+            body,
+            intent,
+            executor_role,
+            section_ids,
+            parent_task_id,
+            group,
+            tags,
+            primary,
+            handle,
+            None,
+            now_ms,
+        )
+    }
+
+    pub fn update_task_with_lane(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        name: Option<&str>,
+        kind: Option<&str>,
+        model: Option<Option<&str>>,
+        model_rationale: Option<Option<&str>>,
+        status: Option<&str>,
+        status_label: Option<Option<&str>>,
+        priority: Option<&str>,
+        body: Option<&str>,
+        intent: Option<Option<&str>>,
+        executor_role: Option<Option<&str>>,
+        section_ids: Option<Vec<String>>,
+        parent_task_id: Option<Option<&str>>,
+        group: Option<Option<&str>>,
+        tags: &[String],
+        primary: Option<&str>,
+        handle: Option<&str>,
+        lane: Option<super::TaskLaneUpdate>,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
         let expected_sections = section_ids.clone();
+        let expected_lane = lane.clone();
         let write = self.with_plan(plan_id, now_ms, |p| {
             let task_index = p
                 .tasks
@@ -33,15 +81,24 @@ impl PlanStore {
             let task_id = p.tasks[task_index].id.clone();
             let parsed_status = status.map(parse_task_status).transpose()?;
             if let Some(next) = &parsed_status {
-                validate_task_status_transition(
+                validate_task_status_transition_with_lane(
                     p,
                     &task_id,
                     &p.tasks[task_index].status,
                     next,
                     status_label,
+                    lane.as_ref(),
                 )?;
             }
             let task = &mut p.tasks[task_index];
+            if let Some(lane) = lane {
+                let pane_explicit = lane.pane_id.is_some();
+                apply_lane_update(&mut task.lane, lane);
+                task.lane = normalize_lane_metadata(std::mem::take(&mut task.lane));
+                if pane_explicit || task.assigned_pane_id.is_none() {
+                    task.assigned_pane_id = task.lane.pane_id.clone();
+                }
+            }
             if let Some(n) = name {
                 task.name = n.into();
                 task.handle = None;
@@ -122,28 +179,29 @@ impl PlanStore {
             task.updated_at = now_ms;
             Ok(())
         });
-        pending_after_verified(
-            write,
-            self.verify_task_updated(
-                plan_id,
-                task_id,
-                name,
-                kind,
-                model,
-                model_rationale,
-                status,
-                status_label,
-                priority,
-                body,
-                intent,
-                executor_role,
-                expected_sections.as_deref(),
-                parent_task_id,
-                group,
-                handle,
-            ),
-            Some(task_id.to_string()),
-        )
+        let verified = self.verify_task_updated(
+            plan_id,
+            task_id,
+            name,
+            kind,
+            model,
+            model_rationale,
+            status,
+            status_label,
+            priority,
+            body,
+            intent,
+            executor_role,
+            expected_sections.as_deref(),
+            parent_task_id,
+            group,
+            handle,
+        );
+        let verified = match (verified, expected_lane.as_ref()) {
+            (Ok(()), Some(lane)) => self.verify_task_lane_updated(plan_id, task_id, lane),
+            (result, _) => result,
+        };
+        pending_after_verified(write, verified, Some(task_id.to_string()))
     }
 
     pub fn update_task_dependencies(
@@ -528,8 +586,9 @@ fn non_empty_arg(value: Option<&str>) -> Option<&str> {
 
 #[cfg(test)]
 mod fill_lane_tests {
-    use crate::plan::{OrchestratorRef, Plan, PlanMode};
-    use crate::service_plan::{NewTask, PlanStore};
+    use crate::plan::{OrchestratorRef, Plan, PlanMode, TaskStatus};
+    use crate::service_plan::{NewTask, PlanStore, TaskLaneUpdate};
+    use std::sync::{Arc, Barrier};
 
     fn setup() -> (tempfile::TempDir, PlanStore, String, String) {
         let dir = tempfile::tempdir().unwrap();
@@ -711,6 +770,203 @@ mod fill_lane_tests {
             .fill_task_lane_if_empty(&plan, &task, Some("pane-1"), None, None, 6)
             .unwrap();
         set_status(&store, &plan, &task, "in_progress", None, 7).unwrap();
+    }
+
+    #[test]
+    fn lane_and_in_progress_commit_as_one_plan_mutation() {
+        let (_d, store, plan, task) = setup();
+        let error = set_status(&store, &plan, &task, "in_progress", None, 5).unwrap_err();
+        assert!(error.to_string().contains("set both in one command"));
+
+        store
+            .update_task_with_lane(
+                &plan,
+                &task,
+                None,
+                None,
+                None,
+                None,
+                Some("in_progress"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                &[],
+                None,
+                None,
+                Some(TaskLaneUpdate {
+                    pane_id: Some(Some("worker-pane".into())),
+                    ..Default::default()
+                }),
+                6,
+            )
+            .unwrap();
+
+        let task = store.show_task(&task).unwrap().task;
+        assert_eq!(task.status, TaskStatus::InProgress);
+        assert_eq!(task.lane.pane_id.as_deref(), Some("worker-pane"));
+        assert_eq!(task.assigned_pane_id.as_deref(), Some("worker-pane"));
+    }
+
+    #[test]
+    fn rejected_status_does_not_leave_a_half_applied_lane() {
+        let (_d, store, plan, task) = setup();
+        let error = store
+            .update_task_with_lane(
+                &plan,
+                &task,
+                None,
+                None,
+                None,
+                None,
+                Some("blocked"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                &[],
+                None,
+                None,
+                Some(TaskLaneUpdate {
+                    pane_id: Some(Some("must-not-commit".into())),
+                    ..Default::default()
+                }),
+                6,
+            )
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::service_plan::PlanError::BlockedRequiresLabel
+        ));
+        let task = store.show_task(&task).unwrap().task;
+        assert!(task.lane.pane_id.is_none());
+        assert!(task.assigned_pane_id.is_none());
+        assert_eq!(task.status, TaskStatus::Pending);
+    }
+
+    #[test]
+    fn late_validation_failure_rolls_back_lane_and_status_together() {
+        let (_d, store, plan, task) = setup();
+        let error = store
+            .update_task_with_lane(
+                &plan,
+                &task,
+                None,
+                None,
+                None,
+                None,
+                Some("in_progress"),
+                None,
+                Some("not-a-priority"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                &[],
+                None,
+                None,
+                Some(TaskLaneUpdate {
+                    pane_id: Some(Some("must-roll-back".into())),
+                    ..Default::default()
+                }),
+                6,
+            )
+            .unwrap_err();
+        assert!(matches!(error, crate::service_plan::PlanError::BadPriority));
+        let task = store.show_task(&task).unwrap().task;
+        assert_eq!(task.status, TaskStatus::Pending);
+        assert!(task.lane.pane_id.is_none());
+        assert!(task.assigned_pane_id.is_none());
+    }
+
+    #[test]
+    fn concurrent_same_plan_task_mutations_keep_exact_status_buckets() {
+        let (_d, store, plan, first_task) = setup();
+        let mut tasks = vec![first_task];
+        for index in 1..8 {
+            tasks.push(
+                store
+                    .add_task(
+                        &plan,
+                        NewTask {
+                            name: format!("task-{index}"),
+                            acceptance_criteria: vec!["observable result".into()],
+                            test_plan: Some("cargo test exact".into()),
+                            ..Default::default()
+                        },
+                        3 + index,
+                    )
+                    .unwrap(),
+            );
+        }
+        let store = Arc::new(store);
+        let start = Arc::new(Barrier::new(tasks.len()));
+        let statuses = [
+            ("pending", None),
+            ("pending", None),
+            ("pending", None),
+            ("in_review", None),
+            ("blocked", Some("waiting on dependency")),
+            ("done", None),
+            ("done", None),
+            ("done", None),
+        ];
+        let mut workers = Vec::new();
+        for (index, (task, (status, label))) in tasks.into_iter().zip(statuses).enumerate() {
+            let store = Arc::clone(&store);
+            let plan = plan.clone();
+            let start = Arc::clone(&start);
+            workers.push(std::thread::spawn(move || {
+                start.wait();
+                store.update_task(
+                    &plan,
+                    &task,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(status),
+                    label.map(Some),
+                    None,
+                    Some(&format!("concurrent-mutation-{index}")),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    &[],
+                    None,
+                    None,
+                    100 + index as u64,
+                )
+            }));
+        }
+        for worker in workers {
+            worker.join().unwrap().unwrap();
+        }
+
+        let plan = store.get(&plan).unwrap();
+        let counts = plan.tasks.iter().fold([0usize; 4], |mut counts, task| {
+            match task.status {
+                TaskStatus::Pending => counts[0] += 1,
+                TaskStatus::InReview => counts[1] += 1,
+                TaskStatus::Blocked => counts[2] += 1,
+                TaskStatus::Done => counts[3] += 1,
+                _ => panic!("unexpected status: {:?}", task.status),
+            }
+            counts
+        });
+        assert_eq!(counts, [3, 1, 1, 3]);
     }
 
     #[test]
