@@ -89,6 +89,7 @@ impl RestoreReplayFixture {
             None,
             Some("fixture-cwd"),
             false,
+            false,
             move || match pending {
                 Some(record)
                     if record.state() == PendingDeliveryState::Pending
@@ -101,7 +102,7 @@ impl RestoreReplayFixture {
                 }
                 _ => Ok(None),
             },
-            move |_| recording.record("fixture-pane", BootStage::SpawnFailed, None),
+            move |stage, _| recording.record("fixture-pane", stage, None),
             move |_, payload| *scheduled_payload.lock() = Some(payload),
         )?;
         Ok(result.is_some())

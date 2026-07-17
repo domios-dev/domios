@@ -11,6 +11,7 @@ const STAGE_PROGRESS: Record<BootStage, number> = {
   agent_launching: 68,
   delivering_instructions: 84,
   agent_ready: 100,
+  pty_reattached: 100,
   spawn_failed: 0,
 };
 
@@ -39,6 +40,8 @@ export function chatSetupStageLabel(stage: BootStage | null | undefined, subject
       return "Delivering instructions…";
     case "agent_ready":
       return "Ready";
+    case "pty_reattached":
+      return "Session attached…";
     case "spawn_failed":
       return "Launch failed";
   }
@@ -51,7 +54,7 @@ function unreachableBootStage(stage: never): never {
 
 export function chatSetupView(pane: Pane | null | undefined): PaneBootOverlayView {
   const stage = pane?.boot_stage;
-  if (!stage || stage === "agent_ready") return { kind: "none" };
+  if (!stage || stage === "agent_ready" || stage === "pty_reattached") return { kind: "none" };
   if (stage === "spawn_failed") {
     return {
       kind: "failed",
