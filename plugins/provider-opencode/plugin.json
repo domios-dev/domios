@@ -16,11 +16,7 @@
       "timeoutSecs": 30
     },
     "taskDelivery": "inline_flag",
-    "verifySubmit": {
-      "kind": "tui_input_drained",
-      "timeoutSecs": 15,
-      "idleAfterDrainMs": 800
-    },
+    "verifySubmit": { "kind": "tui_input_drained" },
     "sessionIdInjection": "none",
     "statusBarRows": 2,
     "preservesContextOnResume": true,

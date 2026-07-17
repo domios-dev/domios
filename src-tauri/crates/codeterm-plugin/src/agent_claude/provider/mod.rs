@@ -114,10 +114,7 @@ impl AgentProvider for ClaudeProvider {
     }
 
     fn verify_submit_strategy(&self) -> VerifySubmitStrategy {
-        VerifySubmitStrategy::TuiInputDrained {
-            timeout: Duration::from_secs(15),
-            idle_after_drain: Duration::from_millis(800),
-        }
+        VerifySubmitStrategy::TuiInputDrained
     }
 
     fn detect_from_title(&self, title: &str) -> bool {
@@ -465,22 +462,10 @@ mod tests {
     #[test]
     fn claude_uses_tui_input_drained_for_submit_verification() {
         let p = ClaudeProvider::new();
-        match p.verify_submit_strategy() {
-            VerifySubmitStrategy::TuiInputDrained {
-                timeout,
-                idle_after_drain,
-            } => {
-                assert!(
-                    timeout >= Duration::from_secs(10),
-                    "claude timeout too short"
-                );
-                assert!(
-                    idle_after_drain >= Duration::from_millis(500),
-                    "idle window too short"
-                );
-            }
-            other => panic!("expected TuiInputDrained, got {:?}", other),
-        }
+        assert!(matches!(
+            p.verify_submit_strategy(),
+            VerifySubmitStrategy::TuiInputDrained
+        ));
     }
 
     #[test]
