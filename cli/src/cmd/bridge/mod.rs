@@ -4,6 +4,14 @@ use crate::BridgeAction;
 
 pub mod migrate;
 
+pub(crate) fn bridge_text(text: String, raw_text: bool) -> String {
+    if raw_text {
+        text
+    } else {
+        text.replace(r"\n", "\n")
+    }
+}
+
 pub fn handle_bridge(client: &mut SocketClient, json: bool, action: BridgeAction) {
     match action {
         BridgeAction::Restart => {
@@ -12,6 +20,7 @@ pub fn handle_bridge(client: &mut SocketClient, json: bool, action: BridgeAction
         }
         BridgeAction::Send {
             text,
+            raw_text,
             service,
             to,
             append,
@@ -28,7 +37,7 @@ pub fn handle_bridge(client: &mut SocketClient, json: bool, action: BridgeAction
                 "append": append,
             });
             if let Some(t) = text {
-                params["text"] = serde_json::Value::String(t);
+                params["text"] = serde_json::Value::String(bridge_text(t, raw_text));
             }
             if let Some(f) = file {
                 params["file"] = serde_json::Value::String(f);
@@ -88,5 +97,36 @@ pub fn handle_bridge(client: &mut SocketClient, json: bool, action: BridgeAction
                 claim_timeout_ms,
             },
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bridge_text;
+
+    #[test]
+    fn quoted_newline_reaches_bridge_as_newline() {
+        let payload = serde_json::json!({
+            "text": bridge_text("first\\nsecond".to_string(), false),
+            "chat_id": 42,
+            "service": "telegram",
+        });
+
+        assert_eq!(
+            payload,
+            serde_json::json!({
+                "text": "first\nsecond",
+                "chat_id": 42,
+                "service": "telegram",
+            })
+        );
+    }
+
+    #[test]
+    fn raw_text_preserves_literal_newline_escape() {
+        assert_eq!(
+            bridge_text("first\\nsecond".to_string(), true),
+            r"first\nsecond"
+        );
     }
 }

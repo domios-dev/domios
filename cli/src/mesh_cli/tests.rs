@@ -1,7 +1,7 @@
 use super::api_map::cli_command_to_api;
 use super::parse_ip_port;
 use super::{MeshAction, MeshPeerAction};
-use crate::{Commands, UpdateAction};
+use crate::{BridgeAction, Commands, UpdateAction};
 
 fn update_cmd(action: Option<UpdateAction>, manifest_url: Option<String>) -> Commands {
     Commands::Update {
@@ -98,6 +98,29 @@ fn paste_get_and_list_over_mesh_map_to_remote_pasteboard() {
     assert_eq!(method, "GET");
     assert_eq!(path, "/api/pasteboard");
     assert!(body.is_none());
+}
+
+#[test]
+fn bridge_send_over_mesh_decodes_quoted_newline() {
+    let (method, path, body) = cli_command_to_api(&Commands::Bridge {
+        action: BridgeAction::Send {
+            text: Some("first\\nsecond".into()),
+            raw_text: false,
+            service: "telegram".into(),
+            to: 42,
+            append: false,
+            r#type: "text".into(),
+            file: None,
+            caption: None,
+            filename: None,
+            buttons: None,
+        },
+    });
+
+    assert_eq!(method, "POST");
+    assert_eq!(path, "/api/bridge/send");
+    let body: serde_json::Value = serde_json::from_str(&body.expect("body")).unwrap();
+    assert_eq!(body["text"], "first\nsecond");
 }
 
 #[test]
