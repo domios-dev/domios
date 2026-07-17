@@ -12,7 +12,7 @@ use crate::service::inject_verify::{
 use crate::service::ServiceContext;
 
 const TAIL_ROWS: usize = 8;
-const MAX_ENTER_ATTEMPTS: usize = 2;
+const MAX_ENTER_ATTEMPTS: usize = 6;
 
 fn transaction_locks() -> &'static Mutex<HashMap<String, Weak<Mutex<()>>>> {
     static LOCKS: OnceLock<Mutex<HashMap<String, Weak<Mutex<()>>>>> = OnceLock::new();
@@ -493,9 +493,14 @@ mod tests {
             result,
             Err(InjectionError::SubmitNeverConfirmed { .. })
         ));
+        assert_eq!(io.writes.borrow()[0], "paste:hello");
         assert_eq!(
-            &*io.writes.borrow(),
-            &["paste:hello", "enter:hello", "enter:hello"]
+            io.writes
+                .borrow()
+                .iter()
+                .filter(|write| write.as_str() == "enter:hello")
+                .count(),
+            MAX_ENTER_ATTEMPTS
         );
     }
 
@@ -590,8 +595,13 @@ mod tests {
         );
         assert!(run(&stale, "hello", true, tui(), opts()).is_err());
         assert_eq!(
-            &*stale.writes.borrow(),
-            &["paste:hello", "enter:hello", "enter:hello"]
+            stale
+                .writes
+                .borrow()
+                .iter()
+                .filter(|write| write.as_str() == "enter:hello")
+                .count(),
+            MAX_ENTER_ATTEMPTS
         );
 
         let progressed = ControlledTransport::new(
@@ -651,6 +661,48 @@ mod tests {
                 .filter(|write| write.starts_with("enter:"))
                 .count(),
             2
+        );
+    }
+
+    #[test]
+    fn startup_redraws_keep_retrying_until_the_tui_accepts_codeterm_input() {
+        let text = "-=-codeterm:pane label=CodeTerm pane=system-=-startup instruction";
+        let io = ControlledTransport::new(
+            Some(Frame {
+                tail: "> -=-codeterm:pane label=CodeTerm pane=system-=-startup instruction",
+                hash: 1,
+            }),
+            vec![
+                Some(Frame {
+                    tail: "> -=-codeterm:pane label=CodeTerm pane=system-=-startup instruction",
+                    hash: 2,
+                }),
+                Some(Frame {
+                    tail: "> -=-codeterm:pane label=CodeTerm pane=system-=-startup instruction",
+                    hash: 3,
+                }),
+                Some(Frame {
+                    tail: "working",
+                    hash: 4,
+                }),
+                Some(Frame {
+                    tail: "working stable",
+                    hash: 5,
+                }),
+            ],
+        );
+
+        let result = run(&io, text, true, tui(), opts()).unwrap();
+
+        assert!(result.submit_observed);
+        assert_eq!(
+            &*io.writes.borrow(),
+            &[
+                format!("paste:{text}"),
+                format!("enter:{text}"),
+                format!("enter:{text}"),
+                format!("enter:{text}"),
+            ]
         );
     }
 
@@ -852,8 +904,13 @@ mod tests {
             "a single absent generation must not count as submission"
         );
         assert_eq!(
-            &*blink.writes.borrow(),
-            &["paste:hello", "enter:hello", "enter:hello"]
+            blink
+                .writes
+                .borrow()
+                .iter()
+                .filter(|write| write.as_str() == "enter:hello")
+                .count(),
+            MAX_ENTER_ATTEMPTS
         );
 
         // Green twin: the same stream with one more quiet generation confirms.

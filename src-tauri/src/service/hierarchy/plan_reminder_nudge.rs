@@ -367,7 +367,7 @@ impl ServiceContext {
             PlanReminderTarget::Owner { plan_id } => self
                 .plan_store
                 .get(plan_id)
-                .map(|plan| format!("owner:{plan_id}:{}:{kind:?}", plan.updated_at))
+                .map(|plan| plan_reminder_state_key(plan_id, kind, &plan))
                 .unwrap_or_else(|| format!("owner:{plan_id}:{kind:?}")),
             PlanReminderTarget::Worker => format!("worker:{pane_id}:{kind:?}"),
         };
@@ -471,6 +471,23 @@ impl ServiceContext {
             .join("\n");
         Some(format!("Stale tasks recorded as drift:\n{listed}"))
     }
+}
+
+fn plan_reminder_state_key(
+    plan_id: &str,
+    kind: crate::service::plan::reminders::NudgeKind,
+    plan: &Plan,
+) -> String {
+    let tasks = plan
+        .tasks
+        .iter()
+        .map(|task| format!("{}:{:?}", task.id, task.status))
+        .collect::<Vec<_>>()
+        .join(",");
+    format!(
+        "owner:{plan_id}:{kind:?}:{:?}:{:?}:{tasks}",
+        plan.status, plan.mode
+    )
 }
 
 impl PlanReminderTarget {
@@ -724,6 +741,24 @@ mod tests {
             PlanMode::Execution,
             vec![task("open", TaskStatus::Pending, None)],
         )
+    }
+
+    #[test]
+    fn reminder_state_key_ignores_bookkeeping_timestamp_changes() {
+        let mut plan = owner_plan("orch");
+        let before = plan_reminder_state_key(
+            &plan.id,
+            crate::service::plan::reminders::NudgeKind::Orchestrator,
+            &plan,
+        );
+        plan.updated_at = 999_999;
+        let after = plan_reminder_state_key(
+            &plan.id,
+            crate::service::plan::reminders::NudgeKind::Orchestrator,
+            &plan,
+        );
+
+        assert_eq!(before, after);
     }
 
     #[test]
