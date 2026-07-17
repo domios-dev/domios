@@ -228,6 +228,7 @@ fn run<T: SubmitTransport>(
     }
 
     for attempt in 0..MAX_ENTER_ATTEMPTS {
+        let submit_deadline = Instant::now() + strategy_timeout(&strategy, opts.submit_timeout);
         let enter_generation = generation;
         let enter_hash = transport.observe().map_err(helper_to_closed)?.hash;
         let mut absent_candidate = None;
@@ -290,7 +291,10 @@ fn run<T: SubmitTransport>(
                     break;
                 }
             }
-            if !transport.wait_after(generation, deadline) {
+            if !transport.wait_after(generation, submit_deadline) {
+                if attempt + 1 < MAX_ENTER_ATTEMPTS && body_present {
+                    break;
+                }
                 return Err(InjectionError::SubmitNeverConfirmed {
                     waited: started.elapsed(),
                     screen_tail: observation.tail,
@@ -489,7 +493,10 @@ mod tests {
             result,
             Err(InjectionError::SubmitNeverConfirmed { .. })
         ));
-        assert_eq!(&*io.writes.borrow(), &["paste:hello", "enter:hello"]);
+        assert_eq!(
+            &*io.writes.borrow(),
+            &["paste:hello", "enter:hello", "enter:hello"]
+        );
     }
 
     #[test]
@@ -573,7 +580,7 @@ mod tests {
     }
 
     #[test]
-    fn submit_transaction_retries_only_on_new_generation() {
+    fn submit_transaction_retries_when_first_enter_has_no_screen_activity() {
         let stale = ControlledTransport::new(
             Some(Frame {
                 tail: "> hello",
@@ -582,7 +589,10 @@ mod tests {
             vec![None],
         );
         assert!(run(&stale, "hello", true, tui(), opts()).is_err());
-        assert_eq!(&*stale.writes.borrow(), &["paste:hello", "enter:hello"]);
+        assert_eq!(
+            &*stale.writes.borrow(),
+            &["paste:hello", "enter:hello", "enter:hello"]
+        );
 
         let progressed = ControlledTransport::new(
             Some(Frame {
@@ -590,17 +600,14 @@ mod tests {
                 hash: 1,
             }),
             vec![
+                None,
                 Some(Frame {
-                    tail: "> hello",
+                    tail: "working",
                     hash: 2,
                 }),
                 Some(Frame {
-                    tail: "working",
-                    hash: 3,
-                }),
-                Some(Frame {
                     tail: "working stable",
-                    hash: 4,
+                    hash: 3,
                 }),
             ],
         );
