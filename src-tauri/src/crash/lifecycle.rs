@@ -6,6 +6,10 @@ use serde::{Deserialize, Serialize};
 const LOOP_WINDOW_SECS: i64 = 300;
 const LOOP_THRESHOLD: u32 = 3;
 const MAX_BACKOFF_SECS: u64 = 30;
+const FAST_FAIL_SECS: i64 = 30;
+/// Healthy runtime the current epoch must accumulate before a recovered crash
+/// stops being presented as a live accusation.
+const HEALTH_PROOF_SECS: i64 = 120;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -65,9 +69,29 @@ pub struct SupervisorAction {
 pub struct WorkRecoveryPolicy {
     pub restore_session_snapshot: bool,
     pub resume_safe_idempotent: bool,
-    pub ambiguous_execution: String,
+    /// `None` until restored bindings prove work was in flight; absence of
+    /// evidence never becomes an ambiguous-work claim.
+    pub ambiguous_execution: Option<AmbiguousWork>,
     pub duplicate_worker_guard: String,
     pub report_route_guard: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AmbiguousWork {
+    pub restored_bindings: u32,
+    pub disposition: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct RestoredWorkEvidence {
+    pub restored_bindings: u32,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CrashPresentation {
+    Active,
+    Settled,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -83,6 +107,8 @@ pub struct RecoveryState {
     pub current: ProcessEpoch,
     pub last_crash: Option<CrashRecord>,
     pub last_clean_shutdown: Option<CleanShutdownRecord>,
+    /// Audit history stays in `last_crash`; this drives presentation only.
+    pub crash_presentation: CrashPresentation,
 }
 
 pub fn record_startup() -> RecoveryState {
@@ -115,10 +141,27 @@ pub fn record_startup() -> RecoveryState {
     let _ = std::fs::remove_file(pending_crash_path());
 
     RecoveryState {
+        crash_presentation: crash_presentation(&current, last_crash.as_ref()),
         current,
         last_crash,
         last_clean_shutdown: clean,
     }
+}
+
+/// Bind the ambiguous-work assessment to bindings the daemon actually restored
+/// from the crashed epoch. Without restored bindings the record makes no claim.
+pub fn assess_restored_work(evidence: RestoredWorkEvidence) {
+    let Some(current) = read_json::<ProcessEpoch>(&current_path()) else {
+        return;
+    };
+    let Some(mut crash) = read_json::<CrashRecord>(&last_crash_path()) else {
+        return;
+    };
+    if crash.new_epoch != current.epoch {
+        return;
+    }
+    crash.work_policy.ambiguous_execution = ambiguous_work(&evidence);
+    write_json(&last_crash_path(), &crash);
 }
 
 pub fn heartbeat() {
@@ -149,18 +192,44 @@ pub fn recovery_state() -> RecoveryState {
         build_hash: env!("BUILD_HASH").to_string(),
         platform: platform_name().to_string(),
     });
+    let last_crash: Option<CrashRecord> = read_json(&last_crash_path());
     RecoveryState {
+        crash_presentation: crash_presentation(&current, last_crash.as_ref()),
         current,
-        last_crash: read_json(&last_crash_path()),
+        last_crash,
         last_clean_shutdown: read_json(&last_clean_path()),
     }
 }
 
+/// A crash stops being presented once its own epoch proves healthy, or once a
+/// later epoch supersedes it. The record itself is never removed.
+fn crash_presentation(
+    current: &ProcessEpoch,
+    last_crash: Option<&CrashRecord>,
+) -> CrashPresentation {
+    let Some(crash) = last_crash else {
+        return CrashPresentation::Settled;
+    };
+    let healthy_for = current
+        .last_healthy_at
+        .saturating_sub(current.started_at)
+        .max(0);
+    if crash.new_epoch != current.epoch || healthy_for >= HEALTH_PROOF_SECS {
+        CrashPresentation::Settled
+    } else {
+        CrashPresentation::Active
+    }
+}
+
+/// Classification uses only what the dead epoch itself recorded. Time since the
+/// restart is downtime, not evidence — `PowerLossOrKill` comes solely from a
+/// supervisor that observed the kill (`pending_crash.json`).
 fn classify_previous(previous: ProcessEpoch, current: &ProcessEpoch, now: i64) -> CrashRecord {
-    let age = now.saturating_sub(previous.last_healthy_at);
-    let classification = if age > LOOP_WINDOW_SECS {
-        CrashClassification::PowerLossOrKill
-    } else if now.saturating_sub(previous.started_at) < 30 {
+    let healthy_lifetime = previous
+        .last_healthy_at
+        .saturating_sub(previous.started_at)
+        .max(0);
+    let classification = if healthy_lifetime < FAST_FAIL_SECS {
         CrashClassification::FastFail
     } else {
         CrashClassification::AbnormalExit
@@ -201,11 +270,18 @@ fn finalize_pending(pending: PendingCrashRecord, current: &ProcessEpoch) -> Cras
     }
 }
 
+fn ambiguous_work(evidence: &RestoredWorkEvidence) -> Option<AmbiguousWork> {
+    (evidence.restored_bindings > 0).then(|| AmbiguousWork {
+        restored_bindings: evidence.restored_bindings,
+        disposition: "needs-review/reassign".into(),
+    })
+}
+
 fn work_recovery_policy() -> WorkRecoveryPolicy {
     WorkRecoveryPolicy {
         restore_session_snapshot: true,
         resume_safe_idempotent: true,
-        ambiguous_execution: "needs-review/reassign".into(),
+        ambiguous_execution: None,
         duplicate_worker_guard:
             "restore bindings before spawn; never spawn for an existing live attempt".into(),
         report_route_guard: "route reports through restored owner/planner bindings".into(),
@@ -435,7 +511,7 @@ mod tests {
 
         let crash = classify_previous_if_unclean(previous, &clean, &current, 1_000)
             .expect("activity after the marker must remain a crash");
-        assert_eq!(crash.classification, CrashClassification::PowerLossOrKill);
+        assert_eq!(crash.classification, CrashClassification::AbnormalExit);
     }
 
     #[test]
@@ -488,12 +564,34 @@ mod tests {
     }
 
     #[test]
-    fn classifies_power_loss_or_kill_when_health_is_stale() {
+    fn long_downtime_alone_is_not_power_loss_or_kill() {
         let current = ProcessEpoch {
             epoch: "new".into(),
             pid: 2,
-            started_at: 1_000,
-            last_healthy_at: 1_000,
+            started_at: 900_000,
+            last_healthy_at: 900_000,
+            build_hash: "h2".into(),
+            platform: "linux".into(),
+        };
+        let previous = ProcessEpoch {
+            epoch: "old".into(),
+            pid: 1,
+            started_at: 10,
+            last_healthy_at: 5_000,
+            build_hash: "h1".into(),
+            platform: "linux".into(),
+        };
+        let record = classify_previous(previous, &current, 900_000);
+        assert_eq!(record.classification, CrashClassification::AbnormalExit);
+    }
+
+    #[test]
+    fn short_lived_previous_epoch_is_fast_fail_regardless_of_downtime() {
+        let current = ProcessEpoch {
+            epoch: "new".into(),
+            pid: 2,
+            started_at: 900_000,
+            last_healthy_at: 900_000,
             build_hash: "h2".into(),
             platform: "linux".into(),
         };
@@ -505,8 +603,142 @@ mod tests {
             build_hash: "h1".into(),
             platform: "linux".into(),
         };
-        let record = classify_previous(previous, &current, 1_000);
+        let record = classify_previous(previous, &current, 900_000);
+        assert_eq!(record.classification, CrashClassification::FastFail);
+    }
+
+    #[test]
+    fn power_loss_or_kill_survives_only_from_supervisor_observation() {
+        let current = ProcessEpoch {
+            epoch: "new".into(),
+            pid: 2,
+            started_at: 900_000,
+            last_healthy_at: 900_000,
+            build_hash: "h2".into(),
+            platform: "linux".into(),
+        };
+        let pending = PendingCrashRecord {
+            classification: CrashClassification::PowerLossOrKill,
+            previous: ProcessEpoch {
+                epoch: "old".into(),
+                pid: 1,
+                started_at: 10,
+                last_healthy_at: 5_000,
+                build_hash: "h1".into(),
+                platform: "linux".into(),
+            },
+            detected_at: 5_010,
+            supervisor_action: SupervisorAction {
+                external_restart_required: true,
+                backoff_ms: 1_000,
+                loop_protected: false,
+                crash_count_in_window: 1,
+            },
+        };
+        let record = finalize_pending(pending, &current);
         assert_eq!(record.classification, CrashClassification::PowerLossOrKill);
+    }
+
+    #[test]
+    fn fresh_crash_on_current_epoch_is_presented() {
+        let current = ProcessEpoch {
+            epoch: "new".into(),
+            pid: 2,
+            started_at: 1_000,
+            last_healthy_at: 1_010,
+            build_hash: "h".into(),
+            platform: "windows".into(),
+        };
+        let crash = classify_previous(previous_epoch(), &current, 1_000);
+        assert_eq!(
+            crash_presentation(&current, Some(&crash)),
+            CrashPresentation::Active
+        );
+    }
+
+    #[test]
+    fn proven_healthy_current_epoch_settles_crash_but_keeps_record() {
+        let mut current = ProcessEpoch {
+            epoch: "new".into(),
+            pid: 2,
+            started_at: 1_000,
+            last_healthy_at: 1_010,
+            build_hash: "h".into(),
+            platform: "windows".into(),
+        };
+        let crash = classify_previous(previous_epoch(), &current, 1_000);
+        assert_eq!(
+            crash_presentation(&current, Some(&crash)),
+            CrashPresentation::Active
+        );
+
+        current.last_healthy_at = current.started_at + HEALTH_PROOF_SECS;
+        assert_eq!(
+            crash_presentation(&current, Some(&crash)),
+            CrashPresentation::Settled,
+            "proven health must settle the warning"
+        );
+        assert_eq!(
+            crash.previous.pid, 41,
+            "audit record must survive the transition"
+        );
+    }
+
+    #[test]
+    fn crash_from_an_earlier_epoch_never_presents() {
+        let current = ProcessEpoch {
+            epoch: "newest".into(),
+            pid: 3,
+            started_at: 1_000,
+            last_healthy_at: 1_001,
+            build_hash: "h".into(),
+            platform: "windows".into(),
+        };
+        let superseded = ProcessEpoch {
+            epoch: "middle".into(),
+            pid: 2,
+            started_at: 500,
+            last_healthy_at: 600,
+            build_hash: "h".into(),
+            platform: "windows".into(),
+        };
+        let crash = classify_previous(previous_epoch(), &superseded, 500);
+        assert_eq!(
+            crash_presentation(&current, Some(&crash)),
+            CrashPresentation::Settled
+        );
+    }
+
+    #[test]
+    fn ambiguous_work_absent_without_restored_bindings() {
+        assert_eq!(work_recovery_policy().ambiguous_execution, None);
+        assert_eq!(
+            ambiguous_work(&RestoredWorkEvidence {
+                restored_bindings: 0
+            }),
+            None
+        );
+    }
+
+    #[test]
+    fn ambiguous_work_reports_real_restored_bindings() {
+        let work = ambiguous_work(&RestoredWorkEvidence {
+            restored_bindings: 2,
+        })
+        .expect("restored bindings are real evidence");
+        assert_eq!(work.restored_bindings, 2);
+        assert_eq!(work.disposition, "needs-review/reassign");
+    }
+
+    fn previous_epoch() -> ProcessEpoch {
+        ProcessEpoch {
+            epoch: "old".into(),
+            pid: 41,
+            started_at: 10,
+            last_healthy_at: 500,
+            build_hash: "h1".into(),
+            platform: "windows".into(),
+        }
     }
 
     #[test]
