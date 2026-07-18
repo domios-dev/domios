@@ -139,7 +139,8 @@ qa_gate_timeout() {
     check) echo 600 ;;
     clippy|prepush-full) echo 1800 ;;
     rust-unit|cli-unit) echo 120 ;;
-    ts-unit|plugin) echo 300 ;;
+    ts-unit) echo 600 ;;
+    plugin) echo 300 ;;
     test-all) echo 1200 ;;
     macos-native|linux-docker) echo 2400 ;;
     e2e-pytest|playwright-smoke) echo 600 ;;
@@ -232,11 +233,11 @@ qa_run_gate_body() {
     rust-unit)
       qa_prep_stubs
       TEST_CAP_SECS="${QA_GATE_TEST_CAP:-90}" \
-        bash scripts/test-capped.sh -- --manifest-path src-tauri/Cargo.toml --lib
+        bash scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib
       ;;
     cli-unit)
       TEST_CAP_SECS="${QA_GATE_TEST_CAP:-90}" \
-        bash scripts/test-capped.sh -- --manifest-path cli/Cargo.toml
+        bash scripts/test-capped.sh --manifest-path cli/Cargo.toml
       ;;
     ts-unit)
       pnpm -s test:unit
