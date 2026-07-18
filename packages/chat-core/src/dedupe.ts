@@ -250,6 +250,7 @@ export function collapseDuplicateUserMessages<T extends NormalizedChatMessage>(m
       && message.type === "user"
       && content.length > 0
       && !message.attachments?.length
+      && !(prev.seq != null && message.seq != null && prev.seq !== message.seq)
       && content === normalizeChatText(prev.content).toLowerCase()
     ) {
       const pt = timestampMs(prev.timestamp);
