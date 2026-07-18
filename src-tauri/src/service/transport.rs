@@ -1,6 +1,6 @@
 //! `AgentTransport` — the runtime half of a provider behind one seam, plus the
 //! atomic spawn entry the frontend calls. Both impls wrap existing substrates
-//! ([`PtyTransport`] → the FE-delivered launch command; [`ChatTransport`] →
+//! ([`PtyTransport`] → backend-owned PTY launch; [`ChatTransport`] →
 //! `chatbackend_launch_async`). [`ServiceContext::spawn_pane_atomic`] builds the
 //! pane and kicks launch async, returning a snapshot the client applies once.
 
@@ -36,8 +36,8 @@ fn default_true() -> bool {
     true
 }
 
-/// Authoritative result the client applies once. `launch_command` is `Some` only
-/// for PTY (the FE types it when ready); chat opens its session in the background, reporting `None`.
+/// Authoritative result the client applies once. PTY and chat launch work stays
+/// in the backend, so no mounted frontend surface is required to start either.
 #[derive(Debug, Clone, Serialize)]
 pub struct AtomicSpawn {
     pub snapshot: MultiplexerSnapshot,
@@ -62,8 +62,7 @@ pub struct TransportLaunchCtx<'a> {
 }
 
 /// The runtime half of a provider. `launch` never blocks pane visibility: it
-/// either returns the command the FE delivers (PTY) or kicks the network
-/// openSession onto a background task and returns `None` (chat).
+/// kicks its work onto a backend task and returns `None`.
 pub trait AgentTransport {
     fn launch(
         &self,
@@ -79,6 +78,14 @@ fn finish_launch<F: FnOnce()>(
     rollback: F,
 ) -> Result<Option<String>, String> {
     launch.inspect_err(|_| rollback())
+}
+
+fn backend_owned_pty_launch(
+    launch_command: String,
+    dispatch: impl FnOnce(String),
+) -> Option<String> {
+    dispatch(launch_command);
+    None
 }
 
 pub struct PtyTransport;
@@ -128,12 +135,25 @@ impl AgentTransport for PtyTransport {
             session_id: None,
             structured_prompt_server,
         };
-        svc.agent_registry
+        let launch_command = svc
+            .agent_registry
             .with_provider(ctx.provider_id, |p| {
                 crate::agent::stub_launch::apply(ctx.provider_id, p.build_launch_command(&params))
             })
-            .map(Some)
-            .ok_or_else(|| format!("Unknown agent provider: {}", ctx.provider_id))
+            .ok_or_else(|| format!("Unknown agent provider: {}", ctx.provider_id))?;
+        Ok(backend_owned_pty_launch(launch_command, |launch_command| {
+            crate::service::orchestrator::launch_agent_in_background(
+                svc.clone(),
+                ctx.pane_id.to_string(),
+                ctx.tab_id.to_string(),
+                ctx.workspace_id.to_string(),
+                launch_command,
+                ctx.provider_id.to_string(),
+                None,
+                None,
+                None,
+            );
+        }))
     }
 }
 
