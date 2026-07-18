@@ -360,6 +360,7 @@ export function TeamUnit({
   const [name, setName] = useState(team.name?.trim() || "Team");
   const [renameError, setRenameError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
+  const teamTabCount = managerCount + workerCount;
   const buckets = useMemo(
     () => (plan ? deriveTeamTaskBuckets(plan, panes) : EMPTY_BUCKETS),
     [plan, panes],
@@ -556,10 +557,22 @@ export function TeamUnit({
         type="button"
         data-testid="team-collapse-toggle"
         className="sidebar-team-disclosure-bar"
-        aria-label={expanded ? "Collapse Team" : "Expand Team"}
+        aria-label={expanded
+          ? "Hide Team tabs"
+          : `Show Team tabs, ${teamTabCount} ${teamTabCount === 1 ? "tab" : "tabs"}`}
         aria-expanded={expanded}
         onClick={toggleExpanded}
-      />
+      >
+        <span className="sidebar-team-disclosure-glyph" aria-hidden="true" />
+        <span className="sidebar-team-disclosure-label" aria-hidden="true">
+          {expanded ? "Hide" : "Show"}
+        </span>
+        {!expanded && (
+          <span className="sidebar-team-disclosure-count" aria-hidden="true">
+            {teamTabCount} {teamTabCount === 1 ? "tab" : "tabs"}
+          </span>
+        )}
+      </button>
     </section>
   );
 }
