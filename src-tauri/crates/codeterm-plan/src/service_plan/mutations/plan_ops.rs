@@ -61,9 +61,20 @@ impl PlanStore {
             }
         }
         // one root (not a sub-path like src-tauri/ or the daemon cwd).
-        let project_path = paths::project_root(std::path::Path::new(&project_path))
-            .display()
-            .to_string();
+        let project_path = paths::project_root(std::path::Path::new(&project_path));
+        let project_metadata = std::fs::metadata(&project_path).map_err(|error| {
+            PlanError::Io(format!(
+                "read project path {}: {error}",
+                project_path.display()
+            ))
+        })?;
+        if !project_metadata.is_dir() {
+            return Err(PlanError::Io(format!(
+                "project path is not a directory: {}",
+                project_path.display()
+            )));
+        }
+        let project_path = project_path.display().to_string();
         let mut plan = Plan::new(title, project_path, owner);
         if self.id_taken(&plan.id) {
             plan.id = self.mint_id("pl");
