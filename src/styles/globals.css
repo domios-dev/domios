@@ -1197,11 +1197,13 @@ button,
 /* New-session picker v2 (task_234c14f0) — mode cards, workspace help,
    pair-assembly moment, ambient wash, staggered reveal. */
 .new-session-picker {
-  position: relative;
-  z-index: 5;
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
   pointer-events: auto;
 }
 .new-session-picker-card {
+  min-width: 0;
   pointer-events: auto;
 }
 .picker-mode-cards {
