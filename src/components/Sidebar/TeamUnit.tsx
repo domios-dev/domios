@@ -525,26 +525,6 @@ export function TeamUnit({
           ))}
         </span>
       )}
-      <button
-        type="button"
-        data-testid="team-collapse-toggle"
-        className="sidebar-team-disclosure-bar"
-        aria-label={expanded
-          ? "Hide Team tabs"
-          : `Show Team tabs, ${teamTabCount} ${teamTabCount === 1 ? "tab" : "tabs"}`}
-        aria-expanded={expanded}
-        onClick={toggleExpanded}
-      >
-        <span className="sidebar-team-disclosure-glyph" aria-hidden="true" />
-        <span className="sidebar-team-disclosure-label" aria-hidden="true">
-          {expanded ? "Hide" : "Show"}
-        </span>
-        {!expanded && (
-          <span className="sidebar-team-disclosure-count" aria-hidden="true">
-            {teamTabCount} {teamTabCount === 1 ? "tab" : "tabs"}
-          </span>
-        )}
-      </button>
       {expanded && (
         <div className="sidebar-team-body">
           {managerCount > 0 && (
@@ -576,6 +556,26 @@ export function TeamUnit({
           )}
         </div>
       )}
+      <button
+        type="button"
+        data-testid="team-collapse-toggle"
+        className="sidebar-team-disclosure-bar"
+        aria-label={expanded
+          ? "Hide Team tabs"
+          : `Show Team tabs, ${teamTabCount} ${teamTabCount === 1 ? "tab" : "tabs"}`}
+        aria-expanded={expanded}
+        onClick={toggleExpanded}
+      >
+        <span className="sidebar-team-disclosure-glyph" aria-hidden="true" />
+        <span className="sidebar-team-disclosure-label" aria-hidden="true">
+          {expanded ? "Hide" : "Show"}
+        </span>
+        {!expanded && (
+          <span className="sidebar-team-disclosure-count" aria-hidden="true">
+            {teamTabCount} {teamTabCount === 1 ? "tab" : "tabs"}
+          </span>
+        )}
+      </button>
     </section>
   );
 }
