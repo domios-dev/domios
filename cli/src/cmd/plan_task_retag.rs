@@ -1,9 +1,9 @@
-use crate::client::SocketClient;
+use crate::client::RpcClient;
 use crate::cmd::plan::call_plan_rpc;
 use serde_json::{json, Value};
 
 pub fn run(
-    client: &mut SocketClient,
+    client: &mut dyn RpcClient,
     json: bool,
     plan_id: String,
     task_id: String,

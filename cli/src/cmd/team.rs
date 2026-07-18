@@ -1,10 +1,12 @@
 use serde_json::{json, Value};
 
 use crate::args::team::TeamAction;
-use crate::client::SocketClient;
+use crate::client::RpcClient;
 
-pub fn handle(client: &mut SocketClient, json_output: bool, action: TeamAction) {
-    let caller_pane_id = std::env::var("CODETERM_PANE_ID").ok();
+pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction) {
+    let caller_pane_id = (!client.is_remote())
+        .then(|| std::env::var("CODETERM_PANE_ID").ok())
+        .flatten();
     let result = match action {
         TeamAction::List => client.call("team.list", None),
         TeamAction::Show { team_id } => {

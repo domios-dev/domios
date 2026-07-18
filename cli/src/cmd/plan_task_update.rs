@@ -1,4 +1,4 @@
-use crate::client::SocketClient;
+use crate::client::RpcClient;
 use crate::cmd::plan::{call_plan_rpc, maybe_inject_caller_pane, resolve_text};
 use serde_json::{json, Value};
 
@@ -130,7 +130,7 @@ fn build_params(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run(
-    client: &mut SocketClient,
+    client: &mut dyn RpcClient,
     plan_id: Option<String>,
     task_id: String,
     name: Option<String>,

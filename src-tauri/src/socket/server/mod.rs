@@ -10,6 +10,7 @@ mod agent_commands;
 mod bridge;
 mod canvas;
 mod cron;
+mod dispatch;
 mod mem;
 mod notification;
 mod orchestration;
@@ -42,6 +43,8 @@ mod services;
 mod spec;
 mod team;
 mod workspace;
+
+pub(crate) use dispatch::dispatch_service_rpc;
 
 use std::io::{self, BufRead, BufReader, Read, Write};
 
@@ -87,12 +90,12 @@ struct JsonRpcResponse {
     error: Option<JsonRpcError>,
 }
 
-#[derive(Debug, Serialize)]
-pub(super) struct JsonRpcError {
-    pub(super) code: i32,
-    pub(super) message: String,
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct JsonRpcError {
+    pub(crate) code: i32,
+    pub(crate) message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) data: Option<serde_json::Value>,
+    pub(crate) data: Option<serde_json::Value>,
 }
 
 impl JsonRpcResponse {
@@ -417,7 +420,7 @@ fn handle_connection(
                         // We surface a real JSON-RPC error instead.
                         let dispatched =
                             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                dispatch(
+                                dispatch::dispatch(
                                     &req.method,
                                     req.params,
                                     mux,
@@ -507,215 +510,6 @@ fn is_disconnected_client(e: &io::Error) -> bool {
             | io::ErrorKind::NotConnected
             | io::ErrorKind::UnexpectedEof
     )
-}
-
-// ── Dispatch ────────────────────────────────────────────────────────
-
-fn dispatch(
-    method: &str,
-    params: Option<serde_json::Value>,
-    mux: &MuxState,
-    _pty: &PtyState,
-    notif: &NotifState,
-    app: &AppHandle,
-    _output_buf: &OutputBufferState,
-    svc: &ServiceState,
-) -> Result<serde_json::Value, JsonRpcError> {
-    // System methods are tiny — handle inline.
-    match method {
-        "system.identify" => {
-            return Ok(serde_json::json!({
-                "name": "CodeTerm",
-                "version": env!("CARGO_PKG_VERSION"),
-                "platform": std::env::consts::OS,
-                "features": ["multiplexer", "agent-detection", "notifications"]
-            }));
-        }
-        "system.capabilities" => {
-            let methods = vec![
-                "system.identify",
-                "system.capabilities",
-                "workspace.list",
-                "workspace.create",
-                "workspace.focus",
-                "workspace.rename",
-                "workspace.close",
-                "workspace.move_tab",
-                "workspace.recently_closed",
-                "workspace.reopen_closed",
-                "workspace.reopen_closed_group",
-                "pane.list",
-                "pane.focus",
-                "pane.close",
-                "pane.send_text",
-                "pane.get_output",
-                "pane.rename",
-                "pane.resize",
-                "pane.kill_pty",
-                "browser.open",
-                "notification.create",
-                "notification.list",
-                "notification.clear",
-                "agent.list",
-                "agent.hierarchy",
-                "agent.spawn",
-                "agent.set_role",
-                "agent.clear_role",
-                "agent.status",
-                "agent.children",
-                "agent.link",
-                "agent.report",
-                "agent.reports",
-                "orchestration.new",
-                "team.list",
-                "team.show",
-                "team.rename",
-                "team.close",
-                "team.adopt_plan",
-                "orchestrator.refresh",
-                "plan.create",
-                "plan.adopt",
-                "plan.batch",
-                "plan.handoff.create",
-                "plan.handoff.list",
-                "plan.handoff.show",
-                "plan.handoff.reseed",
-                "plan.list",
-                "plan.get",
-                "plan.goal.set",
-                "plan.goal.show",
-                "plan.spec",
-                "plan.files",
-                "plan.tags",
-                "plan.update",
-                "plan.mode.set",
-                "plan.planning.set",
-                "plan.archive",
-                "plan.delete",
-                "plan.transfer",
-                "plan.disown",
-                "plan.claim",
-                "plan.ingest",
-                "plan.section.add",
-                "plan.section.update",
-                "plan.section.attach",
-                "plan.section.rm",
-                "plan.kinds.set",
-                "plan.tag_facets.set",
-                "plan.task.add",
-                "plan.task.update",
-                "plan.task.attach",
-                "plan.task.close",
-                "plan.task.assign",
-                "plan.task.dispatch",
-                "plan.task.attempts",
-                "plan.task.attempt.show",
-                "plan.task.respawn",
-                "plan.task.compete",
-                "plan.task.judge",
-                "plan.task.rm",
-                "plan.milestone.add",
-                "plan.milestone.update",
-                "plan.milestone.rm",
-                "plan.stride.add",
-                "plan.skills.list",
-                "plan.skills.show",
-                "plan.retrospective",
-                "plan.loop.create",
-                "plan.loop.set",
-                "plan.loop.status",
-                "plan.loop.stop",
-                "plan.loop.record",
-                "plan.layout.set",
-                "plan.note.add",
-                "plan.note.update",
-                "plan.element.add",
-                "plan.element.update",
-                "plan.element.rm",
-                "plan.element.list",
-                "plan.element.show",
-                "spec.create",
-                "spec.list",
-                "spec.show",
-                "spec.files",
-                "spec.section.add",
-                "spec.section.update",
-                "spec.section.rm",
-                "spec.link.add",
-                "spec.link.rm",
-                "spec.link.list",
-                "effort.show",
-                "effort.link",
-                "task.list",
-                "task.show",
-                "task.take",
-                "task.drop",
-                "task.add",
-                "canvas.focus",
-                "canvas.filter",
-                "cron.list",
-                "cron.get",
-                "cron.create",
-                "cron.update",
-                "cron.delete",
-                "cron.enable",
-                "cron.disable",
-                "cron.trigger",
-                "cron.cancel",
-                "cron.history",
-                "cron.complete",
-                "services.list",
-                "services.create",
-                "services.get",
-                "services.update",
-                "services.delete",
-                "services.regenerate_token",
-                "activity.list",
-                "bridge.send",
-                "bridge.react",
-                "bridge.restart",
-                "mem.stats",
-                "mem.search",
-            ];
-            return Ok(serde_json::json!({ "methods": methods }));
-        }
-        #[cfg(debug_assertions)]
-        "debug.crash" => {
-            let kind = get_string_param(&params, "kind")?;
-            crate::crash::trigger_test_crash(&kind).map_err(|e| JsonRpcError {
-                code: -32602,
-                message: e,
-                data: None,
-            })?;
-            return Ok(serde_json::json!({"ok": true, "kind": kind}));
-        }
-        _ => {}
-    }
-
-    let prefix = method.split(['.', ':']).next().unwrap_or("");
-    match prefix {
-        "workspace" => workspace::dispatch(method, &params, mux, app, svc),
-        "team" => team::dispatch(method, &params, mux, svc),
-        "pane" | "agents" | "browser" => pane::dispatch(method, &params, mux, app, svc),
-        "notification" => notification::dispatch(method, &params, notif, app),
-        "agent" => agent::dispatch(method, &params, app, svc),
-        "orchestration" => orchestration::dispatch(method, &params, app, svc),
-        "orchestrator" => orchestrator::dispatch(method, &params, app, svc),
-        "plan" if plan_mode::handles(method) => plan_mode::dispatch(method, &params, app, svc),
-        "plan" | "task" => plan::dispatch(method, &params, app, svc),
-        "canvas" => canvas::dispatch(method, &params, app),
-        "spec" | "effort" => spec::dispatch(method, &params, app, svc),
-        "plugin" => agent_commands::dispatch(method, &params, svc),
-        "cron" => cron::dispatch(method, &params, app, svc),
-        "services" | "activity" => services::dispatch(method, &params, app, svc),
-        "bridge" => bridge::dispatch(method, &params, svc),
-        "mem" => mem::dispatch(method, params, svc),
-        _ => Err(JsonRpcError {
-            code: -32601,
-            message: "Method not found".to_string(),
-            data: None,
-        }),
-    }
 }
 
 /// Extract a required string parameter from JSON-RPC params.

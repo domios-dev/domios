@@ -1,10 +1,10 @@
 use serde_json::{json, Value};
 
-use crate::client::SocketClient;
+use crate::client::RpcClient;
 
 use super::{call, maybe_inject_caller_pane};
 
-fn plan_state_value(client: &mut SocketClient, plan_id: Option<String>) -> Result<Value, String> {
+fn plan_state_value(client: &mut dyn RpcClient, plan_id: Option<String>) -> Result<Value, String> {
     let mut params = json!({});
     if let Some(plan_id) = plan_id {
         params["plan_id"] = json!(plan_id);
@@ -14,7 +14,7 @@ fn plan_state_value(client: &mut SocketClient, plan_id: Option<String>) -> Resul
 }
 
 pub fn state(
-    client: &mut SocketClient,
+    client: &mut dyn RpcClient,
     json: bool,
     plan_id: Option<String>,
 ) -> Result<Option<Value>, String> {
@@ -27,7 +27,7 @@ pub fn state(
 }
 
 pub fn lanes(
-    client: &mut SocketClient,
+    client: &mut dyn RpcClient,
     json: bool,
     plan_id: Option<String>,
     stale: bool,

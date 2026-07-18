@@ -1,11 +1,11 @@
 use crate::args::plan::PlanReviewAction;
-use crate::client::SocketClient;
+use crate::client::RpcClient;
 use serde_json::{json, Value};
 
 use super::{call_plan_rpc, maybe_inject_caller_pane, owner_from_env};
 
 pub(super) fn handle(
-    client: &mut SocketClient,
+    client: &mut dyn RpcClient,
     json_output: bool,
     action: PlanReviewAction,
 ) -> Result<Option<Value>, String> {

@@ -1,7 +1,7 @@
 use std::io::Read;
 
 use crate::args::task::{CanvasAction, TaskAction};
-use crate::client::SocketClient;
+use crate::client::RpcClient;
 use crate::cmd::hints::{
     extract_hints_from_value, maybe_orchestration_reminder, print_hints_stderr, push_hints,
     task_model_hint, task_quality_guard_hint, task_sections_hint,
@@ -33,25 +33,31 @@ fn resolve_text(value: Option<String>, file: Option<String>) -> Result<Option<St
     }
 }
 
-fn call(client: &mut SocketClient, method: &str, params: Value) -> Result<Value, String> {
+fn call(client: &mut dyn RpcClient, method: &str, params: Value) -> Result<Value, String> {
     client
         .call_detailed(method, Some(params.clone()))
         .map_err(|err| render_plan_call_error(err, &params))
 }
 
-fn caller_pane() -> Option<String> {
+fn caller_pane(client: &dyn RpcClient) -> Option<String> {
+    if client.is_remote() {
+        return None;
+    }
     std::env::var("CODETERM_PANE_ID")
         .ok()
         .filter(|s| !s.is_empty())
 }
 
-fn cwd_project() -> Option<String> {
+fn cwd_project(client: &dyn RpcClient) -> Option<String> {
+    if client.is_remote() {
+        return None;
+    }
     std::env::current_dir()
         .ok()
         .map(|path| path.display().to_string())
 }
 
-pub fn handle_task(client: &mut SocketClient, json: bool, action: TaskAction) {
+pub fn handle_task(client: &mut dyn RpcClient, json: bool, action: TaskAction) {
     match run_task(client, json, action) {
         Ok((val, show_opts)) => print_task_result(json, &val, show_opts),
         Err(e) => {
@@ -61,7 +67,7 @@ pub fn handle_task(client: &mut SocketClient, json: bool, action: TaskAction) {
     }
 }
 
-pub fn handle_canvas(client: &mut SocketClient, json: bool, action: CanvasAction) {
+pub fn handle_canvas(client: &mut dyn RpcClient, json: bool, action: CanvasAction) {
     let result = match action {
         CanvasAction::Focus { task, pane, plan } => {
             let mut params = json!({});
@@ -88,7 +94,7 @@ pub fn handle_canvas(client: &mut SocketClient, json: bool, action: CanvasAction
 }
 
 fn run_task(
-    client: &mut SocketClient,
+    client: &mut dyn RpcClient,
     _json_output: bool,
     action: TaskAction,
 ) -> Result<(Value, Option<TaskShowOpts>), String> {
@@ -107,10 +113,10 @@ fn run_task(
                 "mine": mine,
                 "unassigned": unassigned,
             });
-            if let Some(project) = cwd_project() {
+            if let Some(project) = cwd_project(client) {
                 params["project"] = json!(project);
             }
-            if let Some(caller) = caller_pane() {
+            if let Some(caller) = caller_pane(client) {
                 params["caller_pane_id"] = json!(caller);
             }
             if let Some(plan_id) = plan {
@@ -135,7 +141,9 @@ fn run_task(
             )
         }),
         TaskAction::Take { task_id } => {
-            let caller = caller_pane().ok_or("CODETERM_PANE_ID is required for task take")?;
+            let caller = caller_pane(client).ok_or(
+                "task take requires a pane on the target machine and is unavailable over mesh",
+            )?;
             call(
                 client,
                 "task.take",
@@ -173,10 +181,10 @@ fn run_task(
                 "name": name,
                 "type": kind.unwrap_or_else(|| "task".to_string()),
             });
-            if let Some(project) = cwd_project() {
+            if let Some(project) = cwd_project(client) {
                 params["project"] = json!(project);
             }
-            if let Some(caller) = caller_pane() {
+            if let Some(caller) = caller_pane(client) {
                 params["caller_pane_id"] = json!(caller);
                 params["owner"] = json!({ "pane_id": caller });
             }
