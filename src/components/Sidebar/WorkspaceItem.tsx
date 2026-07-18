@@ -137,18 +137,21 @@ function WorkspaceItemInner({
             title={isExpanded ? "Collapse" : "Expand"}
           />
         )}
-        {/* Icon + name (click to activate, double-click to rename) */}
-        <div className={`flex items-center min-w-0 ${touchMode ? "gap-2.5" : "gap-2"}`} onClick={onClick}>
-          {!detailHeader && (workspace.protected ? (
-            <span className="relative shrink-0 flex items-center justify-center w-[14px] h-[14px]">
-              <ShieldCheckIcon style={{ stroke: "var(--ct-muted-fg)" }} className="shrink-0" />
-            </span>
-          ) : (
-            <FolderIcon open={isExpanded} className="shrink-0" />
-          ))}
-          {editing ? (
+        {/* Icon + name. Editing swaps to a labelled input; a tree row is a real
+            activator button; a detail header is a heading, not a button. Never
+            nest an input or a button inside another interactive element. */}
+        {editing ? (
+          <div className={`flex items-center min-w-0 ${touchMode ? "gap-2.5" : "gap-2"}`}>
+            {!detailHeader && (workspace.protected ? (
+              <span className="relative shrink-0 flex items-center justify-center w-[14px] h-[14px]">
+                <ShieldCheckIcon style={{ stroke: "var(--ct-muted-fg)" }} className="shrink-0" />
+              </span>
+            ) : (
+              <FolderIcon open={isExpanded} className="shrink-0" />
+            ))}
             <input
               autoFocus
+              aria-label={`Rename workspace ${workspace.name}`}
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
               onBlur={commitRename}
@@ -156,18 +159,41 @@ function WorkspaceItemInner({
               onClick={(e) => e.stopPropagation()}
               className={`${touchMode ? `${workspaceTouchText} py-1` : `${workspaceText} py-0`} bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 w-full outline-none`}
             />
-          ) : (
+          </div>
+        ) : detailHeader ? (
+          <div
+            className={`flex items-center min-w-0 ${touchMode ? "gap-2.5" : "gap-2"}`}
+            onClick={onClick}
+          >
             <span
               className={`${touchMode ? workspaceTouchText : workspaceText} font-medium truncate`}
               onDoubleClick={handleDoubleClick}
               title={workspace.cwd || undefined}
-              role={detailHeader ? "heading" : undefined}
-              aria-level={detailHeader ? 3 : undefined}
+              role="heading"
+              aria-level={3}
             >
               {workspace.name}
             </span>
-          )}
-        </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            aria-label={`Open workspace ${workspace.name}`}
+            className={`flex items-center min-w-0 bg-transparent border-0 p-0 text-inherit font-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
+            onClick={onClick}
+          >
+            {workspace.protected ? (
+              <span className="relative shrink-0 flex items-center justify-center w-[14px] h-[14px]">
+                <ShieldCheckIcon style={{ stroke: "var(--ct-muted-fg)" }} className="shrink-0" />
+              </span>
+            ) : (
+              <FolderIcon open={isExpanded} className="shrink-0" />
+            )}
+            <span className={`${touchMode ? workspaceTouchText : workspaceText} font-medium truncate`} onDoubleClick={handleDoubleClick} title={workspace.cwd || undefined}>
+              {workspace.name}
+            </span>
+          </button>
+        )}
         <span className={`${workspaceCountText} text-[var(--ct-muted)]`}>
           {workspace.tabs.length}
         </span>
