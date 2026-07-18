@@ -21,6 +21,7 @@ import { ModeCards, WorkspaceRow } from "./NewSessionPickerParts";
 import { FloatingTooltip } from "../shared/FloatingTooltip";
 import { Button } from "../shared/Button";
 import { X } from "lucide-react";
+import { createPortal } from "react-dom";
 
 export function NewSessionPicker({
   workspaceId,
@@ -324,10 +325,10 @@ export function NewSessionPicker({
   const orchestratorProviderId = choice.mode === "pair" ? choice.orchestratorProviderId : singleProviderId;
   const plannerProviderId = choice.mode === "pair" ? choice.plannerProviderId : singleProviderId;
 
-  return (
+  return createPortal(
     <div
       data-testid="new-session-picker"
-      className="new-session-picker fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-black/45 p-6 backdrop-blur-sm"
+      className="new-session-picker fixed inset-0 z-[1000] flex items-start justify-center overflow-y-auto overflow-x-hidden bg-black/55 p-6 backdrop-blur-sm"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !busy) onClose();
       }}
@@ -338,7 +339,7 @@ export function NewSessionPicker({
         aria-modal="true"
         aria-labelledby="new-session-picker-title"
         tabIndex={-1}
-        className="new-session-picker-card picker-stagger relative max-h-[calc(100vh-3rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-[var(--ct-border)] bg-[var(--ct-surface)] p-5 shadow-2xl outline-none"
+        className="new-session-picker-card picker-stagger relative my-auto w-full max-w-lg overflow-hidden rounded-xl border border-[var(--ct-border)] bg-[var(--ct-surface)] p-5 shadow-2xl outline-none"
       >
         <span
           aria-hidden
@@ -479,12 +480,12 @@ export function NewSessionPicker({
 
       {claudeModalOpen && (
         <>
-          <div className="fixed inset-0 z-50 bg-black/40" onClick={() => setClaudeModalOpen(false)} />
+          <div className="fixed inset-0 z-[1010] bg-black/40" onClick={() => setClaudeModalOpen(false)} />
           <div
             role="dialog"
             aria-modal="true"
             aria-label="Claude launch options"
-            className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-lg shadow-2xl w-[320px] overflow-hidden"
+            className="fixed z-[1010] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-lg shadow-2xl w-[320px] overflow-hidden"
           >
             <div className="px-4 pt-4 pb-2">
               <div className="text-[13px] font-medium text-[var(--ct-fg)]">Spawn Claude</div>
@@ -516,6 +517,7 @@ export function NewSessionPicker({
           </div>
         </>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }
