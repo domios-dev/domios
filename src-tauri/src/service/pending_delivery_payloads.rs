@@ -222,7 +222,7 @@ impl PendingDeliveryPayloadStore {
 #[cfg(windows)]
 fn restrict_windows_acl(path: &Path) -> std::io::Result<()> {
     #[cfg(test)]
-    ACL_SETUP_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    ACL_SETUP_CALLS.with(|calls| calls.set(calls.get() + 1));
     let username = std::env::var("USERNAME")
         .ok()
         .filter(|username| !username.is_empty())
@@ -261,7 +261,14 @@ fn restrict_windows_acl(path: &Path) -> std::io::Result<()> {
 }
 
 #[cfg(all(windows, test))]
-static ACL_SETUP_CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+thread_local! {
+    static ACL_SETUP_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(all(windows, test))]
+fn acl_setup_calls() -> usize {
+    ACL_SETUP_CALLS.with(std::cell::Cell::get)
+}
 
 #[cfg(test)]
 mod tests {
@@ -443,7 +450,7 @@ mod tests {
         let second_digest = digest(second);
         let store = PendingDeliveryPayloadStore::open(temp.path(), &HashSet::new()).unwrap();
         #[cfg(windows)]
-        let calls_after_open = ACL_SETUP_CALLS.load(std::sync::atomic::Ordering::Relaxed);
+        let calls_after_open = acl_setup_calls();
 
         store.write(&first_digest, first).unwrap();
         store
@@ -451,10 +458,7 @@ mod tests {
             .unwrap();
 
         #[cfg(windows)]
-        assert_eq!(
-            ACL_SETUP_CALLS.load(std::sync::atomic::Ordering::Relaxed),
-            calls_after_open
-        );
+        assert_eq!(acl_setup_calls(), calls_after_open);
     }
 
     #[test]
