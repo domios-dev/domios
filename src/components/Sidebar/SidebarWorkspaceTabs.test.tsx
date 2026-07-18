@@ -269,9 +269,9 @@ test("team menu enables staffing only for a Team with a manager", async () => {
   assert(trigger.tabIndex === 0, "team menu trigger remains keyboard reachable for the focus swap");
   assert(/\.sidebar-team-unit\s*\{[^}]*margin:\s*4px 0;[^}]*background:\s*color-mix\(in srgb, var\(--ct-fg\) 3%, transparent\);/.test(sidebarStyles), "Team cards use lighter tint and compact vertical cadence");
   assert(/\.sidebar-team-header\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto;[^}]*gap:\s*6px;[^}]*margin:\s*0;[^}]*padding:\s*6px 7px 4px 10px;/.test(sidebarStyles), "Team header reclaims the former chevron column");
-  assert(/\.sidebar-team-disclosure-bar\s*\{[^}]*position:\s*relative;[^}]*width:\s*100%;[^}]*height:\s*16px;/.test(sidebarStyles), "Team disclosure is a full-width bottom handle");
+  assert(/\.sidebar-team-disclosure-bar\s*\{[^}]*position:\s*relative;[^}]*display:\s*inline-block;[^}]*width:\s*36px;[^}]*margin:\s*0 0 2px 10px;/.test(sidebarStyles), "Team disclosure is left-aligned below the plan header");
   assert(/\.sidebar-team-disclosure-glyph\s*\{[^}]*left:\s*50%;[^}]*transform:\s*translate\(-50%, -50%\);/.test(sidebarStyles), "Team disclosure glyph stays geometrically centered");
-  assert(/\.sidebar-team-disclosure-label,\s*\.sidebar-team-disclosure-count\s*\{[^}]*left:\s*calc\(50% \+ 24px\);/.test(sidebarStyles), "Team disclosure text cannot shift the centered glyph");
+  assert(/\.sidebar-team-disclosure-label,\s*\.sidebar-team-disclosure-count\s*\{[^}]*left:\s*calc\(100% \+ 6px\);/.test(sidebarStyles), "Team disclosure text cannot shift the centered glyph");
   assert(/@container \(max-width:\s*159px\)/.test(sidebarStyles), "compact tally threshold preserves the 160px Team matrix after inset reclaim");
   const header = host.querySelector('.sidebar-team-header') as HTMLDivElement | null;
   const chevron = host.querySelector('[data-testid="team-collapse-toggle"]') as HTMLButtonElement | null;
@@ -279,6 +279,8 @@ test("team menu enables staffing only for a Team with a manager", async () => {
   assert(chevron?.getAttribute("aria-expanded") === "true", "Team bottom handle exposes the expanded state");
   assert(chevron?.querySelector(".sidebar-team-disclosure-glyph"), "Team bottom handle renders the animated line glyph");
   assert(chevron?.querySelector(".sidebar-team-disclosure-label")?.textContent?.trim() === "Hide", "expanded Team exposes the hover Hide label");
+  const managersSection = host.querySelector('[data-testid="managers-section"]');
+  assert(Boolean(chevron && managersSection && (chevron.compareDocumentPosition(managersSection) & Node.DOCUMENT_POSITION_FOLLOWING)), "Team disclosure sits before the manager section");
   await act(async () => chevron?.click());
   assert(chevron?.getAttribute("aria-expanded") === "false", "bottom handle click collapses Team");
   assert(chevron?.querySelector(".sidebar-team-disclosure-label")?.textContent?.trim() === "Show", "collapsed Team exposes the hover Show label");
@@ -631,9 +633,12 @@ test("team header renders the live compact status tally", async () => {
   assert(items.map((item) => item.querySelector(".sidebar-team-readout-label")?.textContent?.trim()).join(",") === "todo,review,blocked,done", "full labels remain available when the title column fits");
   assert(tally?.textContent?.replace(/\s+/g, " ").trim() === "3 todo · 1 review · 1 blocked · 3 done", "tally uses middle-dot separators");
   const managers = host.querySelector('[data-testid="managers-section"]');
+  const disclosure = host.querySelector('[data-testid="team-collapse-toggle"]');
   assert(
-    Boolean(managers && tally && (managers.compareDocumentPosition(tally) & Node.DOCUMENT_POSITION_FOLLOWING)),
-    "tally follows the Team member sections",
+    Boolean(tally && disclosure && managers
+      && (tally.compareDocumentPosition(disclosure) & Node.DOCUMENT_POSITION_FOLLOWING)
+      && (disclosure.compareDocumentPosition(managers) & Node.DOCUMENT_POSITION_FOLLOWING)),
+    "plan tally and disclosure precede the Team member sections",
   );
   assert(/\.sidebar-team-readout\s*\{[^}]*justify-content:\s*flex-start/.test(sidebarStyles), "tally is left aligned");
   const card = host.querySelector('[data-testid="team-card-activation"]') as HTMLButtonElement | null;

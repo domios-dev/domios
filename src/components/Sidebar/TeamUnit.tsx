@@ -511,6 +511,40 @@ export function TeamUnit({
             />
         </span>
       </div>
+      {expanded && plan && (
+        <span data-testid="team-status-tally" className="sidebar-team-readout">
+          {buckets.map((bucket, index) => (
+            <span key={bucket.key} className="sidebar-team-readout-segment">
+              {index > 0 && <span className="sidebar-team-readout-separator" aria-hidden> · </span>}
+              <span data-testid={`team-status-${bucket.key}`} className="sidebar-team-readout-item" style={{ color: bucket.color }}>
+                <span className="sidebar-team-readout-compact-dot" aria-hidden />
+                <span className="sidebar-team-readout-count">{bucket.count}</span>
+                <span className="sidebar-team-readout-label"> {bucket.label}</span>
+              </span>
+            </span>
+          ))}
+        </span>
+      )}
+      <button
+        type="button"
+        data-testid="team-collapse-toggle"
+        className="sidebar-team-disclosure-bar"
+        aria-label={expanded
+          ? "Hide Team tabs"
+          : `Show Team tabs, ${teamTabCount} ${teamTabCount === 1 ? "tab" : "tabs"}`}
+        aria-expanded={expanded}
+        onClick={toggleExpanded}
+      >
+        <span className="sidebar-team-disclosure-glyph" aria-hidden="true" />
+        <span className="sidebar-team-disclosure-label" aria-hidden="true">
+          {expanded ? "Hide" : "Show"}
+        </span>
+        {!expanded && (
+          <span className="sidebar-team-disclosure-count" aria-hidden="true">
+            {teamTabCount} {teamTabCount === 1 ? "tab" : "tabs"}
+          </span>
+        )}
+      </button>
       {expanded && (
         <div className="sidebar-team-body">
           {managerCount > 0 && (
@@ -540,42 +574,8 @@ export function TeamUnit({
               )}
             </div>
           )}
-          {plan && (
-            <span data-testid="team-status-tally" className="sidebar-team-readout">
-              {buckets.map((bucket, index) => (
-                <span key={bucket.key} className="sidebar-team-readout-segment">
-                  {index > 0 && <span className="sidebar-team-readout-separator" aria-hidden> · </span>}
-                  <span data-testid={`team-status-${bucket.key}`} className="sidebar-team-readout-item" style={{ color: bucket.color }}>
-                    <span className="sidebar-team-readout-compact-dot" aria-hidden />
-                    <span className="sidebar-team-readout-count">{bucket.count}</span>
-                    <span className="sidebar-team-readout-label"> {bucket.label}</span>
-                  </span>
-                </span>
-              ))}
-            </span>
-          )}
         </div>
       )}
-      <button
-        type="button"
-        data-testid="team-collapse-toggle"
-        className="sidebar-team-disclosure-bar"
-        aria-label={expanded
-          ? "Hide Team tabs"
-          : `Show Team tabs, ${teamTabCount} ${teamTabCount === 1 ? "tab" : "tabs"}`}
-        aria-expanded={expanded}
-        onClick={toggleExpanded}
-      >
-        <span className="sidebar-team-disclosure-glyph" aria-hidden="true" />
-        <span className="sidebar-team-disclosure-label" aria-hidden="true">
-          {expanded ? "Hide" : "Show"}
-        </span>
-        {!expanded && (
-          <span className="sidebar-team-disclosure-count" aria-hidden="true">
-            {teamTabCount} {teamTabCount === 1 ? "tab" : "tabs"}
-          </span>
-        )}
-      </button>
     </section>
   );
 }
