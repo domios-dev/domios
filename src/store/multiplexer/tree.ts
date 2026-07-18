@@ -90,6 +90,30 @@ export function injectVirtualTabs(
   return { workspaces: nextWorkspaces, panes: nextPanes, activeTabIds: nextActive };
 }
 
+/** Keep client state aligned with the daemon's one-pane-per-tab invariant.
+ * A stale restore snapshot must never make closed history look like live tabs. */
+export function reconcileBackendWorkspaceTabs(
+  workspaces: MultiplexerState["workspaces"],
+  panes: Record<string, Pane>,
+): MultiplexerState["workspaces"] {
+  const claimedTabIds = new Set<string>();
+  const claimedPaneIds = new Set<string>();
+  return workspaces.map((workspace) => {
+    const tabs = workspace.tabs.filter((tab) => {
+      if (!panes[tab.pane_id] || claimedTabIds.has(tab.id) || claimedPaneIds.has(tab.pane_id)) {
+        return false;
+      }
+      claimedTabIds.add(tab.id);
+      claimedPaneIds.add(tab.pane_id);
+      return true;
+    });
+    const active_tab_id = tabs.some((tab) => tab.id === workspace.active_tab_id)
+      ? workspace.active_tab_id
+      : tabs[0]?.id ?? null;
+    return { ...workspace, tabs, active_tab_id };
+  });
+}
+
 export function displayTitleForTab(tab: Tab, pane?: Pane | null): string {
   const title = pane?.title?.trim();
   if (title) return title;

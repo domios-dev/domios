@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::{MultiplexerSnapshot, MultiplexerState};
 use crate::multiplexer::types::{Pane, PaneBacking, PaneType, Tab, TitleLevel, Workspace};
@@ -28,6 +28,38 @@ fn should_seed_from_legacy_tab_title(
 }
 
 impl MultiplexerState {
+    fn live_workspace_tabs(&self) -> Vec<Workspace> {
+        let mut claimed_tab_ids = HashSet::new();
+        let mut claimed_pane_ids = HashSet::new();
+
+        self.workspaces
+            .iter()
+            .map(|workspace| {
+                let tabs: Vec<Tab> = workspace
+                    .tabs
+                    .iter()
+                    .filter(|tab| {
+                        self.panes.contains_key(&tab.pane_id)
+                            && claimed_tab_ids.insert(tab.id.clone())
+                            && claimed_pane_ids.insert(tab.pane_id.clone())
+                    })
+                    .cloned()
+                    .collect();
+                let active_tab_id = workspace
+                    .active_tab_id
+                    .as_ref()
+                    .filter(|active| tabs.iter().any(|tab| &tab.id == *active))
+                    .cloned()
+                    .or_else(|| tabs.first().map(|tab| tab.id.clone()));
+                Workspace {
+                    tabs,
+                    active_tab_id,
+                    ..workspace.clone()
+                }
+            })
+            .collect()
+    }
+
     /// Return all data for frontend hydration. Each call stamps a strictly
     /// increasing `generation`; the stamp happens while the caller holds the
     /// (read) lock, so it is serialized against writers and a snapshot with
@@ -38,7 +70,7 @@ impl MultiplexerState {
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
             .wrapping_add(1);
         MultiplexerSnapshot {
-            workspaces: self.workspaces.clone(),
+            workspaces: self.live_workspace_tabs(),
             panes: self.panes.clone(),
             teams: self.list_teams(),
             active_workspace_id: self.active_workspace_id.clone(),
@@ -138,7 +170,7 @@ impl MultiplexerState {
         }
 
         let workspaces = self
-            .workspaces
+            .live_workspace_tabs()
             .iter()
             .map(|ws| {
                 WorkspaceSnapshot {
