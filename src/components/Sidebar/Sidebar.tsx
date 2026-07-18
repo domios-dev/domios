@@ -671,7 +671,6 @@ export function Sidebar({
                       setSelectedWorkspaceId(workspaceId);
                       persistSelectedWorkspaceId(workspaceId);
                       setActiveWorkspace(workspaceId);
-                      onNavigateToTab?.();
                     }}
                     onCreate={handleNewWorkspace}
                   />

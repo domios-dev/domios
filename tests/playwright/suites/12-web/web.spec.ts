@@ -210,6 +210,50 @@ test("@golden mobile viewport: no horizontal scroll, sidebar overlays, picker re
   await page.context().close();
 });
 
+test("@golden mobile sidebar stays open for workspace cards and closes for tabs", async ({ api, webBrowser, paneCleanup }) => {
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const firstName = `pw-mobile-workspace-a-${suffix}`;
+  const secondName = `pw-mobile-workspace-b-${suffix}`;
+  await api.createWorkspace(firstName);
+  await api.createWorkspace(secondName);
+  const workspaces = await api.workspaces();
+  const first = workspaces.find((workspace) => workspace.name === firstName);
+  const second = workspaces.find((workspace) => workspace.name === secondName);
+  if (!first || !second) throw new Error("mobile sidebar test workspaces were not created");
+  const pane = await paneCleanup.createPane<{ tab_id: string }>({
+    workspace_id: second.id,
+    title: `pw-mobile-tab-${suffix}`,
+  });
+  await api.focusWorkspace(first.id);
+
+  const page = await newWebPage(webBrowser, { width: 390, height: 844 });
+  try {
+    await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
+    const burger = page.locator('[data-testid="web-sidebar-open"]');
+    await expect(burger).toBeVisible({ timeout: 20_000 });
+    await burger.click();
+
+    const drawer = page.locator(".ct-sidebar-drawer.is-open");
+    await expect(drawer).toBeVisible({ timeout: 10_000 });
+    await drawer
+      .getByRole("button", { name: `Select workspace ${secondName}`, exact: true })
+      .and(page.locator("[aria-pressed]"))
+      .click();
+
+    await expect(drawer, "workspace selection keeps the mobile drawer open").toBeVisible();
+    const region = drawer.getByRole("region", { name: `${secondName} workspace contents` });
+    await expect(region, "workspace selection reveals its tabs in the open drawer").toBeVisible();
+    await region.locator(`[data-testid="tab-item"][data-tab-id="${pane.tab_id}"]`).click();
+
+    await expect(page.locator(".ct-sidebar-drawer.is-open"), "tab selection dismisses the mobile drawer").toHaveCount(0);
+    await expect(burger, "tab selection restores the mobile drawer trigger").toBeVisible();
+  } finally {
+    await page.context().close();
+    await api.closeWorkspace(first.id).catch(() => {});
+    await api.closeWorkspace(second.id).catch(() => {});
+  }
+});
+
 test("@golden fully live on mobile: General Agent responds, read from the rendered DOM", async ({ api, webBrowser, paneCleanup, spawnAgent, pollMarkerInDom }) => {
   test.setTimeout(300_000);
   test.skip(
