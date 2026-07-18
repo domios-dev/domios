@@ -90,24 +90,23 @@ test.describe("@golden composer draft isolation", () => {
     await page.reload({ waitUntil: "domcontentloaded" });
 
     // The user journey, driven the way a person (or screen reader) would in the
-    // workspace-card sidebar: select this workspace's card, which reveals its
-    // contents region, then start a new session from inside that region. Scoping
-    // the "New session" click to the workspace's own region keeps a sibling
-    // workspace's identically-named control from ever being hit.
-    // The card's select control is a toggle button (aria-pressed); the dnd-kit
-    // sortable wrapper around it is also role=button and borrows the same name,
-    // so filter to the pressable one to address the real control, not the drag
-    // handle. (pressed:false = not-yet-selected at click time.)
-    const selectCard = page.getByRole("button", {
-      name: `Select workspace ${ws.name}`,
-      exact: true,
-      pressed: false,
-    });
-    await expect(selectCard).toBeVisible({ timeout: 15_000 });
-    await selectCard.click();
-
+    // workspace-card sidebar: the workspace's own contents region is revealed
+    // by selecting its card. A freshly opened workspace is already selected; if
+    // it is not, select its card. The card's select control is a toggle button
+    // (aria-pressed); the dnd-kit sortable wrapper shares its name, so the
+    // aria-pressed toggle attribute distinguishes the real control from the
+    // drag handle.
     const region = page.getByRole("region", { name: `${ws.name} workspace contents` });
+    if (!(await region.isVisible().catch(() => false))) {
+      await page
+        .getByRole("button", { name: `Select workspace ${ws.name}`, exact: true })
+        .and(page.locator("[aria-pressed]"))
+        .click();
+    }
     await expect(region).toBeVisible({ timeout: 15_000 });
+
+    // Scoping "New session" to this workspace's region keeps a sibling
+    // workspace's identically-named control from ever being hit.
     const newSession = region.getByRole("button", { name: "New session" });
     await expect(newSession).toBeVisible({ timeout: 10_000 });
     await newSession.click();
