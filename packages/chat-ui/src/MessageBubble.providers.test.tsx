@@ -467,7 +467,7 @@ test("chatBackend exec tool_call renders command card and attached result", asyn
       expandDetails.dispatchEvent(new windowAny.MouseEvent("click", { bubbles: true }));
     });
     await waitForEffects();
-    assertIncludes(host, "cwd /repo/app", "exec card cwd");
+    assert(!textOf(host).includes("cwd /repo/app"), "expanded exec card should honor global command visibility");
     assertIncludes(host, "Tests passed", "expanded exec card result");
     const execCard = host.querySelector('[data-testid="chat-tool-call"]');
     assert(execCard, "expected exec card root");
@@ -676,8 +676,8 @@ test("codex codeterm command after cd chain renders CodeTerm card", async () => 
     },
   ]);
   try {
-    assertIncludes(host, "codeterm", "CodeTerm card label");
-    assertIncludes(host, "agent reports", "CodeTerm command title");
+    assertIncludes(host, "reports", "CodeTerm action label");
+    assert(!textOf(host).includes("cd frontend && codeterm"), "CodeTerm card should hide the raw command");
     assert(host.querySelector('[data-testid="chat-tool-call"]'), "codeterm command should render as a tool card");
   } finally {
     await act(async () => root.unmount());
