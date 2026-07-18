@@ -29,11 +29,7 @@ const { host } = await render(<CommandCard event={event()} expanded={false} onTo
 if (!host.textContent?.includes("command") || !host.textContent?.includes("run preview")) throw new Error("summary row regression");
 if (!host.querySelector("svg")) throw new Error("glyph regression");
 if (host.querySelector('[data-testid="toolcard-command"]')) throw new Error("command should start hidden");
-
-const opener = host.querySelector<HTMLButtonElement>('[data-testid="toolcard-command-open"]');
-if (!opener) throw new Error("command opener missing");
-await act(async () => opener.click());
-if (!host.querySelector('[data-testid="toolcard-command"]')) throw new Error("command opener did not reveal command");
+if (host.querySelector('[data-testid="toolcard-command-open"]')) throw new Error("per-card command opener must not render");
 if (host.querySelector<HTMLElement>("[style*='border-left']")) throw new Error("left rail found");
 
 const { host: errorHost } = await render(
