@@ -3,8 +3,10 @@ import { Window } from "happy-dom";
 import {
   defaultWorkspaceInitials,
   loadWorkspaceInitials,
+  loadSelectedWorkspaceId,
   normalizeWorkspaceInitials,
   persistWorkspaceInitials,
+  persistSelectedWorkspaceId,
   workspaceCardColor,
 } from "./workspaceCardMetadata";
 
@@ -21,5 +23,7 @@ assert.equal(workspaceCardColor("workspace-one"), workspaceCardColor("workspace-
 
 persistWorkspaceInitials({ ws1: "xy", ws2: "too long" });
 assert.deepEqual(loadWorkspaceInitials(), { ws1: "XY", ws2: "TO" });
+persistSelectedWorkspaceId("ws2");
+assert.equal(loadSelectedWorkspaceId(), "ws2");
 
 console.log("workspace card metadata tests: passed");

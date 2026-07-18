@@ -1531,31 +1531,30 @@ button,
 .sidebar-workspace-card-grid {
   display: grid;
   width: max-content;
-  grid-auto-columns: 52px;
-  grid-template-rows: repeat(2, 50px);
-  gap: 5px;
+  grid-auto-columns: 42px;
+  gap: 4px;
 }
 
 .sidebar-workspace-card {
   --workspace-card-color: var(--ct-blue);
   position: relative;
-  width: 52px;
-  height: 50px;
+  width: 42px;
+  height: 40px;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--workspace-card-color) 24%, var(--ct-border));
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--workspace-card-color) 10%, var(--ct-surface));
+  border: 1px solid color-mix(in srgb, var(--workspace-card-color) 12%, var(--ct-border));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--workspace-card-color) 3%, var(--ct-surface));
   transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
 }
 
 .sidebar-workspace-card:hover {
-  border-color: color-mix(in srgb, var(--workspace-card-color) 52%, var(--ct-border));
-  background: color-mix(in srgb, var(--workspace-card-color) 16%, var(--ct-surface));
+  border-color: color-mix(in srgb, var(--workspace-card-color) 34%, var(--ct-border));
+  background: color-mix(in srgb, var(--workspace-card-color) 8%, var(--ct-surface));
 }
 
 .sidebar-workspace-card[data-selected="true"] {
   border-color: color-mix(in srgb, var(--workspace-card-color) 78%, white 10%);
-  background: color-mix(in srgb, var(--workspace-card-color) 21%, var(--ct-surface));
+  background: color-mix(in srgb, var(--workspace-card-color) 18%, var(--ct-surface));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--workspace-card-color) 28%, transparent);
 }
 
@@ -1574,13 +1573,15 @@ button,
 }
 
 .sidebar-workspace-card-initials {
-  color: var(--workspace-card-color);
-  font-size: 16px;
+  color: color-mix(in srgb, var(--workspace-card-color) 48%, var(--ct-muted-fg));
+  font-size: 14px;
   font-weight: 750;
   letter-spacing: .04em;
   line-height: 1;
   text-shadow: 0 0 14px color-mix(in srgb, var(--workspace-card-color) 45%, transparent);
 }
+
+.sidebar-workspace-card[data-selected="true"] .sidebar-workspace-card-initials { color: var(--workspace-card-color); }
 
 .sidebar-workspace-card-edit {
   position: absolute;
@@ -1603,13 +1604,13 @@ button,
 
 .sidebar-workspace-card-initials-input {
   position: absolute;
-  inset: 12px 7px;
-  width: calc(100% - 14px);
+  inset: 8px 6px;
+  width: calc(100% - 12px);
   border: 1px solid var(--workspace-card-color);
   border-radius: 6px;
   background: var(--ct-bg);
   color: var(--workspace-card-color);
-  font-size: 17px;
+  font-size: 14px;
   font-weight: 750;
   text-align: center;
   text-transform: uppercase;
@@ -1633,12 +1634,12 @@ button,
 
 .sidebar-workspace-card-create {
   display: flex;
-  width: 52px;
-  height: 50px;
+  width: 42px;
+  height: 40px;
   align-items: center;
   justify-content: center;
   border: 1px dashed color-mix(in srgb, var(--ct-muted-fg) 62%, transparent);
-  border-radius: 9px;
+  border-radius: 7px;
   background: transparent;
   color: var(--ct-muted-fg);
   transition: border-color 140ms ease, background 140ms ease, color 140ms ease;

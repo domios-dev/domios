@@ -19,8 +19,8 @@ interface WorkspaceCardGridProps {
   onCreate: () => void;
 }
 
-const CARD_WIDTH = 52;
-const CARD_GAP = 5;
+const CARD_WIDTH = 42;
+const CARD_GAP = 4;
 
 export function workspaceCardPosition(index: number, columns: number): { gridColumn: number; gridRow: number } {
   const pageSize = columns * 2;
@@ -38,6 +38,7 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
   const [customInitials, setCustomInitials] = useState(loadWorkspaceInitials);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const rows = Math.min(2, Math.ceil((workspaces.length + 1) / columns));
 
   const beginEditing = useCallback((workspace: Workspace) => {
     setDraft(customInitials[workspace.id] ?? defaultWorkspaceInitials(workspace.name));
@@ -71,7 +72,13 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
   return (
     <div ref={scrollRef} className="sidebar-workspace-card-scroll" data-testid="workspace-card-scroll" role="region" aria-label="Workspace cards">
       <SortableContext items={sortIds} strategy={rectSortingStrategy}>
-        <div className="sidebar-workspace-card-grid" data-testid="workspace-card-grid" role="list" aria-label="Workspaces">
+        <div
+          className="sidebar-workspace-card-grid"
+          data-testid="workspace-card-grid"
+          role="list"
+          aria-label="Workspaces"
+          style={{ gridTemplateRows: `repeat(${rows}, 40px)` }}
+        >
           {workspaces.map((workspace, index) => {
             const selected = workspace.id === selectedWorkspaceId;
             const color = workspaceCardColor(workspace.id);
