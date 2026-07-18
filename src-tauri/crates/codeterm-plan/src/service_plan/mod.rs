@@ -92,7 +92,7 @@ mod timestamp_tests;
 mod watch_reconcile_tests;
 
 use crate::plan::{Plan, PlanMode, PlanStatus, Spec, TaskStatus};
-use parking_lot::{Mutex, RwLock};
+use parking_lot::{Condvar, Mutex, RwLock};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -118,7 +118,46 @@ pub struct PlanStore {
     last_writes: RwLock<HashMap<PathBuf, SystemTime>>,
     turn_counter: RwLock<Option<Arc<reminders::TurnCounter>>>,
     reseed_prepare_lock: Mutex<()>,
-    team_plan_lock: Mutex<()>,
+    mutation_writer: MutationWriter,
+    #[cfg(test)]
+    persistence_hook: RwLock<Option<Arc<dyn Fn(&Plan) + Send + Sync>>>,
+}
+
+#[derive(Default)]
+struct MutationWriter {
+    state: Mutex<MutationWriterState>,
+    ready: Condvar,
+}
+
+#[derive(Default)]
+struct MutationWriterState {
+    next_ticket: u64,
+    serving_ticket: u64,
+}
+
+impl MutationWriter {
+    fn enter(&self) -> MutationWriterTurn<'_> {
+        let mut state = self.state.lock();
+        let ticket = state.next_ticket;
+        state.next_ticket += 1;
+        while state.serving_ticket != ticket {
+            self.ready.wait(&mut state);
+        }
+        drop(state);
+        MutationWriterTurn { writer: self }
+    }
+}
+
+struct MutationWriterTurn<'a> {
+    writer: &'a MutationWriter,
+}
+
+impl Drop for MutationWriterTurn<'_> {
+    fn drop(&mut self) {
+        let mut state = self.writer.state.lock();
+        state.serving_ticket += 1;
+        self.writer.ready.notify_all();
+    }
 }
 
 impl PlanStore {
