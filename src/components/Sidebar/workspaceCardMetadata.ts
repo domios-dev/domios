@@ -4,7 +4,7 @@ const SELECTED_WORKSPACE_KEY = "codeterm.sidebar.selected-workspace";
 export type WorkspaceInitials = Record<string, string>;
 
 export function normalizeWorkspaceInitials(value: string): string {
-  return Array.from(value.trim().toLocaleUpperCase()).filter((char) => /[\p{L}\p{N}]/u.test(char)).slice(0, 3).join("");
+  return Array.from(value.trim().toLocaleUpperCase()).filter((char) => /[\p{L}\p{N}]/u.test(char)).slice(0, 2).join("");
 }
 
 export function defaultWorkspaceInitials(name: string): string {
@@ -13,7 +13,7 @@ export function defaultWorkspaceInitials(name: string): string {
     .split(/[\s_-]+/u)
     .map((part) => normalizeWorkspaceInitials(part))
     .filter(Boolean);
-  if (words.length > 1) return words.slice(0, 3).map((word) => word[0]).join("");
+  if (words.length > 1) return `${words[0][0]}${words[1][0]}`;
   return normalizeWorkspaceInitials(words[0] ?? name) || "WS";
 }
 
