@@ -40,9 +40,9 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
   }, [draft]);
 
   return (
-    <div className="sidebar-workspace-card-scroll" data-testid="workspace-card-scroll">
+    <div className="sidebar-workspace-card-scroll" data-testid="workspace-card-scroll" role="region" aria-label="Workspace cards">
       <SortableContext items={sortIds} strategy={rectSortingStrategy}>
-        <div className="sidebar-workspace-card-grid" data-testid="workspace-card-grid">
+        <div className="sidebar-workspace-card-grid" data-testid="workspace-card-grid" role="list" aria-label="Workspaces">
           {workspaces.map((workspace) => {
             const selected = workspace.id === selectedWorkspaceId;
             const color = workspaceCardColor(workspace.id);
@@ -59,6 +59,7 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
                   data-workspace-id={workspace.id}
                   data-selected={selected ? "true" : "false"}
                   data-status={status?.toLowerCase() ?? "none"}
+                  role="listitem"
                   style={{ ["--workspace-card-color" as string]: color }}
                 >
                   {editingId === workspace.id ? (
@@ -82,6 +83,7 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
                       className="sidebar-workspace-card-select"
                       aria-label={`Select workspace ${workspace.name}`}
                       aria-pressed={selected}
+                      aria-current={selected ? "true" : undefined}
                       title={workspace.name}
                       onClick={() => onSelect(workspace.id)}
                       onDoubleClick={() => beginEditing(workspace)}
@@ -105,7 +107,7 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
                       <Pencil size={9} />
                     </button>
                   )}
-                  {status === "Working" && <span className="sidebar-workspace-card-working" aria-label="Workspace has working tabs" />}
+                  {status === "Working" && <span className="sidebar-workspace-card-working" role="status" aria-label={`${workspace.name} has working tabs`} />}
                 </div>
               </SortableRow>
             );

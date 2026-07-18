@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import React, { act } from "react";
+import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import type { Workspace } from "../../lib/types";
@@ -14,6 +14,7 @@ for (const [name, value] of Object.entries({
   HTMLElement: window.HTMLElement,
   Element: window.Element,
   Node: window.Node,
+  Event: window.Event,
   localStorage: window.localStorage,
 })) Object.defineProperty(globalThis, name, { value, configurable: true });
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -31,33 +32,36 @@ const host = document.createElement("div");
 document.body.appendChild(host);
 const root = createRoot(host);
 
-await act(async () => root.render(
-  <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
-    <WorkspaceCardGrid
-      workspaces={workspaces}
-      selectedWorkspaceId="one"
-      statuses={{ one: "Working", two: null }}
-      sortIds={["ws:one", "ws:two"]}
-      onSelect={(id) => selected.push(id)}
-    />
-  </SidebarDnd>,
-));
+async function run() {
+  await act(async () => root.render(
+    <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
+      <WorkspaceCardGrid
+        workspaces={workspaces}
+        selectedWorkspaceId="one"
+        statuses={{ one: "Working", two: null }}
+        sortIds={["ws:one", "ws:two"]}
+        onSelect={(id) => selected.push(id)}
+      />
+    </SidebarDnd>,
+  ));
 
-assert.equal(host.querySelectorAll('[data-testid="workspace-card"]').length, 2);
-assert.equal(host.querySelector('[data-testid="workspace-card"][data-workspace-id="one"]')?.getAttribute("data-selected"), "true");
-assert(host.querySelector('[data-workspace-id="one"] .sidebar-workspace-card-working'), "working workspace exposes activity");
-assert(host.textContent?.includes("CT") && host.textContent.includes("TS"), "derived initials render");
+  assert.equal(host.querySelector('[role="region"][aria-label="Workspace cards"]')?.querySelectorAll('[role="listitem"]').length, 2);
+  assert.equal(host.querySelector('[aria-label="Select workspace CodeTerm"]')?.getAttribute("aria-current"), "true");
+  assert(host.querySelector('[role="status"][aria-label="CodeTerm has working tabs"]'), "working workspace exposes accessible activity");
+  assert(host.textContent?.includes("CT") && host.textContent.includes("TS"), "derived initials render");
 
-await act(async () => (host.querySelector('[aria-label="Select workspace team_smoke"]') as HTMLButtonElement).click());
-assert.deepEqual(selected, ["two"]);
-await act(async () => (host.querySelector('[aria-label="Edit initials for CodeTerm"]') as HTMLButtonElement).click());
-const input = host.querySelector('[aria-label="Initials for CodeTerm"]') as HTMLInputElement;
-await act(async () => {
-  input.value = "zz";
-  input.dispatchEvent(new window.Event("input", { bubbles: true }));
-  input.blur();
-});
-assert(host.textContent?.includes("ZZ"), "custom initials replace derived initials");
+  await act(async () => (host.querySelector('[aria-label="Select workspace team_smoke"]') as HTMLButtonElement).click());
+  assert.deepEqual(selected, ["two"]);
+  await act(async () => (host.querySelector('[aria-label="Edit initials for CodeTerm"]') as HTMLButtonElement).click());
+  const input = host.querySelector('[aria-label="Initials for CodeTerm"]') as HTMLInputElement;
+  await act(async () => {
+    input.value = "zz";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => {
+    input.blur();
+  });
+  assert(host.textContent?.includes("ZZ"), "custom initials replace derived initials");
 
-await act(async () => root.unmount());
-console.log("workspace card grid tests: passed");
+  await act(async () => root.unmount());
+  console.log("workspace c
