@@ -1,4 +1,4 @@
-import { isChatViewportAtBottom, shouldRestoreChatViewport } from "./chatViewport";
+import { isChatViewportAtBottom, shouldRestoreChatViewport, snapChatViewportToBottom } from "./chatViewport";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -15,5 +15,10 @@ assert(!shouldRestoreChatViewport(false, false, 1, key, ""), "hidden chat never 
 assert(isChatViewportAtBottom({ scrollHeight: 1000, scrollTop: 600, clientHeight: 400 }), "exact bottom follows messages");
 assert(isChatViewportAtBottom({ scrollHeight: 1000, scrollTop: 598, clientHeight: 400 }), "subpixel bottom gap follows messages");
 assert(!isChatViewportAtBottom({ scrollHeight: 1000, scrollTop: 597, clientHeight: 400 }), "manual scroll detaches immediately");
+
+const detachedViewport = { scrollHeight: 1000, scrollTop: 250, clientHeight: 400 };
+snapChatViewportToBottom(detachedViewport);
+assert(detachedViewport.scrollTop === detachedViewport.scrollHeight, "explicit scroll-down action snaps directly to latest");
+assert(isChatViewportAtBottom(detachedViewport), "explicit scroll-down action re-enters follow-bottom mode");
 
 console.log("chat viewport activation checks passed");

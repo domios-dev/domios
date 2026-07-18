@@ -35,7 +35,7 @@ import { ChatSetupState, ChatSetupStatusLine, chatSetupView } from "./ChatSetupS
 import { usePlanRefResolver } from "./usePlanRefResolver";
 import { reattachPaneChat } from "./chatReattach";
 import { planRefViewState } from "./planRefViewState";
-import { isChatViewportAtBottom, shouldRestoreChatViewport } from "./chatViewport";
+import { isChatViewportAtBottom, shouldRestoreChatViewport, snapChatViewportToBottom } from "./chatViewport";
 import { resolveTabNavigationTarget } from "./tabNavigation";
 
 interface Props {
@@ -109,12 +109,11 @@ export function PaneSessionChat({
   // bottom-pinned agent indicator/composer, so it never overlaps streaming output.
   const [showScrollDown, setShowScrollDown] = useState(false);
 
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+  const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    if (behavior === "auto") el.scrollTop = el.scrollHeight;
-    else el.scrollTo({ top: el.scrollHeight, behavior });
     atBottomRef.current = true;
+    snapChatViewportToBottom(el);
     setShowScrollDown(false);
   }, []);
 
@@ -294,8 +293,8 @@ export function PaneSessionChat({
       lastInstantBottomKeyRef.current,
     )) return;
     lastInstantBottomKeyRef.current = key;
-    scrollToBottom("auto");
-    const raf = requestAnimationFrame(() => scrollToBottom("auto"));
+    scrollToBottom();
+    const raf = requestAnimationFrame(scrollToBottom);
     return () => cancelAnimationFrame(raf);
   }, [agentSessionId, deferredEnrichedMessages.length, isActive, loading, paneId, scrollToBottom]);
   const latestFailedToolCallId = useMemo(() => {

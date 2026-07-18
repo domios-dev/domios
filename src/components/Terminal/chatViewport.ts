@@ -10,6 +10,10 @@ export function isChatViewportAtBottom(viewport: ChatViewportGeometry): boolean 
   return viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= BOTTOM_TOLERANCE_PX;
 }
 
+export function snapChatViewportToBottom(viewport: ChatViewportGeometry): void {
+  viewport.scrollTop = viewport.scrollHeight;
+}
+
 export function shouldRestoreChatViewport(
   active: boolean,
   loading: boolean,
