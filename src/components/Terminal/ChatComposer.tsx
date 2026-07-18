@@ -259,6 +259,7 @@ function ChatComposerImpl({
   removeAttachment,
   clearAttachments,
   handlePasteEvent,
+  onWillSendMessage,
   addOptimistic,
   updateOptimistic,
   showComposerError,
@@ -283,6 +284,7 @@ function ChatComposerImpl({
   removeAttachment: (path: string) => void;
   clearAttachments: () => void;
   handlePasteEvent: (event: ClipboardEvent) => void | Promise<void>;
+  onWillSendMessage: () => void;
   addOptimistic: (content: string) => string;
   updateOptimistic: (id: string, content: string) => void;
   showComposerError: (message: string) => void;
@@ -582,6 +584,7 @@ function ChatComposerImpl({
     if (placeholderId) {
       updateOptimistic(placeholderId, composed);
     } else {
+      onWillSendMessage();
       addOptimistic(composed);
     }
     setInput("");
@@ -941,6 +944,7 @@ export const ChatComposer = memo(ChatComposerImpl, (a, b) =>
   && a.removeAttachment === b.removeAttachment
   && a.clearAttachments === b.clearAttachments
   && a.handlePasteEvent === b.handlePasteEvent
+  && a.onWillSendMessage === b.onWillSendMessage
   && a.addOptimistic === b.addOptimistic
   && a.updateOptimistic === b.updateOptimistic
   && a.showComposerError === b.showComposerError

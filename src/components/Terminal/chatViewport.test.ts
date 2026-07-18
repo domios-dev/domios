@@ -1,4 +1,4 @@
-import { isChatViewportAtBottom, shouldRestoreChatViewport, snapChatViewportToBottom } from "./chatViewport";
+import { isChatViewportAtBottom, shouldFollowChatSend, shouldRestoreChatViewport, snapChatViewportToBottom } from "./chatViewport";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -20,5 +20,9 @@ const detachedViewport = { scrollHeight: 1000, scrollTop: 250, clientHeight: 400
 snapChatViewportToBottom(detachedViewport);
 assert(detachedViewport.scrollTop === detachedViewport.scrollHeight, "explicit scroll-down action snaps directly to latest");
 assert(isChatViewportAtBottom(detachedViewport), "explicit scroll-down action re-enters follow-bottom mode");
+
+assert(shouldFollowChatSend(true, true), "sending while pinned follows the new user message");
+assert(!shouldFollowChatSend(false, false), "sending while reviewing history does not move the viewport");
+assert(!shouldFollowChatSend(true, false), "manual scrolling during a pending send cancels follow-bottom");
 
 console.log("chat viewport activation checks passed");
