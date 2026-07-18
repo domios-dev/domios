@@ -1,4 +1,5 @@
 const STORAGE_KEY = "codeterm.sidebar.workspace-card-initials";
+const SELECTED_WORKSPACE_KEY = "codeterm.sidebar.selected-workspace";
 
 export type WorkspaceInitials = Record<string, string>;
 
@@ -46,5 +47,19 @@ export function loadWorkspaceInitials(): WorkspaceInitials {
 export function persistWorkspaceInitials(initials: WorkspaceInitials): void {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(initials));
+  } catch {}
+}
+
+export function loadSelectedWorkspaceId(): string | null {
+  try {
+    return window.localStorage.getItem(SELECTED_WORKSPACE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function persistSelectedWorkspaceId(workspaceId: string): void {
+  try {
+    window.localStorage.setItem(SELECTED_WORKSPACE_KEY, workspaceId);
   } catch {}
 }

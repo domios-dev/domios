@@ -33,6 +33,7 @@ import { buildSidebarCycleItems, cycleStep } from "./sidebarCycle";
 import { matchesBinding } from "../../lib/keybindings";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
 import { WorkspaceCardGrid } from "./WorkspaceCardGrid";
+import { loadSelectedWorkspaceId, persistSelectedWorkspaceId } from "./workspaceCardMetadata";
 import type { SidebarTeamActions } from "./TeamUnit";
 import { GroupCloseConfirmDialog } from "./GroupCloseConfirmDialog";
 import type { OrchestrationGroupMember } from "./orchestrationGroupClose";
@@ -487,6 +488,8 @@ export function Sidebar({
     [sortedWorkspaces],
   );
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(() => {
+    const restored = loadSelectedWorkspaceId();
+    if (restored) return restored;
     const active = state.workspaces.find((workspace) => workspace.id === state.active_workspace_id && !workspace.protected);
     return active?.id ?? state.workspaces.find((workspace) => !workspace.protected)?.id ?? null;
   });
@@ -494,6 +497,7 @@ export function Sidebar({
     const active = ordinaryWorkspaces.find((workspace) => workspace.id === state.active_workspace_id);
     if (active) {
       setSelectedWorkspaceId(active.id);
+      persistSelectedWorkspaceId(active.id);
       return;
     }
     if (!ordinaryWorkspaces.some((workspace) => workspace.id === selectedWorkspaceId)) {
@@ -666,6 +670,7 @@ export function Sidebar({
                     sortIds={workspaceSortIds}
                     onSelect={(workspaceId) => {
                       setSelectedWorkspaceId(workspaceId);
+                      persistSelectedWorkspaceId(workspaceId);
                       setActiveWorkspace(workspaceId);
                       onNavigateToTab?.();
                     }}

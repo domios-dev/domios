@@ -63,12 +63,13 @@ async function run() {
   ));
 
   assert.equal(host.querySelector('[role="region"][aria-label="Workspace cards"]')?.querySelectorAll('[role="listitem"]').length, 2);
+  assert.equal((host.querySelector('[role="list"][aria-label="Workspaces"]') as HTMLElement).style.gridTemplateRows, "repeat(1, 40px)");
   assert.equal(host.querySelector('[aria-label="Select workspace CodeTerm"]')?.getAttribute("aria-current"), "true");
   const firstGridItem = host.querySelector('[data-workspace-id="one"]')?.parentElement as HTMLElement;
   const secondGridItem = host.querySelector('[data-workspace-id="two"]')?.parentElement as HTMLElement;
   assert.equal(`${firstGridItem.style.gridRow}/${firstGridItem.style.gridColumn}`, "1/1");
   assert.equal(`${secondGridItem.style.gridRow}/${secondGridItem.style.gridColumn}`, "1/2");
-  const createButton = host.querySelector('[role="button"][aria-label="Create workspace"]') as HTMLButtonElement;
+  const createButton = host.querySelector('[aria-label="Create workspace"]') as HTMLButtonElement;
   assert.equal(`${createButton.style.gridRow}/${createButton.style.gridColumn}`, "1/3");
   await act(async () => createButton.click());
   assert.equal(creates, 1, "create card owns the workspace creation action");
