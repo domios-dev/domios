@@ -646,11 +646,11 @@ impl ServiceContext {
                 // scraping cannot decide delivery there, and its false negatives
                 // failed reports that had already landed. The report is stored and
                 // broadcast above; the write is the guarantee.
-                match crate::service::messenger::Messenger::deliver(
-                    self,
+                match self.gateway_deliver(
                     &target_id,
                     envelope,
                     &report.inject_body(),
+                    crate::service::message_gateway::DeliveryClass::AgentTraffic,
                 ) {
                     Ok(delivery) => {
                         log::info!("[report] target={} delivered via {:?}", target_id, delivery)
@@ -712,7 +712,7 @@ impl ServiceContext {
             &text,
         );
         let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("plan");
-        let _ = crate::service::messenger::Messenger::deliver(self, owner, envelope, &text);
+        let _ = self.gateway_deliver(owner, envelope, &text, crate::service::message_gateway::DeliveryClass::SystemNotice);
     }
 
     /// Nudge the gate asker pane when a gate is answered.
@@ -748,7 +748,7 @@ impl ServiceContext {
             &text,
         );
         let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("plan");
-        let _ = crate::service::messenger::Messenger::deliver(self, asker, envelope, &text);
+        let _ = self.gateway_deliver(asker, envelope, &text, crate::service::message_gateway::DeliveryClass::SystemNotice);
     }
 
     /// Relay plan batch ops (status update + milestone) to the peer that owns the
