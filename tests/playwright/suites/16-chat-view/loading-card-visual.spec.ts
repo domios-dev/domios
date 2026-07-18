@@ -1,3 +1,8 @@
+/**
+ * WHAT: Agent loading, failure, and staffing cards remain legible in both themes.
+ * WHY: Startup state must identify the affected role without obscuring recovery actions.
+ * ORACLE: Accessible card content and visual snapshots match each state and theme.
+ */
 import { build } from "esbuild";
 import { expect, test } from "../../helpers/fixtures";
 

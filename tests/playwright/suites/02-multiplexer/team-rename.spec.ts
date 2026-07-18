@@ -1,3 +1,8 @@
+/**
+ * WHAT: Renaming a Team persists while an unrelated pane owns focus.
+ * WHY: Team actions must target the selected Team rather than the focused pane.
+ * ORACLE: The Team heading changes and remains changed after reloading the UI.
+ */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
