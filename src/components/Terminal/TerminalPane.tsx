@@ -290,7 +290,7 @@ export const TerminalPane = memo(function TerminalPane({
 
   // Refit xterm when the terminal layout changes so rows match the actual terminal box.
   useEffect(() => {
-    if (!terminalVisible || !isVisible || !termReady) return;
+    if (!terminalVisible || !isVisible || !termReady || historyReplaying) return;
     const raf = requestAnimationFrame(() => {
       const term = termRef.current;
       if (!term) return;
@@ -302,7 +302,7 @@ export const TerminalPane = memo(function TerminalPane({
       termRef.current?.focus();
     });
     return () => cancelAnimationFrame(raf);
-  }, [terminalVisible, isVisible, showTerminalKeyBar, termReady, termRef, fitAddonRef, commitResize]);
+  }, [terminalVisible, isVisible, showTerminalKeyBar, termReady, historyReplaying, termRef, fitAddonRef, commitResize]);
 
   useEffect(() => {
     if (!terminalFallbackOpen || uiMode !== "chat") return;

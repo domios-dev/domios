@@ -79,6 +79,17 @@ export function useTerminalResize({
     try { fitAddonRef.current?.fit(); } catch { /* teardown */ }
   }, [containerRef, fitAddonRef]);
 
+  const forceFitMeasuredContainer = useCallback(() => {
+    const el = containerRef.current;
+    const term = termRef.current;
+    if (!el || !term || el.clientWidth < 20 || el.clientHeight < 20) return;
+    lastContainerSizeRef.current = { w: el.clientWidth, h: el.clientHeight };
+    try {
+      fitAddonRef.current?.fit();
+      term.refresh(0, term.rows - 1);
+    } catch { /* teardown */ }
+  }, [containerRef, fitAddonRef, termRef]);
+
   useEffect(() => {
     const term = termRef.current;
     if (!term || !termReady || !resizeEnabled) return;
@@ -106,7 +117,7 @@ export function useTerminalResize({
     scheduleFit();
 
     const handlePaneResize = () => {
-      fitMeasuredContainer();
+      forceFitMeasuredContainer();
       commitResize();
     };
     window.addEventListener("codeterm-pane-resize", handlePaneResize);
@@ -115,7 +126,7 @@ export function useTerminalResize({
       if (animationFrame !== null) cancelAnimationFrame(animationFrame);
       window.removeEventListener("codeterm-pane-resize", handlePaneResize);
     };
-  }, [commitResize, containerRef, fitMeasuredContainer, resizeEnabled, termReady]);
+  }, [commitResize, containerRef, fitMeasuredContainer, forceFitMeasuredContainer, resizeEnabled, termReady]);
 
   useEffect(() => {
     if (!nativeResizeCommit || !termReady || !resizeEnabled) return;

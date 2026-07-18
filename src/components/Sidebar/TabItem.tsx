@@ -1,18 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "../../lib/bridge";
-import { X, Pencil, UserMinus, MessageSquare, SquareTerminal, UserCog } from "lucide-react";
-import {
-  emitPaneUiMode,
-  isChatUiSupported,
-  shouldDefaultNewAgentPaneToChat,
-} from "../../lib/chatUiMode";
+import { Copy, Pencil, RefreshCw, RotateCcw, UserCog, X } from "lucide-react";
 import { usePaneProvider, useShellSessionModel } from "../../lib/usePaneProvider";
-import {
-  getClientPaneUiMode,
-  getCurrentPaneUiMode,
-  listenCurrentPaneUiMode,
-  setClientPaneUiMode,
-} from "../../lib/clientPaneUiMode";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { TelegramIcon, TerminalIcon } from "../Icons";
 import { ProviderGlyph } from "../ProviderGlyph";
@@ -30,6 +18,13 @@ import {
 } from "../Canvas/planView/activeWork";
 import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { canMakeOrchestrator, makeOrchestrator } from "../../lib/orchestratorOnboard";
+import {
+  copyPaneSessionId,
+  paneSessionActionView,
+  PANE_SESSION_LABELS,
+  reconnectPaneSession,
+  restartPaneSession,
+} from "../Terminal/paneSessionActions";
 
 interface TabItemProps {
   tab: Tab;
@@ -160,26 +155,9 @@ function TabItemInner({
     pane?.role !== "Orchestrator" && (Boolean(pane?.parent_pane_id) || (pane?.depth ?? 0) > 0);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(canonicalTitle);
-  const resolveChatView = (p: typeof pane): boolean => {
-    if (!p) return false;
-    const current = getCurrentPaneUiMode(p.id);
-    if (current) return current === "chat";
-    const client = getClientPaneUiMode(p.id);
-    return client ? client === "chat" : p.chat_view === true || shouldDefaultNewAgentPaneToChat(p.agent_type, p.backing);
-  };
-  const [chatView, setChatView] = useState(() => resolveChatView(pane));
   const tabRef = useRef<HTMLDivElement>(null);
   const tabText = pickUiFontScaleValue(uiFontScale, ["text-[11px]", "text-xs", "text-sm", "text-base"]);
   const tabTouchText = pickUiFontScaleValue(uiFontScale, ["text-[13px]", "text-[14px]", "text-[15px]", "text-base"]);
-
-  useEffect(() => {
-    if (!pane) {
-      setChatView(false);
-      return;
-    }
-    setChatView(resolveChatView(pane));
-    return listenCurrentPaneUiMode(pane.id, (mode) => setChatView(mode === "chat"));
-  }, [pane?.id, pane?.agent_type, pane?.backing?.kind]);
 
   const [closePhase, setClosePhase] = useState<0 | 1 | 2>(0);
   useEffect(() => {
@@ -207,26 +185,20 @@ function TabItemInner({
         onClick: () => { void makeOrchestrator(pane.id); },
       });
     }
-    // Role management — hide for Orchestrators (default role on all tabs)
-    if (pane?.role && pane.role !== "Orchestrator") {
+    const sessionActions = pane ? paneSessionActionView(pane) : null;
+    if (pane && sessionActions?.canReconnect) {
       items.push({
-        label: "Remove Role",
-        icon: <UserMinus size={11} strokeWidth={2} />,
-        onClick: () => { if (pane) invoke("mux_clear_pane_role", { paneId: pane.id }); },
+        label: PANE_SESSION_LABELS.reconnect,
+        icon: <RefreshCw size={11} strokeWidth={2} />,
+        onClick: () => { void reconnectPaneSession(pane.id).catch((error) => console.warn("Reconnect failed:", error)); },
       });
     }
-    if (pane && isChatUiSupported(pane.agent_type, pane.backing)) {
-      const nextChatView = !chatView;
+    if (pane && sessionActions?.canRestart) {
       items.push({
-        label: nextChatView ? "Open Chat UI" : "Open Terminal",
-        icon: nextChatView
-          ? <MessageSquare size={11} strokeWidth={2} />
-          : <SquareTerminal size={11} strokeWidth={2} />,
-        onClick: () => {
-          setChatView(nextChatView);
-          setClientPaneUiMode(pane.id, nextChatView ? "chat" : "terminal");
-          emitPaneUiMode(pane.id, nextChatView ? "chat" : "terminal");
-        },
+        label: PANE_SESSION_LABELS.restart,
+        icon: <RotateCcw size={11} strokeWidth={2} />,
+        onClick: () => { void restartPaneSession(pane.id).catch((error) => console.warn("Restart failed:", error)); },
+        "data-testid": "tab-menu-restart-session",
       });
     }
     if (canClose && !pane?.protected) {
@@ -239,7 +211,32 @@ function TabItemInner({
       });
     }
     return items;
-  }, [canonicalTitle, pane, chatView, canClose, hasAgent, onClose]);
+  }, [canonicalTitle, pane, canClose, hasAgent, onClose]);
+
+  const sessionActions = pane ? paneSessionActionView(pane) : null;
+  const sessionId = sessionActions?.sessionId ?? null;
+  const sessionHeader = sessionActions?.canReconnect ? (
+    <div className="mx-1 mb-1 flex min-w-48 items-center gap-1 border-b border-[var(--ct-border)] px-2 pb-1.5 pt-0.5">
+      <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-[var(--ct-muted-fg)]" title={sessionId ?? "Session ID is not available yet"}>
+        {sessionId ?? "ID not available yet"}
+      </span>
+      <button
+        type="button"
+        role="menuitem"
+        data-testid="tab-menu-copy-session-id"
+        aria-label={PANE_SESSION_LABELS.copy}
+        title={PANE_SESSION_LABELS.copy}
+        disabled={!sessionId}
+        onClick={(event) => {
+          event.stopPropagation();
+          if (sessionId) void copyPaneSessionId(sessionId).catch((error) => console.warn("Copy failed:", error));
+        }}
+        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)] disabled:cursor-not-allowed disabled:opacity-35"
+      >
+        <Copy size={12} />
+      </button>
+    </div>
+  ) : null;
 
   const animClass = isClosing
     ? closePhase === 2
@@ -380,6 +377,9 @@ function TabItemInner({
         {menuItems.length > 0 && (
           <DropdownMenu
             items={menuItems}
+            header={sessionHeader}
+            contextMenuTargetRef={tabRef}
+            menuLabel="Tab actions"
             className={
               touchMode
                 ? "flex h-11 w-11 items-center justify-center"
@@ -387,6 +387,9 @@ function TabItemInner({
             }
             trigger={
               <button
+                type="button"
+                aria-label="Tab actions"
+                aria-haspopup="menu"
                 className={`${touchMode ? "h-11 w-11 text-[var(--ct-muted-fg)]" : "w-5 h-5 text-[var(--ct-muted-fg)]"} flex items-center justify-center rounded hover:text-[var(--ct-fg)] hover:bg-[var(--ct-border)] transition-colors`}
                 title="Tab actions"
               >
@@ -452,6 +455,7 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     pp.title_level === np.title_level &&
     pp.description === np.description &&
     pp.agent_type === np.agent_type &&
+    pp.agent_session_id === np.agent_session_id &&
     // shell model itself comes from a hook (useShellSessionModel), not a prop.
     pp.backing?.kind === np.backing?.kind &&
     backingPluginId(pp) === backingPluginId(np) &&
