@@ -35,7 +35,7 @@ import { ChatSetupState, ChatSetupStatusLine, chatSetupView } from "./ChatSetupS
 import { usePlanRefResolver } from "./usePlanRefResolver";
 import { reattachPaneChat } from "./chatReattach";
 import { planRefViewState } from "./planRefViewState";
-import { shouldRestoreChatViewport } from "./chatViewport";
+import { isChatViewportAtBottom, shouldRestoreChatViewport } from "./chatViewport";
 import { resolveTabNavigationTarget } from "./tabNavigation";
 
 interface Props {
@@ -101,6 +101,7 @@ export function PaneSessionChat({
 
   const touchMode = useTouchOptimizedUi();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollContentRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
   const lastStopAtRef = useRef(0);
   const chatRootRef = useRef<HTMLDivElement>(null);
@@ -283,10 +284,7 @@ export function PaneSessionChat({
 
   const deferredEnrichedMessages = useDeferredValue(enrichedMessages);
   useLayoutEffect(() => {
-    if (!isActive) {
-      lastInstantBottomKeyRef.current = "";
-      return;
-    }
+    if (!isActive) return;
     const key = `${paneId}:${agentSessionId ?? ""}`;
     if (!shouldRestoreChatViewport(
       isActive,
@@ -408,6 +406,16 @@ export function PaneSessionChat({
   useEffect(() => () => {
     if (autoScrollRafRef.current) cancelAnimationFrame(autoScrollRafRef.current);
   }, []);
+  useEffect(() => {
+    const content = scrollContentRef.current;
+    if (!content) return;
+    const observer = new ResizeObserver(() => {
+      const el = scrollRef.current;
+      if (el && atBottomRef.current) el.scrollTop = el.scrollHeight;
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, []);
 
   // subtype); it arrives via the mux snapshot and events, no local polling needed.
   const liveAgentState: AgentState = useMemo(() => {
@@ -488,7 +496,7 @@ export function PaneSessionChat({
         onScroll={(e) => {
           const el = e.currentTarget;
           const dist = el.scrollHeight - (el.scrollTop + el.clientHeight);
-          atBottomRef.current = dist < 50;
+          atBottomRef.current = isChatViewportAtBottom(el);
           setShowScrollDown(dist > 240);
         }}
         className="absolute inset-0 overflow-y-auto overscroll-contain p-3"
@@ -497,6 +505,7 @@ export function PaneSessionChat({
         aria-label="Conversation"
         aria-live="polite"
       >
+        <div ref={scrollContentRef}>
         {touchMode && (
           <div
             aria-hidden="true"
@@ -617,6 +626,7 @@ export function PaneSessionChat({
           </div>
         )}
         <PendingPromptCard pendingPrompt={inlinePrompt} onRespond={handleRespondPrompt} />
+        </div>
       </div>
       {showScrollDown && (
         <button
