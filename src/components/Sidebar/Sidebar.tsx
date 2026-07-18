@@ -19,9 +19,6 @@ import { RecentlyClosed } from "./RecentlyClosed";
 import { useRemoteWorkers } from "../../hooks/useRemoteWorkers";
 import {
   SidebarDnd,
-  SortableRow,
-  SortableContext,
-  verticalListSortingStrategy,
   sortByOrder,
   WS_PREFIX,
 } from "./sortable";
@@ -34,7 +31,8 @@ import { selectActiveWork } from "../Canvas/planView/activeWork";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import { buildSidebarCycleItems, cycleStep } from "./sidebarCycle";
 import { matchesBinding } from "../../lib/keybindings";
-import { SidebarCollapsedActiveTab, SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
+import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
+import { WorkspaceCardGrid } from "./WorkspaceCardGrid";
 import type { SidebarTeamActions } from "./TeamUnit";
 import { GroupCloseConfirmDialog } from "./GroupCloseConfirmDialog";
 import type { OrchestrationGroupMember } from "./orchestrationGroupClose";
@@ -488,13 +486,27 @@ export function Sidebar({
     () => partitionSidebarWorkspaces(sortedWorkspaces),
     [sortedWorkspaces],
   );
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(() => {
+    const active = state.workspaces.find((workspace) => workspace.id === state.active_workspace_id && !workspace.protected);
+    return active?.id ?? state.workspaces.find((workspace) => !workspace.protected)?.id ?? null;
+  });
+  useEffect(() => {
+    const active = ordinaryWorkspaces.find((workspace) => workspace.id === state.active_workspace_id);
+    if (active) {
+      setSelectedWorkspaceId(active.id);
+      return;
+    }
+    if (!ordinaryWorkspaces.some((workspace) => workspace.id === selectedWorkspaceId)) {
+      setSelectedWorkspaceId(ordinaryWorkspaces[0]?.id ?? null);
+    }
+  }, [ordinaryWorkspaces, selectedWorkspaceId, state.active_workspace_id]);
+  const workspaceStatuses = useMemo(() => Object.fromEntries(ordinaryWorkspaces.map((workspace) => [
+    workspace.id,
+    aggregateTabStatus(workspace.tabs.flatMap((tab) => collectPaneIds(tab, state.panes)), state.paneStatuses),
+  ])), [ordinaryWorkspaces, state.paneStatuses, state.panes]);
   const workspaceSortIds = useMemo(
     () => ordinaryWorkspaces.map((ws) => `${WS_PREFIX}${ws.id}`),
     [ordinaryWorkspaces],
-  );
-  const pinnedWorkspaceIds = useMemo(
-    () => [] as string[],
-    [],
   );
   const dndHandlers = useMemo(
     () => ({ reorderTabs, reorderWorkspaces }),
@@ -645,50 +657,46 @@ export function Sidebar({
                 </div>
               ) : (
                 <SidebarDnd handlers={dndHandlers}>
-                <SortableContext items={workspaceSortIds} strategy={verticalListSortingStrategy}>
-                {ordinaryWorkspaces.map((ws) => {
-                const sortedTabs = sortByOrder(ws.tabs);
-                const allPaneIds = sortedTabs.flatMap((t) => collectPaneIds(t, state.panes));
-                const wsStatus = aggregateTabStatus(allPaneIds, state.paneStatuses);
-                const isActive = ws.id === state.active_workspace_id;
-                const isActiveVisual = isActive && isWorkspaceMode;
-                const isExpanded = expandedWorkspaces.has(ws.id);
-                const wsOrchestrators = Object.values(state.panes).filter(
-                  (p) => p.role === "Orchestrator",
-                );
-
-                return (
-                  <div key={ws.id} data-testid="workspace-group" data-workspace-id={ws.id}>
-                    <SortableRow
-                      id={`${WS_PREFIX}${ws.id}`}
-                      disabled={ws.protected}
-                      data={{ group: "workspace", groupKey: "workspaces", items: workspaceSortIds, pinnedIds: pinnedWorkspaceIds }}
-                    >
+                  <WorkspaceCardGrid
+                    workspaces={ordinaryWorkspaces}
+                    selectedWorkspaceId={selectedWorkspaceId}
+                    statuses={workspaceStatuses}
+                    sortIds={workspaceSortIds}
+                    onSelect={(workspaceId) => {
+                      setSelectedWorkspaceId(workspaceId);
+                      setActiveWorkspace(workspaceId);
+                      onNavigateToTab?.();
+                    }}
+                  />
+                  {ordinaryWorkspaces.map((ws) => {
+                    const sortedTabs = sortByOrder(ws.tabs);
+                    const selected = ws.id === selectedWorkspaceId;
+                    const isActiveVisual = ws.id === state.active_workspace_id && isWorkspaceMode;
+                    const wsOrchestrators = Object.values(state.panes).filter((pane) => pane.role === "Orchestrator");
+                    return (
+                      <div
+                        key={ws.id}
+                        data-testid="workspace-detail"
+                        data-workspace-id={ws.id}
+                        hidden={!selected}
+                      >
                     <WorkspaceItem
                       workspace={ws}
                       isActive={isActiveVisual}
-                      isExpanded={isExpanded}
+                      isExpanded
                       onClick={() => { setActiveWorkspace(ws.id); onNavigateToTab?.(); }}
-                      onToggleExpand={() => toggleExpanded(ws.id)}
+                      onToggleExpand={() => {}}
                       onClose={() => closeWorkspace(ws.id)}
                       onRename={(name) => renameWorkspace(ws.id, name)}
                       onNewTerminal={() => createTab(ws.id)}
                       onNewAgent={(agentId) => handleAgentSpawn(agentId, ws.id, ws.cwd ?? null)}
                       canClose={true}
-                      status={wsStatus}
+                      status={workspaceStatuses[ws.id]}
+                      showDisclosure={false}
                       touchMode={touchMode}
                       uiFontScale={uiFontScale}
                     />
-                    </SortableRow>
-                    <div
-                      className="grid transition-[grid-template-rows] duration-[320ms]"
-                      style={{
-                        gridTemplateRows: isExpanded ? "1fr" : "0fr",
-                        transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
-                      }}
-                    >
-                      <div className="overflow-hidden">
-                        <SidebarWorkspaceTabs
+                    <SidebarWorkspaceTabs
                           workspace={ws}
                           activeTabId={state.activeTabIds[ws.id] ?? null}
                           sortedTabs={sortedTabs}
@@ -728,31 +736,8 @@ export function Sidebar({
                             : undefined}
                         />
                       </div>
-                    </div>
-                    {!isExpanded && isActiveVisual && state.activeTabIds[ws.id] ? (
-                      <SidebarCollapsedActiveTab
-                        workspace={ws}
-                        activeTabId={state.activeTabIds[ws.id] ?? null}
-                        panes={state.panes}
-                        paneStatuses={state.paneStatuses}
-                        planIndex={planIndex}
-                        isActiveVisual={isActiveVisual}
-                        workspaceCanvasActive={workspaceCanvasActive}
-                        orchestrators={wsOrchestrators}
-                        touchMode={touchMode}
-                        uiFontScale={uiFontScale}
-                        onActivateTab={(tabId) => {
-                          setActiveTab(ws.id, tabId);
-                          onNavigateToTab?.();
-                        }}
-                        onCloseTab={(tabId) => animatedCloseTab(ws.id, tabId)}
-                        onRenameTab={(tabId, title) => setTabTitle(ws.id, tabId, title)}
-                      />
-                    ) : null}
-                  </div>
-                );
-              })}
-                </SortableContext>
+                    );
+                  })}
                 </SidebarDnd>
               ))}
             </div>

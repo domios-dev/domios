@@ -23,6 +23,7 @@ interface WorkspaceItemProps {
   onNewAgent: (agentId: string) => void;
   canClose: boolean;
   status: PaneStatus | null;
+  showDisclosure?: boolean;
   touchMode?: boolean;
   uiFontScale?: number;
 }
@@ -39,6 +40,7 @@ function WorkspaceItemInner({
   onNewAgent,
   canClose: _canClose,
   status: _status,
+  showDisclosure = true,
   touchMode = false,
   uiFontScale,
 }: WorkspaceItemProps) {
@@ -120,16 +122,18 @@ function WorkspaceItemInner({
       `}
     >
       <div className={`flex items-center min-w-0 ${touchMode ? "gap-2" : "gap-1"}`}>
-        <SidebarDisclosure
-          expanded={isExpanded}
-          touchMode={touchMode}
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleExpand();
-          }}
-          className="shrink-0"
-          title={isExpanded ? "Collapse" : "Expand"}
-        />
+        {showDisclosure && (
+          <SidebarDisclosure
+            expanded={isExpanded}
+            touchMode={touchMode}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleExpand();
+            }}
+            className="shrink-0"
+            title={isExpanded ? "Collapse" : "Expand"}
+          />
+        )}
         {/* Icon + name (click to activate, double-click to rename) */}
         <div className={`flex items-center min-w-0 ${touchMode ? "gap-2.5" : "gap-2"}`} onClick={onClick}>
           {workspace.protected ? (
@@ -186,6 +190,7 @@ function workspacePropsEqual(prev: WorkspaceItemProps, next: WorkspaceItemProps)
     prev.isExpanded === next.isExpanded &&
     prev.status === next.status &&
     prev.canClose === next.canClose &&
+    prev.showDisclosure === next.showDisclosure &&
     prev.touchMode === next.touchMode &&
     prev.uiFontScale === next.uiFontScale &&
     prev.workspace.id === next.workspace.id &&

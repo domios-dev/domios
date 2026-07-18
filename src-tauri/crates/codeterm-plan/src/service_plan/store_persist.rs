@@ -31,7 +31,9 @@ impl PlanStore {
             .database
             .persist_plan(plan, owned.as_ref())
             .map_err(plan_io_error)?;
+        super::search_index::enqueue_plan_index(plan.clone());
         if let Some(spec) = owned {
+            super::search_index::enqueue_spec_index(spec.clone());
             let entry = Self::spec_index_entry(&spec, path.clone());
             self.spec_index.write().insert(spec.id.clone(), entry);
         }
@@ -73,7 +75,9 @@ impl PlanStore {
     }
 
     pub(super) fn persist_spec(&self, spec: &Spec) -> std::io::Result<PathBuf> {
-        self.database.persist_spec(spec).map_err(plan_io_error)
+        let path = self.database.persist_spec(spec).map_err(plan_io_error)?;
+        super::search_index::enqueue_spec_index(spec.clone());
+        Ok(path)
     }
 
     fn note_write(&self, path: &Path) {
