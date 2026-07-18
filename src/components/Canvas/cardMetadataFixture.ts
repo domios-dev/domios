@@ -48,6 +48,23 @@ export function buildCardMetadataFixturePlans(): Plan[] {
     ts: NOW - 60_000,
   };
 
+  const pendingStack = Array.from({ length: 8 }, (_, index) =>
+    task(`meta_pending_stack_${index}`, [SEC], {
+      name: `Pending stack card ${index + 1}`,
+      handle: `pending-stack-${index + 1}`,
+      status: TaskStatus.Pending,
+    }),
+  );
+  const doneStack = Array.from({ length: 8 }, (_, index) =>
+    task(`meta_done_stack_${index}`, [SEC], {
+      name: `Done stack card ${index + 1}`,
+      status: TaskStatus.Done,
+      taken_by_role: "worker",
+      lane: { branch: `lane/done-stack-${index + 1}-with-a-long-branch-name` },
+      status_changed_at: NOW - (index + 1) * 60_000,
+    }),
+  );
+
   const tasks = [
     task(CARD_METADATA_TASK_IDS.pending, [SEC], {
       name: "Pending handle row",
@@ -135,6 +152,8 @@ export function buildCardMetadataFixturePlans(): Plan[] {
         },
       ],
     }),
+    ...pendingStack,
+    ...doneStack,
   ];
 
   return [
