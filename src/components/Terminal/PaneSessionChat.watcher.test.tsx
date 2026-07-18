@@ -207,6 +207,30 @@ test("bound-session pending snapshot renders recovery instead of false empty", a
   await act(async () => root.unmount());
 });
 
+test("fresh unbound chat keeps its usable surface while the transcript store is pending", async () => {
+  const paneId = "fresh-unbound-chat";
+  const state = muxStateFor({
+    [paneId]: paneBase(paneId, {
+      backing: { kind: "pty" },
+      agent_type: "codex",
+      boot_stage: "spawn_failed",
+      boot_failure_reason: "late stale failure",
+      protected: true,
+    }),
+  });
+  const { host, root } = await renderPaneSessionChat(
+    paneId,
+    state,
+    () => ({ text: "", offset: 0, pending: true }),
+  );
+  const chat = host.querySelector('[role="region"][aria-label="Pane chat: fresh-unbound-chat"]');
+  const composer = host.querySelector('[aria-label="Message composer"]');
+  assert(chat?.getAttribute("aria-busy") === "false", "usable fresh chat is not announced as loading");
+  assert(composer, "usable fresh chat keeps its named composer");
+  assert(!host.querySelector('[role="alert"][aria-label="Launch failed"]'), "late failure cannot cover a usable fresh chat");
+  await act(async () => root.unmount());
+});
+
 test("an attached chat never regresses to a stale launch failure", async () => {
   const paneId = "attached-stale-failure";
   const state = muxStateFor({
