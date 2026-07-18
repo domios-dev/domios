@@ -1383,7 +1383,7 @@ button,
   position: relative;
   display: block;
   width: 100%;
-  height: 16px;
+  height: 14px;
   margin: 0;
   border: 0;
   border-radius: 0 0 8px 8px;
@@ -1396,17 +1396,17 @@ button,
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 36px;
-  height: 8px;
+  width: 32px;
+  height: 6px;
   transform: translate(-50%, -50%);
 }
 
 .sidebar-team-disclosure-glyph::before,
 .sidebar-team-disclosure-glyph::after {
   position: absolute;
-  top: 3px;
-  width: 18px;
-  height: 2px;
+  top: 2px;
+  width: 16px;
+  height: 1px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--ct-muted-fg) 38%, transparent);
   content: "";
@@ -1459,16 +1459,16 @@ button,
 }
 
 .sidebar-team-disclosure-bar[aria-expanded="true"]:hover .sidebar-team-disclosure-glyph::before,
-.sidebar-team-disclosure-bar[aria-expanded="true"]:focus-visible .sidebar-team-disclosure-glyph::before { transform: rotate(-20deg); }
+.sidebar-team-disclosure-bar[aria-expanded="true"]:focus-visible .sidebar-team-disclosure-glyph::before { transform: rotate(-10deg); }
 
 .sidebar-team-disclosure-bar[aria-expanded="true"]:hover .sidebar-team-disclosure-glyph::after,
-.sidebar-team-disclosure-bar[aria-expanded="true"]:focus-visible .sidebar-team-disclosure-glyph::after { transform: rotate(20deg); }
+.sidebar-team-disclosure-bar[aria-expanded="true"]:focus-visible .sidebar-team-disclosure-glyph::after { transform: rotate(10deg); }
 
 .sidebar-team-disclosure-bar[aria-expanded="false"]:hover .sidebar-team-disclosure-glyph::before,
-.sidebar-team-disclosure-bar[aria-expanded="false"]:focus-visible .sidebar-team-disclosure-glyph::before { transform: rotate(20deg); }
+.sidebar-team-disclosure-bar[aria-expanded="false"]:focus-visible .sidebar-team-disclosure-glyph::before { transform: rotate(10deg); }
 
 .sidebar-team-disclosure-bar[aria-expanded="false"]:hover .sidebar-team-disclosure-glyph::after,
-.sidebar-team-disclosure-bar[aria-expanded="false"]:focus-visible .sidebar-team-disclosure-glyph::after { transform: rotate(-20deg); }
+.sidebar-team-disclosure-bar[aria-expanded="false"]:focus-visible .sidebar-team-disclosure-glyph::after { transform: rotate(-10deg); }
 
 .sidebar-team-disclosure-bar:focus-visible {
   outline: 1px solid var(--ct-accent);
