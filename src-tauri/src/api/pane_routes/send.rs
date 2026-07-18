@@ -58,15 +58,21 @@ pub(crate) fn default_true() -> bool {
     true
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PaneInputTransport {
+    Pty,
+    ChatBackend,
+}
+
 /// Whether to inject the sender return-address marker into the PTY text. The
 /// marker is meaningful only to an AGENT reading its input; a bare shell runs
 /// the bytes verbatim and a chatBackend carries identity structurally.
 pub(crate) fn should_prepend_source(
     has_source: bool,
     target_has_agent: bool,
-    target_is_chat: bool,
+    transport: PaneInputTransport,
 ) -> bool {
-    has_source && target_has_agent && !target_is_chat
+    has_source && target_has_agent && transport == PaneInputTransport::Pty
 }
 
 #[derive(Deserialize)]
@@ -188,7 +194,11 @@ pub async fn send_text(
             pane: raw_pane_id.clone(),
         })?;
 
-    let target_is_chat = state.svc.pane_chat_backing(&pane_id).is_some();
+    let transport = if state.svc.pane_chat_backing(&pane_id).is_some() {
+        PaneInputTransport::ChatBackend
+    } else {
+        PaneInputTransport::Pty
+    };
     // The return-address marker is meaningful only to an AGENT reading its input.
     // A bare shell PTY must run the injected bytes verbatim — never prefix it.
     let target_has_agent = state.svc.pane_has_agent(&pane_id);
@@ -222,7 +232,7 @@ pub async fn send_text(
 
     // Preflight: the PTY must exist and be linked BEFORE any byte is written.
     // Both failures are pre-write, so they guarantee an untouched target.
-    if !target_is_chat {
+    if transport == PaneInputTransport::Pty {
         state.svc.ensure_pane_pty_for_send(&pane_id).map_err(|e| {
             DeliveryError::PtyUnavailable {
                 pane: pane_id.clone(),
@@ -277,7 +287,7 @@ pub async fn send_text(
             }
         });
     let prefix_source =
-        should_prepend_source(source_envelope.is_some(), target_has_agent, target_is_chat);
+        should_prepend_source(source_envelope.is_some(), target_has_agent, transport);
     let prepend = |s: &str| -> String {
         match &source_envelope {
             Some(envelope) if prefix_source => {
@@ -332,7 +342,7 @@ pub async fn send_text(
 
         let raw_text = body.text.clone().unwrap_or_default();
         let text = prepend(&stage(raw_text.clone()));
-        if target_is_chat {
+        if transport == PaneInputTransport::ChatBackend {
             if !raw_text.is_empty() {
                 state
                     .svc
@@ -427,7 +437,7 @@ pub async fn send_text(
             .source_peer
             .as_deref()
             .is_some_and(|peer| !peer.is_empty())
-        && !target_is_chat
+        && transport == PaneInputTransport::Pty
     {
         let text = prepend(&raw_text);
         state
