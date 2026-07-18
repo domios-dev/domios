@@ -95,7 +95,7 @@ mod tests {
                 project,
                 role_guidance: guidance,
             };
-            let before = crate::prompts::MANAGER_BOOTSTRAP_TEMPLATE
+            let before = golden(crate::prompts::MANAGER_BOOTSTRAP_TEMPLATE)
                 .replace("{role}", role)
                 .replace("{team_id}", team_id)
                 .replace("{team_name}", team_name)
