@@ -137,7 +137,12 @@ impl ServiceContext {
                 return;
             };
             let envelope = MessageEnvelope::codeterm_reminder("orchestration-prefs");
-            if let Err(e) = svc.gateway_deliver(&pane_id, envelope, &body, crate::service::message_gateway::DeliveryClass::SystemNotice) {
+            if let Err(e) = svc.gateway_deliver(
+                &pane_id,
+                envelope,
+                &body,
+                crate::service::message_gateway::DeliveryClass::SystemNotice,
+            ) {
                 log::warn!("[orchestration-prefs] deliver to {pane_id} failed: {e}");
             }
         };

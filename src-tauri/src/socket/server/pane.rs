@@ -146,17 +146,18 @@ pub(super) fn dispatch(
                 let envelope =
                     crate::service::messenger::MessageEnvelope::pane(from_label, src.to_string())
                         .model(model);
-                svc.as_ref().gateway_deliver(
-                    &resolved_target,
-                    envelope,
-                    &raw_text,
-                    crate::service::message_gateway::DeliveryClass::AgentTraffic,
-                )
-                .map_err(|e| JsonRpcError {
-                    code: -32603,
-                    message: e,
-                    data: None,
-                })?;
+                svc.as_ref()
+                    .gateway_deliver(
+                        &resolved_target,
+                        envelope,
+                        &raw_text,
+                        crate::service::message_gateway::DeliveryClass::AgentTraffic,
+                    )
+                    .map_err(|e| JsonRpcError {
+                        code: -32603,
+                        message: e,
+                        data: None,
+                    })?;
                 if !raw_text.trim().is_empty() {
                     svc.as_ref()
                         .maybe_send_owned_plan_reminder(&resolved_target);
