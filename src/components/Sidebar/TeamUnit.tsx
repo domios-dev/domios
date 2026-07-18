@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, ClipboardList, LogOut, Minus, Plus, UsersRound } from "lucide-react";
+import { ChevronRight, ClipboardList, LogOut, UsersRound } from "lucide-react";
 import type { Pane, ProviderDescriptor, Team } from "../../lib/types";
 import { TASK_STATUS_COLORS } from "../Canvas/settings";
 import { ProviderGlyph } from "../ProviderGlyph";
@@ -9,6 +9,7 @@ import { BOARD_COLUMN_DEFS, groupTasksIntoColumns } from "../Canvas/planView/boa
 import { summarizeWorkers } from "./orchestrationSections";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { clampFloatingPosition } from "../shared/floatingPosition";
+import { loadTeamDisclosureState, persistTeamDisclosureState } from "./teamDisclosureState";
 
 export type TeamMemberRole = "planner" | "worker";
 
@@ -351,8 +352,9 @@ export function TeamUnit({
   onAddMember,
   onCloseTeam,
 }: TeamUnitProps) {
-  const [expanded, setExpanded] = useState(true);
-  const [workersExpanded, setWorkersExpanded] = useState(true);
+  const initialDisclosure = useMemo(() => loadTeamDisclosureState(team.id), [team.id]);
+  const [expanded, setExpanded] = useState(initialDisclosure.expanded);
+  const [workersExpanded, setWorkersExpanded] = useState(initialDisclosure.workersExpanded);
   const [menuDismissed, setMenuDismissed] = useState(false);
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(team.name?.trim() || "Team");
@@ -366,6 +368,22 @@ export function TeamUnit({
   useEffect(() => setName(team.name?.trim() || "Team"), [team.name]);
 
   const headerRef = useRef<HTMLDivElement>(null);
+
+  const toggleExpanded = () => {
+    setExpanded((current) => {
+      const next = !current;
+      persistTeamDisclosureState(team.id, { expanded: next });
+      return next;
+    });
+  };
+
+  const toggleWorkersExpanded = () => {
+    setWorkersExpanded((current) => {
+      const next = !current;
+      persistTeamDisclosureState(team.id, { workersExpanded: next });
+      return next;
+    });
+  };
 
   useEffect(() => {
     const isInsideHeader = (target: EventTarget | null) => target instanceof Node && headerRef.current?.contains(target);
@@ -448,16 +466,6 @@ export function TeamUnit({
       data-expanded={expanded ? "true" : "false"}
       className="sidebar-team-unit"
     >
-      <button
-        type="button"
-        data-testid="team-collapse-toggle"
-        className="sidebar-team-pin"
-        aria-label={expanded ? "Collapse Team" : "Expand Team"}
-        aria-expanded={expanded}
-        onClick={() => setExpanded((value) => !value)}
-      >
-        {expanded ? <Minus aria-hidden /> : <Plus aria-hidden />}
-      </button>
       <div
         ref={headerRef}
         className={`sidebar-team-header${plan && !editing ? " sidebar-team-header-active" : ""}`}
@@ -527,7 +535,7 @@ export function TeamUnit({
                 data-testid="workers-collapse-toggle"
                 expanded={workersExpanded}
                 className="sidebar-team-workers-toggle"
-                onClick={() => setWorkersExpanded((value) => !value)}
+                onClick={toggleWorkersExpanded}
               >WORKERS {workerCount}</SidebarDisclosure>
               {workersExpanded ? (
                 <div className="sidebar-team-member-list">{workers}</div>
@@ -544,6 +552,14 @@ export function TeamUnit({
           )}
         </div>
       )}
+      <button
+        type="button"
+        data-testid="team-collapse-toggle"
+        className="sidebar-team-disclosure-bar"
+        aria-label={expanded ? "Collapse Team" : "Expand Team"}
+        aria-expanded={expanded}
+        onClick={toggleExpanded}
+      />
     </section>
   );
 }

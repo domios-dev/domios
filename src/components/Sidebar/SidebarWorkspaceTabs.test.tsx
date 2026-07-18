@@ -267,19 +267,19 @@ test("team menu enables staffing only for a Team with a manager", async () => {
   assert(trigger, "team menu trigger exists");
   assert(trigger.classList.contains("sidebar-team-kebab"), "team menu uses the same-slot kebab control");
   assert(trigger.tabIndex === 0, "team menu trigger remains keyboard reachable for the focus swap");
-  assert(/\.sidebar-team-unit\s*\{[^}]*margin:\s*10px 0 4px;[^}]*background:\s*color-mix\(in srgb, var\(--ct-fg\) 3%, transparent\);/.test(sidebarStyles), "Team cards use lighter tint and separated vertical cadence");
+  assert(/\.sidebar-team-unit\s*\{[^}]*margin:\s*4px 0;[^}]*background:\s*color-mix\(in srgb, var\(--ct-fg\) 3%, transparent\);/.test(sidebarStyles), "Team cards use lighter tint and compact vertical cadence");
   assert(/\.sidebar-team-header\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto;[^}]*gap:\s*6px;[^}]*margin:\s*0;[^}]*padding:\s*6px 7px 4px 10px;/.test(sidebarStyles), "Team header reclaims the former chevron column");
-  assert(/\.sidebar-team-pin\s*\{[^}]*top:\s*-7px;[^}]*left:\s*11px;[^}]*width:\s*28px;[^}]*height:\s*15px;/.test(sidebarStyles), "Team collapse pin sits above the card edge");
+  assert(/\.sidebar-team-disclosure-bar\s*\{[^}]*width:\s*100%;[^}]*height:\s*10px;/.test(sidebarStyles), "Team disclosure is a full-width bottom handle");
   assert(/@container \(max-width:\s*159px\)/.test(sidebarStyles), "compact tally threshold preserves the 160px Team matrix after inset reclaim");
   const header = host.querySelector('.sidebar-team-header') as HTMLDivElement | null;
   const chevron = host.querySelector('[data-testid="team-collapse-toggle"]') as HTMLButtonElement | null;
   assert(!header?.hasAttribute("role") && header?.tabIndex === -1, "Team header is a non-interactive control container");
-  assert(chevron?.getAttribute("aria-expanded") === "true", "Team pin exposes the expanded state");
-  assert(chevron?.querySelector(".sidebar-disclosure-glyph") === null, "Team pin has no sidebar chevron glyph");
+  assert(chevron?.getAttribute("aria-expanded") === "true", "Team bottom handle exposes the expanded state");
+  assert(chevron?.querySelector("svg") === null, "Team bottom handle has no plus or chevron icon");
   await act(async () => chevron?.click());
-  assert(chevron?.getAttribute("aria-expanded") === "false", "pin click collapses Team");
+  assert(chevron?.getAttribute("aria-expanded") === "false", "bottom handle click collapses Team");
   await act(async () => chevron?.click());
-  assert(chevron?.getAttribute("aria-expanded") === "true", "pin click expands Team");
+  assert(chevron?.getAttribute("aria-expanded") === "true", "bottom handle click expands Team");
   assert(/\.sidebar-team-progress-slot\s*\{[^}]*width:\s*24px;[^}]*height:\s*20px;/.test(sidebarStyles), "done/total and kebab share one fixed slot");
   assert(/\.sidebar-team-readout-label\s*\{[^}]*margin-left:\s*3px;/.test(sidebarStyles), "full tally labels have explicit count spacing");
   assert(/\.sidebar-team-menu-root \.sidebar-team-kebab\s*\{[^}]*opacity:\s*0;/.test(sidebarStyles), "kebab hides by opacity without removing its slot");
@@ -686,11 +686,11 @@ test("Team card keeps plan activation separate from collapse and menu controls",
   await act(async () => {
     chevron.focus();
     const forwarded = forwardTerminalFallback(chevronEnter, document.activeElement, (data) => ptyWrites.push(data));
-    assert(!forwarded, "focused Team chevron never forwards Enter to the PTY");
+    assert(!forwarded, "focused Team disclosure handle never forwards Enter to the PTY");
     if (!chevronEnter.defaultPrevented) chevron.click();
   });
-  assert(chevron.getAttribute("aria-expanded") === "true", "Enter on the Team chevron keeps native button toggling");
-  assert(ptyWrites.length === 0, "Team chevron Enter produces zero PTY writes");
+  assert(chevron.getAttribute("aria-expanded") === "true", "Enter on the Team disclosure handle keeps native button toggling");
+  assert(ptyWrites.length === 0, "Team disclosure handle Enter produces zero PTY writes");
   const terminalFallbackSurface = document.createElement("div");
   terminalFallbackSurface.tabIndex = 0;
   host.append(terminalFallbackSurface);
@@ -987,6 +987,34 @@ test("team worker close control calls onCloseTab", async () => {
   await act(async () => root.unmount());
 });
 
+test("Team disclosure stays user-owned across rerenders and remounts", async () => {
+  const panes = {
+    orchestrator: pane({ id: "orchestrator", title: "Orchestrator", role: "Orchestrator", team_id: TEAM.id }),
+  };
+  const tabs = [tab("tab-orchestrator", "orchestrator", 0)];
+  const first = await renderSidebar({ panes, tabs });
+  const firstHandle = first.host.querySelector('[data-testid="team-collapse-toggle"]') as HTMLButtonElement;
+  await act(async () => firstHandle.click());
+  assert(firstHandle.getAttribute("aria-expanded") === "false", "user collapse takes effect");
+  await first.rerender([]);
+  assert(firstHandle.getAttribute("aria-expanded") === "false", "data refresh cannot expand a collapsed Team");
+  await act(async () => first.root.unmount());
+
+  const refreshed = await renderSidebar({ panes, tabs });
+  const refreshedHandle = refreshed.host.querySelector('[data-testid="team-collapse-toggle"]') as HTMLButtonElement;
+  assert(refreshedHandle.getAttribute("aria-expanded") === "false", "frontend remount restores the collapsed Team state");
+  assert(!refreshed.host.querySelector('[data-testid="managers-section"]'), "collapsed Team body stays hidden after remount");
+  await act(async () => refreshedHandle.click());
+  await act(async () => refreshed.root.unmount());
+
+  const expandedAgain = await renderSidebar({ panes, tabs });
+  assert(
+    expandedAgain.host.querySelector('[data-testid="team-collapse-toggle"]')?.getAttribute("aria-expanded") === "true",
+    "only a user expansion changes the persisted Team state",
+  );
+  await act(async () => expandedAgain.root.unmount());
+});
+
 test("tab rich menu opens from right click and exposes session actions", async () => {
   const commands: string[] = [];
   let copied = "";
@@ -1087,6 +1115,7 @@ async function main() {
   let failed = 0;
   for (const [name, fn] of tests) {
     try {
+      window.localStorage.clear();
       await fn();
       console.log(`✓ ${name}`);
     } catch (error) {
