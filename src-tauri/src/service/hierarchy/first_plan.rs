@@ -106,11 +106,11 @@ pub(crate) fn create_first_plan_for_orchestrator(
             now_ms,
         )
     } else {
-        plan_store.create_plan_for_team(
+        plan_store.create_first_plan_for_team(
             title,
             project_path,
             owner,
-            Some(team.team_id.clone()),
+            team.team_id.clone(),
             kinds,
             now_ms,
         )
