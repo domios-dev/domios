@@ -228,24 +228,19 @@ export async function webFetch(
   }
 }
 
-/**
- * Upload a browser file/blob to the daemon host; returns the server-side
- * path the agent CLI can read. Content-Type stays unset so the browser
- * writes the multipart boundary itself.
- */
+/** Upload a browser blob to a daemon path the agent CLI can read. */
 export async function webUpload(
   file: Blob,
   filename: string,
 ): Promise<{ path: string; size: number }> {
-  const form = new FormData();
-  form.append("file", file, filename);
   const headers = new Headers();
   const token = currentToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  const res = await fetch(`${apiHost()}/api/upload`, {
+  headers.set("Content-Type", file.type || "application/octet-stream");
+  const res = await fetch(`${apiHost()}/api/upload?filename=${encodeURIComponent(filename)}`, {
     method: "POST",
     headers,
-    body: form,
+    body: file,
   });
   const text = await res.text();
   if (!res.ok) throw new WebApiError(res.status, "/api/upload", text);

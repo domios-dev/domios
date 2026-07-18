@@ -3,6 +3,7 @@
 //! these), plus the SSE event stream that replaces Tauri event emits.
 
 use axum::{
+    body::Bytes,
     extract::{Path, Query, State as AxumState},
     http::{HeaderMap, StatusCode},
     response::sse::{Event, KeepAlive, Sse},
@@ -473,44 +474,36 @@ async fn cleanup_uploads_dir(dir: &std::path::Path) {
     }
 }
 
+#[derive(Deserialize)]
+pub(crate) struct UploadQuery {
+    filename: Option<String>,
+}
+
 pub async fn upload(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    mut multipart: axum::extract::Multipart,
+    Query(query): Query<UploadQuery>,
+    data: Bytes,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    if data.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "empty file".to_string()));
+    }
     let dir = crate::paths::data_dir().join("uploads");
     tokio::fs::create_dir_all(&dir)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     cleanup_uploads_dir(&dir).await;
-    while let Some(field) = multipart
-        .next_field()
+    let name = sanitize_filename(query.filename.as_deref().unwrap_or("upload.bin"));
+    let id = uuid::Uuid::new_v4().simple().to_string();
+    let path = dir.join(format!("{}-{}", &id[..8], name));
+    tokio::fs::write(&path, &data)
         .await
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?
-    {
-        if field.name() != Some("file") {
-            continue;
-        }
-        let name = sanitize_filename(field.file_name().unwrap_or("upload.bin"));
-        let data = field
-            .bytes()
-            .await
-            .map_err(|e| (StatusCode::PAYLOAD_TOO_LARGE, e.to_string()))?;
-        if data.is_empty() {
-            return Err((StatusCode::BAD_REQUEST, "empty file".to_string()));
-        }
-        let id = uuid::Uuid::new_v4().simple().to_string();
-        let path = dir.join(format!("{}-{}", &id[..8], name));
-        tokio::fs::write(&path, &data)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-        return Ok(Json(serde_json::json!({
-            "path": path.to_string_lossy(),
-            "size": data.len(),
-        })));
-    }
-    Err((StatusCode::BAD_REQUEST, "missing 'file' field".to_string()))
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(serde_json::json!({
+        "path": path.to_string_lossy(),
+        "size": data.len(),
+    })))
 }
 
 #[derive(Deserialize)]

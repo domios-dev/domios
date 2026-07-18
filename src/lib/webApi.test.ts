@@ -20,8 +20,25 @@ async function run() {
     clearRelayTarget,
     invalidateWebRequestContext,
     setRelayTarget,
+    setTokenFor,
     webFetch,
+    webUpload,
   } = await import("./webApi");
+  const upload = new Blob(["image-bytes"], { type: "image/png" });
+  let uploadUrl = "";
+  let uploadInit: RequestInit | undefined;
+  globalThis.fetch = async (input, init) => {
+    uploadUrl = String(input);
+    uploadInit = init;
+    return new Response(JSON.stringify({ path: "C:/uploads/photo.png", size: upload.size }), { status: 200 });
+  };
+  setTokenFor("http://localhost:7686", "test-token");
+  const stored = await webUpload(upload, "phone photo.png");
+  assert(uploadUrl.endsWith("/api/upload?filename=phone%20photo.png"), "upload filename is query encoded");
+  assert(uploadInit?.body === upload, "upload sends the Blob directly without multipart re-streaming");
+  assert(new Headers(uploadInit?.headers).get("Content-Type") === "image/png", "upload preserves the media type");
+  assert(stored.path === "C:/uploads/photo.png" && stored.size === upload.size, "upload returns the daemon path");
+
   let requestSignal: AbortSignal | null = null;
   globalThis.fetch = (_input, init) => {
     requestSignal = init?.signal ?? null;
