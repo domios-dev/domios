@@ -102,6 +102,7 @@ fn path_requires_full_access(method: &str, path: &str) -> bool {
             | ("POST", "/api/mesh/pair/request")
             | ("POST", "/api/mesh/pair/accept")
             | ("POST", "/api/mesh/introduce")
+            | ("POST", "/api/mesh/rpc")
             | ("POST", "/api/agents/spawn")
             | ("POST", "/api/hooks/permission")
             | ("POST", "/api/hooks/stop")
@@ -892,6 +893,11 @@ mod tests {
         assert!(path_requires_full_access("POST", "/api/mesh/pair/request"));
         assert!(path_requires_full_access("POST", "/api/mesh/pair/accept"));
         assert!(path_requires_full_access("POST", "/api/mesh/introduce"));
+    }
+
+    #[test]
+    fn mesh_rpc_requires_full_access() {
+        assert!(path_requires_full_access("POST", "/api/mesh/rpc"));
     }
 
     #[test]

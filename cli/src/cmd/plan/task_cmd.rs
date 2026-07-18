@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 
 use crate::args::plan::PlanTaskAction;
-use crate::client::SocketClient;
+use crate::client::RpcClient;
 use crate::cmd::hints::{
     maybe_orchestration_reminder, push_hints, task_model_hint, task_quality_guard_hint,
     task_sections_hint,
@@ -126,7 +126,7 @@ fn render_attempt(value: &Value) -> String {
 }
 
 pub(super) fn run_task(
-    client: &mut SocketClient,
+    client: &mut dyn RpcClient,
     json: bool,
     action: PlanTaskAction,
 ) -> Result<Option<Value>, String> {
@@ -142,11 +142,13 @@ pub(super) fn run_task(
             if let Some(plan_id) = plan_id {
                 params["plan_id"] = json!(plan_id);
             }
-            if let Some(project) = std::env::current_dir()
-                .ok()
-                .map(|path| path.display().to_string())
-            {
-                params["project"] = json!(project);
+            if !client.is_remote() {
+                if let Some(project) = std::env::current_dir()
+                    .ok()
+                    .map(|path| path.display().to_string())
+                {
+                    params["project"] = json!(project);
+                }
             }
             if let Some(status) = status {
                 params["status"] = json!(status);

@@ -4,7 +4,7 @@ use crate::args::plan::{
     PlanAction, PlanElementAction, PlanFacetsAction, PlanGoalAction, PlanGroupsAction,
     PlanKindsAction, PlanLayoutAction, PlanLoopAction, PlanMilestoneAction, PlanNoteAction,
 };
-use crate::client::SocketClient;
+use crate::client::RpcClient;
 use crate::cmd::hints::{plan_create_spec_first_hint, push_hints};
 use crate::cmd::plan_errors::render_plan_call_error;
 
@@ -68,7 +68,7 @@ pub(crate) fn maybe_inject_caller_pane(params: &mut Value) {
 }
 
 pub(crate) fn call_plan_rpc(
-    client: &mut SocketClient,
+    client: &mut dyn RpcClient,
     method: &str,
     params: Value,
 ) -> Result<Value, String> {
@@ -77,7 +77,7 @@ pub(crate) fn call_plan_rpc(
         .map_err(|e| render_plan_call_error(e, &params))
 }
 
-fn call(client: &mut SocketClient, method: &str, params: Value) -> Result<Value, String> {
+fn call(client: &mut dyn RpcClient, method: &str, params: Value) -> Result<Value, String> {
     call_plan_rpc(client, method, params)
 }
 
@@ -95,11 +95,13 @@ fn plan_delete_params(plan_id: String, yes: bool) -> Result<Value, String> {
     Ok(json!({ "plan_id": plan_id }))
 }
 
-fn default_project_path() -> String {
+fn default_project_path(client: &dyn RpcClient) -> Option<String> {
+    if client.is_remote() {
+        return None;
+    }
     std::env::current_dir()
         .ok()
         .map(|path| path.display().to_string())
-        .unwrap_or_default()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -149,7 +151,7 @@ pub(crate) fn lane_params(
     }
 }
 
-pub fn handle_plan(client: &mut SocketClient, json: bool, action: PlanAction) {
+pub fn handle_plan(client: &mut dyn RpcClient, json: bool, action: PlanAction) {
     match run_plan(client, json, action) {
         Ok(None) => {}
         Ok(Some(val)) => print_plan_result(json, &val),
@@ -161,7 +163,7 @@ pub fn handle_plan(client: &mut SocketClient, json: bool, action: PlanAction) {
 }
 
 fn run_plan(
-    client: &mut SocketClient,
+    client: &mut dyn RpcClient,
     json: bool,
     action: PlanAction,
 ) -> Result<Option<Value>, String> {
@@ -187,7 +189,9 @@ fn run_plan(
             if let Some(k) = kinds {
                 params["kinds"] = json!(k);
             }
-            params["project_path"] = json!(project.unwrap_or_else(default_project_path));
+            if let Some(project) = project.or_else(|| default_project_path(client)) {
+                params["project_path"] = json!(project);
+            }
             if let Some(spec_id) = from_spec {
                 params["from_spec"] = json!(spec_id);
             }
@@ -499,7 +503,6 @@ fn run_plan(
             archived,
             all,
         } => {
-            let project = project.unwrap_or_else(default_project_path);
             let status = if all {
                 "all"
             } else if archived {
@@ -509,10 +512,12 @@ fn run_plan(
             };
             let mut params = json!({
                 "q": query,
-                "project": project,
                 "limit": limit,
                 "status": status,
             });
+            if let Some(project) = project.or_else(|| default_project_path(client)) {
+                params["project"] = json!(project);
+            }
             if let Some(kind) = kind {
                 params["kind"] = json!(kind);
             }
@@ -525,8 +530,11 @@ fn run_plan(
         }
 
         PlanAction::Reindex { project } => {
-            let project = project.unwrap_or_else(default_project_path);
-            call(client, "plan.reindex", json!({ "project": project }))
+            let mut params = json!({});
+            if let Some(project) = project.or_else(|| default_project_path(client)) {
+                params["project"] = json!(project);
+            }
+            call(client, "plan.reindex", params)
         }
 
         PlanAction::Groups { action } => match action {

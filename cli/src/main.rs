@@ -255,7 +255,7 @@ fn main_impl() {
         return;
     }
 
-    if let Some(ref mesh_target) = cli.mesh {
+    if let Some(mesh_target) = cli.mesh.clone() {
         // Secrets are local-only — refuse to proxy them across the mesh. Cross-mesh secret access needs a trust model we haven't designed yet.
         if matches!(
             cli.command,
@@ -280,7 +280,7 @@ fn main_impl() {
             );
             std::process::exit(6);
         }
-        mesh_cli::run_via_mesh(&cli, mesh_target);
+        mesh_cli::run_via_mesh(cli, &mesh_target);
         return;
     }
 

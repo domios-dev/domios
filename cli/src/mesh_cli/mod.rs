@@ -9,6 +9,7 @@ mod api_map;
 mod auth;
 mod parse;
 mod relay;
+mod rpc;
 mod update;
 
 #[cfg(test)]
@@ -98,7 +99,42 @@ pub enum MeshPeerAction {
 
 /// Execute a CLI command on a remote mesh peer via relay.
 /// Reconstructs the command as an API call and sends through relay proxy.
-pub fn run_via_mesh(cli: &super::Cli, target: &str) {
+pub fn run_via_mesh(cli: super::Cli, target: &str) {
+    if matches!(
+        &cli.command,
+        Commands::Plan { .. }
+            | Commands::Team { .. }
+            | Commands::Spec { .. }
+            | Commands::Effort { .. }
+            | Commands::Task { .. }
+    ) {
+        let (base, token) = super::read_api_config();
+        let mut client = match rpc::MeshRpcClient::connect(&base, &token, target) {
+            Ok(client) => client,
+            Err(error) => {
+                eprintln!("Error: {error}");
+                std::process::exit(1);
+            }
+        };
+        match cli.command {
+            Commands::Plan { action } => {
+                crate::cmd::plan::handle_plan(&mut client, cli.json, action)
+            }
+            Commands::Team { action } => crate::cmd::team::handle(&mut client, cli.json, action),
+            Commands::Spec { action } => {
+                crate::cmd::spec::handle_spec(&mut client, cli.json, action)
+            }
+            Commands::Effort { action } => {
+                crate::cmd::effort::handle_effort(&mut client, cli.json, action)
+            }
+            Commands::Task { action } => {
+                crate::cmd::task::handle_task(&mut client, cli.json, action)
+            }
+            _ => unreachable!(),
+        }
+        return;
+    }
+
     // Mesh management commands are local-only — cannot be relayed.
     if let super::Commands::Mesh {
         action:

@@ -298,6 +298,7 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 | POST | `/api/mesh/broadcast/start` | — | Start local discovery broadcast |
 | POST | `/api/mesh/broadcast/stop` | — | Stop local discovery broadcast |
 | POST | `/api/mesh/relay` | `{method, path, body}` | Relay an API call to a remote peer |
+| POST | `/api/mesh/rpc` | `{method, params, request_id}` | Execute allowlisted plan/spec/task/team JSON-RPC through the peer's in-process dispatcher. Requires full peer access and deduplicates by request ID. |
 | GET | `/api/mesh/relay-stream` | `?peer=<id>&path=<streamable>&since=<cursor>` | Browser→local byte-pipe of a peer's own `/api/events/stream` or `/api/output/stream`, cursor-resumed and un-timed. Peer unreachable → `504` `peer-unreachable`. |
 | GET | `/api/mesh/relay-asset/{peer}/{*path}` | `?token=<LOCAL>` | Read-only, `plugins/{id}/ui/*`-scoped byte proxy for a peer's plugin-UI iframe. |
 | DELETE | `/api/mesh/peers/{id}` | — | Remove a peer (used internally by disconnect broadcast) |
@@ -1296,4 +1297,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 78 -->
+<!-- revision: 79 -->

@@ -546,6 +546,7 @@ pub fn create_router(state: AppState) -> Router {
             post(mesh_routes::mesh_stop_broadcast),
         )
         .route("/api/mesh/relay", post(mesh_routes::mesh_relay))
+        .route("/api/mesh/rpc", post(mesh_routes::mesh_rpc))
         .route(
             "/api/mesh/relay-stream",
             get(mesh_routes::mesh_relay_stream),

@@ -42,6 +42,27 @@ pub enum SocketCallError {
     Rpc(RpcError),
 }
 
+pub trait RpcClient {
+    fn call_detailed(
+        &mut self,
+        method: &str,
+        params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, SocketCallError>;
+
+    fn call(
+        &mut self,
+        method: &str,
+        params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, String> {
+        self.call_detailed(method, params)
+            .map_err(|e| e.to_string())
+    }
+
+    fn is_remote(&self) -> bool {
+        false
+    }
+}
+
 impl std::fmt::Display for SocketCallError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -157,6 +178,16 @@ impl SocketClient {
         }
 
         Ok(resp.result.unwrap_or(serde_json::Value::Null))
+    }
+}
+
+impl RpcClient for SocketClient {
+    fn call_detailed(
+        &mut self,
+        method: &str,
+        params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, SocketCallError> {
+        SocketClient::call_detailed(self, method, params)
     }
 }
 
