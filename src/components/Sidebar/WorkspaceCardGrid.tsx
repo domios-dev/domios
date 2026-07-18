@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
-import { Pencil } from "lucide-react";
+import { Pencil, Plus } from "lucide-react";
 import type { PaneStatus, Workspace } from "../../lib/types";
 import { SortableContext, SortableRow, WS_PREFIX, rectSortingStrategy } from "./sortable";
 import {
@@ -16,6 +16,7 @@ interface WorkspaceCardGridProps {
   statuses: Record<string, PaneStatus | null>;
   sortIds: string[];
   onSelect: (workspaceId: string) => void;
+  onCreate: () => void;
 }
 
 const CARD_WIDTH = 52;
@@ -31,7 +32,7 @@ export function workspaceCardPosition(index: number, columns: number): { gridCol
   };
 }
 
-export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, sortIds, onSelect }: WorkspaceCardGridProps) {
+export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, sortIds, onSelect, onCreate }: WorkspaceCardGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [columns, setColumns] = useState(3);
   const [customInitials, setCustomInitials] = useState(loadWorkspaceInitials);
@@ -80,6 +81,7 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
                 key={workspace.id}
                 id={`${WS_PREFIX}${workspace.id}`}
                 data={{ group: "workspace", groupKey: "workspaces", items: sortIds }}
+                layoutStyle={workspaceCardPosition(index, columns)}
               >
                 <div
                   className="sidebar-workspace-card"
@@ -88,7 +90,7 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
                   data-selected={selected ? "true" : "false"}
                   data-status={status?.toLowerCase() ?? "none"}
                   role="listitem"
-                  style={{ ["--workspace-card-color" as string]: color, ...workspaceCardPosition(index, columns) }}
+                  style={{ ["--workspace-card-color" as string]: color }}
                 >
                   {editingId === workspace.id ? (
                     <input
@@ -138,6 +140,17 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
               </SortableRow>
             );
           })}
+          <button
+            type="button"
+            data-testid="workspace-card-create"
+            className="sidebar-workspace-card-create"
+            aria-label="Create workspace"
+            title="New workspace"
+            onClick={onCreate}
+            style={workspaceCardPosition(workspaces.length, columns)}
+          >
+            <Plus size={17} strokeWidth={1.5} />
+          </button>
         </div>
       </SortableContext>
     </div>
