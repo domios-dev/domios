@@ -50,6 +50,7 @@ async function main() {
   __setInvokeForTest((async (cmd: string) => {
     if (cmd === "chat_start") return { text: "", offset: 0, messages: [] };
     if (cmd === "delayed_send_list") return [];
+    if (cmd === "list_notifications") return [];
     if (cmd === "mux_get_state") {
       return {
         workspaces: [{
