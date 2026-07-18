@@ -15,12 +15,13 @@ function gitShortHash(): string {
   }
 }
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   // AND from the daemon's /web mount (web mirror) without path rewrites.
   base: "./",
   define: {
     __APP_VERSION__: JSON.stringify(tauriConf.version),
     __BUILD_HASH__: JSON.stringify(gitShortHash()),
+    __CODETERM_DEV__: JSON.stringify(process.env.CODETERM_DEV === "1" || command === "serve"),
   },
   plugins: [
     react(),
@@ -49,4 +50,4 @@ export default defineConfig({
     strictPort: true,
   },
   envPrefix: ["VITE_", "TAURI_"],
-});
+}));

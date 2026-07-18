@@ -56,7 +56,7 @@ export function Titlebar({
   const handleMinimize = useCallback(() => appWindow?.minimize(), [appWindow]);
   const handleMaximize = useCallback(() => appWindow?.toggleMaximize(), [appWindow]);
   const handleClose = useCallback(() => appWindow?.close(), [appWindow]);
-  const buildLabel = developmentBuildLabel(import.meta.env.DEV, __APP_VERSION__);
+  const buildLabel = developmentBuildLabel(__CODETERM_DEV__, __APP_VERSION__);
 
   return (
     <div
