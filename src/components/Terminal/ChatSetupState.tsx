@@ -52,7 +52,11 @@ function unreachableBootStage(stage: never): never {
   throw new Error(`Unexpected boot stage: ${stage}`);
 }
 
-export function chatSetupView(pane: Pane | null | undefined): PaneBootOverlayView {
+export function chatSetupView(
+  pane: Pane | null | undefined,
+  chatSessionAttached = false,
+): PaneBootOverlayView {
+  if (chatSessionAttached) return { kind: "none" };
   const stage = pane?.boot_stage;
   if (!stage || stage === "agent_ready" || stage === "pty_reattached") return { kind: "none" };
   if (stage === "spawn_failed") {
@@ -223,7 +227,7 @@ export function ChatSetupState({
             Check the terminal details, then try again.
           </div>
           <div className="mt-4 flex gap-2">
-            {onRetry && <button ref={retryRef} type="button" data-testid="chat-launch-retry" onClick={onRetry} className="min-h-10 rounded-md border px-3 text-xs font-medium" style={{ borderColor: "var(--ct-border)", color: "var(--ct-fg)" }}>Retry</button>}
+            {view.canRetry && onRetry && <button ref={retryRef} type="button" data-testid="chat-launch-retry" onClick={onRetry} className="min-h-10 rounded-md border px-3 text-xs font-medium" style={{ borderColor: "var(--ct-border)", color: "var(--ct-fg)" }}>Retry</button>}
             {failureCount >= 2 && onOpenTerminal && <button type="button" data-testid="chat-launch-show-log" onClick={onOpenTerminal} className="min-h-10 rounded-md border px-3 text-xs font-medium" style={{ borderColor: "var(--ct-border)", color: "var(--ct-fg)" }}>Show log</button>}
           </div>
         </div>

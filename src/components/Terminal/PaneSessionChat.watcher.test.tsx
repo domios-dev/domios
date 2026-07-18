@@ -207,6 +207,45 @@ test("bound-session pending snapshot renders recovery instead of false empty", a
   await act(async () => root.unmount());
 });
 
+test("an attached chat never regresses to a stale launch failure", async () => {
+  const paneId = "attached-stale-failure";
+  const state = muxStateFor({
+    [paneId]: paneBase(paneId, {
+      agent_session_id: "bound-session",
+      boot_stage: "spawn_failed",
+      boot_failure_reason: "stale result",
+      protected: true,
+    }),
+  });
+  const { host, root } = await renderPaneSessionChat(paneId, state);
+  assert(host.querySelector('[data-testid="chat-composer"]'), "attached chat remains usable");
+  assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "stale failure cannot cover attached chat");
+  await act(async () => root.unmount());
+});
+
+test("launch retry uses the generic pane restart command", async () => {
+  const paneId = "generic-retry-pane";
+  const state = muxStateFor({
+    [paneId]: paneBase(paneId, {
+      agent_session_id: "bound-session",
+      boot_stage: "spawn_failed",
+      boot_failure_reason: "launch failed",
+      protected: true,
+    }),
+  });
+  const { host, root, commands } = await renderPaneSessionChat(
+    paneId,
+    state,
+    () => ({ text: "", offset: 0, pending: true }),
+  );
+  const retry = host.querySelector('[data-testid="chat-launch-retry"]') as HTMLButtonElement | null;
+  assert(retry, "unattached failed launch exposes retry");
+  await act(async () => retry.click());
+  assert(commands.includes("restart_agent_pane"), "retry targets the current pane through the generic restart seam");
+  assert(!commands.includes("restart_general_agent_pane"), "retry never assumes this pane is the General Agent");
+  await act(async () => root.unmount());
+});
+
 test("T7 awaiting-store keeps the composer identity, draft, and focus", async () => {
   const paneId = "pending-composer-pane";
   const state = muxStateFor({

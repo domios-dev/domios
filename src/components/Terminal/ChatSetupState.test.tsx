@@ -33,13 +33,14 @@ function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
 }
 
-function pane(stage: Pane["boot_stage"], reason?: string | null): Pane {
+function pane(stage: Pane["boot_stage"], reason?: string | null, protectedPane = true): Pane {
   return {
     id: "p-1",
     pty_id: null,
     title: "Agent",
     boot_stage: stage,
     boot_failure_reason: reason ?? null,
+    protected: protectedPane,
   } as unknown as Pane;
 }
 
@@ -152,6 +153,14 @@ async function main() {
     assert(!opened, "show log is withheld until a second failure");
   });
 
+  await test("non-retryable failure never offers a retry action", async () => {
+    const p = pane("spawn_failed", "not restartable", false);
+    const host = await render(
+      <ChatSetupState pane={p} view={chatSetupView(p)} providerName="Codex" onRetry={() => {}} />,
+    );
+    assert(!host.querySelector('[data-testid="chat-launch-retry"]'), "retry is hidden when the pane cannot be restarted");
+  });
+
   await test("second launch failure exposes the terminal log action", async () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
@@ -227,6 +236,15 @@ async function main() {
     );
     assert(!host.querySelector('[data-testid="chat-setup-state"]'), "no setup card");
     assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "no failed card");
+  });
+
+  await test("an attached chat is authoritative over a late failed boot stage", async () => {
+    const p = pane("spawn_failed", "stale launch result");
+    const host = await render(
+      <ChatSetupState pane={p} view={chatSetupView(p, true)} providerName="Codex" />,
+    );
+    assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "attached chat is never covered by a stale failure");
+    assert(!host.querySelector('[data-testid="chat-setup-state"]'), "attached chat has no launch overlay");
   });
 
   console.log(failures === 0 ? "ChatSetupState tests: all passed" : `ChatSetupState tests: ${failures} failed`);

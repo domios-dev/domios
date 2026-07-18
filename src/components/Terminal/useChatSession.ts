@@ -555,6 +555,7 @@ export function useChatSession({
     loading,
     recovering,
     error,
+    attachmentState,
     retry,
     setError,
     allMessages,

@@ -86,6 +86,10 @@ assert(
   ),
 );
 assert(
+  "restart_agent_pane maps to the generic pane restart route",
+  /restart_agent_pane:\s*\(a\)\s*=>[\s\S]*?\/api\/panes\/\$\{enc\(s\(a, "paneId"\) \?\? s\(a, "pane_id"\)\)\}\/agent\/restart/.test(httpBlock),
+);
+assert(
   "mux_add_team_member maps to the Team members route with caller-pane identity",
   /mux_add_team_member:\s*\(a\)\s*=>[\s\S]*?\/api\/teams\/\$\{enc\(s\(a, "teamId"\)\)\}\/members[\s\S]*?provider: a\.provider[\s\S]*?role: a\.role[\s\S]*?a\.callerTabId/.test(httpBlock),
 );
