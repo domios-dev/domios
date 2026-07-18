@@ -712,7 +712,12 @@ impl ServiceContext {
             &text,
         );
         let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("plan");
-        let _ = self.gateway_deliver(owner, envelope, &text, crate::service::message_gateway::DeliveryClass::SystemNotice);
+        let _ = self.gateway_deliver(
+            owner,
+            envelope,
+            &text,
+            crate::service::message_gateway::DeliveryClass::SystemNotice,
+        );
     }
 
     /// Nudge the gate asker pane when a gate is answered.
@@ -748,7 +753,12 @@ impl ServiceContext {
             &text,
         );
         let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("plan");
-        let _ = self.gateway_deliver(asker, envelope, &text, crate::service::message_gateway::DeliveryClass::SystemNotice);
+        let _ = self.gateway_deliver(
+            asker,
+            envelope,
+            &text,
+            crate::service::message_gateway::DeliveryClass::SystemNotice,
+        );
     }
 
     /// Relay plan batch ops (status update + milestone) to the peer that owns the

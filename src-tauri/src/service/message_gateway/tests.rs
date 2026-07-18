@@ -95,9 +95,7 @@ fn machine_traffic_waits_for_receptive_before_delivery() {
     let gateway = MessageGateway::new();
     for class in [DeliveryClass::AgentTraffic, DeliveryClass::SystemNotice] {
         let fake = FakeSeam::default();
-        gateway
-            .submit(&fake, msg_with_class("p1", class))
-            .unwrap();
+        gateway.submit(&fake, msg_with_class("p1", class)).unwrap();
         assert_eq!(
             &*fake.receptive_calls.borrow(),
             &["p1".to_string()],
@@ -112,9 +110,7 @@ fn user_turn_and_raw_keys_skip_the_receptive_gate() {
     let gateway = MessageGateway::new();
     for class in [DeliveryClass::UserTurn, DeliveryClass::RawKeys] {
         let fake = FakeSeam::default();
-        gateway
-            .submit(&fake, msg_with_class("p2", class))
-            .unwrap();
+        gateway.submit(&fake, msg_with_class("p2", class)).unwrap();
         assert!(
             fake.receptive_calls.borrow().is_empty(),
             "user-driven traffic ({class:?}) is delivered immediately, no receptivity gate"
