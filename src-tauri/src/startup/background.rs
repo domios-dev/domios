@@ -521,9 +521,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
             loop {
                 let runaway_cfg = cfg.lock().runaway.clone();
                 if runaway_cfg.enabled {
-                    if let Some(svc) = app_handle.try_state::<crate::service::ServiceState>() {
-                        crate::runaway_sweeper::sweep_once(&runaway_cfg, &svc);
-                    }
+                    crate::runaway_sweeper::sweep_once(&runaway_cfg);
                 }
                 std::thread::sleep(std::time::Duration::from_secs(60));
             }
