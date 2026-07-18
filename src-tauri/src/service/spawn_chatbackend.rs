@@ -818,7 +818,13 @@ impl ServiceContext {
             cooldowns,
             |target, message| {
                 let envelope = MessageEnvelope::pane("Watcher", pane_id);
-                self.gateway_deliver(target, envelope, message, crate::service::message_gateway::DeliveryClass::AgentTraffic).map(|_| {
+                self.gateway_deliver(
+                    target,
+                    envelope,
+                    message,
+                    crate::service::message_gateway::DeliveryClass::AgentTraffic,
+                )
+                .map(|_| {
                     self.emit_watcher_note(
                         pane_id,
                         format!("Nudge delivered to {target}: {message}"),

@@ -57,7 +57,12 @@ fn maybe_nudge_implementer(svc: &ServiceState, pane_id: Option<&str>, task_id: &
         "[qa failed] Task {task_id} needs changes.\n{note}\nUpdate the implementation, then report in_review again."
     );
     let envelope = MessageEnvelope::codeterm_reminder("qa");
-    let _ = svc.gateway_deliver(pane_id, envelope, &text, crate::service::message_gateway::DeliveryClass::SystemNotice);
+    let _ = svc.gateway_deliver(
+        pane_id,
+        envelope,
+        &text,
+        crate::service::message_gateway::DeliveryClass::SystemNotice,
+    );
 }
 
 pub(super) fn dispatch(

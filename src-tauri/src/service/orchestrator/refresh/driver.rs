@@ -11,7 +11,7 @@ use parking_lot::Mutex;
 
 use crate::agent::status::PaneStatus;
 use crate::service::inject_verify::screen_contains_echo;
-use crate::service::messenger::{MessageEnvelope, Messenger};
+use crate::service::messenger::MessageEnvelope;
 use crate::service::ServiceContext;
 
 use super::machine::{advance, Observation, RefreshPhase, RefreshTuning, Step};

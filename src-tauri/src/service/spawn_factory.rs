@@ -11,7 +11,7 @@
 
 use codeterm_types::pty::PaneStatus;
 
-use crate::service::messenger::{MessageEnvelope, Messenger};
+use crate::service::messenger::MessageEnvelope;
 use crate::service::role_identity::ManagerBootstrapInputs;
 use crate::service::ServiceContext;
 
