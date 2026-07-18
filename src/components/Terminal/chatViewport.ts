@@ -14,6 +14,10 @@ export function snapChatViewportToBottom(viewport: ChatViewportGeometry): void {
   viewport.scrollTop = viewport.scrollHeight;
 }
 
+export function shouldFollowChatSend(wasPinned: boolean, isStillPinned: boolean): boolean {
+  return wasPinned && isStillPinned;
+}
+
 export function shouldRestoreChatViewport(
   active: boolean,
   loading: boolean,

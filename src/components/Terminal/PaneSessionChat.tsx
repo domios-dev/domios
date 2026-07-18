@@ -35,7 +35,7 @@ import { ChatSetupState, ChatSetupStatusLine, chatSetupView } from "./ChatSetupS
 import { usePlanRefResolver } from "./usePlanRefResolver";
 import { reattachPaneChat } from "./chatReattach";
 import { planRefViewState } from "./planRefViewState";
-import { isChatViewportAtBottom, shouldRestoreChatViewport, snapChatViewportToBottom } from "./chatViewport";
+import { isChatViewportAtBottom, shouldFollowChatSend, shouldRestoreChatViewport, snapChatViewportToBottom } from "./chatViewport";
 import { resolveTabNavigationTarget } from "./tabNavigation";
 
 interface Props {
@@ -103,6 +103,7 @@ export function PaneSessionChat({
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollContentRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
+  const sentMessageFollowRafRef = useRef(0);
   const lastStopAtRef = useRef(0);
   const chatRootRef = useRef<HTMLDivElement>(null);
   const [longIdle, setLongIdle] = useState(false);
@@ -116,6 +117,16 @@ export function PaneSessionChat({
     snapChatViewportToBottom(el);
     setShowScrollDown(false);
   }, []);
+
+  const followSentMessage = useCallback(() => {
+    const wasPinned = atBottomRef.current;
+    if (!wasPinned) return;
+    if (sentMessageFollowRafRef.current) cancelAnimationFrame(sentMessageFollowRafRef.current);
+    sentMessageFollowRafRef.current = requestAnimationFrame(() => {
+      sentMessageFollowRafRef.current = 0;
+      if (shouldFollowChatSend(wasPinned, atBottomRef.current)) scrollToBottom();
+    });
+  }, [scrollToBottom]);
 
   const { setFocusedPane, selectTabByPane, addNotification, setActiveWorkspace } = useMultiplexer();
   const paneSelector = useCallback((s: Parameters<typeof selectPane>[0]) => selectPane(s, paneId), [paneId]);
@@ -246,6 +257,7 @@ export function PaneSessionChat({
         throw new Error("Pane has no PTY");
       }
       setAnsweredInteractiveIds((prev) => new Set(prev).add(element.id));
+      followSentMessage();
       addOptimistic(answer);
       try {
         await invoke("write_pty_string", { ptyId: currentPtyId, data: answer + "\r", raw: false });
@@ -404,6 +416,7 @@ export function PaneSessionChat({
   }, [deferredEnrichedMessages, inlinePrompt?.question, backendState?.state]);
   useEffect(() => () => {
     if (autoScrollRafRef.current) cancelAnimationFrame(autoScrollRafRef.current);
+    if (sentMessageFollowRafRef.current) cancelAnimationFrame(sentMessageFollowRafRef.current);
   }, []);
   useEffect(() => {
     const content = scrollContentRef.current;
@@ -665,6 +678,7 @@ export function PaneSessionChat({
         removeAttachment={removeAttachment}
         clearAttachments={clearAttachments}
         handlePasteEvent={handlePasteEvent}
+        onWillSendMessage={followSentMessage}
         addOptimistic={addOptimistic}
         updateOptimistic={updateOptimistic}
         showComposerError={showComposerError}
