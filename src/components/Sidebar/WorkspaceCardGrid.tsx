@@ -194,7 +194,7 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
             aria-label={`Initials for ${editingWorkspace.name}`}
             className="sidebar-workspace-card-popover-input"
             value={draft}
-            maxLength={3}
+            maxLength={2}
             onChange={(event) => setDraft(normalizeWorkspaceInitials(event.target.value))}
             onKeyDown={(event) => {
               if (event.key === "Enter") closeEditor(true);
