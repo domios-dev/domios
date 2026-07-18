@@ -190,7 +190,8 @@ impl ServiceContext {
         )
     }
 
-    /// Send text to a pane (chatBackend or PTY). PTY link is awaited up to 15s so
+    /// Send text to a pane (chatBackend or PTY). Optimistic — the PTY write is
+    /// fire-and-hope, no delivery verification. PTY link is awaited up to 15s so
     /// scripts can chain `spawn → send` without hitting "no PTY".
     pub fn send_text(&self, pane_id: &str, text: &str, enter: bool) -> Result<(), String> {
         if self.pane_chat_backing(pane_id).is_some() {
@@ -203,24 +204,89 @@ impl ServiceContext {
         self.send_text_to_pty_smart(&pty_id, text, enter)
     }
 
-    /// A ready agent owns the PTY input stream. Screen state is diagnostic only:
-    /// ConPTY local echo cannot prove that a provider has consumed a paste.
+    /// Verified twin of `send_text` — waits for echo/submit evidence. Parked:
+    /// terminal delivery can't be reliably confirmed, so production uses the
+    /// optimistic `send_text`. Not wired to any caller yet.
+    pub fn send_text_with_guarantee(
+        &self,
+        pane_id: &str,
+        text: &str,
+        enter: bool,
+    ) -> Result<(), String> {
+        if self.pane_chat_backing(pane_id).is_some() {
+            return self.chatbackend_pane_send(pane_id, text);
+        }
+        self.ensure_pane_pty_for_send(pane_id)?;
+        self.await_agent_boot_blocking(pane_id, std::time::Duration::from_secs(90))?;
+        let pty_id = self.await_pty_link_blocking(pane_id, std::time::Duration::from_secs(15))?;
+
+        self.send_text_to_pty_smart_guaranteed(&pty_id, text, enter)
+    }
+
+    /// Optimistic delivery: paste + Enter, no echo/submit verification. A ready
+    /// agent owns the PTY input stream and screen state is diagnostic only —
+    /// ConPTY local echo cannot prove a provider consumed a paste — so the
+    /// default everywhere is fire-and-hope. Verified delivery is parked in
+    /// `send_text_to_pty_smart_guaranteed`.
     pub fn send_text_to_pty_smart(
         &self,
         pty_id: &str,
         text: &str,
         enter: bool,
     ) -> Result<(), String> {
-        let (pane_id, agent_type) = {
-            let mux = self.mux.read();
-            match mux.pane_id_for_pty(pty_id) {
-                Some(pid) => {
-                    let at = mux.get_pane(&pid).and_then(|p| p.agent_type.clone());
-                    (Some(pid), at)
-                }
-                None => (None, None),
-            }
+        let (pane_id, agent_type) = self.resolve_pane_and_agent(pty_id);
+        if let Some(ref pid) = pane_id {
+            self.await_agent_boot_blocking(pid, std::time::Duration::from_secs(90))?;
+        }
+        let text = if agent_type.is_some() {
+            sanitize_agent_prompt_input(text)
+        } else {
+            text.to_string()
         };
+        self.write_paste_optimistic(pty_id, &text, enter)
+    }
+
+    /// Bracketed paste + optional Enter, written straight to the PTY with no
+    /// verification wait. The agent-type input parser still sees the payload.
+    fn write_paste_optimistic(&self, pty_id: &str, text: &str, enter: bool) -> Result<(), String> {
+        self.feed_input_parser(pty_id, text, enter);
+        let mut buf = if cfg!(windows) {
+            format!("\x1b[200~ {}\x1b[201~", text)
+        } else {
+            format!("\x1b[200~{}\x1b[201~", text)
+        }
+        .into_bytes();
+        if enter {
+            buf.push(b'\r');
+        }
+        self.pty
+            .lock()
+            .write(pty_id, &buf)
+            .map_err(|e| e.to_string())
+    }
+
+    fn resolve_pane_and_agent(&self, pty_id: &str) -> (Option<String>, Option<String>) {
+        let mux = self.mux.read();
+        match mux.pane_id_for_pty(pty_id) {
+            Some(pid) => {
+                let at = mux.get_pane(&pid).and_then(|p| p.agent_type.clone());
+                (Some(pid), at)
+            }
+            None => (None, None),
+        }
+    }
+
+    /// Verified twin of `send_text_to_pty_smart` — waits for echo/submit
+    /// evidence. Parked: terminal delivery can't be reliably confirmed (TUIs
+    /// intercept input, ConPTY echo is not proof), so production uses the
+    /// optimistic path. Kept for callers that can tolerate its false negatives.
+    pub fn send_text_to_pty_smart_guaranteed(
+        &self,
+        pty_id: &str,
+        text: &str,
+        enter: bool,
+    ) -> Result<(), String> {
+        let (pane_id, agent_type) = self.resolve_pane_and_agent(pty_id);
         if let Some(ref pid) = pane_id {
             self.await_agent_boot_blocking(pid, std::time::Duration::from_secs(90))?;
         }
