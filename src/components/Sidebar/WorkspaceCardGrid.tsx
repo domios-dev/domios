@@ -5,15 +5,9 @@ import type { PaneStatus, Workspace } from "../../lib/types";
 import { SortableContext, SortableRow, WS_PREFIX, rectSortingStrategy } from "./sortable";
 import {
   defaultWorkspaceInitials,
-  loadWorkspaceColorIndexes,
   loadWorkspaceInitials,
   normalizeWorkspaceInitials,
   persistWorkspaceInitials,
-  persistWorkspaceColorIndexes,
-  WORKSPACE_CARD_COLOR_NAMES,
-  WORKSPACE_CARD_COLORS,
-  workspaceCardColor,
-  workspaceCardColorIndex,
 } from "./workspaceCardMetadata";
 
 interface WorkspaceCardGridProps {
@@ -28,7 +22,7 @@ interface WorkspaceCardGridProps {
 const CARD_WIDTH = 42;
 const CARD_GAP = 4;
 const EDITOR_WIDTH = 190;
-const EDITOR_HEIGHT = 126;
+const EDITOR_HEIGHT = 82;
 
 export function workspaceCardPosition(index: number, columns: number): { gridColumn: number; gridRow: number } {
   const pageSize = columns * 2;
@@ -45,7 +39,6 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
   const editorRef = useRef<HTMLDivElement>(null);
   const [columns, setColumns] = useState(3);
   const [customInitials, setCustomInitials] = useState(loadWorkspaceInitials);
-  const [customColors, setCustomColors] = useState(loadWorkspaceColorIndexes);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editorPosition, setEditorPosition] = useState({ left: 0, top: 0 });
   const [draft, setDraft] = useState("");
@@ -63,14 +56,6 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
     setEditorPosition({ left, top });
     setEditingId(workspace.id);
   }, [customInitials]);
-
-  const selectColor = useCallback((workspace: Workspace, colorIndex: number) => {
-    setCustomColors((current) => {
-      const next = { ...current, [workspace.id]: colorIndex };
-      persistWorkspaceColorIndexes(next);
-      return next;
-    });
-  }, []);
 
   const closeEditor = useCallback((save: boolean) => {
     if (save && editingId) {
@@ -116,9 +101,6 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
   }, []);
 
   const editingWorkspace = workspaces.find((workspace) => workspace.id === editingId) ?? null;
-  const editingColorIndex = editingWorkspace
-    ? customColors[editingWorkspace.id] ?? workspaceCardColorIndex(editingWorkspace.id)
-    : 0;
 
   return <>
     <div ref={scrollRef} className="sidebar-workspace-card-scroll" data-testid="workspace-card-scroll" role="region" aria-label="Workspace cards">
@@ -132,7 +114,6 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
         >
           {workspaces.map((workspace, index) => {
             const selected = workspace.id === selectedWorkspaceId;
-            const color = workspaceCardColor(workspace.id, customColors[workspace.id]);
             const status = statuses[workspace.id];
             return (
               <SortableRow
@@ -148,7 +129,6 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
                   data-selected={selected ? "true" : "false"}
                   data-status={status?.toLowerCase() ?? "none"}
                   role="listitem"
-                  style={{ ["--workspace-card-color" as string]: color }}
                 >
                   <button
                     type="button"
@@ -217,20 +197,6 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
             }}
           />
         </label>
-        <div role="radiogroup" aria-label={`Color for ${editingWorkspace.name}`} className="sidebar-workspace-card-color-grid">
-          {WORKSPACE_CARD_COLORS.map((color, index) => (
-            <button
-              key={color}
-              type="button"
-              role="radio"
-              aria-checked={editingColorIndex === index}
-              aria-label={`${WORKSPACE_CARD_COLOR_NAMES[index]} color for ${editingWorkspace.name}`}
-              className="sidebar-workspace-card-color-swatch"
-              style={{ background: color }}
-              onClick={() => selectColor(editingWorkspace, index)}
-            />
-          ))}
-        </div>
         <button type="button" className="sidebar-workspace-card-popover-done" onClick={() => closeEditor(true)}>Done</button>
       </div>,
       document.body,

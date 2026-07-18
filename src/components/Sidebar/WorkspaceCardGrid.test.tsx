@@ -83,13 +83,7 @@ async function run() {
   assert(dialog, "editor renders through a portal beside the card");
   const input = dialog.querySelector('[aria-label="Initials for CodeTerm"]') as HTMLInputElement;
   assert.equal(input.maxLength, 2, "initials editor enforces the two-character contract");
-  const card = host.querySelector('[data-workspace-id="one"]') as HTMLElement;
-  const colorBefore = card.style.getPropertyValue("--workspace-card-color");
-  const colorOptions = Array.from(dialog.querySelectorAll<HTMLButtonElement>('[role="radio"]'));
-  assert.equal(colorOptions.length, 6, "editor exposes every themed color as a radio option");
-  const alternate = colorOptions.find((option) => option.getAttribute("aria-checked") === "false")!;
-  await act(async () => alternate.click());
-  assert.notEqual(card.style.getPropertyValue("--workspace-card-color"), colorBefore, "direct color selection updates the card");
+  assert(!dialog.querySelector('[role="radiogroup"]'), "editor has no per-workspace color controls");
   await act(async () => (dialog.querySelector(".sidebar-workspace-card-popover-done") as HTMLButtonElement).click());
   assert(!document.querySelector('[role="dialog"][aria-label="Edit CodeTerm workspace card"]'), "Done closes the portal editor");
 

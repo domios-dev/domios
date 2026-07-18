@@ -1536,24 +1536,22 @@ button,
 }
 
 .sidebar-workspace-card {
-  --workspace-card-color: var(--ct-blue);
   position: relative;
   width: 42px;
   height: 40px;
   overflow: hidden;
   border: 0;
   border-radius: 7px;
-  background: var(--workspace-card-color);
-  opacity: .48;
-  transition: filter 140ms ease, opacity 140ms ease, transform 140ms ease;
+  background: var(--ct-surface);
+  transition: background 140ms ease, color 140ms ease, transform 140ms ease;
 }
 
 .sidebar-workspace-card:hover {
-  opacity: .72;
+  background: var(--ct-hover);
 }
 
 .sidebar-workspace-card[data-selected="true"] {
-  opacity: 1;
+  background: var(--ct-accent);
 }
 
 .sidebar-workspace-card-select {
@@ -1567,16 +1565,18 @@ button,
   border: 0;
   padding: 4px;
   background: transparent;
-  color: var(--ct-bg);
+  color: var(--ct-muted-fg);
 }
 
 .sidebar-workspace-card-initials {
-  color: var(--ct-bg);
+  color: inherit;
   font-size: 14px;
   font-weight: 750;
   letter-spacing: .04em;
   line-height: 1;
 }
+
+.sidebar-workspace-card[data-selected="true"] .sidebar-workspace-card-select { color: var(--ct-bg); }
 
 .sidebar-workspace-card-edit {
   position: absolute;
@@ -1634,27 +1634,6 @@ button,
 }
 
 .sidebar-workspace-card-popover-input:focus { border-color: var(--ct-accent); }
-
-.sidebar-workspace-card-color-grid {
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 6px;
-}
-
-.sidebar-workspace-card-color-swatch {
-  width: 22px;
-  height: 22px;
-  border: 0;
-  border-radius: 5px;
-  opacity: .72;
-}
-
-.sidebar-workspace-card-color-swatch:hover { opacity: 1; }
-
-.sidebar-workspace-card-color-swatch[aria-checked="true"] {
-  box-shadow: 0 0 0 2px var(--ct-surface), 0 0 0 3px var(--ct-fg);
-  opacity: 1;
-}
 
 .sidebar-workspace-card-popover-done {
   justify-self: end;
