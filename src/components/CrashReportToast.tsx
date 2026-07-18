@@ -3,6 +3,22 @@ import { invoke } from "../lib/bridge";
 import { listen } from "../lib/bridge";
 import { AlertTriangle, FolderOpen, X } from "lucide-react";
 
+const PRESENTED_CRASH_KEY = "codeterm.recovery.last-presented-crash";
+
+function loadPresentedCrashKey(): string | null {
+  try {
+    return window.localStorage.getItem(PRESENTED_CRASH_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function persistPresentedCrashKey(key: string) {
+  try {
+    window.localStorage.setItem(PRESENTED_CRASH_KEY, key);
+  } catch {}
+}
+
 interface CrashPayload {
   dir: string;
   files: string[];
@@ -33,7 +49,7 @@ interface RecoveryState {
 export function RecoveryStatusBanner() {
   const [payload, setPayload] = useState<CrashPayload | null>(null);
   const [recovery, setRecovery] = useState<RecoveryState | null>(null);
-  const [dismissedCrashKey, setDismissedCrashKey] = useState<string | null>(null);
+  const [dismissedCrashKey, setDismissedCrashKey] = useState(loadPresentedCrashKey);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,8 +77,16 @@ export function RecoveryStatusBanner() {
   }, []);
 
   const crash = recovery?.last_crash;
-  if (!crash || recovery?.crash_presentation !== "active") return null;
-  const crashKey = `${crash.previous.epoch}:${crash.previous.pid}:${crash.new_epoch}`;
+  const crashKey = crash
+    ? `${crash.previous.epoch}:${crash.previous.pid}:${crash.new_epoch}`
+    : null;
+
+  useEffect(() => {
+    if (!crashKey || recovery?.crash_presentation !== "active" || dismissedCrashKey === crashKey) return;
+    persistPresentedCrashKey(crashKey);
+  }, [crashKey, dismissedCrashKey, recovery?.crash_presentation]);
+
+  if (!crash || !crashKey || recovery?.crash_presentation !== "active") return null;
   if (dismissedCrashKey === crashKey) return null;
 
   const openFolder = () => {
@@ -107,7 +131,10 @@ export function RecoveryStatusBanner() {
               </div>
               <button
                 type="button"
-                onClick={() => setDismissedCrashKey(crashKey)}
+                onClick={() => {
+                  persistPresentedCrashKey(crashKey);
+                  setDismissedCrashKey(crashKey);
+                }}
                 className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
                 title="Dismiss"
                 aria-label="Dismiss crash recovery"

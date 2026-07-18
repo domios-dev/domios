@@ -111,6 +111,24 @@ test("a settled crash record does not resurface on refresh", async () => {
   __setListenForTest(null);
 });
 
+test("the same crash notification is not replayed by a frontend refresh", async () => {
+  setupDom();
+  stubRecovery(recoveryState());
+
+  const first = await render(<RecoveryStatusBanner />);
+  assert(first.host.querySelector('[data-testid="recovery-status-banner"]'), "a new crash is presented once");
+  await act(async () => first.root.unmount());
+
+  const refreshed = await render(<RecoveryStatusBanner />);
+  assert(
+    !refreshed.host.querySelector('[data-testid="recovery-status-banner"]'),
+    "refresh does not misrepresent an already-presented crash as a new exit",
+  );
+  await act(async () => refreshed.root.unmount());
+  __setInvokeForTest(null);
+  __setListenForTest(null);
+});
+
 test("fully restored bindings raise no ambiguous-work claim", async () => {
   setupDom();
   stubRecovery(recoveryState());
