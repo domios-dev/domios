@@ -53,13 +53,18 @@ test("C6 negative: post-seed/pre-use reset fails", () => {
 });
 
 test("C6 negative: two pre-seed resets fails", () => {
-  const mutated = realFixture.replace("await apiReset(api);\n      const seed", "await apiReset(api);\n      await apiReset(api);\n      const seed");
+  const mutated = realFixture.replace(
+    /([ \t]*)await apiReset\(api\);\r?\n([ \t]*)const seed/,
+    "$1await apiReset(api);\n$2await apiReset(api);\n$2const seed",
+  );
+  assert.notEqual(mutated, realFixture, "mutation must add a second pre-seed reset");
   assert.equal(seedLifetimeOrdered(mutated), false, "two pre-seed resets must fail");
   assert.equal(c6Passes(mutated), false, "C6 must fail on two pre-seed resets");
 });
 
 test("C6 negative: zero pre-seed reset fails", () => {
-  const mutated = realFixture.replace("      await apiReset(api);\n      const seed", "      const seed");
+  const mutated = realFixture.replace(/[ \t]*await apiReset\(api\);\r?\n(?=[ \t]*const seed)/, "");
+  assert.notEqual(mutated, realFixture, "mutation must remove the pre-seed reset");
   assert.equal(seedLifetimeOrdered(mutated), false, "zero pre-seed reset must fail");
 });
 
@@ -178,7 +183,7 @@ test("C10 positive: spec throws on env-present+!active before test.skip", () => 
 });
 
 test("C10 negative: spec missing the throw-guard (skip reachable under env-present) is RED", () => {
-  const noGuard = sources.spec.replace(/^.*if \(stubEnvActive\(\) && !perfSeed\.active\) throw .*\n/m, "");
+  const noGuard = sources.spec.replace(/^.*if \(stubEnvActive\(\) && !perfSeed\.active\) throw [^\r\n]*\r?\n/m, "");
   assert.ok(noGuard !== sources.spec, "mutation must remove the guard");
   assert.equal(specHasEnvPresentThrowGuard(noGuard), false, "no guard => not fail-loud");
   assert.equal(c10Passes({ spec: noGuard }), false, "C10 must fail when the throw-guard is missing");

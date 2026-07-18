@@ -23,6 +23,14 @@ function quoteIfNeeded(p: string): string {
   return /\s/.test(p) ? `'${p}'` : p;
 }
 
+function resolveUnderRoot(root: string, relative: string): string {
+  if (root.startsWith("/")) return path.posix.resolve(root, relative);
+  if (/^[A-Za-z]:[\\/]/.test(root) || root.startsWith("\\\\")) {
+    return path.win32.resolve(root, relative);
+  }
+  return path.resolve(root, relative);
+}
+
 // Resolve a repo-relative replay.mjs token to an absolute path; else byte-stable.
 export function normalizeStubAgentCmd(cmd: string | undefined, root: string): string | undefined {
   if (cmd === undefined) return cmd;
@@ -30,7 +38,7 @@ export function normalizeStubAgentCmd(cmd: string | undefined, root: string): st
   if (!match) return cmd;
   const bare = unquote(match[2]);
   if (isAbsoluteReplay(bare)) return cmd;
-  const absolute = quoteIfNeeded(path.resolve(root, bare));
+  const absolute = quoteIfNeeded(resolveUnderRoot(root, bare));
   return cmd.slice(0, match.index) + match[1] + absolute + match[3] + cmd.slice(match.index + match[0].length);
 }
 
