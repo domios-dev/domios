@@ -182,7 +182,7 @@ test("normal chat_backend pane keeps composer and hides read-only bar", async ()
   const messages = host.querySelector('[data-testid="pane-session-chat-messages"]');
   const composer = host.querySelector('[data-testid="chat-composer"]');
   assert(chat?.getAttribute("role") === "region", "chat is an accessible region");
-  assert(chat?.getAttribute("aria-label") === "Pane chat", "chat region is named");
+  assert(chat?.getAttribute("aria-label") === "Pane chat: chat-pane", "chat region is named");
   assert(messages?.getAttribute("role") === "log", "conversation is an accessible log");
   assert(messages?.getAttribute("aria-label") === "Conversation", "conversation log is named");
   assert(composer?.getAttribute("aria-label") === "Message composer", "composer is named");
@@ -220,6 +220,22 @@ test("an attached chat never regresses to a stale launch failure", async () => {
   const { host, root } = await renderPaneSessionChat(paneId, state);
   assert(host.querySelector('[data-testid="chat-composer"]'), "attached chat remains usable");
   assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "stale failure cannot cover attached chat");
+  await act(async () => root.unmount());
+});
+
+test("an attached current session ignores a late PTY reattach stage", async () => {
+  const paneId = "attached-reattached";
+  const state = muxStateFor({
+    [paneId]: paneBase(paneId, {
+      agent_session_id: "current-session",
+      boot_stage: "pty_reattached",
+      protected: true,
+    }),
+  });
+  const { host, root } = await renderPaneSessionChat(paneId, state);
+  assert(host.querySelector('[data-testid="chat-composer"]'), "current attached chat remains usable");
+  assert(!host.querySelector('[data-testid="chat-setup-state"]'), "late PTY reattach cannot cover current chat");
+  assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "reattach clears any failure presentation");
   await act(async () => root.unmount());
 });
 
