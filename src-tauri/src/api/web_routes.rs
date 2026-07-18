@@ -3,7 +3,6 @@
 //! these), plus the SSE event stream that replaces Tauri event emits.
 
 use axum::{
-    body::Bytes,
     extract::{Path, Query, State as AxumState},
     http::{HeaderMap, StatusCode},
     response::sse::{Event, KeepAlive, Sse},
@@ -474,36 +473,44 @@ async fn cleanup_uploads_dir(dir: &std::path::Path) {
     }
 }
 
-#[derive(Deserialize)]
-pub(crate) struct UploadQuery {
-    filename: Option<String>,
-}
-
 pub async fn upload(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Query(query): Query<UploadQuery>,
-    data: Bytes,
+    mut multipart: axum::extract::Multipart,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    if data.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "empty file".to_string()));
-    }
     let dir = crate::paths::data_dir().join("uploads");
     tokio::fs::create_dir_all(&dir)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     cleanup_uploads_dir(&dir).await;
-    let name = sanitize_filename(query.filename.as_deref().unwrap_or("upload.bin"));
-    let id = uuid::Uuid::new_v4().simple().to_string();
-    let path = dir.join(format!("{}-{}", &id[..8], name));
-    tokio::fs::write(&path, &data)
+    while let Some(field) = multipart
+        .next_field()
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    Ok(Json(serde_json::json!({
-        "path": path.to_string_lossy(),
-        "size": data.len(),
-    })))
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?
+    {
+        if field.name() != Some("file") {
+            continue;
+        }
+        let name = sanitize_filename(field.file_name().unwrap_or("upload.bin"));
+        let data = field
+            .bytes()
+            .await
+            .map_err(|e| (StatusCode::PAYLOAD_TOO_LARGE, e.to_string()))?;
+        if data.is_empty() {
+            return Err((StatusCode::BAD_REQUEST, "empty file".to_string()));
+        }
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        let path = dir.join(format!("{}-{}", &id[..8], name));
+        tokio::fs::write(&path, &data)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        return Ok(Json(serde_json::json!({
+            "path": path.to_string_lossy(),
+            "size": data.len(),
+        })));
+    }
+    Err((StatusCode::BAD_REQUEST, "missing 'file' field".to_string()))
 }
 
 #[derive(Deserialize)]
@@ -552,6 +559,49 @@ pub async fn copy_image_to_clipboard(
 #[cfg(test)]
 mod tests {
     use crate::api::routes::WEB_TOKEN_TTL;
+    use axum::{
+        body::{to_bytes, Body},
+        http::{Request, StatusCode},
+        routing::post,
+        Router,
+    };
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn multipart_upload_contract_accepts_browser_boundary() {
+        async fn inspect(mut multipart: axum::extract::Multipart) -> Result<String, StatusCode> {
+            let field = multipart
+                .next_field()
+                .await
+                .map_err(|_| StatusCode::BAD_REQUEST)?
+                .ok_or(StatusCode::BAD_REQUEST)?;
+            let filename = field.file_name().unwrap_or_default().to_string();
+            let data = field.bytes().await.map_err(|_| StatusCode::BAD_REQUEST)?;
+            Ok(format!("{filename}:{}", data.len()))
+        }
+
+        let boundary = "codeterm-browser-boundary";
+        let body = format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"phone photo.png\"\r\nContent-Type: image/png\r\n\r\nimage-bytes\r\n--{boundary}--\r\n"
+        );
+        let response = Router::new()
+            .route("/upload", post(inspect))
+            .oneshot(
+                Request::post("/upload")
+                    .header(
+                        "content-type",
+                        format!("multipart/form-data; boundary={boundary}"),
+                    )
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let response = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(&response[..], b"phone photo.png:11");
+    }
 
     #[test]
     fn cookie_max_age_uses_web_token_ttl() {

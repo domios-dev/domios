@@ -34,9 +34,15 @@ async function run() {
   };
   setTokenFor("http://localhost:7686", "test-token");
   const stored = await webUpload(upload, "phone photo.png");
-  assert(uploadUrl.endsWith("/api/upload?filename=phone%20photo.png"), "upload filename is query encoded");
-  assert(uploadInit?.body === upload, "upload sends the Blob directly without multipart re-streaming");
-  assert(new Headers(uploadInit?.headers).get("Content-Type") === "image/png", "upload preserves the media type");
+  assert(uploadUrl.endsWith("/api/upload"), "upload uses the multipart endpoint");
+  assert(uploadInit?.body instanceof FormData, "upload uses browser-native multipart encoding");
+  const uploadPart = uploadInit.body.get("file");
+  assert(uploadPart instanceof Blob, "multipart upload contains the file field");
+  assert((uploadPart as Blob & { name?: string }).name === "phone photo.png", "multipart upload preserves filename");
+  assert(
+    !new Headers(uploadInit.headers).has("Content-Type"),
+    "upload lets the browser generate the multipart boundary",
+  );
   assert(stored.path === "C:/uploads/photo.png" && stored.size === upload.size, "upload returns the daemon path");
 
   let requestSignal: AbortSignal | null = null;

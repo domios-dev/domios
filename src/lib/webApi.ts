@@ -233,14 +233,15 @@ export async function webUpload(
   file: Blob,
   filename: string,
 ): Promise<{ path: string; size: number }> {
+  const form = new FormData();
+  form.append("file", file, filename);
   const headers = new Headers();
   const token = currentToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  headers.set("Content-Type", file.type || "application/octet-stream");
-  const res = await fetch(`${apiHost()}/api/upload?filename=${encodeURIComponent(filename)}`, {
+  const res = await fetch(`${apiHost()}/api/upload`, {
     method: "POST",
     headers,
-    body: file,
+    body: form,
   });
   const text = await res.text();
   if (!res.ok) throw new WebApiError(res.status, "/api/upload", text);
