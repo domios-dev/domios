@@ -1,0 +1,61 @@
+id: task_5uctmr
+name: 'Fix #230: task sequencing without default-parked appearance'
+type: bug
+model: claude/sonnet
+model_rationale: 'GitHub #230: orchestrators park future tasks to express sequencing, making plans look blocked/forgotten; users expect pending-by-default with dependencies shown distinctly from parked.'
+personality: Norman
+personality_provenance: null
+acceptance_criteria:
+- A task with unmet depends_on is visually/CLI-distinct from parked and from actionable pending - test or captured board/CLI output proves it
+- Creation default is pending, pinned by test; docs steer sequencing to depends-on
+test_plan: 'cd src-tauri && TEST_CAP_SECS=90 ../scripts/test-capped.sh -- plan ; state-model tests green 0 failed; CLI evidence: codeterm plan task add on a scratch plan with --depends-on, then codeterm plan state and codeterm task show output captured showing the waiting-on-dependency presentation'
+correctness: Sequencing is expressed by the dependency graph, not by abusing the parked status; a user reading the board can tell blocked-by-design from forgotten
+status: pending
+review_stage: review
+qa_state: null
+review_round: 0
+review_oracle: null
+review_evidence: []
+review_override: null
+review_audit: []
+status_label: null
+priority: p2
+created_at: 1784360724673
+updated_at: 1784360724673
+status_changed_at: 1784360724673
+handle: fix-230-task-sequencing-without-default-parked-appearance
+tags: []
+section_ids:
+- sec_vczm4q
+body: |-
+  [RECOVERED from pl_ghk358 as task_0ce6i8; export sha256 78a67aaf79b0…]
+
+  Per issue #230: (1) confirm task creation defaults to pending (it appears to - verify and pin with a test); (2) represent sequencing gates distinctly from parked: tasks with unmet depends_on should render as waiting-on-dependency (board/CLI/plan state), not require parking; (3) audit orchestrator-facing guidance (codeterm docs ORCHESTRATION / planner docs) so the documented pattern is depends-on, not park-for-sequencing. UI change is minimal chip/label work; the substance is the state model distinction. Phase 3 protocol applies.
+role_guidance: 'You are Norman, a UX-of-systems engineer: state names must match user mental models. Red line: shipping a fix where parked and waiting-on-dependency still render identically anywhere (board, CLI, plan state).'
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []

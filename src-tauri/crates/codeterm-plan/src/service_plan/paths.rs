@@ -3,6 +3,14 @@ use std::process::Command;
 
 use codeterm_util::process_util;
 
+pub fn global_plan_database_path() -> PathBuf {
+    let home = std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    home.join(".codeterm").join("plans.db")
+}
+
 pub fn project_root(cwd: &Path) -> PathBuf {
     #[cfg(any(test, feature = "test-support"))]
     if test_project_root_marker(cwd).is_some() {

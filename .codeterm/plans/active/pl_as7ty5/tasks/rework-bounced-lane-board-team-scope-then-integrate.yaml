@@ -1,0 +1,62 @@
+id: task_fprdc3
+name: Rework bounced lane/board-team-scope, then integrate
+type: refactor
+model: claude/sonnet
+model_rationale: 'Andrey-directed refactor: origin/lane/board-team-scope @ cd1613dff (scope workspace plan board to team-bound plans + make scoping structurally required) was BOUNCED by the Orchestrator. A bounced lane left on the remote is a stranded branch - it either gets reworked to acceptance or explicitly closed, never abandoned.'
+personality: Ostrom
+personality_provenance: null
+acceptance_criteria:
+- Bounce record obtained and quoted in the task report; every bounce reason mapped to a commit or an explicit rebuttal accepted by the Orchestrator
+- Board scoping tests green including the teamless/legacy-plan visibility cases; no plan disappears from the board without an explicit scoping decision
+- Real merge + git merge-base --is-ancestor <reworked-lane-tip> <target-tip> before lane deletion; overlap verdict vs task_2si5jz/task_k1982v stated
+test_plan: cd src-tauri && TEST_CAP_SECS=120 bash ../scripts/test-capped.sh -- board ; then TEST_CAP_SECS=120 bash ../scripts/test-capped.sh -- plan_ops ; scoping + visibility tests green 0 failed; npx playwright test tests/playwright/<board-spec> -g 'team scoped board' --timeout=30000 --global-timeout=600000 --reporter=line against dev 7686 if a board spec exists (verify alone first); ancestor-check output in report
+correctness: Team-scoped board filtering is structurally enforced without orphaning any existing plan's visibility; the lane's full history survives integration
+status: pending
+review_stage: review
+qa_state: null
+review_round: 0
+review_oracle: null
+review_evidence: []
+review_override: null
+review_audit: []
+status_label: null
+priority: p2
+created_at: 1784360733839
+updated_at: 1784360733839
+status_changed_at: 1784360733839
+handle: rework-bounced-lane-board-team-scope-then-integrate
+tags: []
+section_ids:
+- sec_v05qe4
+body: |-
+  [RECOVERED from pl_ghk358 as task_aatfdq; export sha256 78a67aaf79b0…]
+
+  STEP 0 - MANDATORY: obtain the bounce record from the Orchestrator (the concrete rejection reasons for cd1613dff) before touching code; if no written bounce reasons exist, request them and block - reworking against guessed objections wastes the lane. Then: address each bounce reason as its own commit on the lane (refresh the lane first by merging the current integration target in - no rebase), covering the known risk surface of team-scoped board work: plan visibility for teamless/legacy plans (no plan may silently vanish from the board), the 1:1 team-plan binding invariants from the archived Team effort (pl_vq0350 constraints: membership is a data relation, status counts derive from board buckets - no parallel taxonomy), and structural-requirement fallout on plans created before scoping existed. Re-submit for review with a per-bounce-reason checklist; merge only after acceptance with real merge + ancestor check. NOTE potential overlap with task_2si5jz research (binding lifecycle) and task_k1982v (#231 ownership) - if the bounce reasons implicate session/team binding relations, coordinate through the Orchestrator rather than fixing the same relation twice.
+role_guidance: 'You are Ostrom, a governance-of-shared-state engineer: a bounce is a contract negotiation, not a defeat - every objection gets a written answer. Red line: pushing a rework without the bounce record quoted, or resolving a binding-relation overlap unilaterally instead of through the Orchestrator.'
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []

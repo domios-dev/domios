@@ -331,13 +331,6 @@ impl PlanStore {
             guard.clone()
         };
         self.note_plan_write(&committed, &path);
-        if let Err(e) = self.mirror_plan_index(&committed) {
-            log::warn!(
-                "[plan.index] mirror lag after committed write for {}: {}",
-                committed.id,
-                e
-            );
-        }
         self.record_committed_snapshot(&committed);
         let entry = Self::index_entry(&committed, path);
         self.index.write().insert(committed.id.clone(), entry);
@@ -1159,7 +1152,9 @@ mod writer_queue_tests {
         let first = std::thread::spawn(move || {
             first_store.update_plan(&first_id, Some("First"), None, None, 2)
         });
-        first_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        first_started_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap();
 
         let (second_attempt_tx, second_attempt_rx) = mpsc::channel();
         let second_store = store.clone();
@@ -1168,7 +1163,9 @@ mod writer_queue_tests {
             second_attempt_tx.send(()).unwrap();
             second_store.update_plan(&second_id, Some("Second"), None, None, 3)
         });
-        second_attempt_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        second_attempt_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap();
         assert!(persisted.lock().unwrap().is_empty());
 
         release_tx.send(()).unwrap();
@@ -1204,8 +1201,15 @@ mod writer_queue_tests {
         let (read_tx, read_rx) = mpsc::channel();
         let reader_store = store.clone();
         let reader_id = plan_id.clone();
-        std::thread::spawn(move || read_tx.send(reader_store.get(&reader_id).unwrap().title).unwrap());
-        assert_eq!(read_rx.recv_timeout(Duration::from_secs(1)).unwrap(), "Initial");
+        std::thread::spawn(move || {
+            read_tx
+                .send(reader_store.get(&reader_id).unwrap().title)
+                .unwrap()
+        });
+        assert_eq!(
+            read_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            "Initial"
+        );
 
         release_tx.send(()).unwrap();
         writer.join().unwrap().unwrap();

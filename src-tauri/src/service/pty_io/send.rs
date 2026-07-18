@@ -456,6 +456,20 @@ impl ServiceContext {
         Ok(())
     }
 
+    /// Fire-and-forget `send_text`: delivery (incl. the agent-TUI Enter retry) runs
+    /// on a detached thread so the caller returns at once. For the interactive
+    /// `codeterm send`; verified/error-reporting callers use `send_text` directly.
+    pub fn send_text_detached(&self, pane_id: &str, text: &str, enter: bool) {
+        let svc = self.clone();
+        let pane = pane_id.to_string();
+        let text = text.to_string();
+        std::thread::spawn(move || {
+            if let Err(error) = svc.send_text(&pane, &text, enter) {
+                log::warn!("[send-async] delivery to pane {pane} failed: {error}");
+            }
+        });
+    }
+
     /// Feed payloads to the typed-launch input parser so the CLI/API path triggers
     /// the same `agent_type` lock as a direct Tauri write. Skips locked panes.
     pub(crate) fn feed_input_parser(&self, pty_id: &str, text: &str, enter: bool) {

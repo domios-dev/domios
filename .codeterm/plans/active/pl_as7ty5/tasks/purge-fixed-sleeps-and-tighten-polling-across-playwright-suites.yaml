@@ -14,6 +14,11 @@ correctness: No behavioral coverage lost; waits observe real conditions; per-fil
 status: done
 review_stage: review
 qa_state: null
+review_round: 0
+review_oracle: null
+review_evidence: []
+review_override: null
+review_audit: []
 status_label: null
 priority: p1
 created_at: 1783782090747

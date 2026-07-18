@@ -1,0 +1,64 @@
+id: task_k2jbk9
+name: 'Fix #236: atomic same-plan task mutations (lane+status, CAS)'
+type: bug
+model: claude/opus
+model_rationale: 'GitHub #236: a single PATCH with status in_progress + lane.pane_id fails because status validates before lane applies (contradicting the in_progress_requires_pane error text), and concurrent same-plan mutations lose writes (8-task fixture produced 5/1/0/2 instead of 3/1/1/3). Plan-store correctness underpins every orchestration.'
+personality: Lamport
+personality_provenance: null
+acceptance_criteria:
+- One mutation carrying status in_progress + lane.pane_id succeeds on REST, socket, and CLI
+- Concurrent 8-task fixture lands exactly 3/1/1/3 buckets deterministically, no retries, no sequential workaround
+- in_progress_requires_pane diagnostic text matches what the handler actually accepts
+test_plan: cd src-tauri && TEST_CAP_SECS=120 bash ../scripts/test-capped.sh -- plan_routes::tasks ; then TEST_CAP_SECS=120 bash ../scripts/test-capped.sh -- plan_ops ; new atomicity + concurrency tests green 0 failed; the 8-task parallel fixture asserts exact 3/1/1/3 bucket counts in one run; REST/socket/CLI twin verified with a codeterm plan task update carrying status+lane
+correctness: 'Same-plan task mutations are linearizable: no interleaving of concurrent writers can drop an update or leave a half-applied lane/status pair'
+status: pending
+review_stage: review
+qa_state: null
+review_round: 0
+review_oracle: null
+review_evidence: []
+review_override: null
+review_audit: []
+status_label: null
+priority: p2
+created_at: 1784360722781
+updated_at: 1784360722781
+status_changed_at: 1784360722781
+handle: fix-236-atomic-same-plan-task-mutations-lane-status-cas
+tags: []
+section_ids:
+- sec_2v3bf1
+body: |-
+  [RECOVERED from pl_ghk358 as task_rr8tdo; export sha256 78a67aaf79b0…]
+
+  Per issue #236: in src-tauri/src/api/plan_routes/tasks.rs apply lane before (or atomically with) status validation so one command carrying both succeeds; add per-plan write serialization or store-level CAS so concurrent create/PATCH cannot overwrite each other (existing CAS in plan_ops.rs covers Team plan creation only - extend the pattern to task mutations). Keep REST, socket, and CLI behavior aligned. Required regressions from the issue: (a) REST/socket/CLI twins - one command with status+lane succeeds on each surface; (b) error-contract test - diagnostics never promise a same-command op the handler rejects; (c) parallel-mutation test - 8 tasks mutated concurrently land exactly 3 todo / 1 review / 1 blocked / 3 done without retries.
+role_guidance: |-
+  You are Lamport. Concurrency claims require adversarial tests, not reasoning about likely schedules. Red line: a CAS or serialization claim without a test that hammers concurrent writers and asserts exact final state.
+  (NOTE 2026-07-18: the plan-storage migration data loss may share territory — plan store write integrity.)
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []

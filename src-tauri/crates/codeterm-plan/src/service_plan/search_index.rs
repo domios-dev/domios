@@ -83,42 +83,75 @@ struct Unit {
 }
 
 impl super::PlanStore {
+    #[deprecated(note = "plan search is maintained transactionally in plans.db")]
     pub fn mirror_plan_index(&self, plan: &Plan) -> Result<(), String> {
-        let sync_embed = cfg!(test);
-        let changed = mirror_plan(plan, sync_embed)?;
-        if !sync_embed {
-            index_units_vectors_async(plan_project_root(plan).to_path_buf(), changed);
-        }
+        let changed = mirror_plan(plan, true)?;
+        index_units_vectors_async(plan_project_root(plan).to_path_buf(), changed);
         Ok(())
     }
 
+    #[deprecated(note = "plan search is maintained transactionally in plans.db")]
     pub fn mirror_spec_index(&self, spec: &Spec) -> Result<(), String> {
-        let sync_embed = cfg!(test);
-        let changed = mirror_spec(spec, sync_embed)?;
-        if !sync_embed {
-            index_units_vectors_async(spec_project_root(spec).to_path_buf(), changed);
-        }
+        let changed = mirror_spec(spec, true)?;
+        index_units_vectors_async(spec_project_root(spec).to_path_buf(), changed);
         Ok(())
     }
 
     pub fn search_plan_index(
         &self,
-        project: &Path,
+        _project: &Path,
         q: &PlanIndexQuery,
     ) -> Result<Vec<PlanSearchHit>, String> {
-        search_project(project, q, PlanSearchStatus::Active)
+        self.search_global_plans(q, PlanSearchStatus::Active)
     }
 
     pub fn search_plan_index_with_status(
         &self,
-        project: &Path,
+        _project: &Path,
         q: &PlanIndexQuery,
         status: PlanSearchStatus,
     ) -> Result<Vec<PlanSearchHit>, String> {
-        search_project(project, q, status)
+        self.search_global_plans(q, status)
+    }
+
+    fn search_global_plans(
+        &self,
+        q: &PlanIndexQuery,
+        status: PlanSearchStatus,
+    ) -> Result<Vec<PlanSearchHit>, String> {
+        let status_filter = match status {
+            PlanSearchStatus::Active => Some("active"),
+            PlanSearchStatus::Archived => Some("archived"),
+            PlanSearchStatus::All => None,
+        };
+        self.database
+            .search_plans(&q.query, status_filter, q.limit.unwrap_or(20).clamp(1, 50))
+            .map_err(|error| error.to_string())
+            .map(|rows| {
+                rows.into_iter()
+                    .map(|row| PlanSearchHit {
+                        source: "plan",
+                        score: 1.0,
+                        id: row.id.clone(),
+                        kind: "plan".into(),
+                        title: row.title.clone(),
+                        body: row.body,
+                        scope: "plans".into(),
+                        updated_at: row.updated_at,
+                        age_ms: 0,
+                        plan_id: Some(row.id.clone()),
+                        spec_id: None,
+                        unit_id: row.id,
+                        unit_title: row.title,
+                        parent_title: String::new(),
+                        status: Some(row.status),
+                    })
+                    .collect()
+            })
     }
 
     pub fn reindex_project_index(&self, project: &Path) -> Result<PlanReindexResult, String> {
+        let _writer_turn = self.mutation_writer.enter();
         let root = super::paths::project_root(project);
         let root_text = root.display().to_string();
         let plans = self
@@ -131,23 +164,22 @@ impl super::PlanStore {
             .into_iter()
             .filter(|spec| spec_project_root(spec).display().to_string() == root_text)
             .collect::<Vec<_>>();
-        let scope = project_scope(&root);
-        delete_units_by_scope(&root, &scope)?;
-        let mut units = 0usize;
         for plan in &plans {
-            units += plan_units(plan, &scope).len();
-            mirror_plan(plan, true)?;
+            self.database
+                .persist_plan(plan, None)
+                .map_err(|error| error.to_string())?;
         }
         for spec in &specs {
-            units += spec_units(spec, &scope).len();
-            mirror_spec(spec, true)?;
+            self.database
+                .persist_spec(spec)
+                .map_err(|error| error.to_string())?;
         }
         Ok(PlanReindexResult {
             project: root_text,
-            scope,
+            scope: "plans".into(),
             plans: plans.len(),
             specs: specs.len(),
-            units,
+            units: plans.len() + specs.len(),
         })
     }
 
@@ -161,6 +193,22 @@ impl super::PlanStore {
             .values()
             .map(|s| s.lock().clone())
             .collect()
+    }
+}
+
+fn plan_project_root(plan: &Plan) -> &Path {
+    if plan.canonical_project_path.trim().is_empty() {
+        Path::new(&plan.project_path)
+    } else {
+        Path::new(&plan.canonical_project_path)
+    }
+}
+
+fn spec_project_root(spec: &Spec) -> &Path {
+    if spec.canonical_project_path.trim().is_empty() {
+        Path::new(&spec.project_path)
+    } else {
+        Path::new(&spec.canonical_project_path)
     }
 }
 
@@ -198,22 +246,6 @@ fn mirror_spec(spec: &Spec, sync_embed: bool) -> Result<Vec<Unit>, String> {
     let root = spec_project_root(spec);
     let units = spec_units(spec, &project_scope(root));
     replace_units(root, &format!("planunit_{}_%", spec.id), units, sync_embed)
-}
-
-fn plan_project_root(plan: &Plan) -> &Path {
-    if plan.canonical_project_path.trim().is_empty() {
-        Path::new(&plan.project_path)
-    } else {
-        Path::new(&plan.canonical_project_path)
-    }
-}
-
-fn spec_project_root(spec: &Spec) -> &Path {
-    if spec.canonical_project_path.trim().is_empty() {
-        Path::new(&spec.project_path)
-    } else {
-        Path::new(&spec.canonical_project_path)
-    }
 }
 
 fn index_units_vectors_async(root: PathBuf, units: Vec<Unit>) {

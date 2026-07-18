@@ -15,7 +15,6 @@ import { AgentIcon } from "../AgentIcon";
 import { OrchestrationCreate, type OrchestrationCreateResult } from "./OrchestrationCreate";
 import { WorkspaceItem } from "./WorkspaceItem";
 import { SidebarDisclosure } from "./SidebarDisclosure";
-import { WorkspacePlanTreeSlot } from "./WorkspacePlanEntry";
 import { RecentlyClosed } from "./RecentlyClosed";
 import { useRemoteWorkers } from "../../hooks/useRemoteWorkers";
 import {
@@ -32,11 +31,10 @@ import { flattenSidebarTabs, collectPaneIds } from "./workspaceTabs";
 import { aggregateTabStatus } from "./sidebarTabStatus";
 import { useFullPlansOptional, usePlanIndexOptional } from "../Canvas/PlansProvider";
 import { selectActiveWork } from "../Canvas/planView/activeWork";
-import { isWorkspacePlanEntryActive, isWorkspaceTabActive } from "./sidebarSelection";
+import { isWorkspaceTabActive } from "./sidebarSelection";
 import { buildSidebarCycleItems, cycleStep } from "./sidebarCycle";
-import { deriveWorkspacePlanEntries, openWorkspacePlanForEntries } from "../Canvas/workspacePlanEntry";
 import { matchesBinding } from "../../lib/keybindings";
-import { excludeTeamBoundPlanIndex, SidebarCollapsedActiveTab, SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
+import { SidebarCollapsedActiveTab, SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
 import type { SidebarTeamActions } from "./TeamUnit";
 import { GroupCloseConfirmDialog } from "./GroupCloseConfirmDialog";
 import type { OrchestrationGroupMember } from "./orchestrationGroupClose";
@@ -129,10 +127,6 @@ export function Sidebar({
   const { providers, loading: providersLoading } = useAgentProviders();
   const { index: planIndex } = usePlanIndexOptional();
   const fullPlans = useFullPlansOptional();
-  const workspacePlanIndex = useMemo(
-    () => excludeTeamBoundPlanIndex(planIndex),
-    [planIndex],
-  );
   const activeWork = useMemo(
     () => selectActiveWork(fullPlans.plans, state.panes),
     [fullPlans.plans, state.panes],
@@ -486,26 +480,20 @@ export function Sidebar({
       const ws = state.workspaces.find((w) => w.id === state.active_workspace_id);
       if (!ws) return;
 
-      const entries = deriveWorkspacePlanEntries(workspacePlanIndex, ws, state.panes);
-      const items = buildSidebarCycleItems(ws.tabs, state.panes, entries.length > 0);
+      const items = buildSidebarCycleItems(ws.tabs, state.panes, false);
       if (items.length < 2) return;
 
       const direction = forward ? 1 : -1;
       const next = cycleStep(items, state.activeTabIds[ws.id], workspaceCanvasActive, direction);
-      if (!next) return;
+      if (!next || next.kind !== "tab") return;
 
       e.preventDefault();
-      if (next.kind === "plan") {
-        onNavigateToTab?.();
-        openWorkspacePlanForEntries(entries);
-      } else {
-        setActiveTab(ws.id, next.tabId);
-        onNavigateToTab?.();
-      }
+      setActiveTab(ws.id, next.tabId);
+      onNavigateToTab?.();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [config?.keybindings, state, workspacePlanIndex, workspaceCanvasActive, setActiveTab, onNavigateToTab]);
+  }, [config?.keybindings, state, workspaceCanvasActive, setActiveTab, onNavigateToTab]);
 
   const sortedWorkspaces = useMemo(() => sortByOrder(state.workspaces), [state.workspaces]);
   const { general: generalWorkspace, workspaces: ordinaryWorkspaces } = useMemo(
@@ -566,7 +554,7 @@ export function Sidebar({
                       panes={state.panes}
                       paneStatuses={state.paneStatuses}
                       teams={state.teams}
-                      planIndex={workspacePlanIndex}
+                      planIndex={planIndex}
                       plans={fullPlans.plans}
                       activeWork={activeWork}
                       remoteWorkers={remoteWorkers}
@@ -629,19 +617,6 @@ export function Sidebar({
                         </button>
                         {isExpanded && (
                           <>
-                            <WorkspacePlanTreeSlot
-                              workspace={ws}
-                              panes={state.panes}
-                              planIndex={workspacePlanIndex}
-                              canvasActive={isWorkspacePlanEntryActive(isActiveVisual, workspaceCanvasActive)}
-                              touchMode={touchMode}
-                              compact={isCompact}
-                              uiFontScale={uiFontScale}
-                              onBeforeOpen={() => {
-                                setActiveWorkspace(ws.id);
-                                onNavigateToTab?.();
-                              }}
-                            />
                             {flattenSidebarTabs(ws.tabs, state.panes).map((tab) => {
                           const tabPaneIds = collectPaneIds(tab, state.panes);
                           const isTabActive = isWorkspaceTabActive(
@@ -732,7 +707,7 @@ export function Sidebar({
                           panes={state.panes}
                           paneStatuses={state.paneStatuses}
                           teams={state.teams}
-                          planIndex={workspacePlanIndex}
+                          planIndex={planIndex}
                           plans={fullPlans.plans}
                           activeWork={activeWork}
                           remoteWorkers={remoteWorkers}

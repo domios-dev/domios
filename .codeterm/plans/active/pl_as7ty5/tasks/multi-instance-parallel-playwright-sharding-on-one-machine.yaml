@@ -11,14 +11,19 @@ acceptance_criteria:
 - 'All instances are provably dead after the run: no orphan daemons, ports freed'
 test_plan: '1) Extend helpers (dev-console/api-client/global-setup) to resolve port and token per worker from instance env. 2) Config: workers N with a worker-scoped fixture binding workerIndex to instance. 3) Proof run on one remote machine: shards 06-mem+11-api vs a 13-canvas subset in parallel (2 workers), both green, wall-clock less than serial sum. 4) Post-run: netstat shows no listener on instance ports; no codeterm dev processes remain. 5) Serial mode workers:1 still works unchanged for golden default.'
 correctness: No shared state across workers — each instance owns data dir, port, UI page; teardown always reached even on failure; prod untouched.
-status: in_progress
+status: blocked
 review_stage: review
 qa_state: null
-status_label: pane-gone
+review_round: 0
+review_oracle: null
+review_evidence: []
+review_override: null
+review_audit: []
+status_label: needs-qa-assignment
 priority: p2
 created_at: 1783782192088
-updated_at: 1783981199033
-status_changed_at: 1783975184686
+updated_at: 1784354000997
+status_changed_at: 1784354000355
 handle: multi-instance-parallel-playwright-sharding-on-one-machine
 tags: []
 section_ids:
@@ -32,9 +37,9 @@ intent: null
 parent_task_id: null
 depends_on:
 - task_k16xu0
-assigned_pane_id: e3fa0754
+assigned_pane_id: null
 lane:
-  pane_id: e3fa0754
+  pane_id: null
   workspace_id: null
   workspace_name: null
   worktree_path: null
@@ -210,6 +215,39 @@ milestones:
     y: null
     collapsed: false
   attachments: []
+- id: ms_rkfiuc
+  from:
+    pane_id: watchdog
+    session_id: null
+    title: null
+  kind: decision
+  text: 'watchdog: assigned pane gone and silent for 342469544ms — demoted to pending'
+  ts: 1784323668577
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_bby83a
+  from:
+    pane_id: 166df18d
+    session_id: null
+    title: null
+  kind: decision
+  text: ' implementation SHA 676d41f4c is merged into cba4ab0fd; real two-instance proof remains unrun, reassigned to serialized QA'
+  ts: 1784354000997
+  links:
+  - key:2ae0dd9e57994d49
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts:
 - id: attempt_lm02r2
   executor_pane_id: 1666e582
@@ -284,7 +322,7 @@ execution_attempts:
   assigned_at: 1783976854080
   reported_at: null
   reviewed_at: null
-  closed_at: null
+  closed_at: 1784323668577
   competition_group_id: null
   competition_lane: null
   judge_verdict: null
