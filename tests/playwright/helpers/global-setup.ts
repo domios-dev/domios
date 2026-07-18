@@ -4,7 +4,7 @@ import {
   teardownInstances,
   type InstanceLifecycle,
 } from "./dev-instance";
-import { assertDevConsoleStopped, ensureDevConsole, killDevConsole } from "./dev-console";
+import { assertDevConsoleStopped, assertReusableDevConsole, ensureDevConsole, killDevConsole } from "./dev-console";
 
 const LIFECYCLE: InstanceLifecycle = {
   kill: killDevConsole,
@@ -13,6 +13,10 @@ const LIFECYCLE: InstanceLifecycle = {
 
 export default async function globalSetup(): Promise<void | (() => Promise<void>)> {
   const instances = allDevInstances();
+  if (process.env.CT_E2E_REUSE_ONLY === "1") {
+    for (const instance of instances) await assertReusableDevConsole(instance);
+    return;
+  }
   if (playwrightWorkerCount() === 1 && !instances[0].name) {
     await ensureDevConsole(instances[0]);
     return;
