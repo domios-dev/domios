@@ -17,16 +17,25 @@ export interface InboundReportDescriptor {
   status?: string;
   sha?: string;
   fields: ReportField[];
+  /** The free-form message below the structured block, verbatim. */
+  body: string;
 }
 
 const FIELD_RE = /^(task|status|branch|sha|tests|changed|skipped|changes|tests run|gates requested|followup):\s*(.*)$/i;
+const COMPOUND_SPLIT_RE = /\s+\|\s+(?=[A-Z][A-Z ]+:)/;
 
+// AgentReport::inject_body emits structured fields as a leading block, then the
+// message: the first non-field line opens the body, so quoted prose stays body.
 export function parseInboundReport(text: string): InboundReportDescriptor {
+  const lines = decodeCliMessageText(text).split("\n");
   const fields: ReportField[] = [];
-  for (const part of decodeCliMessageText(text).split(/\n|\s+\|\s+(?=[A-Z][A-Z ]+:)/)) {
-    const match = FIELD_RE.exec(part.trim());
-    if (!match) continue;
-    fields.push({ label: match[1].toLowerCase().replace(" run", ""), value: match[2].trim() });
+  let cut = 0;
+  for (; cut < lines.length; cut += 1) {
+    const matches = lines[cut].split(COMPOUND_SPLIT_RE).map((segment) => FIELD_RE.exec(segment.trim()));
+    if (matches.some((match) => !match)) break;
+    for (const match of matches) {
+      fields.push({ label: match![1].toLowerCase().replace(" run", ""), value: match![2].trim() });
+    }
   }
   const value = (label: string) => {
     for (let index = fields.length - 1; index >= 0; index -= 1) {
@@ -34,7 +43,13 @@ export function parseInboundReport(text: string): InboundReportDescriptor {
     }
     return undefined;
   };
-  return { task: value("task"), status: value("status"), sha: value("sha"), fields };
+  return {
+    task: value("task"),
+    status: value("status"),
+    sha: value("sha"),
+    fields,
+    body: lines.slice(cut).join("\n").trim(),
+  };
 }
 
 interface Props {
@@ -73,16 +88,29 @@ export function InboundReportCard({ message, sender, expanded, onToggle, onFocus
       chips={chips}
       onFocusTab={onFocusTab}
     >
-      <dl className={`grid max-h-64 grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 overflow-y-auto ${textSize}`}>
-        {descriptor.fields.map((field, index) => (
-          <div key={`${field.label}-${index}`} className="contents">
-            <dt className="font-mono" style={{ color: "var(--ct-muted-fg)" }}>{field.label}</dt>
-            <dd className="min-w-0 break-words" style={{ color: "var(--ct-fg)" }}>
-              {hasPlanRefs(field.value) ? <LinkedText text={field.value} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} /> : field.value}
-            </dd>
+      <div className={`grid max-h-64 gap-2 overflow-y-auto ${textSize}`}>
+        {descriptor.fields.length > 0 && (
+          <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1">
+            {descriptor.fields.map((field, index) => (
+              <div key={`${field.label}-${index}`} className="contents">
+                <dt className="font-mono" style={{ color: "var(--ct-muted-fg)" }}>{field.label}</dt>
+                <dd className="min-w-0 break-words" style={{ color: "var(--ct-fg)" }}>
+                  {hasPlanRefs(field.value) ? <LinkedText text={field.value} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} /> : field.value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        )}
+        {descriptor.body && (
+          <div
+            data-testid="chat-inbound-report-body"
+            className="min-w-0 whitespace-pre-wrap break-words"
+            style={{ color: "var(--ct-fg)" }}
+          >
+            {hasPlanRefs(descriptor.body) ? <LinkedText text={descriptor.body} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} /> : descriptor.body}
           </div>
-        ))}
-      </dl>
+        )}
+      </div>
     </InboundActivityCard>
   );
 }
