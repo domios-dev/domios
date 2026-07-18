@@ -47,7 +47,7 @@ impl PlanStore {
         kinds: Vec<MilestoneKind>,
         now_ms: u64,
     ) -> Result<Plan, PlanError> {
-        let _team_plan_guard = self.team_plan_lock.lock();
+        let _writer_turn = self.mutation_writer.enter();
         let team_id = team_id
             .map(|t| t.trim().to_string())
             .filter(|t| !t.is_empty());
@@ -70,7 +70,7 @@ impl PlanStore {
         }
         plan.team_id = team_id;
         plan.milestone_kinds = kinds;
-        if let Err(error) = self.save(&mut plan, now_ms) {
+        if let Err(error) = self.save_in_writer(&mut plan, now_ms) {
             self.plans.write().remove(&plan.id);
             self.index.write().remove(&plan.id);
             return Err(PlanError::Io(error.to_string()));
@@ -97,8 +97,8 @@ impl PlanStore {
         team_id: &str,
         now_ms: u64,
     ) -> Result<Plan, PlanError> {
-        let _team_plan_guard = self.team_plan_lock.lock();
         let team_id = team_id.trim();
+        let _writer_turn = self.mutation_writer.enter();
         if let Some((existing_plan_id, existing_title)) = self.active_plan_for_team(team_id) {
             if existing_plan_id != plan_id {
                 return Err(PlanError::TeamAlreadyHasActivePlan {
@@ -108,7 +108,7 @@ impl PlanStore {
                 });
             }
         }
-        self.with_plan(plan_id, now_ms, |plan| {
+        self.with_plan_in_writer(plan_id, now_ms, |plan| {
             if let Some(bound_team_id) = plan.team_id.as_deref() {
                 if bound_team_id != team_id {
                     return Err(PlanError::PlanAlreadyBoundToTeam {
@@ -296,41 +296,52 @@ impl PlanStore {
     where
         F: FnOnce(&mut Plan) -> Result<T, PlanError>,
     {
+        let _writer_turn = self.mutation_writer.enter();
+        self.with_plan_in_writer(id, now_ms, f)
+    }
+
+    pub(super) fn with_plan_in_writer<T, F>(
+        &self,
+        id: &str,
+        now_ms: u64,
+        f: F,
+    ) -> Result<T, PlanError>
+    where
+        F: FnOnce(&mut Plan) -> Result<T, PlanError>,
+    {
         let arc = self
             .plans
             .read()
             .get(id)
             .cloned()
             .ok_or(PlanError::NotFound)?;
-        let mut guard = arc.lock();
-        let before = guard.clone();
-        let out = match f(&mut guard) {
-            Ok(out) => out,
-            Err(error) => {
-                *guard = before;
-                return Err(error);
-            }
-        };
-        guard.updated_at = now_ms;
-        if guard.canonical_project_path.trim().is_empty() {
-            guard.canonical_project_path = guard.project_path.clone();
+        let mut staged = arc.lock().clone();
+        let out = f(&mut staged)?;
+        staged.updated_at = now_ms;
+        if staged.canonical_project_path.trim().is_empty() {
+            staged.canonical_project_path = staged.project_path.clone();
         }
-        super::tag_model::normalize_plan(&mut guard);
+        super::tag_model::normalize_plan(&mut staged);
         let path = self
-            .persist_plan_and_spec(&guard)
+            .persist_plan_and_spec(&staged)
             .map_err(|e| PlanError::Io(e.to_string()))?;
-        self.note_plan_write(&guard, &path);
-        if let Err(e) = self.mirror_plan_index(&guard) {
+        let committed = {
+            let mut guard = arc.lock();
+            *guard = staged;
+            guard.clone()
+        };
+        self.note_plan_write(&committed, &path);
+        if let Err(e) = self.mirror_plan_index(&committed) {
             log::warn!(
                 "[plan.index] mirror lag after committed write for {}: {}",
-                guard.id,
+                committed.id,
                 e
             );
         }
-        self.record_committed_snapshot(&guard);
-        let entry = Self::index_entry(&guard, path);
-        self.index.write().insert(guard.id.clone(), entry);
-        self.reset_bound_panes(&guard);
+        self.record_committed_snapshot(&committed);
+        let entry = Self::index_entry(&committed, path);
+        self.index.write().insert(committed.id.clone(), entry);
+        self.reset_bound_panes(&committed);
         Ok(out)
     }
 
@@ -1098,5 +1109,106 @@ mod team_binding_tests {
         let second = create(&s, &dir, "Second", Some("team_alpha"), 3).unwrap();
         assert_eq!(second.team_id.as_deref(), Some("team_alpha"));
         assert_ne!(first.id, second.id);
+    }
+}
+
+#[cfg(test)]
+mod writer_queue_tests {
+    use std::sync::{mpsc, Arc, Mutex as StdMutex};
+    use std::time::Duration;
+
+    use crate::plan::OrchestratorRef;
+    use crate::service_plan::PlanStore;
+
+    fn store() -> (tempfile::TempDir, Arc<PlanStore>, String) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(PlanStore::new_for_test(dir.path()));
+        let plan = store
+            .create_plan(
+                "Initial".into(),
+                dir.path().display().to_string(),
+                OrchestratorRef::from_pane("orch"),
+                vec![],
+                1,
+            )
+            .unwrap();
+        (dir, store, plan.id)
+    }
+
+    #[test]
+    fn writer_queue_serializes_persistence_in_submission_order() {
+        let (_dir, store, plan_id) = store();
+        let (first_started_tx, first_started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let release_rx = Arc::new(StdMutex::new(Some(release_rx)));
+        let persisted = Arc::new(StdMutex::new(Vec::new()));
+        store.set_persistence_hook_for_test(Some(Arc::new({
+            let release_rx = release_rx.clone();
+            let persisted = persisted.clone();
+            move |plan| {
+                if plan.title == "First" {
+                    first_started_tx.send(()).unwrap();
+                    release_rx.lock().unwrap().take().unwrap().recv().unwrap();
+                }
+                persisted.lock().unwrap().push(plan.title.clone());
+            }
+        })));
+
+        let first_store = store.clone();
+        let first_id = plan_id.clone();
+        let first = std::thread::spawn(move || {
+            first_store.update_plan(&first_id, Some("First"), None, None, 2)
+        });
+        first_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let (second_attempt_tx, second_attempt_rx) = mpsc::channel();
+        let second_store = store.clone();
+        let second_id = plan_id.clone();
+        let second = std::thread::spawn(move || {
+            second_attempt_tx.send(()).unwrap();
+            second_store.update_plan(&second_id, Some("Second"), None, None, 3)
+        });
+        second_attempt_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(persisted.lock().unwrap().is_empty());
+
+        release_tx.send(()).unwrap();
+        first.join().unwrap().unwrap();
+        second.join().unwrap().unwrap();
+        assert_eq!(&*persisted.lock().unwrap(), &["First", "Second"]);
+        assert_eq!(store.get(&plan_id).unwrap().title, "Second");
+    }
+
+    #[test]
+    fn reads_keep_last_committed_snapshot_while_persistence_is_blocked() {
+        let (_dir, store, plan_id) = store();
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let release_rx = Arc::new(StdMutex::new(Some(release_rx)));
+        store.set_persistence_hook_for_test(Some(Arc::new({
+            let release_rx = release_rx.clone();
+            move |plan| {
+                if plan.title == "Blocked" {
+                    started_tx.send(()).unwrap();
+                    release_rx.lock().unwrap().take().unwrap().recv().unwrap();
+                }
+            }
+        })));
+
+        let writer_store = store.clone();
+        let writer_id = plan_id.clone();
+        let writer = std::thread::spawn(move || {
+            writer_store.update_plan(&writer_id, Some("Blocked"), None, None, 2)
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let (read_tx, read_rx) = mpsc::channel();
+        let reader_store = store.clone();
+        let reader_id = plan_id.clone();
+        std::thread::spawn(move || read_tx.send(reader_store.get(&reader_id).unwrap().title).unwrap());
+        assert_eq!(read_rx.recv_timeout(Duration::from_secs(1)).unwrap(), "Initial");
+
+        release_tx.send(()).unwrap();
+        writer.join().unwrap().unwrap();
+        assert_eq!(store.get(&plan_id).unwrap().title, "Blocked");
     }
 }

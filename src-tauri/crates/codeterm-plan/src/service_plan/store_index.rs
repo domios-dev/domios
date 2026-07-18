@@ -269,6 +269,11 @@ impl PlanStore {
     }
 
     pub fn save(&self, plan: &mut Plan, now_ms: u64) -> std::io::Result<()> {
+        let _writer_turn = self.mutation_writer.enter();
+        self.save_in_writer(plan, now_ms)
+    }
+
+    pub(super) fn save_in_writer(&self, plan: &mut Plan, now_ms: u64) -> std::io::Result<()> {
         if plan.created_at == 0 {
             plan.created_at = now_ms;
         }
@@ -288,23 +293,32 @@ impl PlanStore {
                 .or_insert_with(|| Arc::new(Mutex::new(plan.clone())))
                 .clone()
         };
-        let mut guard = arc.lock();
-        if guard.updated_at <= plan.updated_at {
-            *guard = plan.clone();
+        let staged = {
+            let guard = arc.lock();
+            if guard.updated_at <= plan.updated_at {
+                plan.clone()
+            } else {
+                guard.clone()
+            }
+        };
+        *plan = staged.clone();
+        let path = self.persist_plan_and_spec(&staged)?;
+        {
+            let mut guard = arc.lock();
+            *guard = staged.clone();
         }
-        *plan = guard.clone();
-        let path = self.persist_plan_and_spec(&guard)?;
-        self.note_plan_write(&guard, &path);
-        if let Err(e) = self.mirror_plan_index(&guard) {
-            log::warn!("[plan.index] mirror lag in save for {}: {}", guard.id, e);
+        self.note_plan_write(&staged, &path);
+        if let Err(e) = self.mirror_plan_index(&staged) {
+            log::warn!("[plan.index] mirror lag in save for {}: {}", staged.id, e);
         }
         self.index
             .write()
-            .insert(guard.id.clone(), Self::index_entry(&guard, path));
+            .insert(staged.id.clone(), Self::index_entry(&staged, path));
         Ok(())
     }
 
     pub fn save_spec(&self, spec: &mut Spec, now_ms: u64) -> std::io::Result<()> {
+        let _writer_turn = self.mutation_writer.enter();
         if spec.created_at == 0 {
             spec.created_at = now_ms;
         }
@@ -324,23 +338,31 @@ impl PlanStore {
                 .or_insert_with(|| Arc::new(Mutex::new(spec.clone())))
                 .clone()
         };
-        let mut guard = arc.lock();
-        if guard.updated_at <= spec.updated_at {
-            *guard = spec.clone();
+        let staged = {
+            let guard = arc.lock();
+            if guard.updated_at <= spec.updated_at {
+                spec.clone()
+            } else {
+                guard.clone()
+            }
+        };
+        *spec = staged.clone();
+        let path = self.persist_spec(&staged)?;
+        {
+            let mut guard = arc.lock();
+            *guard = staged.clone();
         }
-        *spec = guard.clone();
-        let path = self.persist_spec(&guard)?;
-        self.note_spec_write(&guard, &path);
-        if let Err(e) = self.mirror_spec_index(&guard) {
+        self.note_spec_write(&staged, &path);
+        if let Err(e) = self.mirror_spec_index(&staged) {
             log::warn!(
                 "[plan.index] mirror lag in save_spec for {}: {}",
-                guard.id,
+                staged.id,
                 e
             );
         }
         self.spec_index
             .write()
-            .insert(guard.id.clone(), Self::spec_index_entry(&guard, path));
+            .insert(staged.id.clone(), Self::spec_index_entry(&staged, path));
         Ok(())
     }
 

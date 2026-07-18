@@ -2,6 +2,14 @@ use super::*;
 
 impl PlanStore {
     #[cfg(test)]
+    pub(crate) fn set_persistence_hook_for_test(
+        &self,
+        hook: Option<Arc<dyn Fn(&Plan) + Send + Sync>>,
+    ) {
+        *self.persistence_hook.write() = hook;
+    }
+
+    #[cfg(test)]
     fn file_path(plan: &Plan) -> std::io::Result<PathBuf> {
         paths::plan_json_path(paths::plan_sidecar_root(plan), &plan.status, &plan.id)
     }
@@ -26,6 +34,10 @@ impl PlanStore {
     /// wipes the old one INCLUDING spec.yaml — re-persist the spec into
     /// wherever the plan now lives (write-if-changed: no-op otherwise).
     pub(super) fn persist_plan_and_spec(&self, plan: &Plan) -> std::io::Result<PathBuf> {
+        #[cfg(test)]
+        if let Some(hook) = self.persistence_hook.read().clone() {
+            hook(plan);
+        }
         let path = Self::persist_plan(plan)?;
         let owned = {
             self.specs
