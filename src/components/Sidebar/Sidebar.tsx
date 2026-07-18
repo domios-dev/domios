@@ -240,14 +240,7 @@ export function Sidebar({
       hydratedProtectedWorkspaceIdsRef.current = hydrated.hydratedProtectedIds;
       setExpandedWorkspaces(hydrated.expanded);
     }
-    if (state.active_workspace_id) {
-      setExpandedWorkspaces((prev) => {
-        const next = new Set(prev);
-        next.add(state.active_workspace_id!);
-        return next;
-      });
-    }
-  }, [state.active_workspace_id, state.workspaces]);
+  }, [expandedWorkspaces, state.workspaces]);
 
   const handleNewWorkspace = useCallback(async () => {
     let folder: string | null;
@@ -270,12 +263,7 @@ export function Sidebar({
     if (!folder) return;
     const basename = folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "Workspace";
     await createWorkspace(basename, folder);
-    setExpandedWorkspaces(prev => {
-      const next = new Set(prev);
-      state.workspaces.forEach(ws => next.add(ws.id));
-      return next;
-    });
-  }, [createWorkspace, state.workspaces]);
+  }, [createWorkspace]);
 
   useEffect(() => {
     setMeshEnabledOverride(null);
@@ -783,7 +771,6 @@ export function Sidebar({
                   onReopenGroup={reopenGroup}
                   touchMode={touchMode}
                   uiFontScale={uiFontScale}
-                  headerTextClass={touchMode ? sidebarNavTouchText : sidebarNavText}
                 />
               );
             })()}

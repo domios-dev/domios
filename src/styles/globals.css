@@ -1455,6 +1455,7 @@ button,
 .sidebar-structural-header {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 8px;
   margin-top: 4px;
   border-top: 1px solid color-mix(in srgb, var(--ct-border) 70%, transparent);
@@ -1537,16 +1538,6 @@ button,
 
 .sidebar-recently-closed {
   margin-top: 4px;
-  padding-top: 6px;
-}
-
-.sidebar-recently-closed > button {
-  padding: 6px 12px 5px;
-  color: var(--ct-muted-fg);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: .14em;
-  text-transform: uppercase;
 }
 
 .sidebar-team-donut-hole {
