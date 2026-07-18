@@ -422,6 +422,25 @@ pub async fn send_text(
     }
 
     let raw_text = body.text.unwrap_or_default();
+    if source_envelope.is_some()
+        && body
+            .source_peer
+            .as_deref()
+            .is_some_and(|peer| !peer.is_empty())
+        && !target_is_chat
+    {
+        let text = prepend(&raw_text);
+        state
+            .svc
+            .send_text_when_ready(&pane_id, &text, true)
+            .await
+            .map_err(|e| classify_delivery_failure(&pane_id, &e))?;
+        record_push_activity(&state, &svc_token_match, &pane_id, &raw_text);
+        if !raw_text.trim().is_empty() {
+            state.svc.maybe_send_owned_plan_reminder(&pane_id);
+        }
+        return Ok(Json(serde_json::json!({"ok": true, "mesh": true})));
+    }
     if let Some(envelope) = source_envelope {
         crate::service::messenger::Messenger::deliver(&state.svc, &pane_id, envelope, &raw_text)
             .map_err(|e| classify_delivery_failure(&pane_id, &e))?;
