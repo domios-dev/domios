@@ -553,10 +553,15 @@ mod tests {
         crate::service_plan::store_v2::write_plan(&legacy_dir, &legacy_plan).unwrap();
 
         let reopened = PlanStore::open(database_path).unwrap();
+        let operations_before_rescan = reopened.operation_count_for_test(None);
         reopened.scan_project(directory.path()).unwrap();
         assert_eq!(
             reopened.get(&legacy_plan.id).unwrap().title,
             "Imported title"
+        );
+        assert_eq!(
+            reopened.operation_count_for_test(None),
+            operations_before_rescan
         );
     }
 
