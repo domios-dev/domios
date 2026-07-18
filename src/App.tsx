@@ -307,7 +307,7 @@ function AppInner() {
     const tab = current.workspaces.flatMap((ws) => ws.tabs).find((candidate) => candidate.id === tabId);
     if (!tab) return;
     const pane = current.panes[tab.pane_id];
-    if (!pane || pane.virtual || pane.backing?.kind === "chat_backend" || !pane.agent_type) return;
+    if (!pane || pane.backing?.kind === "chat_backend" || !pane.agent_type) return;
     await invoke("spawn_pty", {
       paneId: pane.id,
       cwd: pane.cwd ?? undefined,
@@ -324,7 +324,7 @@ function AppInner() {
       activeWs?.tabs
         .filter((tab) => {
           const pane = state.panes[tab.pane_id];
-          return pane && !pane.virtual && !(activeWs.protected === true && pane.protected === true);
+          return pane && !(activeWs.protected === true && pane.protected === true);
         })
         .map((tab) => tab.id) ?? [],
     liveTabIds: state.workspaces.flatMap((ws) => ws.tabs.map((tab) => tab.id)),
@@ -649,8 +649,6 @@ function AppInner() {
               >
                 <MemoizedTabContent
                   pane={state.panes[tab.pane_id]}
-                  workspaceId={ws.id}
-                  tabId={tab.id}
                   isFocused={state.focused_pane_id === tab.pane_id}
                   onFocusPane={setFocusedPane}
                   onPtySpawned={handlePtySpawned}
@@ -664,7 +662,6 @@ function AppInner() {
                   isVisible={isVisible}
                   chatFirst={chatPaneDefault}
                   chatDefaultPrompted={chatDefaultPrompted}
-                  agentsConfig={config.agents}
                 />
               </div>
                 );

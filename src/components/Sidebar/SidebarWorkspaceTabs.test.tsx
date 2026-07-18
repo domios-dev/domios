@@ -700,8 +700,31 @@ test("Team card keeps plan activation separate from collapse and menu controls",
   assert(terminalEnter.defaultPrevented && ptyWrites.join("") === "\r", "terminal fallback preserves its PTY write");
   await act(async () => (host.querySelector('[data-testid="team-done-count"]') as HTMLElement).click());
   assert(canvasFocusStore.getWorkspaceTarget() === null, "same-slot done total never opens a plan");
+
+  await act(async () => {
+    header.dispatchEvent(new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      clientX: window.innerWidth - 2,
+      clientY: window.innerHeight - 2,
+    }));
+  });
+  const contextMenu = document.querySelector('[data-testid="team-menu"]') as HTMLElement | null;
+  assert(contextMenu?.getAttribute("role") === "menu", "right-click opens the shared accessible Team menu");
+  const contextActions = Array.from(contextMenu.querySelectorAll("button"));
+  const openPlan = contextActions.find((button) => button.textContent?.includes("Open Plan")) as HTMLButtonElement | undefined;
+  assert(openPlan, "Team context menu exposes Open Plan when a plan is bound");
+  assert(contextActions.some((button) => button.textContent?.includes("Rename")), "Team context menu exposes Rename");
+  const menuRectStyle = contextMenu.style;
+  assert(Number.parseFloat(menuRectStyle.left) >= 4 && Number.parseFloat(menuRectStyle.top) >= 4, "context menu stays inside viewport margins");
+  await act(async () => openPlan.click());
+  assert(canvasFocusStore.getWorkspaceTarget()?.planId === currentPlan.id, "context-menu Open Plan targets the bound Team plan");
+  assert(!document.querySelector('[data-testid="team-menu"]'), "Open Plan closes the shared menu");
+
+  canvasFocusStore.closeWorkspace();
   await act(async () => menu.click());
   assert(document.querySelector('[data-testid="team-menu"]'), "kebab opens the Team menu");
+  assert(document.querySelector('[data-testid="team-menu"]')?.textContent?.includes("Open Plan"), "kebab exposes the same Team actions as right-click");
   assert(canvasFocusStore.getWorkspaceTarget() === null, "kebab never opens a plan");
   await act(async () => root.unmount());
 

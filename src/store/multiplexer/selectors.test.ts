@@ -45,7 +45,6 @@ function sampleState(panes: Record<string, Pane>, teams: Team[] = []): ExtendedS
     toasts: [],
     activeTabIds: {},
     generation: 1,
-    virtualTabs: {},
   };
 }
 

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, LogOut, Minus, Plus, UsersRound } from "lucide-react";
+import { ChevronRight, ClipboardList, LogOut, Minus, Plus, UsersRound } from "lucide-react";
 import type { Pane, ProviderDescriptor, Team } from "../../lib/types";
 import { TASK_STATUS_COLORS } from "../Canvas/settings";
 import { ProviderGlyph } from "../ProviderGlyph";
@@ -8,6 +8,7 @@ import type { Plan } from "../Canvas/types";
 import { BOARD_COLUMN_DEFS, groupTasksIntoColumns } from "../Canvas/planView/boardModel";
 import { summarizeWorkers } from "./orchestrationSections";
 import { SidebarDisclosure } from "./SidebarDisclosure";
+import { clampFloatingPosition } from "../shared/floatingPosition";
 
 export type TeamMemberRole = "planner" | "worker";
 
@@ -74,26 +75,70 @@ export function teamDonutBackground(buckets: TeamTaskBucket[]): string {
 interface TeamMenuProps {
   providers: ProviderDescriptor[];
   providersLoading?: boolean;
+  contextMenuTargetRef: RefObject<HTMLElement | null>;
+  onOpenPlan?: () => void;
   onRename?: () => void;
   onAddMember?: (role: TeamMemberRole, providerId: string, model?: string) => void | Promise<void>;
   onCloseTeam?: () => void;
 }
 
-function TeamMenu({ providers, providersLoading = false, onRename, onAddMember, onCloseTeam }: TeamMenuProps) {
+function TeamMenu({
+  providers,
+  providersLoading = false,
+  contextMenuTargetRef,
+  onOpenPlan,
+  onRename,
+  onAddMember,
+  onCloseTeam,
+}: TeamMenuProps) {
   const [open, setOpen] = useState(false);
   const [providerRole, setProviderRole] = useState<TeamMemberRole | null>(null);
   const [selectedProvider, setSelectedProvider] = useState<ProviderDescriptor | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [addingMember, setAddingMember] = useState(false);
-  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const [position, setPosition] = useState({ top: 0, left: 0, maxHeight: 0 });
   const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const providerStepRefs = useRef(new Map<string, HTMLButtonElement>());
   const pendingProviderFocus = useRef<string | null>(null);
   const addingMemberRef = useRef(false);
+  const openPointRef = useRef({ x: 0, y: 0 });
   const spawnProviders = providers.filter(
     (provider) => provider.transport === "pty" || provider.transport === "chat_backend",
   );
+
+  const positionMenu = useCallback((x: number, y: number) => {
+    const width = menuRef.current?.offsetWidth || 174;
+    const height = menuRef.current?.offsetHeight || 220;
+    const next = clampFloatingPosition(x, y, width, height, window.innerWidth, window.innerHeight);
+    setPosition(next);
+  }, []);
+
+  const openAt = useCallback((x: number, y: number) => {
+    openPointRef.current = { x, y };
+    setProviderRole(null);
+    setSelectedProvider(null);
+    setActionError(null);
+    positionMenu(x, y);
+    setOpen(true);
+  }, [positionMenu]);
+
+  useEffect(() => {
+    const target = contextMenuTargetRef.current;
+    if (!target) return;
+    const handleContextMenu = (event: MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openAt(event.clientX, event.clientY);
+    };
+    target.addEventListener("contextmenu", handleContextMenu);
+    return () => target.removeEventListener("contextmenu", handleContextMenu);
+  }, [contextMenuTargetRef, openAt]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    positionMenu(openPointRef.current.x, openPointRef.current.y);
+  }, [open, positionMenu, providerRole, selectedProvider]);
 
   useEffect(() => {
     if (!open) return;
@@ -147,18 +192,17 @@ function TeamMenu({ providers, providersLoading = false, onRename, onAddMember, 
         type="button"
         data-testid="team-menu-trigger"
         aria-label="Team actions"
+        aria-haspopup="menu"
         aria-expanded={open}
         className="sidebar-team-kebab"
         onClick={(event) => {
           event.stopPropagation();
+          if (open) {
+            setOpen(false);
+            return;
+          }
           const rect = event.currentTarget.getBoundingClientRect();
-          setPosition({
-            top: Math.min(rect.bottom + 2, window.innerHeight - 8),
-            left: Math.max(4, Math.min(rect.right - 174, window.innerWidth - 178)),
-          });
-          setOpen((value) => !value);
-          setProviderRole(null);
-          setActionError(null);
+          openAt(rect.right - 174, rect.bottom + 2);
         }}
       >
         ⋮
@@ -167,8 +211,10 @@ function TeamMenu({ providers, providersLoading = false, onRename, onAddMember, 
         <div
           ref={menuRef}
           data-testid="team-menu"
+          role="menu"
+          aria-label="Team actions"
           className="sidebar-team-menu"
-          style={position}
+          style={{ ...position, overflowY: "auto" }}
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
@@ -188,7 +234,7 @@ function TeamMenu({ providers, providersLoading = false, onRename, onAddMember, 
         >
           {providerRole && selectedProvider ? (
             <>
-              <button type="button" onClick={() => {
+              <button type="button" role="menuitem" onClick={() => {
                 pendingProviderFocus.current = selectedProvider.id;
                 setSelectedProvider(null);
               }}>
@@ -200,7 +246,7 @@ function TeamMenu({ providers, providersLoading = false, onRename, onAddMember, 
                   type="button"
                   key={model.id}
                   data-testid={`team-picker-model-${model.id}`}
-                  role="radio"
+                  role="menuitemradio"
                   aria-checked={model.id === selectedProvider.default_model}
                   disabled={addingMember || model.available === false}
                   onClick={() => void addMember(providerRole, selectedProvider.id, model.id)}
@@ -213,7 +259,7 @@ function TeamMenu({ providers, providersLoading = false, onRename, onAddMember, 
             </>
           ) : providerRole ? (
             <>
-              <button type="button" onClick={() => setProviderRole(null)}>
+              <button type="button" role="menuitem" onClick={() => setProviderRole(null)}>
                 <ChevronRight size={11} className="rotate-180" /> Back
               </button>
               <div className="sidebar-team-menu-label">Choose agent</div>
@@ -227,6 +273,7 @@ function TeamMenu({ providers, providersLoading = false, onRename, onAddMember, 
                     if (element) providerStepRefs.current.set(provider.id, element);
                   }}
                   disabled={addingMember}
+                  role="menuitem"
                   onClick={() => {
                     if ((provider.behavior_config?.model ?? "none") === "none") {
                       void addMember(providerRole, provider.id);
@@ -242,15 +289,16 @@ function TeamMenu({ providers, providersLoading = false, onRename, onAddMember, 
             </>
           ) : (
             <>
-              {onRename && <button type="button" onClick={() => run(onRename)}>Rename</button>}
+              {onOpenPlan && <button type="button" role="menuitem" onClick={() => run(onOpenPlan)}><ClipboardList size={11} /> Open Plan</button>}
+              {onRename && <button type="button" role="menuitem" onClick={() => run(onRename)}>Rename</button>}
               {onAddMember && (["planner", "worker"] as const).map((role) => (
-                <button type="button" key={role} onClick={() => setProviderRole(role)}>
+                <button type="button" role="menuitem" aria-haspopup="menu" key={role} onClick={() => setProviderRole(role)}>
                   Add {role} <ChevronRight size={11} className="ml-auto" />
                 </button>
               ))}
               {onCloseTeam && <>
                 <div className="sidebar-team-menu-separator" />
-                <button type="button" className="sidebar-team-menu-danger" onClick={() => run(onCloseTeam)}>
+                <button type="button" role="menuitem" className="sidebar-team-menu-danger" onClick={() => run(onCloseTeam)}>
                   <LogOut size={11} /> Close Team
                 </button>
               </>}
@@ -370,6 +418,7 @@ export function TeamUnit({
         <input
           autoFocus
           data-testid="team-name-input"
+          aria-label="Team name"
           value={name}
           onChange={(event) => setName(event.target.value)}
           disabled={renaming}
@@ -442,6 +491,8 @@ export function TeamUnit({
             <TeamMenu
               providers={providers}
               providersLoading={providersLoading}
+              contextMenuTargetRef={headerRef}
+              onOpenPlan={plan ? () => onOpenEffort({ teamId: team.id, managerPaneId: null, planId: plan.id }) : undefined}
               onRename={onRenameTeam ? () => {
                 setRenameError(null);
                 setEditing(true);

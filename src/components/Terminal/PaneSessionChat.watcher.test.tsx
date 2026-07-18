@@ -69,8 +69,6 @@ function muxActions(): MultiplexerActionsContextType {
     reorderTabs: noop,
     reorderWorkspaces: noop,
     createTab: noopAsync,
-    openSessionPicker: noop,
-    closeSessionPicker: noop,
     closeTab: noop,
     reopenClosed: noop,
     reopenGroup: noop,
@@ -111,7 +109,6 @@ function muxStateFor(panes: Record<string, Pane>): ExtendedState {
     toasts: [],
     activeTabIds: {},
     generation: 1,
-    virtualTabs: {},
   };
 }
 
