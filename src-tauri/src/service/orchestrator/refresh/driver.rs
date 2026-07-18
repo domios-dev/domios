@@ -172,7 +172,12 @@ impl ServiceContext {
         } else {
             MessageEnvelope::pane("", "")
         };
-        if let Err(e) = Messenger::deliver(self, pane_id, envelope, body) {
+        if let Err(e) = self.gateway_deliver(
+            pane_id,
+            envelope,
+            body,
+            crate::service::message_gateway::DeliveryClass::SystemNotice,
+        ) {
             log::warn!("[refresh] inject failed pane={} err={}", short(pane_id), e);
         }
     }

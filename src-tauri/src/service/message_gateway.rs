@@ -237,6 +237,42 @@ impl DeliverySeam for super::ServiceContext {
     }
 }
 
+impl super::ServiceContext {
+    /// Deliver an enveloped machine/system message through the gateway — the
+    /// receptivity gate applies per `class`. Convenience over building an
+    /// `OutboundMessage` at each call site during the migration off
+    /// `Messenger::deliver`.
+    pub(crate) fn gateway_deliver(
+        &self,
+        target: &str,
+        envelope: MessageEnvelope,
+        body: &str,
+        class: DeliveryClass,
+    ) -> Result<Delivery, String> {
+        self.gateway
+            .submit(
+                self,
+                OutboundMessage {
+                    target: target.to_string(),
+                    body: MessageBody::Text {
+                        body: body.to_string(),
+                        enter: true,
+                    },
+                    envelope: Some(envelope),
+                    class,
+                    origin: MessageOrigin::System,
+                    idempotency_key: None,
+                },
+            )
+            .map(|receipt| {
+                receipt.delivery.unwrap_or(Delivery::Pty {
+                    text: body.to_string(),
+                })
+            })
+            .map_err(|e| e.to_string())
+    }
+}
+
 /// PHASE 1 wraps `Result<_, String>` paths, so failures are classified by the
 /// structural markers those paths already emit until typed errors land upstream.
 fn classify(target: &str, err: String) -> DeliveryError {
