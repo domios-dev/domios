@@ -73,6 +73,32 @@ test("SET_STATE copies the exact incoming teams array", () => {
   assert(next.teams === teams, "incoming teams array is retained exactly");
 });
 
+test("SET_STATE removes orphaned and duplicate tabs before the sidebar can count them", () => {
+  const workspace = {
+    id: "w-clean",
+    name: "Clean",
+    tabs: [
+      { id: "tab-live", pane_id: "pane-live" },
+      { id: "tab-duplicate-pane", pane_id: "pane-live" },
+      { id: "tab-orphan", pane_id: "pane-closed" },
+    ],
+    active_tab_id: "tab-orphan",
+    cwd: null,
+  } as unknown as Workspace;
+  const incoming: MultiplexerState = {
+    workspaces: [workspace],
+    panes: { "pane-live": { id: "pane-live", title: "Live" } as Pane },
+    teams: [],
+    active_workspace_id: "w-clean",
+    focused_pane_id: null,
+    generation: 1,
+  };
+
+  const next = reducer(base(), { type: "SET_STATE", state: incoming });
+  assert(next.workspaces[0].tabs.map((tab) => tab.id).join(",") === "tab-live", "only the live tab survives");
+  assert(next.workspaces[0].active_tab_id === "tab-live", "active tab falls back to the surviving tab");
+});
+
 test("SET_STATE replaces teams on a higher generation without retaining removed entries", () => {
   const initial = reducer(base(), {
     type: "SET_STATE",

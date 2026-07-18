@@ -883,3 +883,40 @@ fn ghost_repro_mixed_workspace_drops_only_ephemeral() {
         _ => panic!("expected a leaf"),
     }
 }
+
+#[test]
+fn snapshots_exclude_orphaned_and_duplicate_live_tabs() {
+    let mut state = MultiplexerState::empty();
+    let workspace_id = state.create_workspace("Clean".to_string(), None).id;
+    let (tab_id, pane_id) = state.create_tab(&workspace_id).unwrap();
+    let workspace = state
+        .workspaces
+        .iter_mut()
+        .find(|workspace| workspace.id == workspace_id)
+        .unwrap();
+    workspace.tabs.push(crate::multiplexer::types::Tab {
+        id: "duplicate-tab".to_string(),
+        description: None,
+        pane_id: pane_id.clone(),
+        sort_order: 1,
+    });
+    workspace.tabs.push(crate::multiplexer::types::Tab {
+        id: "orphaned-tab".to_string(),
+        description: None,
+        pane_id: "closed-pane".to_string(),
+        sort_order: 2,
+    });
+    workspace.active_tab_id = Some("orphaned-tab".to_string());
+
+    let live = state.snapshot();
+    assert_eq!(live.workspaces[0].tabs.len(), 1);
+    assert_eq!(live.workspaces[0].tabs[0].id, tab_id);
+    assert_eq!(
+        live.workspaces[0].active_tab_id.as_deref(),
+        Some(tab_id.as_str())
+    );
+
+    let persisted = state.to_session_snapshot();
+    assert_eq!(persisted.workspaces[0].tabs.len(), 1);
+    assert_eq!(persisted.workspaces[0].tabs[0].id, tab_id);
+}
