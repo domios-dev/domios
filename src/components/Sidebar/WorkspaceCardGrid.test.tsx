@@ -81,6 +81,10 @@ async function run() {
   await act(async () => (host.querySelector('[aria-label="Edit initials for CodeTerm"]') as HTMLButtonElement).click());
   const input = host.querySelector('[aria-label="Initials for CodeTerm"]') as HTMLInputElement;
   assert.equal(input.maxLength, 2, "initials editor enforces the two-character contract");
+  const card = host.querySelector('[data-workspace-id="one"]') as HTMLElement;
+  const colorBefore = card.style.getPropertyValue("--workspace-card-color");
+  await act(async () => (host.querySelector('[aria-label="Change color for CodeTerm"]') as HTMLButtonElement).click());
+  assert.notEqual(card.style.getPropertyValue("--workspace-card-color"), colorBefore, "color editor cycles the themed palette");
 
   await act(async () => root.unmount());
   console.log("workspace card grid tests: passed");

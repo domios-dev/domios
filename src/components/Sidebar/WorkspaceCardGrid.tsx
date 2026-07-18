@@ -1,13 +1,17 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
-import { Pencil, Plus } from "lucide-react";
+import { Palette, Pencil, Plus } from "lucide-react";
 import type { PaneStatus, Workspace } from "../../lib/types";
 import { SortableContext, SortableRow, WS_PREFIX, rectSortingStrategy } from "./sortable";
 import {
   defaultWorkspaceInitials,
+  loadWorkspaceColorIndexes,
   loadWorkspaceInitials,
   normalizeWorkspaceInitials,
   persistWorkspaceInitials,
+  persistWorkspaceColorIndexes,
+  WORKSPACE_CARD_COLORS,
   workspaceCardColor,
+  workspaceCardColorIndex,
 } from "./workspaceCardMetadata";
 
 interface WorkspaceCardGridProps {
@@ -36,6 +40,7 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
   const scrollRef = useRef<HTMLDivElement>(null);
   const [columns, setColumns] = useState(3);
   const [customInitials, setCustomInitials] = useState(loadWorkspaceInitials);
+  const [customColors, setCustomColors] = useState(loadWorkspaceColorIndexes);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const rows = Math.min(2, Math.ceil((workspaces.length + 1) / columns));
@@ -55,6 +60,15 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
       return next;
     });
   }, [draft]);
+
+  const cycleColor = useCallback((workspace: Workspace) => {
+    setCustomColors((current) => {
+      const activeIndex = current[workspace.id] ?? workspaceCardColorIndex(workspace.id);
+      const next = { ...current, [workspace.id]: (activeIndex + 1) % WORKSPACE_CARD_COLORS.length };
+      persistWorkspaceColorIndexes(next);
+      return next;
+    });
+  }, []);
 
   useLayoutEffect(() => {
     const host = scrollRef.current;
@@ -81,7 +95,7 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
         >
           {workspaces.map((workspace, index) => {
             const selected = workspace.id === selectedWorkspaceId;
-            const color = workspaceCardColor(workspace.id);
+            const color = workspaceCardColor(workspace.id, customColors[workspace.id]);
             const status = statuses[workspace.id];
             return (
               <SortableRow
@@ -100,20 +114,39 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
                   style={{ ["--workspace-card-color" as string]: color }}
                 >
                   {editingId === workspace.id ? (
-                    <input
-                      autoFocus
-                      aria-label={`Initials for ${workspace.name}`}
-                      className="sidebar-workspace-card-initials-input"
-                      value={draft}
-                      maxLength={2}
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onChange={(event) => setDraft(normalizeWorkspaceInitials(event.target.value))}
-                      onBlur={() => commit(workspace)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") event.currentTarget.blur();
-                        if (event.key === "Escape") setEditingId(null);
+                    <div
+                      className="sidebar-workspace-card-editor"
+                      onBlur={(event) => {
+                        if (!event.currentTarget.contains(event.relatedTarget as Node)) commit(workspace);
                       }}
-                    />
+                    >
+                      <input
+                        autoFocus
+                        aria-label={`Initials for ${workspace.name}`}
+                        className="sidebar-workspace-card-initials-input"
+                        value={draft}
+                        maxLength={2}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onChange={(event) => setDraft(normalizeWorkspaceInitials(event.target.value))}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") event.currentTarget.blur();
+                          if (event.key === "Escape") setEditingId(null);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="sidebar-workspace-card-color-edit"
+                        aria-label={`Change color for ${workspace.name}`}
+                        title="Change color"
+                        onPointerDown={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                        }}
+                        onClick={() => cycleColor(workspace)}
+                      >
+                        <Palette size={8} />
+                      </button>
+                    </div>
                   ) : (
                     <button
                       type="button"

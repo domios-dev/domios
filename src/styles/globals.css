@@ -1541,21 +1541,19 @@ button,
   width: 42px;
   height: 40px;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--workspace-card-color) 12%, var(--ct-border));
+  border: 0;
   border-radius: 7px;
-  background: color-mix(in srgb, var(--workspace-card-color) 3%, var(--ct-surface));
-  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+  background: var(--workspace-card-color);
+  opacity: .48;
+  transition: filter 140ms ease, opacity 140ms ease, transform 140ms ease;
 }
 
 .sidebar-workspace-card:hover {
-  border-color: color-mix(in srgb, var(--workspace-card-color) 34%, var(--ct-border));
-  background: color-mix(in srgb, var(--workspace-card-color) 8%, var(--ct-surface));
+  opacity: .72;
 }
 
 .sidebar-workspace-card[data-selected="true"] {
-  border-color: color-mix(in srgb, var(--workspace-card-color) 78%, white 10%);
-  background: color-mix(in srgb, var(--workspace-card-color) 18%, var(--ct-surface));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--workspace-card-color) 28%, transparent);
+  opacity: 1;
 }
 
 .sidebar-workspace-card-select {
@@ -1569,19 +1567,16 @@ button,
   border: 0;
   padding: 4px;
   background: transparent;
-  color: var(--ct-fg);
+  color: var(--ct-bg);
 }
 
 .sidebar-workspace-card-initials {
-  color: color-mix(in srgb, var(--workspace-card-color) 48%, var(--ct-muted-fg));
+  color: var(--ct-bg);
   font-size: 14px;
   font-weight: 750;
   letter-spacing: .04em;
   line-height: 1;
-  text-shadow: 0 0 14px color-mix(in srgb, var(--workspace-card-color) 45%, transparent);
 }
-
-.sidebar-workspace-card[data-selected="true"] .sidebar-workspace-card-initials { color: var(--workspace-card-color); }
 
 .sidebar-workspace-card-edit {
   position: absolute;
@@ -1594,8 +1589,8 @@ button,
   justify-content: center;
   border: 0;
   border-radius: 4px;
-  background: color-mix(in srgb, var(--ct-bg) 76%, transparent);
-  color: var(--ct-muted-fg);
+  background: color-mix(in srgb, var(--ct-bg) 22%, transparent);
+  color: var(--ct-bg);
   opacity: 0;
 }
 
@@ -1604,17 +1599,32 @@ button,
 
 .sidebar-workspace-card-initials-input {
   position: absolute;
-  inset: 8px 6px;
-  width: calc(100% - 12px);
-  border: 1px solid var(--workspace-card-color);
-  border-radius: 6px;
-  background: var(--ct-bg);
+  inset: 8px 14px 8px 4px;
+  width: calc(100% - 18px);
+  border: 0;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--ct-bg) 88%, transparent);
   color: var(--workspace-card-color);
   font-size: 14px;
   font-weight: 750;
   text-align: center;
   text-transform: uppercase;
   outline: none;
+}
+
+.sidebar-workspace-card-color-edit {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  display: flex;
+  width: 12px;
+  height: 12px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--ct-bg) 22%, transparent);
+  color: var(--ct-bg);
 }
 
 .sidebar-workspace-card-working {
@@ -1628,9 +1638,6 @@ button,
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--ct-green) 18%, transparent), 0 0 8px var(--ct-green);
   animation: sidebar-workspace-working-pulse 1.4s ease-in-out infinite;
 }
-
-.sidebar-workspace-card[data-status="waiting"] { border-color: color-mix(in srgb, var(--ct-yellow) 55%, var(--ct-border)); }
-.sidebar-workspace-card[data-status="dead"] { border-color: color-mix(in srgb, var(--ct-red) 55%, var(--ct-border)); }
 
 .sidebar-workspace-card-create {
   display: flex;
