@@ -13,7 +13,7 @@ export function AskButton({ label, question }: { label: string; question: string
     if (state === "sending") return;
     setState("sending");
     try {
-      await invoke("chat_send_text", { paneId: "main", text: question, enter: true });
+      await invoke("chat_send_text", { paneId: "main", text: question });
       setState("sent");
       setTimeout(() => setState("idle"), 4000);
     } catch {

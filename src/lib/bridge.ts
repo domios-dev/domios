@@ -287,7 +287,6 @@ const HTTP_MAP: Record<string, Mapper> = {
   chat_send_text: (a) =>
     webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/send`, {
       text: a.text,
-      enter: true,
     }),
   delayed_send_list: (a) =>
     webJson("GET", `/api/panes/${enc(s(a, "paneId"))}/delayed-messages`),
