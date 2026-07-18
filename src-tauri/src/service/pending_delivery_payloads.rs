@@ -424,10 +424,9 @@ mod tests {
         }
         #[cfg(windows)]
         {
-            let output = std::process::Command::new("icacls")
-                .arg(path)
-                .output()
-                .unwrap();
+            let mut command = std::process::Command::new("icacls");
+            crate::process_util::no_window_std(&mut command);
+            let output = command.arg(path).output().unwrap();
             let acl = String::from_utf8_lossy(&output.stdout).to_ascii_lowercase();
             assert!(acl.contains(&std::env::var("USERNAME").unwrap().to_ascii_lowercase()));
             assert!(!acl.contains("builtin\\users"));

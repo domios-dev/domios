@@ -1,0 +1,61 @@
+id: task_8uir0r
+name: 'Fix #209: Linux .deb auto-updater invalid binary format'
+type: bug
+model: claude/sonnet
+model_rationale: 'GitHub #209: codeterm update install --auto on a .deb install fails with invalid updater binary format during download/install, while the manual curl+dpkg path works - the auto-update path is unreliable on Linux deb hosts.'
+personality: Torvalds
+personality_provenance: null
+acceptance_criteria:
+- On a deb install, update install --auto either completes a real install or exits with the actionable manual-install message - never invalid updater binary format
+- Updater targets (or explicitly refuses) the binary the running daemon was launched from, covering the /usr/bin vs ~/.codeterm/bin split
+test_plan: 'Unit-test the install-type dispatch: cd src-tauri && TEST_CAP_SECS=90 ../scripts/test-capped.sh -- update ; deb-branch test green 0 failed; live verification on a Linux host or container: run codeterm update check and codeterm update install --auto on a deb layout, capture output showing the new behavior in the report'
+correctness: The updater never reports a format error for a path it was never going to support; every failure mode names the user action required
+status: pending
+review_stage: review
+qa_state: null
+review_round: 0
+review_oracle: null
+review_evidence: []
+review_override: null
+review_audit: []
+status_label: null
+priority: p2
+created_at: 1784360724133
+updated_at: 1784360724133
+status_changed_at: 1784360724133
+handle: fix-209-linux-deb-auto-updater-invalid-binary-format
+tags: []
+section_ids:
+- sec_rblbtq
+body: |-
+  [RECOVERED from pl_ghk358 as task_jbgw4g; export sha256 78a67aaf79b0…]
+
+  Per issue #209: diagnose why the updater rejects the .deb asset (likely the Tauri updater expecting AppImage/its own bundle format while install-type detection says deb). Either (1) implement a real deb install path (download asset, verify, then either pkexec/actionable sudo guidance since dpkg needs root), or (2) when install type is deb and no privileged path exists, fail early with the exact actionable message (manual curl + sudo dpkg -i command) instead of attempting a doomed download that reports invalid updater binary format. Handle the dual-binary situation from the issue (system /usr/bin/codeterm daemon vs ~/.codeterm/bin CLI copy): the updater must update the binary the daemon actually runs from, or say clearly that it cannot. Phase 3 protocol applies.
+role_guidance: 'You are Torvalds, allergic to error messages that lie about the actual problem. Red line: shipping any failure path whose message does not tell a Linux user exactly what command to run next.'
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []

@@ -128,9 +128,10 @@ export function CanvasViewInner({
   const planFilterRevision = plans
     .map((p) => [p.id, p.status, p.owner.pane_id ?? "", p.owner.session_id ?? ""].join(":"))
     .join("\0");
+  const teamId = mode === "workspace" ? workspaceTarget?.teamId : undefined;
   const filteredPlans = useMemo(
-    () => filterPlansForCanvas(plans, mode, { planId, orchestratorPaneId, panes, workspaceId, workspaces, teams }),
-    [plans, plansRevision, planFilterRevision, mode, planId, orchestratorPaneId, panes, workspaceId, workspaces, teams],
+    () => filterPlansForCanvas(plans, mode, { planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams }),
+    [plans, plansRevision, planFilterRevision, mode, planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams],
   );
 
   const activeWork = useMemo(
@@ -885,11 +886,13 @@ export function CanvasView({ mode, workspaceId, planId, orchestratorPaneId, focu
   const projectPath = activeWs?.cwd ?? null;
   const workspaceTarget = useCanvasWorkspaceTarget();
   const requestedPlanId = planId ?? (mode === "workspace" ? workspaceTarget?.planId : undefined);
+  const teamId = mode === "workspace" ? workspaceTarget?.teamId : undefined;
+  const teamScoped = !!teamId;
   const [allPlans, setAllPlans] = useState(false);
   // All-plans mode lifts the workspace filter: fetch with no project scope.
   const { plans: livePlans, loading, reconnecting, error, refetch } = useCanvasPlans(
     mode,
-    allPlans ? null : projectPath,
+    allPlans && !teamScoped ? null : projectPath,
   );
   // Dev harness: real exported plan, or a synthetic N-task plan, when flagged.
   const perfN = perfFixtureCount();
@@ -935,6 +938,7 @@ export function CanvasView({ mode, workspaceId, planId, orchestratorPaneId, focu
       error={error}
       onRetry={refetch}
       planId={requestedPlanId}
+      teamId={teamId}
       orchestratorPaneId={orchestratorPaneId}
       focusPaneId={focusPaneId}
       panes={panes}
@@ -947,8 +951,8 @@ export function CanvasView({ mode, workspaceId, planId, orchestratorPaneId, focu
       onClose={onClose}
       onOpenPane={onOpenPane}
       api={api}
-      allPlans={allPlans}
-      onAllPlansChange={setAllPlans}
+      allPlans={teamScoped ? false : allPlans}
+      onAllPlansChange={teamScoped ? undefined : setAllPlans}
     />
   );
 }

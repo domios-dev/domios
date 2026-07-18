@@ -123,10 +123,7 @@ for (const [command, lead] of descriptorCases) {
 }
 const collapsedHost = await render(<CodetermActionCard event={event("codeterm plan task add pl_d17yp2 --name Implement")} expanded={false} onToggle={() => {}} />);
 if (collapsedHost.host.querySelector('[data-testid="toolcard-command"]')) throw new Error("raw command leaked while collapsed");
-const commandOpener = collapsedHost.host.querySelector<HTMLButtonElement>('[data-testid="toolcard-command-open"]');
-if (!commandOpener) throw new Error("action command opener missing");
-await act(async () => commandOpener.click());
-if (!collapsedHost.host.querySelector('[data-testid="toolcard-command"]')?.textContent?.includes("codeterm plan task add")) throw new Error("raw command opener regression");
+if (collapsedHost.host.querySelector('[data-testid="toolcard-command-open"]')) throw new Error("per-card command opener must not render");
 const chipHost = await render(<CodetermActionCard event={event("codeterm agent spawn codex --model gpt-5.6-luna")} expanded={false} onToggle={() => {}} />);
 if (!chipHost.host.textContent?.includes("gpt-5.6-luna") || chipHost.host.querySelector('[data-testid="toolcard-command"]')) throw new Error("collapsed chip regression");
 

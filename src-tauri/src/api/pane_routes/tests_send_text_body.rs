@@ -1,37 +1,20 @@
 use super::*;
 
 #[test]
-fn send_text_body_enter_defaults_true() {
+fn send_text_body_only_text() {
     let json = r#"{"text": "ls"}"#;
     let body: SendTextBody = serde_json::from_str(json).unwrap();
     assert_eq!(body.text, Some("ls".to_string()));
-    assert!(
-        body.enter,
-        "enter should default to true via default_true()"
-    );
     assert!(body.batch.is_none());
 }
 
+/// The plain text send always submits — the `enter` knob was removed. A legacy
+/// client that still sends `enter` must keep parsing (the field is ignored).
 #[test]
-fn send_text_body_enter_explicit_false() {
+fn send_text_body_ignores_legacy_enter_field() {
     let json = r#"{"text": "partial", "enter": false}"#;
     let body: SendTextBody = serde_json::from_str(json).unwrap();
-    assert!(!body.enter);
-}
-
-#[test]
-fn send_text_body_enter_explicit_true() {
-    let json = r#"{"text": "cmd", "enter": true}"#;
-    let body: SendTextBody = serde_json::from_str(json).unwrap();
-    assert!(body.enter);
-}
-
-#[test]
-fn send_text_body_only_text() {
-    let json = r#"{"text": "hello"}"#;
-    let body: SendTextBody = serde_json::from_str(json).unwrap();
-    assert_eq!(body.text, Some("hello".to_string()));
-    assert!(body.enter, "enter defaults to true when omitted");
+    assert_eq!(body.text.as_deref(), Some("partial"));
 }
 
 #[test]
@@ -39,7 +22,6 @@ fn send_text_body_empty_object() {
     let json = r#"{}"#;
     let body: SendTextBody = serde_json::from_str(json).unwrap();
     assert_eq!(body.text, None, "text is None when omitted");
-    assert!(body.enter, "enter defaults to true even with empty body");
 }
 
 #[test]
@@ -47,7 +29,6 @@ fn send_text_body_text_null() {
     let json = r#"{"text": null}"#;
     let body: SendTextBody = serde_json::from_str(json).unwrap();
     assert_eq!(body.text, None);
-    assert!(body.enter);
 }
 
 #[test]
@@ -179,10 +160,10 @@ fn send_text_body_ignores_legacy_verify_field() {
 fn render_send(
     has_source: bool,
     target_has_agent: bool,
-    target_is_chat: bool,
+    transport: PaneInputTransport,
     body: &str,
 ) -> String {
-    if should_prepend_source(has_source, target_has_agent, target_is_chat) {
+    if should_prepend_source(has_source, target_has_agent, transport) {
         let envelope =
             crate::service::messenger::MessageEnvelope::pane("Canvas Orchestrator", "073f64ae")
                 .model(Some("opus".into()));
@@ -199,7 +180,12 @@ fn render_send(
 #[test]
 fn send_to_shell_pane_with_source_has_no_marker() {
     // The production bug: source_pane set, target is a bare shell (no agent).
-    let out = render_send(true, false, false, "cd /path && ./build.sh dev");
+    let out = render_send(
+        true,
+        false,
+        PaneInputTransport::Pty,
+        "cd /path && ./build.sh dev",
+    );
     assert_eq!(out, "cd /path && ./build.sh dev");
     assert!(
         !out.contains("-=-codeterm:pane"),
@@ -209,7 +195,7 @@ fn send_to_shell_pane_with_source_has_no_marker() {
 
 #[test]
 fn send_to_agent_pane_with_source_keeps_marker() {
-    let out = render_send(true, true, false, "ship it");
+    let out = render_send(true, true, PaneInputTransport::Pty, "ship it");
     assert!(
         out.contains("-=-codeterm:pane"),
         "an agent pane still gets the return-address marker"
@@ -220,14 +206,25 @@ fn send_to_agent_pane_with_source_keeps_marker() {
 #[test]
 fn send_to_chatbackend_with_source_skips_pty_marker() {
     // chatBackend identity is structural — the PTY prefix path is skipped.
-    assert!(!should_prepend_source(true, false, true));
-    assert!(!should_prepend_source(true, true, true));
+    assert!(!should_prepend_source(
+        true,
+        false,
+        PaneInputTransport::ChatBackend
+    ));
+    assert!(!should_prepend_source(
+        true,
+        true,
+        PaneInputTransport::ChatBackend
+    ));
 }
 
 #[test]
 fn send_without_source_never_marks() {
-    assert!(!should_prepend_source(false, true, false));
-    assert_eq!(render_send(false, true, false, "ls"), "ls");
+    assert!(!should_prepend_source(false, true, PaneInputTransport::Pty));
+    assert_eq!(
+        render_send(false, true, PaneInputTransport::Pty, "ls"),
+        "ls"
+    );
 }
 
 #[test]

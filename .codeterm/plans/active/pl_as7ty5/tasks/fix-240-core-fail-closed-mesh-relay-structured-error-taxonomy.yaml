@@ -1,0 +1,64 @@
+id: task_3nmmw6
+name: 'Fix #240 core: fail-closed mesh relay + structured error taxonomy'
+type: bug
+model: claude/opus
+model_rationale: 'GitHub #240: cross-mesh pane-to-pane send returns HTTP 404 yet still splices raw text into the target''s live PTY mid-command (captured PowerShell ParserError on pane 166df18d). The relay writes bytes on a path that reports failure - the direct opposite of this plan''s guarantee, and a bypass of submit_transaction the audit table missed. (PREMISE LATER CORRECTED by the worker: reporting, not routing — see sec_sve813/sec_l4uzrj.)'
+personality: Lamport
+personality_provenance: null
+acceptance_criteria:
+- Any mesh send returning an error has written zero bytes to the target PTY - drill proves 404/refused paths leave the target composer and command line untouched
+- Pane-to-pane --mesh sends route successfully to a valid pane (parity with --tab main) or return pane_not_reachable_on_peer - never bare 404
+- 'Mesh deliveries flow through the verified submit transaction: busy-pane refusal + post-Enter evidence observable in the relay response; audit table row added to spec sec_l4uzrj'
+test_plan: 'cd src-tauri && TEST_CAP_SECS=120 bash ../scripts/test-capped.sh -- mesh ; relay preflight/taxonomy unit tests green 0 failed; live drill: two dev instances (CODETERM_INSTANCE second copy per AGENTS.md), codeterm send --tab <pane> --mesh <peer> against a busy pane and a nonexistent pane, capture structured errors and untouched target PTY; red-run of the pre-fix splice captured'
+correctness: 'Reported delivery state and actual PTY writes can never disagree: error implies zero bytes, success implies verified post-Enter evidence'
+status: in_review
+review_stage: review
+qa_state: null
+review_round: 0
+review_oracle: 'ac:Any mesh send returning an error has written zero bytes to the target PTY - drill proves 404/refused paths leave the target composer and command line untouched;Mesh deliveries flow through the verified submit transaction: busy-pane refusal + post-Enter evidence observable in the relay response; audit table row added to spec sec_l4uzrj;Pane-to-pane --mesh sends route successfully to a valid pane (parity with --tab main) or return pane_not_reachable_on_peer - never bare 404|tp:cd src-tauri && TEST_CAP_SECS=120 bash ../scripts/test-capped.sh -- mesh ; relay preflight/taxonomy unit tests green 0 failed; live drill: two dev instances (CODETERM_INSTANCE second copy per AGENTS.md), codeterm send --tab <pane> --mesh <peer> against a busy pane and a nonexistent pane, capture structured errors and untouched target PTY; red-run of the pre-fix splice captured'
+review_evidence: []
+review_override: null
+review_audit: []
+status_label: null
+priority: p2
+created_at: 1784360730113
+updated_at: 1784360730489
+status_changed_at: 1784360730489
+handle: fix-240-core-fail-closed-mesh-relay-structured-error-taxonomy
+tags: []
+section_ids:
+- sec_78sgdr
+body: |-
+  [RECOVERED from pl_ghk358 as task_7fei9d; export sha256 78a67aaf79b0…]
+
+  Per issue #240 and spec sec_sve813: (1) locate the mesh relay's PTY write site and the pane-to-pane routing branch that 404s while --tab main works; document it as a new row in the spec sec_l4uzrj audit table; (2) reorder to fail-closed: ALL preflight (peer reachable, pane resolvable, pane safe to receive) completes BEFORE any byte is written; an error response guarantees zero bytes written - make the write the last fallible step; (3) route the delivery through the verified submit transaction (send_text_to_pty_smart / submit_entry) instead of raw injection, so busy-pane gating and post-Enter evidence apply to mesh sends exactly as to local ones; (4) replace bare 404/503 with structured errors (pane_not_reachable_on_peer, pane_busy_refused, submit_unconfirmed - reuse/extend the InjectionError taxonomy over the relay boundary). Fix the pane-to-pane routing so it resolves the same way --tab main does. Repro harness: two dev instances or loopback peer per docs/MESH.md; capture the pre-fix 404+delivered behavior red, then green.
+role_guidance: |-
+  You are Lamport. A distributed send has exactly three honest outcomes: delivered-with-evidence, refused-with-zero-writes, or in-doubt-reported-as-in-doubt. Red line: any code path where the error response is computed independently of whether bytes were written.
+  REMAINING GATES (worker-requested): clippy --all-targets warm; two-instance live drill (busy→pane_busy_refused+untouched PTY, nonexistent→pane_not_reachable_on_peer, valid→parity --tab main, assert far-end bytes); warm full suite + PW golden; real merge + is-ancestor c2b73fb10. Worker follow-ups: from_opaque substring classification ('still booting') — thread typed InjectionError through send_text (21 callers); sibling routes in pane_routes.rs (~215-716) still bare-404; body.raw=true mesh seam = owner scope decision.
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []

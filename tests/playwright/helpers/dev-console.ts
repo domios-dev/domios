@@ -49,6 +49,29 @@ export function nonAdoptableCdpError(instance: DevInstance): Error {
   );
 }
 
+export async function assertReusableDevConsole(instance = currentDevInstance()): Promise<void> {
+  const usesWebUi = WEB_MODE || process.platform !== "win32";
+  progress("health probe", `checking ${instance.apiBase}/api/health`);
+  if (!(await isHealthy(instance))) {
+    throw new Error(
+      `Playwright instance ${instance.name || "default"} is not healthy at ${instance.apiBase}; start that named instance through the Playwright harness before using the isolated runner`,
+    );
+  }
+
+  if (usesWebUi) {
+    progress("web-ui probe", `checking ${instance.webUrl}`);
+    if (await isWebUiReady(instance)) return;
+    throw new Error(`healthy Playwright instance has no ready web UI at ${instance.webUrl}`);
+  }
+
+  progress("CDP probe", `checking ${instance.cdpBase}/json/version`);
+  if (!(await isCdpUp(instance))) throw nonAdoptableCdpError(instance);
+  progress("CDP app readiness", "checking the WebView2 document");
+  if (!(await isCdpAppReady(instance))) {
+    throw new Error(`healthy Playwright instance exposes CDP at ${instance.cdpBase}, but its app is not ready`);
+  }
+}
+
 export async function isHealthy(instance = currentDevInstance()): Promise<boolean> {
   try {
     const r = await fetch(`${instance.apiBase}/api/health`, { signal: AbortSignal.timeout(3000) });
@@ -315,6 +338,11 @@ function dumpBuildGatewayLogs(reason: string): void {
  * debugging port is fixed at WebView2 creation).
  */
 export async function ensureDevConsole(instance = currentDevInstance()): Promise<void> {
+  if (process.env.CT_E2E_REUSE_ONLY === "1") {
+    await assertReusableDevConsole(instance);
+    progress("adopt", "reusing existing healthy Playwright dev instance without lifecycle changes");
+    return;
+  }
   const usesWebUi = WEB_MODE || process.platform !== "win32";
   progress("health probe", `checking ${instance.apiBase}/api/health`);
   if (await isHealthy(instance)) {

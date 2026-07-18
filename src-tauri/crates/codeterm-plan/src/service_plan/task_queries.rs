@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use super::readback::pending_after_verified;
+use super::state::{dependency_waits, task_presentation, DependencyWait, TaskPresentation};
 use super::{NewTask, PlanError, PlanStore};
 use crate::plan::{
     OrchestratorRef, Plan, PlanMode, PlanStatus, Section, Task, TaskStatus, INBOX_PLAN_ID,
@@ -37,6 +38,8 @@ pub struct TaskDetail {
     pub parent: Option<TaskLabel>,
     pub siblings: Vec<TaskLabel>,
     pub subtasks: Vec<TaskLabel>,
+    pub presentation: TaskPresentation,
+    pub dependency_waits: Vec<DependencyWait>,
     pub task: Task,
 }
 
@@ -208,6 +211,7 @@ impl PlanStore {
                     .find(|candidate| candidate.id == *parent_id)
                     .map(task_label)
             });
+            let dependency_waits = dependency_waits(&plan, task);
             return Some(TaskDetail {
                 plan_id: plan.id.clone(),
                 plan_title: plan.title.clone(),
@@ -228,6 +232,8 @@ impl PlanStore {
                     .filter(|candidate| candidate.parent_task_id.as_deref() == Some(&task.id))
                     .map(task_label)
                     .collect(),
+                presentation: task_presentation(&task.status, &dependency_waits),
+                dependency_waits,
                 task: task.clone(),
             });
         }

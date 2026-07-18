@@ -20,6 +20,9 @@ export const TEXT_WRAP_CLASS = "break-words [overflow-wrap:anywhere]";
 /** Above this many diff lines we skip per-token Prism highlighting and render
  *  plain (still colored +/- rows) — tokenizing a huge hunk is wasteful. */
 export const DIFF_HIGHLIGHT_MAX_LINES = 400;
+export const LONG_ARTIFACT_PREVIEW_LINES = 36;
+export const LONG_ARTIFACT_PREVIEW_MAX_HEIGHT = 320;
+export const LONG_ARTIFACT_FULL_MAX_HEIGHT = 700;
 
 function extractCodeText(children: unknown): string {
   if (Array.isArray(children)) {
@@ -292,6 +295,10 @@ function artifactPreview(text: string): string {
   return lines.slice(0, 2).join(" · ").slice(0, 220) || "output";
 }
 
+export function longArtifactContentPreview(text: string): string {
+  return text.replace(/\r/g, "").split("\n").slice(0, LONG_ARTIFACT_PREVIEW_LINES).join("\n").slice(0, 6_000);
+}
+
 export function LongArtifact({
   label,
   text,
@@ -306,6 +313,10 @@ export function LongArtifact({
   markdown?: boolean;
 }) {
   const lines = lineCount(text);
+  const hasFullView = isLargeArtifact(text);
+  const [showAll, setShowAll] = React.useState(false);
+  React.useEffect(() => setShowAll(false), [expanded, text]);
+  const visibleText = hasFullView && !showAll ? longArtifactContentPreview(text) : text;
   return (
     <div className="mb-2 w-full max-w-4xl min-w-0 mx-auto">
       <div
@@ -334,19 +345,40 @@ export function LongArtifact({
           <ChevronIcon expanded={expanded} className="shrink-0 opacity-50" />
         </button>
         {expanded && (
-          <div
-            className="max-h-[28rem] overflow-auto border-t px-3 py-2 text-xs"
-            style={{
-              borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 16%, transparent)",
-              color: "var(--ct-fg)",
-            }}
-          >
-            {markdown ? (
-              <div className="text-sm leading-relaxed">
-                <RichMarkdown text={text} />
+          <div className="border-t" style={{ borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 16%, transparent)" }}>
+            <div
+              data-testid="long-artifact-content"
+              role={showAll ? "region" : undefined}
+              aria-label={showAll ? `${label} full content` : undefined}
+              tabIndex={showAll ? 0 : undefined}
+              className="px-3 py-2 text-xs"
+              style={{
+                color: "var(--ct-fg)",
+                maxHeight: `${showAll ? LONG_ARTIFACT_FULL_MAX_HEIGHT : LONG_ARTIFACT_PREVIEW_MAX_HEIGHT}px`,
+                overflowY: showAll ? "auto" : "hidden",
+                overflowX: "auto",
+              }}
+            >
+              {markdown ? (
+                <div className="text-sm leading-relaxed">
+                  <RichMarkdown text={visibleText} />
+                </div>
+              ) : (
+                <pre className={`${PRE_WRAP_CLASS} m-0 font-mono`}>{visibleText}</pre>
+              )}
+            </div>
+            {hasFullView && (
+              <div className="flex justify-center border-t px-3 py-1.5" style={{ borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 12%, transparent)" }}>
+                <button
+                  type="button"
+                  data-testid="long-artifact-show-all"
+                  className="rounded px-2 py-1 text-[11px]"
+                  style={{ color: "var(--ct-accent)", background: "var(--ct-hover)" }}
+                  onClick={() => setShowAll((current) => !current)}
+                >
+                  {showAll ? "Show preview" : "Show all"}
+                </button>
               </div>
-            ) : (
-              <pre className={`${PRE_WRAP_CLASS} m-0 font-mono`}>{text}</pre>
             )}
           </div>
         )}

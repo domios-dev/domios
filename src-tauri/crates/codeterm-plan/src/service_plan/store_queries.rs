@@ -240,13 +240,11 @@ impl PlanStore {
     }
 
     pub fn delete(&self, id: &str) -> std::io::Result<()> {
-        let (plan, entry_path) = self.forget_plan(id);
-        if let Some(path) = entry_path {
-            let _ = std::fs::remove_file(&path);
-        }
-        if let Some(plan) = plan {
-            let _ = body_files::remove_body_dir(&plan);
-        }
+        let _writer_turn = self.mutation_writer.enter();
+        self.database
+            .delete_plan(id, unix_time_millis())
+            .map_err(|error| std::io::Error::other(error.to_string()))?;
+        self.forget_plan(id);
         Ok(())
     }
 
@@ -259,9 +257,6 @@ impl PlanStore {
             .remove(id)
             .map(|plan| plan.lock().clone());
         let entry_path = self.index.write().remove(id).map(|e| e.file_path);
-        if let Some(plan) = plan.as_ref() {
-            let _ = search_index::delete_plan_units(plan);
-        }
         self.forget_owned_spec(id);
         (plan, entry_path)
     }
@@ -279,4 +274,11 @@ impl PlanStore {
             self.spec_index.write().remove(&spec_id);
         }
     }
+}
+
+fn unix_time_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }

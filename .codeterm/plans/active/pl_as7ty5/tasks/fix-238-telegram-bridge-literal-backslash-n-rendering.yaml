@@ -1,0 +1,61 @@
+id: task_vugl4l
+name: 'Fix #238: Telegram bridge literal backslash-n rendering'
+type: bug
+model: claude/haiku
+model_rationale: 'GitHub #238: codeterm bridge send delivers literal \n sequences to Telegram when the message is a normal quoted CLI argument - agents hit this constantly composing replies, producing unreadable bubbles while the send reports ok.'
+personality: Kernighan
+personality_provenance: null
+acceptance_criteria:
+- The issue repro (quoted arg with \n) delivers real line breaks - payload-shape test proves the transformation at the bridge boundary
+- Docs/help show the supported message shapes; behavior for intentional literal backslash-n is documented
+test_plan: 'Locate the bridge send path via rg ''bridge send'' cli/src src-tauri/src, then cd src-tauri && TEST_CAP_SECS=90 ../scripts/test-capped.sh -- bridge ; newline-decode test green 0 failed; live verification: codeterm bridge send to a test chat with a multi-line quoted message, screenshot/transcript of rendered line breaks in the report'
+correctness: What an agent writes as a line break arrives as a line break; no send path reports ok while delivering visibly mangled text
+status: pending
+review_stage: review
+qa_state: null
+review_round: 0
+review_oracle: null
+review_evidence: []
+review_override: null
+review_audit: []
+status_label: null
+priority: p2
+created_at: 1784360727430
+updated_at: 1784360727430
+status_changed_at: 1784360727430
+handle: fix-238-telegram-bridge-literal-backslash-n-rendering
+tags: []
+section_ids:
+- sec_26vyj0
+body: |-
+  [RECOVERED from pl_ghk358 as task_rxvck2; export sha256 78a67aaf79b0…]
+
+  Per issue #238: decode escaped newline sequences (\n, and decide on \t) in bridge send message text before delivery to messenger services - the user/agent expectation is that \n in a CLI message argument becomes a line break. Guard against double-processing genuinely intended literal backslash-n (rare; decision: decode by default, document; if a raw mode is warranted add --raw). Add a test asserting the delivered payload contains real newlines for the issue's exact repro shape. Update bridge docs/examples. Phase 3 protocol applies.
+role_guidance: 'You are Kernighan: text processing correctness is judged at the receiving display, not at the API response. Red line: closing without a real Telegram delivery transcript showing rendered line breaks.'
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []

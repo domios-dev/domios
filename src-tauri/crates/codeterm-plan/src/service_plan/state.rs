@@ -80,8 +80,21 @@ pub struct OpenLane {
     pub live_competition_attempts: usize,
     pub review_stage: ReviewStage,
     pub qa_state: Option<QaState>,
+    pub presentation: TaskPresentation,
     pub waiting_on_dependencies: bool,
     pub dependency_waits: Vec<DependencyWait>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskPresentation {
+    ActionablePending,
+    WaitingOnDependencies,
+    InProgress,
+    InReview,
+    Blocked,
+    Paused,
+    Terminal,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -90,6 +103,21 @@ pub struct DependencyWait {
     pub name: String,
     pub status: Option<TaskStatus>,
     pub missing: bool,
+}
+
+pub(crate) fn task_presentation(
+    status: &TaskStatus,
+    dependency_waits: &[DependencyWait],
+) -> TaskPresentation {
+    match status {
+        TaskStatus::Pending if dependency_waits.is_empty() => TaskPresentation::ActionablePending,
+        TaskStatus::Pending => TaskPresentation::WaitingOnDependencies,
+        TaskStatus::InProgress => TaskPresentation::InProgress,
+        TaskStatus::InReview => TaskPresentation::InReview,
+        TaskStatus::Blocked => TaskPresentation::Blocked,
+        TaskStatus::Paused => TaskPresentation::Paused,
+        TaskStatus::Done | TaskStatus::Cancelled => TaskPresentation::Terminal,
+    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -284,7 +312,7 @@ fn planning_readiness(plan: &Plan) -> PlanningReadiness {
     }
 }
 
-fn dependency_waits(plan: &Plan, task: &crate::plan::Task) -> Vec<DependencyWait> {
+pub(crate) fn dependency_waits(plan: &Plan, task: &crate::plan::Task) -> Vec<DependencyWait> {
     task.depends_on
         .iter()
         .filter_map(|dependency_id| {
@@ -402,6 +430,7 @@ pub fn build_plan_state_snapshot(
                 live_competition_attempts: super::competition::live_competition_attempt_count(t),
                 review_stage: t.review_stage.clone(),
                 qa_state: t.qa_state.clone(),
+                presentation: task_presentation(&t.status, &dependency_waits),
                 waiting_on_dependencies: !dependency_waits.is_empty(),
                 dependency_waits,
             }
@@ -423,6 +452,7 @@ pub fn build_plan_state_snapshot(
                 live_competition_attempts: super::competition::live_competition_attempt_count(t),
                 review_stage: t.review_stage.clone(),
                 qa_state: t.qa_state.clone(),
+                presentation: task_presentation(&t.status, &dependency_waits),
                 waiting_on_dependencies: !dependency_waits.is_empty(),
                 dependency_waits,
             }
@@ -804,6 +834,10 @@ mod tests {
             .find(|lane| lane.task_id == "t_child")
             .expect("child lane");
         assert_eq!(child_lane.status, TaskStatus::Pending);
+        assert_eq!(
+            child_lane.presentation,
+            TaskPresentation::WaitingOnDependencies
+        );
         assert!(child_lane.waiting_on_dependencies);
         assert_eq!(child_lane.dependency_waits.len(), 1);
         assert_eq!(child_lane.dependency_waits[0].task_id, "t_dependency");
@@ -838,6 +872,7 @@ mod tests {
             .find(|lane| lane.task_id == "t_child")
             .expect("child lane");
         assert!(!child_lane.waiting_on_dependencies);
+        assert_eq!(child_lane.presentation, TaskPresentation::ActionablePending);
         assert!(child_lane.dependency_waits.is_empty());
     }
 

@@ -34,6 +34,10 @@ pub struct InjectionResult {
     pub bytes_written: usize,
     pub echo_observed: bool,
     pub submit_observed: bool,
+    /// The submit succeeded only via the bounded recovery path (the paste render
+    /// event was never observed and one forced Enter was issued). Success still
+    /// required the provider turn transition; this flags the transport anomaly.
+    pub submit_anomaly: bool,
     pub elapsed: Duration,
 }
 
@@ -125,6 +129,61 @@ fn normalize_ws(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+fn normalize_ws_with_line_boundaries(s: &str) -> (String, Vec<usize>) {
+    let mut normalized = String::new();
+    let mut boundaries = Vec::new();
+    let mut previous_line = None;
+
+    for (line_index, line) in s.lines().enumerate() {
+        for word in line.split_whitespace() {
+            if !normalized.is_empty() {
+                if previous_line != Some(line_index) {
+                    boundaries.push(normalized.chars().count());
+                }
+                normalized.push(' ');
+            }
+            normalized.push_str(word);
+            previous_line = Some(line_index);
+        }
+    }
+
+    (normalized, boundaries)
+}
+
+fn soft_wrap_elision_matches(screen_tail: &str, expected: &str) -> bool {
+    let (tail, boundaries) = normalize_ws_with_line_boundaries(screen_tail);
+    let tail: Vec<char> = tail.chars().collect();
+    let expected: Vec<char> = normalize_ws(expected).chars().collect();
+
+    for boundary in boundaries {
+        for omitted in 0..expected.len().saturating_sub(1) {
+            if expected[omitted].is_whitespace() || !expected[omitted + 1].is_whitespace() {
+                continue;
+            }
+            let Some(start) = boundary.checked_sub(omitted) else {
+                continue;
+            };
+            if start + expected.len().saturating_sub(1) > tail.len() {
+                continue;
+            }
+
+            let matches = expected
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| *index != omitted)
+                .enumerate()
+                .all(|(tail_offset, (_, expected_char))| {
+                    tail[start + tail_offset] == *expected_char
+                });
+            if matches {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 fn last_nonempty_line(s: &str) -> &str {
     s.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("")
 }
@@ -175,6 +234,9 @@ pub fn screen_contains_echo(screen_tail: &str, expected: &str) -> bool {
     if n_flat.contains(&n_expected) {
         return true;
     }
+    if soft_wrap_elision_matches(screen_tail, expected) {
+        return true;
+    }
     // paste still is — match the last N chars instead. Gated on input size so a ~90-char command with a corrupted prefix is still caught by the strict substring check above.
     if expected.len() >= ECHO_SUFFIX_MATCH_MIN_INPUT_BYTES {
         let suffix = last_n_chars(&n_expected, ECHO_SUFFIX_MATCH_CHARS);
@@ -188,34 +250,6 @@ pub fn screen_contains_echo(screen_tail: &str, expected: &str) -> bool {
         return true;
     }
     false
-}
-
-pub fn wait_for_echo(
-    screen_state: &ScreenStateHandle,
-    pty_id: &str,
-    expected: &str,
-    timeout: Duration,
-    tail_rows: usize,
-) -> Result<String, HelperErr> {
-    let signal = screen_state.lock().arm_screen_change_signal(pty_id);
-    let deadline = std::time::Instant::now() + timeout;
-    let mut generation = signal.generation();
-    loop {
-        let tail = match screen_state.lock().tail_text(pty_id, tail_rows) {
-            Some(t) => t,
-            None => return Err(HelperErr::PtyUnknown(pty_id.to_string())),
-        };
-        if screen_contains_echo(&tail, expected) {
-            return Ok(tail);
-        }
-        let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
-            return Err(HelperErr::Timeout(tail));
-        };
-        if !signal.wait_after(generation, remaining) {
-            return Err(HelperErr::Timeout(tail));
-        }
-        generation = signal.generation();
-    }
 }
 
 pub fn snapshot_prompt_line(
@@ -271,35 +305,6 @@ pub fn wait_for_submit_shell(
     }
 }
 
-pub fn wait_for_submit_tui_drained(
-    screen_state: &ScreenStateHandle,
-    pty_id: &str,
-    submitted_text: &str,
-    timeout: Duration,
-    _idle_after_drain: Duration,
-    tail_rows: usize,
-) -> Result<String, HelperErr> {
-    let signal = screen_state.lock().arm_screen_change_signal(pty_id);
-    let deadline = std::time::Instant::now() + timeout;
-    let mut generation = signal.generation();
-    loop {
-        let t = match screen_state.lock().tail_text(pty_id, tail_rows) {
-            Some(t) => t,
-            None => return Err(HelperErr::PtyUnknown(pty_id.to_string())),
-        };
-        if submitted_text.is_empty() || !screen_contains_echo(&t, submitted_text) {
-            return Ok(t);
-        }
-        let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
-            return Err(HelperErr::Timeout(t));
-        };
-        if !signal.wait_after(generation, remaining) {
-            return Err(HelperErr::Timeout(t));
-        }
-        generation = signal.generation();
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -326,6 +331,7 @@ mod tests {
             bytes_written: 10,
             echo_observed: true,
             submit_observed: false,
+            submit_anomaly: false,
             elapsed: Duration::ZERO,
         };
         assert!(matches!(
@@ -355,6 +361,30 @@ mod tests {
         let screen = "user@host codeterm % nset CLAUDECODE && claude --dangerously-skip-permissions \"$(cat /tmp/.ct-task-01219c41)\")\"";
         let expected = r#"unset CLAUDECODE && claude --dangerously-skip-permissions "$(cat /tmp/.ct-task-01219c41)""#;
         assert!(!screen_contains_echo(screen, expected));
+    }
+
+    #[test]
+    fn wrap_boundary_elision_fixture_matches_only_the_lost_wrap_character() {
+        // Literal sub-defect 3 fixture from sec_gnk2xm: the composer rendered
+        // `liv` at a soft wrap where the sent report contained `live`.
+        let expected = "status+body; live payloads confirm";
+        let captured_tail = "status+body; liv\npayloads confirm";
+        assert!(screen_contains_echo(captured_tail, expected));
+    }
+
+    #[test]
+    fn tail_text_preserves_the_wrap_column_character() {
+        let h = handle();
+        {
+            let mut state = h.lock();
+            state.resize("p1", 16, 50);
+            state.process("p1", b"status+body; live payloads confirm");
+        }
+        let tail = h.lock().tail_text("p1", TEST_TAIL_ROWS).unwrap();
+        assert!(
+            tail.replace('\n', "").contains("status+body; live"),
+            "tail_text must retain the final character before the wrap: {tail:?}"
+        );
     }
 
     #[test]
@@ -470,65 +500,6 @@ mod tests {
     const TEST_TAIL_ROWS: usize = 60;
 
     #[test]
-    fn wait_for_echo_returns_immediately_when_text_already_present() {
-        let h = handle();
-        feed(&h, "p1", b"user@host:~$ ls -la\n");
-        let start = std::time::Instant::now();
-        let res = wait_for_echo(&h, "p1", "ls -la", Duration::from_secs(1), TEST_TAIL_ROWS);
-        assert!(res.is_ok());
-        assert!(start.elapsed() < Duration::from_millis(100));
-    }
-
-    #[test]
-    fn wait_for_echo_times_out_when_text_never_arrives() {
-        let h = handle();
-        feed(&h, "p1", b"user@host:~$ \n");
-        let start = std::time::Instant::now();
-        let res = wait_for_echo(
-            &h,
-            "p1",
-            "missing-token",
-            Duration::from_millis(150),
-            TEST_TAIL_ROWS,
-        );
-        assert!(matches!(res, Err(HelperErr::Timeout(_))), "got {:?}", res);
-        let elapsed = start.elapsed();
-        assert!(
-            elapsed >= Duration::from_millis(140),
-            "elapsed {:?}",
-            elapsed
-        );
-        assert!(
-            elapsed < Duration::from_millis(250),
-            "elapsed {:?} too long — deadline check might be broken",
-            elapsed
-        );
-    }
-
-    #[test]
-    fn wait_for_echo_returns_pty_unknown_when_pty_not_bound() {
-        let h = handle();
-        let start = std::time::Instant::now();
-        let res = wait_for_echo(
-            &h,
-            "nonexistent-pty",
-            "any",
-            Duration::from_secs(5),
-            TEST_TAIL_ROWS,
-        );
-        match res {
-            Err(HelperErr::PtyUnknown(id)) => assert_eq!(id, "nonexistent-pty"),
-            other => panic!("expected PtyUnknown, got {:?}", other),
-        }
-        // Must short-circuit, not wait for the 5s timeout.
-        assert!(
-            start.elapsed() < Duration::from_millis(50),
-            "expected immediate return, took {:?}",
-            start.elapsed()
-        );
-    }
-
-    #[test]
     fn wait_for_submit_shell_succeeds_when_new_prompt_appears() {
         let h = handle();
         feed(&h, "p1", b"user@host:~$ ls -la");
@@ -568,99 +539,6 @@ mod tests {
             elapsed < Duration::from_millis(220),
             "elapsed {:?} too long — deadline check might be broken",
             elapsed
-        );
-    }
-
-    #[test]
-    fn wait_for_submit_tui_drained_succeeds_when_needle_disappears() {
-        let h = handle();
-        feed(&h, "p1", b"prompt> hello world");
-        feed(&h, "p1", b"\x1b[2J\x1b[Hresult line\nprompt> ");
-        let res = wait_for_submit_tui_drained(
-            &h,
-            "p1",
-            "hello world",
-            Duration::from_secs(2),
-            Duration::from_millis(100),
-            TEST_TAIL_ROWS,
-        );
-        assert!(res.is_ok(), "expected drained needle to settle");
-    }
-
-    #[test]
-    fn wait_for_submit_tui_drained_times_out_when_needle_persists() {
-        let h = handle();
-        feed(&h, "p1", b"prompt> hello world");
-        let start = std::time::Instant::now();
-        let res = wait_for_submit_tui_drained(
-            &h,
-            "p1",
-            "hello world",
-            Duration::from_millis(200),
-            Duration::from_millis(50),
-            TEST_TAIL_ROWS,
-        );
-        assert!(matches!(res, Err(HelperErr::Timeout(_))), "got {:?}", res);
-        let elapsed = start.elapsed();
-        assert!(
-            elapsed >= Duration::from_millis(190),
-            "elapsed {:?}",
-            elapsed
-        );
-        assert!(
-            elapsed < Duration::from_millis(300),
-            "elapsed {:?} too long — deadline check might be broken",
-            elapsed
-        );
-    }
-
-    #[test]
-    fn wait_for_submit_tui_drained_long_paste_not_falsely_drained() {
-        let h = handle();
-        let long = "A".repeat(2000);
-        // the visible window (exactly the multi-KB codex/claude case).
-        let visible_tail = format!("prompt> {}", &long[long.len() - 200..]);
-        feed(&h, "p1", visible_tail.as_bytes());
-        let start = std::time::Instant::now();
-        let res = wait_for_submit_tui_drained(
-            &h,
-            "p1",
-            &long,
-            Duration::from_millis(200),
-            Duration::from_millis(50),
-            TEST_TAIL_ROWS,
-        );
-        assert!(
-            matches!(res, Err(HelperErr::Timeout(_))),
-            "long paste still on screen must NOT be reported as drained; got {:?}",
-            res
-        );
-        assert!(
-            start.elapsed() >= Duration::from_millis(190),
-            "must have reached the deadline, elapsed {:?}",
-            start.elapsed()
-        );
-    }
-
-    #[test]
-    fn wait_for_submit_tui_drained_long_paste_drains_when_cleared() {
-        let h = handle();
-        let long = "B".repeat(2000);
-        let visible_tail = format!("prompt> {}", &long[long.len() - 200..]);
-        feed(&h, "p1", visible_tail.as_bytes());
-        feed(&h, "p1", b"\x1b[2J\x1b[Hassistant reply\nprompt> ");
-        let res = wait_for_submit_tui_drained(
-            &h,
-            "p1",
-            &long,
-            Duration::from_secs(2),
-            Duration::from_millis(80),
-            TEST_TAIL_ROWS,
-        );
-        assert!(
-            res.is_ok(),
-            "long paste cleared from composer must be reported as drained; got {:?}",
-            res
         );
     }
 }

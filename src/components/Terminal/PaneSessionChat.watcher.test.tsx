@@ -182,7 +182,7 @@ test("normal chat_backend pane keeps composer and hides read-only bar", async ()
   const messages = host.querySelector('[data-testid="pane-session-chat-messages"]');
   const composer = host.querySelector('[data-testid="chat-composer"]');
   assert(chat?.getAttribute("role") === "region", "chat is an accessible region");
-  assert(chat?.getAttribute("aria-label") === "Pane chat", "chat region is named");
+  assert(chat?.getAttribute("aria-label") === "Pane chat: chat-pane", "chat region is named");
   assert(messages?.getAttribute("role") === "log", "conversation is an accessible log");
   assert(messages?.getAttribute("aria-label") === "Conversation", "conversation log is named");
   assert(composer?.getAttribute("aria-label") === "Message composer", "composer is named");
@@ -204,6 +204,85 @@ test("bound-session pending snapshot renders recovery instead of false empty", a
   assert(host.querySelector('[data-testid="chat-recovering-state"]'), "recovery state mounted");
   assert(!host.querySelector('[data-testid="chat-empty-state"]'), "false empty state absent");
   assert(host.querySelector('[data-testid="chat-composer"]'), "chat remains interactive");
+  await act(async () => root.unmount());
+});
+
+test("fresh unbound chat keeps its usable surface while the transcript store is pending", async () => {
+  const paneId = "fresh-unbound-chat";
+  const state = muxStateFor({
+    [paneId]: paneBase(paneId, {
+      backing: { kind: "pty" },
+      agent_type: "codex",
+      boot_stage: "spawn_failed",
+      boot_failure_reason: "late stale failure",
+      protected: true,
+    }),
+  });
+  const { host, root } = await renderPaneSessionChat(
+    paneId,
+    state,
+    () => ({ text: "", offset: 0, pending: true }),
+  );
+  const chat = host.querySelector('[role="region"][aria-label="Pane chat: fresh-unbound-chat"]');
+  const composer = host.querySelector('[aria-label="Message composer"]');
+  assert(chat?.getAttribute("aria-busy") === "false", "usable fresh chat is not announced as loading");
+  assert(composer, "usable fresh chat keeps its named composer");
+  assert(!host.querySelector('[role="alert"][aria-label="Launch failed"]'), "late failure cannot cover a usable fresh chat");
+  await act(async () => root.unmount());
+});
+
+test("an attached chat never regresses to a stale launch failure", async () => {
+  const paneId = "attached-stale-failure";
+  const state = muxStateFor({
+    [paneId]: paneBase(paneId, {
+      agent_session_id: "bound-session",
+      boot_stage: "spawn_failed",
+      boot_failure_reason: "stale result",
+      protected: true,
+    }),
+  });
+  const { host, root } = await renderPaneSessionChat(paneId, state);
+  assert(host.querySelector('[data-testid="chat-composer"]'), "attached chat remains usable");
+  assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "stale failure cannot cover attached chat");
+  await act(async () => root.unmount());
+});
+
+test("an attached current session ignores a late PTY reattach stage", async () => {
+  const paneId = "attached-reattached";
+  const state = muxStateFor({
+    [paneId]: paneBase(paneId, {
+      agent_session_id: "current-session",
+      boot_stage: "pty_reattached",
+      protected: true,
+    }),
+  });
+  const { host, root } = await renderPaneSessionChat(paneId, state);
+  assert(host.querySelector('[data-testid="chat-composer"]'), "current attached chat remains usable");
+  assert(!host.querySelector('[data-testid="chat-setup-state"]'), "late PTY reattach cannot cover current chat");
+  assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "reattach clears any failure presentation");
+  await act(async () => root.unmount());
+});
+
+test("launch retry uses the generic pane restart command", async () => {
+  const paneId = "generic-retry-pane";
+  const state = muxStateFor({
+    [paneId]: paneBase(paneId, {
+      agent_session_id: "bound-session",
+      boot_stage: "spawn_failed",
+      boot_failure_reason: "launch failed",
+      protected: true,
+    }),
+  });
+  const { host, root, commands } = await renderPaneSessionChat(
+    paneId,
+    state,
+    () => ({ text: "", offset: 0, pending: true }),
+  );
+  const retry = host.querySelector('[data-testid="chat-launch-retry"]') as HTMLButtonElement | null;
+  assert(retry, "unattached failed launch exposes retry");
+  await act(async () => retry.click());
+  assert(commands.includes("restart_agent_pane"), "retry targets the current pane through the generic restart seam");
+  assert(!commands.includes("restart_general_agent_pane"), "retry never assumes this pane is the General Agent");
   await act(async () => root.unmount());
 });
 

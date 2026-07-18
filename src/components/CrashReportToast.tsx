@@ -23,7 +23,7 @@ interface RecoveryState {
       crash_count_in_window: number;
     };
     work_policy: {
-      ambiguous_execution: { restored_bindings: number; disposition: string } | null;
+      ambiguous_execution: { missing_bindings: number; disposition: string } | null;
       duplicate_worker_guard: string;
       report_route_guard: string;
     };
@@ -120,8 +120,8 @@ export function RecoveryStatusBanner() {
             </div>
             {crash.work_policy.ambiguous_execution && (
               <div className="mt-1 text-[11px] leading-relaxed text-[var(--ct-muted-fg)]">
-                Ambiguous work: {crash.work_policy.ambiguous_execution.restored_bindings} restored binding
-                {crash.work_policy.ambiguous_execution.restored_bindings === 1 ? "" : "s"} ·{" "}
+                Ambiguous work: {crash.work_policy.ambiguous_execution.missing_bindings} binding
+                {crash.work_policy.ambiguous_execution.missing_bindings === 1 ? "" : "s"} not restored ·{" "}
                 {crash.work_policy.ambiguous_execution.disposition}
               </div>
             )}

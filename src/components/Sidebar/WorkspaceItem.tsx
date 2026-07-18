@@ -23,6 +23,8 @@ interface WorkspaceItemProps {
   onNewAgent: (agentId: string) => void;
   canClose: boolean;
   status: PaneStatus | null;
+  showDisclosure?: boolean;
+  detailHeader?: boolean;
   touchMode?: boolean;
   uiFontScale?: number;
 }
@@ -39,6 +41,8 @@ function WorkspaceItemInner({
   onNewAgent,
   canClose: _canClose,
   status: _status,
+  showDisclosure = true,
+  detailHeader = false,
   touchMode = false,
   uiFontScale,
 }: WorkspaceItemProps) {
@@ -113,34 +117,38 @@ function WorkspaceItemInner({
       data-testid="workspace-item"
       data-workspace-id={workspace.id}
       data-workspace-name={workspace.name}
+      data-variant={detailHeader ? "detail-header" : "tree-row"}
       className={`
-        sidebar-workspace-row group relative flex items-center justify-between cursor-pointer transition-colors
+        ${detailHeader ? "sidebar-workspace-detail-header" : "sidebar-workspace-row"} group relative flex items-center justify-between cursor-pointer transition-colors
         ${touchMode ? "min-h-11 px-2 py-2" : "px-1 py-2"}
-        ${isActive ? "bg-[var(--ct-active)] text-[var(--ct-fg)]" : "text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"}
+        ${detailHeader ? "text-[var(--ct-fg)]" : isActive ? "bg-[var(--ct-active)] text-[var(--ct-fg)]" : "text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"}
       `}
     >
       <div className={`flex items-center min-w-0 ${touchMode ? "gap-2" : "gap-1"}`}>
-        <SidebarDisclosure
-          expanded={isExpanded}
-          touchMode={touchMode}
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleExpand();
-          }}
-          className="shrink-0"
-          title={isExpanded ? "Collapse" : "Expand"}
-        />
-        {/* Icon + name (click to activate, double-click to rename); rename
-            swaps the button for an input, so the two never nest. */}
+        {showDisclosure && (
+          <SidebarDisclosure
+            expanded={isExpanded}
+            touchMode={touchMode}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleExpand();
+            }}
+            className="shrink-0"
+            title={isExpanded ? "Collapse" : "Expand"}
+          />
+        )}
+        {/* Icon + name. Editing swaps to a labelled input; a tree row is a real
+            activator button; a detail header is a heading, not a button. Never
+            nest an input or a button inside another interactive element. */}
         {editing ? (
           <div className={`flex items-center min-w-0 ${touchMode ? "gap-2.5" : "gap-2"}`}>
-            {workspace.protected ? (
+            {!detailHeader && (workspace.protected ? (
               <span className="relative shrink-0 flex items-center justify-center w-[14px] h-[14px]">
                 <ShieldCheckIcon style={{ stroke: "var(--ct-muted-fg)" }} className="shrink-0" />
               </span>
             ) : (
-            <FolderIcon open={isExpanded} className="shrink-0" />
-            )}
+              <FolderIcon open={isExpanded} className="shrink-0" />
+            ))}
             <input
               autoFocus
               aria-label={`Rename workspace ${workspace.name}`}
@@ -151,6 +159,21 @@ function WorkspaceItemInner({
               onClick={(e) => e.stopPropagation()}
               className={`${touchMode ? `${workspaceTouchText} py-1` : `${workspaceText} py-0`} bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 w-full outline-none`}
             />
+          </div>
+        ) : detailHeader ? (
+          <div
+            className={`flex items-center min-w-0 ${touchMode ? "gap-2.5" : "gap-2"}`}
+            onClick={onClick}
+          >
+            <span
+              className={`${touchMode ? workspaceTouchText : workspaceText} font-medium truncate`}
+              onDoubleClick={handleDoubleClick}
+              title={workspace.cwd || undefined}
+              role="heading"
+              aria-level={3}
+            >
+              {workspace.name}
+            </span>
           </div>
         ) : (
           <button
@@ -164,7 +187,7 @@ function WorkspaceItemInner({
                 <ShieldCheckIcon style={{ stroke: "var(--ct-muted-fg)" }} className="shrink-0" />
               </span>
             ) : (
-            <FolderIcon open={isExpanded} className="shrink-0" />
+              <FolderIcon open={isExpanded} className="shrink-0" />
             )}
             <span className={`${touchMode ? workspaceTouchText : workspaceText} font-medium truncate`} onDoubleClick={handleDoubleClick} title={workspace.cwd || undefined}>
               {workspace.name}
@@ -185,6 +208,7 @@ function WorkspaceItemInner({
         }
         trigger={
           <button
+            aria-label={`Actions for ${workspace.name}`}
             className={`${touchMode ? "h-11 w-11" : "w-5 h-5"} flex items-center justify-center rounded hover:bg-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors`}
             title="Workspace actions"
           >
@@ -202,6 +226,8 @@ function workspacePropsEqual(prev: WorkspaceItemProps, next: WorkspaceItemProps)
     prev.isExpanded === next.isExpanded &&
     prev.status === next.status &&
     prev.canClose === next.canClose &&
+    prev.showDisclosure === next.showDisclosure &&
+    prev.detailHeader === next.detailHeader &&
     prev.touchMode === next.touchMode &&
     prev.uiFontScale === next.uiFontScale &&
     prev.workspace.id === next.workspace.id &&

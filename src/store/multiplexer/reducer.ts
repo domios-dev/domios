@@ -11,6 +11,7 @@ import type {
 import {
   highestTitleLevel,
   injectVirtualTabs,
+  reconcileBackendWorkspaceTabs,
   type ExtendedState,
   type VirtualPickerTab,
 } from "./tree";
@@ -104,8 +105,8 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         return state;
       }
       // Backend is authoritative; one pane per tab means no split ratio.
-      const mergedWorkspaces = action.state.workspaces;
       const mergedPanes = { ...action.state.panes };
+      const mergedWorkspaces = reconcileBackendWorkspaceTabs(action.state.workspaces, mergedPanes);
       for (const [id, backendPane] of Object.entries(mergedPanes)) {
         const existing = state.panes[id];
         const agentType = existing?.agent_type || backendPane.agent_type;

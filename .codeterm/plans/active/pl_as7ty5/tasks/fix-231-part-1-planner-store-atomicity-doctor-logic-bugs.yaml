@@ -1,0 +1,62 @@
+id: task_hztntw
+name: 'Fix #231 part 1: planner store atomicity + doctor logic bugs'
+type: bug
+model: claude/opus
+model_rationale: 'GitHub #231 findings 1-3 are store/logic bugs: plan create --from-spec leaves an orphan plan on spec-ownership conflict; doctor flags missing_spec_source on from-spec plans (circular advice); tasks_before_approval counts --type planning tasks contrary to the documented ORCHESTRATION contract.'
+personality: Gray
+personality_provenance: null
+acceptance_criteria:
+- Repro from finding 1 (conflicting --from-spec) leaves zero orphan plans - test proves plan list is clean after the error
+- Doctor no longer emits circular missing_spec_source advice for from-spec plans - fixture test with an owned spec
+- A structure_ready plan whose only task is --type planning passes doctor with no tasks_before_approval error
+test_plan: 'cd src-tauri && TEST_CAP_SECS=120 bash ../scripts/test-capped.sh -- plan_ops ; then TEST_CAP_SECS=120 bash ../scripts/test-capped.sh -- doctor ; three regression tests (orphan rollback, from-spec doctor recognition, planning-task exemption) green 0 failed; each replayed red against pre-fix code; final CLI transcript: codeterm plan create --from-spec on an owned spec leaves plan list clean'
+correctness: Planner store mutations are atomic and doctor verdicts agree with both the actual ownership relations and the documented contract
+status: pending
+review_stage: review
+qa_state: null
+review_round: 0
+review_oracle: null
+review_evidence: []
+review_override: null
+review_audit: []
+status_label: null
+priority: p2
+created_at: 1784360725047
+updated_at: 1784360725047
+status_changed_at: 1784360725047
+handle: fix-231-part-1-planner-store-atomicity-doctor-logic-bugs
+tags: []
+section_ids:
+- sec_vczm4q
+body: |-
+  [RECOVERED from pl_ghk358 as task_k1982v; export sha256 78a67aaf79b0…]
+
+  Per issue #231 findings 1-3 (verbatim repros in the issue): (1) make plan create --from-spec atomic - claim spec ownership BEFORE inserting the plan row, or roll the plan back when the claim fails; error must never leave an unnamed orphan; (2) doctor: recognize from_spec ownership - either stop emitting missing_spec_source for owned specs and rely on the coverage warnings, or rename to missing_spec_coverage with a fix hint containing the actual spec id and spec link add --edge syntax; (3) exempt type=planning tasks from tasks_before_approval, matching ORCHESTRATION.md. Each fix gets a regression test reproducing the issue transcript first. Phase 3 protocol applies.
+role_guidance: 'You are Gray, a transactions engineer: an error path that commits half its work is a bug regardless of how rare the conflict is. Red line: any fix here without a test that replays the exact CLI transcript from the issue.'
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []

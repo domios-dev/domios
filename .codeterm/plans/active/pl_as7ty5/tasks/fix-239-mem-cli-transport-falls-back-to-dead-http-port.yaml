@@ -1,0 +1,65 @@
+id: task_0du1df
+name: 'Fix #239: mem CLI transport falls back to dead HTTP port'
+type: bug
+model: claude/sonnet
+model_rationale: 'GitHub #239: codeterm mem commands fail on rollacode-bot because they target HTTP 127.0.0.1:7685 while no TCP listener exists and the daemon exposes no mem.* capabilities - yet pane/agent/bridge commands work over the socket. Memory is unusable for the General Agent there.'
+personality: Thompson
+personality_provenance: null
+acceptance_criteria:
+- mem commands succeed over socket transport when the daemon is alive without an HTTP listener - transport-selection test proves it
+- When the mem subsystem is genuinely unavailable, CLI reports a capability/config error naming the cause, never a bare connection error
+test_plan: 'Locate mem CLI transport code via rg mem cli/src/cmd, then run capped: cd cli && TEST_CAP_SECS=90 ../scripts/test-capped.sh -- mem ; transport-selection test green 0 failed; manual transcript captured: with HTTP listener absent and socket alive, codeterm mem stats succeeds or errors with an actionable capability message'
+correctness: mem CLI availability equals daemon availability - never a function of which transport happens to be configured
+status: pending
+review_stage: review
+qa_state: null
+review_round: 0
+review_oracle: null
+review_evidence: []
+review_override: null
+review_audit: []
+status_label: null
+priority: p2
+created_at: 1784360723157
+updated_at: 1784360723157
+status_changed_at: 1784360723157
+handle: fix-239-mem-cli-transport-falls-back-to-dead-http-port
+tags: []
+section_ids:
+- sec_2v3bf1
+body: |-
+  [RECOVERED from pl_ghk358 as task_s5ja8t; export sha256 78a67aaf79b0…]
+
+  Per issue #239: (1) route codeterm mem CLI calls through the same transport selection as the working commands (CODETERM_SOCKET_PATH socket first, HTTP fallback only when a listener is actually configured); (2) when mem is disabled/unavailable, return a clear capability error naming the cause instead of a connection error to a dead port; (3) investigate why the daemon exposed no mem.* capabilities in that state (feature gating, init failure, headless mode) and surface that state in codeterm capabilities output. Add a test covering CLI transport selection when HTTP is down but the socket is alive. Phase 3 protocol (sec_l7vkwa) applies.
+
+  BLOCK REASON: lane/fix-mem-cli-transport improved HTTP-down diagnostics (criterion 2 done) but socket exposes NO mem.* methods — mem is HTTP-only by design; criterion 1 needs a separate daemon-side mem-over-socket capability design. Decision pending: re-scope vs design task.
+role_guidance: |-
+  You are Thompson, a transport engineer: one resolution order for all commands, no special-case ports. Red line: fixing the mem port without unifying it with the transport selection the working commands already use.
+  BLOCK REASON (Orchestrator decision 2026-07-17): lane/fix-mem-cli-transport improved HTTP-down diagnostics (criterion 2 done) but socket exposes NO mem.* methods — mem is HTTP-only by design; criterion 1 needs a separate daemon-side mem-over-socket capability design. Decision pending: re-scope vs design task.
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []

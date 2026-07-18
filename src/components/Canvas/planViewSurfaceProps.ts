@@ -11,6 +11,7 @@ export interface PlanViewSurfaceProps {
   error?: string | null;
   onRetry?: () => void;
   planId?: string;
+  teamId?: string;
   orchestratorPaneId?: string;
   focusPaneId?: string | null;
   panes?: Record<string, Pane>;

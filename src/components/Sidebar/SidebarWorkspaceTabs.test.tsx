@@ -221,7 +221,7 @@ test("team_renders_flat_sections", async () => {
   await act(async () => root.unmount());
 });
 
-test("team-bound plans have one Team-owned sidebar home across adopt and detach updates", async () => {
+test("plans have only a Team-owned sidebar home", async () => {
   const panes = {
     orch: pane({ id: "orch", title: "Orchestrator", role: "Orchestrator", team_id: TEAM.id }),
   };
@@ -240,7 +240,7 @@ test("team-bound plans have one Team-owned sidebar home across adopt and detach 
 
   await rerender([detached], [planIndexEntry("plan-team", null)]);
   assert(!host.querySelector('[data-testid="team-effort"]'), "detach removes the plan from the Team card");
-  assert(host.querySelector('[data-testid="workspace-plan-title"]')?.textContent === detached.title, "detach restores one standalone row");
+  assert(!host.querySelector('[data-testid="workspace-plan-entry"]'), "orphan plan has no workspace home");
 
   await rerender([bound], [planIndexEntry()]);
   assert(host.querySelector('[data-testid="team-effort"]')?.textContent === bound.title, "adopt restores the Team-owned plan");

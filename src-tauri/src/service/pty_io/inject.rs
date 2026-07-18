@@ -130,8 +130,8 @@ impl ServiceContext {
                     wait_for_submit_shell(&self.screen_state, pty_id, hash_before, timeout, 8)
                         .map(|_| ())
                 }
-                VerifySubmitStrategy::TuiInputDrained { timeout, .. } => {
-                    if self.await_agent_tui_on_screen(pty_id, agent_id, timeout) {
+                VerifySubmitStrategy::TuiInputDrained => {
+                    if self.await_agent_tui_frame_on_screen(pty_id, agent_id, opts.submit_timeout) {
                         Ok(())
                     } else {
                         log::debug!(
@@ -168,6 +168,7 @@ impl ServiceContext {
             bytes_written,
             echo_observed: false,
             submit_observed,
+            submit_anomaly: false,
             elapsed: started.elapsed(),
         })
     }

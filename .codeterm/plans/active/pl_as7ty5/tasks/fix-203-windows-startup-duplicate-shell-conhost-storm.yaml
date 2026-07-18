@@ -1,0 +1,62 @@
+id: task_qkx77y
+name: 'Fix #203: Windows startup duplicate shell/conhost storm'
+type: bug
+model: claude/opus
+model_rationale: 'GitHub #203: Windows startup with many restored panes spawns a visible shell storm - ConPTY children created with STARTF_USESTDHANDLES + invalid std handles each materialize a legacy conhost, amplified by hidden restored panes eagerly mounting terminal IO. Root cause and fix direction are already scoped in the issue.'
+personality: Cutler
+personality_provenance: null
+acceptance_criteria:
+- Windows regression test proves ConPTY output works AND no child conhost.exe 0x4 is created per shell
+- Hidden restored panes without a live ptyId spawn no shell until first visible - test or instrumented repro transcript
+- 'Static spawn audit passes: all daemon subprocess spawns route through process_util::no_window_* or are explicitly justified'
+test_plan: 'cd src-tauri && TEST_CAP_SECS=120 bash ../scripts/test-capped.sh -- pty ; Windows conhost regression test green 0 failed; manual verification: restart dev via bash build.sh dev with 10+ restored panes, capture powershell.exe + conhost.exe child counts (Get-CimInstance Win32_Process) before/after fix in the report'
+correctness: Shell process count scales with visible panes only; every ConPTY child owns exactly its expected headless conhost and nothing more
+status: pending
+review_stage: review
+qa_state: null
+review_round: 0
+review_oracle: null
+review_evidence: []
+review_override: null
+review_audit: []
+status_label: null
+priority: p2
+created_at: 1784360723738
+updated_at: 1784360723738
+status_changed_at: 1784360723738
+handle: fix-203-windows-startup-duplicate-shell-conhost-storm
+tags: []
+section_ids:
+- sec_rblbtq
+body: |-
+  [RECOVERED from pl_ghk358 as task_ftdvue; export sha256 78a67aaf79b0…]
+
+  Per issue #203 fix direction: (1) in the pty-fork Windows ConPTY child creation, remove the invalid std-handle startup info (PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE makes legacy std handles unnecessary); do NOT add CREATE_NO_WINDOW to ConPTY children; (2) gate terminal IO ownership so hidden restored desktop panes do not spawn their first shell until visible, while hidden panes with an existing ptyId keep readers alive; (3) dynamic Windows regression test asserting ConPTY output still works and the PTY shell does not create a child conhost.exe 0x4; (4) static backend spawn audit: ordinary daemon subprocesses must call process_util::no_window_* unless explicitly visible or non-Windows. NOTE: src-tauri/pty-fork/ is in the file-size-check exclusion list but still needs cross-platform care - verify mac/Linux PTY spawn is untouched by running the pty test suite on this machine.
+role_guidance: 'You are Cutler, a Windows internals engineer. You verify process trees empirically, never by reading docs alone. Red line: claiming the storm is fixed without a before/after process-count transcript from a real multi-pane restart.'
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []

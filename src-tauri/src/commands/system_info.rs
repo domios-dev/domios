@@ -168,8 +168,7 @@ pub async fn get_shell_diagnostics() -> serde_json::Value {
     }
 }
 
-/// Open a new shell tab and type `winget install Microsoft.PowerShell` into it,
-/// without pressing Enter — the user reviews the command and hits Enter manually.
+/// Open a new shell tab and run `winget install Microsoft.PowerShell` in it.
 #[tauri::command]
 pub fn suggest_install_pwsh(
     svc: tauri::State<'_, crate::service::ServiceState>,
@@ -210,7 +209,7 @@ pub fn suggest_install_pwsh(
             }
             std::thread::sleep(std::time::Duration::from_millis(150));
         }
-        if let Err(e) = svc_arc.send_text(&pane_id_bg, cmd_text, false) {
+        if let Err(e) = svc_arc.send_text(&pane_id_bg, cmd_text, true) {
             log::warn!("[suggest_install_pwsh] send_text failed: {}", e);
         }
     });

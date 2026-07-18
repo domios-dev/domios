@@ -145,15 +145,7 @@ impl PsuedoCon {
 
     pub fn spawn_command(&self, cmd: CommandBuilder) -> anyhow::Result<WinChild> {
         let job = create_pane_job()?;
-        let mut si: STARTUPINFOEXW = unsafe { mem::zeroed() };
-        si.StartupInfo.cb = mem::size_of::<STARTUPINFOEXW>() as u32;
-        // ConPTY owns stdio; INVALID handles prevent inheriting daemon handles while
-        // STARTF_USESHOWWINDOW keeps the suspended child windowless.
-        si.StartupInfo.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-        si.StartupInfo.wShowWindow = SW_HIDE as u16;
-        si.StartupInfo.hStdInput = INVALID_HANDLE_VALUE;
-        si.StartupInfo.hStdOutput = INVALID_HANDLE_VALUE;
-        si.StartupInfo.hStdError = INVALID_HANDLE_VALUE;
+        let mut si = conpty_startup_info();
 
         let mut attrs = ProcThreadAttributeList::with_capacity(1)?;
         attrs.set_pty(self.con)?;
@@ -217,6 +209,30 @@ impl PsuedoCon {
         }
 
         Ok(WinChild::new(proc, job))
+    }
+}
+
+fn conpty_startup_info() -> STARTUPINFOEXW {
+    let mut si: STARTUPINFOEXW = unsafe { mem::zeroed() };
+    si.StartupInfo.cb = mem::size_of::<STARTUPINFOEXW>() as u32;
+    si.StartupInfo.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    si.StartupInfo.wShowWindow = SW_HIDE as u16;
+    si.StartupInfo.hStdInput = INVALID_HANDLE_VALUE;
+    si.StartupInfo.hStdOutput = INVALID_HANDLE_VALUE;
+    si.StartupInfo.hStdError = INVALID_HANDLE_VALUE;
+    si
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn conpty_child_does_not_inherit_daemon_stdio() {
+        let startup = conpty_startup_info();
+        assert_ne!(startup.StartupInfo.dwFlags & STARTF_USESTDHANDLES, 0);
+        assert_eq!(startup.StartupInfo.hStdInput, INVALID_HANDLE_VALUE);
+        assert_eq!(startup.StartupInfo.hStdOutput, INVALID_HANDLE_VALUE);
+        assert_eq!(startup.StartupInfo.hStdError, INVALID_HANDLE_VALUE);
     }
 }
 

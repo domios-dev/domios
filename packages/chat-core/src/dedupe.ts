@@ -226,3 +226,39 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
   }
   return { matchedIds, pendingIds };
 }
+
+/** Window (ms) within which two consecutive user messages with identical content
+ *  are the same logical send recorded twice (a re-read transcript tail, a double
+ *  delivery) rather than a deliberate resend. Generous enough to collapse an
+ *  impatient double-send, while a genuine repeat minutes later — in practice
+ *  always with an assistant turn between it — survives. */
+const USER_DUP_WINDOW_MS = 60_000;
+
+/** Drop consecutive user messages that repeat the immediately-preceding user
+ *  message's content within {@link USER_DUP_WINDOW_MS}. View-layer only: the
+ *  stored transcript keeps every record; this just stops the chat UI painting
+ *  the same bubble two or three times. Messages carrying attachments never
+ *  collapse (their content may match while the attachment differs). */
+export function collapseDuplicateUserMessages<T extends NormalizedChatMessage>(messages: T[]): T[] {
+  const out: T[] = [];
+  for (const message of messages) {
+    const prev = out[out.length - 1];
+    const content = message.type === "user" ? normalizeChatText(message.content).toLowerCase() : "";
+    if (
+      prev
+      && prev.type === "user"
+      && message.type === "user"
+      && content.length > 0
+      && !message.attachments?.length
+      && content === normalizeChatText(prev.content).toLowerCase()
+    ) {
+      const pt = timestampMs(prev.timestamp);
+      const mt = timestampMs(message.timestamp);
+      if (pt == null || mt == null || Math.abs(mt - pt) <= USER_DUP_WINDOW_MS) {
+        continue;
+      }
+    }
+    out.push(message);
+  }
+  return out;
+}

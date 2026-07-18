@@ -308,6 +308,7 @@ impl ServiceContext {
         let t0 = std::time::Instant::now();
         let built = crate::pty::manager::build_session(None, cwd.clone(), cols, 40, env_vars)?;
         let (pty_id, _) = self.pty.lock().register_session(None, built);
+        self.screen_state.lock().resize(&pty_id, cols, 40);
         log::info!(
             "[ensure-pty] pane {} activated backend pty {} (build={}ms)",
             pane_id,
@@ -423,6 +424,7 @@ impl ServiceContext {
             .lock()
             .resize(&pty_id, cols, rows)
             .map_err(|e| e.to_string())?;
+        self.screen_state.lock().resize(&pty_id, cols, rows);
         crate::pty::capture::CaptureRegistry::global().tap_resize(&pty_id, cols, rows);
         Ok(())
     }

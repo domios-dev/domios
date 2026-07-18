@@ -1,6 +1,6 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 33 -->
+<!-- revision: 34 -->
 
 Full reference for the `codeterm plan` CLI and orchestration discipline. The *why* (when to spawn, model routing, role contracts) lives here and in your role prompt — this doc is the authority; machine-specific deltas live in mem preferences (kind=preference, area=orchestration).
 
@@ -413,6 +413,10 @@ it, (4) send it to replanning, (5) escalate to a smarter model.
   **doctor error** (`paused_without_reason`).
 - **Resume:** `codeterm plan task resume <plan> <task>` — returns the task to
   dependency-waiting `pending`, clears `pause_reason`, and records a stride.
+- **Sequencing is not parking:** express ordering with `--depends-on`. A
+  `pending` task with unfinished dependencies is shown as **waiting on dependency**;
+  an actionable `pending` task is shown separately. Use `paused` only for an
+  explicit operator hold with a reason, never as a sequencing surrogate.
 - **Age thresholds (drift):** a `pending` task that stays **unstaffed over 4h**,
   or an `in_review` task that stays **unjudged over 2h**, is recorded as drift
   and named explicitly in the escalated nudge so stalled work cannot hide. Doctor

@@ -1,0 +1,61 @@
+id: task_8q32zz
+name: 'Fix #240 dedupe: idempotency keys for mesh delivery'
+type: bug
+model: claude/sonnet
+model_rationale: 'Fable@eight evidence (spec sec_sve813): every mesh send that returned 404 was actually delivered; a retried self-assignment landed 3x on the target Main pane. Sender-side retries on misreported failure produce duplicate delivery - at-most-once semantics are missing. (NOTE at revision: premise text needs refresh at dispatch — with honest reporting from 7fei9d the retry hazard shrinks but remains.)'
+personality: Gray
+personality_provenance: null
+acceptance_criteria:
+- Same delivery key sent N times lands exactly once in the target transcript - unit test + live drill prove it
+- Dedupe window is bounded (count/TTL) with eviction tests; structured errors carry a retry-safety hint
+test_plan: 'cd src-tauri && TEST_CAP_SECS=120 bash ../scripts/test-capped.sh -- mesh ; idempotency + eviction tests green 0 failed; live drill on two dev instances: scripted 5x retry of one key via codeterm send --mesh, then dc tab get-text --tab <target> shows exactly one occurrence; transcript in report'
+correctness: Mesh delivery is at-most-once per delivery key regardless of sender retry behavior; the dedupe state is bounded by construction
+status: pending
+review_stage: review
+qa_state: null
+review_round: 0
+review_oracle: null
+review_evidence: []
+review_override: null
+review_audit: []
+status_label: null
+priority: p2
+created_at: 1784360731026
+updated_at: 1784360731026
+status_changed_at: 1784360731026
+handle: fix-240-dedupe-idempotency-keys-for-mesh-delivery
+tags: []
+section_ids:
+- sec_78sgdr
+body: |-
+  [RECOVERED from pl_ghk358 as task_8l64i4; export sha256 78a67aaf79b0…; original depends_on: task_7fei9d]
+
+  On top of the corrected error semantics from task_7fei9d: (1) sender attaches a delivery key (UUID per logical message, stable across retries) to every mesh send envelope; (2) target keeps a bounded recent-keys window per source and drops duplicates idempotently, acking the original outcome; (3) retry guidance in the structured error tells the sender whether retrying is safe (in-doubt vs definitively-not-delivered); (4) bound the dedupe window (count/TTL) so it cannot become another unbounded-growth bug (cf. #237). Unit tests: same key twice delivers once and acks both; distinct keys deliver twice; window eviction does not resurrect duplicates within TTL. Drill: force a retry storm against a slow target, assert exactly one transcript occurrence.
+role_guidance: 'You are Gray, a transactions engineer: exactly-once is a lie, at-most-once plus honest acks is the contract. Red line: a dedupe window without eviction bounds and tests - you do not fix a duplicate-delivery bug by planting an unbounded-growth bug.'
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []

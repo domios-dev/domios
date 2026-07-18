@@ -74,7 +74,6 @@ interface RecentlyClosedProps {
   onReopenGroup: (groupId: string) => void;
   touchMode?: boolean;
   uiFontScale?: number;
-  headerTextClass?: string;
 }
 
 interface TooltipState {
@@ -90,7 +89,6 @@ function RecentlyClosedInner({
   onReopenGroup,
   touchMode = false,
   uiFontScale,
-  headerTextClass,
 }: RecentlyClosedProps) {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
@@ -174,15 +172,15 @@ function RecentlyClosedInner({
   };
 
   return (
-    <div data-testid="recently-closed" className="sidebar-recently-closed mt-0.5 mb-1 border-t border-[var(--ct-border)] pt-1">
+    <div data-testid="recently-closed" className="sidebar-recently-closed">
       <SidebarDisclosure
         expanded={open}
         touchMode={touchMode}
         onClick={() => setOpen((v) => !v)}
-        className={`flex items-center gap-1.5 w-full px-2 ${touchMode ? "py-2" : "py-1"} rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] transition-colors`}
+        className="sidebar-structural-header w-full"
         title="Recently closed tabs"
       >
-        <span className={`${headerTextClass ?? metaText} font-normal truncate`}>Recently closed</span>
+        <span className="sidebar-structural-label truncate">RECENTLY CLOSED</span>
       </SidebarDisclosure>
       {open && (
         <div className="mt-0.5 overflow-y-auto" style={{ maxHeight: 165 }}>

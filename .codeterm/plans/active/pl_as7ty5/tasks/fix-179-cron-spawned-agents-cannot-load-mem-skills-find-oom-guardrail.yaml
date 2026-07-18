@@ -1,0 +1,62 @@
+id: task_ik0141
+name: 'Fix #179: cron/spawned agents cannot load mem skills + find-OOM guardrail'
+type: bug
+model: claude/sonnet
+model_rationale: 'GitHub #179: a daily cron failed silently 4 days - spawned agents resolve the Skill tool only from ~/.claude/skills/ so mem-registered skills under ~/.codeterm/skills/ are unloadable, and the miss escalated to a home-wide find that was SIGKILLed. Cron reliability + a destructive-search footgun.'
+personality: Wozniak
+personality_provenance: null
+acceptance_criteria:
+- A skill registered via codeterm mem skill new is loadable by a freshly spawned cron agent - live drill proves the load succeeds
+- Injected agent rules forbid home-wide find on missing paths; the rule text is present in a spawned agent brief (captured)
+- A cron with 2+ consecutive failed runs produces a visible notification - test or drill transcript
+test_plan: 'Live drill on dev: source evals/_lib/lib.sh (bash); dc mem skill new scratch-drill-skill; spawn a test cron/agent referencing it; verify skill content reaches the agent via dc tab get-text --tab <id>; then cd src-tauri && TEST_CAP_SECS=90 bash ../scripts/test-capped.sh -- cron ; failure-notification test green 0 failed; injected-rules text captured from a spawned agent brief'
+correctness: Skill reachability is identical for interactive and spawned agents; a missing skill degrades to a clear report, never a filesystem sweep
+status: pending
+review_stage: review
+qa_state: null
+review_round: 0
+review_oracle: null
+review_evidence: []
+review_override: null
+review_audit: []
+status_label: null
+priority: p2
+created_at: 1784360728351
+updated_at: 1784360728351
+status_changed_at: 1784360728351
+handle: fix-179-cron-spawned-agents-cannot-load-mem-skills-find-oom-guardrail
+tags: []
+section_ids:
+- sec_hx9g11
+body: |-
+  [RECOVERED from pl_ghk358 as task_dpeval; export sha256 78a67aaf79b0…]
+
+  Per issue #179, three parts: (1) make mem skills reachable by spawned/cron agents - sync or symlink ~/.codeterm/skills/* into the provider skill dir on skill registration and daemon start (cross-platform: junction/copy on Windows), OR compose cron task briefs with the explicit SKILL.md path; pick one, record the decision; (2) guardrail in agent guidance/rules: a missing skill/path must be reported, never escalated to home-/root-wide find (add to the generated agent rules the cron/spawn path injects); (3) cron failure surfacing: N consecutive Failed runs (especially pane=-) triggers a notification instead of staying silent. Each part verified separately. Phase 3 protocol applies.
+role_guidance: 'You are Wozniak, a reliability tinkerer: silent 4-day failures are the enemy, every failure must be loud. Red line: fixing skill sync without also landing the find-guardrail and the consecutive-failure notification - the issue is all three.'
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []

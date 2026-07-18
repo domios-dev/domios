@@ -27,6 +27,7 @@ pub mod inject_verify;
 pub mod input_parser;
 pub(crate) mod launch_delivery;
 pub(crate) mod launch_diagnostics;
+pub mod message_gateway;
 pub mod messenger;
 pub mod notification;
 mod orchestration_pair;
@@ -104,8 +105,8 @@ use crate::{
 pub(crate) use hierarchy::FirstPlanTeamError;
 pub use hierarchy::PaneStatusInfo;
 pub use inject_verify::{
-    screen_contains_echo, snapshot_prompt_line, wait_for_echo, wait_for_submit_shell,
-    wait_for_submit_tui_drained, InjectionError, InjectionResult, VerifyOpts,
+    screen_contains_echo, snapshot_prompt_line, wait_for_submit_shell, InjectionError,
+    InjectionResult, VerifyOpts,
 };
 pub use orchestration_pair::{OrchestrationPairParams, OrchestrationPairResult};
 pub use orchestrator::{

@@ -123,7 +123,7 @@ mod tests {
     #[test]
     fn task_bound_starter_remains_byte_identical() {
         assert_eq!(
-            starter_prompt(&AgentLaunchParams::default()),
+            starter_prompt_text(crate::provider::StarterPrompt::AssignedTask),
             ASSIGNED_TASK_START_PROMPT
         );
     }
@@ -134,7 +134,10 @@ mod tests {
             starter_prompt: crate::provider::StarterPrompt::IdleWakeup,
             ..Default::default()
         };
-        assert_eq!(starter_prompt(&params), IDLE_WAKEUP_START_PROMPT);
+        assert_eq!(
+            starter_prompt_text(params.starter_prompt),
+            IDLE_WAKEUP_START_PROMPT
+        );
     }
 
     #[test]

@@ -47,7 +47,7 @@ impl PlanStore {
         kinds: Vec<MilestoneKind>,
         now_ms: u64,
     ) -> Result<Plan, PlanError> {
-        let _team_plan_guard = self.team_plan_lock.lock();
+        let _writer_turn = self.mutation_writer.enter();
         let team_id = team_id
             .map(|t| t.trim().to_string())
             .filter(|t| !t.is_empty());
@@ -70,7 +70,7 @@ impl PlanStore {
         }
         plan.team_id = team_id;
         plan.milestone_kinds = kinds;
-        if let Err(error) = self.save(&mut plan, now_ms) {
+        if let Err(error) = self.save_in_writer(&mut plan, now_ms) {
             self.plans.write().remove(&plan.id);
             self.index.write().remove(&plan.id);
             return Err(PlanError::Io(error.to_string()));
@@ -97,8 +97,8 @@ impl PlanStore {
         team_id: &str,
         now_ms: u64,
     ) -> Result<Plan, PlanError> {
-        let _team_plan_guard = self.team_plan_lock.lock();
         let team_id = team_id.trim();
+        let _writer_turn = self.mutation_writer.enter();
         if let Some((existing_plan_id, existing_title)) = self.active_plan_for_team(team_id) {
             if existing_plan_id != plan_id {
                 return Err(PlanError::TeamAlreadyHasActivePlan {
@@ -108,7 +108,7 @@ impl PlanStore {
                 });
             }
         }
-        self.with_plan(plan_id, now_ms, |plan| {
+        self.with_plan_in_writer(plan_id, now_ms, |plan| {
             if let Some(bound_team_id) = plan.team_id.as_deref() {
                 if bound_team_id != team_id {
                     return Err(PlanError::PlanAlreadyBoundToTeam {
@@ -296,34 +296,45 @@ impl PlanStore {
     where
         F: FnOnce(&mut Plan) -> Result<T, PlanError>,
     {
+        let _writer_turn = self.mutation_writer.enter();
+        self.with_plan_in_writer(id, now_ms, f)
+    }
+
+    pub(super) fn with_plan_in_writer<T, F>(
+        &self,
+        id: &str,
+        now_ms: u64,
+        f: F,
+    ) -> Result<T, PlanError>
+    where
+        F: FnOnce(&mut Plan) -> Result<T, PlanError>,
+    {
         let arc = self
             .plans
             .read()
             .get(id)
             .cloned()
             .ok_or(PlanError::NotFound)?;
-        let mut guard = arc.lock();
-        let out = f(&mut guard)?;
-        guard.updated_at = now_ms;
-        if guard.canonical_project_path.trim().is_empty() {
-            guard.canonical_project_path = guard.project_path.clone();
+        let mut staged = arc.lock().clone();
+        let out = f(&mut staged)?;
+        staged.updated_at = now_ms;
+        if staged.canonical_project_path.trim().is_empty() {
+            staged.canonical_project_path = staged.project_path.clone();
         }
-        super::tag_model::normalize_plan(&mut guard);
+        super::tag_model::normalize_plan(&mut staged);
         let path = self
-            .persist_plan_and_spec(&guard)
+            .persist_plan_and_spec(&staged)
             .map_err(|e| PlanError::Io(e.to_string()))?;
-        self.note_plan_write(&guard, &path);
-        if let Err(e) = self.mirror_plan_index(&guard) {
-            log::warn!(
-                "[plan.index] mirror lag after committed write for {}: {}",
-                guard.id,
-                e
-            );
-        }
-        self.record_committed_snapshot(&guard);
-        let entry = Self::index_entry(&guard, path);
-        self.index.write().insert(guard.id.clone(), entry);
-        self.reset_bound_panes(&guard);
+        let committed = {
+            let mut guard = arc.lock();
+            *guard = staged;
+            guard.clone()
+        };
+        self.note_plan_write(&committed, &path);
+        self.record_committed_snapshot(&committed);
+        let entry = Self::index_entry(&committed, path);
+        self.index.write().insert(committed.id.clone(), entry);
+        self.reset_bound_panes(&committed);
         Ok(out)
     }
 
@@ -1093,3 +1104,6 @@ mod team_binding_tests {
         assert_ne!(first.id, second.id);
     }
 }
+
+#[cfg(test)]
+mod writer_queue_tests;

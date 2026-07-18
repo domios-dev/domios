@@ -82,28 +82,6 @@ pub fn await_bare_shell_prompt(
     ready
 }
 
-/// Cap a provider's submit-verify timeout: keep verification but don't let the
-/// full provider timeout compound across retries into a minute-long stall.
-fn cap_submit_timeout(
-    strategy: crate::agent::provider::VerifySubmitStrategy,
-    max: std::time::Duration,
-) -> crate::agent::provider::VerifySubmitStrategy {
-    use crate::agent::provider::VerifySubmitStrategy as S;
-    match strategy {
-        S::ShellPrompt { timeout } => S::ShellPrompt {
-            timeout: timeout.min(max),
-        },
-        S::TuiInputDrained {
-            timeout,
-            idle_after_drain,
-        } => S::TuiInputDrained {
-            timeout: timeout.min(max),
-            idle_after_drain,
-        },
-        S::None => S::None,
-    }
-}
-
 fn authenticated_pty_target(
     pane: &crate::multiplexer::types::Pane,
     expected_session_id: &str,
@@ -183,12 +161,10 @@ impl ServiceContext {
         };
 
         let (pty_id, provider_id) = target()?;
-        let strategy = cap_submit_timeout(
-            self.agent_registry
-                .with_provider(&provider_id, |provider| provider.verify_submit_strategy())
-                .ok_or_else(|| "agent_unavailable: unknown planner provider".to_string())?,
-            std::time::Duration::from_secs(3),
-        );
+        let strategy = self
+            .agent_registry
+            .with_provider(&provider_id, |provider| provider.verify_submit_strategy())
+            .ok_or_else(|| "agent_unavailable: unknown planner provider".to_string())?;
         if target()? != (pty_id.clone(), provider_id.clone()) {
             return Err("agent_unavailable: planner transport changed".into());
         }
@@ -214,7 +190,8 @@ impl ServiceContext {
         )
     }
 
-    /// Send text to a pane (chatBackend or PTY). PTY link is awaited up to 15s so
+    /// Send text to a pane (chatBackend or PTY). Optimistic — the PTY write is
+    /// fire-and-hope, no delivery verification. PTY link is awaited up to 15s so
     /// scripts can chain `spawn → send` without hitting "no PTY".
     pub fn send_text(&self, pane_id: &str, text: &str, enter: bool) -> Result<(), String> {
         if self.pane_chat_backing(pane_id).is_some() {
@@ -227,58 +204,98 @@ impl ServiceContext {
         self.send_text_to_pty_smart(&pty_id, text, enter)
     }
 
-    /// Verified injection for agent panes, naive paste for shells: a booting TUI
-    /// can swallow the naive `\r`, so the verified path re-sends Enter until the
-    /// input drains (the "no reply" bug). Blocking — call from sync/spawn_blocking.
+    /// Verified twin of `send_text` — waits for echo/submit evidence. Parked:
+    /// terminal delivery can't be reliably confirmed, so production uses the
+    /// optimistic `send_text`. Not wired to any caller yet.
+    pub fn send_text_with_guarantee(
+        &self,
+        pane_id: &str,
+        text: &str,
+        enter: bool,
+    ) -> Result<(), String> {
+        if self.pane_chat_backing(pane_id).is_some() {
+            return self.chatbackend_pane_send(pane_id, text);
+        }
+        self.ensure_pane_pty_for_send(pane_id)?;
+        self.await_agent_boot_blocking(pane_id, std::time::Duration::from_secs(90))?;
+        let pty_id = self.await_pty_link_blocking(pane_id, std::time::Duration::from_secs(15))?;
+
+        self.send_text_to_pty_smart_guaranteed(&pty_id, text, enter)
+    }
+
+    /// Optimistic delivery: paste + Enter, no echo/submit verification. A ready
+    /// agent owns the PTY input stream and screen state is diagnostic only —
+    /// ConPTY local echo cannot prove a provider consumed a paste — so the
+    /// default everywhere is fire-and-hope. Verified delivery is parked in
+    /// `send_text_to_pty_smart_guaranteed`.
     pub fn send_text_to_pty_smart(
         &self,
         pty_id: &str,
         text: &str,
         enter: bool,
     ) -> Result<(), String> {
-        let (pane_id, agent_type) = {
-            let mux = self.mux.read();
-            match mux.pane_id_for_pty(pty_id) {
-                Some(pid) => {
-                    let at = mux.get_pane(&pid).and_then(|p| p.agent_type.clone());
-                    (Some(pid), at)
-                }
-                None => (None, None),
-            }
-        };
-        // A booting TUI silently swallows bracket-paste — wait it out, else the message vanishes silently.
-        let was_booting = pane_id
-            .as_ref()
-            .map(|pid| {
-                self.mux
-                    .read()
-                    .get_pane(pid)
-                    .map(|p| p.agent_booting)
-                    .unwrap_or(false)
-            })
-            .unwrap_or(false);
+        let (pane_id, agent_type) = self.resolve_pane_and_agent(pty_id);
         if let Some(ref pid) = pane_id {
             self.await_agent_boot_blocking(pid, std::time::Duration::from_secs(90))?;
         }
-        // Only for a just-booted agent: the boot flag can clear before the TUI renders its input, so wait for its fingerprint.
-        if was_booting {
-            if let Some(ref agent_id) = agent_type {
-                self.await_agent_tui_on_screen(
-                    pty_id,
-                    agent_id,
-                    std::time::Duration::from_secs(10),
-                );
+        let text = if agent_type.is_some() {
+            sanitize_agent_prompt_input(text)
+        } else {
+            text.to_string()
+        };
+        self.write_paste_optimistic(pty_id, &text, enter)
+    }
+
+    /// Bracketed paste + optional Enter, written straight to the PTY with no
+    /// verification wait. The agent-type input parser still sees the payload.
+    fn write_paste_optimistic(&self, pty_id: &str, text: &str, enter: bool) -> Result<(), String> {
+        self.feed_input_parser(pty_id, text, enter);
+        let mut buf = if cfg!(windows) {
+            format!("\x1b[200~ {}\x1b[201~", text)
+        } else {
+            format!("\x1b[200~{}\x1b[201~", text)
+        }
+        .into_bytes();
+        if enter {
+            buf.push(b'\r');
+        }
+        self.pty
+            .lock()
+            .write(pty_id, &buf)
+            .map_err(|e| e.to_string())
+    }
+
+    fn resolve_pane_and_agent(&self, pty_id: &str) -> (Option<String>, Option<String>) {
+        let mux = self.mux.read();
+        match mux.pane_id_for_pty(pty_id) {
+            Some(pid) => {
+                let at = mux.get_pane(&pid).and_then(|p| p.agent_type.clone());
+                (Some(pid), at)
             }
+            None => (None, None),
+        }
+    }
+
+    /// Verified twin of `send_text_to_pty_smart` — waits for echo/submit
+    /// evidence. Parked: terminal delivery can't be reliably confirmed (TUIs
+    /// intercept input, ConPTY echo is not proof), so production uses the
+    /// optimistic path. Kept for callers that can tolerate its false negatives.
+    pub fn send_text_to_pty_smart_guaranteed(
+        &self,
+        pty_id: &str,
+        text: &str,
+        enter: bool,
+    ) -> Result<(), String> {
+        let (pane_id, agent_type) = self.resolve_pane_and_agent(pty_id);
+        if let Some(ref pid) = pane_id {
+            self.await_agent_boot_blocking(pid, std::time::Duration::from_secs(90))?;
         }
         if let Some(ref agent_id) = agent_type {
             let text = sanitize_agent_prompt_input(text);
-            // codex/opencode swallow a `\r` while ingesting the paste, so verification stays — but capped so retries don't stall a minute.
-            let strategy = cap_submit_timeout(
-                self.agent_registry
-                    .with_provider(agent_id, |p| p.verify_submit_strategy())
-                    .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None),
-                std::time::Duration::from_secs(3),
-            );
+            let strategy = self
+                .agent_registry
+                .with_provider(agent_id, |p| p.verify_submit_strategy())
+                .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
             let opts = crate::service::inject_verify::VerifyOpts {
                 // A live TUI's last line is its footer, not a shell prompt.
                 require_prompt_first: false,
@@ -318,22 +335,51 @@ impl ServiceContext {
         self.pty.lock().write(pty_id, &payload)
     }
 
-    /// Wait for the terminal screen-state signal that a structural agent TUI appeared.
+    /// Wait until an agent has rendered a structural TUI frame. This proves a
+    /// shell launch command ran; it does not claim the input composer is ready.
+    pub(crate) fn await_agent_tui_frame_on_screen(
+        &self,
+        pty_id: &str,
+        agent_id: &str,
+        timeout: std::time::Duration,
+    ) -> bool {
+        self.await_agent_tui_screen(pty_id, agent_id, timeout, false)
+    }
+
+    /// Wait until a structural agent TUI exposes an operable composer.
     pub(crate) fn await_agent_tui_on_screen(
         &self,
         pty_id: &str,
         agent_id: &str,
         timeout: std::time::Duration,
     ) -> bool {
+        self.await_agent_tui_screen(pty_id, agent_id, timeout, true)
+    }
+
+    fn await_agent_tui_screen(
+        &self,
+        pty_id: &str,
+        agent_id: &str,
+        timeout: std::time::Duration,
+        require_composer: bool,
+    ) -> bool {
         let signal = self.screen_state.lock().arm_screen_change_signal(pty_id);
         let deadline = std::time::Instant::now() + timeout;
         let mut generation = signal.generation();
         loop {
-            let screen = self
-                .screen_state
-                .lock()
-                .get_screen_text(pty_id)
-                .unwrap_or_default();
+            let (screen, composer_ready) = {
+                let screen_state = self.screen_state.lock();
+                let screen = screen_state.get_screen_text(pty_id).unwrap_or_default();
+                let cursor = screen_state.cursor_input_state(pty_id);
+                let composer_ready = cursor
+                    .map(|(_alt, visible, row, rows)| {
+                        crate::agent::offline_state_classifier::composer_cursor_ready(
+                            visible, row, rows,
+                        )
+                    })
+                    .unwrap_or(false);
+                (screen, composer_ready)
+            };
             let provider_ready = self
                 .agent_registry
                 .with_provider(agent_id, |provider| provider.screen_has_tui(&screen));
@@ -341,7 +387,7 @@ impl ServiceContext {
                 provider_ready,
                 codeterm_pty::pty::screen_state::screen_has_agent_tui(&screen),
             );
-            if ready {
+            if ready && (!require_composer || composer_ready) {
                 return true;
             }
             let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
@@ -474,6 +520,20 @@ impl ServiceContext {
             }
         });
         Ok(())
+    }
+
+    /// Fire-and-forget `send_text`: delivery (incl. the agent-TUI Enter retry) runs
+    /// on a detached thread so the caller returns at once. For the interactive
+    /// `codeterm send`; verified/error-reporting callers use `send_text` directly.
+    pub fn send_text_detached(&self, pane_id: &str, text: &str, enter: bool) {
+        let svc = self.clone();
+        let pane = pane_id.to_string();
+        let text = text.to_string();
+        std::thread::spawn(move || {
+            if let Err(error) = svc.send_text(&pane, &text, enter) {
+                log::warn!("[send-async] delivery to pane {pane} failed: {error}");
+            }
+        });
     }
 
     /// Feed payloads to the typed-launch input parser so the CLI/API path triggers
