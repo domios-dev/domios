@@ -149,6 +149,9 @@ function reportFields(inv: CodetermInvocation): Array<{ label: string; value: st
 /** Build the compact lead/object/chips payload used by the action card header. */
 export function describeAction(inv: CodetermInvocation, result?: string, resolve?: PaneNameResolver): ActionDescriptor {
   const path = inv.path.join(" ");
+  if (isHelp(inv)) {
+    return { lead: "help", object: path, chips: [] };
+  }
   if (isSend(inv)) {
     const sent = parseSend(inv, result, resolve);
     return { lead: sent.mesh ? "mesh →" : "send", object: sent.mesh ?? sent.recipient, chips: sent.mesh ? ["peer"] : [], detail: sent.body };
@@ -328,7 +331,11 @@ export function parseSend(
 
 /** True when this invocation is an outgoing `codeterm send`. */
 export function isSend(inv: CodetermInvocation): boolean {
-  return inv.path.length === 1 && inv.path[0] === "send";
+  return inv.path.length === 1 && inv.path[0] === "send" && !isHelp(inv);
+}
+
+export function isHelp(inv: CodetermInvocation): boolean {
+  return inv.flags.help === true || inv.flags.h === true;
 }
 
 type TemplateFn = (inv: CodetermInvocation, result?: string, resolve?: PaneNameResolver) => RenderedCard;

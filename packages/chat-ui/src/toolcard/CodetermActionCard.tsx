@@ -1,6 +1,6 @@
 import type { ToolEvent } from "@codeterm/chat-core";
 import { recognize } from "../codeterm/recognize";
-import { describeAction, isSend, navigationTarget, type NavigationTarget, type PaneNameResolver } from "../codeterm/templates";
+import { describeAction, isHelp, isSend, navigationTarget, type NavigationTarget, type PaneNameResolver } from "../codeterm/templates";
 import { CompactMessageContent } from "../codeterm/CompactMessageContent";
 import { ToolCardActionButton, ToolCardFrame } from "./ToolCardFrame";
 import type { OpenPlan, ResolvedChatPlanRef } from "../codeterm/LinkedText";
@@ -42,6 +42,9 @@ function targetLabel(target: NavigationTarget): string {
 function actionVisual(invocation: NonNullable<ReturnType<typeof recognize>>): ToolKindVisual {
   const { path } = invocation;
   const command = path.join(" ");
+  if (isHelp(invocation)) {
+    return { glyph: BookOpen, color: "var(--ct-muted-fg)", label: "help" };
+  }
   if (command === "send" && typeof invocation.flags.mesh === "string") {
     return { glyph: RadioTower, color: "var(--ct-cyan)", label: "mesh send" };
   }
