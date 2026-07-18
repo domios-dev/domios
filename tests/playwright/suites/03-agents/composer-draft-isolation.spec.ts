@@ -84,18 +84,38 @@ test.describe("@golden composer draft isolation", () => {
       (await api.workspaces()).find((w) => w.id === ws.id)?.pane_ids ?? [],
     );
 
-    const item = page.locator(`[data-testid="workspace-item"][data-workspace-id="${ws.id}"]`);
-    await expect(item).toBeVisible({ timeout: 15_000 });
-    const expand = item.locator('button[title="Expand"]');
-    if (await expand.isVisible().catch(() => false)) await expand.click();
-    await page
-      .locator(`[data-testid="workspace-group"][data-workspace-id="${ws.id}"]`)
-      .getByText("New session", { exact: true })
-      .click();
-    await expect(page.locator('[data-testid="new-session-picker"]')).toBeVisible({ timeout: 10_000 });
-    await page.locator('[data-testid="picker-mode-orchestration"]').click();
-    await page.locator('[data-testid="picker-confirm"]').click();
-    await expect(page.locator('[data-testid="new-session-picker"]')).toBeHidden({ timeout: 60_000 });
+    // Open the app fresh so the just-created workspace is present exactly as a
+    // user reopening CodeTerm would see it — deterministic, no dependency on a
+    // live create-event landing on an already-open page.
+    await page.reload({ waitUntil: "domcontentloaded" });
+
+    // The user journey, driven the way a person (or screen reader) would in the
+    // workspace-card sidebar: the workspace's own contents region is revealed
+    // by selecting its card. A freshly opened workspace is already selected; if
+    // it is not, select its card. The card's select control is a toggle button
+    // (aria-pressed); the dnd-kit sortable wrapper shares its name, so the
+    // aria-pressed toggle attribute distinguishes the real control from the
+    // drag handle.
+    const region = page.getByRole("region", { name: `${ws.name} workspace contents` });
+    if (!(await region.isVisible().catch(() => false))) {
+      await page
+        .getByRole("button", { name: `Select workspace ${ws.name}`, exact: true })
+        .and(page.locator("[aria-pressed]"))
+        .click();
+    }
+    await expect(region).toBeVisible({ timeout: 15_000 });
+
+    // Scoping "New session" to this workspace's region keeps a sibling
+    // workspace's identically-named control from ever being hit.
+    const newSession = region.getByRole("button", { name: "New session" });
+    await expect(newSession).toBeVisible({ timeout: 10_000 });
+    await newSession.click();
+
+    const picker = page.getByRole("dialog", { name: "Start a session" });
+    await expect(picker).toBeVisible({ timeout: 10_000 });
+    await picker.getByRole("button", { name: /Orchestrat/ }).first().click();
+    await picker.getByRole("button", { name: "Start orchestration" }).click();
+    await expect(picker).toBeHidden({ timeout: 60_000 });
 
     const newPaneIds = await pollUntil(
       async () => {
@@ -109,12 +129,14 @@ test.describe("@golden composer draft isolation", () => {
       "pair panes materialize",
     );
 
+    // What the user sees: every message composer on screen starts empty.
+    const composers = page.getByRole("textbox", { name: "Message composer" });
+    for (let i = 0; i < (await composers.count()); i++) {
+      await expect(composers.nth(i), `composer #${i} is empty`).toHaveValue("");
+    }
+    // The defect mechanism: no stale draft key survives for the new pane ids.
     const keys = await draftKeys(page);
     for (const id of newPaneIds!) {
-      const composer = page.locator(`[data-pane-id="${id}"] textarea`).first();
-      if (await composer.count()) {
-        await expect(composer, `pane ${id} composer is empty`).toHaveValue("");
-      }
       expect(keys[`${PANE_CHAT_SCOPE}${id}`] ?? "", `pane ${id} has no stale pane-chat draft`).toBe("");
       expect(keys[`${CHAT_VIEW_SCOPE}${id}`] ?? "", `pane ${id} has no stale chat-view draft`).toBe("");
     }
