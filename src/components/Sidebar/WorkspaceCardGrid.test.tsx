@@ -79,12 +79,19 @@ async function run() {
   await act(async () => (host.querySelector('[aria-label="Select workspace team_smoke"]') as HTMLButtonElement).click());
   assert.deepEqual(selected, ["two"]);
   await act(async () => (host.querySelector('[aria-label="Edit initials for CodeTerm"]') as HTMLButtonElement).click());
-  const input = host.querySelector('[aria-label="Initials for CodeTerm"]') as HTMLInputElement;
+  const dialog = document.querySelector('[role="dialog"][aria-label="Edit CodeTerm workspace card"]');
+  assert(dialog, "editor renders through a portal beside the card");
+  const input = dialog.querySelector('[aria-label="Initials for CodeTerm"]') as HTMLInputElement;
   assert.equal(input.maxLength, 2, "initials editor enforces the two-character contract");
   const card = host.querySelector('[data-workspace-id="one"]') as HTMLElement;
   const colorBefore = card.style.getPropertyValue("--workspace-card-color");
-  await act(async () => (host.querySelector('[aria-label="Change color for CodeTerm"]') as HTMLButtonElement).click());
-  assert.notEqual(card.style.getPropertyValue("--workspace-card-color"), colorBefore, "color editor cycles the themed palette");
+  const colorOptions = Array.from(dialog.querySelectorAll<HTMLButtonElement>('[role="radio"]'));
+  assert.equal(colorOptions.length, 6, "editor exposes every themed color as a radio option");
+  const alternate = colorOptions.find((option) => option.getAttribute("aria-checked") === "false")!;
+  await act(async () => alternate.click());
+  assert.notEqual(card.style.getPropertyValue("--workspace-card-color"), colorBefore, "direct color selection updates the card");
+  await act(async () => (dialog.querySelector(".sidebar-workspace-card-popover-done") as HTMLButtonElement).click());
+  assert(!document.querySelector('[role="dialog"][aria-label="Edit CodeTerm workspace card"]'), "Done closes the portal editor");
 
   await act(async () => root.unmount());
   console.log("workspace card grid tests: passed");
