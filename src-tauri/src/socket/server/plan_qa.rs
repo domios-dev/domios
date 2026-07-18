@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 use tauri::AppHandle;
 
 use crate::plan::AgentRef;
-use crate::service::messenger::{MessageEnvelope, Messenger};
+use crate::service::messenger::MessageEnvelope;
 use crate::service::plan::PlanError;
 use crate::service::ServiceState;
 
@@ -57,7 +57,7 @@ fn maybe_nudge_implementer(svc: &ServiceState, pane_id: Option<&str>, task_id: &
         "[qa failed] Task {task_id} needs changes.\n{note}\nUpdate the implementation, then report in_review again."
     );
     let envelope = MessageEnvelope::codeterm_reminder("qa");
-    let _ = Messenger::deliver(svc, pane_id, envelope, &text);
+    let _ = svc.gateway_deliver(pane_id, envelope, &text, crate::service::message_gateway::DeliveryClass::SystemNotice);
 }
 
 pub(super) fn dispatch(
