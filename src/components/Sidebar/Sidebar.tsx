@@ -593,9 +593,11 @@ export function Sidebar({
                   <span className="sidebar-structural-label">WORKSPACES</span>
                 </SidebarDisclosure>}
                 <div className="sidebar-structural-action">
-                  <button onClick={handleNewWorkspace} className="sidebar-new-workspace" title="New workspace">
-                    <FolderPlusIcon size={12} />
-                  </button>
+                  {isCompact && (
+                    <button onClick={handleNewWorkspace} className="sidebar-new-workspace" title="New workspace" aria-label="Create workspace">
+                      <FolderPlusIcon size={12} />
+                    </button>
+                  )}
                 </div>
               </div>
               {workspaceSectionBodyVisible(isCompact, workspacesSectionExpanded) && (isCompact ? (
@@ -667,6 +669,7 @@ export function Sidebar({
                       setActiveWorkspace(workspaceId);
                       onNavigateToTab?.();
                     }}
+                    onCreate={handleNewWorkspace}
                   />
                   {ordinaryWorkspaces.map((ws) => {
                     const sortedTabs = sortByOrder(ws.tabs);

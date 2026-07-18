@@ -1631,6 +1631,26 @@ button,
 .sidebar-workspace-card[data-status="waiting"] { border-color: color-mix(in srgb, var(--ct-yellow) 55%, var(--ct-border)); }
 .sidebar-workspace-card[data-status="dead"] { border-color: color-mix(in srgb, var(--ct-red) 55%, var(--ct-border)); }
 
+.sidebar-workspace-card-create {
+  display: flex;
+  width: 52px;
+  height: 50px;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed color-mix(in srgb, var(--ct-muted-fg) 62%, transparent);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
+}
+
+.sidebar-workspace-card-create:hover,
+.sidebar-workspace-card-create:focus-visible {
+  border-color: var(--ct-accent);
+  background: color-mix(in srgb, var(--ct-accent) 9%, transparent);
+  color: var(--ct-accent);
+}
+
 @keyframes sidebar-workspace-working-pulse {
   0%, 100% { opacity: .55; transform: scale(.82); }
   50% { opacity: 1; transform: scale(1); }

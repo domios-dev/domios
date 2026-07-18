@@ -29,6 +29,7 @@ const workspace = (id: string, name: string, tabs = 0): Workspace => ({
 });
 const workspaces = [workspace("one", "CodeTerm", 2), workspace("two", "team_smoke")];
 const selected: string[] = [];
+let creates = 0;
 const host = document.createElement("div");
 document.body.appendChild(host);
 const root = createRoot(host);
@@ -56,12 +57,21 @@ async function run() {
         statuses={{ one: "Working", two: null }}
         sortIds={["ws:one", "ws:two"]}
         onSelect={(id) => selected.push(id)}
+        onCreate={() => { creates += 1; }}
       />
     </SidebarDnd>,
   ));
 
   assert.equal(host.querySelector('[role="region"][aria-label="Workspace cards"]')?.querySelectorAll('[role="listitem"]').length, 2);
   assert.equal(host.querySelector('[aria-label="Select workspace CodeTerm"]')?.getAttribute("aria-current"), "true");
+  const firstGridItem = host.querySelector('[data-workspace-id="one"]')?.parentElement as HTMLElement;
+  const secondGridItem = host.querySelector('[data-workspace-id="two"]')?.parentElement as HTMLElement;
+  assert.equal(`${firstGridItem.style.gridRow}/${firstGridItem.style.gridColumn}`, "1/1");
+  assert.equal(`${secondGridItem.style.gridRow}/${secondGridItem.style.gridColumn}`, "1/2");
+  const createButton = host.querySelector('[role="button"][aria-label="Create workspace"]') as HTMLButtonElement;
+  assert.equal(`${createButton.style.gridRow}/${createButton.style.gridColumn}`, "1/3");
+  await act(async () => createButton.click());
+  assert.equal(creates, 1, "create card owns the workspace creation action");
   assert(host.querySelector('[role="status"][aria-label="CodeTerm has working tabs"]'), "working workspace exposes accessible activity");
   assert(host.textContent?.includes("CT") && host.textContent.includes("TS"), "derived initials render");
 
