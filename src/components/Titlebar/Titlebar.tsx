@@ -15,6 +15,7 @@ import type { SectionId } from "../Settings/sections";
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
 import type { Notification } from "../../lib/types";
 import { NotificationBell } from "../Notifications/NotificationBell";
+import { developmentBuildLabel } from "./buildIdentity";
 
 interface TitlebarProps {
   onToggleSidebar?: () => void;
@@ -55,6 +56,7 @@ export function Titlebar({
   const handleMinimize = useCallback(() => appWindow?.minimize(), [appWindow]);
   const handleMaximize = useCallback(() => appWindow?.toggleMaximize(), [appWindow]);
   const handleClose = useCallback(() => appWindow?.close(), [appWindow]);
+  const buildLabel = developmentBuildLabel(import.meta.env.DEV, __APP_VERSION__);
 
   return (
     <div
@@ -112,6 +114,14 @@ export function Titlebar({
         >
           CodeTerm
         </span>
+        {buildLabel && (
+          <span
+            className="rounded bg-[var(--ct-accent)] px-1.5 py-0.5 font-mono text-[8px] font-bold leading-none tracking-wide text-[var(--ct-bg)]"
+            aria-label={`Development build, version ${__APP_VERSION__}`}
+          >
+            {buildLabel}
+          </span>
+        )}
       </button>
 
       <div className="min-w-0 flex-1" data-tauri-drag-region />
