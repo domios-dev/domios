@@ -37,6 +37,21 @@ pnpm test:pw:trace -- tests/playwright/artifacts/test-results/<trace.zip>
 pnpm test:pw:debug   # run the suite with Playwright Inspector
 ```
 
+### Fast isolated check against an existing test console
+
+When the named Playwright instance is already healthy, use the adopt-only runner
+to run one exact spec and title without rebuilding, restarting, or tearing it down:
+
+```bash
+pnpm test:pw:one -- --file tests/playwright/suites/01-smoke/smoke.spec.ts \
+  --grep "real UI renders" --project smoke
+```
+
+It verifies the named instance identity, API health, and CDP/WebView readiness
+before launching Playwright. It always applies a 30-second per-test cap and a
+10-minute global cap. If preflight fails, it exits nonzero and leaves every
+instance untouched; use the normal harness when a clean start is actually needed.
+
 Parallel execution is opt-in. `CT_E2E_WORKERS=N` starts `pw1..pwN` with
 separate API, Vite, CDP, identifier, token, and `.codeterm-dev-pwN` state.
 Playwright's stable `parallelIndex` pins each worker process to one instance.
@@ -308,4 +323,4 @@ server-spawned panes do). Each throws a clear
 - Suites assert **UI DOM state**, not just API JSON, wherever the action
   has a user-visible effect.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->
