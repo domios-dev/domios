@@ -82,7 +82,7 @@ async function run() {
   const dialog = document.querySelector('[role="dialog"][aria-label="Edit CodeTerm workspace card"]');
   assert(dialog, "editor renders through a portal beside the card");
   const input = dialog.querySelector('[aria-label="Initials for CodeTerm"]') as HTMLInputElement;
-  assert.equal(input.maxLength, 2, "initials editor enforces the two-character contract");
+  assert.equal(input.maxLength, 3, "initials editor enforces the three-character contract");
   assert(!dialog.querySelector('[role="radiogroup"]'), "editor has no per-workspace color controls");
   await act(async () => (dialog.querySelector(".sidebar-workspace-card-popover-done") as HTMLButtonElement).click());
   assert(!document.querySelector('[role="dialog"][aria-label="Edit CodeTerm workspace card"]'), "Done closes the portal editor");
