@@ -127,7 +127,10 @@ pub const RECEPTIVE_TIMEOUT: std::time::Duration = std::time::Duration::from_sec
 /// Machine-authored classes wait for the recipient to be receptive; a human turn
 /// and raw keys are delivered immediately (the user drives their own timing).
 fn class_waits_for_receptive(class: DeliveryClass) -> bool {
-    matches!(class, DeliveryClass::AgentTraffic | DeliveryClass::SystemNotice)
+    matches!(
+        class,
+        DeliveryClass::AgentTraffic | DeliveryClass::SystemNotice
+    )
 }
 
 /// The underlying delivery paths the gateway wraps. `ServiceContext` implements
