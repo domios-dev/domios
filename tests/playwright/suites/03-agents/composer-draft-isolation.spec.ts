@@ -89,8 +89,12 @@ test.describe("@golden composer draft isolation", () => {
     // contents region, then start a new session from inside that region. Scoping
     // the "New session" click to the workspace's own region keeps a sibling
     // workspace's identically-named control from ever being hit.
+    // The card's select control is a toggle button (aria-pressed); the dnd-kit
+    // sortable wrapper around it is also role=button and borrows the same name,
+    // so filter to the pressable one to address the real control, not the drag
+    // handle. (pressed:false = not-yet-selected at click time.)
     await page
-      .getByRole("button", { name: `Select workspace ${ws.name}`, exact: true })
+      .getByRole("button", { name: `Select workspace ${ws.name}`, exact: true, pressed: false })
       .click();
 
     const region = page.getByRole("region", { name: `${ws.name} workspace contents` });
