@@ -629,6 +629,13 @@ test("team header renders the live compact status tally", async () => {
   assert(items.length === 4, "tally exposes all four status buckets");
   assert(items.every((item) => item.querySelector(".sidebar-team-readout-compact-dot")), "every bucket emits compact dot markup");
   assert(items.map((item) => item.querySelector(".sidebar-team-readout-label")?.textContent?.trim()).join(",") === "todo,review,blocked,done", "full labels remain available when the title column fits");
+  assert(tally?.textContent?.replace(/\s+/g, " ").trim() === "3 todo · 1 review · 1 blocked · 3 done", "tally uses middle-dot separators");
+  const managers = host.querySelector('[data-testid="managers-section"]');
+  assert(
+    Boolean(managers && tally && (managers.compareDocumentPosition(tally) & Node.DOCUMENT_POSITION_FOLLOWING)),
+    "tally follows the Team member sections",
+  );
+  assert(/\.sidebar-team-readout\s*\{[^}]*justify-content:\s*flex-start/.test(sidebarStyles), "tally is left aligned");
   const card = host.querySelector('[data-testid="team-card-activation"]') as HTMLButtonElement | null;
   assert(card, "bound Team exposes a dedicated plan activation surface");
   assert(!host.querySelector('[data-testid="team-plan-button"]'), "superseded Plan button is absent");

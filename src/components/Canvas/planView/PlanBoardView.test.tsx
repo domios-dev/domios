@@ -403,6 +403,12 @@ test("mobile board CSS enables horizontal snap columns and 44px touch targets", 
   assert(mobileBlock.includes("scroll-snap-type: x mandatory"), "column snap scroll");
   assert(mobileBlock.includes(".plan-board-column-head") && mobileBlock.includes("min-height: 44px"), "sticky column heads");
   assert(mobileBlock.includes(".plan-board-task-card-interactive") && mobileBlock.includes("min-height: 44px"), "card touch targets");
+  const cardRule = css.match(/\.plan-board-task-card\s*\{[^}]+\}/)?.[0] ?? "";
+  assert(cardRule.includes("flex: 0 0 auto"), "cards keep their content height inside scroll columns");
+  assert(cardRule.includes("overflow: hidden"), "card metadata cannot bleed into adjacent cards");
+  const valueRule = css.match(/\.plan-board-task-meta-value\s*\{[^}]+\}/)?.[0] ?? "";
+  assert(valueRule.includes("text-overflow: ellipsis"), "narrow metadata values use ellipsis");
+  assert(valueRule.includes("white-space: nowrap"), "metadata values remain within one row");
 });
 
 test("board: archive action removes plan from active switcher and switches selection", async () => {

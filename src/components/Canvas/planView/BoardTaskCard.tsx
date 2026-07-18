@@ -57,6 +57,7 @@ export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
       data-task-status={task.status}
       className={`plan-board-task-card plan-task-selectable${interactive ? " plan-board-task-card-interactive" : ""}${isPaused ? " plan-board-task-card-paused" : ""}`}
       role={interactive ? "button" : undefined}
+      aria-label={interactive ? `Open task ${task.name}` : undefined}
       tabIndex={interactive ? 0 : undefined}
       title={pausedTitle}
       onPointerDown={interactive ? onPointerDown : undefined}

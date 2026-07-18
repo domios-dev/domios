@@ -513,17 +513,6 @@ export function TeamUnit({
       </div>
       {expanded && (
         <div className="sidebar-team-body">
-          {plan && (
-            <span data-testid="team-status-tally" className="sidebar-team-readout">
-              {buckets.map((bucket) => (
-                <span key={bucket.key} data-testid={`team-status-${bucket.key}`} className="sidebar-team-readout-item" style={{ color: bucket.color }}>
-                  <span className="sidebar-team-readout-compact-dot" aria-hidden />
-                  <span className="sidebar-team-readout-count">{bucket.count}</span>
-                  <span className="sidebar-team-readout-label"> {bucket.label}</span>
-                </span>
-              ))}
-            </span>
-          )}
           {managerCount > 0 && (
             <div data-testid="managers-section" className="sidebar-team-section">
               <div className="sidebar-team-section-label">MANAGERS {managerCount}</div>
@@ -550,6 +539,20 @@ export function TeamUnit({
                 </div>
               )}
             </div>
+          )}
+          {plan && (
+            <span data-testid="team-status-tally" className="sidebar-team-readout">
+              {buckets.map((bucket, index) => (
+                <span key={bucket.key} className="sidebar-team-readout-segment">
+                  {index > 0 && <span className="sidebar-team-readout-separator" aria-hidden> · </span>}
+                  <span data-testid={`team-status-${bucket.key}`} className="sidebar-team-readout-item" style={{ color: bucket.color }}>
+                    <span className="sidebar-team-readout-compact-dot" aria-hidden />
+                    <span className="sidebar-team-readout-count">{bucket.count}</span>
+                    <span className="sidebar-team-readout-label"> {bucket.label}</span>
+                  </span>
+                </span>
+              ))}
+            </span>
           )}
         </div>
       )}
