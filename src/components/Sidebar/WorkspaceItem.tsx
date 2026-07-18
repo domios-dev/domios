@@ -24,6 +24,7 @@ interface WorkspaceItemProps {
   canClose: boolean;
   status: PaneStatus | null;
   showDisclosure?: boolean;
+  detailHeader?: boolean;
   touchMode?: boolean;
   uiFontScale?: number;
 }
@@ -41,6 +42,7 @@ function WorkspaceItemInner({
   canClose: _canClose,
   status: _status,
   showDisclosure = true,
+  detailHeader = false,
   touchMode = false,
   uiFontScale,
 }: WorkspaceItemProps) {
@@ -115,10 +117,11 @@ function WorkspaceItemInner({
       data-testid="workspace-item"
       data-workspace-id={workspace.id}
       data-workspace-name={workspace.name}
+      data-variant={detailHeader ? "detail-header" : "tree-row"}
       className={`
-        sidebar-workspace-row group relative flex items-center justify-between cursor-pointer transition-colors
+        ${detailHeader ? "sidebar-workspace-detail-header" : "sidebar-workspace-row"} group relative flex items-center justify-between cursor-pointer transition-colors
         ${touchMode ? "min-h-11 px-2 py-2" : "px-1 py-2"}
-        ${isActive ? "bg-[var(--ct-active)] text-[var(--ct-fg)]" : "text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"}
+        ${detailHeader ? "text-[var(--ct-fg)]" : isActive ? "bg-[var(--ct-active)] text-[var(--ct-fg)]" : "text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"}
       `}
     >
       <div className={`flex items-center min-w-0 ${touchMode ? "gap-2" : "gap-1"}`}>
@@ -154,7 +157,13 @@ function WorkspaceItemInner({
               className={`${touchMode ? `${workspaceTouchText} py-1` : `${workspaceText} py-0`} bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 w-full outline-none`}
             />
           ) : (
-            <span className={`${touchMode ? workspaceTouchText : workspaceText} font-medium truncate`} onDoubleClick={handleDoubleClick} title={workspace.cwd || undefined}>
+            <span
+              className={`${touchMode ? workspaceTouchText : workspaceText} font-medium truncate`}
+              onDoubleClick={handleDoubleClick}
+              title={workspace.cwd || undefined}
+              role={detailHeader ? "heading" : undefined}
+              aria-level={detailHeader ? 3 : undefined}
+            >
               {workspace.name}
             </span>
           )}
@@ -192,6 +201,7 @@ function workspacePropsEqual(prev: WorkspaceItemProps, next: WorkspaceItemProps)
     prev.status === next.status &&
     prev.canClose === next.canClose &&
     prev.showDisclosure === next.showDisclosure &&
+    prev.detailHeader === next.detailHeader &&
     prev.touchMode === next.touchMode &&
     prev.uiFontScale === next.uiFontScale &&
     prev.workspace.id === next.workspace.id &&

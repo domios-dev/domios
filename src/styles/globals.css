@@ -1511,6 +1511,14 @@ button,
   border-radius: 7px;
 }
 
+.sidebar-workspace-detail-header {
+  margin: 1px 8px 2px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ct-border) 65%, transparent);
+  background: transparent;
+}
+
+.sidebar-workspace-detail-header:hover { color: var(--ct-fg); }
+
 .sidebar-workspace-card-scroll {
   max-width: 100%;
   overflow-x: auto;
@@ -1523,17 +1531,16 @@ button,
 .sidebar-workspace-card-grid {
   display: grid;
   width: max-content;
-  grid-auto-columns: 60px;
-  grid-auto-flow: column;
-  grid-template-rows: repeat(2, 58px);
-  gap: 6px;
+  grid-auto-columns: 52px;
+  grid-template-rows: repeat(2, 50px);
+  gap: 5px;
 }
 
 .sidebar-workspace-card {
   --workspace-card-color: var(--ct-blue);
   position: relative;
-  width: 60px;
-  height: 58px;
+  width: 52px;
+  height: 50px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--workspace-card-color) 24%, var(--ct-border));
   border-radius: 9px;
@@ -1561,39 +1568,18 @@ button,
   align-items: center;
   justify-content: center;
   border: 0;
-  padding: 5px 4px 4px;
+  padding: 4px;
   background: transparent;
   color: var(--ct-fg);
 }
 
 .sidebar-workspace-card-initials {
   color: var(--workspace-card-color);
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 750;
   letter-spacing: .04em;
   line-height: 1;
   text-shadow: 0 0 14px color-mix(in srgb, var(--workspace-card-color) 45%, transparent);
-}
-
-.sidebar-workspace-card-name {
-  width: 100%;
-  margin-top: 5px;
-  overflow: hidden;
-  color: var(--ct-muted-fg);
-  font-size: 8px;
-  line-height: 1;
-  text-align: center;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sidebar-workspace-card-count {
-  position: absolute;
-  right: 4px;
-  bottom: 3px;
-  color: var(--ct-muted);
-  font-size: 8px;
-  line-height: 1;
 }
 
 .sidebar-workspace-card-edit {
@@ -1648,6 +1634,10 @@ button,
 @keyframes sidebar-workspace-working-pulse {
   0%, 100% { opacity: .55; transform: scale(.82); }
   50% { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-workspace-card-working { animation: none; }
 }
 
 [data-testid="workspace-group"] + [data-testid="workspace-group"] {
