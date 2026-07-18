@@ -43,8 +43,15 @@ pub mod inner {
 
     static EXT_REGISTERED: Once = Once::new();
 
-    // predictable ceiling (~CHILD_MAX_CALLS × 100 MB), then kills and respawns the child to drop all leaked pages.
-    const CHILD_MAX_CALLS: u64 = 200;
+    // Keep the known ONNX leak below a single-process memory budget between child restarts.
+    const CHILD_MAX_CALLS: u64 = 8;
+
+    #[cfg(test)]
+    pub(super) const EMBED_CHILD_MAX_CALLS: u64 = CHILD_MAX_CALLS;
+
+    pub(super) fn recycle_required(calls: u64) -> bool {
+        calls >= CHILD_MAX_CALLS
+    }
 
     #[derive(Serialize)]
     struct EmbedRequest<'a> {
@@ -233,7 +240,7 @@ pub mod inner {
 
         // Recycle child when call budget is exhausted, to bound ort leak.
         if let Some(c) = guard.as_ref() {
-            if c.calls >= CHILD_MAX_CALLS {
+            if recycle_required(c.calls) {
                 log::info!("[embed] recycling child after {} calls", c.calls);
                 *guard = None;
             }
@@ -485,6 +492,13 @@ mod tests {
         let cfg = EmbeddingsConfig::default();
         assert!(!cfg.enabled);
         assert_eq!(cfg.dimension, 384);
+    }
+
+    #[test]
+    #[cfg(feature = "embeddings")]
+    fn embedding_child_recycles_before_the_memory_budget_is_exceeded() {
+        assert!(!inner::recycle_required(inner::EMBED_CHILD_MAX_CALLS - 1));
+        assert!(inner::recycle_required(inner::EMBED_CHILD_MAX_CALLS));
     }
 
     #[test]

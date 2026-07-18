@@ -4,7 +4,7 @@
  * ORACLE: the subprocess prints the scripted acknowledgement and OpenCode readiness fragments.
  */
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -29,6 +29,45 @@ function run(provider, args, input = "") {
   );
   assert.equal(result.status, 0, result.stderr);
   return result.stdout;
+}
+
+function runCodexWriteSequence(marker, atomic, fragmented = false) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [replay, "--stub-provider", "codex", "--", "codex"], {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        CODETERM_STUB_CAST: path.join(os.tmpdir(), "missing-stub.cast"),
+      },
+    });
+    let output = "";
+    let sent = false;
+    const finish = () => {
+      child.kill();
+      resolve(output);
+    };
+    child.stdout.on("data", (chunk) => {
+      output += chunk;
+      if (!sent && output.includes("▌")) {
+        sent = true;
+        const paste = `\x1b[200~ STUB_ECHO ${marker}\x1b[201~${atomic ? "\r" : ""}`;
+        if (fragmented) {
+          for (const part of [paste.slice(0, 2), paste.slice(2, 9), paste.slice(9)]) {
+            child.stdin.write(part);
+          }
+        } else {
+          child.stdin.write(paste);
+        }
+        if (!atomic) {
+          child.stdin.write("\r");
+        }
+        return;
+      }
+      if (sent && output.includes(`ack ${marker}`)) finish();
+    });
+    child.stderr.on("data", (chunk) => reject(new Error(chunk.toString())));
+    child.on("error", reject);
+  });
 }
 
 test("Claude replay reads the appended task file before the short launch prompt", () => {
@@ -58,4 +97,14 @@ test("OpenCode replay advertises the provider TUI and accepts its first PTY task
   );
   assert.match(output, /tab agents · ctrl\+p commands/);
   assert.match(output, /ack PWWARM-opencode-green/);
+});
+
+test("Codex consumes Enter from the same stream as its bracketed paste", async () => {
+  const atomic = await runCodexWriteSequence("atomic-red", true);
+  const separated = await runCodexWriteSequence("separated-green", false);
+  const fragmented = await runCodexWriteSequence("fragmented-green", false, true);
+
+  assert.match(atomic, /ack atomic-red/);
+  assert.match(separated, /ack separated-green/);
+  assert.match(fragmented, /ack fragmented-green/);
 });

@@ -1,6 +1,6 @@
 import type { ToolEvent } from "@codeterm/chat-core";
 import { Check, CircleX, LoaderCircle, ChevronRight } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { toolKindVisual, useShowCommands, type ToolKindVisual } from "./toolKindVisual";
 
 interface ToolCardFrameProps {
@@ -21,12 +21,11 @@ interface ToolCardFrameProps {
 }
 
 export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, command, title, summary, metric, chips, tail, action, variant = "smart", visualOverride }: ToolCardFrameProps) {
-  const [commandOpen, setCommandOpen] = useState(false);
   const globalShowCommands = useShowCommands();
   const visual = visualOverride ?? toolKindVisual[event.kind];
   const Glyph = visual.glyph;
   const isCommand = event.kind === "command" || event.kind === "codeterm";
-  const commandVisible = !isCommand || globalShowCommands || commandOpen;
+  const commandVisible = !isCommand || globalShowCommands;
   const statusColor = event.status === "error" ? "var(--ct-red)" : event.status === "pending" ? "var(--ct-yellow)" : "var(--ct-green)";
   const borderColor = event.status === "error"
     ? "color-mix(in srgb, var(--ct-red) 38%, var(--ct-border))"
@@ -71,23 +70,6 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
           {event.status === "pending" ? <LoaderCircle className="animate-spin" size={14} /> : event.status === "error" ? <CircleX size={14} /> : <Check size={14} />}
         </span>
         {action}
-        {isCommand && (
-          <button
-            type="button"
-            aria-label={commandOpen ? "Hide command" : "Show command"}
-            data-testid="toolcard-command-open"
-            aria-expanded={commandVisible}
-            onClick={() => setCommandOpen((open) => !open)}
-            className="flex h-5 min-w-[22px] items-center justify-center rounded-[5px] border px-1.5 font-mono text-xs"
-            style={{
-              color: commandVisible ? visual.color : "var(--ct-muted-fg)",
-              borderColor: commandVisible ? `color-mix(in srgb, ${visual.color} 40%, transparent)` : "var(--ct-border)",
-              background: commandVisible ? `color-mix(in srgb, ${visual.color} 12%, transparent)` : "transparent",
-            }}
-          >
-            ❯
-          </button>
-        )}
         <ChevronRight aria-hidden="true" size={14} className={expanded ? "rotate-90" : ""} style={{ color: "var(--ct-muted-fg)" }} />
       </div>
       {isCommand && commandVisible && command}

@@ -136,7 +136,6 @@ export function PaneSessionChat({
   const { index: planIndex } = usePlanIndexOptional();
   const paneProvider = pane?.agent_type ?? null;
   const provider = usePaneProvider(pane);
-  const bootSetupView = chatSetupView(pane);
   const shellSessionModel = useShellSessionModel(pane);
   const tabModel = pane?.agent_session_model ?? shellSessionModel;
   const workingModelBadge = tabModel ? formatModelBadge(tabModel) : null;
@@ -166,6 +165,7 @@ export function PaneSessionChat({
     loading,
     recovering,
     error,
+    attachmentState,
     retry,
     enrichedMessages,
     hiddenMessageCount,
@@ -173,6 +173,7 @@ export function PaneSessionChat({
     addOptimistic,
     updateOptimistic,
   } = useChatSession({ paneId, agentSessionId, onError, active: isActive });
+  const bootSetupView = chatSetupView(pane, attachmentState === "attached");
 
   const lastInstantBottomKeyRef = useRef("");
 
@@ -212,7 +213,7 @@ export function PaneSessionChat({
   }, [onOpenTerminalFallback]);
 
   const handleLaunchRetry = useCallback(() => {
-    void invoke("restart_general_agent_pane", { paneId }).catch((error) =>
+    void invoke("restart_agent_pane", { paneId }).catch((error) =>
       showComposerError(error instanceof Error ? error.message : String(error)),
     );
   }, [paneId, showComposerError]);
@@ -461,7 +462,7 @@ export function PaneSessionChat({
       data-testid="pane-session-chat"
       data-pane-id={paneId}
       role="region"
-      aria-label="Pane chat"
+      aria-label={`Pane chat: ${pane?.title ?? paneId}`}
       aria-busy={loading || recovering}
       style={{
         background: "var(--ct-bg, #0d1117)",

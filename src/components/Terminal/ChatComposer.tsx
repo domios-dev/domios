@@ -590,7 +590,7 @@ function ChatComposerImpl({
     try {
       if (chatBackend) {
         // plugin's sendMessage (chat_send_text → send_text_when_ready).
-        await invoke("chat_send_text", { paneId, text: composed, enter: true });
+        await invoke("chat_send_text", { paneId, text: composed });
       } else {
         const fallbackCommand = allAttachments.length === 0 ? cliFallbackCommandPayload(composed) : null;
         if (fallbackCommand) {
@@ -599,7 +599,7 @@ function ChatComposerImpl({
           onOpenTerminalFallback?.();
           await invoke("write_pty_string", { ptyId: currentPtyId, data: fallbackCommand, raw: false });
         } else {
-          await invoke("chat_send_text", { paneId, text: composed, enter: true });
+          await invoke("chat_send_text", { paneId, text: composed });
         }
       }
     } catch (e) {

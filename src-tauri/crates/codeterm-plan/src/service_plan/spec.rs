@@ -172,8 +172,6 @@ impl PlanStore {
             .persist_spec(&guard)
             .map_err(|e| PlanError::Io(e.to_string()))?;
         self.note_spec_write(&guard, &path);
-        self.mirror_spec_index(&guard)
-            .map_err(|e| PlanError::Io(e.to_string()))?;
         let entry = Self::spec_index_entry(&guard, path);
         self.spec_index.write().insert(guard.id.clone(), entry);
         Ok(out)
@@ -334,10 +332,7 @@ impl PlanStore {
                 Ok(())
             })?;
         }
-        let path = self
-            .spec_yaml_target(&spec)
-            .map_err(|e| PlanError::Io(e.to_string()))?;
-        let _ = std::fs::remove_file(path);
+        self.database.delete_spec(&spec.id, now_ms)?;
         self.specs.write().remove(spec_id);
         self.spec_index.write().remove(spec_id);
         Ok(())

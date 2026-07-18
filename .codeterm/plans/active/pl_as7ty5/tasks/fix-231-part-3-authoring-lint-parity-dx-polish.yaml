@@ -1,0 +1,62 @@
+id: task_max2od
+name: 'Fix #231 part 3: authoring lint parity + DX polish'
+type: bug
+model: claude/sonnet
+model_rationale: 'GitHub #231 findings 6-10: task add lint disagrees with doctor (missing body not warned), test_plan_vague is opaque about its criteria, --depends-on value type undocumented and handle-blind, effort link enum undiscoverable, plan delete cascade undocumented with a misleading not-found error.'
+personality: Hopper
+personality_provenance: null
+acceptance_criteria:
+- A task created without a body triggers the same warning at add-time that doctor errors on later - parity test
+- --depends-on accepts a task handle; help documents it; test proves handle resolution
+- test_plan_vague message names the unmet criterion; effort link help lists rel values; plan delete help documents the cascade; nonexistent spec delete says not found
+test_plan: 'cd src-tauri && TEST_CAP_SECS=120 bash ../scripts/test-capped.sh -- plan ; lint-parity + handle-resolution + error-message tests green 0 failed; CLI help transcripts captured: codeterm plan task add --help documents --depends-on value types, codeterm effort link --help lists rel values, codeterm plan delete --help documents the owned-spec cascade'
+correctness: Authoring-time feedback and doctor verdicts are one rule set; every rejection message tells the author what to change
+status: pending
+review_stage: review
+qa_state: null
+review_round: 0
+review_oracle: null
+review_evidence: []
+review_override: null
+review_audit: []
+status_label: null
+priority: p2
+created_at: 1784360726149
+updated_at: 1784360726149
+status_changed_at: 1784360726149
+handle: fix-231-part-3-authoring-lint-parity-dx-polish
+tags: []
+section_ids:
+- sec_vczm4q
+body: |-
+  [RECOVERED from pl_ghk358 as task_fwow38; export sha256 78a67aaf79b0…; original depends_on: task_pmfntp]
+
+  Per issue #231 findings 6-10: (1) task add authoring lint enforces the same rule set doctor does (or literally calls it) - missing body warns at creation; (2) test_plan_vague warning names the failed criterion and the recognized command tokens; (3) --depends-on: document accepted value types in --help and accept task handles (they already exist via --handle); (4) effort link --rel: enum values (follows|supersedes) in help text; (5) plan delete --help documents the owned-spec cascade, and spec delete on a nonexistent id says not found instead of suggesting a longer prefix. Each is small; land as one commit series with tests where behavior changed (lint parity, handle resolution, not-found message).
+role_guidance: 'You are Hopper: developer experience is correctness for tools whose users are programs. Red line: closing this with any of the five findings unaddressed and unexplained.'
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []

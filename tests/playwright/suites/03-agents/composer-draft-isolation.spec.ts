@@ -84,19 +84,18 @@ test.describe("@golden composer draft isolation", () => {
       (await api.workspaces()).find((w) => w.id === ws.id)?.pane_ids ?? [],
     );
 
-    // The user journey, driven the way a person (or screen reader) would:
-    // open the workspace, start a new session, pick Orchestration, start it.
-    // Scope every control to THIS workspace's accessible group so a sibling
-    // workspace's identically-named "New session"/"Expand" is never hit.
-    const group = page.getByRole("group", { name: ws.name, exact: true });
-    await expect(group).toBeVisible({ timeout: 15_000 });
-    await group.getByRole("button", { name: `Open workspace ${ws.name}`, exact: true }).click();
+    // The user journey, driven the way a person (or screen reader) would in the
+    // workspace-card sidebar: select this workspace's card, which reveals its
+    // contents region, then start a new session from inside that region. Scoping
+    // the "New session" click to the workspace's own region keeps a sibling
+    // workspace's identically-named control from ever being hit.
+    await page
+      .getByRole("button", { name: `Select workspace ${ws.name}`, exact: true })
+      .click();
 
-    // Activating a workspace auto-expands it; expand explicitly only if the
-    // disclosure is still collapsed, then the workspace's "New session" shows.
-    const expand = group.getByRole("button", { name: "Expand", expanded: false });
-    if (await expand.isVisible().catch(() => false)) await expand.click();
-    const newSession = group.getByRole("button", { name: "New session" });
+    const region = page.getByRole("region", { name: `${ws.name} workspace contents` });
+    await expect(region).toBeVisible({ timeout: 15_000 });
+    const newSession = region.getByRole("button", { name: "New session" });
     await expect(newSession).toBeVisible({ timeout: 10_000 });
     await newSession.click();
 

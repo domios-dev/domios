@@ -739,13 +739,19 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 ),
             ),
             crate::BridgeAction::Send {
-                text, to, append, ..
+                text,
+                raw_text,
+                to,
+                append,
+                ..
             } => (
                 "POST".into(),
                 "/api/bridge/send".into(),
                 Some(
                     serde_json::json!({
-                        "text": text,
+                        "text": text
+                            .as_ref()
+                            .map(|text| crate::cmd::bridge::bridge_text(text.clone(), *raw_text)),
                         "chat_id": to,
                         "append": append,
                     })

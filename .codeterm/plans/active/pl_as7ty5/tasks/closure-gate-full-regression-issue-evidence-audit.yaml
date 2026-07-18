@@ -1,0 +1,64 @@
+id: task_d0odaz
+name: 'Closure gate: full regression + issue-evidence audit'
+type: qa
+model: claude/sonnet
+model_rationale: 'Phases 4-9 touch many small subsystems (mesh, service registry, plan store, CLI output, bridge, frontend, cron); per-lane tests miss integration breakage, and issues must not be closed without evidence. This is the milestone regression boundary before any gh issue close. Scope now includes #240 (Phase 1b tasks task_7fei9d/task_8l64i4/task_4bfewm) - 15 issues total in the closure manifest.'
+personality: Deming
+personality_provenance: null
+acceptance_criteria:
+- Full Rust suite green in the integration checkout; frontend typecheck/build green
+- Closure manifest covers all issues with evidence pointers; gaps listed as explicit bounces
+test_plan: 'cd src-tauri && TEST_CAP_SECS=600 ../scripts/test-capped.sh (full suite, one warm checkout) ; npm run build 2>&1 tail for frontend; then per-issue: gh issue view <n> --repo rollacode/codeterm --json title + linked task report evidence cross-checked; manifest table in the report'
+correctness: No GitHub issue is closed without accepted implementation and captured evidence; integration breakage across lanes is caught at this boundary, not after release
+status: pending
+review_stage: review
+qa_state: null
+review_round: 0
+review_oracle: null
+review_evidence: []
+review_override: null
+review_audit: []
+status_label: null
+priority: p2
+created_at: 1784360729187
+updated_at: 1784360729187
+status_changed_at: 1784360729187
+handle: closure-gate-full-regression-issue-evidence-audit
+tags: []
+section_ids:
+- sec_8dw6t1
+- sec_wume9m
+body: |-
+  [RECOVERED from pl_ghk358 as task_eee5uy; export sha256 78a67aaf79b0…; original depends_on: task_6p61ll, task_9246rj]
+
+  Runs once when all issue-fix tasks are in_review: (1) full capped Rust suite + frontend checks in one warm integration checkout; (2) evidence audit - for each issue task, verify the report contains either a red-green regression test demo or a before/after command transcript proving the repro no longer reproduces; list any task lacking evidence as a bounce, do not paper over; (3) produce the closure manifest: issue number -> task id -> evidence pointer, handed to the Orchestrator who alone runs gh issue close with a comment linking the fix commit. No issue is closed from inside this task.
+
+  NOTE: carried the 7-stride "PLANNER REVISION @ 31f335d48" record (reproduced in §6 below).
+role_guidance: 'You are a test-author acting as the QA gate. docs/contributing/test-authoring.md is your charter. You verify evidence exists - you do not create it for others and you do not close issues. Red line: marking the manifest complete while any issue row lacks a concrete evidence pointer.'
+executor_role: test-author
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []

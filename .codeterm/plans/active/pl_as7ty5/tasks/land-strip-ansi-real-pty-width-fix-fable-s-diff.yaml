@@ -1,0 +1,62 @@
+id: task_3yitsl
+name: Land strip_ansi real-PTY-width fix (Fable's diff)
+type: bug
+model: claude/sonnet
+model_rationale: 'Found during task_9246rj verification on macOS: clean_terminal_output re-emulates at hardcoded 500x200, so zsh partial-line redraws erase the last unterminated output line on any pane narrower than 200 cols - silently corrupting every strip_ansi consumer (bridge capture, cron output, run_watcher, launch diagnostics). Same reports-ok-while-delivering-mangled-text class as the plan''s core bug.'
+personality: Hopper
+personality_provenance: null
+acceptance_criteria:
+- 'Both regression tests green: partial_line_output_survives_at_matching_width and partial_line_output_erased_at_mismatched_width (the call-site contract guard)'
+- Both strip call sites pass the real PTY width; pytest test_output_strip_ansi green against dev
+- Landed via lane + real merge with ancestry check; fixture testdata file included
+test_plan: cd src-tauri && TEST_CAP_SECS=90 bash ../scripts/test-capped.sh -- terminal ; codeterm-util width tests green 0 failed; then CODETERM_API_URL=http://127.0.0.1:7686 timeout 120 pytest tests/e2e/test_pty_io.py -v --timeout=30 (includes test_output_strip_ansi) green against dev; red-run at hardcoded width already captured in Fable's report - reference it
+correctness: strip_ansi output preserves exactly what the pane's real screen shows at its real width; no consumer loses trailing partial-line output
+status: pending
+review_stage: review
+qa_state: null
+review_round: 0
+review_oracle: null
+review_evidence: []
+review_override: null
+review_audit: []
+status_label: null
+priority: p2
+created_at: 1784360731961
+updated_at: 1784360731961
+status_changed_at: 1784360731961
+handle: land-strip-ansi-real-pty-width-fix-fable-s-diff
+tags: []
+section_ids:
+- sec_e8prso
+body: |-
+  [RECOVERED from pl_ghk358 as task_pnai1t; export sha256 78a67aaf79b0…]
+
+  Fable@eight holds the complete uncommitted 4-file diff with red-green tests - full diff and analysis in C:\Users\dev\.codeterm\general\research\orchestration-economics-bundle\reports\fable-task_9246rj-report-and-stripansi-fix.md (PtyManager::size getter; both strip call sites pane_transport::read_output and pane_routes exec_in_pane switch to clean_terminal_output_sized(raw, 500, real_cols) with fallback 200; regression tests in codeterm-util against a real 120-col zsh capture fixture testdata/zsh_partial_line_120col.raw). Coordinate with Fable@eight: they push lane branch lane/<task>-strip-ansi-width from their worktree (per their report request 3), OR port the diff from the report into a local lane if cross-mesh push is blocked. Verify the fixture file ships with the diff. Land via real merge per AGENTS.md ancestry rules. Windows note: verify the ConPTY/PowerShell path is not width-sensitive the same way (the fixture is zsh; add a PowerShell-shaped case if trivially reproducible, else record as not-applicable with reasoning).
+role_guidance: 'You are Hopper. The fix exists and is red-green tested on macOS - your job is integration without divergence: same diff, real merge, fixture included, plus the Windows-path sanity check. Red line: retyping the diff by hand from the report without diffing against what Fable actually holds.'
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []

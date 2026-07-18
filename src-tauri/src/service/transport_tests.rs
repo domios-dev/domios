@@ -1,4 +1,4 @@
-use super::{finish_launch, AtomicSpawnParams};
+use super::{backend_owned_pty_launch, finish_launch, AtomicSpawnParams};
 use crate::multiplexer::state::MultiplexerState;
 
 #[test]
@@ -20,6 +20,28 @@ fn successful_launch_does_not_roll_back() {
     });
     assert_eq!(res.unwrap(), Some("the-command".to_string()));
     assert!(!rolled_back.get(), "a successful launch never rolls back");
+}
+
+#[test]
+fn pty_launch_is_dispatched_by_backend_without_terminal_mount() {
+    let mut dispatched = None;
+
+    let result = backend_owned_pty_launch(
+        "codex --dangerously-bypass-approvals-and-sandbox".into(),
+        |command| {
+            dispatched = Some(command);
+        },
+    );
+
+    assert_eq!(
+        result, None,
+        "the frontend must receive no deferred PTY command"
+    );
+    assert_eq!(
+        dispatched.as_deref(),
+        Some("codex --dangerously-bypass-approvals-and-sandbox"),
+        "backend receives the launch command even when no Terminal component exists"
+    );
 }
 
 #[test]

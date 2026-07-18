@@ -30,7 +30,7 @@ await act(async () => root.render(
   </ShowCommandsProvider>,
 ));
 if (host.querySelector('[data-testid="toolcard-command"]')) throw new Error("command body leaked while showCommands=false");
-if (!host.querySelector('[data-testid="toolcard-command-open"]')) throw new Error("command opener missing while hidden");
+if (host.querySelector('[data-testid="toolcard-command-open"]')) throw new Error("per-card command opener must not render");
 
 await act(async () => root.render(
   <ShowCommandsProvider showCommands={true}>

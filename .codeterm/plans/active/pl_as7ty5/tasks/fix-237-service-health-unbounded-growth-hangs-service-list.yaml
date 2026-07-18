@@ -1,0 +1,62 @@
+id: task_72ef1e
+name: 'Fix #237: service_health unbounded growth hangs service list'
+type: bug
+model: claude/sonnet
+model_rationale: 'GitHub #237: services.db grew to 672MB / 1.5M service_health rows, making codeterm service list hang past 15s timeouts and breaking the service-health cron. Product-level retention is missing; the field mitigation was a manual prune.'
+personality: Codd
+personality_provenance: null
+acceptance_criteria:
+- 'Retention enforced: after N inserts, per-service service_health row count never exceeds the configured cap - proven by test'
+- 'service list latency independent of history size: test with 10k+ seeded rows completes via latest-row query, no history scan'
+- Existing oversized DB is compacted on startup without data loss for services/activity tables
+test_plan: Locate the module via rg service_health src-tauri/src, then cd src-tauri && TEST_CAP_SECS=90 bash ../scripts/test-capped.sh -- <located_module> ; new retention + latest-row tests green, 0 failed; before/after timing of the seeded-10k-row codeterm service list call captured in the task report
+correctness: The health-history table is structurally incapable of growing until reads time out - bounded by retention at write time, not by operator cleanup
+status: pending
+review_stage: review
+qa_state: null
+review_round: 0
+review_oracle: null
+review_evidence: []
+review_override: null
+review_audit: []
+status_label: null
+priority: p2
+created_at: 1784360722396
+updated_at: 1784360722396
+status_changed_at: 1784360722396
+handle: fix-237-service-health-unbounded-growth-hangs-service-list
+tags: []
+section_ids:
+- sec_2v3bf1
+body: |-
+  [RECOVERED from pl_ghk358 as task_maoc87; export sha256 78a67aaf79b0…]
+
+  Per issue #237: (1) enforce retention on service_health at insert time - bounded count per service (issue suggests ~500 latest probes) and/or time window; (2) make the service list read path fetch only the latest health row per service (indexed query) instead of scanning history; (3) one-time startup compaction for existing oversized DBs (delete beyond retention). Add a test seeding a service with >10k health rows and asserting: list uses the latest-row query and retention caps the table after inserts. Phase 3 protocol (sec_l7vkwa) applies.
+role_guidance: 'You are Codd, a data-layer engineer: schemas enforce invariants, cron jobs do not. Red line: shipping retention as a cleanup suggestion instead of a write-path guarantee.'
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []

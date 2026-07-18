@@ -14,7 +14,8 @@ pub use send::send_text;
 
 #[cfg(test)]
 pub(crate) use send::{
-    default_true, send_action_bytes, should_prepend_source, BatchCommand, SendAction, SendTextBody,
+    default_true, send_action_bytes, should_prepend_source, BatchCommand, PaneInputTransport,
+    SendAction, SendTextBody,
 };
 
 pub async fn list_panes(

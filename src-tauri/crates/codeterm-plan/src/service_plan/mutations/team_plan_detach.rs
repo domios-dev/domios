@@ -28,12 +28,13 @@ impl PlanStore {
         team_id: &str,
         now_ms: u64,
     ) -> Result<TeamPlanDetach, PlanError> {
-        let _guard = self.team_plan_lock.lock();
-        self.detach_matching_team_plans(|bound| bound == team_id, now_ms)
+        let _writer_turn = self.mutation_writer.enter();
+        let target_team_id = team_id.trim().to_string();
+        self.detach_matching_team_plans(|bound| bound == target_team_id, now_ms)
     }
 
     pub fn rollback_team_plan_detach(&self, transaction: TeamPlanDetach) -> Result<(), PlanError> {
-        let _guard = self.team_plan_lock.lock();
+        let _writer_turn = self.mutation_writer.enter();
         for plan in transaction.original_plans {
             self.restore_team_plan(&plan)?;
         }
@@ -45,9 +46,9 @@ impl PlanStore {
         live: &std::collections::BTreeSet<String>,
         now_ms: u64,
     ) -> Result<Vec<String>, PlanError> {
-        let _guard = self.team_plan_lock.lock();
+        let _writer_turn = self.mutation_writer.enter();
         Ok(self
-            .detach_matching_team_plans(|bound| !live.contains(bound), now_ms)?
+            .detach_matching_team_plans(|team_id| !live.contains(team_id), now_ms)?
             .changed_plan_ids)
     }
 
@@ -63,16 +64,14 @@ impl PlanStore {
             .list_full()
             .into_iter()
             .filter_map(|plan| {
-                plan.team_id
-                    .as_deref()
-                    .filter(|team| matches(team))
-                    .map(|_| plan.id)
+                let bound_team = plan.team_id.as_deref();
+                bound_team.filter(|team| matches(team)).map(|_| plan.id)
             })
             .collect();
         ids.sort();
         let original_plans: Vec<_> = ids.iter().filter_map(|id| self.get(id)).collect();
         for id in &ids {
-            if let Err(error) = self.with_plan(id, now_ms, |plan| {
+            if let Err(error) = self.with_plan_in_writer(id, now_ms, |plan| {
                 plan.team_id = None;
                 if plan.status == PlanStatus::Active
                     && !matches!(plan.mode, PlanMode::Paused | PlanMode::Complete)
@@ -101,15 +100,18 @@ impl PlanStore {
             .get(&original.id)
             .cloned()
             .ok_or(PlanError::NotFound)?;
-        let mut plan = arc.lock();
-        *plan = original.clone();
+        let staged = original.clone();
         let path = self
-            .persist_plan_and_spec(&plan)
+            .persist_plan_and_spec(&staged)
             .map_err(|error| PlanError::Io(error.to_string()))?;
-        self.note_plan_write(&plan, &path);
+        {
+            let mut plan = arc.lock();
+            *plan = staged.clone();
+        }
+        self.note_plan_write(&staged, &path);
         self.index
             .write()
-            .insert(plan.id.clone(), Self::index_entry(&plan, path));
+            .insert(staged.id.clone(), Self::index_entry(&staged, path));
         Ok(())
     }
 }

@@ -35,7 +35,10 @@ async function createWith(target?: { teamId?: string; managerPaneId?: string | n
 }
 
 async function run() {
-  const team = await createWith({ teamId: "team-1", managerPaneId: "manager-1" });
+  const team = await createWith(
+    { teamId: "team-1", managerPaneId: "manager-1" },
+    { plan: { owner: { pane_id: "manager-1" }, team_id: "team-1" }, team_id: "team-1" },
+  );
   assert(team.spawns === 0, "team creation never spawns another orchestrator");
   assert(
     JSON.stringify(team.params) === JSON.stringify({

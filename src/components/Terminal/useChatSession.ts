@@ -6,6 +6,7 @@ import {
   mergeById,
   mergeTimelineMessages,
   matchedOptimisticEchoes,
+  collapseDuplicateUserMessages,
   trimAfterSessionReset,
   type NormalizedChatMessage as ChatMessage,
   type TimelineItem,
@@ -384,6 +385,10 @@ export function useChatSession({
         setError(null);
         setLoading(false);
         if (res.pending) {
+          if (agentSessionIdRef.current == null) {
+            markAttached();
+            return;
+          }
           setAttachmentState("awaiting_store");
           setRecovering(true);
           return;
@@ -456,13 +461,13 @@ export function useChatSession({
   }, [optimistic, resetCutoffMs]);
 
   const allMessages = useMemo(() => {
-    if (liveOptimistic.length === 0) return resetParsed;
+    if (liveOptimistic.length === 0) return collapseDuplicateUserMessages(resetParsed);
     // content-collapse that would swallow a legitimately repeated message).
     const parsedUsers = resetParsed.filter((m) => m.type === "user" || m.type === "local_command");
     const { matchedIds } = matchedOptimisticEchoes(toEchoes(liveOptimistic), parsedUsers);
     const matched = new Set(matchedIds);
     const stillPending = liveOptimistic.filter((m) => !matched.has(m.id));
-    return mergeTimelineMessages(resetParsed, stillPending);
+    return collapseDuplicateUserMessages(mergeTimelineMessages(resetParsed, stillPending));
   }, [resetParsed, liveOptimistic]);
 
   const allTimelineItems = useMemo(() => reduceToolEvents(allMessages), [allMessages]);
@@ -555,6 +560,7 @@ export function useChatSession({
     loading,
     recovering,
     error,
+    attachmentState,
     retry,
     setError,
     allMessages,

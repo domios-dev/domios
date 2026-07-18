@@ -1,0 +1,62 @@
+id: task_1iiwnc
+name: 'Integrate lane/message-gateway phase 1 (after #240 fail-closed)'
+type: refactor
+model: claude/sonnet
+model_rationale: 'Andrey-directed refactor: origin/lane/message-gateway @ 7dc7dcd6 adds the message-gateway parity wrapper seam (phase 1). Deliberately parked behind #240: task_7fei9d rewrites mesh relay error/write ordering on the same messenger boundary - integrating the seam first would force the P0 fix to re-fight conflicts on load-bearing code.'
+personality: Liskov
+personality_provenance: null
+acceptance_criteria:
+- Lane merged only after task_7fei9d is in the target; merge-into-lane refresh used (no rebase); ancestor check passes before lane deletion
+- 'Parity tests cover the #240 structured-error cases through the gateway seam - wrapped and unwrapped paths agree, including refusal paths writing zero bytes'
+- Structural conflicts (if any) reported with options, not silently resolved
+test_plan: cd src-tauri && TEST_CAP_SECS=120 bash ../scripts/test-capped.sh -- parity ; then TEST_CAP_SECS=120 bash ../scripts/test-capped.sh -- messenger ; gateway parity + relay tests green 0 failed on merged head; git merge-base --is-ancestor 7dc7dcd67 HEAD (post-refresh lane tip) output captured in report
+correctness: The gateway seam is a transparent wrapper over the FIXED delivery semantics - it can never reintroduce a path where reported state and written bytes disagree
+status: pending
+review_stage: review
+qa_state: null
+review_round: 0
+review_oracle: null
+review_evidence: []
+review_override: null
+review_audit: []
+status_label: null
+priority: p2
+created_at: 1784360733296
+updated_at: 1784360733296
+status_changed_at: 1784360733296
+handle: integrate-lane-message-gateway-phase-1-after-240-fail-closed
+tags: []
+section_ids:
+- sec_v05qe4
+body: |-
+  [RECOVERED from pl_ghk358 as task_by7ta6; export sha256 78a67aaf79b0…; original depends_on: task_7fei9d]
+
+  BLOCKED until task_7fei9d merges (dependency enforced). Then: refresh origin/lane/message-gateway (tip 7dc7dcd6, feat: add message-gateway parity wrapper seam phase 1) against the post-#240 integration target by MERGING the target INTO the lane (never rebase - ancestry preservation), reconciling the wrapper seam with the new fail-closed relay ordering and error taxonomy: the gateway must wrap the corrected semantics, not resurrect the old raw-write path. Then merge the lane back with a real merge commit + ancestor check. Parity is the point of phase 1: run the parity test suite (parity_test.rs pattern per AGENTS.md plugin discipline) proving wrapped and unwrapped delivery agree on shared fixtures, now INCLUDING the #240 structured-error cases (fail-closed refusal, busy-pane, pane-not-reachable) so the seam cannot mask the new taxonomy. If the seam and the #240 changes conflict structurally (not textually), STOP and report options to the Orchestrator instead of improvising the boundary.
+role_guidance: 'You are Liskov: a wrapper that changes observable behavior is not a wrapper. Red line: any parity fixture where the gateway path and the direct path return different outcomes for the same input, including the error cases.'
+executor_role: rust-backend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []

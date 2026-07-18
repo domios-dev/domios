@@ -226,18 +226,23 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::service_plan::state::{DriftSummary, LiveAgent, OpenLane};
+    use crate::service_plan::state::{DriftSummary, LiveAgent, OpenLane, TaskPresentation};
 
     fn lane(id: &str, status: TaskStatus) -> OpenLane {
         OpenLane {
             task_id: id.into(),
             name: format!("name-{id}"),
-            status,
+            status: status.clone(),
             executor_role: None,
             competition: None,
             live_competition_attempts: 0,
             review_stage: ReviewStage::Review,
             qa_state: None,
+            presentation: if status == TaskStatus::Pending {
+                TaskPresentation::ActionablePending
+            } else {
+                TaskPresentation::InReview
+            },
             waiting_on_dependencies: false,
             dependency_waits: vec![],
         }

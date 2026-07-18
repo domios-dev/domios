@@ -14,6 +14,11 @@ correctness: Docs match the shipped mechanisms exactly (names, paths, env vars);
 status: done
 review_stage: review
 qa_state: null
+review_round: 0
+review_oracle: null
+review_evidence: []
+review_override: null
+review_audit: []
 status_label: self-run-docs-sync
 priority: p2
 created_at: 1783802748114

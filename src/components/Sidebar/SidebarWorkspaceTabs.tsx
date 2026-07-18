@@ -14,11 +14,10 @@ import type { Plan } from "../Canvas/types";
 import type { ActiveWorkSnapshot } from "../Canvas/planView/activeWork";
 import { resolvePaneTabActivity } from "../Canvas/paneTabActivity";
 import { openTeamPlanCanvas } from "../Canvas/workspacePlanEntry";
-import { WorkspacePlanTreeSlot } from "./WorkspacePlanEntry";
 import { RemoteWorkerRow } from "./RemoteWorkerRow";
 import { SortableContext, verticalListSortingStrategy, TAB_PREFIX } from "./sortable";
 import { collectPaneIds } from "./workspaceTabs";
-import { isWorkspacePlanEntryActive, isWorkspaceTabActive } from "./sidebarSelection";
+import { isWorkspaceTabActive } from "./sidebarSelection";
 import { persistTabRename, SidebarSingleTabRow } from "./SidebarPlanPeerPair";
 import { sortTeamManagers } from "./orchestrationSections";
 import { TabItem } from "./TabItem";
@@ -31,10 +30,18 @@ import {
 type TeamPane = Pane & { team_id?: string | null };
 type TeamPlan = Plan & { team_id?: string | null };
 
-export function excludeTeamBoundPlanIndex(
-  planIndex: readonly PlanIndexEntry[],
-): PlanIndexEntry[] {
-  return planIndex.filter((entry) => !entry.team_id);
+function newestActivePlansByTeam(plans: readonly TeamPlan[]): Map<string, Plan> {
+  const grouped = new Map<string, Plan>();
+  for (const plan of plans) {
+    if (!plan.team_id || plan.status !== "active") continue;
+    const current = grouped.get(plan.team_id);
+    const currentUpdatedAt = current?.updated_at ?? current?.created_at ?? 0;
+    const updatedAt = plan.updated_at ?? plan.created_at ?? 0;
+    if (!current || updatedAt > currentUpdatedAt || (updatedAt === currentUpdatedAt && plan.id > current.id)) {
+      grouped.set(plan.team_id, plan);
+    }
+  }
+  return grouped;
 }
 
 interface TeamTabMember {
@@ -109,7 +116,7 @@ export function SidebarWorkspaceTabs({
   workspaceCanvasActive,
   touchMode,
   uiFontScale,
-  compact,
+  compact: _compact,
   sidebarActionText,
   orchestrators,
   onBeforeOpenPlan,
@@ -137,13 +144,7 @@ export function SidebarWorkspaceTabs({
     () => new Map(teams.filter((team) => team.workspace_id === ws.id).map((team) => [team.id, team])),
     [teams, ws.id],
   );
-  const plansByTeam = useMemo(() => {
-    const grouped = new Map<string, Plan>();
-    for (const plan of plans as TeamPlan[]) {
-      if (plan.team_id && !grouped.has(plan.team_id)) grouped.set(plan.team_id, plan);
-    }
-    return grouped;
-  }, [plans]);
+  const plansByTeam = useMemo(() => newestActivePlansByTeam(plans as TeamPlan[]), [plans]);
 
   const sharedRow = {
     workspaceId: ws.id,
@@ -296,23 +297,8 @@ export function SidebarWorkspaceTabs({
     );
   }
 
-  const teamlessPlanIndex = useMemo(
-    () => excludeTeamBoundPlanIndex(planIndex),
-    [planIndex],
-  );
-
   return (
     <>
-      <WorkspacePlanTreeSlot
-        workspace={ws}
-        panes={panes}
-        planIndex={teamlessPlanIndex}
-        canvasActive={isWorkspacePlanEntryActive(isActiveVisual, workspaceCanvasActive)}
-        touchMode={touchMode}
-        compact={compact}
-        uiFontScale={uiFontScale}
-        onBeforeOpen={onBeforeOpenPlan}
-      />
       {rows}
       <button
         type="button"

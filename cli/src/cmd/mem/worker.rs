@@ -48,10 +48,11 @@ pub(crate) fn handle_mem_worker(
             Err(_) => Err("not in a worker pane: $CODETERM_WORKER_ID is not set".into()),
         },
         MemWorkerAction::Kill { id } => {
+            let url = format!("{}/api/mem/workers/{}", base, id);
             let resp = http
-                .delete(format!("{}/api/mem/workers/{}", base, id))
+                .delete(&url)
                 .send()
-                .map_err(|e| e.to_string());
+                .map_err(|e| super::transport::mem_transport_error(&url, &e));
             resp.map(|r| serde_json::json!({"ok": r.status().is_success()}))
         }
     }

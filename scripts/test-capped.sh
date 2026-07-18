@@ -55,43 +55,19 @@ fi
 
 ensure_embed_sidecar
 
-# Job control: gives each background job its own process group.
-# cargo becomes the PGID leader; all test binaries it spawns inherit that PGID.
-set -m
-
-TIMEOUT_FLAG=$(mktemp)
-trap 'rm -f "$TIMEOUT_FLAG"' EXIT
-
-# shellcheck disable=SC2086
-$CARGO_TEST_CMD "$@" &
-CARGO_PID=$!
-
-# Watchdog: after the cap, mark the flag, print the banner, and kill the whole group.
-(
-    sleep "$TEST_CAP_SECS" || true
-    printf '1' > "$TIMEOUT_FLAG"
-    printf '\n'
-    printf '══════════════════════════════════════════════════════════════════\n'
-    printf '  DEADLOCK / HANG: cargo test exceeded %ss cap.\n' "$TEST_CAP_SECS"
-    printf '  Read the code — do NOT re-run with a bigger cap.\n'
-    printf '  Killing process group %s (cargo + spawned test binaries)...\n' "$CARGO_PID"
-    printf '══════════════════════════════════════════════════════════════════\n'
-    kill -- "-${CARGO_PID}" 2>/dev/null || true
-) &
-WATCHDOG_PID=$!
-
-# Wait for cargo; capture its exit code without letting set -e abort us.
-if wait "$CARGO_PID"; then
-    CARGO_EXIT=0
+# GNU timeout owns the bounded failure deadline. It preserves the child status
+# unless it enforces the deadline, avoiding MSYS job-control group kills.
+if timeout --signal=TERM --kill-after=5s "$TEST_CAP_SECS" $CARGO_TEST_CMD "$@"; then
+    exit 0
 else
     CARGO_EXIT=$?
 fi
 
-kill -- "-${WATCHDOG_PID}" 2>/dev/null || true
-wait "$WATCHDOG_PID" 2>/dev/null || true
-
-# If the watchdog wrote the flag, report 124 (timeout).
-if [ -s "$TIMEOUT_FLAG" ]; then
-    exit 124
+if [ "$CARGO_EXIT" -eq 124 ]; then
+    printf '\n'
+    printf '══════════════════════════════════════════════════════════════════\n'
+    printf '  DEADLOCK / HANG: cargo test exceeded %ss cap.\n' "$TEST_CAP_SECS"
+    printf '  Read the code — do NOT re-run with a bigger cap.\n'
+    printf '══════════════════════════════════════════════════════════════════\n'
 fi
 exit "$CARGO_EXIT"

@@ -1,0 +1,34 @@
+import assert from "node:assert/strict";
+import path from "node:path";
+import test from "node:test";
+import { parseIsolatedPlaywrightArgs, playwrightArgs } from "../../../scripts/run-playwright-isolated";
+
+const FILE = "tests/playwright/suites/01-smoke/smoke.spec.ts";
+
+test("isolated runner requires one explicit spec, title, and project", () => {
+  const parsed = parseIsolatedPlaywrightArgs(["--file", FILE, "--grep", "real UI", "--project", "smoke"]);
+  assert.equal(parsed.grep, "real UI");
+  assert.equal(parsed.project, "smoke");
+  assert.ok(parsed.file.endsWith(path.join("01-smoke", "smoke.spec.ts")));
+  assert.deepEqual(playwrightArgs(parsed).slice(-7), [
+    `--project=smoke`,
+    parsed.file,
+    "-g",
+    "real UI",
+    "--timeout=30000",
+    "--global-timeout=600000",
+    "--reporter=line",
+  ]);
+});
+
+test("isolated runner rejects broad and out-of-tree invocations", () => {
+  assert.throws(() => parseIsolatedPlaywrightArgs(["--file", FILE, "--project", "smoke"]), /--grep/);
+  assert.throws(
+    () => parseIsolatedPlaywrightArgs(["--file", "package.json", "--grep", "x", "--project", "smoke"]),
+    /under tests\/playwright/,
+  );
+  assert.throws(
+    () => parseIsolatedPlaywrightArgs(["--file", FILE, "--grep", "x", "--project", "smoke", "--timeout", "1"]),
+    /unsupported option/,
+  );
+});

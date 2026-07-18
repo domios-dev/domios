@@ -36,7 +36,7 @@ test(
 
     const chat = ui.page
       .locator(`[data-pane-id="${pane.id}"]`)
-      .getByRole("region", { name: "Pane chat" });
+      .getByRole("region", { name: `Pane chat: ${pane.title}` });
     await expect(chat).toBeVisible({ timeout: 30_000 });
 
     const conversation = chat.getByRole("log", { name: "Conversation" });

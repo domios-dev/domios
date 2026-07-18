@@ -196,24 +196,17 @@ impl TurnCounter {
         self.timed.lock().insert(pane_id.to_string(), now_secs);
     }
 
-    pub fn reminder_content_due(
-        &self,
-        pane_id: &str,
-        state_key: &str,
-        now_secs: u64,
-    ) -> bool {
-        self.reminder_content.lock().get(pane_id).is_none_or(|(last_key, last_at)| {
-            last_key != state_key
-                || now_secs.saturating_sub(*last_at) >= UNCHANGED_REMINDER_COOLDOWN_SECS
-        })
+    pub fn reminder_content_due(&self, pane_id: &str, state_key: &str, now_secs: u64) -> bool {
+        self.reminder_content
+            .lock()
+            .get(pane_id)
+            .is_none_or(|(last_key, last_at)| {
+                last_key != state_key
+                    || now_secs.saturating_sub(*last_at) >= UNCHANGED_REMINDER_COOLDOWN_SECS
+            })
     }
 
-    pub fn mark_reminder_content_delivered(
-        &self,
-        pane_id: &str,
-        state_key: String,
-        now_secs: u64,
-    ) {
+    pub fn mark_reminder_content_delivered(&self, pane_id: &str, state_key: String, now_secs: u64) {
         self.reminder_content
             .lock()
             .insert(pane_id.to_string(), (state_key, now_secs));

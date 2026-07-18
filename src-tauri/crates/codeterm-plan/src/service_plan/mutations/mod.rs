@@ -275,16 +275,29 @@ pub(super) fn validate_task_status_transition(
     next: &TaskStatus,
     incoming_label: Option<Option<&str>>,
 ) -> Result<(), PlanError> {
-    if current == next {
-        return Ok(());
-    }
+    validate_task_status_transition_with_lane(plan, task_id, current, next, incoming_label, None)
+}
+
+pub(super) fn validate_task_status_transition_with_lane(
+    plan: &Plan,
+    task_id: &str,
+    current: &TaskStatus,
+    next: &TaskStatus,
+    incoming_label: Option<Option<&str>>,
+    lane: Option<&super::TaskLaneUpdate>,
+) -> Result<(), PlanError> {
+    let status_unchanged = current == next;
     let invariants_on = std::env::var("CODETERM_STATE_INVARIANTS").map_or(true, |v| v != "off");
     if invariants_on {
         let task = plan.tasks.iter().find(|t| t.id == task_id);
         if matches!(next, TaskStatus::InProgress) {
-            let has_pane = task
-                .and_then(|t| t.assigned_pane_id.as_deref().or(t.lane.pane_id.as_deref()))
-                .is_some_and(|p| !p.trim().is_empty());
+            let incoming_lane_pane = lane.and_then(|update| update.pane_id.as_ref());
+            let has_pane = match incoming_lane_pane {
+                Some(pane) => pane.as_deref().is_some_and(|p| !p.trim().is_empty()),
+                None => task
+                    .and_then(|t| t.assigned_pane_id.as_deref().or(t.lane.pane_id.as_deref()))
+                    .is_some_and(|p| !p.trim().is_empty()),
+            };
             if !has_pane {
                 return Err(PlanError::InProgressRequiresPane);
             }
@@ -320,6 +333,9 @@ pub(super) fn validate_task_status_transition(
                 return Err(PlanError::BlockedRequiresLabel);
             }
         }
+    }
+    if status_unchanged {
+        return Ok(());
     }
     if matches!(next, TaskStatus::Done) {
         reject_done_with_open_subtasks(plan, task_id)?;

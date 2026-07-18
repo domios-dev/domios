@@ -1,0 +1,67 @@
+id: task_wf0smk
+name: Fix stale provider boot state over attached Chat UI
+type: bug
+model: codex/gpt-5.6-terra
+model_rationale: User-visible startup regression blocks new tabs and presents a false retry path
+personality: null
+personality_provenance: null
+acceptance_criteria:
+- An attached Chat region is never covered or interrupted by a later loading/failed boot state; non-General-Agent Retry never reaches the GA-only endpoint
+- 'PtyReattached case: attached chat receiving a late boot_stage=pty_reattached event shows no overlay, no composer interruption, and clears any failure chip (BootStage::PtyReattached shipped in 31f335d48, emitted only over stale SpawnFailed)'
+- 'Binding-epoch enforcement: only a chat event from the pane''s CURRENT binding epoch (session_binding_nonce match) counts as attachment proof - an event from a previous epoch neither attaches nor un-attaches (own-session rule, architecture rule 3)'
+test_plan: |-
+  1. Run `npx tsx src/components/Terminal/ChatSetupState.test.tsx` and `npx tsx src/components/Terminal/PaneSessionChat.watcher.test.tsx`; assert an attached session with `boot_stage=spawn_failed` has no launch overlay and a non-General-Agent retry calls `restart_agent_pane`.
+  2. Same harness: assert (a) a late `pty_reattached` event over an attached chat clears the failure chip without unmounting the composer; (b) a chat event carrying a stale session_binding_nonce (previous epoch) does NOT flip attachment state in either direction.
+  3. Start canonical dev once with `./build.ps1 dev`, verify `GET http://127.0.0.1:7686/api/health`, then create a real PTY-backed Codex pane through the app. Before opening Terminal, wait on the Chat region by accessible role/name and assert the composer remains operable after the session attaches even if a stale launch-failure event/snapshot arrives.
+  4. Use Playwright role/name selectors only; `npx playwright test <new-or-updated-spec> -g "<exact title>" --config=tests/playwright/playwright.config.ts --project=live --timeout=30000 --global-timeout=600000 --reporter=line --trace=on`. No sleeps or timeout-as-readiness.
+correctness: Chat attachment/event is the only UI readiness proof; no timer, Terminal mount, provider identity branch, or test-only selector may decide readiness
+status: pending
+review_stage: review
+qa_state: null
+review_round: 0
+review_oracle: null
+review_evidence: []
+review_override: null
+review_audit: []
+status_label: null
+priority: p0
+created_at: 1784354117312
+updated_at: 1784355162018
+status_changed_at: 1784354117312
+handle: fix-stale-provider-boot-state-over-attached-chat-ui
+tags:
+- chat
+- startup
+- codex
+- pty
+section_ids:
+- sec_f6g3fr
+body: 'Fix the provider startup regression shown by user screenshots: a PTY-backed Codex/Orchestrator chat can be attached and usable while persisted/runtime `boot_stage=spawn_failed` or loading remains stale. Opening Terminal currently happens to cause a later reconciliation, but Chat must not require a Terminal mount. Once `chat_start` attaches or a chat event arrives, the Chat surface is authoritative: no late boot/loading/failure overlay may cover it or interrupt the composer. Retry must be pane-generic; it must never invoke the General Agent-only route for a normal orchestrator/worker pane. Preserve real launch failures before Chat attachment and hide Retry when `canRetry=false`.'
+role_guidance: null
+executor_role: frontend-dev
+competition: null
+intent: null
+parent_task_id: null
+depends_on: []
+assigned_pane_id: null
+lane:
+  pane_id: null
+  workspace_id: null
+  workspace_name: null
+  worktree_path: null
+  branch: null
+  base: null
+  destination: null
+  cleanup_status: null
+  cleanup_hints: []
+taken_by_role: null
+peer: null
+group: null
+canvas:
+  x: null
+  y: null
+  collapsed: false
+milestones: []
+execution_attempts: []
+pause_reason: null
+attachments: []

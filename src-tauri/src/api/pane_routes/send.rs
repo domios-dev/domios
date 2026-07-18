@@ -58,24 +58,30 @@ pub(crate) fn default_true() -> bool {
     true
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PaneInputTransport {
+    Pty,
+    ChatBackend,
+}
+
 /// Whether to inject the sender return-address marker into the PTY text. The
 /// marker is meaningful only to an AGENT reading its input; a bare shell runs
 /// the bytes verbatim and a chatBackend carries identity structurally.
 pub(crate) fn should_prepend_source(
     has_source: bool,
     target_has_agent: bool,
-    target_is_chat: bool,
+    transport: PaneInputTransport,
 ) -> bool {
-    has_source && target_has_agent && !target_is_chat
+    has_source && target_has_agent && transport == PaneInputTransport::Pty
 }
 
 #[derive(Deserialize)]
 pub(crate) struct SendTextBody {
     pub(crate) text: Option<String>,
-    #[serde(default = "default_true")]
-    pub(crate) enter: bool,
     /// Terminal key/action sequence. Enter submits optional text through the
     /// acknowledged transaction; navigation keys and delays remain ordered.
+    /// A plain text send always submits — use `actions` (no Enter) or `raw` to
+    /// type without submitting.
     pub(crate) actions: Option<Vec<SendAction>>,
     /// Batch: send multiple commands sequentially with optional delays
     pub(crate) batch: Option<Vec<BatchCommand>>,
@@ -188,7 +194,11 @@ pub async fn send_text(
             pane: raw_pane_id.clone(),
         })?;
 
-    let target_is_chat = state.svc.pane_chat_backing(&pane_id).is_some();
+    let transport = if state.svc.pane_chat_backing(&pane_id).is_some() {
+        PaneInputTransport::ChatBackend
+    } else {
+        PaneInputTransport::Pty
+    };
     // The return-address marker is meaningful only to an AGENT reading its input.
     // A bare shell PTY must run the injected bytes verbatim — never prefix it.
     let target_has_agent = state.svc.pane_has_agent(&pane_id);
@@ -222,7 +232,7 @@ pub async fn send_text(
 
     // Preflight: the PTY must exist and be linked BEFORE any byte is written.
     // Both failures are pre-write, so they guarantee an untouched target.
-    if !target_is_chat {
+    if transport == PaneInputTransport::Pty {
         state.svc.ensure_pane_pty_for_send(&pane_id).map_err(|e| {
             DeliveryError::PtyUnavailable {
                 pane: pane_id.clone(),
@@ -277,7 +287,7 @@ pub async fn send_text(
             }
         });
     let prefix_source =
-        should_prepend_source(source_envelope.is_some(), target_has_agent, target_is_chat);
+        should_prepend_source(source_envelope.is_some(), target_has_agent, transport);
     let prepend = |s: &str| -> String {
         match &source_envelope {
             Some(envelope) if prefix_source => {
@@ -332,7 +342,7 @@ pub async fn send_text(
 
         let raw_text = body.text.clone().unwrap_or_default();
         let text = prepend(&stage(raw_text.clone()));
-        if target_is_chat {
+        if transport == PaneInputTransport::ChatBackend {
             if !raw_text.is_empty() {
                 state
                     .svc
@@ -407,23 +417,40 @@ pub async fn send_text(
     }
 
     if body.raw {
-        // raw mode bypasses bracket paste — sender prefix is intentionally skipped here too (raw = byte-for-byte keystrokes for TUIs)
+        // Byte-for-byte to the PTY (bracket paste + sender prefix skipped, for
+        // TUI keystrokes like vim j/k). The caller includes \r to submit.
         let raw_text = body.text.clone().unwrap_or_default();
-        let mut buf = raw_text.clone();
-        if body.enter && !buf.ends_with('\r') {
-            buf.push('\r');
-        }
-        state.svc.write_raw(&pane_id, buf.as_bytes()).map_err(|e| {
-            DeliveryError::PtyUnavailable {
+        state
+            .svc
+            .write_raw(&pane_id, raw_text.as_bytes())
+            .map_err(|e| DeliveryError::PtyUnavailable {
                 pane: pane_id.clone(),
                 detail: e.to_string(),
-            }
-        })?;
+            })?;
         record_push_activity(&state, &svc_token_match, &pane_id, &raw_text);
         return Ok(Json(serde_json::json!({"ok": true})));
     }
 
     let raw_text = body.text.unwrap_or_default();
+    if source_envelope.is_some()
+        && body
+            .source_peer
+            .as_deref()
+            .is_some_and(|peer| !peer.is_empty())
+        && transport == PaneInputTransport::Pty
+    {
+        let text = prepend(&raw_text);
+        state
+            .svc
+            .send_text_when_ready(&pane_id, &text, true)
+            .await
+            .map_err(|e| classify_delivery_failure(&pane_id, &e))?;
+        record_push_activity(&state, &svc_token_match, &pane_id, &raw_text);
+        if !raw_text.trim().is_empty() {
+            state.svc.maybe_send_owned_plan_reminder(&pane_id);
+        }
+        return Ok(Json(serde_json::json!({"ok": true, "mesh": true})));
+    }
     if let Some(envelope) = source_envelope {
         crate::service::messenger::Messenger::deliver(&state.svc, &pane_id, envelope, &raw_text)
             .map_err(|e| classify_delivery_failure(&pane_id, &e))?;
@@ -436,9 +463,11 @@ pub async fn send_text(
 
     let has_text = !raw_text.trim().is_empty();
     let text = prepend(&stage(raw_text));
+    // A plain text send always submits — no-Enter/keystroke cases go through
+    // `actions` or `raw`.
     state
         .svc
-        .send_text_when_ready(&pane_id, &text, body.enter)
+        .send_text_when_ready(&pane_id, &text, true)
         .await
         .map_err(|e| classify_delivery_failure(&pane_id, &e))?;
     record_push_activity(&state, &svc_token_match, &pane_id, &text);

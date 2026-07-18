@@ -104,7 +104,255 @@ sections:
     y: null
     collapsed: false
   attachments: []
+- id: sec_46l3he
+  title: PTY delivery guarantee (recovered from pl_ghk358)
+  handle: pty-delivery-guarantee-recovered-from-pl-ghk358
+  tags: []
+  body: 'Parent for the 9 spec sections recovered from lost plan pl_ghk358 via pl_iassb6. Source export: .codeterm-rem-tmp/pl_ghk358-recovery.md sha256 78a67aaf79b07838e39251ebaff501a63bc3321b6f1ebc8cc1085a7a85ef2e07. Evidence-only closure discipline applies to every task under this umbrella.'
+  subsections:
+  - id: sec_gfbqzd
+    title: Problem & audit baseline
+    handle: problem-audit-baseline
+    tags: []
+    body: |-
+      (final version incl. WORKER (task_7fei9d) additions: HTTP-entry audit row + mesh-relay resolution)
+
+      **What:** `submit_transaction::run()` (src-tauri/src/service/pty_io/submit_transaction.rs:195-308) is the single state machine behind every automatic PTY submission: arm a screen-change generation before paste, write bracketed-paste text, wait for echo (`wait_for_paste`/`wait_for_paste_activity`), write Enter, then loop on `submitted()`/TUI-drain evidence before reporting `submit_observed: true`. `InjectionResult::require_submission` (inject_verify.rs:40-55) is the gate that refuses success without that evidence.
+
+      **Why it exists:** three same-day commits (2026-07-15) rewrote this path — `ca5686431` "acknowledge PTY submit transactions" (deleted the old pty_io/wake.rs), `46f88e4d3` "enforce acknowledged delivery invariants", `2dd093dbe` "require causal submit evidence". A 4th change is sitting **uncommitted** in the working tree right now (adds `wait_for_paste_activity`, switches the no-verify-echo branch from a no-op clone to an actual activity wait, adds 2 tests). This plan's job is to finish, verify, and extend that in-flight work — not rediscover it.
+
+      **Audit — every automatic PTY send path, classified:**
+
+      | Call site | Entry tag | Route |
+      |---|---|---|
+      | `pty_io/send.rs:289` `send_text_to_pty_smart` (agent panes) | Direct | submit_entry → send_text_verified → submit_text |
+      | `pty_io/send.rs:434` `send_text_to_pty` (pty-id direct, enter gates verify_echo/verify_submit) | Direct | same |
+      | `pty_io/send.rs:195` `send_to_authenticated_agent_session` (planner auth path) | Planner | same |
+      | `messenger.rs:271-289` `Messenger::deliver` (mesh/report fanout) | Report / Messenger | wraps svc.send_text → nested Direct underneath (label-only nesting, not a policy difference today) |
+      | `messenger.rs:333-344` `deliver_planner_session` (PTY-backed planner) | Planner | same |
+      | `orchestrator/launch.rs:364` ConfirmedFallback launch delivery | Direct | same, verify_echo:false / verify_submit:true |
+      | `pty_io/inject.rs:54` `send_text_verified` | n/a (helper) | calls submit_transaction::submit_text directly |
+      | `pty_io/batch.rs:33` | n/a | calls send_text_to_pty_smart |
+      | `api/pane_routes/send.rs:123` `send_text` (HTTP entry; the mesh relay forwards to it verbatim) | Direct / Report / Messenger | resolve_pane → ensure_pane_pty_for_send → await_pty_link (all pre-write) → Messenger::deliver or send_text_when_ready → nested submit_entry → submit_text |
+
+      No call site found that writes raw PTY bytes for automatic submission while bypassing `submit_transaction::run()` — `write_raw`/`inject_raw_keys_async` (send.rs:458-469) are keystroke-passthrough (vim j/k, arrows), not automatic text submission, and are out of scope.
+
+      **Mesh-relay row resolved (#240, task_7fei9d).** The relay (`api/mesh_routes/relay.rs::mesh_relay`) is a generic HTTP proxy: it re-issues the call against the peer's own `/api/panes/{id}/send` and writes no PTY bytes itself. So sec_sve813's suspicion that the mesh path bypasses `submit_transaction::run()` is **not confirmed** — mesh delivery already rode the verified transaction via `Messenger::deliver → svc.send_text → send_text_to_pty_smart → submit_entry`. The real #240 defect was **reporting, not routing**: every delivery failure was collapsed to a bare `404 "Pane not found"` (send.rs:384/398, pre-fix), so a `SubmitNeverConfirmed` raised *after* the paste reached the PTY told the caller the pane did not exist — the "404 + delivered" symptom. `--tab main` appeared to work only because a warm general pane confirms submission; any busy/booting target failed verification and surfaced as a routing-shaped 404. Fixed by `service/delivery_error.rs`: preflight (reachability → PTY → link) is ordered strictly before the write, the write is the last fallible step, and failures carry `pane_not_reachable_on_peer` / `pane_busy_refused` / `pty_unavailable` / `submit_unconfirmed` plus an explicit `bytes_written` flag across the relay boundary.
+
+      **Known gap:** `wait_for_echo` and `wait_for_submit_tui_drained` (inject_verify.rs:190-298) are no longer called from `submit_transaction::run()` — only from tests and the separate shell-spawn launch path (`pty_io/inject.rs:70-174`, a bare-shell launch with no agent TUI yet). The primary submit path reimplements equivalent drain/echo logic inline. Two parallel implementations risk silent divergence.
+    subsections: []
+    canvas:
+      x: null
+      y: null
+      collapsed: false
+    attachments: []
+  - id: sec_wzc88b
+    title: Success criteria & correctness vector
+    handle: success-criteria-correctness-vector
+    tags: []
+    body: |2-
+
+      A submission is only reported successful when:
+      1. **Echo evidence**: either the literal text (normalized-whitespace substring or suffix-match for ≥1024-byte pastes, inject_verify.rs:161-188) or the paste-placeholder (`[Pasted text #N(+M lines)]`) is observed on screen, OR (when `verify_echo=false`) at least one screen-activity generation tick is observed after paste (`wait_for_paste_activity`) — never a blind no-op.
+      2. **Submit evidence** (when `enter=true` and `verify_submit=true`): a strategy-specific post-Enter signal — new shell prompt + changed hash (`ShellPrompt`), input-drained-and-stable (`TuiInputDrained`, with anti-flap candidate/reappearance tracking for long bodies that scroll), or a bare generation tick (`None` — the weakest tier, used for unknown/plain shells).
+      3. Long/wrapped/multi-line input must reach the SAME evidence bar as short input — never a silently relaxed check because the literal text doesn't fit in the 8-row tail window.
+
+      **Correctness vector (observable proof):** `cargo test` (capped, scripts/test-capped.sh) green for `service::pty_io::submit_transaction::tests` and `service::pty_io::inject_verify::tests` (or whatever module path today's tests resolve to — see Plan/Verification section for exact commands), AND `pytest tests/e2e/test_inject_verify.py tests/e2e/test_pty_io.py -v` green against a healthy dev daemon (port 7686).
+
+      **CONTRACT AMENDMENT (owner-directed, commit 9dbcda652, deployed in 31f335d48):** delivery is now **optimistic** — screen-scrape verification no longer VETOES a send (`require_submission` softened; `PtyClosed` stays fatal). Evidence is still gathered via `submit_observed`/`echo_observed` flags; anti-false-positive tests retargeted to the flags.
+
+      **AMENDMENT TO THE AMENDMENT (2026-07-17, prod evidence):** optimistic write is **NOT acceptance and does NOT close the delivery guarantee**. Production 31f335d48 shows CodeTerm-delivered text sitting UNSENT in a target Codex composer with the send reported ok — the original user-facing failure, now silent. The guarantee remains open until **provider acceptance** is an observable, testable state (see the Acceptance model section). Candidate regression mechanism, to be confirmed: send.rs:275 records that codex/opencode swallow a `\r` during paste ingestion — "so verification stays" — i.e. the pre-9dbcda652 verify loop's Enter RETRY was the mechanism that made Codex sends land; softening the veto plausibly also disarmed that retry, resurfacing the swallowed-Enter failure without any error signal.
+    subsections: []
+    canvas:
+      x: null
+      y: null
+      collapsed: false
+    attachments: []
+  - id: sec_ze5gj3
+    title: Open gaps & decisions needed (PTY)
+    handle: open-gaps-decisions-needed-pty
+    tags: []
+    body: |2-
+
+      1. **Weak evidence tier**: `submitted()` for `VerifySubmitStrategy::None` (submit_transaction.rs:158) accepts *any* generation tick after Enter as proof of submission — no hash/content check. Used for plain shells / providers with no declared strategy. Decide: tighten to a hash-change check (matching `ShellPrompt`'s bar), or explicitly document why a bare tick is sufficient for this tier.
+      2. **Dead/ignored parameter**: `idle_after_drain` on `wait_for_submit_tui_drained` (inject_verify.rs:271-298) is accepted but never used (`_idle_after_drain`) — no settle time is enforced there. The real anti-flap logic (candidate/reappearance tracking) lives only in `submit_transaction.rs::run()`. Decide: delete the unused param + the now-superseded helper if truly dead on all live paths, or wire it up if a live path still needs it.
+      3. **Duplication**: `wait_for_echo`/`wait_for_submit_tui_drained` vs the inline logic in `submit_transaction.rs::run()` — confirm which callers still use the standalone helpers (shell-spawn launch in pty_io/inject.rs:70-174 per audit) and either delete the duplicate or extract one shared implementation.
+      4. **Retry-loop coverage gap**: `MAX_ENTER_ATTEMPTS = 2` retry logic (submit_transaction.rs:228-298) has no test for 3+ rapid stale-generation cycles overlapping with a long/wrapped body — only single-retry cases are covered today.
+      5. **UI surfacing**: no Playwright/frontend coverage confirms `SubmitNeverConfirmed`/`EchoMismatch` reach the user distinctly from a generic failure. Out of scope for this plan unless a task explicitly picks it up (tracked here so it isn't silently dropped).
+    subsections: []
+    canvas:
+      x: null
+      y: null
+      collapsed: false
+    attachments: []
+  - id: sec_vqbm9d
+    title: 'Issue-triage scope: WHAT & WHY'
+    handle: issue-triage-scope-what-why
+    tags: []
+    body: |2-
+
+      **What:** after the PTY delivery-guarantee work lands, audit and resolve every currently **open, non-roadmap** GitHub issue in `rollacode/codeterm`: #179, #185, #203, #209, #230, #231, #232, #233, #234, #235, #236, #237, #238, #239. Issue #175 (`roadmap` label) is explicitly excluded — it is idea-capture, not a bug/fix.
+
+      **Why:** these are field-reported defects (crashes, hangs, silent CLI failures, cron/agent reliability gaps, DX friction in the planner CLI itself) accumulated across recent sessions on rollacode-bot, BLACKSTAR, and Linux/macOS/Windows hosts. Left open they keep costing operator time (service-health cron failures, mesh crashes requiring app restart, CLI scripts silently mis-parsing JSON).
+
+      **Non-goals / constraints:**
+      - Roadmap-labeled issues are out of scope for this plan.
+      - **No issue is closed without an accepted implementation AND evidence** (a passing regression test or documented repro-no-longer-reproduces + a real command transcript) — closure is an Orchestrator decision, not a worker self-close.
+      - PTY delivery-guarantee work (see prior spec sections) is the first priority; issue-triage tasks are sequenced after it, not interleaved into the same lane.
+      - Where an issue bundles multiple distinct bugs (#231 has 10 findings, #232 has 2), split into separately acceptance-testable tasks rather than one giant task — see Plan phases for the split.
+
+      **Success criteria:** each issue has one or more tasks whose acceptance criteria quote the issue's own repro/expected-behavior text, and whose test plan proves the fix against that repro. A GitHub issue is only closed by the Orchestrator after the linked task(s) reach `in_review`/accepted with evidence attached.
+
+      (Later amendment via task_eee5uy why-update: scope widened to 15 issues including #240.)
+    subsections: []
+    canvas:
+      x: null
+      y: null
+      collapsed: false
+    attachments: []
+  - id: sec_v52w2y
+    title: 'Live defect: Enter not submitted after paste (chat UI / cross-pane)'
+    handle: live-defect-enter-not-submitted-after-paste-chat-ui-cross-pane
+    tags: []
+    body: |2-
+
+      **User report (Andrey, 2026-07-16, prod):** when sending from the Chat UI or when panes message each other, the paste lands in the agent TUI composer but **Enter is never pressed** — the message sits unsent. Critical, user-visible.
+
+      **Traced cause candidate:** both paths converge on `send_text_to_pty_smart` (Direct entry, `verify_echo:false, verify_submit:true`): Chat UI → `chat_send_text` (commands/pane.rs:658) → `send_text_when_ready` → `send_text`; cross-pane → `Messenger::deliver` (messenger.rs:281) → `svc.send_text`. In the committed code, `run()` gated the paste-wait on `enter || opts.verify_echo` — so even with `verify_echo:false` it ran `wait_for_paste`, which demands `screen_contains_echo`; when no literal/suffix/placeholder match occurs, it times out with `EchoMismatch` **before `write_enter` is ever called**. Result: paste visible, no Enter — the reported symptom. Landing the uncommitted `wait_for_paste_activity` diff is Phase 1.
+
+      **LIVE REPRO CAPTURED 2026-07-16 (this planning session):** `codeterm agent report` from pane 02d1339c to the Orchestrator pane (gpt-5.6-terra TUI) failed twice with `RPC error -32603: expected echo not found on screen`; the captured screen_tail shows the composer holding `[Pasted Content 2935 chars]` / `[Pasted Content 2256 chars] #2`. **New sub-defect:** `paste_placeholder_regex` (inject_verify.rs:138-141) matches only `[Pasted text #N( +M lines)?]` (Claude-style) — it misses the `[Pasted Content N chars]` shape this TUI renders, so placeholder-based echo confirmation can never succeed there. Report delivery (Report entry) uses verify_echo=true semantics on that path, so the fix needs BOTH the Phase 1 gate fix AND the widened placeholder regex.
+
+      **SUB-DEFECT 2 (suffix-gate dead zone):** a ~800-byte report echoed literally into the composer but its head scrolled out of the 8-row tail window while `ECHO_SUFFIX_MATCH_MIN_INPUT_BYTES=1024` blocked the suffix fallback — inputs between tail capacity and 1024 bytes can never pass echo verification on a wrapping composer. Covered by task_t2uxx8.
+
+      **SUB-DEFECT 3 (wrap-boundary char clipping):** a 344-byte report visibly present in the composer (twice, after a retry) still failed echo verify — the captured tail shows `status+body; liv` + newline + `payloads`: the composer's soft-wrap (or `tail_text` column clipping) dropped the character at the wrap column (`live` → `liv`), so neither normalized-substring variant can match. Echo matching needs tolerance for a clipped char at wrap boundaries, or tail extraction must not lose the last column. Fixture: this tail is in the 2026-07-16 planning transcript (third failed `agent report`). (Fourth occurrence same day: `drill;` → `drill` at wrap column.)
+
+      **Why this section exists separately:** unit tests prove the state machine; they do NOT prove the live symptom is gone in a running build. End-to-end verification against a live dev daemon is required before the goal counts as met.
+    subsections: []
+    canvas:
+      x: null
+      y: null
+      collapsed: false
+    attachments: []
+  - id: sec_276y7e
+    title: '#240 P0: cross-mesh delivery violates the guarantee'
+    handle: 240-p0-cross-mesh-delivery-violates-the-guarantee
+    tags: []
+    body: |2-
+
+      **GitHub #240 (two independent repros this week, ROG→BLACKSTAR and eight→BLACKSTAR, prod 1.7.1):** cross-mesh pane-to-pane `codeterm send --tab <pane> --mesh <peer>` returns **HTTP 404 to the sender yet still injects the raw text into the target's live PTY** — captured mid-command splice into a running PowerShell one-liner on pane 166df18d (ParserError, command destroyed). `--tab main --mesh` routes fine; only direct pane-to-pane 404s.
+
+      **AUDIT CORRECTION (superseded 2026-07-17 by task_7fei9d review evidence):** the earlier claim here that the mesh relay writes raw PTY bytes bypassing `submit_transaction::run()` is **NOT confirmed and was wrong as premise**. The relay is a generic HTTP proxy re-issuing the peer's own `/api/panes/{id}/send`; mesh delivery already rode the verified transaction (Messenger::deliver → send_text → send_text_to_pty_smart → submit_entry). The #240 defect is **REPORTING, not routing**: the transaction's outcomes were collapsed to a bare 404, so bytes-written-then-verify-failed surfaced as "pane not found" (and "--tab main works / pane-to-pane 404s" is the same cause — warm pane confirms, busy/booting target fails verify). Residual honest limit: `submit_unconfirmed` inherently means bytes DID reach the PTY; the enforceable invariant is "reported state and actual writes never disagree", not "no error after any write". Known fail-open seam left deliberately out of task_7fei9d scope: `body.raw=true` relayed over mesh still bypasses the verified transaction (write_raw keystroke passthrough) — a scope decision for the Orchestrator/owner, tracked here.
+
+      Companion evidence (Fable@eight session report, C:\Users\dev\.codeterm\general\research\orchestration-economics-bundle\reports\fable-task_9246rj-report-and-stripansi-fix.md):
+      - Every mesh send that returned 404 was actually delivered — one self-assignment landed 3x on the target Main pane (**retry → duplicate delivery hazard**: sender is told failure, retries, target gets N copies).
+      - `--actions enter` relayed cross-mesh arrives as an **empty stamped message instead of a keypress** (one occurrence returned HTTP 503) — reproduced against agent panes via mesh AND local send.
+
+      **Required properties (WHAT):**
+      1. **Fail-closed:** a relay that reports any error has written NOTHING to the target PTY — error taxonomy and the write must be ordered so bytes-after-404 is structurally impossible.
+      2. **Structured error taxonomy:** pane-not-reachable-on-peer, busy-pane-refused, submit-unconfirmed etc. — never a bare 404/503 that lies about delivery state.
+      3. **Idempotency:** sender attaches a delivery key; target dedupes retries so at-most-once delivery holds even when the sender retries on a (mis)reported failure.
+      4. **Busy-pane safety:** never inject into a pane mid-command; route through the verified submit transaction (prompt/TUI gating) or refuse with a reason — raw splice into a live command line is never acceptable.
+      5. **Action transport:** `--actions enter` delivers a keypress at the target, never an empty stamped message.
+    subsections: []
+    canvas:
+      x: null
+      y: null
+      collapsed: false
+    attachments: []
+  - id: sec_7p3g4f
+    title: Chat UI agent-binding regression (research-first)
+    handle: chat-ui-agent-binding-regression-research-first
+    tags: []
+    body: |2-
+
+      **User-reported regression:** a live, working PTY pane sometimes shows the **Spawning Agent** screen after the Chat UI loses its pane/session binding — the agent is fine, the binding state machine is not. Fable@eight is collecting macOS state-machine evidence (in progress; attach when it lands).
+
+      **Explicit constraint: research before patch.** No fix may be prescribed until the regression is reproduced and the binding lifecycle (pane ↔ agent session ↔ chat view state) is traced end-to-end: what invalidates the binding, what the UI's spawning-screen predicate actually reads, and where the false transition originates. Per the provider-discipline rules, detection must key off the pane's OWN session (architecture rule 3) — a suspected violation class here.
+
+      **Possible overlap:** #231's team-scoped plan/planner duplication work (task_k1982v) touches session/ownership relations; if binding evidence shows shared cause, link the tasks rather than duplicating the trace.
+
+      **SCENARIO 2 (P0, user-visible): "Orchestrator could not start" after crash recovery.** A live team recovers from power loss or a killed process with its **planner intact but the orchestrator failed to start** — the user sees the could-not-start state on a team that was healthy before the crash. This is the same binding/lifecycle state machine exercised through the restore path instead of the steady-state path: session restore must rebind pane ↔ agent session ↔ team role, and the orchestrator's rebind demonstrably can fail while the planner's succeeds. Root cause REQUIRED before any patch — the recovery ordering (which bindings restore first, what the orchestrator-start predicate reads during restore, what a half-restored team looks like to it) must be traced with the same rigor as scenario 1. Repro levers: kill -9 the app process / power-cycle with a live 2-role team, then observe restore.
+    subsections: []
+    canvas:
+      x: null
+      y: null
+      collapsed: false
+    attachments: []
+  - id: sec_tqiw4c
+    title: Andrey-directed architecture refactor lanes
+    handle: andrey-directed-architecture-refactor-lanes
+    tags: []
+    body: |2-
+
+      Three refactor lanes exist as pushed branches awaiting integration, directed by Andrey and distinct from the #240 delivery-integrity work:
+
+      1. **Spawn factory** — `origin/lane/spawn-factory` @ b11e61ab: unifies agent spawn identity + team introductions behind a spawn factory (fe06b9434), gates booting team-member intro on launch readiness (d381f577a) and pair intro delivery on recipient receptivity (b11e61ab). Fable has proven bidirectional live intros on this tip; that proof must be REPRODUCED post-merge, not carried over on trust.
+      2. **Message gateway phase 1** — `origin/lane/message-gateway` @ 7dc7dcd6: parity wrapper seam for message delivery. Deliberately PARKED behind #240 (task_7fei9d rewrites the mesh relay error/write ordering in the same territory); integrating the seam first would force task_7fei9d to re-fight merge conflicts on the load-bearing messenger boundary.
+      3. **Board team-scoped plan binding** — `origin/lane/board-team-scope` @ cd1613dff (scope workspace plan board to team-bound plans + make scoping structurally required). Currently BOUNCED — the bounce reasons must be obtained from the Orchestrator's bounce record and addressed before any integration attempt.
+
+      **Integration constraint (all three):** real merge commits only, `git merge-base --is-ancestor <lane-tip> <target-tip>` before lane deletion, per AGENTS.md "Lane integration preserves ancestry". No cherry-pick, no squash, no patch-copy.
+    subsections: []
+    canvas:
+      x: null
+      y: null
+      collapsed: false
+    attachments: []
+  - id: sec_z3zbrk
+    title: 'Acceptance model: bytes-written vs provider-accepted'
+    handle: acceptance-model-bytes-written-vs-provider-accepted
+    tags: []
+    body: |2-
+
+      **Delivery has FOUR distinct states, and conflating any two of them is how this plan's bugs keep shipping:**
+      1. `bytes_written` — the PTY write syscall succeeded (transport ack; what optimistic delivery reports).
+      2. `echo_observed` — the text (or a paste placeholder) appeared on the target screen (screen scrape; unreliable per sub-defects 1-3 in sec_gnk2xm).
+      3. `submit_observed` — post-Enter screen evidence (drain/prompt/hash; screen scrape again).
+      4. `provider_accepted` — the provider ITSELF recorded the message as input: the user turn exists in the provider's own session store (Claude/Codex session JSONL — ground truth, transport- and render-independent), or an equivalent provider-native acknowledgement.
+
+      **Live evidence (prod 31f335d48, user repro):** Chat UI send to a Codex pane → send reported ok (state 1) → text parked UNSENT in the Codex composer (state 4 false, and even state 3 false). Optimistic write must never be read as acceptance; the plan's guarantee closes only on state 4 observability.
+
+      **Candidate regression mechanism (confirm in repro task):** the pre-9dbcda652 verify loop doubled as the ENTER RETRY engine — codex/opencode swallow `\r` during paste ingestion (send.rs:275 comment), and the loop's second Enter is what actually landed those sends. Softening the veto disarmed the retry: the swallowed Enter is now final, and silent.
+
+      **Required seam (WHAT):** a per-provider acceptance observable + deterministic retry protocol, testable end-to-end:
+      - Provider capability (trait-level, capability not identity per architecture rules): `acceptance evidence for delivery X` — session-store user-turn match where a session file exists (Claude/Codex), structural composer-empty+transcript-present fingerprint as fallback; `None` = honest unknown.
+      - A queryable delivery record: send returns a delivery id; `delivery_state(pane, id)` exposes states 1-4 so CLI/REST/Playwright/pytest assert acceptance uniformly (the stub-agent fixture implements the same seam deterministically).
+      - Deterministic retry protocol keyed on the acceptance observable, NOT on screen scrape alone: unaccepted-after-bounded-deadline → re-Enter (bounded attempts, idempotent via the composer still holding the text) → still unaccepted → surface a visible failure state on the pane/message (never silent). Optimistic transport ack stays; acceptance tracking rides on top.
+
+      ---
+    subsections: []
+    canvas:
+      x: null
+      y: null
+      collapsed: false
+    attachments: []
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: sec_y7mxs5
+  title: PTY delivery guarantee (recovered from pl_ghk358)
+  handle: pty-delivery-guarantee-recovered-from-pl-ghk358-2
+  tags: []
+  body: 'Parent for the 9 spec sections recovered from lost plan pl_ghk358 via pl_iassb6. Source export: .codeterm-rem-tmp/pl_ghk358-recovery.md sha256 78a67aaf79b07838e39251ebaff501a63bc3321b6f1ebc8cc1085a7a85ef2e07. Evidence-only closure discipline applies to every task under this umbrella.'
+  subsections: []
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: sec_spqhw3
+  title: PTY recovered probe
+  handle: pty-recovered-probe
+  tags: []
+  body: probe
+  subsections: []
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 created_at: 1783629061377
-updated_at: 1783629463717
+updated_at: 1784356539615
 canvas:
   viewport: null

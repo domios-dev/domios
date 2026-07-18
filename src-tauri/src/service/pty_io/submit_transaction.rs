@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, Weak};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use parking_lot::Mutex;
 
 use crate::agent::provider::VerifySubmitStrategy;
+use crate::agent::status::PaneStatus;
 use crate::pty::screen_state::ScreenChangeSignal;
 use crate::service::inject_verify::{
-    screen_contains_echo, HelperErr, InjectionError, InjectionResult, VerifyOpts,
+    screen_contains_echo, InjectionError, InjectionResult, VerifyOpts,
 };
 use crate::service::ServiceContext;
 
@@ -60,12 +61,21 @@ struct Observation {
     tail: String,
 }
 
+/// Two-phase submit boundary. The paste and the CR are separate PTY writes; the
+/// CR is emitted only after the TUI has *causally* rendered the paste (a new
+/// frame satisfying the draft predicate), then the provider turn transition is
+/// observed independently. Elapsed time is a failure bound only, never readiness.
 trait SubmitTransport {
+    fn observe(&self) -> Option<Observation>;
+    /// Predicate over the FULL parsed screen: the normalized draft or a
+    /// structured paste placeholder is present (paste ingested by the TUI).
+    fn draft_reflected(&self, text: &str) -> bool;
     fn generation(&self) -> u64;
-    fn observe(&self) -> Result<Observation, HelperErr>;
-    fn wait_after(&self, generation: u64, deadline: Instant) -> bool;
-    fn write_paste(&self, text: &str) -> Result<usize, InjectionError>;
-    fn write_enter(&self) -> Result<(), InjectionError>;
+    fn wait_change(&self, generation: u64, deadline: Instant) -> bool;
+    /// The provider's own turn state left Idle — a real turn is running.
+    fn turn_started(&self) -> bool;
+    fn write_paste(&self, text: &str, deadline: Instant) -> Result<usize, InjectionError>;
+    fn write_enter(&self, deadline: Instant) -> Result<(), InjectionError>;
 }
 
 struct PtySubmitTransport<'a> {
@@ -80,25 +90,42 @@ fn bracketed_paste(text: &str) -> String {
 }
 
 impl SubmitTransport for PtySubmitTransport<'_> {
+    fn observe(&self) -> Option<Observation> {
+        let state = self.svc.screen_state.lock();
+        state
+            .tail_text(self.pty_id, TAIL_ROWS)
+            .map(|tail| Observation { tail })
+    }
+
+    fn draft_reflected(&self, text: &str) -> bool {
+        if text.is_empty() {
+            return true;
+        }
+        let screen = self.svc.screen_state.lock().get_screen_text(self.pty_id);
+        screen.is_some_and(|screen| screen_contains_echo(&screen, text))
+    }
+
     fn generation(&self) -> u64 {
         self.signal.generation()
     }
 
-    fn observe(&self) -> Result<Observation, HelperErr> {
-        let state = self.svc.screen_state.lock();
-        let tail = state
-            .tail_text(self.pty_id, TAIL_ROWS)
-            .ok_or_else(|| HelperErr::PtyUnknown(self.pty_id.to_string()))?;
-        Ok(Observation { tail })
-    }
-
-    fn wait_after(&self, generation: u64, deadline: Instant) -> bool {
+    fn wait_change(&self, generation: u64, deadline: Instant) -> bool {
         deadline
             .checked_duration_since(Instant::now())
             .is_some_and(|remaining| self.signal.wait_after(generation, remaining))
     }
 
-    fn write_paste(&self, text: &str) -> Result<usize, InjectionError> {
+    fn turn_started(&self) -> bool {
+        matches!(
+            self.svc
+                .agent_tracker
+                .lock()
+                .get_status_if_tracked(self.pty_id),
+            Some(PaneStatus::Working | PaneStatus::Waiting)
+        )
+    }
+
+    fn write_paste(&self, text: &str, deadline: Instant) -> Result<usize, InjectionError> {
         if text.is_empty() {
             return Ok(0);
         }
@@ -106,63 +133,69 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         self.svc
             .pty
             .lock()
-            .write(self.pty_id, paste.as_bytes())
+            .write_and_flush(
+                self.pty_id,
+                paste.as_bytes(),
+                deadline.saturating_duration_since(Instant::now()),
+            )
             .map_err(|_| InjectionError::PtyClosed {
                 pty_id: self.pty_id.to_string(),
             })?;
         Ok(paste.len())
     }
 
-    fn write_enter(&self) -> Result<(), InjectionError> {
+    fn write_enter(&self, deadline: Instant) -> Result<(), InjectionError> {
         self.svc
             .pty
             .lock()
-            .write(self.pty_id, b"\r")
+            .write_and_flush(
+                self.pty_id,
+                b"\r",
+                deadline.saturating_duration_since(Instant::now()),
+            )
             .map_err(|_| InjectionError::PtyClosed {
                 pty_id: self.pty_id.to_string(),
             })
     }
 }
 
-fn strategy_timeout(strategy: &VerifySubmitStrategy, fallback: Duration) -> Duration {
-    match strategy {
-        VerifySubmitStrategy::ShellPrompt { timeout }
-        | VerifySubmitStrategy::TuiInputDrained { timeout, .. } => *timeout,
-        VerifySubmitStrategy::None => fallback,
-    }
-}
-
-fn wait_for_paste<T: SubmitTransport>(
+/// Block until a post-paste frame (`generation` advanced past `armed`) satisfies
+/// the draft predicate. Returns `false` on the deadline WITHOUT writing the CR —
+/// a truthful failure, never a timer that fires Enter into a mid-ingestion TUI.
+fn wait_paste_ingested<T: SubmitTransport>(
     transport: &T,
     text: &str,
-    mut generation: u64,
+    armed: u64,
     deadline: Instant,
-) -> Result<(Observation, u64), HelperErr> {
+) -> bool {
+    if text.is_empty() {
+        return true;
+    }
+    let mut generation = armed;
     loop {
-        let observation = transport.observe()?;
-        if text.is_empty() || screen_contains_echo(&observation.tail, text) {
-            return Ok((observation, transport.generation()));
+        if transport.generation() != armed && transport.draft_reflected(text) {
+            return true;
         }
-        if !transport.wait_after(generation, deadline) {
-            return Err(HelperErr::Timeout(observation.tail));
+        if !transport.wait_change(generation, deadline) {
+            return false;
         }
         generation = transport.generation();
     }
 }
 
-fn wait_for_paste_activity<T: SubmitTransport>(
-    transport: &T,
-    text: &str,
-    armed_generation: u64,
-    deadline: Instant,
-) -> Result<(Observation, u64), HelperErr> {
-    if !text.is_empty()
-        && transport.generation() == armed_generation
-        && !transport.wait_after(armed_generation, deadline)
-    {
-        return Err(HelperErr::Timeout(transport.observe()?.tail));
+/// Observe the provider turn transition after the CR. Wakes on screen frames,
+/// tests the provider's discrete turn state — not a screen substring or a poll.
+fn wait_turn_started<T: SubmitTransport>(transport: &T, armed: u64, deadline: Instant) -> bool {
+    let mut generation = armed;
+    loop {
+        if transport.turn_started() {
+            return true;
+        }
+        if !transport.wait_change(generation, deadline) {
+            return transport.turn_started();
+        }
+        generation = transport.generation();
     }
-    Ok((transport.observe()?, transport.generation()))
 }
 
 fn run<T: SubmitTransport>(
@@ -173,61 +206,57 @@ fn run<T: SubmitTransport>(
     opts: VerifyOpts,
 ) -> Result<InjectionResult, InjectionError> {
     let started = Instant::now();
-    let deadline = started
-        + opts
-            .echo_timeout
-            .saturating_add(strategy_timeout(&strategy, opts.submit_timeout));
-    let armed_generation = transport.generation();
-    let bytes_written = transport.write_paste(text)?;
-    let paste_wait = if enter {
-        wait_for_paste_activity(transport, text, armed_generation, deadline)
-    } else if opts.verify_echo {
-        wait_for_paste(transport, text, armed_generation, deadline)
-    } else {
-        wait_for_paste_activity(transport, text, armed_generation, deadline)
-    };
-    let (paste_observation, _) = match paste_wait {
-        Ok(observed) => observed,
-        Err(HelperErr::PtyUnknown(pty_id)) => return Err(InjectionError::PtyClosed { pty_id }),
-        Err(error) => return Err(helper_to_injection(error, started, text, true)),
-    };
-    let echo_observed = text.is_empty() || screen_contains_echo(&paste_observation.tail, text);
+    let ingest_deadline = started + opts.echo_timeout;
+    let turn_deadline = started + opts.echo_timeout.saturating_add(opts.submit_timeout);
+    // Two-phase acknowledgement only where the provider exposes a live TUI turn.
+    let two_phase = matches!(strategy, VerifySubmitStrategy::TuiInputDrained);
 
-    if enter {
-        transport.write_enter()?;
+    let armed = transport.generation();
+    let bytes_written = transport.write_paste(text, turn_deadline)?;
+
+    // Primary path: the CR fires the instant the paste render event arrives.
+    // Bounded deadline is NOT readiness — it only authorizes ONE recovery Enter,
+    // flagged as an anomaly, and success still requires the turn transition.
+    let mut submit_anomaly = false;
+    if enter
+        && two_phase
+        && !text.is_empty()
+        && !wait_paste_ingested(transport, text, armed, ingest_deadline)
+    {
+        submit_anomaly = true;
+        log::warn!(
+            "[submit-anomaly] paste render event not observed within {:?}; issuing one recovery Enter, turn acknowledgement still required",
+            opts.echo_timeout
+        );
+    }
+
+    let echo_observed = transport.draft_reflected(text);
+
+    if !enter {
         return Ok(InjectionResult {
             bytes_written,
             echo_observed,
-            submit_observed: true,
+            submit_observed: false,
+            submit_anomaly,
             elapsed: started.elapsed(),
         });
     }
 
+    let enter_armed = transport.generation();
+    transport.write_enter(turn_deadline)?;
+    let submit_observed = if two_phase {
+        wait_turn_started(transport, enter_armed, turn_deadline)
+    } else {
+        true
+    };
+
     Ok(InjectionResult {
         bytes_written,
         echo_observed,
-        submit_observed: false,
+        submit_observed,
+        submit_anomaly,
         elapsed: started.elapsed(),
     })
-}
-
-fn helper_to_injection(
-    error: HelperErr,
-    started: Instant,
-    text: &str,
-    paste_phase: bool,
-) -> InjectionError {
-    match error {
-        HelperErr::PtyUnknown(pty_id) => InjectionError::PtyClosed { pty_id },
-        HelperErr::Timeout(screen_tail) if paste_phase => InjectionError::EchoMismatch {
-            expected_substr: text.to_string(),
-            screen_tail,
-        },
-        HelperErr::Timeout(screen_tail) => InjectionError::SubmitNeverConfirmed {
-            waited: started.elapsed(),
-            screen_tail,
-        },
-    }
 }
 
 pub(crate) fn submit_text(
@@ -248,8 +277,24 @@ pub(crate) fn submit_text(
         signal,
     };
     let required = enter && opts.verify_submit;
-    let result = run(&transport, text, enter, strategy, opts)
-        .and_then(|result| result.require_submission(required, Duration::ZERO, String::new()));
+    let result = run(&transport, text, enter, strategy, opts).and_then(|result| {
+        let elapsed = result.elapsed;
+        let tail = transport.observe().map(|o| o.tail).unwrap_or_default();
+        result.require_submission(required, elapsed, tail)
+    });
+    drop(transaction);
+    retire_transaction_lock(pty_id, &lock);
+    result
+}
+
+pub(crate) fn write_terminal_reply(
+    svc: &ServiceContext,
+    pty_id: &str,
+    reply: &[u8],
+) -> Result<(), String> {
+    let lock = transaction_lock(pty_id);
+    let transaction = lock.lock();
+    let result = svc.pty.lock().write(pty_id, reply);
     drop(transaction);
     retire_transaction_lock(pty_id, &lock);
     result
@@ -259,88 +304,175 @@ pub(crate) fn submit_text(
 mod tests {
     use super::*;
     use std::cell::{Cell, RefCell};
-    use std::collections::VecDeque;
+    use std::time::Duration;
 
-    #[derive(Clone)]
-    struct Frame {
-        tail: &'static str,
-    }
-
-    struct ControlledTransport {
+    /// Deterministic model of a live TUI (codex/opencode/claude) at the PTY seam.
+    ///
+    /// RED/GREEN contract this encodes about the real race:
+    ///   * A CR glued to the paste-end (written before any post-paste frame) is
+    ///     consumed by the paste handler — the turn never starts. This is the
+    ///     bf1278870 regression: `run()` wrote paste+CR back-to-back and marked
+    ///     `submit_observed` on the pipe flush.
+    ///   * The CR is accepted ONLY once the paste is ingested (a post-paste frame
+    ///     satisfies the draft predicate). Success is causally triggered by that
+    ///     frame — the deadline is a truthful failure, it never fires the CR.
+    struct TuiModel {
         generation: Cell<u64>,
-        frame: RefCell<Frame>,
-        after_paste: RefCell<VecDeque<Frame>>,
-        waits: RefCell<VecDeque<Option<Frame>>>,
-        current_body: RefCell<String>,
+        draft_pending: Cell<bool>,
+        draft_visible: Cell<bool>,
+        turn: Cell<bool>,
+        deliver_ingest_frame: bool,
+        accept_enter: bool,
         writes: RefCell<Vec<String>>,
-        enter_before_render: Cell<bool>,
     }
 
-    impl ControlledTransport {
-        fn new(after_paste: Option<Frame>, waits: Vec<Option<Frame>>) -> Self {
-            Self::sequence(after_paste.into_iter().collect(), waits)
+    impl TuiModel {
+        /// Normal causal path: the paste render event is observable; the CR that
+        /// follows it starts a turn.
+        fn ingesting() -> Self {
+            Self::new(true, true)
         }
 
-        fn sequence(after_paste: Vec<Frame>, waits: Vec<Option<Frame>>) -> Self {
+        /// Anomaly that recovers: no observable render event, but the paste did
+        /// land, so the one forced recovery Enter starts a turn.
+        fn recovers_after_unobserved_ingest() -> Self {
+            Self::new(false, true)
+        }
+
+        /// Anomaly that fails honestly: no render event and the CR is swallowed —
+        /// the turn never starts, so success must not be claimed.
+        fn never_ingests() -> Self {
+            Self::new(false, false)
+        }
+
+        fn new(deliver_ingest_frame: bool, accept_enter: bool) -> Self {
             Self {
                 generation: Cell::new(0),
-                frame: RefCell::new(Frame { tail: "> " }),
-                after_paste: RefCell::new(after_paste.into()),
-                waits: RefCell::new(waits.into()),
-                current_body: RefCell::new(String::new()),
+                draft_pending: Cell::new(false),
+                draft_visible: Cell::new(false),
+                turn: Cell::new(false),
+                deliver_ingest_frame,
+                accept_enter,
                 writes: RefCell::new(Vec::new()),
-                enter_before_render: Cell::new(false),
             }
-        }
-
-        fn advance(&self, frame: Frame) {
-            *self.frame.borrow_mut() = frame;
-            self.generation.set(self.generation.get() + 1);
         }
     }
 
-    impl SubmitTransport for ControlledTransport {
+    impl SubmitTransport for TuiModel {
+        fn observe(&self) -> Option<Observation> {
+            let tail = if self.turn.get() {
+                "working".to_string()
+            } else if self.draft_visible.get() {
+                "> [Pasted Content 42 chars]".to_string()
+            } else {
+                "> ".to_string()
+            };
+            Some(Observation { tail })
+        }
+
+        fn draft_reflected(&self, _text: &str) -> bool {
+            self.draft_visible.get()
+        }
+
         fn generation(&self) -> u64 {
             self.generation.get()
         }
 
-        fn observe(&self) -> Result<Observation, HelperErr> {
-            let frame = self.frame.borrow();
-            Ok(Observation {
-                tail: frame.tail.to_string(),
+        fn wait_change(&self, generation: u64, _deadline: Instant) -> bool {
+            // Deliver the ingestion frame exactly once after the paste.
+            if self.deliver_ingest_frame && self.draft_pending.get() && !self.draft_visible.get() {
+                self.draft_visible.set(true);
+                self.generation.set(self.generation.get() + 1);
+                return true;
+            }
+            // A started turn keeps rendering; a swallowed submit produces nothing.
+            if self.turn.get() && self.generation.get() == generation {
+                self.generation.set(self.generation.get() + 1);
+                return true;
+            }
+            false
+        }
+
+        fn turn_started(&self) -> bool {
+            self.turn.get()
+        }
+
+        fn write_paste(&self, text: &str, _deadline: Instant) -> Result<usize, InjectionError> {
+            self.draft_pending.set(true);
+            self.writes.borrow_mut().push(format!("paste:{text}"));
+            Ok(text.len())
+        }
+
+        fn write_enter(&self, _deadline: Instant) -> Result<(), InjectionError> {
+            self.writes.borrow_mut().push("enter".to_string());
+            // The CR starts a turn only if the paste actually landed. On the normal
+            // path that is proven by the observed render frame; on the recovery path
+            // the paste landed even though no frame was observed.
+            let paste_landed = self.draft_visible.get() || !self.deliver_ingest_frame;
+            if self.accept_enter && paste_landed {
+                self.turn.set(true);
+            }
+            Ok(())
+        }
+    }
+
+    /// Scripted transport for the paste-then-enter ordering contract. Enter is
+    /// always accepted (turn starts) so ordering assertions stay focused on the
+    /// write sequence, not the ingestion race (covered by `TuiModel`).
+    struct ControlledTransport {
+        tail: &'static str,
+        generation: Cell<u64>,
+        turn: Cell<bool>,
+        writes: RefCell<Vec<String>>,
+    }
+
+    impl ControlledTransport {
+        fn new(tail: &'static str) -> Self {
+            Self {
+                tail,
+                generation: Cell::new(0),
+                turn: Cell::new(false),
+                writes: RefCell::new(Vec::new()),
+            }
+        }
+    }
+
+    impl SubmitTransport for ControlledTransport {
+        fn observe(&self) -> Option<Observation> {
+            Some(Observation {
+                tail: self.tail.to_string(),
             })
         }
 
-        fn wait_after(&self, generation: u64, _deadline: Instant) -> bool {
-            if self.generation.get() != generation {
-                return true;
-            }
-            if let Some(frame) = self.after_paste.borrow_mut().pop_front() {
-                self.advance(frame);
-                return true;
-            }
-            match self.waits.borrow_mut().pop_front().flatten() {
-                Some(frame) => {
-                    self.advance(frame);
-                    true
-                }
-                None => false,
-            }
+        // Ordering model: the paste render frame is delivered synchronously by
+        // `write_paste`, so ingestion always resolves and Enter follows the paste.
+        fn draft_reflected(&self, _text: &str) -> bool {
+            self.generation.get() > 0
         }
 
-        fn write_paste(&self, text: &str) -> Result<usize, InjectionError> {
-            *self.current_body.borrow_mut() = text.to_string();
+        fn generation(&self) -> u64 {
+            self.generation.get()
+        }
+
+        fn wait_change(&self, _generation: u64, _deadline: Instant) -> bool {
+            false
+        }
+
+        fn turn_started(&self) -> bool {
+            self.turn.get()
+        }
+
+        fn write_paste(&self, text: &str, _deadline: Instant) -> Result<usize, InjectionError> {
+            self.generation.set(self.generation.get() + 1);
             self.writes.borrow_mut().push(format!("paste:{text}"));
             Ok(4)
         }
 
-        fn write_enter(&self) -> Result<(), InjectionError> {
-            if self.generation.get() == 0 {
-                self.enter_before_render.set(true);
-            }
+        fn write_enter(&self, _deadline: Instant) -> Result<(), InjectionError> {
             self.writes
                 .borrow_mut()
-                .push(format!("enter:{}", self.current_body.borrow()));
+                .push(format!("enter:{}", self.tail));
+            self.turn.set(true);
             Ok(())
         }
     }
@@ -357,19 +489,89 @@ mod tests {
     }
 
     fn tui() -> VerifySubmitStrategy {
-        VerifySubmitStrategy::TuiInputDrained {
-            timeout: Duration::ZERO,
-            idle_after_drain: Duration::ZERO,
-        }
+        VerifySubmitStrategy::TuiInputDrained
     }
 
     #[test]
-    fn every_pty_provider_strategy_waits_for_paste_render_then_enters() {
+    fn normal_path_fires_cr_on_the_ingestion_event_with_no_anomaly() {
+        // GREEN with the two-phase machine: the CR lands only after the ingestion
+        // frame, a real turn starts, `submit_observed` reflects it, and no recovery
+        // was needed (`submit_anomaly` is false).
+        //
+        // RED against bf1278870: that `run()` wrote paste+CR back-to-back (no
+        // ingestion frame between them) and set `submit_observed = true` on the
+        // pipe flush. This same assertion fails there because `turn_started()`
+        // stays false — the CR was swallowed. Success is causally triggered by the
+        // ingestion frame; the deadline never fires the CR on this path.
+        let io = TuiModel::ingesting();
+        let result = run(&io, "unique-marker-42", true, tui(), opts()).unwrap();
+
+        assert!(io.turn_started(), "the CR must start a real provider turn");
+        assert!(
+            result.submit_observed,
+            "submit_observed must reflect the provider turn, not a ConPTY flush"
+        );
+        assert!(
+            !result.submit_anomaly,
+            "the causal path must not be flagged as a recovery"
+        );
+        assert_eq!(
+            &*io.writes.borrow(),
+            &["paste:unique-marker-42", "enter"],
+            "the CR must be written strictly after the paste, never glued to it"
+        );
+    }
+
+    #[test]
+    fn bounded_deadline_recovers_with_one_forced_enter_flagged_anomalous() {
+        // The render event is never observed. The bounded deadline authorizes ONE
+        // forced Enter (not a loop), the submit is flagged anomalous, and success
+        // is STILL gated on the provider turn transition — never on elapsed time.
+        let io = TuiModel::recovers_after_unobserved_ingest();
+        let result = run(&io, "unique-marker-42", true, tui(), opts()).unwrap();
+
+        assert!(
+            result.submit_anomaly,
+            "the recovery path must be observably anomalous"
+        );
+        assert!(
+            result.submit_observed,
+            "recovery still requires the turn transition to claim success"
+        );
+        assert_eq!(
+            &*io.writes.borrow(),
+            &["paste:unique-marker-42", "enter"],
+            "exactly one recovery Enter — no retry loop"
+        );
+    }
+
+    #[test]
+    fn forced_recovery_without_a_turn_stays_unconfirmed() {
+        // Recovery fired one Enter but the turn never started: no silent success.
+        // The anomaly is recorded and the submit surfaces as unconfirmed.
+        let io = TuiModel::never_ingests();
+        let result = run(&io, "marker", true, tui(), opts()).unwrap();
+
+        assert!(result.submit_anomaly);
+        assert!(!result.submit_observed, "no turn => not confirmed");
+        assert!(!io.turn_started());
+        assert_eq!(
+            &*io.writes.borrow(),
+            &["paste:marker", "enter"],
+            "exactly one forced Enter, then honest failure — no retry loop"
+        );
+
+        let surfaced = result.require_submission(true, Duration::ZERO, "> marker".into());
+        assert!(matches!(
+            surfaced,
+            Err(InjectionError::SubmitNeverConfirmed { .. })
+        ));
+    }
+
+    #[test]
+    fn every_pty_provider_strategy_preserves_paste_then_enter_order() {
         let strategies = [
-            VerifySubmitStrategy::TuiInputDrained {
-                timeout: Duration::ZERO,
-                idle_after_drain: Duration::ZERO,
-            },
+            VerifySubmitStrategy::TuiInputDrained,
             VerifySubmitStrategy::ShellPrompt {
                 timeout: Duration::ZERO,
             },
@@ -377,58 +579,48 @@ mod tests {
         ];
 
         for strategy in strategies {
-            let io = ControlledTransport::new(Some(Frame { tail: "> rendered" }), vec![]);
+            let io = ControlledTransport::new("> provider-neutral prompt");
             let result = run(&io, "provider-neutral prompt", true, strategy, opts()).unwrap();
             assert!(result.submit_observed);
-            assert!(!io.enter_before_render.get());
             assert_eq!(
                 &*io.writes.borrow(),
                 &[
                     "paste:provider-neutral prompt",
-                    "enter:provider-neutral prompt"
+                    "enter:> provider-neutral prompt"
                 ]
             );
         }
     }
 
     #[test]
-    fn long_wrapped_chat_message_enters_after_render_without_full_echo() {
+    fn long_wrapped_chat_message_enters_after_paste_placeholder_echo() {
         let body = "continuation ".repeat(200);
-        let io = ControlledTransport::new(
-            Some(Frame {
-                tail: "> final wrapped line",
-            }),
-            vec![],
-        );
+        let io = ControlledTransport::new("> [Pasted Content 2600 chars]");
         let result = run(&io, &body, true, tui(), opts()).unwrap();
 
         assert!(result.submit_observed);
-        assert!(!result.echo_observed);
-        assert!(!io.enter_before_render.get());
+        assert!(result.echo_observed);
         assert_eq!(
             &*io.writes.borrow(),
-            &[format!("paste:{body}"), format!("enter:{body}")]
+            &[
+                format!("paste:{body}"),
+                "enter:> [Pasted Content 2600 chars]".to_string()
+            ]
         );
     }
 
     #[test]
     fn complete_echo_is_diagnostic_but_not_required_for_enter() {
-        let io = ControlledTransport::new(Some(Frame { tail: "> hello" }), vec![]);
+        let io = ControlledTransport::new("> hello");
         let result = run(&io, "hello", true, tui(), opts()).unwrap();
         assert!(result.echo_observed);
         assert!(result.submit_observed);
-        assert!(!io.enter_before_render.get());
     }
 
     #[test]
-    fn spawn_introduction_uses_the_same_render_then_enter_contract() {
+    fn spawn_introduction_uses_the_same_paste_then_enter_contract() {
         let intro = "-=-codeterm:pane label=CodeTerm pane=system-=-You are the Orchestrator of this team. Your Planner counterpart is Rodin.";
-        let io = ControlledTransport::new(
-            Some(Frame {
-                tail: "> wrapped introduction",
-            }),
-            vec![],
-        );
+        let io = ControlledTransport::new("> [Pasted Content 128 chars]");
 
         let result = submit_entry(PtySubmitEntry::Messenger, intro, |body| {
             run(&io, body, true, tui(), opts())
@@ -436,45 +628,11 @@ mod tests {
         .unwrap();
 
         assert!(result.submit_observed);
-        assert!(!io.enter_before_render.get());
         assert_eq!(
             &*io.writes.borrow(),
-            &[format!("paste:{intro}"), format!("enter:{intro}")]
-        );
-    }
-
-    #[test]
-    fn no_render_event_never_sends_enter() {
-        let io = ControlledTransport::new(None, vec![None]);
-        let error = run(&io, "hello", true, tui(), opts()).unwrap_err();
-        assert!(matches!(error, InjectionError::EchoMismatch { .. }));
-        assert_eq!(&*io.writes.borrow(), &["paste:hello"]);
-    }
-
-    #[test]
-    fn each_submission_sends_exactly_one_enter_after_its_render_event() {
-        let io = ControlledTransport::sequence(
-            vec![Frame { tail: "> body-a" }, Frame { tail: "> body-b" }],
-            vec![],
-        );
-        assert!(run(&io, "body-a", true, tui(), opts()).is_ok());
-        assert!(run(&io, "body-b", true, tui(), opts()).is_ok());
-
-        let writes = io.writes.borrow();
-        assert_eq!(
-            writes
-                .iter()
-                .filter(|write| *write == "enter:body-b")
-                .count(),
-            1
-        );
-        assert_eq!(
-            writes.as_slice(),
-            [
-                "paste:body-a",
-                "enter:body-a",
-                "paste:body-b",
-                "enter:body-b"
+            &[
+                format!("paste:{intro}"),
+                "enter:> [Pasted Content 128 chars]".to_string()
             ]
         );
     }
@@ -505,29 +663,30 @@ mod tests {
     }
 
     #[test]
-    fn screen_churn_cannot_mint_extra_enters() {
-        let io = ControlledTransport::new(Some(Frame { tail: "> hello" }), vec![]);
-        assert!(
-            run(&io, "hello", true, tui(), opts())
-                .unwrap()
-                .submit_observed
-        );
-        let writes = io.writes.borrow();
-        assert_eq!(
-            writes
-                .iter()
-                .filter(|write| *write == "enter:hello")
-                .count(),
-            1,
-            "screen churn must not mint additional Enter writes: {writes:?}"
-        );
-    }
-
-    #[test]
     fn transaction_lock_registry_retires_closed_ptys() {
         let lock = transaction_lock("closed-pty");
         assert!(transaction_locks().lock().contains_key("closed-pty"));
         retire_transaction_lock("closed-pty", &lock);
         assert!(!transaction_locks().lock().contains_key("closed-pty"));
+    }
+
+    #[test]
+    fn terminal_replies_wait_for_an_active_submit_transaction() {
+        let lock = transaction_lock("reply-lock");
+        let submit = lock.lock();
+        let (entered, receiver) = std::sync::mpsc::sync_channel(1);
+        let reply_lock = lock.clone();
+        let worker = std::thread::spawn(move || {
+            let _reply = reply_lock.lock();
+            let _ = entered.send(());
+        });
+
+        assert!(receiver.recv_timeout(Duration::from_millis(1)).is_err());
+        drop(submit);
+        receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("terminal reply must run after submit completion");
+        worker.join().unwrap();
+        retire_transaction_lock("reply-lock", &lock);
     }
 }

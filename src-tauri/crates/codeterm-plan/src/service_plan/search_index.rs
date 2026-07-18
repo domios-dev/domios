@@ -1,7 +1,8 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::{mpsc, Arc, OnceLock};
+use std::sync::{Arc, OnceLock};
 
+use parking_lot::{Condvar, Mutex};
 use rusqlite::{params, Connection};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -82,22 +83,123 @@ struct Unit {
     updated_at: u64,
 }
 
+enum IndexJob {
+    Plan(Plan),
+    Spec(Spec),
+}
+
+impl IndexJob {
+    fn key(&self) -> String {
+        match self {
+            Self::Plan(plan) => format!("plan:{}", plan.id),
+            Self::Spec(spec) => format!("spec:{}", spec.id),
+        }
+    }
+}
+
+#[derive(Default)]
+struct IndexQueueState {
+    order: VecDeque<String>,
+    latest: HashMap<String, IndexJob>,
+    in_flight: usize,
+}
+
+struct IndexQueue {
+    state: Mutex<IndexQueueState>,
+    ready: Condvar,
+}
+
+impl IndexQueue {
+    fn enqueue(&self, job: IndexJob) {
+        let key = job.key();
+        let mut state = self.state.lock();
+        if state.latest.insert(key.clone(), job).is_none() {
+            state.order.push_back(key);
+        }
+        self.ready.notify_one();
+    }
+
+    fn take(&self) -> IndexJob {
+        let mut state = self.state.lock();
+        while state.order.is_empty() {
+            self.ready.wait(&mut state);
+        }
+        let key = state.order.pop_front().expect("non-empty index queue");
+        let job = state.latest.remove(&key).expect("queued index job");
+        state.in_flight += 1;
+        job
+    }
+
+    fn complete(&self) {
+        let mut state = self.state.lock();
+        state.in_flight -= 1;
+        self.ready.notify_all();
+    }
+
+    #[cfg(test)]
+    fn wait_until_idle(&self) {
+        let mut state = self.state.lock();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while !state.latest.is_empty() || state.in_flight != 0 {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            assert!(!remaining.is_zero(), "plan index queue did not drain");
+            self.ready.wait_for(&mut state, remaining);
+        }
+    }
+}
+
+fn index_queue() -> &'static Arc<IndexQueue> {
+    static QUEUE: OnceLock<Arc<IndexQueue>> = OnceLock::new();
+    QUEUE.get_or_init(|| {
+        let queue = Arc::new(IndexQueue {
+            state: Mutex::new(IndexQueueState::default()),
+            ready: Condvar::new(),
+        });
+        let worker_queue = queue.clone();
+        std::thread::Builder::new()
+            .name("plan-index-queue".into())
+            .spawn(move || loop {
+                let job = worker_queue.take();
+                match job {
+                    IndexJob::Plan(plan) => {
+                        if let Err(error) = mirror_plan(&plan, true) {
+                            log::warn!("[plan.index] plan {}: {}", plan.id, error);
+                        }
+                    }
+                    IndexJob::Spec(spec) => {
+                        if let Err(error) = mirror_spec(&spec, true) {
+                            log::warn!("[plan.index] spec {}: {}", spec.id, error);
+                        }
+                    }
+                }
+                worker_queue.complete();
+            })
+            .expect("spawn plan index queue");
+        queue
+    })
+}
+
+pub(super) fn enqueue_plan_index(plan: Plan) {
+    index_queue().enqueue(IndexJob::Plan(plan));
+}
+
+pub(super) fn enqueue_spec_index(spec: Spec) {
+    index_queue().enqueue(IndexJob::Spec(spec));
+}
+
+#[cfg(test)]
+pub(crate) fn flush_index_queue_for_test() {
+    index_queue().wait_until_idle();
+}
+
 impl super::PlanStore {
     pub fn mirror_plan_index(&self, plan: &Plan) -> Result<(), String> {
-        let sync_embed = cfg!(test);
-        let changed = mirror_plan(plan, sync_embed)?;
-        if !sync_embed {
-            index_units_vectors_async(plan_project_root(plan).to_path_buf(), changed);
-        }
+        enqueue_plan_index(plan.clone());
         Ok(())
     }
 
     pub fn mirror_spec_index(&self, spec: &Spec) -> Result<(), String> {
-        let sync_embed = cfg!(test);
-        let changed = mirror_spec(spec, sync_embed)?;
-        if !sync_embed {
-            index_units_vectors_async(spec_project_root(spec).to_path_buf(), changed);
-        }
+        enqueue_spec_index(spec.clone());
         Ok(())
     }
 
@@ -119,6 +221,7 @@ impl super::PlanStore {
     }
 
     pub fn reindex_project_index(&self, project: &Path) -> Result<PlanReindexResult, String> {
+        let _writer_turn = self.mutation_writer.enter();
         let root = super::paths::project_root(project);
         let root_text = root.display().to_string();
         let plans = self
@@ -131,20 +234,29 @@ impl super::PlanStore {
             .into_iter()
             .filter(|spec| spec_project_root(spec).display().to_string() == root_text)
             .collect::<Vec<_>>();
-        let scope = project_scope(&root);
-        delete_units_by_scope(&root, &scope)?;
-        let mut units = 0usize;
+        let units = plans
+            .iter()
+            .map(|plan| plan_units(plan, &project_scope(&root)).len())
+            .sum::<usize>()
+            + specs
+                .iter()
+                .map(|spec| spec_units(spec, &project_scope(&root)).len())
+                .sum::<usize>();
         for plan in &plans {
-            units += plan_units(plan, &scope).len();
-            mirror_plan(plan, true)?;
+            self.database
+                .persist_plan(plan, None)
+                .map_err(|error| error.to_string())?;
+            enqueue_plan_index(plan.clone());
         }
         for spec in &specs {
-            units += spec_units(spec, &scope).len();
-            mirror_spec(spec, true)?;
+            self.database
+                .persist_spec(spec)
+                .map_err(|error| error.to_string())?;
+            enqueue_spec_index(spec.clone());
         }
         Ok(PlanReindexResult {
             project: root_text,
-            scope,
+            scope: project_scope(&root),
             plans: plans.len(),
             specs: specs.len(),
             units,
@@ -161,6 +273,22 @@ impl super::PlanStore {
             .values()
             .map(|s| s.lock().clone())
             .collect()
+    }
+}
+
+fn plan_project_root(plan: &Plan) -> &Path {
+    if plan.canonical_project_path.trim().is_empty() {
+        Path::new(&plan.project_path)
+    } else {
+        Path::new(&plan.canonical_project_path)
+    }
+}
+
+fn spec_project_root(spec: &Spec) -> &Path {
+    if spec.canonical_project_path.trim().is_empty() {
+        Path::new(&spec.project_path)
+    } else {
+        Path::new(&spec.canonical_project_path)
     }
 }
 
@@ -198,80 +326,6 @@ fn mirror_spec(spec: &Spec, sync_embed: bool) -> Result<Vec<Unit>, String> {
     let root = spec_project_root(spec);
     let units = spec_units(spec, &project_scope(root));
     replace_units(root, &format!("planunit_{}_%", spec.id), units, sync_embed)
-}
-
-fn plan_project_root(plan: &Plan) -> &Path {
-    if plan.canonical_project_path.trim().is_empty() {
-        Path::new(&plan.project_path)
-    } else {
-        Path::new(&plan.canonical_project_path)
-    }
-}
-
-fn spec_project_root(spec: &Spec) -> &Path {
-    if spec.canonical_project_path.trim().is_empty() {
-        Path::new(&spec.project_path)
-    } else {
-        Path::new(&spec.canonical_project_path)
-    }
-}
-
-fn index_units_vectors_async(root: PathBuf, units: Vec<Unit>) {
-    if units.is_empty() {
-        return;
-    }
-    if let Err(err) = vector_index_sender().send((root, units)) {
-        log::warn!("[plan.index] vector mirror enqueue failed: {}", err);
-    }
-}
-
-fn vector_index_sender() -> &'static mpsc::Sender<(PathBuf, Vec<Unit>)> {
-    static SENDER: OnceLock<mpsc::Sender<(PathBuf, Vec<Unit>)>> = OnceLock::new();
-    SENDER.get_or_init(|| {
-        let (tx, rx) = mpsc::channel::<(PathBuf, Vec<Unit>)>();
-        std::thread::spawn(move || {
-            for (root, units) in rx {
-                index_units_vectors(root, units);
-            }
-        });
-        tx
-    })
-}
-
-fn index_units_vectors(root: PathBuf, units: Vec<Unit>) {
-    let Ok(conn) = open_index(&root) else {
-        return;
-    };
-    for unit in units {
-        if let Err(err) = port().embed(&conn, &unit.id, &unit.body) {
-            log::warn!(
-                "[plan.index] vector mirror skipped for {}: {}",
-                unit.id,
-                err
-            );
-            continue;
-        }
-        if !unit_still_current(&conn, &unit) {
-            delete_vectors_for_unit(&conn, &unit.id);
-        }
-    }
-}
-
-fn unit_still_current(conn: &Connection, unit: &Unit) -> bool {
-    conn.query_row(
-        "SELECT body_inline FROM mem_items WHERE id = ?1",
-        params![&unit.id],
-        |row| row.get::<_, String>(0),
-    )
-    .map(|body| body == unit.body)
-    .unwrap_or(false)
-}
-
-fn delete_vectors_for_unit(conn: &Connection, unit_id: &str) {
-    let _ = conn.execute(
-        "DELETE FROM mem_vectors WHERE mem_id = ?1 OR mem_id LIKE ?2",
-        params![unit_id, format!("{}_chunk_%", unit_id)],
-    );
 }
 
 pub fn delete_plan_units(plan: &Plan) -> Result<(), String> {
@@ -322,35 +376,45 @@ fn replace_units_once(
     sync_embed: bool,
 ) -> Result<Vec<Unit>, String> {
     let mut conn = open_index(project_root)?;
-    let existing = unit_bodies_like(&conn, prefix_like)?;
+    let existing = indexed_units_like(&conn, prefix_like)?;
     let next_ids = units
         .iter()
         .map(|unit| unit.id.clone())
         .collect::<HashSet<_>>();
-    let changed = units
+    let row_changes = units
         .iter()
-        .filter(|unit| existing.get(&unit.id) != Some(&unit.body))
+        .filter(|unit| existing.get(&unit.id) != Some(&unit_signature(unit)))
+        .cloned()
+        .collect::<Vec<_>>();
+    let embedding_changes = row_changes
+        .iter()
+        .filter(|unit| {
+            existing
+                .get(&unit.id)
+                .map(|signature| signature.body != unit.body || signature.title != unit.title)
+                .unwrap_or(true)
+        })
         .cloned()
         .collect::<Vec<_>>();
     let stale_vectors = existing
         .keys()
         .filter(|id| !next_ids.contains(*id))
-        .chain(changed.iter().map(|unit| &unit.id))
+        .chain(embedding_changes.iter().map(|unit| &unit.id))
         .cloned()
         .collect::<HashSet<_>>();
     let tx = conn.transaction().map_err(|e| e.to_string())?;
-    replace_unit_rows_tx(&tx, prefix_like, &stale_vectors)?;
-    for unit in units {
+    delete_changed_unit_rows_tx(&tx, &stale_vectors, &row_changes, &existing)?;
+    for unit in &row_changes {
         insert_unit(&tx, unit)?;
     }
     tx.commit().map_err(|e| e.to_string())?;
     if sync_embed {
         let conn = open_index(project_root)?;
-        for unit in &changed {
+        for unit in &embedding_changes {
             let _ = port().embed(&conn, &unit.id, &unit.body);
         }
     }
-    Ok(changed)
+    Ok(embedding_changes)
 }
 
 fn delete_units(project_root: &Path, prefix_like: &str) -> Result<(), String> {
@@ -358,6 +422,7 @@ fn delete_units(project_root: &Path, prefix_like: &str) -> Result<(), String> {
     delete_units_tx(&conn, prefix_like)
 }
 
+#[cfg(test)]
 fn delete_units_by_scope(project_root: &Path, scope: &str) -> Result<(), String> {
     let conn = open_index(project_root)?;
     let mut stmt = conn
@@ -398,14 +463,52 @@ fn delete_units_tx(conn: &Connection, prefix_like: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn replace_unit_rows_tx(
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct IndexedUnit {
+    title: String,
+    body: String,
+    kind: String,
+    scope: String,
+    source: String,
+    updated_at: String,
+}
+
+fn unit_signature(unit: &Unit) -> IndexedUnit {
+    IndexedUnit {
+        title: unit.title.clone(),
+        body: unit.body.clone(),
+        kind: unit.kind.to_string(),
+        scope: unit.scope.clone(),
+        source: serde_json::json!({
+            "source": "plan",
+            "plan_id": unit.plan_id,
+            "spec_id": unit.spec_id,
+            "unit_id": unit.unit_id,
+            "unit_title": unit.unit_title,
+            "parent_title": unit.parent_title,
+            "status": unit.status,
+            "updated_at": unit.updated_at,
+        })
+        .to_string(),
+        updated_at: timestamp_ms_to_rfc3339(unit.updated_at),
+    }
+}
+
+fn delete_changed_unit_rows_tx(
     conn: &Connection,
-    prefix_like: &str,
     stale_vectors: &HashSet<String>,
+    row_changes: &[Unit],
+    existing: &HashMap<String, IndexedUnit>,
 ) -> Result<(), String> {
-    let ids = unit_ids_like(conn, prefix_like)?;
-    for id in ids {
-        if stale_vectors.contains(&id) {
+    let changed_ids = row_changes
+        .iter()
+        .map(|unit| unit.id.clone())
+        .collect::<HashSet<_>>();
+    for id in existing.keys() {
+        if !stale_vectors.contains(id) && !changed_ids.contains(id) {
+            continue;
+        }
+        if stale_vectors.contains(id) {
             conn.execute(
                 "DELETE FROM mem_vectors WHERE mem_id = ?1 OR mem_id LIKE ?2",
                 params![&id, format!("{}_chunk_%", id)],
@@ -430,22 +533,35 @@ fn unit_ids_like(conn: &Connection, prefix_like: &str) -> Result<Vec<String>, St
     Ok(rows.filter_map(Result::ok).collect())
 }
 
-fn unit_bodies_like(
+fn indexed_units_like(
     conn: &Connection,
     prefix_like: &str,
-) -> Result<HashMap<String, String>, String> {
+) -> Result<HashMap<String, IndexedUnit>, String> {
     let mut stmt = conn
-        .prepare("SELECT id, body_inline FROM mem_items WHERE id LIKE ?1")
+        .prepare(
+            "SELECT id, title, body_inline, kind, scope, source, updated_at
+             FROM mem_items WHERE id LIKE ?1",
+        )
         .map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map(params![prefix_like], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?))
+            Ok((
+                r.get::<_, String>(0)?,
+                IndexedUnit {
+                    title: r.get(1)?,
+                    body: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                    kind: r.get(3)?,
+                    scope: r.get(4)?,
+                    source: r.get(5)?,
+                    updated_at: r.get(6)?,
+                },
+            ))
         })
         .map_err(|e| e.to_string())?;
     let mut bodies = HashMap::new();
     for row in rows {
-        let (id, body) = row.map_err(|e| e.to_string())?;
-        bodies.insert(id, body.unwrap_or_default());
+        let (id, unit) = row.map_err(|e| e.to_string())?;
+        bodies.insert(id, unit);
     }
     Ok(bodies)
 }

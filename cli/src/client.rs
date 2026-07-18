@@ -209,6 +209,13 @@ pub fn discover_socket() -> Result<String, String> {
     }
 }
 
+/// Name of a live CodeTerm daemon socket, or None when none is reachable.
+///
+/// Diagnostics only — callers that need to talk to the daemon use `discover_socket`.
+pub fn live_socket_name() -> Option<String> {
+    discover_socket().ok().filter(|name| socket_is_live(name))
+}
+
 /// Return true when the named socket exists and is reachable. Used by
 /// `discover_socket` to decide whether to trust `CODETERM_SOCKET_PATH`.
 fn socket_is_live(name: &str) -> bool {
