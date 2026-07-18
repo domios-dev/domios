@@ -19,6 +19,7 @@ mod lane_metadata;
 pub mod lifecycle;
 pub mod locate;
 pub mod loop_mutations;
+pub mod migration_backup;
 pub mod milestone_gates;
 pub mod mutations;
 pub mod next_actions;
