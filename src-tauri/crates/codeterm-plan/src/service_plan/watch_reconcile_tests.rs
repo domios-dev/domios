@@ -38,22 +38,35 @@ fn external_write(root: &std::path::Path, plan: &Plan, title: &str, updated_at: 
 }
 
 #[test]
-fn external_delete_removes_index_entry_and_signals() {
+fn missing_legacy_sidecar_reloads_canonical_database_plan() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
     let project = paths::project_root(dir.path());
-    let mut plan = new_plan(dir.path(), "Doomed");
+    let mut plan = new_plan(dir.path(), "Database backed");
     store.save(&mut plan, 1000).unwrap();
     assert!(store.get(&plan.id).is_some());
 
-    // Another daemon deletes the plan folder on disk directly.
-    std::fs::remove_dir_all(plan_json(dir.path(), &plan).parent().unwrap()).unwrap();
+    let outcome = store.reconcile_watched_plan(&project, &plan.id).unwrap();
+    assert_eq!(outcome, WatchOutcome::Unchanged);
+    assert!(!outcome.should_emit());
+    assert_eq!(store.get(&plan.id).unwrap().title, "Database backed");
+    assert!(store.list_index().iter().any(|e| e.plan_id == plan.id));
+}
+
+#[test]
+fn watcher_rehydrates_database_plan_missing_from_runtime() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let project = paths::project_root(dir.path());
+    let mut plan = new_plan(dir.path(), "Recover me");
+    store.save(&mut plan, 1000).unwrap();
+    store.forget_plan(&plan.id);
+    assert!(store.get(&plan.id).is_none());
 
     let outcome = store.reconcile_watched_plan(&project, &plan.id).unwrap();
-    assert_eq!(outcome, WatchOutcome::Removed);
+    assert_eq!(outcome, WatchOutcome::Loaded);
     assert!(outcome.should_emit());
-    assert!(store.get(&plan.id).is_none());
-    assert!(!store.list_index().iter().any(|e| e.plan_id == plan.id));
+    assert_eq!(store.get(&plan.id).unwrap().title, "Recover me");
 }
 
 #[test]
