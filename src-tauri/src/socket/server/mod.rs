@@ -10,6 +10,7 @@ mod agent_commands;
 mod bridge;
 mod canvas;
 mod cron;
+mod mem;
 mod notification;
 mod orchestration;
 mod orchestrator;
@@ -673,6 +674,8 @@ fn dispatch(
                 "bridge.send",
                 "bridge.react",
                 "bridge.restart",
+                "mem.stats",
+                "mem.search",
             ];
             return Ok(serde_json::json!({ "methods": methods }));
         }
@@ -706,6 +709,7 @@ fn dispatch(
         "cron" => cron::dispatch(method, &params, app, svc),
         "services" | "activity" => services::dispatch(method, &params, app, svc),
         "bridge" => bridge::dispatch(method, &params, svc),
+        "mem" => mem::dispatch(method, params, svc),
         _ => Err(JsonRpcError {
             code: -32601,
             message: "Method not found".to_string(),

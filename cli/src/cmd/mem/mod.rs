@@ -2,14 +2,20 @@ mod calibration;
 mod graph;
 pub(crate) mod item;
 mod skill;
+mod socket;
 mod tail;
 pub(crate) mod transport;
 mod worker;
 
+use crate::client::SocketClient;
 use crate::cmd::print::handle_result;
 use crate::{build_http, read_api_config, MemAction};
 
-pub fn handle_mem(json_mode: bool, action: MemAction) {
+pub fn handle_mem(client: &mut SocketClient, json_mode: bool, action: MemAction) {
+    if let Some(result) = socket::try_dispatch(client, &action) {
+        handle_result(json_mode, result);
+        return;
+    }
     let (base, token) = read_api_config();
     let http = match build_http(&token) {
         Ok(c) => c,
