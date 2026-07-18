@@ -2,6 +2,13 @@
 //! send/write/batch ServiceContext methods.
 use crate::service::ServiceContext;
 
+/// Bounded window to let the composer render a bracketed paste before Enter is
+/// sent as a separate write. A codex/opencode TUI swallows a \r glued to the
+/// paste mid-ingestion; waiting for the paste to land avoids that. The deadline
+/// is a failure bound only — it returns early on the render signal, and a missed
+/// deadline still submits (optimistic, never a drop).
+const PASTE_RENDER_WINDOW: std::time::Duration = std::time::Duration::from_millis(600);
+
 /// Bytes written to a fresh pty to launch a shell-level command. On Unix, exec a
 /// temp script via `/bin/bash <path>` to bypass bracketed-paste markers — macOS system
 /// bash 3.2 has no bracketed-paste binding and leaks the markers as literal text.
@@ -250,18 +257,32 @@ impl ServiceContext {
     /// verification wait. The agent-type input parser still sees the payload.
     fn write_paste_optimistic(&self, pty_id: &str, text: &str, enter: bool) -> Result<(), String> {
         self.feed_input_parser(pty_id, text, enter);
-        let mut buf = if cfg!(windows) {
+        let paste = if cfg!(windows) {
             format!("\x1b[200~ {}\x1b[201~", text)
         } else {
             format!("\x1b[200~{}\x1b[201~", text)
+        };
+        if !enter {
+            return self
+                .pty
+                .lock()
+                .write(pty_id, paste.as_bytes())
+                .map_err(|e| e.to_string());
         }
-        .into_bytes();
-        if enter {
-            buf.push(b'\r');
-        }
+        // Enter is a SEPARATE write, after the composer renders the paste: a \r
+        // glued to the paste is swallowed by codex/opencode mid-ingestion. Wait
+        // (bounded, signal-driven) for the paste to land, then submit. A missed
+        // deadline still sends Enter — optimistic, never a drop.
+        let signal = self.screen_state.lock().arm_screen_change_signal(pty_id);
+        let generation = signal.generation();
         self.pty
             .lock()
-            .write(pty_id, &buf)
+            .write(pty_id, paste.as_bytes())
+            .map_err(|e| e.to_string())?;
+        signal.wait_after(generation, PASTE_RENDER_WINDOW);
+        self.pty
+            .lock()
+            .write(pty_id, b"\r")
             .map_err(|e| e.to_string())
     }
 
