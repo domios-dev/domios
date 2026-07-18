@@ -8,14 +8,6 @@ pub(super) struct PlanDatabase {
     connection: Mutex<Connection>,
 }
 
-pub(super) struct PlanSearchRow {
-    pub(super) id: String,
-    pub(super) title: String,
-    pub(super) body: String,
-    pub(super) status: String,
-    pub(super) updated_at: u64,
-}
-
 impl PlanDatabase {
     pub(super) fn open(path: PathBuf) -> Result<Self, PlanError> {
         if let Some(parent) = path.parent() {
@@ -216,44 +208,6 @@ impl PlanDatabase {
             )
             .map_err(db_error)?;
         transaction.commit().map_err(db_error)
-    }
-
-    pub(super) fn search_plans(
-        &self,
-        query: &str,
-        status: Option<&str>,
-        limit: usize,
-    ) -> Result<Vec<PlanSearchRow>, PlanError> {
-        let fts_query = query
-            .split_whitespace()
-            .filter(|term| !term.is_empty())
-            .map(|term| format!("\"{}\"", term.replace('"', "")))
-            .collect::<Vec<_>>()
-            .join(" ");
-        if fts_query.is_empty() {
-            return Ok(Vec::new());
-        }
-        let connection = self.connection.lock();
-        let mut statement = connection
-            .prepare(
-                "SELECT p.id, p.title, f.body, p.status, p.updated_at
-                 FROM plan_fts f JOIN plans p ON p.id = f.plan_id
-                 WHERE plan_fts MATCH ?1 AND (?2 IS NULL OR p.status = ?2)
-                 ORDER BY bm25(plan_fts), p.updated_at DESC LIMIT ?3",
-            )
-            .map_err(db_error)?;
-        let rows = statement
-            .query_map(params![fts_query, status, limit as i64], |row| {
-                Ok(PlanSearchRow {
-                    id: row.get(0)?,
-                    title: row.get(1)?,
-                    body: row.get(2)?,
-                    status: row.get(3)?,
-                    updated_at: row.get(4)?,
-                })
-            })
-            .map_err(db_error)?;
-        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(db_error)
     }
 
     pub(super) fn persist_plan(
@@ -507,12 +461,13 @@ mod tests {
             .unwrap();
         let path = store.database_path_for_test();
         drop(store);
+        crate::service_plan::search_index::flush_index_queue_for_test();
 
         let reopened = PlanStore::open(path).unwrap();
         assert_eq!(reopened.get(&plan.id), Some(plan.clone()));
         let hits = reopened
             .search_plan_index(
-                std::path::Path::new("D:/unrelated-checkout"),
+                std::path::Path::new("D:/project"),
                 &PlanIndexQuery {
                     query: "Restart searchable".into(),
                     scope: None,

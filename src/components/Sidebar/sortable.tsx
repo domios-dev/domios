@@ -135,4 +135,4 @@ export function SidebarDnd({
   );
 }
 
-export { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+export { SortableContext, rectSortingStrategy, verticalListSortingStrategy } from "@dnd-kit/sortable";
