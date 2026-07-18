@@ -105,7 +105,7 @@ await (async () => {
   );
 })();
 
-// outbound bubble class matches inbound cross-pane bubble
+// Outbound messages stay compact while inbound messages use an activity card.
 await (async () => {
   const outboundHost = await render(
     <SentMessageBubble inv={inv(`codeterm send --tab bda "hello outbound"`)} />,
@@ -125,12 +125,12 @@ await (async () => {
     />,
   );
   const outboundBubble = outboundHost.querySelector('[data-testid="chat-sent-message"]') as HTMLElement;
-  const inboundBubble = inboundHost.querySelector('[data-testid="chat-cross-pane-bubble"]') as HTMLElement;
-  assert(outboundBubble.className === inboundBubble.className, "outbound and inbound share bubble wrapper class");
+  const inboundCard = inboundHost.querySelector('[data-testid="chat-inbound-message"]') as HTMLElement | null;
+  assert(outboundBubble != null, "outbound message renders its compact bubble");
+  assert(inboundCard != null, "inbound message renders its activity card");
   assert(
-    outboundHost.querySelector(`[data-testid="${CROSS_PANE_SHELL_TESTID}"]`)!.className
-      === inboundHost.querySelector(`[data-testid="${CROSS_PANE_SHELL_TESTID}"]`)!.className,
-    "outbound and inbound share left-aligned shell class",
+    inboundHost.querySelector('[data-testid="chat-cross-pane-bubble"]') == null,
+    "inbound activity does not regress to the legacy cross-pane bubble",
   );
 })();
 
@@ -148,7 +148,7 @@ await (async () => {
       resolvePaneName={(r) => (r === "915fae8e" ? "Puccini" : undefined)}
     />,
   );
-  const header = host.querySelector('[data-testid="chat-cross-pane-shell"]') as HTMLElement | null;
+  const header = host.querySelector('[data-testid="chat-inbound-message"]') as HTMLElement | null;
   const text = header?.textContent ?? "";
   assert(text.includes("Puccini"), "current-pane marker renders resolved recipient name");
   assert(!text.includes("CURRENT PANE"), "current-pane marker placeholder is replaced");
