@@ -1405,7 +1405,7 @@ button,
 .sidebar-team-disclosure-glyph::after {
   position: absolute;
   top: 2px;
-  width: 16px;
+  width: 17px;
   height: 1px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--ct-muted-fg) 38%, transparent);
@@ -1414,12 +1414,12 @@ button,
 }
 
 .sidebar-team-disclosure-glyph::before {
-  right: 50%;
+  right: calc(50% - 0.5px);
   transform-origin: right center;
 }
 
 .sidebar-team-disclosure-glyph::after {
-  left: 50%;
+  left: calc(50% - 0.5px);
   transform-origin: left center;
 }
 
@@ -1459,16 +1459,16 @@ button,
 }
 
 .sidebar-team-disclosure-bar[aria-expanded="true"]:hover .sidebar-team-disclosure-glyph::before,
-.sidebar-team-disclosure-bar[aria-expanded="true"]:focus-visible .sidebar-team-disclosure-glyph::before { transform: rotate(-10deg); }
+.sidebar-team-disclosure-bar[aria-expanded="true"]:focus-visible .sidebar-team-disclosure-glyph::before { transform: rotate(-8deg); }
 
 .sidebar-team-disclosure-bar[aria-expanded="true"]:hover .sidebar-team-disclosure-glyph::after,
-.sidebar-team-disclosure-bar[aria-expanded="true"]:focus-visible .sidebar-team-disclosure-glyph::after { transform: rotate(10deg); }
+.sidebar-team-disclosure-bar[aria-expanded="true"]:focus-visible .sidebar-team-disclosure-glyph::after { transform: rotate(8deg); }
 
 .sidebar-team-disclosure-bar[aria-expanded="false"]:hover .sidebar-team-disclosure-glyph::before,
-.sidebar-team-disclosure-bar[aria-expanded="false"]:focus-visible .sidebar-team-disclosure-glyph::before { transform: rotate(10deg); }
+.sidebar-team-disclosure-bar[aria-expanded="false"]:focus-visible .sidebar-team-disclosure-glyph::before { transform: rotate(8deg); }
 
 .sidebar-team-disclosure-bar[aria-expanded="false"]:hover .sidebar-team-disclosure-glyph::after,
-.sidebar-team-disclosure-bar[aria-expanded="false"]:focus-visible .sidebar-team-disclosure-glyph::after { transform: rotate(-10deg); }
+.sidebar-team-disclosure-bar[aria-expanded="false"]:focus-visible .sidebar-team-disclosure-glyph::after { transform: rotate(-8deg); }
 
 .sidebar-team-disclosure-bar:focus-visible {
   outline: 1px solid var(--ct-accent);

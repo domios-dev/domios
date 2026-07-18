@@ -271,8 +271,9 @@ test("team menu enables staffing only for a Team with a manager", async () => {
   assert(/\.sidebar-team-header\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto;[^}]*gap:\s*6px;[^}]*margin:\s*0;[^}]*padding:\s*6px 7px 4px 10px;/.test(sidebarStyles), "Team header reclaims the former chevron column");
   assert(/\.sidebar-team-disclosure-bar\s*\{[^}]*position:\s*relative;[^}]*display:\s*block;[^}]*width:\s*100%;[^}]*height:\s*14px;/.test(sidebarStyles), "Team disclosure is a compact full-width bottom handle");
   assert(/\.sidebar-team-disclosure-glyph\s*\{[^}]*left:\s*50%;[^}]*transform:\s*translate\(-50%, -50%\);/.test(sidebarStyles), "Team disclosure glyph stays geometrically centered");
-  assert(/\.sidebar-team-disclosure-glyph::before,\s*\.sidebar-team-disclosure-glyph::after\s*\{[^}]*width:\s*16px;[^}]*height:\s*1px;/.test(sidebarStyles), "Team disclosure uses a thin, restrained line");
-  assert(sidebarStyles.includes("transform: rotate(-10deg);"), "Team disclosure uses a gentle arrow transition");
+  assert(/\.sidebar-team-disclosure-glyph::before,\s*\.sidebar-team-disclosure-glyph::after\s*\{[^}]*width:\s*17px;[^}]*height:\s*1px;/.test(sidebarStyles), "Team disclosure uses a thin, restrained line");
+  assert(sidebarStyles.includes("right: calc(50% - 0.5px);") && sidebarStyles.includes("left: calc(50% - 0.5px);"), "Team disclosure overlaps its two segments at the joint");
+  assert(sidebarStyles.includes("transform: rotate(-8deg);"), "Team disclosure uses a gentle arrow transition");
   assert(/\.sidebar-team-disclosure-label,\s*\.sidebar-team-disclosure-count\s*\{[^}]*left:\s*calc\(50% \+ 24px\);/.test(sidebarStyles), "Team disclosure text cannot shift the centered glyph");
   assert(/@container \(max-width:\s*159px\)/.test(sidebarStyles), "compact tally threshold preserves the 160px Team matrix after inset reclaim");
   const header = host.querySelector('.sidebar-team-header') as HTMLDivElement | null;
