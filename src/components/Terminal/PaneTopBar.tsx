@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import { PaneModeSwitch } from "./PaneModeSwitch";
 import { ChatDefaultSuggestion } from "./ChatDefaultSuggestion";
 import { UsageBubble } from "../Usage/UsageBubble";
@@ -8,7 +7,9 @@ import type { ApiConfig } from "../../lib/types";
 import { PANE_BAR_CONTROL_H } from "./paneBarConstants";
 import { WatcherStatusBadge } from "./WatcherStatusBadge";
 import { reattachPaneChat } from "./chatReattach";
-import { BusySpinner } from "../shared/BusyState";
+import { PaneActionsMenu } from "./PaneActionsMenu";
+import { invoke } from "../../lib/bridge";
+import { matchesBinding } from "../../lib/keybindings";
 
 /** Single height rhythm for every control in the bar (switch + pills). */
 export { PANE_BAR_CONTROL_H };
@@ -29,7 +30,10 @@ interface PaneTopBarProps {
   /** Watcher panes surface health from `pane.watcher.last_status` in the header. */
   watcherLastStatus?: string | null;
   isWatcherPane?: boolean;
-  showChatReconnect?: boolean;
+  canReconnect?: boolean;
+  canRestartSession?: boolean;
+  sessionId?: string | null;
+  isActive?: boolean;
 }
 
 /**
@@ -51,12 +55,16 @@ export function PaneTopBar({
   usageVisible,
   watcherLastStatus,
   isWatcherPane = false,
-  showChatReconnect = false,
+  canReconnect = false,
+  canRestartSession = false,
+  sessionId = null,
+  isActive = false,
 }: PaneTopBarProps) {
   const [reconnecting, setReconnecting] = useState(false);
+  const [restarting, setRestarting] = useState(false);
   const [reconnectError, setReconnectError] = useState<string | null>(null);
 
-  const reconnect = async () => {
+  const reconnect = useCallback(async () => {
     if (reconnecting) return;
     setReconnecting(true);
     setReconnectError(null);
@@ -67,7 +75,32 @@ export function PaneTopBar({
     } finally {
       setReconnecting(false);
     }
-  };
+  }, [paneId, reconnecting]);
+
+  const restartSession = useCallback(async () => {
+    if (restarting) return;
+    setRestarting(true);
+    setReconnectError(null);
+    try {
+      await invoke("restart_agent_pane", { paneId });
+    } catch (error) {
+      setReconnectError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRestarting(false);
+    }
+  }, [paneId, restarting]);
+
+  useEffect(() => {
+    if (!isActive || !canReconnect) return;
+    const handleReloadShortcut = (event: KeyboardEvent) => {
+      if (!matchesBinding(event, "Ctrl+R")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void reconnect();
+    };
+    window.addEventListener("keydown", handleReloadShortcut, true);
+    return () => window.removeEventListener("keydown", handleReloadShortcut, true);
+  }, [canReconnect, isActive, reconnect]);
 
   return (
     <div
@@ -109,28 +142,21 @@ export function PaneTopBar({
             {reconnectError}
           </span>
         )}
-        {showChatReconnect && (
-          <button
-            type="button"
-            data-testid="chat-reconnect"
-            aria-label="Reconnect chat session"
-            title={reconnectError ?? "Reconnect chat session"}
-            disabled={reconnecting}
-            onClick={() => void reconnect()}
-            className="inline-flex items-center gap-1.5 rounded px-2 text-xs hover:brightness-125 disabled:opacity-60"
-            style={{
-              height: PANE_BAR_CONTROL_H,
-              border: "1px solid var(--ct-border)",
-              color: "var(--ct-fg)",
-            }}
-          >
-            <BusySpinner spinning={reconnecting} size={13} icon={RefreshCw} />
-            <span className="hidden sm:inline">Reconnect</span>
-          </button>
-        )}
         {isWatcherPane && <WatcherStatusBadge lastStatus={watcherLastStatus} />}
         <PluginBubbles cwd={cwd} paneId={paneId} />
         {usageProvider && <UsageBubble provider={usageProvider} trackingEnabled={!!usageVisible} />}
+        {(canReconnect || canRestartSession || sessionId) && (
+          <PaneActionsMenu
+            sessionId={sessionId}
+            canReconnect={canReconnect}
+            canRestart={canRestartSession}
+            reconnecting={reconnecting}
+            restarting={restarting}
+            onReconnect={() => void reconnect()}
+            onRestart={() => void restartSession()}
+            onError={setReconnectError}
+          />
+        )}
       </div>
     </div>
   );

@@ -386,16 +386,82 @@ test("pane header reconnect control requests a hook-owned reattach", async () =>
         showSwitch={false}
         chatFirst={false}
         chatDefaultPrompted={true}
-        showChatReconnect={true}
+        canReconnect={true}
+        isActive={true}
       />,
     );
   });
-  const reconnect = host.querySelector('[data-testid="chat-reconnect"]') as HTMLButtonElement | null;
-  assert(reconnect, "header reconnect control is visible");
+  const trigger = host.querySelector('[data-testid="pane-actions-trigger"]') as HTMLButtonElement | null;
+  assert(trigger, "compact tab actions control is visible");
+  await act(async () => trigger.click());
+  const reconnect = document.querySelector('[data-testid="chat-reconnect"]') as HTMLButtonElement | null;
+  assert(reconnect, "reconnect is available inside tab actions");
   await act(async () => reconnect.click());
   const stopAt = commands.indexOf("chat_stop");
   assert(stopAt >= 0, "reconnect calls chat_stop");
   assert(reattachEvents === 1, "reconnect asks the mounted chat hook to attach once");
+  const shortcut = new window.KeyboardEvent("keydown", {
+    code: "KeyR",
+    key: "r",
+    ctrlKey: true,
+    bubbles: true,
+    cancelable: true,
+  });
+  await act(async () => window.dispatchEvent(shortcut));
+  assert(shortcut.defaultPrevented, "Ctrl+R prevents a WebView reload");
+  assert(commands.filter((command) => command === "chat_stop").length === 2, "Ctrl+R reconnects the active tab");
+  await act(async () => root.unmount());
+  host.remove();
+});
+
+test("pane actions restart the agent session and copy its ID", async () => {
+  const { __setInvokeForTest } = await import("../../lib/bridge");
+  const { PaneTopBar } = await import("./PaneTopBar");
+  const commands: string[] = [];
+  let copied = "";
+  __setInvokeForTest((async (cmd: string) => {
+    commands.push(cmd);
+    return {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  }) as any);
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: async (value: string) => { copied = value; } },
+  });
+
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(
+      <PaneTopBar
+        paneId="agent-pane"
+        cwd={null}
+        showSwitch={false}
+        chatFirst={false}
+        chatDefaultPrompted={true}
+        canReconnect={true}
+        canRestartSession={true}
+        sessionId="session-123"
+      />,
+    );
+  });
+
+  const trigger = host.querySelector('[data-testid="pane-actions-trigger"]') as HTMLButtonElement;
+  assert(trigger.getAttribute("aria-haspopup") === "menu", "tab actions expose menu semantics");
+  await act(async () => trigger.click());
+  const menu = document.querySelector('[data-testid="pane-actions-menu"]');
+  assert(menu?.getAttribute("role") === "menu", "tab actions render an accessible menu");
+  assert(menu.textContent?.includes("session-123"), "menu identifies the current session");
+  const copy = menu.querySelector('[data-testid="pane-copy-session-id"]') as HTMLButtonElement;
+  await act(async () => copy.click());
+  assert(copied === "session-123", "copy action writes the current session ID");
+
+  await act(async () => trigger.click());
+  const restart = document.querySelector('[data-testid="pane-restart-session"]') as HTMLButtonElement;
+  await act(async () => restart.click());
+  assert(commands.includes("restart_agent_pane"), "restart action uses the generic session-preserving restart");
+
   await act(async () => root.unmount());
   host.remove();
 });
