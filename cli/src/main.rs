@@ -758,7 +758,7 @@ fn main_impl() {
                 return;
             }
             let json_mode = cli.json;
-            cmd::mem::handle_mem(json_mode, action);
+            cmd::mem::handle_mem(&mut client, json_mode, action);
             return;
         }
         Commands::Sessions { action } => {

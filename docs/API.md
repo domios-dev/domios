@@ -1130,6 +1130,8 @@ Newline-delimited JSON:
 | `pane.send_text` | `{pane_id, text, enter?}` | Send text to PTY (`enter` defaults to `true`, appends `\r`) |
 | `pane.get_output` | `{pane_id, max_bytes?}` | Read terminal output |
 | `pane.rename` | `{pane_id, title}` | Rename pane (pinned) |
+| `mem.stats` | — | Return memory item, vector, entity, and relation counts over the daemon socket. |
+| `mem.search` | `{q, kind?, area?, scope?, project?, limit?, rerank?}` | Search memory and the optional project plan index over the daemon socket. |
 | `notification.create` | `{title, body?, level?, pane_id?}` | Create notification |
 | `notification.list` | `{unread_only?}` | List notifications |
 | `notification.clear` | `{id?}` | Clear notifications |
@@ -1294,4 +1296,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 77 -->
+<!-- revision: 78 -->
