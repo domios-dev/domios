@@ -620,10 +620,10 @@ start_web_watch() {
   set +e
   case "$OSTYPE" in
     msys*|cygwin*|win32)
-      pnpm exec vite build --watch </dev/null >> "$log" 2>&1 &
+      CODETERM_FRONTEND_DEV=1 pnpm exec vite build --watch </dev/null >> "$log" 2>&1 &
       ;;
     *)
-      nohup pnpm exec vite build --watch </dev/null >> "$log" 2>&1 &
+      CODETERM_FRONTEND_DEV=1 nohup pnpm exec vite build --watch </dev/null >> "$log" 2>&1 &
       ;;
   esac
   pid=$!
