@@ -64,6 +64,13 @@ impl PlanStore {
             None => {
                 let known = self.plans.read().contains_key(plan_id)
                     || self.index.read().contains_key(plan_id);
+                if self.database.load_plan(plan_id)?.is_some() {
+                    if known {
+                        return Ok(WatchOutcome::Unchanged);
+                    }
+                    self.reload_from_disk(plan_id)?;
+                    return Ok(WatchOutcome::Loaded);
+                }
                 if known {
                     self.forget_plan(plan_id);
                     Ok(WatchOutcome::Removed)
