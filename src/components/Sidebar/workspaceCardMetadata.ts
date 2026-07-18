@@ -14,6 +14,8 @@ export const WORKSPACE_CARD_COLORS = [
   "var(--ct-yellow)",
 ] as const;
 
+export const WORKSPACE_CARD_COLOR_NAMES = ["Blue", "Magenta", "Cyan", "Orange", "Green", "Yellow"] as const;
+
 export function normalizeWorkspaceInitials(value: string): string {
   return Array.from(value.trim().toLocaleUpperCase()).filter((char) => /[\p{L}\p{N}]/u.test(char)).slice(0, 2).join("");
 }

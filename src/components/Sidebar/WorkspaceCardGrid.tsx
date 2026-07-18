@@ -1,5 +1,6 @@
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
-import { Palette, Pencil, Plus } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { Pencil, Plus } from "lucide-react";
 import type { PaneStatus, Workspace } from "../../lib/types";
 import { SortableContext, SortableRow, WS_PREFIX, rectSortingStrategy } from "./sortable";
 import {
@@ -9,6 +10,7 @@ import {
   normalizeWorkspaceInitials,
   persistWorkspaceInitials,
   persistWorkspaceColorIndexes,
+  WORKSPACE_CARD_COLOR_NAMES,
   WORKSPACE_CARD_COLORS,
   workspaceCardColor,
   workspaceCardColorIndex,
@@ -25,6 +27,8 @@ interface WorkspaceCardGridProps {
 
 const CARD_WIDTH = 42;
 const CARD_GAP = 4;
+const EDITOR_WIDTH = 190;
+const EDITOR_HEIGHT = 126;
 
 export function workspaceCardPosition(index: number, columns: number): { gridColumn: number; gridRow: number } {
   const pageSize = columns * 2;
@@ -38,37 +42,65 @@ export function workspaceCardPosition(index: number, columns: number): { gridCol
 
 export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, sortIds, onSelect, onCreate }: WorkspaceCardGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
   const [columns, setColumns] = useState(3);
   const [customInitials, setCustomInitials] = useState(loadWorkspaceInitials);
   const [customColors, setCustomColors] = useState(loadWorkspaceColorIndexes);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editorPosition, setEditorPosition] = useState({ left: 0, top: 0 });
   const [draft, setDraft] = useState("");
   const rows = Math.min(2, Math.ceil((workspaces.length + 1) / columns));
 
-  const beginEditing = useCallback((workspace: Workspace) => {
+  const beginEditing = useCallback((workspace: Workspace, anchor: HTMLElement) => {
+    const rect = anchor.closest<HTMLElement>('[data-testid="workspace-card"]')?.getBoundingClientRect()
+      ?? anchor.getBoundingClientRect();
+    const right = rect.right + 6;
+    const left = right + EDITOR_WIDTH <= window.innerWidth - 8
+      ? right
+      : Math.max(8, rect.left - EDITOR_WIDTH - 6);
+    const top = Math.max(8, Math.min(rect.top, window.innerHeight - EDITOR_HEIGHT - 8));
     setDraft(customInitials[workspace.id] ?? defaultWorkspaceInitials(workspace.name));
+    setEditorPosition({ left, top });
     setEditingId(workspace.id);
   }, [customInitials]);
 
-  const commit = useCallback((workspace: Workspace) => {
-    const initials = normalizeWorkspaceInitials(draft);
-    setEditingId(null);
-    if (!initials) return;
-    setCustomInitials((current) => {
-      const next = { ...current, [workspace.id]: initials };
-      persistWorkspaceInitials(next);
-      return next;
-    });
-  }, [draft]);
-
-  const cycleColor = useCallback((workspace: Workspace) => {
+  const selectColor = useCallback((workspace: Workspace, colorIndex: number) => {
     setCustomColors((current) => {
-      const activeIndex = current[workspace.id] ?? workspaceCardColorIndex(workspace.id);
-      const next = { ...current, [workspace.id]: (activeIndex + 1) % WORKSPACE_CARD_COLORS.length };
+      const next = { ...current, [workspace.id]: colorIndex };
       persistWorkspaceColorIndexes(next);
       return next;
     });
   }, []);
+
+  const closeEditor = useCallback((save: boolean) => {
+    if (save && editingId) {
+      const initials = normalizeWorkspaceInitials(draft);
+      if (initials) {
+        setCustomInitials((current) => {
+          const next = { ...current, [editingId]: initials };
+          persistWorkspaceInitials(next);
+          return next;
+        });
+      }
+    }
+    setEditingId(null);
+  }, [draft, editingId]);
+
+  useEffect(() => {
+    if (!editingId) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (!editorRef.current?.contains(event.target as Node)) closeEditor(true);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeEditor(false);
+    };
+    document.addEventListener("pointerdown", closeOutside, true);
+    document.addEventListener("keydown", closeOnEscape, true);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside, true);
+      document.removeEventListener("keydown", closeOnEscape, true);
+    };
+  }, [closeEditor, editingId]);
 
   useLayoutEffect(() => {
     const host = scrollRef.current;
@@ -83,7 +115,12 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
     return () => observer.disconnect();
   }, []);
 
-  return (
+  const editingWorkspace = workspaces.find((workspace) => workspace.id === editingId) ?? null;
+  const editingColorIndex = editingWorkspace
+    ? customColors[editingWorkspace.id] ?? workspaceCardColorIndex(editingWorkspace.id)
+    : 0;
+
+  return <>
     <div ref={scrollRef} className="sidebar-workspace-card-scroll" data-testid="workspace-card-scroll" role="region" aria-label="Workspace cards">
       <SortableContext items={sortIds} strategy={rectSortingStrategy}>
         <div
@@ -113,64 +150,28 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
                   role="listitem"
                   style={{ ["--workspace-card-color" as string]: color }}
                 >
-                  {editingId === workspace.id ? (
-                    <div
-                      className="sidebar-workspace-card-editor"
-                      onBlur={(event) => {
-                        if (!event.currentTarget.contains(event.relatedTarget as Node)) commit(workspace);
-                      }}
-                    >
-                      <input
-                        autoFocus
-                        aria-label={`Initials for ${workspace.name}`}
-                        className="sidebar-workspace-card-initials-input"
-                        value={draft}
-                        maxLength={2}
-                        onPointerDown={(event) => event.stopPropagation()}
-                        onChange={(event) => setDraft(normalizeWorkspaceInitials(event.target.value))}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") event.currentTarget.blur();
-                          if (event.key === "Escape") setEditingId(null);
-                        }}
-                      />
-                      <button
-                        type="button"
-                        className="sidebar-workspace-card-color-edit"
-                        aria-label={`Change color for ${workspace.name}`}
-                        title="Change color"
-                        onPointerDown={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                        }}
-                        onClick={() => cycleColor(workspace)}
-                      >
-                        <Palette size={8} />
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      className="sidebar-workspace-card-select"
-                      aria-label={`Select workspace ${workspace.name}`}
-                      aria-pressed={selected}
-                      aria-current={selected ? "true" : undefined}
-                      title={workspace.name}
-                      onClick={() => onSelect(workspace.id)}
-                      onDoubleClick={() => beginEditing(workspace)}
-                    >
-                      <span className="sidebar-workspace-card-initials">
-                        {customInitials[workspace.id] ?? defaultWorkspaceInitials(workspace.name)}
-                      </span>
-                    </button>
-                  )}
-                  {selected && editingId !== workspace.id && (
+                  <button
+                    type="button"
+                    className="sidebar-workspace-card-select"
+                    aria-label={`Select workspace ${workspace.name}`}
+                    aria-pressed={selected}
+                    aria-current={selected ? "true" : undefined}
+                    title={workspace.name}
+                    onClick={() => onSelect(workspace.id)}
+                    onDoubleClick={(event) => beginEditing(workspace, event.currentTarget)}
+                  >
+                    <span className="sidebar-workspace-card-initials">
+                      {customInitials[workspace.id] ?? defaultWorkspaceInitials(workspace.name)}
+                    </span>
+                  </button>
+                  {selected && (
                     <button
                       type="button"
                       className="sidebar-workspace-card-edit"
                       aria-label={`Edit initials for ${workspace.name}`}
                       title="Edit initials"
                       onPointerDown={(event) => event.stopPropagation()}
-                      onClick={() => beginEditing(workspace)}
+                      onClick={(event) => beginEditing(workspace, event.currentTarget)}
                     >
                       <Pencil size={9} />
                     </button>
@@ -194,5 +195,45 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
         </div>
       </SortableContext>
     </div>
-  );
+    {editingWorkspace && createPortal(
+      <div
+        ref={editorRef}
+        role="dialog"
+        aria-label={`Edit ${editingWorkspace.name} workspace card`}
+        className="sidebar-workspace-card-popover ct-float"
+        style={{ left: editorPosition.left, top: editorPosition.top }}
+      >
+        <label className="sidebar-workspace-card-popover-label">
+          Initials
+          <input
+            autoFocus
+            aria-label={`Initials for ${editingWorkspace.name}`}
+            className="sidebar-workspace-card-popover-input"
+            value={draft}
+            maxLength={2}
+            onChange={(event) => setDraft(normalizeWorkspaceInitials(event.target.value))}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") closeEditor(true);
+            }}
+          />
+        </label>
+        <div role="radiogroup" aria-label={`Color for ${editingWorkspace.name}`} className="sidebar-workspace-card-color-grid">
+          {WORKSPACE_CARD_COLORS.map((color, index) => (
+            <button
+              key={color}
+              type="button"
+              role="radio"
+              aria-checked={editingColorIndex === index}
+              aria-label={`${WORKSPACE_CARD_COLOR_NAMES[index]} color for ${editingWorkspace.name}`}
+              className="sidebar-workspace-card-color-swatch"
+              style={{ background: color }}
+              onClick={() => selectColor(editingWorkspace, index)}
+            />
+          ))}
+        </div>
+        <button type="button" className="sidebar-workspace-card-popover-done" onClick={() => closeEditor(true)}>Done</button>
+      </div>,
+      document.body,
+    )}
+  </>;
 }
