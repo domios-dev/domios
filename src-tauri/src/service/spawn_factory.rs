@@ -153,13 +153,29 @@ impl ServiceContext {
         to: &Counterpart,
         other: &Counterpart,
     ) -> Result<(), String> {
-        Messenger::deliver(
-            self,
-            &to.pane_id,
-            MessageEnvelope::from_codeterm(),
-            &introduction_body(to, other),
-        )
-        .map(|_| ())
+        use crate::service::message_gateway::{
+            DeliveryClass, MessageBody, MessageOrigin, OutboundMessage,
+        };
+        // Routed through the gateway so the SystemNotice class gates on the
+        // recipient's receptivity — a freshly-spawned pane's intro no longer
+        // races its own first turn and drops the Enter.
+        self.gateway
+            .submit(
+                self,
+                OutboundMessage {
+                    target: to.pane_id.clone(),
+                    body: MessageBody::Text {
+                        body: introduction_body(to, other),
+                        enter: true,
+                    },
+                    envelope: Some(MessageEnvelope::from_codeterm()),
+                    class: DeliveryClass::SystemNotice,
+                    origin: MessageOrigin::System,
+                    idempotency_key: None,
+                },
+            )
+            .map(|_| ())
+            .map_err(|e| e.to_string())
     }
 
     /// Introduce a LIVE recipient to `other` now. A recipient that is not a live
