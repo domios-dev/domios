@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, LogOut, UsersRound } from "lucide-react";
+import { ChevronRight, LogOut, Minus, Plus, UsersRound } from "lucide-react";
 import type { Pane, ProviderDescriptor, Team } from "../../lib/types";
 import { TASK_STATUS_COLORS } from "../Canvas/settings";
 import { ProviderGlyph } from "../ProviderGlyph";
@@ -399,20 +399,21 @@ export function TeamUnit({
       data-expanded={expanded ? "true" : "false"}
       className="sidebar-team-unit"
     >
+      <button
+        type="button"
+        data-testid="team-collapse-toggle"
+        className="sidebar-team-pin"
+        aria-label={expanded ? "Collapse Team" : "Expand Team"}
+        aria-expanded={expanded}
+        onClick={() => setExpanded((value) => !value)}
+      >
+        {expanded ? <Minus aria-hidden /> : <Plus aria-hidden />}
+      </button>
       <div
         ref={headerRef}
         className={`sidebar-team-header${plan && !editing ? " sidebar-team-header-active" : ""}`}
         data-menu-dismissed={menuDismissed ? "true" : undefined}
-			>
-        <SidebarDisclosure
-          data-testid="team-collapse-toggle"
-          aria-label={expanded ? "Collapse Team" : "Expand Team"}
-          expanded={expanded}
-          onClick={(event) => {
-            event.stopPropagation();
-            setExpanded((value) => !value);
-          }}
-        />
+      >
         {plan && !editing ? (
           <button
             type="button"
