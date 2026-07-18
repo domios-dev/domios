@@ -9,7 +9,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::plan::{OrchestratorRef, PlannerRef};
-use crate::service::messenger::{MessageEnvelope, Messenger};
+use crate::service::messenger::MessageEnvelope;
 use crate::service::orchestrator::SpawnAgentParams;
 use crate::service::ServiceContext;
 
@@ -230,11 +230,11 @@ impl ServiceContext {
                 "orchestrator pane {orchestrator_pane_id} is not a confirmed live agent"
             ));
         }
-        Messenger::deliver(
-            self,
+        self.gateway_deliver(
             orchestrator_pane_id,
             MessageEnvelope::codeterm_reminder("orchestration-pair"),
             body,
+            crate::service::message_gateway::DeliveryClass::SystemNotice,
         )
         .map(|_| ())
     }

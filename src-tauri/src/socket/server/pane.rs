@@ -146,11 +146,11 @@ pub(super) fn dispatch(
                 let envelope =
                     crate::service::messenger::MessageEnvelope::pane(from_label, src.to_string())
                         .model(model);
-                crate::service::messenger::Messenger::deliver(
-                    svc.as_ref(),
+                svc.as_ref().gateway_deliver(
                     &resolved_target,
                     envelope,
                     &raw_text,
+                    crate::service::message_gateway::DeliveryClass::AgentTraffic,
                 )
                 .map_err(|e| JsonRpcError {
                     code: -32603,

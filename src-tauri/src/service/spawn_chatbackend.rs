@@ -10,7 +10,7 @@ use super::ServiceContext;
 use crate::agent::chat_types::{ChatMsg, StructuredChat};
 use crate::agent::reports::ReportDetails;
 use crate::multiplexer::types::{PaneBacking, WatcherPolicy, WatcherSpec};
-use crate::service::messenger::{MessageEnvelope, Messenger};
+use crate::service::messenger::MessageEnvelope;
 use crate::service::watcher::{
     apply_guardrails, build_observation, collect_watch_group, observation_config_from_json,
     parse_verdict, ObservationSources, VerdictOutcome, WatcherAction, WatcherVerdictStatus,
@@ -818,7 +818,7 @@ impl ServiceContext {
             cooldowns,
             |target, message| {
                 let envelope = MessageEnvelope::pane("Watcher", pane_id);
-                Messenger::deliver(self, target, envelope, message).map(|_| {
+                self.gateway_deliver(target, envelope, message, crate::service::message_gateway::DeliveryClass::AgentTraffic).map(|_| {
                     self.emit_watcher_note(
                         pane_id,
                         format!("Nudge delivered to {target}: {message}"),

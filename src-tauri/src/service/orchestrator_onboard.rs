@@ -3,7 +3,7 @@
 use super::ServiceContext;
 use crate::mem::{SearchHit, SearchQuery};
 use crate::multiplexer::types::{AgentRole, Pane};
-use crate::service::messenger::{MessageEnvelope, Messenger};
+use crate::service::messenger::MessageEnvelope;
 
 const PREF_QUERY: &str = "CodeTerm orchestration and planning preferences";
 const PREF_LIMIT: usize = 5;
@@ -108,7 +108,12 @@ impl ServiceContext {
         // Deliver as a message FROM CodeTerm (same marker the Planner gets), not a
         // reminder — the onboarding should read as CodeTerm introducing the role.
         let envelope = MessageEnvelope::from_codeterm();
-        if let Err(e) = Messenger::deliver(self, pane_id, envelope, &body) {
+        if let Err(e) = self.gateway_deliver(
+            pane_id,
+            envelope,
+            &body,
+            crate::service::message_gateway::DeliveryClass::SystemNotice,
+        ) {
             log::warn!("[orchestrator-onboard] deliver to {pane_id} failed: {e}");
         }
         self.deliver_orchestration_preferences(pane_id);
@@ -132,7 +137,7 @@ impl ServiceContext {
                 return;
             };
             let envelope = MessageEnvelope::codeterm_reminder("orchestration-prefs");
-            if let Err(e) = Messenger::deliver(&svc, &pane_id, envelope, &body) {
+            if let Err(e) = svc.gateway_deliver(&pane_id, envelope, &body, crate::service::message_gateway::DeliveryClass::SystemNotice) {
                 log::warn!("[orchestration-prefs] deliver to {pane_id} failed: {e}");
             }
         };
