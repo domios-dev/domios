@@ -765,6 +765,7 @@ pub fn run() {
                 worker_identity_allocator: Arc::new(parking_lot::Mutex::new(
                     crate::service::WorkerPersonaReservations::default(),
                 )),
+                gateway: Arc::new(crate::service::message_gateway::MessageGateway::new()),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             {
