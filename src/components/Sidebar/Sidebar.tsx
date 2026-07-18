@@ -678,6 +678,8 @@ export function Sidebar({
                         key={ws.id}
                         data-testid="workspace-detail"
                         data-workspace-id={ws.id}
+                        role="region"
+                        aria-label={`${ws.name} workspace contents`}
                         hidden={!selected}
                       >
                     <WorkspaceItem

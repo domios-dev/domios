@@ -173,6 +173,7 @@ function WorkspaceItemInner({
         }
         trigger={
           <button
+            aria-label={`Actions for ${workspace.name}`}
             className={`${touchMode ? "h-11 w-11" : "w-5 h-5"} flex items-center justify-center rounded hover:bg-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors`}
             title="Workspace actions"
           >
