@@ -1,3 +1,15 @@
+const BOTTOM_TOLERANCE_PX = 2;
+
+export interface ChatViewportGeometry {
+  scrollHeight: number;
+  scrollTop: number;
+  clientHeight: number;
+}
+
+export function isChatViewportAtBottom(viewport: ChatViewportGeometry): boolean {
+  return viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= BOTTOM_TOLERANCE_PX;
+}
+
 export function shouldRestoreChatViewport(
   active: boolean,
   loading: boolean,
