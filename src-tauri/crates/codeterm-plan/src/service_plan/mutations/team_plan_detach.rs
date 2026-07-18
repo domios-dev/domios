@@ -52,6 +52,88 @@ impl PlanStore {
             .changed_plan_ids)
     }
 
+    pub fn recover_placeholder_team_plans(
+        &self,
+        live: &std::collections::BTreeSet<String>,
+        now_ms: u64,
+    ) -> Result<Vec<String>, PlanError> {
+        let _writer_turn = self.mutation_writer.enter();
+        let plans = self.list_full();
+        let mut repairs = Vec::new();
+        for placeholder in plans.iter().filter(|plan| {
+            plan.status == PlanStatus::Active
+                && plan.tasks.is_empty()
+                && plan
+                    .team_id
+                    .as_ref()
+                    .is_some_and(|team| live.contains(team))
+        }) {
+            let placeholder_project = if placeholder.canonical_project_path.trim().is_empty() {
+                &placeholder.project_path
+            } else {
+                &placeholder.canonical_project_path
+            };
+            let matches: Vec<_> = plans
+                .iter()
+                .filter(|plan| {
+                    let project = if plan.canonical_project_path.trim().is_empty() {
+                        &plan.project_path
+                    } else {
+                        &plan.canonical_project_path
+                    };
+                    plan.status == PlanStatus::Active
+                        && plan.team_id.is_none()
+                        && !plan.tasks.is_empty()
+                        && plan.title.trim() == placeholder.title.trim()
+                        && project == placeholder_project
+                })
+                .collect();
+            if let [legacy] = matches.as_slice() {
+                repairs.push((placeholder.clone(), (*legacy).clone()));
+            }
+        }
+
+        let candidate_use: std::collections::HashMap<String, usize> = repairs.iter().fold(
+            std::collections::HashMap::new(),
+            |mut counts, (_, legacy)| {
+                *counts.entry(legacy.id.clone()).or_default() += 1;
+                counts
+            },
+        );
+        repairs.retain(|(_, legacy)| candidate_use.get(&legacy.id) == Some(&1));
+        let originals: Vec<_> = repairs
+            .iter()
+            .flat_map(|(placeholder, legacy)| [placeholder.clone(), legacy.clone()])
+            .collect();
+        let mut changed = Vec::new();
+        for (placeholder, legacy) in repairs {
+            let team_id = placeholder.team_id.clone().expect("placeholder has a team");
+            let repair = self
+                .with_plan_in_writer(&placeholder.id, now_ms, |plan| {
+                    plan.team_id = None;
+                    if !matches!(plan.mode, PlanMode::Paused | PlanMode::Complete) {
+                        plan.paused_from_mode = Some(plan.mode.clone());
+                        plan.mode = PlanMode::Paused;
+                    }
+                    Ok(())
+                })
+                .and_then(|_| {
+                    self.with_plan_in_writer(&legacy.id, now_ms, |plan| {
+                        plan.team_id = Some(team_id);
+                        Ok(())
+                    })
+                });
+            if let Err(error) = repair {
+                for original in &originals {
+                    let _ = self.restore_team_plan(original);
+                }
+                return Err(error);
+            }
+            changed.extend([placeholder.id, legacy.id]);
+        }
+        Ok(changed)
+    }
+
     fn detach_matching_team_plans<F>(
         &self,
         matches: F,

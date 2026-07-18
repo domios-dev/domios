@@ -1,5 +1,5 @@
 use super::*;
-use crate::service_plan::{paths, retrospective};
+use crate::service_plan::retrospective;
 
 impl PlanStore {
     pub fn ensure_task_creation_allowed(
@@ -23,114 +23,6 @@ impl PlanStore {
         } else {
             Err(PlanError::TaskCreationRequiresApproval)
         }
-    }
-
-    pub fn create_plan(
-        &self,
-        title: String,
-        project_path: String,
-        owner: OrchestratorRef,
-        kinds: Vec<MilestoneKind>,
-        now_ms: u64,
-    ) -> Result<Plan, PlanError> {
-        self.create_plan_for_team(title, project_path, owner, None, kinds, now_ms)
-    }
-
-    /// Create a plan optionally bound 1:1 to a team.
-    /// A second active team plan is refused; teamless creation remains allowed.
-    pub fn create_plan_for_team(
-        &self,
-        title: String,
-        project_path: String,
-        owner: OrchestratorRef,
-        team_id: Option<String>,
-        kinds: Vec<MilestoneKind>,
-        now_ms: u64,
-    ) -> Result<Plan, PlanError> {
-        let _writer_turn = self.mutation_writer.enter();
-        let team_id = team_id
-            .map(|t| t.trim().to_string())
-            .filter(|t| !t.is_empty());
-        if let Some(team) = team_id.as_deref() {
-            if let Some((existing_plan_id, existing_title)) = self.active_plan_for_team(team) {
-                return Err(PlanError::TeamAlreadyHasActivePlan {
-                    team_id: team.to_string(),
-                    existing_plan_id,
-                    existing_title,
-                });
-            }
-        }
-        // one root (not a sub-path like src-tauri/ or the daemon cwd).
-        let project_path = paths::project_root(std::path::Path::new(&project_path));
-        let project_metadata = std::fs::metadata(&project_path).map_err(|error| {
-            PlanError::Io(format!(
-                "read project path {}: {error}",
-                project_path.display()
-            ))
-        })?;
-        if !project_metadata.is_dir() {
-            return Err(PlanError::Io(format!(
-                "project path is not a directory: {}",
-                project_path.display()
-            )));
-        }
-        let project_path = project_path.display().to_string();
-        let mut plan = Plan::new(title, project_path, owner);
-        if self.id_taken(&plan.id) {
-            plan.id = self.mint_id("pl");
-        }
-        plan.team_id = team_id;
-        plan.milestone_kinds = kinds;
-        if let Err(error) = self.save_in_writer(&mut plan, now_ms) {
-            self.plans.write().remove(&plan.id);
-            self.index.write().remove(&plan.id);
-            return Err(PlanError::Io(error.to_string()));
-        }
-        Ok(plan)
-    }
-
-    /// Return the active plan bound to `team_id`, if any.
-    pub fn active_plan_for_team(&self, team_id: &str) -> Option<(String, String)> {
-        let team_id = team_id.trim();
-        if team_id.is_empty() {
-            return None;
-        }
-        self.plans.read().values().find_map(|arc| {
-            let plan = arc.lock();
-            (plan.status == PlanStatus::Active && plan.team_id.as_deref() == Some(team_id))
-                .then(|| (plan.id.clone(), plan.title.clone()))
-        })
-    }
-
-    pub fn bind_plan_to_team(
-        &self,
-        plan_id: &str,
-        team_id: &str,
-        now_ms: u64,
-    ) -> Result<Plan, PlanError> {
-        let team_id = team_id.trim();
-        let _writer_turn = self.mutation_writer.enter();
-        if let Some((existing_plan_id, existing_title)) = self.active_plan_for_team(team_id) {
-            if existing_plan_id != plan_id {
-                return Err(PlanError::TeamAlreadyHasActivePlan {
-                    team_id: team_id.to_string(),
-                    existing_plan_id,
-                    existing_title,
-                });
-            }
-        }
-        self.with_plan_in_writer(plan_id, now_ms, |plan| {
-            if let Some(bound_team_id) = plan.team_id.as_deref() {
-                if bound_team_id != team_id {
-                    return Err(PlanError::PlanAlreadyBoundToTeam {
-                        plan_id: plan.id.clone(),
-                        team_id: bound_team_id.to_string(),
-                    });
-                }
-            }
-            plan.team_id = Some(team_id.to_string());
-            Ok(plan.clone())
-        })
     }
 
     pub fn update_plan(

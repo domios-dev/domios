@@ -227,6 +227,61 @@ fn dangling_binding_sweep_parks_orphan_plans_once() {
 }
 
 #[test]
+fn binding_sweep_recovers_populated_legacy_plan_from_empty_placeholder() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan_store = crate::service::plan::PlanStore::new_for_test(dir.path());
+    let (mux, team_id, orchestrator, _, _) = team_members();
+    let legacy = plan_store
+        .create_plan(
+            "Recovered effort".into(),
+            dir.path().display().to_string(),
+            crate::plan::OrchestratorRef::from_pane("retired-owner"),
+            vec![],
+            1,
+        )
+        .unwrap();
+    for index in 0..40 {
+        plan_store
+            .add_task(
+                &legacy.id,
+                crate::service::plan::NewTask {
+                    name: format!("Recovered task {index}"),
+                    ..Default::default()
+                },
+                2 + index,
+            )
+            .unwrap();
+    }
+    let placeholder = plan_store
+        .create_plan_for_team(
+            legacy.title.clone(),
+            dir.path().display().to_string(),
+            crate::plan::OrchestratorRef::from_pane(&orchestrator),
+            Some(team_id.clone()),
+            vec![],
+            50,
+        )
+        .unwrap();
+
+    let mut changed = reconcile_dangling_team_plan_bindings(&mux, &plan_store, 100).unwrap();
+    changed.sort();
+    let mut expected = vec![legacy.id.clone(), placeholder.id.clone()];
+    expected.sort();
+    assert_eq!(changed, expected);
+    let recovered = plan_store.get(&legacy.id).unwrap();
+    assert_eq!(recovered.team_id.as_deref(), Some(team_id.as_str()));
+    assert_eq!(recovered.tasks.len(), 40);
+    let parked = plan_store.get(&placeholder.id).unwrap();
+    assert_eq!(parked.team_id, None);
+    assert_eq!(parked.mode, crate::plan::PlanMode::Paused);
+    assert!(
+        reconcile_dangling_team_plan_bindings(&mux, &plan_store, 101)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
 fn ordinary_close_preserves_team_but_explicit_close_removes_it() {
     let (mut mux, team_id, orchestrator, planner, worker) = team_members();
     let plan_store = crate::service::plan::PlanStore::new();

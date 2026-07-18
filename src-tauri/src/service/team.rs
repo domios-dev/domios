@@ -516,7 +516,9 @@ pub(crate) fn reconcile_dangling_team_plan_bindings(
     now_ms: u64,
 ) -> Result<Vec<String>, crate::service::plan::PlanError> {
     let live_team_ids = mux.list_teams().into_iter().map(|team| team.id).collect();
-    plan_store.detach_and_park_dangling_team_plans(&live_team_ids, now_ms)
+    let mut changed = plan_store.detach_and_park_dangling_team_plans(&live_team_ids, now_ms)?;
+    changed.extend(plan_store.recover_placeholder_team_plans(&live_team_ids, now_ms)?);
+    Ok(changed)
 }
 
 fn now_ms() -> u64 {
