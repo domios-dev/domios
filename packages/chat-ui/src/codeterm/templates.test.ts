@@ -1,5 +1,5 @@
 import { recognize } from "./recognize";
-import { renderTemplate, parseSend, planLink, isSend, navigationTarget } from "./templates";
+import { renderTemplate, parseSend, planLink, isHelp, isSend, navigationTarget } from "./templates";
 
 let passed = 0;
 let failed = 0;
@@ -27,6 +27,9 @@ const TASK = "task_" + "b".repeat(32);
 // --- send detection + parse ---
 {
   assert(isSend(inv(`codeterm send --tab bda "hi"`)), "isSend true for send");
+  assert(!isSend(inv("codeterm send --help")), "send help is not an outgoing message");
+  assert(isHelp(inv("codeterm send --help")), "long help flag detected");
+  assert(isHelp(inv("codeterm send -h")), "short help flag detected");
   assert(!isSend(inv(`codeterm mem search "x"`)), "isSend false for mem");
 
   const m = parseSend(inv(`codeterm send --tab 915fae8e "hello"`), undefined, undefined);

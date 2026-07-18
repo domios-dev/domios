@@ -49,6 +49,8 @@ const successfulSendHost = await render(<CodetermActionCard event={{ ...event('c
 if (successfulSendHost.host.querySelector('[data-testid="toolcard-result"]') || successfulSendHost.host.textContent?.includes("OK (sent)")) throw new Error("successful send result must stay hidden");
 const failedSendHost = await render(<CodetermActionCard event={{ ...event('codeterm send --tab e3fa0754 "hello"'), status: "error", result: "error: tab not found" }} expanded onToggle={() => {}} />);
 if (!failedSendHost.host.querySelector('[data-testid="toolcard-result"]') || !failedSendHost.host.textContent?.includes("tab not found")) throw new Error("failed send result must remain visible");
+const sendHelpHost = await render(<CodetermActionCard event={event("codeterm send --help; codeterm docs ROUTING")} expanded={false} onToggle={() => {}} />);
+if (!sendHelpHost.host.textContent?.includes("help") || !sendHelpHost.host.textContent?.includes("send") || sendHelpHost.host.textContent?.includes("current tab")) throw new Error("send help must not look like an outgoing message");
 const docsHost = await render(<CodetermActionCard event={{ ...event("codeterm docs ORCHESTRATION"), result: "one two\nthree" }} expanded={false} onToggle={() => {}} />);
 if (!docsHost.host.textContent?.includes("3 words") || docsHost.host.textContent.includes("chars")) throw new Error("docs metric must count words");
 const unresolvedFocusHost = await render(<CodetermActionCard event={event('codeterm send --tab unknown-ref "hi"')} expanded onToggle={() => {}} onFocusPane={(ref) => focusCalls.push(ref)} />);
@@ -178,4 +180,4 @@ if (unknownHost.host.querySelector("button[data-testid^='codeterm-']")) throw ne
 
 const themeVars = themeToCSS(DEFAULT_THEME);
 for (const variable of ["--ct-fg", "--ct-muted-fg", "--ct-accent", "--ct-border"]) if (!(variable in themeVars)) throw new Error(`missing theme token ${variable}`);
-console.log("codeterm action card tests: 26/26 passed");
+console.log("codeterm action card tests: 27/27 passed");
