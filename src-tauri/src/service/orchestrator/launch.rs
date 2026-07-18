@@ -64,6 +64,15 @@ fn existing_live_pty(svc: &ServiceContext, pane_id: &str) -> Option<String> {
         .then_some(pty_id)
 }
 
+fn reused_provider_tui_owns_launch(
+    reused_live_pty: bool,
+    pane_agent_type: Option<&str>,
+    requested_agent: &str,
+    provider_tui_visible: bool,
+) -> bool {
+    reused_live_pty && pane_agent_type == Some(requested_agent) && provider_tui_visible
+}
+
 fn spawn_backend_pty(svc: &ServiceContext, pane_id: &str) -> Result<String, String> {
     let cwd = svc
         .mux
@@ -190,10 +199,10 @@ pub(crate) fn launch_agent_in_background(
             }
         };
         let pty_claim = svc.pty_ownership.acquire(&pane_id);
-        let candidate_pty_id = match existing_live_pty(&svc, &pane_id) {
-            Some(pty_id) => pty_id,
+        let (candidate_pty_id, reused_live_pty) = match existing_live_pty(&svc, &pane_id) {
+            Some(pty_id) => (pty_id, true),
             None => match spawn_backend_pty(&svc, &pane_id) {
-                Ok(pty_id) => pty_id,
+                Ok(pty_id) => (pty_id, false),
                 Err(error) => {
                     log::error!(
                         "launch_agent: backend PTY spawn failed for pane {}: {}",
@@ -233,6 +242,42 @@ pub(crate) fn launch_agent_in_background(
             pane_id,
             launch_started.elapsed().as_millis()
         );
+
+        let (pane_agent_type, screen) = {
+            let pane_agent_type = svc
+                .mux
+                .read()
+                .get_pane(&pane_id)
+                .and_then(|pane| pane.agent_type.clone());
+            let screen = svc
+                .screen_state
+                .lock()
+                .get_screen_text(&pty_id)
+                .unwrap_or_default();
+            (pane_agent_type, screen)
+        };
+        let provider_tui_visible = registry
+            .with_provider(&agent_cmd, |provider| provider.screen_has_tui(&screen))
+            .unwrap_or(false);
+        if reused_provider_tui_owns_launch(
+            reused_live_pty,
+            pane_agent_type.as_deref(),
+            &agent_cmd,
+            provider_tui_visible,
+        ) {
+            log::info!(
+                "launch_agent: pane {} already owns live {} TUI on PTY {}; preserving ready state",
+                pane_id,
+                agent_cmd,
+                pty_id
+            );
+            svc.emit_boot_stage(&pane_id, BootStage::AgentReady, None);
+            set_booting(false);
+            if let Some(tx) = ready_tx {
+                let _ = tx.send(Ok(()));
+            }
+            return;
+        }
 
         let delivery = registry
             .with_provider(&agent_cmd, |provider| {
@@ -440,7 +485,8 @@ pub(crate) fn launch_agent_in_background(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_agent_command, replacement_pty_candidate, spawn_onboarding_task, AgentRegistry,
+        build_agent_command, replacement_pty_candidate, reused_provider_tui_owns_launch,
+        spawn_onboarding_task, AgentRegistry,
     };
     use crate::chatbackend::{ChatBackendError, ChatBackendProvider, ChatBackendRegistry};
     use crate::multiplexer::state::MultiplexerState;
@@ -468,6 +514,34 @@ mod tests {
         assert!(replacement_pty_candidate(Some("closed"), "closed", true).is_none());
         assert!(replacement_pty_candidate(Some("new"), "closed", false).is_none());
         assert!(replacement_pty_candidate(None, "closed", true).is_none());
+    }
+
+    #[test]
+    fn reused_live_provider_tui_is_not_a_shell_readiness_failure() {
+        assert!(reused_provider_tui_owns_launch(
+            true,
+            Some("codex"),
+            "codex",
+            true,
+        ));
+        assert!(!reused_provider_tui_owns_launch(
+            false,
+            Some("codex"),
+            "codex",
+            true,
+        ));
+        assert!(!reused_provider_tui_owns_launch(
+            true,
+            Some("claude"),
+            "codex",
+            true,
+        ));
+        assert!(!reused_provider_tui_owns_launch(
+            true,
+            Some("codex"),
+            "codex",
+            false,
+        ));
     }
 
     #[test]
