@@ -84,6 +84,11 @@ test.describe("@golden composer draft isolation", () => {
       (await api.workspaces()).find((w) => w.id === ws.id)?.pane_ids ?? [],
     );
 
+    // Open the app fresh so the just-created workspace is present exactly as a
+    // user reopening CodeTerm would see it — deterministic, no dependency on a
+    // live create-event landing on an already-open page.
+    await page.reload({ waitUntil: "domcontentloaded" });
+
     // The user journey, driven the way a person (or screen reader) would in the
     // workspace-card sidebar: select this workspace's card, which reveals its
     // contents region, then start a new session from inside that region. Scoping
@@ -93,9 +98,13 @@ test.describe("@golden composer draft isolation", () => {
     // sortable wrapper around it is also role=button and borrows the same name,
     // so filter to the pressable one to address the real control, not the drag
     // handle. (pressed:false = not-yet-selected at click time.)
-    await page
-      .getByRole("button", { name: `Select workspace ${ws.name}`, exact: true, pressed: false })
-      .click();
+    const selectCard = page.getByRole("button", {
+      name: `Select workspace ${ws.name}`,
+      exact: true,
+      pressed: false,
+    });
+    await expect(selectCard).toBeVisible({ timeout: 15_000 });
+    await selectCard.click();
 
     const region = page.getByRole("region", { name: `${ws.name} workspace contents` });
     await expect(region).toBeVisible({ timeout: 15_000 });
