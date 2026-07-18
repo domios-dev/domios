@@ -139,13 +139,13 @@ function WorkspaceItemInner({
         )}
         {/* Icon + name (click to activate, double-click to rename) */}
         <div className={`flex items-center min-w-0 ${touchMode ? "gap-2.5" : "gap-2"}`} onClick={onClick}>
-          {workspace.protected ? (
+          {!detailHeader && (workspace.protected ? (
             <span className="relative shrink-0 flex items-center justify-center w-[14px] h-[14px]">
               <ShieldCheckIcon style={{ stroke: "var(--ct-muted-fg)" }} className="shrink-0" />
             </span>
           ) : (
-          <FolderIcon open={isExpanded} className="shrink-0" />
-          )}
+            <FolderIcon open={isExpanded} className="shrink-0" />
+          ))}
           {editing ? (
             <input
               autoFocus
