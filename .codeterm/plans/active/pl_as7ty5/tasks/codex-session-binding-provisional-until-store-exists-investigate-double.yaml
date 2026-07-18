@@ -13,6 +13,11 @@ correctness: A session id without a backing store is a hint, not an identity; bi
 status: done
 review_stage: review
 qa_state: null
+review_round: 0
+review_oracle: null
+review_evidence: []
+review_override: null
+review_audit: []
 status_label: null
 priority: p2
 created_at: 1783974289198

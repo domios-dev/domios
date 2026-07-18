@@ -11,6 +11,8 @@ export interface PlanWorkspaceContext {
 
 export interface PlanFilterOpts extends PlanWorkspaceContext {
   planId?: string;
+  /** Team-plan canvas is immutable to workspace-wide plan selection. */
+  teamId?: string;
   orchestratorPaneId?: string;
   panes?: Record<string, Pane>;
   /** Current workspace, or `undefined` for unscoped focus/companion contexts.
@@ -130,6 +132,7 @@ export function filterPlansForCanvas(
 ): Plan[] {
   const active = plans.filter((p) => p.status === "active");
   if (mode === "workspace") {
+    if (opts.teamId) return active.filter((plan) => plan.team_id === opts.teamId);
     if (opts.allPlans) return active;
     // No workspace scope → no board, never every plan (the bug we removed).
     if (!opts.workspaceId) return [];

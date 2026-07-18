@@ -14,48 +14,26 @@ impl PlanStore {
         paths::plan_json_path(paths::plan_sidecar_root(plan), &plan.status, &plan.id)
     }
 
-    /// The single plan persist path: yaml store only (no plan.json, no md
-    /// sidecar fan-out). Per-entity write-if-changed, so a mutation touches
-    /// only the file(s) that changed. Returns the plan.yaml path for the index.
-    pub(super) fn persist_plan(plan: &Plan) -> std::io::Result<PathBuf> {
-        let mut normalized = plan.clone();
-        if normalized.canonical_project_path.trim().is_empty() {
-            normalized.canonical_project_path = normalized.project_path.clone();
-        }
-        tag_model::normalize_plan(&mut normalized);
-        let dir = store_v2::plan_state_dir(&normalized)?;
-        store_v2::write_plan(&dir, &normalized)?;
-        Self::remove_other_status_dir(plan, &store_v2::plan_yaml_path(&dir))?;
-        Ok(store_v2::plan_yaml_path(&dir))
-    }
-
-    /// persist_plan + carry the co-located owned spec. A status move
-    /// (active<->archive) relocates the plan dir and remove_other_status_dir
-    /// wipes the old one INCLUDING spec.yaml — re-persist the spec into
-    /// wherever the plan now lives (write-if-changed: no-op otherwise).
+    /// Persist one canonical plan transaction, including its owned spec.
     pub(super) fn persist_plan_and_spec(&self, plan: &Plan) -> std::io::Result<PathBuf> {
         #[cfg(test)]
         if let Some(hook) = self.persistence_hook.read().clone() {
             hook(plan);
         }
-        let path = Self::persist_plan(plan)?;
         let owned = {
             self.specs
                 .read()
                 .values()
                 .find(|s| s.lock().plan_id.as_deref() == Some(plan.id.as_str()))
-                .cloned()
+                .map(|spec| spec.lock().clone())
         };
+        let path = self
+            .database
+            .persist_plan(plan, owned.as_ref())
+            .map_err(plan_io_error)?;
         if let Some(spec) = owned {
-            let guard = spec.lock();
-            // Target from the fresh plan, not the index — mid-transition the
-            // index still points at the old status dir.
-            let dir = store_v2::plan_state_dir(plan)?;
-            let target = spec_store::spec_yaml_path_in_plan(&dir);
-            let spec_path = self.persist_spec_at(&guard, target)?;
-            self.note_spec_write(&guard, &spec_path);
-            let entry = Self::spec_index_entry(&guard, spec_path);
-            self.spec_index.write().insert(guard.id.clone(), entry);
+            let entry = Self::spec_index_entry(&spec, path.clone());
+            self.spec_index.write().insert(spec.id.clone(), entry);
         }
         Ok(path)
     }
@@ -79,6 +57,7 @@ impl PlanStore {
         Ok(path)
     }
 
+    #[cfg(test)]
     fn remove_other_status_dir(plan: &Plan, written_path: &Path) -> std::io::Result<()> {
         let project = paths::plan_sidecar_root(plan);
         for status in [PlanStatus::Active, PlanStatus::Archived] {
@@ -93,47 +72,8 @@ impl PlanStore {
         Ok(())
     }
 
-    /// Spec v2 write target: owned spec -> `<plan_dir>/spec.yaml`, orphan ->
-    /// `.codeterm/specs/<id>.yaml`. Resolves the plan dir via the INDEX (map
-    /// lock only) — never the plan mutex, so spec persists can run while a
-    /// plan guard is held on this thread (no ABBA / reentrant deadlock).
-    pub(super) fn spec_yaml_target(&self, spec: &Spec) -> std::io::Result<PathBuf> {
-        if let Some(pid) = spec.plan_id.as_deref() {
-            let plan_dir = self
-                .index
-                .read()
-                .get(pid)
-                .and_then(|e| e.file_path.parent().map(Path::to_path_buf));
-            if let Some(dir) = plan_dir {
-                return Ok(spec_store::spec_yaml_path_in_plan(&dir));
-            }
-        }
-        let specs_dir = paths::specs_dir(paths::spec_sidecar_root(spec))?;
-        Ok(spec_store::spec_yaml_path(&specs_dir, &spec.id))
-    }
-
     pub(super) fn persist_spec(&self, spec: &Spec) -> std::io::Result<PathBuf> {
-        let path = self.spec_yaml_target(spec)?;
-        self.persist_spec_at(spec, path)
-    }
-
-    fn persist_spec_at(&self, spec: &Spec, path: PathBuf) -> std::io::Result<PathBuf> {
-        let mut normalized = spec.clone();
-        if normalized.canonical_project_path.trim().is_empty() {
-            normalized.canonical_project_path = normalized.project_path.clone();
-        }
-        tag_model::normalize_sections_for_spec(&mut normalized.sections);
-        // A spec owned by a plan lives at <plan>/spec.yaml; when it was
-        // previously orphaned, drop the stale global yaml so there is one copy.
-        if normalized.plan_id.is_some() {
-            let specs_dir = paths::specs_dir(paths::spec_sidecar_root(&normalized))?;
-            let global = spec_store::spec_yaml_path(&specs_dir, &normalized.id);
-            if global != path {
-                let _ = std::fs::remove_file(global);
-            }
-        }
-        spec_store::write_spec_at(&path, &normalized)?;
-        Ok(path)
+        self.database.persist_spec(spec).map_err(plan_io_error)
     }
 
     fn note_write(&self, path: &Path) {
@@ -182,4 +122,8 @@ impl PlanStore {
             .get(&key)
             .is_some_and(|last| *last == modified)
     }
+}
+
+fn plan_io_error(error: PlanError) -> std::io::Error {
+    std::io::Error::other(error.to_string())
 }

@@ -12,6 +12,11 @@ correctness: Do not silence the tag-lint guard broadly. Make the minimal baselin
 status: done
 review_stage: review
 qa_state: null
+review_round: 0
+review_oracle: null
+review_evidence: []
+review_override: null
+review_audit: []
 status_label: local-fix-waits-for-canvas-cleanup
 priority: p1
 created_at: 1783798895810

@@ -34,13 +34,16 @@ interface CreatedPlanOwnership {
   team_id?: string | null;
 }
 
-function verifyCreatedOwnership(created: unknown, paneId: string): void {
+function verifyCreatedOwnership(created: unknown, paneId: string, expectedTeamId?: string): void {
   const result = created as CreatedPlanOwnership;
   if (result.plan?.owner?.pane_id !== paneId) {
     throw new Error("Created plan owner does not match the Canvas orchestrator");
   }
   if (!result.team_id || result.plan?.team_id !== result.team_id) {
     throw new Error("Created plan Team binding does not match the minted Team");
+  }
+  if (expectedTeamId && result.team_id !== expectedTeamId) {
+    throw new Error("Created plan Team binding does not match the selected Team");
   }
 }
 
@@ -74,7 +77,7 @@ export async function createCanvasPlan({
       }
       : undefined,
   });
-  if (!isTeamTarget && paneId) verifyCreatedOwnership(created, paneId);
+  if (paneId) verifyCreatedOwnership(created, paneId, workspaceTarget?.teamId);
 }
 
 export function CanvasEmptyActions({ api, projectPath, workspaceId }: CanvasEmptyActionsProps) {
@@ -123,7 +126,7 @@ export function CanvasEmptyActions({ api, projectPath, workspaceId }: CanvasEmpt
         }}
       >
         <Plus size={16} />
-        {busy ? "Creating…" : workspaceTarget?.teamId ? "Create team plan" : "Create plan & orchestrator"}
+        {busy ? "Creating…" : "Create Team plan"}
       </button>
       {error && (
         <div className="text-xs text-center max-w-sm" style={{ color: "var(--ct-error, #f87171)" }}>

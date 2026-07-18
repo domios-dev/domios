@@ -14,6 +14,11 @@ correctness: Web-mode drives /web/ Chromium; results reflect ubunta only; caps b
 status: cancelled
 review_stage: review
 qa_state: null
+review_round: 0
+review_oracle: null
+review_evidence: []
+review_override: null
+review_audit: []
 status_label: 'deferred: external ubunta infra/control path blocker'
 priority: p1
 created_at: 1783763162275

@@ -15,10 +15,15 @@ correctness: Overflow ownership is local and intentional; desktop remains unchan
 status: in_review
 review_stage: review
 qa_state: null
+review_round: 0
+review_oracle: null
+review_evidence: []
+review_override: null
+review_audit: []
 status_label: null
 priority: p2
 created_at: 1783978379416
-updated_at: 1783981182031
+updated_at: 1784354134367
 status_changed_at: 1783981181406
 handle: fix-mobile-web-viewport-overflow-across-primary-surfaces
 tags: []
@@ -145,6 +150,23 @@ milestones:
   ts: 1783981182031
   links:
   - key:57abe7cca5d39731
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_gvcs5b
+  from:
+    pane_id: 166df18d
+    session_id: null
+    title: null
+  kind: gate_blocked
+  text: ' exact Playwright command attempted on canonical with dev 7686 healthy; harness built a separate release CLI then runner pipe was terminated by external 60s bound (EPIPE). No mobile verdict claimed; repair harness reuse/stream handling before rerun.'
+  ts: 1784354134367
+  links:
+  - key:c4c2b83afff3951e
   loop_id: null
   iteration: null
   canvas:

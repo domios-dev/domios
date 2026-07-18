@@ -11,14 +11,19 @@ acceptance_criteria:
 - Full perf project completes in under 10 minutes on a remote machine using the stub provider, zero real LLM
 test_plan: '1) Config: add perf project (grep @perf) to playwright.config.ts. 2) Promote and retag composer-output-performance, tab-switch-latency, and the multitab-perf pair into it. 3) New specs using helpers/canvas-perf.ts observers: PTY replay (write large buffer via panes send, measure write-to-render p95, assert frame-bounded slicing), long-transcript open lands scrolled to bottom with zero burst-scroll longtask over 100ms, cold connectUi-to-shell-interactive ms, get_config p95 while stub-agent churn runs. 4) afterEach writes the metrics artifact. 5) Full run on ROG or eight: npx playwright test --project=perf --global-timeout=600000 green under 10 min, artifact present with all metrics.'
 correctness: 'Budgets assert user-perceived latency invariants: input responsive while heavy work runs, frame-bounded PTY output, bottom-anchored history open; metrics deterministic via stub provider; regressions fail the gate, not just log.'
-status: in_progress
+status: blocked
 review_stage: review
 qa_state: null
-status_label: pane-gone
+review_round: 0
+review_oracle: null
+review_evidence: []
+review_override: null
+review_audit: []
+status_label: needs-qa-assignment
 priority: p1
 created_at: 1783782208537
-updated_at: 1783981182729
-status_changed_at: 1783975185988
+updated_at: 1784354002302
+status_changed_at: 1784354001729
 handle: unified-perf-gate-project-budgets-new-metrics-json-trend-artifact
 tags: []
 section_ids:
@@ -32,9 +37,9 @@ intent: null
 parent_task_id: null
 depends_on:
 - task_k16xu0
-assigned_pane_id: e3fa0754
+assigned_pane_id: null
 lane:
-  pane_id: e3fa0754
+  pane_id: null
   workspace_id: null
   workspace_name: null
   worktree_path: null
@@ -139,6 +144,39 @@ milestones:
     y: null
     collapsed: false
   attachments: []
+- id: ms_g93m3a
+  from:
+    pane_id: watchdog
+    session_id: null
+    title: null
+  kind: decision
+  text: 'watchdog: assigned pane gone and silent for 342485848ms — demoted to pending'
+  ts: 1784323668577
+  links: []
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
+- id: ms_10pcto
+  from:
+    pane_id: 166df18d
+    session_id: null
+    title: null
+  kind: decision
+  text: ' implementation SHA b2ea4d9df is merged into cba4ab0fd; stub perf browser gate remains unrun, reassigned to serialized QA'
+  ts: 1784354002302
+  links:
+  - key:3077ab57354c7b3b
+  loop_id: null
+  iteration: null
+  canvas:
+    x: null
+    y: null
+    collapsed: false
+  attachments: []
 execution_attempts:
 - id: attempt_ahpsg4
   executor_pane_id: 049a06b7
@@ -199,7 +237,7 @@ execution_attempts:
   assigned_at: 1783976854460
   reported_at: null
   reviewed_at: null
-  closed_at: null
+  closed_at: 1784323668577
   competition_group_id: null
   competition_lane: null
   judge_verdict: null

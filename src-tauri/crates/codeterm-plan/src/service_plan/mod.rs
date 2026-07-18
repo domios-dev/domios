@@ -47,6 +47,7 @@ pub mod spec;
 pub mod spec_render;
 pub mod spec_store;
 pub mod state;
+mod store_db;
 mod store_index;
 mod store_persist;
 mod store_queries;
@@ -109,7 +110,6 @@ pub use types::{
     IndexEntry, NewTask, OpenSubtask, PlanError, ReconcileFixResult, SpecIndexEntry, TaskLaneUpdate,
 };
 
-#[derive(Default)]
 pub struct PlanStore {
     plans: RwLock<HashMap<String, Arc<Mutex<Plan>>>>,
     specs: RwLock<HashMap<String, Arc<Mutex<Spec>>>>,
@@ -119,6 +119,7 @@ pub struct PlanStore {
     turn_counter: RwLock<Option<Arc<reminders::TurnCounter>>>,
     reseed_prepare_lock: Mutex<()>,
     mutation_writer: MutationWriter,
+    database: Arc<store_db::PlanDatabase>,
     #[cfg(test)]
     persistence_hook: RwLock<Option<Arc<dyn Fn(&Plan) + Send + Sync>>>,
 }
@@ -162,13 +163,55 @@ impl Drop for MutationWriterTurn<'_> {
 
 impl PlanStore {
     pub fn new() -> Self {
-        Self::default()
+        Self::open(paths::global_plan_database_path()).expect("open global PlanStore database")
     }
 
     #[cfg(any(test, feature = "test-support"))]
     pub fn new_for_test(root: &Path) -> Self {
         paths::mark_test_project_root(root);
         search_index::init_search_port(std::sync::Arc::new(test_support::TestSearchPort));
-        Self::default()
+        Self::open(root.join(".codeterm").join("plans.db")).expect("open test PlanStore database")
+    }
+
+    pub fn open(database_path: PathBuf) -> Result<Self, PlanError> {
+        let database = Arc::new(store_db::PlanDatabase::open(database_path)?);
+        let (plans, specs) = database.load_snapshots()?;
+        let store = Self {
+            plans: RwLock::new(HashMap::new()),
+            specs: RwLock::new(HashMap::new()),
+            index: RwLock::new(HashMap::new()),
+            spec_index: RwLock::new(HashMap::new()),
+            last_writes: RwLock::new(HashMap::new()),
+            turn_counter: RwLock::new(None),
+            reseed_prepare_lock: Mutex::new(()),
+            mutation_writer: MutationWriter::default(),
+            database,
+            #[cfg(test)]
+            persistence_hook: RwLock::new(None),
+        };
+        for plan in plans {
+            let id = plan.id.clone();
+            let entry = Self::index_entry(&plan, store.database.path());
+            store
+                .plans
+                .write()
+                .insert(id.clone(), Arc::new(Mutex::new(plan)));
+            store.index.write().insert(id, entry);
+        }
+        for spec in specs {
+            let id = spec.id.clone();
+            let entry = Self::spec_index_entry(&spec, store.database.path());
+            store
+                .specs
+                .write()
+                .insert(id.clone(), Arc::new(Mutex::new(spec)));
+            store.spec_index.write().insert(id, entry);
+        }
+        Ok(store)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn database_path_for_test(&self) -> PathBuf {
+        self.database.path()
     }
 }

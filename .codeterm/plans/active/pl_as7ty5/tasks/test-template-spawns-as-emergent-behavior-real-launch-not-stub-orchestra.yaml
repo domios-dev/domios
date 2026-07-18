@@ -17,6 +17,11 @@ correctness: Real spawn paths must be gated; the stub suite is blind to launch r
 status: in_review
 review_stage: review
 qa_state: null
+review_round: 0
+review_oracle: null
+review_evidence: []
+review_override: null
+review_audit: []
 status_label: pane-gone
 priority: p2
 created_at: 1783970644778

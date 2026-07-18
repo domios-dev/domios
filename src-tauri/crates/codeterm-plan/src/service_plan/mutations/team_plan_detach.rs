@@ -65,9 +65,7 @@ impl PlanStore {
             .into_iter()
             .filter_map(|plan| {
                 let bound_team = plan.team_id.as_deref();
-                bound_team
-                    .filter(|team| matches(team))
-                    .map(|_| plan.id)
+                bound_team.filter(|team| matches(team)).map(|_| plan.id)
             })
             .collect();
         ids.sort();

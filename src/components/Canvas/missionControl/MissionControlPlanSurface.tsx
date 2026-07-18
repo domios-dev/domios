@@ -36,6 +36,7 @@ export function MissionControlPlanSurface({
   error = null,
   onRetry,
   planId,
+  teamId,
   orchestratorPaneId,
   panes = {},
   workspaceId,
@@ -55,13 +56,13 @@ export function MissionControlPlanSurface({
   );
 
   const filteredPlans = useMemo(
-    () => filterPlansForCanvas(effectivePlans, mode, { planId, orchestratorPaneId, panes, workspaceId, workspaces, teams, allPlans }),
-    [effectivePlans, mode, planId, orchestratorPaneId, panes, workspaceId, workspaces, teams, allPlans],
+    () => filterPlansForCanvas(effectivePlans, mode, { planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams, allPlans }),
+    [effectivePlans, mode, planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams, allPlans],
   );
   const orderedPlans = useMemo(() => orderPlansByActivity(filteredPlans), [filteredPlans]);
   const defaultPlanId = useMemo(
-    () => selectDefaultPlanId(orderedPlans, { planId, orchestratorPaneId, panes, workspaceId, workspaces, teams, allPlans }),
-    [orderedPlans, planId, orchestratorPaneId, panes, workspaceId, workspaces, teams, allPlans],
+    () => selectDefaultPlanId(orderedPlans, { planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams, allPlans }),
+    [orderedPlans, planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams, allPlans],
   );
 
   const [manualPlanId, setManualPlanId] = useState<string | null>(readStoredPlanId);
@@ -150,7 +151,7 @@ export function MissionControlPlanSurface({
         className="flex shrink-0 items-center gap-3 border-b px-3 py-1.5"
         style={{ borderColor: "var(--ct-border)", background: "var(--ct-titlebar-bg)" }}
       >
-        {selectedPlan && (
+        {selectedPlan && !teamId && (
           <PlanSwitcher
             plans={switcherWithInflight}
             selectedId={selectedPlan.id}

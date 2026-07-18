@@ -152,6 +152,24 @@ test("workspace mode keeps plans bound via owner pane or team", () => {
   assert(out.length === 2, `both workspace-bound plans kept (got ${out.length})`);
 });
 
+test("Team canvas cannot escape to another plan through all-plans mode", () => {
+  const teamPlan: Plan = {
+    ...FIXTURE_PLAN,
+    id: "plan-team-current",
+    team_id: "team-current",
+    owner: { pane_id: "ghost-pane", session_id: null, title: "Ghost" },
+  };
+  const foreignPlan: Plan = { ...FIXTURE_PLAN, id: "plan-foreign", team_id: "team-other" };
+  const out = filterPlansForCanvas([teamPlan, foreignPlan], "workspace", {
+    workspaceId: WS_CURRENT,
+    teamId: "team-current",
+    allPlans: true,
+    workspaces: scopeWorkspaces,
+    teams: scopeTeams,
+  });
+  assert(out.length === 1 && out[0].id === teamPlan.id, "Team canvas stays on its Team plan");
+});
+
 test("collectPaneChain walks parent_pane_id", () => {
   const chain = collectPaneChain("worker-1", panes);
   assert(chain.length === 2, "worker + parent");
