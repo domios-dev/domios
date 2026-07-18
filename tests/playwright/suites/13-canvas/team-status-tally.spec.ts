@@ -1,6 +1,7 @@
 /**
- * Real Team + plan fixture verifies every status bucket's geometry, colors, and counts.
- * Narrow Team headers must never hide a bucket when the title column tightens.
+ * WHAT: A real Team plan renders every task-status bucket across sidebar widths.
+ * WHY: Narrow Team headers must not hide task counts when the title column tightens.
+ * ORACLE: Visible bucket counts, colors, and geometry match the plan fixture.
  */
 import fs from "node:fs";
 import os from "node:os";

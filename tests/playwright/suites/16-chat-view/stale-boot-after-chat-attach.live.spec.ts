@@ -1,3 +1,8 @@
+/**
+ * WHAT: Attached Codex Chat remains authoritative after stale boot-stage events.
+ * WHY: Late spawn failures must not cover a live conversation or interrupt its composer.
+ * ORACLE: Chat stays visible through spawn_failed and pty_reattached events.
+ */
 import type { Page } from "@playwright/test";
 import { expect, test } from "../../helpers/fixtures";
 
