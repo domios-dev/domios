@@ -59,7 +59,7 @@ sections:
     y: null
     collapsed: false
   attachments: []
-status: active
+status: archived
 mode: planning
 paused_from_mode: null
 owner:
@@ -70,7 +70,7 @@ team_id: team_818bb2a5
 project_path: \\?\D:\Developer\codeterm
 canonical_project_path: \\?\D:\Developer\codeterm
 created_at: 1784355195258
-updated_at: 1784360566288
+updated_at: 1784377655157
 milestone_kinds: []
 loops: []
 elements: []
