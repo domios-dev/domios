@@ -514,7 +514,6 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
     // Runaway test-binary sweeper — kills orphan */target/*/deps/* processes.
     {
         let cfg = states.config.clone();
-        let app_handle = app_handle.clone();
         std::thread::spawn(move || {
             // Initial delay: give the daemon a moment to settle before first sweep.
             std::thread::sleep(std::time::Duration::from_secs(60));
