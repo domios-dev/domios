@@ -1,6 +1,6 @@
 import { memo, useCallback, useMemo, useState } from "react";
 import { invoke } from "../../lib/bridge";
-import { X, TerminalSquare, FolderOpen } from "lucide-react";
+import { X, TerminalSquare, FolderOpen, Sparkles, SquarePlus } from "lucide-react";
 import { isMac } from "../../lib/keybindings";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useConfig } from "../../hooks/useConfig";
@@ -20,6 +20,7 @@ interface WorkspaceItemProps {
   onClose: () => void;
   onRename: (name: string) => void;
   onNewTerminal: () => void;
+  onNewSession: () => void;
   onNewAgent: (agentId: string) => void;
   canClose: boolean;
   status: PaneStatus | null;
@@ -38,6 +39,7 @@ function WorkspaceItemInner({
   onClose,
   onRename,
   onNewTerminal,
+  onNewSession,
   onNewAgent,
   canClose: _canClose,
   status: _status,
@@ -77,21 +79,46 @@ function WorkspaceItemInner({
   const workspaceCountText = pickUiFontScaleValue(uiFontScale, ["text-[9px]", "text-[10px]", "text-[11px]", "text-xs"]);
 
   const menuItems: DropdownMenuItem[] = useMemo(() => {
+    const quickProviders = [
+      { id: "codex", label: "Codex" },
+      { id: "claude", label: "Claude Code" },
+      { id: "opencode", label: "OpenCode" },
+      { id: "cursor", label: "Cursor" },
+    ].map(({ id, label }) => {
+      const provider = providers.find((candidate) => candidate.id === id);
+      const visible = agentsConfig[id]?.visible_in_menu !== false;
+      return {
+        label,
+        icon: <AgentIcon providerId={id} className="text-[12px]" />,
+        disabled: !provider || !visible,
+        title: !provider || !visible ? `${label} is unavailable` : undefined,
+        onClick: provider && visible ? () => onNewAgent(id) : undefined,
+        "data-testid": `workspace-quick-spawn-${id}`,
+      } satisfies DropdownMenuItem;
+    });
     const items: DropdownMenuItem[] = [
+      {
+        label: "New session",
+        icon: <SquarePlus size={11} strokeWidth={1.6} />,
+        onClick: onNewSession,
+        "data-testid": "workspace-new-session",
+      },
+      {
+        label: "Quick spawn",
+        icon: <Sparkles size={11} strokeWidth={1.6} />,
+        submenu: {
+          label: "Quick spawn",
+          description: "Spawns a default Worker",
+          items: quickProviders,
+        },
+        "data-testid": "workspace-quick-spawn",
+      },
       {
         label: "New Terminal",
         icon: <TerminalSquare size={11} strokeWidth={1.5} />,
         onClick: onNewTerminal,
       },
     ];
-    for (const provider of providers) {
-      if (agentsConfig[provider.id]?.visible_in_menu === false) continue;
-      items.push({
-        label: `New ${provider.display_name} Session`,
-        icon: <AgentIcon providerId={provider.id} className="text-[12px]" />,
-        onClick: () => onNewAgent(provider.id),
-      });
-    }
     if (workspace.cwd) {
       items.push({
         label: isMac ? "Show in Finder" : "Show in Explorer",
@@ -110,7 +137,7 @@ function WorkspaceItemInner({
       });
     }
     return items;
-  }, [onNewTerminal, onNewAgent, onClose, workspace.protected, workspace.cwd, agentsConfig, providers]);
+  }, [onNewTerminal, onNewSession, onNewAgent, onClose, workspace.protected, workspace.cwd, agentsConfig, providers]);
 
   return (
     <div
@@ -137,9 +164,7 @@ function WorkspaceItemInner({
             title={isExpanded ? "Collapse" : "Expand"}
           />
         )}
-        {/* Icon + name. Editing swaps to a labelled input; a tree row is a real
-            activator button; a detail header is a heading, not a button. Never
-            nest an input or a button inside another interactive element. */}
+        {/* Tree rows activate; detail headers identify the selected workspace. */}
         {editing ? (
           <div className={`flex items-center min-w-0 ${touchMode ? "gap-2.5" : "gap-2"}`}>
             {!detailHeader && (workspace.protected ? (

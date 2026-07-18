@@ -38,6 +38,7 @@ import type { SidebarTeamActions } from "./TeamUnit";
 import { GroupCloseConfirmDialog } from "./GroupCloseConfirmDialog";
 import type { OrchestrationGroupMember } from "./orchestrationGroupClose";
 import { hydrateProtectedExpanded, initialSidebarExpanded, partitionSidebarWorkspaces } from "./sidebarSections";
+import { NewSessionPicker } from "../Terminal/NewSessionPicker";
 
 export { buildHierarchyTree, buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 
@@ -98,7 +99,6 @@ export function Sidebar({
     reorderTabs,
     reorderWorkspaces,
     createTab,
-    openSessionPicker,
     closeTab,
     reopenClosed,
     reopenGroup,
@@ -123,6 +123,7 @@ export function Sidebar({
   const [claudeSkipPerms, setClaudeSkipPerms] = useState(false);
   const [claudeRememberChoice, setClaudeRememberChoice] = useState(false);
   const [orchestrationModal, setOrchestrationModal] = useState<{ workspaceId: string } | null>(null);
+  const [sessionPicker, setSessionPicker] = useState<{ workspaceId: string; workspaceCwd: string | null } | null>(null);
   const { providers, loading: providersLoading } = useAgentProviders();
   const { index: planIndex } = usePlanIndexOptional();
   const fullPlans = useFullPlansOptional();
@@ -153,8 +154,8 @@ export function Sidebar({
           title: `Project folder for ${provider?.displayName ?? agentId}`,
           initialPath: workspaceCwd,
           onSelect: (path) => {
-            if (claudeSkipRemembered) {
-              spawnAgentTab(workspaceId, agentId, claudeSavedSkipPerms, path);
+            if (agentId !== "claude" || claudeSkipRemembered) {
+              spawnAgentTab(workspaceId, agentId, agentId === "claude" && claudeSavedSkipPerms, path);
             } else {
               setAgentSpawnModal({ folder: path, agentId, workspaceId });
             }
@@ -175,8 +176,8 @@ export function Sidebar({
       }
       if (!folder) return;
     }
-    if (claudeSkipRemembered) {
-      spawnAgentTab(workspaceId, agentId, claudeSavedSkipPerms, folder);
+    if (agentId !== "claude" || claudeSkipRemembered) {
+      spawnAgentTab(workspaceId, agentId, agentId === "claude" && claudeSavedSkipPerms, folder);
       return;
     }
     setAgentSpawnModal({ folder, agentId, workspaceId });
@@ -218,10 +219,8 @@ export function Sidebar({
   }, [addNotification, createOrchestrationPair, orchestrationModal, selectTabByPane]);
 
   const handleNewSession = useCallback((workspaceId: string, workspaceCwd: string | null) => {
-    // Virtual only — no backend pane/PTY until the picker is confirmed.
-    openSessionPicker(workspaceId, workspaceCwd ?? undefined);
-    onNavigateToTab?.();
-  }, [openSessionPicker, onNavigateToTab]);
+    setSessionPicker({ workspaceId, workspaceCwd });
+  }, []);
 
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(
     () => initialSidebarExpanded(state.workspaces, state.active_workspace_id),
@@ -699,6 +698,7 @@ export function Sidebar({
                       onClose={() => closeWorkspace(ws.id)}
                       onRename={(name) => renameWorkspace(ws.id, name)}
                       onNewTerminal={() => createTab(ws.id)}
+                      onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
                       onNewAgent={(agentId) => handleAgentSpawn(agentId, ws.id, ws.cwd ?? null)}
                       canClose={true}
                       status={workspaceStatuses[ws.id]}
@@ -889,6 +889,14 @@ export function Sidebar({
             setFolderPicker(null);
             folderPicker.onSelect(path);
           }}
+        />
+      )}
+      {sessionPicker && (
+        <NewSessionPicker
+          workspaceId={sessionPicker.workspaceId}
+          workspaceCwd={sessionPicker.workspaceCwd}
+          agentsConfig={agentsConfig}
+          onClose={() => setSessionPicker(null)}
         />
       )}
       {agentSpawnModal && (

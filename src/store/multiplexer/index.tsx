@@ -31,10 +31,7 @@ import type {
   OrchestrationPairResult,
   PaneBootStageEvent,
 } from "../../lib/types";
-import {
-  makeVirtualPickerTab,
-  type ExtendedState,
-} from "./tree";
+import type { ExtendedState } from "./tree";
 import { reducer, type Action } from "./reducer";
 import { applyPendingTabGuard, type TabGuards } from "./pendingTabGuard";
 import { mountMuxPerfTestHook } from "./muxPerfTestHook";
@@ -66,7 +63,6 @@ function buildInitialState(): ExtendedState {
     toasts: [],
     activeTabIds: {},
     generation: 0,
-    virtualTabs: {},
   };
   if (!IS_WEB) return empty;
   const cached = loadCachedStateSync();
@@ -400,21 +396,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshFromBackend, guardedInvoke]);
 
-  const openSessionPicker = useCallback((workspaceId: string, cwd?: string) => {
-    guardedInvoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
-    const ws = stateRef.current.workspaces.find((w) => w.id === workspaceId);
-    const effectiveCwd = cwd || ws?.cwd || undefined;
-    dispatch({
-      type: "OPEN_SESSION_PICKER",
-      workspaceId,
-      virtual: makeVirtualPickerTab(effectiveCwd),
-    });
-  }, [guardedInvoke]);
-
-  const closeSessionPicker = useCallback((workspaceId: string, tabId: string, replacementTabId?: string) => {
-    dispatch({ type: "CLOSE_SESSION_PICKER", workspaceId, tabId, replacementTabId });
-  }, []);
-
   const reopenClosed = useCallback(async (workspaceId: string, index = 0) => {
     try {
       guardedInvoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
@@ -535,9 +516,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     console.error(`Failed to spawn ${agentId} tab:`, e);
   }, []);
 
-  // Never throws — self-notifies on failure and returns null so callers can
-  // branch (the picker keeps itself open on null). Success returns the ids the
-  // caller needs to select/focus the freshly-created tab.
+  // Failures self-notify; success returns the ids needed to focus the new tab.
   const spawnAgentTab = useCallback(async (
     workspaceId: string,
     agentId: string,
@@ -621,11 +600,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       const ws = workspaces.find((w) => w.id === workspaceId);
       const tab = ws?.tabs.find((t) => t.id === tabId);
       if (!tab) return;
-      // send a close to the daemon for a pane it never knew about.
-      if (stateRef.current.virtualTabs[workspaceId]?.tab.id === tabId) {
-        dispatch({ type: "CLOSE_SESSION_PICKER", workspaceId, tabId });
-        return;
-      }
       guardedInvoke("mux_close_tab", { workspaceId, tabId }).catch(() => {});
       dispatch({ type: "CLOSE_TAB", workspaceId, tabId, removedPaneIds: [tab.pane_id] });
       refreshFromBackend();
@@ -814,8 +788,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       reorderTabs,
       reorderWorkspaces,
       createTab,
-      openSessionPicker,
-      closeSessionPicker,
       closeTab,
       reopenClosed,
       reopenGroup,
@@ -849,8 +821,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       reorderTabs,
       reorderWorkspaces,
       createTab,
-      openSessionPicker,
-      closeSessionPicker,
       closeTab,
       reopenClosed,
       reopenGroup,

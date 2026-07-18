@@ -20,23 +20,21 @@ import { OrchestrationPairForm, OrchestrationRoleRow } from "../Sidebar/Orchestr
 import { ModeCards, WorkspaceRow } from "./NewSessionPickerParts";
 import { FloatingTooltip } from "../shared/FloatingTooltip";
 import { Button } from "../shared/Button";
+import { X } from "lucide-react";
 
 export function NewSessionPicker({
   workspaceId,
-  tabId,
   workspaceCwd,
   agentsConfig,
+  onClose,
 }: {
-  /** Virtual picker pane id — kept for the caller's prop shape; the confirm
-   *  flow works off the workspace + virtual tab id, not the pane. */
-  paneId: string;
   workspaceId: string;
-  tabId: string;
   workspaceCwd?: string | null;
   agentsConfig?: AppConfig["agents"];
+  onClose: () => void;
 }) {
   const { providers } = useAgentProviders();
-  const { spawnAgentTab, createOrchestrationPair, closeSessionPicker, selectTabByPane, addNotification, createWorkspace } = useMultiplexer();
+  const { spawnAgentTab, createOrchestrationPair, selectTabByPane, addNotification, createWorkspace } = useMultiplexer();
   const state = useMuxState();
   const visibleProviders = useMemo(
     () => providers.filter((provider) => agentsConfig?.[provider.id]?.visible_in_menu !== false),
@@ -50,12 +48,12 @@ export function NewSessionPicker({
     () => agentsConfig?.claude?.spawn_skip_permissions === true,
   );
   const [claudeRememberChoice, setClaudeRememberChoice] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const disabledProviderIds = useMemo(
     () => new Set(visibleProviders.filter((p) => installMap[p.id] === false).map((p) => p.id)),
     [visibleProviders, installMap],
   );
 
-  // workspace) but never persisted — reopening the picker always resets here.
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(workspaceId);
   const [creatingWorkspace, setCreatingWorkspace] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
@@ -93,6 +91,22 @@ export function NewSessionPicker({
       window.removeEventListener("focus", probe);
     };
   }, [visibleProviders]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || busy || claudeModalOpen) return;
+      event.preventDefault();
+      onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [busy, claudeModalOpen, onClose]);
+
+  useEffect(() => {
+    const priorFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialogRef.current?.focus();
+    return () => priorFocus?.focus();
+  }, []);
 
   const handleInstallProvider = useCallback((providerId: string) => {
     void (async () => {
@@ -159,21 +173,17 @@ export function NewSessionPicker({
     if (info?.id) setSelectedWorkspaceId(info.id);
   }, [newWorkspaceName, createWorkspace]);
 
-  // On accept: keep the picker visible while the agent spawns, select the
-  // created tab, THEN drop the picker — the new session replaces it in place
-  // with no blank flash. `null` / a throw keeps the picker open to retry.
   const finishSpawn = useCallback(async (
     runner: () => Promise<{ workspaceId: string; paneId: string; tabId?: string } | null>,
   ) => {
     setBusy(true);
-    let replacementTabId: string | undefined;
     try {
       const created = await runner();
       if (created) {
-        replacementTabId = created.tabId;
         if (!created.tabId) {
           await selectTabByPane(created.workspaceId, created.paneId).catch(() => {});
         }
+        onClose();
       }
     } catch (e) {
       addNotification({
@@ -185,13 +195,9 @@ export function NewSessionPicker({
         sticky: true,
       });
     } finally {
-      // The picker never survives a Start click: success replaces it with the
-      // session, failure surfaces as a notification. A stuck picker is worse
-      // than either.
-      closeSessionPicker(workspaceId, tabId, replacementTabId);
       setBusy(false);
     }
-  }, [addNotification, closeSessionPicker, selectTabByPane, tabId, workspaceId]);
+  }, [addNotification, onClose, selectTabByPane, workspaceId]);
 
   const runProviderSpawn = useCallback(async (
     providerId: string,
@@ -224,10 +230,8 @@ export function NewSessionPicker({
     ) {
       return;
     }
-    // Pair creation takes tens of seconds (two agent launches) — never hold
-    // the picker on it. Close now; select the orchestrator when it lands.
     const wsId = selectedWorkspaceId;
-    closeSessionPicker(workspaceId, tabId);
+    onClose();
     void createOrchestrationPair({
       orchestratorAgent: choice.orchestratorProviderId,
       orchestratorModel: choice.orchestratorModelId,
@@ -246,7 +250,7 @@ export function NewSessionPicker({
           sticky: true,
         });
       });
-  }, [addNotification, choice, closeSessionPicker, createOrchestrationPair, disabledProviderIds, selectTabByPane, selectedWorkspaceId, tabId, workspaceId]);
+  }, [addNotification, choice, createOrchestrationPair, disabledProviderIds, onClose, selectTabByPane, selectedWorkspaceId]);
 
   const handleStart = useCallback(() => {
     if (choice.mode === "pair") {
@@ -323,23 +327,40 @@ export function NewSessionPicker({
   return (
     <div
       data-testid="new-session-picker"
-      role="dialog"
-      aria-labelledby="new-session-picker-title"
-      className="new-session-picker flex h-full w-full items-center justify-center p-6"
-      style={{ background: "var(--ct-bg)" }}
+      className="new-session-picker fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-black/45 p-6 backdrop-blur-sm"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !busy) onClose();
+      }}
     >
-      <div className="new-session-picker-card picker-stagger w-full max-w-lg rounded-xl border border-[var(--ct-border)] bg-[var(--ct-surface)] p-5 shadow-lg relative overflow-hidden">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="new-session-picker-title"
+        tabIndex={-1}
+        className="new-session-picker-card picker-stagger relative max-h-[calc(100vh-3rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-[var(--ct-border)] bg-[var(--ct-surface)] p-5 shadow-2xl outline-none"
+      >
         <span
           aria-hidden
           className="picker-ambient-wash"
           data-mode={choice.mode}
         />
-        <div className="relative mb-4">
+        <div className="relative mb-4 pr-8">
           <h2 id="new-session-picker-title" className="text-[15px] font-medium text-[var(--ct-fg)]">Start a session</h2>
           <div className="mt-1 text-[12px] text-[var(--ct-muted-fg)]">
             Choose a single agent or an Orchestrator + Planner pair. Your last choice is remembered.
           </div>
         </div>
+        <button
+          type="button"
+          data-testid="picker-close"
+          aria-label="Close new session dialog"
+          disabled={busy}
+          onClick={onClose}
+          className="absolute right-3 top-3 z-10 flex h-7 w-7 items-center justify-center rounded-md text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)] disabled:opacity-40"
+        >
+          <X aria-hidden size={14} />
+        </button>
 
         <div className="relative mb-1.5 flex items-center gap-1.5">
           <span className="text-[11px] font-medium text-[var(--ct-muted-fg)]">Mode</span>
@@ -459,7 +480,12 @@ export function NewSessionPicker({
       {claudeModalOpen && (
         <>
           <div className="fixed inset-0 z-50 bg-black/40" onClick={() => setClaudeModalOpen(false)} />
-          <div className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-lg shadow-2xl w-[320px] overflow-hidden">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Claude launch options"
+            className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-lg shadow-2xl w-[320px] overflow-hidden"
+          >
             <div className="px-4 pt-4 pb-2">
               <div className="text-[13px] font-medium text-[var(--ct-fg)]">Spawn Claude</div>
             </div>

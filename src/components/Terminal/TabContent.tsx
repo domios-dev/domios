@@ -1,14 +1,12 @@
 import { TerminalPane } from "./TerminalPane";
 import { PaneSessionChat } from "./PaneSessionChat";
 import { PaneTopBar } from "./PaneTopBar";
-import { NewSessionPicker } from "./NewSessionPicker";
 import { isPaneVisible } from "../MemoryPanel/workerFocusStore";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { FirstRunGeneralPicker, isFirstRunGeneralPane } from "../AgentPicker";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import type {
   ApiConfig,
-  AppConfig,
   Pane,
   ThemeConfig,
   FontConfig,
@@ -19,8 +17,6 @@ import { paneSessionActionView } from "./paneSessionActions";
 
 interface TabContentProps {
   pane: Pane | undefined;
-  workspaceId: string;
-  tabId: string;
   isFocused: boolean;
   onFocusPane: (paneId: string) => void;
   onPtySpawned: (paneId: string, ptyId: string) => void;
@@ -34,13 +30,10 @@ interface TabContentProps {
   isVisible: boolean;
   chatFirst: boolean;
   chatDefaultPrompted: boolean;
-  agentsConfig?: AppConfig["agents"];
 }
 
 export function TabContent({
   pane,
-  workspaceId,
-  tabId,
   isFocused,
   onFocusPane,
   onPtySpawned,
@@ -54,7 +47,6 @@ export function TabContent({
   chatFirst,
   chatDefaultPrompted,
   api,
-  agentsConfig,
 }: TabContentProps) {
   const descriptor = useAgentDescriptor(pane?.agent_type);
   const { providers } = useAgentProviders();
@@ -66,20 +58,6 @@ export function TabContent({
     return (
       <PaneWrapper paneId={pane.id}>
         <FirstRunGeneralPicker providers={providers} />
-      </PaneWrapper>
-    );
-  }
-
-  if (pane.virtual && !pane.agent_type) {
-    return (
-      <PaneWrapper paneId={pane.id}>
-        <NewSessionPicker
-          paneId={pane.id}
-          workspaceId={workspaceId}
-          tabId={tabId}
-          workspaceCwd={workspaceCwd}
-          agentsConfig={agentsConfig}
-        />
       </PaneWrapper>
     );
   }
