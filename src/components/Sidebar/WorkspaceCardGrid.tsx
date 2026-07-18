@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { Pencil } from "lucide-react";
 import type { PaneStatus, Workspace } from "../../lib/types";
 import { SortableContext, SortableRow, WS_PREFIX, rectSortingStrategy } from "./sortable";
@@ -18,7 +18,22 @@ interface WorkspaceCardGridProps {
   onSelect: (workspaceId: string) => void;
 }
 
+const CARD_WIDTH = 52;
+const CARD_GAP = 5;
+
+export function workspaceCardPosition(index: number, columns: number): { gridColumn: number; gridRow: number } {
+  const pageSize = columns * 2;
+  const page = Math.floor(index / pageSize);
+  const pageIndex = index % pageSize;
+  return {
+    gridColumn: page * columns + (pageIndex % columns) + 1,
+    gridRow: Math.floor(pageIndex / columns) + 1,
+  };
+}
+
 export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, sortIds, onSelect }: WorkspaceCardGridProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [columns, setColumns] = useState(3);
   const [customInitials, setCustomInitials] = useState(loadWorkspaceInitials);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -39,11 +54,24 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
     });
   }, [draft]);
 
+  useLayoutEffect(() => {
+    const host = scrollRef.current;
+    if (!host) return;
+    const updateColumns = () => {
+      if (host.clientWidth > 0) setColumns(Math.max(1, Math.floor((host.clientWidth - 16 + CARD_GAP) / (CARD_WIDTH + CARD_GAP))));
+    };
+    updateColumns();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(updateColumns);
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    <div className="sidebar-workspace-card-scroll" data-testid="workspace-card-scroll" role="region" aria-label="Workspace cards">
+    <div ref={scrollRef} className="sidebar-workspace-card-scroll" data-testid="workspace-card-scroll" role="region" aria-label="Workspace cards">
       <SortableContext items={sortIds} strategy={rectSortingStrategy}>
         <div className="sidebar-workspace-card-grid" data-testid="workspace-card-grid" role="list" aria-label="Workspaces">
-          {workspaces.map((workspace) => {
+          {workspaces.map((workspace, index) => {
             const selected = workspace.id === selectedWorkspaceId;
             const color = workspaceCardColor(workspace.id);
             const status = statuses[workspace.id];
@@ -60,7 +88,7 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
                   data-selected={selected ? "true" : "false"}
                   data-status={status?.toLowerCase() ?? "none"}
                   role="listitem"
-                  style={{ ["--workspace-card-color" as string]: color }}
+                  style={{ ["--workspace-card-color" as string]: color, ...workspaceCardPosition(index, columns) }}
                 >
                   {editingId === workspace.id ? (
                     <input
@@ -91,8 +119,6 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
                       <span className="sidebar-workspace-card-initials">
                         {customInitials[workspace.id] ?? defaultWorkspaceInitials(workspace.name)}
                       </span>
-                      <span className="sidebar-workspace-card-name">{workspace.name}</span>
-                      <span className="sidebar-workspace-card-count">{workspace.tabs.length}</span>
                     </button>
                   )}
                   {selected && editingId !== workspace.id && (

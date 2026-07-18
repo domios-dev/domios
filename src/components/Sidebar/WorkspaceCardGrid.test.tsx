@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import type { Workspace } from "../../lib/types";
 import { SidebarDnd } from "./sortable";
-import { WorkspaceCardGrid } from "./WorkspaceCardGrid";
+import { WorkspaceCardGrid, workspaceCardPosition } from "./WorkspaceCardGrid";
 
 const window = new Window({ url: "http://localhost/" });
 for (const [name, value] of Object.entries({
@@ -34,6 +34,20 @@ document.body.appendChild(host);
 const root = createRoot(host);
 
 async function run() {
+  assert.deepEqual(
+    Array.from({ length: 8 }, (_, index) => workspaceCardPosition(index, 3)),
+    [
+      { gridColumn: 1, gridRow: 1 },
+      { gridColumn: 2, gridRow: 1 },
+      { gridColumn: 3, gridRow: 1 },
+      { gridColumn: 1, gridRow: 2 },
+      { gridColumn: 2, gridRow: 2 },
+      { gridColumn: 3, gridRow: 2 },
+      { gridColumn: 4, gridRow: 1 },
+      { gridColumn: 5, gridRow: 1 },
+    ],
+    "cards fill left-to-right before using the second row and horizontal overflow",
+  );
   await act(async () => root.render(
     <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
       <WorkspaceCardGrid

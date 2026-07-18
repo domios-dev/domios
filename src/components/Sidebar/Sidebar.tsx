@@ -695,6 +695,7 @@ export function Sidebar({
                       canClose={true}
                       status={workspaceStatuses[ws.id]}
                       showDisclosure={false}
+                      detailHeader
                       touchMode={touchMode}
                       uiFontScale={uiFontScale}
                     />
