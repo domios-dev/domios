@@ -462,7 +462,7 @@ export function PaneSessionChat({
       data-testid="pane-session-chat"
       data-pane-id={paneId}
       role="region"
-      aria-label="Pane chat"
+      aria-label={`Pane chat: ${pane?.title ?? paneId}`}
       aria-busy={loading || recovering}
       style={{
         background: "var(--ct-bg, #0d1117)",

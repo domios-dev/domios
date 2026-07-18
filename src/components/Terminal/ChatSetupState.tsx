@@ -213,7 +213,7 @@ export function ChatSetupState({
 
   if (isFailed) {
     return (
-      <div ref={cardRef} className="chat-launch-overlay flex justify-center px-4 py-10" data-testid="chat-launch-failed" data-transition-state={transitionState} onKeyDown={handleKeyDown} onTransitionEnd={handleTransitionEnd} style={cardStyle}>
+      <div ref={cardRef} className="chat-launch-overlay flex justify-center px-4 py-10" data-testid="chat-launch-failed" data-transition-state={transitionState} role="alert" aria-label="Launch failed" onKeyDown={handleKeyDown} onTransitionEnd={handleTransitionEnd} style={cardStyle}>
         <div className="flex w-full max-w-sm flex-col items-center text-center">
           <div
             className="chat-launch-ring chat-launch-ring-failed"
