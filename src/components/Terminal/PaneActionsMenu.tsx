@@ -125,8 +125,22 @@ export function PaneActionsMenu({
         >
           <div className="px-2 pb-1.5 pt-1">
             <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-[var(--ct-muted)]">Session</div>
-            <div className="mt-0.5 truncate font-mono text-[10px] text-[var(--ct-muted-fg)]" title={sessionId ?? "Session ID is not available yet"}>
-              {sessionId ?? "ID not available yet"}
+            <div className="mt-0.5 flex min-w-0 items-center gap-1">
+              <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-[var(--ct-muted-fg)]" title={sessionId ?? "Session ID is not available yet"}>
+                {sessionId ?? "ID not available yet"}
+              </span>
+              <button
+                type="button"
+                role="menuitem"
+                data-testid="pane-copy-session-id"
+                aria-label="Copy session ID"
+                title="Copy session ID"
+                disabled={!sessionId}
+                onClick={() => void copySessionId()}
+                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)] disabled:cursor-not-allowed disabled:opacity-35"
+              >
+                <Copy size={12} />
+              </button>
             </div>
           </div>
           {canReconnect && (
@@ -148,13 +162,6 @@ export function PaneActionsMenu({
               onClick={() => choose(onRestart)}
             />
           )}
-          <MenuItem
-            testId="pane-copy-session-id"
-            icon={<Copy size={14} />}
-            label="Copy session ID"
-            disabled={!sessionId}
-            onClick={() => void copySessionId()}
-          />
         </div>,
         document.body,
       )}

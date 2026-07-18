@@ -454,6 +454,8 @@ test("pane actions restart the agent session and copy its ID", async () => {
   assert(menu?.getAttribute("role") === "menu", "tab actions render an accessible menu");
   assert(menu.textContent?.includes("session-123"), "menu identifies the current session");
   const copy = menu.querySelector('[data-testid="pane-copy-session-id"]') as HTMLButtonElement;
+  assert(copy.getAttribute("aria-label") === "Copy session ID", "session ID has an accessible adjacent copy icon");
+  assert(copy.textContent?.trim() === "", "copy control is icon-only beside the session ID");
   await act(async () => copy.click());
   assert(copied === "session-123", "copy action writes the current session ID");
 
