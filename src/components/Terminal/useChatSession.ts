@@ -384,6 +384,10 @@ export function useChatSession({
         setError(null);
         setLoading(false);
         if (res.pending) {
+          if (agentSessionIdRef.current == null) {
+            markAttached();
+            return;
+          }
           setAttachmentState("awaiting_store");
           setRecovering(true);
           return;
