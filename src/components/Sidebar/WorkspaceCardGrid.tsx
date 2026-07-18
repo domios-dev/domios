@@ -156,7 +156,11 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
                       <Pencil size={9} />
                     </button>
                   )}
-                  {status === "Working" && <span className="sidebar-workspace-card-working" role="status" aria-label={`${workspace.name} has working tabs`} />}
+                  {status === "Working" && (
+                    <span className="sidebar-workspace-card-working" role="status" aria-label={`${workspace.name} has working tabs`}>
+                      <span /><span /><span />
+                    </span>
+                  )}
                 </div>
               </SortableRow>
             );
@@ -190,7 +194,7 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
             aria-label={`Initials for ${editingWorkspace.name}`}
             className="sidebar-workspace-card-popover-input"
             value={draft}
-            maxLength={2}
+            maxLength={3}
             onChange={(event) => setDraft(normalizeWorkspaceInitials(event.target.value))}
             onKeyDown={(event) => {
               if (event.key === "Enter") closeEditor(true);
