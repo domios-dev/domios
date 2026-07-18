@@ -1,4 +1,4 @@
-use std::sync::{mpsc, Arc, Mutex as StdMutex};
+use std::sync::{mpsc, Arc, Barrier, Mutex as StdMutex};
 use std::time::Duration;
 
 use crate::plan::OrchestratorRef;
@@ -105,4 +105,41 @@ fn reads_keep_last_committed_snapshot_while_persistence_is_blocked() {
     release_tx.send(()).unwrap();
     writer.join().unwrap().unwrap();
     assert_eq!(store.get(&plan_id).unwrap().title, "Blocked");
+}
+
+#[test]
+fn concurrent_team_plan_writes_all_commit_through_one_queue() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(PlanStore::new_for_test(dir.path()));
+    let workers = 8;
+    let barrier = Arc::new(Barrier::new(workers));
+    let mut joins = Vec::new();
+    for number in 0..workers {
+        let store = store.clone();
+        let barrier = barrier.clone();
+        let project_path = dir.path().display().to_string();
+        joins.push(std::thread::spawn(move || {
+            barrier.wait();
+            store.create_plan_for_team(
+                format!("Concurrent {number}"),
+                project_path,
+                OrchestratorRef {
+                    pane_id: Some(format!("orchestrator-{number}")),
+                    ..Default::default()
+                },
+                Some(format!("team-{number}")),
+                vec![],
+                number as u64,
+            )
+        }));
+    }
+
+    let plans = joins
+        .into_iter()
+        .map(|join| join.join().unwrap().unwrap())
+        .collect::<Vec<_>>();
+
+    assert_eq!(plans.len(), workers);
+    assert_eq!(store.list_full().len(), workers);
+    assert_eq!(store.operation_count_for_test(None), workers);
 }

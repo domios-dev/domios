@@ -101,6 +101,23 @@ impl PlanDatabase {
         self.path.clone()
     }
 
+    #[cfg(test)]
+    pub(super) fn operation_count_for_test(&self, entity_id: Option<&str>) -> usize {
+        let connection = self.connection.lock();
+        let count: i64 = match entity_id {
+            Some(entity_id) => connection.query_row(
+                "SELECT COUNT(*) FROM plan_operations WHERE entity_id = ?1",
+                [entity_id],
+                |row| row.get(0),
+            ),
+            None => {
+                connection.query_row("SELECT COUNT(*) FROM plan_operations", [], |row| row.get(0))
+            }
+        }
+        .expect("count plan operations");
+        count as usize
+    }
+
     pub(super) fn load_snapshots(&self) -> Result<(Vec<Plan>, Vec<Spec>), PlanError> {
         let connection = self.connection.lock();
         let plans = load_documents::<Plan>(&connection, "SELECT document_json FROM plans")?;

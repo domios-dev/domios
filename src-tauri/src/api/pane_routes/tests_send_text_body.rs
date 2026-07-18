@@ -1,37 +1,20 @@
 use super::*;
 
 #[test]
-fn send_text_body_enter_defaults_true() {
+fn send_text_body_only_text() {
     let json = r#"{"text": "ls"}"#;
     let body: SendTextBody = serde_json::from_str(json).unwrap();
     assert_eq!(body.text, Some("ls".to_string()));
-    assert!(
-        body.enter,
-        "enter should default to true via default_true()"
-    );
     assert!(body.batch.is_none());
 }
 
+/// The plain text send always submits — the `enter` knob was removed. A legacy
+/// client that still sends `enter` must keep parsing (the field is ignored).
 #[test]
-fn send_text_body_enter_explicit_false() {
+fn send_text_body_ignores_legacy_enter_field() {
     let json = r#"{"text": "partial", "enter": false}"#;
     let body: SendTextBody = serde_json::from_str(json).unwrap();
-    assert!(!body.enter);
-}
-
-#[test]
-fn send_text_body_enter_explicit_true() {
-    let json = r#"{"text": "cmd", "enter": true}"#;
-    let body: SendTextBody = serde_json::from_str(json).unwrap();
-    assert!(body.enter);
-}
-
-#[test]
-fn send_text_body_only_text() {
-    let json = r#"{"text": "hello"}"#;
-    let body: SendTextBody = serde_json::from_str(json).unwrap();
-    assert_eq!(body.text, Some("hello".to_string()));
-    assert!(body.enter, "enter defaults to true when omitted");
+    assert_eq!(body.text.as_deref(), Some("partial"));
 }
 
 #[test]
@@ -39,7 +22,6 @@ fn send_text_body_empty_object() {
     let json = r#"{}"#;
     let body: SendTextBody = serde_json::from_str(json).unwrap();
     assert_eq!(body.text, None, "text is None when omitted");
-    assert!(body.enter, "enter defaults to true even with empty body");
 }
 
 #[test]
@@ -47,7 +29,6 @@ fn send_text_body_text_null() {
     let json = r#"{"text": null}"#;
     let body: SendTextBody = serde_json::from_str(json).unwrap();
     assert_eq!(body.text, None);
-    assert!(body.enter);
 }
 
 #[test]

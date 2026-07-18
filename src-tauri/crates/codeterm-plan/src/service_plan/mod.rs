@@ -214,4 +214,9 @@ impl PlanStore {
     pub(crate) fn database_path_for_test(&self) -> PathBuf {
         self.database.path()
     }
+
+    #[cfg(test)]
+    pub(crate) fn operation_count_for_test(&self, entity_id: Option<&str>) -> usize {
+        self.database.operation_count_for_test(entity_id)
+    }
 }

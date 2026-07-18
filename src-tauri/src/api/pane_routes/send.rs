@@ -72,10 +72,10 @@ pub(crate) fn should_prepend_source(
 #[derive(Deserialize)]
 pub(crate) struct SendTextBody {
     pub(crate) text: Option<String>,
-    #[serde(default = "default_true")]
-    pub(crate) enter: bool,
     /// Terminal key/action sequence. Enter submits optional text through the
     /// acknowledged transaction; navigation keys and delays remain ordered.
+    /// A plain text send always submits — use `actions` (no Enter) or `raw` to
+    /// type without submitting.
     pub(crate) actions: Option<Vec<SendAction>>,
     /// Batch: send multiple commands sequentially with optional delays
     pub(crate) batch: Option<Vec<BatchCommand>>,
@@ -407,18 +407,16 @@ pub async fn send_text(
     }
 
     if body.raw {
-        // raw mode bypasses bracket paste — sender prefix is intentionally skipped here too (raw = byte-for-byte keystrokes for TUIs)
+        // Byte-for-byte to the PTY (bracket paste + sender prefix skipped, for
+        // TUI keystrokes like vim j/k). The caller includes \r to submit.
         let raw_text = body.text.clone().unwrap_or_default();
-        let mut buf = raw_text.clone();
-        if body.enter && !buf.ends_with('\r') {
-            buf.push('\r');
-        }
-        state.svc.write_raw(&pane_id, buf.as_bytes()).map_err(|e| {
-            DeliveryError::PtyUnavailable {
+        state
+            .svc
+            .write_raw(&pane_id, raw_text.as_bytes())
+            .map_err(|e| DeliveryError::PtyUnavailable {
                 pane: pane_id.clone(),
                 detail: e.to_string(),
-            }
-        })?;
+            })?;
         record_push_activity(&state, &svc_token_match, &pane_id, &raw_text);
         return Ok(Json(serde_json::json!({"ok": true})));
     }
@@ -436,9 +434,11 @@ pub async fn send_text(
 
     let has_text = !raw_text.trim().is_empty();
     let text = prepend(&stage(raw_text));
+    // A plain text send always submits — no-Enter/keystroke cases go through
+    // `actions` or `raw`.
     state
         .svc
-        .send_text_when_ready(&pane_id, &text, body.enter)
+        .send_text_when_ready(&pane_id, &text, true)
         .await
         .map_err(|e| classify_delivery_failure(&pane_id, &e))?;
     record_push_activity(&state, &svc_token_match, &pane_id, &text);

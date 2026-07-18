@@ -1002,7 +1002,8 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 std::process::exit(1);
             }
             // raw: bypass bracket paste so the TUI parses /model as a slash command, not chat input.
-            let cmd = format!("/model {}", name);
+            // Trailing \r submits it — raw mode is byte-for-byte, so we include it.
+            let cmd = format!("/model {}\r", name);
             match http
                 .post(format!("{}/api/panes/{}/send", base, pane_id))
                 .json(&serde_json::json!({"text": cmd, "raw": true}))
