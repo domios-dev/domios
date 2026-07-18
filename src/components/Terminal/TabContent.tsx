@@ -15,6 +15,7 @@ import type {
   TerminalConfigSettings,
 } from "../../lib/types";
 import { usageTrackingEnabled } from "./usageTracking";
+import { paneSessionActionView } from "./paneSessionActions";
 
 interface TabContentProps {
   pane: Pane | undefined;
@@ -85,7 +86,7 @@ export function TabContent({
 
   const chatBacking = pane.backing?.kind === "chat_backend" ? pane.backing : null;
   const isChatBackend = chatBacking !== null;
-  const sessionId = pane.agent_session_id ?? chatBacking?.session_id ?? null;
+  const sessionActions = paneSessionActionView(pane);
   const showSwitch = !isChatBackend && descriptor?.supports_chat_ui === true;
   const usageProvider = !isChatBackend ? (pane.agent_type ?? null) : null;
   const usageVisible = usageTrackingEnabled(
@@ -128,9 +129,9 @@ export function TabContent({
           api={api}
           isWatcherPane={pane.watcher != null}
           watcherLastStatus={pane.watcher?.last_status ?? null}
-          canReconnect={isChatBackend || pane.agent_type != null}
-          canRestartSession={!isChatBackend && pane.agent_type != null}
-          sessionId={sessionId}
+          canReconnect={sessionActions.canReconnect}
+          canRestartSession={sessionActions.canRestart}
+          sessionId={sessionActions.sessionId}
           isActive={isVisible}
         />
         <div className="relative min-h-0 flex-1" style={{ background: theme.background }}>

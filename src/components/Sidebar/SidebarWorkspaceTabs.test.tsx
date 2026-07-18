@@ -13,6 +13,7 @@ import { SidebarDnd } from "./sortable";
 import { canvasFocusStore } from "../Canvas/canvasFocusStore";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
 import { forwardTerminalFallback } from "../../lib/terminalFallbackInput";
+import { __setInvokeForTest } from "../../lib/bridge";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -35,6 +36,7 @@ function setupDom() {
   Object.defineProperty(globalThis, "Element", { value: window.Element, configurable: true });
   Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
   Object.defineProperty(globalThis, "Event", { value: window.Event, configurable: true });
+  Object.defineProperty(globalThis, "CustomEvent", { value: window.CustomEvent, configurable: true });
   Object.defineProperty(globalThis, "MouseEvent", { value: window.MouseEvent, configurable: true });
   Object.defineProperty(globalThis, "KeyboardEvent", { value: window.KeyboardEvent, configurable: true });
   (globalThis as { requestAnimationFrame: (cb: FrameRequestCallback) => number }).requestAnimationFrame =
@@ -957,6 +959,72 @@ test("team worker close control calls onCloseTab", async () => {
   assert(close && !close.disabled, "worker close control enabled");
   await act(async () => close.click());
   assert(closed.includes("tab-worker"), "worker close calls onCloseTab");
+  await act(async () => root.unmount());
+});
+
+test("tab rich menu opens from right click and exposes session actions", async () => {
+  const commands: string[] = [];
+  let copied = "";
+  __setInvokeForTest((async (command: string) => {
+    commands.push(command);
+    return {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  }) as any);
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: async (value: string) => { copied = value; } },
+  });
+  const panes: Record<string, Pane> = {
+    worker: pane({
+      id: "worker",
+      title: "Worker",
+      role: "Worker",
+      team_id: TEAM.id,
+      agent_type: "claude",
+      agent_session_id: "session-42",
+    }),
+  };
+  const { host, root } = await renderSidebar({ panes, tabs: [tab("tab-worker", "worker", 0)] });
+  const row = host.querySelector('[data-tab-id="tab-worker"]');
+  assert(row, "worker row rendered");
+  await act(async () => {
+    row.dispatchEvent(new MouseEvent("contextmenu", {
+      bubbles: true,
+      clientX: window.innerWidth - 1,
+      clientY: window.innerHeight - 1,
+    }));
+  });
+
+  const menu = document.querySelector('[role="menu"][aria-label="Tab actions"]') as HTMLDivElement | null;
+  assert(menu, "right click opens the same accessible tab actions menu");
+  assert(Number.parseFloat(menu.style.left) < window.innerWidth - 4, "right-edge menu is clamped inside the viewport");
+  assert(Number.parseFloat(menu.style.top) < window.innerHeight - 4, "bottom-edge menu is clamped inside the viewport");
+  assert(Number.parseFloat(menu.style.left) > window.innerWidth / 2, "context menu stays anchored near the right-click edge");
+  assert(Number.parseFloat(menu.style.top) > window.innerHeight / 2, "context menu stays anchored near the bottom-click edge");
+  const labels = Array.from(menu.querySelectorAll('[role="menuitem"]')).map((item) => item.textContent?.trim());
+  assert(labels.includes("Rename"), "rename remains available");
+  assert(labels.includes("Reconnect"), "reconnect is available");
+  assert(labels.includes("Restart session"), "restart is available");
+  assert(labels.includes("Close Session"), "close remains available");
+  assert(!menu.textContent?.includes("Remove Role"), "legacy role removal is gone");
+  assert(!menu.textContent?.includes("Open Terminal"), "legacy terminal toggle is gone");
+
+  const copy = menu.querySelector('[data-testid="tab-menu-copy-session-id"]') as HTMLButtonElement;
+  assert(copy.getAttribute("aria-label") === "Copy session ID", "copy icon is named beside the session ID");
+  await act(async () => copy.click());
+  assert(copied === "session-42", "copy icon writes the session ID");
+
+  const reconnect = Array.from(menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
+    .find((item) => item.textContent?.trim() === "Reconnect");
+  assert(reconnect, "reconnect menu item found");
+  await act(async () => reconnect.click());
+  assert(commands.includes("chat_stop"), "reconnect uses the shared chat reattach path");
+
+  await openTabActionsMenu(row);
+  const restart = document.querySelector('[data-testid="tab-menu-restart-session"]') as HTMLButtonElement;
+  assert(restart, "three-dot trigger opens the same restart action");
+  await act(async () => restart.click());
+  assert(commands.includes("restart_agent_pane"), "restart uses the session-preserving backend action");
   await act(async () => root.unmount());
 });
 

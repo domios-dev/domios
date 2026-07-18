@@ -2,7 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Copy, Ellipsis, RefreshCw, RotateCcw } from "lucide-react";
 import { BusySpinner } from "../shared/BusyState";
+import { clampFloatingPosition } from "../shared/floatingPosition";
 import { PANE_BAR_CONTROL_H } from "./paneBarConstants";
+import { copyPaneSessionId, PANE_SESSION_LABELS } from "./paneSessionActions";
+
+const MENU_WIDTH = 240;
 
 interface PaneActionsMenuProps {
   sessionId: string | null;
@@ -26,7 +30,7 @@ export function PaneActionsMenu({
   onError,
 }: PaneActionsMenuProps) {
   const [open, setOpen] = useState(false);
-  const [position, setPosition] = useState<{ top: number; right: number } | null>(null);
+  const [position, setPosition] = useState<{ top: number; left: number; maxHeight: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const busy = reconnecting || restarting;
@@ -34,7 +38,15 @@ export function PaneActionsMenu({
   const place = useCallback(() => {
     const rect = triggerRef.current?.getBoundingClientRect();
     if (!rect) return;
-    setPosition({ top: rect.bottom + 5, right: Math.max(8, window.innerWidth - rect.right) });
+    setPosition(clampFloatingPosition(
+      rect.right - MENU_WIDTH,
+      rect.bottom + 5,
+      MENU_WIDTH,
+      154,
+      window.innerWidth,
+      window.innerHeight,
+      8,
+    ));
   }, []);
 
   const close = useCallback(() => setOpen(false), []);
@@ -89,7 +101,7 @@ export function PaneActionsMenu({
   const copySessionId = async () => {
     if (!sessionId) return;
     try {
-      await navigator.clipboard.writeText(sessionId);
+      await copyPaneSessionId(sessionId);
       close();
     } catch (error) {
       onError(error instanceof Error ? error.message : "Could not copy session ID");
@@ -133,8 +145,8 @@ export function PaneActionsMenu({
                 type="button"
                 role="menuitem"
                 data-testid="pane-copy-session-id"
-                aria-label="Copy session ID"
-                title="Copy session ID"
+                aria-label={PANE_SESSION_LABELS.copy}
+                title={PANE_SESSION_LABELS.copy}
                 disabled={!sessionId}
                 onClick={() => void copySessionId()}
                 className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)] disabled:cursor-not-allowed disabled:opacity-35"
@@ -147,7 +159,7 @@ export function PaneActionsMenu({
             <MenuItem
               testId="chat-reconnect"
               icon={<RefreshCw size={14} />}
-              label={reconnecting ? "Reconnecting…" : "Reconnect"}
+              label={reconnecting ? "Reconnecting…" : PANE_SESSION_LABELS.reconnect}
               shortcut="Ctrl+R"
               disabled={busy}
               onClick={() => choose(onReconnect)}
@@ -157,7 +169,7 @@ export function PaneActionsMenu({
             <MenuItem
               testId="pane-restart-session"
               icon={<RotateCcw size={14} />}
-              label={restarting ? "Restarting…" : "Restart session"}
+              label={restarting ? "Restarting…" : PANE_SESSION_LABELS.restart}
               disabled={busy}
               onClick={() => choose(onRestart)}
             />

@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown } from "lucide-react";
+import { clampFloatingPosition } from "./floatingPosition";
 
 export interface DropdownMenuItem {
   label: string;
@@ -20,6 +21,9 @@ interface DropdownMenuProps {
   trigger: ReactNode;
   /** Extra class on the trigger wrapper */
   className?: string;
+  header?: ReactNode;
+  contextMenuTargetRef?: RefObject<HTMLElement | null>;
+  menuLabel?: string;
 }
 
 /**
@@ -27,28 +31,44 @@ interface DropdownMenuProps {
  * Renders via portal to escape overflow/transform containers.
  * Closes on click outside, Escape, or item click.
  */
-export function DropdownMenu({ items, trigger, className }: DropdownMenuProps) {
+export function DropdownMenu({
+  items,
+  trigger,
+  className,
+  header,
+  contextMenuTargetRef,
+  menuLabel = "Actions",
+}: DropdownMenuProps) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const openSourceRef = useRef<"trigger" | "context">("trigger");
+  const contextPointRef = useRef({ x: 0, y: 0 });
 
   const calcPos = useCallback(() => {
     if (!triggerRef.current) return null;
     const rect = triggerRef.current.getBoundingClientRect();
-    const menuHeight = Math.min(items.length * 28 + 8, window.innerHeight - 8);
+    const menuHeight = Math.min(items.length * 28 + 8 + (header ? 42 : 0), window.innerHeight - 8);
+    const menuWidth = Math.min(menuRef.current?.offsetWidth || 160, window.innerWidth - 8);
     const spaceBelow = window.innerHeight - rect.bottom;
     const preferredTop = spaceBelow < menuHeight ? rect.top - menuHeight : rect.bottom + 2;
-    const top = Math.max(4, Math.min(preferredTop, window.innerHeight - menuHeight - 4));
-    const menuWidth = Math.min(menuRef.current?.offsetWidth || 160, window.innerWidth - 8);
-    const left = Math.max(4, Math.min(rect.left, window.innerWidth - menuWidth - 4));
-    return { top, left, maxHeight: Math.max(80, window.innerHeight - top - 4) };
-  }, [items.length]);
+    return clampFloatingPosition(rect.left, preferredTop, menuWidth, menuHeight, window.innerWidth, window.innerHeight);
+  }, [header, items.length]);
+
+  const contextPos = useCallback((x: number, y: number) => {
+    const menuHeight = Math.min(items.length * 28 + 8 + (header ? 42 : 0), window.innerHeight - 8);
+    const menuWidth = Math.min(menuRef.current?.offsetWidth || 176, window.innerWidth - 8);
+    return clampFloatingPosition(x, y, menuWidth, menuHeight, window.innerWidth, window.innerHeight);
+  }, [header, items.length]);
 
   const toggle = useCallback((e: React.MouseEvent | React.PointerEvent) => {
     e.stopPropagation();
     e.preventDefault();
     setOpen((v) => {
-      if (!v) setPos(calcPos());
+      if (!v) {
+        openSourceRef.current = "trigger";
+        setPos(calcPos());
+      }
       return !v;
     });
   }, [calcPos]);
@@ -58,9 +78,13 @@ export function DropdownMenu({ items, trigger, className }: DropdownMenuProps) {
   // Reposition after render (menu width now known)
   useEffect(() => {
     if (!open) return;
-    const id = requestAnimationFrame(() => setPos(calcPos()));
+    const id = requestAnimationFrame(() => {
+      setPos(openSourceRef.current === "context"
+        ? contextPos(contextPointRef.current.x, contextPointRef.current.y)
+        : calcPos());
+    });
     return () => cancelAnimationFrame(id);
-  }, [open, calcPos]);
+  }, [open, calcPos, contextPos]);
 
   useEffect(() => {
     if (!open) return;
@@ -73,6 +97,21 @@ export function DropdownMenu({ items, trigger, className }: DropdownMenuProps) {
     document.addEventListener("mousedown", handler, true);
     return () => document.removeEventListener("mousedown", handler, true);
   }, [open]);
+
+  useEffect(() => {
+    const target = contextMenuTargetRef?.current;
+    if (!target) return;
+    const handleContextMenu = (event: MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openSourceRef.current = "context";
+      contextPointRef.current = { x: event.clientX, y: event.clientY };
+      setPos(contextPos(event.clientX, event.clientY));
+      setOpen(true);
+    };
+    target.addEventListener("contextmenu", handleContextMenu);
+    return () => target.removeEventListener("contextmenu", handleContextMenu);
+  }, [contextMenuTargetRef, contextPos]);
 
   useEffect(() => {
     if (!open) return;
@@ -101,6 +140,8 @@ export function DropdownMenu({ items, trigger, className }: DropdownMenuProps) {
               Closing is handled by the mousedown document listener above. */}
           <div
             ref={menuRef}
+            role="menu"
+            aria-label={menuLabel}
             className="fixed z-50 w-max min-w-[140px] max-w-[calc(100vw-0.5rem)] border border-[rgba(255,255,255,0.12)] rounded-md shadow-lg py-1 ct-float backdrop-blur-xl"
             style={{
               top: pos.top,
@@ -110,9 +151,11 @@ export function DropdownMenu({ items, trigger, className }: DropdownMenuProps) {
               background: "var(--ct-surface, #1e1e2e)",
             }}
           >
+            {header}
             {items.map((item, i) => (
               <button
                 key={i}
+                role="menuitem"
                 data-testid={item["data-testid"]}
                 title={item.title}
                 disabled={item.disabled}

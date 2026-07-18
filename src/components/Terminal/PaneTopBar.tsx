@@ -6,10 +6,9 @@ import { PluginBubbles } from "../Extensions/PluginBubbles";
 import type { ApiConfig } from "../../lib/types";
 import { PANE_BAR_CONTROL_H } from "./paneBarConstants";
 import { WatcherStatusBadge } from "./WatcherStatusBadge";
-import { reattachPaneChat } from "./chatReattach";
 import { PaneActionsMenu } from "./PaneActionsMenu";
-import { invoke } from "../../lib/bridge";
 import { matchesBinding } from "../../lib/keybindings";
+import { reconnectPaneSession, restartPaneSession } from "./paneSessionActions";
 
 /** Single height rhythm for every control in the bar (switch + pills). */
 export { PANE_BAR_CONTROL_H };
@@ -69,7 +68,7 @@ export function PaneTopBar({
     setReconnecting(true);
     setReconnectError(null);
     try {
-      await reattachPaneChat(paneId);
+      await reconnectPaneSession(paneId);
     } catch (error) {
       setReconnectError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -82,7 +81,7 @@ export function PaneTopBar({
     setRestarting(true);
     setReconnectError(null);
     try {
-      await invoke("restart_agent_pane", { paneId });
+      await restartPaneSession(paneId);
     } catch (error) {
       setReconnectError(error instanceof Error ? error.message : String(error));
     } finally {
