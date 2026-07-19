@@ -1,0 +1,113 @@
+/* Chat surface — consumes the --ms-* token contract from motion-system.css.
+   Owned by the chat slice (Keats): message blocks, expandable disclosure,
+   send/settle, follow-scroll, streaming heartbeat. */
+
+.ms-chat { display: flex; flex-direction: column; height: 420px; }
+.ms-chat-thread {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--ms-muted) 45%, transparent) transparent;
+  scroll-behavior: smooth;
+}
+
+.ms-msg { display: grid; gap: 4px; animation: ms-msg-in var(--ms-fast) var(--ms-out-expo); }
+@keyframes ms-msg-in { from { opacity: 0; transform: translateY(var(--ms-shift-sm)); } to { opacity: 1; transform: translateY(0); } }
+.ms-msg-role { font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--ms-faint); }
+
+.ms-bubble {
+  padding: 8px 11px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ms-fg);
+}
+.ms-msg[data-role="user"] { justify-items: end; }
+.ms-msg[data-role="user"] .ms-bubble {
+  background: color-mix(in srgb, var(--ms-accent) 16%, var(--ms-surface-2));
+  max-width: 84%;
+}
+.ms-msg[data-role="user"][data-settling="true"] .ms-bubble { animation: ms-send-settle var(--ms-normal) var(--ms-out-back); }
+@keyframes ms-send-settle {
+  from { opacity: 0; transform: translateY(var(--ms-shift-md)) scale(0.98); }
+  60% { transform: translateY(calc(-1 * var(--ms-shift-xs))) scale(1); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.ms-msg[data-role="assistant"] .ms-bubble { background: var(--ms-surface-2); }
+
+/* Streaming: only the heartbeat moves — never the text. */
+.ms-stream-dots { display: inline-flex; gap: 3px; margin-left: 2px; vertical-align: middle; }
+.ms-stream-dots i {
+  width: 4px; height: 4px; border-radius: 50%;
+  background: var(--ms-accent);
+  animation: ms-breathe var(--ms-ambient) var(--ms-breathe-ease) infinite;
+  --ms-amp: 1;
+}
+
+/* Collapsible command / system / tool blocks — the shared disclosure. */
+.ms-block {
+  border: 1px solid var(--ms-line-soft);
+  border-radius: 9px;
+  background: var(--ms-surface-2);
+  overflow: hidden;
+}
+.ms-block-head {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0; background: transparent;
+  color: var(--ms-muted);
+  font: inherit; font-size: 11px;
+  cursor: pointer;
+  transition: background var(--ms-instant) var(--ms-out-expo);
+}
+.ms-block-head:hover { background: #151b23; color: var(--ms-fg); }
+.ms-block-tag {
+  font-size: 9px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ms-accent);
+}
+.ms-block-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--ms-normal) var(--ms-out-expo);
+}
+.ms-block[data-open="true"] .ms-block-body { grid-template-rows: 1fr; }
+.ms-block-body > pre {
+  overflow: hidden;
+  min-height: 0;
+  margin: 0;
+  padding: 0 10px 9px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: var(--ms-muted);
+  white-space: pre-wrap;
+}
+
+.ms-composer {
+  display: flex; gap: 8px;
+  padding: 10px;
+  border-top: 1px solid var(--ms-line);
+  background: var(--ms-surface);
+}
+.ms-composer input {
+  flex: 1 1 auto;
+  padding: 8px 11px;
+  border: 1px solid var(--ms-line);
+  border-radius: 8px;
+  background: var(--ms-surface-2);
+  color: var(--ms-fg);
+  font: inherit; font-size: 12.5px;
+}
+.ms-composer input:focus { outline: none; border-color: color-mix(in srgb, var(--ms-accent) 55%, var(--ms-line)); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ms-chat-thread { scroll-behavior: auto; }
+  .ms-msg, .ms-msg .ms-bubble { animation: none; }
+  .ms-stream-dots i { animation: none; opacity: 1; }
+  .ms-block-body { transition-duration: 0.01ms; }
+}
