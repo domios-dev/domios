@@ -1,9 +1,0 @@
-vector: post-Enter submission evidence is required and observed for every automatic PTY send path (Direct/Messenger/Report/Planner/launch-fallback), proven by the existing + expanded Rust unit suite in submit_transaction.rs/inject_verify.rs plus the tests/e2e/test_inject_verify.py and test_pty_io.py pytest suites, all green
-vision: 'Every text an agent or the mesh writes into a PTY is confirmed delivered before CodeTerm reports success — no silent drops on long/wrapped/multi-line input, no weakened echo check to make a corner case pass. RECOVERED PLAN: replacement for pl_ghk358 lost in the 2026-07-18 plan-storage migration; source export .codeterm-rem-tmp/pl_ghk358-recovery.md sha256 78a67aaf79b07838e39251ebaff501a63bc3321b6f1ebc8cc1085a7a85ef2e07.'
-constraints:
-- Do not weaken screen_contains_echo or the paste/submit generation-signal model to accommodate long input — strengthen detection (suffix-match, placeholder-match, activity-wait) instead
-- All four PtySubmitEntry call sites (Messenger, Report, Planner, Direct) and the launch-delivery ConfirmedFallback path must funnel through submit_transaction::run() with no bypass that writes raw PTY bytes without verification
-- Rust unit tests are the primary oracle for this subsystem (screen_state/generation internals are not Playwright-observable); pytest e2e (test_inject_verify.py, test_pty_io.py) is the black-box regression gate
-postulates:
-- The 3 commits ca5686431/46f88e4d3/2dd093dbe (2026-07-15) plus the landed wait_for_paste_activity fix are this plan's baseline, not prior art to rediscover
-- wait_for_echo/wait_for_submit_tui_drained in inject_verify.rs and the inline logic in submit_transaction.rs::run() must not silently diverge — either unify or document why they legitimately differ (shell-launch vs agent-TUI submit)

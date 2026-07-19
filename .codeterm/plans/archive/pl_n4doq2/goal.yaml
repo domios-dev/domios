@@ -1,7 +1,0 @@
-vector: Agents read and mutate plan state at minimal token cost, and the v2 storage is proven at real scale end-to-end (API -> yaml -> watcher -> UI)
-vision: A worker closes a session in ONE batch call; prose iterates via locate+Edit; every body renders as markdown in UI; ids are short everywhere; health hash never lies
-constraints:
-- No migration frameworks in Rust - one-off scripts only, deep-compare gated, backup first
-- Originals untouched in load tests - copies only
-- Every behavioural change lands with unit tests; new Playwright specs verified alone before joining a suite
-postulates: []

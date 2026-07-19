@@ -1,7 +1,0 @@
-vector: 'Canvas/Plan is FAST (numeric: smooth pan/zoom at 500+ nodes, p95 frame interval and longtask count measurably improved, no jank), CALM (no gratuitous bells/whistles — progressive disclosure, quiet defaults), CORRECT (agents render on the right task only; no stale/duplicate/ghost presence; done tasks never appear active), and the orchestration CLI (heartbeats/hints/lifecycle/plan-writes) is ergonomic and TRUSTWORTHY — shipped in 1.6.2 with zero regressions.'
-vision: ''
-constraints:
-- All plan, agent, pane, heartbeat, and task state is written only to Mac-Air prod daemon 7685; dev 7686 is for build/UI gates only.
-- Workers are CODEX primary and CURSOR secondary; no Claude/Opus workers for this workstream.
-- UI/perf lanes require Playwright or numeric evidence before acceptance.
-postulates: []

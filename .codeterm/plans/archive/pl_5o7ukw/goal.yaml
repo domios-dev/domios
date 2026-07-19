@@ -1,4 +1,0 @@
-vector: 'Split the monolithic codeterm_lib into a cargo workspace of dependency-directed crates so that build/test cost is proportional to the crate touched: domain edit -> seconds of rebuild, not a 2-minute whole-app relink. Zero behavior change; tauri confined to the app crate; all 3 CI platforms green at every phase.'
-vision: ''
-constraints: []
-postulates: []

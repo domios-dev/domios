@@ -245,6 +245,8 @@ impl PlanStore {
             .delete_plan(id, unix_time_millis())
             .map_err(|error| std::io::Error::other(error.to_string()))?;
         self.forget_plan(id);
+        super::attachments::remove_dir_if_exists(self.plan_data_dir(id))
+            .map_err(|error| std::io::Error::other(error.to_string()))?;
         Ok(())
     }
 

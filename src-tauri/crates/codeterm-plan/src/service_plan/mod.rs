@@ -66,6 +66,8 @@ pub mod worker_charter;
 pub mod worker_identity;
 
 #[cfg(test)]
+mod attachment_tests;
+#[cfg(test)]
 mod body_file_tests;
 #[cfg(test)]
 mod canonical_path_tests;

@@ -1,5 +1,0 @@
-vector: One always-current usage panel surfaces real session + weekly % for every provider (claude/codex/cursor/opencode), auto-refreshing, so headroom is visible at a glance before any dispatch — never guessed.
-vision: ''
-constraints: []
-postulates:
-- Every provider's real limits visible without a manual check
