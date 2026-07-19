@@ -616,6 +616,8 @@ export function Sidebar({
                           className={`w-full py-1.5 flex items-center justify-center transition-colors ${
                             isActiveVisual ? "text-[var(--ct-fg)]" : "text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)]"
                           }`}
+                          aria-label={`Workspace ${ws.name}`}
+                          aria-expanded={isExpanded}
                           title={ws.name}
                         >
                           <FolderIcon size={12} open={isExpanded} className={isExpanded ? "opacity-70" : "opacity-40"} />
@@ -639,6 +641,7 @@ export function Sidebar({
                                   ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
                                   : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-muted-fg)]"
                               }`}
+                              aria-label={`Open tab ${displayTitleForTab(tab, state.panes[tab.pane_id])}`}
                               title={displayTitleForTab(tab, state.panes[tab.pane_id])}
                             >
                               {(() => {
