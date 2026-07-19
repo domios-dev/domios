@@ -85,7 +85,7 @@ async function main() {
   initial.push(assistant("tail", "streaming", STABLE_COUNT));
 
   __setInvokeForTest((async (cmd: string) => {
-    if (cmd === "chat_start") return { text: "", offset: 0, messages: initial, pending: false };
+    if (cmd === "chat_start") return { text: "", offset: 0, messages: initial, pending: false, source_session_id: null, session_binding_nonce: null };
     if (cmd === "delayed_send_list") return [];
     if (cmd === "list_agent_providers") return [];
     return {};
@@ -120,7 +120,7 @@ async function main() {
 
     for (let c = 0; c < CHUNKS; c++) {
       await act(async () => {
-        emit(`pane-chat-msg-${paneId}`, { pane_id: paneId, messages: [assistant("tail", "streaming".padEnd(10 + c, "x"), STABLE_COUNT)] });
+        emit(`pane-chat-msg-${paneId}`, { pane_id: paneId, source_session_id: null, session_binding_nonce: null, messages: [assistant("tail", "streaming".padEnd(10 + c, "x"), STABLE_COUNT)] });
         await Promise.resolve();
       });
     }

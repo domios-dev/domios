@@ -120,7 +120,7 @@ async function renderPaneSessionChat(
   host: HTMLDivElement;
   root: Root;
   commands: string[];
-  emitChat: (payload: { pane_id: string; messages: Array<{ id: string; type: "assistant"; content: string; timestamp: string }>; session_binding_nonce?: string | null }) => void;
+  emitChat: (payload: { pane_id: string; messages: Array<{ id: string; type: "assistant"; content: string; timestamp: string }>; source_session_id: string | null; session_binding_nonce: string | null }) => void;
 }> {
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
   const { PaneSessionChat } = await import("./PaneSessionChat");
@@ -129,7 +129,13 @@ async function renderPaneSessionChat(
   let chatListener: ((event: { payload: unknown }) => void) | null = null;
   __setInvokeForTest((async (cmd: string) => {
     commands.push(cmd);
-    if (cmd === "chat_start") return chatStart();
+    if (cmd === "chat_start") {
+      return {
+        source_session_id: state.panes[paneId]?.agent_session_id ?? null,
+        session_binding_nonce: state.panes[paneId]?.session_binding_nonce ?? null,
+        ...(chatStart() as object),
+      };
+    }
     if (cmd === "delayed_send_list") return [];
     return {};
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -299,6 +305,7 @@ test("only the current binding epoch can attach chat after a stale launch failur
   await act(async () => {
     emitChat({
       pane_id: paneId,
+      source_session_id: "bound-session",
       session_binding_nonce: "previous-epoch",
       messages: [{ id: "stale-event", type: "assistant", content: "stale", timestamp: "1" }],
     });
@@ -309,6 +316,7 @@ test("only the current binding epoch can attach chat after a stale launch failur
   await act(async () => {
     emitChat({
       pane_id: paneId,
+      source_session_id: "bound-session",
       session_binding_nonce: "current-epoch",
       messages: [{ id: "current-event", type: "assistant", content: "attached", timestamp: "2" }],
     });
