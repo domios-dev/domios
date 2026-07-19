@@ -23,9 +23,15 @@ npx vite build --config playground/vite.config.ts
 - Put each exploration family under `playground/src/concepts/<author-or-theme>/`.
 - Render concepts in the shared gallery so alternatives remain comparable.
 - Use CodeTerm theme semantics through playground custom properties, not fixed product colors.
+- Treat [`src/motion-tokens.css`](./src/motion-tokens.css) as the mandatory motion-token source. Concepts must use its duration and easing tokens; do not define local timing values.
+- Keep the semantic map from [MOTION_LANGUAGE.md](./MOTION_LANGUAGE.md#semantic-families): Working, Handoff, Completed, and Needs attention have distinct meanings. This gallery currently evaluates Working only.
 - Animate only `transform` and `opacity` unless the experiment explicitly measures another property.
 - Provide an accessible static meaning and a `prefers-reduced-motion` fallback.
 - Keep experimental code out of `src/` until a concept is selected and adapted for production.
+
+## Review gate
+
+The review specification is [MOTION_LANGUAGE.md](./MOTION_LANGUAGE.md#review-protocol). Every promotion requires its deterministic-frame review and the conformance plan in [`tests/motion-lab.spec.ts`](./tests/motion-lab.spec.ts); only an Orchestrator-recorded ACCEPT verdict moves a card from Exploration to Accepted.
 
 ## Why a focused Vite lab
 
