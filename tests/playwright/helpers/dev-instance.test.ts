@@ -77,7 +77,7 @@ test("serial defaults use the isolated Playwright instance", () => {
     assert.equal(instance.apiPort, 7786);
     assert.equal(instance.dataDirName, ".codeterm-dev-playwright");
     assert.deepEqual(devStartArgs(), ["build.sh", "dev", "--wait"]);
-    assert.equal(playwrightCargoTargetDir(instance, "win32"), undefined);
+    assert.equal(playwrightCargoTargetDir(instance, {}), undefined);
   });
 });
 
@@ -105,9 +105,8 @@ test("two worker slots have disjoint named instances", () => {
     assert.notEqual(first.cdpPort, second.cdpPort);
     assert.notEqual(first.dataDirName, second.dataDirName);
     assert.deepEqual(devStartArgs(), ["build.sh", "dev", "--wait"]);
-    assert.equal(playwrightCargoTargetDir(first, "win32"), "src-tauri/target/playwright-pw1");
-    assert.equal(playwrightCargoTargetDir(second, "win32"), "src-tauri/target/playwright-pw2");
-    assert.equal(playwrightCargoTargetDir(first, "linux"), undefined);
+    assert.equal(playwrightCargoTargetDir(first, {}), undefined);
+    assert.equal(playwrightCargoTargetDir(second, {}), undefined);
   });
 });
 
@@ -136,7 +135,7 @@ const BASE_ENV = { PATH: "/bin", CARGO_TARGET_DIR: "/from-base" } as const;
 test("build env pins each slot to its own instance, ports, and data dir", () => {
   withEnv({ CT_E2E_WORKERS: "2" }, () => {
     const first = devInstanceForSlot(0, 2);
-    const env = buildDevInstanceEnv(first, BASE_ENV, "win32", 2);
+    const env = buildDevInstanceEnv(first, BASE_ENV);
     assert.equal(env.CODETERM_INSTANCE, "pw1");
     assert.equal(env.CODETERM_API_PORT, String(first.apiPort));
     assert.equal(env.CODETERM_VITE_PORT, String(first.vitePort));
@@ -150,33 +149,33 @@ test("build env pins each slot to its own instance, ports, and data dir", () => 
   });
 });
 
-test("two slots route to disjoint env with private cargo target dirs on Windows", () => {
+test("two slots leave cargo target ownership to their named build instances", () => {
   withEnv({ CT_E2E_WORKERS: "2" }, () => {
-    const one = buildDevInstanceEnv(devInstanceForSlot(0, 2), BASE_ENV, "win32", 2);
-    const two = buildDevInstanceEnv(devInstanceForSlot(1, 2), BASE_ENV, "win32", 2);
+    const one = buildDevInstanceEnv(devInstanceForSlot(0, 2), { PATH: "/bin" });
+    const two = buildDevInstanceEnv(devInstanceForSlot(1, 2), { PATH: "/bin" });
     assert.notEqual(one.CODETERM_INSTANCE, two.CODETERM_INSTANCE);
     assert.notEqual(one.CODETERM_API_PORT, two.CODETERM_API_PORT);
     assert.notEqual(one.CODETERM_CDP_PORT, two.CODETERM_CDP_PORT);
     assert.notEqual(one.CT_E2E_DATADIR, two.CT_E2E_DATADIR);
-    assert.equal(one.CARGO_TARGET_DIR, "src-tauri/target/playwright-pw1");
-    assert.equal(two.CARGO_TARGET_DIR, "src-tauri/target/playwright-pw2");
-    assert.notEqual(one.CARGO_TARGET_DIR, two.CARGO_TARGET_DIR);
+    assert.equal(one.CARGO_TARGET_DIR, undefined);
+    assert.equal(two.CARGO_TARGET_DIR, undefined);
+    assert.equal("CARGO_TARGET_DIR" in one, false);
+    assert.equal("CARGO_TARGET_DIR" in two, false);
   });
 });
 
-test("serial and non-Windows runs leave the base cargo target dir untouched", () => {
+test("an explicit caller cargo target override is preserved", () => {
   withEnv({}, () => {
-    const serial = buildDevInstanceEnv(devInstanceForSlot(0), BASE_ENV, "win32", 1);
+    const serial = buildDevInstanceEnv(devInstanceForSlot(0), BASE_ENV);
     assert.equal(serial.CARGO_TARGET_DIR, "/from-base");
-    const linux = buildDevInstanceEnv(devInstanceForSlot(0, 2), BASE_ENV, "linux", 2);
-    assert.equal(linux.CARGO_TARGET_DIR, "/from-base");
+    assert.equal(playwrightCargoTargetDir(devInstanceForSlot(0), BASE_ENV), "/from-base");
   });
 });
 
 test("building env never mutates the caller's environment", () => {
   const base = { ...BASE_ENV };
   withEnv({ CT_E2E_WORKERS: "2" }, () => {
-    buildDevInstanceEnv(devInstanceForSlot(0, 2), base, "win32", 2);
+    buildDevInstanceEnv(devInstanceForSlot(0, 2), base);
   });
   assert.deepEqual(base, BASE_ENV);
 });
@@ -362,12 +361,12 @@ test("idempotency pins the single-quote-if-needed output policy", () => {
 test("normalizing the stub cmd never mutates the caller's base env", () => {
   const base = { PATH: "/bin", CODETERM_STUB_AGENT_CMD: `node ${REPLAY_REL}` } as const;
   const snapshot = { ...base };
-  buildDevInstanceEnv(devInstanceForSlot(0), base, "linux", 1);
+  buildDevInstanceEnv(devInstanceForSlot(0), base);
   assert.deepEqual(base, snapshot, "baseEnv untouched");
 });
 
 test("the resulting daemon env carries no repo-relative replay token", () => {
   const base = { PATH: "/bin", CODETERM_STUB_AGENT_CMD: `node ${REPLAY_REL}` } as const;
-  const env = buildDevInstanceEnv(devInstanceForSlot(0), base, "linux", 1);
+  const env = buildDevInstanceEnv(devInstanceForSlot(0), base);
   assert.ok(!hasRelativeReplay(env.CODETERM_STUB_AGENT_CMD!), "env replay token is absolute");
 });
