@@ -125,6 +125,10 @@ export async function teardownInstances(
   for (const instance of [...instances].reverse()) {
     try {
       lifecycle.kill(instance);
+    } catch (error) {
+      failures.push(error);
+    }
+    try {
       await lifecycle.assertStopped(instance);
     } catch (error) {
       failures.push(error);

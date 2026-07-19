@@ -262,7 +262,7 @@ test("a synchronous kill failure still tears down the rest and surfaces", async 
       },
     );
     assert.deepEqual(killed, ["pw2", "pw1"], "both kills attempted despite pw2 throwing");
-    assert.deepEqual(asserted, ["pw1"], "pw1 still asserted; pw2 skipped after its kill threw");
+    assert.deepEqual(asserted, ["pw2", "pw1"], "every instance is asserted even when its kill throws");
   });
 });
 
