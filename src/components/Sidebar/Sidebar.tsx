@@ -541,7 +541,12 @@ export function Sidebar({
                 const generalTabs = sortByOrder(generalWorkspace.tabs);
                 const generalOrchestrators = Object.values(state.panes).filter((pane) => pane.role === "Orchestrator");
                 return (
-                  <section data-testid="general-section" className="sidebar-general-section">
+                  <section
+                    data-testid="general-section"
+                    className="sidebar-general-section"
+                    role="region"
+                    aria-label={`${generalWorkspace.name} workspace contents`}
+                  >
                     <SidebarDisclosure
                       data-testid="general-section-toggle"
                       className="sidebar-structural-header w-full"

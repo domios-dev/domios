@@ -46,7 +46,13 @@ async function openSidebar(page: Page, workspaceName?: string): Promise<void> {
     await burger.click();
   }
   await expect(page.locator(".ct-sidebar-drawer.is-open"), "drawer-never-opened").toBeAttached({ timeout: 5_000 });
-  const workspace = page.getByRole("button", { name: workspaceName ? `Select workspace ${workspaceName}` : /Select workspace / }).first();
+  const workspace = workspaceName
+    ? page.getByRole("region", { name: `${workspaceName} workspace contents` }).or(
+      page.getByRole("button", { name: `Select workspace ${workspaceName}` }),
+    ).first()
+    : page.getByRole("region", { name: / workspace contents$/ }).or(
+      page.getByRole("button", { name: /Select workspace / }),
+    ).or(page.getByRole("button", { name: "Create workspace" })).first();
   await workspace.waitFor({ state: "visible", timeout: 10_000 });
   await settleLayout(page);
 }
@@ -157,12 +163,18 @@ async function openSidebarAndSelectTargetPane(api: ApiClient, page: Page, target
   if (!workspace) throw new Error(`${label} target workspace ${target.workspaceId} is missing`);
   await openSidebar(page, workspace.name);
 
-  const workspaceButton = page.getByRole("button", { name: `Select workspace ${workspace.name}` }).first();
-  await expect(workspaceButton, `${label} target workspace visible`).toBeVisible({ timeout: 10_000 });
-  if ((await workspaceButton.getAttribute("aria-pressed")) !== "true") await workspaceButton.click();
   const workspaceRegion = page.getByRole("region", { name: `${workspace.name} workspace contents` });
+  if (!workspace.protected) {
+    const workspaceButton = page.getByRole("button", { name: `Select workspace ${workspace.name}` }).first();
+    await expect(workspaceButton, `${label} target workspace visible`).toBeVisible({ timeout: 10_000 });
+    if ((await workspaceButton.getAttribute("aria-pressed")) !== "true") await workspaceButton.click();
+  }
   await expect(workspaceRegion, `${label} selected workspace region visible`).toBeVisible({ timeout: 10_000 });
   const tab = workspaceRegion.getByRole("button", { name: `Open tab ${target.tabTitle}` }).first();
+  if (workspace.protected && !(await tab.isVisible().catch(() => false))) {
+    const disclosure = workspaceRegion.getByRole("button", { name: workspace.name }).first();
+    if ((await disclosure.getAttribute("aria-expanded")) !== "true") await disclosure.click();
+  }
   await expect(tab, `${label} target pane tab visible`).toBeVisible({ timeout: 10_000 });
   await tab.click();
   await waitSidebarClosed(page);
