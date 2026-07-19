@@ -115,6 +115,7 @@ pub use orchestrator::{
 };
 pub use pane::{normalize_pane_description, MAX_PANE_DESCRIPTION_CHARS};
 pub use pane_budget::{evaluate_pane_budget, PaneBudgetLevel, PaneBudgetNotice};
+pub(crate) use team::TeamMutationCaller;
 pub(crate) use team::TeamPlanError;
 pub(crate) use team::{AddTeamMemberParams, AddTeamMemberResult};
 pub(crate) use worker_identity::{
@@ -543,6 +544,12 @@ impl ServiceContext {
             self.loaded_plan_projects
                 .lock()
                 .insert(project_root.clone());
+            self.reconcile_dangling_team_plan_bindings(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64,
+            )?;
         }
         let legacy_plans_dir = project_root.join(".codeterm").join("plans");
         let mut watchers = self.plan_watchers.lock();

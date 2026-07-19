@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use super::adopt::AdoptPlanRequest;
 use super::task_queries::TaskListFilter;
 use super::{NewTask, PlanStore};
-use crate::plan::{OrchestratorRef, Plan, PlanMode, PlannerRef, TaskStatus};
+use crate::plan::{OrchestratorRef, Plan, PlanMode, PlanStatus, PlannerRef, TaskStatus};
 
 fn make_source_plan(root: &Path) -> (PlanStore, String, String, PathBuf) {
     let store = PlanStore::new_for_test(root);
@@ -108,6 +108,8 @@ fn adopt_plan_preserves_task_files_and_clears_stale_runtime_bindings() {
         target_root.display().to_string()
     );
     assert_eq!(adopted.owner.pane_id.as_deref(), Some("new-owner"));
+    assert_eq!(adopted.status, PlanStatus::Archived);
+    assert_eq!(adopted.team_id, None);
     assert_eq!(adopted.planner, None);
     assert_eq!(adopted.heartbeat.current_focus, None);
     assert!(adopted.heartbeat.active_lanes.is_empty());
@@ -130,7 +132,7 @@ fn adopt_plan_preserves_task_files_and_clears_stale_runtime_bindings() {
         .path()
         .join(".codeterm")
         .join("plans")
-        .join("active")
+        .join("archive")
         .join(&plan_id);
     assert!(target_dir
         .join("tasks")
@@ -185,7 +187,7 @@ fn adopt_plan_dry_run_reports_without_writing() {
         .path()
         .join(".codeterm")
         .join("plans")
-        .join("active")
+        .join("archive")
         .join(&plan_id)
         .join("plan.yaml")
         .is_file());

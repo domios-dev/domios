@@ -39,6 +39,11 @@ impl PlanStore {
                 p.title = t.into();
             }
             if let Some(s) = status_for_write {
+                if s == PlanStatus::Active && p.status == PlanStatus::Archived {
+                    return Err(PlanError::PlanActivationRequiresUnarchive {
+                        plan_id: plan_id.into(),
+                    });
+                }
                 p.status = s;
             }
             if let Some(mode) = mode {
@@ -542,7 +547,25 @@ impl PlanStore {
     }
 
     pub fn unarchive(&self, plan_id: &str, now_ms: u64) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
+        let _writer_turn = self.mutation_writer.enter();
+        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
+        let team_id = plan
+            .team_id
+            .as_deref()
+            .filter(|team_id| !team_id.trim().is_empty())
+            .ok_or_else(|| PlanError::ActivePlanRequiresTeam {
+                plan_id: plan_id.into(),
+            })?;
+        if let Some((existing_plan_id, existing_title)) = self.active_plan_for_team(team_id) {
+            if existing_plan_id != plan_id {
+                return Err(PlanError::TeamAlreadyHasActivePlan {
+                    team_id: team_id.into(),
+                    existing_plan_id,
+                    existing_title,
+                });
+            }
+        }
+        self.with_plan_in_writer(plan_id, now_ms, |p| {
             p.status = PlanStatus::Active;
             Ok(())
         })
@@ -777,35 +800,31 @@ mod team_binding_tests {
         s: &PlanStore,
         dir: &TempDir,
         title: &str,
-        team: Option<&str>,
+        team: &str,
         now: u64,
     ) -> Result<crate::plan::Plan, PlanError> {
         s.create_plan_for_team(
             title.into(),
             dir.path().display().to_string(),
             OrchestratorRef::from_pane("orch"),
-            team.map(str::to_string),
+            team.to_string(),
             vec![],
             now,
         )
     }
 
     #[test]
-    fn teamless_creator_unaffected() {
+    fn teamless_creator_is_rejected_without_a_fallback_plan() {
         let (dir, s) = store();
-        let a = create(&s, &dir, "A", None, 1).unwrap();
-        assert_eq!(a.team_id, None);
-        // A teamless creator may make many plans — no 1:1 constraint applies.
-        let b = create(&s, &dir, "B", None, 2).unwrap();
-        assert_eq!(b.team_id, None);
-        assert_ne!(a.id, b.id);
-        assert_eq!(s.list_index().len(), 2);
+        let error = create(&s, &dir, "A", "", 1).unwrap_err();
+        assert!(matches!(error, PlanError::ActivePlanRequiresTeam { .. }));
+        assert!(s.list_index().is_empty());
     }
 
     #[test]
     fn team_bound_creation_persists_team_id() {
         let (dir, s) = store();
-        let plan = create(&s, &dir, "Bound", Some("team_alpha"), 1).unwrap();
+        let plan = create(&s, &dir, "Bound", "team_alpha", 1).unwrap();
         assert_eq!(plan.team_id.as_deref(), Some("team_alpha"));
         assert_eq!(
             s.active_plan_for_team("team_alpha"),
@@ -821,52 +840,63 @@ mod team_binding_tests {
     }
 
     #[test]
-    fn detach_and_park_bound_plan_is_resumable_and_rebindable() {
+    fn team_close_archives_plan_until_atomic_adoption() {
         let (dir, s) = store();
-        let plan = create(&s, &dir, "Bound", Some("team_closed"), 1).unwrap();
+        let plan = create(&s, &dir, "Bound", "team_closed", 1).unwrap();
 
         assert_eq!(
-            s.detach_and_park_team_plans("team_closed", 2).unwrap(),
+            s.archive_and_detach_team_plans("team_closed", 2).unwrap(),
             vec![plan.id.clone()]
         );
-        let parked = s.get(&plan.id).unwrap();
-        assert_eq!(parked.team_id, None);
-        assert_eq!(parked.mode, PlanMode::Paused);
+        let archived = s.get(&plan.id).unwrap();
+        assert_eq!(archived.team_id, None);
+        assert_eq!(archived.status, PlanStatus::Archived);
 
-        assert_eq!(s.resume_plan(&plan.id, 3).unwrap(), PlanMode::Planning);
-        let rebound = s.bind_plan_to_team(&plan.id, "team_new", 4).unwrap();
+        assert!(matches!(
+            s.resume_plan(&plan.id, 3),
+            Err(PlanError::ActivePlanRequiresTeam { .. })
+        ));
+        let rebound = s
+            .adopt_plan_for_team(
+                &plan.id,
+                "team_new",
+                OrchestratorRef::from_pane("new-owner"),
+                4,
+            )
+            .unwrap();
         assert_eq!(rebound.team_id.as_deref(), Some("team_new"));
-        assert_eq!(rebound.mode, PlanMode::Planning);
+        assert_eq!(rebound.status, PlanStatus::Active);
+        assert_eq!(rebound.owner.pane_id.as_deref(), Some("new-owner"));
     }
 
     #[test]
-    fn dangling_team_reconciliation_only_detaches_parked_done_and_archived_plans() {
+    fn dangling_team_reconciliation_archives_every_active_orphan() {
         let (dir, s) = store();
-        let parked = create(&s, &dir, "Parked", Some("team_missing"), 1).unwrap();
+        let parked = create(&s, &dir, "Parked", "team_missing", 1).unwrap();
         s.set_mode(&parked.id, PlanMode::Paused, 2).unwrap();
-        let done = create(&s, &dir, "Done", Some("team_done"), 3).unwrap();
+        let done = create(&s, &dir, "Done", "team_done", 3).unwrap();
         s.set_mode(&done.id, PlanMode::Complete, 4).unwrap();
-        let archived = create(&s, &dir, "Archived", Some("team_archived"), 5).unwrap();
+        let archived = create(&s, &dir, "Archived", "team_archived", 5).unwrap();
         s.update_plan(&archived.id, None, Some(PlanStatus::Archived), None, 6)
             .unwrap();
-        let healthy = create(&s, &dir, "Healthy", Some("team_live"), 7).unwrap();
+        let healthy = create(&s, &dir, "Healthy", "team_live", 7).unwrap();
         let live = std::collections::BTreeSet::from(["team_live".to_string()]);
 
-        let mut expected = vec![archived.id.clone(), done.id.clone(), parked.id.clone()];
+        let mut expected = vec![done.id.clone(), parked.id.clone()];
         expected.sort();
         assert_eq!(
-            s.detach_and_park_dangling_team_plans(&live, 8).unwrap(),
+            s.archive_active_plans_without_live_team(&live, 8).unwrap(),
             expected
         );
-        assert_eq!(s.get(&parked.id).unwrap().mode, PlanMode::Paused);
-        assert_eq!(s.get(&done.id).unwrap().mode, PlanMode::Complete);
+        assert_eq!(s.get(&parked.id).unwrap().status, PlanStatus::Archived);
+        assert_eq!(s.get(&done.id).unwrap().status, PlanStatus::Archived);
         assert_eq!(s.get(&archived.id).unwrap().status, PlanStatus::Archived);
         assert_eq!(
             s.get(&healthy.id).unwrap().team_id.as_deref(),
             Some("team_live")
         );
         assert!(s
-            .detach_and_park_dangling_team_plans(&live, 9)
+            .archive_active_plans_without_live_team(&live, 9)
             .unwrap()
             .is_empty());
     }
@@ -874,9 +904,9 @@ mod team_binding_tests {
     #[test]
     fn second_active_plan_hard_refused() {
         let (dir, s) = store();
-        let first = create(&s, &dir, "First", Some("team_alpha"), 1).unwrap();
+        let first = create(&s, &dir, "First", "team_alpha", 1).unwrap();
         let before = s.list_index().len();
-        let err = create(&s, &dir, "Second", Some("team_alpha"), 2).unwrap_err();
+        let err = create(&s, &dir, "Second", "team_alpha", 2).unwrap_err();
         match &err {
             PlanError::TeamAlreadyHasActivePlan {
                 team_id,
@@ -916,7 +946,7 @@ mod team_binding_tests {
                     title.into(),
                     root,
                     OrchestratorRef::from_pane(title),
-                    Some("team_alpha".into()),
+                    "team_alpha".into(),
                     vec![],
                     now,
                 )
@@ -941,7 +971,12 @@ mod team_binding_tests {
     fn concurrent_team_plan_create_and_bind_allow_exactly_one() {
         let dir = TempDir::new().unwrap();
         let store = Arc::new(PlanStore::new_for_test(dir.path()));
-        let teamless = create(&store, &dir, "Existing", None, 1).unwrap();
+        let mut teamless = crate::plan::Plan::new(
+            "Existing".into(),
+            dir.path().display().to_string(),
+            OrchestratorRef::from_pane("orch"),
+        );
+        store.save(&mut teamless, 1).unwrap();
         let barrier = Arc::new(Barrier::new(3));
         let bind_store = store.clone();
         let bind_barrier = barrier.clone();
@@ -959,7 +994,7 @@ mod team_binding_tests {
                 "New".into(),
                 root,
                 OrchestratorRef::from_pane("orch"),
-                Some("team_alpha".into()),
+                "team_alpha".into(),
                 vec![],
                 3,
             )
@@ -980,8 +1015,8 @@ mod team_binding_tests {
     #[test]
     fn different_team_gets_its_own_plan() {
         let (dir, s) = store();
-        create(&s, &dir, "Alpha", Some("team_alpha"), 1).unwrap();
-        let beta = create(&s, &dir, "Beta", Some("team_beta"), 2).unwrap();
+        create(&s, &dir, "Alpha", "team_alpha", 1).unwrap();
+        let beta = create(&s, &dir, "Beta", "team_beta", 2).unwrap();
         assert_eq!(beta.team_id.as_deref(), Some("team_beta"));
     }
 

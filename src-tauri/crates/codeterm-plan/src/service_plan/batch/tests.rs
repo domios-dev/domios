@@ -311,6 +311,36 @@ fn batch_create_plan_from_spec_is_not_written_when_later_op_fails() {
 }
 
 #[test]
+fn public_batch_cannot_create_active_teamless_plan_from_spec() {
+    let (store, plan_id) = store_with_plan();
+    let result = store
+        .apply_batch(
+            &plan_id,
+            BatchRequest {
+                key: None,
+                ops: vec![
+                    BatchOp::UpsertSpec {
+                        client_id: Some("sp".into()),
+                        spec_id: None,
+                        title: "Spec".into(),
+                    },
+                    BatchOp::CreatePlanFromSpec {
+                        client_id: Some("derived".into()),
+                        spec: "$sp".into(),
+                        title: "Derived".into(),
+                    },
+                ],
+            },
+            2,
+        )
+        .unwrap();
+
+    let derived = store.get(result.ids.get("derived").unwrap()).unwrap();
+    assert_eq!(derived.status, crate::plan::PlanStatus::Archived);
+    assert_eq!(derived.team_id, None);
+}
+
+#[test]
 fn batch_ingests_markdown_sections_and_persists_body() {
     let (store, plan_id) = store_with_plan();
     let result = store

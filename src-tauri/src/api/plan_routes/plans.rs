@@ -14,6 +14,7 @@ use crate::plan::{
 use crate::service::plan::IndexEntry;
 use crate::service::plan::PlanError;
 use crate::service::FirstPlanTeamError;
+use crate::service::TeamPlanError;
 
 use super::{
     emit_plan_changed, epoch_ms, kinds_from_csv, plan_err, tag_facets_from_body, text_err,
@@ -117,6 +118,10 @@ pub async fn list(
     Query(q): Query<ListPlansQuery>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    state
+        .svc
+        .validate_active_team_plan_bindings()
+        .map_err(team_plan_err)?;
     let want = if let Some(project) = &q.project {
         Some(
             state
@@ -582,6 +587,23 @@ mod tests {
         assert_eq!(task_state, "stale");
     }
 
+    #[test]
+    fn transfer_caller_requires_agent_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert("X-CodeTerm-Pane-Id", "source-manager".parse().unwrap());
+        assert_eq!(transfer_caller(&headers).unwrap(), "source-manager");
+        let missing = transfer_caller(&HeaderMap::new()).unwrap_err();
+        assert_eq!(missing.0, StatusCode::FORBIDDEN);
+        assert!(missing.1.contains("X-CodeTerm-Pane-Id is required"));
+        assert_eq!(
+            team_plan_err(TeamPlanError::Team(
+                "Caller pane worker is not authorized to manage Team team_source".into(),
+            ))
+            .0,
+            StatusCode::FORBIDDEN
+        );
+    }
+
     fn resolve_task_state(plan: &Plan, target_id: Option<String>) -> &'static str {
         let task = target_id.as_deref().and_then(|task_id| {
             plan.tasks
@@ -602,6 +624,10 @@ pub async fn get(
     Path(id): Path<String>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    state
+        .svc
+        .validate_plan_team_binding(&id)
+        .map_err(team_plan_err)?;
     let plan = state
         .svc
         .plan_store
@@ -813,10 +839,8 @@ pub async fn unarchive(
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
-        .plan_store
-        .unarchive(&id, epoch_ms())
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
+        .unarchive_team_plan(&id, epoch_ms())
+        .map_err(team_plan_err)?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -853,10 +877,8 @@ pub async fn resume(
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let mode = state
         .svc
-        .plan_store
-        .resume_plan(&id, epoch_ms())
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
+        .resume_team_plan(&id, epoch_ms())
+        .map_err(team_plan_err)?;
     Ok(Json(serde_json::json!({ "ok": true, "mode": mode })))
 }
 
@@ -867,6 +889,17 @@ pub(crate) struct TransferBody {
     reason: String,
 }
 
+fn transfer_caller(headers: &HeaderMap) -> Result<String, (StatusCode, String)> {
+    crate::api::pane_routes::caller_pane_header(headers)
+        .filter(|pane_id| !pane_id.trim().is_empty())
+        .ok_or_else(|| {
+            text_err(
+                StatusCode::FORBIDDEN,
+                "X-CodeTerm-Pane-Id is required for plan transfer",
+            )
+        })
+}
+
 pub async fn transfer(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -874,13 +907,24 @@ pub async fn transfer(
     Json(body): Json<TransferBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let caller = transfer_caller(&headers)?;
     state
         .svc
-        .plan_store
-        .transfer(&id, body.to, &body.reason, epoch_ms())
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
+        .transfer_team_plan(&id, body.to, &body.reason, caller, epoch_ms())
+        .map_err(team_plan_err)?;
     Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+fn team_plan_err(error: TeamPlanError) -> (StatusCode, String) {
+    match error {
+        TeamPlanError::Plan(error) => plan_err(error),
+        TeamPlanError::Team(message)
+            if message.contains("not authorized") || message.contains("not a member") =>
+        {
+            text_err(StatusCode::FORBIDDEN, message)
+        }
+        TeamPlanError::Team(message) => text_err(StatusCode::BAD_REQUEST, message),
+    }
 }
 
 pub async fn disown(

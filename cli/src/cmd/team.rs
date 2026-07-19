@@ -27,14 +27,10 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
                 "caller_pane_id": caller_pane_id,
             })),
         ),
-        TeamAction::AdoptPlan { team_id, plan_id } => client.call(
-            "team.adopt_plan",
-            Some(json!({
-                "team_id": team_id,
-                "plan_id": plan_id,
-                "caller_pane_id": caller_pane_id,
-            })),
-        ),
+        TeamAction::AdoptPlan { team_id, plan_id } => {
+            adopt_plan_params(team_id, plan_id, caller_pane_id.as_deref())
+                .and_then(|params| client.call("team.adopt_plan", Some(params)))
+        }
     };
     match result {
         Ok(value) if json_output => println!(
@@ -47,6 +43,23 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
             std::process::exit(1);
         }
     }
+}
+
+fn adopt_plan_params(
+    team_id: String,
+    plan_id: String,
+    caller_pane_id: Option<&str>,
+) -> Result<Value, String> {
+    let caller_pane_id = caller_pane_id
+        .filter(|pane_id| !pane_id.trim().is_empty())
+        .ok_or_else(|| {
+            "Team plan adoption requires CODETERM_PANE_ID from the calling Team manager".to_string()
+        })?;
+    Ok(json!({
+        "team_id": team_id,
+        "plan_id": plan_id,
+        "caller_pane_id": caller_pane_id,
+    }))
 }
 
 fn print_human(value: &Value) {
@@ -84,4 +97,22 @@ fn print_team(team: &Value) {
         .and_then(Value::as_str)
         .unwrap_or("unknown");
     println!("{id}\t{name}\t{lifecycle}");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn adopt_plan_params_require_nonempty_caller() {
+        let params = adopt_plan_params("team".into(), "plan".into(), Some("manager")).unwrap();
+        assert_eq!(params["team_id"], "team");
+        assert_eq!(params["plan_id"], "plan");
+        assert_eq!(params["caller_pane_id"], "manager");
+
+        for caller in [None, Some(""), Some("  ")] {
+            let error = adopt_plan_params("team".into(), "plan".into(), caller).unwrap_err();
+            assert!(error.contains("CODETERM_PANE_ID"));
+        }
+    }
 }

@@ -78,11 +78,8 @@ pub(super) fn dispatch(
         "plan.resume" => {
             let id = super::plan_refs::resolve_plan(&svc.plan_store, params)?;
             let mode = svc
-                .plan_store
-                .resume_plan(&id, epoch_ms())
-                .map_err(plan_rpc_err)?;
-            svc.reconcile_time_reminder_eligibility();
-            emit_plan_changed(app, &id);
+                .resume_team_plan(&id, epoch_ms())
+                .map_err(super::team::team_plan_rpc_err)?;
             Ok(json!({ "ok": true, "mode": mode }))
         }
         "plan.planning.set" => {

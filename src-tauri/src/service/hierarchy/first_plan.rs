@@ -101,7 +101,7 @@ pub(crate) fn create_first_plan_for_orchestrator(
             &spec_id,
             title,
             owner,
-            Some(team.team_id.clone()),
+            team.team_id.clone(),
             kinds,
             now_ms,
         )

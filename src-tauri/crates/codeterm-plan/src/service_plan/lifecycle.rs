@@ -42,6 +42,14 @@ impl PlanStore {
     pub fn resume_plan(&self, plan_id: &str, now_ms: u64) -> Result<PlanMode, PlanError> {
         let mut mode = PlanMode::Planning;
         self.with_plan(plan_id, now_ms, |p| {
+            if p.team_id
+                .as_ref()
+                .is_none_or(|team_id| team_id.trim().is_empty())
+            {
+                return Err(PlanError::ActivePlanRequiresTeam {
+                    plan_id: plan_id.into(),
+                });
+            }
             mode = p.paused_from_mode.take().unwrap_or(PlanMode::Execution);
             if p.mode == PlanMode::Paused {
                 p.mode = mode.clone();

@@ -1,28 +1,19 @@
 import { useCallback, useState } from "react";
 import { Plus } from "lucide-react";
-import type { ApiConfig, ProviderDescriptor } from "../../lib/types";
-import { useConfig } from "../../hooks/useConfig";
-import { useAgentProviders } from "../../hooks/useAgentProviders";
-import { useMuxState } from "../../store/multiplexer";
+import type { ApiConfig } from "../../lib/types";
 import { useCanvasWorkspaceTarget, type CanvasWorkspaceTarget } from "./canvasFocusStore";
-import { createCanvasPlanRequest, resolveCanvasSpawnProvider, spawnOrchestrator } from "./canvasApi";
+import { createCanvasPlanRequest } from "./canvasApi";
 import type { CreatePlanParams } from "./plansApi";
 
 export interface CanvasEmptyActionsProps {
   api: ApiConfig;
   projectPath?: string | null;
-  workspaceId?: string | null;
 }
 
 interface CreateCanvasPlanArgs {
   api: ApiConfig;
   projectPath?: string | null;
-  workspaceId?: string | null;
   workspaceTarget?: CanvasWorkspaceTarget | null;
-  providerId?: string;
-  selectedProviderId?: string | null;
-  providers?: readonly ProviderDescriptor[];
-  spawnOrchestrator: (api: ApiConfig, options: { providerId: string; workspaceId: string }) => Promise<string | null>;
   createPlan: (api: ApiConfig, params: CreatePlanParams) => Promise<unknown>;
 }
 
@@ -50,22 +41,12 @@ function verifyCreatedOwnership(created: unknown, paneId: string, expectedTeamId
 export async function createCanvasPlan({
   api,
   projectPath,
-  workspaceId,
   workspaceTarget,
-  providerId,
-  selectedProviderId,
-  providers,
-  spawnOrchestrator: spawn,
   createPlan,
 }: CreateCanvasPlanArgs): Promise<void> {
-  const isTeamTarget = workspaceTarget?.teamId != null;
-  const paneId = isTeamTarget
-    ? workspaceTarget?.managerPaneId ?? null
-    : await (() => {
-      if (!workspaceId) throw new Error("Canvas orchestrator spawn requires a workspace");
-      const resolvedProvider = providerId ?? resolveCanvasSpawnProvider(selectedProviderId, providers ?? []);
-      return spawn(api, { providerId: resolvedProvider, workspaceId });
-    })();
+  const teamId = workspaceTarget?.teamId;
+  const paneId = workspaceTarget?.managerPaneId;
+  if (!teamId || !paneId) throw new Error("Plan creation requires a Team manager context");
   const created = await createPlan(api, {
     title: "New plan",
     project_path: projectPath ?? undefined,
@@ -73,21 +54,17 @@ export async function createCanvasPlan({
       ? {
         pane_id: paneId,
         session_id: null,
-        title: isTeamTarget ? "Team Manager" : "Canvas Orchestrator",
+        title: "Team Manager",
       }
       : undefined,
   });
-  if (paneId) verifyCreatedOwnership(created, paneId, workspaceTarget?.teamId);
+  verifyCreatedOwnership(created, paneId, teamId);
 }
 
-export function CanvasEmptyActions({ api, projectPath, workspaceId }: CanvasEmptyActionsProps) {
+export function CanvasEmptyActions({ api, projectPath }: CanvasEmptyActionsProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const workspaceTarget = useCanvasWorkspaceTarget();
-  const { config } = useConfig();
-  const { providers } = useAgentProviders();
-  const muxState = useMuxState();
-  const actingWorkspaceId = workspaceId ?? muxState.active_workspace_id;
 
   const onCreate = useCallback(async () => {
     if (busy) return;
@@ -97,11 +74,7 @@ export function CanvasEmptyActions({ api, projectPath, workspaceId }: CanvasEmpt
       await createCanvasPlan({
         api,
         projectPath,
-        workspaceId: actingWorkspaceId,
         workspaceTarget,
-        selectedProviderId: config.general_agent?.agent_provider,
-        providers,
-        spawnOrchestrator,
         createPlan: createCanvasPlanRequest,
       });
     } catch (e) {
@@ -109,7 +82,9 @@ export function CanvasEmptyActions({ api, projectPath, workspaceId }: CanvasEmpt
     } finally {
       setBusy(false);
     }
-  }, [actingWorkspaceId, api, busy, config.general_agent?.agent_provider, projectPath, providers, workspaceTarget]);
+  }, [api, busy, projectPath, workspaceTarget]);
+
+  if (!workspaceTarget?.teamId || !workspaceTarget.managerPaneId) return null;
 
   return (
     <div className="flex flex-col items-center gap-3">

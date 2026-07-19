@@ -14,24 +14,16 @@ async function createWith(target?: { teamId?: string; managerPaneId?: string | n
 }) {
   let spawns = 0;
   let params: unknown;
-  let spawnOptions: unknown;
   await createCanvasPlan({
     api: {} as ApiConfig,
     projectPath: "/project",
-    workspaceId: "workspace-1",
-    providerId: "registry-provider",
     workspaceTarget: target,
-    spawnOrchestrator: async (_api, options) => {
-      spawns += 1;
-      spawnOptions = options;
-      return "new-orchestrator";
-    },
     createPlan: async (_api, next) => {
       params = next;
       return created;
     },
   });
-  return { spawns, params, spawnOptions };
+  return { spawns, params };
 }
 
 async function run() {
@@ -49,26 +41,19 @@ async function run() {
     "team creation owns the plan with its manager target",
   );
 
-  const generic = await createWith();
-  assert(generic.spawns === 1, "generic creation retains orchestrator spawn behavior");
-  assert(
-    JSON.stringify(generic.spawnOptions) === JSON.stringify({ providerId: "registry-provider", workspaceId: "workspace-1" }),
-    "generic creation carries provider and workspace provenance to the spawn edge",
-  );
-  assert(
-    JSON.stringify(generic.params) === JSON.stringify({
-      title: "New plan",
-      project_path: "/project",
-      owner: { pane_id: "new-orchestrator", session_id: null, title: "Canvas Orchestrator" },
-    }),
-    "generic creation uses its spawned orchestrator",
-  );
+  let genericError: unknown;
+  try {
+    await createWith();
+  } catch (error) {
+    genericError = error;
+  }
+  assert(String(genericError).includes("requires a Team manager context"), "workspace-only creation is rejected");
 
   let mismatchError: unknown;
   try {
-    await createWith(undefined, {
+    await createWith({ teamId: "team-1", managerPaneId: "manager-1" }, {
       plan: {
-        owner: { pane_id: "new-orchestrator" },
+        owner: { pane_id: "manager-1" },
         team_id: "unrelated-team",
       },
       team_id: "team-1",

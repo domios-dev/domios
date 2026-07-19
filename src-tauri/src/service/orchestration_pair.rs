@@ -613,10 +613,11 @@ mod tests {
         );
 
         let plan = store
-            .create_plan(
+            .create_plan_for_team(
                 "First goal".into(),
                 _root.path().display().to_string(),
                 OrchestratorRef::from_pane("orch-1"),
+                "team-orch-1".into(),
                 Vec::new(),
                 1,
             )

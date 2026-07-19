@@ -83,6 +83,12 @@ pub enum PlanError {
         plan_id: String,
         team_id: String,
     },
+    ActivePlanRequiresTeam {
+        plan_id: String,
+    },
+    PlanActivationRequiresUnarchive {
+        plan_id: String,
+    },
     Io(String),
 }
 
@@ -198,7 +204,9 @@ impl fmt::Display for PlanError {
             ),
             PlanError::ReviewNotInReview => write!(f, "task is not in_review"),
             PlanError::GateNotFound => write!(f, "decision gate not found"),
-            PlanError::GateAlreadyAnswered => write!(f, "gate is already answered; answers are immutable"),
+            PlanError::GateAlreadyAnswered => {
+                write!(f, "gate is already answered; answers are immutable")
+            }
             PlanError::GateRequiresQuestion => write!(f, "gate requires a non-empty question"),
             PlanError::GroupNotFound => write!(
                 f,
@@ -253,6 +261,14 @@ impl fmt::Display for PlanError {
             PlanError::PlanAlreadyBoundToTeam { plan_id, team_id } => write!(
                 f,
                 "plan {plan_id} is already bound to team {team_id}; a plan binds 1:1 to a team"
+            ),
+            PlanError::ActivePlanRequiresTeam { plan_id } => write!(
+                f,
+                "active plan {plan_id} requires a live Team; adopt it with `codeterm team adopt-plan <team-id> {plan_id}`"
+            ),
+            PlanError::PlanActivationRequiresUnarchive { plan_id } => write!(
+                f,
+                "plan {plan_id} is archived; restore it with `codeterm plan unarchive {plan_id}` so its live Team binding is validated"
             ),
             PlanError::Io(e) => write!(f, "io error: {e}"),
         }
@@ -399,6 +415,14 @@ impl PlanError {
                 "type": "plan_already_bound_to_team",
                 "plan_id": plan_id,
                 "team_id": team_id
+            }),
+            PlanError::ActivePlanRequiresTeam { plan_id } => serde_json::json!({
+                "type": "active_plan_requires_team",
+                "plan_id": plan_id
+            }),
+            PlanError::PlanActivationRequiresUnarchive { plan_id } => serde_json::json!({
+                "type": "plan_activation_requires_unarchive",
+                "plan_id": plan_id
             }),
             PlanError::Io(message) => serde_json::json!({ "type": "io", "message": message }),
         }

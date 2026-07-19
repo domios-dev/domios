@@ -1,39 +1,42 @@
 use super::*;
 
 #[derive(Debug)]
-pub struct TeamPlanDetach {
+pub struct TeamPlanArchive {
     original_plans: Vec<Plan>,
     changed_plan_ids: Vec<String>,
 }
 
-impl TeamPlanDetach {
+impl TeamPlanArchive {
     pub fn changed_plan_ids(&self) -> &[String] {
         &self.changed_plan_ids
     }
 }
 
 impl PlanStore {
-    pub fn detach_and_park_team_plans(
+    pub fn archive_and_detach_team_plans(
         &self,
         team_id: &str,
         now_ms: u64,
     ) -> Result<Vec<String>, PlanError> {
         Ok(self
-            .detach_and_park_team_plans_transaction(team_id, now_ms)?
+            .archive_and_detach_team_plans_transaction(team_id, now_ms)?
             .changed_plan_ids)
     }
 
-    pub fn detach_and_park_team_plans_transaction(
+    pub fn archive_and_detach_team_plans_transaction(
         &self,
         team_id: &str,
         now_ms: u64,
-    ) -> Result<TeamPlanDetach, PlanError> {
+    ) -> Result<TeamPlanArchive, PlanError> {
         let _writer_turn = self.mutation_writer.enter();
         let target_team_id = team_id.trim().to_string();
-        self.detach_matching_team_plans(|bound| bound == target_team_id, now_ms)
+        self.archive_matching_team_plans(|bound| bound == target_team_id, now_ms)
     }
 
-    pub fn rollback_team_plan_detach(&self, transaction: TeamPlanDetach) -> Result<(), PlanError> {
+    pub fn rollback_team_plan_archive(
+        &self,
+        transaction: TeamPlanArchive,
+    ) -> Result<(), PlanError> {
         let _writer_turn = self.mutation_writer.enter();
         for plan in transaction.original_plans {
             self.restore_team_plan(&plan)?;
@@ -41,104 +44,63 @@ impl PlanStore {
         Ok(())
     }
 
-    pub fn detach_and_park_dangling_team_plans(
-        &self,
-        live: &std::collections::BTreeSet<String>,
-        now_ms: u64,
-    ) -> Result<Vec<String>, PlanError> {
-        let _writer_turn = self.mutation_writer.enter();
-        Ok(self
-            .detach_matching_team_plans(|team_id| !live.contains(team_id), now_ms)?
-            .changed_plan_ids)
-    }
-
-    pub fn recover_placeholder_team_plans(
+    pub fn archive_active_plans_without_live_team(
         &self,
         live: &std::collections::BTreeSet<String>,
         now_ms: u64,
     ) -> Result<Vec<String>, PlanError> {
         let _writer_turn = self.mutation_writer.enter();
         let plans = self.list_full();
-        let mut repairs = Vec::new();
-        for placeholder in plans.iter().filter(|plan| {
-            plan.status == PlanStatus::Active
-                && plan.tasks.is_empty()
-                && plan
-                    .team_id
-                    .as_ref()
-                    .is_some_and(|team| live.contains(team))
-        }) {
-            let placeholder_project = if placeholder.canonical_project_path.trim().is_empty() {
-                &placeholder.project_path
-            } else {
-                &placeholder.canonical_project_path
-            };
-            let matches: Vec<_> = plans
-                .iter()
-                .filter(|plan| {
-                    let project = if plan.canonical_project_path.trim().is_empty() {
-                        &plan.project_path
-                    } else {
-                        &plan.canonical_project_path
-                    };
-                    plan.status == PlanStatus::Active
-                        && plan.team_id.is_none()
-                        && !plan.tasks.is_empty()
-                        && plan.title.trim() == placeholder.title.trim()
-                        && project == placeholder_project
-                })
-                .collect();
-            if let [legacy] = matches.as_slice() {
-                repairs.push((placeholder.clone(), (*legacy).clone()));
+        let mut active_by_team = std::collections::BTreeMap::<String, Vec<&Plan>>::new();
+        let mut archive_ids = Vec::new();
+        for plan in plans
+            .iter()
+            .filter(|plan| plan.status == PlanStatus::Active)
+        {
+            match plan.team_id.as_deref() {
+                Some(team_id) if live.contains(team_id) => {
+                    active_by_team.entry(team_id.into()).or_default().push(plan);
+                }
+                _ => archive_ids.push(plan.id.clone()),
             }
         }
-
-        let candidate_use: std::collections::HashMap<String, usize> = repairs.iter().fold(
-            std::collections::HashMap::new(),
-            |mut counts, (_, legacy)| {
-                *counts.entry(legacy.id.clone()).or_default() += 1;
-                counts
-            },
-        );
-        repairs.retain(|(_, legacy)| candidate_use.get(&legacy.id) == Some(&1));
-        let originals: Vec<_> = repairs
-            .iter()
-            .flat_map(|(placeholder, legacy)| [placeholder.clone(), legacy.clone()])
-            .collect();
-        let mut changed = Vec::new();
-        for (placeholder, legacy) in repairs {
-            let team_id = placeholder.team_id.clone().expect("placeholder has a team");
-            let repair = self
-                .with_plan_in_writer(&placeholder.id, now_ms, |plan| {
+        for plans in active_by_team.values_mut() {
+            plans.sort_by(|left, right| {
+                right
+                    .updated_at
+                    .cmp(&left.updated_at)
+                    .then_with(|| left.id.cmp(&right.id))
+            });
+            archive_ids.extend(plans.iter().skip(1).map(|plan| plan.id.clone()));
+        }
+        archive_ids.sort();
+        let originals: Vec<_> = archive_ids.iter().filter_map(|id| self.get(id)).collect();
+        for id in &archive_ids {
+            if let Err(error) = self.with_plan_in_writer(id, now_ms, |plan| {
+                if plan
+                    .team_id
+                    .as_ref()
+                    .is_none_or(|team_id| !live.contains(team_id))
+                {
                     plan.team_id = None;
-                    if !matches!(plan.mode, PlanMode::Paused | PlanMode::Complete) {
-                        plan.paused_from_mode = Some(plan.mode.clone());
-                        plan.mode = PlanMode::Paused;
-                    }
-                    Ok(())
-                })
-                .and_then(|_| {
-                    self.with_plan_in_writer(&legacy.id, now_ms, |plan| {
-                        plan.team_id = Some(team_id);
-                        Ok(())
-                    })
-                });
-            if let Err(error) = repair {
+                }
+                plan.status = PlanStatus::Archived;
+                Ok(())
+            }) {
                 for original in &originals {
                     let _ = self.restore_team_plan(original);
                 }
                 return Err(error);
             }
-            changed.extend([placeholder.id, legacy.id]);
         }
-        Ok(changed)
+        Ok(archive_ids)
     }
 
-    fn detach_matching_team_plans<F>(
+    fn archive_matching_team_plans<F>(
         &self,
         matches: F,
         now_ms: u64,
-    ) -> Result<TeamPlanDetach, PlanError>
+    ) -> Result<TeamPlanArchive, PlanError>
     where
         F: Fn(&str) -> bool,
     {
@@ -154,13 +116,22 @@ impl PlanStore {
         let original_plans: Vec<_> = ids.iter().filter_map(|id| self.get(id)).collect();
         for id in &ids {
             if let Err(error) = self.with_plan_in_writer(id, now_ms, |plan| {
-                plan.team_id = None;
-                if plan.status == PlanStatus::Active
-                    && !matches!(plan.mode, PlanMode::Paused | PlanMode::Complete)
-                {
-                    plan.paused_from_mode = Some(plan.mode.clone());
-                    plan.mode = PlanMode::Paused;
+                let retired_owner = OrchestratorRef::default();
+                if plan.owner != retired_owner {
+                    plan.owner_history.push(TransferRecord {
+                        from: plan.owner.clone(),
+                        to: retired_owner.clone(),
+                        ts: now_ms,
+                        reason: format!(
+                            "Team {} closed",
+                            plan.team_id.as_deref().unwrap_or_default()
+                        ),
+                    });
                 }
+                plan.owner = retired_owner;
+                plan.planner = None;
+                plan.team_id = None;
+                plan.status = PlanStatus::Archived;
                 Ok(())
             }) {
                 for original in &original_plans {
@@ -169,7 +140,7 @@ impl PlanStore {
                 return Err(error);
             }
         }
-        Ok(TeamPlanDetach {
+        Ok(TeamPlanArchive {
             original_plans,
             changed_plan_ids: ids,
         })

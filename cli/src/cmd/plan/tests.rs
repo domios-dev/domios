@@ -17,6 +17,24 @@ fn plan_delete_confirmation_builds_rpc_params() {
 }
 
 #[test]
+fn plan_transfer_params_require_agent_caller() {
+    let agent = plan_transfer_params(
+        "pl_1".into(),
+        "destination".into(),
+        Some("handoff".into()),
+        Some("source-manager"),
+    )
+    .unwrap();
+    assert_eq!(agent["caller_pane_id"], "source-manager");
+    assert_eq!(agent["to"]["pane_id"], "destination");
+    assert_eq!(agent["reason"], "handoff");
+
+    let missing =
+        plan_transfer_params("pl_1".into(), "destination".into(), None, None).unwrap_err();
+    assert!(missing.contains("CODETERM_PANE_ID"));
+}
+
+#[test]
 fn renders_undeclared_kind_fix() {
     let msg = render_plan_error(
         &json!({ "type": "undeclared_kind", "declared": ["status_update", "review"] }),
