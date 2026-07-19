@@ -10,6 +10,10 @@ export const WEB_UNSUPPORTED: Record<string, string> = {
     "OS clipboard file paths; web uses navigator.clipboard.read()",
   read_clipboard_text:
     "OS clipboard text reader; web uses navigator.clipboard.readText()",
+  frontend_ready:
+    "Desktop startup readiness acknowledgement has no browser equivalent",
+  frontend_readiness_generation:
+    "Desktop startup readiness generation has no browser equivalent",
 };
 
 /** Handled in invokeRaw without HTTP_MAP / CANNED membership. */

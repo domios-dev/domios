@@ -162,6 +162,23 @@ type SessionView = {
   messages: NormalizedChatMessage[];
 };
 
+type ChatStartMock = {
+  text: string;
+  offset: number;
+  pending?: boolean;
+  messages?: NormalizedChatMessage[];
+  source_session_id: string | null;
+  session_binding_nonce: string | null;
+};
+
+function chatStartResult<T extends { text: string; offset: number }>(sourceSessionId: string | null, result: T, sessionBindingNonce: string | null = null): T & ChatStartMock {
+  return { ...result, source_session_id: sourceSessionId, session_binding_nonce: sessionBindingNonce };
+}
+
+function chatEvent(sourceSessionId: string | null, messages: NormalizedChatMessage[], sessionBindingNonce: string | null = null) {
+  return { pane_id: "pane", source_session_id: sourceSessionId, session_binding_nonce: sessionBindingNonce, messages };
+}
+
 function setupHookDom(): void {
   const hookWindow = new Window({ url: "http://localhost/" });
   Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", { configurable: true, value: true });
@@ -183,23 +200,24 @@ async function flush(): Promise<void> {
 async function mountSession(
   sessionId: string | null,
   active = true,
-): Promise<{ root: Root; render: (nextSessionId: string | null, nextActive?: boolean) => Promise<void>; latest: () => SessionView }> {
+  sessionBindingNonce: string | null = null,
+): Promise<{ root: Root; render: (nextSessionId: string | null, nextActive?: boolean, nextSessionBindingNonce?: string | null) => Promise<void>; latest: () => SessionView }> {
   let view: SessionView = { loading: true, recovering: false, messages: [] };
-  function Harness({ currentSessionId, currentActive }: { currentSessionId: string | null; currentActive: boolean }) {
-    const session = useChatSession({ paneId: "pane", agentSessionId: currentSessionId, active: currentActive });
+  function Harness({ currentSessionId, currentActive, currentSessionBindingNonce }: { currentSessionId: string | null; currentActive: boolean; currentSessionBindingNonce: string | null }) {
+    const session = useChatSession({ paneId: "pane", agentSessionId: currentSessionId, sessionBindingNonce: currentSessionBindingNonce, active: currentActive });
     view = { loading: session.loading, recovering: session.recovering, messages: session.allMessages };
     return null;
   }
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  const render = async (nextSessionId: string | null, nextActive = true) => {
+  const render = async (nextSessionId: string | null, nextActive = true, nextSessionBindingNonce: string | null = null) => {
     await act(async () => {
-      root.render(createElement(Harness, { currentSessionId: nextSessionId, currentActive: nextActive }));
+      root.render(createElement(Harness, { currentSessionId: nextSessionId, currentActive: nextActive, currentSessionBindingNonce: nextSessionBindingNonce }));
     });
     await flush();
   };
-  await render(sessionId, active);
+  await render(sessionId, active, sessionBindingNonce);
   return { root, render, latest: () => view };
 }
 
@@ -221,7 +239,7 @@ async function runChatSessionHookTests(): Promise<void> {
     __setInvokeForTest((async (command: string) => {
       if (command === "chat_start") {
         starts += 1;
-        return { text: "", offset: 0, pending: true };
+        return chatStartResult("sid-1", { text: "", offset: 0, pending: true });
       }
       if (command === "chat_stop") stops += 1;
       return {};
@@ -249,12 +267,12 @@ async function runChatSessionHookTests(): Promise<void> {
     __setInvokeForTest((async (command: string) => {
       if (command === "chat_start") {
         starts += 1;
-        return { text: "", offset: 0, pending: true };
+        return chatStartResult("sid-1", { text: "", offset: 0, pending: true });
       }
       return {};
     }) as never);
     const session = await mountSession("sid-1");
-    await act(async () => handler?.({ payload: { pane_id: "pane", messages: [{ id: "event", type: "assistant", content: "attached", timestamp: "1" }] } }));
+    await act(async () => handler?.({ payload: chatEvent("sid-1", [{ id: "event", type: "assistant", content: "attached", timestamp: "1" }]) }));
     await timers.advance(30_000);
     assert(starts === 1, "T2 first pane-chat message attaches without polling");
     assert(session.latest().messages[0]?.content === "attached" && !session.latest().recovering, "T2 event attaches and renders messages");
@@ -273,7 +291,7 @@ async function runChatSessionHookTests(): Promise<void> {
     __setInvokeForTest((async (command: string, args?: Record<string, unknown>) => {
       if (command === "chat_start") {
         startArgs.push(args);
-        return { text: "", offset: 0, pending: true };
+        return chatStartResult("sid-1", { text: "", offset: 0, pending: true });
       }
       if (command === "chat_stop") stops += 1;
       return {};
@@ -303,11 +321,11 @@ async function runChatSessionHookTests(): Promise<void> {
       if (command !== "chat_start") return {};
       starts += 1;
       return starts === 1
-        ? { text: "", offset: 1, messages: [{ id: "one", type: "assistant", content: "one", timestamp: "1" }] }
-        : { text: "", offset: 3, messages: [{ id: "one", type: "assistant", content: "one updated", timestamp: "1" }, { id: "three", type: "assistant", content: "three", timestamp: "3" }] };
+        ? chatStartResult("sid-1", { text: "", offset: 1, messages: [{ id: "one", type: "assistant", content: "one", timestamp: "1" }] })
+        : chatStartResult("sid-2", { text: "", offset: 3, messages: [{ id: "one", type: "assistant", content: "one updated", timestamp: "1" }, { id: "three", type: "assistant", content: "three", timestamp: "3" }] });
     }) as never);
     const session = await mountSession("sid-1");
-    await act(async () => handler?.({ payload: { pane_id: "pane", messages: [{ id: "two", type: "assistant", content: "two", timestamp: "2" }] } }));
+    await act(async () => handler?.({ payload: chatEvent("sid-1", [{ id: "two", type: "assistant", content: "two", timestamp: "2" }]) }));
     await session.render("sid-2");
     await timers.advance(0);
     const messages = session.latest().messages;
@@ -326,7 +344,7 @@ async function runChatSessionHookTests(): Promise<void> {
     __setInvokeForTest((async (command: string) => {
       if (command === "chat_start") {
         starts += 1;
-        return { text: "", offset: 1, messages: [{ id: "history", type: "assistant", content: "kept", timestamp: "1" }] };
+        return chatStartResult("sid-1", { text: "", offset: 1, messages: [{ id: "history", type: "assistant", content: "kept", timestamp: "1" }] });
       }
       if (command === "chat_stop") stops += 1;
       return {};
@@ -345,7 +363,7 @@ async function runChatSessionHookTests(): Promise<void> {
     const restoreTimers = timers.install();
     const startArgs: Array<Record<string, unknown> | undefined> = [];
     const initialAttach = {
-      resolve: null as ((result: { text: string; offset: number; pending: boolean }) => void) | null,
+      resolve: null as ((result: ChatStartMock) => void) | null,
     };
     let stops = 0;
     let unlistens = 0;
@@ -356,18 +374,18 @@ async function runChatSessionHookTests(): Promise<void> {
         if (startArgs.length === 1) {
           return new Promise((resolve) => { initialAttach.resolve = resolve; });
         }
-        return { text: "", offset: 0, pending: true };
+        return chatStartResult("sid-3", { text: "", offset: 0, pending: true }, "nonce-2");
       }
       if (command === "chat_stop") stops += 1;
       return {};
     }) as never);
-    const session = await mountSession("sid-1");
-    await session.render("sid-2");
-    await session.render("sid-3");
+    const session = await mountSession("sid-1", true, "nonce-1");
+    await session.render("sid-2", true, "nonce-2");
+    await session.render("sid-3", true, "nonce-2");
     await timers.advance(0);
     assert(startArgs.length === 2 && startArgs[1]?.agentSessionId === "sid-3", "T6 deferred initial attach rotates once to the latest session");
     assert(stops === 0 && unlistens === 0, "T6 idle rotation keeps the existing chat listener and daemon session");
-    initialAttach.resolve?.({ text: "", offset: 0, pending: true });
+    initialAttach.resolve?.(chatStartResult("sid-1", { text: "", offset: 0, pending: true }, "nonce-1"));
     await flush();
     await timers.advance(30_000);
     assert(startArgs.length === 2, "T6 resolving a stale initial attach does not poll or reattach again");
@@ -381,7 +399,7 @@ async function runChatSessionHookTests(): Promise<void> {
     const restoreTimers = timers.install();
     const startArgs: Array<Record<string, unknown> | undefined> = [];
     const retryAttach = {
-      resolve: null as ((result: { text: string; offset: number; pending: boolean }) => void) | null,
+      resolve: null as ((result: ChatStartMock) => void) | null,
     };
     let stops = 0;
     let unlistens = 0;
@@ -392,7 +410,7 @@ async function runChatSessionHookTests(): Promise<void> {
         if (startArgs.length === 2) {
           return new Promise((resolve) => { retryAttach.resolve = resolve; });
         }
-        return { text: "", offset: 0, messages: [] };
+        return chatStartResult("sid-1", { text: "", offset: 0, messages: [] });
       }
       if (command === "chat_stop") stops += 1;
       return {};
@@ -405,7 +423,7 @@ async function runChatSessionHookTests(): Promise<void> {
     await timers.advance(0);
     assert(startArgs.length === 3 && startArgs[2]?.agentSessionId === "sid-3", "T7 attaching rotation coalesces to one latest-session attach");
     assert(stops === 0 && unlistens === 0, "T7 attaching rotation does not stop or unlisten");
-    retryAttach.resolve?.({ text: "", offset: 0, pending: true });
+    retryAttach.resolve?.(chatStartResult("sid-1", { text: "", offset: 0, pending: true }));
     await flush();
     await timers.advance(30_000);
     assert(startArgs.length === 3, "T7 attaching rotation does not introduce polling");
@@ -425,7 +443,7 @@ async function runChatSessionHookTests(): Promise<void> {
       if (command === "chat_start") {
         startArgs.push(args);
         if (startArgs.length === 1) throw new Error("initial attach failed");
-        return { text: "", offset: 0, pending: true };
+        return chatStartResult("sid-3", { text: "", offset: 0, pending: true });
       }
       if (command === "chat_stop") stops += 1;
       return {};
@@ -455,19 +473,21 @@ async function runChatSessionHookTests(): Promise<void> {
     __setInvokeForTest((async (command: string) => {
       if (command === "chat_start") {
         starts += 1;
-        return { text: "", offset: 1, messages: [{
+        return chatStartResult(starts === 1 ? null : "c73becde", { text: "", offset: 1, messages: [{
           id: starts === 1 ? "snapshot-provisional-user-1" : "snapshot-bound-user-1",
           type: "user", content: startupText, seq: 1,
-        }] };
+        }] });
       }
       return {};
     }) as never);
     const session = await mountSession(null);
     await session.render("c73becde");
     await timers.advance(0);
-    await act(async () => handler?.({ payload: { pane_id: "pane", messages: [{
-      id: "live-bound-user-1", type: "user", content: startupText, seq: 1,
-    }] } }));
+    await act(async () => {
+      handler?.({ payload: chatEvent("c73becde", [{
+        id: "live-bound-user-1", type: "user", content: startupText, seq: 1,
+      }]) });
+    });
     assert(
       starts === 2 && session.latest().messages.map((message) => message.id).join(",") === "live-bound-user-1",
       "P0 provisional-to-bound reattach keeps one attachment lineage",
@@ -486,24 +506,28 @@ async function runChatSessionHookTests(): Promise<void> {
     const startupText = "You are Theo. You are a frontend worker fixing a transcript projection/dedup defect.";
     __setInvokeForTest((async (command: string) => {
       if (command === "chat_start") {
-        return { text: "", offset: 1, messages: [{
+        return chatStartResult("c73becde", { text: "", offset: 1, messages: [{
           id: "snapshot-c73becde-user-1", type: "user", content: startupText, seq: 1,
-        }] };
+        }] });
       }
       return {};
     }) as never);
     const session = await mountSession("c73becde");
-    await act(async () => handler?.({ payload: { pane_id: "pane", messages: [{
-      id: "live-c73becde-user-1", type: "user", content: startupText, seq: 1,
-    }] } }));
+    await act(async () => {
+      handler?.({ payload: chatEvent("c73becde", [{
+        id: "live-c73becde-user-1", type: "user", content: startupText, seq: 1,
+      }]) });
+    });
     assert(
       session.latest().messages.map((message) => message.id).join(",") === "live-c73becde-user-1",
       "P0 launch snapshot/live pair projects one stable seq-1 user bubble",
     );
-    await act(async () => handler?.({ payload: { pane_id: "pane", messages: [
-      { id: "repeat-user-2", type: "user", content: "continue", seq: 2 },
-      { id: "repeat-user-3", type: "user", content: "continue", seq: 3 },
-    ] } }));
+    await act(async () => {
+      handler?.({ payload: chatEvent("c73becde", [
+        { id: "repeat-user-2", type: "user", content: "continue", seq: 2 },
+        { id: "repeat-user-3", type: "user", content: "continue", seq: 3 },
+      ]) });
+    });
     assert(
       session.latest().messages.filter((message) => message.content === "continue").length === 2,
       "P0 distinct user sequences preserve true repeated text",
