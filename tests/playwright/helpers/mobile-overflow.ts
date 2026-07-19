@@ -22,7 +22,7 @@ export const INTERACTIVE = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(",");
 
-export type ReachabilityMode = "all" | "open-drawer" | "peer-picker-menu" | "settings-menu" | "workspace-dropdown";
+export type ReachabilityMode = "all" | "open-drawer" | "peer-picker-menu" | "settings-menu" | "workspace-dropdown" | "new-session-picker";
 
 export const SANCTIONED_HSCROLL_OWNER = {
   className: "ct-hscroll",
@@ -50,6 +50,9 @@ export async function collectViewportOffenders(page: Page, reachabilityMode: Rea
       : null;
     const settingsMenu = mode === "settings-menu"
       ? document.querySelector('[data-testid="settings-menu"]')
+      : null;
+    const newSessionDialog = mode === "new-session-picker"
+      ? document.querySelector('[data-testid="new-session-picker"] > [role="dialog"][aria-modal="true"]')
       : null;
     const workspaceOption = mode === "workspace-dropdown"
       ? Array.from(document.querySelectorAll('[data-testid^="picker-workspace-option-"]')).find((node) => {
@@ -118,6 +121,8 @@ export async function collectViewportOffenders(page: Page, reachabilityMode: Rea
           hasInactiveSemantics(el) ||
           el.closest(".xterm-accessibility, .xterm-helper-textarea") !== null;
         if (hidden) return null;
+        const inNewSessionDialog = !!newSessionDialog?.contains(el);
+        if (mode === "new-session-picker" && !inNewSessionDialog) return null;
         const left = rect.left;
         const right = rect.right;
         const top = rect.top;
@@ -173,6 +178,7 @@ export async function collectViewportOffenders(page: Page, reachabilityMode: Rea
           hitInPeerPickerMenu,
           inSettingsMenu,
           hitInSettingsMenu,
+          inNewSessionDialog,
           inWorkspaceDropdown,
           hitInWorkspaceDropdown,
           hitTag: hit instanceof HTMLElement ? hit.tagName.toLowerCase() : null,
