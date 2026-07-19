@@ -76,7 +76,6 @@ export interface CanvasViewInnerProps {
   /** Current workspace; workspace mode scopes plans to those bound here. */
   workspaceId?: string;
   teams?: Team[];
-  focusedPaneId?: string | null;
   projectPath?: string | null;
   workspaceTarget?: CanvasWorkspaceTarget | null;
   onClose?: () => void;
@@ -109,7 +108,6 @@ export function CanvasViewInner({
   workspaces = EMPTY_WORKSPACES,
   workspaceId,
   teams,
-  focusedPaneId = null,
   projectPath = null,
   workspaceTarget = null,
   onClose,
@@ -929,7 +927,6 @@ export function CanvasView({ mode, workspaceId, planId, orchestratorPaneId, focu
       workspaces={state.workspaces}
       workspaceId={mode === "workspace" ? workspaceId ?? state.active_workspace_id ?? undefined : undefined}
       teams={state.teams}
-      focusedPaneId={state.focused_pane_id}
       projectPath={projectPath}
       workspaceTarget={mode === "workspace" ? workspaceTarget : null}
       onClose={onClose}
