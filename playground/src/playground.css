@@ -1,3 +1,5 @@
+@import "./motion-tokens.css";
+
 :root {
   color: #e6ebf2;
   background: #080a0e;
@@ -207,6 +209,49 @@ input:focus-visible {
 .context-team small { margin-top: 3px; color: #707a88; font-size: 9px; }
 .context-placeholder { padding: 4px 7px; border: 1px dashed #39414c; border-radius: 5px; color: #647080; font-size: 8px; text-transform: uppercase; }
 
+.gallery-tier { min-width: 0; }
+
+.gallery-tier-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: end;
+  margin-bottom: 14px;
+}
+
+.gallery-tier-heading > div { display: flex; gap: 10px; align-items: baseline; }
+.gallery-tier-index { color: var(--lab-accent); font-size: 9px; }
+.gallery-tier-heading h2 { margin: 0; font-size: 20px; letter-spacing: -.025em; }
+.gallery-tier-heading p { margin: 0; color: #687281; font-size: 9px; }
+.gallery-tier-count {
+  padding: 4px 7px;
+  border: 1px solid #2a313b;
+  border-radius: 999px;
+  color: #9da6b4;
+  font-size: 9px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.accepted-tier { margin-bottom: 42px; }
+.accepted-tier-empty {
+  padding: 18px;
+  border: 1px dashed #2a313b;
+  border-radius: 10px;
+  color: #687281;
+  font-family: system-ui, sans-serif;
+  font-size: 12px;
+}
+
+.exploration-tier {
+  padding: 18px;
+  border: 1px solid #1c222b;
+  border-radius: 12px;
+  background: rgb(8 10 14 / 45%);
+  opacity: .72;
+}
+
+.exploration-tier .gallery-tier-heading { margin-bottom: 24px; }
 .concept-galleries { display: grid; gap: 42px; }
 .concept-section { min-width: 0; }
 
@@ -282,7 +327,8 @@ input:focus-visible {
   .lab-controls,
   .context-strip { grid-template-columns: 1fr; }
   .concept-grid { grid-template-columns: 1fr; }
-  .section-heading { align-items: start; flex-direction: column; }
+  .section-heading,
+  .gallery-tier-heading { align-items: start; flex-direction: column; }
 }
 
 @media (prefers-reduced-motion: reduce) {
