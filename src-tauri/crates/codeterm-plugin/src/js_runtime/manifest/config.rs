@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::provider::{
-    ModelInfo, ReadinessStrategy, ReasoningEffortInfo, SessionIdInjection, SystemPromptDelivery,
-    TaskDelivery, VerifySubmitStrategy,
+    BusySubmitStrategy, ModelInfo, ReadinessStrategy, ReasoningEffortInfo, SessionIdInjection,
+    SystemPromptDelivery, TaskDelivery, VerifySubmitStrategy,
 };
 
 /// Hosts/origins a plugin may reach via `host.fetch`.
@@ -31,6 +31,8 @@ pub struct SpawnConfig {
     #[serde(default)]
     pub task_input_warmup_ms: u64,
     pub verify_submit: SerdeVerifySubmit,
+    #[serde(default)]
+    pub busy_submit: SerdeBusySubmit,
     #[serde(default)]
     pub session_id_injection: SerdeSessionIdInjection,
     #[serde(default)]
@@ -167,6 +169,25 @@ impl From<&SerdeVerifySubmit> for VerifySubmitStrategy {
             },
             SerdeVerifySubmit::TuiInputDrained => Self::TuiInputDrained,
             SerdeVerifySubmit::None => Self::None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SerdeBusySubmit {
+    #[default]
+    SubmitNormally,
+    Key {
+        key: String,
+    },
+}
+
+impl From<&SerdeBusySubmit> for BusySubmitStrategy {
+    fn from(value: &SerdeBusySubmit) -> Self {
+        match value {
+            SerdeBusySubmit::SubmitNormally => Self::SubmitNormally,
+            SerdeBusySubmit::Key { key } => Self::Key(key.clone()),
         }
     }
 }

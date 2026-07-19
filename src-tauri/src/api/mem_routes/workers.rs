@@ -65,7 +65,8 @@ pub async fn workers_spawn(
     } else {
         mem_cfg.extraction_model.clone()
     };
-    let model = crate::agent::models::canonicalize_short(&raw_model).to_string();
+    let model =
+        crate::service::spawn::compatible_background_model(&agent, &raw_model).unwrap_or_default();
 
     let svc = state.svc.clone();
     let intent = b.intent.clone();

@@ -372,7 +372,8 @@ pub fn spawn_extraction_worker(
     } else {
         mem_cfg.extraction_model.clone()
     };
-    let model = codeterm_types::agent::models::canonicalize_short(&raw_model).to_string();
+    let model = crate::service::spawn::compatible_background_model(&agent_provider, &raw_model)
+        .unwrap_or_default();
     let intent = format!("extract:{mem_item_id}");
     match spawn_headless(
         svc,
@@ -455,7 +456,8 @@ pub fn spawn_rem_worker(
     } else {
         mem_cfg.dreaming_model.clone()
     };
-    let model = codeterm_types::agent::models::canonicalize_short(&raw_model).to_string();
+    let model =
+        crate::service::spawn::compatible_background_model(&agent, &raw_model).unwrap_or_default();
     let telegram_step = if mem_cfg.dreaming_telegram_notify {
         DREAMING_TELEGRAM_STEP_ENABLED
     } else {

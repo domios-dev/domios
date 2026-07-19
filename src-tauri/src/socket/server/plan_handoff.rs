@@ -147,12 +147,7 @@ pub(super) fn dispatch(
                     (result.mode == "new" && send.order == 1) || result.mode == "compact"
                 }) {
                     svc.as_ref()
-                        .send_text(&result.pane_id, &send.text, send.enter)
-                        .map_err(|e| JsonRpcError {
-                            code: -32603,
-                            message: e,
-                            data: None,
-                        })?;
+                        .send_text_detached(&result.pane_id, &send.text, send.enter);
                 }
                 emit_plan_changed(app, &id);
             }

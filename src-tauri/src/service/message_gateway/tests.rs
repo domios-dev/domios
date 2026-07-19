@@ -8,10 +8,6 @@ struct FakeSeam {
     texts: RefCell<Vec<(String, String, bool)>>,
     batches: RefCell<Vec<(String, usize)>>,
     keys: RefCell<Vec<(String, String, Vec<KeyStroke>)>>,
-    /// Targets the gateway asked us to gate on receptivity for.
-    receptive_calls: RefCell<Vec<String>>,
-    /// When true, `wait_until_receptive` reports a missed deadline (never ready).
-    never_receptive: bool,
     error: Option<String>,
 }
 
@@ -69,11 +65,6 @@ impl DeliverySeam for FakeSeam {
             .push((pane.to_string(), text.to_string(), strokes.to_vec()));
         self.guard()
     }
-
-    fn wait_until_receptive(&self, target: &str, _timeout: std::time::Duration) -> bool {
-        self.receptive_calls.borrow_mut().push(target.to_string());
-        !self.never_receptive
-    }
 }
 
 fn msg_with_class(target: &str, class: DeliveryClass) -> OutboundMessage {
@@ -91,50 +82,18 @@ fn msg_with_class(target: &str, class: DeliveryClass) -> OutboundMessage {
 }
 
 #[test]
-fn machine_traffic_waits_for_receptive_before_delivery() {
+fn every_delivery_class_dispatches_optimistically() {
     let gateway = MessageGateway::new();
-    for class in [DeliveryClass::AgentTraffic, DeliveryClass::SystemNotice] {
+    for class in [
+        DeliveryClass::AgentTraffic,
+        DeliveryClass::SystemNotice,
+        DeliveryClass::UserTurn,
+        DeliveryClass::RawKeys,
+    ] {
         let fake = FakeSeam::default();
         gateway.submit(&fake, msg_with_class("p1", class)).unwrap();
-        assert_eq!(
-            &*fake.receptive_calls.borrow(),
-            &["p1".to_string()],
-            "machine traffic ({class:?}) gates on receptivity before delivering"
-        );
-        assert_eq!(fake.texts.borrow().len(), 1, "still delivered");
+        assert_eq!(fake.texts.borrow().len(), 1, "{class:?} must not wait");
     }
-}
-
-#[test]
-fn user_turn_and_raw_keys_skip_the_receptive_gate() {
-    let gateway = MessageGateway::new();
-    for class in [DeliveryClass::UserTurn, DeliveryClass::RawKeys] {
-        let fake = FakeSeam::default();
-        gateway.submit(&fake, msg_with_class("p2", class)).unwrap();
-        assert!(
-            fake.receptive_calls.borrow().is_empty(),
-            "user-driven traffic ({class:?}) is delivered immediately, no receptivity gate"
-        );
-        assert_eq!(fake.texts.borrow().len(), 1, "delivered immediately");
-    }
-}
-
-#[test]
-fn missed_receptivity_deadline_still_delivers_never_drops() {
-    let gateway = MessageGateway::new();
-    let fake = FakeSeam {
-        never_receptive: true,
-        ..Default::default()
-    };
-    gateway
-        .submit(&fake, msg_with_class("p3", DeliveryClass::SystemNotice))
-        .unwrap();
-    assert_eq!(&*fake.receptive_calls.borrow(), &["p3".to_string()]);
-    assert_eq!(
-        fake.texts.borrow().len(),
-        1,
-        "a missed receptivity deadline is an anomaly, not a drop — delivery still happens"
-    );
 }
 
 fn text_msg(target: &str, body: &str, key: Option<&str>) -> OutboundMessage {

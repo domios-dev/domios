@@ -400,7 +400,6 @@ pub fn start_general_agent(
     // Fresh session: send one inline orient message to seed context.
     // Resume mode omits this because `--resume` already restores prior turns.
     if launched && !use_resume {
-        std::thread::sleep(std::time::Duration::from_millis(800));
         let init_msg = "init [Orient yourself: \
             check the pre-injected `## Live mem snapshot` for identity / critical facts; \
             run `codeterm mesh peers`; \
@@ -408,11 +407,8 @@ pub fn start_general_agent(
             (e.g. \"Ready. <your-name>, 2 peers paired (1 online).\"). \
             Read-only — no spawns, no Telegram, no file writes during init unless mem says so. \
             On first-ever boot: check `bootstrap.md` in CWD for `<!-- bootstrap: true -->` and follow that flow.]";
-        if let Err(e) = svc.send_text(&pane_id, init_msg, true) {
-            log::warn!("[general-agent] Failed to send init kick: {}", e);
-        } else {
-            log::info!("[general-agent] Sent fresh-session init kick");
-        }
+        svc.send_text_detached(&pane_id, init_msg, true);
+        log::info!("[general-agent] Scheduled fresh-session init kick");
     }
 
     // no longer inject --session-id), so the next restart can resume this exact session.

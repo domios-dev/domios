@@ -75,7 +75,7 @@ trait SubmitTransport {
     /// The provider's own turn state left Idle — a real turn is running.
     fn turn_started(&self) -> bool;
     fn write_paste(&self, text: &str, deadline: Instant) -> Result<usize, InjectionError>;
-    fn write_enter(&self, deadline: Instant) -> Result<(), InjectionError>;
+    fn write_submit_key(&self, key: &[u8], deadline: Instant) -> Result<(), InjectionError>;
 }
 
 struct PtySubmitTransport<'a> {
@@ -149,13 +149,13 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         Ok(paste.len())
     }
 
-    fn write_enter(&self, deadline: Instant) -> Result<(), InjectionError> {
+    fn write_submit_key(&self, key: &[u8], deadline: Instant) -> Result<(), InjectionError> {
         self.svc
             .pty
             .lock()
             .write_and_flush(
                 self.pty_id,
-                b"\r",
+                key,
                 deadline.saturating_duration_since(Instant::now()),
             )
             .map_err(|_| InjectionError::PtyClosed {
@@ -219,10 +219,22 @@ fn wait_submission_acknowledged<T: SubmitTransport>(
 
 const PRIMARY_SUBMIT_WINDOW: Duration = Duration::from_millis(1500);
 
+#[cfg(test)]
 fn run<T: SubmitTransport>(
     transport: &T,
     text: &str,
     enter: bool,
+    strategy: VerifySubmitStrategy,
+    opts: VerifyOpts,
+) -> Result<InjectionResult, InjectionError> {
+    run_with_submit_key(transport, text, enter, b"\r", strategy, opts)
+}
+
+fn run_with_submit_key<T: SubmitTransport>(
+    transport: &T,
+    text: &str,
+    enter: bool,
+    submit_key: &[u8],
     strategy: VerifySubmitStrategy,
     opts: VerifyOpts,
 ) -> Result<InjectionResult, InjectionError> {
@@ -265,7 +277,7 @@ fn run<T: SubmitTransport>(
 
     let enter_armed = transport.generation();
     let turn_was_started = transport.turn_started();
-    transport.write_enter(turn_deadline)?;
+    transport.write_submit_key(submit_key, turn_deadline)?;
     let mut submit_observed = if two_phase {
         let primary_deadline = turn_deadline.min(Instant::now() + PRIMARY_SUBMIT_WINDOW);
         wait_submission_acknowledged(
@@ -285,7 +297,7 @@ fn run<T: SubmitTransport>(
             "[submit-anomaly] provider turn did not start after Enter; issuing one bounded recovery Enter"
         );
         let recovery_armed = transport.generation();
-        transport.write_enter(turn_deadline)?;
+        transport.write_submit_key(submit_key, turn_deadline)?;
         submit_observed = wait_submission_acknowledged(
             transport,
             text,
@@ -313,6 +325,18 @@ pub(crate) fn submit_text(
     strategy: VerifySubmitStrategy,
     opts: VerifyOpts,
 ) -> Result<InjectionResult, InjectionError> {
+    submit_text_with_key(svc, pty_id, text, enter, b"\r", strategy, opts)
+}
+
+pub(crate) fn submit_text_with_key(
+    svc: &ServiceContext,
+    pty_id: &str,
+    text: &str,
+    enter: bool,
+    submit_key: &[u8],
+    strategy: VerifySubmitStrategy,
+    opts: VerifyOpts,
+) -> Result<InjectionResult, InjectionError> {
     let lock = transaction_lock(pty_id);
     let transaction = lock.lock();
     let signal = svc.screen_state.lock().arm_screen_change_signal(pty_id);
@@ -323,11 +347,13 @@ pub(crate) fn submit_text(
         signal,
     };
     let required = enter && opts.verify_submit;
-    let result = run(&transport, text, enter, strategy, opts).and_then(|result| {
-        let elapsed = result.elapsed;
-        let tail = transport.observe().map(|o| o.tail).unwrap_or_default();
-        result.require_submission(required, elapsed, tail)
-    });
+    let result = run_with_submit_key(&transport, text, enter, submit_key, strategy, opts).and_then(
+        |result| {
+            let elapsed = result.elapsed;
+            let tail = transport.observe().map(|o| o.tail).unwrap_or_default();
+            result.require_submission(required, elapsed, tail)
+        },
+    );
     drop(transaction);
     retire_transaction_lock(pty_id, &lock);
     result
@@ -474,8 +500,9 @@ mod tests {
             Ok(text.len())
         }
 
-        fn write_enter(&self, _deadline: Instant) -> Result<(), InjectionError> {
-            self.writes.borrow_mut().push("enter".to_string());
+        fn write_submit_key(&self, key: &[u8], _deadline: Instant) -> Result<(), InjectionError> {
+            let name = if key == b"\t" { "tab" } else { "enter" };
+            self.writes.borrow_mut().push(name.to_string());
             if self.swallowed_enters.get() > 0 {
                 self.swallowed_enters.set(self.swallowed_enters.get() - 1);
                 return Ok(());
@@ -484,7 +511,7 @@ mod tests {
             // Either way, Enter starts a turn only after the paste landed.
             let paste_landed = self.draft_visible.get() || !self.deliver_ingest_frame;
             if self.accept_enter && paste_landed {
-                self.turn.set(true);
+                self.turn.set(key == b"\r");
                 self.draft_visible.set(false);
                 self.generation.set(self.generation.get() + 1);
             }
@@ -544,10 +571,11 @@ mod tests {
             Ok(4)
         }
 
-        fn write_enter(&self, _deadline: Instant) -> Result<(), InjectionError> {
+        fn write_submit_key(&self, key: &[u8], _deadline: Instant) -> Result<(), InjectionError> {
+            let name = if key == b"\t" { "tab" } else { "enter" };
             self.writes
                 .borrow_mut()
-                .push(format!("enter:{}", self.tail));
+                .push(format!("{name}:{}", self.tail));
             self.turn.set(true);
             self.generation.set(self.generation.get() + 1);
             Ok(())
@@ -659,6 +687,17 @@ mod tests {
             &*io.writes.borrow(),
             &["paste:team bootstrap", "enter", "enter"]
         );
+    }
+
+    #[test]
+    fn busy_provider_queue_key_is_atomic_with_the_paste() {
+        let io = TuiModel::ingesting();
+        let result =
+            run_with_submit_key(&io, "queued follow-up", true, b"\t", tui(), opts()).unwrap();
+
+        assert!(result.submit_observed);
+        assert!(!io.turn_started());
+        assert_eq!(&*io.writes.borrow(), &["paste:queued follow-up", "tab"]);
     }
 
     #[test]

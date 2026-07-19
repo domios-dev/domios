@@ -27,6 +27,12 @@ pub enum VerifySubmitStrategy {
     None,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BusySubmitStrategy {
+    SubmitNormally,
+    Key(String),
+}
+
 /// How to deliver the task to the agent.
 #[derive(Debug, Clone)]
 pub enum TaskDelivery {
@@ -436,6 +442,10 @@ pub trait AgentProvider: Send + Sync {
         VerifySubmitStrategy::ShellPrompt {
             timeout: Duration::from_secs(5),
         }
+    }
+
+    fn busy_submit_strategy(&self) -> BusySubmitStrategy {
+        BusySubmitStrategy::SubmitNormally
     }
 
     /// Detect this agent from the pane/tab title string.

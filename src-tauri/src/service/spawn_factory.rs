@@ -8,8 +8,6 @@
 //! - Team coordination — the single launch payload names each counterpart
 //!   before either provider process starts.
 
-use codeterm_types::pty::PaneStatus;
-
 use crate::service::role_identity::ManagerBootstrapInputs;
 
 /// Placeholder ids carried by a forming manager before a team/plan is bound.
@@ -66,10 +64,6 @@ pub(crate) fn introduction_body(me: &Counterpart, other: &Counterpart) -> String
     )
 }
 
-pub(crate) fn status_is_receptive(status: PaneStatus) -> bool {
-    matches!(status, PaneStatus::Idle | PaneStatus::Waiting)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,14 +117,6 @@ mod tests {
             reach_command("abc-123"),
             "codeterm send \"…\" --tab abc-123"
         );
-    }
-
-    #[test]
-    fn only_settled_statuses_are_receptive() {
-        assert!(status_is_receptive(PaneStatus::Idle));
-        assert!(status_is_receptive(PaneStatus::Waiting));
-        assert!(!status_is_receptive(PaneStatus::Working));
-        assert!(!status_is_receptive(PaneStatus::Dead));
     }
 
     #[test]

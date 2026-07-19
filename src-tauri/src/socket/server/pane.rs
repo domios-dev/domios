@@ -164,12 +164,7 @@ pub(super) fn dispatch(
                 }
             } else {
                 svc.as_ref()
-                    .send_text(&resolved_target, &raw_text, enter)
-                    .map_err(|e| JsonRpcError {
-                        code: -32603,
-                        message: e,
-                        data: None,
-                    })?;
+                    .send_text_detached(&resolved_target, &raw_text, enter);
                 if !raw_text.trim().is_empty() {
                     svc.as_ref()
                         .maybe_send_owned_plan_reminder(&resolved_target);
