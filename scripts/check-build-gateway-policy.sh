@@ -90,6 +90,14 @@ if grep -q 'enter_build_gateway' <<< "$cli_flow"; then
   exit 1
 fi
 
+dev_flow="$(sed -n '/^  dev)/,/^    ;;/p' build.sh)"
+dev_kill_line="$(grep -n 'kill_dev' <<< "$dev_flow" | head -1 | cut -d: -f1)"
+dev_gateway_line="$(grep -n 'enter_build_gateway' <<< "$dev_flow" | head -1 | cut -d: -f1)"
+[ -n "$dev_kill_line" ] && [ -n "$dev_gateway_line" ] && [ "$dev_kill_line" -lt "$dev_gateway_line" ] || {
+  echo "canonical dev restart must release the running dev owner before gateway acquisition" >&2
+  exit 1
+}
+
 ./build.sh gateway-status > "$TEST_ROOT/status.json"
 node - <<'JS' "$TEST_ROOT/status.json"
 const status = require(process.argv[2]);
@@ -100,4 +108,4 @@ for (const id of ["qa-child", "release-policy", "worktree-policy"]) {
 }
 JS
 
-echo "PASS build gateway ownership, CLI independence, cache, release freshness, and SHA policy"
+echo "PASS build gateway ownership, restart ordering, CLI independence, cache, release freshness, and SHA policy"

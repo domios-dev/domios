@@ -19,19 +19,37 @@ set -euo pipefail
 TEST_CAP_SECS="${TEST_CAP_SECS:-90}"
 CARGO_TEST_CMD="${CARGO_TEST_CMD:-cargo test}"
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+HOST_TRIPLE="${CODETERM_TEST_HOST_TRIPLE:-$(rustc -vV | awk -F': ' '/^host:/{print $2; exit}')}"
+
+[[ -n "$HOST_TRIPLE" ]] || {
+    printf 'error: unable to determine Rust host triple.\n' >&2
+    exit 2
+}
+
+configure_windows_test_target() {
+    [[ "$HOST_TRIPLE" == *-windows-* ]] || return 0
+    [ -z "${CARGO_TARGET_DIR:-}" ] || return 0
+    if [ "${CODETERM_TEST_DEV_HEALTH:-}" = "healthy" ] ||
+        curl --silent --fail --max-time 1 http://127.0.0.1:7686/api/health >/dev/null 2>&1; then
+        CARGO_TARGET_DIR="$ROOT/target-check"
+        export CARGO_TARGET_DIR
+        printf '[test-capped] Windows dev owns the app target; using isolated test target: %s\n' "$CARGO_TARGET_DIR"
+        if command -v sccache >/dev/null 2>&1; then
+            RUSTC_WRAPPER=sccache
+            SCCACHE_BASEDIRS="${SCCACHE_BASEDIRS:-$ROOT}"
+            export RUSTC_WRAPPER SCCACHE_BASEDIRS
+            printf '[test-capped] sccache enabled for the isolated Windows test target.\n'
+        fi
+    fi
+    return 0
+}
 
 ensure_embed_sidecar() {
-    local triple
     local extension=""
     local sidecar
 
-    triple=$(rustc -vV | awk -F': ' '/^host:/{print $2; exit}')
-    [[ -n "$triple" ]] || {
-        printf 'error: unable to determine Rust host triple for bundled embed sidecar.\n' >&2
-        exit 2
-    }
-    [[ "$triple" == *-windows-* ]] && extension=".exe"
-    sidecar="$ROOT/src-tauri/bundled-embed/codeterm-embed-${triple}${extension}"
+    [[ "$HOST_TRIPLE" == *-windows-* ]] && extension=".exe"
+    sidecar="$ROOT/src-tauri/bundled-embed/codeterm-embed-${HOST_TRIPLE}${extension}"
 
     [ -e "$sidecar" ] && return
 
@@ -53,6 +71,7 @@ if [[ "$ARGS_JOINED" == *" --manifest-path cli/Cargo.toml "* && "$ARGS_JOINED" =
     exit 2
 fi
 
+configure_windows_test_target
 ensure_embed_sidecar
 
 # GNU timeout owns the bounded failure deadline. It preserves the child status

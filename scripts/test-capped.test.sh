@@ -104,6 +104,29 @@ run_prompt_case fast-success 0 true
 run_prompt_case fast-failure 3 bash -c 'exit 3'
 run_prompt_case disk-full-propagates 101 bash -c 'printf "os error 112\\n" >&2; exit 101'
 
+windows_target_output="$TMPDIR/windows-target.out"
+CODETERM_TEST_HOST_TRIPLE=x86_64-pc-windows-msvc CODETERM_TEST_DEV_HEALTH=healthy \
+    CARGO_TEST_CMD=bash "$WRAPPER" -c \
+    'case "$CARGO_TARGET_DIR" in */target-check) exit 0;; *) exit 11;; esac' \
+    >"$windows_target_output" 2>&1
+grep -q 'Windows dev owns the app target; using isolated test target:' "$windows_target_output" || {
+    printf 'windows-target: active dev did not select the isolated focused-test target\n' >&2
+    exit 1
+}
+
+explicit_target_output="$TMPDIR/explicit-target.out"
+CODETERM_TEST_HOST_TRIPLE=x86_64-pc-windows-msvc CARGO_TARGET_DIR="$TMPDIR/custom-target" \
+    CARGO_TEST_CMD=bash "$WRAPPER" -c 'printf "cargo-test-ran\n"' \
+    >"$explicit_target_output" 2>&1
+grep -q '^cargo-test-ran$' "$explicit_target_output" || {
+    printf 'explicit-target: wrapper exited before invoking the test command\n' >&2
+    exit 1
+}
+! grep -q 'using isolated test target' "$explicit_target_output" || {
+    printf 'explicit-target: wrapper overrode the caller target directory\n' >&2
+    exit 1
+}
+
 child_pid_file="$TMPDIR/child.pid"
 blocking_fifo="$TMPDIR/blocking-input"
 mkfifo "$blocking_fifo"

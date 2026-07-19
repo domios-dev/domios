@@ -943,10 +943,10 @@ case "$CMD" in
       prepare_named_dev_target
       echo "[isolated-dev] named --wait startup bypasses the canonical dev gateway"
     else
+      kill_dev || echo "WARNING: dev cleanup failed; continuing to build gateway acquisition." >&2
       enter_build_gateway "$CMD ${*:2}"
     fi
     prepare_dev_frontend_dist
-    kill_dev || echo "WARNING: dev cleanup failed; continuing to startup health gate." >&2
     ensure_deps
     ct_configure_sccache
     echo "Building CLI..."
