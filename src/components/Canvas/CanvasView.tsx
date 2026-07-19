@@ -8,7 +8,6 @@ import { CanvasEmptyActions } from "./CanvasEmptyActions";
 import { CanvasToolbar } from "./CanvasToolbar";
 import { CanvasMinimap } from "./CanvasMinimap";
 import { CanvasTagLegend } from "./CanvasTagLegend";
-import { CanvasUnownedTray } from "./CanvasUnownedTray";
 import {
   layoutWorkspace,
   layoutInputRevision,
@@ -26,7 +25,7 @@ import { useCanvasPlans } from "./PlansProvider";
 import { useCanvasWorkspaceTarget } from "./canvasFocusStore";
 import { isTagFilterActive, taskMatchesTagFilter, toggleTagFilter, type TagFilterSelection } from "./tagModel";
 import type { PlanGhostModel } from "./canvasView/models";
-import type { OrchestratorRef, Plan, Section, TagFacet } from "./types";
+import type { Plan, Section, TagFacet } from "./types";
 import { derivePlanWorkspaceScope } from "./planWorkspaceScope";
 import { usePlanDrift } from "./usePlanDrift";
 import { useCanvasViewport, paintLayer, CANVAS_MIN_SCALE, CANVAS_MAX_SCALE, type ViewportTransform } from "./useCanvasViewport";
@@ -309,17 +308,6 @@ export function CanvasViewInner({
     [planModelById, specModelById, ghostModelById, lookups],
   );
 
-
-  const claimOwner = useMemo((): OrchestratorRef | undefined => {
-    if (orchestratorPaneId) return { pane_id: orchestratorPaneId, session_id: null, title: null };
-    const owned = filteredPlans.find((p) => p.owner.pane_id);
-    if (owned?.owner.pane_id) return owned.owner;
-    if (focusedPaneId) {
-      const pane = panes[focusedPaneId];
-      return { pane_id: focusedPaneId, session_id: null, title: pane?.title ?? null };
-    }
-    return undefined;
-  }, [orchestratorPaneId, filteredPlans, focusedPaneId, panes]);
 
   const [tagFilter, setTagFilter] = useState<TagFilterSelection>(() => new Map());
   const onToggleTagFilter = useCallback((tag: string) => {
@@ -756,7 +744,7 @@ export function CanvasViewInner({
             style={{ color: "var(--ct-fg)", opacity: "var(--ct-text-secondary-opacity)" }}
           >
             <p>No active plans yet.</p>
-            {mode === "workspace" && api && <CanvasEmptyActions api={api} projectPath={projectPath} />}
+            {mode === "workspace" && teamId && api && <CanvasEmptyActions api={api} projectPath={projectPath} />}
           </div>
         )}
         {!loading && filteredPlans.length > 0 && (
@@ -841,7 +829,6 @@ export function CanvasViewInner({
           lodMarkers={sceneLod.markers}
         />
       )}
-      {api && mode === "workspace" && <CanvasUnownedTray api={api} claimOwner={claimOwner} />}
       <CanvasDetailOverlay
         nodeId={detailNodeId}
         nodeById={lookups.nodeById}
@@ -887,12 +874,9 @@ export function CanvasView({ mode, workspaceId, planId, orchestratorPaneId, focu
   const workspaceTarget = useCanvasWorkspaceTarget();
   const requestedPlanId = planId ?? (mode === "workspace" ? workspaceTarget?.planId : undefined);
   const teamId = mode === "workspace" ? workspaceTarget?.teamId : undefined;
-  const teamScoped = !!teamId;
-  const [allPlans, setAllPlans] = useState(false);
-  // All-plans mode lifts the workspace filter: fetch with no project scope.
   const { plans: livePlans, loading, reconnecting, error, refetch } = useCanvasPlans(
     mode,
-    allPlans && !teamScoped ? null : projectPath,
+    projectPath,
   );
   // Dev harness: real exported plan, or a synthetic N-task plan, when flagged.
   const perfN = perfFixtureCount();
@@ -951,8 +935,6 @@ export function CanvasView({ mode, workspaceId, planId, orchestratorPaneId, focu
       onClose={onClose}
       onOpenPane={onOpenPane}
       api={api}
-      allPlans={teamScoped ? false : allPlans}
-      onAllPlansChange={teamScoped ? undefined : setAllPlans}
     />
   );
 }

@@ -44,6 +44,8 @@ impl AdoptPlanExt for PlanStore {
         let source_dir = source_plan_dir(&request.source)?;
         let mut plan = load_source_plan(&source_dir)?;
         let target_project = paths::project_root(&request.target_project);
+        plan.status = PlanStatus::Archived;
+        plan.team_id = None;
         let target_dir = plan_dir_unchecked(&target_project, &plan.status, &plan.id);
         let task_count = canonical_task_count(&source_dir, &plan);
         let warnings = adoption_warnings(
@@ -190,6 +192,10 @@ fn adoption_warnings(
     task_count: usize,
 ) -> Vec<String> {
     let mut warnings = Vec::new();
+    warnings.push(format!(
+        "plan will remain archived until adopted by a live Team: codeterm team adopt-plan <team-id> {}",
+        plan.id
+    ));
     let source_project = paths::project_root(Path::new(
         if plan.canonical_project_path.trim().is_empty() {
             &plan.project_path

@@ -44,8 +44,6 @@ export function MissionControlPlanSurface({
   teams,
   onOpenPane,
   api,
-  allPlans = false,
-  onAllPlansChange,
 }: PlanViewSurfaceProps) {
   const { effectivePlans, switcherOptions, handleAction } = usePlanSwitcherActions(plans, api);
 
@@ -56,13 +54,13 @@ export function MissionControlPlanSurface({
   );
 
   const filteredPlans = useMemo(
-    () => filterPlansForCanvas(effectivePlans, mode, { planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams, allPlans }),
-    [effectivePlans, mode, planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams, allPlans],
+    () => filterPlansForCanvas(effectivePlans, mode, { planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams }),
+    [effectivePlans, mode, planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams],
   );
   const orderedPlans = useMemo(() => orderPlansByActivity(filteredPlans), [filteredPlans]);
   const defaultPlanId = useMemo(
-    () => selectDefaultPlanId(orderedPlans, { planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams, allPlans }),
-    [orderedPlans, planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams, allPlans],
+    () => selectDefaultPlanId(orderedPlans, { planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams }),
+    [orderedPlans, planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams],
   );
 
   const [manualPlanId, setManualPlanId] = useState<string | null>(readStoredPlanId);
@@ -165,30 +163,6 @@ export function MissionControlPlanSurface({
           testId="mission-control-reconnecting"
           className="ml-auto"
         />
-        {onAllPlansChange && mode === "workspace" && (
-          <div className="mc-scope-toggle" role="group" aria-label="Plan scope" style={{ marginLeft: reconnecting ? 8 : "auto" }}>
-            <button
-              type="button"
-              className="mc-scope-btn"
-              data-testid="mc-scope-workspace"
-              data-active={!allPlans ? "true" : undefined}
-              aria-pressed={!allPlans}
-              onClick={() => onAllPlansChange(false)}
-            >
-              workspace
-            </button>
-            <button
-              type="button"
-              className="mc-scope-btn"
-              data-testid="mc-scope-all-plans"
-              data-active={allPlans ? "true" : undefined}
-              aria-pressed={allPlans}
-              onClick={() => onAllPlansChange(true)}
-            >
-              all plans
-            </button>
-          </div>
-        )}
       </header>
       <div className="relative min-h-0 flex-1">
         <PlanFetchErrorState

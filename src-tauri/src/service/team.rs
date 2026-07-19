@@ -220,13 +220,16 @@ impl ServiceContext {
         caller_pane_id: Option<&str>,
         now_ms: u64,
     ) -> Result<crate::plan::Plan, TeamPlanError> {
-        if let Err(message) = authorize_team_manager(&self.mux.read(), team_id, caller_pane_id) {
-            return Err(TeamPlanError::Team(message));
-        }
-        let plan = self
-            .plan_store
-            .bind_plan_to_team(plan_id, team_id, now_ms)
-            .map_err(TeamPlanError::Plan)?;
+        let mux = self.mux.read();
+        let plan = adopt_plan_for_team_core(
+            &mux,
+            &self.plan_store,
+            team_id,
+            plan_id,
+            caller_pane_id,
+            now_ms,
+        )?;
+        drop(mux);
         crate::api::events::emit_everywhere(
             &self.app_handle,
             "plan-changed",
@@ -235,6 +238,153 @@ impl ServiceContext {
         self.emit_state_changed();
         Ok(plan)
     }
+
+    pub(crate) fn resume_team_plan(
+        &self,
+        plan_id: &str,
+        now_ms: u64,
+    ) -> Result<crate::plan::PlanMode, TeamPlanError> {
+        let mux = self.mux.read();
+        self.valid_live_plan_team(&mux, plan_id)?;
+        let mode = self
+            .plan_store
+            .resume_plan(plan_id, now_ms)
+            .map_err(TeamPlanError::Plan)?;
+        drop(mux);
+        self.emit_plan_changed(plan_id);
+        self.reconcile_time_reminder_eligibility();
+        Ok(mode)
+    }
+
+    pub(crate) fn unarchive_team_plan(
+        &self,
+        plan_id: &str,
+        now_ms: u64,
+    ) -> Result<(), TeamPlanError> {
+        let mux = self.mux.read();
+        self.valid_live_plan_team(&mux, plan_id)?;
+        self.plan_store
+            .unarchive(plan_id, now_ms)
+            .map_err(TeamPlanError::Plan)?;
+        drop(mux);
+        self.emit_plan_changed(plan_id);
+        Ok(())
+    }
+
+    pub(crate) fn transfer_team_plan(
+        &self,
+        plan_id: &str,
+        to: crate::plan::OrchestratorRef,
+        reason: &str,
+        now_ms: u64,
+    ) -> Result<crate::plan::Plan, TeamPlanError> {
+        let pane_id = to
+            .pane_id
+            .as_deref()
+            .filter(|pane_id| !pane_id.trim().is_empty())
+            .ok_or_else(|| {
+                TeamPlanError::Team("plan transfer requires a destination Orchestrator pane".into())
+            })?
+            .to_string();
+        let mux = self.mux.read();
+        let pane = mux
+            .get_pane(&pane_id)
+            .ok_or_else(|| TeamPlanError::Team(format!("Destination pane {pane_id} not found")))?;
+        if pane.role != Some(AgentRole::Orchestrator) {
+            return Err(TeamPlanError::Team(format!(
+                "Destination pane {pane_id} is not an Orchestrator"
+            )));
+        }
+        let team_id = pane
+            .team_id
+            .as_deref()
+            .filter(|team_id| mux.get_team(team_id).is_some())
+            .ok_or_else(|| {
+                TeamPlanError::Team(format!(
+                    "Destination Orchestrator {pane_id} does not belong to a live Team"
+                ))
+            })?
+            .to_string();
+        let plan = self
+            .plan_store
+            .transfer_plan_to_team(plan_id, &team_id, to, reason, now_ms)
+            .map_err(TeamPlanError::Plan)?;
+        drop(mux);
+        self.relink_plan_hierarchy(plan_id, &pane_id);
+        self.emit_plan_changed(plan_id);
+        Ok(plan)
+    }
+
+    pub(crate) fn validate_active_team_plan_bindings(&self) -> Result<(), TeamPlanError> {
+        let mux = self.mux.read();
+        let mut claimed_teams = std::collections::BTreeMap::<String, String>::new();
+        for plan in self
+            .plan_store
+            .list_full()
+            .into_iter()
+            .filter(|plan| plan.status == crate::plan::PlanStatus::Active)
+        {
+            let team_id = self.valid_live_plan_team(&mux, &plan.id)?;
+            if let Some(existing_plan_id) = claimed_teams.insert(team_id.clone(), plan.id.clone()) {
+                return Err(TeamPlanError::Plan(PlanError::TeamAlreadyHasActivePlan {
+                    team_id,
+                    existing_plan_id,
+                    existing_title: "conflicting active plan".into(),
+                }));
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn validate_plan_team_binding(&self, plan_id: &str) -> Result<(), TeamPlanError> {
+        let Some(plan) = self.plan_store.get(plan_id) else {
+            return Err(TeamPlanError::Plan(PlanError::NotFound));
+        };
+        if plan.status == crate::plan::PlanStatus::Archived {
+            return Ok(());
+        }
+        let mux = self.mux.read();
+        self.valid_live_plan_team(&mux, plan_id).map(|_| ())
+    }
+
+    fn valid_live_plan_team(
+        &self,
+        mux: &MultiplexerState,
+        plan_id: &str,
+    ) -> Result<String, TeamPlanError> {
+        let plan = self
+            .plan_store
+            .get(plan_id)
+            .ok_or(TeamPlanError::Plan(PlanError::NotFound))?;
+        let team_id = plan
+            .team_id
+            .filter(|team_id| !team_id.trim().is_empty())
+            .ok_or_else(|| {
+                TeamPlanError::Plan(PlanError::ActivePlanRequiresTeam {
+                    plan_id: plan_id.into(),
+                })
+            })?;
+        if mux.get_team(&team_id).is_none() {
+            return Err(TeamPlanError::Team(format!(
+                "Plan {plan_id} references missing Team {team_id}; adopt it into a live Team before resuming"
+            )));
+        }
+        Ok(team_id)
+    }
+}
+
+fn adopt_plan_for_team_core(
+    mux: &MultiplexerState,
+    plan_store: &crate::service::plan::PlanStore,
+    team_id: &str,
+    plan_id: &str,
+    caller_pane_id: Option<&str>,
+    now_ms: u64,
+) -> Result<crate::plan::Plan, TeamPlanError> {
+    authorize_team_manager(mux, team_id, caller_pane_id).map_err(TeamPlanError::Team)?;
+    plan_store
+        .adopt_plan_for_team(plan_id, team_id, now_ms)
+        .map_err(TeamPlanError::Plan)
 }
 
 #[derive(Debug)]
@@ -419,7 +569,7 @@ where
         .remove_team(team_id)
         .ok_or_else(|| format!("Team {team_id} not found"))?;
     let plan_transaction = plan_store
-        .detach_and_park_team_plans_transaction(team_id, now_ms)
+        .archive_and_detach_team_plans_transaction(team_id, now_ms)
         .map_err(|error| error.to_string())?;
     let changed_plan_ids = plan_transaction.changed_plan_ids().to_vec();
     mux_transaction.commit(mux, &closed_roots);
@@ -441,9 +591,7 @@ pub(crate) fn reconcile_dangling_team_plan_bindings(
     now_ms: u64,
 ) -> Result<Vec<String>, crate::service::plan::PlanError> {
     let live_team_ids = mux.list_teams().into_iter().map(|team| team.id).collect();
-    let mut changed = plan_store.detach_and_park_dangling_team_plans(&live_team_ids, now_ms)?;
-    changed.extend(plan_store.recover_placeholder_team_plans(&live_team_ids, now_ms)?);
-    Ok(changed)
+    plan_store.archive_active_plans_without_live_team(&live_team_ids, now_ms)
 }
 
 fn now_ms() -> u64 {

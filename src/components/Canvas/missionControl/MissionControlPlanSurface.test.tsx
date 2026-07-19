@@ -95,7 +95,7 @@ function mkPlan(): Plan {
 
 test("renders the flow river with milestone derived from task groups", async () => {
   const { host, unmount } = await render(
-    <MissionControlPlanSurface mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[mkPlan()]} onAllPlansChange={() => {}} allPlans={false} />,
+    <MissionControlPlanSurface mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[mkPlan()]} />,
   );
   assert(host.querySelector('[data-testid="plan-river-pl_flow"]'), "plan river rendered");
   assert(host.textContent?.includes("Wave 26"), "milestone label from task group");
@@ -103,32 +103,14 @@ test("renders the flow river with milestone derived from task groups", async () 
   await unmount();
 });
 
-test("all-plans toggle is present and fires onAllPlansChange", async () => {
-  let scope: boolean | null = null;
+test("workspace surface has no all-plans escape hatch", async () => {
   const { host, unmount } = await render(
     <MissionControlPlanSurface
       mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES}
       plans={[mkPlan()]}
-      allPlans={false}
-      onAllPlansChange={(v) => (scope = v)}
     />,
   );
-  const wsBtn = host.querySelector('[data-testid="mc-scope-workspace"]') as HTMLElement | null;
-  const allBtn = host.querySelector('[data-testid="mc-scope-all-plans"]') as HTMLElement | null;
-  assert(wsBtn, "workspace scope button");
-  assert(allBtn, "all-plans scope button");
-  assert(wsBtn!.getAttribute("data-active") === "true", "workspace active by default");
-  await act(async () => allBtn!.click());
-  assert(scope === true, `all-plans click lifts filter, got ${scope}`);
-  await unmount();
-});
-
-test("all-plans active state reflects the prop", async () => {
-  const { host, unmount } = await render(
-    <MissionControlPlanSurface mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[mkPlan()]} allPlans onAllPlansChange={() => {}} />,
-  );
-  const allBtn = host.querySelector('[data-testid="mc-scope-all-plans"]');
-  assert(allBtn?.getAttribute("data-active") === "true", "all-plans reflects active prop");
+  assert(!host.querySelector('[data-testid="mc-scope-all-plans"]'), "all-plans control is absent");
   await unmount();
 });
 

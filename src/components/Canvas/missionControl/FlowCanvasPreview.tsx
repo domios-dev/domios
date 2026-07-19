@@ -85,7 +85,6 @@ const EMPTY: FlowRiverModel = {
 };
 
 export function FlowCanvasPreview() {
-  const [allPlans, setAllPlans] = useState(true);
   const [reducedMotion, setReducedMotion] = useState(false);
   return (
     <div
@@ -98,25 +97,6 @@ export function FlowCanvasPreview() {
           <button type="button" className="mc-pill" onClick={() => setReducedMotion((v) => !v)}>
             {reducedMotion ? "motion off" : "motion on"}
           </button>
-        </div>
-        <div className="mc-scope-toggle" role="group" aria-label="Plan scope">
-          <button
-            type="button"
-            className="mc-scope-btn"
-            data-active={!allPlans ? "true" : undefined}
-            onClick={() => setAllPlans(false)}
-          >
-            workspace
-          </button>
-          <button
-            type="button"
-            className="mc-scope-btn"
-            data-active={allPlans ? "true" : undefined}
-            onClick={() => setAllPlans(true)}
-          >
-            all plans
-          </button>
-          <span style={{ color: "var(--mc-muted)" }}>⚙</span>
         </div>
       </header>
       <div className="mc-live-viewport" style={{ overflow: "auto" }}>

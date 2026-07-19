@@ -93,7 +93,7 @@ fn close_team_removes_registry_and_members_with_one_state_change() {
 }
 
 #[test]
-fn close_team_parks_and_detaches_bound_plan() {
+fn close_team_archives_and_detaches_bound_plan() {
     let dir = tempfile::tempdir().unwrap();
     let plan_store = crate::service::plan::PlanStore::new_for_test(dir.path());
     let (mut mux, team_id, orchestrator, _, _) = team_members();
@@ -102,7 +102,7 @@ fn close_team_parks_and_detaches_bound_plan() {
             "Bound".into(),
             dir.path().display().to_string(),
             crate::plan::OrchestratorRef::from_pane(&orchestrator),
-            Some(team_id.clone()),
+            team_id.clone(),
             vec![],
             1,
         )
@@ -118,15 +118,14 @@ fn close_team_parks_and_detaches_bound_plan() {
     )
     .unwrap();
 
-    let parked = plan_store.get(&plan.id).unwrap();
+    let archived = plan_store.get(&plan.id).unwrap();
     assert!(mux.get_team(&team_id).is_none());
     assert_eq!(changed_plan_ids, vec![plan.id.clone()]);
-    assert_eq!(parked.team_id, None);
-    assert_eq!(parked.mode, crate::plan::PlanMode::Paused);
-    assert!(plan_store
-        .list_index()
-        .iter()
-        .any(|entry| entry.plan_id == plan.id));
+    assert_eq!(archived.team_id, None);
+    assert_eq!(archived.status, crate::plan::PlanStatus::Archived);
+    assert!(plan_store.list_index().iter().any(|entry| {
+        entry.plan_id == plan.id && entry.status == crate::plan::PlanStatus::Archived
+    }));
 }
 
 #[test]
@@ -142,7 +141,7 @@ fn close_team_staging_failure_leaves_mux_and_plan_unchanged_without_events() {
             "Bound".into(),
             dir.path().display().to_string(),
             crate::plan::OrchestratorRef::from_pane(&orchestrator),
-            Some(team_id.clone()),
+            team_id.clone(),
             vec![],
             1,
         )
@@ -199,7 +198,7 @@ fn snapshot_without_generation(mux: &MultiplexerState) -> serde_json::Value {
 }
 
 #[test]
-fn dangling_binding_sweep_parks_orphan_plans_once() {
+fn dangling_binding_sweep_archives_orphan_plans_once() {
     let dir = tempfile::tempdir().unwrap();
     let plan_store = crate::service::plan::PlanStore::new_for_test(dir.path());
     let (mux, _, orchestrator, _, _) = team_members();
@@ -208,7 +207,7 @@ fn dangling_binding_sweep_parks_orphan_plans_once() {
             "Orphan".into(),
             dir.path().display().to_string(),
             crate::plan::OrchestratorRef::from_pane(&orchestrator),
-            Some("team_missing".into()),
+            "team_missing".into(),
             vec![],
             1,
         )
@@ -220,26 +219,23 @@ fn dangling_binding_sweep_parks_orphan_plans_once() {
     );
     let repaired = plan_store.get(&plan.id).unwrap();
     assert_eq!(repaired.team_id, None);
-    assert_eq!(repaired.mode, crate::plan::PlanMode::Paused);
+    assert_eq!(repaired.status, crate::plan::PlanStatus::Archived);
     assert!(reconcile_dangling_team_plan_bindings(&mux, &plan_store, 3)
         .unwrap()
         .is_empty());
 }
 
 #[test]
-fn binding_sweep_recovers_populated_legacy_plan_from_empty_placeholder() {
+fn binding_sweep_archives_active_teamless_plan_without_fabricating_a_team() {
     let dir = tempfile::tempdir().unwrap();
     let plan_store = crate::service::plan::PlanStore::new_for_test(dir.path());
-    let (mux, team_id, orchestrator, _, _) = team_members();
-    let legacy = plan_store
-        .create_plan(
-            "Recovered effort".into(),
-            dir.path().display().to_string(),
-            crate::plan::OrchestratorRef::from_pane("retired-owner"),
-            vec![],
-            1,
-        )
-        .unwrap();
+    let (mux, _, _, _, _) = team_members();
+    let mut legacy = crate::plan::Plan::new(
+        "Retired effort".into(),
+        dir.path().display().to_string(),
+        crate::plan::OrchestratorRef::from_pane("retired-owner"),
+    );
+    plan_store.save(&mut legacy, 1).unwrap();
     for index in 0..40 {
         plan_store
             .add_task(
@@ -252,33 +248,48 @@ fn binding_sweep_recovers_populated_legacy_plan_from_empty_placeholder() {
             )
             .unwrap();
     }
-    let placeholder = plan_store
-        .create_plan_for_team(
-            legacy.title.clone(),
-            dir.path().display().to_string(),
-            crate::plan::OrchestratorRef::from_pane(&orchestrator),
-            Some(team_id.clone()),
-            vec![],
-            50,
-        )
-        .unwrap();
-
-    let mut changed = reconcile_dangling_team_plan_bindings(&mux, &plan_store, 100).unwrap();
-    changed.sort();
-    let mut expected = vec![legacy.id.clone(), placeholder.id.clone()];
-    expected.sort();
-    assert_eq!(changed, expected);
-    let recovered = plan_store.get(&legacy.id).unwrap();
-    assert_eq!(recovered.team_id.as_deref(), Some(team_id.as_str()));
-    assert_eq!(recovered.tasks.len(), 40);
-    let parked = plan_store.get(&placeholder.id).unwrap();
-    assert_eq!(parked.team_id, None);
-    assert_eq!(parked.mode, crate::plan::PlanMode::Paused);
+    assert_eq!(
+        reconcile_dangling_team_plan_bindings(&mux, &plan_store, 100).unwrap(),
+        vec![legacy.id.clone()]
+    );
+    let archived = plan_store.get(&legacy.id).unwrap();
+    assert_eq!(archived.team_id, None);
+    assert_eq!(archived.status, crate::plan::PlanStatus::Archived);
+    assert_eq!(archived.tasks.len(), 40);
     assert!(
         reconcile_dangling_team_plan_bindings(&mux, &plan_store, 101)
             .unwrap()
             .is_empty()
     );
+}
+
+#[test]
+fn team_adopt_plan_is_bounded_atomic_and_visible_as_active() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = std::sync::Arc::new(crate::service::plan::PlanStore::new_for_test(dir.path()));
+    let (mux, team_id, orchestrator, _, _) = team_members();
+    let mut plan = crate::plan::Plan::new(
+        "Imported effort".into(),
+        dir.path().display().to_string(),
+        crate::plan::OrchestratorRef::from_pane("retired-owner"),
+    );
+    plan.status = crate::plan::PlanStatus::Archived;
+    store.save(&mut plan, 1).unwrap();
+    let plan_id = plan.id.clone();
+    let expected_team_id = team_id.clone();
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    std::thread::spawn(move || {
+        let result =
+            adopt_plan_for_team_core(&mux, &store, &team_id, &plan_id, Some(&orchestrator), 2);
+        sender.send(result).unwrap();
+    });
+
+    let adopted = receiver
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .expect("team adopt-plan must not hang")
+        .unwrap();
+    assert_eq!(adopted.team_id.as_deref(), Some(expected_team_id.as_str()));
+    assert_eq!(adopted.status, crate::plan::PlanStatus::Active);
 }
 
 #[test]

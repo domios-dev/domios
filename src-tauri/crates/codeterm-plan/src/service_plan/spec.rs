@@ -9,6 +9,7 @@ fn gen_id(prefix: &str) -> String {
 }
 
 impl PlanStore {
+    #[cfg(test)]
     pub fn create_plan_from_spec(
         &self,
         spec_id: &str,
@@ -17,7 +18,8 @@ impl PlanStore {
         kinds: Vec<crate::plan::MilestoneKind>,
         now_ms: u64,
     ) -> Result<crate::plan::Plan, PlanError> {
-        self.create_plan_from_spec_for_team(spec_id, title, owner, None, kinds, now_ms)
+        let team_id = self.mint_id("team_test");
+        self.create_plan_from_spec_for_team(spec_id, title, owner, team_id, kinds, now_ms)
     }
 
     pub fn create_plan_from_spec_for_team(
@@ -25,7 +27,7 @@ impl PlanStore {
         spec_id: &str,
         title: String,
         owner: crate::plan::OrchestratorRef,
-        team_id: Option<String>,
+        team_id: String,
         kinds: Vec<crate::plan::MilestoneKind>,
         now_ms: u64,
     ) -> Result<crate::plan::Plan, PlanError> {

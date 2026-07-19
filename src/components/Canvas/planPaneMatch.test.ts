@@ -152,7 +152,7 @@ test("workspace mode keeps plans bound via owner pane or team", () => {
   assert(out.length === 2, `both workspace-bound plans kept (got ${out.length})`);
 });
 
-test("Team canvas cannot escape to another plan through all-plans mode", () => {
+test("Team canvas cannot escape to another plan", () => {
   const teamPlan: Plan = {
     ...FIXTURE_PLAN,
     id: "plan-team-current",
@@ -163,7 +163,6 @@ test("Team canvas cannot escape to another plan through all-plans mode", () => {
   const out = filterPlansForCanvas([teamPlan, foreignPlan], "workspace", {
     workspaceId: WS_CURRENT,
     teamId: "team-current",
-    allPlans: true,
     workspaces: scopeWorkspaces,
     teams: scopeTeams,
   });

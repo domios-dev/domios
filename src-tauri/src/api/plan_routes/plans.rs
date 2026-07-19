@@ -14,6 +14,7 @@ use crate::plan::{
 use crate::service::plan::IndexEntry;
 use crate::service::plan::PlanError;
 use crate::service::FirstPlanTeamError;
+use crate::service::TeamPlanError;
 
 use super::{
     emit_plan_changed, epoch_ms, kinds_from_csv, plan_err, tag_facets_from_body, text_err,
@@ -117,6 +118,10 @@ pub async fn list(
     Query(q): Query<ListPlansQuery>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    state
+        .svc
+        .validate_active_team_plan_bindings()
+        .map_err(team_plan_err)?;
     let want = if let Some(project) = &q.project {
         Some(
             state
@@ -602,6 +607,10 @@ pub async fn get(
     Path(id): Path<String>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    state
+        .svc
+        .validate_plan_team_binding(&id)
+        .map_err(team_plan_err)?;
     let plan = state
         .svc
         .plan_store
@@ -813,10 +822,8 @@ pub async fn unarchive(
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
-        .plan_store
-        .unarchive(&id, epoch_ms())
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
+        .unarchive_team_plan(&id, epoch_ms())
+        .map_err(team_plan_err)?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -853,10 +860,8 @@ pub async fn resume(
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let mode = state
         .svc
-        .plan_store
-        .resume_plan(&id, epoch_ms())
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
+        .resume_team_plan(&id, epoch_ms())
+        .map_err(team_plan_err)?;
     Ok(Json(serde_json::json!({ "ok": true, "mode": mode })))
 }
 
@@ -876,11 +881,16 @@ pub async fn transfer(
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
-        .plan_store
-        .transfer(&id, body.to, &body.reason, epoch_ms())
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
+        .transfer_team_plan(&id, body.to, &body.reason, epoch_ms())
+        .map_err(team_plan_err)?;
     Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+fn team_plan_err(error: TeamPlanError) -> (StatusCode, String) {
+    match error {
+        TeamPlanError::Plan(error) => plan_err(error),
+        TeamPlanError::Team(message) => text_err(StatusCode::BAD_REQUEST, message),
+    }
 }
 
 pub async fn disown(
