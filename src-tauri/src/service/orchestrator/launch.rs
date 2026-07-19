@@ -51,6 +51,238 @@ pub(crate) fn should_deliver_spawn_preferences(
 pub(crate) use crate::agent::provider::AgentLaunchParams;
 pub(crate) use crate::agent::registry::AgentRegistry;
 
+#[derive(Default)]
+struct LaunchRegistry {
+    next_generation: u64,
+    panes: std::collections::HashMap<String, RegisteredLaunch>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RegisteredLaunch {
+    pty_id: String,
+    generation: u64,
+}
+
+impl LaunchRegistry {
+    fn begin(&mut self, pane_id: &str, pty_id: String) -> LaunchGeneration {
+        self.next_generation = self.next_generation.wrapping_add(1).max(1);
+        let launch = LaunchGeneration {
+            pane_id: pane_id.into(),
+            pty_id,
+            generation: self.next_generation,
+            stage: BootStage::PtySpawned,
+            reused: false,
+        };
+        self.panes.insert(
+            launch.pane_id.clone(),
+            RegisteredLaunch {
+                pty_id: launch.pty_id.clone(),
+                generation: launch.generation,
+            },
+        );
+        launch
+    }
+
+    fn owns(&self, launch: &LaunchGeneration) -> bool {
+        self.panes.get(&launch.pane_id)
+            == Some(&RegisteredLaunch {
+                pty_id: launch.pty_id.clone(),
+                generation: launch.generation,
+            })
+    }
+
+    fn finish(&mut self, launch: &LaunchGeneration) -> bool {
+        if !self.owns(launch) {
+            return false;
+        }
+        self.panes.remove(&launch.pane_id);
+        true
+    }
+
+    fn take_for_pty(&mut self, pty_id: &str) -> Option<LaunchGeneration> {
+        let pane_id = self
+            .panes
+            .iter()
+            .find(|(_, registered)| registered.pty_id == pty_id)
+            .map(|(pane_id, _)| pane_id.clone())?;
+        let registered = self.panes.remove(&pane_id)?;
+        Some(LaunchGeneration {
+            pane_id,
+            pty_id: registered.pty_id,
+            generation: registered.generation,
+            stage: BootStage::PtySpawned,
+            reused: false,
+        })
+    }
+}
+
+static LAUNCH_REGISTRY: std::sync::LazyLock<parking_lot::Mutex<LaunchRegistry>> =
+    std::sync::LazyLock::new(|| parking_lot::Mutex::new(LaunchRegistry::default()));
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum LaunchFailure {
+    PtySpawn(String),
+    ReaderSetup(String),
+    ReaderRuntime(String),
+    ReaderReadyTimeout,
+    ShellReadyTimeout,
+    PtyEof,
+    PaneClosed,
+    LaunchWrite(String),
+    ProviderReadyTimeout,
+    TaskDelivery(String),
+}
+
+impl LaunchFailure {
+    fn reason(&self) -> String {
+        match self {
+            Self::PtySpawn(error) => format!("PtySpawnFailed: {error}"),
+            Self::ReaderSetup(error) => format!("ReaderSetupFailed: {error}"),
+            Self::ReaderRuntime(error) => format!("ReaderRuntimeFailed: {error}"),
+            Self::ReaderReadyTimeout => "ReaderReadyTimeout".into(),
+            Self::ShellReadyTimeout => "ShellReadyTimeout".into(),
+            Self::PtyEof => "PtyEof".into(),
+            Self::PaneClosed => "PaneClosedBeforePtyLink".into(),
+            Self::LaunchWrite(error) => format!("LaunchWriteFailed: {error}"),
+            Self::ProviderReadyTimeout => "ProviderReadyTimeout".into(),
+            Self::TaskDelivery(error) => format!("TaskDeliveryFailed: {error}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LaunchGeneration {
+    pane_id: String,
+    pty_id: String,
+    generation: u64,
+    stage: BootStage,
+    reused: bool,
+}
+
+impl LaunchGeneration {
+    fn begin(pane_id: &str, pty_id: String) -> Self {
+        LAUNCH_REGISTRY.lock().begin(pane_id, pty_id)
+    }
+
+    fn owns(&self) -> bool {
+        LAUNCH_REGISTRY.lock().owns(self)
+    }
+
+    fn transition(&mut self, stage: BootStage) {
+        self.stage = stage;
+    }
+
+    fn reuse(&mut self) {
+        self.reused = true;
+        self.transition(BootStage::AgentReady);
+    }
+
+    fn replace(&mut self, pty_id: String) {
+        let pane_id = self.pane_id.clone();
+        *self = Self::begin(&pane_id, pty_id);
+    }
+
+    fn emit(&mut self, svc: &ServiceContext, stage: BootStage) -> bool {
+        self.transition(stage);
+        self.commit_if_current(|| {
+            svc.emit_boot_stage(&self.pane_id, stage, None);
+        })
+    }
+
+    fn fail(&self, svc: &ServiceContext, failure: LaunchFailure) -> bool {
+        let reason = failure.reason();
+        self.finish_if_current(|| {
+            svc.emit_boot_stage(&self.pane_id, BootStage::SpawnFailed, Some(&reason));
+        })
+    }
+
+    fn write_if_current<T>(&self, write: impl FnOnce() -> T) -> Option<T> {
+        let registry = LAUNCH_REGISTRY.lock();
+        registry.owns(self).then(write)
+    }
+
+    fn commit_if_current(&self, commit: impl FnOnce()) -> bool {
+        let registry = LAUNCH_REGISTRY.lock();
+        if !registry.owns(self) {
+            return false;
+        }
+        commit();
+        true
+    }
+
+    fn finish_if_current(&self, commit: impl FnOnce()) -> bool {
+        let mut registry = LAUNCH_REGISTRY.lock();
+        if !registry.finish(self) {
+            return false;
+        }
+        commit();
+        true
+    }
+}
+
+pub(crate) fn record_reader_termination(svc: &ServiceContext, pty_id: &str) {
+    take_reader_termination(pty_id, |launch| {
+        let reason = LaunchFailure::PtyEof.reason();
+        svc.emit_boot_stage(&launch.pane_id, BootStage::SpawnFailed, Some(&reason));
+    });
+}
+
+fn take_reader_termination(pty_id: &str, commit: impl FnOnce(LaunchGeneration)) -> bool {
+    let mut registry = LAUNCH_REGISTRY.lock();
+    let launch = registry.take_for_pty(pty_id);
+    if let Some(launch) = launch {
+        commit(launch);
+        true
+    } else {
+        false
+    }
+}
+
+enum ReaderReadiness {
+    Ready,
+    Pending {
+        startup: std::sync::mpsc::Receiver<Result<(), LaunchFailure>>,
+        closed: std::sync::mpsc::Receiver<()>,
+    },
+}
+
+enum ReaderMonitor {
+    Active(std::sync::mpsc::Receiver<()>),
+    Unavailable,
+}
+
+impl ReaderMonitor {
+    fn closed(&self) -> bool {
+        match self {
+            Self::Active(rx) => !matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)),
+            Self::Unavailable => false,
+        }
+    }
+}
+
+impl ReaderReadiness {
+    fn wait(self, timeout: std::time::Duration) -> Result<ReaderMonitor, LaunchFailure> {
+        match self {
+            Self::Ready => Ok(ReaderMonitor::Unavailable),
+            Self::Pending { startup, closed } => match startup.recv_timeout(timeout) {
+                Ok(Ok(())) => Ok(ReaderMonitor::Active(closed)),
+                Ok(Err(error)) => Err(error),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    Err(LaunchFailure::ReaderReadyTimeout)
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(
+                    LaunchFailure::ReaderRuntime("reader startup channel closed".into()),
+                ),
+            },
+        }
+    }
+}
+
+struct BackendPty {
+    id: String,
+    reader: ReaderReadiness,
+}
+
 fn existing_live_pty(svc: &ServiceContext, pane_id: &str) -> Option<String> {
     let pty_id = svc
         .mux
@@ -73,7 +305,50 @@ fn reused_provider_tui_owns_launch(
     reused_live_pty && pane_agent_type == Some(requested_agent) && provider_tui_visible
 }
 
-fn spawn_backend_pty(svc: &ServiceContext, pane_id: &str) -> Result<String, String> {
+fn start_backend_reader(
+    svc: &ServiceContext,
+    pty_id: &str,
+) -> Result<ReaderReadiness, LaunchFailure> {
+    let svc_arc = std::sync::Arc::new(svc.clone());
+    let prepared = crate::service::pty_lifecycle::prepare_backend_reader(&svc_arc, pty_id)
+        .map_err(LaunchFailure::ReaderSetup)?;
+
+    let Some(prepared) = prepared else {
+        return Ok(ReaderReadiness::Ready);
+    };
+    let reader_pty_id = pty_id.to_string();
+    let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
+    let (closed_tx, closed_rx) = std::sync::mpsc::sync_channel(1);
+    std::thread::spawn(move || {
+        let runtime = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(runtime) => runtime,
+            Err(error) => {
+                let _ = ready_tx.send(Err(LaunchFailure::ReaderRuntime(error.to_string())));
+                return;
+            }
+        };
+        runtime.block_on(async {
+            let reader = crate::service::pty_lifecycle::spawn_prepared_backend_reader(
+                &svc_arc,
+                &reader_pty_id,
+                prepared,
+                true,
+            );
+            let _ = ready_tx.send(Ok(()));
+            let _ = reader.await;
+            let _ = closed_tx.send(());
+        });
+    });
+    Ok(ReaderReadiness::Pending {
+        startup: ready_rx,
+        closed: closed_rx,
+    })
+}
+
+fn spawn_backend_pty(svc: &ServiceContext, pane_id: &str) -> Result<BackendPty, LaunchFailure> {
     let cwd = svc
         .mux
         .read()
@@ -84,52 +359,11 @@ fn spawn_backend_pty(svc: &ServiceContext, pane_id: &str) -> Result<String, Stri
         .pty
         .lock()
         .spawn(None, cwd, 120, 40, env_vars)
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| LaunchFailure::PtySpawn(error.to_string()))?;
     svc.screen_state.lock().resize(&pty_id, 120, 40);
+    let reader = start_backend_reader(svc, &pty_id)?;
 
-    let svc_arc = std::sync::Arc::new(svc.clone());
-    let prepared = crate::service::pty_lifecycle::prepare_backend_reader(&svc_arc, &pty_id);
-
-    match prepared {
-        Ok(Some(prepared)) => {
-            let reader_pty_id = pty_id.clone();
-            std::thread::spawn(move || {
-                let runtime = match tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                {
-                    Ok(runtime) => runtime,
-                    Err(error) => {
-                        log::error!(
-                            "launch_agent: backend reader runtime failed for {}: {}",
-                            reader_pty_id,
-                            error
-                        );
-                        return;
-                    }
-                };
-                runtime.block_on(async {
-                    let reader = crate::service::pty_lifecycle::spawn_prepared_backend_reader(
-                        &svc_arc,
-                        &reader_pty_id,
-                        prepared,
-                        true,
-                    );
-                    let _ = reader.await;
-                });
-            });
-        }
-        Ok(None) => {}
-        Err(error) => {
-            log::warn!(
-                "launch_agent: backend reader prepare failed for {}: {}",
-                pane_id,
-                error
-            );
-        }
-    }
-
-    Ok(pty_id)
+    Ok(BackendPty { id: pty_id, reader })
 }
 
 fn replacement_pty_candidate(
@@ -170,8 +404,6 @@ fn await_replacement_pty(
     }
 }
 
-/// Shared background thread logic for launching agents in a PTY.
-/// Uses the AgentRegistry to determine readiness strategy and task delivery.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn launch_agent_in_background(
     svc: ServiceContext,
@@ -190,30 +422,41 @@ pub(crate) fn launch_agent_in_background(
     if let Some(p) = svc.mux.write().get_pane_mut(&pane_id) {
         p.agent_booting = true;
     }
-    svc.emit_boot_stage(&pane_id, BootStage::PtyStarting, None);
     std::thread::spawn(move || {
         let mut delivery_gate = crate::service::launch_delivery::LaunchDeliveryGate::new();
+        let mut launch = LaunchGeneration::begin(&pane_id, "pending".into());
+        if !launch.emit(&svc, BootStage::PtyStarting) {
+            return;
+        }
         let set_booting = |value: bool| {
             if let Some(p) = svc.mux.write().get_pane_mut(&pane_id) {
                 p.agent_booting = value;
             }
         };
         let pty_claim = svc.pty_ownership.acquire(&pane_id);
-        let (candidate_pty_id, reused_live_pty) = match existing_live_pty(&svc, &pane_id) {
-            Some(pty_id) => (pty_id, true),
+        let (backend_pty, reused_live_pty) = match existing_live_pty(&svc, &pane_id) {
+            Some(pty_id) => match start_backend_reader(&svc, &pty_id) {
+                Ok(reader) => (BackendPty { id: pty_id, reader }, true),
+                Err(failure) => {
+                    let error = failure.reason();
+                    launch.fail(&svc, failure);
+                    set_booting(false);
+                    if let Some(tx) = ready_tx {
+                        let _ = tx.send(Err(error));
+                    }
+                    return;
+                }
+            },
             None => match spawn_backend_pty(&svc, &pane_id) {
-                Ok(pty_id) => (pty_id, false),
-                Err(error) => {
+                Ok(backend_pty) => (backend_pty, false),
+                Err(failure) => {
+                    let error = failure.reason();
                     log::error!(
                         "launch_agent: backend PTY spawn failed for pane {}: {}",
                         pane_id,
                         error
                     );
-                    svc.emit_boot_stage(
-                        &pane_id,
-                        BootStage::SpawnFailed,
-                        Some(&format!("backend PTY spawn failed: {}", error)),
-                    );
+                    launch.fail(&svc, failure);
                     let _ = svc.close_tab(&ws_id, &tab_id);
                     set_booting(false);
                     if let Some(tx) = ready_tx {
@@ -223,11 +466,15 @@ pub(crate) fn launch_agent_in_background(
                 }
             },
         };
+        let BackendPty {
+            id: candidate_pty_id,
+            reader: reader_readiness,
+        } = backend_pty;
         let selection = svc.link_pty_with_claim(&pty_claim, &pane_id, candidate_pty_id, true);
         drop(pty_claim);
         if !selection.linked {
-            let error = "pane closed before its launch PTY could be linked".to_string();
-            svc.emit_boot_stage(&pane_id, BootStage::SpawnFailed, Some(&error));
+            let error = LaunchFailure::PaneClosed.reason();
+            launch.fail(&svc, LaunchFailure::PaneClosed);
             set_booting(false);
             let _ = svc.close_tab(&ws_id, &tab_id);
             if let Some(tx) = ready_tx {
@@ -236,12 +483,31 @@ pub(crate) fn launch_agent_in_background(
             return;
         }
         let mut pty_id = selection.pty_id;
-        svc.emit_boot_stage(&pane_id, BootStage::PtySpawned, None);
+        launch.replace(pty_id.clone());
+        if !launch.emit(&svc, BootStage::PtySpawned) {
+            return;
+        }
         log::info!(
             "launch_agent: pty ready for pane {} after {}ms",
             pane_id,
             launch_started.elapsed().as_millis()
         );
+
+        let mut reader_monitor = match reader_readiness.wait(std::time::Duration::from_secs(10)) {
+            Ok(monitor) => monitor,
+            Err(failure) => {
+                let error = failure.reason();
+                launch.fail(&svc, failure);
+                set_booting(false);
+                if let Some(tx) = ready_tx {
+                    let _ = tx.send(Err(error));
+                }
+                return;
+            }
+        };
+        if !launch.emit(&svc, BootStage::ReaderReady) {
+            return;
+        }
 
         let (pane_agent_type, screen) = {
             let pane_agent_type = svc
@@ -271,13 +537,33 @@ pub(crate) fn launch_agent_in_background(
                 agent_cmd,
                 pty_id
             );
-            svc.emit_boot_stage(&pane_id, BootStage::AgentReady, None);
+            launch.reuse();
+            launch.emit(&svc, launch.stage);
+            LAUNCH_REGISTRY.lock().finish(&launch);
             set_booting(false);
             if let Some(tx) = ready_tx {
                 let _ = tx.send(Ok(()));
             }
             return;
         }
+
+        if !crate::service::pty_io::await_shell_prompt(
+            &svc.screen_state,
+            &pty_id,
+            std::time::Duration::from_secs(30),
+        ) {
+            let error = LaunchFailure::ShellReadyTimeout.reason();
+            launch.fail(&svc, LaunchFailure::ShellReadyTimeout);
+            set_booting(false);
+            if let Some(tx) = ready_tx {
+                let _ = tx.send(Err(error));
+            }
+            return;
+        }
+        if !launch.emit(&svc, BootStage::ShellReady) {
+            return;
+        }
+        delivery_gate.mark_shell_ready();
 
         let delivery = registry
             .with_provider(&agent_cmd, |provider| {
@@ -286,28 +572,6 @@ pub(crate) fn launch_agent_in_background(
                 )
             })
             .unwrap_or(crate::service::launch_delivery::LaunchDeliveryMode::ConfirmedFallback);
-        if !crate::service::pty_io::await_bare_shell_prompt(
-            &svc.screen_state,
-            &pty_id,
-            std::time::Duration::from_secs(30),
-        ) {
-            let error = "bare shell prompt did not become ready".to_string();
-            svc.emit_boot_stage(&pane_id, BootStage::SpawnFailed, Some(&error));
-            set_booting(false);
-            if let Some(tx) = ready_tx {
-                let _ = tx.send(Err(error));
-            }
-            return;
-        }
-        svc.emit_boot_stage(&pane_id, BootStage::ShellReady, None);
-        delivery_gate.mark_shell_ready();
-        log::info!(
-            "launch_agent: shell ready for pane {} after {}ms",
-            pane_id,
-            launch_started.elapsed().as_millis()
-        );
-
-        // 3. Send launch command after the shell readiness event from step 2.
         let launch_opts = crate::service::inject_verify::VerifyOpts {
             require_prompt_first: false,
             verify_echo: true,
@@ -322,15 +586,31 @@ pub(crate) fn launch_agent_in_background(
             .unwrap_or(crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
                 timeout: std::time::Duration::from_secs(15),
             });
-        svc.emit_boot_stage(&pane_id, BootStage::AgentLaunching, None);
+        if !launch.emit(&svc, BootStage::AgentLaunching) {
+            return;
+        }
+        if reader_monitor.closed() {
+            let error = LaunchFailure::PtyEof.reason();
+            launch.fail(&svc, LaunchFailure::PtyEof);
+            set_booting(false);
+            if let Some(tx) = ready_tx {
+                let _ = tx.send(Err(error));
+            }
+            return;
+        }
         // (#93 — keeps shell-level launch off the bracketed-paste path).
-        let first_launch = svc.send_shell_spawn_verified(
-            &pty_id,
-            &agent_cmd,
-            &launch_cmd,
-            launch_strategy.clone(),
-            launch_opts.clone(),
-        );
+        let first_launch = match launch.write_if_current(|| {
+            svc.send_shell_spawn_verified(
+                &pty_id,
+                &agent_cmd,
+                &launch_cmd,
+                launch_strategy.clone(),
+                launch_opts.clone(),
+            )
+        }) {
+            Some(result) => result,
+            None => return,
+        };
         let launch_result = match first_launch {
             Err(error @ crate::service::inject_verify::InjectionError::PtyClosed { .. }) => {
                 match await_replacement_pty(
@@ -345,13 +625,65 @@ pub(crate) fn launch_agent_in_background(
                             pane_id, replacement, pty_id
                         );
                         pty_id = replacement;
-                        svc.send_shell_spawn_verified(
-                            &pty_id,
-                            &agent_cmd,
-                            &launch_cmd,
-                            launch_strategy,
-                            launch_opts,
-                        )
+                        let replacement_reader = match start_backend_reader(&svc, &pty_id) {
+                            Ok(reader) => reader,
+                            Err(failure) => {
+                                let error = failure.reason();
+                                launch.fail(&svc, failure);
+                                set_booting(false);
+                                if let Some(tx) = ready_tx {
+                                    let _ = tx.send(Err(error));
+                                }
+                                return;
+                            }
+                        };
+                        reader_monitor =
+                            match replacement_reader.wait(std::time::Duration::from_secs(10)) {
+                                Ok(monitor) => monitor,
+                                Err(failure) => {
+                                    let error = failure.reason();
+                                    launch.fail(&svc, failure);
+                                    set_booting(false);
+                                    if let Some(tx) = ready_tx {
+                                        let _ = tx.send(Err(error));
+                                    }
+                                    return;
+                                }
+                            };
+                        launch.replace(pty_id.clone());
+                        if !launch.emit(&svc, BootStage::PtySpawned)
+                            || !launch.emit(&svc, BootStage::ReaderReady)
+                            || !crate::service::pty_io::await_shell_prompt(
+                                &svc.screen_state,
+                                &pty_id,
+                                std::time::Duration::from_secs(30),
+                            )
+                        {
+                            let error = LaunchFailure::ShellReadyTimeout.reason();
+                            launch.fail(&svc, LaunchFailure::ShellReadyTimeout);
+                            set_booting(false);
+                            if let Some(tx) = ready_tx {
+                                let _ = tx.send(Err(error));
+                            }
+                            return;
+                        }
+                        if !launch.emit(&svc, BootStage::ShellReady)
+                            || !launch.emit(&svc, BootStage::AgentLaunching)
+                        {
+                            return;
+                        }
+                        match launch.write_if_current(|| {
+                            svc.send_shell_spawn_verified(
+                                &pty_id,
+                                &agent_cmd,
+                                &launch_cmd,
+                                launch_strategy,
+                                launch_opts,
+                            )
+                        }) {
+                            Some(result) => result,
+                            None => return,
+                        }
                     }
                     None => Err(error),
                 }
@@ -365,29 +697,40 @@ pub(crate) fn launch_agent_in_background(
                 pty_id,
                 e
             );
-            svc.emit_boot_stage(
-                &pane_id,
-                BootStage::SpawnFailed,
-                Some(&format!("launch_cmd failed: {}", e)),
-            );
-            set_booting(false);
-            if let Some(tx) = ready_tx {
-                let _ = tx.send(Err(format!("launch_cmd failed: {}", e)));
-            }
-            return;
-        }
-
-        if !svc.await_agent_tui_frame_on_screen(
-            &pty_id,
-            &agent_cmd,
-            std::time::Duration::from_secs(30),
-        ) {
-            let error = format!("{} TUI did not become ready", agent_cmd);
-            svc.emit_boot_stage(&pane_id, BootStage::SpawnFailed, Some(&error));
+            let failure = LaunchFailure::LaunchWrite(e.to_string());
+            let error = failure.reason();
+            launch.fail(&svc, failure);
             set_booting(false);
             if let Some(tx) = ready_tx {
                 let _ = tx.send(Err(error));
             }
+            return;
+        }
+        if !launch.emit(&svc, BootStage::LaunchWritten) {
+            return;
+        }
+
+        if !svc.await_provider_status_event(&pty_id, std::time::Duration::from_secs(30)) {
+            let error = if reader_monitor.closed() {
+                LaunchFailure::PtyEof.reason()
+            } else {
+                LaunchFailure::ProviderReadyTimeout.reason()
+            };
+            launch.fail(
+                &svc,
+                if reader_monitor.closed() {
+                    LaunchFailure::PtyEof
+                } else {
+                    LaunchFailure::ProviderReadyTimeout
+                },
+            );
+            set_booting(false);
+            if let Some(tx) = ready_tx {
+                let _ = tx.send(Err(error));
+            }
+            return;
+        }
+        if !launch.emit(&svc, BootStage::ProviderReady) {
             return;
         }
         delivery_gate.mark_provider_ready();
@@ -437,11 +780,7 @@ pub(crate) fn launch_agent_in_background(
                         pty_id,
                         e
                     );
-                    svc.emit_boot_stage(
-                        &pane_id,
-                        BootStage::SpawnFailed,
-                        Some(&format!("task delivery failed: {}", e)),
-                    );
+                    launch.fail(&svc, LaunchFailure::TaskDelivery(e.to_string()));
                     set_booting(false);
                     if let Some(tx) = ready_tx {
                         let _ = tx.send(Err(format!("task delivery failed: {}", e)));
@@ -456,7 +795,10 @@ pub(crate) fn launch_agent_in_background(
         }
 
         set_booting(false);
-        svc.emit_boot_stage(&pane_id, BootStage::AgentReady, None);
+        if !launch.emit(&svc, BootStage::AgentReady) {
+            return;
+        }
+        LAUNCH_REGISTRY.lock().finish(&launch);
         log::info!(
             "launch_agent: agent ready in pane {} after {}ms",
             pane_id,
@@ -472,7 +814,8 @@ pub(crate) fn launch_agent_in_background(
 mod tests {
     use super::{
         build_agent_command, replacement_pty_candidate, reused_provider_tui_owns_launch,
-        spawn_onboarding_task, AgentRegistry,
+        spawn_onboarding_task, take_reader_termination, AgentRegistry, LaunchFailure,
+        LaunchGeneration, LaunchRegistry,
     };
     use crate::chatbackend::{ChatBackendError, ChatBackendProvider, ChatBackendRegistry};
     use crate::multiplexer::state::MultiplexerState;
@@ -481,6 +824,7 @@ mod tests {
     use crate::service::pty_io::pane_identity_env;
     use crate::service::spawn::{PaneCommand, SpawnPaneSpec};
     use std::sync::Arc;
+    use std::sync::Barrier;
 
     fn orchestrator_params(task: Option<&str>) -> SpawnAgentParams {
         SpawnAgentParams {
@@ -528,6 +872,111 @@ mod tests {
             "codex",
             false,
         ));
+    }
+
+    #[test]
+    fn production_driver_rejects_a_stale_generation_before_emit_or_write() {
+        let mut driver = LaunchRegistry::default();
+        let stale = driver.begin("pane-a", "pty-old".into());
+        let current = driver.begin("pane-a", "pty-new".into());
+
+        assert!(!driver.owns(&stale));
+        assert!(driver.owns(&current));
+        assert!(!driver.finish(&stale));
+        assert!(driver.owns(&current));
+    }
+
+    #[test]
+    fn production_driver_write_claim_rejects_a_superseded_generation() {
+        let stale = LaunchGeneration::begin("pane-write", "pty-old".into());
+        let _current = LaunchGeneration::begin("pane-write", "pty-new".into());
+        let wrote = stale.write_if_current(|| true);
+
+        assert_eq!(wrote, None);
+    }
+
+    #[test]
+    fn barrier_commit_cannot_be_overwritten_by_concurrent_begin() {
+        let launch = LaunchGeneration::begin("race-emit", "pty-old".into());
+        let barrier = Arc::new(Barrier::new(2));
+        let release = Arc::new(Barrier::new(2));
+        let held = barrier.clone();
+        let unhold = release.clone();
+        let worker = std::thread::spawn(move || {
+            launch.commit_if_current(|| {
+                held.wait();
+                unhold.wait();
+            })
+        });
+        barrier.wait();
+        release.wait();
+        let replacement = LaunchGeneration::begin("race-emit", "pty-new".into());
+        assert!(worker.join().unwrap());
+        assert!(replacement.owns());
+    }
+
+    #[test]
+    fn barrier_reader_eof_for_old_pty_cannot_take_replacement() {
+        let old = LaunchGeneration::begin("race-eof", "pty-old".into());
+        let replacement = LaunchGeneration::begin("race-eof", "pty-new".into());
+
+        assert!(!take_reader_termination("pty-old", |_| {}));
+        assert!(replacement.owns());
+        assert!(!old.owns());
+    }
+
+    #[test]
+    fn production_driver_reports_reused_reader_eof_for_its_current_pty() {
+        let mut driver = LaunchRegistry::default();
+        let launch = driver.begin("pane-a", "pty-live".into());
+
+        let terminated = driver.take_for_pty("pty-live").expect("registered reader");
+
+        assert_eq!(terminated.pane_id, "pane-a");
+        assert_eq!(terminated.generation, launch.generation);
+        assert!(!driver.owns(&launch));
+        assert_eq!(LaunchFailure::PtyEof.reason(), "PtyEof");
+    }
+
+    #[test]
+    fn reused_success_finishes_before_a_later_reader_eof() {
+        let mut driver = LaunchRegistry::default();
+        let reused = driver.begin("pane-reused", "pty-live".into());
+
+        assert!(driver.finish(&reused));
+        assert!(driver.take_for_pty("pty-live").is_none());
+    }
+
+    #[test]
+    fn production_driver_replaces_pty_and_reader_generation_together() {
+        let mut driver = LaunchRegistry::default();
+        let original = driver.begin("pane-a", "pty-old".into());
+        let replacement = driver.begin("pane-a", "pty-new".into());
+
+        assert!(!driver.owns(&original));
+        assert!(driver.owns(&replacement));
+        assert!(driver.take_for_pty("pty-old").is_none());
+        assert_eq!(
+            driver.take_for_pty("pty-new").unwrap().generation,
+            replacement.generation
+        );
+    }
+
+    #[test]
+    fn production_driver_uses_typed_terminal_causes() {
+        assert_eq!(
+            LaunchFailure::ReaderSetup("closed".into()).reason(),
+            "ReaderSetupFailed: closed"
+        );
+        assert_eq!(
+            LaunchFailure::ProviderReadyTimeout.reason(),
+            "ProviderReadyTimeout"
+        );
+        assert_eq!(LaunchFailure::PtyEof.reason(), "PtyEof");
+        assert_eq!(
+            LaunchFailure::ShellReadyTimeout.reason(),
+            "ShellReadyTimeout"
+        );
     }
 
     #[test]

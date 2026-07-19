@@ -378,6 +378,15 @@ function TabItemInner({
         )}
       </div>
       </button>}
+      <span
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        aria-label={`${displayTitle} tab status ${status ?? "Unknown"}`}
+      >
+        {displayTitle} tab status {status ?? "Unknown"}
+      </span>
       <div className="shrink-0 relative z-[1] flex items-center min-w-5 justify-end">
         {tabModelBadge && !touchMode ? (
           <SidebarModelBadge label={tabModelBadge} title={tabModel ?? undefined} />

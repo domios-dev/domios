@@ -957,8 +957,11 @@ mod exit_detection_tests {
         for stage in [
             BootStage::PtyStarting,
             BootStage::PtySpawned,
+            BootStage::ReaderReady,
             BootStage::ShellReady,
             BootStage::AgentLaunching,
+            BootStage::LaunchWritten,
+            BootStage::ProviderReady,
         ] {
             assert!(
                 !allows_shell_prompt_exit(Some(stage)),

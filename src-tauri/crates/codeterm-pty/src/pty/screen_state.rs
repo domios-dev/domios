@@ -92,10 +92,12 @@ impl PromptSignal {
 pub struct ScreenState {
     parsers: HashMap<String, vt100::Parser>,
     prompt_signals: HashMap<String, Arc<PromptSignal>>,
-    bare_prompt_signals: HashMap<String, Arc<PromptSignal>>,
+    shell_ready_signals: HashMap<String, Arc<PromptSignal>>,
+    bare_prompt_signals: HashMap<String, Vec<Arc<PromptSignal>>>,
     agent_signals: HashMap<String, Arc<PromptSignal>>,
     screen_change_signals: HashMap<String, Arc<ScreenChangeSignal>>,
     screen_change_subscribers: HashMap<String, Vec<Arc<ScreenChangeSignal>>>,
+    pty_generations: HashMap<String, u64>,
 }
 
 impl ScreenState {
@@ -103,14 +105,23 @@ impl ScreenState {
         Self {
             parsers: HashMap::new(),
             prompt_signals: HashMap::new(),
+            shell_ready_signals: HashMap::new(),
             bare_prompt_signals: HashMap::new(),
             agent_signals: HashMap::new(),
             screen_change_signals: HashMap::new(),
             screen_change_subscribers: HashMap::new(),
+            pty_generations: HashMap::new(),
         }
     }
 
     pub fn process(&mut self, pty_id: &str, data: &[u8]) {
+        if let Some(signal) = self.shell_ready_signals.get(pty_id) {
+            if data.windows(7).any(|window| window == b"\x1b]133;A")
+                || data.windows(7).any(|window| window == b"\x1b]633;A")
+            {
+                signal.mark_ready();
+            }
+        }
         let parser = self
             .parsers
             .entry(pty_id.to_string())
@@ -124,11 +135,16 @@ impl ScreenState {
                 signal.mark_ready();
             }
         }
-        if let Some(signal) = self.bare_prompt_signals.get(pty_id) {
-            if !signal.is_ready() && screen_has_bare_shell_prompt(&screen) {
-                signal.mark_ready();
+        if let Some(signals) = self.bare_prompt_signals.get(pty_id) {
+            if screen_has_bare_shell_prompt(&screen) {
+                for signal in signals {
+                    signal.mark_ready();
+                }
             }
         }
+        self.bare_prompt_signals
+            .get_mut(pty_id)
+            .map(|signals| signals.retain(|signal| !signal.is_ready()));
         if let Some(signal) = self.agent_signals.get(pty_id) {
             if !signal.is_ready() && screen_has_agent_tui(&screen) {
                 signal.mark_ready();
@@ -283,7 +299,9 @@ impl ScreenState {
     pub fn arm_bare_prompt_signal(&mut self, pty_id: &str) -> Arc<PromptSignal> {
         let signal = PromptSignal::new();
         self.bare_prompt_signals
-            .insert(pty_id.to_string(), signal.clone());
+            .entry(pty_id.to_string())
+            .or_default()
+            .push(signal.clone());
 
         if !signal.is_ready() {
             if let Some(parser) = self.parsers.get(pty_id) {
@@ -294,6 +312,32 @@ impl ScreenState {
         }
 
         signal
+    }
+
+    pub fn arm_shell_ready_signal(&mut self, pty_id: &str) -> Arc<PromptSignal> {
+        self.shell_ready_signals
+            .entry(pty_id.to_string())
+            .or_insert_with(PromptSignal::new)
+            .clone()
+    }
+
+    pub fn disarm_bare_prompt_signal(&mut self, pty_id: &str, signal: &Arc<PromptSignal>) {
+        let remove_entry = self
+            .bare_prompt_signals
+            .get_mut(pty_id)
+            .map(|signals| {
+                signals.retain(|candidate| !Arc::ptr_eq(candidate, signal));
+                signals.is_empty()
+            })
+            .unwrap_or(false);
+        if remove_entry {
+            self.bare_prompt_signals.remove(pty_id);
+        }
+    }
+
+    #[cfg(test)]
+    fn bare_prompt_waiter_count(&self, pty_id: &str) -> usize {
+        self.bare_prompt_signals.get(pty_id).map_or(0, Vec::len)
     }
 
     /// Arm a one-shot signal that fires as soon as `screen_has_agent_tui` is true
@@ -322,6 +366,26 @@ impl ScreenState {
             .entry(pty_id.to_string())
             .or_insert_with(ScreenChangeSignal::new)
             .clone()
+    }
+
+    pub fn bind_pty_generation(&mut self, pty_id: &str, generation: u64) -> bool {
+        match self.pty_generations.get(pty_id).copied() {
+            Some(current) if current > generation => false,
+            Some(current) if current == generation => true,
+            _ => {
+                self.remove(pty_id);
+                self.pty_generations.insert(pty_id.to_string(), generation);
+                true
+            }
+        }
+    }
+
+    pub fn remove_if_generation(&mut self, pty_id: &str, generation: u64) -> bool {
+        if self.pty_generations.get(pty_id).copied() != Some(generation) {
+            return false;
+        }
+        self.remove(pty_id);
+        true
     }
 
     pub fn subscribe_screen_changes(&mut self, pty_id: &str) -> Arc<ScreenChangeSignal> {
@@ -353,12 +417,18 @@ impl ScreenState {
     }
 
     pub fn remove(&mut self, pty_id: &str) {
+        self.pty_generations.remove(pty_id);
         self.parsers.remove(pty_id);
         if let Some(sig) = self.prompt_signals.remove(pty_id) {
             sig.mark_ready();
         }
-        if let Some(sig) = self.bare_prompt_signals.remove(pty_id) {
+        if let Some(sig) = self.shell_ready_signals.remove(pty_id) {
             sig.mark_ready();
+        }
+        if let Some(signals) = self.bare_prompt_signals.remove(pty_id) {
+            for signal in signals {
+                signal.mark_ready();
+            }
         }
         if let Some(sig) = self.agent_signals.remove(pty_id) {
             sig.mark_ready();
@@ -713,6 +783,40 @@ mod tests {
     }
 
     #[test]
+    fn shell_ready_requires_a_shell_integration_event() {
+        let mut ss = ScreenState::new();
+        let signal = ss.arm_shell_ready_signal("pty1");
+
+        ss.process("pty1", b"ordinary output");
+        assert!(!signal.is_ready());
+        ss.process("pty1", b"\x1b]133;A\x07");
+        assert!(signal.is_ready());
+    }
+
+    #[test]
+    fn shell_event_wakes_all_waiters_and_prunes_them() {
+        let mut ss = ScreenState::new();
+        let first = ss.arm_bare_prompt_signal("pty1");
+        let second = ss.arm_bare_prompt_signal("pty1");
+
+        ss.process("pty1", b"user@host:~$ ");
+
+        assert!(first.is_ready());
+        assert!(second.is_ready());
+        assert_eq!(ss.bare_prompt_waiter_count("pty1"), 0);
+    }
+
+    #[test]
+    fn disarmed_bare_prompt_waiter_does_not_accumulate_after_timeout() {
+        let mut ss = ScreenState::new();
+        let signal = ss.arm_bare_prompt_signal("pty1");
+
+        ss.disarm_bare_prompt_signal("pty1", &signal);
+
+        assert_eq!(ss.bare_prompt_waiter_count("pty1"), 0);
+    }
+
+    #[test]
     fn test_prompt_signal_wait_returns_true_on_ready() {
         let mut ss = ScreenState::new();
         let sig = ss.arm_prompt_signal("pty1");
@@ -775,5 +879,19 @@ mod tests {
         assert!(!first.wait_after(first_generation, Duration::ZERO));
         assert!(!second.wait_after(second_generation, Duration::ZERO));
         assert_eq!(state.screen_change_subscriber_count(), 0);
+    }
+
+    #[test]
+    fn old_generation_cannot_remove_replacement_screen() {
+        let mut state = ScreenState::new();
+        assert!(state.bind_pty_generation("pty1", 1));
+        state.process("pty1", b"old frame");
+        assert!(state.bind_pty_generation("pty1", 2));
+        state.process("pty1", b"replacement frame");
+
+        assert!(!state.remove_if_generation("pty1", 1));
+        assert!(state.get_screen_text("pty1").is_some());
+        assert!(state.remove_if_generation("pty1", 2));
+        assert!(state.get_screen_text("pty1").is_none());
     }
 }

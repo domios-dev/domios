@@ -66,6 +66,15 @@ pub fn prepare_backend_reader(
     let frontend_tx = manager
         .setup_backend_channel(pty_id)
         .ok_or_else(|| format!("Failed to set up backend channel for PTY: {}", pty_id))?;
+    let generation = session.generation;
+    drop(manager);
+    if !svc
+        .screen_state
+        .lock()
+        .bind_pty_generation(pty_id, generation)
+    {
+        return Err(format!("PTY {} was replaced before reader start", pty_id));
+    }
     session.mark_backend_reader_started();
     Ok(Some(PreparedBackendReader {
         reader,
@@ -88,13 +97,14 @@ pub fn spawn_prepared_backend_reader(
         frontend_tx,
         lease,
     } = prepared;
+    let generation = lease.0.generation;
     tokio::spawn(async move {
         let _lease = lease;
         log::info!(
             "[backend-reader] started for pty {}",
             &pty_id[..pty_id.len().min(8)]
         );
-        backend_read_loop(reader, svc, pty_id, frontend_tx, true, headless).await;
+        backend_read_loop(reader, svc, pty_id, generation, frontend_tx, true, headless).await;
     })
 }
 
@@ -124,6 +134,7 @@ async fn backend_read_loop(
     mut reader: Box<dyn Read + Send>,
     svc: ServiceState,
     pty_id: String,
+    generation: u64,
     frontend_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
     _measure_first_byte: bool,
     headless: bool,
@@ -226,7 +237,7 @@ async fn backend_read_loop(
             error
         );
     }
-    handle_pty_death(&svc, &pty_id);
+    handle_pty_death(&svc, &pty_id, generation);
     log::info!(
         "[backend-reader] exited for pty {}",
         &pty_id[..pty_id.len().min(8)]
@@ -266,8 +277,16 @@ fn drain_feed_batch(rx: &mut tokio::sync::mpsc::Receiver<Vec<u8>>, data: &mut Ve
 }
 
 /// Mark PTY as dead and emit events — mirrors the Err branch in read_pty.
-fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
-    handle_pty_screen_death(&svc.screen_state, pty_id);
+fn handle_pty_death(svc: &ServiceState, pty_id: &str, generation: u64) {
+    if !handle_pty_screen_death(&svc.pty, &svc.screen_state, pty_id, generation) {
+        log::debug!(
+            "[backend-reader] ignoring stale EOF for pty {} generation {}",
+            &pty_id[..pty_id.len().min(8)],
+            generation
+        );
+        return;
+    }
+    crate::service::orchestrator::record_reader_termination(svc, pty_id);
     let pane_id = svc.mux.read().pane_id_for_pty(pty_id);
     svc.agent_tracker.lock().set_dead(pty_id);
     svc.shell_caps.lock().remove(pty_id);
@@ -364,8 +383,27 @@ impl Drop for BackendReaderLease {
     }
 }
 
-pub(crate) fn handle_pty_screen_death(screen_state: &crate::ScreenStateHandle, pty_id: &str) {
-    screen_state.lock().remove(pty_id);
+pub(crate) fn handle_pty_screen_death(
+    pty: &crate::PtyState,
+    screen_state: &crate::ScreenStateHandle,
+    pty_id: &str,
+    generation: u64,
+) -> bool {
+    handle_pty_screen_death_after_validation(pty, screen_state, pty_id, generation, || {})
+}
+
+fn handle_pty_screen_death_after_validation(
+    pty: &crate::PtyState,
+    screen_state: &crate::ScreenStateHandle,
+    pty_id: &str,
+    generation: u64,
+    after_validation: impl FnOnce(),
+) -> bool {
+    if !pty.lock().session_generation_matches(pty_id, generation) {
+        return false;
+    }
+    after_validation();
+    screen_state.lock().remove_if_generation(pty_id, generation)
 }
 
 fn terminal_query_replies(data: &[u8], _headless: bool) -> Vec<&'static [u8]> {
@@ -384,10 +422,33 @@ fn terminal_query_replies(data: &[u8], _headless: bool) -> Vec<&'static [u8]> {
 
 #[cfg(test)]
 mod tests {
+    use crate::pty::manager::PtyManager;
     use codeterm_pty::pty::screen_state::ScreenState;
     use codeterm_util::lock_hold::TimedMutex;
+    use std::collections::HashMap;
     use std::sync::Arc;
     use std::time::Duration;
+
+    fn pty_state() -> crate::PtyState {
+        Arc::new(TimedMutex::new("pty", PtyManager::new()))
+    }
+
+    fn spawn_generation(pty: &crate::PtyState, pty_id: &str) -> u64 {
+        let (_, session) = pty
+            .lock()
+            .spawn_with_id(Some(pty_id.to_string()), None, None, 80, 24, HashMap::new())
+            .expect("spawn test PTY");
+        session.generation
+    }
+
+    fn replace_generation(pty: &crate::PtyState, pty_id: &str) -> u64 {
+        pty.lock().kill(pty_id).expect("remove replaced PTY");
+        spawn_generation(pty, pty_id)
+    }
+
+    fn bind_generation(screen_state: &crate::ScreenStateHandle, pty_id: &str, generation: u64) {
+        assert!(screen_state.lock().bind_pty_generation(pty_id, generation));
+    }
 
     #[test]
     fn resize_burst_is_drained_as_one_available_feed_batch() {
@@ -430,7 +491,10 @@ mod tests {
 
     #[test]
     fn pty_death_screen_teardown_closes_armed_waiter() {
+        let pty = pty_state();
+        let pty_generation = spawn_generation(&pty, "pty-1");
         let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
+        bind_generation(&screen_state, "pty-1", pty_generation);
         let signal = screen_state.lock().subscribe_screen_changes("pty-1");
         let generation = signal.generation();
         let (done_tx, done_rx) = std::sync::mpsc::channel();
@@ -441,9 +505,103 @@ mod tests {
                 .unwrap();
         });
 
-        super::handle_pty_screen_death(&screen_state, "pty-1");
+        assert!(super::handle_pty_screen_death(
+            &pty,
+            &screen_state,
+            "pty-1",
+            pty_generation,
+        ));
 
         assert!(!done_rx.recv_timeout(Duration::from_secs(1)).unwrap());
         waiter.join().unwrap();
+        pty.lock().kill("pty-1").expect("cleanup PTY");
+    }
+
+    #[test]
+    fn reused_current_pty_eof_tears_down_through_global_seam() {
+        let pty = pty_state();
+        let generation = spawn_generation(&pty, "pty-1");
+        let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
+        bind_generation(&screen_state, "pty-1", generation);
+        screen_state
+            .lock()
+            .process("pty-1", b"current session output");
+
+        assert!(super::handle_pty_screen_death(
+            &pty,
+            &screen_state,
+            "pty-1",
+            generation,
+        ));
+        assert!(screen_state.lock().get_screen_text("pty-1").is_none());
+        pty.lock().kill("pty-1").expect("cleanup PTY");
+    }
+
+    #[test]
+    fn replaced_old_pty_eof_does_not_teardown_replacement_through_global_seam() {
+        let pty = pty_state();
+        let old_generation = spawn_generation(&pty, "pty-1");
+        let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
+        bind_generation(&screen_state, "pty-1", old_generation);
+        let replacement_generation = replace_generation(&pty, "pty-1");
+        bind_generation(&screen_state, "pty-1", replacement_generation);
+        screen_state
+            .lock()
+            .process("pty-1", b"replacement session output");
+
+        assert!(!super::handle_pty_screen_death(
+            &pty,
+            &screen_state,
+            "pty-1",
+            old_generation,
+        ));
+        assert!(pty
+            .lock()
+            .session_generation_matches("pty-1", replacement_generation));
+        assert!(screen_state.lock().get_screen_text("pty-1").is_some());
+        pty.lock().kill("pty-1").expect("cleanup PTY");
+    }
+
+    #[test]
+    fn reader_termination_after_replacement_preserves_new_screen_state() {
+        let pty = pty_state();
+        let old_generation = spawn_generation(&pty, "pty-1");
+        let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
+        bind_generation(&screen_state, "pty-1", old_generation);
+        let teardown_pty = pty.clone();
+        let teardown_screen = screen_state.clone();
+        let (validated_tx, validated_rx) = std::sync::mpsc::channel();
+        let (resume_tx, resume_rx) = std::sync::mpsc::channel();
+        let (result_tx, result_rx) = std::sync::mpsc::channel();
+        let old_reader = std::thread::spawn(move || {
+            result_tx
+                .send(super::handle_pty_screen_death_after_validation(
+                    &teardown_pty,
+                    &teardown_screen,
+                    "pty-1",
+                    old_generation,
+                    || {
+                        validated_tx.send(()).unwrap();
+                        resume_rx.recv().unwrap();
+                    },
+                ))
+                .unwrap();
+        });
+
+        validated_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let replacement_generation = replace_generation(&pty, "pty-1");
+        bind_generation(&screen_state, "pty-1", replacement_generation);
+        screen_state
+            .lock()
+            .process("pty-1", b"replacement session output");
+        resume_tx.send(()).unwrap();
+
+        assert!(!result_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+        old_reader.join().unwrap();
+        assert!(pty
+            .lock()
+            .session_generation_matches("pty-1", replacement_generation));
+        assert!(screen_state.lock().get_screen_text("pty-1").is_some());
+        pty.lock().kill("pty-1").expect("cleanup PTY");
     }
 }
