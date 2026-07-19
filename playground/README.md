@@ -10,6 +10,8 @@ npx vite --config playground/vite.config.ts
 
 Open `http://127.0.0.1:1431`. Vite watches every playground source file and updates the canvas with HMR.
 
+Read [MOTION_LANGUAGE.md](./MOTION_LANGUAGE.md) before adding a concept. It defines the shared physics, semantic families, and art-director rejection gate.
+
 Build the static playground with:
 
 ```powershell
