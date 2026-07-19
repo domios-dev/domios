@@ -18,14 +18,25 @@ struct ChatMsgEvent<'a> {
     pane_id: &'a str,
     messages: &'a [ChatMsg],
     cursor: Option<&'a str>,
+    source_session_id: Option<&'a str>,
+    session_binding_nonce: Option<&'a str>,
 }
 
-pub fn emit_chat_msgs(app: &AppHandle, pane_id: &str, messages: &[ChatMsg], cursor: Option<&str>) {
+pub fn emit_chat_msgs(
+    app: &AppHandle,
+    pane_id: &str,
+    messages: &[ChatMsg],
+    cursor: Option<&str>,
+    source_session_id: Option<&str>,
+    session_binding_nonce: Option<&str>,
+) {
     let event = format!("pane-chat-msg-{}", pane_id);
     let payload = ChatMsgEvent {
         pane_id,
         messages,
         cursor,
+        source_session_id,
+        session_binding_nonce,
     };
     crate::api::events::emit_everywhere(
         app,
@@ -36,16 +47,33 @@ pub fn emit_chat_msgs(app: &AppHandle, pane_id: &str, messages: &[ChatMsg], curs
 
 pub struct TauriStructuredSink {
     app: AppHandle,
+    source_session_id: Option<String>,
+    session_binding_nonce: Option<String>,
 }
 
 impl StructuredSink for TauriStructuredSink {
     fn emit(&self, pane_id: &str, messages: Vec<ChatMsg>, cursor: Option<String>) {
-        emit_chat_msgs(&self.app, pane_id, &messages, cursor.as_deref());
+        emit_chat_msgs(
+            &self.app,
+            pane_id,
+            &messages,
+            cursor.as_deref(),
+            self.source_session_id.as_deref(),
+            self.session_binding_nonce.as_deref(),
+        );
     }
 }
 
-pub fn make_sink(app: AppHandle) -> Arc<dyn StructuredSink> {
-    Arc::new(TauriStructuredSink { app })
+pub fn make_sink(
+    app: AppHandle,
+    source_session_id: Option<String>,
+    session_binding_nonce: Option<String>,
+) -> Arc<dyn StructuredSink> {
+    Arc::new(TauriStructuredSink {
+        app,
+        source_session_id,
+        session_binding_nonce,
+    })
 }
 
 /// Durable wrapper for chatBackend (shell) panes: forwards every emitted delta
@@ -113,6 +141,8 @@ fn is_already_stored_inbound(msg: &ChatMsg) -> bool {
 /// codex) and sqlite providers (opencode) share one client rendering path.
 pub struct FlattenDeltaSink {
     app: AppHandle,
+    source_session_id: Option<String>,
+    session_binding_nonce: Option<String>,
     /// Monotonic id base for providers whose rows carry no uuid; uuid-bearing
     /// rows ignore it. Seeded past the snapshot's message count so stream ids
     /// never collide with snapshot ids.
@@ -135,6 +165,8 @@ impl super::tailer::DeltaSink for FlattenDeltaSink {
             pane_id,
             messages: &out,
             cursor: None,
+            source_session_id: self.source_session_id.as_deref(),
+            session_binding_nonce: self.session_binding_nonce.as_deref(),
         };
         crate::api::events::emit_everywhere(
             &self.app,
@@ -144,9 +176,16 @@ impl super::tailer::DeltaSink for FlattenDeltaSink {
     }
 }
 
-pub fn make_flatten_sink(app: AppHandle, base_start: usize) -> Arc<dyn super::tailer::DeltaSink> {
+pub fn make_flatten_sink(
+    app: AppHandle,
+    base_start: usize,
+    source_session_id: Option<String>,
+    session_binding_nonce: Option<String>,
+) -> Arc<dyn super::tailer::DeltaSink> {
     Arc::new(FlattenDeltaSink {
         app,
+        source_session_id,
+        session_binding_nonce,
         base: std::sync::atomic::AtomicUsize::new(base_start),
     })
 }
