@@ -18,6 +18,7 @@ struct ChatMsgEvent<'a> {
     pane_id: &'a str,
     messages: &'a [ChatMsg],
     cursor: Option<&'a str>,
+    source_session_id: Option<&'a str>,
     session_binding_nonce: Option<&'a str>,
 }
 
@@ -26,6 +27,7 @@ pub fn emit_chat_msgs(
     pane_id: &str,
     messages: &[ChatMsg],
     cursor: Option<&str>,
+    source_session_id: Option<&str>,
     session_binding_nonce: Option<&str>,
 ) {
     let event = format!("pane-chat-msg-{}", pane_id);
@@ -33,6 +35,7 @@ pub fn emit_chat_msgs(
         pane_id,
         messages,
         cursor,
+        source_session_id,
         session_binding_nonce,
     };
     crate::api::events::emit_everywhere(
@@ -44,6 +47,7 @@ pub fn emit_chat_msgs(
 
 pub struct TauriStructuredSink {
     app: AppHandle,
+    source_session_id: Option<String>,
     session_binding_nonce: Option<String>,
 }
 
@@ -54,14 +58,20 @@ impl StructuredSink for TauriStructuredSink {
             pane_id,
             &messages,
             cursor.as_deref(),
+            self.source_session_id.as_deref(),
             self.session_binding_nonce.as_deref(),
         );
     }
 }
 
-pub fn make_sink(app: AppHandle, session_binding_nonce: Option<String>) -> Arc<dyn StructuredSink> {
+pub fn make_sink(
+    app: AppHandle,
+    source_session_id: Option<String>,
+    session_binding_nonce: Option<String>,
+) -> Arc<dyn StructuredSink> {
     Arc::new(TauriStructuredSink {
         app,
+        source_session_id,
         session_binding_nonce,
     })
 }
@@ -131,6 +141,7 @@ fn is_already_stored_inbound(msg: &ChatMsg) -> bool {
 /// codex) and sqlite providers (opencode) share one client rendering path.
 pub struct FlattenDeltaSink {
     app: AppHandle,
+    source_session_id: Option<String>,
     session_binding_nonce: Option<String>,
     /// Monotonic id base for providers whose rows carry no uuid; uuid-bearing
     /// rows ignore it. Seeded past the snapshot's message count so stream ids
@@ -154,6 +165,7 @@ impl super::tailer::DeltaSink for FlattenDeltaSink {
             pane_id,
             messages: &out,
             cursor: None,
+            source_session_id: self.source_session_id.as_deref(),
             session_binding_nonce: self.session_binding_nonce.as_deref(),
         };
         crate::api::events::emit_everywhere(
@@ -167,10 +179,12 @@ impl super::tailer::DeltaSink for FlattenDeltaSink {
 pub fn make_flatten_sink(
     app: AppHandle,
     base_start: usize,
+    source_session_id: Option<String>,
     session_binding_nonce: Option<String>,
 ) -> Arc<dyn super::tailer::DeltaSink> {
     Arc::new(FlattenDeltaSink {
         app,
+        source_session_id,
         session_binding_nonce,
         base: std::sync::atomic::AtomicUsize::new(base_start),
     })

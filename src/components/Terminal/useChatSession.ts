@@ -32,13 +32,21 @@ interface ChatStartResult {
   pending?: boolean;
   messages?: ChatMessage[];
   cursor?: string;
+  source_session_id: string | null;
+  session_binding_nonce: string | null;
 }
 
 interface ChatMsgEvent {
   pane_id: string;
   messages: ChatMessage[];
   cursor?: string;
-  session_binding_nonce?: string | null;
+  source_session_id: string | null;
+  session_binding_nonce: string | null;
+}
+
+interface ChatAuthority {
+  source_session_id: string | null;
+  session_binding_nonce: string | null;
 }
 
 type ChatAttachmentState = "idle" | "attaching" | "awaiting_store" | "attached" | "failed";
@@ -51,6 +59,8 @@ export interface TestChatReplyDetail {
   type?: ChatMessage["type"];
   provider?: string;
   messages?: ChatMessage[];
+  sourceSessionId?: string | null;
+  sessionBindingNonce?: string | null;
 }
 
 export interface TestChatHandle {
@@ -106,7 +116,12 @@ function nextTestChatTimestamp(): string {
 
 export function testChatReplyPayload(detail: TestChatReplyDetail): ChatMsgEvent {
   if (detail.messages) {
-    return { pane_id: detail.paneId, messages: detail.messages };
+    return {
+      pane_id: detail.paneId,
+      messages: detail.messages,
+      source_session_id: detail.sourceSessionId ?? null,
+      session_binding_nonce: detail.sessionBindingNonce ?? null,
+    };
   }
   return {
     pane_id: detail.paneId,
@@ -119,7 +134,21 @@ export function testChatReplyPayload(detail: TestChatReplyDetail): ChatMsgEvent 
         provider: detail.provider ?? "test",
       },
     ],
+    source_session_id: detail.sourceSessionId ?? null,
+    session_binding_nonce: detail.sessionBindingNonce ?? null,
   };
+}
+
+function currentAuthority(sourceSessionId: string | null, sessionBindingNonce: string | null | undefined): ChatAuthority {
+  return {
+    source_session_id: sourceSessionId,
+    session_binding_nonce: sessionBindingNonce ?? null,
+  };
+}
+
+function authorityMatches(left: ChatAuthority, right: ChatAuthority): boolean {
+  return left.source_session_id === right.source_session_id
+    && left.session_binding_nonce === right.session_binding_nonce;
 }
 
 export function installCodeTermTestChatHandle(testMode = isCodeTermFrontendTestMode()): void {
@@ -267,11 +296,13 @@ export function useChatSession({
   const [optimistic, setOptimistic] = useState<ChatMessage[]>([]);
   const onErrorRef = useRef(onError);
   const nextClientOrderRef = useRef(0);
+  const activeRef = useRef(active);
   const agentSessionIdRef = useRef(agentSessionId);
   const sessionBindingNonceRef = useRef(sessionBindingNonce);
   const attachmentSourceSessionIdRef = useRef(agentSessionId);
   const previousSessionIdRef = useRef(agentSessionId);
   const previousBindingNonceRef = useRef(sessionBindingNonce);
+  const rotationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lifecycleRef = useRef(0);
   const knownPaneIdRef = useRef<string | null>(null);
   const attachmentStateRef = useRef(attachmentState);
@@ -286,6 +317,7 @@ export function useChatSession({
     onErrorRef.current = onError;
   }, [onError]);
 
+  activeRef.current = active;
   agentSessionIdRef.current = agentSessionId;
   sessionBindingNonceRef.current = sessionBindingNonce;
   attachmentStateRef.current = attachmentState;
@@ -294,6 +326,11 @@ export function useChatSession({
   useEffect(() => {
     setOptimistic([]);
   }, [paneId]);
+
+  const clearRotationTimer = useCallback(() => {
+    if (rotationTimerRef.current) clearTimeout(rotationTimerRef.current);
+    rotationTimerRef.current = null;
+  }, []);
 
   const requestAttach = useCallback(() => {
     const nextSessionId = agentSessionIdRef.current;
@@ -311,10 +348,11 @@ export function useChatSession({
   }, []);
 
   const markAttached = useCallback(() => {
+    clearRotationTimer();
     setAttachmentState("attached");
     setRecovering(false);
     setLoading(false);
-  }, []);
+  }, [clearRotationTimer]);
 
   useEffect(() => {
     if (!active) {
@@ -341,10 +379,10 @@ export function useChatSession({
           `pane-chat-msg-${paneId}`,
           (ev) => {
             if (lifecycleRef.current !== lifecycle) return;
-            if (
-              sessionBindingNonceRef.current == null
-              || ev.payload.session_binding_nonce !== sessionBindingNonceRef.current
-            ) return;
+            if (!authorityMatches(
+              ev.payload,
+              currentAuthority(agentSessionIdRef.current, sessionBindingNonceRef.current),
+            )) return;
             applyChatMsgEvent(ev.payload, paneId, setStructured, nextClientOrder, attachmentSourceSessionIdRef.current);
             if (attachmentStateRef.current !== "attached") markAttached();
           },
@@ -367,18 +405,19 @@ export function useChatSession({
     })();
     return () => {
       lifecycleRef.current += 1;
+      clearRotationTimer();
       unlisten?.();
       unlistenTest?.();
       setListenerReady(false);
       void invoke("chat_stop", { paneId }).catch(() => {});
     };
-  }, [active, markAttached, nextClientOrder, paneId]);
+  }, [active, clearRotationTimer, markAttached, nextClientOrder, paneId]);
 
   useEffect(() => {
     if (!active || !listenerReady) return;
     const lifecycle = lifecycleRef.current;
     const generation = attachGeneration;
-    const sourceSessionId = attachmentSourceSessionIdRef.current;
+    const requestAuthority = currentAuthority(agentSessionIdRef.current, sessionBindingNonceRef.current);
     let cancelled = false;
     (async () => {
       try {
@@ -387,6 +426,10 @@ export function useChatSession({
           agentSessionId: agentSessionIdRef.current,
         });
         if (cancelled || lifecycleRef.current !== lifecycle || attachGenerationRef.current !== generation) return;
+        if (!authorityMatches(res, requestAuthority) || !authorityMatches(
+          res,
+          currentAuthority(agentSessionIdRef.current, sessionBindingNonceRef.current),
+        )) return;
         setError(null);
         setLoading(false);
         if (res.pending) {
@@ -401,7 +444,7 @@ export function useChatSession({
         markAttached();
         setStructured((prev) => mergeById(
           prev ?? [],
-          withPreservedClientOrder(res.messages ?? [], prev ?? [], nextClientOrder, sourceSessionId),
+          withPreservedClientOrder(res.messages ?? [], prev ?? [], nextClientOrder, res.source_session_id),
         ));
       } catch (e) {
         if (cancelled || lifecycleRef.current !== lifecycle || attachGenerationRef.current !== generation) return;
@@ -428,7 +471,11 @@ export function useChatSession({
       || !active
       || !listenerReady
     ) return;
-    requestAttach();
+    if (rotationTimerRef.current) return;
+    rotationTimerRef.current = setTimeout(() => {
+      rotationTimerRef.current = null;
+      if (activeRef.current) requestAttach();
+    }, 0);
   }, [active, agentSessionId, listenerReady, requestAttach, sessionBindingNonce]);
 
   const retry = useCallback(() => {

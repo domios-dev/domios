@@ -214,6 +214,21 @@ pub struct ChatStartResult {
     pub messages: Option<Vec<crate::agent::chat_types::ChatMsg>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
+    pub source_session_id: Option<String>,
+    pub session_binding_nonce: Option<String>,
+}
+
+fn pane_chat_authority(svc: &ServiceState, pane_id: &str) -> (Option<String>, Option<String>) {
+    svc.mux
+        .read()
+        .get_pane(pane_id)
+        .map(|pane| {
+            (
+                pane.agent_session_id.clone(),
+                pane.session_binding_nonce.clone(),
+            )
+        })
+        .unwrap_or((None, None))
 }
 
 #[tauri::command]
@@ -261,6 +276,7 @@ fn prepend_pending_greeting(
 
 pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartResult, String> {
     let started = std::time::Instant::now();
+    let initial_authority = pane_chat_authority(svc, &pane_id);
     if svc.pane_chat_backing(&pane_id).is_some() {
         let (messages, _total) =
             crate::service::pane_chat::pane_chat_snapshot(svc, &pane_id, 0).unwrap_or_default();
@@ -271,6 +287,8 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             pending: false,
             messages: Some(prepend_pending_greeting(svc, &pane_id, messages)),
             cursor: None,
+            source_session_id: initial_authority.0,
+            session_binding_nonce: initial_authority.1,
         });
     }
     let (provider_id, cwd, mut session_id, mux_ms) = {
@@ -294,6 +312,8 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
                         ..Default::default()
                     }]),
                     cursor: None,
+                    source_session_id: None,
+                    session_binding_nonce: pane.session_binding_nonce.clone(),
                 });
             }
             return Ok(ChatStartResult {
@@ -303,6 +323,8 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
                 pending: true,
                 messages: None,
                 cursor: None,
+                source_session_id: None,
+                session_binding_nonce: pane.session_binding_nonce.clone(),
             });
         };
         (provider, cwd, sid, t.elapsed().as_millis())
@@ -366,6 +388,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
         if !svc.chat_registry.acquire(&pane_id, &session_id) {
             let sink = crate::service::pane_chat::structured_sink::make_sink(
                 svc.app_handle.clone(),
+                Some(session_id.clone()),
                 session_binding_nonce.clone(),
             );
             let handle = crate::service::pane_chat::spawn_structured_poller(
@@ -390,6 +413,8 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             pending: false,
             messages: Some(prepend_pending_greeting(svc, &pane_id, delta.messages)),
             cursor,
+            source_session_id: Some(session_id.clone()),
+            session_binding_nonce: session_binding_nonce.clone(),
         });
     }
 
@@ -409,6 +434,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             let sink = crate::service::pane_chat::structured_sink::make_flatten_sink(
                 svc.app_handle.clone(),
                 0,
+                Some(session_id.clone()),
                 session_binding_nonce.clone(),
             );
             let handle = crate::service::pane_chat::spawn_store_watch(
@@ -433,6 +459,8 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             pending: true,
             messages: None,
             cursor: None,
+            source_session_id: Some(session_id.clone()),
+            session_binding_nonce: session_binding_nonce.clone(),
         });
     };
     let total = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
@@ -459,6 +487,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
         let sink = crate::service::pane_chat::structured_sink::make_flatten_sink(
             svc.app_handle.clone(),
             msg_count,
+            Some(session_id.clone()),
             session_binding_nonce,
         );
         let handle = crate::service::pane_chat::spawn_tailer(
@@ -501,6 +530,8 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
         pending: false,
         messages: Some(prepend_pending_greeting(svc, &pane_id, messages)),
         cursor: None,
+        source_session_id: Some(session_id),
+        session_binding_nonce,
     })
 }
 
@@ -565,6 +596,8 @@ pub fn session_transcript(
         pending: false,
         messages: Some(messages),
         cursor: None,
+        source_session_id: Some(session_id),
+        session_binding_nonce: None,
     })
 }
 
