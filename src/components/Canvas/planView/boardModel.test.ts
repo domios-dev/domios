@@ -137,12 +137,13 @@ test("groupTasksIntoColumns folds paused tasks into pending column", () => {
   assert(pending.cards.filter((card) => card.task.status === TaskStatus.Paused).length === 2, "paused visible in pending");
 });
 
-test("groupTasksIntoColumns places tasks by status and sorts freshest first", () => {
+test("groupTasksIntoColumns places tasks by status in planned execution order", () => {
   const plan: Plan = {
     ...FIXTURE_PLAN,
     tasks: [
-      task({ id: "old", status: TaskStatus.Pending, status_changed_at: 1 }),
-      task({ id: "new", status: TaskStatus.Pending, status_changed_at: 99 }),
+      task({ id: "later", status: TaskStatus.Pending, created_at: 20, status_changed_at: 1 }),
+      task({ id: "first", status: TaskStatus.Pending, created_at: 10, status_changed_at: 99 }),
+      task({ id: "unsequenced", status: TaskStatus.Pending, created_at: undefined }),
       task({ id: "live", status: TaskStatus.InProgress, assigned_pane_id: "pane-worker" }),
       task({ id: "gone", status: TaskStatus.Cancelled }),
     ],
@@ -150,7 +151,10 @@ test("groupTasksIntoColumns places tasks by status and sorts freshest first", ()
   const { columns, cancelledCount } = groupTasksIntoColumns(plan, PANES);
   assert(cancelledCount === 1, "cancelled tracked");
   const pending = columns.find((c) => c.key === "pending")!;
-  assert(pending.cards.map((c) => c.task.id).join(",") === "new,old", "pending sort");
+  assert(
+    pending.cards.map((c) => c.task.id).join(",") === "first,later,unsequenced",
+    "created order wins over recent activity, with unsequenced tasks last",
+  );
   const live = columns.find((c) => c.key === "in_progress")!;
   assert(live.cards[0]?.presenceLabel === "Puccini", "presence from pane title");
   assert(!live.cards[0]?.historicalExecutorSummary, "active task has no historical summary");
@@ -218,7 +222,7 @@ test("buildBoardPlanModel wires spec + columns", () => {
   assert(model.columns.find((c) => c.key === "blocked")?.cards[0]?.task.name === "Blocked lane", "blocked card");
 });
 
-test("boundDoneColumnCards keeps newest N when collapsed", () => {
+test("boundDoneColumnCards preserves the column sequence when collapsed", () => {
   const cards = Array.from({ length: 8 }, (_, i) =>
     task({ id: `done-${i}`, status: TaskStatus.Done, status_changed_at: 100 - i }),
   ).map(doneCard);
@@ -226,7 +230,7 @@ test("boundDoneColumnCards keeps newest N when collapsed", () => {
   assert(collapsed.total === 8, "total count");
   assert(collapsed.hidden === 3, `hidden=${collapsed.hidden}`);
   assert(collapsed.visible.length === DONE_COLUMN_COLLAPSED_LIMIT, "visible capped");
-  assert(collapsed.visible[0]?.task.id === "done-0", "newest first");
+  assert(collapsed.visible.map((card) => card.task.id).join(",") === "done-0,done-1,done-2,done-3,done-4", "sequence preserved");
 
   const expanded = boundDoneColumnCards(cards, true);
   assert(expanded.visible.length === 8 && expanded.hidden === 0, "expanded shows all");
