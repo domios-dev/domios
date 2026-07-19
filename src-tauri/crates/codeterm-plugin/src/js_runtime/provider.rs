@@ -265,6 +265,7 @@ fn launch_params_to_json(p: &AgentLaunchParams) -> Value {
         "agentName": p.agent_name,
         "task": p.task,
         "starterPrompt": p.starter_prompt,
+        "starterPromptText": p.starter_prompt.host_text(),
         "args": p.args,
         "skipPermissions": p.skip_permissions,
         "sessionId": p.session_id,
@@ -295,7 +296,10 @@ impl AgentProvider for JsProvider {
     }
 
     fn starter_prompt_text(&self, prompt: crate::provider::StarterPrompt) -> Option<String> {
-        self.try_call::<String>("starterPromptText", &[json!(prompt)])
+        prompt
+            .host_text()
+            .map(str::to_owned)
+            .or_else(|| self.try_call::<String>("starterPromptText", &[json!(prompt)]))
     }
 
     fn readiness_strategy(&self) -> ReadinessStrategy {

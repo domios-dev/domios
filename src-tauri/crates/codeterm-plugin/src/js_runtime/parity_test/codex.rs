@@ -81,15 +81,25 @@ fn idle_starter_case() {
         starter_prompt: crate::provider::StarterPrompt::IdleWakeup,
         ..Default::default()
     });
+    let team = provider.build_launch_command(&AgentLaunchParams {
+        task: Some(task.into()),
+        starter_prompt: crate::provider::StarterPrompt::TeamBootstrap,
+        ..Default::default()
+    });
     let assigned_prompt = provider
         .starter_prompt_text(crate::provider::StarterPrompt::AssignedTask)
         .expect("Codex plugin must provide the assigned-task starter");
     let idle_prompt = provider
         .starter_prompt_text(crate::provider::StarterPrompt::IdleWakeup)
         .expect("Codex plugin must provide the idle starter");
+    let team_prompt = provider
+        .starter_prompt_text(crate::provider::StarterPrompt::TeamBootstrap)
+        .expect("Codex plugin must provide the team starter");
     assert!(assigned.contains(&assigned_prompt));
     assert!(idle.contains(&idle_prompt));
     assert!(!idle.contains(&assigned_prompt));
+    assert!(team.contains(&team_prompt));
+    assert!(!team.contains(&assigned_prompt));
 }
 
 #[test]

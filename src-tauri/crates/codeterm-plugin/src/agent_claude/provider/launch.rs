@@ -12,6 +12,9 @@ pub(super) fn starter_prompt_text(prompt: crate::provider::StarterPrompt) -> &'s
     match prompt {
         crate::provider::StarterPrompt::AssignedTask => ASSIGNED_TASK_START_PROMPT,
         crate::provider::StarterPrompt::IdleWakeup => IDLE_WAKEUP_START_PROMPT,
+        crate::provider::StarterPrompt::TeamBootstrap => {
+            crate::prompts::TEAM_BOOTSTRAP_STARTER.trim()
+        }
     }
 }
 
@@ -137,6 +140,14 @@ mod tests {
         assert_eq!(
             starter_prompt_text(params.starter_prompt),
             IDLE_WAKEUP_START_PROMPT
+        );
+    }
+
+    #[test]
+    fn team_manager_starter_names_the_host_context() {
+        assert_eq!(
+            starter_prompt_text(crate::provider::StarterPrompt::TeamBootstrap),
+            crate::prompts::TEAM_BOOTSTRAP_STARTER.trim()
         );
     }
 

@@ -40,7 +40,12 @@ var TUI_FRAGMENTS = ["tab agents", "ctrl+p commands"];
 var ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the configured instructions.";
 var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
 function starterPrompt(params) {
-  return params.starterPrompt === "idle_wakeup" ? IDLE_WAKEUP_START_PROMPT : ASSIGNED_TASK_START_PROMPT;
+  if (params.starterPrompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
+  if (params.starterPrompt === "team_bootstrap") {
+    if (!params.starterPromptText) throw new Error("team_bootstrap requires host starterPromptText");
+    return params.starterPromptText;
+  }
+  return ASSIGNED_TASK_START_PROMPT;
 }
 var QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
 var QUESTION_MENU_SELECTORS = [">", "\u276F", "\u25B6", "\u27A4", "\u2192", "\u25CF"];
@@ -48,7 +53,7 @@ var PICKER_TITLE_RE = /^(Select model|Connect a provider)\b.*\besc\b/i;
 var lastPromptShape = "horizontal";
 var plugin = {
   starterPromptText(prompt) {
-    return prompt === "idle_wakeup" ? IDLE_WAKEUP_START_PROMPT : ASSIGNED_TASK_START_PROMPT;
+    return prompt === "team_bootstrap" ? void 0 : starterPrompt({ starterPrompt: prompt });
   },
   detectFromTitle(title) {
     return TITLE_RE.test(String(title || ""));

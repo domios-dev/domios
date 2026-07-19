@@ -612,11 +612,16 @@ var TUI_FRAGMENTS = ["openai codex", "ctrl+c to cancel"];
 var ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the provided developer instructions.";
 var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
 function starterPrompt(params) {
-  return params.starterPrompt === "idle_wakeup" ? IDLE_WAKEUP_START_PROMPT : ASSIGNED_TASK_START_PROMPT;
+  if (params.starterPrompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
+  if (params.starterPrompt === "team_bootstrap") {
+    if (!params.starterPromptText) throw new Error("team_bootstrap requires host starterPromptText");
+    return params.starterPromptText;
+  }
+  return ASSIGNED_TASK_START_PROMPT;
 }
 var plugin = {
   starterPromptText(prompt) {
-    return prompt === "idle_wakeup" ? IDLE_WAKEUP_START_PROMPT : ASSIGNED_TASK_START_PROMPT;
+    return prompt === "team_bootstrap" ? void 0 : starterPrompt({ starterPrompt: prompt });
   },
   detectFromTitle(title) {
     return TITLE_RE.test(String(title || ""));

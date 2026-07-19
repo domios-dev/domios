@@ -118,6 +118,10 @@ console.log("\n--- discoverModels ---\n");
   const idle = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "idle_wakeup" });
   assert(idle.includes("You are a newly started agent. Wait for instructions from the user or your orchestration parent."), "OpenCode uses the non-actionable idle wake-up starter");
   assert(!idle.includes("Execute the assigned task."), "OpenCode idle launch never uses the task starter");
+  const teamText = "host-owned team bootstrap";
+  const team = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "team_bootstrap", starterPromptText: teamText });
+  assert(team.includes(teamText), "OpenCode team launch uses the host-owned starter text");
+  eq(p.starterPromptText?.("team_bootstrap"), undefined, "OpenCode does not duplicate the team starter");
 }
 
 {

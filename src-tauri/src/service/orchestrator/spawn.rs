@@ -19,12 +19,21 @@ pub(crate) fn resolved_effort_provenance(requested: Option<String>) -> Reasoning
 }
 
 fn prepare_manager_bootstrap(params: &mut SpawnAgentParams) -> Option<String> {
+    let has_assignment = params
+        .task
+        .as_deref()
+        .is_some_and(|task| !task.trim().is_empty());
     let bootstrap = params.manager_bootstrap.as_ref()?.compose();
     params.task = Some(match params.task.take() {
-        Some(task) => format!("{bootstrap}\n\n{task}"),
+        Some(task) if !task.trim().is_empty() => format!("{bootstrap}\n\n{task}"),
         None => bootstrap.clone(),
+        Some(_) => bootstrap.clone(),
     });
-    params.starter_prompt = crate::agent::provider::StarterPrompt::AssignedTask;
+    params.starter_prompt = if has_assignment {
+        crate::agent::provider::StarterPrompt::AssignedTask
+    } else {
+        crate::agent::provider::StarterPrompt::TeamBootstrap
+    };
     Some(bootstrap)
 }
 
@@ -793,7 +802,7 @@ mod hierarchy_defaults_tests {
     }
 
     #[test]
-    fn manager_bootstrap_is_one_assigned_launch_turn_with_coordination() {
+    fn idle_manager_bootstrap_is_one_team_launch_turn_with_coordination() {
         let coordination = "Your Planner counterpart is Euler (pane planner-1).";
         let mut params = SpawnAgentParams {
             manager_bootstrap: Some(crate::service::role_identity::ManagerBootstrapInputs {
@@ -810,10 +819,34 @@ mod hierarchy_defaults_tests {
         let bootstrap = prepare_manager_bootstrap(&mut params).unwrap();
         assert_eq!(
             params.starter_prompt,
-            crate::agent::provider::StarterPrompt::AssignedTask
+            crate::agent::provider::StarterPrompt::TeamBootstrap
         );
         assert_eq!(params.task.as_deref(), Some(bootstrap.as_str()));
         assert_eq!(bootstrap.matches(coordination).count(), 1);
+    }
+
+    #[test]
+    fn assigned_manager_bootstrap_keeps_the_assigned_task_starter() {
+        let mut params = SpawnAgentParams {
+            task: Some("Audit the delivery path.".into()),
+            manager_bootstrap: Some(crate::service::role_identity::ManagerBootstrapInputs {
+                role: "Orchestrator".into(),
+                team_id: "team-1".into(),
+                team_name: "Delivery".into(),
+                plan_id: "plan-1".into(),
+                project: "CodeTerm".into(),
+                coordination: None,
+            }),
+            ..Default::default()
+        };
+
+        let bootstrap = prepare_manager_bootstrap(&mut params).unwrap();
+        let expected = format!("{bootstrap}\n\nAudit the delivery path.");
+        assert_eq!(
+            params.starter_prompt,
+            crate::agent::provider::StarterPrompt::AssignedTask
+        );
+        assert_eq!(params.task.as_deref(), Some(expected.as_str()));
     }
 
     // No agent cwd and no workspace cwd must still pin a concrete dir (the

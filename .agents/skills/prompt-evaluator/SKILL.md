@@ -166,6 +166,7 @@ Tips for writing good evals:
 - `evals/mem-recall/` — mem search engine quality (Recall@K / MRR / latency).
 - `evals/dreaming/` — REM-phase prompt — Stage A.1 hub decomposition with RED ZONE rule + Stage A.2 island bridging.
 - `evals/session-restore/` — kill+restart preserves workspace/pane/agent_type/titles.
+- `evals/manager-bootstrap/` — single-turn team bootstrap reads host role context and does not invent work.
 
 Experimental/historical: `evals/dreamer-repair/`, `evals/seeds/`, `evals/v1_1_23_e2e/`.
 
