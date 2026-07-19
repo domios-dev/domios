@@ -10,6 +10,7 @@ import { expect, test } from "../../helpers/fixtures";
 import type { ApiClient } from "../../helpers/api-client";
 import {
   assertRealTemplateSpawn,
+  expectRealSpawnIdle,
   expectFreshAssistantReply,
 } from "../../helpers/real-spawn-smoke";
 
@@ -79,12 +80,18 @@ test("@live real orchestration-pair template spawn materializes both providers a
   expect(plannerStatus.parent_pane_id).toBe(pair.orchestrator_pane_id);
   expect(plannerStatus.role).toBe("Manager");
 
-  for (const paneId of [pair.orchestrator_pane_id, pair.planner_pane_id]) {
-    const status = await api.get<Record<string, unknown>>(
-      `/panes/${paneId}/status`,
-    );
-    expect(status.status, `taskless manager ${paneId} stays idle`).toBe("Idle");
-  }
+  await Promise.all([
+    expectRealSpawnIdle(api, ui.page, {
+      paneId: pair.orchestrator_pane_id,
+      provider: "claude",
+      label: "Orchestrator",
+    }),
+    expectRealSpawnIdle(api, ui.page, {
+      paneId: pair.planner_pane_id,
+      provider: "claude",
+      label: "Planner",
+    }),
+  ]);
 
   const orchestratorText = await paneText(api, pair.orchestrator_pane_id);
   expect(orchestratorText).not.toContain(
