@@ -684,17 +684,21 @@ impl ServiceContext {
         drop(mux);
         if session_bound {
             crate::service::general_agent::binding_wait::notify_session_bound();
-            let nonce = self
-                .mux
-                .read()
-                .get_pane(pane_id)
-                .and_then(|pane| pane.session_binding_nonce.clone());
-            crate::service::orchestrator::record_provider_session(self, pane_id, nonce.as_deref());
         }
         self.bind_planner_session(pane_id);
     }
 
-    /// Per-launch binding nonce for a pane, generated once and reused. Injected as CODETERM_SESSION_BINDING_NONCE so a provider's session-start report can prove it owns this pane; a report carrying a different nonce is a stale/foreign claim and gets rejected.
+    /// Rotate the per-launch binding nonce before a provider command is written.
+    pub fn rotate_session_binding_nonce(&self, pane_id: &str) -> String {
+        let nonce = uuid::Uuid::new_v4().to_string();
+        if let Some(pane) = self.mux.write().get_pane_mut(pane_id) {
+            pane.session_binding_nonce = Some(nonce.clone());
+            pane.reported_session_binding_nonce = None;
+        }
+        nonce
+    }
+
+    /// Per-launch binding nonce for a pane. Injected as CODETERM_SESSION_BINDING_NONCE so a provider's session-start report can prove it owns this pane; a report carrying a different nonce is a stale/foreign claim and gets rejected.
     pub fn ensure_session_binding_nonce(&self, pane_id: &str) -> String {
         let mut mux = self.mux.write();
         if let Some(pane) = mux.get_pane_mut(pane_id) {
