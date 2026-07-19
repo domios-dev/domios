@@ -897,6 +897,10 @@ fn planner_unpaired_warns_when_orchestrator_bound_without_planner() {
         .find(|f| f.kind == "planner_unpaired")
         .expect("expected planner_unpaired finding");
     assert_eq!(finding.severity, "warning");
+    assert!(finding.fix.contains("agent spawn <provider>"));
+    assert!(finding.fix.contains("[--model <model>]"));
+    assert!(!finding.fix.contains("agent spawn claude"));
+    assert!(!finding.fix.contains("fable"));
 }
 
 #[test]
