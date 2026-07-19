@@ -37,6 +37,91 @@ pub struct MeshManager {
 }
 
 impl MeshManager {
+    pub fn confirm_pairing_target_identity(
+        &mut self,
+        request_id: &str,
+        remote_instance_id: &str,
+    ) -> Result<(), String> {
+        uuid::Uuid::parse_str(remote_instance_id)
+            .map_err(|_| "Peer returned an invalid instance identity".to_string())?;
+
+        let expected_id = self
+            .pairing_targets
+            .get(request_id)
+            .map(|(_, _, id)| id.clone())
+            .ok_or_else(|| "Pairing target no longer exists".to_string())?;
+        self.reject_untrusted_pairing_identity(remote_instance_id)?;
+        if expected_id == remote_instance_id {
+            return Ok(());
+        }
+
+        let is_manual = self
+            .discovered_peers
+            .get(&expected_id)
+            .is_some_and(|peer| peer.discovery_method == types::DiscoveryMethod::Manual);
+        if !is_manual {
+            return Err(format!(
+                "Peer identity mismatch: expected {}, got {}",
+                expected_id, remote_instance_id
+            ));
+        }
+        if self.discovered_peers.contains_key(remote_instance_id) {
+            return Err(format!(
+                "Peer identity conflicts with an existing discovery: {}",
+                remote_instance_id
+            ));
+        }
+
+        let mut peer = self
+            .discovered_peers
+            .remove(&expected_id)
+            .ok_or_else(|| "Manual peer placeholder no longer exists".to_string())?;
+        peer.instance_id = remote_instance_id.to_string();
+        self.discovered_peers
+            .insert(remote_instance_id.to_string(), peer);
+        if let Some((_, _, target_id)) = self.pairing_targets.get_mut(request_id) {
+            *target_id = remote_instance_id.to_string();
+        }
+        Ok(())
+    }
+
+    pub fn validate_pairing_accept_identity(
+        &self,
+        request_id: &str,
+        remote_instance_id: &str,
+    ) -> Result<(), String> {
+        uuid::Uuid::parse_str(remote_instance_id)
+            .map_err(|_| "Peer returned an invalid instance identity".to_string())?;
+        let expected_id = self
+            .pairing_targets
+            .get(request_id)
+            .map(|(_, _, id)| id.as_str())
+            .ok_or_else(|| "Pairing target no longer exists".to_string())?;
+        if expected_id != remote_instance_id {
+            return Err(format!(
+                "Peer identity mismatch: expected {}, got {}",
+                expected_id, remote_instance_id
+            ));
+        }
+        self.reject_untrusted_pairing_identity(remote_instance_id)
+    }
+
+    fn reject_untrusted_pairing_identity(&self, remote_instance_id: &str) -> Result<(), String> {
+        if remote_instance_id == self.ident.identity.instance_id {
+            return Err("Cannot pair with this CodeTerm instance".to_string());
+        }
+        if self.paired_peers.contains_key(remote_instance_id) {
+            return Err("Peer is already paired".to_string());
+        }
+        if self.is_blocked(remote_instance_id) {
+            return Err("Peer identity is blocked".to_string());
+        }
+        if self.is_revoked(remote_instance_id) {
+            return Err("Peer identity is revoked".to_string());
+        }
+        Ok(())
+    }
+
     pub fn new(instance_name: String, api_port: u16) -> Self {
         let identity = peers::load_or_create_identity();
         let paired_peers = peers::load_peers();
@@ -507,6 +592,9 @@ fn prev_addrs_equal(a: &[types::PeerAddress], b: &[types::PeerAddress]) -> bool 
         .zip(b.iter())
         .all(|(x, y)| x.ip == y.ip && x.is_tailscale == y.is_tailscale)
 }
+
+#[cfg(test)]
+mod identity_tests;
 
 #[cfg(test)]
 mod liveness_tests {
