@@ -261,7 +261,7 @@ pub struct WatcherSpec {
 
 - [ ] **Step 1: Failing tests** — given a fixture mux state (orchestrator O with children: planner P, watcher W (self), watcher W2, workers A/B), `build_observation(mux, w_pane_id, &config)` returns JSON containing O, P, A, B with `{pane_id, title, role, role_profile, status, last_activity_ms}` and NOT W or W2; `chatTail: 2` attaches last 2 parsed messages per included pane; group resolution walks `parent_pane_id` up to the orchestrator.
 - [ ] **Step 2: Verify fail** — `./build.sh test -- watcher::observe`. 
-- [ ] **Step 3: Implement** — group = orchestrator (via parent chain) + all its descendants; exclude self + any pane with `role_profile == Some("watcher")`; statuses from the pane status tracker; chat tails via the parsed-chat service (same source as `codeterm pane chat`); reports from the report store addressed to the orchestrator. **Lock discipline:** snapshot mux state under the lock into plain structs, drop the guard, then do chat-tail/report reads — mux is lock #1, never hold it across other subsystem calls.
+- [ ] **Step 3: Implement** — group = orchestrator (via parent chain) + all its descendants; exclude self + any tab with `role_profile == Some("watcher")`; statuses from the tab status tracker; chat tails via the parsed-chat service (same source as `codeterm tab chat`); reports from the report store addressed to the orchestrator. **Lock discipline:** snapshot mux state under the lock into plain structs, drop the guard, then do chat-tail/report reads — mux is lock #1, never hold it across other subsystem calls.
 - [ ] **Step 4: Verify pass. Step 5: Commit** — `git commit -m "feat(watcher): observation snapshot builder (group minus self and other watchers)"`
 
 ### Task 8: Verdict parse + action guardrails
@@ -400,7 +400,7 @@ export function assembleMachine(
 - Create: `evals/watcher-health/` — `README.md` + `run.sh` (source `evals/_lib/lib.sh`, use `dc` only — never bare `codeterm`)
 - Modify: `docs/PLUGINS.md` (chatBackend section, lines ~198-273), `docs/API.md` (bump `<!-- revision: N -->` in both)
 
-- [ ] **Step 1: Bench script** — against dev (7686): create workspace → spawn orchestrator (claude) + one worker with a trivial stalling task → install dev-built lmstudio plugin → spawn watcher (`--role Watcher --charter charter:watcher-orchestration --interval 30s --parent <orch>`) → wait 2 intervals → assert via `dc pane chat --pane <watcher>`: context card, verdict message present; assert orchestrator received ≤1 watcher-marked nudge (cooldown holds across the 2nd tick). Requires LM Studio running locally with a loaded model; script degrades to SKIP with a clear message when `curl -s localhost:1234/api/v1/models` fails.
+- [ ] **Step 1: Bench script** — against dev (7686): create workspace → spawn orchestrator (claude) + one worker with a trivial stalling task → install dev-built lmstudio plugin → spawn watcher (`--role Watcher --charter charter:watcher-orchestration --interval 30s --parent <orch>`) → wait 2 intervals → assert via `dc tab chat --tab <watcher>`: context card, verdict message present; assert orchestrator received ≤1 watcher-marked nudge (cooldown holds across the 2nd tick). Requires LM Studio running locally with a loaded model; script degrades to SKIP with a clear message when `curl -s localhost:1234/api/v1/models` fails.
 - [ ] **Step 2: Run it** — `evals/watcher-health/run.sh`; iterate until green. This is the acceptance-criteria oracle (spec §Acceptance 1-3).
 - [ ] **Step 3: Host docs** — PLUGINS.md: engine/mode/`watcherTick`/verdict contract + manifest flag; API.md: spawn params additions. Bump revisions.
 - [ ] **Step 4: Commit** — `git commit -m "feat(watcher): e2e health-watch bench + docs"`
@@ -421,3 +421,5 @@ export function assembleMachine(
 - [ ] No `single_message` remnants — the one-shot concept ships as the `machine` engine.
 - [ ] `codeterm send` into a watcher rejected at ONE seam (transport), not scattered.
 - [ ] Verdict tolerance host-side only; plugin never validates JSON (keeps future plugins thin).
+
+<!-- revision: 1 -->

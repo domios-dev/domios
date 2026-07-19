@@ -9,7 +9,7 @@
 #
 # On failure, emits BLOCKED step=<name> err=<short> with prose detail.
 #
-# Spawn from the orchestrator pane with something like:
+# Spawn from the orchestrator tab with something like:
 #   codeterm agent spawn claude --task "bash .agents/skills/github-release/scripts/win-release.sh 1.3.3"
 # The agent then dispatches stdout into `codeterm agent report` so the parent
 # orchestrator parses the first line as a structured event.
@@ -31,7 +31,7 @@ cd "$REPO_ROOT"
 fail() {
   local step="$1" msg="$2"
   report_blocked "$step" "$msg" <<EOF
-Windows release worker failed on v$VER. See pane stderr above for full logs.
+Windows release worker failed on v$VER. See tab stderr above for full logs.
 Repo root: $REPO_ROOT
 EOF
   exit 1

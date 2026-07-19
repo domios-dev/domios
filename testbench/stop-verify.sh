@@ -8,7 +8,7 @@
 #     growing (ESC didn't halt the agent — the "1500ms illusion" the code warns about).
 #
 # Pure /api/*, macOS, no DOM. Use a DISPOSABLE dev pane.
-#   testbench/stop-verify.sh --pane <id> [--mode stop|esc] [--prompt TEXT]
+#   testbench/stop-verify.sh --tab <id> [--mode stop|esc] [--prompt TEXT]
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; cd "$ROOT"
 TOKEN=$(/usr/bin/python3 -c "import re;print(re.search(r'token\s*=\s*\"([^\"]+)\"',open('$HOME/.codeterm-dev/config.toml').read()).group(1))")
@@ -19,8 +19,8 @@ nowms(){ /usr/bin/python3 -c 'import time;print(int(time.time()*1000))'; }
 sleepms(){ /usr/bin/python3 -c "import time;time.sleep($1/1000)"; }
 
 PANE=""; MODE="stop"; PROMPT="Write a 600-word essay about the history of computer terminals, in full detail."
-while [ "$#" -gt 0 ]; do case "$1" in --pane) PANE="$2"; shift 2;; --mode) MODE="$2"; shift 2;; --prompt) PROMPT="$2"; shift 2;; *) echo "unknown $1"; exit 2;; esac; done
-[ -n "$PANE" ] || { echo "need --pane <id>"; exit 2; }
+while [ "$#" -gt 0 ]; do case "$1" in --tab) PANE="$2"; shift 2;; --mode) MODE="$2"; shift 2;; --prompt) PROMPT="$2"; shift 2;; *) echo "unknown $1"; exit 2;; esac; done
+[ -n "$PANE" ] || { echo "need --tab <id>"; exit 2; }
 
 state(){ get /api/panes | /usr/bin/python3 -c "import sys,json;d=json.load(sys.stdin);print(next(((p.get('agent_state') or {}).get('state') for p in d if p['id']=='$PANE'),'?'))"; }
 outlen(){ get "/api/panes/$PANE/output?full=true" | /usr/bin/python3 -c "import sys,json;print(len(json.load(sys.stdin).get('output','')))"; }

@@ -5,7 +5,7 @@ pub enum DelayedAction {
     /// List delayed messages for a tab
     List {
         /// Target tab ID (default: $CODETERM_PANE_ID or focused tab)
-        #[arg(long = "tab")]
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
     },
 
@@ -15,7 +15,7 @@ pub enum DelayedAction {
         text: Option<String>,
 
         /// Target tab ID (default: $CODETERM_PANE_ID or focused tab)
-        #[arg(long = "tab")]
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
 
         /// Relative delay: 45s, 10m, 1h30m, 2d. Bare number means minutes.

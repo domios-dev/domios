@@ -222,7 +222,7 @@ pub enum PlanAction {
         #[arg(long)]
         set: String,
         /// Planner tab id advancing the state (records author as planner; omit = user).
-        #[arg(long = "tab")]
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         note: Option<String>,

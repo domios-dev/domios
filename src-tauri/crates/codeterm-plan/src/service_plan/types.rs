@@ -144,7 +144,7 @@ impl fmt::Display for PlanError {
             ),
             PlanError::InProgressRequiresPane => write!(
                 f,
-                "in_progress requires an executor pane; set both in one command: codeterm plan task update <plan> <task> --status in_progress --pane <pane-id> (CODETERM_STATE_INVARIANTS=off for emergencies)"
+                "in_progress requires an executor tab; set both in one command: codeterm plan task update <plan> <task> --status in_progress --tab <tab-id> (CODETERM_STATE_INVARIANTS=off for emergencies)"
             ),
             PlanError::BlockedRequiresLabel => write!(
                 f,

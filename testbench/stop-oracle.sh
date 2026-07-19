@@ -12,7 +12,7 @@
 # visible question must disappear (state leaves Question) or honestly stay Question.
 #
 # Pure /api/*, macOS, no DOM. DISPOSABLE dev pane only.
-#   testbench/stop-oracle.sh --pane <id> [--mode stop|esc] [--prompt TEXT]
+#   testbench/stop-oracle.sh --tab <id> [--mode stop|esc] [--prompt TEXT]
 set -uo pipefail
 TOKEN=$(/usr/bin/python3 -c "import re;print(re.search(r'token\s*=\s*\"([^\"]+)\"',open('$HOME/.codeterm-dev/config.toml').read()).group(1))")
 B="http://127.0.0.1:7686"
@@ -31,10 +31,10 @@ PROMPT="Write a very long, exhaustive 2000-word essay on the complete decade-by-
 # verdict logic is identical and outcome-based (raw output growth), so it proves
 # the abort regardless of whether it travels via /stop or HTTP.
 while [ "$#" -gt 0 ]; do case "$1" in
-  --pane) PANE="$2"; shift 2;; --mode) MODE="$2"; shift 2;; --prompt) PROMPT="$2"; shift 2;;
+  --tab) PANE="$2"; shift 2;; --mode) MODE="$2"; shift 2;; --prompt) PROMPT="$2"; shift 2;;
   --oc-base) OC_BASE="$2"; shift 2;; --oc-session) OC_SESSION="$2"; shift 2;;
   *) echo "unknown $1"; exit 2;; esac; done
-[ -n "$PANE" ] || { echo "need --pane"; exit 2; }
+[ -n "$PANE" ] || { echo "need --tab"; exit 2; }
 [ "$MODE" = http-abort ] && { [ -n "$OC_BASE" ] && [ -n "$OC_SESSION" ] || { echo "http-abort needs --oc-base URL --oc-session ID"; exit 2; }; }
 
 state(){ get /api/panes | /usr/bin/python3 -c "import sys,json;d=json.load(sys.stdin);print(next(((p.get('agent_state') or {}).get('state') for p in d if p['id']=='$PANE'),'?'))"; }

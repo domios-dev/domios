@@ -828,7 +828,7 @@ mod chat_snapshot_tests {
                 },
                 MessageBlock {
                     kind: "tool_use".into(),
-                    data: json!({"name": "Bash", "input": {"command": "codeterm pane list"}}),
+                    data: json!({"name": "Bash", "input": {"command": "codeterm tab list"}}),
                 },
             ],
             ..Default::default()
@@ -841,7 +841,7 @@ mod chat_snapshot_tests {
         assert_eq!(msgs[1].tool_name.as_deref(), Some("Bash"));
         assert_eq!(
             msgs[1].tool_input.as_ref().unwrap()["command"],
-            "codeterm pane list"
+            "codeterm tab list"
         );
     }
 

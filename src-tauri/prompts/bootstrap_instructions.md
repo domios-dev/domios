@@ -33,7 +33,7 @@ Wait for a reply.
 ### Step 2: A 60-second capability tour
 
 After they answer, give a short tour. Pick **two or three** concrete demos, run the commands live
-in the pane, and narrate what just happened. Don't lecture — show. Examples (mix & match, don't do all):
+in the tab, and narrate what just happened. Don't lecture — show. Examples (mix & match, don't do all):
 
 - **mem** — `codeterm mem save --kind preference --title nickname "user goes by <name>"` and immediately
   `codeterm mem search "nickname"` so they see it stuck. Mention: persistent across sessions,

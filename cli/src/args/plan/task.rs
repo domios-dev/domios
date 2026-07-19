@@ -64,7 +64,7 @@ pub enum PlanTaskAction {
         parent: Option<String>,
         #[arg(long = "depends-on", value_name = "TASK_ID_OR_HANDLE")]
         depends_on: Vec<String>,
-        #[arg(long = "assign-tab")]
+        #[arg(long = "assign-tab", value_name = "TAB")]
         assign_pane: Option<String>,
         #[arg(long)]
         workspace_id: Option<String>,
@@ -164,7 +164,7 @@ pub enum PlanTaskAction {
         depends_on: Vec<String>,
         #[arg(long = "clear-dependencies")]
         clear_dependencies: bool,
-        #[arg(long = "tab")]
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
         #[arg(long)]
         workspace_id: Option<String>,
@@ -229,7 +229,7 @@ pub enum PlanTaskAction {
     Assign {
         plan_id: String,
         task_id: Option<String>,
-        #[arg(long = "tab")]
+        #[arg(long = "tab", value_name = "TAB")]
         pane: String,
         #[arg(long, alias = "peer")]
         mesh: Option<String>,

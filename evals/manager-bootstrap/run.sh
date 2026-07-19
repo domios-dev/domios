@@ -10,7 +10,7 @@ WORKER=""
 cleanup() {
   [ -z "$FALLBACK_TEAM_ID" ] || dc team close "$FALLBACK_TEAM_ID" --json >/dev/null 2>&1 || true
   [ -z "$TEAM_ID" ] || dc team close "$TEAM_ID" --json >/dev/null 2>&1 || true
-  for pane in "${CREATED[@]:-}"; do dc pane close "$pane" >/dev/null 2>&1 || true; done
+  for pane in "${CREATED[@]:-}"; do dc tab close "$pane" >/dev/null 2>&1 || true; done
   ((${#CREATED[@]})) || return 0
   MUX_STATE=$(dev_get /api/mux/state)
   mux_absent "${CREATED[@]}" <<<"$MUX_STATE"
@@ -36,16 +36,16 @@ STAFFED_RESPONSE=$(dev_post_as_pane "$ORCH" "/api/teams/$TEAM_ID/members" "$STAF
 STAFFED=$(staffed_pane_id <<<"$STAFFED_RESPONSE")
 [ -n "$STAFFED" ] || { echo "staffed manager returned empty pane id" >&2; exit 1; }
 CREATED+=("$STAFFED")
-dc pane send --pane "$STAFFED" "Who are you? What team and project are you in?" >/dev/null
+dc send --tab "$STAFFED" "Who are you? What team and project are you in?" >/dev/null
 STAFF_REPLY="$(await_first "$STAFFED")"; [[ "$STAFF_REPLY" == *Planner* && "$STAFF_REPLY" == *manager-bootstrap-eval* && "$STAFF_REPLY" == *"$TEAM_ID"* ]]
 for pane in "$ORCH" "$PLANNER"; do
-  dc pane send --pane "$pane" "Who are you? What team and project are you in?" >/dev/null
+  dc send --tab "$pane" "Who are you? What team and project are you in?" >/dev/null
   REPLY="$(await_first "$pane")"; [[ "$REPLY" == *manager-bootstrap-eval* && "$REPLY" == *"not yet established"* ]]; case "$pane" in "$ORCH") [[ "$REPLY" == *Orchestrator* ]];; *) [[ "$REPLY" == *Planner* ]];; esac
 done
 WORKER_RESPONSE=$(capture_json dc agent spawn "$SYSTEM" --role Worker --parent "$ORCH" --workspace "$WS" --cwd "$ROOT" --title "manager-bootstrap-worker" --json)
 WORKER=$(spawned_pane_id <<<"$WORKER_RESPONSE")
 CREATED+=("$WORKER")
-dc pane send --pane "$WORKER" "Who are you?" >/dev/null
+dc send --tab "$WORKER" "Who are you?" >/dev/null
 [[ "$(await_first "$WORKER")" == *Worker* ]]
 if [ -n "$FALLBACK" ]; then
   FALLBACK_TEAMS_BEFORE=$(capture_json dc team list --json)
@@ -57,7 +57,7 @@ if [ -n "$FALLBACK" ]; then
     FALLBACK_TEAM_ID=$(new_team_id "$FALLBACK_TEAMS_BEFORE" <<<"$FALLBACK_TEAMS_AFTER")
     [ -n "$FALLBACK_TEAM_ID" ] || exit 1
     CREATED+=("$FALLBACK_ORCH" "$FALLBACK_PLANNER")
-    for pane in "$FALLBACK_ORCH" "$FALLBACK_PLANNER"; do dc pane send --pane "$pane" "Who are you? What project are you in?" >/dev/null; REPLY="$(await_first "$pane")"; [[ "$REPLY" == *manager-bootstrap-eval* && "$REPLY" == *"not yet established"* && "$REPLY" != *"User work"* ]]; case "$pane" in "$FALLBACK_ORCH") [[ "$REPLY" == *Orchestrator* ]];; *) [[ "$REPLY" == *Planner* ]];; esac; done
+    for pane in "$FALLBACK_ORCH" "$FALLBACK_PLANNER"; do dc send --tab "$pane" "Who are you? What project are you in?" >/dev/null; REPLY="$(await_first "$pane")"; [[ "$REPLY" == *manager-bootstrap-eval* && "$REPLY" == *"not yet established"* && "$REPLY" != *"User work"* ]]; case "$pane" in "$FALLBACK_ORCH") [[ "$REPLY" == *Orchestrator* ]];; *) [[ "$REPLY" == *Planner* ]];; esac; done
   else echo "SKIP: fallback descriptor cannot create orchestration pair"; fi
 else
   echo "SKIP: no fallback-capable provider"

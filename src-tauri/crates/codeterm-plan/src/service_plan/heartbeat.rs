@@ -352,11 +352,11 @@ fn render_heartbeat(
 pub(super) fn reconciliation_prompt(plan_id: &str, pane_id: Option<&str>) -> String {
     let reports = pane_id.map_or_else(
         || "codeterm agent reports".to_string(),
-        |pane| format!("codeterm agent reports --pane {pane}"),
+        |pane| format!("codeterm agent reports --tab {pane}"),
     );
     let status = pane_id.map_or_else(
         || format!("codeterm orchestrator status --plan {plan_id} --json"),
-        |pane| format!("codeterm orchestrator status --plan {plan_id} --pane {pane} --json"),
+        |pane| format!("codeterm orchestrator status --plan {plan_id} --tab {pane} --json"),
     );
     format!(
         "STATE-RECONCILIATION:\n\
@@ -368,7 +368,7 @@ pub(super) fn reconciliation_prompt(plan_id: &str, pane_id: Option<&str>) -> Str
          - {} \n\
          - Parallelize independent writer lanes, but serialize broad/heavy gates in one warm integration checkout so worker worktrees do not all rebuild/test at once.\n\
          - Close verified tasks with `codeterm plan task close {plan_id} <task_id>`.\n\
-         - Bounce incomplete work with `codeterm send \"<next concrete instruction>\" --pane <worker_pane_id>` and record `codeterm plan record {plan_id} --task <task_id> --step decision:<text>`.\n\
+         - Bounce incomplete work with `codeterm send \"<next concrete instruction>\" --tab <worker_tab_id>` and record `codeterm plan record {plan_id} --task <task_id> --step decision:<text>`.\n\
          - Clean finished lane worktrees/branches/dev daemons, then record `codeterm plan task update {plan_id} <task_id> --cleanup-status done` or why cleanup is deferred.\n\
          - Keep the plan-owned heartbeat current with `codeterm orchestrator heartbeat set --plan {plan_id} --focus \"<now>\" --lane \"<active-lane>\"`.",
         super::prompts_plan::QA_PIPELINE_DISCIPLINE.trim()

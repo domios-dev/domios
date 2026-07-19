@@ -275,7 +275,7 @@ pub enum MemAction {
     /// (called by PreCompact hook before context summarization).
     Flush {
         /// Tab id (default: $CODETERM_PANE_ID)
-        #[arg(long = "tab")]
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
         /// Optional title hint
         #[arg(long)]

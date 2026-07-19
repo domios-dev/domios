@@ -377,14 +377,14 @@ P_ST=$(new_shell_pane $WS_ST C:/temp/restore-WS-shell-with-text shell-with-text)
 # (powershell.exe) takes another 5-10s to render its prompt and
 # attach stdin. exec before that point gets bytes-eaten silently.
 # 12s is the empirical safe window on Win11/PS5.
-sleep 12 && dc pane exec --pane $P_ST 'echo MARKER_SHELL_BEFORE_KILL' > /dev/null 2>&1
+sleep 12 && dc tab exec --tab $P_ST 'echo MARKER_SHELL_BEFORE_KILL' > /dev/null 2>&1
 
 P_CS=$(new_claude_pane $WS_CS C:/temp/restore-WS-claude-silent silent-claude)
 
 P_CT=$(new_claude_pane $WS_CT C:/temp/restore-WS-claude-with-text claude-with-text 'reply with single word PINEAPPLEMARKER')
 
 P_CR=$(new_claude_pane $WS_CR C:/temp/restore-WS-claude-renamed will-rename)
-dc pane rename 'MY-CUSTOM-TITLE' --pane $P_CR > /dev/null 2>&1
+dc tab rename 'MY-CUSTOM-TITLE' --tab $P_CR > /dev/null 2>&1
 
 echo "  ws_ids: empty=$WS_E shell-s=$WS_SS shell-t=$WS_ST cl-s=$WS_CS cl-t=$WS_CT cl-r=$WS_CR"
 echo "  pane_ids: $P_SS $P_ST $P_CS $P_CT $P_CR"
@@ -393,7 +393,7 @@ echo "== wait 25s for claude bootstrap + initial task response"
 sleep 25
 
 echo "== assert text actually arrived in panes BEFORE kill"
-shell_out=$(dc get-output --pane $P_ST --lines 30 2>&1)
+shell_out=$(dc tab get-text --tab $P_ST 2>&1)
 if echo "$shell_out" | grep -q "MARKER_SHELL_BEFORE_KILL"; then
   echo "  OK shell-with-text contains MARKER_SHELL_BEFORE_KILL"
 else
@@ -402,7 +402,7 @@ else
   exit 1
 fi
 
-claude_out=$(dc get-output --pane $P_CT --lines 30 2>&1)
+claude_out=$(dc tab get-text --tab $P_CT 2>&1)
 if echo "$claude_out" | grep -q "PINEAPPLEMARKER"; then
   echo "  OK claude-with-text response contains PINEAPPLEMARKER"
 else

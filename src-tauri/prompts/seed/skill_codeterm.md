@@ -5,7 +5,7 @@ Use `codeterm` to control panes, workspaces, agents, mesh peers, mem, and system
 - `codeterm tab list` — list tabs
 - `codeterm send "..." --tab ID` — type into a tab
 - `codeterm tab stop [--tab ID]` — interrupt the agent's current generation (doesn't close the tab)
-- `codeterm agent spawn claude --task "..."` — spawn a sub-pane you own (parent = you, auto)
+- `codeterm agent spawn claude --task "..."` — spawn a child tab you own (parent = you, automatic)
 - `codeterm mesh peers` — list mesh peers
 - `codeterm mem search/get/save/wake-up` — unified memory (search runs FTS + embeddings hybrid in one call)
 - `codeterm mem worker spawn --intent "enrich" --task "..."` — spawn a headless graph worker for custom enrichment

@@ -241,6 +241,22 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../src-tauri/prompts/codeterm_cli.md"
     );
+    const SKILL_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../skills/codeterm/SKILL.md");
+
+    #[test]
+    fn shipped_agent_instructions_use_tab_cli_vocabulary() {
+        for path in [PROMPT_PATH, SKILL_PATH] {
+            let text = std::fs::read_to_string(path).expect("read agent instruction source");
+            assert!(
+                !text.contains("codeterm pane "),
+                "{path} teaches the removed `codeterm pane` namespace"
+            );
+            assert!(
+                !text.contains(" --pane "),
+                "{path} teaches the removed `--pane` flag"
+            );
+        }
+    }
 
     fn resolve<'a>(root: &'a ManifestCommand, path: &[&str]) -> Option<&'a ManifestCommand> {
         let mut cur = root;

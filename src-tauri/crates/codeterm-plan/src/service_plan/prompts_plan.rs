@@ -37,7 +37,7 @@ pub fn reflection_block(trigger: &str, window: &super::reflection::ReflectionWin
 }
 
 pub const PLAN_ARCHIVE_SUGGESTION: &str = "This plan is complete. Before archiving, CLEAN UP AFTER THE EFFORT — this is a mandatory closeout step, not optional tidiness:\n\
-- Close every finished worker pane/tab you spawned (`codeterm pane close <id>`), and the attached Planner pane once its work is done.\n\
+- Close every finished worker tab you spawned (`codeterm tab close <id>`), and the attached Planner tab once its work is done.\n\
 - Remove lane worktrees and delete merged branches (`git worktree remove`, `git branch -d`), and stop any lane-specific dev daemons.\n\
 - Prune stale or superseded milestones so the completed plan reads clean.\n\
 Orphaned tabs, worktrees, branches, and dev daemons you spawned are THIS effort's mess to clear — never the next orchestrator's. Then archive with `codeterm plan archive <plan>`.";

@@ -156,7 +156,7 @@ Design rationale for the 04-25 batch lives in the mem decisions chain
   [`docs/contributing/auto-update-testing.md`](docs/contributing/auto-update-testing.md)
   and [`docs/plans/auto-update.md`](docs/plans/auto-update.md).
 
-- **Agent restart CLI / API** — `codeterm agent restart --pane ID
+- **Agent restart CLI / API** — `codeterm agent restart --tab ID
   [--force] [--grace-secs N]` and `POST /api/panes/{id}/agent/restart`.
   Reuses the existing `/exit` + auto-resume pane lifecycle (no new
   restart logic). Returns `202` with `session_was_stale` to signal

@@ -64,7 +64,7 @@ pub enum TaskAction {
         intent: Option<String>,
         #[arg(long, value_name = "PATH")]
         intent_file: Option<String>,
-        #[arg(long = "assign-tab")]
+        #[arg(long = "assign-tab", value_name = "TAB")]
         assign_pane: Option<String>,
     },
 }
@@ -75,7 +75,7 @@ pub enum CanvasAction {
     Focus {
         #[arg(long, conflicts_with_all = ["tab", "plan"])]
         task: Option<String>,
-        #[arg(long = "tab", conflicts_with_all = ["task", "plan"])]
+        #[arg(long = "tab", value_name = "TAB", conflicts_with_all = ["task", "plan"])]
         pane: Option<String>,
         #[arg(long, conflicts_with_all = ["task", "tab"])]
         plan: Option<String>,

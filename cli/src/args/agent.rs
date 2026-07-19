@@ -71,7 +71,7 @@ pub struct ReportArgs {
     #[arg(long, value_name = "PATH")]
     pub doc: Option<String>,
     /// Tab ID (default: $CODETERM_PANE_ID or focused tab)
-    #[arg(long = "tab")]
+    #[arg(long = "tab", value_name = "TAB")]
     pub pane: Option<String>,
     /// Plan id to append this report to (if available)
     #[arg(long, env = "CODETERM_PLAN_ID")]
@@ -117,7 +117,7 @@ pub enum AgentAction {
     /// Mark a tab as orchestrator (top-level, can spawn workers)
     SetOrchestrator {
         /// Tab ID (default: current focused tab)
-        #[arg(long = "tab")]
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
     },
 
@@ -127,19 +127,19 @@ pub enum AgentAction {
         #[arg(long = "parent-tab")]
         parent: String,
         /// Tab ID to link (default: current focused tab)
-        #[arg(long = "tab")]
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
     },
     /// Remove a tab's role (also orphans children)
     Unlink {
         /// Tab ID (default: current focused tab)
-        #[arg(long = "tab")]
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
     },
     /// Toggle whether a tab can spawn children
     AllowSpawn {
         /// Tab ID (default: current focused tab)
-        #[arg(long = "tab")]
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
         /// Enable or disable spawning
         #[arg(long, default_value = "true")]
@@ -150,7 +150,7 @@ pub enum AgentAction {
     /// Read reports (for orchestrator tabs)
     Reports {
         /// Tab ID (default: current focused tab)
-        #[arg(long = "tab")]
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
         /// Clear reports after reading
         #[arg(long)]
@@ -163,19 +163,19 @@ pub enum AgentAction {
     /// restart): branch / model / status / last-seen, one row per worker.
     Ledger {
         /// Orchestrator tab ID (default: current focused tab)
-        #[arg(long = "tab")]
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
     },
     /// Compact agent context (sends /compact to Claude)
     Compact {
         /// Tab ID (default: $CODETERM_PANE_ID or focused tab)
-        #[arg(long = "tab")]
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
     },
     /// Restart agent (graceful exit; resumes only when the tab has a valid provider session)
     Restart {
         /// Tab ID (default: $CODETERM_PANE_ID or focused tab)
-        #[arg(long = "tab")]
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
         /// Skip the graceful exit and force-kill instead. Use only when the agent is hung.
         #[arg(long)]
@@ -189,7 +189,7 @@ pub enum AgentAction {
         /// Model name (Claude: sonnet, haiku, opus). Run `agent models claude` to list.
         name: String,
         /// Tab ID (default: $CODETERM_PANE_ID or focused tab)
-        #[arg(long = "tab")]
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
     },
     /// List available agent providers (claude, codex, ...) with their

@@ -61,7 +61,7 @@ CodeTermは、AI支援開発のためにゼロから設計されたクロスプ�
 - **権限通知** — Claude Codeの権限リクエストをデスクトップ通知として表示
 - **Webhookシステム** — エージェントイベント（権限リクエスト、タスク完了）のWebhookを登録
 - **プログラム的制御** — エージェントがAPI経由でペインの作成、コマンドの実行、出力の読み取りが可能
-- **エージェント再起動** — `codeterm agent restart --pane ID` で任意のペインに対して `/exit` による優雅な終了と自動再開を実行（`--force` でハングしたエージェントを強制終了）。自動アップデートと同じライフサイクルを再利用
+- **エージェント再起動** — `codeterm agent restart --tab ID` で任意のタブに対して `/exit` による優雅な終了と自動再開を実行（`--force` でハングしたエージェントを強制終了）。自動アップデートと同じライフサイクルを再利用
 
 ### フルAPI
 - **REST API** — ターミナルの完全制御のための30以上のエンドポイント（ポート7685）
@@ -204,8 +204,8 @@ codeterm workspace list
 codeterm workspace create "Project"
 
 # ターミナル制御
-codeterm pane list
-codeterm send --pane PANE_ID "npm run build"
+codeterm tab list
+codeterm send --tab TAB_ID "npm run build"
 codeterm get-output PANE_ID --lines 50
 
 # 通知
@@ -264,7 +264,7 @@ port = 7685
 │                  CodeTerm                    │
 │  ┌──────────┐  ┌──────────┐  ┌───────────┐  │
 │  │ React UI │  │ xterm.js │  │  Browser   │  │
-│  │ Sidebar  │  │ Terminal │  │   Panes    │  │
+│  │ Sidebar  │  │ Terminal │  │    Tabs    │  │
 │  └────┬─────┘  └────┬─────┘  └─────┬─────┘  │
 │       │              │              │        │
 │  ┌────┴──────────────┴──────────────┴────┐   │

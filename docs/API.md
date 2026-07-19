@@ -954,7 +954,7 @@ All fields are optional. `agent` defaults to `"claude"`. For Claude, `--dangerou
 
 A worker spawned on another peer with `codeterm agent spawn <agent> --mesh PEER [--report-to <pane|main|general>]` gets a **durable cross-mesh report target**: the CLI relays the spawn to `PEER`, whose relay ingress stamps an authenticated `origin_peer` onto the body, and the spawned pane persists `report_target_mesh_peer = <caller's peer>` + `report_target_pane_id = <report_to>` (defaults to the caller's pane).
 
-The worker then just runs `codeterm agent report "..."` — no `--mesh`, no `--pane`. Its daemon resolves the remote target and relays the report over the same signed `/send` path (with `kind: "report"`), so it surfaces on the origin peer as `[Report from <worker>@<peer>]`, identical to a local report. If no target resolves, `agent report` fails with an actionable hint instead of silently dropping.
+The worker then just runs `codeterm agent report "..."` — no `--mesh`, no `--tab`. Its daemon resolves the remote target and relays the report over the same signed `/send` path (with `kind: "report"`), so it surfaces on the origin peer as `[Report from <worker>@<peer>]`, identical to a local report. If no target resolves, `agent report` fails with an actionable hint instead of silently dropping.
 
 Report routing precedence: **remote mesh target → `parent_pane_id` → `report_target_pane_id` → `spawned_by_pane_id`**; never self.
 
@@ -1297,4 +1297,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 79 -->
+<!-- revision: 80 -->

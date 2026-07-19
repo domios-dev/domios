@@ -250,7 +250,7 @@ case_picker() {
     || fail "$provider picker: expected >=2 options, got ${n:-0}"
   echo "$cap" > "$OUT_DIR/picker-$provider.json"
   # Dismiss the picker (esc) + clear so the menu doesn't block teardown.
-  dc send --actions esc --pane "$pane" >/dev/null 2>&1 || true
+  dc send --actions esc --tab "$pane" >/dev/null 2>&1 || true
   dev_post "/api/panes/$pane/prompt/clear" '{}' >/dev/null 2>&1 || true
 }
 
@@ -273,7 +273,7 @@ main() {
     echo "[chat-roundtrip] $provider pane=$pane — waiting for agent"
     if ! wait_live "$pane"; then
       fail "$provider: agent never came live"
-      [ "${CR_KEEP:-0}" = "1" ] || dc pane close "$pane" >/dev/null 2>&1
+      [ "${CR_KEEP:-0}" = "1" ] || dc tab close "$pane" >/dev/null 2>&1
       continue
     fi
     case_binding "$provider" "$pane"
@@ -282,7 +282,7 @@ main() {
     case_ordering "$provider" "$pane"
     # Picker-extraction gate (facet9 P9.3/P9.4): /model populates pending_prompt.
     case "$provider" in claude|cursor|codex) case_picker "$provider" "$pane" ;; esac
-    [ "${CR_KEEP:-0}" = "1" ] || dc pane close "$pane" >/dev/null 2>&1
+    [ "${CR_KEEP:-0}" = "1" ] || dc tab close "$pane" >/dev/null 2>&1
   done
 
   echo

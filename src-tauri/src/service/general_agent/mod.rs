@@ -37,7 +37,7 @@ pub use workspace::{
 };
 
 pub const GENERAL_ALIAS: &str = "general";
-/// Second alias for the GA pane — `codeterm pane ... main` resolves to it too.
+/// Second alias for the GA tab — `codeterm tab ... main` resolves to it too.
 pub const MAIN_ALIAS: &str = "main";
 pub const GENERAL_WORKSPACE_NAME: &str = "General";
 pub const GENERAL_PANE_TITLE: &str = "Main";

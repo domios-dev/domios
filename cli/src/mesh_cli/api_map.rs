@@ -644,10 +644,10 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     manifest_url,
                     from_file,
                     continue_prompt,
-                    continue_pane,
+                    continue_tab,
                     after_update,
                 } => {
-                    if from_file.is_some() || continue_prompt.is_some() || continue_pane.is_some() {
+                    if from_file.is_some() || continue_prompt.is_some() || continue_tab.is_some() {
                         return unsupported("update install --from-file/--continue-prompt/--continue-tab are local-only; run on the target machine");
                     }
                     let mut qs = String::new();
