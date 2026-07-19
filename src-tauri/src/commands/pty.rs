@@ -646,6 +646,16 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
         }
     }
 
+    if !svc
+        .screen_state
+        .lock()
+        .bind_pty_generation(&pty_id, session.generation)
+    {
+        return Err(format!(
+            "PTY {} was replaced before raw reader start",
+            pty_id
+        ));
+    }
     let pid = pty_id.clone();
 
     // One read loop owns the reader; clone fresh via try_clone_reader if taken.
@@ -692,7 +702,8 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
             let mut reader_slot = session.reader.lock().unwrap();
             *reader_slot = Some(reader_back);
 
-            let (prev, now) = svc.feed_pty_output(&pty_id, &data);
+            let (prev, now) =
+                svc.feed_pty_output_for_generation(&pty_id, session.generation, &data);
             svc.emit_pane_status_if_changed(&pty_id, prev, now);
 
             Ok(data)

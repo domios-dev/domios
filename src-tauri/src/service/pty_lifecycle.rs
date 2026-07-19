@@ -146,7 +146,7 @@ async fn backend_read_loop(
     let feed_svc = svc.clone();
     let feed_pty_id = pty_id.clone();
     let feed_task = tokio::task::spawn_blocking(move || {
-        process_pty_feed(feed_rx, feed_svc, feed_pty_id, rd_trace)
+        process_pty_feed(feed_rx, feed_svc, feed_pty_id, generation, rd_trace)
     });
     loop {
         // Blocking read in a dedicated thread — same pattern as read_pty.
@@ -248,13 +248,14 @@ fn process_pty_feed(
     mut rx: tokio::sync::mpsc::Receiver<Vec<u8>>,
     svc: ServiceState,
     pty_id: String,
+    generation: u64,
     rd_trace: bool,
 ) {
     const FEED_BATCH_CAP: usize = 256 * 1024;
     while let Some(mut data) = rx.blocking_recv() {
         drain_feed_batch(&mut rx, &mut data, FEED_BATCH_CAP);
         let started = std::time::Instant::now();
-        let (prev, now) = svc.feed_pty_output(&pty_id, &data);
+        let (prev, now) = svc.feed_pty_output_for_generation(&pty_id, generation, &data);
         if rd_trace && data.len() > 16 {
             log::info!(
                 "[feed-batch] pty={} n={} elapsed={}us",
