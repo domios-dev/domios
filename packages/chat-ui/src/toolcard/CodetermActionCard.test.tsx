@@ -136,6 +136,11 @@ if (!reportCard.host.textContent.includes("changes") || !reportCard.host.textCon
 const tabOutputHost = await render(<CodetermActionCard event={event("codeterm tab get-text --tab e3fa0754")} expanded={false} onToggle={() => {}} resolvePaneName={() => "Hugo"} />);
 if (!tabOutputHost.host.textContent?.includes("tab get-text") || !tabOutputHost.host.textContent.includes("Hugo")) throw new Error("tab get-text descriptor regression");
 if (!tabOutputHost.host.querySelector(".lucide-scroll-text") || tabOutputHost.host.querySelector(".lucide-terminal")) throw new Error("tab get-text icon must differ from shell command");
+const wrappedTabList = await render(<CodetermActionCard event={{
+  ...event("codeterm tab list"),
+  result: `Exit code: 0\nOutput:\n${JSON.stringify([{ id: "one" }, { id: "two" }, { id: "three" }], null, 2)}`,
+}} expanded={false} onToggle={() => {}} />);
+if (!wrappedTabList.host.textContent?.includes("3 tabs") || wrappedTabList.host.textContent.includes("11 tabs")) throw new Error("wrapped tab list must count JSON entries instead of output lines");
 
 const catalogVisuals: Array<[string, string]> = [
   ['codeterm plan create --title "Plan"', "lucide-map"],

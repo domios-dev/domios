@@ -107,16 +107,70 @@ function safeObject(value: string | undefined, fallback: string): string {
   return value && !/\b(?:pl|task|sec|sp|spec|mem|src)_[a-z0-9][a-z0-9_-]*/i.test(value) ? value : fallback;
 }
 
-function resultCount(result: string | undefined, noun: string): string | undefined {
+function collectionLength(value: unknown): number | undefined {
+  if (Array.isArray(value)) return value.length;
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  for (const key of ["items", "tabs", "workspaces", "results", "data"]) {
+    if (Array.isArray(record[key])) return record[key].length;
+  }
+  return undefined;
+}
+
+function balancedJsonEnd(text: string, start: number): number | undefined {
+  const expected: string[] = [];
+  let quoted = false;
+  let escaped = false;
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') quoted = false;
+      continue;
+    }
+    if (char === '"') {
+      quoted = true;
+      continue;
+    }
+    if (char === "[") expected.push("]");
+    else if (char === "{") expected.push("}");
+    else if (char === "]" || char === "}") {
+      if (expected.pop() !== char) return undefined;
+      if (expected.length === 0) return index;
+    }
+  }
+  return undefined;
+}
+
+function embeddedCollectionLength(result: string): number | undefined {
+  const text = result.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").trim();
+  const starts = new Set<number>();
+  const first = text.search(/[\[{]/);
+  if (first >= 0) starts.add(first);
+  for (const match of text.matchAll(/\n\s*([\[{])/g)) {
+    if (match.index != null) starts.add(match.index + match[0].lastIndexOf(match[1]));
+  }
+  for (const start of starts) {
+    const end = balancedJsonEnd(text, start);
+    if (end == null) continue;
+    try {
+      const count = collectionLength(JSON.parse(text.slice(start, end + 1)));
+      if (count != null) return count;
+    } catch {}
+  }
+  return undefined;
+}
+
+function resultCount(result: string | undefined, noun: string, lineFallback = false): string | undefined {
   if (!result?.trim()) return undefined;
-  try {
-    const parsed = JSON.parse(result);
-    const count = Array.isArray(parsed) ? parsed.length : Array.isArray(parsed?.items) ? parsed.items.length : undefined;
-    return count == null ? undefined : `${count} ${noun}`;
-  } catch {
+  const count = embeddedCollectionLength(result);
+  if (count != null) return `${count} ${noun}`;
+  if (lineFallback) {
     const lines = result.split("\n").filter((line) => line.trim()).length;
     return lines > 1 ? `${lines} ${noun}` : undefined;
   }
+  return undefined;
 }
 
 function targetTab(inv: CodetermInvocation, resolve?: PaneNameResolver): string {
@@ -158,7 +212,7 @@ export function describeAction(inv: CodetermInvocation, result?: string, resolve
   }
   if (path === "tab get-text") {
     const tab = targetTab(inv, resolve);
-    return { lead: "tab get-text", object: tab, chips: [resultCount(result, "lines")].filter((v): v is string => Boolean(v)), fields: [{ label: "source", value: tab }] };
+    return { lead: "tab get-text", object: tab, chips: [resultCount(result, "lines", true)].filter((v): v is string => Boolean(v)), fields: [{ label: "source", value: tab }] };
   }
   if (path === "tab new") {
     const command = flagText(inv, "cmd");
