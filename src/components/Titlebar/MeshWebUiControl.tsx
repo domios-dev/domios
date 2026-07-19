@@ -5,7 +5,6 @@ import {
   Check,
   ChevronDown,
   Copy,
-  ExternalLink,
   Globe,
   Power,
   Settings2,
@@ -20,8 +19,6 @@ export type WebUiAction = "setup" | "repair" | "disable";
 interface Props {
   snapshot: ServeReconcileSnapshot | null;
   loading: boolean;
-  /** Launch the verified web UI in the browser. Offered ONLY when healthy. */
-  onOpen: (url: string) => void;
   /** Open the QR / link surface (phone-scannable). Available in every state. */
   onOpenSurface: () => void;
   /** Run a mutating action; resolve with an inline message, or throw to show an error. */
@@ -37,7 +34,7 @@ const TONE_COLOR: Record<WebUiTone, string> = {
   neutral: "var(--ct-muted, #8b949e)",
 };
 
-export function MeshWebUiControl({ snapshot, loading, onOpen, onOpenSurface, onAction, touchUi }: Props) {
+export function MeshWebUiControl({ snapshot, loading, onOpenSurface, onAction, touchUi }: Props) {
   const view = deriveWebUiView(snapshot, loading);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<WebUiAction | "copy" | null>(null);
@@ -137,25 +134,6 @@ export function MeshWebUiControl({ snapshot, loading, onOpen, onOpenSurface, onA
           {view.label}
         </span>
       </button>
-
-      {view.version && (
-        <span data-testid="mesh-web-ui-version" className="text-[9px] text-[var(--ct-muted)] font-mono hidden sm:inline">
-          {view.version}
-        </span>
-      )}
-
-      {view.canOpen && view.url && (
-        <button
-          type="button"
-          data-testid="mesh-web-ui-open"
-          onClick={() => onOpen(view.url as string)}
-          className={`flex ${btnH} items-center gap-1 rounded border border-[var(--ct-accent)] px-2 text-[10px] font-medium text-[var(--ct-accent)] hover:bg-[var(--ct-hover)] cursor-pointer bg-transparent`}
-          title="Open the Web UI"
-        >
-          <ExternalLink size={11} />
-          Open
-        </button>
-      )}
 
       {hasMenu && (
         <button
