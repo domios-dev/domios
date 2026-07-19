@@ -31,3 +31,12 @@ test("the perf gate names all four user-visible stub-provider measurements", () 
   assert.match(seed, /STUB_PROVIDER\s*=\s*"claude"/);
   assert.doesNotMatch(spec, /@live/);
 });
+
+test("the hidden-pane render budget emits a sample summary artifact", () => {
+  const spec = read("tests/playwright/suites/12-web/multitab-perf.spec.ts");
+  assert.match(spec, /const HIDDEN_PANE_RENDER_BUDGET = 3/);
+  assert.match(spec, /name: "hidden-pane-render-delta"/);
+  assert.match(spec, /samples: hiddenRenderDeltas/);
+  assert.match(spec, /budget: HIDDEN_PANE_RENDER_BUDGET/);
+  assert.match(spec, /toBeLessThanOrEqual\(HIDDEN_PANE_RENDER_BUDGET\)/);
+});
