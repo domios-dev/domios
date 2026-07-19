@@ -32,12 +32,21 @@ interface ChatStartResult {
   pending?: boolean;
   messages?: ChatMessage[];
   cursor?: string;
+  source_session_id: string | null;
+  session_binding_nonce: string | null;
 }
 
 interface ChatMsgEvent {
   pane_id: string;
   messages: ChatMessage[];
   cursor?: string;
+  source_session_id: string | null;
+  session_binding_nonce: string | null;
+}
+
+interface ChatAuthority {
+  source_session_id: string | null;
+  session_binding_nonce: string | null;
 }
 
 type ChatAttachmentState = "idle" | "attaching" | "awaiting_store" | "attached" | "failed";
@@ -50,6 +59,8 @@ export interface TestChatReplyDetail {
   type?: ChatMessage["type"];
   provider?: string;
   messages?: ChatMessage[];
+  sourceSessionId?: string | null;
+  sessionBindingNonce?: string | null;
 }
 
 export interface TestChatHandle {
@@ -105,7 +116,12 @@ function nextTestChatTimestamp(): string {
 
 export function testChatReplyPayload(detail: TestChatReplyDetail): ChatMsgEvent {
   if (detail.messages) {
-    return { pane_id: detail.paneId, messages: detail.messages };
+    return {
+      pane_id: detail.paneId,
+      messages: detail.messages,
+      source_session_id: detail.sourceSessionId ?? null,
+      session_binding_nonce: detail.sessionBindingNonce ?? null,
+    };
   }
   return {
     pane_id: detail.paneId,
@@ -118,7 +134,21 @@ export function testChatReplyPayload(detail: TestChatReplyDetail): ChatMsgEvent 
         provider: detail.provider ?? "test",
       },
     ],
+    source_session_id: detail.sourceSessionId ?? null,
+    session_binding_nonce: detail.sessionBindingNonce ?? null,
   };
+}
+
+function currentAuthority(sourceSessionId: string | null, sessionBindingNonce: string | null | undefined): ChatAuthority {
+  return {
+    source_session_id: sourceSessionId,
+    session_binding_nonce: sessionBindingNonce ?? null,
+  };
+}
+
+function authorityMatches(left: ChatAuthority, right: ChatAuthority): boolean {
+  return left.source_session_id === right.source_session_id
+    && left.session_binding_nonce === right.session_binding_nonce;
 }
 
 export function installCodeTermTestChatHandle(testMode = isCodeTermFrontendTestMode()): void {
@@ -244,11 +274,13 @@ function timestampMs(ts: string | undefined): number | null {
 export function useChatSession({
   paneId,
   agentSessionId,
+  sessionBindingNonce,
   onError,
   active = true,
 }: {
   paneId: string;
   agentSessionId: string | null;
+  sessionBindingNonce: string | null | undefined;
   onError?: (msg: string) => void;
   /** Hidden chats must not run the daemon parser: false stops the session, true restarts it. */
   active?: boolean;
@@ -266,8 +298,10 @@ export function useChatSession({
   const nextClientOrderRef = useRef(0);
   const activeRef = useRef(active);
   const agentSessionIdRef = useRef(agentSessionId);
+  const sessionBindingNonceRef = useRef(sessionBindingNonce);
   const attachmentSourceSessionIdRef = useRef(agentSessionId);
   const previousSessionIdRef = useRef(agentSessionId);
+  const previousBindingNonceRef = useRef(sessionBindingNonce);
   const rotationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lifecycleRef = useRef(0);
   const knownPaneIdRef = useRef<string | null>(null);
@@ -285,6 +319,7 @@ export function useChatSession({
 
   activeRef.current = active;
   agentSessionIdRef.current = agentSessionId;
+  sessionBindingNonceRef.current = sessionBindingNonce;
   attachmentStateRef.current = attachmentState;
   attachGenerationRef.current = attachGeneration;
 
@@ -344,6 +379,10 @@ export function useChatSession({
           `pane-chat-msg-${paneId}`,
           (ev) => {
             if (lifecycleRef.current !== lifecycle) return;
+            if (!authorityMatches(
+              ev.payload,
+              currentAuthority(agentSessionIdRef.current, sessionBindingNonceRef.current),
+            )) return;
             applyChatMsgEvent(ev.payload, paneId, setStructured, nextClientOrder, attachmentSourceSessionIdRef.current);
             if (attachmentStateRef.current !== "attached") markAttached();
           },
@@ -378,7 +417,7 @@ export function useChatSession({
     if (!active || !listenerReady) return;
     const lifecycle = lifecycleRef.current;
     const generation = attachGeneration;
-    const sourceSessionId = attachmentSourceSessionIdRef.current;
+    const requestAuthority = currentAuthority(agentSessionIdRef.current, sessionBindingNonceRef.current);
     let cancelled = false;
     (async () => {
       try {
@@ -387,6 +426,10 @@ export function useChatSession({
           agentSessionId: agentSessionIdRef.current,
         });
         if (cancelled || lifecycleRef.current !== lifecycle || attachGenerationRef.current !== generation) return;
+        if (!authorityMatches(res, requestAuthority) || !authorityMatches(
+          res,
+          currentAuthority(agentSessionIdRef.current, sessionBindingNonceRef.current),
+        )) return;
         setError(null);
         setLoading(false);
         if (res.pending) {
@@ -401,7 +444,7 @@ export function useChatSession({
         markAttached();
         setStructured((prev) => mergeById(
           prev ?? [],
-          withPreservedClientOrder(res.messages ?? [], prev ?? [], nextClientOrder, sourceSessionId),
+          withPreservedClientOrder(res.messages ?? [], prev ?? [], nextClientOrder, res.source_session_id),
         ));
       } catch (e) {
         if (cancelled || lifecycleRef.current !== lifecycle || attachGenerationRef.current !== generation) return;
@@ -420,9 +463,11 @@ export function useChatSession({
 
   useEffect(() => {
     const previous = previousSessionIdRef.current;
+    const previousBindingNonce = previousBindingNonceRef.current;
     previousSessionIdRef.current = agentSessionId;
+    previousBindingNonceRef.current = sessionBindingNonce;
     if (
-      previous === agentSessionId
+      (previous === agentSessionId && previousBindingNonce === sessionBindingNonce)
       || !active
       || !listenerReady
     ) return;
@@ -431,7 +476,7 @@ export function useChatSession({
       rotationTimerRef.current = null;
       if (activeRef.current) requestAttach();
     }, 0);
-  }, [active, agentSessionId, attachmentState, listenerReady, requestAttach]);
+  }, [active, agentSessionId, listenerReady, requestAttach, sessionBindingNonce]);
 
   const retry = useCallback(() => {
     setRecovering(true);

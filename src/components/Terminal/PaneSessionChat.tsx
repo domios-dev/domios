@@ -191,7 +191,13 @@ export function PaneSessionChat({
     loadOlder,
     addOptimistic,
     updateOptimistic,
-  } = useChatSession({ paneId, agentSessionId, onError, active: isActive });
+  } = useChatSession({
+    paneId,
+    agentSessionId,
+    sessionBindingNonce: pane?.session_binding_nonce,
+    onError,
+    active: isActive,
+  });
   const bootSetupView = chatSetupView(pane, attachmentState === "attached");
 
   const lastInstantBottomKeyRef = useRef("");

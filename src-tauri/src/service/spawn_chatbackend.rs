@@ -491,7 +491,22 @@ impl ServiceContext {
         let svc = self.clone();
         let app = self.app_handle.clone();
         spawn_bg(async move {
-            let inner = crate::service::pane_chat::structured_sink::make_sink(app);
+            let (source_session_id, session_binding_nonce) = svc
+                .mux
+                .read()
+                .get_pane(&pane_id)
+                .map(|pane| {
+                    (
+                        pane.agent_session_id.clone(),
+                        pane.session_binding_nonce.clone(),
+                    )
+                })
+                .unwrap_or((None, None));
+            let inner = crate::service::pane_chat::structured_sink::make_sink(
+                app,
+                source_session_id,
+                session_binding_nonce,
+            );
             // Durable wrapper: forwards to the UI sink and UPSERTs each delta to the session JSONL by id.
             let sink: std::sync::Arc<
                 dyn crate::service::pane_chat::structured_sink::StructuredSink,
@@ -855,11 +870,24 @@ impl ServiceContext {
             .lock()
             .upsert(std::slice::from_ref(&note));
         }
+        let (source_session_id, session_binding_nonce) = self
+            .mux
+            .read()
+            .get_pane(pane_id)
+            .map(|pane| {
+                (
+                    pane.agent_session_id.clone(),
+                    pane.session_binding_nonce.clone(),
+                )
+            })
+            .unwrap_or((None, None));
         crate::service::pane_chat::structured_sink::emit_chat_msgs(
             &self.app_handle,
             pane_id,
             &[note],
             None,
+            source_session_id.as_deref(),
+            session_binding_nonce.as_deref(),
         );
     }
 }
