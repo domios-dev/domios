@@ -348,6 +348,22 @@ mod tests {
     }
 
     #[test]
+    fn optimistic_submit_keeps_unconfirmed_ack_as_diagnostic() {
+        let result = InjectionResult {
+            bytes_written: 10,
+            echo_observed: true,
+            submit_observed: false,
+            submit_anomaly: true,
+            elapsed: Duration::ZERO,
+        };
+        let accepted = result
+            .require_submission(false, Duration::ZERO, "> provider working".into())
+            .expect("an acknowledgement miss must not reject a production send");
+        assert!(accepted.submit_anomaly);
+        assert!(!accepted.submit_observed);
+    }
+
+    #[test]
     fn screen_contains_echo_normalizes_whitespace() {
         assert!(screen_contains_echo("user@host:~$  ls    -la\n", "ls -la",));
         assert!(screen_contains_echo(
