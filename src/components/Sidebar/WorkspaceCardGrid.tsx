@@ -156,7 +156,7 @@ export function WorkspaceCardGrid({ workspaces, selectedWorkspaceId, statuses, s
                       <Pencil size={9} />
                     </button>
                   )}
-                  {status === "Working" && (
+                  {status === "Working" && !selected && (
                     <span className="sidebar-workspace-card-working" role="status" aria-label={`${workspace.name} has working tabs`}>
                       <span /><span /><span />
                     </span>
