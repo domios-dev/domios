@@ -183,7 +183,8 @@ impl LaunchGeneration {
     }
 
     fn emit(&mut self, svc: &ServiceContext, stage: BootStage) -> bool {
-        if !self.owns() {
+        let registry = LAUNCH_REGISTRY.lock();
+        if !registry.owns(self) {
             return false;
         }
         self.transition(stage);
@@ -192,7 +193,8 @@ impl LaunchGeneration {
     }
 
     fn fail(&self, svc: &ServiceContext, failure: LaunchFailure) -> bool {
-        if !LAUNCH_REGISTRY.lock().finish(self) {
+        let mut registry = LAUNCH_REGISTRY.lock();
+        if !registry.finish(self) {
             return false;
         }
         let reason = failure.reason();
@@ -207,7 +209,8 @@ impl LaunchGeneration {
 }
 
 pub(crate) fn record_reader_termination(svc: &ServiceContext, pty_id: &str) {
-    let launch = { LAUNCH_REGISTRY.lock().take_for_pty(pty_id) };
+    let mut registry = LAUNCH_REGISTRY.lock();
+    let launch = registry.take_for_pty(pty_id);
     if let Some(launch) = launch {
         let reason = LaunchFailure::PtyEof.reason();
         svc.emit_boot_stage(&launch.pane_id, BootStage::SpawnFailed, Some(&reason));

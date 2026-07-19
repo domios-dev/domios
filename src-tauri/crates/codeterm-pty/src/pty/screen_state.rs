@@ -92,6 +92,7 @@ impl PromptSignal {
 pub struct ScreenState {
     parsers: HashMap<String, vt100::Parser>,
     prompt_signals: HashMap<String, Arc<PromptSignal>>,
+    shell_ready_signals: HashMap<String, Arc<PromptSignal>>,
     bare_prompt_signals: HashMap<String, Vec<Arc<PromptSignal>>>,
     agent_signals: HashMap<String, Arc<PromptSignal>>,
     screen_change_signals: HashMap<String, Arc<ScreenChangeSignal>>,
@@ -102,6 +103,7 @@ impl ScreenState {
         Self {
             parsers: HashMap::new(),
             prompt_signals: HashMap::new(),
+            shell_ready_signals: HashMap::new(),
             bare_prompt_signals: HashMap::new(),
             agent_signals: HashMap::new(),
             screen_change_signals: HashMap::new(),
@@ -109,6 +111,13 @@ impl ScreenState {
     }
 
     pub fn process(&mut self, pty_id: &str, data: &[u8]) {
+        if let Some(signal) = self.shell_ready_signals.get(pty_id) {
+            if data.windows(7).any(|window| window == b"\x1b]133;A")
+                || data.windows(7).any(|window| window == b"\x1b]633;A")
+            {
+                signal.mark_ready();
+            }
+        }
         let parser = self
             .parsers
             .entry(pty_id.to_string())
@@ -296,6 +305,13 @@ impl ScreenState {
         signal
     }
 
+    pub fn arm_shell_ready_signal(&mut self, pty_id: &str) -> Arc<PromptSignal> {
+        self.shell_ready_signals
+            .entry(pty_id.to_string())
+            .or_insert_with(PromptSignal::new)
+            .clone()
+    }
+
     pub fn disarm_bare_prompt_signal(&mut self, pty_id: &str, signal: &Arc<PromptSignal>) {
         let remove_entry = self
             .bare_prompt_signals
@@ -346,6 +362,9 @@ impl ScreenState {
     pub fn remove(&mut self, pty_id: &str) {
         self.parsers.remove(pty_id);
         if let Some(sig) = self.prompt_signals.remove(pty_id) {
+            sig.mark_ready();
+        }
+        if let Some(sig) = self.shell_ready_signals.remove(pty_id) {
             sig.mark_ready();
         }
         if let Some(signals) = self.bare_prompt_signals.remove(pty_id) {
@@ -698,6 +717,17 @@ mod tests {
             !second.is_ready(),
             "a previous bare shell prompt must not make a later TUI screen ready"
         );
+    }
+
+    #[test]
+    fn shell_ready_requires_a_shell_integration_event() {
+        let mut ss = ScreenState::new();
+        let signal = ss.arm_shell_ready_signal("pty1");
+
+        ss.process("pty1", b"ordinary output");
+        assert!(!signal.is_ready());
+        ss.process("pty1", b"\x1b]133;A\x07");
+        assert!(signal.is_ready());
     }
 
     #[test]
