@@ -23,16 +23,18 @@ npx vite build --config playground/vite.config.ts
 - Put each exploration family under `playground/src/concepts/<author-or-theme>/`.
 - Render concepts in the shared gallery so alternatives remain comparable.
 - Use CodeTerm theme semantics through playground custom properties, not fixed product colors.
-- Treat [`src/motion-tokens.css`](./src/motion-tokens.css) as the mandatory motion-token source. Concepts must use its duration and easing tokens; do not define local timing values.
+- Start with [`src/motion-tokens.css`](./src/motion-tokens.css), then tune a concept when its physical action calls for a distinct rhythm.
 - Keep the semantic map from [MOTION_LANGUAGE.md](./MOTION_LANGUAGE.md#semantic-families): Working, Handoff, Completed, and Needs attention have distinct meanings. This gallery currently evaluates Working only.
 - Animate only `transform` and `opacity` unless the experiment explicitly measures another property.
 - Provide an accessible static meaning and a `prefers-reduced-motion` fallback.
 - Keep experimental code out of `src/` until a concept is selected and adapted for production.
 
-## Review gate
+## Art-direction loop
 
-The review specification is [MOTION_LANGUAGE.md](./MOTION_LANGUAGE.md#review-protocol). Every promotion requires its deterministic-frame review and the conformance plan in [`tests/motion-lab.spec.ts`](./tests/motion-lab.spec.ts); only an Orchestrator-recorded ACCEPT verdict moves a card from Exploration to Accepted.
+The lightweight review loop is in [MOTION_LANGUAGE.md](./MOTION_LANGUAGE.md#review-loop). Develop large, watch the complete motion at normal and slow speed, verify the final small size, and compare it directly with the previous version. A concept moves to Accepted only when the art director can describe the visible improvement without referring to a checklist or automated test.
 
 ## Why a focused Vite lab
 
 Storybook, Ladle, and React Cosmos are strong component-workshop systems. This lab starts smaller because its first job is rapid motion comparison: many variants in one viewport, shared tempo and accent controls, instant HMR, and no new runtime or test dependency. If the lab expands into a general component catalog, its concept modules can be promoted into stories or fixtures later.
+
+<!-- revision: 1 -->

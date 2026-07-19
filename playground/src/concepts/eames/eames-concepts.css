@@ -3,6 +3,8 @@
   --qm-active: var(--lab-accent);
 }
 
+.accepted-tier .eames-concepts { --qm-anchor: color-mix(in srgb, var(--lab-accent) 48%, transparent); }
+
 .eames-concepts *,
 .eames-concepts *::before,
 .eames-concepts *::after { box-sizing: border-box; }
@@ -67,23 +69,49 @@
   100% { transform: rotate(-2deg); }
 }
 
-.qm-feed .qm-stop { left: 16px; top: 2px; width: 2.5px; height: 10px; }
-.qm-feed .qm-stop::after { left: -3px; top: 3px; width: 3px; height: 4px; }
-.qm-feed .qm-carriage { left: 3px; top: 4px; width: 9px; height: 6px; animation: qm-feed var(--motion-period-ambient) var(--motion-ease-standard) infinite; }
+.qm-feed .qm-stop { left: 17px; top: 1px; width: 2px; height: 12px; border-radius: 1px 1px 2px 2px; }
+.qm-feed .qm-stop::after {
+  left: -4px;
+  top: 3px;
+  width: 4px;
+  height: 5px;
+  animation-duration: calc(var(--motion-period-ambient) * 1.08);
+  animation-delay: .55s;
+}
+.qm-feed .qm-carriage {
+  left: 2px;
+  top: 4px;
+  width: 10px;
+  height: 6px;
+  border-radius: 2px 2px 1px 1px;
+  animation: qm-feed calc(var(--motion-period-ambient) * 1.08) var(--motion-ease-standard) .55s infinite;
+}
+.qm-feed .qm-carriage::after {
+  position: absolute;
+  right: 1px;
+  bottom: -2px;
+  left: 1px;
+  height: 2px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 6px 0 currentColor;
+  content: "";
+}
 
 @keyframes qm-feed {
-  0%   { transform: translateX(0); animation-timing-function: var(--motion-ease-standard); }
-  10%  { transform: translateX(-1.2px); animation-timing-function: var(--motion-ease-exit); }
-  16%  { transform: translateX(2.4px); animation-timing-function: var(--motion-ease-standard); }
-  24%  { transform: translateX(4px); animation-timing-function: var(--motion-ease-enter); }
-  31%  { transform: translateX(0); animation-timing-function: var(--motion-ease-standard); }
-  100% { transform: translateX(0); }
+  0%, 10% { transform: translateX(0); }
+  16% { transform: translateX(-1px); animation-timing-function: var(--motion-ease-exit); }
+  29% { transform: translateX(5px); animation-timing-function: var(--motion-ease-standard); }
+  35% { transform: translateX(5px); animation-timing-function: var(--motion-ease-enter); }
+  45% { transform: translateX(.75px); animation-timing-function: var(--motion-ease-standard); }
+  52%, 100% { transform: translateX(0); }
 }
 
 @keyframes qm-glow-pulse {
-  0%, 22.5% { opacity: 0; }
-  24% { opacity: .85; }
-  25.5% { opacity: 0; }
+  0%, 28% { opacity: 0; }
+  30% { opacity: .9; }
+  36% { opacity: .55; }
+  42% { opacity: 0; }
   100% { opacity: 0; }
 }
 

@@ -261,9 +261,46 @@ input:focus-visible {
   gap: 20px;
 }
 
-.accepted-tier .section-heading { display: block; }
+.accepted-tier .section-heading { display: none; }
 .accepted-tier .eames-concepts .concept-grid { grid-template-columns: 1fr; }
 .accepted-tier .rand-concepts .concept-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.accepted-tier .concept-card { border-color: color-mix(in srgb, var(--lab-accent) 20%, #212730); }
+.accepted-tier .concept-card > header { padding: 14px 14px 8px; }
+.accepted-tier .concept-card h3 { color: #e2e8f0; font-size: 12px; }
+.accepted-tier .concept-card p { min-height: 24px; }
+.accepted-tier .concept-stage {
+  position: relative;
+  grid-template-columns: 1fr;
+  min-height: 150px;
+  padding: 30px 14px 18px;
+  place-items: center;
+  background:
+    linear-gradient(color-mix(in srgb, var(--lab-accent) 4%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--lab-accent) 4%, transparent) 1px, transparent 1px),
+    #10151c;
+  background-size: 12px 12px;
+}
+.accepted-tier .mini-team { position: absolute; top: 12px; left: 12px; }
+.accepted-tier .concept-motion {
+  display: grid;
+  width: 104px;
+  height: 72px;
+  place-items: center;
+  justify-self: center;
+}
+.accepted-tier .qm-scene,
+.accepted-tier .rand-stage { transform: scale(3); transform-origin: center; }
+.workbench-scale { display: none; }
+.accepted-tier .workbench-scale {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  display: block;
+  color: #4e5a69;
+  font-size: 7px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
 
 .section-heading {
   display: flex;

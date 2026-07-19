@@ -29,6 +29,8 @@
   opacity: 0.32;
 }
 
+.accepted-tier .rand-anchor { opacity: 0.48; }
+
 .rand-active {
   opacity: 0.9;
   animation-duration: var(--motion-period-ambient);
@@ -67,6 +69,8 @@
   background: currentColor;
   transform-origin: center top;
   animation-name: rand-press-working;
+  animation-duration: calc(var(--motion-period-ambient) * .96);
+  animation-delay: .2s;
 }
 
 .rand-bench-clamp .rand-anchor {
@@ -109,31 +113,32 @@
   background: currentColor;
   transform-origin: 13px 1.5px;
   animation-name: rand-driver-working;
+  animation-duration: calc(var(--motion-period-ambient) * 1.14);
+  animation-delay: .95s;
 }
 
+.rand-torque-driver .rand-anchor::before,
+.rand-torque-driver .rand-anchor::after {
+  position: absolute;
+  width: 3px;
+  height: 1px;
+  border-radius: 1px;
+  background: currentColor;
+  content: "";
+  opacity: 0;
+  animation: rand-driver-spark calc(var(--motion-period-ambient) * 1.14) var(--motion-ease-exit) .95s infinite;
+}
+
+.rand-torque-driver .rand-anchor::before { top: -3px; right: -3px; transform: rotate(-32deg); }
+.rand-torque-driver .rand-anchor::after { right: -4px; bottom: -2px; transform: rotate(28deg); animation-delay: 1.02s; }
+
 @keyframes rand-press-working {
-  0%, 4%, 30%, 100% {
-    transform: translateY(0);
-  }
-
-  4% {
-    animation-timing-function: var(--motion-ease-standard);
-  }
-
-  10% {
-    transform: translateY(-2px);
-    animation-timing-function: var(--motion-ease-exit);
-  }
-
-  15% {
-    transform: translateY(4px);
-    animation-timing-function: var(--motion-ease-standard);
-  }
-
-  25% {
-    transform: translateY(1px);
-    animation-timing-function: var(--motion-ease-standard);
-  }
+  0%, 9% { transform: translateY(0); }
+  15% { transform: translateY(-1px); animation-timing-function: var(--motion-ease-exit); }
+  26% { transform: translateY(4px); animation-timing-function: var(--motion-ease-standard); }
+  32% { transform: translateY(4px); animation-timing-function: var(--motion-ease-enter); }
+  40% { transform: translateY(.75px); animation-timing-function: var(--motion-ease-standard); }
+  48%, 100% { transform: translateY(0); }
 }
 
 @keyframes rand-clamp-working {
@@ -162,28 +167,20 @@
 }
 
 @keyframes rand-driver-working {
-  0%, 4%, 30%, 100% {
-    transform: translateX(0) rotate(0deg);
-  }
+  0%, 10% { transform: translateX(0) rotate(0deg); }
+  18% { transform: translateX(-.75px) rotate(-2deg); animation-timing-function: var(--motion-ease-exit); }
+  28% { transform: translateX(3px) rotate(0deg); animation-timing-function: var(--motion-ease-standard); }
+  34% { transform: translateX(3px) rotate(12deg); animation-timing-function: var(--motion-ease-enter); }
+  40% { transform: translateX(3px) rotate(5deg); animation-timing-function: var(--motion-ease-standard); }
+  48% { transform: translateX(.75px) rotate(0deg); animation-timing-function: var(--motion-ease-standard); }
+  56%, 100% { transform: translateX(0) rotate(0deg); }
+}
 
-  4% {
-    animation-timing-function: var(--motion-ease-standard);
-  }
-
-  10% {
-    transform: translateX(-1px) rotate(-2deg);
-    animation-timing-function: var(--motion-ease-exit);
-  }
-
-  15% {
-    transform: translateX(4px) rotate(14deg);
-    animation-timing-function: var(--motion-ease-standard);
-  }
-
-  25% {
-    transform: translateX(1px) rotate(3deg);
-    animation-timing-function: var(--motion-ease-standard);
-  }
+@keyframes rand-driver-spark {
+  0%, 32% { opacity: 0; }
+  35% { opacity: .95; }
+  42% { opacity: .35; }
+  47%, 100% { opacity: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -191,4 +188,7 @@
     animation: none !important;
     transform: none !important;
   }
+
+  .rand-torque-driver .rand-anchor::before,
+  .rand-torque-driver .rand-anchor::after { animation: none !important; }
 }

@@ -1,8 +1,6 @@
 import "./eames-concepts.css";
 import type { ReactNode } from "react";
 
-const LANE = "eames";
-
 interface VariantProps {
   id: string;
   number: string;
@@ -48,7 +46,7 @@ interface EamesConceptsProps {
 
 function Variant({ id, number, name, note, aria, children }: VariantProps) {
   return (
-    <article className="concept-card" data-motion-lane={LANE} data-working-concept={id}>
+    <article className="concept-card" data-concept={id}>
       <header>
         <span>{number}</span>
         <div><h3>{name}</h3><p>{note}</p></div>
@@ -58,6 +56,7 @@ function Variant({ id, number, name, note, aria, children }: VariantProps) {
         <div className="concept-motion">
           <div className={`qm-scene qm-${id}`} aria-hidden="true">{children}</div>
         </div>
+        <span className="workbench-scale" aria-hidden="true">workbench view</span>
       </div>
     </article>
   );
