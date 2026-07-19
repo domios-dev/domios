@@ -21,7 +21,12 @@ const ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the config
 const IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
 
 function starterPrompt(params: LaunchParams): string {
-  return params.starterPrompt === "idle_wakeup" ? IDLE_WAKEUP_START_PROMPT : ASSIGNED_TASK_START_PROMPT;
+  if (params.starterPrompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
+  if (params.starterPrompt === "team_bootstrap") {
+    if (!params.starterPromptText) throw new Error("team_bootstrap requires host starterPromptText");
+    return params.starterPromptText;
+  }
+  return ASSIGNED_TASK_START_PROMPT;
 }
 const QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
 const QUESTION_MENU_SELECTORS = [">", "❯", "▶", "➤", "→", "●"];
@@ -29,7 +34,9 @@ const PICKER_TITLE_RE = /^(Select model|Connect a provider)\b.*\besc\b/i;
 let lastPromptShape: "horizontal" | "vertical" = "horizontal";
 
 const plugin: PluginModule = {
-  starterPromptText(prompt: "assigned_task" | "idle_wakeup"): string { return prompt === "idle_wakeup" ? IDLE_WAKEUP_START_PROMPT : ASSIGNED_TASK_START_PROMPT; },
+  starterPromptText(prompt: "assigned_task" | "idle_wakeup" | "team_bootstrap"): string | undefined {
+    return prompt === "team_bootstrap" ? undefined : starterPrompt({ starterPrompt: prompt });
+  },
   detectFromTitle(title: string): boolean {
     return TITLE_RE.test(String(title || ""));
   },

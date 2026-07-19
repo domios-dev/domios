@@ -38,7 +38,9 @@ var TUI_FRAGMENTS = [
 ];
 var plugin = {
   starterPromptText(prompt) {
-    return prompt === "idle_wakeup" ? "You are a newly started agent. Wait for instructions from the user or your orchestration parent." : "Execute the assigned task.";
+    if (prompt === "idle_wakeup") return "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
+    if (prompt === "team_bootstrap") return void 0;
+    return "Execute the assigned task.";
   },
   detectFromTitle(title) {
     return TITLE_RE.test(String(title || ""));

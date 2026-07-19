@@ -43,6 +43,16 @@ pub enum StarterPrompt {
     #[default]
     AssignedTask,
     IdleWakeup,
+    TeamBootstrap,
+}
+
+impl StarterPrompt {
+    pub fn host_text(self) -> Option<&'static str> {
+        match self {
+            Self::TeamBootstrap => Some(crate::prompts::TEAM_BOOTSTRAP_STARTER.trim()),
+            Self::AssignedTask | Self::IdleWakeup => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]

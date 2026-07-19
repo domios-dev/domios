@@ -445,6 +445,10 @@ console.log("\n--- POSIX task launch shape ---\n");
   const idle = p.buildLaunchCommand({ task: "identity", starterPrompt: "idle_wakeup" });
   assert(idle.includes("You are a newly started agent. Wait for instructions from the user or your orchestration parent."), "Claude JS renders idle starter");
   assert(!idle.includes("Execute the CodeTerm task provided"), "Claude JS idle starter is not task action");
+  const teamText = "host-owned team bootstrap";
+  const team = p.buildLaunchCommand({ task: "identity", starterPrompt: "team_bootstrap", starterPromptText: teamText });
+  assert(team.includes(teamText), "Claude JS team launch uses the host-owned starter text");
+  eq(p.starterPromptText?.("team_bootstrap"), undefined, "Claude JS does not duplicate the team starter");
 }
 
 console.log("\n--- parseUsage reset formats ---\n");
