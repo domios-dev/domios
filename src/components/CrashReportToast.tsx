@@ -53,27 +53,48 @@ export function RecoveryStatusBanner() {
 
   useEffect(() => {
     let cancelled = false;
-    let unlisten: (() => void) | null = null;
+    let recoveryEventSeen = false;
+    const unlisteners: Array<() => void> = [];
     (async () => {
-      invoke<RecoveryState>("get_recovery_state")
-        .then((state) => {
-          if (!cancelled) setRecovery(state);
-        })
-        .catch(() => {});
       try {
-        const u = await listen<CrashPayload>("crash_report_available", (e) => {
+        const unlistenCrash = await listen<CrashPayload>("crash_report_available", (e) => {
           if (!cancelled) {
             setPayload(e.payload);
-            if (e.payload.recovery) setRecovery(e.payload.recovery);
+            if (e.payload.recovery) {
+              recoveryEventSeen = true;
+              setRecovery(e.payload.recovery);
+            }
           }
         });
-        if (cancelled) { u(); return; }
-        unlisten = u;
+        if (cancelled) {
+          unlistenCrash();
+          return;
+        }
+        unlisteners.push(unlistenCrash);
+        const unlistenRecovery = await listen<RecoveryState>("recovery-state-changed", (e) => {
+          if (!cancelled) {
+            recoveryEventSeen = true;
+            setRecovery(e.payload);
+          }
+        });
+        if (cancelled) {
+          unlistenRecovery();
+          return;
+        }
+        unlisteners.push(unlistenRecovery);
       } catch {
         /* event subsystem not ready — frontend reloaded mid-startup */
       }
+      invoke<RecoveryState>("get_recovery_state")
+        .then((state) => {
+          if (!cancelled && !recoveryEventSeen) setRecovery(state);
+        })
+        .catch(() => {});
     })();
-    return () => { cancelled = true; if (unlisten) unlisten(); };
+    return () => {
+      cancelled = true;
+      for (const unlisten of unlisteners) unlisten();
+    };
   }, []);
 
   const crash = recovery?.last_crash;
@@ -105,6 +126,7 @@ export function RecoveryStatusBanner() {
     <aside
       data-testid="recovery-status-banner"
       role="status"
+      aria-label="Crash recovery status"
       aria-live="polite"
       className="fixed right-3 top-20 z-40 pointer-events-none"
     >

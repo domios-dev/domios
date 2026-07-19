@@ -82,6 +82,7 @@ impl ServiceContext {
         if changed {
             self.emit_state_changed();
             self.schedule_planner_replay(&pane_id);
+            self.heal_recovery_state_if_ready();
         }
     }
 
