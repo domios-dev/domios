@@ -195,8 +195,8 @@ impl ServiceContext {
         )
     }
 
-    /// Send text to a pane (chatBackend or PTY). Agent PTYs require causal paste
-    /// ingestion and a provider turn; plain shells retain direct input semantics.
+    /// Send text to a pane (chatBackend or PTY). Agent PTYs use causal paste
+    /// ingestion and bounded recovery, but acknowledgement misses stay diagnostic.
     pub fn send_text(&self, pane_id: &str, text: &str, enter: bool) -> Result<(), String> {
         if self.pane_chat_backing(pane_id).is_some() {
             return self.chatbackend_pane_send(pane_id, text);
@@ -227,8 +227,8 @@ impl ServiceContext {
         self.send_text_to_pty_smart_guaranteed(&pty_id, text, enter)
     }
 
-    /// Provider-aware delivery. PTY agents use the causal paste-ingestion and
-    /// turn-acknowledgement transaction; plain shells keep direct paste input.
+    /// Provider-aware delivery. PTY agents use causal paste ingestion and
+    /// bounded recovery; only zero-byte transport failures reject the send.
     pub fn send_text_to_pty_smart(
         &self,
         pty_id: &str,
@@ -256,7 +256,7 @@ impl ServiceContext {
             crate::service::inject_verify::VerifyOpts {
                 require_prompt_first: false,
                 verify_echo: true,
-                verify_submit: enter,
+                verify_submit: false,
                 ..Default::default()
             },
         )
