@@ -1078,9 +1078,12 @@ for (const vp of VIEWPORTS) {
       if (await newSession.isVisible().catch(() => false)) {
         await newSession.click();
         await page.locator('[data-testid="new-session-picker"]').waitFor({ state: "visible", timeout: 10_000 });
+        const newSessionDialog = page.getByRole("dialog", { name: "Start a session" });
+        await expect(newSessionDialog).toBeVisible({ timeout: 10_000 });
+        await expect(newSessionDialog).toHaveAttribute("aria-modal", "true");
         await settleLayout(page);
         await auditKnownSurfaces(page, `${vp.name} new session picker`);
-        await auditViewport(page, `${vp.name} new session picker`);
+        await auditViewport(page, `${vp.name} new session picker`, { reachability: "new-session-picker" });
         const workspaceSelect = page.locator('[data-testid="picker-workspace"]').first();
         if (await workspaceSelect.isVisible().catch(() => false)) {
           await workspaceSelect.click();
