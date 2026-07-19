@@ -16,6 +16,8 @@ const TOTAL_BUDGET_MS = 600_000;
 const PER_INSTANCE_CLEANUP_MS = 95_000;
 const CHILD_EXIT_HEADROOM_MS = 15_000;
 const TEST_TIMEOUT_MS = 30_000;
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const PLAYWRIGHT_CLI = path.join(REPO_ROOT, "node_modules", "@playwright", "test", "cli.js");
 
 export interface BoundedPlaywrightArgs {
   files: string[];
@@ -73,17 +75,18 @@ export function budgetsForWorkers(workers: number): PlaywrightBudgets {
 
 export function boundedPlaywrightArgs(input: BoundedPlaywrightArgs): string[] {
   const budgets = budgetsForWorkers(input.workers);
+  const files = input.files.map((file) => path.relative(REPO_ROOT, file).replaceAll("\\", "/"));
   return [
-    "playwright",
+    PLAYWRIGHT_CLI,
     "test",
     "--config=tests/playwright/playwright.config.ts",
     `--project=${input.project}`,
-    ...input.files,
+    ...files,
     ...(input.grep ? ["-g", input.grep] : []),
     `--workers=${input.workers}`,
     `--timeout=${TEST_TIMEOUT_MS}`,
     `--global-timeout=${budgets.innerGlobalTimeoutMs}`,
-    "--reporter=line",
+    "--reporter=line,json",
   ];
 }
 
@@ -127,7 +130,7 @@ export async function main(args: string[]): Promise<void> {
   );
   await runWithGuaranteedCleanup(
     () => runStreaming(
-      process.platform === "win32" ? "npx.cmd" : "npx",
+      process.execPath,
       boundedPlaywrightArgs(input),
       { ...process.env, CT_E2E_WORKERS: String(input.workers) },
       budgets.childDeadlineMs,

@@ -46,8 +46,9 @@ test("bounded runner accepts multiple specs and reserves teardown inside 600 sec
   const childArgs = boundedPlaywrightArgs(parsed);
   assert.ok(childArgs.includes(`--global-timeout=${budgets.innerGlobalTimeoutMs}`));
   assert.ok(childArgs.includes("--workers=2"));
-  assert.ok(childArgs.includes(parsed.files[0]));
-  assert.ok(childArgs.includes(parsed.files[1]));
+  assert.ok(childArgs.includes(API_SPEC));
+  assert.ok(childArgs.includes(CANVAS_SPEC));
+  assert.ok(childArgs.includes("--reporter=line,json"));
 });
 
 test("bounded runner rejects broad or unbounded invocation shapes", () => {
