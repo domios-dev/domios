@@ -881,10 +881,10 @@ case "$CMD" in
     ensure_deps
     ct_configure_sccache
     RELEASE_PROVENANCE="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.provenance.json"
-    ct_snapshot_provenance "full-build" "release" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
+    ct_snapshot_provenance "full-build-input" "release" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
       "$RELEASE_PROVENANCE"
     pnpm tauri build
-    ct_check_provenance "full-build" "release" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
+    ct_check_provenance "full-build-input" "release" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
       "$RELEASE_PROVENANCE"
     # Release gate: /web is served from the exe-adjacent dist/ bundle that
     # tauri.conf bundle.resources maps in (../dist -> dist). If Tauri's

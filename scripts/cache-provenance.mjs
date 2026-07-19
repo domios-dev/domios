@@ -108,6 +108,7 @@ function sourceState(excludedFiles) {
 }
 
 function generatedState(kind) {
+  if (kind === "full-build-input") return {};
   const state = {
     dist: hashDir(path.join(repo, "dist")),
     schemas: hashDir(path.join(repo, "src-tauri", "gen", "schemas")),
