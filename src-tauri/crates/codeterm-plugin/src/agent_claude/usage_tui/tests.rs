@@ -88,3 +88,20 @@ fn parses_weekly_reset_from_current_claude_format() {
     assert_eq!(snap.weekly_pct, Some(64.0));
     assert!(snap.weekly_resets_at_ms.is_some());
 }
+
+#[test]
+fn rejects_incomplete_session_reset_until_the_frame_finishes() {
+    let parser = ClaudeTuiUsageParser::new();
+    let incomplete = "Current session 100% usedResets 8:10p (Europe/Kiev)\n\
+                      Current week (all models) 55% usedResets Jun 14, 8pm (Europe/Kiev)";
+    assert!(matches!(
+        parser.parse(incomplete),
+        Err(UsageParseError::NothingFound)
+    ));
+
+    let complete = "Current session 100% usedResets 8:10pm (Europe/Kiev)\n\
+                    Current week (all models) 55% usedResets Jun 14, 8pm (Europe/Kiev)";
+    let snap = parser.parse(complete).expect("completed frame parses");
+    assert!(snap.session_resets_at_ms.is_some());
+    assert!(snap.weekly_resets_at_ms.is_some());
+}

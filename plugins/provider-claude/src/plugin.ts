@@ -1,7 +1,7 @@
 // plugin.js by scripts/build-plugin.mjs. Frontend contract lives in src/index.ts.
 import type { LaunchParams, ParsedPrompt, PluginModule } from "@codeterm/plugin-sdk";
 import { manifest } from "./shared";
-import { usageNormalize, usageParseBlock } from "./usage";
+import { usageBlockIsComplete, usageNormalize, usageParseBlock } from "./usage";
 import {
   ClaudeEntry,
   claudeSessionFilePath,
@@ -341,6 +341,7 @@ const plugin: PluginModule = {
     const weekly = usageParseBlock(text, "Current week\\s*\\(\\s*all\\s*models\\s*\\)", true, nowMs);
 
     if (session.pct === null && weekly.pct === null) return null;
+    if (!usageBlockIsComplete(session) || !usageBlockIsComplete(weekly)) return null;
     return {
       provider: "claude",
       account_id: null,
