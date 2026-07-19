@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
+use std::time::Instant;
 
 use parking_lot::Mutex as PlMutex;
 
