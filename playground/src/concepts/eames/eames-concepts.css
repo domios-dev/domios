@@ -1,0 +1,100 @@
+.eames-concepts {
+  --qm-anchor: color-mix(in srgb, var(--lab-accent) 32%, transparent);
+  --qm-active: var(--lab-accent);
+}
+
+.eames-concepts *,
+.eames-concepts *::before,
+.eames-concepts *::after { box-sizing: border-box; }
+
+.eames-concepts .concept-motion { display: grid; place-items: center; }
+
+.qm-scene {
+  position: relative;
+  width: 24px;
+  height: 14px;
+}
+
+.qm-scene span { position: absolute; }
+
+.qm-anvil,
+.qm-block,
+.qm-stop { background: var(--qm-anchor); border-radius: 1px; }
+
+.qm-head,
+.qm-lever,
+.qm-carriage {
+  background: var(--qm-active);
+  border-radius: 1px;
+  opacity: .9;
+  will-change: transform;
+}
+
+.qm-anvil::after,
+.qm-block::after,
+.qm-stop::after {
+  content: "";
+  position: absolute;
+  border-radius: 2px;
+  background: var(--lab-accent);
+  opacity: 0;
+  animation: qm-glow-pulse var(--motion-period-ambient) var(--motion-ease-standard) infinite;
+}
+
+.qm-tap .qm-anvil { left: 4px; bottom: 1px; width: 16px; height: 3px; }
+.qm-tap .qm-anvil::after { left: 2.5px; top: -1.5px; width: 11px; height: 2px; }
+.qm-tap .qm-head { left: 7.5px; top: 2px; width: 9px; height: 4px; animation: qm-tap var(--motion-period-ambient) var(--motion-ease-standard) infinite; }
+
+@keyframes qm-tap {
+  0%   { transform: translateY(0); animation-timing-function: var(--motion-ease-standard); }
+  10%  { transform: translateY(-1.5px); animation-timing-function: var(--motion-ease-exit); }
+  16%  { transform: translateY(2.4px); animation-timing-function: var(--motion-ease-standard); }
+  24%  { transform: translateY(4px); animation-timing-function: var(--motion-ease-enter); }
+  31%  { transform: translateY(0); animation-timing-function: var(--motion-ease-standard); }
+  100% { transform: translateY(0); }
+}
+
+.qm-latch .qm-block { left: 13px; top: 7px; width: 7px; height: 5px; }
+.qm-latch .qm-block::after { left: -1px; top: -1px; width: 8px; height: 2px; }
+.qm-latch .qm-lever { left: 4px; top: 3px; width: 13px; height: 2px; transform: rotate(-2deg); transform-origin: left center; animation: qm-latch var(--motion-period-ambient) var(--motion-ease-standard) infinite; }
+
+@keyframes qm-latch {
+  0%   { transform: rotate(-2deg); animation-timing-function: var(--motion-ease-standard); }
+  10%  { transform: rotate(-5deg); animation-timing-function: var(--motion-ease-exit); }
+  16%  { transform: rotate(5deg); animation-timing-function: var(--motion-ease-standard); }
+  24%  { transform: rotate(11deg); animation-timing-function: var(--motion-ease-enter); }
+  31%  { transform: rotate(-2deg); animation-timing-function: var(--motion-ease-standard); }
+  100% { transform: rotate(-2deg); }
+}
+
+.qm-feed .qm-stop { left: 16px; top: 2px; width: 2.5px; height: 10px; }
+.qm-feed .qm-stop::after { left: -3px; top: 3px; width: 3px; height: 4px; }
+.qm-feed .qm-carriage { left: 3px; top: 4px; width: 9px; height: 6px; animation: qm-feed var(--motion-period-ambient) var(--motion-ease-standard) infinite; }
+
+@keyframes qm-feed {
+  0%   { transform: translateX(0); animation-timing-function: var(--motion-ease-standard); }
+  10%  { transform: translateX(-1.2px); animation-timing-function: var(--motion-ease-exit); }
+  16%  { transform: translateX(2.4px); animation-timing-function: var(--motion-ease-standard); }
+  24%  { transform: translateX(4px); animation-timing-function: var(--motion-ease-enter); }
+  31%  { transform: translateX(0); animation-timing-function: var(--motion-ease-standard); }
+  100% { transform: translateX(0); }
+}
+
+@keyframes qm-glow-pulse {
+  0%, 22.5% { opacity: 0; }
+  24% { opacity: .85; }
+  25.5% { opacity: 0; }
+  100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .eames-concepts .qm-head,
+  .eames-concepts .qm-lever,
+  .eames-concepts .qm-carriage,
+  .eames-concepts .qm-anvil::after,
+  .eames-concepts .qm-block::after,
+  .eames-concepts .qm-stop::after { animation: none !important; }
+  .eames-concepts .qm-anvil::after,
+  .eames-concepts .qm-block::after,
+  .eames-concepts .qm-stop::after { opacity: 0; }
+}
