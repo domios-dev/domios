@@ -40,28 +40,54 @@ pub(crate) struct AppStates {
 
 /// Orchestration bindings the dead epoch persisted, versus what came back.
 /// Roleless panes are ordinary terminals, not in-flight work.
-fn snapshot_role_bindings(snapshot: &crate::session::store::SessionSnapshot) -> u32 {
+fn snapshot_role_bindings(
+    snapshot: &crate::session::store::SessionSnapshot,
+) -> Vec<crate::crash::lifecycle::BindingIdentity> {
     use crate::session::store::SplitNodeSnapshot;
-    fn count_node(node: &SplitNodeSnapshot) -> u32 {
+    fn collect_node(
+        node: &SplitNodeSnapshot,
+        bindings: &mut Vec<crate::crash::lifecycle::BindingIdentity>,
+    ) {
         match node {
-            SplitNodeSnapshot::Leaf { role, .. } => role.is_some() as u32,
-            SplitNodeSnapshot::Split { children, .. } => children.iter().map(count_node).sum(),
+            SplitNodeSnapshot::Leaf {
+                pane_id,
+                claude_session_id,
+                role,
+                ..
+            } if role.is_some() => bindings.push(crate::crash::lifecycle::BindingIdentity {
+                pane_id: pane_id.clone(),
+                agent_session_id: claude_session_id.clone(),
+            }),
+            SplitNodeSnapshot::Leaf { .. } => {}
+            SplitNodeSnapshot::Split { children, .. } => {
+                for child in children {
+                    collect_node(child, bindings);
+                }
+            }
         }
     }
-    snapshot
-        .workspaces
-        .iter()
-        .flat_map(|ws| ws.tabs.iter())
-        .map(|tab| count_node(&tab.split_tree))
-        .sum()
+    let mut bindings = Vec::new();
+    for tab in snapshot.workspaces.iter().flat_map(|ws| ws.tabs.iter()) {
+        collect_node(&tab.split_tree, &mut bindings);
+    }
+    bindings
 }
 
-fn restored_role_bindings(mux: &crate::multiplexer::state::MultiplexerState) -> u32 {
+fn restored_role_bindings(
+    mux: &crate::multiplexer::state::MultiplexerState,
+) -> Vec<crate::crash::lifecycle::BindingIdentity> {
     mux.snapshot()
         .panes
         .values()
-        .filter(|pane| pane.role.is_some())
-        .count() as u32
+        .filter_map(|pane| {
+            pane.role
+                .is_some()
+                .then(|| crate::crash::lifecycle::BindingIdentity {
+                    pane_id: pane.id.clone(),
+                    agent_session_id: pane.agent_session_id.clone(),
+                })
+        })
+        .collect()
 }
 
 /// Scrub prod-targeting CodeTerm env inherited when dev starts inside prod.
@@ -139,7 +165,7 @@ pub(crate) fn init_states() -> AppStates {
     }));
 
     let ga_enabled = config_state.lock().general_agent.enabled;
-    let mut bound_at_shutdown = 0u32;
+    let mut bound_at_shutdown = Vec::new();
     let mux_state_inner = {
         let last = session_state.lock().load_last();
         match last {
@@ -199,9 +225,12 @@ pub(crate) fn init_states() -> AppStates {
             ghost_count
         );
     }
+    let restored_bindings = restored_role_bindings(&mux_state_inner);
     crate::crash::lifecycle::note_restored_bindings(crate::crash::lifecycle::BindingEvidence {
-        bound_at_shutdown,
-        restored: restored_role_bindings(&mux_state_inner),
+        bound_at_shutdown: bound_at_shutdown.len() as u32,
+        restored: restored_bindings.len() as u32,
+        bound_identities: bound_at_shutdown,
+        restored_identities: restored_bindings,
     });
     if general_config.enabled {
         service::general_agent::ensure_directories();

@@ -50,18 +50,36 @@ impl ServiceContext {
         }
     }
 
-    /// Proven health for the recovery record: every role-bearing pane has its
-    /// agent up. Read from live pane state at a real transition, never a timer.
-    fn heal_recovery_state_if_ready(&self) {
-        let ready = {
+    /// Proven health for the recovery record: every exact role binding has a
+    /// rehydrated agent state. Read at real state transitions, never a timer.
+    pub(crate) fn heal_recovery_state_if_ready(&self) {
+        if !crate::crash::lifecycle::recovery_heal_pending() {
+            return;
+        }
+        let healthy = {
             let mux = self.mux.read();
             mux.snapshot()
                 .panes
                 .values()
-                .filter(|p| p.role.is_some() && p.boot_stage == Some(BootStage::AgentReady))
-                .count() as u32
+                .filter_map(|pane| {
+                    if pane.role.is_none() || pane.agent_type.is_none() {
+                        return None;
+                    }
+                    crate::crash::lifecycle::BindingIdentity::healthy_lazy_restored(
+                        &pane.id,
+                        pane.agent_session_id.as_deref(),
+                        pane.agent_state.is_some(),
+                    )
+                })
+                .collect::<Vec<_>>()
         };
-        crate::crash::lifecycle::heal_current_epoch(ready);
+        if crate::crash::lifecycle::heal_current_epoch(&healthy) {
+            crate::api::events::emit_everywhere(
+                &self.app_handle,
+                "recovery-state-changed",
+                crate::crash::lifecycle::recovery_state(),
+            );
+        }
     }
 }
 
