@@ -20,10 +20,17 @@ const VIEWPORTS = [
 type CanvasLayerExpectation = "overlay" | "inline";
 
 type CreatedPane = { id: string; tab_id?: string };
-type TargetPane = { paneId: string; tabTitle: string; workspaceId: string };
+type TargetPane = {
+  paneId: string;
+  tabTitle: string;
+  workspaceId: string;
+  planId?: string;
+  teamId?: string;
+};
 type MuxState = {
   workspaces: Array<{
     id: string;
+    cwd?: string | null;
     tabs: Array<{ id: string; pane_id: string }>;
   }>;
 };
@@ -134,7 +141,11 @@ async function auditViewport(page: Page, label: string, options: { reachability?
   }
 }
 
-async function prepareTargetPane(api: ApiClient, paneCleanup: PaneCleanup): Promise<TargetPane> {
+async function prepareTargetPane(
+  api: ApiClient,
+  paneCleanup: PaneCleanup,
+  seedTeam: boolean,
+): Promise<TargetPane> {
   const tabTitle = `pw-mobile-layer-${Date.now()}`;
   const pane = await paneCleanup.createPane<CreatedPane>({ title: tabTitle, eager: true });
   await api.post(`/panes/${pane.id}/agent-type`, { agent_type: "claude" });
@@ -147,7 +158,22 @@ async function prepareTargetPane(api: ApiClient, paneCleanup: PaneCleanup): Prom
   const mux = await api.get<MuxState>("/mux/state");
   for (const workspace of mux.workspaces) {
     const tab = workspace.tabs.find((candidate) => candidate.pane_id === pane.id);
-    if (tab) return { paneId: pane.id, tabTitle, workspaceId: workspace.id };
+    if (!tab) continue;
+    if (!seedTeam) return { paneId: pane.id, tabTitle, workspaceId: workspace.id };
+    if (!workspace.cwd) throw new Error(`Team fixture workspace ${workspace.id} has no cwd`);
+    const plan = await api.post<{ plan_id: string; team_id: string }>("/plans", {
+      title: `pw-mobile-team-${Date.now()}`,
+      project_path: workspace.cwd,
+      owner: { pane_id: pane.id, session_id: null, title: tabTitle },
+      kinds: "implement:#38bdf8",
+    });
+    return {
+      paneId: pane.id,
+      tabTitle,
+      workspaceId: workspace.id,
+      planId: plan.plan_id,
+      teamId: plan.team_id,
+    };
   }
   throw new Error(`created pane ${pane.id} has no owning tab in mux state`);
 }
@@ -211,16 +237,20 @@ async function assertActiveManagerReadable(
   target: TargetPane,
   label: string,
 ): Promise<void> {
-  const managers = page.getByTestId("managers-section").first();
+  if (!target.teamId) throw new Error(`${label} has no seeded Team`);
+  const team = page.locator(`[data-testid="team-unit"][data-team-id="${target.teamId}"]`);
+  await expect(team, `${label} seeded Team visible`).toBeVisible({ timeout: 10_000 });
+  const managers = team.getByTestId("managers-section");
   await expect(managers, `${label} managers section visible`).toBeVisible({ timeout: 10_000 });
-  const manager = managers.getByRole("button", { name: /^Open tab / }).first();
+  const manager = managers.getByRole("button", { name: `Open tab ${target.tabTitle}` });
   const accessibleName = await manager.getAttribute("aria-label");
   expect(accessibleName, `${label} manager accessible name`).toMatch(/^Open tab \S/);
   await manager.click();
   await waitSidebarClosed(page);
 
   await openSidebar(page);
-  const activeManager = page.getByRole("button", { name: accessibleName! }).first();
+  const activeTeam = page.locator(`[data-testid="team-unit"][data-team-id="${target.teamId}"]`);
+  const activeManager = activeTeam.getByRole("button", { name: accessibleName! });
   await expect(activeManager, `${label} active manager button visible`).toBeVisible({ timeout: 10_000 });
   const row = activeManager.locator("xpath=..");
   await expect(row.locator(":scope > .active-tab-pill"), `${label} active fill behind manager`).toHaveCount(1);
@@ -965,7 +995,7 @@ for (const vp of VIEWPORTS) {
     const health = await assertHealthMatchesHead();
     await testInfo.attach("health.json", { body: JSON.stringify(health, null, 2), contentType: "application/json" });
 
-    const target = await prepareTargetPane(api, paneCleanup);
+    const target = await prepareTargetPane(api, paneCleanup, vp.name === "390x844");
     const page = await newWebPage(webBrowser, vp);
     try {
       await openApp(page);
@@ -1056,6 +1086,7 @@ for (const vp of VIEWPORTS) {
       await page.screenshot({ path: testInfo.outputPath(`mobile-overflow-${vp.name}.png`), fullPage: false });
     } finally {
       await page.context().close();
+      if (target.planId) await api.deletePlan(target.planId).catch(() => {});
     }
   });
 }
