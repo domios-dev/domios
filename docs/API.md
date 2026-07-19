@@ -289,7 +289,7 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 | POST | `/api/mesh/approve` | `{request_id}` | Accept an incoming pairing request |
 | POST | `/api/mesh/reject` | `{request_id}` | Reject and block an incoming pairing request |
 | POST | `/api/mesh/disconnect` | `{instance_id}` | Unpair from a paired peer (notifies remote side) |
-| POST | `/api/mesh/pair/request` | `PairingRequest` | Inbound pairing request from a peer |
+| POST | `/api/mesh/pair/request` | `PairingRequest` | Inbound pairing request; returns `{ok, instance_id}` so a manual target is promoted before acceptance |
 | POST | `/api/mesh/pair/accept` | `PairingAccept` | Inbound acceptance for a pairing request |
 | POST | `/api/mesh/pair/confirm` | `PairingConfirm` | Inbound pairing confirmation |
 | POST | `/api/mesh/pair/reject` | `{request_id}` | Inbound pairing rejection |
@@ -1297,4 +1297,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 80 -->
+<!-- revision: 81 -->
