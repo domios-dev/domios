@@ -73,12 +73,10 @@ export function playwrightWorkerCount(): number {
 }
 
 export function playwrightCargoTargetDir(
-  instance: DevInstance,
-  platform = process.platform,
-  workers = playwrightWorkerCount(),
+  _instance: DevInstance,
+  baseEnv: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
-  if (platform !== "win32" || workers === 1) return undefined;
-  return `src-tauri/target/playwright-${instance.name}`;
+  return baseEnv.CARGO_TARGET_DIR?.trim() || undefined;
 }
 
 export function devStartArgs(): string[] {
@@ -88,13 +86,12 @@ export function devStartArgs(): string[] {
 export function buildDevInstanceEnv(
   instance: DevInstance,
   baseEnv: NodeJS.ProcessEnv = process.env,
-  platform: NodeJS.Platform = process.platform,
-  workers: number = playwrightWorkerCount(),
 ): NodeJS.ProcessEnv {
-  const cargoTargetDir = playwrightCargoTargetDir(instance, platform, workers);
+  const cargoTargetDir = playwrightCargoTargetDir(instance, baseEnv);
+  const { CARGO_TARGET_DIR: _ignoredCargoTargetDir, ...inheritedEnv } = baseEnv;
   const stubAgentCmd = normalizeStubAgentCmd(baseEnv.CODETERM_STUB_AGENT_CMD, repoRoot());
   return {
-    ...baseEnv,
+    ...inheritedEnv,
     ...(stubAgentCmd === undefined ? {} : { CODETERM_STUB_AGENT_CMD: stubAgentCmd }),
     CODETERM_INSTANCE: instance.name,
     CODETERM_API_PORT: String(instance.apiPort),
@@ -102,7 +99,7 @@ export function buildDevInstanceEnv(
     CODETERM_CDP_PORT: String(instance.cdpPort),
     CT_E2E_DATADIR: instance.dataDirName,
     CT_E2E_PORT: String(instance.apiPort),
-    CARGO_TARGET_DIR: cargoTargetDir ?? baseEnv.CARGO_TARGET_DIR,
+    ...(cargoTargetDir === undefined ? {} : { CARGO_TARGET_DIR: cargoTargetDir }),
     WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${instance.cdpPort}`,
     VITE_CODETERM_TEST: "1",
     CODETERM_TEST_CLOCK: "1",
