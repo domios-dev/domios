@@ -3,7 +3,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { captureWorkingFrameStrips, expectIdenticalFrameStrips, expectSeamlessWorkingLoops } from "./motion-frame-strip";
 
-const MOTION_LAB_URL = "http://127.0.0.1:1431";
+const MOTION_LAB_URL = process.env.MOTION_LAB_URL ?? "http://127.0.0.1:1431";
 
 async function openMotionLab(page: Page) {
   await page.goto(MOTION_LAB_URL, { waitUntil: "domcontentloaded" });
