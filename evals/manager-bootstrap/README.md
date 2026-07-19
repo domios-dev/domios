@@ -1,5 +1,16 @@
 # Manager bootstrap bench
 
+Fast live smoke (Codex Orchestrator + Claude Planner):
+
+```bash
+npm run test:manager-bootstrap
+```
+
+This single process checks dev health and exact-head identity, subscribes to the
+event stream before spawning, creates an isolated workspace and pair, proves
+each manager received exactly one starter turn and acknowledged the correct
+role/counterpart, then removes the workspace. It does not poll or sleep.
+
 Run only against an exact-head dev daemon:
 
 ```bash
@@ -33,4 +44,4 @@ with a 45-second failure deadline. It does not use timer polling. Every CLI JSON
 response is captured before parsing, so a parser failure cannot close a producer
 pipe early.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
