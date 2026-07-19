@@ -201,6 +201,8 @@ export async function auditKnownSurfaces(page: Page, label: string): Promise<voi
   for (const selector of OPTIONAL_SURFACES) {
     const loc = page.locator(selector).first();
     if (!(await loc.isVisible().catch(() => false))) continue;
+    const inactive = await loc.evaluate((el) => el.closest('[inert], [aria-hidden="true"]') !== null);
+    if (inactive) continue;
     await revealOwnedHorizontalSurface(page, loc, `${label} ${selector}`);
     const box = await loc.boundingBox();
     if (!box) continue;
