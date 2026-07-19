@@ -2,6 +2,11 @@
 //! send/write/batch ServiceContext methods.
 use crate::service::ServiceContext;
 
+pub(crate) struct ProviderStatusTransition {
+    signal: std::sync::Arc<codeterm_types::pty::PaneStatusSignal>,
+    generation: u64,
+}
+
 /// Bounded window to let the composer render a bracketed paste before Enter is
 /// sent as a separate write. A codex/opencode TUI swallows a \r glued to the
 /// paste mid-ingestion; waiting for the paste to land avoids that. The deadline
@@ -404,15 +409,28 @@ impl ServiceContext {
         self.await_agent_tui_screen(pty_id, agent_id, timeout, false)
     }
 
-    pub(crate) fn await_provider_status_event(
+    pub(crate) fn arm_provider_status_transition(&self, pty_id: &str) -> ProviderStatusTransition {
+        let signal = self.agent_tracker.lock().arm_status_change_signal(pty_id);
+        let generation = signal.generation();
+        ProviderStatusTransition { signal, generation }
+    }
+
+    pub(crate) fn await_provider_status_transition(
         &self,
+        transition: ProviderStatusTransition,
         pty_id: &str,
         timeout: std::time::Duration,
     ) -> bool {
-        let signal = self.agent_tracker.lock().arm_status_change_signal(pty_id);
         let deadline = std::time::Instant::now() + timeout;
-        let mut generation = signal.generation();
+        let mut generation = transition.generation;
         loop {
+            let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
+                return false;
+            };
+            if !transition.signal.wait_after(generation, remaining) {
+                return false;
+            }
+            generation = transition.signal.generation();
             if self
                 .agent_tracker
                 .lock()
@@ -421,13 +439,6 @@ impl ServiceContext {
             {
                 return true;
             }
-            let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
-                return false;
-            };
-            if !signal.wait_after(generation, remaining) {
-                return false;
-            }
-            generation = signal.generation();
         }
     }
 
