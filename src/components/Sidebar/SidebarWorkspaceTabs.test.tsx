@@ -171,7 +171,7 @@ async function renderSidebar({
           appearingTabIds={new Set()}
           isActiveVisual={true}
           workspaceCanvasActive={false}
-          touchMode={false}
+          touchMode={true}
           compact={false}
           sidebarActionText="text-xs"
           orchestrators={Object.values(panes).filter((member) => member.role === "Orchestrator")}
