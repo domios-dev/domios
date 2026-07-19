@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { act, useState } from "react";
 import { Window } from "happy-dom";
 import { createRoot, type Root } from "react-dom/client";
-import type { Pane, ProviderDescriptor, Tab, Team, Workspace } from "../../lib/types";
+import type { Pane, PaneStatus, ProviderDescriptor, Tab, Team, Workspace } from "../../lib/types";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "../Canvas/cards/fixtures.testdata";
 import { TASK_STATUS_COLORS } from "../Canvas/settings";
@@ -829,8 +829,12 @@ test("clicking a team worker activates it", async () => {
     cwd: null,
   };
 
+  let updateManagerStatus = (_status: PaneStatus) => {};
+
   function Harness() {
     const [activeTabId, setActiveTabId] = useState("tab-orchestrator");
+    const [managerStatus, setManagerStatus] = useState<PaneStatus>("Working");
+    updateManagerStatus = setManagerStatus;
     return (
       <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>
         <SidebarWorkspaceTabs
@@ -838,7 +842,7 @@ test("clicking a team worker activates it", async () => {
           activeTabId={activeTabId}
           sortedTabs={tabs}
           panes={panes}
-          paneStatuses={{}}
+          paneStatuses={{ orchestrator: managerStatus, worker: "Idle" }}
           teams={[TEAM]}
           planIndex={[]}
           plans={[]}
@@ -870,6 +874,16 @@ test("clicking a team worker activates it", async () => {
   const managerRow = host.querySelector('[data-tab-id="tab-orchestrator"]');
   const managerButton = managerRow?.querySelector('button[aria-label="Open tab Orchestrator"]');
   assert(managerButton, "active manager remains an accessible named button");
+  const managerStatus = managerRow?.querySelector('[role="status"]');
+  assert(
+    managerStatus?.getAttribute("aria-label") === "Orchestrator tab status Working",
+    "working manager status is exposed to assistive technology",
+  );
+  await act(async () => updateManagerStatus("Idle"));
+  assert(
+    managerStatus?.getAttribute("aria-label") === "Orchestrator tab status Idle",
+    "idle transition updates the assistive status",
+  );
   assert(
     managerRow?.querySelector(":scope > .active-tab-pill"),
     "active fill is owned by the row behind the manager button",
