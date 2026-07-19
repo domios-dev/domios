@@ -7,7 +7,7 @@ use serde_json::Value;
 use super::{NewTask, PlanError, PlanStore};
 use crate::plan::{
     AgentRef, CanvasElement, ElementCanvas, Goal, IdentityProvenance, Milestone, MilestoneKind,
-    Plan, Section, Spec, Task, TaskPriority, TaskStatus, TransferRecord,
+    Plan, PlanStatus, Section, Spec, Task, TaskPriority, TaskStatus, TransferRecord,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -877,6 +877,7 @@ impl PlanStore {
                             }
                             let owner = working.owner.clone();
                             let mut plan = Plan::new(title, working.project_path.clone(), owner);
+                            plan.status = PlanStatus::Archived;
                             if plan.id == working.id {
                                 return Err(PlanError::Io(
                                     "derived plan id must differ from source plan id".into(),

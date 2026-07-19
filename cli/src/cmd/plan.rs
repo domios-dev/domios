@@ -100,18 +100,21 @@ fn plan_transfer_params(
     to: String,
     reason: Option<String>,
     caller_pane_id: Option<&str>,
-) -> Value {
+) -> Result<Value, String> {
+    let caller_pane_id = caller_pane_id
+        .filter(|pane_id| !pane_id.trim().is_empty())
+        .ok_or_else(|| {
+            "plan transfer requires CODETERM_PANE_ID from the calling Team manager".to_string()
+        })?;
     let mut params = json!({
         "plan_id": plan_id,
         "to": { "pane_id": to },
+        "caller_pane_id": caller_pane_id,
     });
     if let Some(reason) = reason {
         params["reason"] = json!(reason);
     }
-    if let Some(caller_pane_id) = caller_pane_id {
-        params["caller_pane_id"] = json!(caller_pane_id);
-    }
-    params
+    Ok(params)
 }
 
 fn default_project_path(client: &dyn RpcClient) -> Option<String> {
@@ -681,7 +684,7 @@ fn run_plan(
             reason,
         } => {
             let caller_pane_id = (!client.is_remote()).then(caller_pane_id).flatten();
-            let params = plan_transfer_params(plan_id, to, reason, caller_pane_id.as_deref());
+            let params = plan_transfer_params(plan_id, to, reason, caller_pane_id.as_deref())?;
             call(client, "plan.transfer", params)
         }
 

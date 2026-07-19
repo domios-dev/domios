@@ -588,17 +588,13 @@ mod tests {
     }
 
     #[test]
-    fn transfer_caller_distinguishes_agent_header_from_trusted_direct_user() {
+    fn transfer_caller_requires_agent_header() {
         let mut headers = HeaderMap::new();
         headers.insert("X-CodeTerm-Pane-Id", "source-manager".parse().unwrap());
-        assert_eq!(
-            transfer_caller(&headers),
-            crate::service::TeamMutationCaller::AgentPane("source-manager".into())
-        );
-        assert_eq!(
-            transfer_caller(&HeaderMap::new()),
-            crate::service::TeamMutationCaller::TrustedDirectUser
-        );
+        assert_eq!(transfer_caller(&headers).unwrap(), "source-manager");
+        let missing = transfer_caller(&HeaderMap::new()).unwrap_err();
+        assert_eq!(missing.0, StatusCode::FORBIDDEN);
+        assert!(missing.1.contains("X-CodeTerm-Pane-Id is required"));
         assert_eq!(
             team_plan_err(TeamPlanError::Team(
                 "Caller pane worker is not authorized to manage Team team_source".into(),
@@ -893,10 +889,15 @@ pub(crate) struct TransferBody {
     reason: String,
 }
 
-fn transfer_caller(headers: &HeaderMap) -> crate::service::TeamMutationCaller {
-    crate::service::TeamMutationCaller::from_pane_id(
-        crate::api::pane_routes::caller_pane_header(headers).as_deref(),
-    )
+fn transfer_caller(headers: &HeaderMap) -> Result<String, (StatusCode, String)> {
+    crate::api::pane_routes::caller_pane_header(headers)
+        .filter(|pane_id| !pane_id.trim().is_empty())
+        .ok_or_else(|| {
+            text_err(
+                StatusCode::FORBIDDEN,
+                "X-CodeTerm-Pane-Id is required for plan transfer",
+            )
+        })
 }
 
 pub async fn transfer(
@@ -906,15 +907,10 @@ pub async fn transfer(
     Json(body): Json<TransferBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let caller = transfer_caller(&headers)?;
     state
         .svc
-        .transfer_team_plan(
-            &id,
-            body.to,
-            &body.reason,
-            transfer_caller(&headers),
-            epoch_ms(),
-        )
+        .transfer_team_plan(&id, body.to, &body.reason, caller, epoch_ms())
         .map_err(team_plan_err)?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
