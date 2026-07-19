@@ -218,7 +218,7 @@ impl DeliverySeam for super::ServiceContext {
         };
         // No live PTY (chatBackend, not-yet-linked) — nothing to gate on.
         let Some(pty_id) = pty_id else { return true };
-        let signal = self.screen_state.lock().arm_screen_change_signal(&pty_id);
+        let signal = self.agent_tracker.lock().arm_status_change_signal(&pty_id);
         let deadline = std::time::Instant::now() + timeout;
         let mut generation = signal.generation();
         loop {

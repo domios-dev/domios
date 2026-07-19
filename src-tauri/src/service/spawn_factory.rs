@@ -194,7 +194,7 @@ impl ServiceContext {
     /// own first turn and be dropped by the submit-verify cap. A chat-backend or
     /// not-yet-linked recipient is delivered directly. A recipient that never
     /// settles by the deadline is warned with both pane ids, never silently
-    /// dropped. Run from a blocking task — it waits on the screen-change signal.
+    /// dropped. Run from a blocking task — it waits on the agent-status signal.
     pub(crate) fn introduce_when_receptive(
         &self,
         to: &Counterpart,
@@ -210,7 +210,7 @@ impl ServiceContext {
         };
         let outcome = match (pty_id, is_chat_backend) {
             (Some(pty_id), false) => {
-                let signal = self.screen_state.lock().arm_screen_change_signal(&pty_id);
+                let signal = self.agent_tracker.lock().arm_status_change_signal(&pty_id);
                 let deadline = std::time::Instant::now() + timeout;
                 let mut generation = signal.generation();
                 deliver_when_receptive(
