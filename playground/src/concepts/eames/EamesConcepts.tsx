@@ -12,6 +12,40 @@ interface VariantProps {
   children: ReactNode;
 }
 
+const VARIANTS = [
+  {
+    id: "tap",
+    number: "17",
+    name: "Tap",
+    note: "A press head strikes the anvil, then rests.",
+    aria: "Working: a press head taps down onto an anvil, then rests, in a slow repeating cycle.",
+    artwork: <><span className="qm-anvil" /><span className="qm-head" /></>,
+  },
+  {
+    id: "latch",
+    number: "18",
+    name: "Latch",
+    note: "A lever swings down to seat a part, then lifts.",
+    aria: "Working: a lever arm swings down onto a part to seat it, then lifts back to rest, cycling slowly.",
+    artwork: <><span className="qm-block" /><span className="qm-lever" /></>,
+  },
+  {
+    id: "feed",
+    number: "19",
+    name: "Feed",
+    note: "A carriage advances a piece to the stop, then retracts.",
+    aria: "Working: a carriage slides a piece against a fixed stop and retracts to rest, repeating slowly.",
+    artwork: <><span className="qm-stop" /><span className="qm-carriage" /></>,
+  },
+] as const;
+
+type EamesVariantId = (typeof VARIANTS)[number]["id"];
+
+interface EamesConceptsProps {
+  headingId: string;
+  variants?: readonly EamesVariantId[];
+}
+
 function Variant({ id, number, name, note, aria, children }: VariantProps) {
   return (
     <article className="concept-card" data-motion-lane={LANE} data-working-concept={id}>
@@ -29,47 +63,20 @@ function Variant({ id, number, name, note, aria, children }: VariantProps) {
   );
 }
 
-export function EamesConcepts() {
+export function EamesConcepts({ headingId, variants = VARIANTS.map(({ id }) => id) }: EamesConceptsProps) {
   return (
-    <section className="concept-section eames-concepts" aria-labelledby="eames-concepts-title">
+    <section className="concept-section eames-concepts" aria-labelledby={headingId}>
       <div className="section-heading">
         <div>
           <span className="section-index">03</span>
-          <h2 id="eames-concepts-title">Quiet Machine · Working</h2>
+          <h2 id={headingId}>Quiet Machine · Working</h2>
         </div>
         <p>Built by Eames · five-pose Working grammar</p>
       </div>
       <div className="concept-grid">
-        <Variant
-          id="tap"
-          number="17"
-          name="Tap"
-          note="A press head strikes the anvil, then rests."
-          aria="Working: a press head taps down onto an anvil, then rests, in a slow repeating cycle."
-        >
-          <span className="qm-anvil" />
-          <span className="qm-head" />
-        </Variant>
-        <Variant
-          id="latch"
-          number="18"
-          name="Latch"
-          note="A lever swings down to seat a part, then lifts."
-          aria="Working: a lever arm swings down onto a part to seat it, then lifts back to rest, cycling slowly."
-        >
-          <span className="qm-block" />
-          <span className="qm-lever" />
-        </Variant>
-        <Variant
-          id="feed"
-          number="19"
-          name="Feed"
-          note="A carriage advances a piece to the stop, then retracts."
-          aria="Working: a carriage slides a piece against a fixed stop and retracts to rest, repeating slowly."
-        >
-          <span className="qm-stop" />
-          <span className="qm-carriage" />
-        </Variant>
+        {VARIANTS.filter(({ id }) => variants.includes(id)).map(({ artwork, ...variant }) => (
+          <Variant key={variant.id} {...variant}>{artwork}</Variant>
+        ))}
       </div>
     </section>
   );
