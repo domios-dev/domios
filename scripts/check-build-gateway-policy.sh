@@ -68,6 +68,7 @@ fi
 grep -q "release source mismatch" "$TEST_ROOT/release-mismatch.log"
 
 bash scripts/check-release-source-clean.sh
+bash scripts/check-release-signing.sh
 
 CT_BUILD_JOB_ID=release-policy ./build.sh gateway-policy-probe release-target > "$TEST_ROOT/release-policy.log"
 grep -q "incremental=0" "$TEST_ROOT/release-policy.log"

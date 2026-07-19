@@ -243,6 +243,7 @@ git config core.hooksPath .githooks 2>/dev/null || true
 
 source scripts/cache-policy.sh
 source scripts/build-gateway.sh
+source scripts/release-signing.sh
 
 if [ -n "${CODETERM_BUILD_GATEWAY_DIR:-}" ]; then
   echo "ERROR: CODETERM_BUILD_GATEWAY_DIR cannot redirect the machine build gateway" >&2
@@ -875,6 +876,7 @@ case "$CMD" in
     require_integration_owner
     enter_build_gateway "$CMD ${*:2}"
     require_release_source
+    ct_load_release_signing_key
     prepare_release_target
     ensure_deps
     ct_configure_sccache
