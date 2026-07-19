@@ -269,6 +269,7 @@ fn drain_feed_batch(rx: &mut tokio::sync::mpsc::Receiver<Vec<u8>>, data: &mut Ve
 
 /// Mark PTY as dead and emit events — mirrors the Err branch in read_pty.
 fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
+    crate::service::orchestrator::record_reader_termination(svc, pty_id);
     let pane_id = svc.mux.read().pane_id_for_pty(pty_id);
     svc.agent_tracker.lock().set_dead(pty_id);
     svc.shell_caps.lock().remove(pty_id);

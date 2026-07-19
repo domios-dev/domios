@@ -71,6 +71,9 @@ pub fn await_bare_shell_prompt(
     let short_id = &pty_id[..pty_id.len().min(8)];
     let t0 = std::time::Instant::now();
     let ready = signal.wait(timeout);
+    screen_state
+        .lock()
+        .disarm_bare_prompt_signal(pty_id, &signal);
     if ready {
         log::info!(
             "[await_bare_shell_prompt] shell ready for pty {} after {}ms",
