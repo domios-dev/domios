@@ -108,9 +108,12 @@ export function MotionPlayground() {
             <span className="gallery-tier-index">01</span>
             <h2 id="accepted-concepts-title">Accepted</h2>
           </div>
-          <span className="gallery-tier-count">0 concepts</span>
+          <span className="gallery-tier-count">3 concepts</span>
         </div>
-        <p className="accepted-tier-empty">No concepts accepted yet.</p>
+        <div key={replayKey} className="concept-galleries">
+          <EamesConcepts headingId="accepted-eames-concepts-title" variants={["feed"]} />
+          <RandWorkingConcepts headingId="accepted-rand-concepts-title" variants={["quiet-press", "torque-driver"]} />
+        </div>
       </section>
 
       <section className="gallery-tier exploration-tier" aria-labelledby="exploration-concepts-title">
@@ -120,15 +123,15 @@ export function MotionPlayground() {
             <h2 id="exploration-concepts-title">Exploration</h2>
           </div>
           <div>
-            <span className="gallery-tier-count">16 concepts</span>
+            <span className="gallery-tier-count">19 concepts</span>
             <p>Rejected references</p>
           </div>
         </div>
         <div key={replayKey} className="concept-galleries">
           <CoreConcepts />
           <OpusConcepts />
-          <EamesConcepts />
-          <RandWorkingConcepts />
+          <EamesConcepts headingId="exploration-eames-concepts-title" variants={["tap", "latch"]} />
+          <RandWorkingConcepts headingId="exploration-rand-concepts-title" variants={["bench-clamp"]} />
         </div>
       </section>
 
