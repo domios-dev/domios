@@ -40,7 +40,7 @@ pub fn await_shell_prompt(
     pty_id: &str,
     timeout: std::time::Duration,
 ) -> bool {
-    let signal = screen_state.lock().arm_screen_change_signal(pty_id);
+    let signal = screen_state.lock().arm_shell_ready_signal(pty_id);
     let short_id = &pty_id[..pty_id.len().min(8)];
     let t0 = std::time::Instant::now();
     let ready = signal.wait(timeout);
@@ -70,8 +70,7 @@ pub fn await_bare_shell_prompt(
     let signal = screen_state.lock().arm_bare_prompt_signal(pty_id);
     let short_id = &pty_id[..pty_id.len().min(8)];
     let t0 = std::time::Instant::now();
-    let generation = signal.generation();
-    let ready = signal.wait_after(generation, timeout);
+    let ready = signal.wait(timeout);
     screen_state
         .lock()
         .disarm_bare_prompt_signal(pty_id, &signal);
