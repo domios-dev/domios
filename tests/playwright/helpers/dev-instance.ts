@@ -81,10 +81,8 @@ export function playwrightCargoTargetDir(
   return `src-tauri/target/playwright-${instance.name}`;
 }
 
-export function devStartArgs(workers = playwrightWorkerCount()): string[] {
-  const args = ["build.sh", "dev", "--wait"];
-  if (workers > 1) args.push("--release-gateway-after-ready");
-  return args;
+export function devStartArgs(): string[] {
+  return ["build.sh", "dev", "--wait"];
 }
 
 export function buildDevInstanceEnv(
