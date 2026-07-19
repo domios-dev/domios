@@ -13,6 +13,7 @@ use super::states::AppStates;
 /// Start socket server, REST API server, and cron scheduler.
 pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state: &ServiceState) {
     let app_handle = app.handle().clone();
+    let frontend_readiness_generation = super::arm_frontend_readiness();
 
     if let Err(e) = socket::server::SocketServer::start(
         states.mux.clone(),
@@ -162,11 +163,29 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
             let w_screen = screen_state.clone();
             let w_config = config_state.clone();
             let w_app = app_h.clone();
+            let frontend_ready_deadline =
+                std::time::Instant::now() + std::time::Duration::from_secs(30);
 
             std::thread::spawn(move || {
-                // Wait for frontend to initialize (workspace already created pre-lock in init_states)
-                std::thread::sleep(std::time::Duration::from_secs(2));
-                log::info!("[general-agent] Delayed start beginning...");
+                if !super::wait_for_frontend_ready_until(
+                    frontend_readiness_generation,
+                    frontend_ready_deadline,
+                ) {
+                    let reason = "frontend did not report readiness before the launch deadline";
+                    log::error!("[general-agent] {reason}");
+                    if let Some(pane_id) = mux
+                        .write()
+                        .resolve_pane_id(crate::service::general_agent::GENERAL_ALIAS)
+                    {
+                        svc.emit_boot_stage(
+                            &pane_id,
+                            codeterm_types::pty::BootStage::SpawnFailed,
+                            Some(reason),
+                        );
+                    }
+                    return;
+                }
+                log::info!("[general-agent] Startup beginning...");
                 service::general_agent::start_general_agent(
                     &svc,
                     &mux,

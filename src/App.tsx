@@ -1,5 +1,5 @@
 import { memo, useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { invoke } from "./lib/bridge";
+import { invoke, IS_WEB } from "./lib/bridge";
 import { buildTeamActions } from "./lib/teamActions";
 import { getCurrentPaneUiMode, listenPaneUiModeDefaultChanged } from "./lib/clientPaneUiMode";
 import { isChatDefaultEnabled } from "./lib/chatUiMode";
@@ -61,6 +61,17 @@ function useStableJsonValue<T>(value: T): T {
 function AppInner() {
   useAgentProviders();
   usePluginProviderMetaSync();
+  useEffect(() => {
+    if (!IS_WEB) {
+      void (async () => {
+        const generation = await invoke<number>("frontend_readiness_generation");
+        const accepted = await invoke<boolean>("frontend_ready", { generation });
+        if (!accepted) throw new Error("frontend readiness generation was replaced");
+      })().catch((error) => {
+        console.warn("Unable to report frontend readiness", error);
+      });
+    }
+  }, []);
   const { activities: pluginActivities, displayMap: pluginActivityDisplayMap } = usePluginActivity();
   // Phones start with the sidebar collapsed; the hamburger opens it as an overlay (see the wrapper at the render site).
   const [sidebarOpen, setSidebarOpen] = useState(
