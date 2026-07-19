@@ -684,6 +684,7 @@ impl ServiceContext {
         drop(mux);
         if session_bound {
             crate::service::general_agent::binding_wait::notify_session_bound();
+            crate::service::orchestrator::record_provider_session(self, pane_id);
         }
         self.bind_planner_session(pane_id);
     }
