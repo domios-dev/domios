@@ -89,22 +89,23 @@ test("@perf hidden panes do not re-render on unrelated agent_state churn", async
   const after = await readRenderCounts(page);
 
   const hiddenIds = hiddenPanes.slice(1).map((p) => p.id);
-  const hiddenRenderDeltas: number[] = [];
-  for (const id of hiddenIds) {
-    const delta = (after[id] ?? 0) - (before[id] ?? 0);
-    hiddenRenderDeltas.push(delta);
+  const hiddenRenderDeltas = hiddenIds.map((id) => ({
+    id,
+    delta: (after[id] ?? 0) - (before[id] ?? 0),
+  }));
+  recordPerfSamples({
+    name: "hidden-pane-render-delta",
+    unit: "count",
+    samples: hiddenRenderDeltas.map(({ delta }) => delta),
+    budget: HIDDEN_PANE_RENDER_BUDGET,
+    mode: "stub",
+  });
+  for (const { id, delta } of hiddenRenderDeltas) {
     expect(
       delta,
       `hidden pane ${id} render delta during churn (pre-fix baseline ~60 over 3s)`,
     ).toBeLessThanOrEqual(HIDDEN_PANE_RENDER_BUDGET);
   }
-  recordPerfSamples({
-    name: "hidden-pane-render-delta",
-    unit: "count",
-    samples: hiddenRenderDeltas,
-    budget: HIDDEN_PANE_RENDER_BUDGET,
-    mode: "stub",
-  });
 
   // The churn owner is itself hidden here, so the hidden-pane optimization
   // rightly suppresses its re-renders too; the signal must not be LOST —

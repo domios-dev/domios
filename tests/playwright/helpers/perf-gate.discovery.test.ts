@@ -36,7 +36,11 @@ test("the hidden-pane render budget emits a sample summary artifact", () => {
   const spec = read("tests/playwright/suites/12-web/multitab-perf.spec.ts");
   assert.match(spec, /const HIDDEN_PANE_RENDER_BUDGET = 3/);
   assert.match(spec, /name: "hidden-pane-render-delta"/);
-  assert.match(spec, /samples: hiddenRenderDeltas/);
+  assert.match(spec, /samples: hiddenRenderDeltas\.map\(\(\{ delta \}\) => delta\)/);
   assert.match(spec, /budget: HIDDEN_PANE_RENDER_BUDGET/);
   assert.match(spec, /toBeLessThanOrEqual\(HIDDEN_PANE_RENDER_BUDGET\)/);
+  const recordIndex = spec.indexOf('name: "hidden-pane-render-delta"');
+  const assertIndex = spec.indexOf("for (const { id, delta } of hiddenRenderDeltas)");
+  assert.ok(recordIndex >= 0);
+  assert.ok(assertIndex > recordIndex, "the summary artifact must be recorded before a hard assertion can throw");
 });
