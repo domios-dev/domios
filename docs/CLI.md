@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -1823,7 +1823,7 @@ Review-backpressure: WIP/credit status, waves, overrides, accept/bounce
 
 #### `codeterm plan review accept`
 
-Read-only ACCEPT verdict: attaches evidence without closing the task
+ACCEPT: attaches the verdict and closes the task (in_review -> done)
 
 - `--changed-executable-surfaces`
 - `--distinct-oracle`

@@ -61,6 +61,11 @@ For the 1.7.2 release line, the canonical root checkout on
 `feat/1.7.2-stability` owns all heavy build, test, and dev commands. The build
 gateway prefers it over any older `release/*-integration` worktree.
 
+`./build.sh cli` is intentionally independent from the app/dev build gateway:
+Cargo serializes its separate `cli/target` itself. The command also regenerates
+`docs/cli-manifest.json` and the generated block in `docs/CLI.md`, then installs
+the same release binary into the production and development data directories.
+
 ## Dev/Prod Isolation
 
 Dev builds (`npx tauri dev`) run with `tauri.dev.conf.json` overrides:
@@ -250,4 +255,4 @@ codeterm/
 └── docs/               # Documentation
 ```
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

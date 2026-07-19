@@ -6834,7 +6834,7 @@
           "subcommands": [
             {
               "name": "accept",
-              "about": "Read-only ACCEPT verdict: attaches evidence without closing the task",
+              "about": "ACCEPT: attaches the verdict and closes the task (in_review -> done)",
               "aliases": [],
               "args": [
                 {

@@ -10,6 +10,7 @@
 #   ./build.sh bootstrap — create/build bundled CLI + embed sidecar for fresh clones
 #   ./build.sh qa-prep   — one-shot: dist + sidecars for a fresh isolated worktree (no tsc gate)
 #   ./build.sh cli       — build CLI and install to ~/.codeterm/bin/ + ~/.codeterm-dev/bin/
+#                          without waiting for the app/dev build gateway
 #   ./build.sh clean     — clean build cache
 #   ./build.sh kill      — kill dev instance (safe, won't touch prod)
 #   ./build.sh e2e       — run non-LLM E2E tests against dev (port 7686)
@@ -402,6 +403,17 @@ install_cli_to() {
     cp "$release_dir/codeterm.exe" "$bin_dir/codeterm.exe"
   fi
   echo "CLI installed to $bin_dir"
+}
+
+write_cli_docs() {
+  local release_dir binary
+  release_dir="$(cli_release_dir)"
+  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+    binary="$release_dir/codeterm"
+  else
+    binary="$release_dir/codeterm.exe"
+  fi
+  "$binary" cli-manifest --write
 }
 
 if [ "${CODETERM_TEST_PRINT_CLI_RELEASE_DIR:-}" = "1" ]; then
@@ -908,10 +920,11 @@ case "$CMD" in
     ;;
   cli)
     require_integration_owner
-    enter_build_gateway "$CMD ${*:2}"
+    echo "[build] CLI uses Cargo's cli/target lock; app/dev gateway is independent."
     ct_configure_sccache
     touch cli/src/main.rs
     cargo build --release --manifest-path cli/Cargo.toml
+    write_cli_docs
     install_cli_to "$HOME/.codeterm/bin"
     install_cli_to "$HOME/.codeterm-dev/bin"
     ;;
