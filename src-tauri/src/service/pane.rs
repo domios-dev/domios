@@ -351,6 +351,7 @@ impl ServiceContext {
             self.kick_off_session_name_detection(&pane_id, &agent_id);
             self.refresh_session_model_once(&pane_id, &agent_id);
         }
+        self.heal_recovery_state_if_ready();
         self.start_focused_pane_model_poller();
     }
 
@@ -686,6 +687,7 @@ impl ServiceContext {
             crate::service::general_agent::binding_wait::notify_session_bound();
         }
         self.bind_planner_session(pane_id);
+        self.heal_recovery_state_if_ready();
     }
 
     /// Per-launch binding nonce for a pane, generated once and reused. Injected as CODETERM_SESSION_BINDING_NONCE so a provider's session-start report can prove it owns this pane; a report carrying a different nonce is a stale/foreign claim and gets rejected.
