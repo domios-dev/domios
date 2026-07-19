@@ -6,6 +6,7 @@ import { assertReusableDevConsole } from "../tests/playwright/helpers/dev-consol
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const TEST_ROOT = path.join(REPO_ROOT, "tests", "playwright");
+const PLAYWRIGHT_CLI = path.join(REPO_ROOT, "node_modules", "@playwright", "test", "cli.js");
 const TEST_TIMEOUT_MS = 30_000;
 const GLOBAL_TIMEOUT_MS = 600_000;
 
@@ -51,7 +52,7 @@ export function parseIsolatedPlaywrightArgs(args: string[]): IsolatedPlaywrightA
 
 export function playwrightArgs(input: IsolatedPlaywrightArgs): string[] {
   return [
-    "playwright",
+    PLAYWRIGHT_CLI,
     "test",
     "--config=tests/playwright/playwright.config.ts",
     `--project=${input.project}`,
@@ -98,7 +99,7 @@ export function runStreaming(
       if (deadlineExceeded) {
         reject(new Error(`${label} Playwright run exceeded ${deadlineMs}ms`));
       } else if (code !== 0) {
-        reject(new Error(`isolated Playwright exited with ${signal ?? `code ${code}`}`));
+        reject(new Error(`${label} Playwright exited with ${signal ?? `code ${code}`}`));
       } else {
         resolve();
       }
@@ -110,7 +111,7 @@ export async function main(args: string[]): Promise<void> {
   const input = parseIsolatedPlaywrightArgs(args);
   await assertReusableDevConsole();
   process.stdout.write(`[playwright:isolated] adopted ${process.env.CT_E2E_INSTANCE ?? "playwright"}; running ${path.relative(REPO_ROOT, input.file)}\n`);
-  await runStreaming(process.platform === "win32" ? "npx.cmd" : "npx", playwrightArgs(input), {
+  await runStreaming(process.execPath, playwrightArgs(input), {
     ...process.env,
     CT_E2E_REUSE_ONLY: "1",
     CT_E2E_WORKERS: "1",
