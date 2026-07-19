@@ -104,12 +104,7 @@ test("two worker slots have disjoint named instances", () => {
     assert.notEqual(first.vitePort, second.vitePort);
     assert.notEqual(first.cdpPort, second.cdpPort);
     assert.notEqual(first.dataDirName, second.dataDirName);
-    assert.deepEqual(devStartArgs(), [
-      "build.sh",
-      "dev",
-      "--wait",
-      "--release-gateway-after-ready",
-    ]);
+    assert.deepEqual(devStartArgs(), ["build.sh", "dev", "--wait"]);
     assert.equal(playwrightCargoTargetDir(first, "win32"), "src-tauri/target/playwright-pw1");
     assert.equal(playwrightCargoTargetDir(second, "win32"), "src-tauri/target/playwright-pw2");
     assert.equal(playwrightCargoTargetDir(first, "linux"), undefined);
