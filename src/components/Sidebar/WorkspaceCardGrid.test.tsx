@@ -39,7 +39,7 @@ async function run() {
   const styles = readFileSync(new URL("../../styles/globals.css", import.meta.url), "utf8");
   assert.match(
     styles,
-    /\.sidebar-workspace-card-working\s*\{[^}]*border-radius:\s*999px;[^}]*background:\s*color-mix\(in srgb, var\(--ct-accent\) 68%, var\(--ct-surface\)\);/s,
+    /\.sidebar-workspace-card-working\s*\{[^}]*width:\s*14px;[^}]*height:\s*7px;[^}]*border-radius:\s*999px;[^}]*background:\s*color-mix\(in srgb, var\(--ct-accent\) 62%, var\(--ct-surface\)\);/s,
     "working indicator uses a theme-accent activity pill",
   );
   assert.deepEqual(
@@ -61,7 +61,7 @@ async function run() {
       <WorkspaceCardGrid
         workspaces={workspaces}
         selectedWorkspaceId="one"
-        statuses={{ one: "Working", two: null }}
+        statuses={{ one: "Working", two: "Working" }}
         sortIds={["ws:one", "ws:two"]}
         onSelect={(id) => selected.push(id)}
         onCreate={() => { creates += 1; }}
@@ -80,8 +80,13 @@ async function run() {
   assert.equal(`${createButton.style.gridRow}/${createButton.style.gridColumn}`, "1/3");
   await act(async () => createButton.click());
   assert.equal(creates, 1, "create card owns the workspace creation action");
-  const workingIndicator = host.querySelector('[role="status"][aria-label="CodeTerm has working tabs"]');
-  assert(workingIndicator, "working workspace exposes accessible activity");
+  assert.equal(
+    host.querySelector('[role="status"][aria-label="CodeTerm has working tabs"]'),
+    null,
+    "selected workspace does not duplicate its active state with an activity badge",
+  );
+  const workingIndicator = host.querySelector('[role="status"][aria-label="team_smoke has working tabs"]');
+  assert(workingIndicator, "unselected working workspace exposes accessible activity");
   assert.equal(workingIndicator.children.length, 3, "working workspace uses a three-dot activity indicator");
   assert(host.textContent?.includes("CT") && host.textContent.includes("TS"), "derived initials render");
 
