@@ -24,6 +24,8 @@ export interface OptimisticEcho {
   content: string;
   /** Epoch ms the bubble was sent at (the stable client send time). */
   sentAtMs: number;
+  /** Monotonic frontend order captured before transport submission. */
+  clientOrder?: number;
 }
 
 interface CoverageToken {
@@ -115,6 +117,14 @@ function consumeTokenSequence(tokens: CoverageToken[], needle: string[]): boolea
   return false;
 }
 
+function candidateFollowsEcho<T extends NormalizedChatMessage>(echo: OptimisticEcho, candidate: T): boolean {
+  if (echo.clientOrder != null && candidate.clientOrder != null) {
+    return candidate.clientOrder >= echo.clientOrder;
+  }
+  const ts = timestampMs(candidate.timestamp);
+  return ts == null || ts >= echo.sentAtMs - ECHO_SKEW_MS;
+}
+
 /** Decide which optimistic user bubbles now have a confirmed real counterpart
  *  in the parsed stream and should be dropped.
  *
@@ -152,8 +162,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
         ) {
           continue;
         }
-        const ts = timestampMs(candidate.timestamp);
-        if (!markerMatch && ts != null && ts < echo.sentAtMs - ECHO_SKEW_MS) continue;
+        if (!markerMatch && !candidateFollowsEcho(echo, candidate)) continue;
         hit = i;
         break;
       }
@@ -166,17 +175,15 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
   const coverageClaimed = new Set<number>();
   const coverage = parsedUsers.map((message, index) => ({
     index,
+    message,
     tokens: consumed[index] ? [] : coverageTokens(message.content),
-    timestamp: timestampMs(message.timestamp),
   }));
   for (const echo of optimistic) {
     if (exactMatched.has(echo.id)) continue;
     const wanted = tokenNeedle(echo.content);
     if (wanted.length === 0) continue;
     for (const candidate of coverage) {
-      if (candidate.timestamp != null && candidate.timestamp < echo.sentAtMs - ECHO_SKEW_MS) {
-        continue;
-      }
+      if (!candidateFollowsEcho(echo, candidate.message)) continue;
       if (consumeTokenSequence(candidate.tokens, wanted)) {
         coveredMatched.add(echo.id);
         coverageClaimed.add(candidate.index);
@@ -197,8 +204,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
       if (consumed[i] || coverageClaimed.has(i)) continue;
       const candidate = parsedUsers[i];
       if ((candidate.type !== "user" && candidate.type !== "local_command") || isFileIdentityMarker(candidate.content)) continue;
-      const ts = timestampMs(candidate.timestamp);
-      if (ts != null && ts < echo.sentAtMs - ECHO_SKEW_MS) continue;
+      if (!candidateFollowsEcho(echo, candidate)) continue;
       const candidateTokens = meaningfulTokens(candidate.content);
       if (candidateTokens.length === 0) continue;
       if (candidateTokens.join(" ") === echoText) {

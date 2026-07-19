@@ -1,4 +1,10 @@
-import { isChatViewportAtBottom, shouldFollowChatSend, shouldRestoreChatViewport, snapChatViewportToBottom } from "./chatViewport";
+import {
+  isChatViewportAtBottom,
+  nextChatViewportMode,
+  shouldFollowChatSend,
+  shouldRestoreChatViewport,
+  snapChatViewportToBottom,
+} from "./chatViewport";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -15,6 +21,24 @@ assert(!shouldRestoreChatViewport(false, false, 1, key, ""), "hidden chat never 
 assert(isChatViewportAtBottom({ scrollHeight: 1000, scrollTop: 600, clientHeight: 400 }), "exact bottom follows messages");
 assert(isChatViewportAtBottom({ scrollHeight: 1000, scrollTop: 598, clientHeight: 400 }), "subpixel bottom gap follows messages");
 assert(!isChatViewportAtBottom({ scrollHeight: 1000, scrollTop: 597, clientHeight: 400 }), "manual scroll detaches immediately");
+
+const awayFromBottom = { scrollHeight: 1200, scrollTop: 600, clientHeight: 400 };
+assert(
+  nextChatViewportMode("pinned", awayFromBottom, false) === "pinned",
+  "layout growth cannot silently detach a pinned viewport",
+);
+assert(
+  nextChatViewportMode("pinned", awayFromBottom, true) === "detached",
+  "explicit user scroll detaches a pinned viewport",
+);
+assert(
+  nextChatViewportMode("detached", awayFromBottom, false) === "detached",
+  "streaming content preserves a detached viewport",
+);
+assert(
+  nextChatViewportMode("detached", { scrollHeight: 1000, scrollTop: 600, clientHeight: 400 }, false) === "pinned",
+  "returning to the bottom re-pins the viewport",
+);
 
 const detachedViewport = { scrollHeight: 1000, scrollTop: 250, clientHeight: 400 };
 snapChatViewportToBottom(detachedViewport);
