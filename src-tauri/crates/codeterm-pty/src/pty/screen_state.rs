@@ -164,17 +164,21 @@ impl ScreenState {
         }
     }
 
+    fn mark_shell_ready_observed(&mut self, pty_id: &str) {
+        self.shell_ready_generations.insert(
+            pty_id.to_string(),
+            self.pty_generations.get(pty_id).copied(),
+        );
+        if let Some(signal) = self.shell_ready_signals.get(pty_id) {
+            signal.mark_ready();
+        }
+    }
+
     pub fn process(&mut self, pty_id: &str, data: &[u8]) {
         if data.windows(7).any(|window| window == b"\x1b]133;A")
             || data.windows(7).any(|window| window == b"\x1b]633;A")
         {
-            self.shell_ready_generations.insert(
-                pty_id.to_string(),
-                self.pty_generations.get(pty_id).copied(),
-            );
-            if let Some(signal) = self.shell_ready_signals.get(pty_id) {
-                signal.mark_ready();
-            }
+            self.mark_shell_ready_observed(pty_id);
         }
         let parser = self
             .parsers
@@ -183,6 +187,11 @@ impl ScreenState {
         parser.process(data);
 
         let screen = parser.screen().contents();
+
+        #[cfg(windows)]
+        if screen_has_windows_shell_prompt(&screen) {
+            self.mark_shell_ready_observed(pty_id);
+        }
 
         if let Some(signal) = self.prompt_signals.get(pty_id) {
             if !signal.is_ready() && screen_has_shell_prompt(&screen) {
@@ -580,6 +589,16 @@ pub fn screen_has_shell_prompt(screen_text: &str) -> bool {
     }
 }
 
+#[cfg(windows)]
+fn screen_has_windows_shell_prompt(screen_text: &str) -> bool {
+    screen_text
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .map(str::trim_end)
+        .is_some_and(|line| line.starts_with("PS ") && line.ends_with('>'))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -860,6 +879,47 @@ mod tests {
         assert!(!signal.is_ready());
         ss.process("pty1", b"\x1b]133;A\x07");
         assert!(signal.is_ready());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_shell_prompt_is_a_shell_ready_event() {
+        let mut ss = ScreenState::new();
+        assert!(ss.bind_pty_generation("pty1", 1));
+
+        assert!(ss.process_if_generation("pty1", 1, b"PS C:\\Developer\\codeterm> "));
+
+        assert!(ss.arm_shell_ready_signal("pty1").is_ready());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_continuation_prompt_does_not_mark_shell_ready() {
+        let mut ss = ScreenState::new();
+        assert!(ss.bind_pty_generation("pty1", 1));
+        let signal = ss.arm_shell_ready_signal("pty1");
+
+        assert!(ss.process_if_generation("pty1", 1, b">> "));
+
+        assert!(!signal.is_ready());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_agent_composers_and_generic_output_are_not_shell_ready() {
+        for output in [
+            "╭──────────────────╮\n│ ❯                │",
+            "› ask the agent",
+            "download progress >",
+        ] {
+            let mut ss = ScreenState::new();
+            assert!(ss.bind_pty_generation("pty1", 1));
+            let signal = ss.arm_shell_ready_signal("pty1");
+
+            assert!(ss.process_if_generation("pty1", 1, output.as_bytes()));
+
+            assert!(!signal.is_ready(), "unexpected readiness for {output:?}");
+        }
     }
 
     #[test]
