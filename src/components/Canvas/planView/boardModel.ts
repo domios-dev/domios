@@ -145,10 +145,6 @@ export function planExecutionUnlocked(plan: Plan): boolean {
   return plan.planning_state === "approved" || plan.mode === "approved" || plan.mode === "execution";
 }
 
-function taskFreshness(task: Task): number {
-  return task.status_changed_at ?? task.updated_at ?? task.created_at ?? 0;
-}
-
 function laneBranch(task: Task): string | null {
   return clean(task.lane?.branch);
 }
@@ -268,20 +264,21 @@ export function groupTasksIntoColumns(
   now: number = Date.now(),
 ): { columns: BoardColumnModel[]; cancelledCount: number } {
   const exclusivePaneTasks = resolvePlanExclusivePaneTasks(plan);
-  const byStatus = new Map<TaskStatusType, Task[]>();
+  const planPosition = new Map(plan.tasks.map((task, index) => [task.id, index]));
   let cancelledCount = 0;
   for (const task of plan.tasks) {
     if (task.status === TaskStatus.Cancelled) {
       cancelledCount += 1;
-      continue;
     }
-    const bucket = byStatus.get(task.status) ?? [];
-    bucket.push(task);
-    byStatus.set(task.status, bucket);
   }
   const columns: BoardColumnModel[] = BOARD_COLUMN_DEFS.map((def) => {
-    const tasks = def.statuses.flatMap((s) => byStatus.get(s) ?? []);
-    tasks.sort((a, b) => taskFreshness(b) - taskFreshness(a));
+    const statuses = new Set<TaskStatusType>(def.statuses);
+    const tasks = plan.tasks.filter((task) => statuses.has(task.status));
+    tasks.sort((a, b) => {
+      const createdA = a.created_at ?? Number.POSITIVE_INFINITY;
+      const createdB = b.created_at ?? Number.POSITIVE_INFINITY;
+      return createdA - createdB || planPosition.get(a.id)! - planPosition.get(b.id)!;
+    });
     return {
       key: def.key,
       label: def.label,
