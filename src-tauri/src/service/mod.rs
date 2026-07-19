@@ -222,7 +222,7 @@ pub struct ServiceContext {
     pub usage_activity: crate::usage::PaneActivity,
     pub user_last_activity: Arc<crate::user_last_activity::UserLastActivity>,
     pub usage_poller: Arc<parking_lot::Mutex<Option<crate::usage::UsagePoller>>>,
-    /// Canvas plan store — per-project JSON plans + in-memory index. Sole writer.
+    /// Global plan store with project-scoped queries. Sole writer.
     pub plan_store: Arc<crate::service::plan::PlanStore>,
     pub plan_watchers: Arc<
         parking_lot::Mutex<
@@ -544,8 +544,9 @@ impl ServiceContext {
                 .lock()
                 .insert(project_root.clone());
         }
+        let legacy_plans_dir = project_root.join(".codeterm").join("plans");
         let mut watchers = self.plan_watchers.lock();
-        if !watchers.contains_key(&project_root) {
+        if legacy_plans_dir.is_dir() && !watchers.contains_key(&project_root) {
             match crate::service::plan::watcher::PlanWatcher::watch_project(
                 &project_root,
                 self.plan_store.clone(),

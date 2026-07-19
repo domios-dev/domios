@@ -1,1 +1,0 @@
-After CI publishes 1.7.2, verify latest.json and public assets plus signatures/checksums where available, perform supported update smoke, reconcile issues, and record release evidence. Orchestrator closes panes, removes merged sibling worktrees and branches, and records cleanup without touching the dirty checkout.

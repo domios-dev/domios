@@ -54,6 +54,7 @@ src-tauri/tauri.dev.conf-*.json
 # Local-only real-plan snapshot for dev canvas validation (never commit real plan data)
 src/components/Canvas/_realPlan.json
 .codeterm/plan-index.sqlite
+/.codeterm/plans/
 .codeterm-rem-tmp/
 src-tauri/bundled-cli
 src-tauri/bundled-embed

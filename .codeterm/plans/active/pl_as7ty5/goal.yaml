@@ -1,9 +1,0 @@
-vector: Stabilize and accelerate CodeTerm Playwright coverage across Windows, macOS, and Linux using remote platform owners only; success is a pushed feat/1.7.2-stability branch where the golden Playwright suite is understood, split into faster reliable shards, and platform-specific failures are either fixed with passing evidence or documented as bounded blockers with exact repro commands.
-vision: Use this Windows orchestrator pane only for coordination. ROG owns Windows desktop/WebView2/CDP failures, eight owns macOS web-mode/build failures, and ubunta owns Linux web-mode/build failures. Workers may fix code on their platform and report branch/SHA/tests. No broad builds or Playwright runs on this local machine.
-constraints:
-- Do not run build or broad Playwright gates on this local orchestrator machine.
-- Never kill production CodeTerm on port 7685.
-- Each platform worker fixes only failures reproducible on its platform and reports exact commands, timing, failures, changed files, and SHA.
-- Keep Playwright runs bounded with --timeout=30000 and --global-timeout=600000 unless a specific suite documents a stricter cap.
-postulates:
-- The Desktop report CodeTerm-Playwright-Golden-Test-Plan.md is the current golden-suite inventory baseline.

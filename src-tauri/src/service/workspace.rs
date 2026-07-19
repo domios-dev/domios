@@ -10,18 +10,15 @@ impl ServiceContext {
         self.mux.read().list_workspaces()
     }
 
-    /// Best-effort auto-load: scan + watch project-local plans under a workspace cwd so the
-    /// plan index reflects on-disk plans without a manual reindex. Gated on the watcher set so
-    /// the heavy scan runs once per project (the watcher then keeps it fresh).
     fn ensure_workspace_plans_loaded(&self, cwd: Option<&str>) {
         let Some(cwd) = cwd.filter(|c| !c.is_empty()) else {
             return;
         };
         let path = std::path::Path::new(cwd);
         if self
-            .plan_watchers
+            .loaded_plan_projects
             .lock()
-            .keys()
+            .iter()
             .any(|root| path.starts_with(root))
         {
             return;

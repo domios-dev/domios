@@ -1,1 +1,0 @@
-Release closeout is an in-scope 1.7.2 phase. It runs only after CI publish, public updater verification, issue reconciliation, and cleanup evidence. Remove merged sibling lanes and archive only after all dependencies are complete; preserve active integration and the dirty orchestrator checkout.
