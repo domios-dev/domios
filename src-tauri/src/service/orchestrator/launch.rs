@@ -183,37 +183,58 @@ impl LaunchGeneration {
     }
 
     fn emit(&mut self, svc: &ServiceContext, stage: BootStage) -> bool {
-        let registry = LAUNCH_REGISTRY.lock();
-        if !registry.owns(self) {
-            return false;
-        }
         self.transition(stage);
-        svc.emit_boot_stage(&self.pane_id, stage, None);
-        true
+        self.commit_if_current(|| {
+            svc.emit_boot_stage(&self.pane_id, stage, None);
+        })
     }
 
     fn fail(&self, svc: &ServiceContext, failure: LaunchFailure) -> bool {
-        let mut registry = LAUNCH_REGISTRY.lock();
-        if !registry.finish(self) {
-            return false;
-        }
         let reason = failure.reason();
-        svc.emit_boot_stage(&self.pane_id, BootStage::SpawnFailed, Some(&reason));
-        true
+        self.finish_if_current(|| {
+            svc.emit_boot_stage(&self.pane_id, BootStage::SpawnFailed, Some(&reason));
+        })
     }
 
     fn write_if_current<T>(&self, write: impl FnOnce() -> T) -> Option<T> {
         let registry = LAUNCH_REGISTRY.lock();
         registry.owns(self).then(write)
     }
+
+    fn commit_if_current(&self, commit: impl FnOnce()) -> bool {
+        let registry = LAUNCH_REGISTRY.lock();
+        if !registry.owns(self) {
+            return false;
+        }
+        commit();
+        true
+    }
+
+    fn finish_if_current(&self, commit: impl FnOnce()) -> bool {
+        let mut registry = LAUNCH_REGISTRY.lock();
+        if !registry.finish(self) {
+            return false;
+        }
+        commit();
+        true
+    }
 }
 
 pub(crate) fn record_reader_termination(svc: &ServiceContext, pty_id: &str) {
+    take_reader_termination(pty_id, |launch| {
+        let reason = LaunchFailure::PtyEof.reason();
+        svc.emit_boot_stage(&launch.pane_id, BootStage::SpawnFailed, Some(&reason));
+    });
+}
+
+fn take_reader_termination(pty_id: &str, commit: impl FnOnce(LaunchGeneration)) -> bool {
     let mut registry = LAUNCH_REGISTRY.lock();
     let launch = registry.take_for_pty(pty_id);
     if let Some(launch) = launch {
-        let reason = LaunchFailure::PtyEof.reason();
-        svc.emit_boot_stage(&launch.pane_id, BootStage::SpawnFailed, Some(&reason));
+        commit(launch);
+        true
+    } else {
+        false
     }
 }
 
@@ -795,7 +816,8 @@ pub(crate) fn launch_agent_in_background(
 mod tests {
     use super::{
         build_agent_command, replacement_pty_candidate, reused_provider_tui_owns_launch,
-        spawn_onboarding_task, AgentRegistry, LaunchFailure, LaunchRegistry,
+        spawn_onboarding_task, take_reader_termination, AgentRegistry, LaunchFailure,
+        LaunchGeneration, LaunchRegistry,
     };
     use crate::chatbackend::{ChatBackendError, ChatBackendProvider, ChatBackendRegistry};
     use crate::multiplexer::state::MultiplexerState;
@@ -804,6 +826,7 @@ mod tests {
     use crate::service::pty_io::pane_identity_env;
     use crate::service::spawn::{PaneCommand, SpawnPaneSpec};
     use std::sync::Arc;
+    use std::sync::Barrier;
 
     fn orchestrator_params(task: Option<&str>) -> SpawnAgentParams {
         SpawnAgentParams {
@@ -872,6 +895,36 @@ mod tests {
         let wrote = stale.write_if_current(|| true);
 
         assert_eq!(wrote, None);
+    }
+
+    #[test]
+    fn barrier_commit_cannot_be_overwritten_by_concurrent_begin() {
+        let launch = LaunchGeneration::begin("race-emit", "pty-old".into());
+        let barrier = Arc::new(Barrier::new(2));
+        let release = Arc::new(Barrier::new(2));
+        let held = barrier.clone();
+        let unhold = release.clone();
+        let worker = std::thread::spawn(move || {
+            launch.commit_if_current(|| {
+                held.wait();
+                unhold.wait();
+            })
+        });
+        barrier.wait();
+        release.wait();
+        let replacement = LaunchGeneration::begin("race-emit", "pty-new".into());
+        assert!(worker.join().unwrap());
+        assert!(replacement.owns());
+    }
+
+    #[test]
+    fn barrier_reader_eof_for_old_pty_cannot_take_replacement() {
+        let old = LaunchGeneration::begin("race-eof", "pty-old".into());
+        let replacement = LaunchGeneration::begin("race-eof", "pty-new".into());
+
+        assert!(!take_reader_termination("pty-old", |_| {}));
+        assert!(replacement.owns());
+        assert!(!old.owns());
     }
 
     #[test]
