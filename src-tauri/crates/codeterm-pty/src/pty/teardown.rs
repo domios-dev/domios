@@ -41,7 +41,7 @@ impl PtyTeardownSignal {
         self.changed.notify_all();
     }
 
-    fn mark_child_exited(&self) {
+    pub(crate) fn mark_child_exited(&self) {
         self.state.lock().child_exited = true;
         self.changed.notify_all();
     }
