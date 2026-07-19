@@ -132,8 +132,11 @@ export interface PaneAgentState {
 export type BootStage =
   | "pty_starting"
   | "pty_spawned"
+  | "reader_ready"
   | "shell_ready"
   | "agent_launching"
+  | "launch_written"
+  | "provider_ready"
   | "preparing_role_instructions"
   | "delivering_instructions"
   | "agent_ready"
