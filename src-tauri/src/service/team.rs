@@ -284,7 +284,7 @@ impl ServiceContext {
         plan_id: &str,
         to: crate::plan::OrchestratorRef,
         reason: &str,
-        caller: TeamMutationCaller,
+        caller_pane_id: String,
         now_ms: u64,
     ) -> Result<crate::plan::Plan, TeamPlanError> {
         let mut mux = self.mux.write();
@@ -294,7 +294,7 @@ impl ServiceContext {
             plan_id,
             to,
             reason,
-            caller,
+            TeamMutationCaller::AgentPane(caller_pane_id),
             now_ms,
         )?;
         drop(mux);

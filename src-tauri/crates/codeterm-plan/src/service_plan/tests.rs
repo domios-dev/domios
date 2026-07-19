@@ -975,7 +975,7 @@ fn list_tasks_is_strictly_project_scoped() {
 }
 
 #[test]
-fn inbox_plan_is_lazy_and_idempotent() {
+fn public_inbox_mutation_cannot_create_active_teamless_plan() {
     let root = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(root.path());
     let first = store
@@ -995,16 +995,18 @@ fn inbox_plan_is_lazy_and_idempotent() {
 
     assert_eq!(first.id, crate::plan::INBOX_PLAN_ID);
     assert_eq!(first.title, crate::plan::INBOX_PLAN_TITLE);
+    assert_eq!(first.status, crate::plan::PlanStatus::Archived);
+    assert_eq!(first.team_id, None);
     assert!(first.sections.is_empty());
     assert_eq!(second.created_at, first.created_at);
     assert!(root
         .path()
-        .join(".codeterm/plans/active/_inbox/plan.yaml")
+        .join(".codeterm/plans/archive/_inbox/plan.yaml")
         .exists());
 }
 
 #[test]
-fn add_inbox_task_lands_in_reserved_plan() {
+fn public_task_add_lands_in_archived_inbox_artifact() {
     let root = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(root.path());
     let (plan_id, task_id) = store
@@ -1023,6 +1025,8 @@ fn add_inbox_task_lands_in_reserved_plan() {
 
     assert_eq!(plan_id, crate::plan::INBOX_PLAN_ID);
     let plan = store.get(&plan_id).unwrap();
+    assert_eq!(plan.status, crate::plan::PlanStatus::Archived);
+    assert_eq!(plan.team_id, None);
     assert_eq!(plan.tasks.len(), 1);
     assert_eq!(plan.tasks[0].id, task_id);
     assert_eq!(plan.tasks[0].name, "standalone");

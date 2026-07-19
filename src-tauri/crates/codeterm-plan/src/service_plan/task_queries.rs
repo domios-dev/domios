@@ -133,6 +133,7 @@ impl PlanStore {
         }
         let mut plan = Plan::new(INBOX_PLAN_TITLE.into(), project_path, owner);
         plan.id = INBOX_PLAN_ID.into();
+        plan.status = PlanStatus::Archived;
         self.save(&mut plan, now_ms)
             .map_err(|e| PlanError::Io(e.to_string()))?;
         Ok(plan)

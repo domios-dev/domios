@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 20 -->
+<!-- revision: 21 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -13,7 +13,7 @@ The Team verbs are `codeterm team list|show|rename|close|adopt-plan`. `codeterm 
 
 `codeterm team adopt-plan <team_id> <plan_id>` activates an archived/teamless plan only when the Team has exactly one live Orchestrator and no other active plan. Adoption atomically binds the Team, replaces the old owner with that Orchestrator, records owner history, clears stale planner routing, and relinks live task hierarchy. `codeterm plan unarchive|resume` require an existing live Team binding; they never recreate a Team.
 
-`codeterm plan transfer <plan_id> --to <orchestrator-pane>` moves the plan to the destination Orchestrator's live Team. When invoked by an agent pane, the CLI supplies its caller identity and the daemon requires that pane to be the source Team's Orchestrator or planner Manager; Workers and foreign-Team panes cannot transfer. Direct-user calls are trusted when no pane identity is present. Transfer changes the Team, owner, owner history, and stale planner routing atomically before relinking hierarchy.
+`codeterm plan transfer <plan_id> --to <orchestrator-pane>` moves the plan to the destination Orchestrator's live Team. The CLI requires `CODETERM_PANE_ID`, supplies that caller identity, and the daemon requires the pane to be the source Team's Orchestrator or planner Manager; missing callers, Workers, and foreign-Team panes cannot transfer. Transfer changes the Team, owner, owner history, and stale planner routing atomically before relinking hierarchy.
 
 <!-- cli:auto-start -->
 #### `codeterm agent`

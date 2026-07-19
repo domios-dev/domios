@@ -305,7 +305,8 @@ pub(super) fn dispatch(
                 .and_then(|x| x.get("reason"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            svc.transfer_team_plan(&id, to, reason, transfer_caller(params), now)
+            let caller = transfer_caller(params)?;
+            svc.transfer_team_plan(&id, to, reason, caller, now)
                 .map_err(super::team::team_plan_rpc_err)?;
             Ok(json!({ "ok": true, "plan_id": id }))
         }
@@ -572,13 +573,18 @@ pub(super) fn dispatch(
     }
 }
 
-fn transfer_caller(params: &Option<Value>) -> crate::service::TeamMutationCaller {
-    crate::service::TeamMutationCaller::from_pane_id(
-        params
-            .as_ref()
-            .and_then(|value| value.get("caller_pane_id"))
-            .and_then(|value| value.as_str()),
-    )
+fn transfer_caller(params: &Option<Value>) -> Result<String, JsonRpcError> {
+    params
+        .as_ref()
+        .and_then(|value| value.get("caller_pane_id"))
+        .and_then(|value| value.as_str())
+        .filter(|pane_id| !pane_id.trim().is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| JsonRpcError {
+            code: -32602,
+            message: "caller_pane_id is required for plan transfer".into(),
+            data: None,
+        })
 }
 
 #[cfg(test)]
