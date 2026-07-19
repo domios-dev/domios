@@ -35,18 +35,20 @@ async function tokenDurationViolations(page: Page) {
       if (!card) return false;
       return !!card.closest(".accepted-tier") || !!card.closest(".exploration-tier") && card.hasAttribute("data-motion-lane");
     };
-    const describe = (element: Element) => {
+    const describe = (element: Element, pseudoElement: string | null) => {
       const card = element.closest(".concept-card");
       const title = card?.querySelector("h3")?.textContent?.trim() ?? "unnamed concept";
-      return `${title} :: ${element.tagName.toLowerCase()}${element.className ? `.${String(element.className).trim().replace(/\\s+/g, ".")}` : ""}`;
+      return `${title} :: ${element.tagName.toLowerCase()}${element.className ? `.${String(element.className).trim().replace(/\\s+/g, ".")}` : ""}${pseudoElement ?? ""}`;
     };
     return document.getAnimations().flatMap((animation) => {
-      const target = (animation.effect as KeyframeEffect | null)?.target;
+      const effect = animation.effect as (KeyframeEffect & { pseudoElement?: string | null }) | null;
+      const target = effect?.target;
       if (!(target instanceof Element) || !inScope(target)) return [];
-      const durations = getComputedStyle(target).animationDuration.split(",").map(parseDuration);
+      const pseudoElement = effect?.pseudoElement ?? null;
+      const durations = getComputedStyle(target, pseudoElement).animationDuration.split(",").map(parseDuration);
       return durations
         .filter((duration) => !allowed.some((token) => Math.abs(duration - token) < 0.01))
-        .map((duration) => ({ element: describe(target), duration, allowed }));
+        .map((duration) => ({ element: describe(target, pseudoElement), duration, allowed }));
     });
   });
 }
