@@ -224,6 +224,8 @@ pub async fn mesh_pair_accept(
 
     {
         let mut mesh = state.mesh.lock();
+        mesh.validate_pairing_accept_identity(&accept.request_id, &accept.from_instance_id)
+            .map_err(|error| (StatusCode::CONFLICT, error))?;
         let discovered_name = mesh
             .discovered_peers
             .get(&b_instance_id)
