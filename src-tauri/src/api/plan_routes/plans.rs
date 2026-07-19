@@ -889,7 +889,7 @@ pub(crate) struct TransferBody {
     reason: String,
 }
 
-fn transfer_caller(headers: &HeaderMap) -> Result<String, (StatusCode, String)> {
+fn transfer_caller(headers: &HeaderMap) -> Result<String, (StatusCode, Json<Value>)> {
     crate::api::pane_routes::caller_pane_header(headers)
         .filter(|pane_id| !pane_id.trim().is_empty())
         .ok_or_else(|| {
@@ -915,7 +915,7 @@ pub async fn transfer(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
-fn team_plan_err(error: TeamPlanError) -> (StatusCode, String) {
+fn team_plan_err(error: TeamPlanError) -> (StatusCode, Json<Value>) {
     match error {
         TeamPlanError::Plan(error) => plan_err(error),
         TeamPlanError::Team(message)
