@@ -4,24 +4,42 @@ use super::{await_shell_prompt, build_spawn_dispatch};
 use crate::service::ServiceContext;
 
 impl ServiceContext {
-    pub fn send_shell_spawn_after_ready(&self, pty_id: &str, cmd: &str) -> Result<(), String> {
+    fn write_spawn_dispatch(&self, pty_id: &str, cmd: &str) -> Result<usize, String> {
         let bytes = build_spawn_dispatch(cmd).map_err(|e| e.to_string())?;
-        self.pty
-            .lock()
-            .write(pty_id, &bytes)
-            .map_err(|e| e.to_string())
+        #[cfg(windows)]
+        {
+            let signal = self.screen_state.lock().arm_screen_change_signal(pty_id);
+            let generation = signal.generation();
+            self.pty
+                .lock()
+                .write(pty_id, &bytes)
+                .map_err(|e| e.to_string())?;
+            signal.wait_after(generation, super::PASTE_RENDER_WINDOW);
+            self.pty
+                .lock()
+                .write(pty_id, b"\r")
+                .map_err(|e| e.to_string())?;
+            return Ok(bytes.len() + 1);
+        }
+        #[cfg(not(windows))]
+        {
+            self.pty
+                .lock()
+                .write(pty_id, &bytes)
+                .map_err(|e| e.to_string())?;
+            Ok(bytes.len())
+        }
+    }
+
+    pub fn send_shell_spawn_after_ready(&self, pty_id: &str, cmd: &str) -> Result<(), String> {
+        self.write_spawn_dispatch(pty_id, cmd).map(|_| ())
     }
 
     /// Launch a shell-level command in an attached pty, bypassing bracketed paste
     /// (see `build_spawn_dispatch` — bash 3.2 can't interpret paste markers).
     pub fn send_shell_spawn(&self, pty_id: &str, cmd: &str) -> Result<(), String> {
         self.await_shell_ready(pty_id);
-        let bytes = build_spawn_dispatch(cmd).map_err(|e| e.to_string())?;
-        self.pty
-            .lock()
-            .write(pty_id, &bytes)
-            .map_err(|e| e.to_string())?;
-        Ok(())
+        self.write_spawn_dispatch(pty_id, cmd).map(|_| ())
     }
 
     /// Submit text through one ordered PTY write, with screen state retained for
@@ -113,16 +131,11 @@ impl ServiceContext {
 
         let hash_before = snapshot_screen_hash(&self.screen_state, pty_id).unwrap_or_default();
 
-        let bytes = build_spawn_dispatch(cmd).map_err(|_| InjectionError::PtyClosed {
-            pty_id: pty_id.to_string(),
-        })?;
-        self.pty
-            .lock()
-            .write(pty_id, &bytes)
-            .map_err(|_| InjectionError::PtyClosed {
-                pty_id: pty_id.to_string(),
-            })?;
-        let bytes_written = bytes.len();
+        let bytes_written =
+            self.write_spawn_dispatch(pty_id, cmd)
+                .map_err(|_| InjectionError::PtyClosed {
+                    pty_id: pty_id.to_string(),
+                })?;
 
         let submit_observed = if opts.verify_submit {
             let res: Result<(), HelperErr> = match submit_strategy {

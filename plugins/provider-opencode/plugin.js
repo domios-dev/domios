@@ -137,11 +137,17 @@ var plugin = {
   buildLaunchCommand(params) {
     const p = params || {};
     const parts = [];
+    let localTaskPath = null;
     if (p.task) {
       const taskPath = host.fs.writeTempFile(p.task, ".ct-task.md");
       if (!taskPath) throw new Error("failed to write OpenCode task instructions");
-      const config = JSON.stringify({ instructions: [taskPath] });
-      parts.push(host.platform() === "windows" ? `$env:OPENCODE_CONFIG_CONTENT = ${host.shell.quoteFor(config, host.platform())};` : `OPENCODE_CONFIG_CONTENT=${host.shell.quoteFor(config, host.platform())}`);
+      const platform = host.platform();
+      const taskName = taskPath.split(/[\\/]/).pop().replace(/[^A-Za-z0-9._-]/g, "-");
+      localTaskPath = `.codeterm/${taskName}`;
+      const source = host.shell.quoteFor(taskPath, platform);
+      const local = host.shell.quoteFor(localTaskPath, platform);
+      const config = host.shell.quoteFor(JSON.stringify({ instructions: [localTaskPath] }), platform);
+      parts.push(platform === "windows" ? `New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force; $env:OPENCODE_CONFIG_CONTENT = ${config}; try {` : `mkdir -p .codeterm && cp -- ${source} ${local} && OPENCODE_CONFIG_CONTENT=${config}`);
     }
     parts.push("opencode");
     const sps = p.structuredPromptServer;
@@ -158,6 +164,10 @@ var plugin = {
     }
     if (p.task) {
       parts.push("--prompt", host.shell.quoteFor(starterPrompt(p), host.platform()));
+    }
+    if (localTaskPath) {
+      const local = host.shell.quoteFor(localTaskPath, host.platform());
+      parts.push(host.platform() === "windows" ? `} finally { Remove-Item -LiteralPath ${local} -Force -ErrorAction SilentlyContinue }` : `; ct_status=$?; rm -f -- ${local}; exit $ct_status`);
     }
     return parts.join(" ");
   },

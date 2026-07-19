@@ -6,6 +6,26 @@ Fast live smoke (Codex Orchestrator + Claude Planner):
 npm run test:manager-bootstrap
 ```
 
+Full provider matrix (Claude, Codex, OpenCode, and Cursor as singles and across
+two orchestration pairs):
+
+```bash
+npm run test:provider-matrix
+```
+
+Narrow a diagnosis to one provider or pair without editing the runner:
+
+```powershell
+$env:MATRIX_PROVIDERS='opencode'; $env:MATRIX_SKIP_TEAMS='1'; npm run test:provider-matrix
+$env:MATRIX_PROVIDERS=''; $env:MATRIX_PAIRS='opencode+cursor'; npm run test:provider-matrix
+```
+
+The single-agent oracle accepts only an assistant message containing the
+computed result; that result is deliberately absent from the task text. The
+team oracle requires exactly one starter user turn and an assistant
+acknowledgement of both roles and the counterpart pane. Both runners subscribe
+to pane/chat events before spawning and use deadlines only as failure bounds.
+
 This single process checks dev health and exact-head identity, subscribes to the
 event stream before spawning, creates an isolated workspace and pair, proves
 each manager received exactly one starter turn and acknowledged the correct
@@ -44,4 +64,4 @@ with a 45-second failure deadline. It does not use timer polling. Every CLI JSON
 response is captured before parsing, so a parser failure cannot close a producer
 pipe early.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

@@ -208,6 +208,16 @@ impl DeliverySeam for super::ServiceContext {
     }
 
     fn wait_until_receptive(&self, target: &str, timeout: std::time::Duration) -> bool {
+        self.wait_until_pane_receptive(target, timeout)
+    }
+}
+
+impl super::ServiceContext {
+    pub(crate) fn wait_until_pane_receptive(
+        &self,
+        target: &str,
+        timeout: std::time::Duration,
+    ) -> bool {
         use codeterm_types::pty::PaneStatus;
         let pty_id = {
             let mux = self.mux.read();
@@ -238,9 +248,7 @@ impl DeliverySeam for super::ServiceContext {
             generation = signal.generation();
         }
     }
-}
 
-impl super::ServiceContext {
     /// Deliver an enveloped machine/system message through the gateway — the
     /// receptivity gate applies per `class`. Convenience over building an
     /// `OutboundMessage` at each call site during the migration off
@@ -392,9 +400,8 @@ impl MessageGateway {
         msg: &OutboundMessage,
     ) -> Result<DeliveryReceipt, DeliveryError> {
         let key = msg.idempotency_key.clone();
-        // Machine traffic waits for the recipient to be receptive so its Enter is
-        // not swallowed mid-turn. A missed deadline is an anomaly, not readiness:
-        // we log and still deliver optimistically (never drop).
+        // Machine traffic waits for receptivity so Enter is not swallowed mid-turn.
+        // A missed deadline is logged, then delivery proceeds optimistically.
         if class_waits_for_receptive(msg.class)
             && !seam.wait_until_receptive(&msg.target, RECEPTIVE_TIMEOUT)
         {

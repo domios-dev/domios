@@ -88,7 +88,20 @@ pub async fn start(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let info = pane_chat_info(&state, &pane_id)?;
-    let path = resolve_jsonl_path(&state, &info)?;
+    let path = match resolve_jsonl_path(&state, &info) {
+        Ok(path) => path,
+        Err((StatusCode::NOT_IMPLEMENTED, _)) => {
+            let (messages, total) =
+                crate::service::pane_chat::pane_chat_snapshot(&state.svc, &pane_id, 0)
+                    .map_err(|_| (StatusCode::BAD_REQUEST, "chat snapshot failed"))?;
+            return Ok(Json(serde_json::json!({
+                "ok": true,
+                "snapshot": messages,
+                "offset": total,
+            })));
+        }
+        Err(error) => return Err(error),
+    };
 
     // Snapshot: parse the trailing window so the UI gets recent context immediately. start_offset = file_size - SNAPSHOT_WINDOW (clamped to 0);
     // the tailer picks up from snapshot.new_offset onwards.

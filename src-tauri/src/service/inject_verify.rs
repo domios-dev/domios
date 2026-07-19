@@ -202,6 +202,7 @@ fn paste_placeholder_regex() -> &'static Regex {
     })
 }
 
+#[cfg(test)]
 fn screen_has_paste_placeholder(screen: &str) -> bool {
     paste_placeholder_regex().is_match(screen)
 }

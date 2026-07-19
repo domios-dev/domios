@@ -16,8 +16,12 @@
       "timeoutSecs": 30
     },
     "taskDelivery": "inline_flag",
-    "systemPromptDelivery": { "kind": "session_config" },
-    "verifySubmit": { "kind": "tui_input_drained" },
+    "systemPromptDelivery": {
+      "kind": "session_config"
+    },
+    "verifySubmit": {
+      "kind": "tui_input_drained"
+    },
     "sessionIdInjection": "none",
     "statusBarRows": 2,
     "preservesContextOnResume": true,

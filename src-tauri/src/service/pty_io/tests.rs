@@ -393,10 +393,10 @@ fn unix_spawn_dispatch_contains_bash_script_path() {
 
 #[cfg(windows)]
 #[test]
-fn windows_spawn_dispatch_prepends_sacrificial_space() {
+fn windows_spawn_dispatch_prepends_sacrificial_space_without_glued_enter() {
     let bytes = build_spawn_dispatch("Remove-Item Env:CLAUDECODE; claude").unwrap();
     let s = String::from_utf8(bytes).unwrap();
-    assert_eq!(s, "\x1b[200~ Remove-Item Env:CLAUDECODE; claude\x1b[201~\r");
+    assert_eq!(s, "\x1b[200~ Remove-Item Env:CLAUDECODE; claude\x1b[201~");
     let after_opener = &s["\x1b[200~".len()..];
     assert!(after_opener.starts_with(' '));
     assert!(after_opener[1..].starts_with("Remove-Item"));
