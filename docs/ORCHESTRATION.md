@@ -273,16 +273,18 @@ plus the plan's `planner` binding — named by binding, never guessed.
 Preferred spawn shape:
 
 ```bash
-codeterm agent spawn claude --model fable \
+codeterm agent providers
+codeterm agent models <provider>
+codeterm agent spawn <provider> [--model <model>] \
   --parent <orch-pane> \
   --role Planner \
   --task-file <brief>
 ```
 
-Use `fable` first for planning depth. If that model is unavailable in
-`codeterm agent models claude`, fall back to `opus` and keep the rest of the
-spawn shape unchanged. Put the brief in a task file so long planning context,
-backticks, and command snippets arrive byte-for-byte.
+The Orchestrator owns the provider/model choice based on availability, planning
+depth, and current usage headroom. Omit `--model` to use the provider default.
+Put the brief in a task file so long planning context, backticks, and command
+snippets arrive byte-for-byte.
 
 The Planner must hand back:
 
@@ -993,3 +995,5 @@ Check both providers before heavy spawning: `codeterm usage latest --provider cl
 | Orchestration principle (when to spawn, model routing, discipline) | `codeterm docs ORCHESTRATION` + role prompts; machine deltas are mem preferences |
 | Full mem reference | `codeterm docs MEMORY` |
 | REST + socket API | `codeterm docs API` |
+
+<!-- revision: 1 -->
