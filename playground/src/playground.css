@@ -338,7 +338,8 @@ input:focus-visible {
   .lab-controls,
   .context-strip { grid-template-columns: 1fr; }
   .concept-grid { grid-template-columns: 1fr; }
-  .accepted-tier .concept-grid { grid-template-columns: 1fr; }
+  .accepted-tier .eames-concepts .concept-grid,
+  .accepted-tier .rand-concepts .concept-grid { grid-template-columns: 1fr; }
   .section-heading,
   .gallery-tier-heading { align-items: start; flex-direction: column; }
 }
