@@ -16,6 +16,7 @@ import { NotificationToastContainer } from "../Notifications/NotificationToast";
 import type { Notification } from "../../lib/types";
 import { NotificationBell } from "../Notifications/NotificationBell";
 import { developmentBuildLabel } from "./buildIdentity";
+import { CanvasButton } from "../Canvas/CanvasButton";
 
 interface TitlebarProps {
   onToggleSidebar?: () => void;
@@ -32,6 +33,7 @@ interface TitlebarProps {
   onDeleteNotification?: (id: string) => void;
   onDismissToast?: (id: string) => void;
   onNavigateToast?: (paneId: string) => void;
+  workspaceCanvasActive?: boolean;
 }
 
 export function Titlebar({
@@ -48,6 +50,7 @@ export function Titlebar({
   onDeleteNotification,
   onDismissToast,
   onNavigateToast,
+  workspaceCanvasActive = false,
 }: TitlebarProps) {
   void _theme;
   // Window chrome controls only exist in the Tauri shell; the browser tab owns its own window in web-mirror mode.
@@ -127,6 +130,7 @@ export function Titlebar({
       <div className="min-w-0 flex-1" data-tauri-drag-region />
 
       <div className="flex shrink-0 items-center h-full gap-0.5 pr-1 sm:gap-1 sm:pr-1.5">
+        <CanvasButton active={workspaceCanvasActive} />
         {onMarkNotificationRead && onMarkAllNotificationsRead && onDeleteNotification && onNavigateToast && (
           <NotificationBell
             notifications={notifications}
