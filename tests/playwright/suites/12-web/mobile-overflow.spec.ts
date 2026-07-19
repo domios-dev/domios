@@ -10,6 +10,7 @@ import { readFileSync } from "node:fs";
 import { expect, test, type Browser, type Page, type PaneCleanup, API_BASE, readDevToken } from "../../helpers/fixtures";
 import type { ApiClient } from "../../helpers/api-client";
 import { auditKnownSurfaces, collectViewportOffenders, INTERACTIVE, revealOwnedHorizontalSurface, type ReachabilityMode } from "../../helpers/mobile-overflow";
+import { tempSpawnCwd } from "../../helpers/spawn-cwd";
 
 const VIEWPORTS = [
   { width: 320, height: 568, name: "320x568" },
@@ -26,6 +27,7 @@ type TargetPane = {
   workspaceId: string;
   planId?: string;
   teamId?: string;
+  fixtureWorkspaceId?: string;
 };
 type MuxState = {
   workspaces: Array<{
@@ -147,7 +149,19 @@ async function prepareTargetPane(
   seedTeam: boolean,
 ): Promise<TargetPane> {
   const tabTitle = `pw-mobile-layer-${Date.now()}`;
-  const pane = await paneCleanup.createPane<CreatedPane>({ title: tabTitle, eager: true });
+  let fixtureWorkspaceId: string | undefined;
+  let fixtureCwd: string | undefined;
+  if (seedTeam) {
+    fixtureCwd = tempSpawnCwd("pw-mobile-team-");
+    await api.createWorkspace(`pw mobile Team ${Date.now()}`, fixtureCwd);
+    fixtureWorkspaceId = (await api.workspaces()).find((workspace) => workspace.cwd === fixtureCwd)?.id;
+    if (!fixtureWorkspaceId) throw new Error(`project-backed Team workspace was not created for ${fixtureCwd}`);
+  }
+  const pane = await paneCleanup.createPane<CreatedPane>({
+    title: tabTitle,
+    eager: true,
+    ...(fixtureWorkspaceId ? { workspace_id: fixtureWorkspaceId, cwd: fixtureCwd } : {}),
+  });
   await api.post(`/panes/${pane.id}/agent-type`, { agent_type: "claude" });
   await api.post(`/panes/${pane.id}/make-orchestrator`, {});
   await api.post(`/panes/${pane.id}/chat-view`, { enabled: true });
@@ -157,6 +171,7 @@ async function prepareTargetPane(
 
   const mux = await api.get<MuxState>("/mux/state");
   for (const workspace of mux.workspaces) {
+    if (fixtureWorkspaceId && workspace.id !== fixtureWorkspaceId) continue;
     const tab = workspace.tabs.find((candidate) => candidate.pane_id === pane.id);
     if (!tab) continue;
     if (!seedTeam) return { paneId: pane.id, tabTitle, workspaceId: workspace.id };
@@ -173,6 +188,7 @@ async function prepareTargetPane(
       workspaceId: workspace.id,
       planId: plan.plan_id,
       teamId: plan.team_id,
+      fixtureWorkspaceId,
     };
   }
   throw new Error(`created pane ${pane.id} has no owning tab in mux state`);
@@ -1087,6 +1103,7 @@ for (const vp of VIEWPORTS) {
     } finally {
       await page.context().close();
       if (target.planId) await api.deletePlan(target.planId).catch(() => {});
+      if (target.fixtureWorkspaceId) await api.closeWorkspace(target.fixtureWorkspaceId).catch(() => {});
     }
   });
 }
