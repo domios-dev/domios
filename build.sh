@@ -974,6 +974,7 @@ case "$CMD" in
     # first-launch embedded extract is skipped so ~/.codeterm/plugins/
     # doesn't shadow the workspace.
     export CODETERM_DEV=1
+    export CODETERM_WEB_DIST="$(pwd -P)/dist"
     export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="${WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:---remote-debugging-port=$CT_CDP_PORT}"
     start_web_watch
     start_dev_static_server

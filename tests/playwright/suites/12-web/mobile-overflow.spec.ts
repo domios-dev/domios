@@ -27,6 +27,14 @@ type MuxState = {
     tabs: Array<{ id: string; pane_id: string }>;
   }>;
 };
+type Health = {
+  build_sha?: string;
+  build?: string;
+  instance?: { identifier?: string };
+};
+type ChatStart = {
+  pending?: boolean;
+};
 
 async function newWebPage(browser: Browser, viewport: { width: number; height: number }): Promise<Page> {
   const ctx = await browser.newContext({ viewport });
@@ -86,14 +94,17 @@ async function settleLayout(page: Page): Promise<void> {
   }));
 }
 
-async function assertHealthMatchesHead(): Promise<string> {
+async function assertHealthMatchesHead(): Promise<Health> {
   const expected = process.env.CT_E2E_EXPECTED_BUILD_SHA ?? execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-  const health = await fetch(`${API_BASE}/api/health`, { signal: AbortSignal.timeout(5_000) }).then((r) => r.json()) as {
-    build_sha?: string;
-    build?: string;
-  };
+  const health = await fetch(`${API_BASE}/api/health`, { signal: AbortSignal.timeout(5_000) }).then((r) => r.json()) as Health;
   expect(health.build_sha, `health build_sha ${JSON.stringify(health)}`).toBe(expected);
-  return JSON.stringify(health, null, 2);
+  return health;
+}
+
+async function assertBuildIdentity(page: Page, health: Health): Promise<void> {
+  const badge = page.getByLabel(/Development build, version /);
+  const isDev = Boolean(health.instance?.identifier?.trim());
+  await expect(badge).toHaveCount(isDev ? 1 : 0);
 }
 
 async function auditViewport(page: Page, label: string, options: { reachability?: ReachabilityMode } = {}): Promise<void> {
@@ -125,9 +136,12 @@ async function auditViewport(page: Page, label: string, options: { reachability?
 
 async function prepareTargetPane(api: ApiClient, paneCleanup: PaneCleanup): Promise<TargetPane> {
   const tabTitle = `pw-mobile-layer-${Date.now()}`;
-  const pane = await paneCleanup.createPane<CreatedPane>({ title: tabTitle });
+  const pane = await paneCleanup.createPane<CreatedPane>({ title: tabTitle, eager: true });
   await api.post(`/panes/${pane.id}/agent-type`, { agent_type: "claude" });
+  await api.post(`/panes/${pane.id}/make-orchestrator`, {});
   await api.post(`/panes/${pane.id}/chat-view`, { enabled: true });
+  const chat = await api.post<ChatStart>(`/panes/${pane.id}/chat-raw/start`);
+  expect(chat.pending, "authenticated chat-raw/start returns a ready transcript").toBe(false);
   await api.focusPane(pane.id);
 
   const mux = await api.get<MuxState>("/mux/state");
@@ -181,14 +195,39 @@ async function openSidebarAndSelectTargetPane(api: ApiClient, page: Page, target
 }
 
 async function openWorkspaceCanvasOverlay(page: Page, label: string): Promise<void> {
-  const button = page.locator('[data-testid="canvas-toolbar-button"]').first();
+  const button = page.getByRole("button", { name: "Open workspace canvas" }).first();
   await expect(button, `${label} canvas toolbar button visible`).toBeVisible({ timeout: 10_000 });
-  if ((await button.getAttribute("aria-pressed")) !== "true") await button.click();
+  await button.click();
   await expect(
     page.locator('[data-testid="canvas-view"], [data-testid="plan-view-shell"], [data-testid="canvas-empty"]').first(),
     `${label} workspace canvas visible`,
   ).toBeVisible({ timeout: 10_000 });
   await settleLayout(page);
+}
+
+async function assertActiveManagerReadable(
+  api: ApiClient,
+  page: Page,
+  target: TargetPane,
+  label: string,
+): Promise<void> {
+  const managers = page.getByTestId("managers-section").first();
+  await expect(managers, `${label} managers section visible`).toBeVisible({ timeout: 10_000 });
+  const manager = managers.getByRole("button", { name: /^Open tab / }).first();
+  const accessibleName = await manager.getAttribute("aria-label");
+  expect(accessibleName, `${label} manager accessible name`).toMatch(/^Open tab \S/);
+  await manager.click();
+  await waitSidebarClosed(page);
+
+  await openSidebar(page);
+  const activeManager = page.getByRole("button", { name: accessibleName! }).first();
+  await expect(activeManager, `${label} active manager button visible`).toBeVisible({ timeout: 10_000 });
+  const row = activeManager.locator("xpath=..");
+  await expect(row.locator(":scope > .active-tab-pill"), `${label} active fill behind manager`).toHaveCount(1);
+  await expect(activeManager.locator('[data-testid="tab-title"]'), `${label} active manager title visible`)
+    .toHaveText(/\S+/);
+
+  await openSidebarAndSelectTargetPane(api, page, target, `${label} restore target`);
 }
 
 async function assertCanvasStateBeforePaneTransition(
@@ -923,15 +962,23 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
 
 for (const vp of VIEWPORTS) {
   test(`@golden mobile web primary surfaces stay inside the viewport ${vp.name}`, async ({ webBrowser, api, paneCleanup }, testInfo) => {
-    const healthJson = await assertHealthMatchesHead();
-    await testInfo.attach("health.json", { body: healthJson, contentType: "application/json" });
+    const health = await assertHealthMatchesHead();
+    await testInfo.attach("health.json", { body: JSON.stringify(health, null, 2), contentType: "application/json" });
 
     const target = await prepareTargetPane(api, paneCleanup);
     const page = await newWebPage(webBrowser, vp);
     try {
       await openApp(page);
+      await assertBuildIdentity(page, health);
       await settleLayout(page);
       await openSidebarAndSelectTargetPane(api, page, target, `${vp.name} initial target`);
+      await expect(
+        page.getByRole("region", { name: `Pane chat: ${target.tabTitle}` }),
+        `${vp.name} authenticated pane chat ready`,
+      ).toBeVisible({ timeout: 10_000 });
+      await expect(
+        page.locator(`[data-pane-id="${target.paneId}"]`).getByText("Loading chat…", { exact: true }),
+      ).toHaveCount(0);
       await expect(
         page.locator(`[data-testid="pane-session-chat"][data-pane-id="${target.paneId}"]`),
         `${vp.name} target pane chat visible before canvas`,
@@ -945,6 +992,10 @@ for (const vp of VIEWPORTS) {
       await auditSidebarDrawer(page, `${vp.name} closed sidebar`, false);
 
       await openSidebar(page);
+      if (vp.name === "390x844") {
+        await assertActiveManagerReadable(api, page, target, `${vp.name} Team manager`);
+        await openSidebar(page);
+      }
       await auditSidebarDrawer(page, `${vp.name} open sidebar`, true);
       await auditViewport(page, `${vp.name} open sidebar`, { reachability: "open-drawer" });
       await clickSidebarScrimAndAssertClosed(page, `${vp.name} open sidebar`);
