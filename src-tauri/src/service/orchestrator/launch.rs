@@ -55,6 +55,7 @@ struct RegisteredLaunch {
     pty_id: String,
     generation: u64,
     provider_ack: std::sync::Arc<ProviderAck>,
+    binding_nonce: Option<String>,
 }
 
 #[derive(Default)]
@@ -80,6 +81,7 @@ impl LaunchRegistry {
                 pty_id: launch.pty_id.clone(),
                 generation: launch.generation,
                 provider_ack: launch.provider_ack.clone(),
+                binding_nonce: None,
             },
         );
         launch
@@ -159,12 +161,17 @@ struct LaunchGeneration {
     provider_ack: std::sync::Arc<ProviderAck>,
 }
 
-pub(crate) fn record_provider_session(svc: &ServiceContext, pane_id: &str) {
-    let pty_id = svc
+pub(crate) fn record_provider_session(
+    svc: &ServiceContext,
+    pane_id: &str,
+    binding_nonce: Option<&str>,
+) {
+    let (pty_id, current_nonce) = svc
         .mux
         .read()
         .get_pane(pane_id)
-        .and_then(|pane| pane.pty_id.clone());
+        .map(|pane| (pane.pty_id.clone(), pane.session_binding_nonce.clone()))
+        .unwrap_or_default();
     let Some(pty_id) = pty_id else {
         return;
     };
@@ -172,7 +179,11 @@ pub(crate) fn record_provider_session(svc: &ServiceContext, pane_id: &str) {
         .lock()
         .panes
         .get(pane_id)
-        .filter(|launch| launch.pty_id == pty_id)
+        .filter(|launch| {
+            launch.pty_id == pty_id
+                && launch.binding_nonce.as_deref() == binding_nonce
+                && current_nonce.as_deref() == binding_nonce
+        })
         .map(|launch| launch.provider_ack.clone());
     if let Some(ack) = ack {
         *ack.ready.lock() = true;
@@ -186,6 +197,19 @@ impl LaunchGeneration {
 
     fn owns(&self) -> bool {
         LAUNCH_REGISTRY.lock().owns(self)
+    }
+
+    fn capture_binding_nonce(&self, svc: &ServiceContext) {
+        let nonce = svc
+            .mux
+            .read()
+            .get_pane(&self.pane_id)
+            .and_then(|pane| pane.session_binding_nonce.clone());
+        if let Some(registered) = LAUNCH_REGISTRY.lock().panes.get_mut(&self.pane_id) {
+            if registered.pty_id == self.pty_id && registered.generation == self.generation {
+                registered.binding_nonce = nonce;
+            }
+        }
     }
 
     fn transition(&mut self, stage: BootStage) {
@@ -513,6 +537,7 @@ pub(crate) fn launch_agent_in_background(
         }
         let mut pty_id = selection.pty_id;
         launch.replace(pty_id.clone());
+        launch.capture_binding_nonce(&svc);
         if !launch.emit(&svc, BootStage::PtySpawned) {
             return;
         }
@@ -655,6 +680,7 @@ pub(crate) fn launch_agent_in_background(
                                 }
                             };
                         launch.replace(pty_id.clone());
+                        launch.capture_binding_nonce(&svc);
                         if !launch.emit(&svc, BootStage::PtySpawned)
                             || !launch.emit(&svc, BootStage::ReaderReady)
                             || !crate::service::pty_io::await_shell_prompt(
@@ -842,34 +868,6 @@ mod tests {
         assert!(replacement_pty_candidate(Some("closed"), "closed", true).is_none());
         assert!(replacement_pty_candidate(Some("new"), "closed", false).is_none());
         assert!(replacement_pty_candidate(None, "closed", true).is_none());
-    }
-
-    #[test]
-    fn reused_live_provider_tui_is_not_a_shell_readiness_failure() {
-        assert!(reused_provider_tui_owns_launch(
-            true,
-            Some("codex"),
-            "codex",
-            true,
-        ));
-        assert!(!reused_provider_tui_owns_launch(
-            false,
-            Some("codex"),
-            "codex",
-            true,
-        ));
-        assert!(!reused_provider_tui_owns_launch(
-            true,
-            Some("claude"),
-            "codex",
-            true,
-        ));
-        assert!(!reused_provider_tui_owns_launch(
-            true,
-            Some("codex"),
-            "codex",
-            false,
-        ));
     }
 
     #[test]

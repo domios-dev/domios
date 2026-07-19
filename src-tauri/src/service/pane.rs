@@ -684,7 +684,12 @@ impl ServiceContext {
         drop(mux);
         if session_bound {
             crate::service::general_agent::binding_wait::notify_session_bound();
-            crate::service::orchestrator::record_provider_session(self, pane_id);
+            let nonce = self
+                .mux
+                .read()
+                .get_pane(pane_id)
+                .and_then(|pane| pane.session_binding_nonce.clone());
+            crate::service::orchestrator::record_provider_session(self, pane_id, nonce.as_deref());
         }
         self.bind_planner_session(pane_id);
     }
