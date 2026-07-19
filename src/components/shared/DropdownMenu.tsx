@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 import { Check, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { clampFloatingPosition } from "./floatingPosition";
 
+const DROPDOWN_OPEN_EVENT = "codeterm:dropdown-open";
+
 export interface DropdownMenuItem {
   label: string;
   icon?: ReactNode;
@@ -48,6 +50,7 @@ export function DropdownMenu({
   const triggerRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [activeSubmenu, setActiveSubmenu] = useState<DropdownMenuItem["submenu"]>(undefined);
+  const ownerRef = useRef(Symbol("dropdown"));
   const openSourceRef = useRef<"trigger" | "context">("trigger");
   const contextPointRef = useRef({ x: 0, y: 0 });
   const visibleItems = activeSubmenu?.items ?? items;
@@ -68,18 +71,23 @@ export function DropdownMenu({
     return clampFloatingPosition(x, y, menuWidth, menuHeight, window.innerWidth, window.innerHeight);
   }, [activeSubmenu, header, visibleItems.length]);
 
+  const announceOpen = useCallback(() => {
+    document.dispatchEvent(new window.CustomEvent(DROPDOWN_OPEN_EVENT, { detail: ownerRef.current }));
+  }, []);
+
   const toggle = useCallback((e: React.MouseEvent | React.PointerEvent | React.KeyboardEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    setOpen((v) => {
-      if (!v) {
-        openSourceRef.current = "trigger";
-        setActiveSubmenu(undefined);
-        setPos(calcPos());
-      }
-      return !v;
-    });
-  }, [calcPos]);
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    announceOpen();
+    openSourceRef.current = "trigger";
+    setActiveSubmenu(undefined);
+    setPos(calcPos());
+    setOpen(true);
+  }, [announceOpen, calcPos, open]);
 
   const [pos, setPos] = useState<{ top: number; left: number; maxHeight: number } | null>(null);
 
@@ -106,11 +114,22 @@ export function DropdownMenu({
   }, [open]);
 
   useEffect(() => {
+    const handleOtherDropdown = (event: Event) => {
+      if ((event as CustomEvent<symbol>).detail === ownerRef.current) return;
+      setOpen(false);
+      setActiveSubmenu(undefined);
+    };
+    document.addEventListener(DROPDOWN_OPEN_EVENT, handleOtherDropdown);
+    return () => document.removeEventListener(DROPDOWN_OPEN_EVENT, handleOtherDropdown);
+  }, []);
+
+  useEffect(() => {
     const target = contextMenuTargetRef?.current;
     if (!target) return;
     const handleContextMenu = (event: MouseEvent) => {
       event.preventDefault();
       event.stopPropagation();
+      announceOpen();
       openSourceRef.current = "context";
       contextPointRef.current = { x: event.clientX, y: event.clientY };
       setActiveSubmenu(undefined);
@@ -119,7 +138,7 @@ export function DropdownMenu({
     };
     target.addEventListener("contextmenu", handleContextMenu);
     return () => target.removeEventListener("contextmenu", handleContextMenu);
-  }, [contextMenuTargetRef, contextPos]);
+  }, [announceOpen, contextMenuTargetRef, contextPos]);
 
   useEffect(() => {
     if (!open) return;

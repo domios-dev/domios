@@ -52,6 +52,10 @@ async function main() {
           ]}
           trigger={<button type="button">Actions</button>}
         />
+        <DropdownMenu
+          items={[{ label: "Copy", onClick: () => undefined }]}
+          trigger={<button type="button">More actions</button>}
+        />
       </div>,
     );
   });
@@ -94,8 +98,22 @@ async function main() {
   });
   if (document.querySelector('[role="menu"]')) throw new Error("Escape should close the menu");
 
+  await act(async () => {
+    trigger.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, cancelable: true }));
+  });
+  const secondTrigger = Array.from(host.querySelectorAll("button"))
+    .find((button) => button.textContent === "More actions");
+  if (!secondTrigger) throw new Error("second dropdown trigger should render");
+  await act(async () => {
+    secondTrigger.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, cancelable: true }) as unknown as Event);
+  });
+  const openMenus = document.querySelectorAll('[role="menu"]');
+  if (openMenus.length !== 1 || !openMenus[0]?.textContent?.includes("Copy")) {
+    throw new Error("opening a dropdown should close the previously open dropdown");
+  }
+
   await act(async () => root.unmount());
-  console.log("DropdownMenu tests: 4/4 passed");
+  console.log("DropdownMenu tests: 5/5 passed");
 }
 
 void main();
