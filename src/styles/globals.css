@@ -636,6 +636,10 @@ button,
   -webkit-backdrop-filter: blur(var(--ct-blur-overlay));
 }
 
+.ct-portal-menu {
+  z-index: 1100;
+}
+
 @keyframes ct-toast-timeout {
   from {
     width: 100%;

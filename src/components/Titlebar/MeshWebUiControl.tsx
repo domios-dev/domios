@@ -174,7 +174,7 @@ export function MeshWebUiControl({ snapshot, loading, onOpenSurface, onAction, t
           ref={menuRef}
           data-testid="mesh-web-ui-menu"
           role="menu"
-          className="fixed z-50 w-[248px] overflow-hidden rounded-lg border border-[var(--ct-border)] shadow-2xl backdrop-blur-xl"
+          className="ct-portal-menu fixed w-[248px] overflow-hidden rounded-lg border border-[var(--ct-border)] shadow-2xl backdrop-blur-xl"
           style={{ top: pos.top, right: pos.right, background: "var(--ct-surface, #1e1e2e)" }}
         >
           <div className="px-3 pt-2.5 pb-1 text-[10px] uppercase tracking-wider text-[var(--ct-muted)]">

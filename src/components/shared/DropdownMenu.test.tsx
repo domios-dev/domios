@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -20,6 +21,11 @@ Object.defineProperty(globalThis, "KeyboardEvent", { value: window.KeyboardEvent
 (globalThis as { cancelAnimationFrame: (id: number) => void }).cancelAnimationFrame = () => {};
 
 async function main() {
+  const styles = readFileSync(new URL("../../styles/globals.css", import.meta.url), "utf8");
+  const portalLayer = Number(styles.match(/\.ct-portal-menu\s*\{[^}]*z-index:\s*(\d+)/s)?.[1]);
+  const modalLayer = Number(styles.match(/\.new-session-picker\s*\{[^}]*z-index:\s*(\d+)/s)?.[1]);
+  if (!(portalLayer > modalLayer)) throw new Error("portal menu layer should stay above the new-session modal");
+
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
@@ -60,6 +66,7 @@ async function main() {
   });
   const rootMenu = document.querySelector('[role="menu"]');
   if (!rootMenu) throw new Error("pointer trigger should open an accessible menu");
+  if (!rootMenu.classList.contains("ct-portal-menu")) throw new Error("portal menu should render above modal surfaces");
   const quickSpawn = Array.from(rootMenu.querySelectorAll('button[role="menuitem"]'))
     .find((button) => button.textContent?.includes("Quick spawn")) as HTMLButtonElement | undefined;
   if (quickSpawn?.getAttribute("aria-haspopup") !== "menu") throw new Error("submenu trigger should expose menu semantics");
@@ -88,7 +95,7 @@ async function main() {
   if (document.querySelector('[role="menu"]')) throw new Error("Escape should close the menu");
 
   await act(async () => root.unmount());
-  console.log("DropdownMenu tests: 3/3 passed");
+  console.log("DropdownMenu tests: 4/4 passed");
 }
 
 void main();

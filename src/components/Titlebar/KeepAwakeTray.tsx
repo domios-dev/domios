@@ -177,7 +177,7 @@ export function KeepAwakeTray() {
       {open && pos && createPortal(
         <div
           ref={menuRef}
-          className="fixed z-50 w-[260px] border border-[rgba(255,255,255,0.12)] rounded-lg shadow-2xl backdrop-blur-xl overflow-hidden"
+          className="ct-portal-menu fixed w-[260px] border border-[rgba(255,255,255,0.12)] rounded-lg shadow-2xl backdrop-blur-xl overflow-hidden"
           style={{ top: pos.top, right: pos.right, background: "var(--ct-surface, #1e1e2e)" }}
         >
           {/* Header row */}

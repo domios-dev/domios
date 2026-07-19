@@ -131,7 +131,7 @@ export function PaneActionsMenu({
           role="menu"
           aria-label="Tab actions"
           data-testid="pane-actions-menu"
-          className="ct-menu-pop ct-float fixed z-50 w-60 overflow-hidden rounded-xl border border-[var(--ct-border)] bg-[var(--ct-surface)] p-1.5 shadow-[var(--ct-shadow-lg)]"
+          className="ct-menu-pop ct-float ct-portal-menu fixed w-60 overflow-hidden rounded-xl border border-[var(--ct-border)] bg-[var(--ct-surface)] p-1.5 shadow-[var(--ct-shadow-lg)]"
           style={position}
           onKeyDown={handleMenuKeyDown}
         >
