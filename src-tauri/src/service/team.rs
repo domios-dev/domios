@@ -5,10 +5,6 @@ use crate::multiplexer::types::{AgentRole, PaneBacking};
 use crate::service::plan::PlanError;
 use crate::service::ServiceContext;
 
-/// Bounded failure deadline for delivering a booting team member's pairing
-/// intro. Elapsed time is a failure signal, never treated as readiness.
-const MEMBER_INTRO_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
-
 #[derive(Debug, Clone)]
 pub(crate) struct AddTeamMemberParams {
     pub provider: String,
@@ -67,7 +63,7 @@ impl ServiceContext {
             )?
         };
         let mut spawn_params = prepared.spawn_params;
-        self.attach_manager_bootstrap(team_id, &mut spawn_params)?;
+        self.attach_manager_bootstrap(team_id, caller_pane_id, &mut spawn_params)?;
         let lane_label = format!("team-{team_id}");
         let service = self.clone();
         let (spawn_params, mut lane) = tauri::async_runtime::spawn_blocking(move || {
@@ -76,9 +72,8 @@ impl ServiceContext {
         })
         .await
         .map_err(|error| format!("worker lane provisioning failed: {error}"))??;
-        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
         let spawn = self
-            .spawn_agent_with_state_change(spawn_params, Some(ready_tx), false)
+            .spawn_agent_with_state_change(spawn_params, None, false)
             .await;
         let pane_id = match spawn {
             Ok(spawn) => spawn.pane_id,
@@ -110,96 +105,14 @@ impl ServiceContext {
                 return Err(error);
             }
         };
-        self.introduce_team_member_pairing(
-            caller_pane_id,
-            &pane_id,
-            prepared.expected_profile.as_deref(),
-            ready_rx,
-        );
         self.emit_state_changed_after_bus_publish();
         Ok(result)
-    }
-
-    /// When a team gains a Planner under its Orchestrator, introduce the pair as
-    /// real codeterm messages so neither rediscovers the other (replaces the
-    /// generic "newly started agent" first message). The live caller is
-    /// introduced immediately; the still-booting member's intro is gated on its
-    /// launch readiness so it lands as the member's FIRST delivered message —
-    /// never before boot, never silently dropped (a missed readiness deadline
-    /// warns with both pane ids).
-    fn introduce_team_member_pairing(
-        &self,
-        caller_pane_id: &str,
-        member_pane_id: &str,
-        member_profile: Option<&str>,
-        member_ready: tokio::sync::oneshot::Receiver<Result<(), String>>,
-    ) {
-        if member_profile != Some("planner") {
-            return;
-        }
-        let caller_is_orch = self
-            .mux
-            .read()
-            .get_pane(caller_pane_id)
-            .map(|pane| pane.role == Some(AgentRole::Orchestrator))
-            .unwrap_or(false);
-        if !caller_is_orch {
-            return;
-        }
-        let (caller_label, member_label) = {
-            let mux = self.mux.read();
-            (
-                mux.display_label_for_pane(caller_pane_id),
-                mux.display_label_for_pane(member_pane_id),
-            )
-        };
-        let caller = crate::service::spawn_factory::Counterpart::new(
-            "Orchestrator",
-            caller_label,
-            caller_pane_id,
-        );
-        let member = crate::service::spawn_factory::Counterpart::new(
-            "Planner",
-            member_label,
-            member_pane_id,
-        );
-
-        // Caller is a live agent (it issued this request) — introduce it now.
-        self.introduce_to(&caller, &member);
-
-        // Member is booting — deliver its intro only once launch-ready.
-        let svc = self.clone();
-        let deliver_member = {
-            let svc = svc.clone();
-            let member = member.clone();
-            let caller = caller.clone();
-            move || svc.try_introduce(&member, &caller)
-        };
-        tauri::async_runtime::spawn(async move {
-            let outcome = match tokio::time::timeout(
-                MEMBER_INTRO_READY_TIMEOUT,
-                crate::service::spawn_factory::deliver_when_ready(member_ready, deliver_member),
-            )
-            .await
-            {
-                Ok(outcome) => outcome,
-                Err(_) => crate::service::spawn_factory::IntroDelivery::NotReady(
-                    "member launch readiness deadline exceeded".into(),
-                ),
-            };
-            if let crate::service::spawn_factory::IntroDelivery::NotReady(reason) = outcome {
-                log::warn!(
-                    "[spawn-factory] team member intro to {} (counterpart {}) not delivered: {reason}",
-                    member.pane_id,
-                    caller.pane_id
-                );
-            }
-        });
     }
 
     fn attach_manager_bootstrap(
         &self,
         team_id: &str,
+        caller_pane_id: &str,
         params: &mut crate::service::SpawnAgentParams,
     ) -> Result<(), String> {
         let role = match (params.role.as_deref(), params.role_profile.as_deref()) {
@@ -228,12 +141,24 @@ impl ServiceContext {
             .find(|plan| plan.team_id.as_deref() == Some(team_id))
             .map(|plan| plan.id)
             .unwrap_or_else(|| "no bound plan yet".into());
+        let coordination = (role == "Planner").then(|| {
+            let mux = self.mux.read();
+            let caller_label = mux.display_label_for_pane(caller_pane_id);
+            let planner = crate::service::spawn_factory::Counterpart::new("Planner", "", "");
+            let orchestrator = crate::service::spawn_factory::Counterpart::new(
+                "Orchestrator",
+                caller_label,
+                caller_pane_id,
+            );
+            crate::service::spawn_factory::introduction_body(&planner, &orchestrator)
+        });
         params.manager_bootstrap = Some(crate::service::role_identity::ManagerBootstrapInputs {
             role: role.into(),
             team_id: team_id.into(),
             team_name,
             plan_id,
             project,
+            coordination,
         });
         Ok(())
     }

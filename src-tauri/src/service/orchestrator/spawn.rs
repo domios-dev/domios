@@ -18,6 +18,16 @@ pub(crate) fn resolved_effort_provenance(requested: Option<String>) -> Reasoning
     }
 }
 
+fn prepare_manager_bootstrap(params: &mut SpawnAgentParams) -> Option<String> {
+    let bootstrap = params.manager_bootstrap.as_ref()?.compose();
+    params.task = Some(match params.task.take() {
+        Some(task) => format!("{bootstrap}\n\n{task}"),
+        None => bootstrap.clone(),
+    });
+    params.starter_prompt = crate::agent::provider::StarterPrompt::AssignedTask;
+    Some(bootstrap)
+}
+
 impl ServiceContext {
     /// Resolve agent cwd against workspace cwd:
     /// - If no cwd specified → inherit from workspace
@@ -448,30 +458,16 @@ impl ServiceContext {
             &params.cwd.clone().unwrap_or_default(),
         );
 
-        let has_concrete_assignment = params
-            .task
-            .as_deref()
-            .is_some_and(|task| !task.trim().is_empty());
-        let fallback_bootstrap = if let Some(bootstrap) = params.manager_bootstrap.as_ref() {
+        let fallback_bootstrap = if params.manager_bootstrap.is_some() {
             self.emit_boot_stage(
                 &pane_id,
                 crate::service::boot_stage::BootStage::PreparingRoleInstructions,
                 None,
             );
-            let bootstrap = bootstrap.compose();
-            params.task = Some(match params.task.take() {
-                Some(task) => format!("{bootstrap}\n\n{task}"),
-                None => bootstrap.clone(),
-            });
-            Some(bootstrap)
+            prepare_manager_bootstrap(&mut params)
         } else {
             None
         };
-        if params.manager_bootstrap.is_some() {
-            params.starter_prompt = crate::service::launch_delivery::starter_prompt_for_assignment(
-                has_concrete_assignment,
-            );
-        }
 
         let bg_task = if params.manager_bootstrap.is_some() {
             params.task.clone()
@@ -498,24 +494,6 @@ impl ServiceContext {
                         .map(|p| self.mux.read().display_label_for_pane(p))
                         .unwrap_or_else(|| "your Orchestrator".to_string());
                     let orch_tab = orch_pane.as_deref().unwrap_or("unknown");
-                    // Introduce this new planner to its already-live orchestrator
-                    // so the owner learns the planner's pane id and never spawns
-                    // a duplicate (replaces the "planner is live" reminder).
-                    if let Some(orch_pane) = orch_pane.as_deref() {
-                        let planner_label = self.mux.read().display_label_for_pane(&pane_id);
-                        self.introduce_to(
-                            &crate::service::spawn_factory::Counterpart::new(
-                                "Orchestrator",
-                                &orch_label,
-                                orch_pane,
-                            ),
-                            &crate::service::spawn_factory::Counterpart::new(
-                                "Planner",
-                                planner_label,
-                                &pane_id,
-                            ),
-                        );
-                    }
                     let onboard =
                         crate::prompts::planner_onboarding_task(&orch_label, orch_tab, plan_id);
                     Some(format!("{codeterm_pfx}{onboard}"))
@@ -812,6 +790,30 @@ mod hierarchy_defaults_tests {
         };
         apply_worker_hierarchy_defaults(&mut orch);
         assert_eq!(orch.parent_pane_id, None);
+    }
+
+    #[test]
+    fn manager_bootstrap_is_one_assigned_launch_turn_with_coordination() {
+        let coordination = "Your Planner counterpart is Euler (pane planner-1).";
+        let mut params = SpawnAgentParams {
+            manager_bootstrap: Some(crate::service::role_identity::ManagerBootstrapInputs {
+                role: "Orchestrator".into(),
+                team_id: "not yet established".into(),
+                team_name: "not yet established".into(),
+                plan_id: "no plan bound yet".into(),
+                project: "CodeTerm".into(),
+                coordination: Some(coordination.into()),
+            }),
+            ..Default::default()
+        };
+
+        let bootstrap = prepare_manager_bootstrap(&mut params).unwrap();
+        assert_eq!(
+            params.starter_prompt,
+            crate::agent::provider::StarterPrompt::AssignedTask
+        );
+        assert_eq!(params.task.as_deref(), Some(bootstrap.as_str()));
+        assert_eq!(bootstrap.matches(coordination).count(), 1);
     }
 
     // No agent cwd and no workspace cwd must still pin a concrete dir (the

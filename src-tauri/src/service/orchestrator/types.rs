@@ -125,8 +125,8 @@ pub struct SpawnAgentParams {
     /// the new-session picker's in-place spawn so confirming transforms the
     /// picker's own tab rather than leaving it behind as an orphan.
     pub existing_tab_id: Option<String>,
-    /// Keep a fresh paired Orchestrator idle when no explicit task was given.
-    /// Pair identity is represented by pane metadata and the pending greeting.
+    /// Skip legacy onboarding work for a paired Orchestrator. Its complete
+    /// identity and counterpart context travel in the single launch payload.
     pub skip_orchestrator_onboarding: Option<bool>,
     /// Report target pane ID — for cron agents to report without joining hierarchy.
     /// With `report_target_mesh_peer` set, this is a pane id / `main` / `general`
