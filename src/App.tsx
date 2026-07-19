@@ -517,6 +517,7 @@ function AppInner() {
         onDeleteNotification={deleteNotification}
         onDismissToast={dismissToast}
         onNavigateToast={setFocusedPane}
+        workspaceCanvasActive={workspaceCanvasVisible}
       />
       <PlansProvider api={stableApiConfig}>
       <div className="flex flex-1 min-h-0 relative">

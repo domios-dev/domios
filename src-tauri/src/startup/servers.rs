@@ -100,7 +100,7 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
                 resize_owner: states.resize_owner.clone(),
                 test_clock: test_clock.clone(),
                 events: states.event_broadcaster.clone(),
-                web_dist: resolve_web_dist(),
+                web_dist: resolve_web_dist(app.path().resource_dir().ok()),
             };
             let router = api::routes::create_router(api_state);
             let host = api_config.host.clone();
@@ -226,34 +226,22 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
 }
 
 /// Locate the built React bundle for the browser mirror.
-/// Priority: explicit env override → repo dist (dev builds) →
-/// exe-adjacent dist (portable/prod layouts). None → the browser UI returns 404
-/// and the daemon logs the miss once.
-fn resolve_web_dist() -> Option<std::path::PathBuf> {
-    let candidates = [
-        std::env::var("CODETERM_WEB_DIST")
-            .ok()
-            .map(std::path::PathBuf::from),
-        Some(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("..")
-                .join("dist"),
-        ),
-        std::env::current_exe()
-            .ok()
-            .and_then(|e| e.parent().map(|d| d.join("dist"))),
-        // macOS .app: exe is Contents/MacOS/<bin>, bundled resources land in Contents/Resources/.
-        std::env::current_exe().ok().and_then(|e| {
-            e.parent()
-                .and_then(|d| d.parent())
-                .map(|d| d.join("Resources").join("dist"))
-        }),
-        // Tauri layouts that nest bundled resources under a `resources/` subdir.
-        std::env::current_exe()
-            .ok()
-            .and_then(|e| e.parent().map(|d| d.join("resources").join("dist"))),
-    ];
-    for cand in candidates.into_iter().flatten() {
+/// Dev callers name mutable bundles explicitly; installed builds use only packaged assets.
+fn resolve_web_dist(resource_dir: Option<std::path::PathBuf>) -> Option<std::path::PathBuf> {
+    let is_dev = std::env::var("CODETERM_DEV").as_deref() == Ok("1");
+    let explicit = std::env::var("CODETERM_WEB_DIST")
+        .ok()
+        .map(std::path::PathBuf::from);
+    let packaged = resource_dir.into_iter().map(|dir| dir.join("dist"));
+    select_web_dist(is_dev, explicit, packaged)
+}
+
+fn select_web_dist(
+    is_dev: bool,
+    explicit: Option<std::path::PathBuf>,
+    packaged: impl IntoIterator<Item = std::path::PathBuf>,
+) -> Option<std::path::PathBuf> {
+    for cand in explicit.filter(|_| is_dev).into_iter().chain(packaged) {
         if cand.join("index.html").exists() {
             log::info!("[web] serving browser UI from {}", cand.display());
             return Some(cand);
@@ -261,4 +249,51 @@ fn resolve_web_dist() -> Option<std::path::PathBuf> {
     }
     log::warn!("[web] no dist/ bundle found — browser UI disabled (build with `pnpm build`)");
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::select_web_dist;
+
+    fn web_bundle(parent: &std::path::Path, name: &str) -> std::path::PathBuf {
+        let dist = parent.join(name);
+        std::fs::create_dir_all(&dist).unwrap();
+        std::fs::write(dist.join("index.html"), name).unwrap();
+        dist
+    }
+
+    #[test]
+    fn packaged_web_bundle_is_selected_without_an_explicit_override() {
+        let root = tempfile::tempdir().unwrap();
+        let packaged = web_bundle(root.path(), "packaged");
+        let source_tree = web_bundle(root.path(), "mutable-source-tree");
+        let selected = select_web_dist(false, None, [packaged.clone()]);
+
+        assert_eq!(selected, Some(packaged));
+        assert_ne!(selected, Some(source_tree));
+    }
+
+    #[test]
+    fn explicit_dev_bundle_overrides_packaged_assets() {
+        let root = tempfile::tempdir().unwrap();
+        let packaged = web_bundle(root.path(), "packaged");
+        let dev = web_bundle(root.path(), "dev");
+
+        assert_eq!(
+            select_web_dist(true, Some(dev.clone()), [packaged]),
+            Some(dev)
+        );
+    }
+
+    #[test]
+    fn production_ignores_an_inherited_mutable_override() {
+        let root = tempfile::tempdir().unwrap();
+        let packaged = web_bundle(root.path(), "packaged");
+        let inherited = web_bundle(root.path(), "inherited-dev");
+
+        assert_eq!(
+            select_web_dist(false, Some(inherited), [packaged.clone()]),
+            Some(packaged),
+        );
+    }
 }
