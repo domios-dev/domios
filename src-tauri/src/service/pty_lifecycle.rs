@@ -66,9 +66,7 @@ pub fn prepare_backend_reader(
     let frontend_tx = manager
         .setup_backend_channel(pty_id)
         .ok_or_else(|| format!("Failed to set up backend channel for PTY: {}", pty_id))?;
-    session
-        .backend_reader_active
-        .store(true, std::sync::atomic::Ordering::Release);
+    session.mark_backend_reader_started();
     Ok(Some(PreparedBackendReader {
         reader,
         frontend_tx,
@@ -269,6 +267,7 @@ fn drain_feed_batch(rx: &mut tokio::sync::mpsc::Receiver<Vec<u8>>, data: &mut Ve
 
 /// Mark PTY as dead and emit events — mirrors the Err branch in read_pty.
 fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
+    handle_pty_screen_death(&svc.screen_state, pty_id);
     let pane_id = svc.mux.read().pane_id_for_pty(pty_id);
     svc.agent_tracker.lock().set_dead(pty_id);
     svc.shell_caps.lock().remove(pty_id);
@@ -361,10 +360,12 @@ struct BackendReaderLease(std::sync::Arc<crate::pty::manager::PtySession>);
 
 impl Drop for BackendReaderLease {
     fn drop(&mut self) {
-        self.0
-            .backend_reader_active
-            .store(false, std::sync::atomic::Ordering::Release);
+        self.0.mark_backend_reader_finished();
     }
+}
+
+pub(crate) fn handle_pty_screen_death(screen_state: &crate::ScreenStateHandle, pty_id: &str) {
+    screen_state.lock().remove(pty_id);
 }
 
 fn terminal_query_replies(data: &[u8], _headless: bool) -> Vec<&'static [u8]> {
@@ -383,6 +384,11 @@ fn terminal_query_replies(data: &[u8], _headless: bool) -> Vec<&'static [u8]> {
 
 #[cfg(test)]
 mod tests {
+    use codeterm_pty::pty::screen_state::ScreenState;
+    use codeterm_util::lock_hold::TimedMutex;
+    use std::sync::Arc;
+    use std::time::Duration;
+
     #[test]
     fn resize_burst_is_drained_as_one_available_feed_batch() {
         let (tx, mut rx) = tokio::sync::mpsc::channel(300);
@@ -420,5 +426,24 @@ mod tests {
             super::terminal_query_replies(b"\x1b[c\x1b[6n", true),
             vec![b"\x1b[?1;2c".as_slice(), b"\x1b[1;1R".as_slice()]
         );
+    }
+
+    #[test]
+    fn pty_death_screen_teardown_closes_armed_waiter() {
+        let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
+        let signal = screen_state.lock().subscribe_screen_changes("pty-1");
+        let generation = signal.generation();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let waiter_signal = signal.clone();
+        let waiter = std::thread::spawn(move || {
+            done_tx
+                .send(waiter_signal.wait_after(generation, Duration::from_secs(1)))
+                .unwrap();
+        });
+
+        super::handle_pty_screen_death(&screen_state, "pty-1");
+
+        assert!(!done_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+        waiter.join().unwrap();
     }
 }
