@@ -6,9 +6,12 @@ import type { PaneBootOverlayView } from "./bootOverlay";
 const STAGE_PROGRESS: Record<BootStage, number> = {
   pty_starting: 8,
   pty_spawned: 20,
+  reader_ready: 32,
   shell_ready: 36,
   preparing_role_instructions: 52,
   agent_launching: 68,
+  launch_written: 76,
+  provider_ready: 92,
   delivering_instructions: 84,
   agent_ready: 100,
   pty_reattached: 100,
@@ -30,12 +33,18 @@ export function chatSetupStageLabel(stage: BootStage | null | undefined, subject
       return "Creating pane…";
     case "pty_spawned":
       return "Spawn accepted…";
+    case "reader_ready":
+      return "Reader attached…";
     case "shell_ready":
       return "Session attached…";
     case "preparing_role_instructions":
       return `Preparing ${subject.toLowerCase()} instructions…`;
     case "agent_launching":
       return "Launching provider…";
+    case "launch_written":
+      return "Waiting for provider…";
+    case "provider_ready":
+      return "Provider ready…";
     case "delivering_instructions":
       return "Delivering instructions…";
     case "agent_ready":
@@ -69,9 +78,12 @@ export function chatSetupView(
   switch (stage) {
     case "pty_starting":
     case "pty_spawned":
+    case "reader_ready":
     case "shell_ready":
     case "preparing_role_instructions":
     case "agent_launching":
+    case "launch_written":
+    case "provider_ready":
     case "delivering_instructions":
       return { kind: "starting", label: "Starting" };
   }

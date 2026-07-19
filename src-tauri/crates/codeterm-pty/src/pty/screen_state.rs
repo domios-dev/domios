@@ -92,7 +92,7 @@ impl PromptSignal {
 pub struct ScreenState {
     parsers: HashMap<String, vt100::Parser>,
     prompt_signals: HashMap<String, Arc<PromptSignal>>,
-    bare_prompt_signals: HashMap<String, Arc<PromptSignal>>,
+    bare_prompt_signals: HashMap<String, Vec<Arc<PromptSignal>>>,
     agent_signals: HashMap<String, Arc<PromptSignal>>,
     screen_change_signals: HashMap<String, Arc<ScreenChangeSignal>>,
 }
@@ -122,9 +122,11 @@ impl ScreenState {
                 signal.mark_ready();
             }
         }
-        if let Some(signal) = self.bare_prompt_signals.get(pty_id) {
-            if !signal.is_ready() && screen_has_bare_shell_prompt(&screen) {
-                signal.mark_ready();
+        if let Some(signals) = self.bare_prompt_signals.get(pty_id) {
+            if screen_has_bare_shell_prompt(&screen) {
+                for signal in signals {
+                    signal.mark_ready();
+                }
             }
         }
         if let Some(signal) = self.agent_signals.get(pty_id) {
@@ -276,7 +278,9 @@ impl ScreenState {
     pub fn arm_bare_prompt_signal(&mut self, pty_id: &str) -> Arc<PromptSignal> {
         let signal = PromptSignal::new();
         self.bare_prompt_signals
-            .insert(pty_id.to_string(), signal.clone());
+            .entry(pty_id.to_string())
+            .or_default()
+            .push(signal.clone());
 
         if !signal.is_ready() {
             if let Some(parser) = self.parsers.get(pty_id) {
@@ -322,8 +326,10 @@ impl ScreenState {
         if let Some(sig) = self.prompt_signals.remove(pty_id) {
             sig.mark_ready();
         }
-        if let Some(sig) = self.bare_prompt_signals.remove(pty_id) {
-            sig.mark_ready();
+        if let Some(signals) = self.bare_prompt_signals.remove(pty_id) {
+            for signal in signals {
+                signal.mark_ready();
+            }
         }
         if let Some(sig) = self.agent_signals.remove(pty_id) {
             sig.mark_ready();
@@ -670,6 +676,18 @@ mod tests {
             !second.is_ready(),
             "a previous bare shell prompt must not make a later TUI screen ready"
         );
+    }
+
+    #[test]
+    fn concurrent_bare_prompt_waiters_share_the_next_shell_event() {
+        let mut ss = ScreenState::new();
+        let first = ss.arm_bare_prompt_signal("pty1");
+        let second = ss.arm_bare_prompt_signal("pty1");
+
+        ss.process("pty1", b"user@host:~$ ");
+
+        assert!(first.is_ready());
+        assert!(second.is_ready());
     }
 
     #[test]
