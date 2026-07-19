@@ -206,6 +206,13 @@ fn screen_has_paste_placeholder(screen: &str) -> bool {
     paste_placeholder_regex().is_match(screen)
 }
 
+fn match_count(haystack: &str, needle: &str) -> usize {
+    if needle.is_empty() {
+        return 1;
+    }
+    haystack.match_indices(needle).count()
+}
+
 fn last_n_chars(s: &str, n: usize) -> String {
     let total = s.chars().count();
     let skip = total.saturating_sub(n);
@@ -221,35 +228,34 @@ const ECHO_LONG_INPUT_BYTES: usize = 200;
 const ECHO_SUFFIX_MATCH_MIN_INPUT_BYTES: usize = 1024;
 
 pub fn screen_contains_echo(screen_tail: &str, expected: &str) -> bool {
+    screen_echo_evidence_count(screen_tail, expected) > 0
+}
+
+pub fn screen_echo_evidence_count(screen_tail: &str, expected: &str) -> usize {
     if expected.is_empty() {
-        return true;
+        return 1;
     }
     let n_expected = normalize_ws(expected);
     let n_tail = normalize_ws(screen_tail);
-    if n_tail.contains(&n_expected) {
-        return true;
-    }
+    let mut evidence = match_count(&n_tail, &n_expected);
     let flat = screen_tail.replace('\n', "");
     let n_flat = normalize_ws(&flat);
-    if n_flat.contains(&n_expected) {
-        return true;
-    }
+    evidence = evidence.max(match_count(&n_flat, &n_expected));
     if soft_wrap_elision_matches(screen_tail, expected) {
-        return true;
+        evidence = evidence.max(1);
     }
     // paste still is — match the last N chars instead. Gated on input size so a ~90-char command with a corrupted prefix is still caught by the strict substring check above.
     if expected.len() >= ECHO_SUFFIX_MATCH_MIN_INPUT_BYTES {
         let suffix = last_n_chars(&n_expected, ECHO_SUFFIX_MATCH_CHARS);
-        if n_tail.contains(&suffix) || n_flat.contains(&suffix) {
-            return true;
-        }
+        evidence = evidence.max(match_count(&n_tail, &suffix));
+        evidence = evidence.max(match_count(&n_flat, &suffix));
     }
     // the paste was accepted. Treat the placeholder as echo confirmation, but only for inputs that would trigger the placeholder rendering.
     let placeholder_eligible = expected.contains('\n') || expected.len() > ECHO_LONG_INPUT_BYTES;
-    if placeholder_eligible && screen_has_paste_placeholder(screen_tail) {
-        return true;
+    if placeholder_eligible {
+        evidence = evidence.max(paste_placeholder_regex().find_iter(screen_tail).count());
     }
-    false
+    evidence
 }
 
 pub fn snapshot_prompt_line(
@@ -494,6 +500,23 @@ mod tests {
             "[Pasted Content 2256 chars]",
             "short input"
         ));
+    }
+
+    #[test]
+    fn echo_evidence_counts_repeated_fuzzy_messages() {
+        let expected = "You are the Orchestrator of this team";
+        let screen =
+            "You are the Orchestrator\nof this team\n\nYou are the Orchestrator of this team";
+        assert_eq!(screen_echo_evidence_count(screen, expected), 2);
+    }
+
+    #[test]
+    fn echo_evidence_counts_multiple_paste_placeholders() {
+        let expected = "long message ".repeat(40);
+        let before = "> [Pasted Content 520 chars]";
+        let after = "> [Pasted Content 520 chars]\n> [Pasted text #2 +3 lines]";
+        assert_eq!(screen_echo_evidence_count(before, &expected), 1);
+        assert_eq!(screen_echo_evidence_count(after, &expected), 2);
     }
 
     // vt100 default is 50 rows; tail_rows >= 50 scans the whole screen.

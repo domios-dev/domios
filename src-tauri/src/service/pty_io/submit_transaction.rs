@@ -8,7 +8,7 @@ use crate::agent::provider::VerifySubmitStrategy;
 use crate::agent::status::PaneStatus;
 use crate::pty::screen_state::ScreenChangeSignal;
 use crate::service::inject_verify::{
-    screen_contains_echo, InjectionError, InjectionResult, VerifyOpts,
+    screen_echo_evidence_count, InjectionError, InjectionResult, VerifyOpts,
 };
 use crate::service::ServiceContext;
 
@@ -69,7 +69,7 @@ trait SubmitTransport {
     fn observe(&self) -> Option<Observation>;
     /// Predicate over the FULL parsed screen: the normalized draft or a
     /// structured paste placeholder is present (paste ingested by the TUI).
-    fn draft_reflected(&self, text: &str) -> bool;
+    fn draft_evidence_count(&self, text: &str) -> usize;
     fn generation(&self) -> u64;
     fn wait_change(&self, generation: u64, deadline: Instant) -> bool;
     /// The provider's own turn state left Idle — a real turn is running.
@@ -97,12 +97,17 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             .map(|tail| Observation { tail })
     }
 
-    fn draft_reflected(&self, text: &str) -> bool {
+    fn draft_evidence_count(&self, text: &str) -> usize {
         if text.is_empty() {
-            return true;
+            return 1;
         }
-        let screen = self.svc.screen_state.lock().get_screen_text(self.pty_id);
-        screen.is_some_and(|screen| screen_contains_echo(&screen, text))
+        let screen = self
+            .svc
+            .screen_state
+            .lock()
+            .tail_text(self.pty_id, TAIL_ROWS)
+            .unwrap_or_default();
+        screen_echo_evidence_count(&screen, text)
     }
 
     fn generation(&self) -> u64 {
@@ -166,6 +171,7 @@ fn wait_paste_ingested<T: SubmitTransport>(
     transport: &T,
     text: &str,
     armed: u64,
+    baseline_evidence: usize,
     deadline: Instant,
 ) -> bool {
     if text.is_empty() {
@@ -173,7 +179,9 @@ fn wait_paste_ingested<T: SubmitTransport>(
     }
     let mut generation = armed;
     loop {
-        if transport.generation() != armed && transport.draft_reflected(text) {
+        if transport.generation() != armed
+            && transport.draft_evidence_count(text) > baseline_evidence
+        {
             return true;
         }
         if !transport.wait_change(generation, deadline) {
@@ -212,6 +220,7 @@ fn run<T: SubmitTransport>(
     let two_phase = matches!(strategy, VerifySubmitStrategy::TuiInputDrained);
 
     let armed = transport.generation();
+    let baseline_evidence = transport.draft_evidence_count(text);
     let bytes_written = transport.write_paste(text, turn_deadline)?;
 
     // Primary path: the CR fires the instant the paste render event arrives.
@@ -221,7 +230,7 @@ fn run<T: SubmitTransport>(
     if enter
         && two_phase
         && !text.is_empty()
-        && !wait_paste_ingested(transport, text, armed, ingest_deadline)
+        && !wait_paste_ingested(transport, text, armed, baseline_evidence, ingest_deadline)
     {
         submit_anomaly = true;
         log::warn!(
@@ -230,7 +239,7 @@ fn run<T: SubmitTransport>(
         );
     }
 
-    let echo_observed = transport.draft_reflected(text);
+    let echo_observed = transport.draft_evidence_count(text) > baseline_evidence;
 
     if !enter {
         return Ok(InjectionResult {
@@ -321,6 +330,7 @@ mod tests {
         draft_pending: Cell<bool>,
         draft_visible: Cell<bool>,
         turn: Cell<bool>,
+        stale_frames_before_ingest: Cell<usize>,
         deliver_ingest_frame: bool,
         accept_enter: bool,
         writes: RefCell<Vec<String>>,
@@ -330,27 +340,36 @@ mod tests {
         /// Normal causal path: the paste render event is observable; the CR that
         /// follows it starts a turn.
         fn ingesting() -> Self {
-            Self::new(true, true)
+            Self::new(0, true, true)
+        }
+
+        fn stale_frame_then_ingesting() -> Self {
+            Self::new(1, true, true)
         }
 
         /// Anomaly that recovers: no observable render event, but the paste did
         /// land, so the one forced recovery Enter starts a turn.
         fn recovers_after_unobserved_ingest() -> Self {
-            Self::new(false, true)
+            Self::new(0, false, true)
         }
 
         /// Anomaly that fails honestly: no render event and the CR is swallowed —
         /// the turn never starts, so success must not be claimed.
         fn never_ingests() -> Self {
-            Self::new(false, false)
+            Self::new(0, false, false)
         }
 
-        fn new(deliver_ingest_frame: bool, accept_enter: bool) -> Self {
+        fn new(
+            stale_frames_before_ingest: usize,
+            deliver_ingest_frame: bool,
+            accept_enter: bool,
+        ) -> Self {
             Self {
                 generation: Cell::new(0),
                 draft_pending: Cell::new(false),
                 draft_visible: Cell::new(false),
                 turn: Cell::new(false),
+                stale_frames_before_ingest: Cell::new(stale_frames_before_ingest),
                 deliver_ingest_frame,
                 accept_enter,
                 writes: RefCell::new(Vec::new()),
@@ -370,8 +389,8 @@ mod tests {
             Some(Observation { tail })
         }
 
-        fn draft_reflected(&self, _text: &str) -> bool {
-            self.draft_visible.get()
+        fn draft_evidence_count(&self, _text: &str) -> usize {
+            usize::from(self.draft_visible.get())
         }
 
         fn generation(&self) -> u64 {
@@ -379,6 +398,12 @@ mod tests {
         }
 
         fn wait_change(&self, generation: u64, _deadline: Instant) -> bool {
+            if self.stale_frames_before_ingest.get() > 0 {
+                self.stale_frames_before_ingest
+                    .set(self.stale_frames_before_ingest.get() - 1);
+                self.generation.set(self.generation.get() + 1);
+                return true;
+            }
             // Deliver the ingestion frame exactly once after the paste.
             if self.deliver_ingest_frame && self.draft_pending.get() && !self.draft_visible.get() {
                 self.draft_visible.set(true);
@@ -446,8 +471,8 @@ mod tests {
 
         // Ordering model: the paste render frame is delivered synchronously by
         // `write_paste`, so ingestion always resolves and Enter follows the paste.
-        fn draft_reflected(&self, _text: &str) -> bool {
-            self.generation.get() > 0
+        fn draft_evidence_count(&self, _text: &str) -> usize {
+            usize::from(self.generation.get() > 0)
         }
 
         fn generation(&self) -> u64 {
@@ -520,6 +545,16 @@ mod tests {
             &["paste:unique-marker-42", "enter"],
             "the CR must be written strictly after the paste, never glued to it"
         );
+    }
+
+    #[test]
+    fn stale_repaint_cannot_release_enter_before_new_fuzzy_echo() {
+        let io = TuiModel::stale_frame_then_ingesting();
+        let result = run(&io, "pairing intro", true, tui(), opts()).unwrap();
+
+        assert!(result.submit_observed);
+        assert!(!result.submit_anomaly);
+        assert_eq!(&*io.writes.borrow(), &["paste:pairing intro", "enter"]);
     }
 
     #[test]
