@@ -108,6 +108,13 @@ function messageText(message) {
   return messageText(value);
 }
 
+function assistantMessages(snapshot) {
+  return (snapshot.messages ?? snapshot)
+    .filter((message) => message.type === "assistant")
+    .map(messageText)
+    .filter(Boolean);
+}
+
 function assertBootstrap(messages, role, counterpartRole, counterpartName) {
   const texts = messages.map(messageText).filter(Boolean);
   const starterCount = texts.filter((text) => text === STARTER).length;
@@ -131,6 +138,15 @@ async function waitForBootstrap(events, paneId, role, counterpartRole, counterpa
       await events.next((event) => event.event_type === `pane-chat-${paneId}`);
       if (error.message.includes("expected one starter turn, found 2")) throw error;
     }
+  }
+}
+
+async function waitForFreshExactReply(events, paneId, baseline, expected) {
+  for (;;) {
+    const snapshot = await api(`/api/panes/${paneId}/chat`);
+    const fresh = assistantMessages(snapshot).slice(baseline);
+    if (fresh.some((text) => text === expected)) return;
+    await events.next((event) => event.event_type.includes(paneId));
   }
 }
 
@@ -195,8 +211,27 @@ async function main() {
       waitForBootstrap(events, pair.orchestrator_pane_id, "Orchestrator", "Planner", pair.planner_pane_id),
       waitForBootstrap(events, pair.planner_pane_id, "Planner", "Orchestrator", pair.orchestrator_pane_id),
     ]);
+    const [orchestratorBaseline, plannerBaseline] = await Promise.all([
+      api(`/api/panes/${pair.orchestrator_pane_id}/chat`).then((snapshot) => assistantMessages(snapshot).length),
+      api(`/api/panes/${pair.planner_pane_id}/chat`).then((snapshot) => assistantMessages(snapshot).length),
+    ]);
+    const probe = "Reply with only your counterpart tab id.";
+    await Promise.all([
+      api(`/api/panes/${pair.orchestrator_pane_id}/send`, {
+        method: "POST",
+        body: JSON.stringify({ text: probe }),
+      }),
+      api(`/api/panes/${pair.planner_pane_id}/send`, {
+        method: "POST",
+        body: JSON.stringify({ text: probe }),
+      }),
+    ]);
+    await Promise.all([
+      waitForFreshExactReply(events, pair.orchestrator_pane_id, orchestratorBaseline, pair.planner_pane_id),
+      waitForFreshExactReply(events, pair.planner_pane_id, plannerBaseline, pair.orchestrator_pane_id),
+    ]);
     console.log(`PASS manager bootstrap: Codex ${pair.orchestrator_pane_id} + Claude ${pair.planner_pane_id}`);
-    console.log("  one starter turn each; role and counterpart acknowledged");
+    console.log("  one starter turn each; fresh exact counterpart replies observed");
   } finally {
     events.close();
     for (const paneId of [pair?.planner_pane_id, pair?.orchestrator_pane_id].filter(Boolean)) {
