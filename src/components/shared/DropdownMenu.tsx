@@ -157,7 +157,7 @@ export function DropdownMenu({
             ref={menuRef}
             role="menu"
             aria-label={menuLabel}
-            className="fixed z-50 w-max min-w-[140px] max-w-[calc(100vw-0.5rem)] border border-[rgba(255,255,255,0.12)] rounded-md shadow-lg py-1 ct-float backdrop-blur-xl"
+            className="ct-portal-menu fixed w-max min-w-[140px] max-w-[calc(100vw-0.5rem)] border border-[rgba(255,255,255,0.12)] rounded-md shadow-lg py-1 ct-float backdrop-blur-xl"
             style={{
               top: pos.top,
               left: pos.left,

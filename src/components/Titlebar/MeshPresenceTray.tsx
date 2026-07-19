@@ -120,7 +120,7 @@ export function MeshPresenceTray() {
       {open && pos && createPortal(
         <div
           ref={menuRef}
-          className="fixed z-50 w-[220px] border border-[rgba(255,255,255,0.12)] rounded-lg shadow-2xl backdrop-blur-xl overflow-hidden"
+          className="ct-portal-menu fixed w-[220px] border border-[rgba(255,255,255,0.12)] rounded-lg shadow-2xl backdrop-blur-xl overflow-hidden"
           style={{ top: pos.top, right: pos.right, background: "var(--ct-surface, #1e1e2e)" }}
         >
           <div className="px-3 pt-2.5 pb-1 text-[10.5px] uppercase tracking-wider text-[var(--ct-muted)]">
