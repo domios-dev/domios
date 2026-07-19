@@ -261,6 +261,7 @@ function TabItemInner({
         ${isActive ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
       `}
     >
+      {isActive && <ActiveTabPill />}
       {editing && (
         <div className="flex flex-1 items-center min-w-0 relative z-[1]">
           <input
@@ -299,7 +300,6 @@ function TabItemInner({
         onClick={onClick}
         className={`flex flex-1 items-center min-w-0 relative z-[1] border-0 bg-transparent p-0 text-left text-inherit font-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
       >
-      {isActive && <ActiveTabPill />}
       <div className={`flex flex-1 items-center min-w-0 ${touchMode ? "gap-2.5" : "gap-2"}`}>
         <span data-testid="tab-pane-icon" className="shrink-0 leading-none">
           {provider ? (

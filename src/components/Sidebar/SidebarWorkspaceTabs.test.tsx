@@ -867,9 +867,21 @@ test("clicking a team worker activates it", async () => {
   document.body.appendChild(host);
   const root = createRoot(host);
   await act(async () => root.render(<Harness />));
+  const managerRow = host.querySelector('[data-tab-id="tab-orchestrator"]');
+  const managerButton = managerRow?.querySelector('button[aria-label="Open tab Orchestrator"]');
+  assert(managerButton, "active manager remains an accessible named button");
+  assert(
+    managerRow?.querySelector(":scope > .active-tab-pill"),
+    "active fill is owned by the row behind the manager button",
+  );
+  assert(!managerButton.querySelector(".active-tab-pill"), "active fill cannot cover manager content");
+  assert(managerButton.textContent?.includes("Orchestrator"), "active manager title remains readable");
   const workerRow = host.querySelector('[data-tab-id="tab-worker"]') as HTMLElement | null;
-  assert(workerRow?.className.includes("sidebar-tab-dimmed"), "worker starts inactive");
-  await act(async () => workerRow?.click());
+  assert(workerRow, "worker row rendered");
+  assert(workerRow.className.includes("sidebar-tab-dimmed"), "worker starts inactive");
+  const workerButton = workerRow.querySelector('button[aria-label="Open tab Worker"]') as HTMLButtonElement | null;
+  assert(workerButton, "worker exposes its open action");
+  await act(async () => workerButton.click());
   assert(
     !host.querySelector('[data-tab-id="tab-worker"]')?.className.includes("sidebar-tab-dimmed"),
     "worker receives active chrome after click",

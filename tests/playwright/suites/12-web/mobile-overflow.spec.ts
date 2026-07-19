@@ -181,9 +181,9 @@ async function openSidebarAndSelectTargetPane(api: ApiClient, page: Page, target
 }
 
 async function openWorkspaceCanvasOverlay(page: Page, label: string): Promise<void> {
-  const button = page.locator('[data-testid="canvas-toolbar-button"]').first();
+  const button = page.getByRole("button", { name: "Open workspace canvas" }).first();
   await expect(button, `${label} canvas toolbar button visible`).toBeVisible({ timeout: 10_000 });
-  if ((await button.getAttribute("aria-pressed")) !== "true") await button.click();
+  await button.click();
   await expect(
     page.locator('[data-testid="canvas-view"], [data-testid="plan-view-shell"], [data-testid="canvas-empty"]').first(),
     `${label} workspace canvas visible`,
