@@ -14,10 +14,21 @@ export function MotionPlayground() {
   const [duration, setDuration] = useState(1.2);
   const [paused, setPaused] = useState(false);
   const [replayKey, setReplayKey] = useState(0);
-  const style = useMemo(() => ({
-    "--lab-accent": accent,
-    "--motion-duration": `${duration}s`,
-  }) as CSSProperties, [accent, duration]);
+  const style = useMemo(() => {
+    const scale = duration / 1.2;
+    const scaledDuration = (milliseconds: number) => `${Math.round(milliseconds * scale)}ms`;
+
+    return {
+      "--lab-accent": accent,
+      "--motion-duration": `${duration}s`,
+      "--motion-duration-instant": scaledDuration(90),
+      "--motion-duration-fast": scaledDuration(150),
+      "--motion-duration-moderate": scaledDuration(240),
+      "--motion-duration-expressive": scaledDuration(420),
+      "--motion-period-ambient": scaledDuration(2800),
+      "--motion-duration-glow": scaledDuration(90),
+    } as CSSProperties;
+  }, [accent, duration]);
 
   return (
     <main className={`motion-lab${paused ? " is-paused" : ""}`} style={style}>
@@ -89,10 +100,33 @@ export function MotionPlayground() {
         </div>
       </section>
 
-      <div key={replayKey} className="concept-galleries">
-        <CoreConcepts />
-        <OpusConcepts />
-      </div>
+      <section className="gallery-tier accepted-tier" aria-labelledby="accepted-concepts-title">
+        <div className="gallery-tier-heading">
+          <div>
+            <span className="gallery-tier-index">01</span>
+            <h2 id="accepted-concepts-title">Accepted</h2>
+          </div>
+          <span className="gallery-tier-count">0 concepts</span>
+        </div>
+        <p className="accepted-tier-empty">No concepts accepted yet.</p>
+      </section>
+
+      <section className="gallery-tier exploration-tier" aria-labelledby="exploration-concepts-title">
+        <div className="gallery-tier-heading">
+          <div>
+            <span className="gallery-tier-index">02</span>
+            <h2 id="exploration-concepts-title">Exploration</h2>
+          </div>
+          <div>
+            <span className="gallery-tier-count">16 concepts</span>
+            <p>Rejected references</p>
+          </div>
+        </div>
+        <div key={replayKey} className="concept-galleries">
+          <CoreConcepts />
+          <OpusConcepts />
+        </div>
+      </section>
 
       <footer className="lab-footer">
         <span>transform + opacity only</span>
