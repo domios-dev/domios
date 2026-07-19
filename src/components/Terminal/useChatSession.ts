@@ -206,7 +206,12 @@ export function listenForTestChatReplies(
 }
 
 function toEchoes(msgs: ChatMessage[]): OptimisticEcho[] {
-  return msgs.map((m) => ({ id: m.id, content: m.content, sentAtMs: Number(m.timestamp) || 0 }));
+  return msgs.map((m) => ({
+    id: m.id,
+    content: m.content,
+    sentAtMs: Number(m.timestamp) || 0,
+    clientOrder: m.clientOrder,
+  }));
 }
 
 function withPreservedClientOrder(

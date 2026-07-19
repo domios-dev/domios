@@ -35,7 +35,13 @@ import { ChatSetupState, ChatSetupStatusLine, chatSetupView } from "./ChatSetupS
 import { usePlanRefResolver } from "./usePlanRefResolver";
 import { reattachPaneChat } from "./chatReattach";
 import { planRefViewState } from "./planRefViewState";
-import { isChatViewportAtBottom, shouldFollowChatSend, shouldRestoreChatViewport, snapChatViewportToBottom } from "./chatViewport";
+import {
+  nextChatViewportMode,
+  shouldFollowChatSend,
+  shouldRestoreChatViewport,
+  snapChatViewportToBottom,
+  type ChatViewportMode,
+} from "./chatViewport";
 import { resolveTabNavigationTarget } from "./tabNavigation";
 
 interface Props {
@@ -102,7 +108,9 @@ export function PaneSessionChat({
   const touchMode = useTouchOptimizedUi();
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollContentRef = useRef<HTMLDivElement>(null);
-  const atBottomRef = useRef(true);
+  const viewportModeRef = useRef<ChatViewportMode>("pinned");
+  const scrollIntentRef = useRef(false);
+  const pointerScrollRef = useRef(false);
   const sentMessageFollowRafRef = useRef(0);
   const lastStopAtRef = useRef(0);
   const chatRootRef = useRef<HTMLDivElement>(null);
@@ -113,18 +121,18 @@ export function PaneSessionChat({
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    atBottomRef.current = true;
+    viewportModeRef.current = "pinned";
     snapChatViewportToBottom(el);
     setShowScrollDown(false);
   }, []);
 
   const followSentMessage = useCallback(() => {
-    const wasPinned = atBottomRef.current;
+    const wasPinned = viewportModeRef.current === "pinned";
     if (!wasPinned) return;
     if (sentMessageFollowRafRef.current) cancelAnimationFrame(sentMessageFollowRafRef.current);
     sentMessageFollowRafRef.current = requestAnimationFrame(() => {
       sentMessageFollowRafRef.current = 0;
-      if (shouldFollowChatSend(wasPinned, atBottomRef.current)) scrollToBottom();
+      if (shouldFollowChatSend(wasPinned, viewportModeRef.current === "pinned")) scrollToBottom();
     });
   }, [scrollToBottom]);
 
@@ -271,7 +279,7 @@ export function PaneSessionChat({
         throw e;
       }
     },
-    [currentPtyId, addOptimistic, showComposerError],
+    [currentPtyId, addOptimistic, followSentMessage, showComposerError],
   );
 
   const {
@@ -407,11 +415,11 @@ export function PaneSessionChat({
   // rAF-batched: coalesce streamed-chunk bursts into one scroll write per frame, no per-message reflow.
   const autoScrollRafRef = useRef(0);
   useEffect(() => {
-    if (!atBottomRef.current || autoScrollRafRef.current) return;
+    if (viewportModeRef.current !== "pinned" || autoScrollRafRef.current) return;
     autoScrollRafRef.current = requestAnimationFrame(() => {
       autoScrollRafRef.current = 0;
       const el = scrollRef.current;
-      if (el && atBottomRef.current) el.scrollTop = el.scrollHeight;
+      if (el && viewportModeRef.current === "pinned") el.scrollTop = el.scrollHeight;
     });
   }, [deferredEnrichedMessages, inlinePrompt?.question, backendState?.state]);
   useEffect(() => () => {
@@ -423,7 +431,7 @@ export function PaneSessionChat({
     if (!content) return;
     const observer = new ResizeObserver(() => {
       const el = scrollRef.current;
-      if (el && atBottomRef.current) el.scrollTop = el.scrollHeight;
+      if (el && viewportModeRef.current === "pinned") el.scrollTop = el.scrollHeight;
     });
     observer.observe(content);
     return () => observer.disconnect();
@@ -505,11 +513,42 @@ export function PaneSessionChat({
       <div className="relative flex-1 min-h-0">
       <div
         ref={scrollRef}
+        onWheel={(event) => {
+          if (event.deltaY >= 0) return;
+          viewportModeRef.current = "detached";
+          scrollIntentRef.current = true;
+        }}
+        onPointerDown={(event) => {
+          const bounds = event.currentTarget.getBoundingClientRect();
+          pointerScrollRef.current = event.clientX >= bounds.right - 20;
+        }}
+        onPointerMove={(event) => {
+          if (event.pointerType === "touch" || event.buttons !== 0) {
+            pointerScrollRef.current = true;
+          }
+        }}
+        onPointerUp={() => {
+          pointerScrollRef.current = false;
+        }}
+        onPointerCancel={() => {
+          pointerScrollRef.current = false;
+        }}
+        onKeyDown={(event) => {
+          if (["ArrowUp", "PageUp", "Home"].includes(event.key)) {
+            viewportModeRef.current = "detached";
+            scrollIntentRef.current = true;
+          }
+        }}
         onScroll={(e) => {
           const el = e.currentTarget;
           const dist = el.scrollHeight - (el.scrollTop + el.clientHeight);
-          atBottomRef.current = isChatViewportAtBottom(el);
-          setShowScrollDown(dist > 240);
+          viewportModeRef.current = nextChatViewportMode(
+            viewportModeRef.current,
+            el,
+            scrollIntentRef.current || pointerScrollRef.current,
+          );
+          scrollIntentRef.current = false;
+          setShowScrollDown(viewportModeRef.current === "detached" && dist > 240);
         }}
         className="absolute inset-0 overflow-y-auto overscroll-contain p-3"
         data-testid="pane-session-chat-messages"
@@ -646,6 +685,7 @@ export function PaneSessionChat({
           data-testid="chat-scroll-bottom"
           onClick={() => scrollToBottom()}
           title="Scroll to latest"
+          aria-label="Scroll to latest"
           className="absolute right-4 bottom-4 z-10 flex h-8 w-8 items-center justify-center rounded-full text-[var(--ct-muted-fg)] transition-colors hover:text-[var(--ct-fg)]"
           style={{ background: "var(--ct-surface)", border: "1px solid var(--ct-border)" }}
         >

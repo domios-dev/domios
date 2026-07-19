@@ -6,12 +6,24 @@ export interface ChatViewportGeometry {
   clientHeight: number;
 }
 
+export type ChatViewportMode = "pinned" | "detached";
+
 export function isChatViewportAtBottom(viewport: ChatViewportGeometry): boolean {
   return viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= BOTTOM_TOLERANCE_PX;
 }
 
 export function snapChatViewportToBottom(viewport: ChatViewportGeometry): void {
   viewport.scrollTop = viewport.scrollHeight;
+}
+
+export function nextChatViewportMode(
+  current: ChatViewportMode,
+  viewport: ChatViewportGeometry,
+  userScrollIntent: boolean,
+): ChatViewportMode {
+  if (isChatViewportAtBottom(viewport)) return "pinned";
+  if (userScrollIntent) return "detached";
+  return current;
 }
 
 export function shouldFollowChatSend(wasPinned: boolean, isStillPinned: boolean): boolean {
