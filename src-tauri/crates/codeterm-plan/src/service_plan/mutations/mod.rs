@@ -268,6 +268,33 @@ pub(super) fn reject_done_with_open_subtasks(plan: &Plan, task_id: &str) -> Resu
     }
 }
 
+/// Shared close-transition core (in_review/any -> done) used by both
+/// `close_task` and review ACCEPT so the two paths can never drift. Rejects
+/// while subtasks are still open; clears assignment and normalizes review state.
+pub(crate) fn finalize_task_done(
+    plan: &mut Plan,
+    task_index: usize,
+    now_ms: u64,
+) -> Result<(), PlanError> {
+    let task_id = plan.tasks[task_index].id.clone();
+    reject_done_with_open_subtasks(plan, &task_id)?;
+    let task = &mut plan.tasks[task_index];
+    if task.status != TaskStatus::Done {
+        task.status_changed_at = now_ms;
+    }
+    task.status = TaskStatus::Done;
+    crate::service_plan::qa::normalize_task_review_fields(task);
+    let assigned = task.assigned_pane_id.clone();
+    crate::service_plan::task_attempts::mark_task_assignment_closed(
+        task,
+        assigned.as_deref(),
+        now_ms,
+    );
+    clear_task_assignment(task);
+    task.updated_at = now_ms;
+    Ok(())
+}
+
 pub(super) fn validate_task_status_transition(
     plan: &Plan,
     task_id: &str,

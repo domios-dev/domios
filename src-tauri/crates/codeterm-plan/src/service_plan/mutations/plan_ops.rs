@@ -369,21 +369,10 @@ impl PlanStore {
                 .iter()
                 .position(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
-            let task_id = p.tasks[task_index].id.clone();
-            reject_done_with_open_subtasks(p, &task_id)?;
             let was_in_review = p.tasks[task_index].status == TaskStatus::InReview;
-            let task = &mut p.tasks[task_index];
-            if task.status != TaskStatus::Done {
-                task.status_changed_at = now_ms;
-            }
-            task.status = TaskStatus::Done;
-            super::qa::normalize_task_review_fields(task);
-            let assigned = task.assigned_pane_id.clone();
-            super::task_attempts::mark_task_assignment_closed(task, assigned.as_deref(), now_ms);
-            clear_task_assignment(task);
-            task.updated_at = now_ms;
+            super::finalize_task_done(p, task_index, now_ms)?;
             if was_in_review {
-                task.review_evidence.push(ReviewEvidence {
+                p.tasks[task_index].review_evidence.push(ReviewEvidence {
                     id: crate::plan::ids::short_id("rev"),
                     from: from.clone(),
                     verdict: ReviewVerdict::Accept,
