@@ -46,7 +46,7 @@ impl PtyTeardownSignal {
         self.changed.notify_all();
     }
 
-    fn mark_child_failed(&self, error: String) {
+    pub(crate) fn mark_child_failed(&self, error: String) {
         self.state.lock().failure = Some(error);
         self.changed.notify_all();
     }
