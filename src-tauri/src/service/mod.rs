@@ -109,6 +109,9 @@ pub use inject_verify::{
     InjectionResult, VerifyOpts,
 };
 pub use orchestration_pair::{OrchestrationPairParams, OrchestrationPairResult};
+#[cfg(test)]
+pub(crate) use orchestrator::{arm_provider_session_for_test, LaunchGeneration};
+pub(crate) use orchestrator::{record_provider_session, ProviderSessionBinding};
 pub use orchestrator::{
     BatchOp, RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning, SpawnAgentParams,
     SpawnIdentityProvenance, SpawnResult,
