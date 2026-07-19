@@ -1,4 +1,14 @@
 #[tauri::command]
+pub fn frontend_ready(generation: u64) -> bool {
+    crate::startup::mark_frontend_ready(generation)
+}
+
+#[tauri::command]
+pub fn frontend_readiness_generation() -> u64 {
+    crate::startup::frontend_readiness_generation()
+}
+
+#[tauri::command]
 pub fn open_folder(path: String) -> Result<(), String> {
     let resolved = if path.starts_with("~/") || path.starts_with("~\\") {
         dirs::home_dir()

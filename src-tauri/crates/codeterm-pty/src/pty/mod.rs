@@ -4,4 +4,5 @@ pub mod cast;
 pub mod manager;
 pub mod screen_state;
 pub mod shell_integration;
+mod teardown;
 pub mod write_queue;
