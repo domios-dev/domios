@@ -501,6 +501,34 @@ fn session_jsonl_path_returns_none_for_empty_sid() {
     );
 }
 
+#[test]
+fn usage_parser_waits_for_complete_reset_blocks_in_both_implementations() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (native, js) = pair();
+    let native_parser = native.usage_parser().expect("native Claude usage parser");
+    let js_parser = js.usage_parser().expect("JS Claude usage parser");
+    let incomplete = "Current session 100% usedResets 8:10p (Europe/Kiev)\n\
+                      Current week (all models) 55% usedResets Jul 19, 8pm (Europe/Kiev)";
+    assert!(native_parser.parse(incomplete).is_err());
+    assert!(js_parser.parse(incomplete).is_err());
+
+    let complete = "Current session 100% usedResets 8:10pm (Europe/Kiev)\n\
+                    Current week (all models) 55% usedResets Jul 19, 8pm (Europe/Kiev)";
+    for snapshot in [
+        native_parser
+            .parse(complete)
+            .expect("native complete frame"),
+        js_parser.parse(complete).expect("JS complete frame"),
+    ] {
+        assert_eq!(snapshot.session_pct, Some(100.0));
+        assert_eq!(snapshot.weekly_pct, Some(55.0));
+        assert!(snapshot.session_resets_at_ms.is_some());
+        assert!(snapshot.weekly_resets_at_ms.is_some());
+    }
+}
+
 /// #163: the tailer reads `session_jsonl_path`, so it must resolve to the
 /// canonical project dir the agent actually writes to. Claude canonicalizes
 /// the cwd (symlinks resolved) before encoding; if the host hands the JS

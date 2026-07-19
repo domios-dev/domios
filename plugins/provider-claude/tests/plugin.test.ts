@@ -496,5 +496,26 @@ const claudeCurrentUsage = hostPlugin.parseUsage(
 );
 assert(claudeCurrentUsage?.weekly_resets_at_ms === new Date(2026, 5, 14, 19, 59, 0, 0).getTime(), "parseUsage accepts month-day comma time");
 
+const incompleteSessionUsage = hostPlugin.parseUsage(
+  [
+    "Current session 100% usedResets 8:10p (Europe/Kiev)",
+    "Current week (all models) 55% usedResets Jun 14, 8pm (Europe/Kiev)",
+  ].join("\n"),
+  now,
+);
+assert(incompleteSessionUsage === null, "parseUsage rejects an incomplete current-session reset frame");
+
+const completeSessionUsage = hostPlugin.parseUsage(
+  [
+    "Current session 100% usedResets 8:10pm (Europe/Kiev)",
+    "Current week (all models) 55% usedResets Jun 14, 8pm (Europe/Kiev)",
+  ].join("\n"),
+  now,
+);
+assert(
+  completeSessionUsage?.session_resets_at_ms === new Date(2026, 5, 14, 20, 10, 0, 0).getTime(),
+  "parseUsage accepts the completed current-session reset frame",
+);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
