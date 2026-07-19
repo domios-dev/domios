@@ -19,7 +19,6 @@ export interface PlanViewSurfaceProps {
   /** Current workspace; workspace mode scopes plans to those bound here. */
   workspaceId?: string;
   teams?: Team[];
-  focusedPaneId?: string | null;
   projectPath?: string | null;
   workspaceTarget?: CanvasWorkspaceTarget | null;
   onClose?: () => void;
