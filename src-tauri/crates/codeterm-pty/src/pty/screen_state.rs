@@ -129,6 +129,9 @@ impl ScreenState {
                 }
             }
         }
+        self.bare_prompt_signals
+            .get_mut(pty_id)
+            .map(|signals| signals.retain(|signal| !signal.is_ready()));
         if let Some(signal) = self.agent_signals.get(pty_id) {
             if !signal.is_ready() && screen_has_agent_tui(&screen) {
                 signal.mark_ready();
@@ -291,6 +294,25 @@ impl ScreenState {
         }
 
         signal
+    }
+
+    pub fn disarm_bare_prompt_signal(&mut self, pty_id: &str, signal: &Arc<PromptSignal>) {
+        let remove_entry = self
+            .bare_prompt_signals
+            .get_mut(pty_id)
+            .map(|signals| {
+                signals.retain(|candidate| !Arc::ptr_eq(candidate, signal));
+                signals.is_empty()
+            })
+            .unwrap_or(false);
+        if remove_entry {
+            self.bare_prompt_signals.remove(pty_id);
+        }
+    }
+
+    #[cfg(test)]
+    fn bare_prompt_waiter_count(&self, pty_id: &str) -> usize {
+        self.bare_prompt_signals.get(pty_id).map_or(0, Vec::len)
     }
 
     /// Arm a one-shot signal that fires as soon as `screen_has_agent_tui` is true
@@ -679,7 +701,7 @@ mod tests {
     }
 
     #[test]
-    fn concurrent_bare_prompt_waiters_share_the_next_shell_event() {
+    fn shell_event_wakes_all_waiters_and_prunes_them() {
         let mut ss = ScreenState::new();
         let first = ss.arm_bare_prompt_signal("pty1");
         let second = ss.arm_bare_prompt_signal("pty1");
@@ -688,6 +710,17 @@ mod tests {
 
         assert!(first.is_ready());
         assert!(second.is_ready());
+        assert_eq!(ss.bare_prompt_waiter_count("pty1"), 0);
+    }
+
+    #[test]
+    fn disarmed_bare_prompt_waiter_does_not_accumulate_after_timeout() {
+        let mut ss = ScreenState::new();
+        let signal = ss.arm_bare_prompt_signal("pty1");
+
+        ss.disarm_bare_prompt_signal("pty1", &signal);
+
+        assert_eq!(ss.bare_prompt_waiter_count("pty1"), 0);
     }
 
     #[test]
