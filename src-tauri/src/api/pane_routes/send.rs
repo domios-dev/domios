@@ -230,9 +230,8 @@ pub async fn send_text(
         }
     }
 
-    // Preflight: the PTY must exist and be linked BEFORE any byte is written.
-    // Both failures are pre-write, so they guarantee an untouched target.
-    if transport == PaneInputTransport::Pty {
+    let requires_immediate_pty = body.raw || body.actions.is_some() || body.batch.is_some();
+    if transport == PaneInputTransport::Pty && requires_immediate_pty {
         state.svc.ensure_pane_pty_for_send(&pane_id).map_err(|e| {
             DeliveryError::PtyUnavailable {
                 pane: pane_id.clone(),
@@ -291,11 +290,7 @@ pub async fn send_text(
     let prepend = |s: &str| -> String {
         match &source_envelope {
             Some(envelope) if prefix_source => {
-                format!(
-                    "{}{}",
-                    crate::service::messenger::Messenger::pty_prefix(envelope),
-                    s
-                )
+                crate::service::messenger::Messenger::from(envelope.clone()).wrap(s)
             }
             _ => s.to_string(),
         }

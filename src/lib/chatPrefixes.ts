@@ -37,6 +37,7 @@ export function detectChatPrefix(content: string): PrefixMatch | null {
 function detectTransportPrefix(content: string): PrefixMatch | null {
   const marker = parseMarker(content);
   if (!marker) return null;
+  const body = stripReplyHint(marker.payload);
   if (marker.kind === "pane" || marker.kind === "report") {
     const title = marker.attrs.label ?? marker.attrs.from ?? "pane";
     const paneIdShort = marker.attrs.pane;
@@ -50,7 +51,7 @@ function detectTransportPrefix(content: string): PrefixMatch | null {
           ...(marker.attrs.mesh ? { mesh: marker.attrs.mesh } : {}),
           ...(marker.kind === "report" ? { report: true } : {}),
         },
-        body: marker.payload,
+        body,
       };
     }
   }
@@ -59,13 +60,13 @@ function detectTransportPrefix(content: string): PrefixMatch | null {
     if (userId) {
       return {
         origin: { kind: "telegram", userId, messageId: marker.attrs.msg },
-        body: marker.payload,
+        body,
       };
     }
   }
   if (marker.kind === "mesh") {
     const peerId = marker.attrs.peer;
-    if (peerId) return { origin: { kind: "mesh", peerId }, body: marker.payload };
+    if (peerId) return { origin: { kind: "mesh", peerId }, body };
   }
   if (marker.kind === "plugin_config" && marker.attrs.plugin) {
     return {
@@ -74,13 +75,13 @@ function detectTransportPrefix(content: string): PrefixMatch | null {
         pluginId: marker.attrs.plugin,
         name: marker.attrs.name ?? marker.attrs.plugin,
       },
-      body: marker.payload,
+      body,
     };
   }
   if (marker.kind === "system_prompt") {
     return {
       origin: { kind: "system_prompt" },
-      body: marker.payload,
+      body,
     };
   }
   if (marker.kind === "reminder") {
@@ -94,16 +95,24 @@ function detectTransportPrefix(content: string): PrefixMatch | null {
         ...(marker.attrs.fire_at ? { fireAt: marker.attrs.fire_at } : {}),
         ...(marker.attrs.id ? { id: marker.attrs.id } : {}),
       },
-      body: marker.payload,
+      body,
     };
   }
   if (marker.attrs.user) {
     return {
       origin: { kind: "service", service: marker.kind, userId: marker.attrs.user },
-      body: marker.payload,
+      body,
     };
   }
   return null;
+}
+
+function stripReplyHint(payload: string): string {
+  const start = payload.lastIndexOf("\n-=-codeterm:reply");
+  if (start < 0) return payload;
+  const marker = parseMarker(payload.slice(start + 1));
+  if (!marker || marker.kind !== "reply" || marker.payload.trim()) return payload;
+  return payload.slice(0, start).trimEnd();
 }
 
 export function splitChatPrefixedMessages(content: string): PrefixMatch[] | null {

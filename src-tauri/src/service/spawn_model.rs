@@ -45,6 +45,13 @@ pub(crate) fn model_fallback_notice_title(notice: &ModelFallbackNotice) -> Strin
     )
 }
 
+pub(crate) fn compatible_background_model(provider_id: &str, configured: &str) -> Option<String> {
+    let configured = non_empty_model(configured.to_string())?;
+    let canonical = codeterm_types::agent::models::canonicalize_short(&configured);
+    let resolved = crate::agent::model_catalog::resolve_model(provider_id, Some(canonical));
+    (!resolved.fell_back).then_some(resolved.id)
+}
+
 pub(crate) fn resolve_fresh_agent_model(
     registry: &AgentRegistry,
     provider_id: &str,

@@ -13,8 +13,7 @@ impl CommandPort for ServiceContext {
     }
 
     fn send_text(&self, pane_id: &str, text: &str, enter: bool) -> Result<(), String> {
-        // Fire-and-forget so interactive `codeterm send` never blocks on submit
-        // evidence; mesh/report/planner keep the verified HTTP + Messenger path.
+        // Fire-and-forget so interactive sends never wait for terminal evidence.
         self.send_text_detached(pane_id, text, enter);
         Ok(())
     }

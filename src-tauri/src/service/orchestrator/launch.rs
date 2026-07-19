@@ -407,36 +407,16 @@ pub(crate) fn launch_agent_in_background(
                         crate::service::launch_delivery::pending_record_for_spec(spec.clone())
                     });
                 }
-                let strategy = registry
-                    .with_provider(&agent_cmd, |provider| provider.verify_submit_strategy())
-                    .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
-                if !svc.wait_until_pane_receptive(&pane_id, std::time::Duration::from_secs(10)) {
-                    log::warn!(
-                        "launch_agent: pane {} was not receptive before fallback delivery",
-                        pane_id
-                    );
-                }
                 let consumption = delivery_gate.consume(&svc.mux, &pane_id, &svc, || {
-                    let result = crate::service::pty_io::submit_transaction::submit_entry(
+                    crate::service::pty_io::submit_transaction::submit_entry(
                         crate::service::pty_io::submit_transaction::PtySubmitEntry::Direct,
                         &task_text,
                         |text| {
-                            svc.send_text_verified(
-                                &pty_id,
-                                text,
-                                true,
-                                strategy,
-                                crate::service::inject_verify::VerifyOpts {
-                                    require_prompt_first: false,
-                                    verify_echo: false,
-                                    verify_submit: true,
-                                    ..Default::default()
-                                },
-                            )
-                            .map_err(|error| error.to_string())
+                            svc.send_text_detached(&pane_id, text, true);
+                            Ok::<(), String>(())
                         },
-                    );
-                    result.map(|evidence| evidence.submit_observed)
+                    )?;
+                    Ok(true)
                 });
                 let cleanup_error = if matches!(
                     &consumption,

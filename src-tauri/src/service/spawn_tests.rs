@@ -404,6 +404,28 @@ fn fresh_agent_model_reports_fallback_notice() {
 }
 
 #[test]
+fn background_model_ignores_a_model_from_another_provider() {
+    let provider_id = "background-model-test";
+    crate::agent::model_catalog::register(
+        provider_id,
+        crate::agent::model_catalog::RegisteredDefaults {
+            models: vec![crate::agent::provider::ModelInfo {
+                id: "model-a".into(),
+                display_name: "Model A".into(),
+                description: None,
+                available: Some(true),
+            }],
+            default: Some("model-a".into()),
+        },
+    );
+    assert_eq!(compatible_background_model(provider_id, "haiku"), None);
+    assert_eq!(
+        compatible_background_model(provider_id, "model-a").as_deref(),
+        Some("model-a")
+    );
+}
+
+#[test]
 fn resume_agent_model_does_not_inject_default() {
     let registry = registry_with(ModelProvider::new(
         "model-test-resume",

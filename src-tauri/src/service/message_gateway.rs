@@ -117,22 +117,6 @@ impl std::fmt::Display for DeliveryError {
 
 impl std::error::Error for DeliveryError {}
 
-/// Bounded wait for a recipient PTY agent to become receptive before machine
-/// traffic is injected. A recipient still mid-first-turn swallows the paste's
-/// Enter; gating on receptivity lands the message as a clean turn instead. The
-/// deadline is a failure bound only — a timeout is logged and delivery proceeds
-/// optimistically, never dropped, and elapsed time is never treated as ready.
-pub const RECEPTIVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-
-/// Machine-authored classes wait for the recipient to be receptive; a human turn
-/// and raw keys are delivered immediately (the user drives their own timing).
-fn class_waits_for_receptive(class: DeliveryClass) -> bool {
-    matches!(
-        class,
-        DeliveryClass::AgentTraffic | DeliveryClass::SystemNotice
-    )
-}
-
 /// The underlying delivery paths the gateway wraps. `ServiceContext` implements
 /// this by forwarding verbatim; tests implement a recording fake.
 pub trait DeliverySeam {
@@ -145,14 +129,6 @@ pub trait DeliverySeam {
     fn deliver_text(&self, pane: &str, text: &str, enter: bool) -> Result<(), String>;
     fn deliver_batch(&self, pane: &str, batch: Vec<SendBatchItem>) -> Result<(), String>;
     fn deliver_keys(&self, pane: &str, text: &str, strokes: &[KeyStroke]) -> Result<(), String>;
-
-    /// Wait (bounded by `timeout`) for `target` to be receptive. Returns true
-    /// once receptive; false if the deadline passed. A non-PTY or unknown target
-    /// is receptive by construction. Default is always-receptive so non-PTY seams
-    /// need no gate.
-    fn wait_until_receptive(&self, _target: &str, _timeout: std::time::Duration) -> bool {
-        true
-    }
 }
 
 /// Build the ordered PTY actions from gateway strokes, mirroring the HTTP route:
@@ -189,7 +165,8 @@ impl DeliverySeam for super::ServiceContext {
     }
 
     fn deliver_text(&self, pane: &str, text: &str, enter: bool) -> Result<(), String> {
-        self.send_text(pane, text, enter)
+        self.send_text_detached(pane, text, enter);
+        Ok(())
     }
 
     fn deliver_batch(&self, pane: &str, batch: Vec<SendBatchItem>) -> Result<(), String> {
@@ -206,53 +183,10 @@ impl DeliverySeam for super::ServiceContext {
             await_action_deadline,
         )
     }
-
-    fn wait_until_receptive(&self, target: &str, timeout: std::time::Duration) -> bool {
-        self.wait_until_pane_receptive(target, timeout)
-    }
 }
 
 impl super::ServiceContext {
-    pub(crate) fn wait_until_pane_receptive(
-        &self,
-        target: &str,
-        timeout: std::time::Duration,
-    ) -> bool {
-        use codeterm_types::pty::PaneStatus;
-        let pty_id = {
-            let mux = self.mux.read();
-            let resolved = mux
-                .resolve_pane_id(target)
-                .unwrap_or_else(|| target.to_string());
-            mux.get_pane(&resolved).and_then(|pane| pane.pty_id.clone())
-        };
-        // No live PTY (chatBackend, not-yet-linked) — nothing to gate on.
-        let Some(pty_id) = pty_id else { return true };
-        let signal = self.agent_tracker.lock().arm_status_change_signal(&pty_id);
-        let deadline = std::time::Instant::now() + timeout;
-        let mut generation = signal.generation();
-        loop {
-            let status = self.agent_tracker.lock().get_status(&pty_id);
-            if super::spawn_factory::status_is_receptive(status)
-                || matches!(status, PaneStatus::Dead)
-            {
-                // Dead pane: don't block — the delivery attempt reports the real outcome.
-                return true;
-            }
-            let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
-                return false;
-            };
-            if !signal.wait_after(generation, remaining) {
-                return false;
-            }
-            generation = signal.generation();
-        }
-    }
-
-    /// Deliver an enveloped machine/system message through the gateway — the
-    /// receptivity gate applies per `class`. Convenience over building an
-    /// `OutboundMessage` at each call site during the migration off
-    /// `Messenger::deliver`.
+    /// Deliver an enveloped machine/system message through the optimistic gateway.
     pub(crate) fn gateway_deliver(
         &self,
         target: &str,
@@ -400,17 +334,6 @@ impl MessageGateway {
         msg: &OutboundMessage,
     ) -> Result<DeliveryReceipt, DeliveryError> {
         let key = msg.idempotency_key.clone();
-        // Machine traffic waits for receptivity so Enter is not swallowed mid-turn.
-        // A missed deadline is logged, then delivery proceeds optimistically.
-        if class_waits_for_receptive(msg.class)
-            && !seam.wait_until_receptive(&msg.target, RECEPTIVE_TIMEOUT)
-        {
-            log::warn!(
-                "[gateway] {} not confirmed receptive within {:?}; delivering optimistically",
-                msg.target,
-                RECEPTIVE_TIMEOUT
-            );
-        }
         match &msg.body {
             MessageBody::Text { body, enter } => match &msg.envelope {
                 Some(envelope) => {

@@ -85,9 +85,9 @@ impl From<SerdeSessionMessage> for SessionMessage {
 }
 
 use crate::provider::{
-    self, AgentLaunchParams, AgentProvider, ModelInfo, ProviderTrust, ReadinessStrategy,
-    ReasoningEffortInfo, SessionIdInjection, SessionMessage, SessionMetadata, SettingField,
-    SystemPromptDelivery, TaskDelivery, VerifySubmitStrategy,
+    self, AgentLaunchParams, AgentProvider, BusySubmitStrategy, ModelInfo, ProviderTrust,
+    ReadinessStrategy, ReasoningEffortInfo, SessionIdInjection, SessionMessage, SessionMetadata,
+    SettingField, SystemPromptDelivery, TaskDelivery, VerifySubmitStrategy,
 };
 
 use super::{
@@ -320,6 +320,10 @@ impl AgentProvider for JsProvider {
 
     fn verify_submit_strategy(&self) -> VerifySubmitStrategy {
         (&self.manifest.spawn.verify_submit).into()
+    }
+
+    fn busy_submit_strategy(&self) -> BusySubmitStrategy {
+        (&self.manifest.spawn.busy_submit).into()
     }
 
     fn detect_from_title(&self, title: &str) -> bool {

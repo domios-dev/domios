@@ -23,6 +23,10 @@
     "verifySubmit": {
       "kind": "tui_input_drained"
     },
+    "busySubmit": {
+      "kind": "key",
+      "key": "tab"
+    },
     "sessionIdInjection": "none",
     "statusBarRows": 1,
     "preservesContextOnResume": false,

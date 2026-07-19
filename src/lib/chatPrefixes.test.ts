@@ -37,6 +37,13 @@ console.log("detectChatPrefix");
 }
 
 {
+  const r = detectChatPrefix(
+    "-=-codeterm:pane label=Main pane=12e450b4-=-Hey\n-=-codeterm:reply tab=12e450b4-=-",
+  );
+  eq(r?.body, "Hey", "reply routing hint stays hidden from chat body");
+}
+
+{
   const r = detectChatPrefix("-=-codeterm:pane label=CURRENT%20PANE pane=915fae8e model=codex-=-Hey self");
   eq(
     r?.origin,

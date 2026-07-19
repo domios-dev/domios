@@ -152,6 +152,7 @@ fn readiness_and_verify_from_manifest_enums() {
         p.verify_submit_strategy(),
         VerifySubmitStrategy::None
     ));
+    assert_eq!(p.busy_submit_strategy(), BusySubmitStrategy::SubmitNormally);
 }
 
 #[test]

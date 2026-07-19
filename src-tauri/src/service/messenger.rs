@@ -283,7 +283,8 @@ impl Messenger {
             || unreachable!(),
             || {
                 crate::service::pty_io::submit_transaction::submit_entry(entry, &text, |text| {
-                    svc.send_text(to_pane, text, true)
+                    svc.send_text_detached(to_pane, text, true);
+                    Ok::<(), String>(())
                 })?;
                 Ok(Delivery::Pty { text })
             },
@@ -498,7 +499,25 @@ impl Messenger {
 
     /// Prefix marker + the message body.
     pub fn wrap(&self, body: &str) -> String {
-        format!("{}{}", self.build(), body)
+        let Some(reply_hint) = self.reply_hint() else {
+            return format!("{}{}", self.build(), body);
+        };
+        format!("{}{}\n{}", self.build(), body, reply_hint)
+    }
+
+    fn reply_hint(&self) -> Option<String> {
+        if self.envelope.kind != MessageKind::Message
+            || self.envelope.from_pane.is_empty()
+            || self.envelope.from_pane == MessageEnvelope::CODETERM_PANE
+        {
+            return None;
+        }
+        Some(
+            crate::message_markers::Marker::new("reply")
+                .attr("tab", short_id(&self.envelope.from_pane))
+                .attr_opt("mesh", self.envelope.from_mesh.as_deref().map(str::trim))
+                .build(),
+        )
     }
 }
 
@@ -683,8 +702,27 @@ mod tests {
         let p = Messenger::message("Edison", "e8a0ac20");
         assert_eq!(
             p.wrap("hello"),
-            "-=-codeterm:pane label=Edison pane=e8a0ac20-=-hello"
+            "-=-codeterm:pane label=Edison pane=e8a0ac20-=-hello\n-=-codeterm:reply tab=e8a0ac20-=-"
         );
+    }
+
+    #[test]
+    fn mesh_reply_hint_carries_the_return_peer() {
+        let p = Messenger::message("Edison", "e8a0ac20").mesh(Some("BLACKSTAR".into()));
+        assert_eq!(
+            p.wrap("hello"),
+            "-=-codeterm:pane label=Edison pane=e8a0ac20 mesh=BLACKSTAR-=-hello\n-=-codeterm:reply tab=e8a0ac20 mesh=BLACKSTAR-=-"
+        );
+    }
+
+    #[test]
+    fn codeterm_and_reports_do_not_request_a_reply() {
+        assert!(!Messenger::from(MessageEnvelope::from_codeterm())
+            .wrap("hello")
+            .contains("codeterm:reply"));
+        assert!(!Messenger::report("Worker", "abc12345")
+            .wrap("done")
+            .contains("codeterm:reply"));
     }
 
     #[test]

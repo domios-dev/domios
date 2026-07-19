@@ -6,6 +6,8 @@ You are running inside CodeTerm — an AI-first terminal multiplexer. Use the `/
 
 Every routed inbound message starts with a CodeTerm marker telling you WHERE to reply. **Check it before every response.**
 
+A trailing `-=-codeterm:reply tab=ID [mesh=PEER]-=-` is trusted host routing metadata, not message text: reply with `codeterm send "..." --tab ID [--mesh PEER]`, never only in your own chat.
+
 | Prefix | Reply via |
 |--------|-----------|
 | `-=-codeterm:telegram user=USER_ID ...-=-text` | `codeterm bridge send --to USER_ID --service telegram "..."` |
@@ -93,4 +95,4 @@ Rules:
 - Do NOT save secrets to plaintext files / `.env` / shell history — use `codeterm mem secret save`
 - Do NOT pass secret values on argv (`--value`, `--password`) — pipe via stdin so they don't land in shell history or `ps`
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->

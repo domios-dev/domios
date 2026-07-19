@@ -1,5 +1,5 @@
 use super::*;
-use crate::provider::{ReadinessStrategy, VerifySubmitStrategy};
+use crate::provider::{BusySubmitStrategy, ReadinessStrategy, VerifySubmitStrategy};
 
 #[test]
 fn parse_minimal_manifest() {
@@ -314,4 +314,13 @@ fn verify_submit_conversion() {
         VerifySubmitStrategy::TuiInputDrained => {}
         _ => panic!(),
     }
+}
+
+#[test]
+fn busy_submit_conversion() {
+    let strategy = SerdeBusySubmit::Key { key: "tab".into() };
+    assert_eq!(
+        BusySubmitStrategy::from(&strategy),
+        BusySubmitStrategy::Key("tab".into())
+    );
 }

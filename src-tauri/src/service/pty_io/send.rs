@@ -243,15 +243,40 @@ impl ServiceContext {
             return self.write_paste_optimistic(pty_id, text, enter);
         };
         let text = sanitize_agent_prompt_input(text);
-        let strategy = self
+        let (strategy, busy_submit) = self
             .agent_registry
-            .with_provider(&agent_id, |provider| provider.verify_submit_strategy())
-            .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
-        super::submit_transaction::submit_text(
+            .with_provider(&agent_id, |provider| {
+                (
+                    provider.verify_submit_strategy(),
+                    provider.busy_submit_strategy(),
+                )
+            })
+            .unwrap_or((
+                crate::agent::provider::VerifySubmitStrategy::None,
+                crate::agent::provider::BusySubmitStrategy::SubmitNormally,
+            ));
+        let is_working = matches!(
+            self.agent_tracker.lock().get_status_if_tracked(pty_id),
+            Some(crate::agent::status::PaneStatus::Working)
+        );
+        let submit_key = if enter && is_working {
+            match busy_submit {
+                crate::agent::provider::BusySubmitStrategy::Key(key) => {
+                    crate::agent::keys::action_key_bytes(&key).ok_or_else(|| {
+                        format!("provider declared unknown busy submit key: {key}")
+                    })?
+                }
+                crate::agent::provider::BusySubmitStrategy::SubmitNormally => b"\r".to_vec(),
+            }
+        } else {
+            b"\r".to_vec()
+        };
+        super::submit_transaction::submit_text_with_key(
             self,
             pty_id,
             &text,
             enter,
+            &submit_key,
             strategy,
             crate::service::inject_verify::VerifyOpts {
                 require_prompt_first: false,
@@ -434,25 +459,15 @@ impl ServiceContext {
         }
     }
 
-    /// `send_text` that first waits out an in-flight agent boot — a booting TUI swallows input silently.
+    /// Queue text without making the caller wait for PTY or TUI evidence.
     pub async fn send_text_when_ready(
         &self,
         pane_id: &str,
         text: &str,
         enter: bool,
     ) -> Result<(), String> {
-        if self.pane_chat_backing(pane_id).is_some() {
-            return self.chatbackend_pane_send(pane_id, text);
-        }
-        self.ensure_pane_pty_for_send(pane_id)?;
-        let svc = self.clone();
-        let pane = pane_id.to_string();
-        tokio::task::spawn_blocking(move || {
-            svc.await_agent_boot_blocking(&pane, std::time::Duration::from_secs(90))
-        })
-        .await
-        .map_err(|error| format!("agent boot waiter failed: {error}"))??;
-        self.send_text(pane_id, text, enter)
+        self.send_text_detached(pane_id, text, enter);
+        Ok(())
     }
 
     pub(crate) fn await_agent_boot_blocking(
@@ -556,9 +571,7 @@ impl ServiceContext {
         Ok(())
     }
 
-    /// Fire-and-forget `send_text`: delivery (incl. the agent-TUI Enter retry) runs
-    /// on a detached thread so the caller returns at once. For the interactive
-    /// `codeterm send`; verified/error-reporting callers use `send_text` directly.
+    /// PTY work runs off-thread so CodeTerm-originated senders return immediately.
     pub fn send_text_detached(&self, pane_id: &str, text: &str, enter: bool) {
         let svc = self.clone();
         let pane = pane_id.to_string();

@@ -240,7 +240,7 @@ pub struct ServiceContext {
         Arc<pending_delivery_payloads::PendingDeliveryPayloadStore>,
     pub(crate) worker_identity_allocator:
         Arc<parking_lot::Mutex<worker_persona::WorkerPersonaReservations>>,
-    /// The single outbound-delivery seam (idempotency + receptivity gating).
+    /// The single optimistic outbound-delivery seam with idempotency.
     /// Callers migrate onto `gateway.submit(...)` incrementally (task_1iiwnc).
     pub(crate) gateway: Arc<crate::service::message_gateway::MessageGateway>,
 }

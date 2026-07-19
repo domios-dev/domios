@@ -235,12 +235,7 @@ pub(super) fn dispatch(
             )
             .map_err(plan_rpc_err)?;
         let brief = build_brief_with_claimed_persona(&detail.task, &detail.sections, &spawn.title);
-        svc.send_text(&pane_id, &brief, true)
-            .map_err(|e| JsonRpcError {
-                code: -32603,
-                message: format!("brief delivery failed: {e}"),
-                data: None,
-            })?;
+        svc.send_text_detached(&pane_id, &brief, true);
         Ok(())
     })();
 
