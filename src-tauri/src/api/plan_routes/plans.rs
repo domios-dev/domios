@@ -594,7 +594,10 @@ mod tests {
         assert_eq!(transfer_caller(&headers).unwrap(), "source-manager");
         let missing = transfer_caller(&HeaderMap::new()).unwrap_err();
         assert_eq!(missing.0, StatusCode::FORBIDDEN);
-        assert!(missing.1.contains("X-CodeTerm-Pane-Id is required"));
+        assert_eq!(
+            missing.1 .0["error"],
+            "X-CodeTerm-Pane-Id is required for plan transfer"
+        );
         assert_eq!(
             team_plan_err(TeamPlanError::Team(
                 "Caller pane worker is not authorized to manage Team team_source".into(),
