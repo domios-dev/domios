@@ -31,13 +31,13 @@ pub(super) fn archive(
 
 pub(super) fn unarchive(
     store: &PlanStore,
-    app: &AppHandle,
+    svc: &ServiceState,
     params: &Option<Value>,
     now: u64,
 ) -> Result<Value, JsonRpcError> {
     let id = plan_refs::resolve_plan(store, params)?;
-    store.unarchive(&id, now).map_err(plan_rpc_err)?;
-    emit_plan_changed(app, &id);
+    svc.unarchive_team_plan(&id, now)
+        .map_err(super::team::team_plan_rpc_err)?;
     Ok(json!({ "ok": true }))
 }
 

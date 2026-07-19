@@ -6,6 +6,17 @@ use crate::service::{ServiceState, TeamPlanError};
 use super::plan::plan_rpc_err;
 use super::{get_string_param, opt_string_param, JsonRpcError};
 
+pub(super) fn team_plan_rpc_err(error: TeamPlanError) -> JsonRpcError {
+    match error {
+        TeamPlanError::Team(message) => JsonRpcError {
+            code: -32602,
+            message,
+            data: None,
+        },
+        TeamPlanError::Plan(error) => plan_rpc_err(error),
+    }
+}
+
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
@@ -59,14 +70,7 @@ pub(super) fn dispatch(
                     caller_pane_id.as_deref(),
                     super::plan_time::epoch_ms(),
                 )
-                .map_err(|error| match error {
-                    TeamPlanError::Team(message) => JsonRpcError {
-                        code: -32602,
-                        message,
-                        data: None,
-                    },
-                    TeamPlanError::Plan(error) => plan_rpc_err(error),
-                })?;
+                .map_err(team_plan_rpc_err)?;
             Ok(serde_json::json!({ "team_id": team_id, "plan": plan }))
         }
         _ => Err(JsonRpcError {

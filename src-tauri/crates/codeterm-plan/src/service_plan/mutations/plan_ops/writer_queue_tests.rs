@@ -127,7 +127,7 @@ fn concurrent_team_plan_writes_all_commit_through_one_queue() {
                     pane_id: Some(format!("orchestrator-{number}")),
                     ..Default::default()
                 },
-                Some(format!("team-{number}")),
+                format!("team-{number}"),
                 vec![],
                 number as u64,
             )

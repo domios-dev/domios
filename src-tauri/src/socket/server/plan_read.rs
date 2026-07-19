@@ -40,6 +40,8 @@ pub(super) fn dispatch(
     match method {
         "plan.get" => {
             let id = super::plan_refs::resolve_plan(store, params)?;
+            svc.validate_plan_team_binding(&id)
+                .map_err(super::team::team_plan_rpc_err)?;
             let plan = store
                 .get(&id)
                 .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;

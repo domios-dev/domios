@@ -25,7 +25,4 @@ export interface PlanViewSurfaceProps {
   onClose?: () => void;
   onOpenPane?: (paneId: string) => void;
   api?: ApiConfig;
-  /** All-plans mode lifts the workspace filter (canvas flow surface). */
-  allPlans?: boolean;
-  onAllPlansChange?: (allPlans: boolean) => void;
 }

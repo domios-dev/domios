@@ -543,6 +543,12 @@ impl ServiceContext {
             self.loaded_plan_projects
                 .lock()
                 .insert(project_root.clone());
+            self.reconcile_dangling_team_plan_bindings(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64,
+            )?;
         }
         let legacy_plans_dir = project_root.join(".codeterm").join("plans");
         let mut watchers = self.plan_watchers.lock();

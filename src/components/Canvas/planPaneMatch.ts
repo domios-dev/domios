@@ -19,8 +19,6 @@ export interface PlanFilterOpts extends PlanWorkspaceContext {
    *  Required (never optional) so a workspace-mode caller cannot silently omit
    *  scoping and fall back to every plan. */
   workspaceId: string | undefined;
-  /** Explicit opt-out of workspace scoping (the canvas "all plans" toggle). */
-  allPlans?: boolean;
 }
 
 /** True when a plan belongs to this workspace via its team binding or its owner
@@ -133,7 +131,6 @@ export function filterPlansForCanvas(
   const active = plans.filter((p) => p.status === "active");
   if (mode === "workspace") {
     if (opts.teamId) return active.filter((plan) => plan.team_id === opts.teamId);
-    if (opts.allPlans) return active;
     // No workspace scope → no board, never every plan (the bug we removed).
     if (!opts.workspaceId) return [];
     return active.filter((p) => planBelongsToWorkspace(p, opts.workspaceId!, opts));
