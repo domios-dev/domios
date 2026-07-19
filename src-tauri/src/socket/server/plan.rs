@@ -305,7 +305,7 @@ pub(super) fn dispatch(
                 .and_then(|x| x.get("reason"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            svc.transfer_team_plan(&id, to, reason, now)
+            svc.transfer_team_plan(&id, to, reason, transfer_caller(params), now)
                 .map_err(super::team::team_plan_rpc_err)?;
             Ok(json!({ "ok": true, "plan_id": id }))
         }
@@ -570,6 +570,15 @@ pub(super) fn dispatch(
             data: None,
         }),
     }
+}
+
+fn transfer_caller(params: &Option<Value>) -> crate::service::TeamMutationCaller {
+    crate::service::TeamMutationCaller::from_pane_id(
+        params
+            .as_ref()
+            .and_then(|value| value.get("caller_pane_id"))
+            .and_then(|value| value.as_str()),
+    )
 }
 
 #[cfg(test)]

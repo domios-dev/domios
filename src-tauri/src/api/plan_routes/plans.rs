@@ -587,6 +587,27 @@ mod tests {
         assert_eq!(task_state, "stale");
     }
 
+    #[test]
+    fn transfer_caller_distinguishes_agent_header_from_trusted_direct_user() {
+        let mut headers = HeaderMap::new();
+        headers.insert("X-CodeTerm-Pane-Id", "source-manager".parse().unwrap());
+        assert_eq!(
+            transfer_caller(&headers),
+            crate::service::TeamMutationCaller::AgentPane("source-manager".into())
+        );
+        assert_eq!(
+            transfer_caller(&HeaderMap::new()),
+            crate::service::TeamMutationCaller::TrustedDirectUser
+        );
+        assert_eq!(
+            team_plan_err(TeamPlanError::Team(
+                "Caller pane worker is not authorized to manage Team team_source".into(),
+            ))
+            .0,
+            StatusCode::FORBIDDEN
+        );
+    }
+
     fn resolve_task_state(plan: &Plan, target_id: Option<String>) -> &'static str {
         let task = target_id.as_deref().and_then(|task_id| {
             plan.tasks
@@ -872,6 +893,12 @@ pub(crate) struct TransferBody {
     reason: String,
 }
 
+fn transfer_caller(headers: &HeaderMap) -> crate::service::TeamMutationCaller {
+    crate::service::TeamMutationCaller::from_pane_id(
+        crate::api::pane_routes::caller_pane_header(headers).as_deref(),
+    )
+}
+
 pub async fn transfer(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -881,7 +908,13 @@ pub async fn transfer(
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
-        .transfer_team_plan(&id, body.to, &body.reason, epoch_ms())
+        .transfer_team_plan(
+            &id,
+            body.to,
+            &body.reason,
+            transfer_caller(&headers),
+            epoch_ms(),
+        )
         .map_err(team_plan_err)?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -889,6 +922,11 @@ pub async fn transfer(
 fn team_plan_err(error: TeamPlanError) -> (StatusCode, String) {
     match error {
         TeamPlanError::Plan(error) => plan_err(error),
+        TeamPlanError::Team(message)
+            if message.contains("not authorized") || message.contains("not a member") =>
+        {
+            text_err(StatusCode::FORBIDDEN, message)
+        }
         TeamPlanError::Team(message) => text_err(StatusCode::BAD_REQUEST, message),
     }
 }
