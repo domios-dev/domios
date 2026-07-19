@@ -15,6 +15,18 @@ export type IsolatedPlaywrightArgs = {
   project: string;
 };
 
+export function parsePlaywrightSpec(fileArgument: string): string {
+  const file = path.resolve(REPO_ROOT, fileArgument);
+  const relative = path.relative(TEST_ROOT, file);
+  if (relative.startsWith("..") || path.isAbsolute(relative) || !/\.spec\.tsx?$/.test(file)) {
+    throw new Error("--file must name a Playwright .spec.ts or .spec.tsx file under tests/playwright");
+  }
+  if (!fs.statSync(file, { throwIfNoEntry: false })?.isFile()) {
+    throw new Error(`Playwright spec does not exist: ${fileArgument}`);
+  }
+  return file;
+}
+
 function requiredOption(args: string[], name: string): string {
   const values = args.flatMap((arg, index) => (arg === name ? [args[index + 1]] : []));
   if (values.length !== 1 || !values[0]?.trim()) {
@@ -33,14 +45,7 @@ export function parseIsolatedPlaywrightArgs(args: string[]): IsolatedPlaywrightA
     index += 1;
   }
 
-  const file = path.resolve(REPO_ROOT, fileArgument);
-  const relative = path.relative(TEST_ROOT, file);
-  if (relative.startsWith("..") || path.isAbsolute(relative) || !/\.spec\.tsx?$/.test(file)) {
-    throw new Error("--file must name one Playwright .spec.ts or .spec.tsx file under tests/playwright");
-  }
-  if (!fs.statSync(file, { throwIfNoEntry: false })?.isFile()) {
-    throw new Error(`Playwright spec does not exist: ${fileArgument}`);
-  }
+  const file = parsePlaywrightSpec(fileArgument);
   return { file, grep, project };
 }
 
@@ -59,26 +64,39 @@ export function playwrightArgs(input: IsolatedPlaywrightArgs): string[] {
   ];
 }
 
-export function runStreaming(command: string, args: string[], env: NodeJS.ProcessEnv): Promise<void> {
+export function runStreaming(
+  command: string,
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  deadlineMs = GLOBAL_TIMEOUT_MS,
+  label = "isolated",
+): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd: REPO_ROOT, env, stdio: ["ignore", "pipe", "pipe"] });
     let deadlineExceeded = false;
+    let settled = false;
     child.stdout.on("data", (chunk: Buffer) => process.stdout.write(chunk));
     child.stderr.on("data", (chunk: Buffer) => process.stderr.write(chunk));
     const deadline = setTimeout(() => {
       deadlineExceeded = true;
-      process.stderr.write(`[playwright:isolated] global deadline ${GLOBAL_TIMEOUT_MS}ms exceeded; terminating test process\n`);
+      process.stderr.write(`[playwright:${label}] process deadline ${deadlineMs}ms exceeded; terminating test process\n`);
       child.kill();
-    }, GLOBAL_TIMEOUT_MS);
+      settled = true;
+      reject(new Error(`${label} Playwright run exceeded ${deadlineMs}ms`));
+    }, deadlineMs);
     const finish = () => clearTimeout(deadline);
     child.once("error", (error) => {
+      if (settled) return;
+      settled = true;
       finish();
       reject(error);
     });
     child.once("close", (code, signal) => {
+      if (settled) return;
+      settled = true;
       finish();
       if (deadlineExceeded) {
-        reject(new Error(`isolated Playwright run exceeded ${GLOBAL_TIMEOUT_MS}ms`));
+        reject(new Error(`${label} Playwright run exceeded ${deadlineMs}ms`));
       } else if (code !== 0) {
         reject(new Error(`isolated Playwright exited with ${signal ?? `code ${code}`}`));
       } else {
