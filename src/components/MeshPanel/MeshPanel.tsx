@@ -610,7 +610,6 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
           <MeshWebUiControl
             snapshot={serve?.snapshot ?? null}
             loading={serveLoading}
-            onOpen={(url) => void invoke("open_url", { url })}
             onOpenSurface={() => setWebUiOpen(true)}
             onAction={runWebUiAction}
             touchUi={touchUi}

@@ -79,7 +79,6 @@ async function render(
   snapshot: ServeReconcileSnapshot | null,
   loading = false,
   onAction: (a: WebUiAction) => Promise<string | void> = async () => {},
-  onOpen: (url: string) => void = () => {},
   onOpenSurface: () => void = () => {},
 ): Promise<{ host: HTMLDivElement; root: Root }> {
   const host = document.createElement("div");
@@ -90,7 +89,6 @@ async function render(
       <MeshWebUiControl
         snapshot={snapshot}
         loading={loading}
-        onOpen={onOpen}
         onOpenSurface={onOpenSurface}
         onAction={onAction}
       />,
@@ -108,10 +106,10 @@ async function openMenu(host: HTMLDivElement) {
 
 // ── pure view derivation ────────────────────────────────────────────────────
 
-test("deriveWebUiView: ready exposes Open + Copy + Disable, no setup/repair", () => {
+test("deriveWebUiView: ready exposes Copy + Disable, no setup/repair", () => {
   const v = deriveWebUiView(snap("ready"), false);
   assert(v.state === "ready", "state ready");
-  assert(v.canOpen && v.url, "can open with url");
+  assert(Boolean(v.url), "ready url available to the Web UI surface");
   assert(v.canCopyUrl && v.canDisable, "copy + disable");
   assert(!v.canSetup && !v.canRepair, "no setup/repair when ready");
 });
@@ -119,7 +117,7 @@ test("deriveWebUiView: ready exposes Open + Copy + Disable, no setup/repair", ()
 test("deriveWebUiView: setup_required offers setup only, no open/disable", () => {
   const v = deriveWebUiView(snap("setup_required"), false);
   assert(v.label === "Setup required", "setup label");
-  assert(v.canSetup && !v.canOpen, "setup, no open");
+  assert(v.canSetup && !v.canCopyUrl, "setup, no published url");
   assert(!v.canDisable, "no owned route → no disable");
 });
 
@@ -132,17 +130,17 @@ test("deriveWebUiView: operator bootstrap surfaces the exact command", () => {
 
 test("deriveWebUiView: conflict + unhealthy offer repair, never open", () => {
   const c = deriveWebUiView(snap("conflict"), false);
-  assert(c.canRepair && !c.canOpen, "conflict repair no open");
+  assert(c.canRepair && !c.canCopyUrl, "conflict repair, no published url");
   assert(c.detail?.includes("already proxies"), "conflict reason surfaced");
   const u = deriveWebUiView(snap("unhealthy"), false);
-  assert(u.canRepair && !u.canOpen, "unhealthy repair no open");
+  assert(u.canRepair && !u.canCopyUrl, "unhealthy repair, no published url");
   assert(u.detail?.includes("connection refused"), "health error surfaced");
 });
 
 test("deriveWebUiView: loading before snapshot shows Checking, no actions", () => {
   const v = deriveWebUiView(null, true);
   assert(v.state === "loading" && v.label === "Checking…", "loading label");
-  assert(!v.canOpen && !v.canSetup && !v.canRepair && !v.canDisable, "no actions while loading");
+  assert(!v.canCopyUrl && !v.canSetup && !v.canRepair && !v.canDisable, "no actions while loading");
 });
 
 test("deriveWebUiView: version skew is reported truthfully when ready", () => {
@@ -155,19 +153,19 @@ test("deriveWebUiView: version skew is reported truthfully when ready", () => {
 
 // ── rendered control ────────────────────────────────────────────────────────
 
-test("control: ready renders Globe control, state attr, and Open action", async () => {
+test("control: ready renders only the Web UI surface without redundant version or Open action", async () => {
   const { host, root } = await render(snap("ready"));
   const action = host.querySelector('[data-testid="mesh-web-ui-action"]') as HTMLElement;
   assert(action, "action root present");
   assert(action.getAttribute("data-web-ui-state") === "ready", "data-web-ui-state=ready");
-  assert(host.querySelector('[data-testid="mesh-web-ui-open"]'), "Open button present when ready");
+  assert(!host.querySelector('[data-testid="mesh-web-ui-open"]'), "redundant Open button is absent");
+  assert(!host.querySelector('[data-testid="mesh-web-ui-version"]'), "daemon version line is absent");
   await act(async () => root.unmount());
 });
 
-test("control: non-ready states hide Open", async () => {
+test("control: non-ready states preserve their state", async () => {
   for (const st of ["setup_required", "conflict", "unhealthy", "operator_bootstrap_required"] as ServeReconcileState[]) {
     const { host, root } = await render(snap(st));
-    assert(!host.querySelector('[data-testid="mesh-web-ui-open"]'), `no Open for ${st}`);
     const action = host.querySelector('[data-testid="mesh-web-ui-action"]') as HTMLElement;
     assert(action.getAttribute("data-web-ui-state") === st, `state attr ${st}`);
     await act(async () => root.unmount());
@@ -222,7 +220,7 @@ test("control: action failure surfaces an inline error", async () => {
 
 test("control: Web UI surface button opens the QR/link surface in any state", async () => {
   let surfaced = 0;
-  const { host, root } = await render(snap("setup_required"), false, async () => {}, () => {}, () => { surfaced++; });
+  const { host, root } = await render(snap("setup_required"), false, async () => {}, () => { surfaced++; });
   const surface = host.querySelector('[data-testid="mesh-web-ui-surface"]') as HTMLButtonElement;
   assert(surface, "surface button present even when not ready");
   await act(async () => surface.click());
@@ -230,20 +228,10 @@ test("control: Web UI surface button opens the QR/link surface in any state", as
   await act(async () => root.unmount());
 });
 
-test("control: ready Open launches the verified url in the browser", async () => {
-  let opened: string | null = null;
-  const { host, root } = await render(snap("ready"), false, async () => {}, (u) => { opened = u; });
-  const openBtn = host.querySelector('[data-testid="mesh-web-ui-open"]') as HTMLButtonElement;
-  await act(async () => openBtn.click());
-  assert(opened === "https://host.tail.ts.net/", "opened verified url");
-  await act(async () => root.unmount());
-});
-
 test("control: loading shows Checking chip and no menu trigger", async () => {
   const { host, root } = await render(null, true);
   const action = host.querySelector('[data-testid="mesh-web-ui-action"]') as HTMLElement;
   assert(action.getAttribute("data-web-ui-state") === "loading", "loading state");
-  assert(!host.querySelector('[data-testid="mesh-web-ui-open"]'), "no open while loading");
   assert(!host.querySelector('[data-testid="mesh-web-ui-menu-trigger"]'), "no menu while loading");
   await act(async () => root.unmount());
 });

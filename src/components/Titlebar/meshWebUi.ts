@@ -15,8 +15,6 @@ export interface WebUiView {
   label: string;
   tone: WebUiTone;
   url: string | null;
-  /** Primary Open is offered ONLY when a healthy, verified URL exists. */
-  canOpen: boolean;
   canSetup: boolean;
   canRepair: boolean;
   canCopyUrl: boolean;
@@ -25,20 +23,11 @@ export interface WebUiView {
   bootstrapCommand: string | null;
   /** One truthful supplementary line (conflict reason / health error / skew). */
   detail: string | null;
-  version: string | null;
 }
 
 function ownsRoute(snap: ServeReconcileSnapshot): boolean {
   if (snap.route?.ownership === "owned") return true;
   return (snap.routes ?? []).some((r) => r.ownership === "owned");
-}
-
-function versionLabel(snap: ServeReconcileSnapshot): string | null {
-  const { cli_version, daemon_version } = snap.binary;
-  if (cli_version && daemon_version && cli_version !== daemon_version) {
-    return `Tailscale ${cli_version} (daemon ${daemon_version})`;
-  }
-  return cli_version ?? daemon_version ?? null;
 }
 
 function readyDetail(snap: ServeReconcileSnapshot): string | null {
@@ -66,7 +55,6 @@ export function deriveWebUiView(
       label: loading ? "Checking…" : "Unavailable",
       tone: "neutral",
       url: null,
-      canOpen: false,
       canSetup: false,
       canRepair: false,
       canCopyUrl: false,
@@ -74,14 +62,11 @@ export function deriveWebUiView(
       operatorBootstrap: false,
       bootstrapCommand: null,
       detail: loading ? null : "Web access status is unavailable.",
-      version: null,
     };
   }
 
   const url = snapshot.url ?? null;
   const owned = ownsRoute(snapshot);
-  const version = versionLabel(snapshot);
-
   const base = {
     state: snapshot.state,
     url,
@@ -89,7 +74,6 @@ export function deriveWebUiView(
     canDisable: owned,
     operatorBootstrap: snapshot.operator_bootstrap_required,
     bootstrapCommand: snapshot.bootstrap_command ?? null,
-    version,
   };
 
   switch (snapshot.state) {
@@ -98,7 +82,6 @@ export function deriveWebUiView(
         ...base,
         label: "Ready",
         tone: "ready",
-        canOpen: Boolean(url),
         canSetup: false,
         canRepair: false,
         detail: readyDetail(snapshot),
@@ -108,7 +91,6 @@ export function deriveWebUiView(
         ...base,
         label: "Setup required",
         tone: "warn",
-        canOpen: false,
         canSetup: true,
         canRepair: false,
         detail: snapshot.bootstrap_command
@@ -120,7 +102,6 @@ export function deriveWebUiView(
         ...base,
         label: "Setup required",
         tone: "warn",
-        canOpen: false,
         canSetup: true,
         canRepair: false,
         detail: snapshot.binary.installed
@@ -132,7 +113,6 @@ export function deriveWebUiView(
         ...base,
         label: "Conflict",
         tone: "conflict",
-        canOpen: false,
         canSetup: false,
         canRepair: true,
         detail:
@@ -144,7 +124,6 @@ export function deriveWebUiView(
         ...base,
         label: "Unhealthy",
         tone: "error",
-        canOpen: false,
         canSetup: false,
         canRepair: true,
         detail:
@@ -158,7 +137,6 @@ export function deriveWebUiView(
         ...base,
         label: "Unavailable",
         tone: "neutral",
-        canOpen: false,
         canSetup: false,
         canRepair: true,
         detail: "Unrecognized web access state.",
