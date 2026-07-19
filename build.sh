@@ -362,7 +362,12 @@ require_release_source() {
     echo "ERROR: release source mismatch: expected $expected, got $actual" >&2
     exit 2
   fi
-  dirty="$(git status --porcelain=v1)"
+  dirty="$(
+    {
+      git diff --name-only HEAD --
+      git ls-files --others --exclude-standard
+    } | sort -u
+  )"
   if [ -n "$dirty" ]; then
     echo "ERROR: release source is not clean; refusing provenance capture" >&2
     echo "$dirty" >&2
