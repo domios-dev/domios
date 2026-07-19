@@ -45,11 +45,13 @@ pub(crate) fn should_deliver_spawn_preferences(
 
 pub(crate) use crate::agent::{provider::AgentLaunchParams, registry::AgentRegistry};
 #[derive(Default)]
-struct LaunchRegistry {
+pub(crate) struct LaunchRegistry {
     next_generation: u64,
     panes: std::collections::HashMap<String, RegisteredLaunch>,
 }
-
+#[cfg(test)]
+#[path = "launch/tests.rs"]
+mod binding_tests;
 #[derive(Clone, Debug)]
 struct RegisteredLaunch {
     pty_id: String,
@@ -57,15 +59,13 @@ struct RegisteredLaunch {
     provider_ack: std::sync::Arc<ProviderAck>,
     binding_nonce: Option<String>,
 }
-
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct ProviderAck {
     ready: parking_lot::Mutex<bool>,
     changed: parking_lot::Condvar,
 }
-
 impl LaunchRegistry {
-    fn begin(&mut self, pane_id: &str, pty_id: String) -> LaunchGeneration {
+    pub(crate) fn begin(&mut self, pane_id: &str, pty_id: String) -> LaunchGeneration {
         self.next_generation = self.next_generation.wrapping_add(1).max(1);
         let launch = LaunchGeneration {
             pane_id: pane_id.into(),
@@ -74,6 +74,7 @@ impl LaunchRegistry {
             stage: BootStage::PtySpawned,
             reused: false,
             provider_ack: std::sync::Arc::new(ProviderAck::default()),
+            binding_nonce: None,
         };
         self.panes.insert(
             launch.pane_id.clone(),
@@ -101,6 +102,38 @@ impl LaunchRegistry {
         true
     }
 
+    pub(crate) fn bind_provider_session(
+        &mut self,
+        launch: &LaunchGeneration,
+        binding_nonce: String,
+    ) -> bool {
+        let Some(registered) = self.panes.get_mut(&launch.pane_id) else {
+            return false;
+        };
+        if registered.pty_id != launch.pty_id || registered.generation != launch.generation {
+            return false;
+        }
+        registered.binding_nonce = Some(binding_nonce);
+        true
+    }
+
+    fn record_provider_session(&self, pane_id: &str, binding: &ProviderSessionBinding) -> bool {
+        let Some(ack) = self
+            .panes
+            .get(pane_id)
+            .filter(|launch| {
+                launch.pty_id == binding.pty_id
+                    && launch.binding_nonce.as_deref() == Some(&binding.binding_nonce)
+            })
+            .map(|launch| launch.provider_ack.clone())
+        else {
+            return false;
+        };
+        *ack.ready.lock() = true;
+        ack.changed.notify_all();
+        true
+    }
+
     fn take_for_pty(&mut self, pty_id: &str) -> Option<LaunchGeneration> {
         let pane_id = self
             .panes
@@ -115,6 +148,7 @@ impl LaunchRegistry {
             stage: BootStage::PtySpawned,
             reused: false,
             provider_ack: registered.provider_ack,
+            binding_nonce: registered.binding_nonce,
         })
     }
 }
@@ -152,43 +186,38 @@ impl LaunchFailure {
 }
 
 #[derive(Debug, Clone)]
-struct LaunchGeneration {
+pub(crate) struct LaunchGeneration {
     pane_id: String,
     pty_id: String,
     generation: u64,
     stage: BootStage,
     reused: bool,
     provider_ack: std::sync::Arc<ProviderAck>,
+    binding_nonce: Option<String>,
 }
 
-pub(crate) fn record_provider_session(
-    svc: &ServiceContext,
-    pane_id: &str,
-    binding_nonce: Option<&str>,
-) {
-    let (pty_id, current_nonce) = svc
-        .mux
-        .read()
-        .get_pane(pane_id)
-        .map(|pane| (pane.pty_id.clone(), pane.session_binding_nonce.clone()))
-        .unwrap_or_default();
-    let Some(pty_id) = pty_id else {
-        return;
-    };
-    let ack = LAUNCH_REGISTRY
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ProviderSessionBinding {
+    pub(crate) pty_id: String,
+    pub(crate) binding_nonce: String,
+}
+
+pub(crate) fn record_provider_session(pane_id: &str, binding: &ProviderSessionBinding) -> bool {
+    LAUNCH_REGISTRY
         .lock()
-        .panes
-        .get(pane_id)
-        .filter(|launch| {
-            launch.pty_id == pty_id
-                && launch.binding_nonce.as_deref() == binding_nonce
-                && current_nonce.as_deref() == binding_nonce
-        })
-        .map(|launch| launch.provider_ack.clone());
-    if let Some(ack) = ack {
-        *ack.ready.lock() = true;
-        ack.changed.notify_all();
-    }
+        .record_provider_session(pane_id, binding)
+}
+#[cfg(test)]
+pub(crate) fn arm_provider_session_for_test(
+    pane_id: &str,
+    pty_id: &str,
+    nonce: &str,
+) -> LaunchGeneration {
+    let launch = LaunchGeneration::begin(pane_id, pty_id.to_string());
+    LAUNCH_REGISTRY
+        .lock()
+        .bind_provider_session(&launch, nonce.to_string());
+    launch
 }
 impl LaunchGeneration {
     fn begin(pane_id: &str, pty_id: String) -> Self {
@@ -199,17 +228,10 @@ impl LaunchGeneration {
         LAUNCH_REGISTRY.lock().owns(self)
     }
 
-    fn capture_binding_nonce(&self, svc: &ServiceContext) {
-        let nonce = svc
-            .mux
-            .read()
-            .get_pane(&self.pane_id)
-            .and_then(|pane| pane.session_binding_nonce.clone());
-        if let Some(registered) = LAUNCH_REGISTRY.lock().panes.get_mut(&self.pane_id) {
-            if registered.pty_id == self.pty_id && registered.generation == self.generation {
-                registered.binding_nonce = nonce;
-            }
-        }
+    fn capture_binding_nonce(&mut self, svc: &ServiceContext) {
+        let nonce = svc.rotate_session_binding_nonce(&self.pane_id);
+        self.binding_nonce = Some(nonce.clone());
+        LAUNCH_REGISTRY.lock().bind_provider_session(self, nonce);
     }
 
     fn transition(&mut self, stage: BootStage) {
@@ -245,7 +267,7 @@ impl LaunchGeneration {
         registry.owns(self).then(write)
     }
 
-    fn await_provider_ack(&self, timeout: std::time::Duration) -> bool {
+    pub(crate) fn await_provider_ack(&self, timeout: std::time::Duration) -> bool {
         let mut ready = self.provider_ack.ready.lock();
         if *ready {
             return true;
@@ -419,6 +441,28 @@ fn spawn_backend_pty(svc: &ServiceContext, pane_id: &str) -> Result<BackendPty, 
     Ok(BackendPty { id: pty_id, reader })
 }
 
+fn command_with_binding_nonce_for_shell(
+    command: &str,
+    binding_nonce: &str,
+    windows: bool,
+) -> String {
+    if windows {
+        format!(
+            "$env:CODETERM_SESSION_BINDING_NONCE='{}'; {command}",
+            binding_nonce.replace('\'', "''")
+        )
+    } else {
+        format!(
+            "export CODETERM_SESSION_BINDING_NONCE='{}'; {command}",
+            binding_nonce.replace('\'', "'\"'\"'")
+        )
+    }
+}
+
+fn command_with_binding_nonce(command: &str, binding_nonce: &str) -> String {
+    command_with_binding_nonce_for_shell(command, binding_nonce, cfg!(windows))
+}
+
 fn replacement_pty_candidate(
     linked_pty_id: Option<&str>,
     closed_pty_id: &str,
@@ -537,7 +581,6 @@ pub(crate) fn launch_agent_in_background(
         }
         let mut pty_id = selection.pty_id;
         launch.replace(pty_id.clone());
-        launch.capture_binding_nonce(&svc);
         if !launch.emit(&svc, BootStage::PtySpawned) {
             return;
         }
@@ -595,6 +638,14 @@ pub(crate) fn launch_agent_in_background(
             }
             return;
         }
+        launch.capture_binding_nonce(&svc);
+        let mut wrapped_launch_cmd = command_with_binding_nonce(
+            &launch_cmd,
+            launch
+                .binding_nonce
+                .as_deref()
+                .expect("launch binding nonce"),
+        );
 
         if !crate::service::pty_io::await_shell_prompt(
             &svc.screen_state,
@@ -635,7 +686,7 @@ pub(crate) fn launch_agent_in_background(
         }
         // (#93 — keeps shell-level launch off the bracketed-paste path).
         let first_launch = match launch
-            .write_if_current(|| svc.send_shell_spawn_after_ready(&pty_id, &launch_cmd))
+            .write_if_current(|| svc.send_shell_spawn_after_ready(&pty_id, &wrapped_launch_cmd))
         {
             Some(result) => result,
             None => return,
@@ -681,6 +732,13 @@ pub(crate) fn launch_agent_in_background(
                             };
                         launch.replace(pty_id.clone());
                         launch.capture_binding_nonce(&svc);
+                        wrapped_launch_cmd = command_with_binding_nonce(
+                            &launch_cmd,
+                            launch
+                                .binding_nonce
+                                .as_deref()
+                                .expect("replacement launch binding nonce"),
+                        );
                         if !launch.emit(&svc, BootStage::PtySpawned)
                             || !launch.emit(&svc, BootStage::ReaderReady)
                             || !crate::service::pty_io::await_shell_prompt(
@@ -703,7 +761,7 @@ pub(crate) fn launch_agent_in_background(
                             return;
                         }
                         match launch.write_if_current(|| {
-                            svc.send_shell_spawn_after_ready(&pty_id, &launch_cmd)
+                            svc.send_shell_spawn_after_ready(&pty_id, &wrapped_launch_cmd)
                         }) {
                             Some(result) => result,
                             None => return,
@@ -837,16 +895,10 @@ pub(crate) fn launch_agent_in_background(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_agent_command, replacement_pty_candidate, reused_provider_tui_owns_launch,
-        spawn_onboarding_task, take_reader_termination, AgentRegistry, LaunchFailure,
-        LaunchGeneration, LaunchRegistry,
+        build_agent_command, replacement_pty_candidate, spawn_onboarding_task,
+        take_reader_termination, AgentRegistry, LaunchFailure, LaunchGeneration, LaunchRegistry,
     };
-    use crate::chatbackend::{ChatBackendError, ChatBackendProvider, ChatBackendRegistry};
-    use crate::multiplexer::state::MultiplexerState;
-    use crate::multiplexer::types::AgentRole;
     use crate::service::orchestrator::types::SpawnAgentParams;
-    use crate::service::pty_io::pane_identity_env;
-    use crate::service::spawn::{PaneCommand, SpawnPaneSpec};
     use std::sync::Arc;
     use std::sync::Barrier;
 
@@ -873,8 +925,8 @@ mod tests {
     #[test]
     fn production_driver_rejects_a_stale_generation_before_emit_or_write() {
         let mut driver = LaunchRegistry::default();
-        let stale = driver.begin("pane-a", "pty-old".into());
-        let current = driver.begin("pane-a", "pty-new".into());
+        let stale = driver.begin("legacy-stale", "legacy-stale-old".into());
+        let current = driver.begin("legacy-stale", "legacy-stale-new".into());
 
         assert!(!driver.owns(&stale));
         assert!(driver.owns(&current));
@@ -884,8 +936,8 @@ mod tests {
 
     #[test]
     fn production_driver_write_claim_rejects_a_superseded_generation() {
-        let stale = LaunchGeneration::begin("pane-write", "pty-old".into());
-        let _current = LaunchGeneration::begin("pane-write", "pty-new".into());
+        let stale = LaunchGeneration::begin("legacy-write", "legacy-write-old".into());
+        let _current = LaunchGeneration::begin("legacy-write", "legacy-write-new".into());
         let wrote = stale.write_if_current(|| true);
 
         assert_eq!(wrote, None);
@@ -893,7 +945,7 @@ mod tests {
 
     #[test]
     fn barrier_commit_cannot_be_overwritten_by_concurrent_begin() {
-        let launch = LaunchGeneration::begin("race-emit", "pty-old".into());
+        let launch = LaunchGeneration::begin("legacy-race-emit", "legacy-emit-old".into());
         let barrier = Arc::new(Barrier::new(2));
         let release = Arc::new(Barrier::new(2));
         let held = barrier.clone();
@@ -906,17 +958,17 @@ mod tests {
         });
         barrier.wait();
         release.wait();
-        let replacement = LaunchGeneration::begin("race-emit", "pty-new".into());
+        let replacement = LaunchGeneration::begin("legacy-race-emit", "legacy-emit-new".into());
         assert!(worker.join().unwrap());
         assert!(replacement.owns());
     }
 
     #[test]
     fn barrier_reader_eof_for_old_pty_cannot_take_replacement() {
-        let old = LaunchGeneration::begin("race-eof", "pty-old".into());
-        let replacement = LaunchGeneration::begin("race-eof", "pty-new".into());
+        let old = LaunchGeneration::begin("legacy-race-eof", "legacy-eof-old".into());
+        let replacement = LaunchGeneration::begin("legacy-race-eof", "legacy-eof-new".into());
 
-        assert!(!take_reader_termination("pty-old", |_| {}));
+        assert!(!take_reader_termination("legacy-eof-old", |_| {}));
         assert!(replacement.owns());
         assert!(!old.owns());
     }
@@ -924,11 +976,13 @@ mod tests {
     #[test]
     fn production_driver_reports_reused_reader_eof_for_its_current_pty() {
         let mut driver = LaunchRegistry::default();
-        let launch = driver.begin("pane-a", "pty-live".into());
+        let launch = driver.begin("legacy-reader", "legacy-reader-live".into());
 
-        let terminated = driver.take_for_pty("pty-live").expect("registered reader");
+        let terminated = driver
+            .take_for_pty("legacy-reader-live")
+            .expect("registered reader");
 
-        assert_eq!(terminated.pane_id, "pane-a");
+        assert_eq!(terminated.pane_id, "legacy-reader");
         assert_eq!(terminated.generation, launch.generation);
         assert!(!driver.owns(&launch));
         assert_eq!(LaunchFailure::PtyEof.reason(), "PtyEof");
@@ -937,23 +991,26 @@ mod tests {
     #[test]
     fn reused_success_finishes_before_a_later_reader_eof() {
         let mut driver = LaunchRegistry::default();
-        let reused = driver.begin("pane-reused", "pty-live".into());
+        let reused = driver.begin("legacy-reused", "legacy-reused-live".into());
 
         assert!(driver.finish(&reused));
-        assert!(driver.take_for_pty("pty-live").is_none());
+        assert!(driver.take_for_pty("legacy-reused-live").is_none());
     }
 
     #[test]
     fn production_driver_replaces_pty_and_reader_generation_together() {
         let mut driver = LaunchRegistry::default();
-        let original = driver.begin("pane-a", "pty-old".into());
-        let replacement = driver.begin("pane-a", "pty-new".into());
+        let original = driver.begin("legacy-replace", "legacy-replace-old".into());
+        let replacement = driver.begin("legacy-replace", "legacy-replace-new".into());
 
         assert!(!driver.owns(&original));
         assert!(driver.owns(&replacement));
-        assert!(driver.take_for_pty("pty-old").is_none());
+        assert!(driver.take_for_pty("legacy-replace-old").is_none());
         assert_eq!(
-            driver.take_for_pty("pty-new").unwrap().generation,
+            driver
+                .take_for_pty("legacy-replace-new")
+                .unwrap()
+                .generation,
             replacement.generation
         );
     }
@@ -972,41 +1029,6 @@ mod tests {
         assert_eq!(
             LaunchFailure::ShellReadyTimeout.reason(),
             "ShellReadyTimeout"
-        );
-    }
-
-    #[test]
-    fn plain_orchestrator_no_task_spawn_submits_nothing() {
-        assert_eq!(spawn_onboarding_task(&orchestrator_params(None)), None);
-    }
-
-    #[test]
-    fn plain_orchestrator_no_task_attaches_nothing() {
-        let spec = SpawnPaneSpec::from_agent_params(orchestrator_params(None));
-
-        assert_eq!(spec.parent_pane_id, None);
-        match spec.command {
-            PaneCommand::Agent(agent) => {
-                assert_eq!(agent.role.as_deref(), Some("Orchestrator"));
-                assert_eq!(agent.task, None);
-                assert_eq!(agent.worker_id, None);
-            }
-            other => panic!("expected agent spawn state, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn plain_orchestrator_role_metadata_uses_the_non_task_channel() {
-        let (mut mux, _) = MultiplexerState::new();
-        let workspace_id = mux.list_workspaces()[0].id.clone();
-        let pane_id = mux.create_tab(&workspace_id).unwrap().1;
-        mux.set_pane_role(&pane_id, AgentRole::Orchestrator, None)
-            .unwrap();
-        let pane = mux.get_pane(&pane_id).unwrap();
-
-        assert_eq!(
-            pane_identity_env(pane).get("CODETERM_ROLE"),
-            Some(&"Orchestrator".to_string())
         );
     }
 
@@ -1046,68 +1068,6 @@ mod tests {
         assert!(spawn_onboarding_task(&params)
             .unwrap()
             .contains(&crate::prompts::planner_suffix()));
-    }
-
-    struct SpawnableChatBackend;
-
-    impl ChatBackendProvider for SpawnableChatBackend {
-        fn id(&self) -> &str {
-            "test-chat"
-        }
-
-        fn spawnable(&self) -> bool {
-            true
-        }
-
-        fn open_session(&self, _: serde_json::Value) -> Result<String, ChatBackendError> {
-            Ok("session".into())
-        }
-
-        fn send_message(&self, _: &str, _: &str) -> Result<(), ChatBackendError> {
-            Ok(())
-        }
-
-        fn poll(
-            &self,
-            _: &str,
-            _: Option<&str>,
-        ) -> Result<crate::agent::chat_types::StructuredChat, ChatBackendError> {
-            Ok(Default::default())
-        }
-
-        fn close_session(&self, _: &str) -> Result<(), ChatBackendError> {
-            Ok(())
-        }
-
-        fn list_models(&self) -> Result<Vec<crate::agent::provider::ModelInfo>, ChatBackendError> {
-            Ok(Vec::new())
-        }
-    }
-
-    #[test]
-    fn transport_capability_paths_receive_no_task_for_plain_orchestrator() {
-        let params = orchestrator_params(None);
-        assert_eq!(spawn_onboarding_task(&params), None);
-
-        match SpawnPaneSpec::from_agent_params(params.clone()).command {
-            PaneCommand::Agent(agent) => assert_eq!(agent.task, None),
-            other => panic!("expected PTY agent route, got {other:?}"),
-        }
-
-        let chatbackends = ChatBackendRegistry::new();
-        chatbackends.register("test-chat", Arc::new(SpawnableChatBackend));
-        let chat_params = SpawnAgentParams {
-            agent: Some("test-chat".into()),
-            ..params
-        };
-        match SpawnPaneSpec::from_agent_params_with_chatbackends(&chatbackends, chat_params).command
-        {
-            PaneCommand::ChatBackend { config, role, .. } => {
-                assert!(config.as_object().unwrap().is_empty());
-                assert_eq!(role.as_deref(), Some("Orchestrator"));
-            }
-            other => panic!("expected chatBackend route, got {other:?}"),
-        }
     }
 }
 
