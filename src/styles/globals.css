@@ -1759,19 +1759,22 @@ button,
   top: 4px;
   left: 4px;
   display: inline-flex;
-  gap: 1.5px;
+  width: 17px;
+  height: 9px;
+  gap: 1.25px;
   align-items: center;
-  padding: 2px;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--ct-bg) 16%, transparent);
+  justify-content: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ct-accent) 68%, var(--ct-surface));
+  color: var(--ct-bg);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ct-accent) 22%, transparent);
 }
 
 .sidebar-workspace-card-working > span {
-  width: 2.5px;
-  height: 2.5px;
+  width: 2px;
+  height: 2px;
   border-radius: 50%;
   background: currentColor;
-  color: var(--ct-bg);
   animation: sidebar-workspace-working-pulse 1.2s ease-in-out infinite;
 }
 
