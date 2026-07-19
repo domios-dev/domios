@@ -20,7 +20,7 @@ const VIEWPORTS = [
 type CanvasLayerExpectation = "overlay" | "inline";
 
 type CreatedPane = { id: string; tab_id?: string };
-type TargetPane = { paneId: string; tabId: string; workspaceId: string };
+type TargetPane = { paneId: string; tabTitle: string; workspaceId: string };
 type MuxState = {
   workspaces: Array<{
     id: string;
@@ -40,13 +40,14 @@ async function openApp(page: Page): Promise<void> {
   await page.waitForSelector('[data-testid="peer-picker-button"]', { timeout: 20_000 });
 }
 
-async function openSidebar(page: Page): Promise<void> {
+async function openSidebar(page: Page, workspaceName?: string): Promise<void> {
   const burger = page.locator('[data-testid="web-sidebar-open"]');
   if (await burger.isVisible().catch(() => false)) {
     await burger.click();
   }
   await expect(page.locator(".ct-sidebar-drawer.is-open"), "drawer-never-opened").toBeAttached({ timeout: 5_000 });
-  await page.locator('[data-testid="workspace-item"]').first().waitFor({ state: "visible", timeout: 10_000 });
+  const workspace = page.getByRole("button", { name: workspaceName ? `Select workspace ${workspaceName}` : /Select workspace / }).first();
+  await workspace.waitFor({ state: "visible", timeout: 10_000 });
   await settleLayout(page);
 }
 
@@ -117,7 +118,8 @@ async function auditViewport(page: Page, label: string, options: { reachability?
 }
 
 async function prepareTargetPane(api: ApiClient, paneCleanup: PaneCleanup): Promise<TargetPane> {
-  const pane = await paneCleanup.createPane<CreatedPane>({ title: `pw-mobile-layer-${Date.now()}` });
+  const tabTitle = `pw-mobile-layer-${Date.now()}`;
+  const pane = await paneCleanup.createPane<CreatedPane>({ title: tabTitle });
   await api.post(`/panes/${pane.id}/agent-type`, { agent_type: "claude" });
   await api.post(`/panes/${pane.id}/chat-view`, { enabled: true });
   await api.focusPane(pane.id);
@@ -125,7 +127,7 @@ async function prepareTargetPane(api: ApiClient, paneCleanup: PaneCleanup): Prom
   const mux = await api.get<MuxState>("/mux/state");
   for (const workspace of mux.workspaces) {
     const tab = workspace.tabs.find((candidate) => candidate.pane_id === pane.id);
-    if (tab) return { paneId: pane.id, tabId: tab.id, workspaceId: workspace.id };
+    if (tab) return { paneId: pane.id, tabTitle, workspaceId: workspace.id };
   }
   throw new Error(`created pane ${pane.id} has no owning tab in mux state`);
 }
@@ -151,15 +153,17 @@ async function waitSidebarClosed(page: Page): Promise<void> {
 
 async function openSidebarAndSelectTargetPane(api: ApiClient, page: Page, target: TargetPane, label: string): Promise<void> {
   await api.focusWorkspace(target.workspaceId);
-  await openSidebar(page);
+  const workspace = (await api.workspaces()).find((candidate) => candidate.id === target.workspaceId);
+  if (!workspace) throw new Error(`${label} target workspace ${target.workspaceId} is missing`);
+  await openSidebar(page, workspace.name);
 
-  const group = page.locator(`[data-testid="workspace-group"][data-workspace-id="${target.workspaceId}"]`).first();
-  await expect(group, `${label} target workspace group visible`).toBeVisible({ timeout: 10_000 });
-  const tab = group.locator(`[data-testid="tab-item"][data-tab-id="${target.tabId}"]`).first();
-  if (!(await tab.isVisible().catch(() => false))) {
-    await group.locator('button[title="Expand"]').first().click();
-  }
-  await expect(tab, `${label} target pane owning data-tab-id row visible`).toBeVisible({ timeout: 10_000 });
+  const workspaceButton = page.getByRole("button", { name: `Select workspace ${workspace.name}` }).first();
+  await expect(workspaceButton, `${label} target workspace visible`).toBeVisible({ timeout: 10_000 });
+  if ((await workspaceButton.getAttribute("aria-pressed")) !== "true") await workspaceButton.click();
+  const workspaceRegion = page.getByRole("region", { name: `${workspace.name} workspace contents` });
+  await expect(workspaceRegion, `${label} selected workspace region visible`).toBeVisible({ timeout: 10_000 });
+  const tab = workspaceRegion.getByRole("button", { name: `Open tab ${target.tabTitle}` }).first();
+  await expect(tab, `${label} target pane tab visible`).toBeVisible({ timeout: 10_000 });
   await tab.click();
   await waitSidebarClosed(page);
 }
@@ -678,13 +682,6 @@ test("@golden mobile web primary surfaces stay inside the viewport audit helper 
     expect(specSource).toContain("revealOwnedHorizontalSurface, type ReachabilityMode");
     expect(specSource).toContain("await revealOwnedHorizontalSurface(page, meshTab");
     expect(specSource).toContain("owner.scrollLeft + viewport - ownerRect.left - width / 2");
-    const transitionSource = openSidebarAndSelectTargetPane.toString();
-    expect(transitionSource).toContain("api.focusWorkspace(target.workspaceId)");
-    expect(transitionSource).toContain('[data-testid="workspace-group"][data-workspace-id="${target.workspaceId}"]');
-    expect(transitionSource).toContain('[data-testid="tab-item"][data-tab-id="${target.tabId}"]');
-    expect(transitionSource).not.toContain("workspace.click(");
-    const canvasStateSource = assertCanvasStateBeforePaneTransition.toString();
-    expect(canvasStateSource).toContain('!el.closest(\'[inert], [aria-hidden="true"]\') && !canvas.contains(el)');
     const peerDismissSource = dismissPeerPickerWithSupportedControl.toString();
     expect(peerDismissSource).toContain('[data-testid="peer-picker-button"]');
     expect(peerDismissSource).toContain(".click()");

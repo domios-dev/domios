@@ -253,7 +253,6 @@ function TabItemInner({
       data-tab-id={tab.id}
       data-tab-no-task-bubble="true"
       title={description ? `${displayTitle}\n${description}` : displayTitle}
-      onClick={onClick}
       className={`
         sidebar-tab group flex items-center justify-between cursor-pointer transition-colors relative
         ${touchMode ? "sidebar-tab-touch" : ""}
@@ -262,31 +261,11 @@ function TabItemInner({
         ${isActive ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
       `}
     >
-      {isActive && <ActiveTabPill />}
-      {groupCollapsible && (
-        <GroupCollapseChevron
-          touchMode={touchMode}
-          collapsed={collapsed}
-          onToggleCollapse={onToggleCollapse}
-        />
-      )}
-      <div className={`flex flex-1 items-center min-w-0 relative z-[1] ${touchMode ? "gap-2.5" : "gap-2"}`}>
-        <span data-testid="tab-pane-icon" className="shrink-0 leading-none">
-          {provider ? (
-            <ProviderGlyph
-              iconSvg={provider.iconSvg}
-              iconColor={provider.iconColor}
-              iconHint={provider.iconHint}
-              className={`leading-none ${touchMode ? "text-[15px]" : isSubPane ? "text-[10px]" : "text-[12px]"}`}
-              title={status === "Working" ? `${providerName} working...` : status === "Waiting" ? `${providerName} — waiting for input` : providerName}
-            />
-          ) : (
-            <TerminalIcon className={`${touchMode ? "scale-110" : isSubPane ? "scale-90" : ""}`} />
-          )}
-        </span>
-        {editing ? (
+      {editing && (
+        <div className="flex flex-1 items-center min-w-0 relative z-[1]">
           <input
             autoFocus
+            aria-label={`Rename tab ${canonicalTitle}`}
             value={editName}
             onChange={(e) => setEditName(e.target.value)}
             onClick={(e) => e.stopPropagation()}
@@ -305,8 +284,37 @@ function TabItemInner({
             }}
             className={`${tabText} bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 py-0 w-full outline-none`}
           />
-        ) : (
-          <span className="min-w-0 flex-1">
+        </div>
+      )}
+      {groupCollapsible && (
+        <GroupCollapseChevron
+          touchMode={touchMode}
+          collapsed={collapsed}
+          onToggleCollapse={onToggleCollapse}
+        />
+      )}
+      {!editing && <button
+        type="button"
+        aria-label={`Open tab ${displayTitle}`}
+        onClick={onClick}
+        className={`flex flex-1 items-center min-w-0 relative z-[1] border-0 bg-transparent p-0 text-left text-inherit font-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
+      >
+      {isActive && <ActiveTabPill />}
+      <div className={`flex flex-1 items-center min-w-0 ${touchMode ? "gap-2.5" : "gap-2"}`}>
+        <span data-testid="tab-pane-icon" className="shrink-0 leading-none">
+          {provider ? (
+            <ProviderGlyph
+              iconSvg={provider.iconSvg}
+              iconColor={provider.iconColor}
+              iconHint={provider.iconHint}
+              className={`leading-none ${touchMode ? "text-[15px]" : isSubPane ? "text-[10px]" : "text-[12px]"}`}
+              title={status === "Working" ? `${providerName} working...` : status === "Waiting" ? `${providerName} — waiting for input` : providerName}
+            />
+          ) : (
+            <TerminalIcon className={`${touchMode ? "scale-110" : isSubPane ? "scale-90" : ""}`} />
+          )}
+        </span>
+        <span className="min-w-0 flex-1">
             <span className="flex min-w-0 items-center gap-1.5">
               <span
                 data-testid="tab-title"
@@ -332,8 +340,7 @@ function TabItemInner({
             ) : (
               <TabSubline roleShield={roleShield} />
             )}
-          </span>
-        )}
+        </span>
         {/* Connected services */}
         {pane?.connected_services?.includes("telegram") && (
           <span className="shrink-0 text-[var(--ct-muted-fg)]/50">
@@ -370,6 +377,7 @@ function TabItemInner({
           </span>
         )}
       </div>
+      </button>}
       <div className="shrink-0 relative z-[1] flex items-center min-w-5 justify-end">
         {tabModelBadge && !touchMode ? (
           <SidebarModelBadge label={tabModelBadge} title={tabModel ?? undefined} />
