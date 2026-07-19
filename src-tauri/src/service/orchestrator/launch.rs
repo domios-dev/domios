@@ -199,6 +199,11 @@ impl LaunchGeneration {
         svc.emit_boot_stage(&self.pane_id, BootStage::SpawnFailed, Some(&reason));
         true
     }
+
+    fn write_if_current<T>(&self, write: impl FnOnce() -> T) -> Option<T> {
+        let registry = LAUNCH_REGISTRY.lock();
+        registry.owns(self).then(write)
+    }
 }
 
 pub(crate) fn record_reader_termination(svc: &ServiceContext, pty_id: &str) {
@@ -395,9 +400,12 @@ pub(crate) fn launch_agent_in_background(
     if let Some(p) = svc.mux.write().get_pane_mut(&pane_id) {
         p.agent_booting = true;
     }
-    svc.emit_boot_stage(&pane_id, BootStage::PtyStarting, None);
     std::thread::spawn(move || {
         let mut delivery_gate = crate::service::launch_delivery::LaunchDeliveryGate::new();
+        let mut launch = LaunchGeneration::begin(&pane_id, "pending".into());
+        if !launch.emit(&svc, BootStage::PtyStarting) {
+            return;
+        }
         let set_booting = |value: bool| {
             if let Some(p) = svc.mux.write().get_pane_mut(&pane_id) {
                 p.agent_booting = value;
@@ -409,7 +417,7 @@ pub(crate) fn launch_agent_in_background(
                 Ok(reader) => (BackendPty { id: pty_id, reader }, true),
                 Err(failure) => {
                     let error = failure.reason();
-                    svc.emit_boot_stage(&pane_id, BootStage::SpawnFailed, Some(&error));
+                    launch.fail(&svc, failure);
                     set_booting(false);
                     if let Some(tx) = ready_tx {
                         let _ = tx.send(Err(error));
@@ -426,11 +434,7 @@ pub(crate) fn launch_agent_in_background(
                         pane_id,
                         error
                     );
-                    svc.emit_boot_stage(
-                        &pane_id,
-                        BootStage::SpawnFailed,
-                        Some(&format!("backend PTY spawn failed: {}", error)),
-                    );
+                    launch.fail(&svc, failure);
                     let _ = svc.close_tab(&ws_id, &tab_id);
                     set_booting(false);
                     if let Some(tx) = ready_tx {
@@ -448,7 +452,7 @@ pub(crate) fn launch_agent_in_background(
         drop(pty_claim);
         if !selection.linked {
             let error = LaunchFailure::PaneClosed.reason();
-            svc.emit_boot_stage(&pane_id, BootStage::SpawnFailed, Some(&error));
+            launch.fail(&svc, LaunchFailure::PaneClosed);
             set_booting(false);
             let _ = svc.close_tab(&ws_id, &tab_id);
             if let Some(tx) = ready_tx {
@@ -457,7 +461,7 @@ pub(crate) fn launch_agent_in_background(
             return;
         }
         let mut pty_id = selection.pty_id;
-        let mut launch = LaunchGeneration::begin(&pane_id, pty_id.clone());
+        launch.replace(pty_id.clone());
         if !launch.emit(&svc, BootStage::PtySpawned) {
             return;
         }
@@ -513,6 +517,7 @@ pub(crate) fn launch_agent_in_background(
             );
             launch.reuse();
             launch.emit(&svc, launch.stage);
+            LAUNCH_REGISTRY.lock().finish(&launch);
             set_booting(false);
             if let Some(tx) = ready_tx {
                 let _ = tx.send(Ok(()));
@@ -572,16 +577,18 @@ pub(crate) fn launch_agent_in_background(
             return;
         }
         // (#93 — keeps shell-level launch off the bracketed-paste path).
-        if !launch.owns() {
-            return;
-        }
-        let first_launch = svc.send_shell_spawn_verified(
-            &pty_id,
-            &agent_cmd,
-            &launch_cmd,
-            launch_strategy.clone(),
-            launch_opts.clone(),
-        );
+        let first_launch = match launch.write_if_current(|| {
+            svc.send_shell_spawn_verified(
+                &pty_id,
+                &agent_cmd,
+                &launch_cmd,
+                launch_strategy.clone(),
+                launch_opts.clone(),
+            )
+        }) {
+            Some(result) => result,
+            None => return,
+        };
         let launch_result = match first_launch {
             Err(error @ crate::service::inject_verify::InjectionError::PtyClosed { .. }) => {
                 match await_replacement_pty(
@@ -640,17 +647,21 @@ pub(crate) fn launch_agent_in_background(
                         }
                         if !launch.emit(&svc, BootStage::ShellReady)
                             || !launch.emit(&svc, BootStage::AgentLaunching)
-                            || !launch.owns()
                         {
                             return;
                         }
-                        svc.send_shell_spawn_verified(
-                            &pty_id,
-                            &agent_cmd,
-                            &launch_cmd,
-                            launch_strategy,
-                            launch_opts,
-                        )
+                        match launch.write_if_current(|| {
+                            svc.send_shell_spawn_verified(
+                                &pty_id,
+                                &agent_cmd,
+                                &launch_cmd,
+                                launch_strategy,
+                                launch_opts,
+                            )
+                        }) {
+                            Some(result) => result,
+                            None => return,
+                        }
                     }
                     None => Err(error),
                 }
@@ -853,6 +864,15 @@ mod tests {
         assert!(driver.owns(&current));
         assert!(!driver.finish(&stale));
         assert!(driver.owns(&current));
+    }
+
+    #[test]
+    fn production_driver_write_claim_rejects_a_superseded_generation() {
+        let stale = LaunchGeneration::begin("pane-write", "pty-old".into());
+        let _current = LaunchGeneration::begin("pane-write", "pty-new".into());
+        let wrote = stale.write_if_current(|| true);
+
+        assert_eq!(wrote, None);
     }
 
     #[test]
