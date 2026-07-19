@@ -1092,6 +1092,8 @@ for (const vp of VIEWPORTS) {
           await auditViewport(page, `${vp.name} picker workspace dropdown`, { reachability: "workspace-dropdown" });
           await dismissWorkspaceDropdownWithSupportedControl(page, `${vp.name} picker workspace dropdown`);
         }
+        await newSessionDialog.getByRole("button", { name: "Close new session dialog" }).click();
+        await expect(newSessionDialog).toHaveCount(0);
       }
 
       await openSidebar(page);
