@@ -51,7 +51,7 @@ export async function collectViewportOffenders(page: Page, reachabilityMode: Rea
     const settingsMenu = mode === "settings-menu"
       ? document.querySelector('[data-testid="settings-menu"]')
       : null;
-    const newSessionDialog = mode === "new-session-picker"
+    const newSessionDialog = mode === "new-session-picker" || mode === "workspace-dropdown"
       ? document.querySelector('[data-testid="new-session-picker"] > [role="dialog"][aria-modal="true"]')
       : null;
     const workspaceOption = mode === "workspace-dropdown"
@@ -122,7 +122,9 @@ export async function collectViewportOffenders(page: Page, reachabilityMode: Rea
           el.closest(".xterm-accessibility, .xterm-helper-textarea") !== null;
         if (hidden) return null;
         const inNewSessionDialog = !!newSessionDialog?.contains(el);
+        const inWorkspaceDropdown = !!workspaceDropdown?.contains(el);
         if (mode === "new-session-picker" && !inNewSessionDialog) return null;
+        if (mode === "workspace-dropdown" && !inNewSessionDialog && !inWorkspaceDropdown) return null;
         const left = rect.left;
         const right = rect.right;
         const top = rect.top;
@@ -140,7 +142,6 @@ export async function collectViewportOffenders(page: Page, reachabilityMode: Rea
         const inSettingsMenu = !!settingsMenu?.contains(el);
         const hitInSettingsMenu = hit instanceof Node &&
           (!!settingsMenu?.contains(hit) || hit === settingsMenu);
-        const inWorkspaceDropdown = !!workspaceDropdown?.contains(el);
         const hitInWorkspaceDropdown = hit instanceof Node &&
           (!!workspaceDropdown?.contains(hit) || hit === workspaceDropdown);
         const xInBounds = left >= -1 && right <= viewportWidth + 1;
