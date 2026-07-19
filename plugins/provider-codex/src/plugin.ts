@@ -492,7 +492,7 @@ const plugin: PluginModule = {
     return out;
   },
 
-  // Read tail-most `turn_context.payload.model` and map to short model labels.
+  // Read the exact model identity from this session's latest turn context.
   detectSessionModel(cwd: string, sessionId: string): string | null {
     const path = this.sessionFilePath!(cwd, sessionId);
     if (!path) return null;
@@ -506,7 +506,7 @@ const plugin: PluginModule = {
       try { v = JSON.parse(line); } catch (_) { continue; }
       if (!v || v.type !== "turn_context") continue;
       const m = v.payload && v.payload.model;
-      if (typeof m === "string" && m) return codexShortLabel(m);
+      if (typeof m === "string" && m.trim()) return m.trim();
     }
     return null;
   },
@@ -1031,24 +1031,6 @@ function extractSessionUuid(stem: string): string | null {
   if (rest.length <= 20) return null;
   if (rest.charAt(19) !== "-") return null;
   return rest.substring(20);
-}
-
-// Shorten common model ids for tab badges (Codex / GPT / Sonnet etc.).
-function codexShortLabel(modelId: string): string {
-  const m = String(modelId || "").toLowerCase();
-  if (m.indexOf("codex") !== -1) return "Codex";
-  const fams = ["opus", "sonnet", "haiku", "gemini"];
-  for (let i = 0; i < fams.length; i++) {
-    if (m.indexOf(fams[i]) !== -1) {
-      return fams[i].charAt(0).toUpperCase() + fams[i].substring(1);
-    }
-  }
-  if (m.indexOf("gpt") === 0) {
-    const head = m.split("-").slice(0, 2).join("-");
-    return "GPT" + head.substring(3);
-  }
-  const first = m.split("-")[0] || m;
-  return first.charAt(0).toUpperCase() + first.substring(1);
 }
 
 function isValidCodexSessionDelta(v: CodexEntry): boolean {

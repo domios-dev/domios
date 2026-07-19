@@ -177,7 +177,10 @@ console.log("\n--- sessions ---\n");
           return '{"type":"session_meta","payload":{"id":"11111111-1111-1111-1111-111111111111","cwd":"/work/proj"}}\n';
         }
         if (p === "/sessions/new.jsonl") {
-          return '{"type":"session_meta","payload":{"id":"22222222-2222-2222-2222-222222222222","cwd":"/work/proj"}}\n';
+          return [
+            '{"type":"session_meta","payload":{"id":"22222222-2222-2222-2222-222222222222","cwd":"/work/proj"}}',
+            '{"type":"turn_context","payload":{"model":"gpt-5.6-sol"}}',
+          ].join("\n");
         }
         return null;
       },
@@ -195,6 +198,11 @@ console.log("\n--- sessions ---\n");
     "detectSessionId returns newest matching unclaimed rollout",
   );
   eq(p.detectSessionId("/other/proj", [], 300000), null, "detectSessionId filters cwd");
+  eq(
+    p.detectSessionModel("/work/proj", "22222222-2222-2222-2222-222222222222"),
+    "gpt-5.6-sol",
+    "detectSessionModel preserves the exact session-scoped model id",
+  );
 }
 
 console.log("\n--- parseUsage (/status screen) ---\n");

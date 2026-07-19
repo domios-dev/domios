@@ -305,7 +305,7 @@ fn session_fs_capabilities_over_rollout_tree() {
         "\n",
         r#"{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}}"#,
         "\n",
-        r#"{"type":"turn_context","payload":{"model":"gpt-5-codex"}}"#,
+        r#"{"type":"turn_context","payload":{"model":"gpt-5.6-sol"}}"#,
         "\n",
     );
     std::fs::write(&file, contents).unwrap();
@@ -338,11 +338,11 @@ fn session_fs_capabilities_over_rollout_tree() {
     assert_eq!(s.project_path.as_deref(), Some("/work/proj"));
     assert_eq!(s.file_path, file.to_string_lossy());
 
-    // detectSessionModel reads turn_context.model → short label → catalog id.
+    // detectSessionModel preserves the exact model reported by this session.
     let model = j
         .detect_session_model("/work/proj", CODEX_UUID)
         .expect("detectSessionModel must resolve a model");
-    assert!(!model.is_empty(), "resolved model id must be non-empty");
+    assert_eq!(model, "gpt-5.6-sol");
 }
 
 #[test]
