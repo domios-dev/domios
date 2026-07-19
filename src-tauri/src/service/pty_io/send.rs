@@ -40,7 +40,7 @@ pub fn await_shell_prompt(
     pty_id: &str,
     timeout: std::time::Duration,
 ) -> bool {
-    let signal = screen_state.lock().arm_prompt_signal(pty_id);
+    let signal = screen_state.lock().arm_screen_change_signal(pty_id);
     let short_id = &pty_id[..pty_id.len().min(8)];
     let t0 = std::time::Instant::now();
     let ready = signal.wait(timeout);
@@ -70,7 +70,8 @@ pub fn await_bare_shell_prompt(
     let signal = screen_state.lock().arm_bare_prompt_signal(pty_id);
     let short_id = &pty_id[..pty_id.len().min(8)];
     let t0 = std::time::Instant::now();
-    let ready = signal.wait(timeout);
+    let generation = signal.generation();
+    let ready = signal.wait_after(generation, timeout);
     screen_state
         .lock()
         .disarm_bare_prompt_signal(pty_id, &signal);
@@ -402,6 +403,33 @@ impl ServiceContext {
         timeout: std::time::Duration,
     ) -> bool {
         self.await_agent_tui_screen(pty_id, agent_id, timeout, false)
+    }
+
+    pub(crate) fn await_provider_status_event(
+        &self,
+        pty_id: &str,
+        timeout: std::time::Duration,
+    ) -> bool {
+        let signal = self.agent_tracker.lock().arm_status_change_signal(pty_id);
+        let deadline = std::time::Instant::now() + timeout;
+        let mut generation = signal.generation();
+        loop {
+            if self
+                .agent_tracker
+                .lock()
+                .get_status_if_tracked(pty_id)
+                .is_some_and(|status| status != crate::agent::status::PaneStatus::Dead)
+            {
+                return true;
+            }
+            let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
+                return false;
+            };
+            if !signal.wait_after(generation, remaining) {
+                return false;
+            }
+            generation = signal.generation();
+        }
     }
 
     /// Wait until a structural agent TUI exposes an operable composer.
