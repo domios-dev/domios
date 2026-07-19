@@ -116,6 +116,20 @@ impl PlanStore {
         let original_plans: Vec<_> = ids.iter().filter_map(|id| self.get(id)).collect();
         for id in &ids {
             if let Err(error) = self.with_plan_in_writer(id, now_ms, |plan| {
+                let retired_owner = OrchestratorRef::default();
+                if plan.owner != retired_owner {
+                    plan.owner_history.push(TransferRecord {
+                        from: plan.owner.clone(),
+                        to: retired_owner.clone(),
+                        ts: now_ms,
+                        reason: format!(
+                            "Team {} closed",
+                            plan.team_id.as_deref().unwrap_or_default()
+                        ),
+                    });
+                }
+                plan.owner = retired_owner;
+                plan.planner = None;
                 plan.team_id = None;
                 plan.status = PlanStatus::Archived;
                 Ok(())

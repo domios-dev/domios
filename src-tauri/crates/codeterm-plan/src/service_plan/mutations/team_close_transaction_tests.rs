@@ -1,4 +1,4 @@
-use crate::plan::{OrchestratorRef, PlanStatus};
+use crate::plan::{OrchestratorRef, PlanStatus, PlannerRef};
 use crate::service_plan::{NewTask, PlanStore};
 
 #[test]
@@ -54,6 +54,17 @@ fn archiving_a_large_team_plan_is_one_database_write() {
             1,
         )
         .unwrap();
+    store
+        .set_planner_ref(
+            &plan.id,
+            Some(PlannerRef::Pane {
+                pane_id: "planner".into(),
+                session_id: None,
+                title: None,
+            }),
+            66,
+        )
+        .unwrap();
     for number in 0..64 {
         store
             .add_task(
@@ -78,5 +89,17 @@ fn archiving_a_large_team_plan_is_one_database_write() {
     let archived = store.get(&plan.id).unwrap();
     assert!(archived.team_id.is_none());
     assert_eq!(archived.status, PlanStatus::Archived);
+    assert_eq!(archived.owner, OrchestratorRef::default());
+    assert_eq!(archived.planner, None);
+    assert_eq!(
+        archived
+            .owner_history
+            .last()
+            .unwrap()
+            .from
+            .pane_id
+            .as_deref(),
+        Some("orch")
+    );
     assert_eq!(archived.tasks.len(), 64);
 }

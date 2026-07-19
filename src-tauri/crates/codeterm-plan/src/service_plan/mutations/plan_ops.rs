@@ -856,9 +856,17 @@ mod team_binding_tests {
             s.resume_plan(&plan.id, 3),
             Err(PlanError::ActivePlanRequiresTeam { .. })
         ));
-        let rebound = s.adopt_plan_for_team(&plan.id, "team_new", 4).unwrap();
+        let rebound = s
+            .adopt_plan_for_team(
+                &plan.id,
+                "team_new",
+                OrchestratorRef::from_pane("new-owner"),
+                4,
+            )
+            .unwrap();
         assert_eq!(rebound.team_id.as_deref(), Some("team_new"));
         assert_eq!(rebound.status, PlanStatus::Active);
+        assert_eq!(rebound.owner.pane_id.as_deref(), Some("new-owner"));
     }
 
     #[test]

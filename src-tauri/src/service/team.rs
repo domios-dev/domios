@@ -25,6 +25,20 @@ pub(crate) enum TeamPlanError {
     Plan(PlanError),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum TeamMutationCaller {
+    TrustedDirectUser,
+    AgentPane(String),
+}
+
+impl TeamMutationCaller {
+    pub(crate) fn from_pane_id(pane_id: Option<&str>) -> Self {
+        pane_id.map_or(Self::TrustedDirectUser, |pane_id| {
+            Self::AgentPane(pane_id.to_string())
+        })
+    }
+}
+
 impl ServiceContext {
     pub(crate) fn reconcile_dangling_team_plan_bindings(
         &self,
@@ -217,18 +231,12 @@ impl ServiceContext {
         &self,
         team_id: &str,
         plan_id: &str,
-        caller_pane_id: Option<&str>,
+        caller: TeamMutationCaller,
         now_ms: u64,
     ) -> Result<crate::plan::Plan, TeamPlanError> {
-        let mux = self.mux.read();
-        let plan = adopt_plan_for_team_core(
-            &mux,
-            &self.plan_store,
-            team_id,
-            plan_id,
-            caller_pane_id,
-            now_ms,
-        )?;
+        let mut mux = self.mux.write();
+        let plan =
+            adopt_plan_for_team_core(&mut mux, &self.plan_store, team_id, plan_id, caller, now_ms)?;
         drop(mux);
         crate::api::events::emit_everywhere(
             &self.app_handle,
@@ -276,41 +284,23 @@ impl ServiceContext {
         plan_id: &str,
         to: crate::plan::OrchestratorRef,
         reason: &str,
+        caller: TeamMutationCaller,
         now_ms: u64,
     ) -> Result<crate::plan::Plan, TeamPlanError> {
-        let pane_id = to
-            .pane_id
-            .as_deref()
-            .filter(|pane_id| !pane_id.trim().is_empty())
-            .ok_or_else(|| {
-                TeamPlanError::Team("plan transfer requires a destination Orchestrator pane".into())
-            })?
-            .to_string();
-        let mux = self.mux.read();
-        let pane = mux
-            .get_pane(&pane_id)
-            .ok_or_else(|| TeamPlanError::Team(format!("Destination pane {pane_id} not found")))?;
-        if pane.role != Some(AgentRole::Orchestrator) {
-            return Err(TeamPlanError::Team(format!(
-                "Destination pane {pane_id} is not an Orchestrator"
-            )));
-        }
-        let team_id = pane
-            .team_id
-            .as_deref()
-            .filter(|team_id| mux.get_team(team_id).is_some())
-            .ok_or_else(|| {
-                TeamPlanError::Team(format!(
-                    "Destination Orchestrator {pane_id} does not belong to a live Team"
-                ))
-            })?
-            .to_string();
-        let plan = self
-            .plan_store
-            .transfer_plan_to_team(plan_id, &team_id, to, reason, now_ms)
-            .map_err(TeamPlanError::Plan)?;
+        let mut mux = self.mux.write();
+        let (plan, relinked) = transfer_team_plan_core(
+            &mut mux,
+            &self.plan_store,
+            plan_id,
+            to,
+            reason,
+            caller,
+            now_ms,
+        )?;
         drop(mux);
-        self.relink_plan_hierarchy(plan_id, &pane_id);
+        if relinked > 0 {
+            self.emit_state_changed();
+        }
         self.emit_plan_changed(plan_id);
         Ok(plan)
     }
@@ -374,17 +364,111 @@ impl ServiceContext {
 }
 
 fn adopt_plan_for_team_core(
-    mux: &MultiplexerState,
+    mux: &mut MultiplexerState,
     plan_store: &crate::service::plan::PlanStore,
     team_id: &str,
     plan_id: &str,
-    caller_pane_id: Option<&str>,
+    caller: TeamMutationCaller,
     now_ms: u64,
 ) -> Result<crate::plan::Plan, TeamPlanError> {
-    authorize_team_manager(mux, team_id, caller_pane_id).map_err(TeamPlanError::Team)?;
-    plan_store
-        .adopt_plan_for_team(plan_id, team_id, now_ms)
-        .map_err(TeamPlanError::Plan)
+    authorize_team_mutation(mux, team_id, caller).map_err(TeamPlanError::Team)?;
+    let owner_pane_id = live_team_orchestrator(mux, team_id)?;
+    let plan = plan_store
+        .adopt_plan_for_team(
+            plan_id,
+            team_id,
+            crate::plan::OrchestratorRef::from_pane(&owner_pane_id),
+            now_ms,
+        )
+        .map_err(TeamPlanError::Plan)?;
+    crate::service::plan::relink_to_owner(
+        &mut crate::service::plan::lane_port_impl::LaneStatePort(mux),
+        &plan,
+        &owner_pane_id,
+    );
+    Ok(plan)
+}
+
+fn transfer_team_plan_core(
+    mux: &mut MultiplexerState,
+    plan_store: &crate::service::plan::PlanStore,
+    plan_id: &str,
+    to: crate::plan::OrchestratorRef,
+    reason: &str,
+    caller: TeamMutationCaller,
+    now_ms: u64,
+) -> Result<(crate::plan::Plan, usize), TeamPlanError> {
+    let source_plan = plan_store
+        .get(plan_id)
+        .ok_or(TeamPlanError::Plan(PlanError::NotFound))?;
+    let source_team_id = source_plan
+        .team_id
+        .as_deref()
+        .filter(|team_id| !team_id.trim().is_empty())
+        .ok_or_else(|| {
+            TeamPlanError::Plan(PlanError::ActivePlanRequiresTeam {
+                plan_id: plan_id.into(),
+            })
+        })?;
+    authorize_team_mutation(mux, source_team_id, caller).map_err(TeamPlanError::Team)?;
+
+    let pane_id = to
+        .pane_id
+        .as_deref()
+        .filter(|pane_id| !pane_id.trim().is_empty())
+        .ok_or_else(|| {
+            TeamPlanError::Team("plan transfer requires a destination Orchestrator pane".into())
+        })?
+        .to_string();
+    let pane = mux
+        .get_pane(&pane_id)
+        .ok_or_else(|| TeamPlanError::Team(format!("Destination pane {pane_id} not found")))?;
+    if pane.role != Some(AgentRole::Orchestrator) {
+        return Err(TeamPlanError::Team(format!(
+            "Destination pane {pane_id} is not an Orchestrator"
+        )));
+    }
+    let destination_team_id = pane
+        .team_id
+        .as_deref()
+        .filter(|team_id| mux.get_team(team_id).is_some())
+        .ok_or_else(|| {
+            TeamPlanError::Team(format!(
+                "Destination Orchestrator {pane_id} does not belong to a live Team"
+            ))
+        })?
+        .to_string();
+    let plan = plan_store
+        .transfer_plan_to_team(plan_id, &destination_team_id, to, reason, now_ms)
+        .map_err(TeamPlanError::Plan)?;
+    let relinked = crate::service::plan::relink_to_owner(
+        &mut crate::service::plan::lane_port_impl::LaneStatePort(mux),
+        &plan,
+        &pane_id,
+    );
+    Ok((plan, relinked))
+}
+
+fn live_team_orchestrator(mux: &MultiplexerState, team_id: &str) -> Result<String, TeamPlanError> {
+    let mut orchestrators: Vec<_> = mux
+        .snapshot()
+        .panes
+        .values()
+        .filter(|pane| {
+            pane.team_id.as_deref() == Some(team_id) && pane.role == Some(AgentRole::Orchestrator)
+        })
+        .map(|pane| pane.id.clone())
+        .collect();
+    orchestrators.sort();
+    match orchestrators.as_slice() {
+        [pane_id] => Ok(pane_id.clone()),
+        [] => Err(TeamPlanError::Team(format!(
+            "Team {team_id} has no live Orchestrator"
+        ))),
+        _ => Err(TeamPlanError::Team(format!(
+            "Team {team_id} has multiple live Orchestrators; transfer to a specific pane instead"
+        ))),
+    }
 }
 
 #[derive(Debug)]
@@ -629,6 +713,19 @@ fn authorize_team_manager(
         ));
     }
     Ok(())
+}
+
+fn authorize_team_mutation(
+    mux: &MultiplexerState,
+    team_id: &str,
+    caller: TeamMutationCaller,
+) -> Result<(), String> {
+    match caller {
+        TeamMutationCaller::TrustedDirectUser => authorize_team_manager(mux, team_id, None),
+        TeamMutationCaller::AgentPane(pane_id) => {
+            authorize_team_manager(mux, team_id, Some(&pane_id))
+        }
+    }
 }
 
 #[cfg(test)]

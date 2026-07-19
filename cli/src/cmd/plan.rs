@@ -95,6 +95,25 @@ fn plan_delete_params(plan_id: String, yes: bool) -> Result<Value, String> {
     Ok(json!({ "plan_id": plan_id }))
 }
 
+fn plan_transfer_params(
+    plan_id: String,
+    to: String,
+    reason: Option<String>,
+    caller_pane_id: Option<&str>,
+) -> Value {
+    let mut params = json!({
+        "plan_id": plan_id,
+        "to": { "pane_id": to },
+    });
+    if let Some(reason) = reason {
+        params["reason"] = json!(reason);
+    }
+    if let Some(caller_pane_id) = caller_pane_id {
+        params["caller_pane_id"] = json!(caller_pane_id);
+    }
+    params
+}
+
 fn default_project_path(client: &dyn RpcClient) -> Option<String> {
     if client.is_remote() {
         return None;
@@ -661,13 +680,8 @@ fn run_plan(
             to,
             reason,
         } => {
-            let mut params = json!({
-                "plan_id": plan_id,
-                "to": { "pane_id": to },
-            });
-            if let Some(r) = reason {
-                params["reason"] = json!(r);
-            }
+            let caller_pane_id = (!client.is_remote()).then(caller_pane_id).flatten();
+            let params = plan_transfer_params(plan_id, to, reason, caller_pane_id.as_deref());
             call(client, "plan.transfer", params)
         }
 

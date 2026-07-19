@@ -144,6 +144,7 @@ impl PlanStore {
         &self,
         plan_id: &str,
         team_id: &str,
+        owner: OrchestratorRef,
         now_ms: u64,
     ) -> Result<Plan, PlanError> {
         let team_id = team_id.trim();
@@ -171,6 +172,16 @@ impl PlanStore {
                     });
                 }
             }
+            if plan.owner != owner {
+                plan.owner_history.push(TransferRecord {
+                    from: plan.owner.clone(),
+                    to: owner.clone(),
+                    ts: now_ms,
+                    reason: format!("adopted by Team {team_id}"),
+                });
+            }
+            plan.owner = owner;
+            plan.planner = None;
             plan.team_id = Some(team_id.to_string());
             plan.status = PlanStatus::Active;
             Ok(plan.clone())
@@ -209,6 +220,7 @@ impl PlanStore {
                 reason: reason.into(),
             });
             plan.owner = to;
+            plan.planner = None;
             plan.team_id = Some(team_id.to_string());
             Ok(plan.clone())
         })

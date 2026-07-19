@@ -15,3 +15,15 @@ fn optional_string_field_preserves_missing_vs_null() {
         Some(Some("opus"))
     );
 }
+
+#[test]
+fn transfer_caller_distinguishes_agent_param_from_trusted_direct_user() {
+    assert_eq!(
+        transfer_caller(&Some(json!({ "caller_pane_id": "source-manager" }))),
+        crate::service::TeamMutationCaller::AgentPane("source-manager".into())
+    );
+    assert_eq!(
+        transfer_caller(&None),
+        crate::service::TeamMutationCaller::TrustedDirectUser
+    );
+}

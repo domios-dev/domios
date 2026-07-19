@@ -849,9 +849,15 @@ Task execution attempts are append-only history on `Task.execution_attempts`. Th
 
 An orchestrator's first plan creation is atomic: its response includes `plan.team_id`, top-level `team_id`, and `team_minted`. When `team_minted` is true, `_hints` includes `codeterm team rename <team_id> <name>` and `codeterm docs ORCHESTRATION`. The `mux-state-changed` snapshot includes the Team registry in `teams` and each pane's `team_id`; committed plan mutations also emit `plan-changed`. A Team with an active plan refuses a second plan with the unchanged `team_already_has_active_plan` error.
 
+### Team-bound plan activation and transfer
+
+Every active plan must reference exactly one live Team, and a live Team may have only one active plan. `POST /api/plans/{id}/unarchive` and `POST /api/plans/{id}/resume` reject a missing or stale Team binding; unarchive also rejects a Team that already owns another active plan. `team.adopt_plan` activates an archived/teamless plan atomically, replaces its retired owner with the target Team's sole live Orchestrator, records owner history, clears the stale planner binding, and relinks live task hierarchy to that Orchestrator. A Team with zero or multiple live Orchestrators cannot adopt implicitly; use an explicit transfer destination when applicable.
+
+`POST /api/plans/{id}/transfer` accepts `{to: OrchestratorRef, reason?}`. `X-CodeTerm-Pane-Id` distinguishes an agent call from a trusted direct-user call: when present, it must identify the source Team's Orchestrator or planner-profile Manager; Workers and foreign-Team panes receive `403` without mutation. An authenticated direct-user request may omit the header. The destination must be a live Orchestrator belonging to a live Team. Owner, owner history, Team binding, and stale planner retirement are one storage mutation, followed by hierarchy relinking under the Team lock.
+
 ### Close Team (POST /api/teams/{team_id}/close)
 
-Explicitly closes every Team member through the Team cascade path, removes the Team registry entry, and emits one committed `mux-state-changed`. This is the only user operation that removes a Team; ordinary pane and tab closes always retain the Team record. The `X-CodeTerm-Pane-Id` header is required and must identify the Team's Orchestrator or planner-profile Manager. Missing header returns `400`, unauthorized or foreign callers return `403`, and an unknown or already closed Team returns structured `404`.
+Explicitly closes every Team member through the Team cascade path, removes the Team registry entry, archives and detaches every bound plan, retires each plan owner into owner history, clears its owner/planner routing authority, and emits one committed `mux-state-changed`. This is the only user operation that removes a Team; ordinary pane and tab closes always retain the Team record. The `X-CodeTerm-Pane-Id` header is required and must identify the Team's Orchestrator or planner-profile Manager. Missing header returns `400`, unauthorized or foreign callers return `403`, and an unknown or already closed Team returns structured `404`.
 
 | Method | Path | Body / Query | Description |
 |--------|------|--------------|-------------|
@@ -1123,8 +1129,9 @@ Newline-delimited JSON:
 | `team.list` | — | Return `{teams: Team[]}` from the live Team registry. |
 | `team.show` | `{team_id}` | Return `{team: Team}` or reject an unknown Team. |
 | `team.rename` | `{team_id, name, caller_pane_id?}` | Rename a Team and emit `mux-state-changed`. |
-| `team.close` | `{team_id, caller_pane_id?}` | Explicitly cascade-close Team members, remove the registry entry, and emit `mux-state-changed`. |
-| `team.adopt_plan` | `{team_id, plan_id, caller_pane_id?}` | Bind an existing plan 1:1 to a Team; return `{team_id, plan}` and emit both `plan-changed` and `mux-state-changed`. |
+| `team.close` | `{team_id, caller_pane_id?}` | Explicitly cascade-close Team members, remove the registry entry, archive/detach bound plans, retire owner/planner routing, and emit `mux-state-changed`. |
+| `team.adopt_plan` | `{team_id, plan_id, caller_pane_id?}` | Atomically activate an existing plan 1:1 under the Team's sole live Orchestrator, replace owner/history, clear stale planner routing, relink hierarchy, and emit both `plan-changed` and `mux-state-changed`. Agent callers must manage the destination Team; omitted caller means a trusted direct user. |
+| `plan.transfer` | `{plan_id, to: OrchestratorRef, reason?, caller_pane_id?}` | Transfer atomically to the destination Orchestrator's live Team. Agent callers must manage the source Team; omitted caller means a trusted direct user. |
 | `pane.list` | — | List panes |
 | `pane.focus` | `{pane_id}` | Focus pane |
 | `pane.close` | `{pane_id}` | Close pane |
@@ -1297,4 +1304,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 80 -->
+<!-- revision: 81 -->

@@ -115,6 +115,7 @@ pub use orchestrator::{
 };
 pub use pane::{normalize_pane_description, MAX_PANE_DESCRIPTION_CHARS};
 pub use pane_budget::{evaluate_pane_budget, PaneBudgetLevel, PaneBudgetNotice};
+pub(crate) use team::TeamMutationCaller;
 pub(crate) use team::TeamPlanError;
 pub(crate) use team::{AddTeamMemberParams, AddTeamMemberResult};
 pub(crate) use worker_identity::{

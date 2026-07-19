@@ -67,7 +67,7 @@ pub(super) fn dispatch(
                 .adopt_plan_for_team(
                     &team_id,
                     &plan_id,
-                    caller_pane_id.as_deref(),
+                    crate::service::TeamMutationCaller::from_pane_id(caller_pane_id.as_deref()),
                     super::plan_time::epoch_ms(),
                 )
                 .map_err(team_plan_rpc_err)?;
