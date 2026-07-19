@@ -50,6 +50,7 @@ impl MeshManager {
             .get(request_id)
             .map(|(_, _, id)| id.clone())
             .ok_or_else(|| "Pairing target no longer exists".to_string())?;
+        self.reject_untrusted_pairing_identity(remote_instance_id)?;
         if expected_id == remote_instance_id {
             return Ok(());
         }
@@ -64,28 +65,59 @@ impl MeshManager {
                 expected_id, remote_instance_id
             ));
         }
+        if self.discovered_peers.contains_key(remote_instance_id) {
+            return Err(format!(
+                "Peer identity conflicts with an existing discovery: {}",
+                remote_instance_id
+            ));
+        }
 
         let mut peer = self
             .discovered_peers
             .remove(&expected_id)
             .ok_or_else(|| "Manual peer placeholder no longer exists".to_string())?;
         peer.instance_id = remote_instance_id.to_string();
-        if let Some(existing) = self.discovered_peers.get_mut(remote_instance_id) {
-            for address in peer.addresses {
-                if !existing
-                    .addresses
-                    .iter()
-                    .any(|known| known.ip == address.ip)
-                {
-                    existing.addresses.push(address);
-                }
-            }
-        } else {
-            self.discovered_peers
-                .insert(remote_instance_id.to_string(), peer);
-        }
+        self.discovered_peers
+            .insert(remote_instance_id.to_string(), peer);
         if let Some((_, _, target_id)) = self.pairing_targets.get_mut(request_id) {
             *target_id = remote_instance_id.to_string();
+        }
+        Ok(())
+    }
+
+    pub fn validate_pairing_accept_identity(
+        &self,
+        request_id: &str,
+        remote_instance_id: &str,
+    ) -> Result<(), String> {
+        uuid::Uuid::parse_str(remote_instance_id)
+            .map_err(|_| "Peer returned an invalid instance identity".to_string())?;
+        let expected_id = self
+            .pairing_targets
+            .get(request_id)
+            .map(|(_, _, id)| id.as_str())
+            .ok_or_else(|| "Pairing target no longer exists".to_string())?;
+        if expected_id != remote_instance_id {
+            return Err(format!(
+                "Peer identity mismatch: expected {}, got {}",
+                expected_id, remote_instance_id
+            ));
+        }
+        self.reject_untrusted_pairing_identity(remote_instance_id)
+    }
+
+    fn reject_untrusted_pairing_identity(&self, remote_instance_id: &str) -> Result<(), String> {
+        if remote_instance_id == self.ident.identity.instance_id {
+            return Err("Cannot pair with this CodeTerm instance".to_string());
+        }
+        if self.paired_peers.contains_key(remote_instance_id) {
+            return Err("Peer is already paired".to_string());
+        }
+        if self.is_blocked(remote_instance_id) {
+            return Err("Peer identity is blocked".to_string());
+        }
+        if self.is_revoked(remote_instance_id) {
+            return Err("Peer identity is revoked".to_string());
         }
         Ok(())
     }
@@ -562,6 +594,9 @@ fn prev_addrs_equal(a: &[types::PeerAddress], b: &[types::PeerAddress]) -> bool 
 }
 
 #[cfg(test)]
+mod identity_tests;
+
+#[cfg(test)]
 mod liveness_tests {
     use super::*;
 
@@ -704,23 +739,7 @@ mod liveness_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{
-        DiscoveredPeer, DiscoveryMethod, PairedPeer, PairingRequest, PeerAddress, PeerAnnounce,
-    };
-
-    fn discovered_peer(id: &str, method: DiscoveryMethod) -> DiscoveredPeer {
-        DiscoveredPeer {
-            instance_id: id.into(),
-            instance_name: "peer".into(),
-            addresses: vec![PeerAddress::from_ip("127.0.0.1")],
-            api_port: 7786,
-            discovery_method: method,
-            last_seen: 0,
-            dev: true,
-            mesh_id: None,
-            vouched_by: Vec::new(),
-        }
-    }
+    use crate::types::{PairedPeer, PairingRequest, PeerAddress, PeerAnnounce};
 
     #[test]
     fn check_and_record_nonce_rejects_replay() {
@@ -780,56 +799,6 @@ mod tests {
         m.cleanup_expired_requests_at(1000 + 3601);
         assert!(m.pending_requests.is_empty());
         assert!(m.pairing_targets.is_empty(), "targets must not leak");
-    }
-
-    #[test]
-    fn pair_request_receipt_promotes_only_a_manual_placeholder() {
-        let mut mesh = MeshManager::new("test-host".into(), 7685);
-        mesh.disk_persist = false;
-        let placeholder = "manual-placeholder";
-        let remote_id = "31c7cff6-4bd2-43b0-a5cd-b5db9bfbb673";
-        mesh.discovered_peers.insert(
-            placeholder.into(),
-            discovered_peer(placeholder, DiscoveryMethod::Manual),
-        );
-        mesh.pairing_targets.insert(
-            "request-1".into(),
-            ("127.0.0.1".into(), 7786, placeholder.into()),
-        );
-
-        mesh.confirm_pairing_target_identity("request-1", remote_id)
-            .unwrap();
-
-        assert!(!mesh.discovered_peers.contains_key(placeholder));
-        assert_eq!(
-            mesh.discovered_peers.get(remote_id).unwrap().instance_id,
-            remote_id
-        );
-        assert_eq!(mesh.pairing_targets["request-1"].2, remote_id);
-    }
-
-    #[test]
-    fn pair_request_receipt_rejects_a_discovered_identity_change() {
-        let mut mesh = MeshManager::new("test-host".into(), 7685);
-        mesh.disk_persist = false;
-        let expected_id = "798d9973-91d2-45ae-aa6e-359b1a1cd365";
-        let remote_id = "31c7cff6-4bd2-43b0-a5cd-b5db9bfbb673";
-        mesh.discovered_peers.insert(
-            expected_id.into(),
-            discovered_peer(expected_id, DiscoveryMethod::Udp),
-        );
-        mesh.pairing_targets.insert(
-            "request-1".into(),
-            ("127.0.0.1".into(), 7786, expected_id.into()),
-        );
-
-        let error = mesh
-            .confirm_pairing_target_identity("request-1", remote_id)
-            .unwrap_err();
-
-        assert!(error.contains("identity mismatch"));
-        assert_eq!(mesh.pairing_targets["request-1"].2, expected_id);
-        assert!(mesh.discovered_peers.contains_key(expected_id));
     }
 
     #[test]
