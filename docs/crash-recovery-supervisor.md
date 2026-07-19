@@ -33,7 +33,7 @@ Classification describes the dead epoch, never the restart. The daemon reads onl
 
 Startup restores session snapshots and task bindings before any worker spawn. Existing task execution bindings are authoritative. Safe idempotent work may resume only when the provider/session contract proves the same attempt can continue without duplicate side effects.
 
-Ambiguity is a function of binding state, never of elapsed time. After the session snapshot is restored, `note_restored_bindings` records `BindingEvidence { bound_at_shutdown, restored }` on the crash record: `bound_at_shutdown` counts the role-bearing panes the dead epoch persisted, `restored` counts those that came back. Only the shortfall is ambiguous — `work_policy.ambiguous_execution` is `{ missing_bindings, disposition: "needs-review/reassign" }` when bindings were lost, and `null` when every one returned. A fifteen-minute restart with a full restore is therefore healthy, not ambiguous. Absence of evidence never marks work safe, and it never manufactures an accusation either.
+Ambiguity is a function of binding state, never of elapsed time. After the session snapshot is restored, `note_restored_bindings` records the exact pane and provider-session identity of every role-bearing binding the dead epoch persisted and every binding that came back. The numeric `bound_at_shutdown` and `restored` fields remain a summary; health and ambiguity compare identities, so an unrelated replacement pane cannot satisfy a missing binding. Only the exact-identity shortfall is ambiguous — `work_policy.ambiguous_execution` is `{ missing_bindings, disposition: "needs-review/reassign" }` when bindings were lost, and `null` when every one returned. A fifteen-minute restart with a full restore is therefore healthy, not ambiguous. Absence of evidence never marks work safe, and it never manufactures an accusation either.
 
 Report routing follows restored owner/planner bindings. Duplicate worker and report checks are required before any supervisor-assisted recovery can dispatch more work.
 
@@ -41,11 +41,11 @@ The supervisor never resumes workers. It only restarts the app process; restored
 
 ## UI Placement
 
-Recovery status is a toast surfaced from `get_recovery_state`, with event refresh on new crash-report discovery. It has a stable `recovery-status-banner` test selector and a dismiss action.
+Recovery status is a toast surfaced from `get_recovery_state`, with event refresh on new crash-report discovery and on durable recovery-state changes. It exposes the accessible status name `Crash recovery status` and a dismiss action.
 
 Presentation is driven by `crash_presentation`, derived from persisted state and never from a clock. It is `active` only while the crash is bound to the current epoch and that epoch has not yet been healed.
 
-The warning's lifetime ends at proven health, not at user dismissal. `heal_current_epoch` runs on the real `BootStage::AgentReady` transition (`service/boot_stage.rs`) — never a timer — and when every binding the dead epoch held is back with its agent ready, it durably stamps `healed_at` on the record. Because the heal is persisted rather than recomputed, the refresh path re-reads a healed record and stays quiet; a false warning is unrepresentable once health is proven. A later epoch supersedes the record for the same reason. `last_crash.json` and `crash_history.json` survive the transition untouched — the audit stays readable while the accusation retires.
+The warning's lifetime ends at proven health, not at user dismissal. Restored lazy agents are explicitly seeded as idle after snapshot restore; that readiness boundary and later live session/agent-state transitions compare the exact restored binding identities. A match durably stamps `healed_at` and emits `recovery-state-changed`, so an already-mounted toast disappears without a refresh. Fresh launches also check on the real `BootStage::AgentReady` transition. None of these transitions uses elapsed time as readiness. Because the heal is persisted rather than recomputed, the refresh path re-reads a healed record and stays quiet; a false warning is unrepresentable once health is proven. A later epoch supersedes the record for the same reason. `last_crash.json` and `crash_history.json` survive the transition untouched — the audit stays readable while the accusation retires.
 
 ## Platform Oracle
 
@@ -53,4 +53,4 @@ The warning's lifetime ends at proven health, not at user dismissal. `heal_curre
 - macOS: the loaded LaunchAgent runs one CLI supervisor with `KeepAlive=false`. Repeat the kill, clean-exit, replacement-handoff, and loop-threshold oracle; validate the generated plist with `plutil`.
 - Linux: the enabled user unit runs one CLI supervisor with `Restart=no`. Repeat the same oracle and validate the generated unit with `systemd-analyze --user verify`; quoted `ExecStart` paths must survive spaces.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
