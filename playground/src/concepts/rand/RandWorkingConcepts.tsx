@@ -50,7 +50,7 @@ export function RandWorkingConcepts() {
                 <p>{variant.note}</p>
               </div>
             </header>
-            <div className="concept-stage">
+            <div className="concept-stage" role="img" aria-label={variant.label}>
               <div className="mini-team">
                 <b>Team</b>
                 <span>active</span>
@@ -59,8 +59,7 @@ export function RandWorkingConcepts() {
                 <div
                   className={`rand-stage rand-${variant.id}`}
                   data-motion-stage={variant.id}
-                  role="img"
-                  aria-label={variant.label}
+                  aria-hidden="true"
                 >
                   <span className="rand-anchor" aria-hidden="true" />
                   <span className="rand-active" aria-hidden="true" />
