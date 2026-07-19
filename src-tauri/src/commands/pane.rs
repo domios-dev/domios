@@ -344,6 +344,11 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
         }
     }
     let detect_ms = detect_started.elapsed().as_millis();
+    let session_binding_nonce = svc
+        .mux
+        .read()
+        .get_pane(&pane_id)
+        .and_then(|pane| pane.session_binding_nonce.clone());
 
     // structured messages in Rust and stream deltas from a DB poller.
     if svc
@@ -359,8 +364,10 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             .unwrap_or_default();
         let cursor = delta.cursor.clone();
         if !svc.chat_registry.acquire(&pane_id, &session_id) {
-            let sink =
-                crate::service::pane_chat::structured_sink::make_sink(svc.app_handle.clone());
+            let sink = crate::service::pane_chat::structured_sink::make_sink(
+                svc.app_handle.clone(),
+                session_binding_nonce.clone(),
+            );
             let handle = crate::service::pane_chat::spawn_structured_poller(
                 crate::service::pane_chat::StructuredPollConfig {
                     pane_id: pane_id.clone(),
@@ -402,6 +409,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             let sink = crate::service::pane_chat::structured_sink::make_flatten_sink(
                 svc.app_handle.clone(),
                 0,
+                session_binding_nonce.clone(),
             );
             let handle = crate::service::pane_chat::spawn_store_watch(
                 crate::service::pane_chat::StoreWatchConfig {
@@ -451,6 +459,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
         let sink = crate::service::pane_chat::structured_sink::make_flatten_sink(
             svc.app_handle.clone(),
             msg_count,
+            session_binding_nonce,
         );
         let handle = crate::service::pane_chat::spawn_tailer(
             crate::service::pane_chat::TailConfig {

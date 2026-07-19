@@ -38,6 +38,7 @@ interface ChatMsgEvent {
   pane_id: string;
   messages: ChatMessage[];
   cursor?: string;
+  session_binding_nonce?: string | null;
 }
 
 type ChatAttachmentState = "idle" | "attaching" | "awaiting_store" | "attached" | "failed";
@@ -244,11 +245,13 @@ function timestampMs(ts: string | undefined): number | null {
 export function useChatSession({
   paneId,
   agentSessionId,
+  sessionBindingNonce,
   onError,
   active = true,
 }: {
   paneId: string;
   agentSessionId: string | null;
+  sessionBindingNonce: string | null | undefined;
   onError?: (msg: string) => void;
   /** Hidden chats must not run the daemon parser: false stops the session, true restarts it. */
   active?: boolean;
@@ -264,11 +267,11 @@ export function useChatSession({
   const [optimistic, setOptimistic] = useState<ChatMessage[]>([]);
   const onErrorRef = useRef(onError);
   const nextClientOrderRef = useRef(0);
-  const activeRef = useRef(active);
   const agentSessionIdRef = useRef(agentSessionId);
+  const sessionBindingNonceRef = useRef(sessionBindingNonce);
   const attachmentSourceSessionIdRef = useRef(agentSessionId);
   const previousSessionIdRef = useRef(agentSessionId);
-  const rotationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previousBindingNonceRef = useRef(sessionBindingNonce);
   const lifecycleRef = useRef(0);
   const knownPaneIdRef = useRef<string | null>(null);
   const attachmentStateRef = useRef(attachmentState);
@@ -283,19 +286,14 @@ export function useChatSession({
     onErrorRef.current = onError;
   }, [onError]);
 
-  activeRef.current = active;
   agentSessionIdRef.current = agentSessionId;
+  sessionBindingNonceRef.current = sessionBindingNonce;
   attachmentStateRef.current = attachmentState;
   attachGenerationRef.current = attachGeneration;
 
   useEffect(() => {
     setOptimistic([]);
   }, [paneId]);
-
-  const clearRotationTimer = useCallback(() => {
-    if (rotationTimerRef.current) clearTimeout(rotationTimerRef.current);
-    rotationTimerRef.current = null;
-  }, []);
 
   const requestAttach = useCallback(() => {
     const nextSessionId = agentSessionIdRef.current;
@@ -313,11 +311,10 @@ export function useChatSession({
   }, []);
 
   const markAttached = useCallback(() => {
-    clearRotationTimer();
     setAttachmentState("attached");
     setRecovering(false);
     setLoading(false);
-  }, [clearRotationTimer]);
+  }, []);
 
   useEffect(() => {
     if (!active) {
@@ -344,6 +341,10 @@ export function useChatSession({
           `pane-chat-msg-${paneId}`,
           (ev) => {
             if (lifecycleRef.current !== lifecycle) return;
+            if (
+              sessionBindingNonceRef.current == null
+              || ev.payload.session_binding_nonce !== sessionBindingNonceRef.current
+            ) return;
             applyChatMsgEvent(ev.payload, paneId, setStructured, nextClientOrder, attachmentSourceSessionIdRef.current);
             if (attachmentStateRef.current !== "attached") markAttached();
           },
@@ -366,13 +367,12 @@ export function useChatSession({
     })();
     return () => {
       lifecycleRef.current += 1;
-      clearRotationTimer();
       unlisten?.();
       unlistenTest?.();
       setListenerReady(false);
       void invoke("chat_stop", { paneId }).catch(() => {});
     };
-  }, [active, clearRotationTimer, markAttached, nextClientOrder, paneId]);
+  }, [active, markAttached, nextClientOrder, paneId]);
 
   useEffect(() => {
     if (!active || !listenerReady) return;
@@ -420,18 +420,16 @@ export function useChatSession({
 
   useEffect(() => {
     const previous = previousSessionIdRef.current;
+    const previousBindingNonce = previousBindingNonceRef.current;
     previousSessionIdRef.current = agentSessionId;
+    previousBindingNonceRef.current = sessionBindingNonce;
     if (
-      previous === agentSessionId
+      (previous === agentSessionId && previousBindingNonce === sessionBindingNonce)
       || !active
       || !listenerReady
     ) return;
-    if (rotationTimerRef.current) return;
-    rotationTimerRef.current = setTimeout(() => {
-      rotationTimerRef.current = null;
-      if (activeRef.current) requestAttach();
-    }, 0);
-  }, [active, agentSessionId, attachmentState, listenerReady, requestAttach]);
+    requestAttach();
+  }, [active, agentSessionId, listenerReady, requestAttach, sessionBindingNonce]);
 
   const retry = useCallback(() => {
     setRecovering(true);
