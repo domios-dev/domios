@@ -195,6 +195,20 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
   eq(hostPlugin.buildPromptResponse(10004, multi), ["IA==", "ag==", "IA==", "ag==", "IA==", "CQ=="], "multi-select confirm toggles desired mask then advances");
 }
 
+{
+  const trust = [
+    "Accessing workspace:",
+    "C:\\work\\new-project",
+    "Quick safety check: Is this a project you created or one you trust?",
+    "❯ 1. Yes, I trust this folder",
+    "  2. No, exit",
+    "Enter to confirm · Esc to cancel",
+  ].join("\n");
+  const parsed = hostPlugin.parsePrompt(trust);
+  eq(parsed?.question, "Quick safety check: Is this a project you created or one you trust?", "directory trust gate parses as a provider prompt");
+  eq(hostPlugin.directoryTrustPromptResponse(parsed, trust), ["DQ=="], "auto-approved directory trust selects the highlighted affirmative option");
+}
+
 console.log("\n--- imageSend strategy ---\n");
 
 eq(plugin.imageSend?.method, "clipboard-paste", "imageSend method is clipboard-paste");

@@ -314,7 +314,7 @@ pub(crate) fn launch_agent_in_background(
             verify_submit: true,
             prompt_timeout: std::time::Duration::from_secs(0),
             echo_timeout: std::time::Duration::from_secs(3),
-            submit_timeout: std::time::Duration::from_secs(15),
+            submit_timeout: std::time::Duration::from_secs(30),
         };
         // A TUI launch hands the shell off before a new shell prompt can appear.
         let launch_strategy = registry
@@ -410,6 +410,12 @@ pub(crate) fn launch_agent_in_background(
                 let strategy = registry
                     .with_provider(&agent_cmd, |provider| provider.verify_submit_strategy())
                     .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
+                if !svc.wait_until_pane_receptive(&pane_id, std::time::Duration::from_secs(10)) {
+                    log::warn!(
+                        "launch_agent: pane {} was not receptive before fallback delivery",
+                        pane_id
+                    );
+                }
                 let consumption = delivery_gate.consume(&svc.mux, &pane_id, &svc, || {
                     let result = crate::service::pty_io::submit_transaction::submit_entry(
                         crate::service::pty_io::submit_transaction::PtySubmitEntry::Direct,

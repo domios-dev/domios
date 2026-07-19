@@ -7,8 +7,6 @@ use crate::service::ServiceContext;
 /// paste mid-ingestion; waiting for the paste to land avoids that. The deadline
 /// is a failure bound only — it returns early on the render signal, and a missed
 /// deadline still submits (optimistic, never a drop).
-const PASTE_RENDER_WINDOW: std::time::Duration = std::time::Duration::from_millis(600);
-
 /// Bytes written to a fresh pty to launch a shell-level command. On Unix, exec a
 /// temp script via `/bin/bash <path>` to bypass bracketed-paste markers — macOS system
 /// bash 3.2 has no bracketed-paste binding and leaks the markers as literal text.
@@ -32,7 +30,7 @@ pub(crate) fn build_spawn_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
 /// is sacrificial: it absorbs PSReadLine's dropped first byte before the paste handler arms.
 #[cfg(windows)]
 pub(crate) fn build_spawn_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
-    Ok(format!("\x1b[200~ {}\x1b[201~\r", cmd).into_bytes())
+    Ok(format!("\x1b[200~ {}\x1b[201~", cmd).into_bytes())
 }
 
 /// Wait (event-driven, via a condvar armed under `screen_state`) for a shell
@@ -282,17 +280,15 @@ impl ServiceContext {
                 .write(pty_id, paste.as_bytes())
                 .map_err(|e| e.to_string());
         }
-        // Enter is a SEPARATE write, after the composer renders the paste: a \r
-        // glued to the paste is swallowed by codex/opencode mid-ingestion. Wait
-        // (bounded, signal-driven) for the paste to land, then submit. A missed
-        // deadline still sends Enter — optimistic, never a drop.
+        // Enter follows the paste-render event because TUIs can swallow a glued CR.
+        // The bounded deadline still submits optimistically; it never proves readiness.
         let signal = self.screen_state.lock().arm_screen_change_signal(pty_id);
         let generation = signal.generation();
         self.pty
             .lock()
             .write(pty_id, paste.as_bytes())
             .map_err(|e| e.to_string())?;
-        signal.wait_after(generation, PASTE_RENDER_WINDOW);
+        signal.wait_after(generation, super::PASTE_RENDER_WINDOW);
         self.pty
             .lock()
             .write(pty_id, b"\r")
@@ -417,11 +413,15 @@ impl ServiceContext {
             let provider_ready = self
                 .agent_registry
                 .with_provider(agent_id, |provider| provider.screen_has_tui(&screen));
+            let provider_prompt = self
+                .agent_registry
+                .parse_prompt(agent_id, &screen)
+                .is_some();
             let ready = provider_or_generic_tui(
                 provider_ready,
                 codeterm_pty::pty::screen_state::screen_has_agent_tui(&screen),
             );
-            if ready && (!require_composer || composer_ready) {
+            if provider_frame_ready(ready, provider_prompt, require_composer, composer_ready) {
                 return true;
             }
             let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
@@ -608,9 +608,18 @@ pub(crate) fn provider_or_generic_tui(provider_ready: Option<bool>, generic_read
     provider_ready.unwrap_or(generic_ready)
 }
 
+fn provider_frame_ready(
+    tui_ready: bool,
+    prompt_ready: bool,
+    require_composer: bool,
+    composer_ready: bool,
+) -> bool {
+    (tui_ready && (!require_composer || composer_ready)) || (!require_composer && prompt_ready)
+}
+
 #[cfg(test)]
 mod planner_delivery_tests {
-    use super::{provider_or_generic_tui, submit_authenticated_pty_input};
+    use super::{provider_frame_ready, provider_or_generic_tui, submit_authenticated_pty_input};
     use crate::multiplexer::state::MultiplexerState;
 
     #[test]
@@ -660,5 +669,12 @@ mod planner_delivery_tests {
         assert!(!provider_or_generic_tui(Some(false), true));
         assert!(provider_or_generic_tui(Some(true), false));
         assert!(provider_or_generic_tui(None, true));
+    }
+
+    #[test]
+    fn provider_prompt_proves_launch_without_claiming_composer_readiness() {
+        assert!(provider_frame_ready(false, true, false, false));
+        assert!(!provider_frame_ready(false, true, true, false));
+        assert!(provider_frame_ready(true, false, true, true));
     }
 }

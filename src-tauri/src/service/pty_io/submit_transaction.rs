@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, Weak};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 
@@ -191,20 +191,33 @@ fn wait_paste_ingested<T: SubmitTransport>(
     }
 }
 
-/// Observe the provider turn transition after the CR. Wakes on screen frames,
-/// tests the provider's discrete turn state — not a screen substring or a poll.
-fn wait_turn_started<T: SubmitTransport>(transport: &T, armed: u64, deadline: Instant) -> bool {
+/// Observe a causal submit acknowledgement after the CR. A provider that was
+/// already Working before Enter cannot certify the new turn by stale state.
+fn wait_submission_acknowledged<T: SubmitTransport>(
+    transport: &T,
+    text: &str,
+    baseline_evidence: usize,
+    turn_was_started: bool,
+    armed: u64,
+    deadline: Instant,
+) -> bool {
     let mut generation = armed;
     loop {
-        if transport.turn_started() {
+        let changed = transport.generation() != armed;
+        let draft_left_composer =
+            changed && transport.draft_evidence_count(text) <= baseline_evidence;
+        let fresh_turn = changed && !turn_was_started && transport.turn_started();
+        if draft_left_composer || fresh_turn {
             return true;
         }
         if !transport.wait_change(generation, deadline) {
-            return transport.turn_started();
+            return false;
         }
         generation = transport.generation();
     }
 }
+
+const PRIMARY_SUBMIT_WINDOW: Duration = Duration::from_millis(1500);
 
 fn run<T: SubmitTransport>(
     transport: &T,
@@ -223,9 +236,8 @@ fn run<T: SubmitTransport>(
     let baseline_evidence = transport.draft_evidence_count(text);
     let bytes_written = transport.write_paste(text, turn_deadline)?;
 
-    // Primary path: the CR fires the instant the paste render event arrives.
-    // Bounded deadline is NOT readiness — it only authorizes ONE recovery Enter,
-    // flagged as an anomaly, and success still requires the turn transition.
+    // The CR follows the paste-render event; a missed deadline allows one recovery.
+    // The deadline never proves readiness, and success still needs an acknowledgement.
     let mut submit_anomaly = false;
     if enter
         && two_phase
@@ -252,12 +264,37 @@ fn run<T: SubmitTransport>(
     }
 
     let enter_armed = transport.generation();
+    let turn_was_started = transport.turn_started();
     transport.write_enter(turn_deadline)?;
-    let submit_observed = if two_phase {
-        wait_turn_started(transport, enter_armed, turn_deadline)
+    let mut submit_observed = if two_phase {
+        let primary_deadline = turn_deadline.min(Instant::now() + PRIMARY_SUBMIT_WINDOW);
+        wait_submission_acknowledged(
+            transport,
+            text,
+            baseline_evidence,
+            turn_was_started,
+            enter_armed,
+            primary_deadline,
+        )
     } else {
         true
     };
+    if two_phase && !submit_observed {
+        submit_anomaly = true;
+        log::warn!(
+            "[submit-anomaly] provider turn did not start after Enter; issuing one bounded recovery Enter"
+        );
+        let recovery_armed = transport.generation();
+        transport.write_enter(turn_deadline)?;
+        submit_observed = wait_submission_acknowledged(
+            transport,
+            text,
+            baseline_evidence,
+            turn_was_started,
+            recovery_armed,
+            turn_deadline,
+        );
+    }
 
     Ok(InjectionResult {
         bytes_written,
@@ -333,6 +370,7 @@ mod tests {
         stale_frames_before_ingest: Cell<usize>,
         deliver_ingest_frame: bool,
         accept_enter: bool,
+        swallowed_enters: Cell<usize>,
         writes: RefCell<Vec<String>>,
     }
 
@@ -372,8 +410,21 @@ mod tests {
                 stale_frames_before_ingest: Cell::new(stale_frames_before_ingest),
                 deliver_ingest_frame,
                 accept_enter,
+                swallowed_enters: Cell::new(0),
                 writes: RefCell::new(Vec::new()),
             }
+        }
+
+        fn swallows_first_enter() -> Self {
+            let model = Self::new(0, true, true);
+            model.swallowed_enters.set(1);
+            model
+        }
+
+        fn already_working_and_swallows_first_enter() -> Self {
+            let model = Self::swallows_first_enter();
+            model.turn.set(true);
+            model
         }
     }
 
@@ -397,7 +448,7 @@ mod tests {
             self.generation.get()
         }
 
-        fn wait_change(&self, generation: u64, _deadline: Instant) -> bool {
+        fn wait_change(&self, _generation: u64, _deadline: Instant) -> bool {
             if self.stale_frames_before_ingest.get() > 0 {
                 self.stale_frames_before_ingest
                     .set(self.stale_frames_before_ingest.get() - 1);
@@ -407,11 +458,6 @@ mod tests {
             // Deliver the ingestion frame exactly once after the paste.
             if self.deliver_ingest_frame && self.draft_pending.get() && !self.draft_visible.get() {
                 self.draft_visible.set(true);
-                self.generation.set(self.generation.get() + 1);
-                return true;
-            }
-            // A started turn keeps rendering; a swallowed submit produces nothing.
-            if self.turn.get() && self.generation.get() == generation {
                 self.generation.set(self.generation.get() + 1);
                 return true;
             }
@@ -430,12 +476,17 @@ mod tests {
 
         fn write_enter(&self, _deadline: Instant) -> Result<(), InjectionError> {
             self.writes.borrow_mut().push("enter".to_string());
-            // The CR starts a turn only if the paste actually landed. On the normal
-            // path that is proven by the observed render frame; on the recovery path
-            // the paste landed even though no frame was observed.
+            if self.swallowed_enters.get() > 0 {
+                self.swallowed_enters.set(self.swallowed_enters.get() - 1);
+                return Ok(());
+            }
+            // Normal ingestion has a render frame; recovery models an unobserved frame.
+            // Either way, Enter starts a turn only after the paste landed.
             let paste_landed = self.draft_visible.get() || !self.deliver_ingest_frame;
             if self.accept_enter && paste_landed {
                 self.turn.set(true);
+                self.draft_visible.set(false);
+                self.generation.set(self.generation.get() + 1);
             }
             Ok(())
         }
@@ -498,6 +549,7 @@ mod tests {
                 .borrow_mut()
                 .push(format!("enter:{}", self.tail));
             self.turn.set(true);
+            self.generation.set(self.generation.get() + 1);
             Ok(())
         }
     }
@@ -519,15 +571,8 @@ mod tests {
 
     #[test]
     fn normal_path_fires_cr_on_the_ingestion_event_with_no_anomaly() {
-        // GREEN with the two-phase machine: the CR lands only after the ingestion
-        // frame, a real turn starts, `submit_observed` reflects it, and no recovery
-        // was needed (`submit_anomaly` is false).
-        //
-        // RED against bf1278870: that `run()` wrote paste+CR back-to-back (no
-        // ingestion frame between them) and set `submit_observed = true` on the
-        // pipe flush. This same assertion fails there because `turn_started()`
-        // stays false — the CR was swallowed. Success is causally triggered by the
-        // ingestion frame; the deadline never fires the CR on this path.
+        // The ingestion frame causally releases Enter; a pipe flush alone is insufficient.
+        // This fails against bf1278870, where paste+CR were written back-to-back.
         let io = TuiModel::ingesting();
         let result = run(&io, "unique-marker-42", true, tui(), opts()).unwrap();
 
@@ -559,9 +604,8 @@ mod tests {
 
     #[test]
     fn bounded_deadline_recovers_with_one_forced_enter_flagged_anomalous() {
-        // The render event is never observed. The bounded deadline authorizes ONE
-        // forced Enter (not a loop), the submit is flagged anomalous, and success
-        // is STILL gated on the provider turn transition — never on elapsed time.
+        // A missed render event allows one anomalous recovery Enter, never a loop.
+        // Success remains gated on provider acknowledgement rather than elapsed time.
         let io = TuiModel::recovers_after_unobserved_ingest();
         let result = run(&io, "unique-marker-42", true, tui(), opts()).unwrap();
 
@@ -592,8 +636,8 @@ mod tests {
         assert!(!io.turn_started());
         assert_eq!(
             &*io.writes.borrow(),
-            &["paste:marker", "enter"],
-            "exactly one forced Enter, then honest failure — no retry loop"
+            &["paste:marker", "enter", "enter"],
+            "one primary and one recovery Enter, then honest failure"
         );
 
         let surfaced = result.require_submission(true, Duration::ZERO, "> marker".into());
@@ -601,6 +645,33 @@ mod tests {
             surfaced,
             Err(InjectionError::SubmitNeverConfirmed { .. })
         ));
+    }
+
+    #[test]
+    fn swallowed_primary_enter_recovers_once_and_requires_the_turn() {
+        let io = TuiModel::swallows_first_enter();
+        let result = run(&io, "team bootstrap", true, tui(), opts()).unwrap();
+
+        assert!(result.submit_anomaly);
+        assert!(result.submit_observed);
+        assert!(io.turn_started());
+        assert_eq!(
+            &*io.writes.borrow(),
+            &["paste:team bootstrap", "enter", "enter"]
+        );
+    }
+
+    #[test]
+    fn stale_working_state_cannot_certify_a_swallowed_enter() {
+        let io = TuiModel::already_working_and_swallows_first_enter();
+        let result = run(&io, "team bootstrap", true, tui(), opts()).unwrap();
+
+        assert!(result.submit_anomaly);
+        assert!(result.submit_observed);
+        assert_eq!(
+            &*io.writes.borrow(),
+            &["paste:team bootstrap", "enter", "enter"]
+        );
     }
 
     #[test]

@@ -240,6 +240,15 @@ const plugin: PluginModule = {
     return buildClaudePromptResponse(optionIndex, String(screen || ""));
   },
 
+  directoryTrustPromptResponse(prompt: ParsedPrompt, screen?: string): string[] | null {
+    const question = String(prompt.question || "").toLowerCase();
+    const first = prompt.options[0];
+    const firstLabel = Array.isArray(first) ? first[0] : (first as unknown as { label?: string }).label;
+    const isTrustGate = question.includes("trust") && question.includes("project");
+    if (!isTrustGate || !firstLabel || !/^yes\b.*trust/i.test(firstLabel)) return null;
+    return buildClaudePromptResponse(0, String(screen || ""));
+  },
+
   // Launch command parity for native behavior across OS-specific execution modes.
   buildLaunchCommand(params: LaunchParams): string {
     const p = params || {};
