@@ -134,29 +134,33 @@ const CONCEPTS: Concept[] = [
 
 export function OpusConcepts() {
   return (
-    <section className="opus-concepts" aria-labelledby="opus-concepts-heading">
-      <header className="opc-head">
-        <h2 id="opus-concepts-heading" className="opc-heading">
-          Team activity
-        </h2>
-        <p className="opc-lede">
-          Eight compact indicators for a working agent team &mdash; CSS-only
-          motion, tuned for a dark sidebar.
-        </p>
-      </header>
-      <ul className="opc-grid">
-        {CONCEPTS.map((c) => (
-          <li key={c.id} className="opc-card">
-            <div className="opc-stage" role="img" aria-label={c.aria}>
-              {c.stage}
+    <section className="concept-section opus-concepts" aria-labelledby="opus-concepts-heading">
+      <div className="section-heading">
+        <div>
+          <span className="section-index">02</span>
+          <h2 id="opus-concepts-heading">Team activity</h2>
+        </div>
+        <p>Built with Opus · orchestration and collaboration metaphors</p>
+      </div>
+      <div className="concept-grid">
+        {CONCEPTS.map((concept, index) => (
+          <article key={concept.id} className="concept-card">
+            <header>
+              <span>{String(index + 9).padStart(2, '0')}</span>
+              <div>
+                <h3>{concept.title}</h3>
+                <p>{concept.caption}</p>
+              </div>
+            </header>
+            <div className="concept-stage" role="img" aria-label={concept.aria}>
+              <div className="mini-team"><b>Team</b><span>active</span></div>
+              <div className="concept-motion opc-stage">
+                {concept.stage}
+              </div>
             </div>
-            <div className="opc-cap">
-              <span className="opc-title">{c.title}</span>
-              <span className="opc-sub">{c.caption}</span>
-            </div>
-          </li>
+          </article>
         ))}
-      </ul>
+      </div>
     </section>
   );
 }

@@ -1,5 +1,6 @@
 import { useMemo, useState, type CSSProperties } from "react";
 import { CoreConcepts } from "./concepts/core/CoreConcepts";
+import { OpusConcepts } from "./concepts/opus/OpusConcepts";
 
 const ACCENTS = [
   { name: "Electric", value: "#58a6ff" },
@@ -90,6 +91,7 @@ export function MotionPlayground() {
 
       <div key={replayKey} className="concept-galleries">
         <CoreConcepts />
+        <OpusConcepts />
       </div>
 
       <footer className="lab-footer">

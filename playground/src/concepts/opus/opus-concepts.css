@@ -1,24 +1,9 @@
 .opus-concepts {
-  --opc-bg: #0a0d12;
-  --opc-panel: #11161f;
   --opc-line: #1e2632;
-  --opc-muted: #5c6b7f;
-  --opc-text: #b8c4d4;
-  --opc-cyan: #45d0c8;
+  --opc-cyan: var(--lab-accent);
   --opc-amber: #f0a94b;
   --opc-green: #5fd97a;
   --opc-glow: 0 0 6px currentColor, 0 0 14px currentColor;
-
-  box-sizing: border-box;
-  width: 100%;
-  max-width: 320px;
-  padding: 16px 14px 18px;
-  background: var(--opc-bg);
-  color: var(--opc-text);
-  font-family: ui-monospace, 'SFMono-Regular', 'Cascadia Code', 'JetBrains Mono',
-    Menlo, Consolas, monospace;
-  border: 1px solid var(--opc-line);
-  border-radius: 10px;
 }
 
 .opus-concepts *,
@@ -27,44 +12,8 @@
   box-sizing: border-box;
 }
 
-.opc-head {
-  margin-bottom: 14px;
-}
-
-.opc-heading {
-  margin: 0;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--opc-cyan);
-}
-
-.opc-lede {
-  margin: 6px 0 0;
-  font-size: 11px;
-  line-height: 1.45;
-  color: var(--opc-muted);
-}
-
-.opc-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.opc-card {
-  display: grid;
-  grid-template-columns: 88px 1fr;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  background: var(--opc-panel);
-  border: 1px solid var(--opc-line);
-  border-radius: 8px;
+.opus-concepts .concept-stage {
+  grid-template-columns: minmax(0, 1fr) 88px;
 }
 
 .opc-stage {
@@ -72,26 +21,6 @@
   width: 88px;
   height: 44px;
   overflow: hidden;
-}
-
-.opc-cap {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.opc-title {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--opc-text);
-}
-
-.opc-sub {
-  font-size: 10.5px;
-  line-height: 1.35;
-  color: var(--opc-muted);
 }
 
 /* 1. Relay ---------------------------------------------------------------- */
@@ -238,7 +167,7 @@
 
 @keyframes opc-target-land {
   0%, 60% { background: var(--opc-line); transform: scale(1); box-shadow: none; }
-  72% { background: var(--opc-green); transform: scale(1.5); box-shadow: var(--opc-glow); }
+  70%, 84% { background: var(--opc-green); transform: scale(1.5); box-shadow: var(--opc-glow); }
   100% { background: var(--opc-line); transform: scale(1); }
 }
 
@@ -263,8 +192,8 @@
 }
 
 @keyframes opc-bar-speak {
-  0%, 22%, 100% { transform: scaleY(1); background: var(--opc-line); box-shadow: none; }
-  8% { transform: scaleY(2.6); background: var(--opc-amber); box-shadow: var(--opc-glow); }
+  0%, 28%, 100% { transform: scaleY(1); background: var(--opc-line); box-shadow: none; }
+  7%, 15% { transform: scaleY(2.6); background: var(--opc-amber); box-shadow: var(--opc-glow); }
 }
 
 /* 5. Weave ---------------------------------------------------------------- */
@@ -441,6 +370,24 @@
   0%, 60% { transform: rotate(-45deg) scale(0); opacity: 0; }
   70% { transform: rotate(-45deg) scale(1.15); opacity: 1; box-shadow: 0 0 6px currentColor; }
   86%, 100% { transform: rotate(-45deg) scale(1); opacity: 0; }
+}
+
+.opus-concepts :is(
+  .opc-node,
+  .opc-token,
+  .opc-core,
+  .opc-ring,
+  .opc-chip,
+  .opc-merge-target,
+  .opc-bar,
+  .opc-msg,
+  .opc-orbit-spin,
+  .opc-slot,
+  .opc-task,
+  .opc-vote,
+  .opc-check
+) {
+  animation-duration: calc(var(--motion-duration) * 2.25);
 }
 
 /* Reduced motion: freeze on a legible representative frame ----------------- */
