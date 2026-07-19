@@ -197,9 +197,8 @@ impl ServiceContext {
         )
     }
 
-    /// Send text to a pane (chatBackend or PTY). Optimistic — the PTY write is
-    /// fire-and-hope, no delivery verification. PTY link is awaited up to 15s so
-    /// scripts can chain `spawn → send` without hitting "no PTY".
+    /// Send text to a pane (chatBackend or PTY). Agent PTYs require causal paste
+    /// ingestion and a provider turn; plain shells retain direct input semantics.
     pub fn send_text(&self, pane_id: &str, text: &str, enter: bool) -> Result<(), String> {
         if self.pane_chat_backing(pane_id).is_some() {
             return self.chatbackend_pane_send(pane_id, text);
@@ -230,11 +229,8 @@ impl ServiceContext {
         self.send_text_to_pty_smart_guaranteed(&pty_id, text, enter)
     }
 
-    /// Optimistic delivery: paste + Enter, no echo/submit verification. A ready
-    /// agent owns the PTY input stream and screen state is diagnostic only —
-    /// ConPTY local echo cannot prove a provider consumed a paste — so the
-    /// default everywhere is fire-and-hope. Verified delivery is parked in
-    /// `send_text_to_pty_smart_guaranteed`.
+    /// Provider-aware delivery. PTY agents use the causal paste-ingestion and
+    /// turn-acknowledgement transaction; plain shells keep direct paste input.
     pub fn send_text_to_pty_smart(
         &self,
         pty_id: &str,
@@ -245,12 +241,29 @@ impl ServiceContext {
         if let Some(ref pid) = pane_id {
             self.await_agent_boot_blocking(pid, std::time::Duration::from_secs(90))?;
         }
-        let text = if agent_type.is_some() {
-            sanitize_agent_prompt_input(text)
-        } else {
-            text.to_string()
+        let Some(agent_id) = agent_type else {
+            return self.write_paste_optimistic(pty_id, text, enter);
         };
-        self.write_paste_optimistic(pty_id, &text, enter)
+        let text = sanitize_agent_prompt_input(text);
+        let strategy = self
+            .agent_registry
+            .with_provider(&agent_id, |provider| provider.verify_submit_strategy())
+            .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
+        super::submit_transaction::submit_text(
+            self,
+            pty_id,
+            &text,
+            enter,
+            strategy,
+            crate::service::inject_verify::VerifyOpts {
+                require_prompt_first: false,
+                verify_echo: true,
+                verify_submit: enter,
+                ..Default::default()
+            },
+        )
+        .map(|_| ())
+        .map_err(|error| error.to_string())
     }
 
     /// Bracketed paste + optional Enter, written straight to the PTY with no
