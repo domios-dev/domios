@@ -15,6 +15,7 @@ pub(crate) struct ManagerBootstrapInputs {
     pub team_name: String,
     pub plan_id: String,
     pub project: String,
+    pub coordination: Option<String>,
 }
 
 impl ManagerBootstrapInputs {
@@ -24,14 +25,18 @@ impl ManagerBootstrapInputs {
         } else {
             crate::prompts::planner_suffix()
         };
-        compose_role_identity(RoleIdentityContext {
+        let identity = compose_role_identity(RoleIdentityContext {
             role: &self.role,
             team_id: &self.team_id,
             team_name: &self.team_name,
             plan_id: &self.plan_id,
             project: &self.project,
             role_guidance: &role_guidance,
-        })
+        });
+        match self.coordination.as_deref() {
+            Some(coordination) => format!("{identity}\n\n{coordination}"),
+            None => identity,
+        }
     }
 }
 
@@ -114,12 +119,30 @@ mod tests {
             team_name: "not yet established".into(),
             plan_id: "no plan bound yet".into(),
             project: "CodeTerm".into(),
+            coordination: None,
         }
         .compose();
         assert!(text.contains("not yet established"));
         assert!(text.contains("no plan bound yet"));
         assert!(!text.contains("team_"));
         assert!(!text.contains("pl_"));
+    }
+
+    #[test]
+    fn counterpart_coordination_is_part_of_the_single_bootstrap_payload() {
+        let coordination = "Your Planner counterpart is Euler (pane planner-1).";
+        let mut inputs = ManagerBootstrapInputs {
+            role: "Orchestrator".into(),
+            team_id: "not yet established".into(),
+            team_name: "not yet established".into(),
+            plan_id: "no plan bound yet".into(),
+            project: "CodeTerm".into(),
+            coordination: Some(coordination.into()),
+        };
+        let rendered = inputs.compose();
+        assert_eq!(rendered.matches(coordination).count(), 1);
+        inputs.coordination = None;
+        assert!(!inputs.compose().contains(coordination));
     }
 
     #[test]

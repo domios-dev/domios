@@ -93,6 +93,7 @@ fn chatbackend_session_config_carries_composed_manager_bootstrap() {
         team_name: "Alpha".into(),
         plan_id: "pl_alpha".into(),
         project: "CodeTerm".into(),
+        coordination: None,
     }
     .compose();
     let config = chatbackend_spawn_config(Some(&content), None, None, None, None, None);

@@ -14,16 +14,6 @@ pub(crate) enum LaunchDeliveryMode {
     ConfirmedFallback,
 }
 
-pub(crate) fn starter_prompt_for_assignment(
-    has_concrete_assignment: bool,
-) -> crate::agent::provider::StarterPrompt {
-    if has_concrete_assignment {
-        crate::agent::provider::StarterPrompt::AssignedTask
-    } else {
-        crate::agent::provider::StarterPrompt::IdleWakeup
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LaunchContent {
     pub system_prompt: Option<String>,
@@ -330,31 +320,6 @@ mod tests {
     }
 
     #[test]
-    fn no_task_manager_starter_is_idle_only() {
-        let starter = starter_prompt_for_assignment(false);
-        assert_eq!(starter, crate::agent::provider::StarterPrompt::IdleWakeup);
-        let identity = crate::service::role_identity::ManagerBootstrapInputs {
-            role: "Orchestrator".into(),
-            team_id: "not yet established".into(),
-            team_name: "not yet established".into(),
-            plan_id: "no plan bound yet".into(),
-            project: "Idle Starter Fixture".into(),
-        }
-        .compose();
-        assert!(identity.contains("Orchestrator"));
-        assert!(identity.contains("Idle Starter Fixture"));
-        assert!(identity.contains("no plan bound yet"));
-    }
-
-    #[test]
-    fn task_bound_worker_starter_unchanged() {
-        assert_eq!(
-            starter_prompt_for_assignment(true),
-            crate::agent::provider::StarterPrompt::AssignedTask
-        );
-    }
-
-    #[test]
     fn system_prompt_channel_consumes_launch_content_without_a_fallback_turn() {
         let content = content_for_descriptor(
             &SystemPromptDelivery::CliFlag("--system".into()),
@@ -397,6 +362,7 @@ mod tests {
             team_name: "not yet established".into(),
             plan_id: "no plan bound yet".into(),
             project: "Manager Bootstrap Fixture".into(),
+            coordination: None,
         }
         .compose();
         let delivery = content_for_descriptor(&SystemPromptDelivery::External, Some(&bootstrap));
