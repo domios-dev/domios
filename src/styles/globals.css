@@ -2061,7 +2061,7 @@ button,
 .sidebar-team-readout {
   display: flex;
   min-width: 0;
-  margin: 6px 12px 9px 32px;
+  margin: 6px 12px 9px 14px;
   justify-content: flex-start;
   gap: 4px;
   font-size: 10.5px;
