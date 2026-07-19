@@ -116,19 +116,36 @@ async function renderPaneSessionChat(
   paneId: string,
   state: ExtendedState,
   chatStart: () => unknown = () => ({ text: "", offset: 0, messages: [] }),
-): Promise<{ host: HTMLDivElement; root: Root; commands: string[] }> {
+): Promise<{
+  host: HTMLDivElement;
+  root: Root;
+  commands: string[];
+  emitChat: (payload: { pane_id: string; messages: Array<{ id: string; type: "assistant"; content: string; timestamp: string }>; source_session_id: string | null; session_binding_nonce: string | null }) => void;
+}> {
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
   const { PaneSessionChat } = await import("./PaneSessionChat");
 
   const commands: string[] = [];
+  let chatListener: ((event: { payload: unknown }) => void) | null = null;
   __setInvokeForTest((async (cmd: string) => {
     commands.push(cmd);
-    if (cmd === "chat_start") return chatStart();
+    if (cmd === "chat_start") {
+      return {
+        source_session_id: state.panes[paneId]?.agent_session_id ?? null,
+        session_binding_nonce: state.panes[paneId]?.session_binding_nonce ?? null,
+        ...(chatStart() as object),
+      };
+    }
     if (cmd === "delayed_send_list") return [];
     return {};
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   }) as any);
-  __setListenForTest(async () => () => {});
+  __setListenForTest(async (event, handler) => {
+    if (event === `pane-chat-msg-${paneId}`) chatListener = handler as (event: { payload: unknown }) => void;
+    return () => {
+      if (event === `pane-chat-msg-${paneId}`) chatListener = null;
+    };
+  });
 
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -146,7 +163,12 @@ async function renderPaneSessionChat(
   await act(async () => {
     await Promise.resolve();
   });
-  return { host, root, commands };
+  return {
+    host,
+    root,
+    commands,
+    emitChat: (payload) => chatListener?.({ payload }),
+  };
 }
 
 setupDom();
@@ -257,6 +279,51 @@ test("an attached current session ignores a late PTY reattach stage", async () =
   assert(host.querySelector('[data-testid="chat-composer"]'), "current attached chat remains usable");
   assert(!host.querySelector('[data-testid="chat-setup-state"]'), "late PTY reattach cannot cover current chat");
   assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "reattach clears any failure presentation");
+  await act(async () => root.unmount());
+});
+
+test("only the current binding epoch can attach chat after a stale launch failure", async () => {
+  const paneId = "binding-epoch-pane";
+  const state = muxStateFor({
+    [paneId]: paneBase(paneId, {
+      backing: { kind: "pty" },
+      agent_session_id: "bound-session",
+      session_binding_nonce: "current-epoch",
+      boot_stage: "spawn_failed",
+      boot_failure_reason: "late stale failure",
+      protected: true,
+    }),
+  });
+  const { host, root, emitChat } = await renderPaneSessionChat(
+    paneId,
+    state,
+    () => ({ text: "", offset: 0, pending: true }),
+  );
+  const composer = host.querySelector('[data-testid="chat-composer"]');
+  assert(host.querySelector('[data-testid="chat-launch-failed"]'), "pre-attach failure remains visible");
+
+  await act(async () => {
+    emitChat({
+      pane_id: paneId,
+      source_session_id: "bound-session",
+      session_binding_nonce: "previous-epoch",
+      messages: [{ id: "stale-event", type: "assistant", content: "stale", timestamp: "1" }],
+    });
+  });
+  assert(host.querySelector('[data-testid="chat-launch-failed"]'), "stale binding event cannot attach chat");
+  assert(!host.textContent?.includes("stale"), "stale binding event cannot alter the transcript");
+
+  await act(async () => {
+    emitChat({
+      pane_id: paneId,
+      source_session_id: "bound-session",
+      session_binding_nonce: "current-epoch",
+      messages: [{ id: "current-event", type: "assistant", content: "attached", timestamp: "2" }],
+    });
+  });
+  assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "current binding event clears the failure chip");
+  assert(host.querySelector('[data-testid="chat-composer"]') === composer, "attachment keeps the composer mounted");
+  assert(host.textContent?.includes("attached"), "current binding event updates the transcript");
   await act(async () => root.unmount());
 });
 

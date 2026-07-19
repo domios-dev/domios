@@ -429,11 +429,24 @@ impl Messenger {
         .lock()
         .upsert(std::slice::from_ref(&msg));
         if inserted {
+            let (source_session_id, session_binding_nonce) = svc
+                .mux
+                .read()
+                .get_pane(to_pane)
+                .map(|pane| {
+                    (
+                        pane.agent_session_id.clone(),
+                        pane.session_binding_nonce.clone(),
+                    )
+                })
+                .unwrap_or((None, None));
             crate::service::pane_chat::structured_sink::emit_chat_msgs(
                 &svc.app_handle,
                 to_pane,
                 std::slice::from_ref(&msg),
                 None,
+                source_session_id.as_deref(),
+                session_binding_nonce.as_deref(),
             );
         }
 

@@ -48,7 +48,7 @@ async function main() {
 
   __setListenForTest(async () => () => {});
   __setInvokeForTest((async (cmd: string) => {
-    if (cmd === "chat_start") return { text: "", offset: 0, messages: [] };
+    if (cmd === "chat_start") return { text: "", offset: 0, messages: [], source_session_id: null, session_binding_nonce: null };
     if (cmd === "delayed_send_list") return [];
     if (cmd === "list_notifications") return [];
     if (cmd === "mux_get_state") {

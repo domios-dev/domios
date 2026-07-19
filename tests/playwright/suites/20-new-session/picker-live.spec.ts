@@ -4,12 +4,14 @@
  * WHY: golden uses the replay transport, so it cannot catch a provider launch
  *      that falls back to a bare shell or starts work without instructions.
  * ORACLE: every returned pane gains a live PTY/session and its first chat
- *         message; a taskless pair becomes idle without an automatic follow-up.
+ *         message; a taskless pair stays idle until an explicit post-ready probe.
  */
 import { expect, test } from "../../helpers/fixtures";
-import { pollUntil } from "../../helpers/poll";
 import type { ApiClient } from "../../helpers/api-client";
-import { assertRealTemplateSpawn } from "../../helpers/real-spawn-smoke";
+import {
+  assertRealTemplateSpawn,
+  expectFreshAssistantReply,
+} from "../../helpers/real-spawn-smoke";
 
 type PairResult = {
   plan_id?: string;
@@ -42,7 +44,6 @@ test("@live real orchestration-pair template spawn materializes both providers a
   ui,
   paneCleanup,
 }) => {
-  test.setTimeout(300_000);
   const ws = await createTestWorkspace(api);
   const pair = await api.post<PairResult>(
     "/orchestration/new",
@@ -54,7 +55,6 @@ test("@live real orchestration-pair template spawn materializes both providers a
       workspace_id: ws.id,
       title: `pw-live-pair-${Date.now()}`,
     },
-    { timeoutMs: 90_000 },
   );
   paneCleanup.track(pair.orchestrator_pane_id);
   paneCleanup.track(pair.planner_pane_id);
@@ -80,26 +80,27 @@ test("@live real orchestration-pair template spawn materializes both providers a
   expect(plannerStatus.role).toBe("Manager");
 
   for (const paneId of [pair.orchestrator_pane_id, pair.planner_pane_id]) {
-    await expect
-      .poll(
-        async () => {
-          const status = await api.get<Record<string, unknown>>(
-            `/panes/${paneId}/status`,
-          );
-          return status.status;
-        },
-        {
-          timeout: 30_000,
-          intervals: [250, 500, 1_000],
-          message: `taskless manager ${paneId} becomes idle`,
-        },
-      )
-      .toBe("Idle");
+    const status = await api.get<Record<string, unknown>>(
+      `/panes/${paneId}/status`,
+    );
+    expect(status.status, `taskless manager ${paneId} stays idle`).toBe("Idle");
   }
 
   const orchestratorText = await paneText(api, pair.orchestrator_pane_id);
   expect(orchestratorText).not.toContain(
     `Your Planner specialist is live: pane ${pair.planner_pane_id}`,
+  );
+
+  await expectFreshAssistantReply(
+    api,
+    ui.page,
+    {
+      paneId: pair.orchestrator_pane_id,
+      provider: "claude",
+      label: "Orchestrator",
+    },
+    "Return only the decimal result of seventeen plus six.",
+    "23",
   );
 });
 
@@ -109,15 +110,12 @@ test("@live real single-agent template spawn materializes a provider and its fir
   paneCleanup,
   spawnAgent,
 }) => {
-  test.setTimeout(300_000);
-  const marker = `PW-LIVE-SINGLE-${Date.now()}`;
   const spawned = await spawnAgent<{ pane_id: string; agent: string }>({
     agent: "claude",
     model: "sonnet",
     title: "pw-live-single-template",
     skip_permissions: true,
     activate: true,
-    task: `Reply with exactly ${marker} and nothing else.`,
   });
   expect(spawned.agent).toBe("claude");
 
@@ -125,20 +123,11 @@ test("@live real single-agent template spawn materializes a provider and its fir
     { paneId: spawned.pane_id, provider: "claude", label: "Single agent" },
   ]);
 
-  const firstReply = await pollUntil(
-    async () => {
-      const chat = await api
-        .get<{
-          messages?: Array<{ content?: string }>;
-        }>(`/panes/${spawned.pane_id}/chat`)
-        .catch(() => ({ messages: [] }));
-      return chat.messages?.some((message) => message.content?.includes(marker))
-        ? marker
-        : undefined;
-    },
-    120_000,
-    1_000,
-    "single-agent first real chat reply arrives",
+  await expectFreshAssistantReply(
+    api,
+    ui.page,
+    { paneId: spawned.pane_id, provider: "claude", label: "Single agent" },
+    "Return only the decimal result of nineteen plus eight.",
+    "27",
   );
-  expect(firstReply).toBe(marker);
 });

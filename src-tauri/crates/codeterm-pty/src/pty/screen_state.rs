@@ -95,6 +95,7 @@ pub struct ScreenState {
     bare_prompt_signals: HashMap<String, Arc<PromptSignal>>,
     agent_signals: HashMap<String, Arc<PromptSignal>>,
     screen_change_signals: HashMap<String, Arc<ScreenChangeSignal>>,
+    screen_change_subscribers: HashMap<String, Vec<Arc<ScreenChangeSignal>>>,
 }
 
 impl ScreenState {
@@ -105,6 +106,7 @@ impl ScreenState {
             bare_prompt_signals: HashMap::new(),
             agent_signals: HashMap::new(),
             screen_change_signals: HashMap::new(),
+            screen_change_subscribers: HashMap::new(),
         }
     }
 
@@ -134,6 +136,11 @@ impl ScreenState {
         }
         if let Some(signal) = self.screen_change_signals.get(pty_id) {
             signal.mark_changed();
+        }
+        if let Some(subscribers) = self.screen_change_subscribers.get(pty_id) {
+            for signal in subscribers {
+                signal.mark_changed();
+            }
         }
     }
 
@@ -317,6 +324,34 @@ impl ScreenState {
             .clone()
     }
 
+    pub fn subscribe_screen_changes(&mut self, pty_id: &str) -> Arc<ScreenChangeSignal> {
+        let signal = ScreenChangeSignal::new();
+        self.screen_change_subscribers
+            .entry(pty_id.to_string())
+            .or_default()
+            .push(signal.clone());
+        signal
+    }
+
+    pub fn unsubscribe_screen_changes(&mut self, pty_id: &str, signal: &Arc<ScreenChangeSignal>) {
+        let should_remove = self
+            .screen_change_subscribers
+            .get_mut(pty_id)
+            .map(|subscribers| {
+                subscribers.retain(|active| !Arc::ptr_eq(active, signal));
+                subscribers.is_empty()
+            })
+            .unwrap_or(false);
+        if should_remove {
+            self.screen_change_subscribers.remove(pty_id);
+        }
+        signal.close();
+    }
+
+    pub fn screen_change_subscriber_count(&self) -> usize {
+        self.screen_change_subscribers.values().map(Vec::len).sum()
+    }
+
     pub fn remove(&mut self, pty_id: &str) {
         self.parsers.remove(pty_id);
         if let Some(sig) = self.prompt_signals.remove(pty_id) {
@@ -330,6 +365,11 @@ impl ScreenState {
         }
         if let Some(signal) = self.screen_change_signals.remove(pty_id) {
             signal.close();
+        }
+        if let Some(subscribers) = self.screen_change_subscribers.remove(pty_id) {
+            for signal in subscribers {
+                signal.close();
+            }
         }
     }
 }
@@ -678,7 +718,6 @@ mod tests {
         let sig = ss.arm_prompt_signal("pty1");
         let sig2 = sig.clone();
         let handle = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(20));
             sig2.mark_ready();
         });
         let got = sig.wait(Duration::from_secs(1));
@@ -709,5 +748,32 @@ mod tests {
 
         assert!(rx.recv_timeout(Duration::from_secs(1)).unwrap());
         handle.join().unwrap();
+    }
+
+    #[test]
+    fn unsubscribed_screen_change_signal_fails_waiters() {
+        let mut state = ScreenState::new();
+        let signal = state.subscribe_screen_changes("pty1");
+        let generation = signal.generation();
+
+        state.unsubscribe_screen_changes("pty1", &signal);
+
+        assert!(!signal.wait_after(generation, Duration::ZERO));
+        assert_eq!(state.screen_change_subscriber_count(), 0);
+    }
+
+    #[test]
+    fn pty_teardown_closes_all_screen_change_subscribers() {
+        let mut state = ScreenState::new();
+        let first = state.subscribe_screen_changes("pty1");
+        let second = state.subscribe_screen_changes("pty1");
+        let first_generation = first.generation();
+        let second_generation = second.generation();
+
+        state.remove("pty1");
+
+        assert!(!first.wait_after(first_generation, Duration::ZERO));
+        assert!(!second.wait_after(second_generation, Duration::ZERO));
+        assert_eq!(state.screen_change_subscriber_count(), 0);
     }
 }
