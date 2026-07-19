@@ -67,6 +67,8 @@ if CODETERM_EXPECTED_BUILD_SHA=definitely-wrong ./build.sh gateway-policy-probe 
 fi
 grep -q "release source mismatch" "$TEST_ROOT/release-mismatch.log"
 
+bash scripts/check-release-source-clean.sh
+
 CT_BUILD_JOB_ID=release-policy ./build.sh gateway-policy-probe release-target > "$TEST_ROOT/release-policy.log"
 grep -q "incremental=0" "$TEST_ROOT/release-policy.log"
 grep -q "/targets/release/release-policy" "$TEST_ROOT/release-policy.log"
