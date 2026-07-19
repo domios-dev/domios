@@ -3,13 +3,14 @@
  * WHY: This spec protects the live CodeTerm workflow from regressions in 12-web.
  * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
-import { recordPerfMetric } from "../../helpers/perf-metrics";
+import { recordPerfMetric, recordPerfSamples } from "../../helpers/perf-metrics";
 import { expect, test } from "../../helpers/fixtures";
 
 // Cold app mount is out-of-band setup, not the measured churn window; bound it
 // so a stuck mount fails fast under the default per-test timeout instead of
 // consuming a 90s escalated budget.
 const WEB_MOUNT_CAP_MS = 20_000;
+const HIDDEN_PANE_RENDER_BUDGET = 3;
 
 type RenderCounts = Record<string, number>;
 
@@ -88,12 +89,22 @@ test("@perf hidden panes do not re-render on unrelated agent_state churn", async
   const after = await readRenderCounts(page);
 
   const hiddenIds = hiddenPanes.slice(1).map((p) => p.id);
-  for (const id of hiddenIds) {
-    const delta = (after[id] ?? 0) - (before[id] ?? 0);
+  const hiddenRenderDeltas = hiddenIds.map((id) => ({
+    id,
+    delta: (after[id] ?? 0) - (before[id] ?? 0),
+  }));
+  recordPerfSamples({
+    name: "hidden-pane-render-delta",
+    unit: "count",
+    samples: hiddenRenderDeltas.map(({ delta }) => delta),
+    budget: HIDDEN_PANE_RENDER_BUDGET,
+    mode: "stub",
+  });
+  for (const { id, delta } of hiddenRenderDeltas) {
     expect(
       delta,
       `hidden pane ${id} render delta during churn (pre-fix baseline ~60 over 3s)`,
-    ).toBeLessThanOrEqual(3);
+    ).toBeLessThanOrEqual(HIDDEN_PANE_RENDER_BUDGET);
   }
 
   // The churn owner is itself hidden here, so the hidden-pane optimization
