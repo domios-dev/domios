@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -35,6 +36,12 @@ document.body.appendChild(host);
 const root = createRoot(host);
 
 async function run() {
+  const styles = readFileSync(new URL("../../styles/globals.css", import.meta.url), "utf8");
+  assert.match(
+    styles,
+    /\.sidebar-workspace-card-working\s*\{[^}]*border-radius:\s*999px;[^}]*background:\s*color-mix\(in srgb, var\(--ct-accent\) 68%, var\(--ct-surface\)\);/s,
+    "working indicator uses a theme-accent activity pill",
+  );
   assert.deepEqual(
     Array.from({ length: 8 }, (_, index) => workspaceCardPosition(index, 3)),
     [
@@ -73,7 +80,9 @@ async function run() {
   assert.equal(`${createButton.style.gridRow}/${createButton.style.gridColumn}`, "1/3");
   await act(async () => createButton.click());
   assert.equal(creates, 1, "create card owns the workspace creation action");
-  assert(host.querySelector('[role="status"][aria-label="CodeTerm has working tabs"]'), "working workspace exposes accessible activity");
+  const workingIndicator = host.querySelector('[role="status"][aria-label="CodeTerm has working tabs"]');
+  assert(workingIndicator, "working workspace exposes accessible activity");
+  assert.equal(workingIndicator.children.length, 3, "working workspace uses a three-dot activity indicator");
   assert(host.textContent?.includes("CT") && host.textContent.includes("TS"), "derived initials render");
 
   await act(async () => (host.querySelector('[aria-label="Select workspace team_smoke"]') as HTMLButtonElement).click());
