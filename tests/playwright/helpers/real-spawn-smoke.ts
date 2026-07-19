@@ -137,6 +137,29 @@ export async function activateRealSpawnChat(
   return chat;
 }
 
+export async function expectRealSpawnIdle(
+  api: ApiClient,
+  page: Page,
+  surface: RealSpawnSurface,
+): Promise<void> {
+  const tabRef = await paneTabRef(api, surface.paneId);
+  const tab = page.locator(
+    `[data-testid="tab-item"][data-tab-id="${tabRef.tabId}"]`,
+  );
+  const status = tab.getByRole("status");
+  await expect(
+    status,
+    `${surface.label} emits an Idle status transition`,
+  ).toHaveAccessibleName(/ tab status Idle$/, {
+    timeout: STARTUP_STATE_TIMEOUT_MS,
+  });
+
+  const snapshot = await api.get<PaneStatus>(`/panes/${surface.paneId}/status`);
+  expect(snapshot.status, `${surface.label} is Idle after the UI transition`).toBe(
+    "Idle",
+  );
+}
+
 export async function expectFreshAssistantReply(
   api: ApiClient,
   page: Page,
