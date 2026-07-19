@@ -675,3 +675,93 @@ fn session_exists_probe_never_runs_under_mux_lock() {
         "session_exists must never be invoked while the mux lock is held"
     );
 }
+
+fn arm_hook_launch(
+    mux: &MuxState,
+    pane_id: &str,
+    pty_id: &str,
+    nonce: &str,
+) -> crate::service::LaunchGeneration {
+    {
+        let mut mux = mux.write();
+        let pane = mux.get_pane_mut(pane_id).unwrap();
+        pane.pty_id = Some(pty_id.to_string());
+        pane.session_binding_nonce = Some(nonce.to_string());
+        pane.reported_session_binding_nonce = None;
+    }
+    crate::service::arm_provider_session_for_test(pane_id, pty_id, nonce)
+}
+
+fn authenticated_claim(
+    mux: &MuxState,
+    registry: &AgentRegistry,
+    pane_id: &str,
+    nonce: &str,
+) -> SessionStartClaim {
+    bind_reported_session(mux, registry, pane_id, "codex", "sid-a", Some(nonce))
+        .expect("authenticated session hook must bind")
+}
+
+#[test]
+fn authenticated_hook_acknowledges_the_matching_launch_binding() {
+    let (mux, pane_id) = shared_mux();
+    let launch = arm_hook_launch(&mux, &pane_id, "pty-a", "nonce-a");
+    let claim = authenticated_claim(&mux, &registry(&["codex"]), &pane_id, "nonce-a");
+
+    assert!(acknowledge_authenticated_launch(
+        &mux,
+        &pane_id,
+        &claim,
+        Some("nonce-a")
+    ));
+    assert!(launch.await_provider_ack(Duration::ZERO));
+}
+
+#[test]
+fn authenticated_hook_from_an_old_generation_on_the_same_pty_is_ignored() {
+    let (mux, pane_id) = shared_mux();
+    let _old = arm_hook_launch(&mux, &pane_id, "pty-a", "nonce-old");
+    let claim = authenticated_claim(&mux, &registry(&["codex"]), &pane_id, "nonce-old");
+    let current = arm_hook_launch(&mux, &pane_id, "pty-a", "nonce-current");
+
+    assert!(!acknowledge_authenticated_launch(
+        &mux,
+        &pane_id,
+        &claim,
+        Some("nonce-old")
+    ));
+    assert!(!current.await_provider_ack(Duration::ZERO));
+}
+
+#[test]
+fn authenticated_hook_from_a_replaced_pty_is_ignored() {
+    let (mux, pane_id) = shared_mux();
+    let _old = arm_hook_launch(&mux, &pane_id, "pty-old", "nonce-old");
+    let claim = authenticated_claim(&mux, &registry(&["codex"]), &pane_id, "nonce-old");
+    let current = arm_hook_launch(&mux, &pane_id, "pty-new", "nonce-current");
+
+    assert!(!acknowledge_authenticated_launch(
+        &mux,
+        &pane_id,
+        &claim,
+        Some("nonce-old")
+    ));
+    assert!(!current.await_provider_ack(Duration::ZERO));
+}
+
+#[test]
+fn hook_with_the_wrong_binding_nonce_cannot_acknowledge_launch_readiness() {
+    let (mux, pane_id) = shared_mux();
+    let launch = arm_hook_launch(&mux, &pane_id, "pty-a", "nonce-current");
+    let result = bind_reported_session(
+        &mux,
+        &registry(&["codex"]),
+        &pane_id,
+        "codex",
+        "sid-a",
+        Some("nonce-wrong"),
+    );
+
+    assert_eq!(result.unwrap_err().0, StatusCode::CONFLICT);
+    assert!(!launch.await_provider_ack(Duration::ZERO));
+}

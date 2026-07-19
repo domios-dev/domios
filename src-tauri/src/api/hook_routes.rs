@@ -309,6 +309,7 @@ pub async fn hook_session_start(
         report_nonce.as_deref(),
     )?;
     crate::service::general_agent::binding_wait::notify_session_bound();
+    acknowledge_authenticated_launch(&state.svc.mux, &pane_id, &claim, report_nonce.as_deref());
 
     // while it runs — not only after completion.
     propagate_run_session(&state, &pane_id, &sid);
@@ -359,6 +360,33 @@ pub async fn hook_session_start(
     state.svc.schedule_planner_replay(&pane_id);
     state.svc.emit_state_changed();
     Ok(Json(serde_json::json!({"ok": true, "changed": true})))
+}
+
+fn acknowledge_authenticated_launch(
+    mux: &crate::multiplexer::commands::MuxState,
+    pane_id: &str,
+    claim: &SessionStartClaim,
+    report_nonce: Option<&str>,
+) -> bool {
+    if !claim.nonce_verified {
+        return false;
+    }
+    let Some(binding_nonce) = report_nonce else {
+        return false;
+    };
+    let binding = {
+        let mux = mux.read();
+        mux.get_pane(pane_id).and_then(|pane| {
+            (pane.reported_session_binding_nonce.as_deref() == Some(binding_nonce))
+                .then(|| pane.pty_id.clone())
+                .flatten()
+                .map(|pty_id| crate::service::ProviderSessionBinding {
+                    pty_id,
+                    binding_nonce: binding_nonce.to_string(),
+                })
+        })
+    };
+    binding.is_some_and(|binding| crate::service::record_provider_session(pane_id, &binding))
 }
 
 fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {

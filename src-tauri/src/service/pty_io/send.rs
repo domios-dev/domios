@@ -404,33 +404,6 @@ impl ServiceContext {
         self.await_agent_tui_screen(pty_id, agent_id, timeout, false)
     }
 
-    pub(crate) fn await_provider_status_event(
-        &self,
-        pty_id: &str,
-        timeout: std::time::Duration,
-    ) -> bool {
-        let signal = self.agent_tracker.lock().arm_status_change_signal(pty_id);
-        let deadline = std::time::Instant::now() + timeout;
-        let mut generation = signal.generation();
-        loop {
-            if self
-                .agent_tracker
-                .lock()
-                .get_status_if_tracked(pty_id)
-                .is_some_and(|status| status != crate::agent::status::PaneStatus::Dead)
-            {
-                return true;
-            }
-            let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
-                return false;
-            };
-            if !signal.wait_after(generation, remaining) {
-                return false;
-            }
-            generation = signal.generation();
-        }
-    }
-
     /// Wait until a structural agent TUI exposes an operable composer.
     pub(crate) fn await_agent_tui_on_screen(
         &self,
