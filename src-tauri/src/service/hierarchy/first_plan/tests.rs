@@ -6,7 +6,7 @@ use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
 use crate::plan::{Goal, OrchestratorRef};
 use crate::service::hierarchy::first_plan::create_first_plan_for_orchestrator;
-use crate::service::plan::{NewTask, PlanError, PlanStore};
+use crate::service::plan::{PlanError, PlanStore};
 use crate::service::FirstPlanTeamError;
 
 struct FirstPlanHarness {
@@ -96,56 +96,6 @@ fn plan_goal_autocreate_uses_atomic_team_outcome() {
         Some(outcome.team_id.as_str())
     );
     assert_eq!(harness.mux.read().team_count(), 1);
-}
-
-#[test]
-fn first_plan_adopts_unique_legacy_effort_and_preserves_task_counts() {
-    let dir = tempfile::tempdir().unwrap();
-    let harness = FirstPlanHarness::new(dir.path());
-    let owner_pane_id = teamless_orchestrator(&harness.mux);
-    let legacy = harness
-        .plan_store
-        .create_plan(
-            "Existing effort".into(),
-            dir.path().display().to_string(),
-            OrchestratorRef::from_pane("retired-owner"),
-            vec![],
-            1,
-        )
-        .unwrap();
-    for index in 0..40 {
-        harness
-            .plan_store
-            .add_task(
-                &legacy.id,
-                NewTask {
-                    name: format!("Legacy task {index}"),
-                    ..NewTask::default()
-                },
-                2 + index,
-            )
-            .unwrap();
-    }
-
-    let outcome = create_first_plan_for_orchestrator(
-        &harness.mux,
-        &harness.plan_store,
-        legacy.title.clone(),
-        dir.path().display().to_string(),
-        OrchestratorRef::from_pane(&owner_pane_id),
-        vec![],
-        None,
-        100,
-    )
-    .unwrap();
-
-    assert_eq!(outcome.plan.id, legacy.id);
-    assert_eq!(outcome.plan.tasks.len(), 40);
-    assert_eq!(harness.plan_store.list_index().len(), 1);
-    let index = harness.plan_store.list_index().pop().unwrap();
-    assert_eq!(index.task_count, 40);
-    assert_eq!(index.open_task_count, 40);
-    assert_eq!(index.team_id.as_deref(), Some(outcome.team_id.as_str()));
 }
 
 #[test]

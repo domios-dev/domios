@@ -120,10 +120,11 @@ mod tests {
     fn store_with_task(dir: &std::path::Path) -> (PlanStore, String, String) {
         let store = PlanStore::new_for_test(dir);
         let plan = store
-            .create_plan(
+            .create_plan_for_team(
                 "Spawn bind".into(),
                 dir.display().to_string(),
                 OrchestratorRef::from_pane("orch"),
+                "team-orch".into(),
                 vec![],
                 1,
             )

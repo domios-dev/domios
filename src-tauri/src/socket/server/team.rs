@@ -6,6 +6,17 @@ use crate::service::{ServiceState, TeamPlanError};
 use super::plan::plan_rpc_err;
 use super::{get_string_param, opt_string_param, JsonRpcError};
 
+pub(super) fn team_plan_rpc_err(error: TeamPlanError) -> JsonRpcError {
+    match error {
+        TeamPlanError::Team(message) => JsonRpcError {
+            code: -32602,
+            message,
+            data: None,
+        },
+        TeamPlanError::Plan(error) => plan_rpc_err(error),
+    }
+}
+
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
@@ -51,22 +62,15 @@ pub(super) fn dispatch(
         "team.adopt_plan" => {
             let team_id = get_string_param(params, "team_id")?;
             let plan_id = get_string_param(params, "plan_id")?;
-            let caller_pane_id = opt_string_param(params, "caller_pane_id");
+            let caller_pane_id = adopt_plan_caller(params)?;
             let plan = svc
                 .adopt_plan_for_team(
                     &team_id,
                     &plan_id,
-                    caller_pane_id.as_deref(),
+                    crate::service::TeamMutationCaller::AgentPane(caller_pane_id),
                     super::plan_time::epoch_ms(),
                 )
-                .map_err(|error| match error {
-                    TeamPlanError::Team(message) => JsonRpcError {
-                        code: -32602,
-                        message,
-                        data: None,
-                    },
-                    TeamPlanError::Plan(error) => plan_rpc_err(error),
-                })?;
+                .map_err(team_plan_rpc_err)?;
             Ok(serde_json::json!({ "team_id": team_id, "plan": plan }))
         }
         _ => Err(JsonRpcError {
@@ -74,5 +78,43 @@ pub(super) fn dispatch(
             message: "Method not found".into(),
             data: None,
         }),
+    }
+}
+
+fn adopt_plan_caller(params: &Option<Value>) -> Result<String, JsonRpcError> {
+    params
+        .as_ref()
+        .and_then(|value| value.get("caller_pane_id"))
+        .and_then(Value::as_str)
+        .filter(|pane_id| !pane_id.trim().is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| JsonRpcError {
+            code: -32602,
+            message: "caller_pane_id is required for Team plan adoption".into(),
+            data: None,
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn adopt_plan_caller_requires_nonempty_pane_id() {
+        assert_eq!(
+            adopt_plan_caller(&Some(json!({ "caller_pane_id": "manager" }))).unwrap(),
+            "manager"
+        );
+        for params in [
+            None,
+            Some(json!({})),
+            Some(json!({ "caller_pane_id": null })),
+            Some(json!({ "caller_pane_id": "  " })),
+        ] {
+            let error = adopt_plan_caller(&params).unwrap_err();
+            assert_eq!(error.code, -32602);
+            assert!(error.message.contains("caller_pane_id is required"));
+        }
     }
 }

@@ -211,6 +211,8 @@ pub(super) fn dispatch(
         }
 
         "plan.list" => {
+            svc.validate_active_team_plan_bindings()
+                .map_err(super::team::team_plan_rpc_err)?;
             let want =
                 if let Some(project) = p.and_then(|x| x.get("project")).and_then(|v| v.as_str()) {
                     Some(
@@ -277,7 +279,7 @@ pub(super) fn dispatch(
             Ok(json!({ "ok": true, "plan_id": id }))
         }
         "plan.archive" => super::plan_archive::archive(store, svc, app, params, now),
-        "plan.unarchive" => super::plan_archive::unarchive(store, app, params, now),
+        "plan.unarchive" => super::plan_archive::unarchive(store, svc, params, now),
         "plan.delete" => {
             let id = plan_refs::resolve_plan(store, params)?;
             store.delete(&id).map_err(|e| JsonRpcError {
@@ -303,14 +305,9 @@ pub(super) fn dispatch(
                 .and_then(|x| x.get("reason"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            let new_owner_pane = to.pane_id.clone();
-            store.transfer(&id, to, reason, now).map_err(plan_rpc_err)?;
-            // Relink AFTER transfer returns — mux is only reachable here, never
-            // under the plan lock (lock ordering: mux is acquired first).
-            if let Some(pane) = new_owner_pane {
-                svc.relink_plan_hierarchy(&id, &pane);
-            }
-            emit_plan_changed(app, &id);
+            let caller = transfer_caller(params)?;
+            svc.transfer_team_plan(&id, to, reason, caller, now)
+                .map_err(super::team::team_plan_rpc_err)?;
             Ok(json!({ "ok": true, "plan_id": id }))
         }
 
@@ -574,6 +571,20 @@ pub(super) fn dispatch(
             data: None,
         }),
     }
+}
+
+fn transfer_caller(params: &Option<Value>) -> Result<String, JsonRpcError> {
+    params
+        .as_ref()
+        .and_then(|value| value.get("caller_pane_id"))
+        .and_then(|value| value.as_str())
+        .filter(|pane_id| !pane_id.trim().is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| JsonRpcError {
+            code: -32602,
+            message: "caller_pane_id is required for plan transfer".into(),
+            data: None,
+        })
 }
 
 #[cfg(test)]
