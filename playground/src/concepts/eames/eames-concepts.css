@@ -41,9 +41,9 @@
   animation: qm-glow-pulse var(--motion-period-ambient) var(--motion-ease-standard) infinite;
 }
 
-.qm-tap .qm-anvil { left: 4px; bottom: 1px; width: 16px; height: 3px; }
-.qm-tap .qm-anvil::after { left: 2.5px; top: -1.5px; width: 11px; height: 2px; }
-.qm-tap .qm-head { left: 7.5px; top: 2px; width: 9px; height: 4px; animation: qm-tap var(--motion-period-ambient) var(--motion-ease-standard) infinite; }
+.qm-tap .qm-anvil { left: 3px; bottom: 1px; width: 18px; height: 4px; clip-path: polygon(0 0, 100% 0, 100% 45%, 66% 45%, 66% 100%, 34% 100%, 34% 45%, 0 45%); }
+.qm-tap .qm-anvil::after { left: 4px; top: -1.5px; width: 10px; height: 2px; }
+.qm-tap .qm-head { left: 7.5px; top: 2px; width: 9px; height: 4px; clip-path: polygon(0 0, 100% 0, 100% 50%, 68% 50%, 68% 100%, 32% 100%, 32% 50%, 0 50%); animation: qm-tap var(--motion-period-ambient) var(--motion-ease-standard) infinite; }
 
 @keyframes qm-tap {
   0%   { transform: translateY(0); animation-timing-function: var(--motion-ease-standard); }
@@ -54,9 +54,9 @@
   100% { transform: translateY(0); }
 }
 
-.qm-latch .qm-block { left: 13px; top: 7px; width: 7px; height: 5px; }
-.qm-latch .qm-block::after { left: -1px; top: -1px; width: 8px; height: 2px; }
-.qm-latch .qm-lever { left: 4px; top: 3px; width: 13px; height: 2px; transform: rotate(-2deg); transform-origin: left center; animation: qm-latch var(--motion-period-ambient) var(--motion-ease-standard) infinite; }
+.qm-latch .qm-block { left: 2px; top: 5px; width: 19px; height: 8px; clip-path: polygon(5% 0, 21% 0, 21% 62%, 63% 62%, 63% 25%, 95% 25%, 95% 62%, 100% 62%, 100% 100%, 0 100%, 0 62%); }
+.qm-latch .qm-block::after { left: 12px; top: 2px; width: 6px; height: 1.5px; }
+.qm-latch .qm-lever { left: 4px; top: 4px; width: 12px; height: 2px; transform: rotate(-2deg); transform-origin: left center; animation: qm-latch var(--motion-period-ambient) var(--motion-ease-standard) infinite; }
 
 @keyframes qm-latch {
   0%   { transform: rotate(-2deg); animation-timing-function: var(--motion-ease-standard); }
