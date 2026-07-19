@@ -148,12 +148,17 @@ fn wip_limit_blocks_dispatch_and_closing_a_review_restores_capacity() {
             6,
         )
         .unwrap();
-    store
-        .close_task(&plan_id, &a, Some("shipped"), AgentRef::from_pane("rev"), 6)
-        .unwrap();
+
+    let accepted = store.get(&plan_id).unwrap();
+    let accepted_a = accepted.tasks.iter().find(|t| t.id == a).unwrap();
+    assert_eq!(
+        accepted_a.status,
+        TaskStatus::Done,
+        "accept closes the task in one step"
+    );
 
     let gate = store.review_gate_status(&plan_id).unwrap();
-    assert!(!gate.blocked, "closing one review must free capacity");
+    assert!(!gate.blocked, "accepting one review must free capacity");
 
     dispatch(&store, &plan_id, &c, "pane_c", 7).unwrap();
 }
@@ -302,7 +307,7 @@ fn oracle_scope_expansion_rejected_without_override() {
 }
 
 #[test]
-fn accept_review_past_round_bound_creates_follow_up_and_does_not_touch_status() {
+fn accept_review_past_round_bound_creates_follow_up_and_closes_task() {
     let (_dir, store, plan_id) = setup();
     let task_id = add_ready_task(&store, &plan_id, "residual-risk", 2);
     dispatch(&store, &plan_id, &task_id, "pane_impl", 3).unwrap();
@@ -351,10 +356,18 @@ fn accept_review_past_round_bound_creates_follow_up_and_does_not_touch_status() 
 
     let plan = store.get(&plan_id).unwrap();
     let task = plan.tasks.iter().find(|t| t.id == task_id).unwrap();
-    assert_eq!(task.status, TaskStatus::InReview, "accept is read-only");
+    assert_eq!(
+        task.status,
+        TaskStatus::Done,
+        "accept closes the task even past the round bound"
+    );
     let follow_up_id = result.follow_up_task_id.unwrap();
     let follow_up = plan.tasks.iter().find(|t| t.id == follow_up_id).unwrap();
-    assert_eq!(follow_up.status, TaskStatus::Pending);
+    assert_eq!(
+        follow_up.status,
+        TaskStatus::Pending,
+        "residual risk stays open as a separate follow-up"
+    );
     assert_eq!(follow_up.parent_task_id.as_deref(), Some(task_id.as_str()));
     assert!(follow_up.body.contains("edge case Z untested"));
 }

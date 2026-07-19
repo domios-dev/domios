@@ -101,7 +101,7 @@ pub enum PlanReviewAction {
         #[arg(long, allow_hyphen_values = true)]
         reproduction: String,
     },
-    /// Read-only ACCEPT verdict: attaches evidence without closing the task
+    /// ACCEPT: attaches the verdict and closes the task (in_review -> done)
     Accept {
         plan_id: Option<String>,
         task_id: String,

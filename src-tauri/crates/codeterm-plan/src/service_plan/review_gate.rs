@@ -371,10 +371,10 @@ impl PlanStore {
         result.ok_or(PlanError::TaskNotFound)
     }
 
-    /// Read-only ACCEPT verdict: attaches evidence to the owning task without
-    /// mutating its status (closing the task itself still goes through
-    /// `close_task`/`pass_qa`). Past the default round bound, residual risk is
-    /// routed to a separate follow-up task instead of blocking further.
+    /// ACCEPT verdict: attaches evidence AND closes the task (in_review -> done)
+    /// in one step, so a reviewer never has to follow up with a separate
+    /// `close_task`. Rejects while subtasks are still open. Past the default
+    /// round bound, residual risk is routed to a separate follow-up task.
     pub fn accept_review(
         &self,
         plan_id: &str,
@@ -421,6 +421,7 @@ impl PlanStore {
                     now_ms,
                 ));
             }
+            super::mutations::finalize_task_done(p, idx, now_ms)?;
             if p.tasks[idx].review_round >= rounds {
                 if let Some(risk) = residual_risk.map(str::trim).filter(|r| !r.is_empty()) {
                     let fid = crate::plan::ids::mint_id("task", |c| plan_contains_id(p, c));
