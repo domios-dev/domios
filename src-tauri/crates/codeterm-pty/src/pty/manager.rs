@@ -7,6 +7,7 @@ use std::time::Instant;
 
 use parking_lot::Mutex as PlMutex;
 
+pub use super::teardown::{PtyReaper, PtyTeardownSignal};
 use super::write_queue::WriteQueue;
 
 pub struct SpawnMark {
@@ -46,6 +47,7 @@ pub struct PtySession {
     pub backend_reader_tx: StdMutex<Option<tokio::sync::mpsc::Sender<Vec<u8>>>>,
     pub backend_reader_rx: StdMutex<Option<tokio::sync::mpsc::Receiver<Vec<u8>>>>,
     pub backend_reader_active: AtomicBool,
+    pub teardown: PtyTeardownSignal,
 }
 
 impl PtySession {
@@ -69,66 +71,15 @@ impl PtySession {
         *size = (cols, rows);
         Ok(true)
     }
-}
 
-pub struct PtyReaper {
-    pty_id: String,
-    session: Arc<PtySession>,
-    kill_error: Option<String>,
-}
-
-impl PtyReaper {
-    pub fn wait_bounded(self, timeout: std::time::Duration) -> Result<(), String> {
-        if let Some(error) = self.kill_error.as_ref() {
-            let message = format!(
-                "PTY {} process-tree termination failed: {error}",
-                self.pty_id
-            );
-            self.reap_in_background();
-            return Err(message);
-        }
-
-        let deadline = Instant::now() + timeout;
-        loop {
-            let result = {
-                match self.session.child.lock() {
-                    Ok(mut child) => child.try_wait().map_err(|error| error.to_string()),
-                    Err(error) => Err(format!("child mutex poisoned: {error}")),
-                }
-            };
-            match result {
-                Ok(Some(_)) if !self.session.backend_reader_active.load(Ordering::Acquire) => {
-                    log::info!("PTY {} process tree reaped", self.pty_id);
-                    return Ok(());
-                }
-                Ok(Some(_)) | Ok(None) if Instant::now() < deadline => {
-                    std::thread::sleep(std::time::Duration::from_millis(25));
-                }
-                Ok(Some(_)) | Ok(None) => {
-                    let message = format!(
-                        "PTY {} process tree did not exit within {}ms",
-                        self.pty_id,
-                        timeout.as_millis()
-                    );
-                    self.reap_in_background();
-                    return Err(message);
-                }
-                Err(error) => {
-                    let message = format!("PTY {} reap failed: {error}", self.pty_id);
-                    self.reap_in_background();
-                    return Err(message);
-                }
-            }
-        }
+    pub fn mark_backend_reader_started(&self) {
+        self.backend_reader_active.store(true, Ordering::Release);
+        self.teardown.mark_reader_started();
     }
 
-    fn reap_in_background(self) {
-        std::thread::spawn(move || {
-            if let Ok(mut child) = self.session.child.lock() {
-                let _ = child.wait();
-            }
-            log::info!("PTY {} process tree reaped in background", self.pty_id);
-        });
+    pub fn mark_backend_reader_finished(&self) {
+        self.backend_reader_active.store(false, Ordering::Release);
+        self.teardown.mark_reader_finished();
     }
 }
 
@@ -239,6 +190,8 @@ impl OutputBuffer {
 #[cfg(test)]
 mod output_buffer_tests {
     use super::*;
+    use std::sync::mpsc;
+    use std::time::Instant;
 
     #[test]
     fn read_since_survives_ring_rotation() {
@@ -275,6 +228,38 @@ mod output_buffer_tests {
         let (chunk, total) = ob.read_since("p", 5);
         assert_eq!(total, 5);
         assert!(chunk.is_empty());
+    }
+
+    #[test]
+    fn teardown_completion_wakes_on_child_and_reader_events() {
+        let signal = Arc::new(PtyTeardownSignal::default());
+        signal.mark_reader_started();
+        let waiter = signal.clone();
+        let (tx, rx) = mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            tx.send(waiter.wait_for_completion(Instant::now() + std::time::Duration::from_secs(1)))
+                .unwrap();
+        });
+
+        signal.mark_child_exited();
+        signal.mark_reader_finished();
+
+        assert!(rx
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .unwrap()
+            .is_ok());
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn teardown_deadline_is_a_failure() {
+        let signal = PtyTeardownSignal::default();
+
+        let error = signal
+            .wait_for_completion(Instant::now())
+            .expect_err("deadline must not report successful teardown");
+
+        assert!(error.contains("deadline"), "{error}");
     }
 }
 
@@ -382,6 +367,7 @@ pub fn build_session(
         backend_reader_tx: StdMutex::new(None),
         backend_reader_rx: StdMutex::new(None),
         backend_reader_active: AtomicBool::new(false),
+        teardown: PtyTeardownSignal::default(),
     });
 
     Ok(BuiltSession { shell, session })
@@ -679,20 +665,10 @@ mod tests {
             "session should be gone from manager after kill"
         );
 
-        // TerminateProcess is async on Windows and the reaper thread may reap
-        // concurrently; poll until the child is gone (here or in background).
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        loop {
-            match session.child.lock().expect("child mutex").try_wait() {
-                Ok(Some(_)) | Err(_) => break,
-                Ok(None) => {}
-            }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "child must have exited after PtyManager::kill"
-            );
-            std::thread::sleep(std::time::Duration::from_millis(25));
-        }
+        session
+            .teardown
+            .wait_for_completion(std::time::Instant::now() + std::time::Duration::from_secs(5))
+            .expect("child and backend reader must finish after PtyManager::kill");
     }
 
     /// Regression guard for the CREATE_NO_WINDOW ConPTY bug: spawning a child
@@ -1041,6 +1017,7 @@ mod tests {
     }
 
     #[cfg(target_os = "windows")]
+    // The Windows test API has no process-tree event subscription; this is a bounded OS observation contract.
     fn wait_for_new_conpty_hosts(
         before: &std::collections::HashSet<u32>,
         timeout: std::time::Duration,
@@ -1057,6 +1034,7 @@ mod tests {
     }
 
     #[cfg(target_os = "windows")]
+    // The Windows test API has no process-tree event subscription; this is a bounded OS observation contract.
     fn wait_for_processes_gone(pids: Vec<u32>, timeout: std::time::Duration) -> bool {
         let deadline = std::time::Instant::now() + timeout;
         loop {
