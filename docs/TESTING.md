@@ -119,10 +119,12 @@ bash scripts/test-capped.test.sh
 **Windows: cargo test target isolation**
 Running `cargo test` against the app crate while a dev build occupies the same
 `target/` directory fails with `Os error 5` — tauri-build cannot overwrite the
-in-use `.exe`. Isolate with a separate target directory:
+in-use `.exe`. The required wrapper detects a healthy dev instance and
+automatically routes focused tests to the worktree-local
+`target-check` cache and enables machine-level `sccache` before Cargo starts:
 
 ```bash
-CARGO_TARGET_DIR=target-test cargo test --manifest-path src-tauri/Cargo.toml --lib
+TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib <filter>
 ```
 
 ## E2E tests
@@ -394,4 +396,4 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 
 Before approving a PR, use **`docs/contributing/review-checklist.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
 
-<!-- revision: 16 -->
+<!-- revision: 17 -->

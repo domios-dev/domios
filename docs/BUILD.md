@@ -79,6 +79,15 @@ Dev builds (`npx tauri dev`) run with `tauri.dev.conf.json` overrides:
 
 Custom git hooks live in `.githooks/` and are automatically wired via `git config core.hooksPath` by every `./build.sh` invocation. The pre-push hook prepares the embed sidecar stub, then runs `cargo check`, `cargo fmt --check`, and `cargo clippy` on the main crate and CLI. On Windows it uses an isolated Cargo target directory so it does not collide with a running dev daemon that already owns `src-tauri/target`.
 
+Focused Rust tests use the same Windows rule. `scripts/test-capped.sh` detects a
+healthy dev instance and selects the worktree-local `target-check`
+cache with `sccache` before Cargo starts, avoiding late `os error 32` relink
+failures without recompiling dependencies in every run.
+
+`build.ps1 dev` is also a true restart command: it stops only port 7686 before
+joining the app build gateway. This ordering prevents the old dev monitor from
+waiting on itself while retaining ownership of the Windows build artifacts.
+
 ## macOS Code Signing
 
 **Release builds MUST be signed.** Unsigned DMGs trigger Gatekeeper ("unidentified developer").
@@ -255,4 +264,4 @@ codeterm/
 └── docs/               # Documentation
 ```
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->
