@@ -55,8 +55,8 @@ async function tokenDurationViolations(page: Page) {
 
 test("review gate exposes current Accepted and Exploration counts", async ({ page }) => {
   await openMotionLab(page);
-  await expect(tierCount(page, "accepted-concepts-title")).toHaveText("0 concepts");
-  await expect(tierCount(page, "exploration-concepts-title")).toHaveText("16 concepts");
+  await expect(tierCount(page, "accepted-concepts-title")).toHaveText("3 concepts");
+  await expect(tierCount(page, "exploration-concepts-title")).toHaveText("19 concepts");
 });
 
 test("review gate removes every ambient animation under reduced motion", async ({ page }) => {

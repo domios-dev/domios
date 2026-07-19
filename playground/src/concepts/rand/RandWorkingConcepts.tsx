@@ -24,7 +24,13 @@ const VARIANTS = [
   },
 ] as const;
 
-export function RandWorkingConcepts() {
+type RandVariantId = (typeof VARIANTS)[number]["id"];
+
+interface RandWorkingConceptsProps {
+  variants?: readonly RandVariantId[];
+}
+
+export function RandWorkingConcepts({ variants = VARIANTS.map(({ id }) => id) }: RandWorkingConceptsProps) {
   return (
     <section className="concept-section rand-concepts" aria-labelledby="rand-concepts-title">
       <div className="section-heading">
@@ -35,7 +41,7 @@ export function RandWorkingConcepts() {
         <p>Built by Rand · grounded working gestures</p>
       </div>
       <div className="concept-grid">
-        {VARIANTS.map((variant) => (
+        {VARIANTS.filter(({ id }) => variants.includes(id)).map((variant) => (
           <article
             className="concept-card"
             data-concept={variant.id}
