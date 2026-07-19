@@ -47,11 +47,22 @@
   border-radius: 2px 0 0 2px;
 }
 
+.rand-quiet-press .rand-anchor::after {
+  position: absolute;
+  top: 0;
+  right: 2px;
+  width: 8px;
+  height: 5px;
+  border-right: 2px solid currentColor;
+  border-left: 2px solid currentColor;
+  content: "";
+}
+
 .rand-quiet-press .rand-active {
-  top: 2px;
+  top: 4px;
   left: 14px;
   width: 4px;
-  height: 6px;
+  height: 4px;
   border-radius: 0 0 1px 1px;
   background: currentColor;
   transform-origin: center top;
@@ -69,12 +80,13 @@
 }
 
 .rand-bench-clamp .rand-active {
-  top: 4px;
+  top: 3px;
   left: 8px;
   width: 7px;
-  height: 7px;
-  border-radius: 1px 1px 0 0;
-  background: currentColor;
+  height: 8px;
+  border-bottom: 2px solid currentColor;
+  border-left: 3px solid currentColor;
+  border-radius: 1px 0 0;
   animation-name: rand-clamp-working;
 }
 
