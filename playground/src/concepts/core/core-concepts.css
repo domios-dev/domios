@@ -6,6 +6,8 @@
   height: 5px;
   border-radius: 2px 2px 4px 4px;
   background: color-mix(in srgb, currentColor 42%, #4c5664);
+  transform-origin: center bottom;
+  animation: forge-anvil-recoil var(--motion-duration) ease-out infinite;
 }
 
 .forge-anvil::before {
@@ -38,13 +40,18 @@
   72%, 100% { transform: rotate(-28deg) translateY(-1px); }
 }
 
+@keyframes forge-anvil-recoil {
+  0%, 38%, 58%, 100% { transform: translateY(0) scaleX(1); }
+  45% { transform: translateY(1px) scaleX(1.06); }
+}
+
 .forge-spark { position: absolute; right: 14px; bottom: 12px; width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: 0; }
 .spark-a { animation: spark-a var(--motion-duration) ease-out infinite; }
 .spark-b { animation: spark-b var(--motion-duration) ease-out infinite; }
 .spark-c { animation: spark-c var(--motion-duration) ease-out infinite; }
-@keyframes spark-a { 0%, 40% { transform: translate(0); opacity: 0; } 44% { opacity: 1; } 72%, 100% { transform: translate(9px, -9px); opacity: 0; } }
-@keyframes spark-b { 0%, 42% { transform: translate(0); opacity: 0; } 46% { opacity: .85; } 72%, 100% { transform: translate(-7px, -11px); opacity: 0; } }
-@keyframes spark-c { 0%, 44% { transform: translate(0); opacity: 0; } 48% { opacity: .7; } 75%, 100% { transform: translate(11px, -3px); opacity: 0; } }
+@keyframes spark-a { 0%, 38% { transform: translate(0); opacity: 0; } 44%, 52% { opacity: 1; } 72%, 100% { transform: translate(9px, -9px); opacity: 0; } }
+@keyframes spark-b { 0%, 40% { transform: translate(0); opacity: 0; } 46%, 54% { opacity: .85; } 74%, 100% { transform: translate(-7px, -11px); opacity: 0; } }
+@keyframes spark-c { 0%, 42% { transform: translate(0); opacity: 0; } 48%, 56% { opacity: .7; } 76%, 100% { transform: translate(11px, -3px); opacity: 0; } }
 
 .workbeat-rail { position: absolute; inset: 15px 3px auto; height: 2px; border-radius: 2px; background: color-mix(in srgb, currentColor 16%, #343c47); }
 .workbeat-rail i { position: absolute; top: -2px; left: 0; width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: workbeat var(--motion-duration) ease-in-out infinite; }
