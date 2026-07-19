@@ -96,6 +96,7 @@ pub struct ScreenState {
     agent_signals: HashMap<String, Arc<PromptSignal>>,
     screen_change_signals: HashMap<String, Arc<ScreenChangeSignal>>,
     screen_change_subscribers: HashMap<String, Vec<Arc<ScreenChangeSignal>>>,
+    pty_generations: HashMap<String, u64>,
 }
 
 impl ScreenState {
@@ -107,6 +108,7 @@ impl ScreenState {
             agent_signals: HashMap::new(),
             screen_change_signals: HashMap::new(),
             screen_change_subscribers: HashMap::new(),
+            pty_generations: HashMap::new(),
         }
     }
 
@@ -324,6 +326,26 @@ impl ScreenState {
             .clone()
     }
 
+    pub fn bind_pty_generation(&mut self, pty_id: &str, generation: u64) -> bool {
+        match self.pty_generations.get(pty_id).copied() {
+            Some(current) if current > generation => false,
+            Some(current) if current == generation => true,
+            _ => {
+                self.remove(pty_id);
+                self.pty_generations.insert(pty_id.to_string(), generation);
+                true
+            }
+        }
+    }
+
+    pub fn remove_if_generation(&mut self, pty_id: &str, generation: u64) -> bool {
+        if self.pty_generations.get(pty_id).copied() != Some(generation) {
+            return false;
+        }
+        self.remove(pty_id);
+        true
+    }
+
     pub fn subscribe_screen_changes(&mut self, pty_id: &str) -> Arc<ScreenChangeSignal> {
         let signal = ScreenChangeSignal::new();
         self.screen_change_subscribers
@@ -353,6 +375,7 @@ impl ScreenState {
     }
 
     pub fn remove(&mut self, pty_id: &str) {
+        self.pty_generations.remove(pty_id);
         self.parsers.remove(pty_id);
         if let Some(sig) = self.prompt_signals.remove(pty_id) {
             sig.mark_ready();
@@ -775,5 +798,19 @@ mod tests {
         assert!(!first.wait_after(first_generation, Duration::ZERO));
         assert!(!second.wait_after(second_generation, Duration::ZERO));
         assert_eq!(state.screen_change_subscriber_count(), 0);
+    }
+
+    #[test]
+    fn old_generation_cannot_remove_replacement_screen() {
+        let mut state = ScreenState::new();
+        assert!(state.bind_pty_generation("pty1", 1));
+        state.process("pty1", b"old frame");
+        assert!(state.bind_pty_generation("pty1", 2));
+        state.process("pty1", b"replacement frame");
+
+        assert!(!state.remove_if_generation("pty1", 1));
+        assert!(state.get_screen_text("pty1").is_some());
+        assert!(state.remove_if_generation("pty1", 2));
+        assert!(state.get_screen_text("pty1").is_none());
     }
 }
