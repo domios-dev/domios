@@ -111,6 +111,79 @@ test("a settled crash record does not resurface on refresh", async () => {
   __setListenForTest(null);
 });
 
+test("a durable recovery-state transition removes an already-mounted status", async () => {
+  setupDom();
+  const listeners = new Map<string, (event: { payload: unknown }) => void>();
+  __setInvokeForTest(async <T,>(cmd: string): Promise<T> => {
+    assert(cmd === "get_recovery_state", "only recovery state should be requested");
+    return recoveryState() as T;
+  });
+  __setListenForTest(async (event, handler) => {
+    listeners.set(event, handler as (event: { payload: unknown }) => void);
+    return () => listeners.delete(event);
+  });
+
+  const { host, root } = await render(<RecoveryStatusBanner />);
+  assert(
+    host.querySelector('[role="status"][aria-label="Crash recovery status"]'),
+    "the active recovery status should be exposed by accessible name",
+  );
+  await act(async () => {
+    await Promise.resolve();
+    listeners.get("recovery-state-changed")?.({
+      payload: recoveryState({ crash_presentation: "settled" }),
+    });
+  });
+  assert(
+    !host.querySelector('[aria-label="Crash recovery status"]'),
+    "backend settlement should remove the mounted status without a refresh",
+  );
+
+  await act(async () => root.unmount());
+  __setInvokeForTest(null);
+  __setListenForTest(null);
+});
+
+test("a stale initial read cannot overwrite a newer settled event", async () => {
+  setupDom();
+  const listeners = new Map<string, (event: { payload: unknown }) => void>();
+  let resolveInvoke: ((value: unknown) => void) | undefined;
+  __setInvokeForTest(
+    async <T,>(cmd: string): Promise<T> => {
+      assert(cmd === "get_recovery_state", "only recovery state should be requested");
+      return new Promise<T>((resolve) => {
+        resolveInvoke = (value) => resolve(value as T);
+      });
+    },
+  );
+  __setListenForTest(async (event, handler) => {
+    listeners.set(event, handler as (event: { payload: unknown }) => void);
+    return () => listeners.delete(event);
+  });
+
+  const { host, root } = await render(<RecoveryStatusBanner />);
+  assert(listeners.has("recovery-state-changed"), "settlement listener should register first");
+  assert(resolveInvoke, "the initial recovery read should remain in flight");
+  await act(async () => {
+    listeners.get("recovery-state-changed")?.({
+      payload: recoveryState({ crash_presentation: "settled" }),
+    });
+    await Promise.resolve();
+  });
+  await act(async () => {
+    resolveInvoke?.(recoveryState());
+    await Promise.resolve();
+  });
+  assert(
+    !host.querySelector('[aria-label="Crash recovery status"]'),
+    "an older active response must not resurrect a settled recovery status",
+  );
+
+  await act(async () => root.unmount());
+  __setInvokeForTest(null);
+  __setListenForTest(null);
+});
+
 test("the same crash notification is not replayed by a frontend refresh", async () => {
   setupDom();
   stubRecovery(recoveryState());

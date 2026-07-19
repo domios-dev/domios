@@ -1,5 +1,6 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -7,6 +8,7 @@ const LOOP_WINDOW_SECS: i64 = 300;
 const LOOP_THRESHOLD: u32 = 3;
 const MAX_BACKOFF_SECS: u64 = 30;
 const FAST_FAIL_SECS: i64 = 30;
+static RECOVERY_HEAL_PENDING: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -87,19 +89,57 @@ pub struct AmbiguousWork {
 
 /// What the dead epoch had bound versus what actually came back. This is the
 /// only input to ambiguity and health — never elapsed time.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BindingEvidence {
     pub bound_at_shutdown: u32,
     pub restored: u32,
+    #[serde(default)]
+    pub bound_identities: Vec<BindingIdentity>,
+    #[serde(default)]
+    pub restored_identities: Vec<BindingIdentity>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct BindingIdentity {
+    pub pane_id: String,
+    pub agent_session_id: Option<String>,
+}
+
+impl BindingIdentity {
+    pub fn healthy_lazy_restored(
+        pane_id: &str,
+        agent_session_id: Option<&str>,
+        agent_state_seeded: bool,
+    ) -> Option<Self> {
+        agent_state_seeded.then(|| Self {
+            pane_id: pane_id.to_string(),
+            agent_session_id: agent_session_id.map(str::to_string),
+        })
+    }
 }
 
 impl BindingEvidence {
     pub fn missing(&self) -> u32 {
+        if !self.bound_identities.is_empty() {
+            return self
+                .bound_identities
+                .iter()
+                .filter(|binding| !self.restored_identities.contains(binding))
+                .count() as u32;
+        }
         self.bound_at_shutdown.saturating_sub(self.restored)
     }
 
     pub fn fully_restored(&self) -> bool {
         self.missing() == 0
+    }
+
+    pub fn all_bound_are_healthy(&self, healthy: &[BindingIdentity]) -> bool {
+        !self.bound_identities.is_empty()
+            && self
+                .bound_identities
+                .iter()
+                .all(|binding| healthy.contains(binding))
     }
 }
 
@@ -156,8 +196,10 @@ pub fn record_startup() -> RecoveryState {
     }
     let _ = std::fs::remove_file(pending_crash_path());
 
+    let presentation = crash_presentation(&current, last_crash.as_ref());
+    RECOVERY_HEAL_PENDING.store(presentation == CrashPresentation::Active, Ordering::Release);
     RecoveryState {
-        crash_presentation: crash_presentation(&current, last_crash.as_ref()),
+        crash_presentation: presentation,
         current,
         last_crash,
         last_clean_shutdown: clean,
@@ -168,42 +210,61 @@ pub fn record_startup() -> RecoveryState {
 /// shortfall; a full restore leaves no claim regardless of how long we were down.
 pub fn note_restored_bindings(evidence: BindingEvidence) {
     update_current_crash(|crash| {
+        let ambiguous = ambiguous_work(&evidence);
         crash.bindings = Some(evidence);
-        crash.work_policy.ambiguous_execution = ambiguous_work(&evidence);
+        crash.work_policy.ambiguous_execution = ambiguous;
+        Some(())
     });
 }
 
 /// End the warning's life at proven health: every binding the dead epoch held is
 /// back and its agent is ready. Durable, so the refresh path cannot resurrect it.
-pub fn heal_current_epoch(ready_bindings: u32) {
-    update_current_crash(|crash| {
-        let evidence = BindingEvidence {
-            bound_at_shutdown: crash.bindings.map_or(0, |b| b.bound_at_shutdown),
-            restored: ready_bindings,
-        };
-        if !evidence.fully_restored() {
-            return;
-        }
-        crash.bindings = Some(evidence);
-        crash.work_policy.ambiguous_execution = None;
-        crash.healed_at = Some(now_ts());
-    });
+pub fn heal_current_epoch(healthy_bindings: &[BindingIdentity]) -> bool {
+    let healed = update_current_crash(|crash| {
+        heal_crash_record(crash, healthy_bindings, now_ts()).then_some(true)
+    })
+    .unwrap_or(false);
+    if healed {
+        RECOVERY_HEAL_PENDING.store(false, Ordering::Release);
+    }
+    healed
+}
+
+pub fn recovery_heal_pending() -> bool {
+    RECOVERY_HEAL_PENDING.load(Ordering::Acquire)
+}
+
+fn heal_crash_record(
+    crash: &mut CrashRecord,
+    healthy_bindings: &[BindingIdentity],
+    healed_at: i64,
+) -> bool {
+    let Some(evidence) = crash.bindings.as_ref() else {
+        return false;
+    };
+    if !evidence.all_bound_are_healthy(healthy_bindings) {
+        return false;
+    }
+    crash.work_policy.ambiguous_execution = None;
+    crash.healed_at = Some(healed_at);
+    true
 }
 
 /// Mutate the crash record bound to THIS epoch, then persist it. A record from
 /// an earlier epoch is audit and is never rewritten.
-fn update_current_crash(mutate: impl FnOnce(&mut CrashRecord)) {
+fn update_current_crash<T>(mutate: impl FnOnce(&mut CrashRecord) -> Option<T>) -> Option<T> {
     let Some(current) = read_json::<ProcessEpoch>(&current_path()) else {
-        return;
+        return None;
     };
     let Some(mut crash) = read_json::<CrashRecord>(&last_crash_path()) else {
-        return;
+        return None;
     };
     if crash.new_epoch != current.epoch || crash.healed_at.is_some() {
-        return;
+        return None;
     }
-    mutate(&mut crash);
+    let result = mutate(&mut crash)?;
     write_json(&last_crash_path(), &crash);
+    Some(result)
 }
 
 pub fn heartbeat() {
@@ -738,9 +799,10 @@ mod tests {
         let evidence = BindingEvidence {
             bound_at_shutdown: 3,
             restored: 3,
+            ..Default::default()
         };
-        crash.bindings = Some(evidence);
         crash.work_policy.ambiguous_execution = ambiguous_work(&evidence);
+        crash.bindings = Some(evidence);
 
         assert_eq!(
             crash.classification,
@@ -759,17 +821,109 @@ mod tests {
         assert_eq!(
             ambiguous_work(&BindingEvidence {
                 bound_at_shutdown: 0,
-                restored: 0
+                restored: 0,
+                ..Default::default()
             }),
             None
         );
         let work = ambiguous_work(&BindingEvidence {
             bound_at_shutdown: 3,
             restored: 1,
+            ..Default::default()
         })
         .expect("a lost binding is real evidence");
         assert_eq!(work.missing_bindings, 2);
         assert_eq!(work.disposition, "needs-review/reassign");
+    }
+
+    #[test]
+    fn health_requires_the_exact_restored_binding_identities() {
+        let expected = vec![
+            BindingIdentity {
+                pane_id: "orchestrator".into(),
+                agent_session_id: Some("session-a".into()),
+            },
+            BindingIdentity {
+                pane_id: "planner".into(),
+                agent_session_id: Some("session-b".into()),
+            },
+        ];
+        let evidence = BindingEvidence {
+            bound_at_shutdown: 2,
+            restored: 2,
+            bound_identities: expected.clone(),
+            restored_identities: expected.clone(),
+        };
+        let wrong_sessions = vec![
+            expected[0].clone(),
+            BindingIdentity {
+                pane_id: "planner".into(),
+                agent_session_id: Some("foreign-session".into()),
+            },
+        ];
+        let mismatched = BindingEvidence {
+            restored_identities: wrong_sessions.clone(),
+            ..evidence.clone()
+        };
+
+        assert_eq!(mismatched.missing(), 1);
+        assert!(!mismatched.fully_restored());
+        assert!(!evidence.all_bound_are_healthy(&wrong_sessions));
+        assert!(evidence.all_bound_are_healthy(&expected));
+    }
+
+    #[test]
+    fn exact_binding_health_durably_settles_the_crash_record() {
+        let current = ProcessEpoch {
+            epoch: "new".into(),
+            pid: 2,
+            started_at: 1_000,
+            last_healthy_at: 1_001,
+            build_hash: "h".into(),
+            platform: "windows".into(),
+        };
+        let binding = BindingIdentity {
+            pane_id: "orchestrator".into(),
+            agent_session_id: Some("session-a".into()),
+        };
+        let mut crash = classify_previous(previous_epoch(), &current, 1_000);
+        crash.bindings = Some(BindingEvidence {
+            bound_at_shutdown: 1,
+            restored: 1,
+            bound_identities: vec![binding.clone()],
+            restored_identities: vec![binding.clone()],
+        });
+
+        let replacement = BindingIdentity {
+            pane_id: "orchestrator".into(),
+            agent_session_id: Some("replacement-session".into()),
+        };
+        assert!(!heal_crash_record(&mut crash, &[replacement], 1_002));
+        assert_eq!(crash.healed_at, None);
+        assert!(heal_crash_record(&mut crash, &[binding], 1_002));
+        assert_eq!(crash.healed_at, Some(1_002));
+        assert_eq!(
+            crash_presentation(&current, Some(&crash)),
+            CrashPresentation::Settled
+        );
+        assert_eq!(crash.previous.pid, 41);
+    }
+
+    #[test]
+    fn exact_restored_identity_and_seeded_state_are_sufficient_without_a_live_pty() {
+        let identity =
+            BindingIdentity::healthy_lazy_restored("orchestrator", Some("restored-session"), true);
+        assert_eq!(
+            identity,
+            Some(BindingIdentity {
+                pane_id: "orchestrator".into(),
+                agent_session_id: Some("restored-session".into()),
+            })
+        );
+        assert_eq!(
+            BindingIdentity::healthy_lazy_restored("orchestrator", Some("restored-session"), false,),
+            None
+        );
     }
 
     #[test]
