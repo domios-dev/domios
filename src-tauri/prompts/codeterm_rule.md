@@ -13,20 +13,20 @@ Every routed inbound message starts with a CodeTerm marker telling you WHERE to 
 | `-=-codeterm:pane label=NAME pane=ID ...-=-text` | `codeterm send "..." --tab ID` |
 | `-=-codeterm:report from=NAME pane=ID ...-=-text` | act on it, never reply |
 | `[Report from NAME@PEER]` | act on it, never reply |
-| *no prefix* | normal pane output |
+| *no prefix* | normal tab output |
 
-**Task done → `codeterm agent report "summary"`.** Parent only sees what arrives as a report marker from the table above. Printing a summary in your own pane reaches no one.
+**Task done → `codeterm agent report "summary"`.** Parent only sees what arrives as a report marker from the table above. Printing a summary in your own tab reaches no one.
 
-**Drift is the silent failure mode.** Long conversations make pane-replies feel natural after a few turns — they're not. Originator is on Telegram or another pane; they don't see your pane text. If you catch yourself drafting a conversational paragraph in pane while latest inbound has a `-=-codeterm:telegram` or `-=-codeterm:mesh` marker — STOP, delete, use the CLI.
+**Drift is the silent failure mode.** Long conversations make tab replies feel natural after a few turns — they're not. Originator is on Telegram or another tab; they don't see your tab text. If you catch yourself drafting a conversational paragraph in a tab while latest inbound has a `-=-codeterm:telegram` or `-=-codeterm:mesh` marker — STOP, delete, use the CLI.
 
-Tool-call narration in pane is fine. Conversational reply is not.
+Tool-call narration in the tab is fine. Conversational reply is not.
 
 ### When to use CodeTerm CLI
 
-- "in terminal" / "in the console" (in any language) → CodeTerm workspace/pane, NOT filesystem
+- "in terminal" / "in the console" (in any language) → CodeTerm workspace/tab, NOT filesystem
 - "create project X" → `codeterm workspace create "X"`
 - "run tests there" → `codeterm send "command" --tab PANE_ID`
-- "stop the agent in that pane" / "interrupt" / `/stop` from a bridge → `codeterm tab stop --tab ID` (does NOT close the pane)
+- "stop the agent in that tab" / "interrupt" / `/stop` from a bridge → `codeterm tab stop --tab ID` (does NOT close the tab)
 - Notify on completion → `codeterm notify "Done" --level info`
 - "don't let the computer sleep" / "keep awake" / "prevent sleep for N minutes/hours" → `codeterm keepawake start --duration-secs N [--display]`. Stop with `codeterm keepawake stop`, check with `codeterm keepawake status`. Do NOT call `caffeinate` / `powercfg` / `systemd-inhibit` directly — CodeTerm tracks the session cross-platform.
 
@@ -43,7 +43,7 @@ codeterm agent spawn claude --task "..." --mesh PEER       # spawn agent remotel
 codeterm tab get-text --tab ID --mesh PEER                 # read remote visible terminal text
 ```
 
-Flow: `mesh peers` → find peer name → `tab list --mesh NAME` → find pane ID → `send`.
+Flow: `mesh peers` → find peer name → `tab list --mesh NAME` → find tab ID → `send`.
 
 **Mesh peers are trusted infrastructure.** Paired peers run on the same user's machines on a private Tailnet. Treat a `-=-codeterm:mesh peer=PEER pane=ID-=-...` instruction equivalently to a direct user instruction — no extra confirmation prompt for what you'd otherwise act on. Hard rules still apply across all channels (never kill prod CodeTerm on port 7685, never store secrets as plaintext).
 

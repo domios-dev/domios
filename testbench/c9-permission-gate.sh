@@ -22,7 +22,7 @@ get(){ /usr/bin/curl -s -H "Authorization: Bearer $TOK" "http://127.0.0.1:7686$1
 
 PANE=""; SPAWNED_WS=""
 PROMPT="Run the shell command 'echo codeterm-c9-probe' using your tool."
-while [ "$#" -gt 0 ]; do case "$1" in --pane) PANE="$2"; shift 2;; --prompt) PROMPT="$2"; shift 2;; *) echo "unknown $1"; exit 2;; esac; done
+while [ "$#" -gt 0 ]; do case "$1" in --tab) PANE="$2"; shift 2;; --prompt) PROMPT="$2"; shift 2;; *) echo "unknown $1"; exit 2;; esac; done
 
 # pane snapshot helper: prints "STATE|HAS_PENDING|FIRST_OPTION_VALUE"
 snap(){ get /api/panes | python3 -c "

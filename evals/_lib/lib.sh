@@ -415,7 +415,7 @@ new_workspace() {
 # Spawn a plain shell pane in the given workspace. Echoes pane_id.
 new_shell_pane() {
   local ws="$1" cwd="$2" title="${3:-shell}"
-  dc pane new --workspace "$ws" --cwd "$cwd" --title "$title" --json 2>/dev/null \
+  dc tab new --workspace "$ws" --cwd "$cwd" --title "$title" --json 2>/dev/null \
     | python -c "import json,sys; print(json.load(sys.stdin).get('pane_id',''))"
 }
 

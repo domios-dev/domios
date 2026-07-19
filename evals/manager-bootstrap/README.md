@@ -54,7 +54,7 @@ Do not run while dev 7686 is stopped or its health build differs from `HEAD`.
 ## JSON contracts and fixtures
 
 `dc agent providers --json` is a top-level provider array. `dc team list --json`
-is an object with a `teams` array. `dc pane chat --json` is an object with
+is an object with a `teams` array. `dc tab chat --json` is an object with
 `messages`; assistant content can be a string, a content-block object, or a list
 of both. The captured envelopes used by the executable offline parser harness
 live in `fixtures/`; refresh them only from a live exact-head dev daemon.

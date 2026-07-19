@@ -167,7 +167,7 @@ Stored in Bitwarden vault (retrieve via `codeterm mem secret get --name <slug>` 
 
 When delegating this skill to an agent (release coordinator or ROG worker), **spawn with `--model haiku`**. The pipeline is mostly orchestration + bash + git/gh — Haiku is fast and cheap enough; Sonnet/Opus is overkill and doubles wall time on thinking phases.
 
-Spawn with `codeterm agent spawn claude --task "..." --model haiku`. Parent is inferred from `$CODETERM_PANE_ID`; reports route back to you automatically (Orchestrator + sub-pane model, no `--role` flag needed).
+Spawn with `codeterm agent spawn claude --task "..." --model haiku`. Parent is inferred from `$CODETERM_PANE_ID`; reports route back to you automatically (Orchestrator + child-tab model, no `--role` flag needed).
 
 ### 0. Kill any running dev
 
@@ -490,7 +490,7 @@ ROG-specific gotchas (still relevant if you fall back to ROG):
 
 Alternative paths (debugging tactics, not normal flow):
 - Send to an existing General Agent tab via `codeterm --mesh BLACKSTAR send --tab <general> --from-file <msg.txt>` to bypass `agent spawn` argv-split bugs.
-- Open a parallel shell tab on the builder with `tab new --workspace` for tactical interventions while the agent runs the long compile.
+- Open a parallel shell tab on the builder with `codeterm tab new --workspace` for tactical interventions while the agent runs the long compile.
 
 ### 9. Publish release + verify
 
@@ -600,7 +600,7 @@ Force-retag pre-publish is unilaterally allowed per `rule_blackstar_mac_release_
 | Windows: `sqlite-sys` cc-rs → "malloc.h not found" | `build.sh`'s `SDK_VER` (10.0.22621.0) ≠ installed Windows Kit | check `ls "/c/Program Files (x86)/Windows Kits/10/Include"` then `export SDK_VER=<found-version>` (e.g. 10.0.26100.0 on ROG) |
 | `gh release upload ...` → "no matches found" on Windows | MSYS git-bash + stale cd + relative paths | `cd` back to repo root before upload, or use absolute paths |
 | `git rev-parse v$VER` returns a SHA that doesn't appear in `git log` | annotated tag (`-a`) creates a tag object that points to the commit (one level of indirection) | use `git rev-parse v$VER^{commit}` for the commit SHA, or `gh release view v$VER --json targetCommitish` |
-| `codeterm send --mesh PEER --tab ID "..."` does not get a reply | target pane is busy or the receiving agent has not processed the input yet | send is fire-and-forget by design; check output later with `codeterm tab get-text --mesh PEER --tab ID` |
+| `codeterm send --mesh PEER --tab ID "..."` does not get a reply | target tab is busy or the receiving agent has not processed the input yet | send is fire-and-forget by design; check output later with `codeterm tab get-text --mesh PEER --tab ID` |
 | SSH to BLACKSTAR: `cd /c/…` fails | `bash -lc` runs a login shell that re-homes | use `bash -c` (non-login) |
 | `scp User@blackstar:/c/…` fails | remote shell is cmd.exe, doesn't grok the path | stage the file to `C:\Users\dev\` on BLACKSTAR first, then `scp User@blackstar:filename` |
 | Public `curl` of release asset → 404 | repo private, CDN rejects unauthenticated | use `gh release download`, or make repo public |
@@ -707,7 +707,7 @@ codeterm update install \
   --continue-prompt "after restart, verify tab performance"
 ```
 
-`--continue-pane` defaults to `$CODETERM_PANE_ID`. The helper:
+`--continue-tab` defaults to `$CODETERM_PANE_ID`. The helper:
 1. Sleeps 2s, lets the calling CLI return.
 2. `taskkill /F /IM codeterm.exe codeterm-embed.exe`.
 3. Runs the NSIS installer with `/S` (silent — no UAC since `installMode=currentUser`).
@@ -727,7 +727,7 @@ The script lives in this skill's folder at `<repo>/.agents/skills/github-release
 
 Gotchas:
 - Don't pass `-Verb RunAs` to the installer. `installMode=currentUser` doesn't need elevation; RunAs triggers UAC and hangs on headless.
-- Helper survives the daemon, not your terminal pane — if invoked from a CodeTerm-managed pane, the pane dies with the daemon. Tail progress from outside: `Get-Content -Wait "$env:LocalAppData\codeterm\self-install.log"`.
+- Helper survives the daemon, not your terminal tab — if invoked from a CodeTerm-managed tab, the tab dies with the daemon. Tail progress from outside: `Get-Content -Wait "$env:LocalAppData\codeterm\self-install.log"`.
 - Auto-resume of agent panes is best-effort — `~/.codeterm/sessions/last.json` may be slightly behind if the daemon was killed abruptly.
 
 ### Path 3 — full release publish

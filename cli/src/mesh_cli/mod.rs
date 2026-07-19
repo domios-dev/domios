@@ -182,7 +182,7 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
             manifest_url,
             from_file: None,
             continue_prompt: None,
-            continue_pane: None,
+            continue_tab: None,
             after_update,
         } = &resolved
         {

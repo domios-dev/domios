@@ -47,7 +47,7 @@ cleanup() {
   local out rc
   for pane in "${CREATED_PANES[@]:-}"; do
     [ -n "$pane" ] || continue
-    out="$(dc pane close "$pane" 2>&1)"
+    out="$(dc tab close "$pane" 2>&1)"
     rc=$?
     [ "$rc" -eq 0 ] || printf 'cleanup: pane close %s failed: %s\n' "$pane" "$out" >&2
   done
@@ -89,7 +89,7 @@ else:
 
 pane_chat_json() {
   local pane="$1" out rc
-  out="$(dc --json pane chat --pane "$pane" 2>&1)"
+  out="$(dc --json tab chat --tab "$pane" 2>&1)"
   rc=$?
   if [ "$rc" -ne 0 ]; then
     printf '%s\n' "$out" >&2
@@ -157,7 +157,7 @@ print(count)
 wait_pane_idle() {
   local pane="$1" deadline=$((SECONDS + 240))
   while [ $SECONDS -lt $deadline ]; do
-    if dc pane status --pane "$pane" 2>/dev/null | grep -q "status:  *Idle"; then
+    if dc tab status --tab "$pane" 2>/dev/null | grep -q "status:  *Idle"; then
       return 0
     fi
     sleep 3

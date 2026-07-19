@@ -3,7 +3,7 @@ import { COMMAND_PATHS, type CommandPathNode } from "./commandPaths";
 export interface CodetermInvocation {
   binary: string;
   path: string[]; // subcommand chain, e.g. ["agent","spawn"]
-  flags: Record<string, string | true>; // --pane bda → { pane: "bda" }
+  flags: Record<string, string | true>; // --tab bda -> { tab: "bda" }
   positionals: string[];
   raw: string;
 }

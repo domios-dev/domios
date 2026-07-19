@@ -62,7 +62,7 @@ cleanup() {
   echo "=== cleanup ==="
   for p in "${CREATED_PANES[@]:-}"; do
     [ -n "$p" ] || continue
-    dc pane close "$p" >/dev/null 2>&1 && note "closed pane $p" || note "pane $p already gone"
+    dc tab close "$p" >/dev/null 2>&1 && note "closed tab $p" || note "tab $p already gone"
   done
   # Sweep EVERY plan created since the baseline — by id-diff, not by the
   # CREATED_PLANS list (a plan created as a side-effect, or one whose id
@@ -121,7 +121,7 @@ pane_session() { dev_get "/api/panes" | python -c "import json,sys;print(next((p
 # grep a pane's parsed chat transcript for a fixed string. Returns 0 if found.
 pane_chat_has() {
   local pane="$1" needle="$2"
-  dc pane chat --pane "$pane" --json 2>/dev/null \
+  dc tab chat --tab "$pane" --json 2>/dev/null \
     | python -c '
 import json,sys
 needle=sys.argv[1]

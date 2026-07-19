@@ -50,7 +50,7 @@ const claudeMessages: NormalizedChatMessage[] = [
       "",
       "| Command | Status |",
       "| --- | --- |",
-      "| `codeterm pane list` | documented |",
+      "| `codeterm tab list` | documented |",
       "| `codeterm send` | documented |",
       "",
       "See [CodeTerm docs](https://example.test/claude-docs).",

@@ -106,7 +106,7 @@ pub enum PaneAction {
         /// New title
         title: String,
         /// Tab ID to rename (default: current focused tab)
-        #[arg(long = "tab")]
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
     },
     /// Set a short tab description (empty clears it)
@@ -114,14 +114,14 @@ pub enum PaneAction {
         /// Short summary, max 200 chars
         summary: String,
         /// Tab ID to describe (default: current focused tab)
-        #[arg(long = "tab")]
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
     },
     /// Get visible terminal text of a tab (what the user sees)
     #[command(alias = "get_text", alias = "screen")]
     GetText {
         /// Tab ID (default: current focused tab)
-        #[arg(long = "tab")]
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
         /// Include raw ANSI escape codes (colors, cursor state) instead of plain text
         #[arg(long)]
@@ -132,7 +132,7 @@ pub enum PaneAction {
         /// Command to execute
         command: String,
         /// Tab ID (default: current focused tab)
-        #[arg(long = "tab")]
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
         /// Timeout in milliseconds
         #[arg(long, default_value = "10000")]
@@ -141,7 +141,7 @@ pub enum PaneAction {
     /// Show agent status for a tab (type, provider session, prompt)
     Status {
         /// Tab ID (default: current focused tab)
-        #[arg(long = "tab")]
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
     },
     /// Fuzzy search tabs by id-prefix, tab title, friendly session name,
@@ -159,14 +159,14 @@ pub enum PaneAction {
     /// and have it map straight here.
     Stop {
         /// Tab ID (default: current focused tab)
-        #[arg(long = "tab")]
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
     },
 
     /// Read a tab's parsed chat transcript (text/thinking/tool calls/results)
     Chat {
         /// Target tab ID (default: $CODETERM_PANE_ID or focused tab)
-        #[arg(long = "tab")]
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
         /// Only return messages from this index onward
         #[arg(long, default_value = "0")]
@@ -186,7 +186,7 @@ pub enum PaneCaptureAction {
     /// Arm capture: tee raw PTY output (ANSI intact) + timestamps to `--out`.
     Start {
         /// Target tab ID (default: $CODETERM_PANE_ID or focused tab)
-        #[arg(long = "tab")]
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
         /// Path of the `.cast` file to write.
         #[arg(long)]
@@ -195,7 +195,7 @@ pub enum PaneCaptureAction {
     /// Disarm capture: flush/close the `.cast` and write a sibling `screen.txt`.
     Stop {
         /// Target tab ID (default: $CODETERM_PANE_ID or focused tab)
-        #[arg(long = "tab")]
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
     },
 }

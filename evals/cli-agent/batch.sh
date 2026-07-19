@@ -38,7 +38,7 @@ while read -r CID; do
     WS=$(dc workspace create "bench-$CID" --cwd "$SB" --json 2>/dev/null | python3 -c 'import sys,json;print(json.load(sys.stdin).get("id",""))')
     PANE=$(dc agent spawn "$PROVIDER" ${MODEL:+--model "$MODEL"} --workspace "$WS" --cwd "$SB" --title "$CID" --json 2>/dev/null | python3 -c 'import sys,json;print(json.load(sys.stdin).get("pane_id",""))')
     sleep 8
-    [ -n "$PANE" ] && dc send "$PROMPT" --pane "$PANE" >/dev/null 2>&1
+    [ -n "$PANE" ] && dc send "$PROMPT" --tab "$PANE" >/dev/null 2>&1
     printf '%s\t%s\t%s\t%s\n' "$CID" "$WS" "$PANE" "$PROMPT" >> "$PANES"
   ) </dev/null &
 done < "$BATCH_FILE"
@@ -51,7 +51,7 @@ for round in $(seq 1 50); do
   alldone=1
   while IFS=$'\t' read -r CID WS PANE PROMPT; do
     [ -n "$PANE" ] || continue
-    c=$(dc pane chat --pane "$PANE" --json 2>/dev/null | python3 -c 'import sys,json;print(json.load(sys.stdin).get("count",0))' 2>/dev/null || echo 0)
+    c=$(dc tab chat --tab "$PANE" --json 2>/dev/null | python3 -c 'import sys,json;print(json.load(sys.stdin).get("count",0))' 2>/dev/null || echo 0)
     if [ "$c" = "${prev[$CID]:-x}" ] && [ "$c" -gt 0 ]; then stable[$CID]=$(( ${stable[$CID]:-0}+1 )); else stable[$CID]=0; fi
     prev[$CID]=$c
     [ "${stable[$CID]:-0}" -ge 3 ] || alldone=0
@@ -65,7 +65,7 @@ echo "  settled ~$((round*3))s"
 echo "── SUMMARY (cid | count | first tool calls) ──"
 while IFS=$'\t' read -r CID WS PANE PROMPT; do
   [ -n "$PANE" ] || continue
-  dc pane chat --pane "$PANE" --json > "$RUNS/$CID.json" 2>/dev/null || true
+  dc tab chat --tab "$PANE" --json > "$RUNS/$CID.json" 2>/dev/null || true
   python3 evals/cli-agent/transcript-md.py "$RUNS/$CID.json" "$CID" "$PROVIDER" "$PROMPT" > "$RUNS/$CID.md" 2>/dev/null || true
   python3 - "$CID" "$RUNS/$CID.json" <<'PY'
 import sys,json

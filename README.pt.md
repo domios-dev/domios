@@ -61,7 +61,7 @@ Construído com **Tauri v2** (Rust) + **React** + **xterm.js**.
 - **Notificações de permissão** — exibe solicitações de permissão do Claude Code como notificações da área de trabalho
 - **Sistema de webhooks** — registre webhooks para eventos de agentes (solicitações de permissão, conclusão de tarefas)
 - **Controle programático** — agentes podem criar painéis, executar comandos, ler saída via API
-- **Reinício de agente** — `codeterm agent restart --pane ID` executa um `/exit` ordenado com auto-retomada em qualquer painel (`--force` mata um agente travado); reutiliza o mesmo mecanismo da auto-atualização
+- **Reinício de agente** — `codeterm agent restart --tab ID` executa um `/exit` ordenado com auto-retomada em qualquer aba (`--force` mata um agente travado); reutiliza o mesmo mecanismo da auto-atualização
 
 ### API Completa
 - **API REST** — mais de 30 endpoints para controle completo do terminal (porta 7685)
@@ -204,8 +204,8 @@ codeterm workspace list
 codeterm workspace create "Projeto"
 
 # Controle do terminal
-codeterm pane list
-codeterm send --pane PANE_ID "npm run build"
+codeterm tab list
+codeterm send --tab TAB_ID "npm run build"
 codeterm get-output PANE_ID --lines 50
 
 # Notificações
@@ -264,7 +264,7 @@ Consulte o [Guia de Configuração](docs/CONFIG.md) para todas as opções.
 │                  CodeTerm                    │
 │  ┌──────────┐  ┌──────────┐  ┌───────────┐  │
 │  │ React UI │  │ xterm.js │  │  Browser   │  │
-│  │ Sidebar  │  │ Terminal │  │   Panes    │  │
+│  │ Sidebar  │  │ Terminal │  │    Tabs    │  │
 │  └────┬─────┘  └────┬─────┘  └─────┬─────┘  │
 │       │              │              │        │
 │  ┌────┴──────────────┴──────────────┴────┐   │

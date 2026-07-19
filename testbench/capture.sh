@@ -136,13 +136,13 @@ pane="$(spawn_agent "$ws")"
 echo "[snapshot-testbench] provider=$PROVIDER situation=$SITUATION pane=$pane"
 wait_pty "$pane" || { echo "pane $pane did not attach a PTY" >&2; exit 1; }
 
-dc_retry pane capture start --pane "$pane" --out "$OUT_TMP/raw.cast" >/dev/null
-dc_retry send "$PROMPT" --pane "$pane" >/dev/null
+dc_retry tab capture start --tab "$pane" --out "$OUT_TMP/raw.cast" >/dev/null
+dc_retry send "$PROMPT" --tab "$pane" >/dev/null
 
 matched="false"
 deadline=$((SECONDS + TIMEOUT))
 while [ "$SECONDS" -lt "$deadline" ]; do
-  screen="$(dc_retry pane get-text --pane "$pane" || true)"
+  screen="$(dc_retry tab get-text --tab "$pane" || true)"
   if printf '%s' "$screen" | regex_matches; then
     matched="true"
     break
@@ -150,11 +150,11 @@ while [ "$SECONDS" -lt "$deadline" ]; do
   sleep 1
 done
 
-dc_retry pane capture stop --pane "$pane" >/dev/null
+dc_retry tab capture stop --tab "$pane" >/dev/null
 [ "$matched" = "true" ] || { echo "regex did not match before timeout: $UNTIL" >&2; exit 1; }
 [ -f "$OUT_TMP/raw.cast" ] || { echo "capture did not write $OUT_TMP/raw.cast" >&2; exit 1; }
 [ -f "$OUT_TMP/raw.screen.txt" ] && mv "$OUT_TMP/raw.screen.txt" "$OUT_TMP/screen.txt"
-[ -f "$OUT_TMP/screen.txt" ] || dc_retry pane get-text --pane "$pane" > "$OUT_TMP/screen.txt"
+[ -f "$OUT_TMP/screen.txt" ] || dc_retry tab get-text --tab "$pane" > "$OUT_TMP/screen.txt"
 
 provider_version_text="$(provider_version "$PROVIDER")"
 python3 - "$OUT_TMP/meta.json" "$PROVIDER" "$SITUATION" "$pane" "$UNTIL" "$PROMPT" "$provider_version_text" <<'PY'

@@ -41,7 +41,7 @@ apply, destructive mem). For those cases the `prompt` asks the agent to *explain
 or dry-run, not execute. All bench workspaces are torn down after each case.
 
 ## How the read works
-`codeterm pane chat --pane <id> [--since N] --json` (and `GET /api/panes/:id/chat`)
+`codeterm tab chat --tab <id> [--since N] --json` (and `GET /api/panes/:id/chat`)
 return the already-parsed normalized messages — `type` (user/assistant/thinking/
 tool_call/tool_result), `content`, `toolName`, `toolInput`, `toolResult` — the
 same shape the chat UI renders. Stateless; no tailer.

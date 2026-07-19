@@ -348,7 +348,7 @@ impl ServiceContext {
             }
             Err(e) if e.contains("not found") => {
                 // Cross-mesh workers live only in RemoteWorkerRegistry — their
-                // foreign pane id is what `agent unlink --pane` passes.
+                // The foreign tab id is what `agent unlink --tab` passes.
                 let touched = self
                     .remote_workers
                     .forget_by_remote_pane(pane_id, None, None);
@@ -595,7 +595,7 @@ impl ServiceContext {
         }
 
         let target = target_opt.ok_or_else(|| {
-            "No report target for this pane. You are not attached to an orchestrator, report target, or spawning pane. Ask for the target pane id, then use `codeterm send [--mesh <peer>] --pane <pane-or-alias> \"...\"`, or spawn with a report target.".to_string()
+            "No report target for this tab. You are not attached to an orchestrator, report target, or spawning tab. Ask for the target tab id, then use `codeterm send [--mesh <peer>] --tab <tab-or-alias> \"...\"`, or spawn with a report target.".to_string()
         })?;
         let storage_key = target.storage_key();
         let report = self.report_store.lock().add_detailed_with_model_identity(
@@ -992,7 +992,7 @@ pub enum ReportTarget {
 
 impl ReportTarget {
     /// Stable key the report store and worker-death dedup index by. Local targets
-    /// key on the pane id (so `agent reports --pane <id>` finds them); mesh targets
+    /// key on the tab id (so `agent reports --tab <id>` finds them); mesh targets
     /// key on a synthetic `mesh:<peer>/<pane>` so they neither collide with local
     /// panes nor each other.
     pub fn storage_key(&self) -> String {

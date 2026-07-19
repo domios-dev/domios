@@ -17,4 +17,4 @@ FOLLOWUP: anything the Orchestrator should know"
 
 For blocked reports, use `--status-label human-decision` when the unblocker is an escalated choice outside agent authority. Use `--status-label human-verify` when the unblocker is an external leg the agent cannot physically drive, such as OAuth, real email/payment, or a production side effect.
 
-Plan milestone attachment is automatic when your pane is assigned to a task. Just run `codeterm agent report "..."` — the daemon resolves your plan and task from the pane assignment. You do NOT need to pass `--plan`/`--task` manually. If the daemon can't resolve them (unassigned pane, ambiguous assignment), it will tell you what to pass.
+Plan milestone attachment is automatic when your tab is assigned to a task. Just run `codeterm agent report "..."` — the daemon resolves your plan and task from the tab assignment. You do NOT need to pass `--plan`/`--task` manually. If the daemon can't resolve them (unassigned tab, ambiguous assignment), it will tell you what to pass.

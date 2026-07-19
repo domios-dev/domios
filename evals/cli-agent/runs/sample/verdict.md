@@ -1,7 +1,7 @@
 # Verdict — sample run 20260608-142753 (claude, opencode)
 
 First real cli-agent benchmark run. Cases: workspace.{create,list}, mem.{search,save,get}.
-Read via `codeterm pane chat`; judged by the model on the 5-dimension rubric.
+Read via `codeterm tab chat`; judged by the model on the 5-dimension rubric.
 
 | case | provider | understood | correct cmd | skill use | nudges | acted | notes |
 |------|----------|-----------|-------------|-----------|--------|-------|-------|

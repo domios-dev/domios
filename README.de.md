@@ -43,7 +43,7 @@
 
 CodeTerm ist ein plattformübergreifender Terminal-Multiplexer, der von Grund auf für KI-gestützte Entwicklung konzipiert wurde. Er vereint die Leistungsfähigkeit eines Terminal-Multiplexers (wie tmux) mit erstklassiger Unterstützung für KI-Coding-Agenten wie Claude Code.
 
-**Der wesentliche Unterschied zu anderen Terminals:** CodeTerm bietet eine vollständige REST-API, ein CLI-Tool und eine Socket-API — sodass KI-Agenten Workspaces erstellen, Panes aufteilen, Befehle ausführen, Ausgaben lesen und das gesamte Terminal programmatisch steuern können. Ihr KI-Assistent wird zum vollwertigen Teilnehmer in Ihrem Terminal-Workflow.
+**Der wesentliche Unterschied zu anderen Terminals:** CodeTerm bietet eine vollständige REST-API, ein CLI-Tool und eine Socket-API — sodass KI-Agenten Workspaces und Tabs erstellen, Befehle ausführen, Ausgaben lesen und das gesamte Terminal programmatisch steuern können. Ihr KI-Assistent wird zum vollwertigen Teilnehmer in Ihrem Terminal-Workflow.
 
 Gebaut mit **Tauri v2** (Rust) + **React** + **xterm.js**.
 
@@ -51,17 +51,17 @@ Gebaut mit **Tauri v2** (Rust) + **React** + **xterm.js**.
 
 ### Terminal-Multiplexer
 - **Workspaces & Tabs** — Projekte in separate Workspaces organisieren, jeweils mit mehreren Tabs
-- **Pane-Splitting** — horizontal und vertikal teilen mit verschiebbaren Trennlinien
-- **Sitzungspersistenz** — Workspaces, Tabs, Pane-Layout und Arbeitsverzeichnisse werden über Neustarts hinweg gespeichert und wiederhergestellt
-- **Räumliche Pane-Navigation** — zwischen Panes mit Alt+Pfeiltasten wechseln
+- **Tab-Layout** — Arbeitsbereiche und Terminal-Tabs übersichtlich organisieren
+- **Sitzungspersistenz** — Workspaces, Tabs, Layout und Arbeitsverzeichnisse werden über Neustarts hinweg gespeichert und wiederhergestellt
+- **Räumliche Tab-Navigation** — zwischen Tabs mit Alt+Pfeiltasten wechseln
 
 ### KI-Agenten-Integration
-- **Agenten-Erkennung** — erkennt automatisch Claude Code in einem Pane (orangener Indikator)
+- **Agenten-Erkennung** — erkennt automatisch Claude Code in einem Tab (orangener Indikator)
 - **Sitzungswiederaufnahme** — speichert Claude-Code-Session-IDs und nimmt sie beim Neustart mit `--resume` wieder auf
 - **Berechtigungsbenachrichtigungen** — zeigt Claude-Code-Berechtigungsanfragen als Desktop-Benachrichtigungen an
 - **Webhook-System** — Webhooks für Agenten-Events registrieren (Berechtigungsanfragen, Aufgabenabschluss)
-- **Programmatische Steuerung** — Agenten können Panes erstellen, Befehle ausführen und Ausgaben über die API lesen
-- **Agenten-Neustart** — `codeterm agent restart --pane ID` führt einen geordneten `/exit` mit Auto-Resume in jedem Pane aus (`--force` killt einen hängenden Agenten); derselbe Mechanismus wie beim Self-Update
+- **Programmatische Steuerung** — Agenten können Tabs erstellen, Befehle ausführen und Ausgaben über die API lesen
+- **Agenten-Neustart** — `codeterm agent restart --tab ID` führt einen geordneten `/exit` mit Auto-Resume in jedem Tab aus (`--force` killt einen hängenden Agenten); derselbe Mechanismus wie beim Self-Update
 
 ### Vollständige API
 - **REST-API** — über 30 Endpunkte für vollständige Terminalsteuerung (Port 7685)
@@ -71,12 +71,12 @@ Gebaut mit **Tauri v2** (Rust) + **React** + **xterm.js**.
 - **Ausgabeerfassung** — cursorbasierte Paginierung, ANSI-Stripping, Bildschirm-Snapshots
 
 ### Bridges & externe Dienste
-- **Telegram-Bridge** — bidirektional. Eingehende Nachrichten landen im General-Agent-Pane als `[Telegram: USER_ID] text`; ausgehende Antworten gehen über `codeterm bridge send` mit HTML-Formatierung (der Sanitizer escaped automatisch fremde `<word>`-Substrings, damit nicht unterstützte Tokens den Parser nicht brechen)
+- **Telegram-Bridge** — bidirektional. Eingehende Nachrichten landen im General-Agent-Tab als `[Telegram: USER_ID] text`; ausgehende Antworten gehen über `codeterm bridge send` mit HTML-Formatierung (der Sanitizer escaped automatisch fremde `<word>`-Substrings, damit nicht unterstützte Tokens den Parser nicht brechen)
 - **Sprach-Transkription** — bei `integrations.voice_transcribe.enabled = true` werden Sprach- und Video-Notizen von einem lokalen Whisper-Daemon (Standard `http://127.0.0.1:7891`) transkribiert, bevor sie irgendeinen Agenten erreichen — Claude, Codex und künftige Clients sind mit einer einzigen Upstream-Änderung abgedeckt
 - **Webhook-Bridge** — URLs für Agenten-Events registrieren (`agent.permission_request`, `agent.task_complete`, `agent.report`)
 
 ### Self-Update & Resilienz
-- **Self-Update** — `codeterm update --check / --apply / --channel <stable|rc|nightly>`. Manifeste sind ed25519-signiert und werden verifiziert, bevor irgendeine Binary angefasst wird; Auto-Install führt einen 9-stufigen geordneten Shutdown aus (mem-WAL-Checkpoint, Supervisor-Stop, signierter Binary-Tausch), danach resumen die Panes automatisch — Kontext überlebt das Upgrade
+- **Self-Update** — `codeterm update --check / --apply / --channel <stable|rc|nightly>`. Manifeste sind ed25519-signiert und werden verifiziert, bevor irgendeine Binary angefasst wird; Auto-Install führt einen 9-stufigen geordneten Shutdown aus (mem-WAL-Checkpoint, Supervisor-Stop, signierter Binary-Tausch), danach werden die Tabs automatisch fortgesetzt — Kontext überlebt das Upgrade
 - **Subprozess-Supervisor** — schwere Mem-Operationen (Dreaming, Librarian-Extraktion) laufen als Kindprozesse mit Circuit-Breaker (3 Fehler in 60 s → offen). Worker-Tod legt die API nicht lahm; `503`-Timeouts auf schweren Mem-Anfragen halten den Daemon reaktionsfähig
 - **Externer Watchdog** — Health-Probe unter `/api/health`; Setup-Rezepte für Windows Task Scheduler, launchd und systemd in [docs/RESILIENCE.md](docs/RESILIENCE.md)
 
@@ -88,8 +88,8 @@ Gebaut mit **Tauri v2** (Rust) + **React** + **xterm.js**.
 - **Helle Themes** — automatische Farbableitung funktioniert sowohl für helle als auch dunkle Themes
 
 ### Integrierter Browser
-- **Browser-Panes** — Webseiten neben dem Terminal öffnen
-- **Lokale Dateibereitstellung** — lokale HTML-Dateien/Visualisierungen in Browser-Panes rendern
+- **Browser-Tabs** — Webseiten neben dem Terminal öffnen
+- **Lokale Dateibereitstellung** — lokale HTML-Dateien/Visualisierungen in Browser-Tabs rendern
 - **Navigationssteuerung** — Zurück, Vorwärts, Aktualisieren, URL-Leiste
 
 ### Entwicklererfahrung
@@ -151,7 +151,7 @@ cd cli && cargo build --release
 | `Cmd/Strg+W` | Tab schließen |
 | `Cmd/Strg+Umschalt+→` | Rechts teilen |
 | `Cmd/Strg+Umschalt+↓` | Nach unten teilen |
-| `Cmd/Strg+Umschalt+Q` | Pane schließen |
+| `Cmd/Strg+Umschalt+Q` | Tab schließen |
 | `Cmd/Strg+Umschalt+N` | Neuer Workspace |
 | `Cmd/Strg+Umschalt+F` | Im Terminal suchen |
 | `Strg+Tab` | Nächster Tab |
@@ -160,7 +160,7 @@ cd cli && cargo build --release
 | `Cmd/Strg+,` | Einstellungen |
 | `Cmd/Strg+=` / `Cmd/Strg+-` | Vergrößern/Verkleinern |
 | `Cmd/Strg+0` | Zoom zurücksetzen |
-| `Alt+Pfeiltasten` | Panes navigieren |
+| `Alt+Pfeiltasten` | Tabs navigieren |
 
 ## API
 
@@ -169,7 +169,7 @@ CodeTerm stellt drei APIs zur Integration bereit:
 ### REST-API (Port 7685)
 
 ```bash
-# Panes auflisten
+# Tabs auflisten
 curl http://localhost:7685/api/panes
 
 # Befehl ausführen und Ausgabe erhalten
@@ -187,7 +187,7 @@ curl -X POST http://localhost:7685/api/workspaces \
   -H "Content-Type: application/json" \
   -d '{"name": "Mein Projekt"}'
 
-# Agent in einem neuen Pane neben dem übergeordneten Pane starten
+# Agent in einem neuen Tab neben dem übergeordneten Tab starten
 curl -X POST http://localhost:7685/api/agents/spawn \
   -H "Content-Type: application/json" \
   -d '{"agent": "claude", "parent_pane_id": "PANE_ID"}'
@@ -204,8 +204,8 @@ codeterm workspace list
 codeterm workspace create "Projekt"
 
 # Terminal-Steuerung
-codeterm pane list
-codeterm send --pane PANE_ID "npm run build"
+codeterm tab list
+codeterm send --tab TAB_ID "npm run build"
 codeterm get-output PANE_ID --lines 50
 
 # Benachrichtigungen
@@ -222,7 +222,7 @@ CodeTerm setzt diese in jeder PTY-Sitzung:
 | Variable | Beschreibung |
 |----------|-------------|
 | `CODETERM` | Immer `1` — erkennen, ob CodeTerm aktiv ist |
-| `CODETERM_PANE_ID` | UUID des aktuellen Panes |
+| `CODETERM_PANE_ID` | UUID des aktuellen Tabs |
 | `CODETERM_SOCKET_PATH` | Socket-Pfad für die JSON-RPC-API |
 | `TERM_PROGRAM` | `CodeTerm` |
 
@@ -264,7 +264,7 @@ Siehe [Konfigurationsanleitung](docs/CONFIG.md) für alle Optionen.
 │                  CodeTerm                    │
 │  ┌──────────┐  ┌──────────┐  ┌───────────┐  │
 │  │ React UI │  │ xterm.js │  │  Browser   │  │
-│  │ Sidebar  │  │ Terminal │  │   Panes    │  │
+│  │ Sidebar  │  │ Terminal │  │    Tabs    │  │
 │  └────┬─────┘  └────┬─────┘  └─────┬─────┘  │
 │       │              │              │        │
 │  ┌────┴──────────────┴──────────────┴────┐   │

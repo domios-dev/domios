@@ -43,7 +43,7 @@
             {
               "name": "tab",
               "positional": false,
-              "value_name": "PANE",
+              "value_name": "TAB",
               "default": null,
               "help": "Tab ID (default: current focused tab)",
               "aliases": []
@@ -59,7 +59,7 @@
             {
               "name": "tab",
               "positional": false,
-              "value_name": "PANE",
+              "value_name": "TAB",
               "default": null,
               "help": "Tab ID (default: $CODETERM_PANE_ID or focused tab)",
               "aliases": []
@@ -75,7 +75,7 @@
             {
               "name": "tab",
               "positional": false,
-              "value_name": "PANE",
+              "value_name": "TAB",
               "default": null,
               "help": "Orchestrator tab ID (default: current focused tab)",
               "aliases": []
@@ -99,7 +99,7 @@
             {
               "name": "tab",
               "positional": false,
-              "value_name": "PANE",
+              "value_name": "TAB",
               "default": null,
               "help": "Tab ID to link (default: current focused tab)",
               "aliases": []
@@ -123,7 +123,7 @@
             {
               "name": "tab",
               "positional": false,
-              "value_name": "PANE",
+              "value_name": "TAB",
               "default": null,
               "help": "Tab ID (default: $CODETERM_PANE_ID or focused tab)",
               "aliases": []
@@ -258,7 +258,7 @@
             {
               "name": "tab",
               "positional": false,
-              "value_name": "PANE",
+              "value_name": "TAB",
               "default": null,
               "help": "Tab ID (default: $CODETERM_PANE_ID or focused tab)",
               "aliases": []
@@ -322,7 +322,7 @@
             {
               "name": "tab",
               "positional": false,
-              "value_name": "PANE",
+              "value_name": "TAB",
               "default": null,
               "help": "Tab ID (default: current focused tab)",
               "aliases": []
@@ -354,7 +354,7 @@
             {
               "name": "tab",
               "positional": false,
-              "value_name": "PANE",
+              "value_name": "TAB",
               "default": null,
               "help": "Tab ID (default: $CODETERM_PANE_ID or focused tab)",
               "aliases": []
@@ -370,7 +370,7 @@
             {
               "name": "tab",
               "positional": false,
-              "value_name": "PANE",
+              "value_name": "TAB",
               "default": null,
               "help": "Tab ID (default: current focused tab)",
               "aliases": []
@@ -594,7 +594,7 @@
             {
               "name": "tab",
               "positional": false,
-              "value_name": "PANE",
+              "value_name": "TAB",
               "default": null,
               "help": "Tab ID (default: current focused tab)",
               "aliases": []
@@ -841,7 +841,7 @@
             {
               "name": "tab",
               "positional": false,
-              "value_name": "PANE",
+              "value_name": "TAB",
               "default": null,
               "help": null,
               "aliases": []
@@ -1056,7 +1056,7 @@
             {
               "name": "tab",
               "positional": false,
-              "value_name": "CREATOR_PANE",
+              "value_name": "TAB",
               "default": null,
               "help": "Tab ID to receive reports from cron agent (default: $CODETERM_PANE_ID)",
               "aliases": []
@@ -1338,7 +1338,7 @@
             {
               "name": "tab",
               "positional": false,
-              "value_name": "PANE",
+              "value_name": "TAB",
               "default": null,
               "help": "Target tab ID (default: $CODETERM_PANE_ID or focused tab)",
               "aliases": []
@@ -1436,7 +1436,7 @@
             {
               "name": "tab",
               "positional": false,
-              "value_name": "PANE",
+              "value_name": "TAB",
               "default": null,
               "help": "Target tab ID (default: $CODETERM_PANE_ID or focused tab)",
               "aliases": []
@@ -1841,7 +1841,7 @@
             {
               "name": "tab",
               "positional": false,
-              "value_name": "PANE",
+              "value_name": "TAB",
               "default": null,
               "help": "Tab id (default: $CODETERM_PANE_ID)",
               "aliases": []
@@ -4329,7 +4329,7 @@
             {
               "name": "tab",
               "positional": false,
-              "value_name": "PANE",
+              "value_name": "TAB",
               "default": null,
               "help": null,
               "aliases": []
@@ -4473,7 +4473,7 @@
             {
               "name": "tab",
               "positional": false,
-              "value_name": "PANE",
+              "value_name": "TAB",
               "default": null,
               "help": null,
               "aliases": []
@@ -4497,7 +4497,7 @@
             {
               "name": "tab",
               "positional": false,
-              "value_name": "PANE",
+              "value_name": "TAB",
               "default": null,
               "help": null,
               "aliases": []
@@ -6418,7 +6418,7 @@
             {
               "name": "tab",
               "positional": false,
-              "value_name": "PANE",
+              "value_name": "TAB",
               "default": null,
               "help": "Planner tab id advancing the state (records author as planner; omit = user)",
               "aliases": []
@@ -7528,7 +7528,7 @@
                 {
                   "name": "assign-tab",
                   "positional": false,
-                  "value_name": "ASSIGN_PANE",
+                  "value_name": "TAB",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -7840,7 +7840,7 @@
                 {
                   "name": "tab",
                   "positional": false,
-                  "value_name": "PANE",
+                  "value_name": "TAB",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -8584,7 +8584,7 @@
                 {
                   "name": "tab",
                   "positional": false,
-                  "value_name": "PANE",
+                  "value_name": "TAB",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -9217,7 +9217,7 @@
         {
           "name": "tab",
           "positional": false,
-          "value_name": "PANE",
+          "value_name": "TAB",
           "default": null,
           "help": "Tab ID (default: $CODETERM_PANE_ID or focused tab)",
           "aliases": []
@@ -9307,7 +9307,7 @@
         {
           "name": "tab",
           "positional": false,
-          "value_name": "PANE",
+          "value_name": "TAB",
           "default": null,
           "help": "Target tab ID (default: $CODETERM_PANE_ID or focused tab)",
           "aliases": []
@@ -10229,7 +10229,7 @@
                 {
                   "name": "tab",
                   "positional": false,
-                  "value_name": "PANE",
+                  "value_name": "TAB",
                   "default": null,
                   "help": "Target tab ID (default: $CODETERM_PANE_ID or focused tab)",
                   "aliases": []
@@ -10245,7 +10245,7 @@
                 {
                   "name": "tab",
                   "positional": false,
-                  "value_name": "PANE",
+                  "value_name": "TAB",
                   "default": null,
                   "help": "Target tab ID (default: $CODETERM_PANE_ID or focused tab)",
                   "aliases": []
@@ -10271,7 +10271,7 @@
             {
               "name": "tab",
               "positional": false,
-              "value_name": "PANE",
+              "value_name": "TAB",
               "default": null,
               "help": "Target tab ID (default: $CODETERM_PANE_ID or focused tab)",
               "aliases": []
@@ -10327,7 +10327,7 @@
             {
               "name": "tab",
               "positional": false,
-              "value_name": "PANE",
+              "value_name": "TAB",
               "default": null,
               "help": "Tab ID to describe (default: current focused tab)",
               "aliases": []
@@ -10351,7 +10351,7 @@
             {
               "name": "tab",
               "positional": false,
-              "value_name": "PANE",
+              "value_name": "TAB",
               "default": null,
               "help": "Tab ID (default: current focused tab)",
               "aliases": []
@@ -10399,7 +10399,7 @@
             {
               "name": "tab",
               "positional": false,
-              "value_name": "PANE",
+              "value_name": "TAB",
               "default": null,
               "help": "Tab ID (default: current focused tab)",
               "aliases": []
@@ -10495,7 +10495,7 @@
             {
               "name": "tab",
               "positional": false,
-              "value_name": "PANE",
+              "value_name": "TAB",
               "default": null,
               "help": "Tab ID to rename (default: current focused tab)",
               "aliases": []
@@ -10535,7 +10535,7 @@
             {
               "name": "tab",
               "positional": false,
-              "value_name": "PANE",
+              "value_name": "TAB",
               "default": null,
               "help": "Tab ID (default: current focused tab)",
               "aliases": []
@@ -10551,7 +10551,7 @@
             {
               "name": "tab",
               "positional": false,
-              "value_name": "PANE",
+              "value_name": "TAB",
               "default": null,
               "help": "Tab ID (default: current focused tab)",
               "aliases": []
@@ -10575,7 +10575,7 @@
             {
               "name": "assign-tab",
               "positional": false,
-              "value_name": "ASSIGN_PANE",
+              "value_name": "TAB",
               "default": null,
               "help": null,
               "aliases": []

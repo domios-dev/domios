@@ -129,7 +129,7 @@ pub enum Commands {
         text: Option<String>,
 
         /// Target tab ID (default: $CODETERM_PANE_ID or focused tab)
-        #[arg(long = "tab")]
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
 
         /// Read text from a file instead of the positional arg. Lets you

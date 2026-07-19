@@ -291,12 +291,12 @@ fn heartbeat_resolves_for_owner_pane_at_send_time() {
     assert!(before.starts_with("<codeterm-role-identity"));
     assert!(before.contains(&format!("You are the Orchestrator for plan {plan_id}")));
     assert!(before.contains("STATE-RECONCILIATION"));
-    assert!(before.contains("First run `codeterm agent reports --pane orch-a`"));
+    assert!(before.contains("First run `codeterm agent reports --tab orch-a`"));
     assert!(before.contains("codeterm orchestrator status --plan"));
-    assert!(before.contains("--pane orch-a --json"));
+    assert!(before.contains("--tab orch-a --json"));
     assert!(before.contains("codeterm plan reconcile"));
     assert!(before.contains("codeterm plan task close"));
-    assert!(before.contains("codeterm send \"<next concrete instruction>\" --pane"));
+    assert!(before.contains("codeterm send \"<next concrete instruction>\" --tab"));
     assert!(before.contains("Keep the plan-owned heartbeat current"));
     assert!(before.contains("codeterm docs ORCHESTRATION"));
     assert!(!before.contains("Re-arm exactly one heartbeat"));
@@ -396,12 +396,12 @@ fn owner_plan_nudge_prepends_heartbeat_and_exact_recovery_commands() {
 
     assert!(text.starts_with("<codeterm-role-identity"));
     assert!(text.contains(&format!("You are the Orchestrator for plan {plan_id}")));
-    assert!(text.contains("codeterm agent reports --pane orch-a"));
+    assert!(text.contains("codeterm agent reports --tab orch-a"));
     assert!(text.contains(&format!(
-        "codeterm orchestrator status --plan {plan_id} --pane orch-a --json"
+        "codeterm orchestrator status --plan {plan_id} --tab orch-a --json"
     )));
     assert!(text.contains(&format!("codeterm plan task close {plan_id} <task_id>")));
-    assert!(text.contains("codeterm send \"<next concrete instruction>\" --pane <worker_pane_id>"));
+    assert!(text.contains("codeterm send \"<next concrete instruction>\" --tab <worker_tab_id>"));
     assert!(text.contains(&format!(
         "codeterm orchestrator heartbeat set --plan {plan_id}"
     )));

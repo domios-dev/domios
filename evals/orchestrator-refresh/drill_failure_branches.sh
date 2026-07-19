@@ -42,7 +42,7 @@ PANE=$(new_claude_pane "$WS" "$CWD" "orch-dead")
 sleep 8
 
 OFF=$(log_offset)
-dc orchestrator refresh --plan "$PLAN" --pane "$PANE" >/dev/null 2>&1
+dc orchestrator refresh --plan "$PLAN" --tab "$PANE" >/dev/null 2>&1
 
 echo "== wait for the alert (bounded by 2× verify_timeout + settle)"
 if wait_for_marker "$OFF" "single re-nudge" 400; then
@@ -76,10 +76,10 @@ PLAN2=$(dc plan create --title "refresh hung drill" --json 2>/dev/null \
 [ -n "$PANE2" ] && [ -n "$PLAN2" ] || { echo "FAIL: setup B" >&2; exit 1; }
 sleep 8
 # Force S1 to land immediately so we isolate the settle branch.
-dc orchestrator handoff --plan "$PLAN2" --pane "$PANE2" >/dev/null 2>&1 || true
+dc orchestrator handoff --plan "$PLAN2" --tab "$PANE2" >/dev/null 2>&1 || true
 
 OFF2=$(log_offset)
-dc orchestrator refresh --plan "$PLAN2" --pane "$PANE2" >/dev/null 2>&1
+dc orchestrator refresh --plan "$PLAN2" --tab "$PANE2" >/dev/null 2>&1
 wait_for_marker "$OFF2" "phase=s4_reorient" 200 || { echo "FAIL: hung compact never reached S4" >&2; rc=1; }
 TAIL2="$(log_since "$OFF2")"
 assert_order "$TAIL2" "phase=s3_settle" "phase=s4_reorient" || rc=1

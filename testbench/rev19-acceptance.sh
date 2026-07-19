@@ -38,8 +38,8 @@ say "LIVE 3/4 — structured-prompt-check (C9 SSE-source-of-truth: state=questio
 
 say "LIVE 4/4 — stop-oracle (non-vacuous interrupt). http-abort if server base/session exist"
 echo "  run manually with a disposable pane:"
-echo "    testbench/stop-oracle.sh --pane <disposable> --mode stop"
-echo "    testbench/stop-oracle.sh --pane <disposable> --mode http-abort --oc-base http://127.0.0.1:<port> --oc-session ses_…"
+echo "    testbench/stop-oracle.sh --tab <disposable> --mode stop"
+echo "    testbench/stop-oracle.sh --tab <disposable> --mode http-abort --oc-base http://127.0.0.1:<port> --oc-session ses_…"
 
 say "OFFLINE regression — regen timelines (classifier untouched by spawn diff)"
 ( cd src-tauri && cargo build --example render_timeline 2>&1 | tail -1 )
