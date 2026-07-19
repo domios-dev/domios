@@ -491,7 +491,13 @@ impl ServiceContext {
         let svc = self.clone();
         let app = self.app_handle.clone();
         spawn_bg(async move {
-            let inner = crate::service::pane_chat::structured_sink::make_sink(app);
+            let session_binding_nonce = svc
+                .mux
+                .read()
+                .get_pane(&pane_id)
+                .and_then(|pane| pane.session_binding_nonce.clone());
+            let inner =
+                crate::service::pane_chat::structured_sink::make_sink(app, session_binding_nonce);
             // Durable wrapper: forwards to the UI sink and UPSERTs each delta to the session JSONL by id.
             let sink: std::sync::Arc<
                 dyn crate::service::pane_chat::structured_sink::StructuredSink,
@@ -855,11 +861,17 @@ impl ServiceContext {
             .lock()
             .upsert(std::slice::from_ref(&note));
         }
+        let session_binding_nonce = self
+            .mux
+            .read()
+            .get_pane(pane_id)
+            .and_then(|pane| pane.session_binding_nonce.clone());
         crate::service::pane_chat::structured_sink::emit_chat_msgs(
             &self.app_handle,
             pane_id,
             &[note],
             None,
+            session_binding_nonce.as_deref(),
         );
     }
 }
