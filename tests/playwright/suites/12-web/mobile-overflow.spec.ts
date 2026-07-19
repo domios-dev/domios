@@ -258,7 +258,10 @@ async function assertActiveManagerReadable(
   await expect(team, `${label} seeded Team visible`).toBeVisible({ timeout: 10_000 });
   const managers = team.getByTestId("managers-section");
   await expect(managers, `${label} managers section visible`).toBeVisible({ timeout: 10_000 });
-  const manager = managers.getByRole("button", { name: `Open tab ${target.tabTitle}` });
+  const manager = managers.getByRole("button", {
+    name: `Open tab ${target.tabTitle}`,
+    exact: true,
+  });
   const accessibleName = await manager.getAttribute("aria-label");
   expect(accessibleName, `${label} manager accessible name`).toMatch(/^Open tab \S/);
   await manager.click();
@@ -266,7 +269,7 @@ async function assertActiveManagerReadable(
 
   await openSidebar(page);
   const activeTeam = page.locator(`[data-testid="team-unit"][data-team-id="${target.teamId}"]`);
-  const activeManager = activeTeam.getByRole("button", { name: accessibleName! });
+  const activeManager = activeTeam.getByRole("button", { name: accessibleName!, exact: true });
   await expect(activeManager, `${label} active manager button visible`).toBeVisible({ timeout: 10_000 });
   const row = activeManager.locator("xpath=..");
   await expect(row.locator(":scope > .active-tab-pill"), `${label} active fill behind manager`).toHaveCount(1);
