@@ -111,8 +111,8 @@ export function MotionPlayground() {
           <span className="gallery-tier-count">3 concepts</span>
         </div>
         <div key={replayKey} className="concept-galleries">
-          <EamesConcepts variants={["feed"]} />
-          <RandWorkingConcepts variants={["quiet-press", "torque-driver"]} />
+          <EamesConcepts headingId="accepted-eames-concepts-title" variants={["feed"]} />
+          <RandWorkingConcepts headingId="accepted-rand-concepts-title" variants={["quiet-press", "torque-driver"]} />
         </div>
       </section>
 
@@ -130,8 +130,8 @@ export function MotionPlayground() {
         <div key={replayKey} className="concept-galleries">
           <CoreConcepts />
           <OpusConcepts />
-          <EamesConcepts variants={["tap", "latch"]} />
-          <RandWorkingConcepts variants={["bench-clamp"]} />
+          <EamesConcepts headingId="exploration-eames-concepts-title" variants={["tap", "latch"]} />
+          <RandWorkingConcepts headingId="exploration-rand-concepts-title" variants={["bench-clamp"]} />
         </div>
       </section>
 

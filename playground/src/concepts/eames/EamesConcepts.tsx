@@ -42,6 +42,7 @@ const VARIANTS = [
 type EamesVariantId = (typeof VARIANTS)[number]["id"];
 
 interface EamesConceptsProps {
+  headingId: string;
   variants?: readonly EamesVariantId[];
 }
 
@@ -62,13 +63,13 @@ function Variant({ id, number, name, note, aria, children }: VariantProps) {
   );
 }
 
-export function EamesConcepts({ variants = VARIANTS.map(({ id }) => id) }: EamesConceptsProps) {
+export function EamesConcepts({ headingId, variants = VARIANTS.map(({ id }) => id) }: EamesConceptsProps) {
   return (
-    <section className="concept-section eames-concepts" aria-labelledby="eames-concepts-title">
+    <section className="concept-section eames-concepts" aria-labelledby={headingId}>
       <div className="section-heading">
         <div>
           <span className="section-index">03</span>
-          <h2 id="eames-concepts-title">Quiet Machine · Working</h2>
+          <h2 id={headingId}>Quiet Machine · Working</h2>
         </div>
         <p>Built by Eames · five-pose Working grammar</p>
       </div>

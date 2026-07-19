@@ -57,6 +57,8 @@ test("review gate exposes current Accepted and Exploration counts", async ({ pag
   await openMotionLab(page);
   await expect(tierCount(page, "accepted-concepts-title")).toHaveText("3 concepts");
   await expect(tierCount(page, "exploration-concepts-title")).toHaveText("19 concepts");
+  await expect(page.locator(".accepted-tier .concept-card")).toHaveCount(3);
+  await expect(page.locator(".exploration-tier .concept-card")).toHaveCount(19);
 });
 
 test("review gate removes every ambient animation under reduced motion", async ({ page }) => {
@@ -82,6 +84,14 @@ test("review gate keeps each concept stage named and mobile width overflow-free"
     await expect(stage).toHaveAttribute("role", "img");
     await expect(stage).toHaveAccessibleName(/\S/);
   }
+  const duplicateIds = await page.locator("[id]").evaluateAll((elements) => {
+    const counts = new Map<string, number>();
+    for (const element of elements) {
+      counts.set(element.id, (counts.get(element.id) ?? 0) + 1);
+    }
+    return [...counts].filter(([, count]) => count > 1).map(([id]) => id);
+  });
+  expect(duplicateIds, "Every DOM id must be unique for aria-labelledby targets.").toEqual([]);
   await expect.poll(() => page.evaluate(() => ({ client: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth })))
     .toEqual({ client: 390, scroll: 390 });
 });
