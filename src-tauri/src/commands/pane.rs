@@ -488,7 +488,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             svc.app_handle.clone(),
             msg_count,
             Some(session_id.clone()),
-            session_binding_nonce,
+            session_binding_nonce.clone(),
         );
         let handle = crate::service::pane_chat::spawn_tailer(
             crate::service::pane_chat::TailConfig {
