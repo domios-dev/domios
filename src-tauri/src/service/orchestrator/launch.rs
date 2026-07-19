@@ -1,12 +1,7 @@
-use super::types::SpawnAgentParams;
-use crate::service::boot_stage::BootStage;
-use crate::service::ServiceContext;
-
-/// A cross-mesh worker (mesh report target set, no local parent) must NOT be
-/// forced into the local Worker hierarchy — it has no local Orchestrator parent,
-/// so `set_pane_role(Worker, None)` errors. Its hierarchy is represented on the
-/// origin via the RemoteWorkerRegistry instead. Returns true to skip the local
-/// role assignment. Orchestrator-role and locally-parented spawns are unaffected.
+use crate::{
+    service::orchestrator::types::SpawnAgentParams,
+    service::{boot_stage::BootStage, ServiceContext},
+};
 pub(crate) fn skip_local_worker_role(
     role: &crate::multiplexer::types::AgentRole,
     parent_pane_id: Option<&str>,
@@ -48,19 +43,24 @@ pub(crate) fn should_deliver_spawn_preferences(
     is_planner && onboarding_task.is_some()
 }
 
-pub(crate) use crate::agent::provider::AgentLaunchParams;
-pub(crate) use crate::agent::registry::AgentRegistry;
-
+pub(crate) use crate::agent::{provider::AgentLaunchParams, registry::AgentRegistry};
 #[derive(Default)]
 struct LaunchRegistry {
     next_generation: u64,
     panes: std::collections::HashMap<String, RegisteredLaunch>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 struct RegisteredLaunch {
     pty_id: String,
     generation: u64,
+    provider_ack: std::sync::Arc<ProviderAck>,
+}
+
+#[derive(Default)]
+struct ProviderAck {
+    ready: parking_lot::Mutex<bool>,
+    changed: parking_lot::Condvar,
 }
 
 impl LaunchRegistry {
@@ -72,23 +72,23 @@ impl LaunchRegistry {
             generation: self.next_generation,
             stage: BootStage::PtySpawned,
             reused: false,
+            provider_ack: std::sync::Arc::new(ProviderAck::default()),
         };
         self.panes.insert(
             launch.pane_id.clone(),
             RegisteredLaunch {
                 pty_id: launch.pty_id.clone(),
                 generation: launch.generation,
+                provider_ack: launch.provider_ack.clone(),
             },
         );
         launch
     }
 
     fn owns(&self, launch: &LaunchGeneration) -> bool {
-        self.panes.get(&launch.pane_id)
-            == Some(&RegisteredLaunch {
-                pty_id: launch.pty_id.clone(),
-                generation: launch.generation,
-            })
+        self.panes.get(&launch.pane_id).is_some_and(|registered| {
+            registered.pty_id == launch.pty_id && registered.generation == launch.generation
+        })
     }
 
     fn finish(&mut self, launch: &LaunchGeneration) -> bool {
@@ -112,13 +112,13 @@ impl LaunchRegistry {
             generation: registered.generation,
             stage: BootStage::PtySpawned,
             reused: false,
+            provider_ack: registered.provider_ack,
         })
     }
 }
 
 static LAUNCH_REGISTRY: std::sync::LazyLock<parking_lot::Mutex<LaunchRegistry>> =
     std::sync::LazyLock::new(|| parking_lot::Mutex::new(LaunchRegistry::default()));
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum LaunchFailure {
     PtySpawn(String),
@@ -132,7 +132,6 @@ enum LaunchFailure {
     ProviderReadyTimeout,
     TaskDelivery(String),
 }
-
 impl LaunchFailure {
     fn reason(&self) -> String {
         match self {
@@ -150,15 +149,36 @@ impl LaunchFailure {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 struct LaunchGeneration {
     pane_id: String,
     pty_id: String,
     generation: u64,
     stage: BootStage,
     reused: bool,
+    provider_ack: std::sync::Arc<ProviderAck>,
 }
 
+pub(crate) fn record_provider_session(svc: &ServiceContext, pane_id: &str) {
+    let pty_id = svc
+        .mux
+        .read()
+        .get_pane(pane_id)
+        .and_then(|pane| pane.pty_id.clone());
+    let Some(pty_id) = pty_id else {
+        return;
+    };
+    let ack = LAUNCH_REGISTRY
+        .lock()
+        .panes
+        .get(pane_id)
+        .filter(|launch| launch.pty_id == pty_id)
+        .map(|launch| launch.provider_ack.clone());
+    if let Some(ack) = ack {
+        *ack.ready.lock() = true;
+        ack.changed.notify_all();
+    }
+}
 impl LaunchGeneration {
     fn begin(pane_id: &str, pty_id: String) -> Self {
         LAUNCH_REGISTRY.lock().begin(pane_id, pty_id)
@@ -199,6 +219,15 @@ impl LaunchGeneration {
     fn write_if_current<T>(&self, write: impl FnOnce() -> T) -> Option<T> {
         let registry = LAUNCH_REGISTRY.lock();
         registry.owns(self).then(write)
+    }
+
+    fn await_provider_ack(&self, timeout: std::time::Duration) -> bool {
+        let mut ready = self.provider_ack.ready.lock();
+        if *ready {
+            return true;
+        }
+        self.provider_ack.changed.wait_for(&mut ready, timeout);
+        *ready
     }
 
     fn commit_if_current(&self, commit: impl FnOnce()) -> bool {
@@ -487,11 +516,6 @@ pub(crate) fn launch_agent_in_background(
         if !launch.emit(&svc, BootStage::PtySpawned) {
             return;
         }
-        log::info!(
-            "launch_agent: pty ready for pane {} after {}ms",
-            pane_id,
-            launch_started.elapsed().as_millis()
-        );
 
         let mut reader_monitor = match reader_readiness.wait(std::time::Duration::from_secs(10)) {
             Ok(monitor) => monitor,
@@ -572,7 +596,6 @@ pub(crate) fn launch_agent_in_background(
                 )
             })
             .unwrap_or(crate::service::launch_delivery::LaunchDeliveryMode::ConfirmedFallback);
-        let mut provider_transition = svc.arm_provider_status_transition(&pty_id);
         if !launch.emit(&svc, BootStage::AgentLaunching) {
             return;
         }
@@ -653,7 +676,6 @@ pub(crate) fn launch_agent_in_background(
                         {
                             return;
                         }
-                        provider_transition = svc.arm_provider_status_transition(&pty_id);
                         match launch.write_if_current(|| {
                             svc.send_shell_spawn_after_ready(&pty_id, &launch_cmd)
                         }) {
@@ -686,11 +708,7 @@ pub(crate) fn launch_agent_in_background(
             return;
         }
 
-        if !svc.await_provider_status_transition(
-            provider_transition,
-            &pty_id,
-            std::time::Duration::from_secs(30),
-        ) {
+        if !launch.await_provider_ack(std::time::Duration::from_secs(30)) {
             let error = if reader_monitor.closed() {
                 LaunchFailure::PtyEof.reason()
             } else {

@@ -8,8 +8,8 @@ mod spawn;
 mod types;
 
 pub(crate) use launch::{
-    build_agent_command, launch_agent_in_background, record_reader_termination,
-    role_onboarding_task,
+    build_agent_command, launch_agent_in_background, record_provider_session,
+    record_reader_termination, role_onboarding_task,
 };
 #[cfg(test)]
 pub(crate) use launch::{
