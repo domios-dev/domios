@@ -27,16 +27,17 @@ const VARIANTS = [
 type RandVariantId = (typeof VARIANTS)[number]["id"];
 
 interface RandWorkingConceptsProps {
+  headingId: string;
   variants?: readonly RandVariantId[];
 }
 
-export function RandWorkingConcepts({ variants = VARIANTS.map(({ id }) => id) }: RandWorkingConceptsProps) {
+export function RandWorkingConcepts({ headingId, variants = VARIANTS.map(({ id }) => id) }: RandWorkingConceptsProps) {
   return (
-    <section className="concept-section rand-concepts" aria-labelledby="rand-concepts-title">
+    <section className="concept-section rand-concepts" aria-labelledby={headingId}>
       <div className="section-heading">
         <div>
           <span className="section-index">03</span>
-          <h2 id="rand-concepts-title">Quiet machine</h2>
+          <h2 id={headingId}>Quiet machine</h2>
         </div>
         <p>Built by Rand · grounded working gestures</p>
       </div>
