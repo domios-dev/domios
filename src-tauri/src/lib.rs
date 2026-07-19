@@ -189,6 +189,8 @@ pub fn run() {
             commands::kill_pty,
             commands::suggest_install_pwsh,
             commands::get_shell_diagnostics,
+            commands::frontend_ready,
+            commands::frontend_readiness_generation,
             commands::restart_app,
             commands::restart_general_agent,
             commands::restart_general_agent_pane,
