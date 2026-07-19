@@ -562,8 +562,11 @@ fn is_launch_stage(stage: BootStage) -> bool {
         stage,
         BootStage::PtyStarting
             | BootStage::PtySpawned
+            | BootStage::ReaderReady
             | BootStage::ShellReady
             | BootStage::AgentLaunching
+            | BootStage::LaunchWritten
+            | BootStage::ProviderReady
             | BootStage::PreparingRoleInstructions
             | BootStage::DeliveringInstructions
     )
