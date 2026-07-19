@@ -1,5 +1,6 @@
 import { useMemo, useState, type CSSProperties } from "react";
 import { CoreConcepts } from "./concepts/core/CoreConcepts";
+import { EamesConcepts } from "./concepts/eames/EamesConcepts";
 import { OpusConcepts } from "./concepts/opus/OpusConcepts";
 import { RandWorkingConcepts } from "./concepts/rand/RandWorkingConcepts";
 
@@ -126,6 +127,7 @@ export function MotionPlayground() {
         <div key={replayKey} className="concept-galleries">
           <CoreConcepts />
           <OpusConcepts />
+          <EamesConcepts />
           <RandWorkingConcepts />
         </div>
       </section>
