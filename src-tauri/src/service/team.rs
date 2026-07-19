@@ -31,14 +31,6 @@ pub(crate) enum TeamMutationCaller {
     AgentPane(String),
 }
 
-impl TeamMutationCaller {
-    pub(crate) fn from_pane_id(pane_id: Option<&str>) -> Self {
-        pane_id.map_or(Self::TrustedDirectUser, |pane_id| {
-            Self::AgentPane(pane_id.to_string())
-        })
-    }
-}
-
 impl ServiceContext {
     pub(crate) fn reconcile_dangling_team_plan_bindings(
         &self,

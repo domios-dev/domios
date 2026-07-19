@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 21 -->
+<!-- revision: 22 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -9,9 +9,9 @@ a global flag on every command.
 
 **Planning?** Read the EFFORT workflow first — `docs/ORCHESTRATION.md` (GOAL ⟶ Spec ⊥ Plan ⟶ Tasks ⟶ Strides; author GOAL-first, Spec=WHAT, Plan=HOW built from the spec, M:N section links). Don't cram requirements into plan sections; the Spec holds WHAT.
 
-The Team verbs are `codeterm team list|show|rename|close|adopt-plan`. `codeterm team close <team_id>` is the only operation that removes a Team; it cascade-closes the Team's members, archives/detaches its plans, records owner retirement, and clears owner/planner routing to the destroyed panes. Agent callers may mutate only their own `team_id` when they are the Team's Orchestrator or planner Manager; authenticated direct-user calls without a pane identity remain allowed. A newly minted Team is returned with `codeterm team rename <team_id> <name>` and `codeterm docs ORCHESTRATION` guidance.
+The Team verbs are `codeterm team list|show|rename|close|adopt-plan`. `codeterm team close <team_id>` is the only operation that removes a Team; it cascade-closes the Team's members, archives/detaches its plans, records owner retirement, and clears owner/planner routing to the destroyed panes. Agent callers may mutate only their own `team_id` when they are the Team's Orchestrator or planner Manager; rename and close retain their authenticated direct-user path. A newly minted Team is returned with `codeterm team rename <team_id> <name>` and `codeterm docs ORCHESTRATION` guidance.
 
-`codeterm team adopt-plan <team_id> <plan_id>` activates an archived/teamless plan only when the Team has exactly one live Orchestrator and no other active plan. Adoption atomically binds the Team, replaces the old owner with that Orchestrator, records owner history, clears stale planner routing, and relinks live task hierarchy. `codeterm plan unarchive|resume` require an existing live Team binding; they never recreate a Team.
+`codeterm team adopt-plan <team_id> <plan_id>` requires `CODETERM_PANE_ID` for the destination Team's Orchestrator or planner Manager. It activates an archived/teamless plan only when the Team has exactly one live Orchestrator and no other active plan. Adoption atomically binds the Team, replaces the old owner with that Orchestrator, records owner history, clears stale planner routing, and relinks live task hierarchy. `codeterm plan unarchive|resume` require an existing live Team binding; they never recreate a Team.
 
 `codeterm plan transfer <plan_id> --to <orchestrator-pane>` moves the plan to the destination Orchestrator's live Team. The CLI requires `CODETERM_PANE_ID`, supplies that caller identity, and the daemon requires the pane to be the source Team's Orchestrator or planner Manager; missing callers, Workers, and foreign-Team panes cannot transfer. Transfer changes the Team, owner, owner history, and stale planner routing atomically before relinking hierarchy.
 
