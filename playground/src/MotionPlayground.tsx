@@ -136,9 +136,9 @@ export function MotionPlayground() {
       </section>
 
       <footer className="lab-footer">
-        <span>transform + opacity only</span>
-        <span>prefers-reduced-motion respected</span>
-        <span>keyboard operable controls</span>
+        <span>watch the whole loop</span>
+        <span>develop large · verify small</span>
+        <span>feeling before conformance</span>
       </footer>
     </main>
   );

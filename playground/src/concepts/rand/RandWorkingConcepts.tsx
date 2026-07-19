@@ -46,8 +46,6 @@ export function RandWorkingConcepts({ headingId, variants = VARIANTS.map(({ id }
           <article
             className="concept-card"
             data-concept={variant.id}
-            data-motion-lane="rand"
-            data-working-concept
             key={variant.id}
           >
             <header>
@@ -65,13 +63,13 @@ export function RandWorkingConcepts({ headingId, variants = VARIANTS.map(({ id }
               <div className="concept-motion rand-motion">
                 <div
                   className={`rand-stage rand-${variant.id}`}
-                  data-motion-stage={variant.id}
                   aria-hidden="true"
                 >
                   <span className="rand-anchor" aria-hidden="true" />
                   <span className="rand-active" aria-hidden="true" />
                 </div>
               </div>
+              <span className="workbench-scale" aria-hidden="true">workbench view</span>
             </div>
           </article>
         ))}

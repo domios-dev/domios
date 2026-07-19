@@ -1,81 +1,47 @@
-# CodeTerm motion language
+# CodeTerm motion direction
 
-Status: art-direction draft for the Motion Lab.
+Motion Lab is a visual sketchbook. Its job is to discover movement that feels clear, physical, and specific to CodeTerm. It is not a conformance suite.
 
 ## Character
 
-CodeTerm motion is a quiet machine at work. It feels precise, lightweight, and
-physical without becoming cartoon-like. Persistent status motion stays in the
-periphery; it confirms activity without asking for attention.
+CodeTerm should feel like a small workshop: focused, capable, slightly playful, and never busy for its own sake. A working indicator shows a recognizable action with weight and consequence. It must not read as a spinner, a random twitch, or decorative particles.
 
-The visual signature is one anchored structure, one active part, and one brief
-reaction at contact. Motion never substitutes for a text or color state.
+## Review loop
 
-## Semantic families
+1. State one intent in plain language, such as “a hammer lands one measured strike.”
+2. Build the motion large enough to see its silhouette, pivot, contact, and settle.
+3. Watch several uninterrupted loops at normal speed. Use slow motion only to diagnose a problem.
+4. Check the final small size. Simplify the drawing, not the physical idea.
+5. Compare the new version beside the previous version in the same card and theme.
+6. Accept only when the improvement is immediately visible. Otherwise revise or discard it.
 
-| Meaning | Style | Behavior |
-| --- | --- | --- |
-| Working | Productive | Short action followed by a long rest |
-| Handoff | Productive | One directional transfer, then stop |
-| Completed | Expressive | One-shot contact and settle |
-| Needs attention | Expressive | One-shot interruption; never a perpetual pulse |
+The art director judges rhythm, weight, clarity, personality, and composition. Technical correctness cannot raise a visually weak concept to Accepted.
 
-The current playground targets **Working** only. Concepts that imply progress,
-completion, voting, or synchronization belong in their own semantic families.
+## Questions that matter
 
-## Working-status grammar
+- Can someone identify the object and action without reading its description?
+- Does anticipation prepare the main action instead of looking like a glitch?
+- Do moving parts visibly meet, react, and settle?
+- Is the important action on screen long enough to perceive?
+- Does the rest feel intentional rather than dead?
+- Do nearby indicators avoid moving in lockstep?
+- Does the small version preserve the same idea as the large version?
+- Is it more appealing than the version it replaces?
 
-- Target box: `24 × 14px`; artwork must remain legible at 1× scale.
-- Cycle: `2200–2800ms`; at least 65% of the cycle is visually at rest.
-- Primary travel: `4–6px`; rotation at most `16deg`; scale at most `1.06`.
-- One primary moving part. One secondary reaction is allowed for at most 120ms.
-- Use the active theme accent. Inactive structure stays at 28–36% opacity.
-- Glow is an impact artifact, not a persistent material: at most 4px for 100ms.
-- Animate `transform` and `opacity`; paint changes are discrete at contact.
+## Minimum product care
 
-Every loop has five authored poses:
-
-1. Rest — a complete, recognizable static glyph.
-2. Anticipation — a small movement opposite the main action.
-3. Action — the fastest segment, with a clear direction and target.
-4. Contact — primary and anchored parts visibly meet.
-5. Settle — a smaller reaction returns exactly to rest.
-
-Use productive easing as the default: `cubic-bezier(0.2, 0, 0.38, 0.9)`.
-Entrance reactions use `cubic-bezier(0, 0, 0.38, 0.9)` and exits use
-`cubic-bezier(0.2, 0, 1, 0.9)`. Linear movement is reserved for indeterminate
-progress tracks, never physical objects.
-
-## Rejection gate
-
-Bounce a concept when any answer is yes:
-
-- Does it look like a spinner, screensaver, equalizer, or loading skeleton?
-- Does more than one object compete for attention?
-- Is there continuous travel with no rest or physical cause?
-- Does it bounce, stretch, overshoot, or glow for decoration?
-- Does a still frame lose the object, target, or direction of action?
-- Does the loop imply a different semantic state than “someone is working”?
-- Does it become the brightest object in a normal sidebar?
-- Does reduced motion remove the status instead of replacing it with a static cue?
-
-## Review protocol
-
-1. Inspect rest, anticipation, action, contact, and settle as deterministic
-   frames, not screenshots captured at arbitrary times.
-2. Inspect two complete loops at 1× and 0.75× speed.
-3. Place the indicator in the real Team header at 390px and desktop width.
-4. Compare every accepted candidate using the same accent and surrounding UI.
-5. Keep at most three candidates in the accepted row; everything else remains
-   explicitly labelled exploration.
-6. Verify keyboard controls, accessible status text, and
-   `prefers-reduced-motion: reduce`.
+- Keep status meaning available as text.
+- Provide a useful static state for `prefers-reduced-motion`.
+- Prefer transform and opacity for continuous movement.
+- Check narrow and desktop layouts manually.
+- Keep Exploration honest; do not label an unresolved concept Accepted.
 
 ## Sources
 
 - [Walt Disney Animation process](https://www.disneyanimation.com/process/animation/)
 - [IBM Carbon motion](https://carbondesignsystem.com/elements/motion/overview/)
-- [IBM Carbon choreography](https://carbondesignsystem.com/elements/motion/choreography/)
 - [Material duration and easing](https://m1.material.io/motion/duration-easing.html)
 - [Apple motion guidance](https://developer.apple.com/design/human-interface-guidelines/motion)
 - [W3C reduced-motion technique](https://www.w3.org/WAI/WCAG22/Techniques/css/C39)
+
+<!-- revision: 1 -->
