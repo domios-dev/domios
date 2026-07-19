@@ -20,6 +20,7 @@ pub(crate) struct AddTeamMemberResult {
     pub team: Team,
 }
 
+#[derive(Debug)]
 pub(crate) enum TeamPlanError {
     Team(String),
     Plan(PlanError),
