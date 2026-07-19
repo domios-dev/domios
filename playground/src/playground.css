@@ -255,6 +255,16 @@ input:focus-visible {
 .concept-galleries { display: grid; gap: 42px; }
 .concept-section { min-width: 0; }
 
+.accepted-tier .concept-galleries {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  align-items: start;
+  gap: 20px;
+}
+
+.accepted-tier .section-heading { display: block; }
+.accepted-tier .eames-concepts .concept-grid { grid-template-columns: 1fr; }
+.accepted-tier .rand-concepts .concept-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
 .section-heading {
   display: flex;
   justify-content: space-between;
@@ -316,6 +326,7 @@ input:focus-visible {
 
 @media (max-width: 900px) {
   .concept-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .accepted-tier .concept-galleries { grid-template-columns: 1fr; }
   .lab-controls { grid-template-columns: auto minmax(180px, 1fr); }
   .playback-controls { grid-column: 1 / -1; }
 }
@@ -327,6 +338,7 @@ input:focus-visible {
   .lab-controls,
   .context-strip { grid-template-columns: 1fr; }
   .concept-grid { grid-template-columns: 1fr; }
+  .accepted-tier .concept-grid { grid-template-columns: 1fr; }
   .section-heading,
   .gallery-tier-heading { align-items: start; flex-direction: column; }
 }
