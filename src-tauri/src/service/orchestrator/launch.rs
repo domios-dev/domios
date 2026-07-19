@@ -525,7 +525,7 @@ pub(crate) fn launch_agent_in_background(
             return;
         }
 
-        if !crate::service::pty_io::await_bare_shell_prompt(
+        if !crate::service::pty_io::await_shell_prompt(
             &svc.screen_state,
             &pty_id,
             std::time::Duration::from_secs(30),
@@ -631,7 +631,7 @@ pub(crate) fn launch_agent_in_background(
                         launch.replace(pty_id.clone());
                         if !launch.emit(&svc, BootStage::PtySpawned)
                             || !launch.emit(&svc, BootStage::ReaderReady)
-                            || !crate::service::pty_io::await_bare_shell_prompt(
+                            || !crate::service::pty_io::await_shell_prompt(
                                 &svc.screen_state,
                                 &pty_id,
                                 std::time::Duration::from_secs(30),
@@ -688,11 +688,7 @@ pub(crate) fn launch_agent_in_background(
             return;
         }
 
-        if !svc.await_agent_tui_frame_on_screen(
-            &pty_id,
-            &agent_cmd,
-            std::time::Duration::from_secs(30),
-        ) {
+        if !svc.await_provider_status_event(&pty_id, std::time::Duration::from_secs(30)) {
             let error = if reader_monitor.closed() {
                 LaunchFailure::PtyEof.reason()
             } else {
@@ -886,6 +882,15 @@ mod tests {
         assert_eq!(terminated.generation, launch.generation);
         assert!(!driver.owns(&launch));
         assert_eq!(LaunchFailure::PtyEof.reason(), "PtyEof");
+    }
+
+    #[test]
+    fn reused_success_finishes_before_a_later_reader_eof() {
+        let mut driver = LaunchRegistry::default();
+        let reused = driver.begin("pane-reused", "pty-live".into());
+
+        assert!(driver.finish(&reused));
+        assert!(driver.take_for_pty("pty-live").is_none());
     }
 
     #[test]
