@@ -31,6 +31,7 @@
     "test:pw:trace": "playwright show-trace",
     "test:pw:debug": "playwright test -c tests/playwright --debug",
     "test:pw:audit": "node tests/playwright/helpers/audit-combine.mjs",
+    "test:manager-bootstrap": "node evals/manager-bootstrap/live-smoke.mjs",
     "lint": "biome check .",
     "sync:versions": "node scripts/sync-plugin-versions.mjs",
     "check:versions": "node scripts/sync-plugin-versions.mjs --check",
