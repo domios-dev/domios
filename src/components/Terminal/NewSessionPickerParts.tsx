@@ -65,7 +65,7 @@ export function ModeCards({
       <ModeCard
         mode="pair"
         selected={mode === "pair"}
-        label="Orchestration"
+        label="Team"
         description="Orchestrator + Planner, paired"
         onSelect={() => onSelect("pair")}
         data-testid="picker-mode-orchestration"

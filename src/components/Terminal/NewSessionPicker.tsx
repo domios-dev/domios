@@ -473,7 +473,7 @@ export function NewSessionPicker({
             loading={busy}
             onClick={handleStart}
           >
-            {choice.mode === "pair" ? "Start orchestration" : "Start session"}
+            {choice.mode === "pair" ? "Start team" : "Start session"}
           </Button>
         </div>
       </div>
