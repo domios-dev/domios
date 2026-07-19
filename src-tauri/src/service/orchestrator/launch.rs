@@ -572,20 +572,7 @@ pub(crate) fn launch_agent_in_background(
                 )
             })
             .unwrap_or(crate::service::launch_delivery::LaunchDeliveryMode::ConfirmedFallback);
-        let launch_opts = crate::service::inject_verify::VerifyOpts {
-            require_prompt_first: false,
-            verify_echo: true,
-            verify_submit: true,
-            prompt_timeout: std::time::Duration::from_secs(0),
-            echo_timeout: std::time::Duration::from_secs(3),
-            submit_timeout: std::time::Duration::from_secs(30),
-        };
-        // A TUI launch hands the shell off before a new shell prompt can appear.
-        let launch_strategy = registry
-            .with_provider(&agent_cmd, |p| p.verify_submit_strategy())
-            .unwrap_or(crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
-                timeout: std::time::Duration::from_secs(15),
-            });
+        let mut provider_transition = svc.arm_provider_status_transition(&pty_id);
         if !launch.emit(&svc, BootStage::AgentLaunching) {
             return;
         }
@@ -599,20 +586,14 @@ pub(crate) fn launch_agent_in_background(
             return;
         }
         // (#93 — keeps shell-level launch off the bracketed-paste path).
-        let first_launch = match launch.write_if_current(|| {
-            svc.send_shell_spawn_verified(
-                &pty_id,
-                &agent_cmd,
-                &launch_cmd,
-                launch_strategy.clone(),
-                launch_opts.clone(),
-            )
-        }) {
+        let first_launch = match launch
+            .write_if_current(|| svc.send_shell_spawn_after_ready(&pty_id, &launch_cmd))
+        {
             Some(result) => result,
             None => return,
         };
         let launch_result = match first_launch {
-            Err(error @ crate::service::inject_verify::InjectionError::PtyClosed { .. }) => {
+            Err(error) => {
                 match await_replacement_pty(
                     &svc,
                     &pane_id,
@@ -672,14 +653,9 @@ pub(crate) fn launch_agent_in_background(
                         {
                             return;
                         }
+                        provider_transition = svc.arm_provider_status_transition(&pty_id);
                         match launch.write_if_current(|| {
-                            svc.send_shell_spawn_verified(
-                                &pty_id,
-                                &agent_cmd,
-                                &launch_cmd,
-                                launch_strategy,
-                                launch_opts,
-                            )
+                            svc.send_shell_spawn_after_ready(&pty_id, &launch_cmd)
                         }) {
                             Some(result) => result,
                             None => return,
@@ -710,7 +686,11 @@ pub(crate) fn launch_agent_in_background(
             return;
         }
 
-        if !svc.await_provider_status_event(&pty_id, std::time::Duration::from_secs(30)) {
+        if !svc.await_provider_status_transition(
+            provider_transition,
+            &pty_id,
+            std::time::Duration::from_secs(30),
+        ) {
             let error = if reader_monitor.closed() {
                 LaunchFailure::PtyEof.reason()
             } else {
