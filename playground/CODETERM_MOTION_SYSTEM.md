@@ -164,11 +164,15 @@ The user runs many agents across many panes and workspaces, switches context
 constantly, and reads streaming output while other agents work. Motion earns its
 place only by serving that.
 
-1. **The app breathes as one.** Everything that is merely *alive* — every working
-   agent, active workspace, focused pane, present peer — shares a single ambient
-   heartbeat: one period, one curve, one amplitude. Liveness is a property of the
-   whole room, not a competition between widgets. *(This is the signature move and
-   the single largest coherence win.)*
+1. **The app breathes as one — one room, not one strobe.** Everything that is
+   merely *alive* — every working agent, active workspace, focused pane, present
+   peer — shares one heartbeat *grammar*: the same period and curve. But they must
+   not fire in unison, which would read as a screen-wide flash. Amplitude and phase
+   follow a hierarchy — the local/selected signal breathes strongest, peripheral
+   signals quieter, each on a stable per-instance phase offset — so liveness reads
+   as a property of the whole calm room, not a synchronized pulse or a competition
+   between widgets. *(This is the signature move and the single largest coherence
+   win.)*
 
 2. **Motion explains causality, or it doesn't ship.** A surface enters *from where
    it was summoned*: a menu grows from its trigger, a disclosure grows from its
@@ -237,18 +241,34 @@ redundant one.
 --ct-shift-lg: 16px;  /* sheet / modal rise */
 ```
 
-### Opacity & ambient — one heartbeat for the whole app (new)
+### Opacity & ambient — one heartbeat grammar for the whole app (new)
 
 ```css
 --ct-fade-muted: 0.55;      /* matches existing text-secondary opacity */
---ct-motion-ambient: 1400ms;      /* THE shared liveness period — one source */
+--ct-motion-ambient: 1400ms;                            /* THE shared liveness period — one grammar */
 --ct-motion-ambient-ease: cubic-bezier(0.37,0,0.63,1);  /* symmetric breathe */
---ct-motion-scale: 1;             /* dev-only global tempo multiplier — see §8 */
+--ct-motion-ambient-amp-strong: 1;    /* local / selected / focused signal */
+--ct-motion-ambient-amp-quiet: 0.5;   /* peripheral / background signals */
 ```
 
-Every ambient loop derives its `animation-duration` from
-`calc(var(--ct-motion-ambient) * var(--ct-motion-scale))`. Nothing hardcodes a
-looping period again.
+Every ambient loop consumes `var(--ct-motion-ambient)` and
+`var(--ct-motion-ambient-ease)` directly — no bespoke period, and **no unitless
+`calc()` multiplier** (see the strobe and slow-motion rules below).
+
+**One grammar, not one strobe.** Shared period and easing make the signals a
+family; they must *not* all peak on the same frame. Three rules keep "one room"
+calm:
+- **Amplitude hierarchy** — the local/selected/focused indicator breathes at
+  `--ct-motion-ambient-amp-strong`; peripheral/background indicators use
+  `--ct-motion-ambient-amp-quiet`. Attention follows importance, not everything at
+  once.
+- **Stable per-instance phase offset** — each instance starts at a fixed offset
+  derived *deterministically* from its own identity (index/id → `animation-delay`),
+  held constant for the element's life. Neighbors sit out of phase, so the screen
+  never flashes in unison. The offset is never random per render (that would
+  jitter) and never re-seeded on re-mount.
+- **Same period, offset phase, tiered amplitude** — that is the whole contract. It
+  reads as one living room, not one clock tick.
 
 **One rule that fixes ~90% of the fragmentation:** raw millisecond values, bare
 `ease`/`ease-out` keywords, hand-retyped cubic-beziers, and Tailwind's default
@@ -346,8 +366,10 @@ Curves and durations reference §3 tokens. "Instant" means no transition.
   motion is the shared ambient heartbeat and (if pinned) eased follow-scroll. Text
   never fades in per token; blocks never bounce on append.
 - **Status joins the heartbeat.** Working / active / focused / present / live all
-  render as the *same* breathe on the *same* period. State *transitions* (idle→
-  working, connecting→connected) get one eased settle; steady states just breathe.
+  render on the *same* period and easing — but local/selected strongest, peripheral
+  quieter, each on a stable phase offset, never in unison (§3). State *transitions*
+  (idle→working, connecting→connected) get one eased settle; steady states just
+  breathe.
 - **Mode & tab switches move within one room.** Chat↔Terminal and tab changes
   cross-slide the body while shared chrome holds still — continuity, not a cut.
 
@@ -426,12 +448,18 @@ quality is judged by eye, in context, against a plain-language gate.
      choreography only** (ambient signals, novel transitions). We do **not** grow
      the Lab into a second component library; that duplicates the gallery and lets
      the two drift.
-2. **Real-time then slow-motion, in situ.** Add a dev-only `--ct-motion-scale`
-   root variable (default `1`) that every token multiplies through. A dev toggle
-   sets it to `4` (0.25× speed) so any *real* transition — a menu opening, a tab
-   closing, the heartbeat — can be watched slowly on the actual component, then
-   returned to `1`. This is the Lab's tempo slider promoted to the product; it
-   needs no test harness.
+2. **Real-time then slow-motion, in situ.** A dev-only control watches any *real*
+   transition — a menu opening, a tab closing, the heartbeat — slowly on the actual
+   component. It works by **overriding the semantic duration and ambient custom
+   properties at `:root`** (swapping the token *values*, e.g. temporarily setting
+   `--ct-duration-normal`, `--ct-duration-smooth`, and `--ct-motion-ambient` to ~4×
+   their production values), so every component that consumes the tokens slows
+   together and then snaps back when the override is cleared. Production components
+   only ever read the semantic tokens; they never see this mechanism. **Do not**
+   implement it as a unitless `calc()` multiplier on the tokens — CSS
+   time × number multiplication is not a safe baseline across the WKWebView /
+   WebView2 / WebKitGTK targets; override the values instead (or use another
+   browser-proven mechanism). No test harness required.
 3. **The gate — three questions, yes to all three:**
    - *Causality:* can I tell what just happened and that I caused it?
    - *Quiet:* can I ignore it while reading the terminal next to it?
@@ -455,10 +483,10 @@ the plan only — production motion is not to be broadly implemented yet.**
 
 ### Stage 0 — Foundation (low risk, enables everything)
 - Finalize tokens in `src/styles/tokens.css`: add `--ct-ease-accel`, the
-  `--ct-shift-*` scale, `--ct-motion-ambient(+ease)`, `--ct-motion-scale`; remove
-  `--ct-ease-spring` and migrate its call-sites to `--ct-ease-out-back`.
-- Refine the reduced-motion global block per §7; wire the dev `--ct-motion-scale`
-  slow-motion toggle (§8).
+  `--ct-shift-*` scale, `--ct-motion-ambient(+ease)`, `--ct-motion-ambient-amp-*`;
+  remove `--ct-ease-spring` and migrate its call-sites to `--ct-ease-out-back`.
+- Refine the reduced-motion global block per §7; wire the dev slow-motion control
+  as a `:root` token-value override (§8) — not a multiplier.
 - Commit to the CSS/WAAPI substrate (§3) — no framework.
 - Build the small primitive set (below). No surface behavior changes yet.
 
@@ -491,8 +519,10 @@ Interfaces* "immediate touch-down feedback" that makes an interface feel alive.
 Collapse the ~10 pulse keyframes (§1 table) onto `AmbientHeartbeat`. Concrete
 targets: `agent-state.css` phase dots, `sidebar-workspace-working-pulse`,
 `sidebar-hierarchy-*`, `pane-focus-pulse`, `plan-companion-presence-pulse`,
-mesh presence, `ct-canvas-*`. Visible on nearly every screen; the single biggest
-"this is one app" win.
+mesh presence, `ct-canvas-*`. One period and curve, but **amplitude by hierarchy**
+(local/selected strong, peripheral quiet) and a **stable per-instance phase
+offset** so they never flash in unison (§3). Visible on nearly every screen; the
+single biggest "this is one app" win.
 
 ### Stage 3 — Selection & disclosure causality (high daily value)
 Accent-rail selection for `WorkspaceItem.tsx` and command rows; `<Disclosure>` for
@@ -547,9 +577,11 @@ passes the §8 gate on the real surface.
 **B. "Is anything working?"**
 - *Before:* three agents, a plan companion, and a live canvas each pulse on their
   own period and curve — the workspace flickers like a slot machine.
-- *After:* all of them breathe on the one ambient period; the room feels calm and
-  clearly *alive*. *Accept when* you can glance away, glance back, and read
-  "several things are working" as one steady state, not a swarm.
+- *After:* all of them breathe on the one ambient period — each on its own stable
+  phase offset, the local one strongest and the rest quiet — so the room feels calm
+  and clearly *alive* rather than flashing in lockstep. *Accept when* you can glance
+  away, glance back, and read "several things are working" as one steady state, not
+  a swarm and not a strobe.
 
 **C. Context menu**
 - *Before:* right-click → menu fades in centered on its box; you lose track of what
@@ -586,9 +618,10 @@ passes the §8 gate on the real surface.
 
 Three things, and nothing decorative beyond them:
 
-1. **The app breathes as one.** A single ambient heartbeat across every live
-   signal. In a product whose whole job is *many agents working at once*, a unified
-   pulse is the identity — the room is busy, and calm about it.
+1. **The app breathes as one.** One heartbeat grammar across every live signal —
+   shared period and curve, tiered amplitude, offset phase. In a product whose
+   whole job is *many agents working at once*, a shared pulse is the identity — the
+   room is busy, and calm about it, never a synchronized strobe.
 2. **Origin-true motion.** Everything grows from where it was summoned. The
    interface never teleports; it always shows its causal chain.
 3. **Terminal-native restraint.** Motion respects the monospace grid and the
@@ -598,4 +631,15 @@ Three things, and nothing decorative beyond them:
 Quiet, causal, continuous, and built entirely on tokens the repository already
 owns.
 
-<!-- revision: 1 -->
+---
+
+## 12. Primary sources
+
+The principles above trace to these, not to generic design-system lore:
+
+- **Apple HIG — Motion:** <https://developer.apple.com/design/human-interface-guidelines/motion> — motion serves communication, comprehension, and continuity; use it with restraint (grounds §2, §6).
+- **WWDC18 — Designing Fluid Interfaces:** <https://developer.apple.com/videos/play/wwdc2018/803/> — immediate touch-down feedback, interruptibility, motion as a continuous response to the hand (grounds the Stage-1 press/focus priority and principle 7).
+- **WWDC23 — Animate with springs:** <https://developer.apple.com/videos/play/wwdc2023/10158/> — springs as the natural model for settle/overshoot; informs the `out-back` "consequence" curve and reorder/settle feel (grounds §3 easing, §5).
+- **IBM Carbon — Motion:** <https://carbondesignsystem.com/elements/motion/overview/> — productive vs. expressive motion and a small shared duration/easing set; supports the token discipline in §3.
+
+<!-- revision: 2 -->
