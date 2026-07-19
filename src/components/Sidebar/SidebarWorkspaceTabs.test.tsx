@@ -876,12 +876,12 @@ test("clicking a team worker activates it", async () => {
   assert(managerButton, "active manager remains an accessible named button");
   const managerStatus = managerRow?.querySelector('[role="status"]');
   assert(
-    managerStatus?.textContent?.trim() === "Orchestrator tab status Working",
+    managerStatus?.getAttribute("aria-label") === "Orchestrator tab status Working",
     "working manager status is exposed to assistive technology",
   );
   await act(async () => updateManagerStatus("Idle"));
   assert(
-    managerStatus?.textContent?.trim() === "Orchestrator tab status Idle",
+    managerStatus?.getAttribute("aria-label") === "Orchestrator tab status Idle",
     "idle transition updates the assistive status",
   );
   assert(
