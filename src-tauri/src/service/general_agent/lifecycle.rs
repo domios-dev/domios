@@ -919,7 +919,22 @@ mod tests {
 
     #[test]
     fn agent_output_teardown_closes_armed_waiter() {
+        let pty = Arc::new(TimedMutex::new("pty", PtyManager::new()));
+        let (_, session) = pty
+            .lock()
+            .spawn_with_id(
+                Some("pty-1".to_string()),
+                None,
+                None,
+                80,
+                24,
+                std::collections::HashMap::new(),
+            )
+            .expect("spawn PTY");
         let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
+        assert!(screen_state
+            .lock()
+            .bind_pty_generation("pty-1", session.generation));
         let registry = Arc::new(AgentRegistry::new());
         let subscription = super::ScreenChangeSubscription::arm(&screen_state, "pty-1");
         let signal = subscription.signal.clone();
@@ -940,12 +955,18 @@ mod tests {
         });
 
         armed_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        crate::service::pty_lifecycle::handle_pty_screen_death(&screen_state, "pty-1");
+        assert!(crate::service::pty_lifecycle::handle_pty_screen_death(
+            &pty,
+            &screen_state,
+            "pty-1",
+            session.generation,
+        ));
 
         assert!(!done_rx.recv_timeout(Duration::from_secs(1)).unwrap());
         waiter.join().unwrap();
         drop(subscription);
         assert_eq!(screen_state.lock().screen_change_subscriber_count(), 0);
+        pty.lock().kill("pty-1").expect("cleanup PTY");
     }
 
     #[test]

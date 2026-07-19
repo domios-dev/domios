@@ -1,7 +1,7 @@
 use portable_pty::{native_pty_system, CommandBuilder, PtyPair, PtySize};
 use std::collections::HashMap;
 use std::io::Read;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::time::Instant;
 
@@ -20,6 +20,11 @@ fn spawn_times() -> &'static PlMutex<HashMap<String, SpawnMark>> {
     SPAWN_TIMES.get_or_init(|| PlMutex::new(HashMap::new()))
 }
 
+fn next_session_generation() -> u64 {
+    static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
+    NEXT_GENERATION.fetch_add(1, Ordering::Relaxed)
+}
+
 pub fn record_spawn_time(pty_id: &str, shell: &str) {
     spawn_times().lock().insert(
         pty_id.to_string(),
@@ -36,6 +41,7 @@ pub fn take_spawn_time(pty_id: &str) -> Option<SpawnMark> {
 
 /// A PTY session — stores the pair, reader, writer, child.
 pub struct PtySession {
+    pub generation: u64,
     pub pair: StdMutex<Option<PtyPair>>,
     pub size: StdMutex<(u16, u16)>,
     pub reader: StdMutex<Option<Box<dyn Read + Send>>>,
@@ -252,6 +258,41 @@ mod output_buffer_tests {
     }
 
     #[test]
+    fn teardown_completion_emit_before_wait_begin_succeeds() {
+        let signal = Arc::new(PtyTeardownSignal::default());
+        let emitted = signal.clone();
+        let (emitted_tx, emitted_rx) = mpsc::channel();
+        let emitter = std::thread::spawn(move || {
+            emitted.mark_reader_started();
+            emitted.mark_child_exited();
+            emitted.mark_reader_finished();
+            emitted_tx.send(()).unwrap();
+        });
+
+        emitted_rx.recv().unwrap();
+        assert!(signal.wait_for_completion(Instant::now()).is_ok());
+        emitter.join().unwrap();
+    }
+
+    #[test]
+    fn teardown_failure_emit_before_wait_begin_fails() {
+        let signal = Arc::new(PtyTeardownSignal::default());
+        let emitted = signal.clone();
+        let (emitted_tx, emitted_rx) = mpsc::channel();
+        let emitter = std::thread::spawn(move || {
+            emitted.mark_child_failed("reader failed".to_string());
+            emitted_tx.send(()).unwrap();
+        });
+
+        emitted_rx.recv().unwrap();
+        let error = signal
+            .wait_for_completion(Instant::now())
+            .expect_err("failure emitted before wait must remain a failure");
+        assert!(error.contains("reader failed"), "{error}");
+        emitter.join().unwrap();
+    }
+
+    #[test]
     fn teardown_deadline_is_a_failure() {
         let signal = PtyTeardownSignal::default();
 
@@ -359,6 +400,7 @@ pub fn build_session(
     let write_queue = WriteQueue::new(writer);
 
     let session = Arc::new(PtySession {
+        generation: next_session_generation(),
         pair: StdMutex::new(Some(pair)),
         size: StdMutex::new((cols, rows)),
         reader: StdMutex::new(Some(reader)),
@@ -437,6 +479,12 @@ impl PtyManager {
 
     pub fn get_session(&self, pty_id: &str) -> Option<Arc<PtySession>> {
         self.sessions.get(pty_id).cloned()
+    }
+
+    pub fn session_generation_matches(&self, pty_id: &str, generation: u64) -> bool {
+        self.sessions
+            .get(pty_id)
+            .is_some_and(|session| session.generation == generation)
     }
 
     /// Write to PTY via the serialized write queue.
