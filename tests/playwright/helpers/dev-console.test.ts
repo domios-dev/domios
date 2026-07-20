@@ -58,6 +58,7 @@ test("windows cleanup plan is scoped to the instance and never targets prod", ()
   assert.equal(flag("-ApiPort"), String(target.apiPort));
   assert.equal(flag("-VitePort"), String(target.vitePort));
   assert.equal(flag("-CdpPort"), String(target.cdpPort));
+  assert.ok(flag("-DataDir").endsWith(target.dataDirName));
   assert.ok(args.some((arg) => arg.endsWith("windows-dev-cleanup.ps1")));
   assert.ok(!args.includes("7685") && !args.includes("7686"), "cleanup must never touch prod/dev");
 });

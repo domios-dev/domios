@@ -1,6 +1,7 @@
 param(
   [Parameter(Mandatory = $true)][string] $Root,
   [Parameter(Mandatory = $true)][string] $TargetDebug,
+  [Parameter(Mandatory = $true)][string] $DataDir,
   [Parameter(Mandatory = $true)][string] $Identifier,
   [Parameter(Mandatory = $false)][string] $Instance = "",
   [Parameter(Mandatory = $true)][int] $VitePort,
@@ -13,6 +14,7 @@ param(
 $ErrorActionPreference = "Stop"
 $rootPath = [IO.Path]::GetFullPath($Root)
 $targetDebugPath = [IO.Path]::GetFullPath($TargetDebug)
+$dataDirPath = [IO.Path]::GetFullPath($DataDir)
 $nodeModules = Join-Path $rootPath "node_modules"
 
 if ($FixturePath) {
@@ -71,6 +73,10 @@ foreach ($proc in $all) {
   $procPorts = if ($portsByPid.ContainsKey($procId)) { @($portsByPid[$procId]) } else { @() }
   $rawTarget = ($exe -and $exe.StartsWith($targetDebugPath, [StringComparison]::OrdinalIgnoreCase)) -or
     ($cmd -and $cmd.IndexOf($targetDebugPath, [StringComparison]::OrdinalIgnoreCase) -ge 0)
+  $instanceConptyRoot = Join-Path $dataDirPath "target\debug\conpty"
+  $matchesInstanceConpty = $name.Equals("OpenConsole.exe", [StringComparison]::OrdinalIgnoreCase) -and
+    (($exe -and $exe.StartsWith($instanceConptyRoot, [StringComparison]::OrdinalIgnoreCase)) -or
+      ($cmd -and $cmd.IndexOf($instanceConptyRoot, [StringComparison]::OrdinalIgnoreCase) -ge 0))
   $ownsApi = $procPorts -contains $ApiPort
   $matchesTarget = $rawTarget -and ($ownsApi -or ($Instance -eq "" -and $procPorts.Count -eq 0))
   $matchesWebView = $cmd -and
@@ -87,7 +93,7 @@ foreach ($proc in $all) {
   $matchesCdp = $cmd -and
     $cmd.IndexOf("--remote-debugging-port=$CdpPort", [StringComparison]::OrdinalIgnoreCase) -ge 0
 
-  if ($matchesTarget -or $matchesWebView -or $matchesVite -or $matchesCdp) {
+  if ($matchesTarget -or $matchesInstanceConpty -or $matchesWebView -or $matchesVite -or $matchesCdp) {
     [void]$victimRoots.Add($procId)
   }
 }

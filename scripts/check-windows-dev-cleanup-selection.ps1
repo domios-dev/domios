@@ -1,6 +1,8 @@
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 $targetDebug = Join-Path $repo ".codeterm-targets\shared\debug"
+$namedDataDir = Join-Path $env:USERPROFILE ".codeterm-dev-provider-model-oracle"
+$defaultDataDir = Join-Path $env:USERPROFILE ".codeterm-dev"
 $nodeModules = Join-Path $repo "node_modules"
 $fixturePath = Join-Path $env:TEMP "codeterm-cleanup-selection-$PID.json"
 
@@ -17,6 +19,8 @@ $processes = @(
   @{ ProcessId = 300; ParentProcessId = 1; Name = "codeterm.exe"; ExecutablePath = "$targetDebug\codeterm.exe"; CommandLine = "$targetDebug\codeterm.exe --orphan-no-port" },
   @{ ProcessId = 310; ParentProcessId = 1; Name = "codeterm.exe"; ExecutablePath = "$targetDebug\codeterm.exe"; CommandLine = "$targetDebug\codeterm.exe --wrong-api-port" },
   @{ ProcessId = 320; ParentProcessId = 1; Name = "node.exe"; ExecutablePath = "C:\node\node.exe"; CommandLine = "$nodeModules\vite\bin\vite.js --port 1555" }
+  @{ ProcessId = 330; ParentProcessId = 1; Name = "OpenConsole.exe"; ExecutablePath = "$namedDataDir\target\debug\conpty\x64\OpenConsole.exe"; CommandLine = "`"$namedDataDir\target\debug\conpty\x64\OpenConsole.exe`" --headless" }
+  @{ ProcessId = 340; ParentProcessId = 1; Name = "OpenConsole.exe"; ExecutablePath = "$defaultDataDir\target\debug\conpty\x64\OpenConsole.exe"; CommandLine = "`"$defaultDataDir\target\debug\conpty\x64\OpenConsole.exe`" --headless" }
 )
 $listeners = @(
   @{ port = 7686; process_id = 100 },
@@ -35,6 +39,7 @@ try {
   $cleanupArgs = @{
     Root = $repo
     TargetDebug = $targetDebug
+    DataDir = $namedDataDir
     Identifier = "com.codeterm.dev.provider.model.oracle"
     Instance = "provider-model-oracle"
     ApiPort = 7787
@@ -45,7 +50,7 @@ try {
   }
   $plan = & "$PSScriptRoot\windows-dev-cleanup.ps1" @cleanupArgs | ConvertFrom-Json
 
-  $expected = @(200, 201, 210, 220, 230)
+  $expected = @(200, 201, 210, 220, 230, 330)
   $actual = @($plan.selected_processes | ForEach-Object { [int]$_ } | Sort-Object)
   if (($actual -join ",") -ne ($expected -join ",")) {
     throw "named cleanup selected [$($actual -join ',')], expected [$($expected -join ',')]"
@@ -62,6 +67,7 @@ try {
   $defaultArgs = @{
     Root = $repo
     TargetDebug = $targetDebug
+    DataDir = $defaultDataDir
     Identifier = "com.codeterm.dev"
     ApiPort = 7686
     VitePort = 1420
@@ -70,7 +76,7 @@ try {
     PlanOnly = $true
   }
   $defaultPlan = & "$PSScriptRoot\windows-dev-cleanup.ps1" @defaultArgs | ConvertFrom-Json
-  $defaultExpected = @(100, 110, 120, 130, 300)
+  $defaultExpected = @(100, 110, 120, 130, 300, 340)
   $defaultActual = @($defaultPlan.selected_processes | ForEach-Object { [int]$_ } | Sort-Object)
   if (($defaultActual -join ",") -ne ($defaultExpected -join ",")) {
     throw "default cleanup selected [$($defaultActual -join ',')], expected [$($defaultExpected -join ',')]"

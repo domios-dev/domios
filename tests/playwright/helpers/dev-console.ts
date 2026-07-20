@@ -271,6 +271,8 @@ function killDevLeftovers(instance: DevInstance): void {
 
 export function windowsCleanupArgs(instance: DevInstance): string[] {
   const cargoTargetDir = playwrightCargoTargetDir(instance);
+  const userProfile = process.env.USERPROFILE ?? process.env.HOME;
+  if (!userProfile) throw new Error("Cannot resolve the Playwright instance data directory");
   return [
     "-NoProfile",
     "-ExecutionPolicy",
@@ -281,6 +283,8 @@ export function windowsCleanupArgs(instance: DevInstance): string[] {
     REPO_ROOT,
     "-TargetDebug",
     path.join(REPO_ROOT, cargoTargetDir ?? "src-tauri/target", "debug"),
+    "-DataDir",
+    path.join(userProfile, instance.dataDirName),
     "-Identifier",
     instance.identifier,
     "-Instance",
