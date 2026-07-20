@@ -5,8 +5,8 @@
 
 use crate::api::mem_routes::items::{
     bump_on_get, compose_appended_body, pick_restore_body, validate_update_body,
-    wake_up_options_from_params, AppendBody, FlushBody, LearnBody, PinnedListParams,
-    ReembedParams, RestoreBody, SaveBody, TailParams, TaxonomyParams, UpdateBody, WakeUpParams,
+    wake_up_options_from_params, AppendBody, FlushBody, LearnBody, PinnedListParams, ReembedParams,
+    RestoreBody, SaveBody, TailParams, TaxonomyParams, UpdateBody, WakeUpParams,
 };
 use crate::api::mem_routes::search::{execute_search, SearchParams};
 use crate::api::mem_routes::{sanitize_actor, validate_item_fields};
@@ -30,7 +30,9 @@ pub(super) fn dispatch(
             .map_err(internal_error),
         "mem.search" => {
             let request = serde_json::from_value::<SearchParams>(params.unwrap_or_default())
-                .map_err(|error| invalid_params(format!("Invalid mem.search parameters: {error}")))?;
+                .map_err(|error| {
+                    invalid_params(format!("Invalid mem.search parameters: {error}"))
+                })?;
             execute_search(svc, request).map_err(internal_error)
         }
         "mem.get" => mem_get(params, svc),
@@ -127,8 +129,7 @@ fn mem_get(
     match item {
         Some(item) => {
             emit_activity(svc, "read", vec![id.clone()]);
-            svc.mem
-                .with_conn(|conn| bump_on_get(conn, &item.kind, &id));
+            svc.mem.with_conn(|conn| bump_on_get(conn, &item.kind, &id));
             serde_json::to_value(item).map_err(|error| internal_error(error.to_string()))
         }
         None => Err(not_found(format!("mem item {} not found", id))),
@@ -305,8 +306,8 @@ fn mem_restore(
     if history.is_empty() {
         return Err(not_found(format!("no history for {}", id)));
     }
-    let restored_body =
-        pick_restore_body(&history, body.version).map_err(|(_, message)| invalid_params(message))?;
+    let restored_body = pick_restore_body(&history, body.version)
+        .map_err(|(_, message)| invalid_params(message))?;
     let patch = MemUpdate {
         body: Some(restored_body.clone()),
         ..Default::default()
