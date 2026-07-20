@@ -13,9 +13,41 @@ use crate::{build_http, read_api_config, MemAction};
 
 pub fn handle_mem(client: &mut SocketClient, json_mode: bool, action: MemAction) {
     if let Some(result) = socket::try_dispatch(client, &action) {
-        handle_result(json_mode, result);
+        print_mem_result(json_mode, result);
         return;
     }
+
+    // History/Taxonomy/Tail have daemon socket parity too, but keep their
+    // own pretty-print (timeline / taxonomy tree) and --follow handling
+    // instead of the generic try_dispatch -> handle_result path.
+    match action {
+        MemAction::History { id } => {
+            let result = match item::handle_mem_history(client, id, json_mode) {
+                Ok(None) => return,
+                Ok(Some(v)) => Ok(v),
+                Err(e) => Err(e),
+            };
+            handle_result(json_mode, result);
+            return;
+        }
+        MemAction::Taxonomy { workspace } => {
+            let result = match item::handle_mem_taxonomy(client, workspace, json_mode) {
+                Ok(None) => return,
+                Ok(Some(v)) => Ok(v),
+                Err(e) => Err(e),
+            };
+            handle_result(json_mode, result);
+            return;
+        }
+        MemAction::Tail { follow, limit } => {
+            tail::run_mem_tail(client, json_mode, follow, limit);
+            return;
+        }
+        _ => {}
+    }
+
+    // Everything left (skill/graph/worker/calibration/secret management)
+    // is a separate, larger subsystem that still speaks HTTP.
     let (base, token) = read_api_config();
     let http = match build_http(&token) {
         Ok(c) => c,
@@ -26,129 +58,27 @@ pub fn handle_mem(client: &mut SocketClient, json_mode: bool, action: MemAction)
     };
 
     let result: Result<serde_json::Value, String> = match action {
-        action @ (MemAction::Search {
-            query: _,
-            kind: _,
-            area: _,
-            scope: _,
-            project: _,
-            limit: _,
-            rerank: _,
-        }
-        | MemAction::Get { id: _ }
-        | MemAction::Delete { id: _ }
-        | MemAction::Forget { area: _, yes: _ }
-        | MemAction::Update {
-            id: _,
-            title: _,
-            summary: _,
-            area: _,
-            tags: _,
-            body: _,
-            body_file: _,
-            importance: _,
-            changed_by: _,
-        }
-        | MemAction::Append {
-            id: _,
-            text: _,
-            file: _,
-            changed_by: _,
-        }
-        | MemAction::Restore {
-            id: _,
-            version: _,
-            changed_by: _,
-        }
-        | MemAction::Pin { id: _ }
-        | MemAction::Unpin { id: _ }
-        | MemAction::Pinned { limit: _ }
-        | MemAction::Save {
-            kind: _,
-            title: _,
-            body: _,
-            body_file: _,
-            summary: _,
-            tags: _,
-            area: _,
-            importance: _,
-            scope: _,
-            workspace: _,
-            pin: _,
-            source_path: _,
-            replace: _,
-            skip_extract: _,
-        }
-        | MemAction::SavePreference {
-            title: _,
-            body: _,
-            body_file: _,
-            summary: _,
-            tags: _,
-            area: _,
-            importance: _,
-            scope: _,
-            workspace: _,
-            pin: _,
-            replace: _,
-        }
-        | MemAction::ExtractPending { limit: _ }
-        | MemAction::WakeUp {
-            budget: _,
-            l0_only: _,
-            no_l0: _,
-            explain: _,
-            workspace: _,
-        }
-        | MemAction::Stats
-        | MemAction::Learn {
-            text: _,
-            kind: _,
-            tags: _,
-            error: _,
-            feature: _,
-        }
-        | MemAction::LearnList
-        | MemAction::LearnPromote { id: _ }
-        | MemAction::Flush { pane: _, title: _ }
-        | MemAction::Sync { path: _ }) => item::handle_mem_items(&http, &base, action),
-        MemAction::History { id } => match item::handle_mem_history(&http, &base, id, json_mode) {
-            Ok(None) => return,
-            Ok(Some(v)) => Ok(v),
-            Err(e) => Err(e),
-        },
-        MemAction::Taxonomy { workspace } => {
-            match item::handle_mem_taxonomy(&http, &base, workspace, json_mode) {
-                Ok(None) => return,
-                Ok(Some(v)) => Ok(v),
-                Err(e) => Err(e),
-            }
-        }
-        MemAction::Tail { follow, limit } => {
-            return tail::run_mem_tail(&http, &base, json_mode, follow, limit);
-        }
         MemAction::Skill { action } => skill::handle_mem_skill(&http, &base, action),
         MemAction::Graph { action } => graph::handle_mem_graph(&http, &base, action),
         MemAction::Worker { action } => worker::handle_mem_worker(&http, &base, action),
         MemAction::RunWorker { .. } => unreachable!("RunWorker is short-circuited in main()"),
         MemAction::Dream { .. } => unreachable!("Dream is short-circuited in main()"),
-        MemAction::Reembed { scope } => mem_post_request(
-            &http,
-            &format!(
-                "{}/api/mem/reembed?scope={}",
-                base,
-                urlencoding::encode(&scope)
-            ),
-            &serde_json::json!({}),
-        ),
         MemAction::Calibration { action } => {
             calibration::handle_mem_calibration(&http, &base, action)
         }
         MemAction::Secret { action } => {
             return crate::cmd::mem_secret::handle_mem_secret(json_mode, &http, &base, action);
         }
+        _ => unreachable!("all other mem actions have socket transport parity"),
     };
 
+    print_mem_result(json_mode, result);
+}
+
+/// `{"text": "..."}` results (e.g. `mem wake-up`) print as raw text instead
+/// of the generic `key: value` object dump — this is direct-injection
+/// context, not structured data.
+fn print_mem_result(json_mode: bool, result: Result<serde_json::Value, String>) {
     if let Ok(ref val) = result {
         if let Some(text) = val.get("text").and_then(|v: &serde_json::Value| v.as_str()) {
             println!("{}", text);

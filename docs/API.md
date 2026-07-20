@@ -1140,6 +1140,26 @@ Newline-delimited JSON:
 | `pane.rename` | `{pane_id, title}` | Rename pane (pinned) |
 | `mem.stats` | — | Return memory item, vector, entity, and relation counts over the daemon socket. |
 | `mem.search` | `{q, kind?, area?, scope?, project?, limit?, rerank?}` | Search memory and the optional project plan index over the daemon socket. |
+| `mem.get` | `{id}` | Fetch one mem item by id. |
+| `mem.save` | `{kind, title, body, scope?, summary?, area?, tags?, importance?, source_path?, replace?, skip_extract?, pinned?}` | Create a mem item; may spawn an auto-extraction worker. |
+| `mem.delete` | `{id}` | Delete a mem item by id. |
+| `mem.forget` | `{area}` | Batch-delete every item in an area. |
+| `mem.update` | `{id, title?, summary?, area?, tags?, body?, importance?, pinned?, changed_by?}` | Partial update; also used for pin/unpin (`pinned: true/false`). |
+| `mem.pinned` | `{limit?}` | List pinned items. |
+| `mem.append` | `{id, text, changed_by?}` | Append text to an item's body (non-destructive). |
+| `mem.restore` | `{id, version?, changed_by?}` | Restore a prior body from the audit history. |
+| `mem.wake_up` | `{budget?, l0_only?, no_l0?, explain?, workspace?}` | L0+L1 wake-up context text. |
+| `mem.learn` | `{text, kind?, tags?}` | Capture a quick learning. |
+| `mem.learn_promote` | `{id}` | Promote a learning to a fact. |
+| `mem.flush` | `{pane, title?}` | Flush a tab's PTY scrollback as a `conversation` mem item. |
+| `mem.sync` | `{path?}` | Trigger file sync for source-tracked items (Librarian). |
+| `mem.reembed` | `{scope?}` | Re-embed mem items and/or graph entities. |
+| `mem.extract_pending` | `{limit?}` | Re-queue extraction workers for un-extracted items. |
+| `mem.history` | `{id}` | Full audit trail for one item. |
+| `mem.taxonomy` | `{workspace?}` | `{area -> {kind -> count}}` breakdown. |
+| `mem.tail` | `{since?, limit?}` | Recent mem writes, newest first. |
+
+`codeterm mem` routes its full item/history/taxonomy/tail/learn/wake-up/sync surface over these socket methods — HTTP is no longer attempted for them, so a live socket with a dead HTTP API no longer breaks `mem`. Only `mem skill|graph|worker|calibration|secret` (separate, larger subsystems) still speak HTTP.
 | `notification.create` | `{title, body?, level?, pane_id?}` | Create notification |
 | `notification.list` | `{unread_only?}` | List notifications |
 | `notification.clear` | `{id?}` | Clear notifications |
@@ -1304,4 +1324,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 83 -->
+<!-- revision: 84 -->

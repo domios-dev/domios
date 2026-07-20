@@ -1,25 +1,27 @@
-use super::mem_get_request;
+use crate::client::SocketClient;
+
+fn fetch_tail(
+    client: &mut SocketClient,
+    since: Option<&str>,
+    limit: usize,
+) -> Result<Vec<serde_json::Value>, String> {
+    let val = client.call(
+        "mem.tail",
+        Some(serde_json::json!({ "since": since, "limit": limit })),
+    )?;
+    Ok(val
+        .get("rows")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default())
+}
 
 pub(crate) fn run_mem_tail(
-    http: &reqwest::blocking::Client,
-    base: &str,
+    client: &mut SocketClient,
     json_mode: bool,
     follow: bool,
     limit: usize,
 ) {
-    let fetch = |since: Option<&str>| -> Result<Vec<serde_json::Value>, String> {
-        let mut url = format!("{}/api/mem/tail?limit={}", base, limit);
-        if let Some(s) = since {
-            url.push_str(&format!("&since={}", urlencoding::encode(s)));
-        }
-        let val = mem_get_request(http, &url)?;
-        Ok(val
-            .get("rows")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default())
-    };
-
     let print_row = |row: &serde_json::Value| {
         let ts = row
             .get("updated_at")
@@ -46,7 +48,7 @@ pub(crate) fn run_mem_tail(
         );
     };
 
-    match fetch(None) {
+    match fetch_tail(client, None, limit) {
         Ok(rows) => {
             if json_mode {
                 println!("{}", serde_json::to_string_pretty(&rows).unwrap());
@@ -70,7 +72,7 @@ pub(crate) fn run_mem_tail(
                 .max();
             loop {
                 std::thread::sleep(std::time::Duration::from_millis(500));
-                let next = match fetch(last_seen.as_deref()) {
+                let next = match fetch_tail(client, last_seen.as_deref(), limit) {
                     Ok(rows) => rows,
                     Err(e) => {
                         eprintln!("tail fetch: {}", e);

@@ -17,13 +17,16 @@ fn api_origin(url: &str) -> String {
         .unwrap_or_else(|_| url.to_string())
 }
 
-/// `mem` speaks only HTTP, so a live daemon socket says nothing about whether
-/// this command can work — spell that out instead of leaking "connection refused".
+/// This subcommand group (skill/graph/worker/calibration/secret management)
+/// still speaks only HTTP, so a live daemon socket says nothing about
+/// whether it can work — spell that out instead of leaking "connection refused".
+/// The core `mem` item surface (get/save/update/delete/search/...) no longer
+/// hits this path at all: it's socket-routed and can't reach a dead HTTP port.
 pub(crate) fn mem_unavailable_message(base: &str, live_socket: Option<&str>) -> String {
     match live_socket {
         Some(socket) => format!(
             "CodeTerm memory is unavailable: the daemon socket '{socket}' is live, but its HTTP API at {base} refused the connection. \
-             `codeterm mem` is HTTP-only and is not exposed over the socket, so a running daemon is not enough. \
+             This mem subcommand (skill/graph/worker/calibration/secret management) is HTTP-only and is not exposed over the socket, so a running daemon is not enough. \
              Check the daemon's HTTP listener in its logs, or set CODETERM_API_PORT to the port this instance actually serves."
         ),
         None => format!(
