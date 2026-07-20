@@ -224,6 +224,36 @@ async function mountSession(
 async function runChatSessionHookTests(): Promise<void> {
   setupHookDom();
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
+  const { fireResync } = await import("../../lib/resync");
+
+  {
+    let starts = 0;
+    __setListenForTest(async () => () => {});
+    __setInvokeForTest((async (command: string) => {
+      if (command !== "chat_start") return {};
+      starts += 1;
+      return chatStartResult("sid-1", {
+        text: "",
+        offset: starts,
+        messages: [{
+          id: starts === 1 ? "before-resync" : "after-resync",
+          type: "assistant",
+          content: starts === 1 ? "before" : "fresh from snapshot",
+          timestamp: String(starts),
+        }],
+      });
+    }) as never);
+    const session = await mountSession("sid-1");
+    await act(async () => fireResync());
+    await flush();
+    assert(starts === 2, "web event loss requests one fresh chat snapshot");
+    assert(
+      session.latest().messages.some((message) => message.content === "fresh from snapshot"),
+      "web event loss refreshes the visible transcript",
+    );
+    await act(async () => session.root.unmount());
+    console.log("PASS web event loss refreshes the active chat snapshot");
+  }
 
   {
     const timers = new FakeTimers();
