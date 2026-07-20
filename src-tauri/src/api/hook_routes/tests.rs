@@ -491,10 +491,7 @@ fn nonceless_report_cannot_evict_materialized_parent() {
 
 #[test]
 fn rotated_launch_nonce_advances_lineage_even_after_prior_acknowledgement() {
-    // Real restore: the pane already acknowledged an earlier launch (reported == the
-    // old nonce, materialized parent). A new launch rotates session_binding_nonce; the
-    // hook reports the fresh rollout with the NEW, still-unacknowledged nonce. It must
-    // advance — the prior acknowledgement belonged to the previous nonce.
+    // A rotated launch nonce remains fresh even when the prior nonce was acknowledged.
     let (mux, pane_id) = shared_mux();
     {
         let mut g = mux.write();
