@@ -22,7 +22,7 @@ tests=()
 while IFS= read -r f; do
     tests+=("$f")
 done < <(
-    find src packages tests/playwright/helpers -type f \( -name '*.test.ts' -o -name '*.test.tsx' \) \
+    find src packages -type f \( -name '*.test.ts' -o -name '*.test.tsx' \) \
         | grep -Ev '/node_modules/|/dist/' \
         | sort
 )

@@ -1067,11 +1067,11 @@ case "$CMD" in
   test:all)
     require_integration_owner
     enter_build_gateway "$CMD ${*:2}"
-    # Aggregate runner for every NON-LLM test layer. Unit layers always run;
-    # dev-dependent integration layers (pytest e2e, Playwright @smoke) run only
+    # Aggregate runner for every enabled NON-LLM test layer. Unit layers always run;
+    # dev-dependent API integration tests run only
     # when dev (7686) is healthy, otherwise they SKIP loudly. Exits non-zero iff
-    # an EXECUTED layer failed (SKIP never fails the run). LLM-judged layers
-    # (evals/, Playwright @golden) are excluded by design — see docs/TESTING.md.
+    # an EXECUTED layer failed (SKIP never fails the run). Behaviour benches and
+    # the suspended Playwright suite are excluded — see docs/TESTING.md.
     ta_names=(); ta_status=()
     ta_record() { ta_names+=("$1"); ta_status+=("$2"); }
     ta_run() { # name, cmd...
@@ -1087,13 +1087,10 @@ case "$CMD" in
     DEV_STATUS=$(dev_health_status | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
     if [ "$DEV_STATUS" = "ok" ]; then
       ta_run "e2e-pytest" bash -c "cd tests/e2e && pip install -q -r requirements.txt 2>/dev/null && CODETERM_API_URL=http://127.0.0.1:${CT_PORT} python3 -m pytest -m 'not llm' -q"
-      ta_run "playwright-smoke" pnpm -s test:pw:smoke
     else
       echo
       echo ">>> SKIPPED e2e-pytest — dev 7686 not healthy (start with ./build.sh dev)"
       ta_record "e2e-pytest" SKIP
-      echo ">>> SKIPPED playwright-smoke — dev 7686 not healthy (start with ./build.sh dev)"
-      ta_record "playwright-smoke" SKIP
     fi
 
     echo; echo "════════════ test:all summary ════════════"
