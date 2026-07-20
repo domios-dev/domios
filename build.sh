@@ -617,9 +617,10 @@ windows_dev_leftover_cleanup() {
   fi
   command -v powershell.exe >/dev/null 2>&1 || command -v powershell >/dev/null 2>&1 || return
 
-  local root_win target_debug_win cleanup_script ps
+  local root_win target_debug_win data_dir_win cleanup_script ps
   root_win="$(pwd -W 2>/dev/null || pwd)"
   target_debug_win="$(cd "$(tauri_debug_dir)" 2>/dev/null && pwd -W 2>/dev/null || echo "$(pwd -W 2>/dev/null || pwd)/$(tauri_debug_dir)")"
+  data_dir_win="$(cd "$CT_DATA_DIR" 2>/dev/null && pwd -W 2>/dev/null || cygpath -w "$CT_DATA_DIR" 2>/dev/null || echo "$CT_DATA_DIR")"
   cleanup_script="$root_win/scripts/windows-dev-cleanup.ps1"
   if command -v powershell.exe >/dev/null 2>&1; then
     ps="powershell.exe"
@@ -627,7 +628,7 @@ windows_dev_leftover_cleanup() {
     ps="powershell"
   fi
   "$ps" -NoProfile -ExecutionPolicy Bypass -File "$cleanup_script" -Root "$root_win" \
-    -TargetDebug "$target_debug_win" -Identifier "$CT_IDENTIFIER" -Instance "$CT_INSTANCE" \
+    -TargetDebug "$target_debug_win" -DataDir "$data_dir_win" -Identifier "$CT_IDENTIFIER" -Instance "$CT_INSTANCE" \
     -VitePort "$CT_VITE_PORT" -ApiPort "$CT_PORT" -CdpPort "$CT_CDP_PORT" 2>/dev/null || true
 }
 
