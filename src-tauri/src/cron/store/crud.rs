@@ -233,9 +233,7 @@ impl CronStore {
             job.last_run = Some(run.clone());
             apply_failure_accounting(job, job_id, &run.status, store_now_ms)?;
 
-            // Schedule advancement is fire-time bookkeeping only (record_run's real caller is
-            // always the `Running` insert at fire time) — completion, handled by
-            // `update_run_status`, must never re-derive next_run from "now at finish".
+            // Schedule advancement is fire-time-only; completion never re-derives next_run.
             if !matches!(run.status, CronRunStatus::Failed) {
                 if job.oneshot {
                     job.next_run = None;
@@ -260,26 +258,22 @@ impl CronStore {
         self.save()
     }
 
-    /// The completion path every real cron run actually goes through: `run_watcher::finish_run`,
-    /// `service::cron_complete`, the pty-dead fallbacks, and the manual-trigger spawn-failure
-    /// branch. Consecutive-failure accounting lives here (not just in `record_run`, which only
-    /// ever sees `Running`/spawn-failure) so a job that spawns fine and then times out or errors
-    /// still counts toward auto-disable/backoff/notification instead of silently resetting nothing.
-    /// On `Success` this never touches `next_run` — normal schedule advancement stays
-    /// fire-time-only so a long-running task can't push its own next fire out by finishing
-    /// late. On `Failed` it DOES set `next_run` (via `apply_failure_accounting`'s backoff) —
-    /// that's the retry delay, and previously never applied because real completions never
-    /// reached the accounting logic at all.
+    /// The real completion path (run_watcher, cron_complete, pty-dead fallbacks). Idempotent:
+    /// once a run has a terminal status, later calls update timestamps but skip accounting.
+    /// Returns whether this call applied a fresh terminal transition (i.e. whether the caller
+    /// should treat this as a real completion event — e.g. fire a notification).
     pub fn update_run_status(
         &mut self,
         job_id: &str,
         run_id: &str,
         status: CronRunStatus,
-    ) -> Result<(), String> {
+    ) -> Result<bool, String> {
         let now = self.now_ms();
         let mut started_at: Option<u64> = None;
+        let mut prior_status: Option<CronRunStatus> = None;
         if let Some(history) = self.file.history.get_mut(job_id) {
             if let Some(run) = history.iter_mut().find(|r| r.run_id == run_id) {
+                prior_status = Some(run.status.clone());
                 run.status = status.clone();
                 run.finished_at = Some(now);
                 started_at = Some(run.started_at);
@@ -288,6 +282,9 @@ impl CronStore {
         if let Some(job) = self.file.jobs.iter_mut().find(|j| j.id == job_id) {
             if let Some(ref mut lr) = job.last_run {
                 if lr.run_id == run_id {
+                    if prior_status.is_none() {
+                        prior_status = Some(lr.status.clone());
+                    }
                     lr.status = status.clone();
                     lr.finished_at = Some(now);
                     if started_at.is_none() {
@@ -297,8 +294,20 @@ impl CronStore {
             }
         }
 
-        if let Some(job) = self.file.jobs.iter_mut().find(|j| j.id == job_id) {
-            apply_failure_accounting(job, job_id, &status, now)?;
+        // First terminal status wins — a racing duplicate completion call for the
+        // same run must not double-count failures or re-fire a notification.
+        let already_terminal = matches!(
+            prior_status,
+            Some(CronRunStatus::Failed)
+                | Some(CronRunStatus::Success)
+                | Some(CronRunStatus::Cancelled)
+        );
+        let mut fresh_transition = false;
+        if !already_terminal {
+            if let Some(job) = self.file.jobs.iter_mut().find(|j| j.id == job_id) {
+                apply_failure_accounting(job, job_id, &status, now)?;
+                fresh_transition = true;
+            }
         }
 
         // service::cron_complete). Without this, dashboards and grep-based observability miss every Failed/Cancelled run.
@@ -316,7 +325,8 @@ impl CronStore {
             _ => {}
         }
 
-        self.save()
+        self.save()?;
+        Ok(fresh_transition)
     }
 
     pub fn set_run_session(
@@ -356,11 +366,8 @@ impl CronStore {
     }
 }
 
-/// Shared failure accounting: increments the streak (+backoff, +auto-disable at
-/// `MAX_CONSECUTIVE_FAILURES`) on `Failed`, resets to 0 on `Success`, leaves the
-/// counter untouched for `Running`/`Cancelled`. Called from both `record_run`
-/// (fire-time insert) and `update_run_status` (the actual completion path every
-/// real run — timeout, crash, agent error — goes through).
+/// Increments the failure streak (+backoff, +auto-disable) on `Failed`, resets
+/// to 0 on `Success`. Shared by `record_run` and `update_run_status`.
 fn apply_failure_accounting(
     job: &mut CronJob,
     job_id: &str,

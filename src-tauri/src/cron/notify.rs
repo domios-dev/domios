@@ -1,10 +1,5 @@
-//! Consecutive-failure notification — issue #179: a cron job spawned fine but
-//! then failed/timed out for 4 days straight without ever surfacing anything,
-//! because `update_run_status` (the path real completions go through) never
-//! read `consecutive_failures`. Call this after every `update_run_status`;
-//! it reads the freshly-accounted counter and fires once at the alert
-//! threshold and once more if the job just auto-disabled — never on every
-//! failure in between, which would just be a louder kind of silence.
+//! Consecutive-failure notification: real completions never surfaced a
+//! repeated-failure warning before — only spawn-time failures did.
 
 use super::scheduler::CronState;
 use super::store::MAX_CONSECUTIVE_FAILURES;
@@ -15,6 +10,44 @@ use crate::service::ServiceContext;
 /// auto-disables itself.
 pub const NOTIFY_AFTER_CONSECUTIVE_FAILURES: u32 = 2;
 
+/// What (if anything) to notify about, given the job's current state. Pure —
+/// no I/O — so tests can assert the decision without a live ServiceContext.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FailureNotification {
+    RepeatedFailure { title: String, body: String },
+    AutoDisabled { title: String, body: String },
+}
+
+pub fn decide_notification(
+    job_id: &str,
+    name: &str,
+    consecutive_failures: u32,
+    enabled: bool,
+    pane_label: &str,
+) -> Option<FailureNotification> {
+    if consecutive_failures == NOTIFY_AFTER_CONSECUTIVE_FAILURES {
+        Some(FailureNotification::RepeatedFailure {
+            title: format!("Cron \"{}\" failing repeatedly", name),
+            body: format!(
+                "{} consecutive failed runs (pane={}). `codeterm cron history {}` for detail.",
+                consecutive_failures, pane_label, job_id
+            ),
+        })
+    } else if !enabled && consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+        Some(FailureNotification::AutoDisabled {
+            title: format!("Cron \"{}\" auto-disabled", name),
+            body: format!(
+                "{} consecutive failures — job disabled. Fix it, then `codeterm cron enable {}`.",
+                consecutive_failures, job_id
+            ),
+        })
+    } else {
+        None
+    }
+}
+
+/// Call only when `update_run_status` reports a fresh terminal transition —
+/// a duplicate/racing completion call for the same run must not re-fire.
 pub fn notify_on_consecutive_failure(
     service: &ServiceContext,
     cron_state: &CronState,
@@ -33,27 +66,16 @@ pub fn notify_on_consecutive_failure(
     }) else {
         return;
     };
-
     let pane_label = pane_id.unwrap_or_else(|| "-".to_string());
 
-    if count == NOTIFY_AFTER_CONSECUTIVE_FAILURES {
-        service.create_notification(
-            format!("Cron \"{}\" failing repeatedly", name),
-            Some(format!(
-                "{} consecutive failed runs (pane={}). `codeterm cron history {}` for detail.",
-                count, pane_label, job_id
-            )),
-            Some("warning"),
-        );
-    } else if !enabled && count >= MAX_CONSECUTIVE_FAILURES {
-        service.create_notification(
-            format!("Cron \"{}\" auto-disabled", name),
-            Some(format!(
-                "{} consecutive failures — job disabled. Fix it, then `codeterm cron enable {}`.",
-                count, job_id
-            )),
-            Some("error"),
-        );
+    match decide_notification(job_id, &name, count, enabled, &pane_label) {
+        Some(FailureNotification::RepeatedFailure { title, body }) => {
+            service.create_notification(title, Some(body), Some("warning"));
+        }
+        Some(FailureNotification::AutoDisabled { title, body }) => {
+            service.create_notification(title, Some(body), Some("error"));
+        }
+        None => {}
     }
 }
 
@@ -64,9 +86,46 @@ mod tests {
     use parking_lot::Mutex;
     use std::sync::Arc;
 
+    // ── decide_notification: pure decision, no ServiceContext needed ──
+
+    #[test]
+    fn decides_warning_at_exactly_the_notify_threshold() {
+        let decision = decide_notification("job1", "flaky", 2, true, "-");
+        assert!(matches!(
+            decision,
+            Some(FailureNotification::RepeatedFailure { .. })
+        ));
+    }
+
+    #[test]
+    fn decides_nothing_below_threshold_or_mid_streak() {
+        assert_eq!(decide_notification("job1", "flaky", 0, true, "-"), None);
+        assert_eq!(decide_notification("job1", "flaky", 1, true, "-"), None);
+        assert_eq!(decide_notification("job1", "flaky", 3, true, "-"), None);
+        assert_eq!(decide_notification("job1", "flaky", 4, true, "-"), None);
+    }
+
+    #[test]
+    fn decides_auto_disabled_error_only_once_disabled_at_max() {
+        assert_eq!(
+            decide_notification("job1", "flaky", MAX_CONSECUTIVE_FAILURES, true, "-"),
+            None,
+            "still enabled at max count is not the auto-disable signal"
+        );
+        let decision = decide_notification("job1", "flaky", MAX_CONSECUTIVE_FAILURES, false, "-");
+        assert!(matches!(
+            decision,
+            Some(FailureNotification::AutoDisabled { .. })
+        ));
+    }
+
+    // ── store-level idempotency + integration with update_run_status ──
+
     fn store_with_job() -> (CronState, String) {
         let dir = tempfile::tempdir().unwrap();
-        let mut store = CronStore::new_with_path(dir.path().join("crons.json"));
+        let path = dir.path().join("crons.json");
+        std::mem::forget(dir); // keep the tempdir alive for the test's lifetime
+        let mut store = CronStore::new_with_path(path);
         let job = store
             .create(CronCreateParams {
                 name: "flaky".into(),
@@ -91,7 +150,7 @@ mod tests {
         (Arc::new(Mutex::new(store)), job.id)
     }
 
-    fn fail_run(cron_state: &CronState, job_id: &str, run_id: &str) {
+    fn start_run(cron_state: &CronState, job_id: &str, run_id: &str) {
         let mut store = cron_state.lock();
         let _ = store.record_run(
             job_id,
@@ -106,25 +165,59 @@ mod tests {
                 cwd: None,
             },
         );
-        let _ = store.update_run_status(job_id, run_id, CronRunStatus::Failed);
     }
 
     #[test]
     fn consecutive_failures_below_threshold_reach_notify_exactly_at_two() {
         let (cron_state, job_id) = store_with_job();
-        assert_eq!(
-            cron_state.lock().get(&job_id).unwrap().consecutive_failures,
-            0
-        );
-        fail_run(&cron_state, &job_id, "r1");
+        start_run(&cron_state, &job_id, "r1");
+        let fresh = cron_state
+            .lock()
+            .update_run_status(&job_id, "r1", CronRunStatus::Failed)
+            .unwrap();
+        assert!(fresh);
         assert_eq!(
             cron_state.lock().get(&job_id).unwrap().consecutive_failures,
             1
         );
-        fail_run(&cron_state, &job_id, "r2");
+
+        start_run(&cron_state, &job_id, "r2");
+        let fresh = cron_state
+            .lock()
+            .update_run_status(&job_id, "r2", CronRunStatus::Failed)
+            .unwrap();
+        assert!(fresh);
         assert_eq!(
             cron_state.lock().get(&job_id).unwrap().consecutive_failures,
             2
+        );
+    }
+
+    /// Regression: two completion paths racing on the SAME run (e.g. a pty-dead
+    /// fallback and a watchdog both marking one dead pane Failed) must count once.
+    #[test]
+    fn duplicate_failed_update_on_same_run_counts_once() {
+        let (cron_state, job_id) = store_with_job();
+        start_run(&cron_state, &job_id, "r1");
+
+        let first = cron_state
+            .lock()
+            .update_run_status(&job_id, "r1", CronRunStatus::Failed)
+            .unwrap();
+        let second = cron_state
+            .lock()
+            .update_run_status(&job_id, "r1", CronRunStatus::Failed)
+            .unwrap();
+
+        assert!(first, "first terminal transition must be reported as fresh");
+        assert!(
+            !second,
+            "repeat completion of an already-terminal run must be a no-op"
+        );
+        assert_eq!(
+            cron_state.lock().get(&job_id).unwrap().consecutive_failures,
+            1,
+            "duplicate Failed update must not double-count"
         );
     }
 
@@ -132,7 +225,12 @@ mod tests {
     fn auto_disable_still_fires_through_update_run_status_path() {
         let (cron_state, job_id) = store_with_job();
         for i in 0..MAX_CONSECUTIVE_FAILURES {
-            fail_run(&cron_state, &job_id, &format!("r{}", i));
+            start_run(&cron_state, &job_id, &format!("r{}", i));
+            let fresh = cron_state
+                .lock()
+                .update_run_status(&job_id, &format!("r{}", i), CronRunStatus::Failed)
+                .unwrap();
+            assert!(fresh);
         }
         let job = cron_state.lock().get(&job_id).unwrap().clone();
         assert_eq!(job.consecutive_failures, MAX_CONSECUTIVE_FAILURES);
@@ -145,25 +243,20 @@ mod tests {
     #[test]
     fn success_resets_streak_via_update_run_status() {
         let (cron_state, job_id) = store_with_job();
-        fail_run(&cron_state, &job_id, "r1");
-        fail_run(&cron_state, &job_id, "r2");
-        {
-            let mut store = cron_state.lock();
-            let _ = store.record_run(
-                &job_id,
-                CronRunInfo {
-                    run_id: "r3".to_string(),
-                    started_at: 0,
-                    finished_at: None,
-                    status: CronRunStatus::Running,
-                    pane_id: Some("p3".to_string()),
-                    tab_id: None,
-                    session_id: None,
-                    cwd: None,
-                },
-            );
-            let _ = store.update_run_status(&job_id, "r3", CronRunStatus::Success);
-        }
+        start_run(&cron_state, &job_id, "r1");
+        let _ = cron_state
+            .lock()
+            .update_run_status(&job_id, "r1", CronRunStatus::Failed);
+        start_run(&cron_state, &job_id, "r2");
+        let _ = cron_state
+            .lock()
+            .update_run_status(&job_id, "r2", CronRunStatus::Failed);
+
+        start_run(&cron_state, &job_id, "r3");
+        let _ = cron_state
+            .lock()
+            .update_run_status(&job_id, "r3", CronRunStatus::Success);
+
         assert_eq!(
             cron_state.lock().get(&job_id).unwrap().consecutive_failures,
             0

@@ -282,13 +282,17 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
         Err(e) => {
             log::error!("Cron agent spawn failed: job={}, error={}", job_id, e);
 
-            {
+            let fresh_transition = {
                 let mut store = cron_state.lock();
-                let _ = store.update_run_status(job_id, &run_id, CronRunStatus::Failed);
-            }
+                store
+                    .update_run_status(job_id, &run_id, CronRunStatus::Failed)
+                    .unwrap_or(false)
+            };
 
             service.create_notification(format!("Cron failed: {}", job_id), Some(e), Some("error"));
-            crate::cron::notify::notify_on_consecutive_failure(service, cron_state, job_id);
+            if fresh_transition {
+                crate::cron::notify::notify_on_consecutive_failure(service, cron_state, job_id);
+            }
         }
     }
 }

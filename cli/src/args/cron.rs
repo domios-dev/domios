@@ -32,9 +32,7 @@ pub enum CronAction {
         #[arg(long)]
         cwd: Option<String>,
         /// Mem skill slug (`codeterm mem skill new <slug>`) to resolve and inject
-        /// into the task brief at fire time — an explicit path the spawned agent
-        /// can Read directly, since cron agents can't load mem skills via the
-        /// Skill tool (issue #179).
+        /// into the task brief at fire time as an explicit, Read-able path.
         #[arg(long)]
         skill: Option<String>,
         /// Description
