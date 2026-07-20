@@ -217,6 +217,7 @@ fn list_local_includes_cron_jobs_as_virtual_services() {
             model: None,
             cwd: None,
             role: None,
+            skill: None,
             creator_pane_id: None,
             enabled: Some(true),
             max_history: None,

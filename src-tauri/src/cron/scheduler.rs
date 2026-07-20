@@ -43,6 +43,7 @@ struct FireSpec {
     workspace_id: String,
     creator_pane_id: Option<String>,
     timeout_seconds: Option<u64>,
+    skill: Option<String>,
 }
 
 /// One scheduler tick: fire any overdue jobs, return ms until next fire.
@@ -75,6 +76,7 @@ fn tick(cron_state: &CronState, service: &ServiceState) -> u64 {
                         workspace_id: job.workspace_id.clone(),
                         creator_pane_id: job.creator_pane_id.clone(),
                         timeout_seconds: job.timeout_seconds,
+                        skill: job.skill.clone(),
                     });
                 } else {
                     next_fire = Some(match next_fire {
@@ -152,6 +154,9 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
     use crate::service::spawn::{AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec};
 
     let mut task_text = task.to_string();
+    if let Some(skill_slug) = spec.skill.as_deref() {
+        task_text.push_str(&crate::commands::cron_skill_block(skill_slug));
+    }
     if creator_pane_id.is_some() {
         task_text.push_str(crate::prompts::CRON_REPORT_HINT);
     }
@@ -283,6 +288,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
             }
 
             service.create_notification(format!("Cron failed: {}", job_id), Some(e), Some("error"));
+            crate::cron::notify::notify_on_consecutive_failure(service, cron_state, job_id);
         }
     }
 }
@@ -320,6 +326,7 @@ mod tests {
                 model: None,
                 cwd: None,
                 role: None,
+                skill: None,
                 creator_pane_id: None,
                 enabled: Some(true),
                 max_history: None,
@@ -341,6 +348,7 @@ mod tests {
                 model: None,
                 cwd: None,
                 role: None,
+                skill: None,
                 creator_pane_id: None,
                 enabled: Some(false),
                 max_history: None,
