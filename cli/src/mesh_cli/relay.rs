@@ -2,6 +2,45 @@
 
 use crate::data_dir_name;
 
+/// A logical pane send (POST `.../send`) — the only relay shape that gets a
+/// delivery id for at-most-once dedupe on the target.
+pub(crate) fn is_send_relay(method: &str, path: &str) -> bool {
+    method.eq_ignore_ascii_case("POST") && path.split('?').next().unwrap_or(path).ends_with("/send")
+}
+
+/// The stable delivery id for a logical send: an explicit env override (so a
+/// caller can pin one across retries) else a fresh v4 UUID per invocation.
+pub(crate) fn delivery_id_or_generate(env_value: Option<String>) -> String {
+    match env_value {
+        Some(value) if !value.trim().is_empty() => value,
+        _ => uuid::Uuid::new_v4().to_string(),
+    }
+}
+
+fn resolve_delivery_id() -> String {
+    delivery_id_or_generate(std::env::var("CODETERM_DELIVERY_ID").ok())
+}
+
+/// Build the `/api/mesh/relay` envelope, stamping a delivery id onto pane sends
+/// so the target dedupes retries by (authenticated sender, delivery_id).
+pub(crate) fn build_relay_envelope(
+    method: &str,
+    path: &str,
+    body: Option<&str>,
+) -> serde_json::Value {
+    let mut relay = serde_json::json!({
+        "method": method,
+        "path": path,
+        "body": body
+            .and_then(|b| serde_json::from_str::<serde_json::Value>(b).ok())
+            .unwrap_or(serde_json::json!(null)),
+    });
+    if is_send_relay(method, path) {
+        relay["delivery_id"] = serde_json::json!(resolve_delivery_id());
+    }
+    relay
+}
+
 /// Resolve a peer's API URL by name or instance_id via the local /api/mesh/peers.
 pub(crate) fn resolve_peer_url(
     http: &reqwest::blocking::Client,
@@ -35,11 +74,7 @@ pub(crate) fn relay_call(
     path: &str,
     body: Option<&str>,
 ) -> Result<serde_json::Value, String> {
-    let relay = serde_json::json!({
-        "method": method,
-        "path": path,
-        "body": body.and_then(|b| serde_json::from_str::<serde_json::Value>(b).ok()).unwrap_or(serde_json::json!(null)),
-    });
+    let relay = build_relay_envelope(method, path, body);
     let resp = http
         .post(format!("{}/api/mesh/relay", peer_url))
         .header("Authorization", format!("Bearer {}", signed_token))
@@ -206,11 +241,7 @@ pub(crate) fn mesh_relay_invoke(
         }
     };
 
-    let relay = serde_json::json!({
-        "method": method,
-        "path": path,
-        "body": body.and_then(|b| serde_json::from_str::<serde_json::Value>(b).ok()).unwrap_or(serde_json::json!(null)),
-    });
+    let relay = build_relay_envelope(method, path, body);
 
     match http
         .post(format!("{}/api/mesh/relay", peer_url))
