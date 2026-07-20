@@ -239,43 +239,40 @@ fn inspect_task_quality(path: &Path, plan: &Value, task: &Value, findings: &mut 
         .and_then(Value::as_str)
         .unwrap_or("?")
         .to_string();
-    let mut missing = Vec::new();
-    if task
+    let has_section_link = !task
         .get("section_ids")
         .and_then(Value::as_array)
-        .is_none_or(|items| items.is_empty())
-    {
-        missing.push("section link");
-    }
-    if task
+        .is_none_or(|items| items.is_empty());
+    let has_body = !(task
         .get("body")
         .and_then(Value::as_str)
         .is_none_or(|s| s.trim().is_empty())
-        && !task_has_body_sidecar(path, task)
-    {
-        missing.push("body");
-    }
-    if task
+        && !task_has_body_sidecar(path, task));
+    let has_criteria = !task
         .get("acceptance_criteria")
         .and_then(Value::as_array)
-        .is_none_or(|items| items.is_empty())
-    {
-        missing.push("acceptance criteria");
-    }
-    if task
+        .is_none_or(|items| items.is_empty());
+    let has_test_plan = !task
         .get("test_plan")
         .and_then(Value::as_str)
-        .is_none_or(|s| s.trim().is_empty())
-    {
-        missing.push("test plan");
-    }
-    if task
+        .is_none_or(|s| s.trim().is_empty());
+    let has_correctness = !task
         .get("correctness")
         .and_then(Value::as_str)
-        .is_none_or(|s| s.trim().is_empty())
-    {
-        missing.push("correctness vector");
+        .is_none_or(|s| s.trim().is_empty());
+
+    // Same field list `plan task add` warns on at creation (crate::cmd::hints);
+    // section link is doctor-only, tracked separately from that shared set.
+    let mut missing: Vec<&str> = Vec::new();
+    if !has_section_link {
+        missing.push("section link");
     }
+    missing.extend(crate::cmd::hints::missing_task_quality_fields(
+        has_body,
+        has_criteria,
+        has_test_plan,
+        has_correctness,
+    ));
     if !missing.is_empty() {
         findings.push(Finding {
             severity: "error",
@@ -293,14 +290,16 @@ fn inspect_task_quality(path: &Path, plan: &Value, task: &Value, findings: &mut 
             .and_then(Value::as_str)
             .filter(|s| !s.trim().is_empty())
         {
-            if crate::cmd::test_plan::test_plan_is_vague(test_plan) {
+            if let Some(reason) = crate::cmd::test_plan::test_plan_vague_reason(test_plan) {
                 findings.push(Finding {
                     severity: "warning",
                     kind: "test_plan_vague",
                     plan_id: plan_id(plan, path),
                     path: path.display().to_string(),
                     task_id: Some(task_id.clone()),
-                    detail: "test plan is vague — too short or names no runnable command; workers will fill the gaps with guesses".into(),
+                    detail: format!(
+                        "test plan is vague — {reason}; workers will fill the gaps with guesses"
+                    ),
                     fix: "write an executable plan: exact command(s), exact surfaces (testids/selectors/files/endpoints), numbered steps with observable pass conditions".into(),
                 });
             }

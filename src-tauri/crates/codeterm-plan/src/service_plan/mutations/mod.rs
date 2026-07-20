@@ -227,36 +227,47 @@ fn dependency_cycle_reaches(
     })
 }
 
+/// A dependency ref may name a task by full id or by handle (`--depends-on` accepts both).
+fn resolve_dependency_ref(plan: &Plan, reference: &str) -> Result<String, PlanError> {
+    if let Some(task) = plan.tasks.iter().find(|task| task.id == reference) {
+        return Ok(task.id.clone());
+    }
+    if let Some(task) = plan
+        .tasks
+        .iter()
+        .find(|task| task.handle.as_deref() == Some(reference))
+    {
+        return Ok(task.id.clone());
+    }
+    Err(PlanError::DependencyTaskNotFound {
+        task_id: reference.to_string(),
+    })
+}
+
 pub(super) fn validate_task_dependencies(
     plan: &Plan,
     task_id: &str,
     depends_on: &[String],
 ) -> Result<Vec<String>, PlanError> {
     let normalized = normalized_dependency_ids(depends_on);
-    for dependency_id in &normalized {
+    let mut resolved = Vec::new();
+    let mut seen_ids = std::collections::HashSet::new();
+    for dependency_ref in &normalized {
+        let dependency_id = resolve_dependency_ref(plan, dependency_ref)?;
         if dependency_id == task_id {
             return Err(PlanError::DependencySelfReference);
         }
-        if !plan.tasks.iter().any(|task| task.id == *dependency_id) {
-            return Err(PlanError::DependencyTaskNotFound {
-                task_id: dependency_id.clone(),
-            });
+        if seen_ids.insert(dependency_id.clone()) {
+            resolved.push(dependency_id);
         }
     }
-    for dependency_id in &normalized {
+    for dependency_id in &resolved {
         let mut seen = std::collections::HashSet::new();
-        if dependency_cycle_reaches(
-            plan,
-            dependency_id,
-            task_id,
-            task_id,
-            &normalized,
-            &mut seen,
-        ) {
+        if dependency_cycle_reaches(plan, dependency_id, task_id, task_id, &resolved, &mut seen) {
             return Err(PlanError::DependencyCycle);
         }
     }
-    Ok(normalized)
+    Ok(resolved)
 }
 
 pub(super) fn reject_done_with_open_subtasks(plan: &Plan, task_id: &str) -> Result<(), PlanError> {

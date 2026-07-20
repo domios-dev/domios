@@ -211,8 +211,20 @@ After approval/execution starts, set heartbeat with:\n\
 fn render_ref_not_found(data: &Value) -> Option<String> {
     let kind = data.get("kind")?.as_str()?;
     let reference = data.get("reference")?.as_str()?;
+    // A longer prefix only helps when the ref is a truncated match on a real id;
+    // for a genuinely nonexistent ref it is dead-end advice, so name the failure
+    // plainly and point at the list command instead.
+    let list_hint = match kind {
+        "plan" => "codeterm plan list --active",
+        "spec" => "codeterm spec list --active",
+        "task" => "codeterm plan task list <plan_id>",
+        "section" => "codeterm plan get <plan_id> --sections",
+        "spec section" => "codeterm spec show <spec_id>",
+        "loop" => "codeterm plan state <plan_id>",
+        _ => "list the matching entities, then retry with an exact id or handle",
+    };
     Some(format!(
-        "✗ no {kind} matches '{reference}'.\nfix: pass the full id or a longer unique prefix; list candidates with the matching list command."
+        "✗ {kind} '{reference}' not found.\nfix: {list_hint}"
     ))
 }
 
@@ -444,4 +456,41 @@ fn render_readback_mismatch(data: &Value, plan_id: &str, task_id: Option<&str>) 
         "✗ {operation} did not read back the requested state for task '{target}'.\n\
 do not retry blindly: inspect current state first with `codeterm task show {target}` or `codeterm plan get {plan_id} --json`."
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn spec_delete_on_nonexistent_id_says_not_found_not_longer_prefix() {
+        let data = json!({
+            "type": "ref_not_found",
+            "kind": "spec",
+            "reference": "sp_nope",
+        });
+        let message = render_plan_error(&data, &json!({})).expect("ref_not_found renders");
+        assert!(message.contains("not found"), "{message}");
+        assert!(
+            !message.contains("longer unique prefix") && !message.contains("longer prefix"),
+            "not-found should not suggest a longer prefix: {message}"
+        );
+        assert!(message.contains("codeterm spec list --active"), "{message}");
+    }
+
+    #[test]
+    fn ambiguous_spec_ref_still_suggests_a_longer_prefix() {
+        let data = json!({
+            "type": "ref_ambiguous",
+            "kind": "spec",
+            "reference": "sp",
+            "candidates": [
+                { "id": "sp_alpha", "label": "Alpha" },
+                { "id": "sp_beta", "label": "Beta" },
+            ],
+        });
+        let message = render_plan_error(&data, &json!({})).expect("ref_ambiguous renders");
+        assert!(message.contains("longer prefix"), "{message}");
+    }
 }

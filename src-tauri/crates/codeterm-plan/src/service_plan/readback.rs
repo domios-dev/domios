@@ -43,7 +43,7 @@ pub(in crate::service_plan) struct TaskAddExpectation {
     executor_role: Option<String>,
     intent: Option<String>,
     parent_task_id: Option<String>,
-    depends_on: Vec<String>,
+    pub(in crate::service_plan) depends_on: Vec<String>,
     assigned_pane_id: Option<String>,
     lane: TaskLaneMetadata,
     group: Option<String>,

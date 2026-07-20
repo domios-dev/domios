@@ -246,7 +246,9 @@ pub enum PlanAction {
     Archive { plan_id: String },
     /// Restore an archived plan to active
     Unarchive { plan_id: String },
-    /// Delete a plan
+    /// Delete a plan. Cascades: the plan's owned spec (1:1, co-located
+    /// spec.yaml) is deleted with it; specs merely linked/referenced from
+    /// other plans are untouched and only lose their reference to this plan.
     Delete {
         plan_id: String,
         /// Confirm permanent deletion.
@@ -553,4 +555,23 @@ pub enum PlanLoopAction {
         #[arg(long, hide = true, env = "CODETERM_TASK_ID")]
         task: Option<String>,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::Cli;
+    use clap::CommandFactory;
+
+    #[test]
+    fn plan_delete_help_documents_owned_spec_cascade() {
+        let help = Cli::command()
+            .find_subcommand_mut("plan")
+            .unwrap()
+            .find_subcommand_mut("delete")
+            .unwrap()
+            .render_long_help()
+            .to_string();
+        assert!(help.contains("Cascades"), "{help}");
+        assert!(help.contains("owned spec"), "{help}");
+    }
 }
