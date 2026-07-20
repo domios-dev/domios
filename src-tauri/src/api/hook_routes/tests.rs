@@ -476,8 +476,8 @@ fn nonceless_report_cannot_evict_materialized_parent() {
     }
     let registry = registry_with_sessions(vec![("codex", vec!["parent-rollout"])]);
 
-    let err = bind_reported_session(&mux, &registry, &pane_id, "codex", "new-rollout", None)
-        .unwrap_err();
+    let err =
+        bind_reported_session(&mux, &registry, &pane_id, "codex", "new-rollout", None).unwrap_err();
     assert_eq!(err.0, StatusCode::CONFLICT);
     assert_eq!(
         mux.read()

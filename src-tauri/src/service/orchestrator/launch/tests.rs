@@ -36,7 +36,10 @@ fn replacement_pty_must_be_new_and_live() {
 fn restore_launch_requires_bare_shell_evidence_before_writing_commands() {
     let source = include_str!("../launch.rs");
     assert!(!source.contains("pty_io::await_shell_prompt("));
-    assert_eq!(source.matches("pty_io::await_bare_shell_prompt(").count(), 2);
+    assert_eq!(
+        source.matches("pty_io::await_bare_shell_prompt(").count(),
+        2
+    );
 }
 
 #[test]

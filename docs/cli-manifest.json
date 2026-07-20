@@ -1534,7 +1534,7 @@
               "positional": false,
               "value_name": "follows|supersedes",
               "default": null,
-              "help": null,
+              "help": "Lineage relationship from --from to --to: follows (continues after) or supersedes (replaces)",
               "aliases": []
             },
             {
@@ -4938,7 +4938,7 @@
         },
         {
           "name": "delete",
-          "about": "Delete a plan",
+          "about": "Delete a plan. Cascades: the plan's owned spec (1:1, co-located spec.yaml) is deleted with it; specs merely linked/referenced from other plans are untouched and only lose their reference to this plan",
           "aliases": [],
           "args": [
             {
@@ -7602,7 +7602,7 @@
                   "positional": false,
                   "value_name": "TASK_ID_OR_HANDLE",
                   "default": null,
-                  "help": null,
+                  "help": "Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle (see --handle)",
                   "aliases": []
                 },
                 {
@@ -8434,7 +8434,7 @@
                   "positional": false,
                   "value_name": "TASK_ID_OR_HANDLE",
                   "default": null,
-                  "help": null,
+                  "help": "Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle (see --handle)",
                   "aliases": []
                 },
                 {

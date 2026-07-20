@@ -1003,6 +1003,39 @@ confirming that every relevant surface looks correct across the whole flow befor
 }
 
 #[test]
+fn test_plan_vague_finding_names_failed_criterion_and_tokens() {
+    let plan = task_with_test_plan("implement", "`cargo test`");
+    let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
+    let finding = findings
+        .iter()
+        .find(|f| f.kind == "test_plan_vague")
+        .expect("vague finding present");
+    assert!(finding.detail.contains("too short"), "{}", finding.detail);
+    assert!(
+        !finding.detail.contains("no runnable command"),
+        "{}",
+        finding.detail
+    );
+
+    let wordy = "We will carefully verify the resulting behavior by inspecting the output and \
+confirming that every relevant surface looks correct across the whole flow before sign-off.";
+    let plan = task_with_test_plan("implement", wordy);
+    let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
+    let finding = findings
+        .iter()
+        .find(|f| f.kind == "test_plan_vague")
+        .expect("vague finding present");
+    assert!(
+        finding.detail.contains("names no runnable command"),
+        "{}",
+        finding.detail
+    );
+    for token in crate::cmd::test_plan::TEST_PLAN_COMMAND_TOKENS {
+        assert!(finding.detail.contains(token), "{}", finding.detail);
+    }
+}
+
+#[test]
 fn quality_clean_on_executable_test_plan() {
     let good =
         "Run `cargo test test_plan_vague` and assert exactly one test_plan_vague finding on \
@@ -1109,5 +1142,58 @@ fn quality_errors_for_missing_body_without_sidecar() {
             && f.task_id.as_deref() == Some("task_1")
             && f.detail.contains("body")),
         "expected task_quality_gap for missing body: {findings:?}"
+    );
+}
+
+// Add-time (`plan task add`) and doctor (`plan doctor --kind quality`) must fire
+// the identical field-missing verdict for the identical task state — both route
+// through `crate::cmd::hints::missing_task_quality_fields`.
+#[test]
+fn add_time_missing_body_hint_matches_doctor_verdict() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan_path = dir.path().join("plan.json");
+    let plan = json!({
+        "id": "pl_1",
+        "title": "Plan",
+        "status": "active",
+        "mode": "approved",
+        "goal": {"vector": "ship"},
+        "primary_spec_id": "sp_1",
+        "sections": [{"id": "sec_1", "title": "Execution", "body": "section body"}],
+        "tasks": [{
+            "id": "task_1",
+            "name": "Do work",
+            "status": "pending",
+            "handle": "do-work",
+            "section_ids": ["sec_1"],
+            "body": "",
+            "acceptance_criteria": ["criterion"],
+            "test_plan": "run focused test",
+            "correctness": "matches spec"
+        }]
+    });
+    let findings = inspect_plan(&plan_path, &plan, "quality");
+    let doctor_detail = findings
+        .iter()
+        .find(|f| f.kind == "task_quality_gap" && f.task_id.as_deref() == Some("task_1"))
+        .map(|f| f.detail.clone())
+        .expect("doctor flags the missing body");
+    assert!(doctor_detail.contains("body"), "{doctor_detail}");
+    assert!(
+        !doctor_detail.contains("acceptance criteria")
+            && !doctor_detail.contains("test plan")
+            && !doctor_detail.contains("correctness vector"),
+        "doctor should only flag body: {doctor_detail}"
+    );
+
+    let add_time_hint =
+        crate::cmd::hints::task_quality_guard_hint("pl_1", "task_1", false, true, true, true)
+            .expect("add-time hint fires for the same missing body");
+    assert!(add_time_hint.contains("body"), "{add_time_hint}");
+    assert!(
+        !add_time_hint.contains("acceptance criteria")
+            && !add_time_hint.contains("test plan")
+            && !add_time_hint.contains("correctness vector"),
+        "add-time hint should only flag body: {add_time_hint}"
     );
 }

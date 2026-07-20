@@ -377,8 +377,9 @@ fn ref_not_found_renderer_is_actionable() {
         &json!({ "plan_id": "pl_missing" }),
     )
     .expect("ref_not_found renderer");
-    assert!(msg.contains("no plan matches"));
+    assert!(msg.contains("not found"));
     assert!(msg.contains("pl_missing"));
+    assert!(msg.contains("codeterm plan list --active"));
 }
 
 fn extract_plan_error_type(line: &str) -> Option<String> {
