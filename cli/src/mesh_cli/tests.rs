@@ -694,6 +694,64 @@ fn send_actions_allows_empty_payload_on_mesh() {
     assert_eq!(body["actions"][0]["key"], "enter");
 }
 
+#[test]
+fn only_post_sends_are_delivery_id_bearing() {
+    assert!(super::relay::is_send_relay(
+        "POST",
+        "/api/panes/abc123/send"
+    ));
+    assert!(super::relay::is_send_relay(
+        "post",
+        "/api/panes/general/send"
+    ));
+    assert!(
+        !super::relay::is_send_relay("GET", "/api/panes/abc123/send"),
+        "a GET is never a logical send"
+    );
+    assert!(!super::relay::is_send_relay("POST", "/api/panes"));
+}
+
+#[test]
+fn delivery_id_prefers_explicit_env_override() {
+    assert_eq!(
+        super::relay::delivery_id_or_generate(Some("pinned-key-123".to_string())),
+        "pinned-key-123",
+        "an explicit id is reused verbatim so retries dedupe"
+    );
+}
+
+#[test]
+fn delivery_id_generates_uuid_when_unset_or_blank() {
+    let generated = super::relay::delivery_id_or_generate(None);
+    assert!(
+        uuid::Uuid::parse_str(&generated).is_ok(),
+        "unset env yields a fresh v4 uuid: {generated}"
+    );
+    let from_blank = super::relay::delivery_id_or_generate(Some("   ".to_string()));
+    assert!(
+        uuid::Uuid::parse_str(&from_blank).is_ok(),
+        "blank env falls back to a generated uuid: {from_blank}"
+    );
+}
+
+#[test]
+fn relay_envelope_stamps_delivery_id_only_on_sends() {
+    let send =
+        super::relay::build_relay_envelope("POST", "/api/panes/abc/send", Some(r#"{"text":"hi"}"#));
+    let id = send
+        .get("delivery_id")
+        .and_then(|v| v.as_str())
+        .expect("send envelope carries a delivery_id");
+    assert!(!id.is_empty());
+    assert_eq!(send["body"]["text"], "hi", "body is preserved");
+
+    let read = super::relay::build_relay_envelope("GET", "/api/panes", None);
+    assert!(
+        read.get("delivery_id").is_none(),
+        "reads carry no delivery_id"
+    );
+}
+
 /// `web link` embeds the LOCAL token — relaying would mint a link with
 /// the wrong credentials, so it must refuse honestly over --mesh.
 #[test]
