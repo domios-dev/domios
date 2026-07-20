@@ -75,18 +75,24 @@ test("@perf @tab-switch-latency sidebar tab switch reaches paint under budget", 
   });
   const wsId = ws.id;
 
-  const plan = await api.post<{ plan_id: string }>("/plans", {
-    title: "tab-switch-perf plan",
-    project_path: cwd,
-  });
-
   const tabs: { tab_id: string; pane_id: string }[] = [];
+  let plan: { plan_id: string } | undefined;
   try {
     for (let i = 0; i < PANE_COUNT; i++) {
       const t = await api.post<{ tab_id: string; pane_id: string }>(`/workspaces/${wsId}/tabs`, { eager: true });
       tabs.push(t);
       paneCleanup.track(t.pane_id);
     }
+    await api.post(`/panes/${tabs[0].pane_id}/role`, { role: "Orchestrator" });
+    plan = await api.post<{ plan_id: string }>("/plans", {
+      title: "tab-switch-perf plan",
+      project_path: cwd,
+      owner: {
+        pane_id: tabs[0].pane_id,
+        session_id: null,
+        title: "tab-switch-perf owner",
+      },
+    });
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForSelector("#root > *", { state: "attached", timeout: 60_000 });
@@ -161,6 +167,6 @@ test("@perf @tab-switch-latency sidebar tab switch reaches paint under budget", 
       SWITCH_BUDGET_MS,
     );
   } finally {
-    await api.request("DELETE", `/plans/${plan.plan_id}`).catch(() => {});
+    if (plan) await api.request("DELETE", `/plans/${plan.plan_id}`).catch(() => {});
   }
 });
