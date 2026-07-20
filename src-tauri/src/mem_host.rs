@@ -86,6 +86,7 @@ impl MemSchedulerPort for CronSchedulerPort<'_> {
                 model: params.model,
                 cwd: params.cwd,
                 role: params.role,
+                skill: None,
                 creator_pane_id: params.creator_pane_id,
                 enabled: params.enabled,
                 max_history: params.max_history,

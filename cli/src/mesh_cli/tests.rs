@@ -457,6 +457,7 @@ fn mesh_cron_create_forwards_all_advanced_fields() {
             agent: "claude".into(),
             model: None,
             cwd: None,
+            skill: None,
             description: None,
             creator_pane: Some("pane_9".into()),
             once: true,
