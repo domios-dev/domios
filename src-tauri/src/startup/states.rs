@@ -79,13 +79,10 @@ fn restored_role_bindings(
     mux.snapshot()
         .panes
         .values()
-        .filter_map(|pane| {
-            pane.role
-                .is_some()
-                .then(|| crate::crash::lifecycle::BindingIdentity {
-                    pane_id: pane.id.clone(),
-                    agent_session_id: pane.agent_session_id.clone(),
-                })
+        .filter(|pane| pane.role.is_some())
+        .map(|pane| crate::crash::lifecycle::BindingIdentity {
+            pane_id: pane.id.clone(),
+            agent_session_id: pane.agent_session_id.clone(),
         })
         .collect()
 }
