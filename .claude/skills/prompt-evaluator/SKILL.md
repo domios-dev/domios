@@ -167,6 +167,7 @@ Tips for writing good evals:
 - `evals/dreaming/` — REM-phase prompt — Stage A.1 hub decomposition with RED ZONE rule + Stage A.2 island bridging.
 - `evals/session-restore/` — kill+restart preserves workspace/tab/agent_type/titles.
 - `evals/manager-bootstrap/` — single-turn team bootstrap reads host role context and does not invent work.
+- `evals/orchestrator-control-loop/` — responsive long-operation ownership and proportional verification.
 
 Experimental/historical: `evals/dreamer-repair/`, `evals/seeds/`, `evals/v1_1_23_e2e/`.
 
