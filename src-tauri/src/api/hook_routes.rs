@@ -592,12 +592,8 @@ fn commit_reported_session(
         ));
     }
 
-    // A nonce-verified report proves WE launched this resume, so it advances the pane
-    // from the resumed-from parent rollout to the new session even before the new file
-    // lands and while the parent stays materialized — the normal Codex resume lineage.
-    // An unauthenticated provisional claim (no matching nonce, no materialized file)
-    // never reaches here: the `exists` gate above rejects it, so it can never evict a
-    // materialized parent.
+    // A verified resume advances lineage before the new rollout file lands.
+    // The existence gate already rejects unauthenticated provisional claims.
     debug_assert!(nonce_verified || probe.new_materialized);
 
     let Some(pane) = mux.get_pane_mut(pane_id) else {

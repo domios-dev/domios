@@ -432,10 +432,6 @@ fn pane_with_nonce_but_nonceless_report_rejects_unpersisted_session() {
 
 #[test]
 fn matching_nonce_advances_lineage_over_materialized_parent() {
-    // Codex resume: the pane is bound to the resumed-from (materialized) parent
-    // rollout; `codex resume` starts a fresh rollout and the session-start hook
-    // reports the NEW sid — not yet on disk — carrying the current launch nonce.
-    // The authenticated report must advance lineage, not be rejected as provisional.
     let (mux, pane_id) = shared_mux();
     {
         let mut g = mux.write();
@@ -444,7 +440,6 @@ fn matching_nonce_advances_lineage_over_materialized_parent() {
         pane.agent_session_id = Some("parent-rollout".into());
         pane.session_binding_nonce = Some("launch-nonce".into());
     }
-    // Parent rollout is materialized on disk; the new rollout is not (yet).
     let registry = registry_with_sessions(vec![("codex", vec!["parent-rollout"])]);
 
     let claim = bind_reported_session(
@@ -471,9 +466,6 @@ fn matching_nonce_advances_lineage_over_materialized_parent() {
 
 #[test]
 fn nonceless_report_cannot_evict_materialized_parent() {
-    // Defense-in-depth for the lineage handoff: an UNAUTHENTICATED report (no
-    // matching nonce) for a fileless new sid must never displace the materialized
-    // parent rollout — the `exists` gate rejects it before any advance.
     let (mux, pane_id) = shared_mux();
     {
         let mut g = mux.write();
