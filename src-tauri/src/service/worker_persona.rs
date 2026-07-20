@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
-use crate::multiplexer::types::AgentRole;
 use crate::service::SpawnIdentityProvenance;
 
 use super::{spawn::resolve_spawn_workspace_id, ServiceContext, SpawnAgentParams};
@@ -73,10 +72,21 @@ impl WorkerPersonaReservations {
         self.entries.remove(&reservation_id);
     }
 
+    #[cfg(test)]
     fn reserved_titles(&self, scope: &ReservationScope) -> Vec<String> {
         self.entries
             .values()
             .filter(|entry| &entry.scope == scope)
+            .map(|entry| entry.title.clone())
+            .collect()
+    }
+
+    /// Reservations across the whole workspace, regardless of which session
+    /// made them — closes the cross-session concurrent-claim race.
+    fn reserved_titles_in_workspace(&self, workspace_id: &str) -> Vec<String> {
+        self.entries
+            .values()
+            .filter(|entry| entry.scope.workspace_id == workspace_id)
             .map(|entry| entry.title.clone())
             .collect()
     }
@@ -97,8 +107,10 @@ impl ServiceContext {
         let scope = self.worker_persona_scope(params)?;
         let seed = seed_for_worker_persona(params, &scope, intent.suggested_title.as_deref());
         let mut reservations = self.worker_identity_allocator.lock();
-        let mut used = self.used_worker_persona_names_locked(&scope);
-        used.extend(reservations.reserved_titles(&scope));
+        let mut used = self.used_worker_persona_names_locked(params, &scope);
+        // Workspace-wide, not session-scoped: two sessions racing in one
+        // workspace must never claim the same in-flight persona.
+        used.extend(reservations.reserved_titles_in_workspace(&scope.workspace_id));
         let allocation = allocate_worker_persona_name(
             &used,
             intent.suggested_title.as_deref(),
@@ -158,31 +170,24 @@ impl ServiceContext {
         })
     }
 
-    fn used_worker_persona_names_locked(&self, scope: &ReservationScope) -> Vec<String> {
-        let mut names = BTreeSet::new();
-        {
+    /// Titles a new worker persona must never collide with: every live tab in
+    /// the workspace (any role, any session), the spawning parent, and recent attempts.
+    fn used_worker_persona_names_locked(
+        &self,
+        params: &SpawnAgentParams,
+        scope: &ReservationScope,
+    ) -> Vec<String> {
+        let mut names = {
             let mux = self.mux.read();
-            for pane in mux
-                .list_workspaces()
-                .into_iter()
-                .filter(|ws| ws.id == scope.workspace_id)
-                .flat_map(|ws| ws.pane_ids)
-                .filter_map(|pane_id| mux.get_pane(&pane_id))
-            {
-                if pane.role != Some(AgentRole::Worker) {
-                    continue;
-                }
-                if let Some(target_session) = scope.session_id.as_deref() {
-                    if pane.agent_session_id.as_deref() != Some(target_session) {
-                        continue;
-                    }
-                }
-                let title = mux.display_label_for_pane(&pane.id);
+            let mut names = workspace_live_titles(&mux, &scope.workspace_id);
+            if let Some(parent_id) = params.parent_pane_id.as_deref() {
+                let title = mux.display_label_for_pane(parent_id);
                 if !title.trim().is_empty() {
                     names.insert(title);
                 }
             }
-        }
+            names
+        };
         names.extend(self.plan_store.recent_worker_attempt_titles(
             &scope.workspace_id,
             scope.session_id.as_deref(),
@@ -190,6 +195,22 @@ impl ServiceContext {
         ));
         names.into_iter().collect()
     }
+}
+
+/// Every non-empty display title of a live pane in `workspace_id`, regardless
+/// of role or owning session.
+fn workspace_live_titles(
+    mux: &crate::multiplexer::state::MultiplexerState,
+    workspace_id: &str,
+) -> BTreeSet<String> {
+    mux.list_workspaces()
+        .into_iter()
+        .filter(|ws| ws.id == workspace_id)
+        .flat_map(|ws| ws.pane_ids)
+        .filter(|pane_id| mux.get_pane(pane_id).is_some())
+        .map(|pane_id| mux.display_label_for_pane(&pane_id))
+        .filter(|title| !title.trim().is_empty())
+        .collect()
 }
 
 struct WorkerPersonaIntent {
@@ -396,6 +417,97 @@ mod tests {
             lock.release(reservation_id);
         }
         assert!(lock.entries.is_empty());
+    }
+
+    #[test]
+    fn workspace_live_titles_excludes_non_worker_roles() {
+        use crate::multiplexer::state::MultiplexerState;
+        use crate::multiplexer::types::AgentRole;
+
+        let (mut mux, orch_pane) = MultiplexerState::new();
+        let ws_id = mux
+            .find_workspace_for_pane(&orch_pane)
+            .expect("initial pane has a workspace");
+        mux.rename_pane(&orch_pane, "Orchestrator-Prime")
+            .expect("rename orchestrator pane");
+
+        let (_tab_id, plain_pane) = mux.create_tab(&ws_id).expect("create plain tab");
+        mux.rename_pane(&plain_pane, "Kai").expect("rename pane");
+
+        let (_tab_id, worker_pane) = mux.create_tab(&ws_id).expect("create worker tab");
+        mux.set_pane_role(&worker_pane, AgentRole::Worker, Some(&orch_pane))
+            .expect("attach worker");
+        mux.rename_pane(&worker_pane, "Esme")
+            .expect("rename worker");
+
+        let titles = workspace_live_titles(&mux, &ws_id);
+        assert!(
+            titles.contains("Orchestrator-Prime"),
+            "the parent Orchestrator's own tab title must count as used, not just Worker panes: {titles:?}"
+        );
+        assert!(
+            titles.contains("Kai"),
+            "a plain (roleless) tab's title must count as used: {titles:?}"
+        );
+        assert!(titles.contains("Esme"));
+    }
+
+    #[test]
+    fn workspace_live_titles_ignores_session_scoping() {
+        use crate::multiplexer::state::MultiplexerState;
+        use crate::multiplexer::types::AgentRole;
+
+        let (mut mux, orch_pane) = MultiplexerState::new();
+        let ws_id = mux.find_workspace_for_pane(&orch_pane).unwrap();
+
+        let (_tab_id, other_session_worker) = mux.create_tab(&ws_id).unwrap();
+        mux.set_pane_role(&other_session_worker, AgentRole::Worker, Some(&orch_pane))
+            .unwrap();
+        mux.rename_pane(&other_session_worker, "Nora").unwrap();
+        if let Some(pane) = mux.get_pane_mut(&other_session_worker) {
+            pane.agent_session_id = Some("some-other-session".into());
+        }
+
+        // The old scan filtered live panes to the caller's own session_id,
+        // so a Worker title claimed under a different session was invisible.
+        let titles = workspace_live_titles(&mux, &ws_id);
+        assert!(
+            titles.contains("Nora"),
+            "a title held by a pane from a different session must still be excluded: {titles:?}"
+        );
+    }
+
+    #[test]
+    fn allocation_rerolls_away_from_parent_and_live_titles() {
+        // Once the exclusion set includes the parent + live tabs, a suggested
+        // pick must reroll exactly like an in-pool collision.
+        let used = ["Orchestrator-Prime", "Kai"];
+        let allocation = allocate_worker_persona_name(used, Some("Kai"), None, 0);
+        assert_ne!(allocation.title, "Kai");
+        assert!(!allocation.exhausted_pool);
+    }
+
+    #[test]
+    fn reservations_collide_across_sessions_in_the_same_workspace() {
+        let mut reservations = WorkerPersonaReservations::default();
+        let scope_a = ReservationScope {
+            workspace_id: "ws".into(),
+            session_id: Some("session-a".into()),
+        };
+        let scope_b = ReservationScope {
+            workspace_id: "ws".into(),
+            session_id: Some("session-b".into()),
+        };
+        reservations.reserve(scope_a, "Ada".into());
+
+        // Session-scoped lookup (the old collision-check) can't see session-a's
+        // in-flight claim from session-b's scope.
+        assert!(reservations.reserved_titles(&scope_b).is_empty());
+        // Workspace-scoped lookup sees it regardless of which session reserved it.
+        assert_eq!(
+            reservations.reserved_titles_in_workspace("ws"),
+            vec!["Ada".to_string()]
+        );
     }
 
     #[test]

@@ -190,19 +190,143 @@ pub fn mesh_relay_fetch_json(
     }
 }
 
-/// Resolve a peer (refreshing once on miss), sign, POST the relay envelope, and
-/// return the unwrapped `data`. Exits the process on any hard failure (peer not
-/// found, unsigned, transport error, or relay `ok:false`). Shared by the
-/// printing path and callers that need to post-process the response.
-pub(crate) fn mesh_relay_invoke(
+/// A relay/spawn failure: peer, reason, and a retry hint, for both human and
+/// script output.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct MeshSpawnFailure {
+    pub(crate) peer: String,
+    pub(crate) reason: String,
+    pub(crate) retry_hint: String,
+}
+
+impl MeshSpawnFailure {
+    fn new(peer: &str, reason: impl Into<String>, retry_hint: impl Into<String>) -> Self {
+        Self {
+            peer: peer.to_string(),
+            reason: reason.into(),
+            retry_hint: retry_hint.into(),
+        }
+    }
+
+    pub(crate) fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "ok": false,
+            "error": {
+                "peer": self.peer,
+                "reason": self.reason,
+                "retry_hint": self.retry_hint,
+            },
+        })
+    }
+
+    /// Render and exit(1); kept apart from classification so that stays
+    /// testable without ending the test process.
+    pub(crate) fn print_and_exit(&self, json_mode: bool) -> ! {
+        if json_mode {
+            println!("{}", serde_json::to_string_pretty(&self.to_json()).unwrap());
+        } else {
+            eprintln!(
+                "Error: mesh spawn on '{}' failed: {}\nhint: {}",
+                self.peer, self.reason, self.retry_hint
+            );
+        }
+        std::process::exit(1);
+    }
+}
+
+/// Fallback next-step hint by HTTP status class, used when the peer's
+/// response carries no `retry_hint` of its own.
+fn generic_retry_hint(status: u16) -> String {
+    match status {
+        429 => "rate limited — back off and retry shortly".to_string(),
+        500..=599 => {
+            "transient — retry once; if it repeats, check the peer daemon is up (`codeterm mesh peers`)"
+                .to_string()
+        }
+        400..=499 => "request rejected — fix the spawn arguments before retrying".to_string(),
+        _ => "retry the spawn".to_string(),
+    }
+}
+
+/// Classify a completed relay response into success data or a structured
+/// failure. Pure — no I/O, no process exit — so tests can drive it directly.
+fn classify_relay_response(
+    peer_name: &str,
+    status: reqwest::StatusCode,
+    bytes: &[u8],
+) -> Result<serde_json::Value, MeshSpawnFailure> {
+    let val: serde_json::Value = serde_json::from_slice(bytes).unwrap_or(serde_json::Value::Null);
+
+    // A bare-status, non-JSON body (e.g. an unstructured axum `(StatusCode,
+    // String)` error) — carry the raw text so the reason is never empty.
+    if !status.is_success() && val.is_null() {
+        let preview = String::from_utf8_lossy(&bytes[..bytes.len().min(512)]);
+        let reason = if preview.trim().is_empty() {
+            format!("HTTP {}", status.as_u16())
+        } else {
+            format!("HTTP {}: {}", status.as_u16(), preview.trim())
+        };
+        return Err(MeshSpawnFailure::new(
+            peer_name,
+            reason,
+            generic_retry_hint(status.as_u16()),
+        ));
+    }
+
+    // Relay returns 200+ok:false on auth/HTTP failures inside the envelope.
+    if let Some(err) = val.get("error").and_then(|v| v.as_str()) {
+        if val.get("ok").and_then(|v| v.as_bool()) == Some(false) {
+            let hint = val
+                .get("data")
+                .and_then(|d| d.get("error"))
+                .and_then(|e| e.get("retry_hint"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .unwrap_or_else(|| generic_retry_hint(status.as_u16()));
+            return Err(MeshSpawnFailure::new(peer_name, err.to_string(), hint));
+        }
+    }
+
+    Ok(val.get("data").cloned().unwrap_or(serde_json::Value::Null))
+}
+
+/// POST an already-built relay envelope to a resolved peer URL and classify
+/// the outcome. Bypasses peer discovery, so a test double can stand in.
+pub(crate) fn perform_mesh_relay_call(
+    http: &reqwest::blocking::Client,
+    peer_url: &str,
+    signed_token: &str,
+    peer_name: &str,
+    method: &str,
+    path: &str,
+    body: Option<&str>,
+) -> Result<serde_json::Value, MeshSpawnFailure> {
+    let relay = build_relay_envelope(method, path, body);
+    let resp = http
+        .post(format!("{}/api/mesh/relay", peer_url))
+        .header("Authorization", format!("Bearer {}", signed_token))
+        .json(&relay)
+        .send()
+        .map_err(|e| {
+            MeshSpawnFailure::new(
+                peer_name,
+                format!("transport error: {e}"),
+                "the peer may be down or unreachable — retry once, then check `codeterm mesh peers`",
+            )
+        })?;
+    let status = resp.status();
+    let bytes = resp.bytes().unwrap_or_default();
+    classify_relay_response(peer_name, status, &bytes)
+}
+
+/// Resolve a peer (refreshing once on miss) and mint a signed request token —
+/// shared by every relay entry point.
+fn resolve_peer_for_relay(
     http: &reqwest::blocking::Client,
     base: &str,
     token: &Option<String>,
     target: &str,
-    method: &str,
-    path: &str,
-    body: Option<&str>,
-) -> serde_json::Value {
+) -> Result<(String, String), MeshSpawnFailure> {
     let mut peers_json = fetch_peers(http, base, token);
     let mut peer = find_peer(&peers_json, target).cloned();
     if peer.is_none() {
@@ -217,68 +341,68 @@ pub(crate) fn mesh_relay_invoke(
         peer = find_peer(&peers_json, target).cloned();
     }
     let Some(peer) = peer else {
-        eprintln!("Peer '{}' not found (after refresh)", target);
-        std::process::exit(1);
+        return Err(MeshSpawnFailure::new(
+            target,
+            "peer not found (after refresh)",
+            "pair the peer first — `codeterm mesh peers`",
+        ));
     };
     let Some(peer_url) = peer_api_url(&peer) else {
-        eprintln!("Peer '{}' has no non-loopback API address", target);
-        std::process::exit(1);
+        return Err(MeshSpawnFailure::new(
+            target,
+            "peer has no non-loopback API address",
+            "the peer needs a reachable network address — check its mesh status",
+        ));
     };
 
-    // Mesh peers require a freshly signed Ed25519 token from mesh identity.
-    // Local CODETERM_API_TOKEN is not accepted by peer verifiers.
-    let signed_token = match crate::read_mesh_signed_token() {
-        Some(t) => t,
-        None => {
-            eprintln!(
-                "Error: cannot sign mesh request — no identity at {:?}.",
+    // Mesh peers need a freshly signed Ed25519 token; a local API token is
+    // not accepted by peer verifiers.
+    match crate::read_mesh_signed_token() {
+        Some(signed_token) => Ok((peer_url, signed_token)),
+        None => Err(MeshSpawnFailure::new(
+            target,
+            format!(
+                "cannot sign mesh request — no identity at {:?}",
                 dirs::home_dir()
                     .unwrap_or_default()
                     .join(data_dir_name())
                     .join("mesh/identity.json")
-            );
-            std::process::exit(1);
-        }
-    };
+            ),
+            "generate a mesh identity on this machine before spawning across mesh",
+        )),
+    }
+}
 
-    let relay = build_relay_envelope(method, path, body);
+/// Resolve a peer (refreshing once on miss), sign, and relay — returning a
+/// structured failure instead of exiting so callers can decide what to do.
+pub(crate) fn mesh_relay_invoke_result(
+    http: &reqwest::blocking::Client,
+    base: &str,
+    token: &Option<String>,
+    target: &str,
+    method: &str,
+    path: &str,
+    body: Option<&str>,
+) -> Result<serde_json::Value, MeshSpawnFailure> {
+    let (peer_url, signed_token) = resolve_peer_for_relay(http, base, token, target)?;
+    perform_mesh_relay_call(http, &peer_url, &signed_token, target, method, path, body)
+}
 
-    match http
-        .post(format!("{}/api/mesh/relay", peer_url))
-        .header("Authorization", format!("Bearer {}", signed_token))
-        .json(&relay)
-        .send()
-    {
-        Ok(resp) => {
-            let status = resp.status();
-            let bytes = resp.bytes().unwrap_or_default();
-            let val: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or_default();
-
-            if !status.is_success() && val.is_null() {
-                let preview = String::from_utf8_lossy(&bytes[..bytes.len().min(512)]);
-                eprintln!(
-                    "Error: peer returned HTTP {} ({}): {}",
-                    status.as_u16(),
-                    peer_url,
-                    preview.trim()
-                );
-                std::process::exit(1);
-            }
-
-            // Relay returns 200+ok:false on auth/HTTP failures; surface as errors.
-            if let Some(err) = val.get("error").and_then(|v| v.as_str()) {
-                if val.get("ok").and_then(|v| v.as_bool()) == Some(false) {
-                    eprintln!("Error: {}", err);
-                    std::process::exit(1);
-                }
-            }
-
-            val.get("data").cloned().unwrap_or(serde_json::Value::Null)
-        }
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
-        }
+/// Like `mesh_relay_invoke_result`, but prints and exits(1) on failure —
+/// the shared entry point for callers that don't need the Result themselves.
+pub(crate) fn mesh_relay_invoke(
+    http: &reqwest::blocking::Client,
+    base: &str,
+    token: &Option<String>,
+    target: &str,
+    method: &str,
+    path: &str,
+    body: Option<&str>,
+    json_mode: bool,
+) -> serde_json::Value {
+    match mesh_relay_invoke_result(http, base, token, target, method, path, body) {
+        Ok(data) => data,
+        Err(failure) => failure.print_and_exit(json_mode),
     }
 }
 
@@ -321,7 +445,7 @@ pub fn mesh_relay_generic(
     body: Option<&str>,
     json_mode: bool,
 ) {
-    let data = mesh_relay_invoke(http, base, token, target, method, path, body);
+    let data = mesh_relay_invoke(http, base, token, target, method, path, body, json_mode);
 
     if json_mode {
         // Unwrap envelope so `--json` output matches local CLI shape.
@@ -387,10 +511,69 @@ pub(crate) fn remote_worker_forget_body(peer: &str, remote_pane: &str) -> serde_
     })
 }
 
-/// Relay an `agent spawn` to a peer, then register the resulting worker in the
-/// origin's remote-worker registry so the sidebar ghosts it under its
-/// orchestrator without waiting for the first report. Registration is
-/// best-effort — a spawn that succeeds is never failed by a registry hiccup.
+/// Spawn against an already-resolved peer, registering only on success — the
+/// gating logic both `mesh_spawn_and_maybe_register` and tests call directly.
+pub(crate) fn spawn_and_maybe_register_at_resolved_peer(
+    http: &reqwest::blocking::Client,
+    peer_url: &str,
+    signed_token: &str,
+    peer_name: &str,
+    origin_base: &str,
+    origin_token: &Option<String>,
+    spawn_body: &serde_json::Value,
+    body: Option<&str>,
+) -> Result<serde_json::Value, MeshSpawnFailure> {
+    let data = perform_mesh_relay_call(
+        http,
+        peer_url,
+        signed_token,
+        peer_name,
+        "POST",
+        "/api/agents/spawn",
+        body,
+    )?;
+    if let Some(reg) = remote_worker_record_body(peer_name, spawn_body, &data) {
+        let _ = http
+            .post(format!("{origin_base}/api/remote-workers"))
+            .header(
+                "Authorization",
+                format!("Bearer {}", origin_token.as_deref().unwrap_or("")),
+            )
+            .json(&reg)
+            .send();
+    }
+    Ok(data)
+}
+
+/// Resolve `target`, then spawn + conditionally register at that peer.
+pub(crate) fn mesh_spawn_and_maybe_register(
+    http: &reqwest::blocking::Client,
+    base: &str,
+    token: &Option<String>,
+    target: &str,
+    spawn_body: &serde_json::Value,
+    body: Option<&str>,
+) -> Result<serde_json::Value, MeshSpawnFailure> {
+    let (peer_url, signed_token) = resolve_peer_for_relay(http, base, token, target)?;
+    // `target` may be an id/alias, so resolve the display name for the ghost.
+    let peer_name = find_peer(&fetch_peers(http, base, token), target)
+        .and_then(|p| p.get("instance_name").and_then(|v| v.as_str()))
+        .map(str::to_string)
+        .unwrap_or_else(|| target.to_string());
+    spawn_and_maybe_register_at_resolved_peer(
+        http,
+        &peer_url,
+        &signed_token,
+        &peer_name,
+        base,
+        token,
+        spawn_body,
+        body,
+    )
+}
+
+/// Relay an `agent spawn` to a peer and print the outcome — the CLI-facing
+/// wrapper around `mesh_spawn_and_maybe_register`.
 pub fn mesh_spawn_and_register(
     http: &reqwest::blocking::Client,
     base: &str,
@@ -402,23 +585,10 @@ pub fn mesh_spawn_and_register(
     let spawn_body: serde_json::Value = body
         .and_then(|b| serde_json::from_str(b).ok())
         .unwrap_or(serde_json::json!({}));
-    let data = mesh_relay_invoke(http, base, token, target, "POST", "/api/agents/spawn", body);
-
-    // the raw `--mesh` arg, which may be an id/alias and split the ghost entry.
-    let peer_name = find_peer(&fetch_peers(http, base, token), target)
-        .and_then(|p| p.get("instance_name").and_then(|v| v.as_str()))
-        .map(str::to_string)
-        .unwrap_or_else(|| target.to_string());
-    if let Some(reg) = remote_worker_record_body(&peer_name, &spawn_body, &data) {
-        let _ = http
-            .post(format!("{}/api/remote-workers", base))
-            .header(
-                "Authorization",
-                format!("Bearer {}", token.as_deref().unwrap_or("")),
-            )
-            .json(&reg)
-            .send();
-    }
+    let data = match mesh_spawn_and_maybe_register(http, base, token, target, &spawn_body, body) {
+        Ok(data) => data,
+        Err(failure) => failure.print_and_exit(json_mode),
+    };
 
     if json_mode {
         println!("{}", serde_json::to_string_pretty(&data).unwrap());
@@ -442,7 +612,7 @@ pub fn mesh_close_pane_and_forget_remote_worker(
     json_mode: bool,
 ) {
     let path = format!("/api/panes/{pane_id}/close");
-    let data = mesh_relay_invoke(http, base, token, target, "POST", &path, None);
+    let data = mesh_relay_invoke(http, base, token, target, "POST", &path, None, json_mode);
 
     let peer_name = find_peer(&fetch_peers(http, base, token), target)
         .and_then(|p| p.get("instance_name").and_then(|v| v.as_str()))
@@ -493,4 +663,177 @@ fn find_peer<'a>(peers_json: &'a serde_json::Value, target: &str) -> Option<&'a 
                     || p.get("instance_id").and_then(|v| v.as_str()) == Some(target)
             })
         })
+}
+
+#[cfg(test)]
+mod mesh_spawn_failure_tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    #[test]
+    fn classify_bare_status_text_body_carries_a_non_empty_reason() {
+        // The old daemon shape for a spawn failure: axum `(StatusCode, String)`
+        // renders as plain text, not JSON — this reproduces that exact body.
+        let failure = classify_relay_response(
+            "blackstar",
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+            b"checkout guard rejected: dirty worktree",
+        )
+        .expect_err("a non-2xx body must classify as a failure, never as data");
+        assert_eq!(failure.peer, "blackstar");
+        assert!(failure.reason.contains("500"));
+        assert!(failure.reason.contains("checkout guard rejected"));
+        assert!(!failure.retry_hint.is_empty());
+    }
+
+    #[test]
+    fn classify_structured_error_prefers_server_supplied_retry_hint() {
+        // The new daemon shape (agent_routes::SpawnRejection) round-tripped
+        // through the relay envelope's `data` field.
+        let body = serde_json::json!({
+            "ok": false,
+            "status": 500,
+            "error": "spawn_failed: checkout guard rejected: dirty worktree",
+            "data": {
+                "ok": false,
+                "error": {
+                    "code": "spawn_failed",
+                    "message": "checkout guard rejected: dirty worktree",
+                    "retry_hint": "clean the worktree, then retry",
+                }
+            }
+        });
+        let failure = classify_relay_response(
+            "blackstar",
+            reqwest::StatusCode::OK,
+            body.to_string().as_bytes(),
+        )
+        .expect_err("ok:false inside the envelope must classify as a failure");
+        assert_eq!(failure.peer, "blackstar");
+        assert_eq!(
+            failure.reason,
+            "spawn_failed: checkout guard rejected: dirty worktree"
+        );
+        assert_eq!(failure.retry_hint, "clean the worktree, then retry");
+    }
+
+    #[test]
+    fn classify_success_returns_unwrapped_data() {
+        let body = serde_json::json!({"ok": true, "status": 200, "data": {"pane_id": "abc"}});
+        let data = classify_relay_response(
+            "blackstar",
+            reqwest::StatusCode::OK,
+            body.to_string().as_bytes(),
+        )
+        .expect("ok:true must classify as success");
+        assert_eq!(data.get("pane_id").and_then(|v| v.as_str()), Some("abc"));
+    }
+
+    /// Accept exactly one connection, then hang up without writing anything —
+    /// the CLI's view of a peer daemon that dies mid-request.
+    fn spawn_dying_peer() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind dying-peer listener");
+        let addr = listener.local_addr().expect("listener has a local addr");
+        std::thread::spawn(move || {
+            if let Ok((stream, _)) = listener.accept() {
+                drop(stream);
+            }
+        });
+        format!("http://{}", addr)
+    }
+
+    /// Stand-in ORIGIN daemon: records whether `/api/remote-workers` was hit.
+    fn spawn_origin_recording_registration(registered: Arc<AtomicBool>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind origin listener");
+        let addr = listener.local_addr().expect("listener has a local addr");
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let mut buf = [0u8; 4096];
+                let n = stream.read(&mut buf).unwrap_or(0);
+                let request = String::from_utf8_lossy(&buf[..n]);
+                if request.contains("/api/remote-workers") {
+                    registered.store(true, Ordering::SeqCst);
+                }
+                let body = b"{}";
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes());
+                let _ = stream.write_all(body);
+            }
+        });
+        format!("http://{}", addr)
+    }
+
+    #[test]
+    fn killed_peer_mid_spawn_yields_structured_failure_not_a_panic_or_hang() {
+        let peer_url = spawn_dying_peer();
+        let http = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .expect("build test http client");
+
+        let result = perform_mesh_relay_call(
+            &http,
+            &peer_url,
+            "signed-test-token",
+            "blackstar",
+            "POST",
+            "/api/agents/spawn",
+            Some(r#"{"agent":"claude","report_to":"main"}"#),
+        );
+
+        let failure =
+            result.expect_err("a peer that dies mid-request must never look like a success");
+        assert_eq!(failure.peer, "blackstar");
+        assert!(
+            !failure.reason.trim().is_empty(),
+            "reason must name what happened, not be blank"
+        );
+        assert!(
+            !failure.retry_hint.trim().is_empty(),
+            "caller needs a next step, not just an error"
+        );
+    }
+
+    #[test]
+    fn killed_peer_mid_spawn_leaves_zero_residual_origin_bindings() {
+        let registered = Arc::new(AtomicBool::new(false));
+        let origin_base = spawn_origin_recording_registration(registered.clone());
+        let peer_url = spawn_dying_peer();
+        let http = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .expect("build test http client");
+        let spawn_body = serde_json::json!({"agent": "claude", "report_to": "main"});
+        let origin_token = Some("origin-test-token".to_string());
+
+        // Calls the SAME production function `mesh_spawn_and_register` uses —
+        // a regression that registers unconditionally would flip `registered`.
+        let outcome = spawn_and_maybe_register_at_resolved_peer(
+            &http,
+            &peer_url,
+            "signed-test-token",
+            "blackstar",
+            &origin_base,
+            &origin_token,
+            &spawn_body,
+            Some(&spawn_body.to_string()),
+        );
+
+        assert!(
+            outcome.is_err(),
+            "the dying peer must not look like a success"
+        );
+        assert!(
+            !registered.load(Ordering::SeqCst),
+            "a mesh spawn that never produced a live remote pane must leave \
+             zero residual task/lane bindings on the origin"
+        );
+    }
 }
