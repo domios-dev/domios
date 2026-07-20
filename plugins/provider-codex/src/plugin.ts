@@ -32,6 +32,15 @@ function starterPrompt(params: LaunchParams): string {
   return ASSIGNED_TASK_START_PROMPT;
 }
 
+function hasPromptAndStatusFooter(screen: string): boolean {
+  if (screen.indexOf("›") === -1) return false;
+  return screen.split(/\r?\n/).some((line) => {
+    const separator = line.indexOf(" · ");
+    if (separator === -1) return false;
+    return /(?:[a-z]:\\|\/)/i.test(line.slice(separator + 3));
+  });
+}
+
 const plugin: PluginModule = {
   starterPromptText(prompt: "assigned_task" | "idle_wakeup" | "team_bootstrap"): string | undefined {
     return prompt === "team_bootstrap" ? undefined : starterPrompt({ starterPrompt: prompt });
@@ -49,11 +58,12 @@ const plugin: PluginModule = {
   },
 
   screenHasTui(screen: string): boolean {
-    const lower = String(screen || "").toLowerCase();
+    const text = String(screen || "");
+    const lower = text.toLowerCase();
     for (let i = 0; i < TUI_FRAGMENTS.length; i++) {
       if (lower.indexOf(TUI_FRAGMENTS[i]) !== -1) return true;
     }
-    return false;
+    return hasPromptAndStatusFooter(text);
   },
 
   isOutputNoise(text: string): boolean {

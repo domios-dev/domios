@@ -425,18 +425,21 @@ impl ServiceContext {
         let deadline = std::time::Instant::now() + timeout;
         let mut generation = signal.generation();
         loop {
-            let (screen, composer_ready) = {
+            let (screen, alternate_screen, composer_ready) = {
                 let screen_state = self.screen_state.lock();
                 let screen = screen_state.get_screen_text(pty_id).unwrap_or_default();
                 let cursor = screen_state.cursor_input_state(pty_id);
-                let composer_ready = cursor
-                    .map(|(_alt, visible, row, rows)| {
-                        crate::agent::offline_state_classifier::composer_cursor_ready(
-                            visible, row, rows,
+                let (alternate_screen, composer_ready) = cursor
+                    .map(|(alternate, visible, row, rows)| {
+                        (
+                            alternate,
+                            crate::agent::offline_state_classifier::composer_cursor_ready(
+                                visible, row, rows,
+                            ),
                         )
                     })
-                    .unwrap_or(false);
-                (screen, composer_ready)
+                    .unwrap_or((false, false));
+                (screen, alternate_screen, composer_ready)
             };
             let provider_ready = self
                 .agent_registry
@@ -449,7 +452,13 @@ impl ServiceContext {
                 provider_ready,
                 codeterm_pty::pty::screen_state::screen_has_agent_tui(&screen),
             );
-            if provider_frame_ready(ready, provider_prompt, require_composer, composer_ready) {
+            if provider_frame_ready(
+                ready,
+                provider_prompt,
+                require_composer,
+                alternate_screen,
+                composer_ready,
+            ) {
                 return true;
             }
             let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
@@ -628,9 +637,12 @@ fn provider_frame_ready(
     tui_ready: bool,
     prompt_ready: bool,
     require_composer: bool,
+    alternate_screen: bool,
     composer_ready: bool,
 ) -> bool {
-    (tui_ready && (!require_composer || composer_ready)) || (!require_composer && prompt_ready)
+    let structural_tui_ready = tui_ready || (alternate_screen && composer_ready);
+    (structural_tui_ready && (!require_composer || composer_ready))
+        || (!require_composer && prompt_ready)
 }
 
 #[cfg(test)]
@@ -689,8 +701,15 @@ mod planner_delivery_tests {
 
     #[test]
     fn provider_prompt_proves_launch_without_claiming_composer_readiness() {
-        assert!(provider_frame_ready(false, true, false, false));
-        assert!(!provider_frame_ready(false, true, true, false));
-        assert!(provider_frame_ready(true, false, true, true));
+        assert!(provider_frame_ready(false, true, false, false, false));
+        assert!(!provider_frame_ready(false, true, true, false, false));
+        assert!(provider_frame_ready(true, false, true, false, true));
+    }
+
+    #[test]
+    fn alternate_screen_composer_proves_provider_readiness_without_text_patterns() {
+        assert!(provider_frame_ready(false, false, true, true, true));
+        assert!(!provider_frame_ready(false, false, true, false, true));
+        assert!(!provider_frame_ready(false, false, true, true, false));
     }
 }

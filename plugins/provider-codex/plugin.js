@@ -619,6 +619,14 @@ function starterPrompt(params) {
   }
   return ASSIGNED_TASK_START_PROMPT;
 }
+function hasPromptAndStatusFooter(screen) {
+  if (screen.indexOf("\u203A") === -1) return false;
+  return screen.split(/\r?\n/).some((line) => {
+    const separator = line.indexOf(" \xB7 ");
+    if (separator === -1) return false;
+    return /(?:[a-z]:\\|\/)/i.test(line.slice(separator + 3));
+  });
+}
 var plugin = {
   starterPromptText(prompt) {
     return prompt === "team_bootstrap" ? void 0 : starterPrompt({ starterPrompt: prompt });
@@ -634,11 +642,12 @@ var plugin = {
     return false;
   },
   screenHasTui(screen) {
-    const lower = String(screen || "").toLowerCase();
+    const text = String(screen || "");
+    const lower = text.toLowerCase();
     for (let i = 0; i < TUI_FRAGMENTS.length; i++) {
       if (lower.indexOf(TUI_FRAGMENTS[i]) !== -1) return true;
     }
-    return false;
+    return hasPromptAndStatusFooter(text);
   },
   isOutputNoise(text) {
     const trimmed = String(text || "").trim();

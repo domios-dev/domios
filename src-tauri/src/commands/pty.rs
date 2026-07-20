@@ -308,7 +308,7 @@ pub async fn spawn_pty_core(
                         let launch_result = tokio::task::spawn_blocking(move || {
                             svc_for_blocking
                                 .send_shell_spawn_after_ready(&pty_id_for_launch, &cmd)?;
-                            Ok::<bool, String>(svc_for_blocking.await_agent_tui_on_screen(
+                            Ok::<bool, String>(svc_for_blocking.await_agent_tui_frame_on_screen(
                                 &pty_id_for_launch,
                                 &provider_for_ready,
                                 std::time::Duration::from_secs(30),
@@ -447,7 +447,7 @@ pub async fn spawn_pty_core(
                     let provider_for_ready = provider_label.clone();
                     let launch_result = tokio::task::spawn_blocking(move || {
                         svc_for_blocking.send_shell_spawn_after_ready(&pty_id_for_launch, &cmd)?;
-                        Ok::<bool, String>(svc_for_blocking.await_agent_tui_on_screen(
+                        Ok::<bool, String>(svc_for_blocking.await_agent_tui_frame_on_screen(
                             &pty_id_for_launch,
                             &provider_for_ready,
                             std::time::Duration::from_secs(30),
