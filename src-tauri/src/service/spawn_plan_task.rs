@@ -123,9 +123,8 @@ fn record_executor_identity_or_revert(
     Ok(())
 }
 
-/// The full `--plan-task` bind transaction: bind the pane, then record
-/// executor identity. Any later failure both reverts the task/lane state and
-/// runs `close_pane` — a failed bind must look like it never happened.
+/// Bind the pane and executor identity as one compensated transaction.
+/// Any failure reverts plan state and closes the provisioned pane.
 pub(crate) fn bind_worker_plan_task_transaction(
     store: &PlanStore,
     plan_id: Option<&str>,
