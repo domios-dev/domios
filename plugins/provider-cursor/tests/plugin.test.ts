@@ -360,6 +360,21 @@ console.log("\n--- parseSessionDelta (real JSONL transcript fixture) ---\n");
   eq(delta.messages[0].role, "user", "row 0 is user");
   eq(delta.messages[0].blocks[0].kind, "text", "user block is text");
   eq(delta.messages[0].blocks[0].data.text, "Run the shell command 'echo hello123' and tell me what it printed.", "user_query framing stripped");
+
+  const timestamped = p.parseSessionDelta(JSON.stringify({
+    role: "user",
+    message: {
+      content: [{
+        type: "text",
+        text: "<timestamp>Monday, Jul 20, 2026, 1:21 PM (UTC+3)</timestamp>\n<user_query>\nCompute 5096 + 3837. Reply with the decimal digits only.\n</user_query>",
+      }],
+    },
+  })) as { messages: any[] };
+  eq(
+    timestamped.messages[0].blocks[0].data.text,
+    "Compute 5096 + 3837. Reply with the decimal digits only.",
+    "timestamp and user_query framing stripped together",
+  );
   // 2) assistant turn with a redacted-thinking text block + a tool_use block:
   //    the bare [REDACTED] text block is dropped, tool_use survives.
   eq(delta.messages[1].role, "assistant", "row 1 is assistant");
