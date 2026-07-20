@@ -256,6 +256,35 @@ async function runChatSessionHookTests(): Promise<void> {
   }
 
   {
+    let handler: ((event: { payload: { pane_id: string; messages: NormalizedChatMessage[] } }) => void) | null = null;
+    __setListenForTest(async (_event, nextHandler) => {
+      handler = nextHandler as typeof handler;
+      return () => {};
+    });
+    __setInvokeForTest((async (command: string) => {
+      if (command !== "chat_start") return {};
+      return chatStartResult("resumed-rollout", {
+        text: "",
+        offset: 1,
+        messages: [{ id: "snapshot", type: "assistant", content: "resumed snapshot", timestamp: "1" }],
+      }, "new-launch-nonce");
+    }) as never);
+    const session = await mountSession("resumed-from", true, "old-launch-nonce");
+    await act(async () => handler?.({ payload: chatEvent("resumed-rollout", [{
+      id: "live",
+      type: "assistant",
+      content: "live resumed reply",
+      timestamp: "2",
+    }], "rotated-launch-nonce") }));
+    assert(
+      session.latest().messages.map((message) => message.content).join(",") === "resumed snapshot,live resumed reply",
+      "chat_start adopts the authenticated resumed rollout and ignores launch nonce rotation",
+    );
+    await act(async () => session.root.unmount());
+    console.log("PASS authoritative chat_start handoff owns the resumed rollout transcript");
+  }
+
+  {
     const timers = new FakeTimers();
     const restoreTimers = timers.install();
     let starts = 0;
@@ -519,8 +548,10 @@ async function runChatSessionHookTests(): Promise<void> {
       }]) });
     });
     assert(
-      starts === 2 && session.latest().messages.map((message) => message.id).join(",") === "live-bound-user-1",
-      "P0 provisional-to-bound reattach keeps one attachment lineage",
+      starts === 2
+        && session.latest().messages.length === 1
+        && session.latest().messages[0]?.content === startupText,
+      "P0 provisional-to-bound reattach keeps one visible attachment lineage",
     );
     await act(async () => session.root.unmount());
     restoreTimers();

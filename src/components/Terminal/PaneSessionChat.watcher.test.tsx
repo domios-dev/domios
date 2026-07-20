@@ -282,7 +282,7 @@ test("an attached current session ignores a late PTY reattach stage", async () =
   await act(async () => root.unmount());
 });
 
-test("only the current binding epoch can attach chat after a stale launch failure", async () => {
+test("the durable session attaches across a launch nonce rotation", async () => {
   const paneId = "binding-epoch-pane";
   const state = muxStateFor({
     [paneId]: paneBase(paneId, {
@@ -307,23 +307,22 @@ test("only the current binding epoch can attach chat after a stale launch failur
       pane_id: paneId,
       source_session_id: "bound-session",
       session_binding_nonce: "previous-epoch",
-      messages: [{ id: "stale-event", type: "assistant", content: "stale", timestamp: "1" }],
+      messages: [{ id: "same-session-event", type: "assistant", content: "attached", timestamp: "1" }],
     });
   });
-  assert(host.querySelector('[data-testid="chat-launch-failed"]'), "stale binding event cannot attach chat");
-  assert(!host.textContent?.includes("stale"), "stale binding event cannot alter the transcript");
+  assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "launch nonce rotation cannot invalidate the durable transcript");
+  assert(host.textContent?.includes("attached"), "same-session event updates the transcript");
 
   await act(async () => {
     emitChat({
       pane_id: paneId,
-      source_session_id: "bound-session",
+      source_session_id: "foreign-session",
       session_binding_nonce: "current-epoch",
-      messages: [{ id: "current-event", type: "assistant", content: "attached", timestamp: "2" }],
+      messages: [{ id: "foreign-event", type: "assistant", content: "foreign", timestamp: "2" }],
     });
   });
-  assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "current binding event clears the failure chip");
   assert(host.querySelector('[data-testid="chat-composer"]') === composer, "attachment keeps the composer mounted");
-  assert(host.textContent?.includes("attached"), "current binding event updates the transcript");
+  assert(!host.textContent?.includes("foreign"), "a different session cannot alter the transcript");
   await act(async () => root.unmount());
 });
 
