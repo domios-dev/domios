@@ -1023,10 +1023,10 @@ mod team_binding_tests {
     #[test]
     fn archiving_frees_the_team_for_a_new_plan() {
         let (dir, s) = store();
-        let first = create(&s, &dir, "First", Some("team_alpha"), 1).unwrap();
+        let first = create(&s, &dir, "First", "team_alpha", 1).unwrap();
         s.archive(&first.id, 2).unwrap();
         // The 1:1 rule counts only ACTIVE plans — an archived one no longer blocks.
-        let second = create(&s, &dir, "Second", Some("team_alpha"), 3).unwrap();
+        let second = create(&s, &dir, "Second", "team_alpha", 3).unwrap();
         assert_eq!(second.team_id.as_deref(), Some("team_alpha"));
         assert_ne!(first.id, second.id);
     }
