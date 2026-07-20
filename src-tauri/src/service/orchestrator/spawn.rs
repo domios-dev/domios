@@ -104,6 +104,7 @@ impl ServiceContext {
         params.title = spawn_title::normalize_agent_title(params.title.take());
         params.normalize_role_profile()?;
         crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params)?;
+        self.preflight_worker_plan_task_spawn(&params)?;
         let _worker_persona_reservation = self.reserve_worker_persona(&mut params)?;
         let checkout_exception = self.worker_checkout_guard(&params)?;
         let role = params.role.clone();
@@ -129,13 +130,7 @@ impl ServiceContext {
         let handle = self.spawn_pane_with_ready(spec, ready_tx)?;
         self.persist_unresolved_plugin_model_request(&handle.pane_id, &bind_params);
         let model_identity = self.pane_model_identity(&handle.pane_id);
-        match self.bind_worker_plan_task_at_spawn(&bind_params, &handle.pane_id) {
-            Ok(_) => {}
-            Err(e) => {
-                let _ = self.close_pane(&handle.pane_id);
-                return Err(e);
-            }
-        }
+        self.bind_worker_plan_task_or_rollback_pane(&bind_params, &handle.pane_id)?;
         if let Some(exc) = checkout_exception {
             self.record_shared_checkout_exception(&exc, &handle.pane_id);
         }
@@ -180,6 +175,7 @@ impl ServiceContext {
         params.title = spawn_title::normalize_agent_title(params.title.take());
         params.normalize_role_profile()?;
         crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params)?;
+        self.preflight_worker_plan_task_spawn(&params)?;
         let _worker_persona_reservation = self.reserve_worker_persona(&mut params)?;
         let checkout_exception = self.worker_checkout_guard(&params)?;
         // Orchestrators must be pinned to an explicit workspace.
@@ -231,10 +227,7 @@ impl ServiceContext {
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(str::to_string);
-            if let Err(e) = self.bind_worker_plan_task_at_spawn(&bind_params, &handle.pane_id) {
-                let _ = self.close_pane(&handle.pane_id);
-                return Err(e);
-            }
+            self.bind_worker_plan_task_or_rollback_pane(&bind_params, &handle.pane_id)?;
             return Ok(SpawnResult {
                 pane_id: handle.pane_id,
                 tab_id: handle.tab_id,
@@ -528,10 +521,7 @@ impl ServiceContext {
                 None => t,
             })
         };
-        if let Err(e) = self.bind_worker_plan_task_at_spawn(&params, &pane_id) {
-            let _ = self.close_pane(&pane_id);
-            return Err(e);
-        }
+        self.bind_worker_plan_task_or_rollback_pane(&params, &pane_id)?;
         let fallback_delivery = self
             .agent_registry
             .with_provider(&agent_cmd, |provider| {
