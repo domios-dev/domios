@@ -342,14 +342,7 @@ mod tests {
                 "mem.save",
             ),
             (
-                vec![
-                    "codeterm",
-                    "mem",
-                    "save-preference",
-                    "--title",
-                    "t",
-                    "body",
-                ],
+                vec!["codeterm", "mem", "save-preference", "--title", "t", "body"],
                 "mem.save",
             ),
             (
@@ -357,7 +350,10 @@ mod tests {
                 "mem.extract_pending",
             ),
             (vec!["codeterm", "mem", "wake-up"], "mem.wake_up"),
-            (vec!["codeterm", "mem", "learn", "insight text"], "mem.learn"),
+            (
+                vec!["codeterm", "mem", "learn", "insight text"],
+                "mem.learn",
+            ),
             (vec!["codeterm", "mem", "learn-list"], "mem.search"),
             (
                 vec!["codeterm", "mem", "learn-promote", "learning_a"],

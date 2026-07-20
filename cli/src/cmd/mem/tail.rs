@@ -16,12 +16,7 @@ fn fetch_tail(
         .unwrap_or_default())
 }
 
-pub(crate) fn run_mem_tail(
-    client: &mut SocketClient,
-    json_mode: bool,
-    follow: bool,
-    limit: usize,
-) {
+pub(crate) fn run_mem_tail(client: &mut SocketClient, json_mode: bool, follow: bool, limit: usize) {
     let print_row = |row: &serde_json::Value| {
         let ts = row
             .get("updated_at")
