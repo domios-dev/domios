@@ -529,7 +529,7 @@ function cleanToolText(value, fallback) {
 function cleanText(raw, role) {
   let t = String(raw || "");
   if (role === "user") {
-    const m = /^<user_query>\n?([\s\S]*?)\n?<\/user_query>\s*$/.exec(t.trim());
+    const m = /^(?:<timestamp>[\s\S]*?<\/timestamp>\s*)?<user_query>\s*([\s\S]*?)\s*<\/user_query>\s*$/.exec(t.trim());
     if (m) t = m[1];
   }
   t = t.split("[REDACTED]").join("");

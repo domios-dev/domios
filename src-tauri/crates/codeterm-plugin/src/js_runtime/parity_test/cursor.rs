@@ -68,7 +68,7 @@ fn parse_session_delta_strips_user_query_and_maps_tool_use() {
     }
     let j = cursor();
     let jsonl = concat!(
-        r#"{"role":"user","message":{"content":[{"type":"text","text":"<user_query>\nrefactor this\n</user_query>"}]}}"#,
+        r#"{"role":"user","message":{"content":[{"type":"text","text":"<timestamp>Monday, Jul 20, 2026, 1:21 PM (UTC+3)</timestamp>\n<user_query>\nrefactor this\n</user_query>"}]}}"#,
         "\n",
         r#"{"role":"assistant","message":{"content":[{"type":"text","text":"on it"},{"type":"tool_use","name":"Edit","input":{"path":"a.rs"}}]}}"#,
         "\n",
@@ -89,7 +89,7 @@ fn parse_session_delta_strips_user_query_and_maps_tool_use() {
     assert_eq!(
         user.blocks[0].data.get("text").and_then(|v| v.as_str()),
         Some("refactor this"),
-        "user_query framing must be stripped"
+        "timestamp and user_query framing must be stripped"
     );
 
     let asst = &delta.messages[1];
