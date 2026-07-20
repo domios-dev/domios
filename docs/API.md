@@ -1140,6 +1140,54 @@ Newline-delimited JSON:
 | `pane.rename` | `{pane_id, title}` | Rename pane (pinned) |
 | `mem.stats` | — | Return memory item, vector, entity, and relation counts over the daemon socket. |
 | `mem.search` | `{q, kind?, area?, scope?, project?, limit?, rerank?}` | Search memory and the optional project plan index over the daemon socket. |
+| `mem.get` | `{id}` | Fetch one mem item by id. |
+| `mem.save` | `{kind, title, body, scope?, summary?, area?, tags?, importance?, source_path?, replace?, skip_extract?, pinned?}` | Create a mem item; may spawn an auto-extraction worker. |
+| `mem.delete` | `{id}` | Delete a mem item by id. |
+| `mem.forget` | `{area}` | Batch-delete every item in an area. |
+| `mem.update` | `{id, title?, summary?, area?, tags?, body?, importance?, pinned?, changed_by?}` | Partial update; also used for pin/unpin (`pinned: true/false`). |
+| `mem.pinned` | `{limit?}` | List pinned items. |
+| `mem.append` | `{id, text, changed_by?}` | Append text to an item's body (non-destructive). |
+| `mem.restore` | `{id, version?, changed_by?}` | Restore a prior body from the audit history. |
+| `mem.wake_up` | `{budget?, l0_only?, no_l0?, explain?, workspace?}` | L0+L1 wake-up context text. |
+| `mem.learn` | `{text, kind?, tags?}` | Capture a quick learning. |
+| `mem.learn_promote` | `{id}` | Promote a learning to a fact. |
+| `mem.flush` | `{pane, title?}` | Flush a tab's PTY scrollback as a `conversation` mem item. |
+| `mem.sync` | `{path?}` | Trigger file sync for source-tracked items (Librarian). |
+| `mem.reembed` | `{scope?}` | Re-embed mem items and/or graph entities. |
+| `mem.extract_pending` | `{limit?}` | Re-queue extraction workers for un-extracted items. |
+| `mem.history` | `{id}` | Full audit trail for one item. |
+| `mem.taxonomy` | `{workspace?}` | `{area -> {kind -> count}}` breakdown. |
+| `mem.tail` | `{since?, limit?}` | Recent mem writes, newest first. |
+| `mem.calibration.log` | `{since?, limit?, count?}` | Calibration audit log (importance/archive changes). |
+| `mem.calibration.sweep` | `{force?}` | Trigger the dreamer's importance/archive sweep. |
+| `mem.worker.spawn` | `{intent, task, agent?, parent?}` | Spawn a hidden graph worker. |
+| `mem.worker.list` | — | List all graph workers. |
+| `mem.worker.get` | `{id}` | Fetch one graph worker by id. |
+| `mem.worker.progress` | `{id, text, status?}` | Report worker progress (called by the worker itself). |
+| `mem.worker.report` | `{id, summary}` | Submit a worker's final report and mark it done. |
+| `mem.worker.kill` | `{id}` | Kill a graph worker. |
+| `mem.graph.create` | `{id, type, scope?, properties?}` | Create a graph entity. |
+| `mem.graph.relate` | `{from, rel, to, valid_from?, valid_to?, confidence?, scope?, reason?}` | Create a relation. |
+| `mem.graph.related` | `{id, rel?, as_of?, include_invalidated?}` | List outgoing relations from an id. |
+| `mem.graph.invalidate` | `{from, rel, to, ended?}` | Invalidate a relation (preserves history). |
+| `mem.graph.timeline` | `{entity, include_invalidated?}` | Full temporal timeline for an entity. |
+| `mem.graph.traverse` | `{from, hops?, max_nodes?, as_of?, include_invalidated?}` | BFS traversal from an entity. |
+| `mem.graph.path` | `{from, to, max_hops?, include_invalidated?}` | Shortest path between two entities. |
+| `mem.graph.tunnels` | `{include_invalidated?}` | List entities bridging 2+ areas. |
+| `mem.graph.alias` | `{alias, canonical}` | Merge one entity into another. |
+| `mem.graph.repair.find_relations` | `{group_by, limit?}` | Find duplicate relations (read-only). |
+| `mem.graph.repair.delete_relations` | `{rowids, actor?}` | Delete relations by rowid (audited). |
+| `mem.graph.repair.merge_relations` | `{keep, merge, actor?}` | Merge relations into `keep`. |
+| `mem.graph.repair.find_entities` | `{strategy, limit?}` | Find duplicate entities. |
+| `mem.graph.repair.augment_entity` | `{id, patch, actor?}` | Patch properties on an entity (audited). |
+| `mem.graph.repair.delete_entity` | `{id, force?, purge_history?, actor?}` | Delete an entity (audited). |
+| `mem.graph.repair.orphan_vectors` | `{dry_run?, actor?}` | Find/delete orphan `mem_vectors` rows. |
+| `mem.graph.repair.prune_thin_vectors` | `{dry_run?, actor?}` | Find/delete bodyless-embedding vectors. |
+| `mem.graph.repair.collapse_synonym_edges` | `{dry_run?, actor?}` | Collapse parallel membership-synonym edges. |
+| `mem.graph.repair.prune_dream_hub_edges` | `{dry_run?, actor?}` | Invalidate dream-diary backlinks into hubs. |
+| `mem.graph.repair.orphan_blobs` | `{dry_run?, actor?}` | Find/delete unreferenced blob files. |
+
+`codeterm mem` routes its full item/history/taxonomy/tail/learn/wake-up/sync/skill/worker/calibration/graph surface over these socket methods — HTTP is no longer attempted for any of it, so a live socket with a dead HTTP API no longer breaks `mem`. A handful of `mem graph` subcommands (route, purge-invalidated, revive-broken, introduce-topic, hubs, islands, orphans, get) are local-only by design — the CLI opens `knowledge.db` directly and never touches either transport. `mem secret` is the one deliberate holdout: `mem.secret.*` gets an explicit `-32004` rejection over the socket (see `secret_socket_rejection` in `socket/server/mem/mod.rs`) because it's the only mem surface that can return plaintext credentials and the socket has no auth gate, so it stays on the bearer-token-gated `/api/secrets/*` HTTP API by design, not because it's unmigrated.
 | `notification.create` | `{title, body?, level?, pane_id?}` | Create notification |
 | `notification.list` | `{unread_only?}` | List notifications |
 | `notification.clear` | `{id?}` | Clear notifications |
@@ -1304,4 +1352,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 83 -->
+<!-- revision: 85 -->
