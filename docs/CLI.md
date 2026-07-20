@@ -386,7 +386,7 @@ Complete work bundles and effort lineage
 Link two efforts by lineage
 
 - `--from`
-- `--rel`
+- `--rel` — Lineage relationship from --from to --to: follows (continues after) or supersedes (replaces)
 - `--to`
 
 #### `codeterm effort show`
@@ -1332,7 +1332,7 @@ List decision gates for a plan
 
 #### `codeterm plan delete`
 
-Delete a plan
+Delete a plan. Cascades: the plan's owned spec (1:1, co-located spec.yaml) is deleted with it; specs merely linked/referenced from other plans are untouched and only lose their reference to this plan
 
 - `<plan_id>`
 - `--yes` — Confirm permanent deletion
@@ -2005,7 +2005,7 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--cleanup-status`
 - `--correctness`
 - `--criterion`
-- `--depends-on`
+- `--depends-on` — Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle (see --handle)
 - `--destination`
 - `--executor-role` — Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync
 - `--force`
@@ -2169,7 +2169,7 @@ Update task metadata, status, quality fields, or lane assignment
 - `--clear-dependencies`
 - `--correctness`
 - `--criterion`
-- `--depends-on`
+- `--depends-on` — Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle (see --handle)
 - `--destination`
 - `--executor-role` — Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync
 - `--group`

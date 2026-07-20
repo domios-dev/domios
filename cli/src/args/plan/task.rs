@@ -62,7 +62,11 @@ pub enum PlanTaskAction {
         intent_file: Option<String>,
         #[arg(long)]
         parent: Option<String>,
-        #[arg(long = "depends-on", value_name = "TASK_ID_OR_HANDLE")]
+        #[arg(
+            long = "depends-on",
+            value_name = "TASK_ID_OR_HANDLE",
+            help = "Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle (see --handle)"
+        )]
         depends_on: Vec<String>,
         #[arg(long = "assign-tab", value_name = "TAB")]
         assign_pane: Option<String>,
@@ -159,7 +163,8 @@ pub enum PlanTaskAction {
         #[arg(
             long = "depends-on",
             value_name = "TASK_ID_OR_HANDLE",
-            conflicts_with = "clear_dependencies"
+            conflicts_with = "clear_dependencies",
+            help = "Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle (see --handle)"
         )]
         depends_on: Vec<String>,
         #[arg(long = "clear-dependencies")]
@@ -311,4 +316,38 @@ pub enum PlanTaskAction {
         #[arg(long)]
         yes: bool,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::Cli;
+    use clap::CommandFactory;
+
+    fn depends_on_help(subcommand: &str) -> String {
+        Cli::command()
+            .find_subcommand_mut("plan")
+            .unwrap()
+            .find_subcommand_mut("task")
+            .unwrap()
+            .find_subcommand_mut(subcommand)
+            .unwrap()
+            .render_long_help()
+            .to_string()
+    }
+
+    #[test]
+    fn task_add_help_documents_depends_on_value_types() {
+        let help = depends_on_help("add");
+        assert!(help.contains("--depends-on"), "{help}");
+        assert!(help.contains("full task id"), "{help}");
+        assert!(help.contains("handle"), "{help}");
+    }
+
+    #[test]
+    fn task_update_help_documents_depends_on_value_types() {
+        let help = depends_on_help("update");
+        assert!(help.contains("--depends-on"), "{help}");
+        assert!(help.contains("full task id"), "{help}");
+        assert!(help.contains("handle"), "{help}");
+    }
 }

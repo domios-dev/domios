@@ -343,15 +343,25 @@ impl PlanStore {
             attachments: vec![],
         };
         let verify_sections = !task.section_ids.is_empty();
-        let expected = Self::task_add_expectation(&task, verify_sections);
+        let mut expected = Self::task_add_expectation(&task, verify_sections);
         let write = self.with_plan(plan_id, now_ms, |p| {
-            task.depends_on = validate_task_dependencies(p, &tid, &task.depends_on)?;
+            let resolved_depends_on = validate_task_dependencies(p, &tid, &task.depends_on)?;
+            task.depends_on = resolved_depends_on.clone();
             if task.section_ids.is_empty() {
                 task.section_ids = super::section_links::auto_section_ids_for_task(p, &task);
             }
             p.tasks.push(task);
-            Ok(())
+            Ok(resolved_depends_on)
         });
+        // depends_on refs (e.g. handles) resolve to canonical task ids during the
+        // write; the expectation must track the resolved form or readback always fails.
+        let write = match write {
+            Ok(resolved_depends_on) => {
+                expected.depends_on = resolved_depends_on;
+                Ok(())
+            }
+            Err(err) => Err(err),
+        };
         pending_after_verified(
             write,
             self.verify_task_added(plan_id, &tid, &expected),

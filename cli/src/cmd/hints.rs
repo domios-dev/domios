@@ -33,14 +33,15 @@ pub fn plan_create_spec_first_hint() -> String {
     "WARNING: plans start with a spec. Sequence: `codeterm spec create --title <title>` -> `codeterm plan create --from-spec <id> --title <title>` -> `codeterm plan goal set` -> `codeterm plan section add` -> `codeterm plan task add` -> `codeterm plan doctor <plan> --kind quality`".to_string()
 }
 
-pub fn task_quality_guard_hint(
-    plan_id: &str,
-    task_id: &str,
+/// Shared rule set for the task-quality lint: what `plan task add` warns on at
+/// creation and what `plan doctor --kind quality` errors on later must never drift
+/// apart, so both go through this one field list.
+pub fn missing_task_quality_fields(
     has_body: bool,
     has_criteria: bool,
     has_test_plan: bool,
     has_correctness: bool,
-) -> Option<String> {
+) -> Vec<&'static str> {
     let mut missing = vec![];
     if !has_body {
         missing.push("body");
@@ -54,6 +55,19 @@ pub fn task_quality_guard_hint(
     if !has_correctness {
         missing.push("correctness vector");
     }
+    missing
+}
+
+pub fn task_quality_guard_hint(
+    plan_id: &str,
+    task_id: &str,
+    has_body: bool,
+    has_criteria: bool,
+    has_test_plan: bool,
+    has_correctness: bool,
+) -> Option<String> {
+    let missing =
+        missing_task_quality_fields(has_body, has_criteria, has_test_plan, has_correctness);
     if missing.is_empty() {
         return None;
     }
