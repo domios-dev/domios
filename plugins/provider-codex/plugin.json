@@ -24,8 +24,7 @@
       "kind": "tui_input_drained"
     },
     "busySubmit": {
-      "kind": "key",
-      "key": "tab"
+      "kind": "submit_normally"
     },
     "sessionIdInjection": "none",
     "statusBarRows": 1,
