@@ -28,14 +28,14 @@ pub struct PendingStoreWatch {
 }
 
 impl PendingStoreWatch {
-    pub fn register(self, chat_registry: &ChatRegistry) -> bool {
+    pub fn register(self, chat_registry: &ChatRegistry, subscription_id: String) -> bool {
         let Self {
             handle,
             pane_id,
             session_id,
             promotion_authority,
         } = self;
-        let registered = chat_registry.insert(pane_id, session_id, handle);
+        let registered = chat_registry.insert(pane_id, session_id, subscription_id, handle);
         if registered {
             promotion_authority.store(true, Ordering::Release);
         }

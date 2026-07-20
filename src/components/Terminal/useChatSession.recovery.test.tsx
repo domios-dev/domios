@@ -26,7 +26,14 @@ async function main() {
   __setInvokeForTest((async (cmd: string) => {
     if (cmd === "chat_start") {
       starts += 1;
-      return { text: "", offset: 0, pending: true, source_session_id: "bound-session", session_binding_nonce: null };
+      return {
+        text: "",
+        offset: 0,
+        pending: true,
+        source_session_id: "bound-session",
+        session_binding_nonce: null,
+        subscription_id: "test-subscription",
+      };
     }
     if (cmd === "chat_stop") stops += 1;
     return {};

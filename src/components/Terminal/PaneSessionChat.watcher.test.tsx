@@ -133,6 +133,7 @@ async function renderPaneSessionChat(
       return {
         source_session_id: state.panes[paneId]?.agent_session_id ?? null,
         session_binding_nonce: state.panes[paneId]?.session_binding_nonce ?? null,
+        subscription_id: "test-subscription",
         ...(chatStart() as object),
       };
     }
@@ -392,7 +393,7 @@ test("snapshot failure keeps a retryable chat surface", async () => {
   await act(async () => root.unmount());
 });
 
-test("T6 manual reconnect performs one stop/start pair, clears the error, and restores history", async () => {
+test("T6 manual reconnect resubscribes without releasing a shared tailer", async () => {
   const paneId = "reattach-pane";
   const state = muxStateFor({
     [paneId]: paneBase(paneId, { agent_session_id: "bound-session" }),
@@ -414,7 +415,7 @@ test("T6 manual reconnect performs one stop/start pair, clears the error, and re
     await Promise.resolve();
     await Promise.resolve();
   });
-  assert(commands.filter((command) => command === "chat_stop").length === 1, "manual reconnect stops the stale tailer once");
+  assert(commands.filter((command) => command === "chat_stop").length === 0, "manual reconnect never releases another view lease");
   assert(commands.filter((command) => command === "chat_start").length === 2, "manual reconnect starts once after the failed attach");
   assert(!host.querySelector('[data-testid="chat-recovery-error"]'), "manual reconnect clears the error");
   assert(host.textContent?.includes("restored history"), "history reappears after reconnect");
@@ -460,8 +461,7 @@ test("pane header reconnect control requests a hook-owned reattach", async () =>
   const reconnect = document.querySelector('[data-testid="chat-reconnect"]') as HTMLButtonElement | null;
   assert(reconnect, "reconnect is available inside tab actions");
   await act(async () => reconnect.click());
-  const stopAt = commands.indexOf("chat_stop");
-  assert(stopAt >= 0, "reconnect calls chat_stop");
+  assert(!commands.includes("chat_stop"), "reconnect leaves shared tailer ownership to mounted views");
   assert(reattachEvents === 1, "reconnect asks the mounted chat hook to attach once");
   const shortcut = new window.KeyboardEvent("keydown", {
     code: "KeyR",
@@ -472,7 +472,7 @@ test("pane header reconnect control requests a hook-owned reattach", async () =>
   });
   await act(async () => window.dispatchEvent(shortcut));
   assert(shortcut.defaultPrevented, "Ctrl+R prevents a WebView reload");
-  assert(commands.filter((command) => command === "chat_stop").length === 2, "Ctrl+R reconnects the active tab");
+  assert(!commands.includes("chat_stop"), "Ctrl+R reattaches without releasing shared tailer ownership");
   await act(async () => root.unmount());
   host.remove();
 });

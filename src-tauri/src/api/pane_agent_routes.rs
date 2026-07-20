@@ -4,8 +4,7 @@ use axum::{
 };
 
 use super::{
-    agent_routes, delayed_send_routes, hook_routes, pane_chat_routes, pane_routes, pty_routes,
-    routes::AppState,
+    agent_routes, delayed_send_routes, hook_routes, pane_routes, pty_routes, routes::AppState,
 };
 
 pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
@@ -49,13 +48,6 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
         .route(
             "/api/agents/providers/{id}/install-in-pane",
             post(agent_routes::install_provider_in_pane),
-        )
-        .route("/api/panes/{id}/chat", get(pane_chat_routes::snapshot))
-        .route("/api/panes/{id}/chat/start", post(pane_chat_routes::start))
-        .route("/api/panes/{id}/chat/stop", post(pane_chat_routes::stop))
-        .route(
-            "/api/panes/{id}/chat/backfill",
-            post(pane_chat_routes::backfill),
         )
         .route(
             "/api/panes/{id}/delayed-messages",

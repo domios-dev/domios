@@ -35,6 +35,7 @@ interface ChatStartResult {
   cursor?: string;
   source_session_id: string | null;
   session_binding_nonce: string | null;
+  subscription_id?: string | null;
 }
 
 interface ChatMsgEvent {
@@ -139,8 +140,25 @@ export function testChatReplyPayload(detail: TestChatReplyDetail): ChatMsgEvent 
   };
 }
 
-function transcriptAuthorityMatches(left: TranscriptAuthority, sourceSessionId: string | null): boolean {
-  return left.source_session_id === sourceSessionId;
+function canAdoptTranscriptAuthority(
+  incoming: TranscriptAuthority,
+  attachedSessionId: string | null,
+  paneSessionId: string | null,
+): boolean {
+  const sourceSessionId = incoming.source_session_id;
+  if (sourceSessionId == null) return attachedSessionId == null;
+  return sourceSessionId === attachedSessionId
+    || sourceSessionId === paneSessionId
+    || (attachedSessionId == null && paneSessionId == null);
+}
+
+let subscriptionSequence = 0;
+
+function newSubscriptionId(paneId: string): string {
+  const randomId = globalThis.crypto?.randomUUID?.();
+  if (randomId) return randomId;
+  subscriptionSequence += 1;
+  return `${paneId}-${subscriptionSequence}`;
 }
 
 export function installCodeTermTestChatHandle(testMode = isCodeTermFrontendTestMode()): void {
@@ -291,11 +309,13 @@ export function useChatSession({
   const agentSessionIdRef = useRef(agentSessionId);
   const attachmentSourceSessionIdRef = useRef(agentSessionId);
   const previousSessionIdRef = useRef(agentSessionId);
-  const rotationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lifecycleRef = useRef(0);
   const knownPaneIdRef = useRef<string | null>(null);
   const attachmentStateRef = useRef(attachmentState);
   const attachGenerationRef = useRef(attachGeneration);
+  const activeSubscriptionIdRef = useRef<string | null>(null);
+  const requestedSubscriptionIdRef = useRef<string | null>(null);
+  const rotationQueuedRef = useRef(false);
   const nextClientOrder = useCallback(() => {
     const value = nextClientOrderRef.current;
     nextClientOrderRef.current += 1;
@@ -315,11 +335,6 @@ export function useChatSession({
     setOptimistic([]);
   }, [paneId]);
 
-  const clearRotationTimer = useCallback(() => {
-    if (rotationTimerRef.current) clearTimeout(rotationTimerRef.current);
-    rotationTimerRef.current = null;
-  }, []);
-
   const requestAttach = useCallback(() => {
     const nextSessionId = agentSessionIdRef.current;
     const lineageSessionId = attachmentSourceSessionIdRef.current;
@@ -336,11 +351,10 @@ export function useChatSession({
   }, []);
 
   const markAttached = useCallback(() => {
-    clearRotationTimer();
     setAttachmentState("attached");
     setRecovering(false);
     setLoading(false);
-  }, [clearRotationTimer]);
+  }, []);
 
   useEffect(() => {
     if (!active) {
@@ -351,6 +365,9 @@ export function useChatSession({
     }
     const lifecycle = lifecycleRef.current + 1;
     lifecycleRef.current = lifecycle;
+    const requestedSubscriptionId = newSubscriptionId(paneId);
+    requestedSubscriptionIdRef.current = requestedSubscriptionId;
+    activeSubscriptionIdRef.current = null;
     attachmentSourceSessionIdRef.current = agentSessionIdRef.current;
     let unlisten: UnlistenFn | null = null;
     let unlistenTest: (() => void) | null = null;
@@ -367,7 +384,12 @@ export function useChatSession({
           `pane-chat-msg-${paneId}`,
           (ev) => {
             if (lifecycleRef.current !== lifecycle) return;
-            if (!transcriptAuthorityMatches(ev.payload, attachmentSourceSessionIdRef.current)) return;
+            const attachedSessionId = attachmentSourceSessionIdRef.current;
+            const paneSessionId = agentSessionIdRef.current;
+            if (!canAdoptTranscriptAuthority(ev.payload, attachedSessionId, paneSessionId)) return;
+            if (ev.payload.source_session_id != null) {
+              attachmentSourceSessionIdRef.current = ev.payload.source_session_id;
+            }
             applyChatMsgEvent(ev.payload, paneId, setStructured, nextClientOrder, attachmentSourceSessionIdRef.current);
             if (attachmentStateRef.current !== "attached") markAttached();
           },
@@ -390,13 +412,16 @@ export function useChatSession({
     })();
     return () => {
       lifecycleRef.current += 1;
-      clearRotationTimer();
       unlisten?.();
       unlistenTest?.();
       setListenerReady(false);
-      void invoke("chat_stop", { paneId }).catch(() => {});
+      const activeSubscriptionId = activeSubscriptionIdRef.current;
+      if (activeSubscriptionId) {
+        activeSubscriptionIdRef.current = null;
+        void invoke("chat_stop", { paneId, subscriptionId: activeSubscriptionId }).catch(() => {});
+      }
     };
-  }, [active, clearRotationTimer, markAttached, nextClientOrder, paneId]);
+  }, [active, markAttached, nextClientOrder, paneId]);
 
   useEffect(() => {
     if (!active || !listenerReady) return;
@@ -408,8 +433,17 @@ export function useChatSession({
         const res = await invoke<ChatStartResult>("chat_start", {
           paneId,
           agentSessionId: agentSessionIdRef.current,
+          subscriptionId: requestedSubscriptionIdRef.current,
         });
-        if (cancelled || lifecycleRef.current !== lifecycle || attachGenerationRef.current !== generation) return;
+        const currentLifecycle = lifecycleRef.current === lifecycle;
+        if (!currentLifecycle) {
+          if (res.subscription_id) {
+            void invoke("chat_stop", { paneId, subscriptionId: res.subscription_id }).catch(() => {});
+          }
+          return;
+        }
+        if (cancelled || attachGenerationRef.current !== generation) return;
+        activeSubscriptionIdRef.current = res.subscription_id ?? null;
         attachmentSourceSessionIdRef.current = res.source_session_id ?? agentSessionIdRef.current;
         setError(null);
         setLoading(false);
@@ -450,11 +484,12 @@ export function useChatSession({
       || !active
       || !listenerReady
     ) return;
-    if (rotationTimerRef.current) return;
-    rotationTimerRef.current = setTimeout(() => {
-      rotationTimerRef.current = null;
+    if (rotationQueuedRef.current) return;
+    rotationQueuedRef.current = true;
+    queueMicrotask(() => {
+      rotationQueuedRef.current = false;
       if (activeRef.current) requestAttach();
-    }, 0);
+    });
   }, [active, agentSessionId, listenerReady, requestAttach]);
 
   const retry = useCallback(() => {
