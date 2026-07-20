@@ -59,13 +59,18 @@ async function markerVisible(page: Page, paneId: string, marker: string): Promis
 
 async function focusTerminal(page: Page, api: ApiClient, paneId: string): Promise<void> {
   const pane = (await api.panes()).find((entry) => entry.id === paneId) as
-    | { tab_id?: string; workspace_id?: string }
+    | { tab_id?: string; workspace_id?: string; title?: string }
     | undefined;
   if (pane?.workspace_id) await api.focusWorkspace(pane.workspace_id);
   if (pane?.tab_id) {
-    const tab = page.locator(`[data-testid="tab-item"][data-tab-id="${pane.tab_id}"]`).first();
+    const tab = pane.title
+      ? page.getByRole("button", { name: `Open tab ${pane.title}`, exact: true }).first()
+      : page.locator(`[data-tab-id="${pane.tab_id}"]`).first();
     await tab.scrollIntoViewIfNeeded().catch(() => {});
-    if (await tab.isVisible().catch(() => false)) await tab.click();
+    if (await tab.isVisible().catch(() => false)) {
+      await tab.click();
+      await expect(tab).toHaveAttribute("aria-current", "page", { timeout: READY_CAP_MS });
+    }
     else {
       await api.focusPane(paneId);
       await page.evaluate(() => window.dispatchEvent(new Event("codeterm-refresh-mux-state")));
@@ -122,7 +127,7 @@ async function sendAndMeasureRender(page: Page, api: ApiClient, paneId: string, 
     { run: process.env.PERF_DIAG_RUN ?? `perf-${process.pid}-${test.info().workerIndex}`, test: name, index, startedAt },
     recordPerfEvent,
   );
-  await api.post(`/panes/${paneId}/send`, { text: `STUB_ECHO ${marker}`, enter: true, raw: true });
+  await api.post(`/panes/${paneId}/send`, { text: `STUB_ECHO ${marker}\r`, raw: true });
   bounce.record("sent", { marker, paneId, loadavg: os.loadavg() });
   let tOutputMs: number | null = null;
   let tRenderMs: number | null = null;

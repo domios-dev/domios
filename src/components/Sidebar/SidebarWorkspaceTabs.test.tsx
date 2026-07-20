@@ -874,6 +874,7 @@ test("clicking a team worker activates it", async () => {
   const managerRow = host.querySelector('[data-tab-id="tab-orchestrator"]');
   const managerButton = managerRow?.querySelector('button[aria-label="Open tab Orchestrator"]');
   assert(managerButton, "active manager remains an accessible named button");
+  assert(managerButton.getAttribute("aria-current") === "page", "active manager exposes aria-current");
   const managerStatus = managerRow?.querySelector('[role="status"]');
   assert(
     managerStatus?.getAttribute("aria-label") === "Orchestrator tab status Working",
@@ -896,6 +897,8 @@ test("clicking a team worker activates it", async () => {
   const workerButton = workerRow.querySelector('button[aria-label="Open tab Worker"]') as HTMLButtonElement | null;
   assert(workerButton, "worker exposes its open action");
   await act(async () => workerButton.click());
+  assert(workerButton.getAttribute("aria-current") === "page", "activated worker exposes aria-current");
+  assert(managerButton.getAttribute("aria-current") === null, "inactive manager clears aria-current");
   assert(
     !host.querySelector('[data-tab-id="tab-worker"]')?.className.includes("sidebar-tab-dimmed"),
     "worker receives active chrome after click",
