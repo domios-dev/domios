@@ -68,50 +68,57 @@ pub async fn mem_calibration_log(
     let svc = state.svc.clone();
     let result = tokio::task::spawn_blocking(move || {
         svc.mem
-            .with_conn(|conn| -> Result<serde_json::Value, String> {
-                if count_only {
-                    let n: i64 = conn
-                        .query_row(
-                            "SELECT COUNT(*) FROM mem_item_history
-                         WHERE changed_by LIKE 'dreamer-calibration%' AND changed_at >= ?1",
-                            params![&since],
-                            |r| r.get(0),
-                        )
-                        .map_err(|e| e.to_string())?;
-                    Ok(serde_json::json!({ "count": n }))
-                } else {
-                    let mut stmt = conn
-                        .prepare(
-                            "SELECT item_id, changed_at, changed_by, change_type,
-                                old_importance, new_importance, old_kind, new_kind
-                         FROM mem_item_history
-                         WHERE changed_by LIKE 'dreamer-calibration%' AND changed_at >= ?1
-                         ORDER BY changed_at DESC LIMIT ?2",
-                        )
-                        .map_err(|e| e.to_string())?;
-                    let rows = stmt
-                        .query_map(params![&since, limit as i64], |r| {
-                            Ok(serde_json::json!({
-                                "item_id": r.get::<_, String>(0)?,
-                                "changed_at": r.get::<_, String>(1)?,
-                                "changed_by": r.get::<_, String>(2)?,
-                                "change_type": r.get::<_, String>(3)?,
-                                "old_importance": r.get::<_, Option<f64>>(4)?,
-                                "new_importance": r.get::<_, Option<f64>>(5)?,
-                                "old_kind": r.get::<_, Option<String>>(6)?,
-                                "new_kind": r.get::<_, Option<String>>(7)?,
-                            }))
-                        })
-                        .map_err(|e| e.to_string())?;
-                    let entries: Vec<_> = rows.filter_map(|r| r.ok()).collect();
-                    Ok(serde_json::json!({ "entries": entries }))
-                }
-            })
+            .with_conn(|conn| calibration_log_query(conn, &since, limit, count_only))
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("join: {}", e)))?
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(result))
+}
+
+/// Shared by the HTTP and socket transports so query logic can't drift.
+pub(crate) fn calibration_log_query(
+    conn: &Connection,
+    since: &str,
+    limit: usize,
+    count_only: bool,
+) -> Result<serde_json::Value, String> {
+    if count_only {
+        let n: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM mem_item_history
+                 WHERE changed_by LIKE 'dreamer-calibration%' AND changed_at >= ?1",
+                params![since],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        return Ok(serde_json::json!({ "count": n }));
+    }
+    let mut stmt = conn
+        .prepare(
+            "SELECT item_id, changed_at, changed_by, change_type,
+                old_importance, new_importance, old_kind, new_kind
+             FROM mem_item_history
+             WHERE changed_by LIKE 'dreamer-calibration%' AND changed_at >= ?1
+             ORDER BY changed_at DESC LIMIT ?2",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(params![since, limit as i64], |r| {
+            Ok(serde_json::json!({
+                "item_id": r.get::<_, String>(0)?,
+                "changed_at": r.get::<_, String>(1)?,
+                "changed_by": r.get::<_, String>(2)?,
+                "change_type": r.get::<_, String>(3)?,
+                "old_importance": r.get::<_, Option<f64>>(4)?,
+                "new_importance": r.get::<_, Option<f64>>(5)?,
+                "old_kind": r.get::<_, Option<String>>(6)?,
+                "new_kind": r.get::<_, Option<String>>(7)?,
+            }))
+        })
+        .map_err(|e| e.to_string())?;
+    let entries: Vec<_> = rows.filter_map(|r| r.ok()).collect();
+    Ok(serde_json::json!({ "entries": entries }))
 }
 
 #[derive(Debug, Clone)]

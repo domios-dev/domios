@@ -1,15 +1,27 @@
+use crate::cmd::mem::transport::mem_transport_error;
 use crate::cmd::print::print_human;
 use crate::MemSecretAction;
 
 // `codeterm mem secret` maps API outcomes to stable script exit codes.
 // `3`=locked, `4`=logged-out, `5`=not found, `6`=backend unavailable.
-pub fn handle_mem_secret(
-    json_mode: bool,
-    http: &reqwest::blocking::Client,
-    base: &str,
-    action: MemSecretAction,
-) {
+//
+// Deliberately HTTP-only: unlike the rest of `mem`, this never routes
+// through the socket. The socket has no auth gate and secrets can return
+// plaintext credential material, so it builds its own bearer-token-gated
+// HTTP client here instead of reusing a caller-provided one — kept
+// intentionally separate from `cmd::mem::handle_mem`'s socket dispatch.
+pub fn handle_mem_secret(json_mode: bool, action: MemSecretAction) {
     use std::io::{Read, Write};
+
+    let (base, token) = crate::read_api_config();
+    let http = match crate::build_http(&token) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error: failed to build HTTP client: {}", e);
+            std::process::exit(1);
+        }
+    };
+    let base = base.as_str();
 
     let send_request = |req: reqwest::blocking::RequestBuilder| -> (u16, serde_json::Value) {
         match req.send() {
@@ -20,7 +32,7 @@ pub fn handle_mem_secret(
             }
             Err(e) => (
                 0,
-                serde_json::json!({"error": {"kind": "backend", "message": e.to_string()}}),
+                serde_json::json!({"error": {"kind": "backend", "message": mem_transport_error(base, &e)}}),
             ),
         }
     };

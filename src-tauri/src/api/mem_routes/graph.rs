@@ -238,7 +238,7 @@ pub struct GraphAliasBody {
     pub canonical: String,
 }
 
-fn validate_canonical(id: &str) -> Result<(), String> {
+pub(crate) fn validate_canonical(id: &str) -> Result<(), String> {
     if id.trim().is_empty() {
         return Err("canonical must not be empty".into());
     }
