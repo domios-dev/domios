@@ -5,8 +5,8 @@ import test from "node:test";
 
 const source = readFileSync(join(process.cwd(), "tests/playwright/suites/00-perf-gate/perf-gate.spec.ts"), "utf8");
 
-function renderMetricUsesTransportCleanSend(source: string): boolean {
-  return /await api\.post\(\s*`\/panes\/\$\{paneId\}\/send`,\s*\{\s*text: `STUB_ECHO \$\{marker\}`,\s*enter: true,\s*raw: true\s*\}\s*\)/s.test(source);
+function renderMetricUsesTerminatedRawSend(source: string): boolean {
+  return /await api\.post\(\s*`\/panes\/\$\{paneId\}\/send`,\s*\{\s*text: `STUB_ECHO \$\{marker\}\\r`,\s*raw: true\s*\}\s*\)/s.test(source);
 }
 
 test("perf gate emits lifecycle events instead of legacy diagnostic rows", () => {
@@ -25,12 +25,12 @@ test("perf gate throws the event-state formatter instead of a generic timeout", 
   assert.doesNotMatch(source, /render timeout after/);
 });
 
-test("render metric send is transport-clean rather than a default user turn", () => {
-  assert.ok(renderMetricUsesTransportCleanSend(source), "render metric send must set raw: true");
-  const defaultUserTurn = source.replace(
-    "{ text: `STUB_ECHO ${marker}`, enter: true, raw: true }",
-    "{ text: `STUB_ECHO ${marker}`, enter: true }",
+test("render metric terminates its transport-clean raw input", () => {
+  assert.ok(renderMetricUsesTerminatedRawSend(source), "render metric raw send must include CR");
+  const unterminated = source.replace(
+    "{ text: `STUB_ECHO ${marker}\\r`, raw: true }",
+    "{ text: `STUB_ECHO ${marker}`, raw: true }",
   );
-  assert.notEqual(defaultUserTurn, source, "mutation must remove raw: true");
-  assert.equal(renderMetricUsesTransportCleanSend(defaultUserTurn), false, "default user-turn body must fail the transport-clean oracle");
+  assert.notEqual(unterminated, source, "mutation must remove the raw-input terminator");
+  assert.equal(renderMetricUsesTerminatedRawSend(unterminated), false, "unterminated raw bytes must fail the oracle");
 });
