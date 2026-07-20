@@ -415,7 +415,7 @@ fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: St
                     "--- SUMMARY ---\n{}\n\n--- RAW OUTPUT ---\n{}",
                     summary, clean
                 );
-                let is_oneshot = {
+                let (is_oneshot, fresh_transition) = {
                     let mut store = cron_state.lock();
                     let _ = store.save_log(job_id, run_id, &log_text);
                     if let Some(ref sid) = session_id {
@@ -426,10 +426,18 @@ fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: St
                     } else {
                         crate::cron::store::CronRunStatus::Failed
                     };
-                    let _ = store.update_run_status(job_id, run_id, status);
+                    let fresh = store
+                        .update_run_status(job_id, run_id, status)
+                        .unwrap_or(false);
                     store.unregister_pane(&state.pane_id);
-                    store.get(job_id).map(|job| job.oneshot).unwrap_or(false)
+                    (
+                        store.get(job_id).map(|job| job.oneshot).unwrap_or(false),
+                        fresh,
+                    )
                 };
+                if fresh_transition {
+                    crate::cron::notify::notify_on_consecutive_failure(svc, &cron_state, job_id);
+                }
                 let _ = svc.close_pane(&state.pane_id);
                 if is_oneshot {
                     if let Some(cron_wake) = svc.app_handle.try_state::<crate::CronWake>() {

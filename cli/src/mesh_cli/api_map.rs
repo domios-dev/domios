@@ -565,6 +565,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 agent,
                 model,
                 cwd,
+                skill,
                 description,
                 creator_pane,
                 once,
@@ -586,6 +587,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     *jitter_max_ms,
                     tz.as_deref(),
                     *timeout_secs,
+                    skill.as_deref(),
                 );
                 ("POST".into(), "/api/crons".into(), Some(body.to_string()))
             }

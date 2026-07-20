@@ -43,6 +43,14 @@ pub const CRON_REPORT_HINT: &str = include_str!("../prompts/cron_report_hint.md"
 /// Appended to every cron task — completion instruction. `{}` is replaced with run_id.
 pub const CRON_COMPLETE_SUFFIX: &str = include_str!("../prompts/cron_complete_suffix.md");
 
+/// Appended to a cron task when the job declares `--skill <slug>` and the
+/// skill folder was found. Placeholders: `{skill_slug}`, `{skill_path}`.
+pub const CRON_SKILL_HINT: &str = include_str!("../prompts/cron_skill_hint.md");
+
+/// Appended to a cron task when the job declares `--skill <slug>` but the
+/// skill folder is missing. Placeholders: `{skill_slug}`, `{skill_path}`.
+pub const CRON_SKILL_MISSING: &str = include_str!("../prompts/cron_skill_missing.md");
+
 /// CodeTerm rule installed to ~/.claude/rules/codeterm.md.
 pub const CODETERM_RULE: &str = include_str!("../prompts/codeterm_rule.md");
 
@@ -224,6 +232,32 @@ mod tests {
         assert!(!DREAMING_REM.contains("mem search returns BOTH"));
     }
 
+    /// The find-guardrail must reach both spawned Worker agents and every
+    /// cron-fired agent — unconditionally, not only when a skill is declared.
+    #[test]
+    fn find_guardrail_reaches_worker_and_cron_briefs() {
+        assert!(worker_suffix()
+            .to_lowercase()
+            .contains("home-/root-wide `find`"));
+        assert!(CRON_COMPLETE_SUFFIX
+            .to_lowercase()
+            .contains("home-/root-wide `find`"));
+    }
+
+    /// A cron job's declared skill must resolve to an exact, Read-able path —
+    /// never the Skill tool (cron agents can't resolve mem skills through it) or a search.
+    #[test]
+    fn cron_skill_prompts_point_at_exact_path_not_tool_or_search() {
+        assert!(CRON_SKILL_HINT.contains("{skill_path}"));
+        assert!(CRON_SKILL_HINT.contains("{skill_slug}"));
+        assert!(CRON_SKILL_HINT
+            .to_lowercase()
+            .contains("do not use the skill tool"));
+        assert!(CRON_SKILL_MISSING.contains("{skill_slug}"));
+        assert!(CRON_SKILL_MISSING.to_lowercase().contains("cron complete"));
+        assert!(CRON_SKILL_MISSING.to_lowercase().contains("find`"));
+    }
+
     #[test]
     fn general_agent_requires_mem_skill_search_before_declaring_missing() {
         assert!(GENERAL_AGENT_TEMPLATE.contains("Skill lookup"));
@@ -402,6 +436,8 @@ mod tests {
             "team_bootstrap_starter.md",
             "cron_report_hint.md",
             "cron_complete_suffix.md",
+            "cron_skill_hint.md",
+            "cron_skill_missing.md",
             "codeterm_rule.md",
             "bridge_mem.md",
             "general_agent.md",
