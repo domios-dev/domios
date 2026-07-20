@@ -34,3 +34,10 @@ test("render metric terminates its transport-clean raw input", () => {
   assert.notEqual(unterminated, source, "mutation must remove the raw-input terminator");
   assert.equal(renderMetricUsesTerminatedRawSend(unterminated), false, "unterminated raw bytes must fail the oracle");
 });
+
+test("terminal focus scopes duplicate titles by canonical tab identity", () => {
+  assert.match(source, /\[data-testid="tab-item"\]\[data-tab-id="\$\{pane\.tab_id\}"\]/);
+  assert.match(source, /await api\.focusPane\(paneId\)/);
+  assert.match(source, /toHaveAttribute\("aria-busy", "false"/);
+  assert.doesNotMatch(source, /page\.getByRole\("button", \{ name: `Open tab \$\{pane\.title\}`/);
+});

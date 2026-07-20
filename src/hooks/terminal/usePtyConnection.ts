@@ -51,6 +51,7 @@ export interface UsePtyConnectionOptions {
   renderEnabled?: boolean;
   resizeClientId?: string;
   onHistoryReplayStateChange?: (replaying: boolean) => void;
+  onConnectionStateChange?: (ready: boolean) => void;
 }
 
 export interface UsePtyConnectionReturn {
@@ -72,11 +73,13 @@ export function usePtyConnection({
   renderEnabled = true,
   resizeClientId,
   onHistoryReplayStateChange,
+  onConnectionStateChange,
 }: UsePtyConnectionOptions): UsePtyConnectionReturn {
   const paneCwd = useMuxSelector(
     (s) => s.panes[paneId]?.cwd ?? null,
     (a, b) => a === b,
   );
+  const paneCwdRef = useRef(paneCwd);
   const localFitEnabledRef = useRef(localFitEnabled);
   const hiddenViewportRef = useRef<TerminalViewport>({ followOutput: true, line: 0 });
   const cancelVisibleReplayRef = useRef<(() => void) | null>(null);
@@ -130,6 +133,10 @@ export function usePtyConnection({
   }, [localFitEnabled]);
 
   useEffect(() => {
+    paneCwdRef.current = paneCwd;
+  }, [paneCwd]);
+
+  useEffect(() => {
     const term = termRef.current;
     const request = ++viewportRestoreRequestRef.current;
     if (!renderEnabled) {
@@ -168,6 +175,12 @@ export function usePtyConnection({
     let cleanupFns: (() => void)[] = [];
     let disposed = false;
     let historyClaim: TerminalHistoryClaim | null = null;
+    let historySettled = true;
+    let transportStarted = false;
+    const reportConnectionReady = () => {
+      if (!disposed && historySettled && transportStarted) onConnectionStateChange?.(true);
+    };
+    onConnectionStateChange?.(false);
 
     const setupAndConnect = async () => {
       const predictedId = ptyId || uid();
@@ -203,6 +216,7 @@ export function usePtyConnection({
         const claim = claimInitialTerminalHistory(paneId, term);
         if (claim) {
           historyClaim = claim;
+          historySettled = false;
           const history = await fetchPaneHistory(paneId);
           if (disposed) {
             abandonInitialTerminalHistory(claim);
@@ -216,10 +230,14 @@ export function usePtyConnection({
               () => {
                 completeInitialTerminalHistory(claim);
                 historyClaim = null;
+                historySettled = true;
+                reportConnectionReady();
               },
               () => {
                 abandonInitialTerminalHistory(claim);
                 historyClaim = null;
+                historySettled = true;
+                reportConnectionReady();
               },
             );
           } else {
@@ -309,7 +327,8 @@ export function usePtyConnection({
         try {
           const cols = Math.max(term.cols, 80);
           const rows = Math.max(term.rows, 24);
-          const paneData = paneCwd != null ? { cwd: paneCwd } : undefined;
+          const paneCwdNow = paneCwdRef.current;
+          const paneData = paneCwdNow != null ? { cwd: paneCwdNow } : undefined;
           const cwd = consumePendingCwd(paneId) || paneData?.cwd || undefined;
           const spawnedId = await invoke<string>("spawn_pty", { cols, rows, cwd, paneId });
           if (!disposed) {
@@ -370,7 +389,7 @@ export function usePtyConnection({
       if (!ptyId) {
         const cols = Math.max(term.cols, 80);
         const rows = Math.max(term.rows, 24);
-        const cwd = consumePendingCwd(paneId) || paneCwd || undefined;
+        const cwd = consumePendingCwd(paneId) || paneCwdRef.current || undefined;
         const spawnedId = await invoke<string>("spawn_pty", {
           cols, rows, predictedId, cwd, paneId,
         });
@@ -424,6 +443,8 @@ export function usePtyConnection({
       } else {
         readLoop();
       }
+      transportStarted = true;
+      reportConnectionReady();
       cleanupFns.push(() => {
         reading = false;
         unsubscribeOutputStream?.();
@@ -441,11 +462,12 @@ export function usePtyConnection({
 
     return () => {
       disposed = true;
+      onConnectionStateChange?.(false);
       if (historyClaim) abandonInitialTerminalHistory(historyClaim);
       for (const fn of cleanupFns) fn();
       connectedPtyRef.current = null;
     };
-  }, [ptyId, paneId, paneCwd, termReady, ioEnabled, resizeClientId, onPtySpawned, replayHistory]);
+  }, [ptyId, paneId, termReady, ioEnabled, resizeClientId, onPtySpawned, replayHistory, onConnectionStateChange]);
 
   return { writePty };
 }

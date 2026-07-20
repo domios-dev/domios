@@ -117,6 +117,7 @@ export const TerminalPane = memo(function TerminalPane({
   const [uiMode, setUiMode] = useState<PaneUiMode>(computeMode);
   const [terminalFallbackOpen, setTerminalFallbackOpen] = useState(false);
   const [historyReplaying, setHistoryReplaying] = useState(false);
+  const [terminalIoReady, setTerminalIoReady] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const terminalVisible = uiMode === "terminal" || terminalFallbackOpen;
@@ -178,6 +179,7 @@ export const TerminalPane = memo(function TerminalPane({
     renderEnabled: renderTerminal,
     resizeClientId,
     onHistoryReplayStateChange: setHistoryReplaying,
+    onConnectionStateChange: setTerminalIoReady,
   });
 
   useAgentDetection({ termRef, paneId, termReady });
@@ -449,6 +451,7 @@ export const TerminalPane = memo(function TerminalPane({
         }
         data-testid="terminal-frame"
         data-terminal-visible={terminalVisible ? "true" : "false"}
+        aria-busy={!terminalIoReady}
         style={{
           top: showTerminalKeyBar
             ? undefined
