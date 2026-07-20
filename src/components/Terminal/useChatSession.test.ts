@@ -169,10 +169,16 @@ type ChatStartMock = {
   messages?: NormalizedChatMessage[];
   source_session_id: string | null;
   session_binding_nonce: string | null;
+  subscription_id: string | null;
 };
 
 function chatStartResult<T extends { text: string; offset: number }>(sourceSessionId: string | null, result: T, sessionBindingNonce: string | null = null): T & ChatStartMock {
-  return { ...result, source_session_id: sourceSessionId, session_binding_nonce: sessionBindingNonce };
+  return {
+    ...result,
+    source_session_id: sourceSessionId,
+    session_binding_nonce: sessionBindingNonce,
+    subscription_id: "test-subscription",
+  };
 }
 
 function chatEvent(sourceSessionId: string | null, messages: NormalizedChatMessage[], sessionBindingNonce: string | null = null) {
@@ -341,6 +347,55 @@ async function runChatSessionHookTests(): Promise<void> {
   }
 
   {
+    let handler: ((event: { payload: { pane_id: string; messages: NormalizedChatMessage[]; source_session_id: string | null } }) => void) | null = null;
+    __setListenForTest(async (_event, nextHandler) => {
+      handler = nextHandler as typeof handler;
+      return () => {};
+    });
+    __setInvokeForTest((async (command: string) => {
+      if (command === "chat_start") return chatStartResult(null, { text: "", offset: 0, pending: true });
+      return {};
+    }) as never);
+    const session = await mountSession(null);
+    await act(async () => handler?.({ payload: chatEvent("materialized-session", [{
+      id: "live-after-pending",
+      type: "assistant",
+      content: "materialized without remount",
+      timestamp: "1",
+    }]) }));
+    assert(
+      session.latest().messages[0]?.content === "materialized without remount",
+      "a live delta establishes missing transcript authority without a terminal remount",
+    );
+    await act(async () => session.root.unmount());
+    console.log("PASS live delta adopts missing transcript authority");
+  }
+
+  {
+    const startArgs: Array<Record<string, unknown> | undefined> = [];
+    const stopArgs: Array<Record<string, unknown> | undefined> = [];
+    __setListenForTest(async () => () => {});
+    __setInvokeForTest((async (command: string, args?: Record<string, unknown>) => {
+      if (command === "chat_start") {
+        startArgs.push(args);
+        return {
+          ...chatStartResult("sid-1", { text: "", offset: 0, messages: [] }),
+          subscription_id: args?.subscriptionId,
+        };
+      }
+      if (command === "chat_stop") stopArgs.push(args);
+      return {};
+    }) as never);
+    const session = await mountSession("sid-1");
+    await act(async () => session.root.unmount());
+    assert(
+      startArgs[0]?.subscriptionId === stopArgs[0]?.subscriptionId,
+      "one mounted chat releases only the exact lease it acquired",
+    );
+    console.log("PASS mounted chat start and stop use one lease");
+  }
+
+  {
     const timers = new FakeTimers();
     const restoreTimers = timers.install();
     const startArgs: Array<Record<string, unknown> | undefined> = [];
@@ -360,11 +415,11 @@ async function runChatSessionHookTests(): Promise<void> {
     await session.render("sid-3");
     assert(stops === 0 && unlistens === 0, "T3 pending session rotations keep listener ownership intact");
     await timers.advance(0);
-    assert(startArgs.length === 2 && startArgs[1]?.agentSessionId === "sid-3", "T3 coalesces pending rotations into one latest-session resync");
+    assert(startArgs.length === 3 && startArgs[2]?.agentSessionId === "sid-3", "T3 resyncs each explicit pending session rotation");
     assert(stops === 0 && unlistens === 0, "T3 rotation resync does not stop or unlisten");
     await act(async () => session.root.unmount());
     restoreTimers();
-    console.log("PASS T3 pending rotations coalesce to one latest-session reattach");
+    console.log("PASS T3 pending rotations preserve listener ownership");
   }
 
   {
@@ -442,15 +497,15 @@ async function runChatSessionHookTests(): Promise<void> {
     await session.render("sid-2", true, "nonce-2");
     await session.render("sid-3", true, "nonce-2");
     await timers.advance(0);
-    assert(startArgs.length === 2 && startArgs[1]?.agentSessionId === "sid-3", "T6 deferred initial attach rotates once to the latest session");
+    assert(startArgs.length === 3 && startArgs[2]?.agentSessionId === "sid-3", "T6 deferred initial attach reaches the latest session");
     assert(stops === 0 && unlistens === 0, "T6 idle rotation keeps the existing chat listener and daemon session");
     initialAttach.resolve?.(chatStartResult("sid-1", { text: "", offset: 0, pending: true }, "nonce-1"));
     await flush();
     await timers.advance(30_000);
-    assert(startArgs.length === 2, "T6 resolving a stale initial attach does not poll or reattach again");
+    assert(startArgs.length === 3, "T6 resolving a stale initial attach does not poll or reattach again");
     await act(async () => session.root.unmount());
     restoreTimers();
-    console.log("PASS T6 deferred idle rotations coalesce without polling");
+    console.log("PASS T6 deferred idle rotations preserve the active lease without polling");
   }
 
   {
@@ -480,15 +535,15 @@ async function runChatSessionHookTests(): Promise<void> {
     await session.render("sid-2");
     await session.render("sid-3");
     await timers.advance(0);
-    assert(startArgs.length === 3 && startArgs[2]?.agentSessionId === "sid-3", "T7 attaching rotation coalesces to one latest-session attach");
+    assert(startArgs.length === 4 && startArgs[3]?.agentSessionId === "sid-3", "T7 attaching rotation reaches the latest session");
     assert(stops === 0 && unlistens === 0, "T7 attaching rotation does not stop or unlisten");
     retryAttach.resolve?.(chatStartResult("sid-1", { text: "", offset: 0, pending: true }));
     await flush();
     await timers.advance(30_000);
-    assert(startArgs.length === 3, "T7 attaching rotation does not introduce polling");
+    assert(startArgs.length === 4, "T7 attaching rotation does not introduce polling");
     await act(async () => session.root.unmount());
     restoreTimers();
-    console.log("PASS T7 attaching rotations coalesce without listener churn");
+    console.log("PASS T7 attaching rotations preserve listener ownership");
   }
 
   {
@@ -511,13 +566,13 @@ async function runChatSessionHookTests(): Promise<void> {
     await session.render("sid-2");
     await session.render("sid-3");
     await timers.advance(0);
-    assert(startArgs.length === 2 && startArgs[1]?.agentSessionId === "sid-3", "T8 failed rotation retries once with the latest session");
+    assert(startArgs.length === 3 && startArgs[2]?.agentSessionId === "sid-3", "T8 failed rotation reaches the latest session");
     assert(stops === 0 && unlistens === 0, "T8 failed rotation preserves the listener and daemon session");
     await timers.advance(30_000);
-    assert(startArgs.length === 2, "T8 failed rotation keeps no-polling behavior");
+    assert(startArgs.length === 3, "T8 failed rotation keeps no-polling behavior");
     await act(async () => session.root.unmount());
     restoreTimers();
-    console.log("PASS T8 failed rotations coalesce without polling");
+    console.log("PASS T8 failed rotations preserve listener ownership without polling");
   }
   {
     const timers = new FakeTimers();

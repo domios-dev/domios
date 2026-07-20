@@ -636,14 +636,21 @@ mod tests {
 
 /// Same semantics and result shape as the Tauri `chat_start`: returns the
 /// recent raw-JSONL window and installs the per-pane tailer whose deltas
-/// arrive as `pane-chat-raw-{id}` over the SSE stream.
+/// arrive as `pane-chat-msg-{id}` over the SSE stream.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatSubscriptionBody {
+    subscription_id: String,
+}
+
 pub async fn chat_raw_start(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(pane_id): Path<String>,
+    Json(body): Json<ChatSubscriptionBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let result = crate::commands::chat_start_core(&state.svc, pane_id)
+    let result = crate::commands::chat_start_core(&state.svc, pane_id, body.subscription_id)
         .map_err(|e| (StatusCode::CONFLICT, e))?;
     Ok(Json(serde_json::to_value(result).unwrap_or_default()))
 }
@@ -927,9 +934,13 @@ pub async fn chat_raw_stop(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(pane_id): Path<String>,
+    Json(body): Json<ChatSubscriptionBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    state.svc.chat_registry.stop(&pane_id);
+    state
+        .svc
+        .chat_registry
+        .stop(&pane_id, &body.subscription_id);
     Ok(Json(serde_json::json!({"ok": true})))
 }
 

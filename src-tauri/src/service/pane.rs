@@ -102,7 +102,7 @@ impl ServiceContext {
 
     pub fn close_pane(&self, pane_id: &str) -> Result<(), String> {
         // iteration; once close_pane drops the entry, future polls would see Provider::None and bail anyway, but explicit stop joins the thread cleanly and frees the JSONL handle.
-        self.chat_registry.stop(pane_id);
+        self.chat_registry.shutdown_pane(pane_id);
 
         if let Some((plugin_id, session_id)) = self.pane_chat_backing(pane_id) {
             let _ = self.chatbackend_close(&plugin_id, &session_id);

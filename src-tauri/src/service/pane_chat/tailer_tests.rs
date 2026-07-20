@@ -309,7 +309,7 @@ fn pending_store_watch_promotes_to_tailer_and_streams_initial_batch() {
         chat_registry.clone(),
         sink.clone() as Arc<dyn DeltaSink>,
     );
-    assert!(watch.register(&chat_registry));
+    assert!(watch.register(&chat_registry, "desktop".into()));
 
     std::thread::sleep(Duration::from_millis(3100));
     assert!(
@@ -327,7 +327,7 @@ fn pending_store_watch_promotes_to_tailer_and_streams_initial_batch() {
         wait_until(2000, || !sink.msgs.lock().is_empty()),
         "one watch must promote to a tailer and emit the initial batch",
     );
-    chat_registry.stop("p-pending");
+    chat_registry.stop("p-pending", "desktop");
     assert!(
         !chat_registry.is_running("p-pending"),
         "one mount is released by one stop after promotion",
@@ -383,12 +383,12 @@ fn pending_store_watch_needs_registration_authority_before_promotion() {
         .recv_timeout(Duration::from_secs(1))
         .expect("unregistered watch must decline promotion");
 
-    assert!(watch.register(&chat_registry));
+    assert!(watch.register(&chat_registry, "desktop".into()));
     assert!(
         wait_until(2000, || !sink.msgs.lock().is_empty()),
         "registered watch must promote and emit its initial batch",
     );
-    chat_registry.stop("p-registration-race");
+    chat_registry.stop("p-registration-race", "desktop");
 }
 
 #[test]

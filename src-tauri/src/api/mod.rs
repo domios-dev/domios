@@ -22,7 +22,6 @@ pub mod notification_routes;
 pub mod os_notify;
 pub mod output_stream;
 pub mod pane_agent_routes;
-pub mod pane_chat_routes;
 pub mod pane_routes;
 pub mod pasteboard_routes;
 pub mod plan_routes;

@@ -271,9 +271,13 @@ const HTTP_MAP: Record<string, Mapper> = {
     webJson("GET", `/api/panes/${enc(s(a, "paneId"))}/shell-commands`),
 
   chat_start: (a) =>
-    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/chat-raw/start`),
+    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/chat-raw/start`, {
+      subscriptionId: s(a, "subscriptionId"),
+    }),
   chat_stop: (a) =>
-    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/chat-raw/stop`),
+    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/chat-raw/stop`, {
+      subscriptionId: s(a, "subscriptionId"),
+    }),
   chat_backfill: (a) =>
     webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/chat-raw/backfill`, {
       before_offset: a.beforeOffset,

@@ -216,6 +216,8 @@ pub struct ChatStartResult {
     pub cursor: Option<String>,
     pub source_session_id: Option<String>,
     pub session_binding_nonce: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subscription_id: Option<String>,
 }
 
 fn pane_chat_authority(svc: &ServiceState, pane_id: &str) -> (Option<String>, Option<String>) {
@@ -235,9 +237,10 @@ fn pane_chat_authority(svc: &ServiceState, pane_id: &str) -> (Option<String>, Op
 pub async fn chat_start(
     svc: tauri::State<'_, ServiceState>,
     pane_id: String,
+    subscription_id: String,
 ) -> Result<ChatStartResult, String> {
     let svc_owned = svc.inner().clone();
-    tokio::task::spawn_blocking(move || chat_start_core(&svc_owned, pane_id))
+    tokio::task::spawn_blocking(move || chat_start_core(&svc_owned, pane_id, subscription_id))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -274,7 +277,11 @@ fn prepend_pending_greeting(
     out
 }
 
-pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartResult, String> {
+pub fn chat_start_core(
+    svc: &ServiceState,
+    pane_id: String,
+    subscription_id: String,
+) -> Result<ChatStartResult, String> {
     let started = std::time::Instant::now();
     let initial_authority = pane_chat_authority(svc, &pane_id);
     if svc.pane_chat_backing(&pane_id).is_some() {
@@ -289,6 +296,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             cursor: None,
             source_session_id: initial_authority.0,
             session_binding_nonce: initial_authority.1,
+            subscription_id: None,
         });
     }
     let (provider_id, cwd, mut session_id, mux_ms) = {
@@ -314,6 +322,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
                     cursor: None,
                     source_session_id: None,
                     session_binding_nonce: pane.session_binding_nonce.clone(),
+                    subscription_id: None,
                 });
             }
             return Ok(ChatStartResult {
@@ -325,6 +334,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
                 cursor: None,
                 source_session_id: None,
                 session_binding_nonce: pane.session_binding_nonce.clone(),
+                subscription_id: None,
             });
         };
         (provider, cwd, sid, t.elapsed().as_millis())
@@ -385,7 +395,10 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             })
             .unwrap_or_default();
         let cursor = delta.cursor.clone();
-        if !svc.chat_registry.acquire(&pane_id, &session_id) {
+        if !svc
+            .chat_registry
+            .acquire(&pane_id, &session_id, &subscription_id)
+        {
             let sink = crate::service::pane_chat::structured_sink::make_sink(
                 svc.app_handle.clone(),
                 Some(session_id.clone()),
@@ -403,8 +416,12 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
                 svc.agent_registry.clone(),
                 sink,
             );
-            svc.chat_registry
-                .insert(pane_id.clone(), session_id.clone(), handle);
+            svc.chat_registry.insert(
+                pane_id.clone(),
+                session_id.clone(),
+                subscription_id.clone(),
+                handle,
+            );
         }
         return Ok(ChatStartResult {
             text: String::new(),
@@ -415,6 +432,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             cursor,
             source_session_id: Some(session_id.clone()),
             session_binding_nonce: session_binding_nonce.clone(),
+            subscription_id: Some(subscription_id),
         });
     }
 
@@ -430,7 +448,10 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             provider_id,
             session_id
         );
-        if !svc.chat_registry.acquire(&pane_id, &session_id) {
+        if !svc
+            .chat_registry
+            .acquire(&pane_id, &session_id, &subscription_id)
+        {
             let sink = crate::service::pane_chat::structured_sink::make_flatten_sink(
                 svc.app_handle.clone(),
                 0,
@@ -450,7 +471,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
                 svc.chat_registry.clone(),
                 sink,
             );
-            handle.register(&svc.chat_registry);
+            handle.register(&svc.chat_registry, subscription_id.clone());
         }
         return Ok(ChatStartResult {
             text: String::new(),
@@ -461,6 +482,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             cursor: None,
             source_session_id: Some(session_id.clone()),
             session_binding_nonce: session_binding_nonce.clone(),
+            subscription_id: Some(subscription_id),
         });
     };
     let total = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
@@ -483,7 +505,10 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
 
     // is already running so one client's stop() cannot kill another's stream.
     let tailer_started = std::time::Instant::now();
-    if !svc.chat_registry.acquire(&pane_id, &session_id) {
+    if !svc
+        .chat_registry
+        .acquire(&pane_id, &session_id, &subscription_id)
+    {
         let sink = crate::service::pane_chat::structured_sink::make_flatten_sink(
             svc.app_handle.clone(),
             msg_count,
@@ -502,8 +527,12 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             svc.agent_registry.clone(),
             sink,
         );
-        svc.chat_registry
-            .insert(pane_id.clone(), session_id.clone(), handle);
+        svc.chat_registry.insert(
+            pane_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            handle,
+        );
     }
     let tailer_ms = tailer_started.elapsed().as_millis();
     let total_ms = started.elapsed().as_millis();
@@ -532,6 +561,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
         cursor: None,
         source_session_id: Some(session_id),
         session_binding_nonce,
+        subscription_id: Some(subscription_id),
     })
 }
 
@@ -598,12 +628,17 @@ pub fn session_transcript(
         cursor: None,
         source_session_id: Some(session_id),
         session_binding_nonce: None,
+        subscription_id: None,
     })
 }
 
 #[tauri::command]
-pub async fn chat_stop(svc: tauri::State<'_, ServiceState>, pane_id: String) -> Result<(), String> {
-    svc.chat_registry.stop(&pane_id);
+pub async fn chat_stop(
+    svc: tauri::State<'_, ServiceState>,
+    pane_id: String,
+    subscription_id: String,
+) -> Result<(), String> {
+    svc.chat_registry.stop(&pane_id, &subscription_id);
     Ok(())
 }
 

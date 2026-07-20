@@ -1120,7 +1120,7 @@ test("tab rich menu opens from right click and exposes session actions", async (
     .find((item) => item.textContent?.trim() === "Reconnect");
   assert(reconnect, "reconnect menu item found");
   await act(async () => reconnect.click());
-  assert(commands.includes("chat_stop"), "reconnect uses the shared chat reattach path");
+  assert(!commands.includes("chat_stop"), "reconnect never releases another view's shared chat lease");
 
   await openTabActionsMenu(row);
   const restart = document.querySelector('[data-testid="tab-menu-restart-session"]') as HTMLButtonElement;

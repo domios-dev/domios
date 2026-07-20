@@ -204,7 +204,7 @@ impl ServiceContext {
             self.emit_plan_changed(&plan_id);
         }
         for pane_id in &cleanup.member_pane_ids {
-            self.chat_registry.stop(pane_id);
+            self.chat_registry.shutdown_pane(pane_id);
         }
         for (plugin_id, session_id) in &cleanup.chat_backings {
             let _ = self.chatbackend_close(plugin_id, session_id);
