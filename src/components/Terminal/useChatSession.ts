@@ -13,6 +13,7 @@ import {
   type OptimisticEcho,
 } from "@codeterm/chat-core";
 import { detectChatPrefix, splitChatPrefixedMessages, type ChatOrigin } from "../../lib/chatPrefixes";
+import { onResync } from "../../lib/resync";
 import { CHAT_REATTACHED_EVENT } from "./chatReattach";
 
 const INITIAL_VISIBLE_MESSAGES = 220;
@@ -482,6 +483,11 @@ export function useChatSession({
     setRecovering(true);
     requestAttach();
   }, [requestAttach]);
+
+  useEffect(() => {
+    if (!active) return;
+    return onResync(requestAttach);
+  }, [active, requestAttach]);
 
   useEffect(() => {
     const handleReattached = (event: Event) => {
