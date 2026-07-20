@@ -27,13 +27,13 @@ fn codex() -> JsProvider {
 }
 
 #[test]
-fn busy_turn_uses_the_declared_queue_key() {
+fn busy_turn_steers_after_the_next_tool_call() {
     if require_plugins().is_none() {
         return;
     }
     assert_eq!(
         codex().busy_submit_strategy(),
-        crate::provider::BusySubmitStrategy::Key("tab".into())
+        crate::provider::BusySubmitStrategy::SubmitNormally
     );
 }
 
