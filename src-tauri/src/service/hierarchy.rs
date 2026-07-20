@@ -811,6 +811,7 @@ impl ServiceContext {
             method: "POST".into(),
             path: format!("/api/plans/{}/batch", plan_id),
             body,
+            delivery_id: None,
         };
         tauri::async_runtime::spawn(async move {
             match client.send_relay(&cmd).await {
@@ -871,6 +872,9 @@ impl ServiceContext {
             method: "POST".into(),
             path: format!("/api/panes/{}/send", target_pane),
             body: send_body,
+            // At-most-once: a report is one logical send; dedupe by this id so a
+            // relay retry can never double-post it into the target pane.
+            delivery_id: Some(uuid::Uuid::new_v4().to_string()),
         };
         tauri::async_runtime::spawn(async move {
             match client.send_relay(&cmd).await {

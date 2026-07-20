@@ -13,6 +13,7 @@ pub mod introduction;
 pub mod pairing;
 pub mod relay;
 pub mod rpc;
+pub mod send_dedupe;
 
 pub use announce::{mesh_announce_all, mesh_announce_inbound, mesh_refresh, mesh_set_peer_addr};
 pub use connection::{

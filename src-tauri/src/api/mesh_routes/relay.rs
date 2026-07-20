@@ -302,10 +302,12 @@ pub async fn mesh_relay_to_peer(
             .unwrap_or_else(|| req.target_peer_id.clone());
         (client, name)
     };
+    let delivery_id = relay_send_delivery_id(&req.method, &req.path);
     let cmd = crate::mesh::types::RelayCommand {
         method: req.method,
         path: req.path,
         body: req.body,
+        delivery_id,
     };
     let resp = client
         .send_relay(&cmd)
@@ -342,6 +344,110 @@ pub async fn mesh_relay(
     Json(cmd): Json<crate::mesh::types::RelayCommand>,
 ) -> Result<Json<crate::mesh::types::RelayResponse>, (StatusCode, String)> {
     let sender_id = check_mesh_relay_auth(&state, &headers)?;
+
+    let Some(delivery_id) = cmd
+        .delivery_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    else {
+        return perform_relay(&state, &sender_id, &cmd).await.map(Json);
+    };
+
+    // At-most-once (#240): one dispatch per (authenticated sender, delivery_id);
+    // duplicates replay; a saturated in-flight window is rejected, never grown.
+    let key = super::send_dedupe::dedupe_key(&sender_id, delivery_id);
+    let entry = match super::send_dedupe::MeshDeliveryDedupe::global()
+        .acquire(key.clone(), super::send_dedupe::now_ms())
+    {
+        super::send_dedupe::Admission::Duplicate(entry) => {
+            log::info!(
+                "[mesh/relay] dedup replay {} {} from {} (delivery_id={})",
+                cmd.method,
+                cmd.path,
+                sender_id,
+                delivery_id
+            );
+            return Ok(Json(entry.wait().await));
+        }
+        super::send_dedupe::Admission::AtCapacity => {
+            log::warn!(
+                "[mesh/relay] delivery window saturated; rejecting {} {} from {} (delivery_id={})",
+                cmd.method,
+                cmd.path,
+                sender_id,
+                delivery_id
+            );
+            return Ok(Json(saturated_response()));
+        }
+        super::send_dedupe::Admission::Owner(entry) => entry,
+    };
+
+    // Cache the outcome so concurrent duplicates ack it; fold transport/validation
+    // errors into ok:false rather than an axum error waiters could never observe.
+    let response = perform_relay(&state, &sender_id, &cmd)
+        .await
+        .unwrap_or_else(|(status, message)| crate::mesh::types::RelayResponse {
+            ok: false,
+            status: status.as_u16(),
+            data: None,
+            error: Some(message),
+        });
+    entry.complete(response.clone());
+    if !outcome_holds_dedupe(&response) {
+        super::send_dedupe::MeshDeliveryDedupe::global().forget(&key);
+    }
+    Ok(Json(response))
+}
+
+/// A retry-safe, definitively-not-delivered response for a saturated dedupe
+/// window: nothing was written, so `bytes_written=false` tells the sender to retry.
+fn saturated_response() -> crate::mesh::types::RelayResponse {
+    let data = serde_json::json!({
+        "ok": false,
+        "error": {
+            "code": "mesh_delivery_window_saturated",
+            "bytes_written": false,
+            "message": "mesh delivery window saturated by in-flight sends; nothing written"
+        }
+    });
+    crate::mesh::types::RelayResponse {
+        ok: false,
+        status: 503,
+        error: Some(relay_error_summary(503, &data)),
+        data: Some(data),
+    }
+}
+
+/// A logical pane send (POST `.../send`) gets a fresh delivery id for at-most-once
+/// dedupe; every other relayed operation opts out (None).
+fn relay_send_delivery_id(method: &str, path: &str) -> Option<String> {
+    let bare = path.split('?').next().unwrap_or(path);
+    (method.eq_ignore_ascii_case("POST") && bare.ends_with("/send"))
+        .then(|| uuid::Uuid::new_v4().to_string())
+}
+
+/// Keep an outcome deduped only if it delivered or is in-doubt (bytes reached the
+/// PTY). Definitively-not-delivered is released so its safe-retry isn't lost.
+fn outcome_holds_dedupe(resp: &crate::mesh::types::RelayResponse) -> bool {
+    if resp.ok {
+        return true;
+    }
+    matches!(
+        resp.data
+            .as_ref()
+            .and_then(|d| d.get("error"))
+            .and_then(|e| e.get("bytes_written"))
+            .and_then(|b| b.as_bool()),
+        Some(true)
+    )
+}
+
+async fn perform_relay(
+    state: &AppState,
+    sender_id: &str,
+    cmd: &crate::mesh::types::RelayCommand,
+) -> Result<crate::mesh::types::RelayResponse, (StatusCode, String)> {
     log::info!(
         "[mesh/relay] {} {} from {}",
         cmd.method,
@@ -356,11 +462,11 @@ pub async fn mesh_relay(
             .mesh
             .lock()
             .paired_peers
-            .get(&sender_id)
+            .get(sender_id)
             .map(|p| p.access_level.clone())
             .unwrap_or(crate::mesh::types::AccessLevel::Full);
         if access != crate::mesh::types::AccessLevel::Full {
-            return Ok(Json(crate::mesh::types::RelayResponse {
+            return Ok(crate::mesh::types::RelayResponse {
                 ok: false,
                 status: 403,
                 data: None,
@@ -368,16 +474,16 @@ pub async fn mesh_relay(
                     "Peer not authorized to {} {} (access_level={:?})",
                     cmd.method, cmd.path, access
                 )),
-            }));
+            });
         }
     }
 
     let sender_name = {
         let mesh = state.mesh.lock();
         mesh.paired_peers
-            .get(&sender_id)
+            .get(sender_id)
             .map(|p| p.instance_name.clone())
-            .unwrap_or_else(|| sender_id.clone())
+            .unwrap_or_else(|| sender_id.to_string())
     };
 
     let mut body = cmd.body.clone();
@@ -438,7 +544,7 @@ pub async fn mesh_relay(
             .collect::<String>();
         let writer = crate::service::activity::ActivityWriter::new(state.svc.services_store.conn());
         let _ = writer.record(crate::service::activity::ActivityEvent::peer_relay(
-            &sender_id,
+            sender_id,
             &sender_name,
             &target_pane,
             &preview,
@@ -450,7 +556,7 @@ pub async fn mesh_relay(
         );
     }
 
-    Ok(Json(crate::mesh::types::RelayResponse {
+    Ok(crate::mesh::types::RelayResponse {
         ok: status < 400,
         status,
         error: if status >= 400 {
@@ -459,7 +565,7 @@ pub async fn mesh_relay(
             None
         },
         data: Some(data),
-    }))
+    })
 }
 
 /// Surface a structured delivery error (`pane_not_reachable_on_peer`,
@@ -643,9 +749,72 @@ mod tests {
         tag_relay_send_source, tag_relay_spawn_source, validate_relay_path,
     };
 
+    use super::outcome_holds_dedupe;
     use super::relay_error_summary;
+    use super::relay_send_delivery_id;
     use super::spawn_registration_from_relay;
     use crate::mesh::types::RelayResponse;
+
+    #[test]
+    fn peer_relay_stamps_delivery_id_only_on_sends() {
+        let id = relay_send_delivery_id("POST", "/api/panes/abc/send")
+            .expect("a forwarded pane send carries a delivery id");
+        assert!(uuid::Uuid::parse_str(&id).is_ok(), "a v4 uuid: {id}");
+        assert!(
+            relay_send_delivery_id("POST", "/api/panes/abc/send?x=1").is_some(),
+            "query string does not hide a send"
+        );
+        assert!(
+            relay_send_delivery_id("GET", "/api/panes/abc/send").is_none(),
+            "a GET is never a logical send"
+        );
+        assert!(relay_send_delivery_id("POST", "/api/panes").is_none());
+        assert!(relay_send_delivery_id("POST", "/api/agents/spawn").is_none());
+    }
+
+    #[test]
+    fn dedupe_holds_success_and_in_doubt_but_releases_undelivered() {
+        let ok = RelayResponse {
+            ok: true,
+            status: 200,
+            data: None,
+            error: None,
+        };
+        assert!(outcome_holds_dedupe(&ok), "an optimistic success dedupes");
+
+        let in_doubt = RelayResponse {
+            ok: false,
+            status: 502,
+            data: Some(serde_json::json!({"error": {"bytes_written": true}})),
+            error: None,
+        };
+        assert!(
+            outcome_holds_dedupe(&in_doubt),
+            "bytes reached the PTY — retrying risks a duplicate, so keep it deduped"
+        );
+
+        let not_delivered = RelayResponse {
+            ok: false,
+            status: 404,
+            data: Some(serde_json::json!({"error": {"bytes_written": false}})),
+            error: None,
+        };
+        assert!(
+            !outcome_holds_dedupe(&not_delivered),
+            "nothing was written — safe to retry, so the window must release it"
+        );
+
+        let transport = RelayResponse {
+            ok: false,
+            status: 502,
+            data: None,
+            error: Some("Local relay failed: connection refused".into()),
+        };
+        assert!(
+            !outcome_holds_dedupe(&transport),
+            "an unknown transport failure delivered nothing — allow the retry"
+        );
+    }
 
     #[test]
     fn relay_forwards_structured_delivery_code_not_bare_status() {
