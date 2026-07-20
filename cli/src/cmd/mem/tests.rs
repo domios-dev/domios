@@ -1,96 +1,6 @@
 use super::transport::mem_unavailable_message;
-use super::{mem_get_request, mem_post_request};
 use crate::{Cli, Commands, MemAction};
 use clap::Parser;
-use std::io::{Read, Write};
-use std::net::TcpListener;
-use std::sync::mpsc;
-
-/// A base URL whose port has no listener — reproduces an HTTP-down daemon.
-fn closed_port_base() -> String {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let addr = listener.local_addr().unwrap();
-    drop(listener);
-    format!("http://{}", addr)
-}
-
-fn one_response_server(status: &'static str, body: &'static str) -> String {
-    let (url, _) = capture_response_server(status, body);
-    url
-}
-
-fn capture_response_server(
-    status: &'static str,
-    body: &'static str,
-) -> (String, mpsc::Receiver<String>) {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let addr = listener.local_addr().unwrap();
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        let (mut stream, _) = listener.accept().unwrap();
-        let mut request = [0; 4096];
-        let n = stream.read(&mut request).unwrap_or(0);
-        let _ = tx.send(String::from_utf8_lossy(&request[..n]).to_string());
-        let response = format!(
-            "HTTP/1.1 {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-            status,
-            body.len(),
-            body
-        );
-        stream.write_all(response.as_bytes()).unwrap();
-    });
-    (format!("http://{}", addr), rx)
-}
-
-#[test]
-fn mem_post_request_reports_status_and_plain_text_body() {
-    let http = reqwest::blocking::Client::new();
-    let url = one_response_server("400 Bad Request", "text required");
-    let err = mem_post_request(&http, &url, &serde_json::json!({})).unwrap_err();
-    assert_eq!(err, "400 Bad Request text required");
-}
-
-#[test]
-fn mem_get_request_reports_unavailable_when_http_is_down() {
-    let http = reqwest::blocking::Client::new();
-    let base = closed_port_base();
-    let err = mem_get_request(&http, &format!("{}/api/mem/items", base)).unwrap_err();
-
-    assert!(
-        err.starts_with("CodeTerm memory is unavailable:"),
-        "expected an actionable unavailable error, got: {err}"
-    );
-    assert!(err.contains(&base), "error must name the HTTP base: {err}");
-    assert!(
-        err.contains("CODETERM_API_PORT"),
-        "error must tell the user what to do: {err}"
-    );
-    assert!(
-        !err.contains("os error") && !err.contains("error sending request"),
-        "raw reqwest text must not leak: {err}"
-    );
-}
-
-#[test]
-fn mem_post_request_reports_unavailable_when_http_is_down() {
-    let http = reqwest::blocking::Client::new();
-    let base = closed_port_base();
-    let err = mem_post_request(
-        &http,
-        &format!("{}/api/mem/items", base),
-        &serde_json::json!({}),
-    )
-    .unwrap_err();
-
-    assert!(
-        err.starts_with("CodeTerm memory is unavailable:"),
-        "expected an actionable unavailable error, got: {err}"
-    );
-    assert!(
-        !err.contains("os error"),
-        "raw reqwest text must not leak: {err}"
-    );
-}
 
 #[test]
 fn unavailable_message_explains_socket_alive_but_http_down() {
@@ -100,7 +10,11 @@ fn unavailable_message_explains_socket_alive_but_http_down() {
     assert!(msg.contains("http://127.0.0.1:7686"));
     assert!(
         msg.contains("HTTP-only"),
-        "must explain a live socket does not carry mem: {msg}"
+        "must explain a live socket does not carry secrets: {msg}"
+    );
+    assert!(
+        msg.contains("secret"),
+        "must name what this message is about: {msg}"
     );
     assert!(msg.contains("CODETERM_API_PORT"));
 }

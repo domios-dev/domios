@@ -1,11 +1,10 @@
 use std::path::PathBuf;
 
-use super::{mem_get_request, mem_post_request};
+use crate::client::SocketClient;
 use crate::{data_dir_name, MemSkillAction};
 
 pub(crate) fn handle_mem_skill(
-    http: &reqwest::blocking::Client,
-    base: &str,
+    client: &mut SocketClient,
     action: MemSkillAction,
 ) -> Result<serde_json::Value, String> {
     match action {
@@ -62,7 +61,7 @@ pub(crate) fn handle_mem_skill(
             if let Some(a) = area_resolved {
                 payload["area"] = serde_json::json!(a);
             }
-            mem_post_request(http, &format!("{}/api/mem/items", base), &payload)
+            client.call("mem.save", Some(payload))
         }
         MemSkillAction::Add {
             folder,
@@ -140,10 +139,13 @@ pub(crate) fn handle_mem_skill(
             if let Some(a) = area_resolved {
                 payload["area"] = serde_json::json!(a);
             }
-            mem_post_request(http, &format!("{}/api/mem/items", base), &payload)
+            client.call("mem.save", Some(payload))
         }
         MemSkillAction::List => {
-            match mem_get_request(http, &format!("{}/api/mem/tail?limit=500", base)) {
+            match client.call(
+                "mem.tail",
+                Some(serde_json::json!({ "since": None::<&str>, "limit": 500 })),
+            ) {
                 Ok(resp) => {
                     if let Some(rows) = resp.get("rows").and_then(|v| v.as_array()) {
                         let skills: Vec<&serde_json::Value> = rows

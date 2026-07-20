@@ -5,11 +5,13 @@ mod skill;
 mod socket;
 mod tail;
 pub(crate) mod transport;
+#[cfg(test)]
+mod transport_audit;
 mod worker;
 
 use crate::client::SocketClient;
 use crate::cmd::print::handle_result;
-use crate::{build_http, read_api_config, MemAction};
+use crate::MemAction;
 
 pub fn handle_mem(client: &mut SocketClient, json_mode: bool, action: MemAction) {
     if let Some(result) = socket::try_dispatch(client, &action) {
@@ -17,9 +19,13 @@ pub fn handle_mem(client: &mut SocketClient, json_mode: bool, action: MemAction)
         return;
     }
 
-    // History/Taxonomy/Tail have daemon socket parity too, but keep their
-    // own pretty-print (timeline / taxonomy tree) and --follow handling
-    // instead of the generic try_dispatch -> handle_result path.
+    // Every remaining MemAction has full daemon socket parity except
+    // `Secret` (deliberately kept off the unauthenticated socket — see
+    // cmd::mem_secret) and `RunWorker`/`Dream` (short-circuited in main()
+    // before a socket connection is even opened). History/Taxonomy/Tail/
+    // Skill/Graph/Worker/Calibration keep their own CLI-side pretty-print
+    // or local-only handling instead of the generic try_dispatch path, but
+    // all now talk to `client`, never HTTP.
     match action {
         MemAction::History { id } => {
             let result = match item::handle_mem_history(client, id, json_mode) {
@@ -28,7 +34,6 @@ pub fn handle_mem(client: &mut SocketClient, json_mode: bool, action: MemAction)
                 Err(e) => Err(e),
             };
             handle_result(json_mode, result);
-            return;
         }
         MemAction::Taxonomy { workspace } => {
             let result = match item::handle_mem_taxonomy(client, workspace, json_mode) {
@@ -37,42 +42,32 @@ pub fn handle_mem(client: &mut SocketClient, json_mode: bool, action: MemAction)
                 Err(e) => Err(e),
             };
             handle_result(json_mode, result);
-            return;
         }
         MemAction::Tail { follow, limit } => {
             tail::run_mem_tail(client, json_mode, follow, limit);
-            return;
         }
-        _ => {}
-    }
-
-    // Everything left (skill/graph/worker/calibration/secret management)
-    // is a separate, larger subsystem that still speaks HTTP.
-    let (base, token) = read_api_config();
-    let http = match build_http(&token) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("Error: failed to build HTTP client: {}", e);
-            std::process::exit(1);
+        MemAction::Skill { action } => {
+            print_mem_result(json_mode, skill::handle_mem_skill(client, action));
         }
-    };
-
-    let result: Result<serde_json::Value, String> = match action {
-        MemAction::Skill { action } => skill::handle_mem_skill(&http, &base, action),
-        MemAction::Graph { action } => graph::handle_mem_graph(&http, &base, action),
-        MemAction::Worker { action } => worker::handle_mem_worker(&http, &base, action),
-        MemAction::RunWorker { .. } => unreachable!("RunWorker is short-circuited in main()"),
-        MemAction::Dream { .. } => unreachable!("Dream is short-circuited in main()"),
+        MemAction::Graph { action } => {
+            print_mem_result(json_mode, graph::handle_mem_graph(client, action));
+        }
+        MemAction::Worker { action } => {
+            print_mem_result(json_mode, worker::handle_mem_worker(client, action));
+        }
         MemAction::Calibration { action } => {
-            calibration::handle_mem_calibration(&http, &base, action)
+            print_mem_result(
+                json_mode,
+                calibration::handle_mem_calibration(client, action),
+            );
         }
         MemAction::Secret { action } => {
-            return crate::cmd::mem_secret::handle_mem_secret(json_mode, &http, &base, action);
+            crate::cmd::mem_secret::handle_mem_secret(json_mode, action);
         }
+        MemAction::RunWorker { .. } => unreachable!("RunWorker is short-circuited in main()"),
+        MemAction::Dream { .. } => unreachable!("Dream is short-circuited in main()"),
         _ => unreachable!("all other mem actions have socket transport parity"),
-    };
-
-    print_mem_result(json_mode, result);
+    }
 }
 
 /// `{"text": "..."}` results (e.g. `mem wake-up`) print as raw text instead
@@ -86,50 +81,6 @@ fn print_mem_result(json_mode: bool, result: Result<serde_json::Value, String>) 
         }
     }
     handle_result(json_mode, result);
-}
-
-fn mem_get_request(
-    http: &reqwest::blocking::Client,
-    url: &str,
-) -> Result<serde_json::Value, String> {
-    let resp = http
-        .get(url)
-        .send()
-        .map_err(|e| transport::mem_transport_error(url, &e))?;
-    let status = resp.status();
-    let val: serde_json::Value = resp.json().unwrap_or_default();
-    if !status.is_success() {
-        return Err(val
-            .get("message")
-            .and_then(|v| v.as_str())
-            .map(String::from)
-            .unwrap_or_else(|| format!("HTTP {}", status)));
-    }
-    Ok(val)
-}
-
-fn mem_post_request(
-    http: &reqwest::blocking::Client,
-    url: &str,
-    body: &serde_json::Value,
-) -> Result<serde_json::Value, String> {
-    let resp = http
-        .post(url)
-        .json(body)
-        .send()
-        .map_err(|e| transport::mem_transport_error(url, &e))?;
-    let status = resp.status();
-    let text = resp.text().unwrap_or_default();
-    let val: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
-    if !status.is_success() {
-        let body = text.trim();
-        return Err(if body.is_empty() {
-            status.to_string()
-        } else {
-            format!("{} {}", status, body)
-        });
-    }
-    Ok(val)
 }
 
 #[cfg(test)]
