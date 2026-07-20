@@ -128,7 +128,18 @@ impl ServiceContext {
     pub fn cron_trigger(&self, cron: &CronState, id: &str) -> Result<CronRunInfo, String> {
         use crate::service::spawn::{AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec};
 
-        let (agent, model, task, cwd, role, workspace_id, creator_pane_id, job_name, job_timeout) = {
+        let (
+            agent,
+            model,
+            task,
+            cwd,
+            role,
+            skill,
+            workspace_id,
+            creator_pane_id,
+            job_name,
+            job_timeout,
+        ) = {
             let store = cron.lock();
             let job = store
                 .get(id)
@@ -142,6 +153,7 @@ impl ServiceContext {
                 job.task.clone(),
                 job.cwd.clone(),
                 job.role.clone(),
+                job.skill.clone(),
                 job.workspace_id.clone(),
                 job.creator_pane_id.clone(),
                 job.name.clone(),
@@ -166,11 +178,13 @@ impl ServiceContext {
             cwd: None,
         };
 
-        let mut task_text = task;
-        if creator_pane_id.is_some() {
-            task_text.push_str(crate::prompts::CRON_REPORT_HINT);
-        }
-        task_text.push_str(&crate::prompts::CRON_COMPLETE_SUFFIX.replace("{}", &run_id));
+        let skill_block = skill.as_deref().map(crate::commands::cron_skill_block);
+        let task_text = crate::cron::task_text::build_cron_task_text(
+            &task,
+            skill_block.as_deref(),
+            creator_pane_id.as_deref(),
+            &run_id,
+        );
 
         let model = model
             .or_else(|| {
