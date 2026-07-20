@@ -198,7 +198,7 @@ export function PaneSessionChat({
     onError,
     active: isActive,
   });
-  const bootSetupView = chatSetupView(pane, attachmentState === "attached");
+  const bootSetupView = chatSetupView(pane, loading || attachmentState === "attached");
 
   const lastInstantBottomKeyRef = useRef("");
 
