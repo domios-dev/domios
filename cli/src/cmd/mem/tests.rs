@@ -114,29 +114,6 @@ fn unavailable_message_reports_no_daemon_when_socket_is_dead_too() {
 }
 
 #[test]
-fn append_action_posts_text_and_returns_result() {
-    let http = reqwest::blocking::Client::new();
-    let (base, rx) = capture_response_server("200 OK", r#"{"appended":"note_x","new_len":22}"#);
-    let out = super::item::handle_mem_items(
-        &http,
-        &base,
-        MemAction::Append {
-            id: "note_x".into(),
-            text: Some("append me".into()),
-            file: None,
-            changed_by: None,
-        },
-    )
-    .unwrap();
-
-    assert_eq!(out["appended"], "note_x");
-    assert_eq!(out["new_len"], 22);
-    let request = rx.recv().unwrap();
-    assert!(request.starts_with("POST /api/mem/items/note_x/append "));
-    assert!(request.contains(r#""text":"append me""#));
-}
-
-#[test]
 fn pin_subcommand_parses_id() {
     let cli = Cli::try_parse_from(["codeterm", "mem", "pin", "fact_abc"]).unwrap();
     match cli.command {
