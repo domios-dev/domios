@@ -488,8 +488,7 @@ fn bind_reported_session(
         let new_materialized = registry
             .with_provider(provider_id, |p| p.session_exists(&probe_cwd, sid))
             .unwrap_or(false);
-        // Prev materialization matters only when the incoming sid is not itself
-        // store-backed — it protects a real rollout from a fileless eviction.
+        // A materialized parent protects its rollout from fileless eviction.
         let prev_materialized = if !new_materialized {
             match probe_prev.as_deref() {
                 Some(prev) if prev != sid => registry
@@ -608,13 +607,8 @@ fn commit_reported_session(
         ));
     }
 
-    // A fileless claim (new rollout not yet on disk) must not evict a materialized
-    // parent rollout — unless this is a fresh authenticated launch. A nonce-verified
-    // report whose launch nonce has NOT yet been acknowledged for the current binding
-    // is the Codex resume lineage handoff (`codex resume` opens a new rollout before
-    // its file lands) and may advance. Once that launch nonce is already acknowledged
-    // (reported_session_binding_nonce == session_binding_nonce), a second fileless sid
-    // reusing it is a stale/replay claim and stays rejected.
+    // A fresh authenticated launch may advance before its rollout lands on disk.
+    // An acknowledged nonce cannot evict a materialized parent again.
     if probe.prev_materialized {
         let nonce_already_acknowledged =
             launch_nonce.is_some() && acknowledged_nonce == launch_nonce;
