@@ -42,7 +42,7 @@ Use `build.sh` (`build.ps1` from PowerShell). It scopes lifecycle operations to 
 ./build.sh build            # production build
 ./build.sh cli              # rebuild CLI only → ~/.codeterm/bin/ (no dev restart)
 ./build.sh kill             # safe kill of dev only
-./build.sh e2e              # E2E tests against running dev
+./build.sh e2e              # API E2E tests against running dev
 source build.sh env         # load MSVC env into shell (Windows, manual cargo)
 ```
 
@@ -80,28 +80,15 @@ If `build` (git commit hash) differs from `git rev-parse HEAD`, the old build is
 
 Dev logs: `~/.codeterm-dev/logs/codeterm.log`. Live tail: `tail -f ~/.codeterm-dev/logs/codeterm.log`.
 
-Full testing guide: `docs/TESTING.md`; Playwright operations: `tests/playwright/README.md`; authoring contract: `docs/contributing/test-authoring.md`.
+Full testing guide: `docs/TESTING.md`; authoring contract: `docs/contributing/test-authoring.md`.
 
-1. **Verify in isolation first.** A freshly written or edited test runs ALONE
-   before it ever joins a batch: `npx playwright test <file> -g "<test title>"
-   --timeout=30000 --reporter=line`. A test that has never passed alone does
-   not get committed or included in a suite run.
-2. **Caps are mandatory on every agent-driven run**: `--timeout=30000`
-   (per-test) and `--global-timeout=600000` (whole run). A run without a
-   global timeout is a violation — nothing may be able to sit forever.
-3. **Check dev health BEFORE starting**: `curl -s http://127.0.0.1:7686/api/health`.
-   Half of all "hangs" are a down or mid-restart dev daemon; Playwright will
-   happily wait on a dead server.
-4. **Lanes run only their own specs.** Worker lanes run the file(s) they
-   touched with `-g` filters; `golden`/`full` suite runs are integration/QA
-   gate work, serialized like every broad gate.
-5. **A hang is information, not bad luck.** When the cap fires: run the single
-   test with `--trace on`, read the trace (it names the awaited selector), fix
-   the selector/await — do not re-run the batch blind, and never raise the cap
-   to "give it time".
-6. **Accessibility first.** If Playwright cannot identify or operate a surface
-   reliably, improve its real screen-reader semantics, then select it by role
-   and accessible name; never add a test-only hook instead of accessible UX.
+**Playwright is suspended.** Agents must not run, repair, migrate, or add
+Playwright tests, and no local or CI gate may invoke them. Keep the existing
+suite and manual commands intact. A Playwright run is allowed only when Andrey
+explicitly requests that run in the current conversation; never infer permission
+from a task, gate, changed UI file, prior request, or release workflow.
+UI changes still require accessible roles, names, focus order, and screen-reader
+semantics; verify behavior with focused unit/API tests and manual dev inspection.
 
 On Windows invoke repo commands through `.\build.ps1`; run capped Rust tests from PowerShell foreground so the process-group timeout owns Cargo and its children.
 
@@ -168,7 +155,7 @@ and "settle" waits. They create races instead of proving readiness.
 
 State transitions must wait on explicit handles or observable events: channels,
 condvars, process exit, stream completion, PTY/screen signals, DOM events,
-Playwright locator state, or protocol acknowledgements. A timeout is allowed only
+UI state, or protocol acknowledgements. A timeout is allowed only
 as a bounded failure deadline around such an event wait; elapsed time must never
 be treated as successful readiness. If an API exposes no readiness signal, add
 one at the ownership boundary instead of adding a delay or retry loop.
@@ -244,4 +231,4 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

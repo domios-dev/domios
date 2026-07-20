@@ -14,12 +14,12 @@ For assertion discipline and layer-specific recipes, see `docs/contributing/writ
 | TS unit | `src/**/*.test.ts`, `packages/**` | vitest (`pnpm test:unit`) | no | no | yes (D7) | <1s |
 | Plugin | `plugins/*/tests/` | `pnpm test:plugins` | no | no | yes (exists) | <5s |
 | API e2e | `tests/e2e/test_*.py` | pytest (`./build.sh e2e`) | no | yes (7686) | spike (D7) | <30s |
-| UI smoke | `tests/playwright`, `@smoke` | `pnpm test:pw:smoke` | no | yes | local-only* | <10s |
-| UI golden | `tests/playwright`, `@golden` | `pnpm test:pw:golden` | yes | yes | local-only* | <5min |
 | Behaviour bench | `evals/<name>/` | `bash run.sh` via `_lib/lib.sh` | yes | yes (dev-locked) | never | unbounded |
 
-\* Playwright stays out of hosted CI by decision because it needs a WebView2
-desktop plus host Claude auth. The compensating control is the pre-PR gate.
+Playwright is suspended and is not part of the test plan, agent workflow, local
+aggregate, QA registry, or CI. Existing specs remain archived for a future
+explicit run requested by Andrey in the current conversation; do not run or
+modify them during normal development.
 
 ### Which layer do I write?
 
@@ -29,12 +29,9 @@ Is it pure logic (parsing, formatting, state machine)?
 │        for something a unit test can prove.
 └─ no → Does it require the daemon's HTTP/socket surface?
     ├─ yes, no UI → pytest API e2e
-    └─ needs real rendering/interaction →
-        ├─ deterministic, no LLM → Playwright @smoke
-        ├─ involves a real agent/LLM → Playwright @golden
-        └─ measures behaviour quality (prompt change, recall quality,
-           routing) rather than pass/fail correctness → evals/ bench,
-           NOT a test. Benches compare baselines; tests assert invariants.
+    └─ needs real rendering/interaction → focused unit/API coverage plus manual
+        dev inspection; Playwright remains suspended. Behaviour-quality changes
+        use an eval bench, not a pass/fail UI test.
 ```
 
 Rule of thumb: every bug fix gets a test at the lowest layer that can reproduce
@@ -47,9 +44,8 @@ a unit test on the parser plus, at most, one golden test for the end-to-end path
 |---|---|---|
 | Narrow Rust or TS unit | `cargo test <narrow filter>` / `npx tsx <one file>.test.ts` | During work, for the touched area |
 | All implemented layers | `./build.sh test:all` | Before claiming done |
-| PR gate | `test:all` + `pnpm test:pw:golden` if agent paths touched | Before opening a PR |
+| PR gate | `./build.sh test:all` | Before opening a PR |
 | CI gate | Rust unit + TS unit + plugin tests (+ pytest spike) | CI on PR — task D7 |
-| Nightly local report | `pnpm test:pw --project=full` + golden | Nightly local cron, report only |
 
 ### Unified entrypoint: `./build.sh test:all`
 
@@ -59,11 +55,10 @@ One command runs every non-LLM layer and prints a per-layer summary table. Layer
 2. `ts-unit` — `pnpm test:unit` → `scripts/ts-unit-tests.sh`, every `src/**` + `packages/**` `*.test.ts` (always runs)
 3. `plugin` — `pnpm test:plugins` (always runs)
 4. `e2e-pytest` — only if dev (7686) is healthy, else a loud `SKIPPED` line
-5. `playwright-smoke` — `pnpm test:pw:smoke`, same dev-up condition
 
 `test:all` exits non-zero **iff an executed layer failed** — a `SKIP` never fails the
-run. LLM-judged layers (`evals/`, Playwright `@golden`) are excluded by design; run
-them separately. With dev down you still get full unit coverage and a clear record of
+run. Behaviour benches and the suspended Playwright suite are excluded. With dev
+down you still get full unit coverage and a clear record of
 what was skipped.
 
 ## Unit tests
@@ -180,25 +175,10 @@ pip install -r tests/e2e/requirements.txt  # requests, pytest
 
 ## UI tests
 
-Test real app UI with Playwright against the actual Tauri dev console. On
-Windows, CodeTerm's WebView2 window exposes Chrome DevTools Protocol on port
-9223; Playwright attaches with `chromium.connectOverCDP`, so tests drive the
-real Tauri WebView, real IPC, and real daemon state.
-
-```bash
-./build.sh dev --wait
-pnpm test:pw:lint
-pnpm test:pw:smoke
-pnpm test:pw:golden
-pnpm test:pw:full
-```
-
-Operational details live in `tests/playwright/README.md`: CDP setup,
-projects/tags, golden-test policy, web-mirror mode, and prod guards.
-
-The legacy Tauri WebDriver/WDIO harness was removed; do not add new WebDriver
-tests. For browser-mode root web coverage, use the `tests/playwright/suites/12-web`
-suite, which launches a normal browser against the daemon's web mirror.
+Automated UI tests are currently suspended. Do not invoke or extend the archived
+Playwright suite. Cover UI logic at the TypeScript unit boundary, cover daemon
+behavior through Rust or API tests, preserve real accessibility semantics, and
+perform focused manual inspection in dev when rendering is the only useful oracle.
 
 ## Cross-platform test matrix
 
@@ -396,4 +376,4 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 
 Before approving a PR, use **`docs/contributing/review-checklist.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->

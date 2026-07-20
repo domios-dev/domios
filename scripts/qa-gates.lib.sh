@@ -135,7 +135,7 @@ qa_clippy_allow() {
 # gate_name -> default_timeout_secs
 qa_gate_timeout() {
   case "$1" in
-    shell-guards|fmt|file-sizes|comment-length|playwright-spec-headers) echo 120 ;;
+    shell-guards|fmt|file-sizes|comment-length) echo 120 ;;
     check) echo 600 ;;
     clippy|prepush-full) echo 1800 ;;
     rust-unit|cli-unit) echo 120 ;;
@@ -143,8 +143,7 @@ qa_gate_timeout() {
     plugin) echo 300 ;;
     test-all) echo 1200 ;;
     macos-native|linux-docker) echo 2400 ;;
-    e2e-pytest|playwright-smoke) echo 600 ;;
-    playwright-golden) echo 1200 ;;
+    e2e-pytest) echo 600 ;;
     prepush-light) echo 180 ;;
     *) echo 600 ;;
   esac
@@ -166,7 +165,7 @@ qa_gate_platform() {
 
 qa_gate_needs_dev() {
   case "$1" in
-    e2e-pytest|playwright-smoke|playwright-golden|test-all) return 0 ;;
+    e2e-pytest|test-all) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -184,12 +183,9 @@ qa_gate_desc() {
     test-all) echo "build.sh test:all aggregate (non-LLM layers)" ;;
     file-sizes) echo "Source file size discipline (--fail)" ;;
     comment-length) echo "Comment length discipline (--fail)" ;;
-    playwright-spec-headers) echo "Playwright spec header contract" ;;
     macos-native) echo "macOS native lane (scripts/test-macos-native.sh)" ;;
     linux-docker) echo "Linux Docker lane (scripts/test-linux-docker.sh)" ;;
     e2e-pytest) echo "API e2e pytest (./build.sh e2e, dev required)" ;;
-    playwright-smoke) echo "Playwright @smoke (dev required)" ;;
-    playwright-golden) echo "Playwright @golden (dev required)" ;;
     prepush-light) echo "Lane pre-push hook (fmt + shell guards)" ;;
     prepush-full) echo "Integration pre-push hook (check + fmt + clippy)" ;;
     *) echo "unknown gate" ;;
@@ -199,8 +195,8 @@ qa_gate_desc() {
 qa_list_gates() {
   printf '%s\n' \
     shell-guards fmt check clippy rust-unit cli-unit ts-unit plugin \
-    test-all file-sizes comment-length playwright-spec-headers macos-native linux-docker \
-    e2e-pytest playwright-smoke playwright-golden prepush-light prepush-full
+    test-all file-sizes comment-length macos-native linux-docker \
+    e2e-pytest prepush-light prepush-full
 }
 
 qa_run_gate_body() {
@@ -254,9 +250,6 @@ qa_run_gate_body() {
     comment-length)
       bash scripts/check-comment-length.sh --fail
       ;;
-    playwright-spec-headers)
-      node scripts/check-playwright-spec-headers.mjs
-      ;;
     macos-native)
       bash scripts/test-macos-native.sh
       ;;
@@ -265,12 +258,6 @@ qa_run_gate_body() {
       ;;
     e2e-pytest)
       ./build.sh e2e
-      ;;
-    playwright-smoke)
-      pnpm -s test:pw:smoke
-      ;;
-    playwright-golden)
-      pnpm -s test:pw:golden
       ;;
     prepush-light)
       PREPUSH_LIGHT=1 bash .githooks/pre-push <<<""
