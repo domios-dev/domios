@@ -18,6 +18,36 @@ pub(crate) fn validate_worker_plan_task_spawn(params: &SpawnAgentParams) -> Resu
     Ok(())
 }
 
+/// Reject a WIP-gate-blocked dispatch before any pane is provisioned, so
+/// there is nothing left to roll back.
+pub(crate) fn preflight_worker_plan_task_wip_gate(
+    store: &PlanStore,
+    plan_id: Option<&str>,
+    task_ref: &str,
+) -> Result<(), String> {
+    let resolved = store
+        .resolve_task_ref(plan_id, task_ref)
+        .map_err(|e| e.to_string())?;
+    let plan = store
+        .get(&resolved.plan_id)
+        .ok_or_else(|| "plan not found".to_string())?;
+    let pending = plan
+        .tasks
+        .iter()
+        .find(|t| t.id == resolved.task_id)
+        .is_some_and(|t| t.status == crate::plan::TaskStatus::Pending);
+    if !pending {
+        return Ok(());
+    }
+    let gate = store
+        .review_gate_status(&resolved.plan_id)
+        .map_err(|e| e.to_string())?;
+    if gate.blocked {
+        return Err(gate.reason.unwrap_or_else(|| "review_wip_exceeded".into()));
+    }
+    Ok(())
+}
+
 pub(crate) fn bind_worker_task_to_pane(
     store: &PlanStore,
     plan_id: Option<&str>,
@@ -68,6 +98,33 @@ fn epoch_ms() -> u64 {
 }
 
 impl ServiceContext {
+    /// Preflight the review WIP gate before any pane gets provisioned.
+    pub(crate) fn preflight_worker_plan_task_spawn(
+        &self,
+        params: &SpawnAgentParams,
+    ) -> Result<(), String> {
+        let Some(task_ref) = worker_spawn_plan_task_ref(params) else {
+            return Ok(());
+        };
+        preflight_worker_plan_task_wip_gate(&self.plan_store, params.plan_id.as_deref(), task_ref)
+    }
+
+    /// Bind `--plan-task`, closing the just-created pane on failure so a
+    /// rejected bind never leaves a live pane with no task bound to it.
+    pub(crate) fn bind_worker_plan_task_or_rollback_pane(
+        &self,
+        params: &SpawnAgentParams,
+        pane_id: &str,
+    ) -> Result<(), String> {
+        match self.bind_worker_plan_task_at_spawn(params, pane_id) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                let _ = self.close_pane(pane_id);
+                Err(e)
+            }
+        }
+    }
+
     pub(crate) fn bind_worker_plan_task_at_spawn(
         &self,
         params: &SpawnAgentParams,
@@ -168,5 +225,48 @@ mod tests {
         })
         .unwrap_err();
         assert!(err.contains("--plan-task"));
+    }
+
+    fn block_review_wip(store: &PlanStore, plan_id: &str) {
+        let mut p = store.get(plan_id).unwrap();
+        p.review_policy.wip_limit = 0;
+        store.save(&mut p, 4).unwrap();
+    }
+
+    #[test]
+    fn preflight_rejects_before_any_pane_when_wip_gate_blocked() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, plan_id, _task_id) = store_with_task(dir.path());
+        block_review_wip(&store, &plan_id);
+
+        let err =
+            preflight_worker_plan_task_wip_gate(&store, Some(&plan_id), "spawn-bind").unwrap_err();
+        assert!(err.contains("review"), "got: {err}");
+    }
+
+    #[test]
+    fn preflight_allows_dispatch_when_gate_is_clear() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, plan_id, _task_id) = store_with_task(dir.path());
+        preflight_worker_plan_task_wip_gate(&store, Some(&plan_id), "spawn-bind").unwrap();
+    }
+
+    // Reproduces the incident: `assign_task_with_role` (step 1) already binds
+    // the pane before `update_task(in_progress)` (step 2) hits the WIP gate.
+    #[test]
+    fn wip_gate_failure_after_pane_bind_leaves_zero_residual_task_lane_binding() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, plan_id, task_id) = store_with_task(dir.path());
+        block_review_wip(&store, &plan_id);
+
+        let err = bind_worker_task_to_pane(&store, Some(&plan_id), "spawn-bind", "pane-worker", 10)
+            .unwrap_err();
+        assert!(err.contains("review"), "got: {err}");
+
+        let plan = store.get(&plan_id).unwrap();
+        let task = plan.tasks.iter().find(|t| t.id == task_id).unwrap();
+        assert_eq!(task.status, TaskStatus::Pending);
+        assert_eq!(task.assigned_pane_id, None);
+        assert_eq!(task.lane.pane_id, None);
     }
 }
