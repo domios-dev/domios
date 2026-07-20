@@ -551,7 +551,7 @@ export function Sidebar({
                     <div className="sidebar-structural-header w-full">
                       <SidebarDisclosure
                         data-testid="general-section-toggle"
-                        className="sidebar-structural-toggle min-w-0 flex-1"
+                        className="sidebar-structural-toggle min-w-0"
                         expanded={generalExpanded}
                         onClick={() => toggleExpanded(generalWorkspace.id)}
                       >
