@@ -19,13 +19,7 @@ pub fn handle_mem(client: &mut SocketClient, json_mode: bool, action: MemAction)
         return;
     }
 
-    // Every remaining MemAction has full daemon socket parity except
-    // `Secret` (deliberately kept off the unauthenticated socket — see
-    // cmd::mem_secret) and `RunWorker`/`Dream` (short-circuited in main()
-    // before a socket connection is even opened). History/Taxonomy/Tail/
-    // Skill/Graph/Worker/Calibration keep their own CLI-side pretty-print
-    // or local-only handling instead of the generic try_dispatch path, but
-    // all now talk to `client`, never HTTP.
+    // Secrets retain authenticated HTTP; every remaining live action uses this socket client.
     match action {
         MemAction::History { id } => {
             let result = match item::handle_mem_history(client, id, json_mode) {
@@ -70,9 +64,7 @@ pub fn handle_mem(client: &mut SocketClient, json_mode: bool, action: MemAction)
     }
 }
 
-/// `{"text": "..."}` results (e.g. `mem wake-up`) print as raw text instead
-/// of the generic `key: value` object dump — this is direct-injection
-/// context, not structured data.
+/// Print direct-injection text without the generic object wrapper.
 fn print_mem_result(json_mode: bool, result: Result<serde_json::Value, String>) {
     if let Ok(ref val) = result {
         if let Some(text) = val.get("text").and_then(|v: &serde_json::Value| v.as_str()) {

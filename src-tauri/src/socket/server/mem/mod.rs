@@ -1,13 +1,5 @@
-//! JSON-RPC surface for `codeterm mem`. Every handler here is a thin,
-//! synchronous wrapper around the same `svc.mem` calls the HTTP routes in
-//! `crate::api::mem_routes` use — the two transports share validation via
-//! `pub(crate)` helpers there so behavior can't drift between them.
-//!
-//! `mem.secret.*` is the one deliberate exception: it is never wired here.
-//! HTTP secret routes (`/api/secrets/*`) are bearer-token gated because they
-//! can return plaintext credential material; nothing on this socket is
-//! authenticated (see `secret_socket_rejection` below), so exposing secrets
-//! here would silently drop that gate. `mem.graph.*` lives in `graph.rs`.
+//! Socket RPC surface for memory operations; validation is shared with HTTP routes.
+//! Plaintext-capable secret operations retain bearer-authenticated HTTP.
 
 mod graph;
 
@@ -83,11 +75,7 @@ pub(super) fn dispatch(
     }
 }
 
-/// Secrets stay HTTP-only by design: this socket has no bearer-token gate
-/// (unlike `/api/secrets/*`), so exposing plaintext-credential-capable RPCs
-/// here would be a real authorization regression, not just a gap. Any
-/// `mem.secret.*` call gets a deliberate, distinguishable rejection instead
-/// of the generic "method not found" or a silent HTTP fallback.
+/// Reject secret RPC explicitly because this socket has no bearer-token gate.
 fn secret_socket_rejection(method: &str) -> Option<JsonRpcError> {
     method.starts_with("mem.secret.").then(|| JsonRpcError {
         code: -32004,
