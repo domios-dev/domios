@@ -430,6 +430,7 @@ fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: St
                     store.unregister_pane(&state.pane_id);
                     store.get(job_id).map(|job| job.oneshot).unwrap_or(false)
                 };
+                crate::cron::notify::notify_on_consecutive_failure(svc, &cron_state, job_id);
                 let _ = svc.close_pane(&state.pane_id);
                 if is_oneshot {
                     if let Some(cron_wake) = svc.app_handle.try_state::<crate::CronWake>() {

@@ -711,19 +711,31 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
                 if let Some(cron_state) = app.try_state::<crate::CronState>() {
                     let owner = cron_state.lock().get_pane_owner(pid).cloned();
                     if let Some((job_id, run_id)) = owner {
-                        let mut store = cron_state.lock();
-                        // Only save if no log exists yet (don't overwrite clean summary)
-                        if store.read_log(&job_id, &run_id).is_none() {
-                            let text = output_buf.lock().get_text(&pty_id).unwrap_or_default();
-                            let clean = crate::pty::ansi::clean_terminal_output(&text);
-                            let _ = store.save_log(&job_id, &run_id, &clean);
-                            let _ = store.update_run_status(
+                        let mut marked_failed = false;
+                        {
+                            let mut store = cron_state.lock();
+                            // Only save if no log exists yet (don't overwrite clean summary)
+                            if store.read_log(&job_id, &run_id).is_none() {
+                                let text = output_buf.lock().get_text(&pty_id).unwrap_or_default();
+                                let clean = crate::pty::ansi::clean_terminal_output(&text);
+                                let _ = store.save_log(&job_id, &run_id, &clean);
+                                let _ = store.update_run_status(
+                                    &job_id,
+                                    &run_id,
+                                    crate::cron::store::CronRunStatus::Failed,
+                                );
+                                marked_failed = true;
+                            }
+                            store.unregister_pane(pid);
+                        }
+                        // Notify after the store guard drops — it re-locks internally.
+                        if marked_failed {
+                            crate::cron::notify::notify_on_consecutive_failure(
+                                svc,
+                                &cron_state,
                                 &job_id,
-                                &run_id,
-                                crate::cron::store::CronRunStatus::Failed,
                             );
                         }
-                        store.unregister_pane(pid);
                         log::info!("Cron pane exited: job={}, run={}", job_id, run_id);
                         crate::api::events::emit_everywhere(&app, "cron-run-finished", ());
                     }

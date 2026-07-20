@@ -50,6 +50,7 @@ impl CronStore {
             task: params.task,
             cwd: params.cwd,
             role: params.role,
+            skill: params.skill,
             creator_pane_id: params.creator_pane_id,
             oneshot,
             max_history: params.max_history.unwrap_or(default_max_history()),
@@ -127,6 +128,9 @@ impl CronStore {
         }
         if let Some(role) = patch.role {
             job.role = Some(role);
+        }
+        if let Some(skill) = patch.skill {
+            job.skill = if skill.is_empty() { None } else { Some(skill) };
         }
         if let Some(max_history) = patch.max_history {
             job.max_history = max_history;
@@ -226,44 +230,13 @@ impl CronStore {
     pub fn record_run(&mut self, job_id: &str, run: CronRunInfo) -> Result<(), String> {
         let store_now_ms = self.now_ms();
         if let Some(job) = self.file.jobs.iter_mut().find(|j| j.id == job_id) {
-            let was_failure = matches!(run.status, CronRunStatus::Failed);
-            let was_success = matches!(run.status, CronRunStatus::Success);
             job.last_run = Some(run.clone());
+            apply_failure_accounting(job, job_id, &run.status, store_now_ms)?;
 
-            if was_failure {
-                job.consecutive_failures = job.consecutive_failures.saturating_add(1);
-                if job.consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
-                    job.enabled = false;
-                    job.next_run = None;
-                    log::warn!(
-                        "[cron] auto-disabled job {} after {} consecutive failures",
-                        job_id,
-                        job.consecutive_failures
-                    );
-                } else if !job.oneshot && job.enabled {
-                    let now_ms = store_now_ms;
-                    let base_ms = compute_next_run_jittered_at(
-                        &job.schedule,
-                        Some(0),
-                        job.tz.as_deref(),
-                        now_ms,
-                    )?
-                    .map(|t| t.saturating_sub(now_ms))
-                    .unwrap_or(60_000);
-                    let backoff = compute_backoff(job.consecutive_failures, base_ms);
-                    job.next_run = Some(now_ms + backoff);
-                    log::info!(
-                        "[cron] {} backoff after failure {}/{}: +{}ms",
-                        job_id,
-                        job.consecutive_failures,
-                        MAX_CONSECUTIVE_FAILURES,
-                        backoff
-                    );
-                }
-            } else {
-                if was_success {
-                    job.consecutive_failures = 0;
-                }
+            // Schedule advancement is fire-time bookkeeping only (record_run's real caller is
+            // always the `Running` insert at fire time) — completion, handled by
+            // `update_run_status`, must never re-derive next_run from "now at finish".
+            if !matches!(run.status, CronRunStatus::Failed) {
                 if job.oneshot {
                     job.next_run = None;
                     job.enabled = false;
@@ -287,6 +260,16 @@ impl CronStore {
         self.save()
     }
 
+    /// The completion path every real cron run actually goes through: `run_watcher::finish_run`,
+    /// `service::cron_complete`, the pty-dead fallbacks, and the manual-trigger spawn-failure
+    /// branch. Consecutive-failure accounting lives here (not just in `record_run`, which only
+    /// ever sees `Running`/spawn-failure) so a job that spawns fine and then times out or errors
+    /// still counts toward auto-disable/backoff/notification instead of silently resetting nothing.
+    /// On `Success` this never touches `next_run` — normal schedule advancement stays
+    /// fire-time-only so a long-running task can't push its own next fire out by finishing
+    /// late. On `Failed` it DOES set `next_run` (via `apply_failure_accounting`'s backoff) —
+    /// that's the retry delay, and previously never applied because real completions never
+    /// reached the accounting logic at all.
     pub fn update_run_status(
         &mut self,
         job_id: &str,
@@ -312,6 +295,10 @@ impl CronStore {
                     }
                 }
             }
+        }
+
+        if let Some(job) = self.file.jobs.iter_mut().find(|j| j.id == job_id) {
+            apply_failure_accounting(job, job_id, &status, now)?;
         }
 
         // service::cron_complete). Without this, dashboards and grep-based observability miss every Failed/Cancelled run.
@@ -367,4 +354,54 @@ impl CronStore {
             .map(|h| h.iter().collect())
             .unwrap_or_default()
     }
+}
+
+/// Shared failure accounting: increments the streak (+backoff, +auto-disable at
+/// `MAX_CONSECUTIVE_FAILURES`) on `Failed`, resets to 0 on `Success`, leaves the
+/// counter untouched for `Running`/`Cancelled`. Called from both `record_run`
+/// (fire-time insert) and `update_run_status` (the actual completion path every
+/// real run — timeout, crash, agent error — goes through).
+fn apply_failure_accounting(
+    job: &mut CronJob,
+    job_id: &str,
+    status: &CronRunStatus,
+    now_ms: u64,
+) -> Result<(), String> {
+    match status {
+        CronRunStatus::Failed => {
+            job.consecutive_failures = job.consecutive_failures.saturating_add(1);
+            if job.consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+                job.enabled = false;
+                job.next_run = None;
+                log::warn!(
+                    "[cron] auto-disabled job {} after {} consecutive failures",
+                    job_id,
+                    job.consecutive_failures
+                );
+            } else if !job.oneshot && job.enabled {
+                let base_ms = compute_next_run_jittered_at(
+                    &job.schedule,
+                    Some(0),
+                    job.tz.as_deref(),
+                    now_ms,
+                )?
+                .map(|t| t.saturating_sub(now_ms))
+                .unwrap_or(60_000);
+                let backoff = compute_backoff(job.consecutive_failures, base_ms);
+                job.next_run = Some(now_ms + backoff);
+                log::info!(
+                    "[cron] {} backoff after failure {}/{}: +{}ms",
+                    job_id,
+                    job.consecutive_failures,
+                    MAX_CONSECUTIVE_FAILURES,
+                    backoff
+                );
+            }
+        }
+        CronRunStatus::Success => {
+            job.consecutive_failures = 0;
+        }
+        _ => {}
+    }
+    Ok(())
 }

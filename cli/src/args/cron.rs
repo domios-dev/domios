@@ -31,6 +31,12 @@ pub enum CronAction {
         /// Working directory
         #[arg(long)]
         cwd: Option<String>,
+        /// Mem skill slug (`codeterm mem skill new <slug>`) to resolve and inject
+        /// into the task brief at fire time — an explicit path the spawned agent
+        /// can Read directly, since cron agents can't load mem skills via the
+        /// Skill tool (issue #179).
+        #[arg(long)]
+        skill: Option<String>,
         /// Description
         #[arg(long, allow_hyphen_values = true)]
         description: Option<String>,
@@ -64,6 +70,10 @@ pub enum CronAction {
         task: Option<String>,
         #[arg(long)]
         cwd: Option<String>,
+        /// Mem skill slug to resolve and inject into the task brief at fire
+        /// time. Pass an empty string to clear.
+        #[arg(long)]
+        skill: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         description: Option<String>,
         /// Agent provider override (e.g. "claude", "codex")
@@ -147,6 +157,7 @@ pub fn cron_create_body(
     jitter_max_ms: Option<u64>,
     tz: Option<&str>,
     timeout_secs: Option<u64>,
+    skill: Option<&str>,
 ) -> serde_json::Value {
     let mut body = serde_json::json!({
         "name": name,
@@ -160,6 +171,9 @@ pub fn cron_create_body(
     }
     if let Some(c) = cwd {
         body["cwd"] = serde_json::json!(c);
+    }
+    if let Some(s) = skill {
+        body["skill"] = serde_json::json!(s);
     }
     if let Some(d) = description {
         body["description"] = serde_json::json!(d);
