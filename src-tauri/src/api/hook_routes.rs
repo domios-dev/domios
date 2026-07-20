@@ -452,7 +452,6 @@ struct MaterializationProbe {
     cwd: String,
     prev_sid: Option<String>,
     new_materialized: bool,
-    prev_materialized: bool,
 }
 
 fn bind_reported_session(
@@ -488,24 +487,11 @@ fn bind_reported_session(
         let new_materialized = registry
             .with_provider(provider_id, |p| p.session_exists(&probe_cwd, sid))
             .unwrap_or(false);
-        // prev materialization matters only when the incoming sid is not itself
-        // store-backed (the provisional-eviction guard below).
-        let prev_materialized = if !new_materialized {
-            match probe_prev.as_deref() {
-                Some(prev) if prev != sid => registry
-                    .with_provider(provider_id, |p| p.session_exists(&probe_cwd, prev))
-                    .unwrap_or(false),
-                _ => false,
-            }
-        } else {
-            false
-        };
 
         let probe = MaterializationProbe {
             cwd: probe_cwd,
             prev_sid: probe_prev,
             new_materialized,
-            prev_materialized,
         };
 
         let mut mux = mux.write();
@@ -606,29 +592,13 @@ fn commit_reported_session(
         ));
     }
 
-    // Provisional (nonce-only) claim must never evict a materialized store-backed
-    // binding — that strands the pane on a fileless sid and drops the real session.
-    if !probe.new_materialized {
-        if let Some(prev_sid) = mux
-            .get_pane(pane_id)
-            .and_then(|p| p.agent_session_id.clone())
-        {
-            let prev_materialized = prev_sid != sid && probe.prev_materialized;
-            if prev_materialized {
-                log::warn!(
-                    "[hook_session_start] rejecting provisional sid {} for pane {} provider={}: would evict materialized session {}",
-                    sid, pane_id, provider_id, prev_sid,
-                );
-                return Err((
-                    StatusCode::CONFLICT,
-                    format!(
-                        "provisional session_id '{}' cannot evict materialized session '{}'",
-                        sid, prev_sid
-                    ),
-                ));
-            }
-        }
-    }
+    // A nonce-verified report proves WE launched this resume, so it advances the pane
+    // from the resumed-from parent rollout to the new session even before the new file
+    // lands and while the parent stays materialized — the normal Codex resume lineage.
+    // An unauthenticated provisional claim (no matching nonce, no materialized file)
+    // never reaches here: the `exists` gate above rejects it, so it can never evict a
+    // materialized parent.
+    debug_assert!(nonce_verified || probe.new_materialized);
 
     let Some(pane) = mux.get_pane_mut(pane_id) else {
         return Err((StatusCode::NOT_FOUND, "pane not found".to_string()));
