@@ -2,9 +2,8 @@
 
 use crate::data_dir_name;
 
-/// A relay is a logical pane send (POST `.../send`) — the only shape that gets a
-/// delivery id for at-most-once dedupe on the target. Mirrors the server's
-/// `tag_relay_send_source` gate.
+/// A logical pane send (POST `.../send`) — the only relay shape that gets a
+/// delivery id for at-most-once dedupe on the target.
 pub(crate) fn is_send_relay(method: &str, path: &str) -> bool {
     method.eq_ignore_ascii_case("POST") && path.split('?').next().unwrap_or(path).ends_with("/send")
 }
