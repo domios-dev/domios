@@ -63,13 +63,15 @@ async function focusTerminal(page: Page, api: ApiClient, paneId: string): Promis
     | undefined;
   if (pane?.workspace_id) await api.focusWorkspace(pane.workspace_id);
   if (pane?.tab_id) {
+    const tabItem = page.locator(`[data-testid="tab-item"][data-tab-id="${pane.tab_id}"]`).first();
     const tab = pane.title
-      ? page.getByRole("button", { name: `Open tab ${pane.title}`, exact: true }).first()
-      : page.locator(`[data-tab-id="${pane.tab_id}"]`).first();
+      ? tabItem.getByRole("button", { name: `Open tab ${pane.title}`, exact: true })
+      : tabItem.getByRole("button");
     await tab.scrollIntoViewIfNeeded().catch(() => {});
     if (await tab.isVisible().catch(() => false)) {
       await tab.click();
       await expect(tab).toHaveAttribute("aria-current", "page", { timeout: READY_CAP_MS });
+      await api.focusPane(paneId);
     }
     else {
       await api.focusPane(paneId);
@@ -81,6 +83,8 @@ async function focusTerminal(page: Page, api: ApiClient, paneId: string): Promis
   }
   await expect(page.locator(`[data-pane-id="${paneId}"]`).first()).toBeVisible({ timeout: READY_CAP_MS });
   await showTerminalView(page, paneId);
+  await expect(page.locator(`[data-pane-id="${paneId}"] [data-testid="terminal-frame"]`).first())
+    .toHaveAttribute("aria-busy", "false", { timeout: READY_CAP_MS });
 }
 
 async function paneText(api: ApiClient, paneId: string): Promise<string> {
