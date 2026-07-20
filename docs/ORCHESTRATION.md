@@ -137,18 +137,19 @@ task nudges only while their assigned task is still waiting for their report.
 ## Long-running shell gates — completion contract, never polling
 
 Long-running shell commands (builds, soaks, remote regressions) are gates, not
-things to watch. Never wait by polling — sleep/get-text loops are
-implementer-mode waiting. Give the command a completion contract at launch:
+things to watch from the Orchestrator's control loop. Delegate them or launch
+them in a separate visible tab/tracked process, and give the command a
+completion contract at launch:
 
 ```bash
-<cmd>; codeterm send --tab $CODETERM_PANE_ID [--mesh <your-peer>] "GATE:<task_id> rc=$?"
+codeterm tab new --cmd '<cmd>; rc=$?; codeterm send --tab <orchestrator-tab> "GATE:<task_id> rc=$rc"; exit $rc'
 ```
 
 Record the gate on the task and work other frontier items until the marker
-arrives. For an already-running command, start a companion watcher in that
-tab (`while pgrep -f <name> >/dev/null; do sleep 30; done; codeterm send ...;
-codeterm tab close $CODETERM_PANE_ID`): the wait runs remotely, never in your
-loop, and the watcher closes itself after sending its gate.
+arrives. A process handle, process-exit event, channel close, or the command's
+own completion message is the readiness signal. Never block the user
+conversation on a long tool call, and never substitute sleep/poll loops for a
+completion signal. If no signal exists, add one at the ownership boundary.
 
 ## Worker Lanes — Git worktrees + task metadata
 
@@ -219,6 +220,12 @@ OAuth, real email/payment, or a production side effect.
 ### Milestone gates — three-tier testing ladder
 
 Regression cost scales with scope, so testing is tiered, not uniform.
+
+Verification stays proportional to risk. During implementation, run one
+smallest meaningful oracle after a coherent change, not a broad suite after
+every edit. Batch compatible expensive checks at the group boundary. Deferring
+critical evidence is allowed while work continues, but it remains explicit
+open risk and cannot support a done or release verdict.
 
 Testing ladder — per-task = focused filters only; per-group (milestone) = one full regression gate (cargo suite + ts-unit + playwright golden, serialized in the warm checkout); per-release = the farm matrix across every platform.
 
@@ -996,4 +1003,4 @@ Check both providers before heavy spawning: `codeterm usage latest --provider cl
 | Full mem reference | `codeterm docs MEMORY` |
 | REST + socket API | `codeterm docs API` |
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

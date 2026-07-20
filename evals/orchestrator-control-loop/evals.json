@@ -1,0 +1,30 @@
+{
+  "skill_name": "orchestrator-control-loop",
+  "description": "The Orchestrator stays responsive during long operations and applies verification proportional to risk.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "long-build-keeps-control-loop-responsive",
+      "prompt": "Build and install the application. The production build can take several minutes, and I may keep messaging you while it runs. Explain exactly how you will execute it.",
+      "expected_output": "Keeps the Orchestrator responsive by delegating or launching the build with a tracked completion signal instead of blocking its own conversation loop.",
+      "expectations": [
+        "Does not block the Orchestrator's own control or conversation loop while waiting for the build",
+        "Delegates the long operation or launches it in a separate visible tab or tracked process with an explicit completion signal",
+        "Continues handling messages or other useful orchestration work while the build runs",
+        "Does NOT use sleep or polling as readiness"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "verification-is-proportional-and-batched",
+      "prompt": "You made three adjacent small changes during one implementation wave. Decide what tests to run now and what to defer until the wave closes.",
+      "expected_output": "Runs the smallest focused oracle during iteration, batches compatible broad verification at the group boundary, and keeps deferred critical evidence visible.",
+      "expectations": [
+        "Runs the smallest meaningful focused check during iteration rather than a broad suite after every edit",
+        "Batches compatible heavy or broad verification once at the group or milestone boundary",
+        "Keeps any deferred critical verification recorded as open risk rather than claiming completion",
+        "Reserves full release verification for the release boundary"
+      ]
+    }
+  ]
+}
