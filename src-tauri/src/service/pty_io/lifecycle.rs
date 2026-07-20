@@ -19,6 +19,29 @@ pub(crate) struct RestoredLaunch {
     pub model: Option<String>,
 }
 
+pub(crate) fn claim_restored_pty_boot(
+    mux: &MuxState,
+    pane_id: &str,
+) -> Result<Option<RestoredLaunch>, String> {
+    let mut mux = mux.write();
+    let pane = mux
+        .get_pane_mut(pane_id)
+        .ok_or_else(|| format!("Pane {pane_id} not found or has no PTY"))?;
+    let Some(provider_id) = pane.agent_type.clone() else {
+        return Ok(None);
+    };
+    if !pane.restored_from_snapshot || pane.agent_booting || pane.protected {
+        return Ok(None);
+    }
+    pane.agent_booting = true;
+    Ok(Some(RestoredLaunch {
+        provider_id,
+        session_id: pane.agent_session_id.clone(),
+        cwd: pane.cwd.clone(),
+        model: pane.agent_session_model.clone(),
+    }))
+}
+
 pub(crate) fn claim_restored_launch(
     mux: &MuxState,
     pane_id: &str,
