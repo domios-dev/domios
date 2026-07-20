@@ -431,6 +431,73 @@ fn pane_with_nonce_but_nonceless_report_rejects_unpersisted_session() {
 }
 
 #[test]
+fn matching_nonce_advances_lineage_over_materialized_parent() {
+    // Codex resume: the pane is bound to the resumed-from (materialized) parent
+    // rollout; `codex resume` starts a fresh rollout and the session-start hook
+    // reports the NEW sid — not yet on disk — carrying the current launch nonce.
+    // The authenticated report must advance lineage, not be rejected as provisional.
+    let (mux, pane_id) = shared_mux();
+    {
+        let mut g = mux.write();
+        let pane = g.get_pane_mut(&pane_id).unwrap();
+        pane.cwd = Some("/tmp/project".into());
+        pane.agent_session_id = Some("parent-rollout".into());
+        pane.session_binding_nonce = Some("launch-nonce".into());
+    }
+    // Parent rollout is materialized on disk; the new rollout is not (yet).
+    let registry = registry_with_sessions(vec![("codex", vec!["parent-rollout"])]);
+
+    let claim = bind_reported_session(
+        &mux,
+        &registry,
+        &pane_id,
+        "codex",
+        "new-rollout",
+        Some("launch-nonce"),
+    )
+    .expect("authenticated resume must advance lineage over a materialized parent");
+    assert!(claim.changed);
+    assert!(claim.nonce_verified);
+    assert_eq!(claim.prev.as_deref(), Some("parent-rollout"));
+    assert_eq!(
+        mux.read()
+            .get_pane(&pane_id)
+            .unwrap()
+            .agent_session_id
+            .as_deref(),
+        Some("new-rollout"),
+    );
+}
+
+#[test]
+fn nonceless_report_cannot_evict_materialized_parent() {
+    // Defense-in-depth for the lineage handoff: an UNAUTHENTICATED report (no
+    // matching nonce) for a fileless new sid must never displace the materialized
+    // parent rollout — the `exists` gate rejects it before any advance.
+    let (mux, pane_id) = shared_mux();
+    {
+        let mut g = mux.write();
+        let pane = g.get_pane_mut(&pane_id).unwrap();
+        pane.cwd = Some("/tmp/project".into());
+        pane.agent_session_id = Some("parent-rollout".into());
+        pane.session_binding_nonce = Some("launch-nonce".into());
+    }
+    let registry = registry_with_sessions(vec![("codex", vec!["parent-rollout"])]);
+
+    let err = bind_reported_session(&mux, &registry, &pane_id, "codex", "new-rollout", None)
+        .unwrap_err();
+    assert_eq!(err.0, StatusCode::CONFLICT);
+    assert_eq!(
+        mux.read()
+            .get_pane(&pane_id)
+            .unwrap()
+            .agent_session_id
+            .as_deref(),
+        Some("parent-rollout"),
+    );
+}
+
+#[test]
 fn fresh_launch_with_matching_nonce_still_rejects_already_claimed_sid() {
     // still fire — two panes cannot own the same live session.
     let (mux, pane_a) = shared_mux();
