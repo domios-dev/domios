@@ -1,9 +1,4 @@
-//! `mem.graph.*` — socket parity for the `MemGraphAction` variants that are
-//! neither local-only (opened directly against knowledge.db by the CLI, see
-//! `cli/src/cmd/graph_mutate.rs`) nor `mem.graph.repair.*` (this file's
-//! second half). Every handler is a thin wrapper around the same
-//! `svc.mem.graph_*` calls the HTTP routes in `crate::api::mem_routes::graph`
-//! use.
+//! Socket handlers for graph actions that are not intentionally local-only.
 
 use crate::api::mem_routes::graph::{
     validate_canonical, GraphAliasBody, GraphCreateEntityBody, GraphInvalidateBody,

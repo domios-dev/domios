@@ -2,14 +2,8 @@ use crate::cmd::mem::transport::mem_transport_error;
 use crate::cmd::print::print_human;
 use crate::MemSecretAction;
 
-// `codeterm mem secret` maps API outcomes to stable script exit codes.
+// Secrets retain bearer-authenticated HTTP and stable script exit codes:
 // `3`=locked, `4`=logged-out, `5`=not found, `6`=backend unavailable.
-//
-// Deliberately HTTP-only: unlike the rest of `mem`, this never routes
-// through the socket. The socket has no auth gate and secrets can return
-// plaintext credential material, so it builds its own bearer-token-gated
-// HTTP client here instead of reusing a caller-provided one — kept
-// intentionally separate from `cmd::mem::handle_mem`'s socket dispatch.
 pub fn handle_mem_secret(json_mode: bool, action: MemSecretAction) {
     use std::io::{Read, Write};
 

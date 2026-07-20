@@ -1,35 +1,18 @@
-//! Exhaustive audit of how every `MemAction` (and, within `Graph`, every
-//! `MemGraphAction`) reaches the daemon. No `_` wildcards anywhere in this
-//! file: adding a new variant without extending these matches is a compile
-//! error, so a future subcommand can never silently inherit the dead-port
-//! HTTP fallback bug this module exists to prevent (issue #239).
-//!
-//! Test-only: this is a static audit tool, not something production code
-//! calls, but `#[cfg(test)]` still compiles it on every test run, so the
-//! exhaustiveness check fires in CI, not just when someone remembers to run
-//! this file's own tests.
+//! Exhaustive compile-time transport audit for every mem action.
 
 use crate::{MemAction, MemGraphAction};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MemTransport {
-    /// Routed through `socket::try_dispatch`'s generic table: build params,
-    /// call the daemon, print the JSON result. No HTTP involved, ever.
+    /// Routed through the generic socket dispatch table.
     Socket,
-    /// Also fully socket-routed (same guarantee: no HTTP), but through a
-    /// dedicated CLI handler because it needs pretty-printing (History,
-    /// Taxonomy), `--follow` polling (Tail), local file I/O before the call
-    /// (Skill), or a param shape the generic table doesn't fit (Worker,
-    /// Calibration).
+    /// Socket-routed through a dedicated CLI handler.
     SocketDedicated,
     /// Never touches the daemon at all — opens knowledge.db directly.
     LocalOnly,
-    /// Short-circuited in `main()` before a socket connection is even
-    /// opened; `handle_mem` never sees these live.
+    /// Short-circuited before socket connection.
     ShortCircuitedInMain,
-    /// Deliberately HTTP-only, forever: `mem secret` can return plaintext
-    /// credential material and the socket has no auth gate, so exposing it
-    /// there would be an authorization regression, not a migration gap.
+    /// Bearer-authenticated HTTP only because the socket has no auth gate.
     HttpAuthenticatedOnly,
 }
 

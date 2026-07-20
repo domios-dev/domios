@@ -211,10 +211,7 @@ pub(super) fn dispatch(
                 "mem.graph.repair.collapse_synonym_edges",
                 "mem.graph.repair.prune_dream_hub_edges",
                 "mem.graph.repair.orphan_blobs",
-                // mem.secret.* is intentionally absent: it's rejected over
-                // this unauthenticated socket by design (see
-                // socket/server/mem/mod.rs::secret_socket_rejection),
-                // credential-bearing routes stay on bearer-token HTTP.
+                // Credential-bearing mem.secret.* stays on bearer-authenticated HTTP.
             ];
             return Ok(serde_json::json!({ "methods": methods }));
         }

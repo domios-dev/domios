@@ -17,13 +17,7 @@ fn api_origin(url: &str) -> String {
         .unwrap_or_else(|_| url.to_string())
 }
 
-/// `mem secret` is the last caller of this path: it's deliberately kept off
-/// the local socket (which has no auth gate) because it can return plaintext
-/// credential material, so it stays on the bearer-token-gated HTTP API by
-/// design — not because it hasn't been migrated yet. A live daemon socket
-/// therefore says nothing about whether secrets can work; spell that out
-/// instead of leaking "connection refused". Every other `mem` subcommand is
-/// socket-routed and can't reach a dead HTTP port at all.
+/// Explain why authenticated secret HTTP can fail while the daemon socket is live.
 pub(crate) fn mem_unavailable_message(base: &str, live_socket: Option<&str>) -> String {
     match live_socket {
         Some(socket) => format!(
