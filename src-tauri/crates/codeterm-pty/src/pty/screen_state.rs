@@ -205,9 +205,9 @@ impl ScreenState {
                 }
             }
         }
-        self.bare_prompt_signals
-            .get_mut(pty_id)
-            .map(|signals| signals.retain(|signal| !signal.is_ready()));
+        if let Some(signals) = self.bare_prompt_signals.get_mut(pty_id) {
+            signals.retain(|signal| !signal.is_ready());
+        }
         if let Some(signal) = self.agent_signals.get(pty_id) {
             if !signal.is_ready() && screen_has_agent_tui(&screen) {
                 signal.mark_ready();
