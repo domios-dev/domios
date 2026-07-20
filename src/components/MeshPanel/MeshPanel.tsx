@@ -270,6 +270,9 @@ function WebUiModal({
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/55 px-4 backdrop-blur-[2px] pt-[var(--ct-safe-top,0px)] pb-[var(--ct-safe-bottom,0px)]">
       <div
         data-testid="web-ui-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Web UI access"
         className="w-full max-w-[360px] overflow-hidden rounded-2xl border border-[var(--ct-border)] bg-[var(--ct-bg)] shadow-2xl"
       >
         <div className="flex items-center justify-between border-b border-[var(--ct-border)] px-4 py-3">

@@ -169,8 +169,8 @@ export class MeshStub {
           } catch {
             return json(400, { error: "bad pairing request body" });
           }
-          setTimeout(() => void this.sendAccept(request_id), 150);
-          return json(200, { ok: true });
+          res.once("finish", () => void this.sendAccept(request_id));
+          return json(200, { ok: true, instance_id: this.instanceId });
         }
 
         case "/api/mesh/sync":

@@ -559,7 +559,12 @@ function AppInner() {
               Unmounting the workspace would tear down xterm + re-run get_pane_text
               on return, blocking the main thread with MB of escape codes. */}
           {mountedSettings && (
-            <div className="absolute inset-0" style={viewLayerStyle(mainView === "settings")}>
+            <div
+              className="absolute inset-0"
+              style={viewLayerStyle(mainView === "settings")}
+              aria-hidden={mainView !== "settings"}
+              inert={mainView !== "settings" || undefined}
+            >
               <SettingsPanel
                 config={config}
                 onUpdateConfig={updateConfig}
@@ -569,7 +574,12 @@ function AppInner() {
             </div>
           )}
           {mountedMemory && (
-            <div className="absolute inset-0" style={viewLayerStyle(mainView === "memory")}>
+            <div
+              className="absolute inset-0"
+              style={viewLayerStyle(mainView === "memory")}
+              aria-hidden={mainView !== "memory"}
+              inert={mainView !== "memory" || undefined}
+            >
               <MemoryPanel
                 api={stableApiConfig}
                 onClose={() => {
@@ -584,7 +594,12 @@ function AppInner() {
             </div>
           )}
           {mountedMesh && (
-            <div className="absolute inset-0" style={viewLayerStyle(mainView === "mesh")}>
+            <div
+              className="absolute inset-0"
+              style={viewLayerStyle(mainView === "mesh")}
+              aria-hidden={mainView !== "mesh"}
+              inert={mainView !== "mesh" || undefined}
+            >
               <MeshPanel
                 api={stableApiConfig}
                 config={config}
@@ -594,7 +609,12 @@ function AppInner() {
             </div>
           )}
           {mountedExtensions && (
-            <div className="absolute inset-0" style={viewLayerStyle(mainView === "extensions")}>
+            <div
+              className="absolute inset-0"
+              style={viewLayerStyle(mainView === "extensions")}
+              aria-hidden={mainView !== "extensions"}
+              inert={mainView !== "extensions" || undefined}
+            >
               <ExtensionsView
                 visible={mainView === "extensions"}
                 pluginActivities={pluginActivities}
