@@ -148,6 +148,19 @@ for (const literal of ["OpenAI Codex", "codex/", "ctrl+c to cancel"]) {
   );
 }
 assert(!plugin.detect({ bytes: "$ ls\nfile.txt", title: "bash" }), "plain shell negative");
+
+{
+  const p = loadHostPlugin();
+  assert(
+    p.screenHasTui("› Explain this codebase\n  gpt-5.5 medium · D:\\Developer\\codeterm"),
+    "current prompt and Windows status footer prove a Codex TUI",
+  );
+  assert(
+    p.screenHasTui("› Explain this codebase\n  gpt-5.5 medium · /home/user/codeterm"),
+    "current prompt and Unix status footer prove a Codex TUI",
+  );
+  assert(!p.screenHasTui("PS D:\\Developer\\codeterm>"), "plain shell is not a Codex TUI");
+}
 assert(!plugin.detect({ bytes: "claude code", title: "claude" }), "claude title is not codex");
 
 console.log("\n--- statusOf ---\n");
