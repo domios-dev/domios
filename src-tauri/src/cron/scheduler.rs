@@ -153,14 +153,13 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
     // Spawn agent via the unified spawn_pane surface.
     use crate::service::spawn::{AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec};
 
-    let mut task_text = task.to_string();
-    if let Some(skill_slug) = spec.skill.as_deref() {
-        task_text.push_str(&crate::commands::cron_skill_block(skill_slug));
-    }
-    if creator_pane_id.is_some() {
-        task_text.push_str(crate::prompts::CRON_REPORT_HINT);
-    }
-    task_text.push_str(&crate::prompts::CRON_COMPLETE_SUFFIX.replace("{}", &run_id));
+    let skill_block = spec.skill.as_deref().map(crate::commands::cron_skill_block);
+    let task_text = crate::cron::task_text::build_cron_task_text(
+        task,
+        skill_block.as_deref(),
+        creator_pane_id,
+        &run_id,
+    );
 
     // (shared default). Short labels (haiku|sonnet|opus) resolve at runtime via agent::models.
     let model = model
