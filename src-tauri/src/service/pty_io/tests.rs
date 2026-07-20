@@ -4,7 +4,8 @@ use crate::plan::{OrchestratorRef, Plan, TaskLaneMetadata};
 use crate::service::plan::{NewTask, PlanStore, TaskLaneUpdate};
 use crate::service::pty_io::lifecycle::{active_pane_lane_base, pane_task_env};
 use crate::service::pty_io::lifecycle::{
-    claim_restored_launch, restore_and_schedule_launch, restore_materialization_core,
+    claim_restored_launch, claim_restored_pty_boot, restore_and_schedule_launch,
+    restore_materialization_core,
 };
 
 fn apply_enter(text: &str, enter: bool) -> String {
@@ -292,6 +293,34 @@ fn stale_session_validity_cannot_claim_changed_pane() {
             .unwrap()
             .restored_from_snapshot
     );
+}
+
+#[test]
+fn restored_pty_boot_claim_excludes_lazy_materialization() {
+    use crate::multiplexer::commands::MuxState;
+    use crate::multiplexer::state::MultiplexerState;
+    use codeterm_util::lock_hold::TimedRwLock;
+    use std::sync::Arc;
+    let (mut state, pane_id) = MultiplexerState::new();
+    let pane = state.get_pane_mut(&pane_id).unwrap();
+    pane.agent_type = Some("fixture-provider".into());
+    pane.agent_session_id = Some("session".into());
+    pane.cwd = Some("cwd".into());
+    pane.restored_from_snapshot = true;
+    let mux: MuxState = Arc::new(TimedRwLock::new("restore-boot-claim-test", state));
+
+    let claim = claim_restored_pty_boot(&mux, &pane_id).unwrap().unwrap();
+    assert_eq!(claim.session_id.as_deref(), Some("session"));
+    assert!(claim_restored_launch(
+        &mux,
+        &pane_id,
+        "fixture-provider",
+        Some("session"),
+        Some("cwd"),
+        true,
+    )
+    .unwrap()
+    .is_none());
 }
 
 #[test]

@@ -186,35 +186,20 @@ pub async fn spawn_pty_core(
 
     // Auto-resume pane session after shell is ready.
     if let Some(ref pid) = pane_id {
-        let (session_id, is_protected, pane_cwd, restored_from_snapshot, agent_type, pane_model) = {
-            let m = mux_state.read();
-            let pane = m.get_pane(pid);
-            (
-                pane.and_then(|p| p.agent_session_id.clone()),
-                pane.map(|p| p.protected).unwrap_or(false),
-                pane.and_then(|p| p.cwd.clone()),
-                pane.map(|p| p.restored_from_snapshot).unwrap_or(false),
-                pane.and_then(|p| p.agent_type.clone()),
-                pane.and_then(|p| p.agent_session_model.clone()),
-            )
+        let Some(restore) = crate::service::pty_io::claim_restored_pty_boot(mux_state, pid)? else {
+            return Ok(pty_id);
         };
-        let mut should_fresh_launch =
-            restored_from_snapshot && !is_protected && agent_type.is_some();
+        let session_id = restore.session_id;
+        let pane_cwd = restore.cwd;
+        let agent_type = restore.provider_id;
+        let pane_model = restore.model;
+        let mut should_fresh_launch = true;
         let agent_type_for_fresh = agent_type.clone();
-
-        if restored_from_snapshot && !is_protected && agent_type.is_some() {
-            if let Some(pane) = mux_state.write().get_pane_mut(pid) {
-                pane.agent_booting = true;
-            }
-            svc.emit_boot_stage(pid, BootStage::PtySpawned, None);
-        }
+        svc.emit_boot_stage(pid, BootStage::PtySpawned, None);
 
         // Resume only restored snapshots; direct spawn uses backend start.
-        if let Some(session_id) = session_id
-            .filter(|_| !is_protected)
-            .filter(|_| restored_from_snapshot)
-        {
-            let provider_id = agent_type.unwrap_or_else(crate::config::default_agent_provider);
+        if let Some(session_id) = session_id {
+            let provider_id = agent_type;
 
             // Clear stale id if session is gone to avoid resume loop.
             let session_valid = pane_cwd
@@ -398,7 +383,7 @@ pub async fn spawn_pty_core(
         }
 
         if should_fresh_launch {
-            let provider_id = agent_type_for_fresh.expect("checked above");
+            let provider_id = agent_type_for_fresh;
             // Restored pane without session falls back to fresh launch.
             let pc = crate::config::provider_config(&provider_id);
             let skip_perms = pc.resume_skip_permissions.unwrap_or(true);
