@@ -211,7 +211,7 @@ impl PlanStore {
         depends_on: Vec<String>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        let write = self.with_plan(plan_id, now_ms, |p| {
+        let write: Result<Vec<String>, PlanError> = self.with_plan(plan_id, now_ms, |p| {
             let task_index = p
                 .tasks
                 .iter()
@@ -220,17 +220,19 @@ impl PlanStore {
             let canonical_task_id = p.tasks[task_index].id.clone();
             let normalized = validate_task_dependencies(p, &canonical_task_id, &depends_on)?;
             let task = &mut p.tasks[task_index];
-            task.depends_on = normalized;
+            task.depends_on = normalized.clone();
             task.updated_at = now_ms;
-            Ok(())
+            Ok(normalized)
         });
+        // depends_on refs (e.g. handles) resolve to canonical task ids during the
+        // write; verify against the resolved form or readback always fails.
+        let (write, verify_depends_on) = match write {
+            Ok(resolved) => (Ok(()), resolved),
+            Err(err) => (Err(err), normalized_dependency_ids(&depends_on)),
+        };
         pending_after_verified(
             write,
-            self.verify_task_dependencies_updated(
-                plan_id,
-                task_id,
-                &normalized_dependency_ids(&depends_on),
-            ),
+            self.verify_task_dependencies_updated(plan_id, task_id, &verify_depends_on),
             Some(task_id.to_string()),
         )
     }
@@ -1079,5 +1081,54 @@ mod fill_lane_tests {
             err,
             crate::service_plan::PlanError::DependencyCycle
         ));
+    }
+
+    #[test]
+    fn depends_on_resolves_task_handle_to_canonical_id() {
+        let (_d, store, plan, _parent) = setup();
+        let handle_target = store
+            .add_task(
+                &plan,
+                crate::service_plan::NewTask {
+                    name: "target".into(),
+                    handle: Some("target-handle".into()),
+                    ..Default::default()
+                },
+                3,
+            )
+            .unwrap();
+        let child = store
+            .add_task(
+                &plan,
+                crate::service_plan::NewTask {
+                    name: "child".into(),
+                    depends_on: vec!["target-handle".into()],
+                    ..Default::default()
+                },
+                4,
+            )
+            .unwrap();
+        let p = store.get(&plan).unwrap();
+        let child_task = p.tasks.iter().find(|t| t.id == child).unwrap();
+        assert_eq!(child_task.depends_on, vec![handle_target.clone()]);
+
+        let other = store
+            .add_task(
+                &plan,
+                crate::service_plan::NewTask {
+                    name: "other".into(),
+                    ..Default::default()
+                },
+                5,
+            )
+            .unwrap();
+        store
+            .update_task_dependencies(&plan, &other, vec!["target-handle".into()], 6)
+            .unwrap();
+        let p = store.get(&plan).unwrap();
+        assert_eq!(
+            p.tasks.iter().find(|t| t.id == other).unwrap().depends_on,
+            vec![handle_target]
+        );
     }
 }
