@@ -1,12 +1,42 @@
 use axum::{
     extract::{Path, Query, State as AxumState},
     http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
     Json,
 };
 use serde::Deserialize;
 
 use crate::api::routes::{check_auth, resolve_pane, AppState};
 use crate::multiplexer::types::AgentRole;
+
+/// JSON error surface for `/api/agents/spawn`, so the mesh relay can parse it
+/// instead of collapsing a bare `(StatusCode, String)` body to "HTTP 500".
+pub(crate) struct SpawnRejection {
+    status: StatusCode,
+    body: serde_json::Value,
+}
+
+impl IntoResponse for SpawnRejection {
+    fn into_response(self) -> Response {
+        (self.status, Json(self.body)).into_response()
+    }
+}
+
+impl From<String> for SpawnRejection {
+    fn from(message: String) -> Self {
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            body: serde_json::json!({
+                "ok": false,
+                "error": {
+                    "code": "spawn_failed",
+                    "message": message,
+                    "retry_hint": "transient — retry once; if it persists, fix the spawn request (--role/--plan-task/--cwd) or check the target's health with `codeterm mesh peers`",
+                },
+            }),
+        }
+    }
+}
 
 pub(crate) fn list_agent_provider_values(
     registry: &crate::provider::ProviderRegistry,
@@ -189,9 +219,17 @@ pub async fn spawn_agent(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Json(body): Json<SpawnAgentBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let role_probe = validate_spawn_role(body.role.clone(), body.role_profile.clone())?;
+) -> Result<Json<serde_json::Value>, SpawnRejection> {
+    check_auth(&state, &headers).map_err(|(s, m)| SpawnRejection {
+        status: s,
+        body: serde_json::json!({"ok": false, "error": {"code": "unauthorized", "message": m.to_string()}}),
+    })?;
+    let role_probe = validate_spawn_role(body.role.clone(), body.role_profile.clone()).map_err(
+        |(s, m)| SpawnRejection {
+            status: s,
+            body: serde_json::json!({"ok": false, "error": {"code": "bad_request", "message": m}}),
+        },
+    )?;
     let params = crate::service::SpawnAgentParams {
         agent: body.agent,
         agent_name: body.agent_name,
@@ -237,7 +275,7 @@ pub async fn spawn_agent(
         .svc
         .spawn_agent(params, None)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        .map_err(SpawnRejection::from)?;
 
     let mut resp = serde_json::json!({
         "id": result.pane_id,
@@ -776,6 +814,34 @@ mod tests {
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(body.contains("Invalid role: Lead"));
         assert!(!body.is_empty());
+    }
+
+    // A plain-text (StatusCode, String) body used to render as bare "HTTP 500"
+    // once relayed; this proves the structured shape now survives that hop.
+    #[test]
+    fn spawn_rejection_serializes_a_structured_error_not_bare_text() {
+        let rejection = SpawnRejection::from("checkout guard rejected: dirty worktree".to_string());
+        assert_eq!(rejection.status, StatusCode::INTERNAL_SERVER_ERROR);
+        let error = rejection.body.get("error").expect("error object present");
+        assert_eq!(
+            error.get("code").and_then(|v| v.as_str()),
+            Some("spawn_failed")
+        );
+        assert_eq!(
+            error.get("message").and_then(|v| v.as_str()),
+            Some("checkout guard rejected: dirty worktree")
+        );
+        assert!(
+            error
+                .get("retry_hint")
+                .and_then(|v| v.as_str())
+                .is_some_and(|hint| !hint.is_empty()),
+            "a caller must get a next-step, not just a message"
+        );
+        assert_eq!(
+            rejection.body.get("ok").and_then(|v| v.as_bool()),
+            Some(false)
+        );
     }
 
     struct ListingShell;

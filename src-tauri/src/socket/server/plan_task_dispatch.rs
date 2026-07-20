@@ -145,6 +145,18 @@ pub(super) fn dispatch(
             return Err(regression_blocked_error(blocking));
         }
     }
+    // Same frontier policy for the review WIP gate: decide before any pane
+    // exists. A task resuming after a bounce already holds its slot.
+    if detail.task.status == crate::plan::TaskStatus::Pending {
+        let gate = store.review_gate_status(&plan_id).map_err(plan_rpc_err)?;
+        if gate.blocked {
+            return Err(plan_rpc_err(PlanError::ReviewWipExceeded {
+                wip_count: gate.wip_count,
+                wip_limit: gate.wip_limit,
+                credit: gate.credit,
+            }));
+        }
+    }
 
     // Parent defaults to the dispatching (caller) pane, resolved server-side.
     let parent = owned_str(p, "parent_pane_id").or_else(|| owned_str(p, "caller_pane_id"));
