@@ -232,10 +232,8 @@ mod tests {
         assert!(!DREAMING_REM.contains("mem search returns BOTH"));
     }
 
-    /// Issue #179 part 2: a missing skill/path must be reported, never
-    /// escalated to a home-/root-wide `find` — the guardrail must reach both
-    /// spawned Worker agents and every cron-fired agent (unconditionally,
-    /// not only when the job declares a skill).
+    /// The find-guardrail must reach both spawned Worker agents and every
+    /// cron-fired agent — unconditionally, not only when a skill is declared.
     #[test]
     fn find_guardrail_reaches_worker_and_cron_briefs() {
         assert!(worker_suffix()
@@ -246,9 +244,8 @@ mod tests {
             .contains("home-/root-wide `find`"));
     }
 
-    /// Issue #179 part 1: a cron job's declared skill must resolve to an
-    /// exact, Read-able path — never routed through the Skill tool (spawned
-    /// agents can't load mem skills through it) or a filesystem search.
+    /// A cron job's declared skill must resolve to an exact, Read-able path —
+    /// never the Skill tool (cron agents can't resolve mem skills through it) or a search.
     #[test]
     fn cron_skill_prompts_point_at_exact_path_not_tool_or_search() {
         assert!(CRON_SKILL_HINT.contains("{skill_path}"));

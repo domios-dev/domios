@@ -711,7 +711,7 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
                 if let Some(cron_state) = app.try_state::<crate::CronState>() {
                     let owner = cron_state.lock().get_pane_owner(pid).cloned();
                     if let Some((job_id, run_id)) = owner {
-                        let mut marked_failed = false;
+                        let mut fresh_transition = false;
                         {
                             let mut store = cron_state.lock();
                             // Only save if no log exists yet (don't overwrite clean summary)
@@ -719,17 +719,18 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
                                 let text = output_buf.lock().get_text(&pty_id).unwrap_or_default();
                                 let clean = crate::pty::ansi::clean_terminal_output(&text);
                                 let _ = store.save_log(&job_id, &run_id, &clean);
-                                let _ = store.update_run_status(
-                                    &job_id,
-                                    &run_id,
-                                    crate::cron::store::CronRunStatus::Failed,
-                                );
-                                marked_failed = true;
+                                fresh_transition = store
+                                    .update_run_status(
+                                        &job_id,
+                                        &run_id,
+                                        crate::cron::store::CronRunStatus::Failed,
+                                    )
+                                    .unwrap_or(false);
                             }
                             store.unregister_pane(pid);
                         }
                         // Notify after the store guard drops — it re-locks internally.
-                        if marked_failed {
+                        if fresh_transition {
                             crate::cron::notify::notify_on_consecutive_failure(
                                 svc,
                                 &cron_state,

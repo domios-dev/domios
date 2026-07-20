@@ -306,7 +306,7 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str, generation: u64) {
         // Cron fallback: if agent died without calling cron complete, mark as failed.
         use tauri::Manager;
         if let Some(cron_state) = svc.app_handle.try_state::<crate::CronState>() {
-            let mut marked_failed = false;
+            let mut fresh_transition = false;
             let owner = {
                 // Hold the cron lock ACROSS owner-lookup and the read/write below.
                 let mut store = cron_state.lock();
@@ -316,12 +316,13 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str, generation: u64) {
                         let text = svc.output_buf.lock().get_text(pty_id).unwrap_or_default();
                         let clean = crate::pty::ansi::clean_terminal_output(&text);
                         let _ = store.save_log(job_id, run_id, &clean);
-                        let _ = store.update_run_status(
-                            job_id,
-                            run_id,
-                            crate::cron::store::CronRunStatus::Failed,
-                        );
-                        marked_failed = true;
+                        fresh_transition = store
+                            .update_run_status(
+                                job_id,
+                                run_id,
+                                crate::cron::store::CronRunStatus::Failed,
+                            )
+                            .unwrap_or(false);
                     }
                     store.unregister_pane(pid);
                 }
@@ -329,7 +330,7 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str, generation: u64) {
             };
             // Notify after the store guard drops — it re-locks internally.
             if let Some((job_id, run_id)) = owner {
-                if marked_failed {
+                if fresh_transition {
                     crate::cron::notify::notify_on_consecutive_failure(svc, &cron_state, &job_id);
                 }
                 log::info!(

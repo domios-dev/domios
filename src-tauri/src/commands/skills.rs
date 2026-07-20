@@ -188,12 +188,8 @@ fn should_mirror_skill(src_skill: &std::path::Path, dst_skill: &std::path::Path)
     src != dst
 }
 
-/// Build the task-brief block for a cron job's declared `--skill <slug>`.
-/// Resolves the slug against the canonical skill dir (never the provider
-/// dirs — those hold only `codeterm`, see `mirror_skills_to_providers`) and
-/// gives the spawned agent the exact `SKILL.md` path to read directly,
-/// instead of relying on the Skill tool or a filesystem search (issue #179:
-/// neither resolves `~/.codeterm/skills/*` for a cron/spawned agent).
+/// Task-brief block for a cron job's `--skill <slug>`: the exact `SKILL.md`
+/// path to Read, resolved against the canonical dir (never provider dirs).
 pub fn cron_skill_block(slug: &str) -> String {
     cron_skill_block_at(slug, &crate::paths::data_dir().join("skills"))
 }
