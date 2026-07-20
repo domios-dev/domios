@@ -147,12 +147,31 @@ export async function expectRealSpawnIdle(
     `[data-testid="tab-item"][data-tab-id="${tabRef.tabId}"]`,
   );
   const status = tab.getByRole("status");
-  await expect(
-    status,
-    `${surface.label} emits an Idle status transition`,
-  ).toHaveAccessibleName(/ tab status Idle$/, {
-    timeout: STARTUP_STATE_TIMEOUT_MS,
-  });
+  const initial = await api.get<PaneStatus>(
+    `/panes/${surface.paneId}/status`,
+  );
+  const mustObserveBusy = initial.status !== "Idle";
+
+  await status.evaluate((node, requireBusyTransition) => {
+    const isIdle = () =>
+      node.getAttribute("aria-label")?.endsWith(" tab status Idle") === true;
+    let observedBusy = !isIdle();
+    if (isIdle() && (!requireBusyTransition || observedBusy)) return;
+
+    return new Promise<void>((resolve) => {
+      const observer = new MutationObserver(() => {
+        if (!isIdle()) observedBusy = true;
+        if (isIdle() && (!requireBusyTransition || observedBusy)) {
+          observer.disconnect();
+          resolve();
+        }
+      });
+      observer.observe(node, {
+        attributes: true,
+        attributeFilter: ["aria-label"],
+      });
+    });
+  }, mustObserveBusy);
 
   const snapshot = await api.get<PaneStatus>(`/panes/${surface.paneId}/status`);
   expect(snapshot.status, `${surface.label} is Idle after the UI transition`).toBe(
