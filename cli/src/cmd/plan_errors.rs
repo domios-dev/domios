@@ -211,9 +211,8 @@ After approval/execution starts, set heartbeat with:\n\
 fn render_ref_not_found(data: &Value) -> Option<String> {
     let kind = data.get("kind")?.as_str()?;
     let reference = data.get("reference")?.as_str()?;
-    // A longer prefix only helps when the ref is a truncated match on a real id;
-    // for a genuinely nonexistent ref it is dead-end advice, so name the failure
-    // plainly and point at the list command instead.
+    // A longer prefix only helps a truncated real id; for a nonexistent ref it
+    // is dead-end advice, so point at the relevant list command instead.
     let list_hint = match kind {
         "plan" => "codeterm plan list --active",
         "spec" => "codeterm spec list --active",
