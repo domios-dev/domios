@@ -23,6 +23,20 @@ interface SnapshotFixture {
   overrides?: Json;
 }
 
+async function captureOpenedUrl(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const target = window as Window & { __ctOpenedUrl?: string };
+    window.open = ((url?: string | URL) => {
+      target.__ctOpenedUrl = String(url ?? "");
+      return null;
+    }) as typeof window.open;
+  });
+}
+
+async function openedUrl(page: Page): Promise<string | undefined> {
+  return page.evaluate(() => (window as Window & { __ctOpenedUrl?: string }).__ctOpenedUrl);
+}
+
 function buildSnapshot({ state, overrides = {} }: SnapshotFixture): Json {
   const base: Json = {
     state,
@@ -205,12 +219,9 @@ for (const state of STATES) {
       const action = page.locator('[data-testid="mesh-web-ui-action"]');
       await expect(action).toHaveAttribute("data-web-ui-state", state);
 
-      const openBtn = page.locator('[data-testid="mesh-web-ui-open"]');
-      if (state === "ready") {
-        await expect(openBtn).toBeVisible();
-      } else {
-        await expect(openBtn).toHaveCount(0);
-      }
+      await expect(page.locator('[data-testid="mesh-web-ui-surface"]')).toBeVisible();
+      await expect(page.locator('[data-testid="mesh-web-ui-menu-trigger"]')).toBeVisible();
+      await expect(page.locator('[data-testid="mesh-web-ui-open"]')).toHaveCount(0);
     } finally {
       await close();
     }
@@ -265,15 +276,15 @@ test("@golden mesh-web-ui: repair action on conflict reconciles and clears to a 
   }
 });
 
-test("@golden mesh-web-ui: ready Open launches the verified backend URL", async ({ webBrowser }) => {
+test("@golden mesh-web-ui: ready surface opens the access dialog and launches its generated URL", async ({ webBrowser }) => {
   const { page, close } = await gotoMesh(webBrowser, { snapshot: buildSnapshot({ state: "ready" }) });
   try {
-    const [popup] = await Promise.all([
-      page.waitForEvent("popup"),
-      page.click('[data-testid="mesh-web-ui-open"]'),
-    ]);
-    expect(popup.url()).toBe("https://blackstar.test.ts.net/");
-    await popup.close().catch(() => {});
+    await captureOpenedUrl(page);
+    await page.click('[data-testid="mesh-web-ui-surface"]');
+    const dialog = page.getByRole("dialog", { name: "Web UI access" });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Open" }).click();
+    expect(await openedUrl(page)).toBe(`http://192.168.1.20:7685/#token=${token}`);
   } finally {
     await close();
   }
@@ -288,13 +299,13 @@ test("@golden peer-web-ui-open: appears only for a peer with a verified URL", as
     ],
   });
   try {
+    await captureOpenedUrl(page);
     await expect(page.locator('[data-testid="peer-web-ui-open"]')).toHaveCount(1);
     const btn = page.locator('[data-testid="peer-web-ui-open"]');
     await expect(btn).toHaveAttribute("data-peer-web-url", "https://verified-peer.test.ts.net/");
 
-    const [popup] = await Promise.all([page.waitForEvent("popup"), btn.click()]);
-    expect(popup.url()).toBe("https://verified-peer.test.ts.net/");
-    await popup.close().catch(() => {});
+    await btn.click();
+    expect(await openedUrl(page)).toBe("https://verified-peer.test.ts.net/");
   } finally {
     await close();
   }

@@ -36,6 +36,7 @@ test("pair request completes its callback against the configured daemon", async 
       body: JSON.stringify({ request_id: "pair-request-1" }),
     });
     assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { ok: true, instance_id: stub.instanceId });
     await stub.waitForPairAccept(2_000);
     assert.equal(acceptedRequestId, "pair-request-1");
   } finally {
