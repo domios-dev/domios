@@ -45,7 +45,7 @@ interface MeshPeers {
  * daemon — no re-point, no peer-scoped token). Selecting "this host" clears
  * the target. In-place switch reattaches events and refreshes mux state.
  */
-export function WebPeerPicker() {
+export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   const [peers, setPeers] = useState<PairedPeer[]>([]);
   const [open, setOpen] = useState(false);
   const [resumePeer, setResumePeer] = useState<PairedPeer | null>(null);
@@ -165,9 +165,12 @@ export function WebPeerPicker() {
         </div>
       )}
       <button
+        type="button"
         data-testid="peer-picker-button"
+        aria-label={`Switch CodeTerm host, current host ${label}`}
+        aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 min-h-[44px] sm:min-h-0 sm:h-7 px-2.5 rounded text-xs text-[var(--ct-fg)] bg-[var(--ct-hover)] hover:bg-[var(--ct-active)] border border-[var(--ct-border)]"
+        className={`flex items-center gap-1.5 rounded text-xs text-[var(--ct-fg)] bg-[var(--ct-hover)] hover:bg-[var(--ct-active)] border border-[var(--ct-border)] ${compact ? "h-7 min-w-0 max-w-[126px] px-2" : "min-h-[44px] sm:min-h-0 sm:h-7 px-2.5"}`}
         title="Switch CodeTerm host"
       >
         <span className={`w-2 h-2 shrink-0 rounded-full ${switchingTo ? "animate-pulse bg-[var(--ct-muted,#8b949e)]" : switchFailed ? "bg-[var(--ct-red,#f85149)]" : "bg-[var(--ct-green,#3fb950)]"}`} />
@@ -177,7 +180,7 @@ export function WebPeerPicker() {
       {open && (
         <div
           data-testid="peer-picker-menu"
-          className="absolute left-0 top-full mt-1 z-50 min-w-[min(220px,calc(100vw-0.75rem))] max-w-[calc(100vw-0.75rem)] rounded border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] shadow-lg py-1"
+          className={`absolute top-full mt-1 z-50 min-w-[min(220px,calc(100vw-0.75rem))] max-w-[calc(100vw-0.75rem)] rounded border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] shadow-lg py-1 ${compact ? "right-0" : "left-0"}`}
         >
           <button
             data-testid="peer-picker-self"

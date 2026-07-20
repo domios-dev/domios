@@ -10,7 +10,6 @@ import { UI_BUTTON, UI_TRAY_DIVIDER } from "../shared/design";
 import { KeepAwakeTray } from "./KeepAwakeTray";
 import { ExtensionsTray } from "./ExtensionsTray";
 import { SettingsMenu } from "./SettingsMenu";
-import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
 import type { SectionId } from "../Settings/sections";
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
 import type { Notification } from "../../lib/types";
@@ -80,14 +79,6 @@ export function Titlebar({
           onMaximize={handleMaximize}
         />
       )}
-      {/* Web mirror: traffic lights never render (isTauri false above) —
-          the peer picker occupies that same left corner instead. */}
-      {IS_WEB && (
-        <div className="flex min-w-0 shrink items-center h-full pl-1.5 sm:pl-2.5">
-          <WebPeerPicker />
-        </div>
-      )}
-
       {showSidebarToggle && onToggleSidebar && (
         <button
           type="button"

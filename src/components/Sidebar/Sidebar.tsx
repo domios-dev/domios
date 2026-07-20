@@ -39,6 +39,7 @@ import { GroupCloseConfirmDialog } from "./GroupCloseConfirmDialog";
 import type { OrchestrationGroupMember } from "./orchestrationGroupClose";
 import { hydrateProtectedExpanded, initialSidebarExpanded, partitionSidebarWorkspaces } from "./sidebarSections";
 import { NewSessionPicker } from "../Terminal/NewSessionPicker";
+import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
 
 export { buildHierarchyTree, buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 
@@ -547,14 +548,17 @@ export function Sidebar({
                     role="region"
                     aria-label={`${generalWorkspace.name} workspace contents`}
                   >
-                    <SidebarDisclosure
-                      data-testid="general-section-toggle"
-                      className="sidebar-structural-header w-full"
-                      expanded={generalExpanded}
-                      onClick={() => toggleExpanded(generalWorkspace.id)}
-                    >
-                      <span className="sidebar-structural-label">GENERAL</span>
-                    </SidebarDisclosure>
+                    <div className="sidebar-structural-header w-full">
+                      <SidebarDisclosure
+                        data-testid="general-section-toggle"
+                        className="sidebar-structural-toggle min-w-0 flex-1"
+                        expanded={generalExpanded}
+                        onClick={() => toggleExpanded(generalWorkspace.id)}
+                      >
+                        <span className="sidebar-structural-label">GENERAL</span>
+                      </SidebarDisclosure>
+                      {IS_WEB && <WebPeerPicker compact />}
+                    </div>
                     {generalExpanded && <SidebarWorkspaceTabs
                       workspace={generalWorkspace}
                       activeTabId={state.activeTabIds[generalWorkspace.id] ?? null}
