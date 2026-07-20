@@ -1,0 +1,211 @@
+//! Exhaustive audit of how every `MemAction` (and, within `Graph`, every
+//! `MemGraphAction`) reaches the daemon. No `_` wildcards anywhere in this
+//! file: adding a new variant without extending these matches is a compile
+//! error, so a future subcommand can never silently inherit the dead-port
+//! HTTP fallback bug this module exists to prevent (issue #239).
+//!
+//! Test-only: this is a static audit tool, not something production code
+//! calls, but `#[cfg(test)]` still compiles it on every test run, so the
+//! exhaustiveness check fires in CI, not just when someone remembers to run
+//! this file's own tests.
+
+use crate::{MemAction, MemGraphAction};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MemTransport {
+    /// Routed through `socket::try_dispatch`'s generic table: build params,
+    /// call the daemon, print the JSON result. No HTTP involved, ever.
+    Socket,
+    /// Also fully socket-routed (same guarantee: no HTTP), but through a
+    /// dedicated CLI handler because it needs pretty-printing (History,
+    /// Taxonomy), `--follow` polling (Tail), local file I/O before the call
+    /// (Skill), or a param shape the generic table doesn't fit (Worker,
+    /// Calibration).
+    SocketDedicated,
+    /// Never touches the daemon at all — opens knowledge.db directly.
+    LocalOnly,
+    /// Short-circuited in `main()` before a socket connection is even
+    /// opened; `handle_mem` never sees these live.
+    ShortCircuitedInMain,
+    /// Deliberately HTTP-only, forever: `mem secret` can return plaintext
+    /// credential material and the socket has no auth gate, so exposing it
+    /// there would be an authorization regression, not a migration gap.
+    HttpAuthenticatedOnly,
+}
+
+pub(crate) fn classify(action: &MemAction) -> MemTransport {
+    use MemTransport::*;
+    match action {
+        MemAction::Search { .. }
+        | MemAction::Get { .. }
+        | MemAction::Delete { .. }
+        | MemAction::Forget { .. }
+        | MemAction::Update { .. }
+        | MemAction::Append { .. }
+        | MemAction::Restore { .. }
+        | MemAction::Pin { .. }
+        | MemAction::Unpin { .. }
+        | MemAction::Pinned { .. }
+        | MemAction::Save { .. }
+        | MemAction::SavePreference { .. }
+        | MemAction::WakeUp { .. }
+        | MemAction::ExtractPending { .. }
+        | MemAction::Stats
+        | MemAction::Learn { .. }
+        | MemAction::LearnList
+        | MemAction::LearnPromote { .. }
+        | MemAction::Flush { .. }
+        | MemAction::Sync { .. }
+        | MemAction::Reembed { .. } => Socket,
+
+        MemAction::History { .. }
+        | MemAction::Taxonomy { .. }
+        | MemAction::Tail { .. }
+        | MemAction::Skill { .. }
+        | MemAction::Worker { .. }
+        | MemAction::Calibration { .. } => SocketDedicated,
+
+        MemAction::Graph { action } => classify_graph(action),
+
+        MemAction::RunWorker { .. } | MemAction::Dream { .. } => ShortCircuitedInMain,
+
+        MemAction::Secret { .. } => HttpAuthenticatedOnly,
+    }
+}
+
+fn classify_graph(action: &MemGraphAction) -> MemTransport {
+    use MemTransport::*;
+    match action {
+        MemGraphAction::Route { .. }
+        | MemGraphAction::PurgeInvalidated { .. }
+        | MemGraphAction::ReviveBroken { .. }
+        | MemGraphAction::IntroduceTopic { .. }
+        | MemGraphAction::Hubs { .. }
+        | MemGraphAction::Islands { .. }
+        | MemGraphAction::Orphans { .. }
+        | MemGraphAction::Get { .. } => LocalOnly,
+
+        MemGraphAction::Create { .. }
+        | MemGraphAction::Relate { .. }
+        | MemGraphAction::Related { .. }
+        | MemGraphAction::Invalidate { .. }
+        | MemGraphAction::Timeline { .. }
+        | MemGraphAction::Traverse { .. }
+        | MemGraphAction::Path { .. }
+        | MemGraphAction::Tunnels { .. }
+        | MemGraphAction::Alias { .. }
+        | MemGraphAction::FindDuplicateRelations { .. }
+        | MemGraphAction::DeleteRelations { .. }
+        | MemGraphAction::MergeRelations { .. }
+        | MemGraphAction::FindDuplicateEntities { .. }
+        | MemGraphAction::AugmentEntity { .. }
+        | MemGraphAction::RepairOrphanVectors { .. }
+        | MemGraphAction::PruneThinVectors { .. }
+        | MemGraphAction::CollapseSynonymEdges { .. }
+        | MemGraphAction::PruneDreamHubEdges { .. }
+        | MemGraphAction::RepairOrphanBlobs { .. }
+        | MemGraphAction::DeleteEntity { .. } => SocketDedicated,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    fn parse(args: &[&str]) -> MemAction {
+        let cli = crate::Cli::try_parse_from(args).unwrap();
+        match cli.command {
+            crate::Commands::Mem { action } => action,
+            _ => panic!("expected a mem command for {args:?}"),
+        }
+    }
+
+    #[test]
+    fn item_surface_classifies_as_socket() {
+        for args in [
+            vec!["codeterm", "mem", "get", "fact_a"],
+            vec![
+                "codeterm", "mem", "save", "--kind", "fact", "--title", "t", "b",
+            ],
+            vec!["codeterm", "mem", "wake-up"],
+            vec!["codeterm", "mem", "learn-list"],
+        ] {
+            assert_eq!(classify(&parse(&args)), MemTransport::Socket, "{args:?}");
+        }
+    }
+
+    #[test]
+    fn pretty_printed_and_local_io_actions_classify_as_socket_dedicated() {
+        for args in [
+            vec!["codeterm", "mem", "history", "fact_a"],
+            vec!["codeterm", "mem", "taxonomy"],
+            vec!["codeterm", "mem", "tail"],
+            vec!["codeterm", "mem", "skill", "list"],
+            vec!["codeterm", "mem", "worker", "list"],
+            vec!["codeterm", "mem", "calibration", "sweep"],
+        ] {
+            assert_eq!(
+                classify(&parse(&args)),
+                MemTransport::SocketDedicated,
+                "{args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn graph_repair_and_query_actions_classify_as_socket_dedicated() {
+        for args in [
+            vec![
+                "codeterm",
+                "mem",
+                "graph",
+                "create",
+                "--id",
+                "person_a",
+                "--entity-type",
+                "Person",
+            ],
+            vec!["codeterm", "mem", "graph", "related", "--id", "person_a"],
+            vec!["codeterm", "mem", "graph", "repair-orphan-vectors"],
+        ] {
+            let MemAction::Graph { action } = parse(&args) else {
+                panic!("expected graph action for {args:?}");
+            };
+            assert_eq!(
+                classify_graph(&action),
+                MemTransport::SocketDedicated,
+                "{args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn direct_db_graph_actions_classify_as_local_only() {
+        for args in [
+            vec!["codeterm", "mem", "graph", "hubs"],
+            vec!["codeterm", "mem", "graph", "orphans"],
+            vec!["codeterm", "mem", "graph", "get", "person_a"],
+        ] {
+            let MemAction::Graph { action } = parse(&args) else {
+                panic!("expected graph action for {args:?}");
+            };
+            assert_eq!(classify_graph(&action), MemTransport::LocalOnly, "{args:?}");
+        }
+    }
+
+    #[test]
+    fn secret_is_the_only_deliberate_http_holdout() {
+        let action = parse(&["codeterm", "mem", "secret", "status"]);
+        assert_eq!(classify(&action), MemTransport::HttpAuthenticatedOnly);
+    }
+
+    #[test]
+    fn short_circuited_actions_never_reach_socket_dispatch() {
+        let run_worker = parse(&["codeterm", "mem", "run-worker", "librarian-once"]);
+        assert_eq!(classify(&run_worker), MemTransport::ShortCircuitedInMain);
+
+        let dream = parse(&["codeterm", "mem", "dream", "run"]);
+        assert_eq!(classify(&dream), MemTransport::ShortCircuitedInMain);
+    }
+}
