@@ -452,6 +452,7 @@ struct MaterializationProbe {
     cwd: String,
     prev_sid: Option<String>,
     new_materialized: bool,
+    prev_materialized: bool,
 }
 
 fn bind_reported_session(
@@ -487,11 +488,24 @@ fn bind_reported_session(
         let new_materialized = registry
             .with_provider(provider_id, |p| p.session_exists(&probe_cwd, sid))
             .unwrap_or(false);
+        // Prev materialization matters only when the incoming sid is not itself
+        // store-backed — it protects a real rollout from a fileless eviction.
+        let prev_materialized = if !new_materialized {
+            match probe_prev.as_deref() {
+                Some(prev) if prev != sid => registry
+                    .with_provider(provider_id, |p| p.session_exists(&probe_cwd, prev))
+                    .unwrap_or(false),
+                _ => false,
+            }
+        } else {
+            false
+        };
 
         let probe = MaterializationProbe {
             cwd: probe_cwd,
             prev_sid: probe_prev,
             new_materialized,
+            prev_materialized,
         };
 
         let mut mux = mux.write();
@@ -529,6 +543,8 @@ fn commit_reported_session(
     }
 
     // A report carrying a nonce that disagrees with the pane's launch nonce is a stale or foreign reporter (relaunch, /new in another process, reused pane id). A matching nonce is proof we launched this session ourselves — it's authoritative even before the session file lands on disk. A missing report nonce is tolerated only after provider-owned session validation below.
+    let launch_nonce = pane.session_binding_nonce.clone();
+    let acknowledged_nonce = pane.reported_session_binding_nonce.clone();
     let nonce_verified = if let Some(expected) = pane.session_binding_nonce.clone() {
         match report_nonce {
             Some(got) if got != expected => {
@@ -592,9 +608,31 @@ fn commit_reported_session(
         ));
     }
 
-    // A verified resume advances lineage before the new rollout file lands.
-    // The existence gate already rejects unauthenticated provisional claims.
-    debug_assert!(nonce_verified || probe.new_materialized);
+    // A fileless claim (new rollout not yet on disk) must not evict a materialized
+    // parent rollout — unless this is a fresh authenticated launch. A nonce-verified
+    // report whose launch nonce has NOT yet been acknowledged for the current binding
+    // is the Codex resume lineage handoff (`codex resume` opens a new rollout before
+    // its file lands) and may advance. Once that launch nonce is already acknowledged
+    // (reported_session_binding_nonce == session_binding_nonce), a second fileless sid
+    // reusing it is a stale/replay claim and stays rejected.
+    if probe.prev_materialized {
+        let nonce_already_acknowledged =
+            launch_nonce.is_some() && acknowledged_nonce == launch_nonce;
+        let fresh_authenticated_launch = nonce_verified && !nonce_already_acknowledged;
+        if !fresh_authenticated_launch {
+            log::warn!(
+                "[hook_session_start] rejecting fileless sid {} for pane {} provider={}: would evict materialized session {:?}",
+                sid, pane_id, provider_id, probe.prev_sid,
+            );
+            return Err((
+                StatusCode::CONFLICT,
+                format!(
+                    "session_id '{}' cannot evict materialized session {:?}",
+                    sid, probe.prev_sid
+                ),
+            ));
+        }
+    }
 
     let Some(pane) = mux.get_pane_mut(pane_id) else {
         return Err((StatusCode::NOT_FOUND, "pane not found".to_string()));

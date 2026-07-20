@@ -490,6 +490,43 @@ fn nonceless_report_cannot_evict_materialized_parent() {
 }
 
 #[test]
+fn rotated_launch_nonce_advances_lineage_even_after_prior_acknowledgement() {
+    // Real restore: the pane already acknowledged an earlier launch (reported == the
+    // old nonce, materialized parent). A new launch rotates session_binding_nonce; the
+    // hook reports the fresh rollout with the NEW, still-unacknowledged nonce. It must
+    // advance — the prior acknowledgement belonged to the previous nonce.
+    let (mux, pane_id) = shared_mux();
+    {
+        let mut g = mux.write();
+        let pane = g.get_pane_mut(&pane_id).unwrap();
+        pane.cwd = Some("/tmp/project".into());
+        pane.agent_session_id = Some("parent-rollout".into());
+        pane.session_binding_nonce = Some("nonce-new".into());
+        pane.reported_session_binding_nonce = Some("nonce-old".into());
+    }
+    let registry = registry_with_sessions(vec![("codex", vec!["parent-rollout"])]);
+
+    let claim = bind_reported_session(
+        &mux,
+        &registry,
+        &pane_id,
+        "codex",
+        "fresh-rollout",
+        Some("nonce-new"),
+    )
+    .expect("a rotated, unacknowledged launch nonce advances lineage");
+    assert!(claim.changed);
+    assert_eq!(
+        mux.read()
+            .get_pane(&pane_id)
+            .unwrap()
+            .agent_session_id
+            .as_deref(),
+        Some("fresh-rollout"),
+    );
+}
+
+#[test]
 fn fresh_launch_with_matching_nonce_still_rejects_already_claimed_sid() {
     // still fire — two panes cannot own the same live session.
     let (mux, pane_a) = shared_mux();
