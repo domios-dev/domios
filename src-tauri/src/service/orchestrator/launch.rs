@@ -647,7 +647,7 @@ pub(crate) fn launch_agent_in_background(
                 .expect("launch binding nonce"),
         );
 
-        if !crate::service::pty_io::await_shell_prompt(
+        if !crate::service::pty_io::await_bare_shell_prompt(
             &svc.screen_state,
             &pty_id,
             std::time::Duration::from_secs(30),
@@ -741,7 +741,7 @@ pub(crate) fn launch_agent_in_background(
                         );
                         if !launch.emit(&svc, BootStage::PtySpawned)
                             || !launch.emit(&svc, BootStage::ReaderReady)
-                            || !crate::service::pty_io::await_shell_prompt(
+                            || !crate::service::pty_io::await_bare_shell_prompt(
                                 &svc.screen_state,
                                 &pty_id,
                                 std::time::Duration::from_secs(30),
