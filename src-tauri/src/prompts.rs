@@ -395,6 +395,7 @@ mod tests {
             "orchestrator_suffix.md",
             "orchestrator_onboarding.md",
             "manager_bootstrap.md",
+            "team_bootstrap_starter.md",
             "cron_report_hint.md",
             "cron_complete_suffix.md",
             "codeterm_rule.md",
