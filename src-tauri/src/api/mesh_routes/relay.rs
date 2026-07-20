@@ -302,12 +302,12 @@ pub async fn mesh_relay_to_peer(
             .unwrap_or_else(|| req.target_peer_id.clone());
         (client, name)
     };
+    let delivery_id = relay_send_delivery_id(&req.method, &req.path);
     let cmd = crate::mesh::types::RelayCommand {
         method: req.method,
         path: req.path,
         body: req.body,
-        // Web-mirror relays are not deduped yet (browser supplies no id).
-        delivery_id: None,
+        delivery_id,
     };
     let resp = client
         .send_relay(&cmd)
@@ -354,25 +354,37 @@ pub async fn mesh_relay(
         return perform_relay(&state, &sender_id, &cmd).await.map(Json);
     };
 
-    // At-most-once (#240): admit the local dispatch once per (authenticated
-    // sender, delivery_id); concurrent duplicates replay the leader's response.
+    // At-most-once (#240): one dispatch per (authenticated sender, delivery_id);
+    // duplicates replay; a saturated in-flight window is rejected, never grown.
     let key = super::send_dedupe::dedupe_key(&sender_id, delivery_id);
-    let (entry, owns_dispatch) = super::send_dedupe::MeshDeliveryDedupe::global()
-        .acquire(key.clone(), super::send_dedupe::now_ms());
-    if !owns_dispatch {
-        log::info!(
-            "[mesh/relay] dedup replay {} {} from {} (delivery_id={})",
-            cmd.method,
-            cmd.path,
-            sender_id,
-            delivery_id
-        );
-        return Ok(Json(entry.wait().await));
-    }
+    let entry = match super::send_dedupe::MeshDeliveryDedupe::global()
+        .acquire(key.clone(), super::send_dedupe::now_ms())
+    {
+        super::send_dedupe::Admission::Duplicate(entry) => {
+            log::info!(
+                "[mesh/relay] dedup replay {} {} from {} (delivery_id={})",
+                cmd.method,
+                cmd.path,
+                sender_id,
+                delivery_id
+            );
+            return Ok(Json(entry.wait().await));
+        }
+        super::send_dedupe::Admission::AtCapacity => {
+            log::warn!(
+                "[mesh/relay] delivery window saturated; rejecting {} {} from {} (delivery_id={})",
+                cmd.method,
+                cmd.path,
+                sender_id,
+                delivery_id
+            );
+            return Ok(Json(saturated_response()));
+        }
+        super::send_dedupe::Admission::Owner(entry) => entry,
+    };
 
-    // A failed dispatch is answered too — concurrent duplicates must ack the SAME
-    // outcome, so fold transport/validation errors into an ok:false response
-    // rather than an axum error the waiters could never observe.
+    // Cache the outcome so concurrent duplicates ack it; fold transport/validation
+    // errors into ok:false rather than an axum error waiters could never observe.
     let response = perform_relay(&state, &sender_id, &cmd)
         .await
         .unwrap_or_else(|(status, message)| crate::mesh::types::RelayResponse {
@@ -388,10 +400,35 @@ pub async fn mesh_relay(
     Ok(Json(response))
 }
 
-/// Whether an outcome stays in the dedupe window. A success or an in-doubt
-/// failure (bytes reached the PTY) must dedupe — retrying risks a duplicate. A
-/// definitively-not-delivered failure must NOT: the taxonomy told the sender it
-/// is safe to retry, so the window may not silently swallow that retry.
+/// A retry-safe, definitively-not-delivered response for a saturated dedupe
+/// window: nothing was written, so `bytes_written=false` tells the sender to retry.
+fn saturated_response() -> crate::mesh::types::RelayResponse {
+    let data = serde_json::json!({
+        "ok": false,
+        "error": {
+            "code": "mesh_delivery_window_saturated",
+            "bytes_written": false,
+            "message": "mesh delivery window saturated by in-flight sends; nothing written"
+        }
+    });
+    crate::mesh::types::RelayResponse {
+        ok: false,
+        status: 503,
+        error: Some(relay_error_summary(503, &data)),
+        data: Some(data),
+    }
+}
+
+/// A logical pane send (POST `.../send`) gets a fresh delivery id for at-most-once
+/// dedupe; every other relayed operation opts out (None).
+fn relay_send_delivery_id(method: &str, path: &str) -> Option<String> {
+    let bare = path.split('?').next().unwrap_or(path);
+    (method.eq_ignore_ascii_case("POST") && bare.ends_with("/send"))
+        .then(|| uuid::Uuid::new_v4().to_string())
+}
+
+/// Keep an outcome deduped only if it delivered or is in-doubt (bytes reached the
+/// PTY). Definitively-not-delivered is released so its safe-retry isn't lost.
 fn outcome_holds_dedupe(resp: &crate::mesh::types::RelayResponse) -> bool {
     if resp.ok {
         return true;
@@ -714,8 +751,26 @@ mod tests {
 
     use super::outcome_holds_dedupe;
     use super::relay_error_summary;
+    use super::relay_send_delivery_id;
     use super::spawn_registration_from_relay;
     use crate::mesh::types::RelayResponse;
+
+    #[test]
+    fn peer_relay_stamps_delivery_id_only_on_sends() {
+        let id = relay_send_delivery_id("POST", "/api/panes/abc/send")
+            .expect("a forwarded pane send carries a delivery id");
+        assert!(uuid::Uuid::parse_str(&id).is_ok(), "a v4 uuid: {id}");
+        assert!(
+            relay_send_delivery_id("POST", "/api/panes/abc/send?x=1").is_some(),
+            "query string does not hide a send"
+        );
+        assert!(
+            relay_send_delivery_id("GET", "/api/panes/abc/send").is_none(),
+            "a GET is never a logical send"
+        );
+        assert!(relay_send_delivery_id("POST", "/api/panes").is_none());
+        assert!(relay_send_delivery_id("POST", "/api/agents/spawn").is_none());
+    }
 
     #[test]
     fn dedupe_holds_success_and_in_doubt_but_releases_undelivered() {
