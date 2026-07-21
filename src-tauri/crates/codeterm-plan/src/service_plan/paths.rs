@@ -9,7 +9,7 @@ pub fn global_plan_database_path() -> PathBuf {
 
 pub fn project_root(cwd: &Path) -> PathBuf {
     #[cfg(any(test, feature = "test-support"))]
-    if test_project_root_marker(cwd).is_some() {
+    if test_project_root(cwd).is_some() {
         return cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
     }
     if let Some(root) = main_worktree_root(cwd) {
@@ -51,7 +51,7 @@ pub fn mark_test_project_root(root: &Path) {
 }
 
 #[cfg(any(test, feature = "test-support"))]
-fn test_project_root_marker(cwd: &Path) -> Option<PathBuf> {
+pub(crate) fn test_project_root(cwd: &Path) -> Option<PathBuf> {
     let mut current = cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
     loop {
         if current.join(TEST_PROJECT_ROOT_MARKER).is_file() {

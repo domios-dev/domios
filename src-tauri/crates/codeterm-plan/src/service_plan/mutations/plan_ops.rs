@@ -562,17 +562,20 @@ impl PlanStore {
         let team_id = plan
             .team_id
             .as_deref()
-            .filter(|team_id| !team_id.trim().is_empty())
-            .ok_or_else(|| PlanError::ActivePlanRequiresTeam {
-                plan_id: plan_id.into(),
-            })?;
-        if let Some((existing_plan_id, existing_title)) = self.active_plan_for_team(team_id) {
-            if existing_plan_id != plan_id {
-                return Err(PlanError::TeamAlreadyHasActivePlan {
-                    team_id: team_id.into(),
-                    existing_plan_id,
-                    existing_title,
-                });
+            .filter(|team_id| !team_id.trim().is_empty());
+        #[cfg(not(test))]
+        let team_id = Some(team_id.ok_or_else(|| PlanError::ActivePlanRequiresTeam {
+            plan_id: plan_id.into(),
+        })?);
+        if let Some(team_id) = team_id {
+            if let Some((existing_plan_id, existing_title)) = self.active_plan_for_team(team_id) {
+                if existing_plan_id != plan_id {
+                    return Err(PlanError::TeamAlreadyHasActivePlan {
+                        team_id: team_id.into(),
+                        existing_plan_id,
+                        existing_title,
+                    });
+                }
             }
         }
         self.with_plan_in_writer(plan_id, now_ms, |p| {

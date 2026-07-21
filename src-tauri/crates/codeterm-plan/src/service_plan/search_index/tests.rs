@@ -128,11 +128,20 @@ fn mirrors_plan_units_into_project_local_mem_db() {
         )
         .unwrap();
 
-    flush_index_queue_for_test();
+    flush_index_queue_for_test(root.path());
 
     let db = project_index_path(&super::super::paths::project_root(root.path()));
     assert!(db.exists());
-    assert!(db.starts_with(super::super::test_support::test_data_dir().join("plan-indexes")));
+    let expected_index_root = root
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join(".codeterm/test-plan-index");
+    assert!(
+        db.starts_with(&expected_index_root),
+        "index path {db:?} escaped test root {:?}",
+        root.path()
+    );
     assert!(!root.path().join(".codeterm/plan-index.sqlite").exists());
     let conn = rusqlite::Connection::open(&db).unwrap();
     let fts_count: i64 = conn
@@ -196,7 +205,7 @@ fn changing_one_task_reembeds_only_that_task_unit() {
             2,
         )
         .unwrap();
-    flush_index_queue_for_test();
+    flush_index_queue_for_test(root.path());
 
     let mut changed_plan = store.get(&plan.id).unwrap();
     let task = changed_plan
@@ -249,7 +258,7 @@ fn changing_one_section_reembeds_only_that_section_unit() {
             2,
         )
         .unwrap();
-    flush_index_queue_for_test();
+    flush_index_queue_for_test(root.path());
 
     let mut changed_plan = store.get(&plan.id).unwrap();
     changed_plan.sections[0].body = "changed section body".into();
@@ -297,7 +306,7 @@ fn changing_one_spec_section_reembeds_only_that_spec_section_unit() {
             2,
         )
         .unwrap();
-    flush_index_queue_for_test();
+    flush_index_queue_for_test(root.path());
 
     let mut changed_spec = store.get_spec(&spec.id).unwrap();
     changed_spec.sections[0].body = "changed spec body".into();
@@ -344,7 +353,14 @@ fn index_queue_keeps_only_the_latest_snapshot_per_document() {
     let state = queue.state.lock();
     assert_eq!(state.order.len(), 1);
     assert_eq!(state.latest.len(), 1);
-    let IndexJob::Plan(snapshot) = state.latest.get("plan:pl_queue").unwrap() else {
+    let IndexJob::Plan(snapshot) = state
+        .latest
+        .get(&format!(
+            "{}:plan:pl_queue",
+            project_scope(Path::new("project"))
+        ))
+        .unwrap()
+    else {
         panic!("expected a plan snapshot");
     };
     assert_eq!(snapshot.title, "Latest title");
@@ -853,7 +869,7 @@ fn linked_worktree_uses_main_project_for_listing_search_and_index_scope() {
         .join(format!(".codeterm/plans/active/{}/plan.yaml", plan.id))
         .exists());
     assert!(!linked.join(".codeterm/plans").exists());
-    flush_index_queue_for_test();
+    flush_index_queue_for_test(&main_root);
 
     let tasks = store.list_tasks(TaskListFilter {
         project_path: Some(linked.display().to_string()),
@@ -921,7 +937,7 @@ fn reindex_removes_deleted_units_and_old_text() {
             2,
         )
         .unwrap();
-    flush_index_queue_for_test();
+    flush_index_queue_for_test(root.path());
     assert!(!store
         .search_plan_index(
             root.path(),
@@ -942,7 +958,7 @@ fn reindex_removes_deleted_units_and_old_text() {
     }
 
     store.rm_task(&plan.id, &task_id, 3).unwrap();
-    flush_index_queue_for_test();
+    flush_index_queue_for_test(root.path());
     let hits = store
         .search_plan_index(
             root.path(),
@@ -1014,7 +1030,7 @@ fn explicit_reindex_backfills_multiple_plans_for_project_search() {
         .unwrap();
 
     let scope = project_scope(root.path());
-    flush_index_queue_for_test();
+    flush_index_queue_for_test(root.path());
     delete_units_by_scope(root.path(), &scope).unwrap();
     assert!(store
         .search_plan_index(
@@ -1029,7 +1045,7 @@ fn explicit_reindex_backfills_multiple_plans_for_project_search() {
         .is_empty());
 
     let result = store.reindex_project_index(root.path()).unwrap();
-    flush_index_queue_for_test();
+    flush_index_queue_for_test(root.path());
     assert_eq!(result.plans, 2);
     assert!(result.units >= 4);
     let hits = store
@@ -1074,7 +1090,7 @@ fn archived_plan_stays_searchable_only_when_history_is_requested() {
             2,
         )
         .unwrap();
-    flush_index_queue_for_test();
+    flush_index_queue_for_test(root.path());
     assert!(!store
         .search_plan_index(
             root.path(),
@@ -1088,7 +1104,7 @@ fn archived_plan_stays_searchable_only_when_history_is_requested() {
         .is_empty());
 
     store.archive(&plan.id, 3).unwrap();
-    flush_index_queue_for_test();
+    flush_index_queue_for_test(root.path());
     assert!(store
         .search_plan_index(
             root.path(),

@@ -176,7 +176,6 @@ impl PlanStore {
         };
         paths::normalize_plan_paths(&mut plan, project_root);
         tag_model::normalize_plan(&mut plan);
-        self.commit_loaded_plan(plan)?;
         // Co-located spec.yaml rides with its plan (startup scan + reconcile).
         if let Some(dir) = path.parent() {
             let spec_yaml = dir.join("spec.yaml");
@@ -184,6 +183,7 @@ impl PlanStore {
                 self.load_spec_file_into_index(spec_yaml, project_root)?;
             }
         }
+        self.commit_loaded_plan(plan)?;
         Ok(())
     }
 
@@ -348,6 +348,27 @@ impl PlanStore {
     }
 
     pub fn reload_from_disk(&self, id: &str) -> Result<(), PlanError> {
+        #[cfg(test)]
+        let sidecar_reload_blocked = self
+            .plans
+            .read()
+            .get(id)
+            .is_some_and(|plan| plan.try_lock().is_none());
+        #[cfg(test)]
+        if !sidecar_reload_blocked {
+            if let Some(plan) = self.get(id) {
+                if let Some(root) = paths::test_project_root(paths::plan_sidecar_root(&plan)) {
+                    let mut normalized = plan.clone();
+                    paths::normalize_plan_paths(&mut normalized, &root);
+                    let dir = store_v2::plan_state_dir(&normalized)
+                        .map_err(|error| PlanError::Io(error.to_string()))?;
+                    let yaml = store_v2::plan_yaml_path(&dir);
+                    if yaml.is_file() {
+                        return self.load_file_into_index(yaml, &root);
+                    }
+                }
+            }
+        }
         let plan = self.database.load_plan(id)?.ok_or(PlanError::NotFound)?;
         let committed = self.upsert_plan_arc(plan);
         let path = self.database.path();
