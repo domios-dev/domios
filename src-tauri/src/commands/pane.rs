@@ -204,7 +204,8 @@ pub struct ChatStartResult {
     pub text: String,
     pub start_offset: u64,
     pub offset: u64,
-    /// Agent pane exists but its session hasn't been created yet — render an empty chat and retry once the mux reports a session id.
+    /// Agent provisioning is in flight; the pane boot state supplies its visible
+    /// progress until the mux reports a session id.
     #[serde(default)]
     pub pending: bool,
     /// Structured providers (sqlite-backed, e.g. opencode) return parsed
@@ -303,7 +304,22 @@ pub fn chat_start_core(
         let t = std::time::Instant::now();
         let m = svc.mux.write();
         let pane = m.get_pane(&pane_id).ok_or("pane not found")?;
-        let provider = pane.agent_type.clone().ok_or("pane has no agent_type")?;
+        let Some(provider) = pane.agent_type.clone() else {
+            if pane.agent_booting || pane.boot_stage.is_some() {
+                return Ok(ChatStartResult {
+                    text: String::new(),
+                    start_offset: 0,
+                    offset: 0,
+                    pending: true,
+                    messages: None,
+                    cursor: None,
+                    source_session_id: None,
+                    session_binding_nonce: pane.session_binding_nonce.clone(),
+                    subscription_id: None,
+                });
+            }
+            return Err("pane has no agent_type".into());
+        };
         let cwd = pane.cwd.clone().unwrap_or_default();
         let Some(sid) = pane.agent_session_id.clone() else {
             if let Some(content) = pane.pending_greeting.clone() {

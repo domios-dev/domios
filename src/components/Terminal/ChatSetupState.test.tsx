@@ -81,6 +81,12 @@ async function main() {
     assert(chatSetupView(null).kind === "none", "no pane is none");
   });
 
+  await test("reserved or launching panes stay booting even after chat attaches", () => {
+    const reserved = { ...pane(null), agent_booting: true } as Pane;
+    assert(chatSetupView(reserved, true).kind === "starting", "reserved pane is booting");
+    assert(chatSetupView(pane("pty_starting"), true).kind === "starting", "launching pane is booting");
+  });
+
   await test("starting renders the setup card with the stage label", async () => {
     const p = { ...pane("preparing_role_instructions"), cwd: "/work/identity-card", role: "Worker", agent_session_model: "Focused" } as Pane;
     const host = await render(
@@ -159,6 +165,14 @@ async function main() {
       <ChatSetupState pane={p} view={chatSetupView(p)} providerName="Codex" onRetry={() => {}} />,
     );
     assert(!host.querySelector('[data-testid="chat-launch-retry"]'), "retry is hidden when the pane cannot be restarted");
+  });
+
+  await test("a failed provisioned agent offers retry without a provider-specific branch", async () => {
+    const p = { ...pane("spawn_failed", "launch failed", false), agent_type: "provider-from-descriptor" } as Pane;
+    const host = await render(
+      <ChatSetupState pane={p} view={chatSetupView(p)} providerName="Agent" onRetry={() => {}} />,
+    );
+    assert(host.querySelector('[data-testid="chat-launch-retry"]'), "provisioned agent can retry");
   });
 
   await test("second launch failure exposes the terminal log action", async () => {
