@@ -23,6 +23,7 @@ pub fn start(svc: ServiceState) {
         let pty_ids = svc.agent_tracker.lock().all_ids();
         for pty_id in pty_ids {
             svc.recompute_agent_state(&pty_id);
+            svc.run_watcher.complete_via_semantic_idle(&svc, &pty_id);
         }
     });
 }
