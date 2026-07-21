@@ -1,0 +1,4 @@
+import type { ComponentType } from "react";
+import { WorkspaceCubeGrid } from "../../ds/WorkspaceCubeGrid";
+type SpecimenDef = { id: string; title: string; where: string; states: Array<{ id: string; label: string; props: object }>; Component: ComponentType<any>; notes?: string };
+export default { id:"workspace-cube-grid", title:"Workspace cube grid", where:"src/components/Sidebar/WorkspaceCardGrid.tsx", states:[{id:"mixed",label:"Selected + working",props:{}},{id:"unselected",label:"Unselected",props:{workspaces:[{id:"aa",initials:"AA",name:"Atlas"},{id:"am",initials:"AM",name:"Amber"},{id:"ct",initials:"CT",name:"CodeTerm"},{id:"kp",initials:"KP",name:"Kite"}]}},{id:"working",label:"Working",props:{workspaces:[{id:"aa",initials:"AA",name:"Atlas",working:true},{id:"am",initials:"AM",name:"Amber",working:true}]} }], Component:WorkspaceCubeGrid } satisfies SpecimenDef;
