@@ -40,6 +40,73 @@ test_names=()
 log_files=()
 fails=0
 
+run_with_timeout() {
+    local timeout_secs="$1"
+    shift
+
+    if [ -z "${CODETERM_FORCE_PORTABLE_TIMEOUT:-}" ]; then
+        if command -v timeout >/dev/null 2>&1; then
+            timeout --kill-after=5s "${timeout_secs}s" "$@"
+            return $?
+        fi
+
+        if command -v gtimeout >/dev/null 2>&1; then
+            gtimeout --kill-after=5s "${timeout_secs}s" "$@"
+            return $?
+        fi
+    fi
+
+    if ! command -v perl >/dev/null 2>&1; then
+        echo "TS unit runner: portable timeout requires Perl (alarm/signal) or GNU timeout" >&2
+        echo "Install: macOS (brew install perl), Linux (should have perl by default)" >&2
+        return 127
+    fi
+
+    perl -e '
+    use POSIX qw(setpgid);
+    use strict;
+    use warnings;
+
+    my $timeout = $ARGV[0];
+    my @cmd = @ARGV[1..$#ARGV];
+
+    my $pid = fork();
+    exit 1 unless defined $pid;
+
+    if ($pid == 0) {
+        setpgid(0, 0);
+        exec { $cmd[0] } @cmd;
+        exit 127;
+    }
+
+    setpgid($pid, $pid);
+
+    my $timed_out = 0;
+    my $stage = 0;
+
+    local $SIG{ALRM} = sub {
+        $stage++;
+        if ($stage == 1) {
+            $timed_out = 1;
+            kill(-15, $pid);
+            alarm(5);
+        } elsif ($stage >= 2) {
+            kill(-9, $pid);
+            alarm(0);
+        }
+    };
+
+    alarm($timeout);
+    waitpid($pid, 0);
+    my $status = $?;
+    alarm(0);
+
+    exit 124 if $timed_out;
+    exit($status >> 8 || ($status & 127 ? 128 + ($status & 127) : 0));
+    ' "$timeout_secs" "$@"
+    return $?
+}
+
 reap_one() {
     local i status t log
 
@@ -75,7 +142,7 @@ reap_one() {
 for i in "${!tests[@]}"; do
     t="${tests[$i]}"
     log="$log_dir/$i.log"
-    timeout --kill-after=5s "${test_timeout}s" npx tsx "$t" >"$log" 2>&1 &
+    run_with_timeout "$test_timeout" npx tsx "$t" >"$log" 2>&1 &
     pid=$!
     pids+=("$pid")
     test_names+=("$t")
