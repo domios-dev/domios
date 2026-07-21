@@ -25,7 +25,7 @@ You are inside CodeTerm, an AI-first terminal multiplexer. CLI binary: `codeterm
 | Domain / trigger | Commands | Depth |
 |---|---|---|
 | Environment, version, what-can-this-do | `codeterm identify`, `capabilities`, `docs` | — |
-| Tabs, sending text/keys, reading a tab | `tab --help`, `send --help`, `tab chat`, `tab get-text`, `tab exec` | `docs ROUTING` |
+| Tabs, sending text/keys, reading a tab | `tab list` first for compact discovery; use `tab list --json` only for full inspection, then `send`, `tab chat`, `tab get-text`, `tab exec` | `docs ROUTING` |
 | Long-running processes (servers, watchers) | `tab new --cmd "..."` — own visible tab, not your shell | — |
 | Scheduled/future message to a tab | `send --delay/--at`, `delayed --help` | — |
 | Spawning agents, worker/orchestrator shapes, reports | `agent spawn --help`, `agent report`, `agent reports`, `agent providers/models` | `docs ORCHESTRATION` |
