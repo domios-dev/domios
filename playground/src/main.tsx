@@ -1,52 +1,87 @@
-import { StrictMode, useState } from "react";
+import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { MotionPlayground } from "./MotionPlayground";
 import { LiquidGlassLab } from "./concepts/liquidglass/LiquidGlassLab";
 import "./playground.css";
-import "./lab-switch.css";
+import "./portal.css";
 
-const VIEWS = [
-  { id: "liquid-glass", label: "Liquid Glass", render: () => <LiquidGlassLab /> },
-  { id: "motion-lab", label: "Motion Lab", render: () => <MotionPlayground /> },
+const LABS = [
+  {
+    id: "liquid-glass",
+    tag: "react lab",
+    title: "Living Controls",
+    blurb: "Real buttons, dots and toggles with liquid squash-jump motion: hover bounce, wall-bouncing thumbs, the living dots.",
+    render: () => <LiquidGlassLab />,
+  },
 ] as const;
 
-function initialView(): (typeof VIEWS)[number]["id"] {
-  const hash = window.location.hash.replace("#", "");
-  return VIEWS.some((v) => v.id === hash) ? (hash as (typeof VIEWS)[number]["id"]) : VIEWS[0].id;
+const PAGES = [
+  {
+    href: "liquidglass-studies.html",
+    tag: "standalone svg",
+    title: "SVG Glass Studies",
+    blurb: "Eight looping micro-studies of the liquid-glass motion style — pure SVG filters, opens as its own page.",
+  },
+] as const;
+
+function readHash(): string {
+  return window.location.hash.replace(/^#/, "");
 }
 
-function Lab() {
-  const [view, setView] = useState(initialView);
-  const active = VIEWS.find((v) => v.id === view) ?? VIEWS[0];
+function Portal() {
+  const [route, setRoute] = useState(readHash);
+
+  useEffect(() => {
+    const onHash = () => setRoute(readHash());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
+  const lab = LABS.find((l) => l.id === route);
+  if (lab) {
+    return (
+      <div className="portal">
+        <a className="portal-back" href="#">← all experiments</a>
+        {lab.render()}
+      </div>
+    );
+  }
 
   return (
-    <>
-      <nav className="lab-switch" aria-label="Playground view">
-        {VIEWS.map((v) => (
-          <button
-            key={v.id}
-            type="button"
-            className={`lab-switch__btn${v.id === view ? " is-active" : ""}`}
-            aria-pressed={v.id === view}
-            onClick={() => {
-              setView(v.id);
-              window.location.hash = v.id;
-            }}
-          >
-            {v.label}
-          </button>
-        ))}
-      </nav>
-      {active.render()}
-    </>
+    <div className="portal">
+      <main className="portal-inner">
+        <p className="portal-kicker">CodeTerm · internal</p>
+        <h1>Motion Playground</h1>
+        <p className="portal-lede">
+          Every motion-design experiment in one place. The direction: liquid squash-jump —
+          the physics of the jumping dots applied as a fluid, restrained motion language
+          across the real interface.
+        </p>
+        <div className="portal-grid">
+          {LABS.map((l) => (
+            <a key={l.id} className="portal-card" href={`#${l.id}`}>
+              <span className="portal-card-tag">{l.tag}</span>
+              <h2>{l.title}</h2>
+              <p>{l.blurb}</p>
+            </a>
+          ))}
+          {PAGES.map((p) => (
+            <a key={p.href} className="portal-card" href={p.href}>
+              <span className="portal-card-tag">{p.tag}</span>
+              <h2>{p.title}</h2>
+              <p>{p.blurb}</p>
+            </a>
+          ))}
+        </div>
+      </main>
+    </div>
   );
 }
 
 const root = document.getElementById("root");
-if (!root) throw new Error("Motion Lab root is missing");
+if (!root) throw new Error("Playground root is missing");
 
 createRoot(root).render(
   <StrictMode>
-    <Lab />
+    <Portal />
   </StrictMode>,
 );

@@ -1,0 +1,104 @@
+/* Playground portal — the front door to every motion experiment.
+   CodeTerm palette (github-dark defaults), quiet, no decoration. */
+.portal {
+  --ct-bg: #0d1117;
+  --ct-fg: #c9d1d9;
+  --ct-accent: #58a6ff;
+  --ct-muted-fg: #8b949e;
+  --ct-border: #262c36;
+  --ct-surface: #161b22;
+
+  min-height: 100vh;
+  color: var(--ct-fg);
+  font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+}
+
+.portal-inner {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 64px 24px 80px;
+}
+
+.portal-kicker {
+  margin: 0 0 6px;
+  color: var(--ct-muted-fg);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.portal h1 {
+  margin: 0 0 8px;
+  font-size: 26px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.portal-lede {
+  max-width: 60ch;
+  margin: 0 0 36px;
+  color: var(--ct-muted-fg);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.portal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+}
+
+.portal-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 20px;
+  border: 1px solid var(--ct-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ct-surface) 70%, transparent);
+  color: inherit;
+  text-decoration: none;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  transition: border-color 0.2s ease, background 0.2s ease, transform 0.25s cubic-bezier(0.22, 0.9, 0.25, 1);
+}
+.portal-card:hover {
+  border-color: color-mix(in srgb, var(--ct-accent) 45%, var(--ct-border));
+  background: var(--ct-surface);
+  transform: translateY(-1px);
+}
+.portal-card:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ct-bg), 0 0 0 4px color-mix(in srgb, var(--ct-accent) 60%, transparent);
+}
+
+.portal-card-tag {
+  color: var(--ct-accent);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.portal-card h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.portal-card p { margin: 0; color: var(--ct-muted-fg); font-size: 13px; line-height: 1.5; }
+
+.portal-back {
+  position: fixed;
+  top: 14px;
+  left: 16px;
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--ct-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, #0d1117 88%, transparent);
+  color: var(--ct-muted-fg);
+  font-size: 12px;
+  text-decoration: none;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.portal-back:hover { color: var(--ct-fg); border-color: #3a4350; }

@@ -45,7 +45,6 @@ export function GlassButton({ variant = "primary", size = "md", children, classN
       onAnimationEnd={disarm}
       {...rest}
     >
-      <span className="lg-btn__sheen" aria-hidden />
       <span className="lg-btn__label">{children}</span>
     </button>
   );

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { GlassButton } from "./GlassButton";
 import { LivingDots } from "./LivingDots";
-import { LiquidSegmented, LiquidToggle } from "./LiquidControls";
+import { LiquidFlip, LiquidSegmented, LiquidToggle } from "./LiquidControls";
 import "./liquidglass.css";
 
 const DENSITY = ["Compact", "Cozy", "Roomy"];
@@ -40,7 +40,7 @@ export function LiquidGlassLab() {
         </p>
       </header>
 
-      <Bay eyebrow="press" title="Buttons — glass hover, squash-jump press, glass focus ring">
+      <Bay eyebrow="press" title="Buttons — a light hover bounce, squash-jump press, focus ring">
         <div className="flex flex-wrap items-center gap-3">
           <GlassButton variant="primary">Run agent</GlassButton>
           <GlassButton variant="accent">
@@ -55,11 +55,11 @@ export function LiquidGlassLab() {
           <GlassButton variant="primary" size="sm">Small</GlassButton>
         </div>
         <p className="text-xs text-[var(--ct-muted-fg)]">
-          Tab to a button to see the glass focus ring settle in.
+          Hover barely lifts; press squashes and jumps. Tab to see the focus ring.
         </p>
       </Bay>
 
-      <Bay eyebrow="pulse" title="Living dots — the signature, plus a glass-bead variation">
+      <Bay eyebrow="pulse" title="Living dots — the signature">
         <div className="flex flex-wrap items-center gap-8">
           <div className="flex items-center gap-2.5">
             <LivingDots variant="signature" />
@@ -70,17 +70,13 @@ export function LiquidGlassLab() {
             <span className="text-sm text-[var(--ct-muted-fg)]">thinking</span>
           </div>
           <div className="flex items-center gap-2.5">
-            <LivingDots variant="glass" />
-            <span className="text-sm text-[var(--ct-muted-fg)]">glass bead</span>
-          </div>
-          <div className="flex items-center gap-2.5">
             <LivingDots variant="signature" idle label="idle" />
             <span className="text-sm text-[var(--ct-muted-fg)]">idle</span>
           </div>
         </div>
       </Bay>
 
-      <Bay eyebrow="switch" title="Liquid controls — a morphing segmented thumb and a glass toggle">
+      <Bay eyebrow="switch" title="Liquid controls — thumbs bounce off the walls, never past them">
         <div className="flex flex-wrap items-center gap-x-10 gap-y-6">
           <div className="flex flex-col gap-2">
             <span className="text-xs text-[var(--ct-muted-fg)]">Density</span>
@@ -96,7 +92,7 @@ export function LiquidGlassLab() {
           </div>
           <div className="flex flex-col gap-2">
             <span className="text-xs text-[var(--ct-muted-fg)]">Autopilot</span>
-            <LiquidToggle checked={autopilot} onChange={setAutopilot} ariaLabel="Autopilot" />
+            <LiquidFlip checked={autopilot} onChange={setAutopilot} ariaLabel="Autopilot" />
           </div>
         </div>
       </Bay>
