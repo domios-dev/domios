@@ -186,18 +186,16 @@ impl ServiceContext {
             &run_id,
         );
 
-        let model = model
-            .or_else(|| {
-                let mem_cfg = crate::config::memory_config();
-                if !mem_cfg.dreaming_model.is_empty() {
-                    Some(mem_cfg.dreaming_model.clone())
-                } else if !mem_cfg.worker_model.is_empty() {
-                    Some(mem_cfg.worker_model.clone())
-                } else {
-                    None
-                }
-            })
-            .map(|s| crate::agent::models::canonicalize_short(&s).to_string());
+        let model = model.or_else(|| {
+            let mem_cfg = crate::config::memory_config();
+            let (resolved, _fell_back) = codeterm_mem::worker_agent::resolve_worker_model(
+                &mem_cfg.dreaming_model,
+                &mem_cfg.worker_model,
+                &agent,
+                &crate::service::spawn::CatalogBackgroundModelPort,
+            );
+            (!resolved.is_empty()).then_some(resolved)
+        });
 
         let spec = SpawnPaneSpec {
             workspace_id: if workspace_id.is_empty() {

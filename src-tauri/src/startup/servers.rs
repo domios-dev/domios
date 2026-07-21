@@ -50,6 +50,7 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
             &mut crate::mem_host::CronSchedulerPort(&mut cs),
             &mem_cfg,
             &default_agent,
+            &crate::service::spawn::CatalogBackgroundModelPort,
         ) {
             Ok(true) => log::info!("[mem] auto-installed dreaming cron"),
             Ok(false) => log::debug!("[mem] dreaming cron already present"),

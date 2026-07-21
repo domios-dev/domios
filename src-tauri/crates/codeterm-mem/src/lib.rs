@@ -19,6 +19,7 @@ pub mod search;
 pub mod seed;
 pub mod store;
 pub mod supervisor;
+pub mod worker_agent;
 pub mod worker_pool;
 pub mod workers;
 

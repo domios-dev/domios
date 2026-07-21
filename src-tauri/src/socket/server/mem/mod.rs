@@ -544,22 +544,23 @@ fn mem_worker_spawn(
     }
     let b: SpawnParams = parse_params(params)?;
     let mem_cfg = crate::config::memory_config();
-    let agent = b.agent.unwrap_or_else(|| {
-        if mem_cfg.extraction_agent.is_empty() {
-            crate::config::default_agent_provider()
-        } else {
-            mem_cfg.extraction_agent.clone()
-        }
-    });
     let parent = b.parent.unwrap_or_else(|| "user:memory-panel".to_string());
-    let raw_model = if mem_cfg.extraction_model.is_empty() {
-        mem_cfg.worker_model.clone()
-    } else {
-        mem_cfg.extraction_model.clone()
-    };
-    let model =
-        crate::service::spawn::compatible_background_model(&agent, &raw_model).unwrap_or_default();
-    let worker_id = workers::spawn_headless(svc, b.intent, b.task, parent, agent, model)
+    let resolved = codeterm_mem::worker_agent::resolve_worker(
+        b.agent.as_deref(),
+        &mem_cfg.extraction_agent,
+        &mem_cfg.extraction_model,
+        &crate::config::default_agent_provider(),
+        &mem_cfg.worker_model,
+        &crate::service::spawn::CatalogBackgroundModelPort,
+    );
+    let worker_id = workers::spawn_headless(
+        svc,
+        b.intent,
+        b.task,
+        parent,
+        resolved.agent,
+        resolved.model,
+    )
         .map_err(internal_error)?;
     let info = svc.workers.get(&worker_id);
     Ok(serde_json::json!({
