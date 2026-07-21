@@ -109,7 +109,7 @@ var plugin = {
         parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
       }
     }
-    return (p.skipPermissions ? trustPrefix() : "") + parts.join(" ");
+    return disableClaudeHookImportPrefix() + (p.skipPermissions ? trustPrefix() : "") + parts.join(" ");
   },
   buildResumeCommand(sessionId, skipPermissions) {
     const parts = [
@@ -118,7 +118,7 @@ var plugin = {
       host.shell.quoteFor(String(sessionId || ""), host.platform())
     ];
     if (skipPermissions) parts.push("--force");
-    return (skipPermissions ? trustPrefix() : "") + parts.join(" ");
+    return disableClaudeHookImportPrefix() + (skipPermissions ? trustPrefix() : "") + parts.join(" ");
   },
   // ── Session discovery (sqlite metadata under ~/.cursor/chats/<md5(cwd)>) ──
   sessionExists(cwd, sessionId) {
@@ -353,6 +353,9 @@ function manifestModels() {
   } catch (_) {
     return [];
   }
+}
+function disableClaudeHookImportPrefix() {
+  return host.shell.envPrefix("CLAUDE_CODE_DISABLE_HOOKS", "1", host.platform());
 }
 function trustPrefix() {
   if (host.platform() === "windows") {

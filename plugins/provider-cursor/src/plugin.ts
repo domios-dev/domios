@@ -104,7 +104,7 @@ const plugin: PluginModule = {
         parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
       }
     }
-    return (p.skipPermissions ? trustPrefix() : "") + parts.join(" ");
+    return disableClaudeHookImportPrefix() + (p.skipPermissions ? trustPrefix() : "") + parts.join(" ");
   },
 
   buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
@@ -114,7 +114,7 @@ const plugin: PluginModule = {
       host.shell.quoteFor(String(sessionId || ""), host.platform()),
     ];
     if (skipPermissions) parts.push("--force");
-    return (skipPermissions ? trustPrefix() : "") + parts.join(" ");
+    return disableClaudeHookImportPrefix() + (skipPermissions ? trustPrefix() : "") + parts.join(" ");
   },
 
   // ── Session discovery (sqlite metadata under ~/.cursor/chats/<md5(cwd)>) ──
@@ -400,6 +400,14 @@ function manifestModels(): ModelInfo[] {
 // ── workspace trust ──
 
 // cwd (resolved + slugged exactly like cursor) unless it already exists.
+// cursor-agent's Bash tool picks up ~/.claude/settings.json's PreToolUse hooks
+// (Claude-Code-compat), and a hook authored for Claude's own shell dialect can
+// crash Cursor's runner (e.g. a PowerShell-flavored hook body under a POSIX
+// bash tool). Unconditional, every launch — never touches the user's file.
+function disableClaudeHookImportPrefix(): string {
+  return host.shell.envPrefix("CLAUDE_CODE_DISABLE_HOOKS", "1", host.platform());
+}
+
 function trustPrefix(): string {
   if (host.platform() === "windows") {
     return [
