@@ -348,6 +348,17 @@ impl ServiceContext {
                 svc.emit_cron_changed();
             });
             Ok(())
+        } else if let Some((job_id, run)) = store.find_run_by_id(run_id) {
+            // The watchdog (idle / hard timeout) already finalized this run and
+            // unregistered its pane before this explicit completion arrived —
+            // a durable race, not a caller error. The terminal status already
+            // recorded stands (first terminal wins); log it so the race stays
+            // observable instead of surfacing as an opaque "not found".
+            log::warn!(
+                "[cron] cron.complete for run={} (job={}) arrived after the run was already finalized as {:?} — treating as idempotent no-op",
+                run_id, job_id, run.status
+            );
+            Ok(())
         } else {
             Err(format!("No cron run found for run_id: {}", run_id))
         }
