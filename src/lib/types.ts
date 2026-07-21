@@ -188,6 +188,7 @@ export interface Pane {
   hidden?: boolean;
   show_in_tabbar?: boolean;
   worker_id?: string | null;
+  agent_booting?: boolean;
   /** Current agent-boot stage for late attachers reading the live snapshot.
    *  Absent once boot completes or before it begins. */
   boot_stage?: BootStage | null;
