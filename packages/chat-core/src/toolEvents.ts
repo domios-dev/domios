@@ -20,6 +20,15 @@ export type TimelineItem =
   | { kind: "message"; message: NormalizedChatMessage }
   | { kind: "tool"; event: ToolEvent };
 
+function isInternalOrchestrationTool(name: string | undefined): boolean {
+  return name === "send_message"
+    || name === "spawn_agent"
+    || name === "followup_task"
+    || name === "interrupt_agent"
+    || name === "list_agents"
+    || name === "wait_agent";
+}
+
 function text(value: string | undefined): string {
   return value?.trim() ?? "";
 }
@@ -84,6 +93,7 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
   const seenResults = new Set<string>();
 
   for (const message of messages) {
+    if (isInternalOrchestrationTool(message.toolName)) continue;
     if (message.type === "tool_call" || message.type === "tool_result") {
       const hasContent = Boolean(
         message.content?.trim() ||

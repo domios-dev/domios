@@ -832,7 +832,7 @@ var plugin = {
         }
         if (input && input.cmd && !input.command) input.command = input.cmd;
         const name = typeof p.name === "string" ? p.name.trim() : "";
-        if (!hasUsefulFunctionCall(name, input, p.arguments)) continue;
+        if (isInternalOrchestrationCall(name) || !hasUsefulFunctionCall(name, input, p.arguments)) continue;
         const callId = typeof p.call_id === "string" ? p.call_id : "";
         const canonical = canonicalToolFields(name, input);
         out.push({
@@ -852,6 +852,7 @@ var plugin = {
       } else if (p.type === "custom_tool_call") {
         let name = typeof p.name === "string" ? p.name.trim() : "";
         if (!name) continue;
+        if (isInternalOrchestrationCall(name)) continue;
         let input = {};
         if (name === "apply_patch" && typeof p.input === "string") {
           input = { patch: p.input };
@@ -1481,6 +1482,9 @@ function hasUsefulFunctionCall(name, input, args) {
   if (name) return true;
   if (typeof args === "string" && args.trim() && args.trim() !== "{}") return true;
   return Object.keys(input || {}).length > 0;
+}
+function isInternalOrchestrationCall(name) {
+  return name === "send_message" || name === "spawn_agent" || name === "followup_task" || name === "interrupt_agent" || name === "list_agents" || name === "wait_agent";
 }
 function classifyCodexSystemText(text) {
   const trimmed = String(text || "").trim();
