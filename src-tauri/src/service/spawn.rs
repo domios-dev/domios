@@ -983,7 +983,11 @@ impl ServiceContext {
                                 &pty_id,
                                 format!("task delivery failed: {e}"),
                             );
+                        } else {
+                            svc_outer.run_watcher.arm(&pty_id);
                         }
+                    } else {
+                        svc_outer.run_watcher.arm(&pty_id);
                     }
                 }
                 Err(e) => log::error!("[spawn.hidden] no pty for pane {}: {}", pane_id_outer, e),
