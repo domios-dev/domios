@@ -370,11 +370,20 @@ fn test_build_claude_task_temp_file_created() {
     let params = make_params("claude", Some(task));
     let cmd = build_agent_command("claude", &params, Some(task), None, &reg);
     if cfg!(not(target_os = "windows")) {
-        // Command looks like: ... "$(cat /tmp/.ct-task-XXXXXXXX)"
-        let start = cmd.find("/tmp/.ct-task-").unwrap();
-        let end = cmd[start..].find(')').unwrap() + start;
-        let path = &cmd[start..end];
-        let content = std::fs::read_to_string(path).unwrap();
+        // Command looks like: ... "$(cat /path/to/.ct-task-XXXXXXXX)"
+        let marker = ".ct-task-";
+        let marker_pos = cmd
+            .find(marker)
+            .expect("command should contain .ct-task- marker");
+        // Back up to find the start of the path (the initial /)
+        let path_start = cmd[..marker_pos].rfind('/').expect("path should contain /");
+        // Find the end of the path (stop at ), space, or quote)
+        let path_end = cmd[marker_pos..]
+            .find(|c: char| c == ')' || c == '"' || c == ' ')
+            .map(|i| i + marker_pos)
+            .unwrap_or(cmd.len());
+        let path = &cmd[path_start..path_end];
+        let content = std::fs::read_to_string(path).expect("temp file should exist");
         assert_eq!(content, task, "temp file should contain the task verbatim");
         let _ = std::fs::remove_file(path);
     }
