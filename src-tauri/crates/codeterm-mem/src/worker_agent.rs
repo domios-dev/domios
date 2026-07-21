@@ -32,7 +32,11 @@ pub struct ResolvedWorkerAgent {
 /// Step 1 of the ladder: pick the agent/provider. An explicit override (e.g.
 /// a caller-supplied `agent` param) wins outright; otherwise the per-worker
 /// config field if set, else the global default agent.
-pub fn resolve_worker_agent(explicit: Option<&str>, configured: &str, default_agent: &str) -> String {
+pub fn resolve_worker_agent(
+    explicit: Option<&str>,
+    configured: &str,
+    default_agent: &str,
+) -> String {
     if let Some(explicit) = explicit.map(str::trim).filter(|s| !s.is_empty()) {
         return explicit.to_string();
     }
@@ -147,7 +151,14 @@ mod tests {
             }
         );
 
-        let resolved = resolve_worker(Some("cursor"), "codex", "gpt-5.5", "claude", "haiku", &FakeCompat);
+        let resolved = resolve_worker(
+            Some("cursor"),
+            "codex",
+            "gpt-5.5",
+            "claude",
+            "haiku",
+            &FakeCompat,
+        );
         assert_eq!(resolved.agent, "cursor");
         assert_eq!(resolved.model, "");
         assert!(resolved.fell_back);

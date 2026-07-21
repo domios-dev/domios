@@ -870,7 +870,10 @@ impl PlanStore {
             return Ok(false);
         };
         let committed_review = report.status == Some(ReportStatus::InReview)
-            && report.sha.as_deref().is_some_and(|sha| !sha.trim().is_empty());
+            && report
+                .sha
+                .as_deref()
+                .is_some_and(|sha| !sha.trim().is_empty());
         self.with_plan(plan_id, now_ms, |plan| {
             let task_index = plan
                 .tasks
@@ -904,7 +907,10 @@ impl PlanStore {
             }
             let task = &mut plan.tasks[task_index];
             if task.lane.branch.as_deref().unwrap_or("").is_empty() {
-                task.lane.branch = report.branch.clone().filter(|branch| !branch.trim().is_empty());
+                task.lane.branch = report
+                    .branch
+                    .clone()
+                    .filter(|branch| !branch.trim().is_empty());
             }
             task.milestones.push(Milestone {
                 id: crate::plan::ids::short_id("ms"),
@@ -924,9 +930,14 @@ impl PlanStore {
                 canvas: Default::default(),
                 attachments: vec![],
             });
-            if let Some(attempt) = task.execution_attempts.iter_mut().rposition(|attempt| {
-                attempt.executor_pane_id == reporter_pane && attempt.closed_at.is_none()
-            }).map(|index| &mut task.execution_attempts[index]) {
+            if let Some(attempt) = task
+                .execution_attempts
+                .iter_mut()
+                .rposition(|attempt| {
+                    attempt.executor_pane_id == reporter_pane && attempt.closed_at.is_none()
+                })
+                .map(|index| &mut task.execution_attempts[index])
+            {
                 attempt.report = Some(TaskExecutionReportSnapshot {
                     id: format!("report_{now_ms}"),
                     message: Some(report.message),
