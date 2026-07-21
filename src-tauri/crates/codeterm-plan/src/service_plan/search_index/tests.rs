@@ -830,8 +830,10 @@ fn task_drop_readback_clears_assignment_role_and_peer() {
 
 #[test]
 fn linked_worktree_uses_main_project_for_listing_search_and_index_scope() {
-    let (_tmp, main, linked) = git_worktree_pair();
-    let store = PlanStore::new_for_test(Path::new("/unused"));
+    let (tmp, main, linked) = git_worktree_pair();
+    let store_root = tmp.path().join("store");
+    std::fs::create_dir(&store_root).unwrap();
+    let store = PlanStore::new_for_test(&store_root);
     let main_root = super::super::paths::project_root(&main);
     let linked_root = super::super::paths::project_root(&linked);
 
