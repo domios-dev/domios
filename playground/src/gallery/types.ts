@@ -9,6 +9,7 @@ export type SpecimenState = {
 export type Specimen = {
   id: string;
   title: string;
+  category: string;
   where: string;
   states: SpecimenState[];
   Component: ComponentType<Record<string, unknown>>;
