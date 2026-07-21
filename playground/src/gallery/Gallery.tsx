@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { AnimationInspector } from "./AnimationInspector";
+import { AnimationInspector, FitBox } from "./AnimationInspector";
 import type { Specimen } from "./types";
 
 const modules = import.meta.glob("./specimens/*.spec.tsx", { eager: true }) as Record<string, { default?: Specimen }>;
@@ -11,7 +11,13 @@ export const specimens = Object.values(modules)
 
 function Preview({ specimen }: { specimen: Specimen }) {
   const Component = specimen.Component;
-  return <div className="gallery-preview"><Component {...(specimen.states[0]?.props ?? {})} /></div>;
+  return (
+    <div className="gallery-preview">
+      <FitBox pad={24}>
+        <Component {...(specimen.states[0]?.props ?? {})} />
+      </FitBox>
+    </div>
+  );
 }
 
 export function GalleryIndex() {

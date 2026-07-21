@@ -89,7 +89,9 @@
   display: grid;
   place-items: center;
 }
-.gallery-preview { min-height: 54px; border-bottom: 1px solid var(--ct-border); }
+.gallery-preview { min-height: 54px; overflow: hidden; border-bottom: 1px solid var(--ct-border); }
+.gallery-fitbox { display: grid; justify-items: start; align-items: center; width: 100%; min-width: 0; overflow: hidden; }
+.gallery-fitbox-inner { display: inline-block; transform-origin: left center; white-space: nowrap; }
 .gallery-detail { padding-top: 88px; }
 .gallery-state-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 24px 0 14px; }
 .gallery-state-chips button,
@@ -120,10 +122,10 @@
 .gallery-play { min-width: 58px; padding: 7px 10px; }
 .gallery-scrub input { width: 100%; accent-color: var(--ct-accent); }
 .gallery-scrub output { min-width: 52px; color: var(--ct-muted-fg); font: 11px ui-monospace, "Cascadia Code", monospace; text-align: right; }
-.gallery-filmstrip { display: grid; grid-template-columns: repeat(6, minmax(90px, 1fr)); overflow-x: auto; border: 1px solid var(--ct-border); border-radius: 8px; background: var(--ct-bg); }
-.gallery-frame { min-width: 90px; margin: 0; border-right: 1px solid var(--ct-border); }
+.gallery-filmstrip { display: grid; grid-template-columns: repeat(6, minmax(148px, 1fr)); overflow-x: auto; border: 1px solid var(--ct-border); border-radius: 8px; background: var(--ct-bg); }
+.gallery-frame { min-width: 148px; margin: 0; border-right: 1px solid var(--ct-border); }
 .gallery-frame:last-child { border-right: 0; }
-.gallery-frame-stage { min-height: 92px; padding: 16px; }
+.gallery-frame-stage { min-height: 92px; padding: 12px; overflow: hidden; }
 .gallery-frame figcaption { padding: 7px 8px; border-top: 1px solid var(--ct-border); color: var(--ct-muted-fg); font: 10px ui-monospace, "Cascadia Code", monospace; text-align: center; }
 .gallery-empty { padding-top: 88px; }
 @media (max-width: 560px) { .gallery-section-heading { align-items: start; flex-direction: column; } .gallery-filmstrip { grid-template-columns: repeat(6, 96px); } }
