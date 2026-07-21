@@ -20,41 +20,51 @@ run_with_timeout() {
         fi
     fi
 
-    if command -v perl >/dev/null 2>&1; then
-        perl -e '
-        use POSIX qw(setpgid);
-        my $timeout = $ARGV[0];
-        my @cmd = @ARGV[1..$#ARGV];
-
-        my $pid = fork();
-        exit 1 unless defined $pid;
-
-        if ($pid == 0) {
-            setpgid(0, 0);
-            exec { $cmd[0] } @cmd;
-            exit 127;
-        }
-
-        local $SIG{ALRM} = sub {
-            kill -15, $pid;
-            sleep 1;
-            kill -9, $pid if kill 0, $pid;
-            exit 124;
-        };
-
-        alarm($timeout);
-        waitpid($pid, 0);
-        my $status = $?;
-        alarm(0);
-
-        exit($status >> 8 || ($status & 127 ? 128 + ($status & 127) : 0));
-        ' "$timeout_secs" "$@"
-        return $?
+    if ! command -v perl >/dev/null 2>&1; then
+        echo "Test error: portable timeout requires Perl" >&2
+        return 127
     fi
 
-    "$@" &
-    local pid=$!
-    wait "$pid" 2>/dev/null
+    perl -e '
+    use POSIX qw(setpgid);
+    use strict;
+    use warnings;
+
+    my $timeout = $ARGV[0];
+    my @cmd = @ARGV[1..$#ARGV];
+
+    my $pid = fork();
+    exit 1 unless defined $pid;
+
+    if ($pid == 0) {
+        setpgid(0, 0);
+        exec { $cmd[0] } @cmd;
+        exit 127;
+    }
+
+    my $timed_out = 0;
+    my $stage = 0;
+
+    local $SIG{ALRM} = sub {
+        $stage++;
+        if ($stage == 1) {
+            $timed_out = 1;
+            kill(-15, $pid);
+            alarm(5);
+        } elsif ($stage >= 2) {
+            kill(-9, $pid);
+            alarm(0);
+        }
+    };
+
+    alarm($timeout);
+    waitpid($pid, 0);
+    my $status = $?;
+    alarm(0);
+
+    exit 124 if $timed_out;
+    exit($status >> 8 || ($status & 127 ? 128 + ($status & 127) : 0));
+    ' "$timeout_secs" "$@"
     return $?
 }
 
