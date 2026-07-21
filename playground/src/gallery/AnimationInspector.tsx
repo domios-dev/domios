@@ -1,6 +1,38 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useAnimationFreeze } from "./useAnimationFreeze";
 import type { Specimen } from "./types";
+
+// Scales any specimen down to fit its box — wide components (status rows)
+// shrink; small ones (dots) render 1:1. Scale is transform-only, so frozen
+// animation phases stay exact.
+export function FitBox({ children, pad = 16 }: { children: ReactNode; pad?: number }) {
+  const outer = useRef<HTMLDivElement>(null);
+  const inner = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+  useLayoutEffect(() => {
+    const o = outer.current;
+    const i = inner.current;
+    if (!o || !i) return;
+    const measure = () => {
+      const w = o.clientWidth;
+      if (!w) return; // grid not laid out yet — wait for the observer
+      // Never below 0.45: a legible crop beats a complete-but-microscopic fit.
+      setScale(Math.max(0.45, Math.min(1, (w - pad) / Math.max(1, i.scrollWidth))));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(o);
+    ro.observe(i);
+    return () => ro.disconnect();
+  }, [pad]);
+  return (
+    <div ref={outer} className="gallery-fitbox">
+      <div ref={inner} className="gallery-fitbox-inner" style={{ transform: `scale(${scale})` }}>
+        {children}
+      </div>
+    </div>
+  );
+}
 
 type FreezeControls = ReturnType<typeof useAnimationFreeze>;
 
@@ -54,7 +86,9 @@ function FrozenFrame({ specimen, state, time }: { specimen: Specimen; state: Spe
   return (
     <figure className="gallery-frame">
       <div className="gallery-frame-stage" ref={frame}>
-        <Component {...state.props} />
+        <FitBox pad={20}>
+          <Component {...state.props} />
+        </FitBox>
       </div>
       <figcaption>{Math.round(time)} ms</figcaption>
     </figure>
