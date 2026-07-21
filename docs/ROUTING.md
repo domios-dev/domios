@@ -48,10 +48,15 @@ Agent-to-agent traffic is always English regardless of the user's language:
 user-facing channels (local pane, Telegram, Discord) carry the user's
 language.
 
+## Internal orchestration is not a CLI command
+
+Be brief: `send_message` is internal control traffic, not a `codeterm` command.
+Never show it as a command card; a visible/stuck card is a Chat UI bug to fix.
+
 ## Remote requests blocked on local decisions
 
 If a remote request needs a truly dangerous local decision, ack the remote
 channel first ("blocked pending local confirmation") and ask locally only
 when the local user is actually at the keyboard.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
