@@ -1,4 +1,4 @@
-import { materializeToolEvent, reduceToolEvents } from "./toolEvents";
+import { coalesceWaitEvents, materializeToolEvent, reduceToolEvents } from "./toolEvents";
 import type { NormalizedChatMessage } from "./types";
 
 function assert(value: unknown, label: string): asserts value {
@@ -148,3 +148,48 @@ function result(id: string, toolId: string, detail: string, patch: Partial<Norma
 }
 
 console.log("ok - tool event lifecycle");
+
+{
+  const wait = (id: string, name: string, patch: Partial<NormalizedChatMessage> = {}) => call(id, id, {
+    toolName: name,
+    toolSummary: `${name} ${id}`,
+    timestamp: "1000",
+    ...patch,
+  });
+  const items = reduceToolEvents([
+    wait("wait-1", " wait ", { timestamp: "1000", toolResult: "first result" }),
+    wait("wait-2", "WAIT_FOR_RESULT", { timestamp: "2400", toolResult: "second result" }),
+    call("command", "command", { toolName: "wait", toolKind: "command", toolSummary: "wait command" }),
+    wait("wait-3", "tool_wait"),
+    { id: "assistant", type: "assistant", content: "break" },
+    wait("wait-4", "wait_for"),
+    { id: "result-only", type: "tool_result", content: "wait result", toolName: "wait", toolKind: "generic" },
+    wait("wait-5", "wait"),
+  ]);
+  assert(items.length === 7, "only adjacent qualifying wait calls coalesce");
+  assert(items[0].kind === "tool" && items[0].event.waitBatch, "exact aliases create a wait batch");
+  assert(items[0].kind === "tool" && items[0].event.waitBatch?.members.length === 2, "batch retains every member");
+  assert(items[0].kind === "tool" && items[0].event.waitBatch?.elapsedMs === 1400, "numeric timestamps derive elapsed time");
+  assert(items[1].kind === "tool" && items[1].event.kind === "command", "commands never coalesce");
+  assert(items[2].kind === "tool" && items[2].event.waitBatch, "command splits adjacent waits");
+  assert(items[3].kind === "message", "messages preserve order and split batches");
+  assert(items[5].kind === "tool" && items[5].event.phase === "result", "result-only rows never coalesce");
+
+  const rejected = ["await", "wait-and-run", "shell_wait"];
+  for (const name of rejected) {
+    const output = reduceToolEvents([wait(name, name)]);
+    assert(output[0].kind === "tool" && output[0].event.kind === "generic", `${name} is not an exact wait alias`);
+  }
+  assert(reduceToolEvents([wait("wait_agent", "wait_agent")]).length === 0, "existing internal orchestration hiding still excludes wait_agent");
+  const invalidTimes = reduceToolEvents([wait("bad-1", "wait", { timestamp: "not-a-number" }), wait("bad-2", "wait", { timestamp: "2000" })]);
+  assert(invalidTimes[0].kind === "tool" && invalidTimes[0].event.waitBatch?.elapsedMs === undefined, "invalid timestamps omit elapsed time");
+  const negativeTimes = reduceToolEvents([wait("late", "wait", { timestamp: "3000" }), wait("early", "wait", { timestamp: "1000" })]);
+  assert(negativeTimes[0].kind === "tool" && negativeTimes[0].event.waitBatch?.elapsedMs === 0, "negative elapsed time clamps to zero");
+  const sessions = reduceToolEvents([wait("session-a", "wait", { sourceSessionId: "a" }), wait("session-b", "wait", { sourceSessionId: "b" })]);
+  assert(sessions.length === 2, "waits from different sessions never merge");
+  const reduced = reduceToolEvents([wait("duplicate", "wait"), wait("duplicate-next", "wait")]);
+  const recomputed = coalesceWaitEvents(reduced);
+  assert(recomputed.length === 1 && recomputed[0].kind === "tool" && recomputed[0].event.waitBatch?.members.length === 2, "recoalescing settled output does not duplicate members");
+}
+
+console.log("ok - wait batch predicate");

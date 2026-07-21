@@ -9,6 +9,7 @@ import { reduceToolEvents } from "@codeterm/chat-core";
 import {
   providerTranscriptFixtures,
   codexStructuredEditMessages,
+  waitProviderMessages,
   type ProviderTranscriptFixture,
 } from "./providerTranscriptFixtures.testdata";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
@@ -260,6 +261,49 @@ for (const fixture of providerTranscriptFixtures) {
     }
   });
 }
+
+test("wait batches are accessible, lossless, and provider-neutral", async () => {
+  for (const [provider, messages] of Object.entries(waitProviderMessages)) {
+    const item = reduceToolEvents(messages)[0];
+    assert(item.kind === "tool" && item.event.waitBatch, `${provider} normalized casing reaches the wait predicate`);
+  }
+  const messages: NormalizedChatMessage[] = [
+    { id: "wait-one", type: "tool_call", content: "", toolId: "one", toolName: "wait", toolKind: "generic", toolSummary: "first wait", toolResult: "first result", timestamp: "1000" },
+    { id: "wait-two", type: "tool_call", content: "", toolId: "two", toolName: "wait_for", toolKind: "generic", toolSummary: "second wait", toolResult: "second result", timestamp: "2500" },
+    { id: "command", type: "tool_call", content: "", toolId: "command", toolName: "wait", toolKind: "command", toolSummary: "command must remain separate" },
+    { id: "assistant-break", type: "assistant", content: "breaks the run" },
+    { id: "wait-three", type: "tool_call", content: "", toolId: "three", toolName: "tool_wait", toolKind: "generic", toolSummary: "third wait" },
+  ];
+  const items = reduceToolEvents(messages);
+  assert(items.length === 4, "interleaved command and assistant preserve timeline order");
+  const { host, root } = await renderMessages(messages);
+  try {
+    const card = host.querySelector<HTMLElement>('[data-testid="chat-wait-batch"]');
+    assert(card, "wait run renders a compact card");
+    const button = card.querySelector<HTMLButtonElement>('button[aria-label="Expand 2 wait events"]');
+    assert(button, "wait batch uses a named real button");
+    assert(button.getAttribute("aria-expanded") === "false", "details start collapsed");
+    const controls = button.getAttribute("aria-controls");
+    assert(controls && host.querySelector(`#${controls}`)?.hasAttribute("hidden"), "aria-controls references the collapsed details region");
+    assertIncludes(card, "2 wait events", "visible count");
+    assertIncludes(card, "1.5s", "truthful elapsed summary");
+    await act(async () => button.dispatchEvent(new windowAny.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    await waitForEffects();
+    assert(button.getAttribute("aria-expanded") === "true", "keyboard/click activation expands details");
+    const region = host.querySelector<HTMLElement>(`#${controls}`);
+    assert(region?.getAttribute("role") === "region", "details have an accessible region");
+    assertIncludes(region ?? host, "first wait", "first member detail remains visible");
+    assertIncludes(region ?? host, "first result", "first member result remains visible");
+    assertIncludes(region ?? host, "second wait", "second member detail remains visible");
+    assert(!textOf(card).includes("command must remain separate"), "unrelated command does not leak into wait details");
+    await act(async () => button.dispatchEvent(new windowAny.KeyboardEvent("keydown", { key: " ", bubbles: true })));
+    await waitForEffects();
+    assert(button.getAttribute("aria-expanded") === "false", "space activation collapses details");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
 
 test("Claude compact summary renders as collapsed neutral system artifact", async () => {
   const compactBody = [
