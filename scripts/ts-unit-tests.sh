@@ -54,23 +54,27 @@ run_with_timeout() {
         return $?
     fi
 
+    local timeout_sentinel
+    timeout_sentinel="$(mktemp)" || return 1
+    trap "rm -f '$timeout_sentinel'" RETURN
+
     "$@" &
     local pid=$!
-    local deadline=$(($(date +%s) + timeout_secs))
 
-    while kill -0 "$pid" 2>/dev/null; do
-        if [ "$(date +%s)" -ge "$deadline" ]; then
-            kill -TERM "$pid" 2>/dev/null
-            sleep 1
-            kill -KILL "$pid" 2>/dev/null
-            wait "$pid" 2>/dev/null
-            return 124
-        fi
-        sleep 0.1
-    done
+    (sleep "$timeout_secs" && touch "$timeout_sentinel" && kill -TERM -"$pid" 2>/dev/null; sleep 5; kill -KILL -"$pid" 2>/dev/null) &
+    local monitor_pid=$!
 
-    wait "$pid"
-    return $?
+    wait "$pid" 2>/dev/null
+    local status=$?
+
+    kill "$monitor_pid" 2>/dev/null
+    wait "$monitor_pid" 2>/dev/null
+
+    if [ -f "$timeout_sentinel" ]; then
+        return 124
+    fi
+
+    return $status
 }
 
 reap_one() {
