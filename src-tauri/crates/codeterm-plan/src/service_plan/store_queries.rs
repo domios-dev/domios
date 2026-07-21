@@ -241,10 +241,14 @@ impl PlanStore {
 
     pub fn delete(&self, id: &str) -> std::io::Result<()> {
         let _writer_turn = self.mutation_writer.enter();
+        let indexed_plan = self.get(id);
         self.database
             .delete_plan(id, unix_time_millis())
             .map_err(|error| std::io::Error::other(error.to_string()))?;
         self.forget_plan(id);
+        if let Some(plan) = indexed_plan {
+            super::search_index::remove_plan_from_index(plan);
+        }
         super::attachments::remove_dir_if_exists(self.plan_data_dir(id))
             .map_err(|error| std::io::Error::other(error.to_string()))?;
         Ok(())
