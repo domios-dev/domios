@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Liquid Glass × Squash-Jump — SVG motion studies</title>
+<style>
+  :root {
+    --speed: 1;
+    --bg: #0a0d12;
+    --panel: #10151d;
+    --line: #1e2732;
+    --fg: #c9d1d9;
+    --muted: #7d8794;
+    --accent: #6db6ff;
+    /* squash-jump personality curve, lifted from ct-dots-squash-jump */
+    --jump: cubic-bezier(0.22, 0.9, 0.25, 1);
+    --glass-edge: rgba(150, 200, 255, 0.55);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background:
+      radial-gradient(1200px 700px at 20% -10%, #141b26 0%, transparent 60%),
+      radial-gradient(900px 600px at 100% 110%, #0e1622 0%, transparent 55%),
+      var(--bg);
+    color: var(--fg);
+    font: 14px/1.5 -apple-system, "SF Pro Text", Segoe UI, Inter, system-ui, sans-serif;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    padding: 34px 32px 8px;
+    max-width: 1180px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 19px;
+    font-weight: 620;
+    letter-spacing: -0.01em;
+    margin: 0 0 4px;
+  }
+  .sub {
+    color: var(--muted);
+    font-size: 13px;
+    max-width: 640px;
+  }
+  .sub b { color: var(--fg); font-weight: 560; }
+
+  .controls {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    backdrop-filter: blur(14px) saturate(1.3);
+    -webkit-backdrop-filter: blur(14px) saturate(1.3);
+    background: rgba(10, 13, 18, 0.72);
+    border-bottom: 1px solid var(--line);
+    margin-top: 20px;
+  }
+  .controls-inner {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 12px 32px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+  button.toggle {
+    appearance: none;
+    border: 1px solid var(--line);
+    background: linear-gradient(180deg, #1a2230, #141b26);
+    color: var(--fg);
+    padding: 7px 16px;
+    border-radius: 9px;
+    font: inherit;
+    font-weight: 560;
+    cursor: pointer;
+    transition: transform 0.2s var(--jump), border-color 0.2s ease, background 0.2s ease;
+  }
+  button.toggle:hover { border-color: #2e3b4d; }
+  button.toggle:active { transform: scale(0.94); }
+  button.toggle[data-paused="true"] { color: var(--accent); border-color: #2b4258; }
+
+  .tempo { display: flex; align-items: center; gap: 10px; color: var(--muted); }
+  .tempo input[type="range"] { width: 170px; accent-color: var(--accent); }
+  .tempo .val { color: var(--fg); font-variant-numeric: tabular-nums; min-width: 42px; }
+  .reduced-note { color: var(--muted); font-size: 12px; margin-left: auto; }
+
+  .grid {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 26px 32px 80px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 20px;
+  }
+  .study {
+    position: relative;
+    background: linear-gradient(180deg, #0f141c, #0c1119);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    overflow: hidden;
+    min-height: 240px;
+    display: flex;
+    flex-direction: column;
+  }
+  .stage {
+    flex: 1;
+    display: grid;
+    place-items: center;
+    padding: 22px;
+    position: relative;
+  }
+  .caption {
+    border-top: 1px solid var(--line);
+    padding: 12px 16px 14px;
+    background: rgba(0,0,0,0.2);
+  }
+  .caption .idx {
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .caption .name { font-weight: 580; margin-top: 2px; }
+  .caption .desc { color: var(--muted); font-size: 12px; margin-top: 3px; }
+
+  svg { display: block; overflow: visible; }
+  .anim { animation-play-state: running; }
+  body.paused .anim,
+  body.paused .anim * { animation-play-state: paused !important; }
+
+  /* ---------- 01 · glass bead dots ---------- */
+  .beads { display: flex; gap: 14px; }
+  .bead {
+    animation: bead-jump calc(1.05s / var(--speed)) var(--jump) infinite;
+    transform-origin: 50% 100%;
+    transform-box: fill-box;
+  }
+  .bead.b2 { animation-delay: calc(0.12s / var(--speed)); }
+  .bead.b3 { animation-delay: calc(0.24s / var(--speed)); }
+  @keyframes bead-jump {
+    0%, 66%, 100% { transform: translateY(0) scaleX(1) scaleY(1); }
+    10% { transform: translateY(2px) scaleX(1.2) scaleY(0.72); }
+    24% { transform: translateY(-16px) scaleX(0.9) scaleY(1.12); }
+    42% { transform: translateY(1px) scaleX(1.14) scaleY(0.8); }
+    54% { transform: translateY(0) scaleX(1) scaleY(1); }
+  }
+
+  /* ---------- 02 · press depression ---------- */
+  .press-btn {
+    animation: press calc(2.6s / var(--speed)) var(--jump) infinite;
+    transform-origin: 50% 50%;
+    transform-box: fill-box;
+  }
+  @keyframes press {
+    0%, 100% { transform: translateY(0) scale(1); }
+    16% { transform: translateY(3px) scale(0.965, 0.9); }
+    30% { transform: translateY(0) scale(1.02, 1.04); }
+    44% { transform: translateY(0) scale(1); }
+  }
+  .press-sweep {
+    animation: sweep calc(2.6s / var(--speed)) ease-in-out infinite;
+  }
+  @keyframes sweep {
+    0%, 14% { transform: translateX(-70px); opacity: 0; }
+    22% { opacity: 0.9; }
+    40% { transform: translateX(70px); opacity: 0; }
+    100% { transform: translateX(70px); opacity: 0; }
+  }
+
+  /* ---------- 03 · droplet materializing ---------- */
+  .droplet {
+    animation: droplet-form calc(3s / var(--speed)) var(--jump) infinite;
+    transform-origin: 50% 60%;
+    transform-box: fill-box;
+  }
+  @keyframes droplet-form {
+    0% { transform: translateY(-30px) scale(0.2, 0.35); opacity: 0; }
+    30% { transform: translateY(4px) scale(1.18, 0.82); opacity: 1; }
+    46% { transform: translateY(-2px) scale(0.92, 1.1); }
+    60% { transform: translateY(0) scale(1); }
+    86% { transform: translateY(0) scale(1); opacity: 1; }
+    100% { transform: translateY(0) scale(1); opacity: 0; }
+  }
+
+  /* ---------- 04 · breathing glass orb ---------- */
+  .breathe {
+    animation: breathe calc(3.4s / var(--speed)) ease-in-out infinite;
+    transform-origin: 50% 50%;
+    transform-box: fill-box;
+  }
+  @keyframes breathe {
+    0%, 100% { transform: scale(0.94); }
+    50% { transform: scale(1.06); }
+  }
+  .breathe-spec { animation: spec-drift calc(3.4s / var(--speed)) ease-in-out infinite; }
+  @keyframes spec-drift {
+    0%, 100% { transform: translate(-4px, -3px); opacity: 0.75; }
+    50% { transform: translate(6px, 4px); opacity: 1; }
+  }
+
+  /* ---------- 05 · liquid lens toggle ---------- */
+  .thumb {
+    animation: thumb-slide calc(3.2s / var(--speed)) var(--jump) infinite;
+    transform-box: fill-box;
+  }
+  @keyframes thumb-slide {
+    0%, 8% { transform: translateX(0) scaleX(1); }
+    18% { transform: translateX(6px) scaleX(1.35); }
+    30% { transform: translateX(48px) scaleX(1.35); }
+    40% { transform: translateX(54px) scaleX(0.9); }
+    48%, 58% { transform: translateX(54px) scaleX(1); }
+    68% { transform: translateX(48px) scaleX(1.35); }
+    80% { transform: translateX(6px) scaleX(1.35); }
+    90% { transform: translateX(0) scaleX(0.9); }
+    100% { transform: translateX(0) scaleX(1); }
+  }
+  .track-fill { animation: track-fill calc(3.2s / var(--speed)) var(--jump) infinite; }
+  @keyframes track-fill {
+    0%, 18% { opacity: 0; }
+    40%, 60% { opacity: 1; }
+    82%, 100% { opacity: 0; }
+  }
+
+  /* ---------- 06 · completion refraction sweep ---------- */
+  .refract-band { animation: refract calc(2.8s / var(--speed)) ease-in-out infinite; }
+  @keyframes refract {
+    0%, 30% { transform: translateX(-160px); opacity: 0; }
+    42% { opacity: 1; }
+    72% { transform: translateX(160px); opacity: 0; }
+    100% { transform: translateX(160px); opacity: 0; }
+  }
+  .check {
+    stroke-dasharray: 40;
+    stroke-dashoffset: 40;
+    animation: check calc(2.8s / var(--speed)) var(--jump) infinite;
+  }
+  @keyframes check {
+    0%, 40% { stroke-dashoffset: 40; }
+    58% { stroke-dashoffset: 0; }
+    88% { stroke-dashoffset: 0; opacity: 1; }
+    100% { stroke-dashoffset: 0; opacity: 0.15; }
+  }
+  .check-ring { animation: ring-pop calc(2.8s / var(--speed)) var(--jump) infinite; transform-origin: 50% 50%; transform-box: fill-box; }
+  @keyframes ring-pop {
+    0%, 40% { transform: scale(0.9); }
+    56% { transform: scale(1.08); }
+    70% { transform: scale(1); }
+  }
+
+  /* ---------- 07 · menu forming glass ---------- */
+  .m-row {
+    animation: m-form calc(3.4s / var(--speed)) var(--jump) infinite;
+    transform-origin: 0% 50%;
+    transform-box: fill-box;
+    opacity: 0;
+  }
+  .m-row.r1 { animation-delay: calc(0.0s / var(--speed)); }
+  .m-row.r2 { animation-delay: calc(0.09s / var(--speed)); }
+  .m-row.r3 { animation-delay: calc(0.18s / var(--speed)); }
+  .m-row.r4 { animation-delay: calc(0.27s / var(--speed)); }
+  @keyframes m-form {
+    0% { opacity: 0; transform: translateY(6px) scaleY(0.4); }
+    14% { opacity: 1; transform: translateY(-1px) scaleY(1.12); }
+    22% { transform: translateY(0) scaleY(1); }
+    78% { opacity: 1; transform: translateY(0) scaleY(1); }
+    92% { opacity: 0; transform: translateY(3px) scaleY(0.5); }
+    100% { opacity: 0; }
+  }
+
+  /* ---------- 08 · ripple displacement ---------- */
+  .ripple-turb { animation: turb calc(6s / var(--speed)) linear infinite; }
+  @keyframes turb { to { } } /* driven by SMIL below; keyframe kept for pause parity */
+  .ripple-ring {
+    transform-origin: 50% 50%;
+    transform-box: fill-box;
+    animation: ripple calc(3s / var(--speed)) ease-out infinite;
+  }
+  .ripple-ring.d2 { animation-delay: calc(1s / var(--speed)); }
+  .ripple-ring.d3 { animation-delay: calc(2s / var(--speed)); }
+  @keyframes ripple {
+    0% { transform: scale(0.15); opacity: 0; }
+    12% { opacity: 0.8; }
+    100% { transform: scale(1); opacity: 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .anim, .anim * { animation: none !important; }
+    /* honest static resting frames */
+    .bead { transform: translateY(0) scale(1); }
+    .droplet, .thumb, .m-row { opacity: 1 !important; }
+    .m-row { transform: none !important; }
+    .thumb { transform: translateX(54px) !important; }
+    .track-fill { opacity: 1 !important; }
+    .check { stroke-dashoffset: 0 !important; }
+    .press-sweep, .refract-band, .breathe-spec { opacity: 0.85 !important; }
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Liquid Glass × Squash-Jump</h1>
+    <p class="sub">Motion studies fusing Apple's <b>living-glass</b> material — translucent, light-refracting, spring-settled — with CodeTerm's <b>squash-and-stretch</b> personality from <code>ct-dots-squash-jump</code>. Genuine refraction via SVG <code>feSpecularLighting</code>, <code>feDisplacementMap</code>, <code>feTurbulence</code>; physics via transform + opacity.</p>
+  </header>
+
+  <div class="controls">
+    <div class="controls-inner">
+      <button class="toggle" id="pause" data-paused="false" aria-pressed="false">Pause</button>
+      <div class="tempo">
+        <label for="tempo">Tempo</label>
+        <input type="range" id="tempo" min="0.25" max="2" step="0.05" value="1" />
+        <span class="val" id="tempoVal">1.00×</span>
+      </div>
+      <span class="reduced-note">Respects <code>prefers-reduced-motion</code></span>
+    </div>
+  </div>
+
+  <!-- Shared SVG filter defs -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <!-- glass body: blur + specular top-light -->
+      <filter id="glassBead" x="-60%" y="-60%" width="220%" height="220%">
+        <feGaussianBlur in="SourceAlpha" stdDeviation="1.6" result="blur"/>
+        <feSpecularLighting in="blur" surfaceScale="4" specularConstant="0.9" specularExponent="22" lighting-color="#eaf4ff" result="spec">
+          <fePointLight x="30" y="-10" z="70"/>
+        </feSpecularLighting>
+        <feComposite in="spec" in2="SourceAlpha" operator="in" result="specClip"/>
+        <feMerge>
+          <feMergeNode in="SourceGraphic"/>
+          <feMergeNode in="specClip"/>
+        </feMerge>
+      </filter>
+
+      <!-- soft edge blur for materializing forms -->
+      <filter id="softGlass" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur in="SourceAlpha" stdDeviation="2" result="b"/>
+        <feSpecularLighting in="b" surfaceScale="3.5" specularConstant="0.8" specularExponent="18" lighting-color="#dfefff" result="s">
+          <fePointLight x="20" y="0" z="60"/>
+        </feSpecularLighting>
+        <feComposite in="s" in2="SourceAlpha" operator="in" result="sc"/>
+        <feMerge>
+          <feMergeNode in="SourceGraphic"/>
+          <feMergeNode in="sc"/>
+        </feMerge>
+      </filter>
+
+      <!-- turbulent refraction / displacement -->
+      <filter id="rippleDisp" x="-40%" y="-40%" width="180%" height="180%">
+        <feTurbulence type="turbulence" baseFrequency="0.02 0.035" numOctaves="2" seed="3" result="rn">
+          <animate attributeName="baseFrequency" dur="8s" values="0.02 0.035;0.045 0.02;0.02 0.035" repeatCount="indefinite"/>
+        </feTurbulence>
+        <feDisplacementMap in="SourceGraphic" in2="rn" scale="14" xChannelSelector="R" yChannelSelector="B"/>
+      </filter>
+
+      <!-- gradients -->
+      <radialGradient id="beadFill" cx="38%" cy="32%" r="72%">
+        <stop offset="0%" stop-color="#e9f4ff" stop-opacity="0.95"/>
+        <stop offset="38%" stop-color="#8fd0ff" stop-opacity="0.55"/>
+        <stop offset="100%" stop-color="#2b6ea8" stop-opacity="0.35"/>
+      </radialGradient>
+      <linearGradient id="glassPanel" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.16"/>
+        <stop offset="45%" stop-color="#7fb4e6" stop-opacity="0.10"/>
+        <stop offset="100%" stop-color="#0d2136" stop-opacity="0.22"/>
+      </linearGradient>
+      <linearGradient id="sweepGrad" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0"/>
+        <stop offset="50%" stop-color="#ffffff" stop-opacity="0.85"/>
+        <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+      </linearGradient>
+      <radialGradient id="orbFill" cx="40%" cy="34%" r="70%">
+        <stop offset="0%" stop-color="#f2f8ff" stop-opacity="0.9"/>
+        <stop offset="40%" stop-color="#6db6ff" stop-opacity="0.4"/>
+        <stop offset="100%" stop-color="#123a5c" stop-opacity="0.55"/>
+      </radialGradient>
+    </defs>
+  </svg>
+
+  <main class="grid" id="grid"></main>
+
+<script>
+(function () {
+  const studies = [
+    {
+      id: "01", name: "Glass bead dots", desc: "The three-dot working pulse as light-refracting beads that squash, jump, and settle.",
+      svg: `<svg width="180" height="120" viewBox="0 0 180 120" class="anim">
+        <g filter="url(#glassBead)">
+          <g class="beads">
+            <circle class="bead b1" cx="0" cy="0" r="14" fill="url(#beadFill)" transform="translate(48,70)"/>
+            <circle class="bead b2" cx="0" cy="0" r="14" fill="url(#beadFill)" transform="translate(90,70)"/>
+            <circle class="bead b3" cx="0" cy="0" r="14" fill="url(#beadFill)" transform="translate(132,70)"/>
+          </g>
+        </g>
+        <ellipse cx="48" cy="96" rx="12" ry="3" fill="#000" opacity="0.35"/>
+        <ellipse cx="90" cy="96" rx="12" ry="3" fill="#000" opacity="0.35"/>
+        <ellipse cx="132" cy="96" rx="12" ry="3" fill="#000" opacity="0.35"/>
+      </svg>`
+    },
+    {
+      id: "02", name: "Button press depression", desc: "A glass key depresses with a spring rebound as a specular highlight sweeps the surface.",
+      svg: `<svg width="200" height="120" viewBox="0 0 200 120" class="anim">
+        <g class="press-btn">
+          <rect x="55" y="38" width="90" height="46" rx="14" fill="url(#glassPanel)" stroke="var(--glass-edge)" stroke-width="1"/>
+          <rect x="55" y="38" width="90" height="20" rx="12" fill="#ffffff" opacity="0.12"/>
+          <clipPath id="pressClip"><rect x="55" y="38" width="90" height="46" rx="14"/></clipPath>
+          <g clip-path="url(#pressClip)">
+            <rect class="press-sweep" x="90" y="34" width="26" height="54" fill="url(#sweepGrad)" transform="skewX(-18)"/>
+          </g>
+          <circle cx="100" cy="61" r="5" fill="#eaf4ff" opacity="0.7"/>
+        </g>
+      </svg>`
+    },
+    {
+      id: "03", name: "Droplet materializing", desc: "Liquid glass drops in, overshoots into a squash, and settles like a forming bead.",
+      svg: `<svg width="160" height="140" viewBox="0 0 160 140" class="anim">
+        <g filter="url(#softGlass)">
+          <path class="droplet" d="M80 46 C 58 74, 52 92, 80 96 C 108 92, 102 74, 80 46 Z" fill="url(#beadFill)"/>
+        </g>
+        <ellipse cx="80" cy="112" rx="16" ry="3.5" fill="#000" opacity="0.3"/>
+      </svg>`
+    },
+    {
+      id: "04", name: "Breathing glass orb", desc: "A working state as a slow-breathing glass sphere; the specular hot-spot drifts across it.",
+      svg: `<svg width="150" height="130" viewBox="0 0 150 130" class="anim">
+        <g filter="url(#softGlass)">
+          <circle class="breathe" cx="75" cy="62" r="34" fill="url(#orbFill)"/>
+        </g>
+        <ellipse class="breathe-spec" cx="63" cy="48" rx="12" ry="8" fill="#ffffff" opacity="0.85"/>
+      </svg>`
+    },
+    {
+      id: "05", name: "Liquid lens toggle", desc: "The thumb stretches, flows across the track like a liquid lens, and snaps round on landing.",
+      svg: `<svg width="200" height="110" viewBox="0 0 200 110" class="anim">
+        <rect x="58" y="42" width="84" height="30" rx="15" fill="#0c151f" stroke="var(--line)" stroke-width="1"/>
+        <rect class="track-fill" x="58" y="42" width="84" height="30" rx="15" fill="#1c4a6e" opacity="0"/>
+        <g filter="url(#glassBead)">
+          <circle class="thumb" cx="73" cy="57" r="12" fill="url(#beadFill)"/>
+        </g>
+      </svg>`
+    },
+    {
+      id: "06", name: "Completion refraction flash", desc: "A light band refracts across the panel while the checkmark springs in — the 'done' beat.",
+      svg: `<svg width="180" height="130" viewBox="0 0 180 130" class="anim">
+        <rect x="45" y="30" width="90" height="70" rx="16" fill="url(#glassPanel)" stroke="var(--glass-edge)" stroke-width="1"/>
+        <clipPath id="doneClip"><rect x="45" y="30" width="90" height="70" rx="16"/></clipPath>
+        <g clip-path="url(#doneClip)">
+          <rect class="refract-band" x="70" y="24" width="34" height="82" fill="url(#sweepGrad)" transform="skewX(-20)"/>
+        </g>
+        <g class="check-ring">
+          <circle cx="90" cy="65" r="24" fill="none" stroke="#6db6ff" stroke-width="1.5" opacity="0.45"/>
+        </g>
+        <path class="check" d="M79 66 L 87 74 L 103 56" fill="none" stroke="#eaf4ff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>`
+    },
+    {
+      id: "07", name: "Menu forming glass", desc: "Rows cast in sequence — each overshoots up in scaleY then settles, like glass being poured.",
+      svg: `<svg width="200" height="150" viewBox="0 0 200 150" class="anim">
+        <g filter="url(#softGlass)">
+          <rect class="m-row r1" x="40" y="24" width="120" height="20" rx="7" fill="url(#glassPanel)" stroke="var(--glass-edge)" stroke-width="0.8"/>
+          <rect class="m-row r2" x="40" y="50" width="120" height="20" rx="7" fill="url(#glassPanel)" stroke="var(--glass-edge)" stroke-width="0.8"/>
+          <rect class="m-row r3" x="40" y="76" width="120" height="20" rx="7" fill="url(#glassPanel)" stroke="var(--glass-edge)" stroke-width="0.8"/>
+          <rect class="m-row r4" x="40" y="102" width="120" height="20" rx="7" fill="url(#glassPanel)" stroke="var(--glass-edge)" stroke-width="0.8"/>
+        </g>
+      </svg>`
+    },
+    {
+      id: "08", name: "Ripple through glass", desc: "Concentric rings expand through a turbulence-displaced surface — genuine feDisplacementMap refraction.",
+      svg: `<svg width="170" height="140" viewBox="0 0 170 140" class="anim">
+        <g filter="url(#rippleDisp)">
+          <circle cx="85" cy="66" r="46" fill="url(#glassPanel)" stroke="var(--glass-edge)" stroke-width="1"/>
+          <circle class="ripple-ring d1" cx="85" cy="66" r="46" fill="none" stroke="#8fd0ff" stroke-width="2" opacity="0"/>
+          <circle class="ripple-ring d2" cx="85" cy="66" r="46" fill="none" stroke="#8fd0ff" stroke-width="2" opacity="0"/>
+          <circle class="ripple-ring d3" cx="85" cy="66" r="46" fill="none" stroke="#8fd0ff" stroke-width="2" opacity="0"/>
+        </g>
+      </svg>`
+    }
+  ];
+
+  const grid = document.getElementById("grid");
+  for (const s of studies) {
+    const el = document.createElement("section");
+    el.className = "study";
+    el.innerHTML =
+      '<div class="stage">' + s.svg + '</div>' +
+      '<div class="caption"><div class="idx">Study ' + s.id + '</div>' +
+      '<div class="name">' + s.name + '</div>' +
+      '<div class="desc">' + s.desc + '</div></div>';
+    grid.appendChild(el);
+  }
+
+  const pauseBtn = document.getElementById("pause");
+  pauseBtn.addEventListener("click", function () {
+    const paused = document.body.classList.toggle("paused");
+    pauseBtn.dataset.paused = String(paused);
+    pauseBtn.setAttribute("aria-pressed", String(paused));
+    pauseBtn.textContent = paused ? "Play" : "Pause";
+  });
+
+  const tempo = document.getElementById("tempo");
+  const tempoVal = document.getElementById("tempoVal");
+  tempo.addEventListener("input", function () {
+    document.documentElement.style.setProperty("--speed", tempo.value);
+    tempoVal.textContent = parseFloat(tempo.value).toFixed(2) + "×";
+  });
+})();
+</script>
+</body>
+</html>
