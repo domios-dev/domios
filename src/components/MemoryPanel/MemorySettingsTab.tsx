@@ -5,6 +5,7 @@ import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { canonicalizeShort } from "../../lib/modelLabels";
 import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { Label, SettingsCard, SettingsPage, Toggle } from "../Settings/shared";
+import { resolveWorkerSelection, type WorkerSelection } from "./workerSelection";
 
 type ScheduleFreq = "daily" | "every-2" | "every-3" | "weekly" | "off";
 
@@ -88,11 +89,12 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
     worker_model: canonicalizeShort(rawMem.worker_model),
   };
 
-  const extractionProvider = mem.extraction_agent || defaultProvider;
-  const extractionModels = providers.find(p => p.id === extractionProvider)?.available_models ?? [];
-
-  const dreamingProvider = mem.dreaming_agent || defaultProvider;
-  const dreamingModels = providers.find(p => p.id === dreamingProvider)?.available_models ?? [];
+  const extractionSelection = resolveWorkerSelection(
+    providers, mem.extraction_agent, defaultProvider, mem.extraction_model,
+  );
+  const dreamingSelection = resolveWorkerSelection(
+    providers, mem.dreaming_agent, defaultProvider, mem.dreaming_model,
+  );
 
   const [syncStatus, setSyncStatus] = useState<{ tracked_files: number; stale_files: number } | null>(null);
   const [syncing, setSyncing] = useState(false);
@@ -191,11 +193,12 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
   const renderProviderSelect = (
     value: string,
     onChange: (v: string) => void,
+    selection: WorkerSelection,
     testId: string,
   ) => (
     <Label text="Provider">
       <select value={value || ""} onChange={(e) => onChange(e.target.value)} className={inputClass} data-testid={testId}>
-        <option value="">Default ({defaultProvider})</option>
+        <option value="">Default: {selection.providerLabel} / {selection.defaultModelLabel}</option>
         {providers.map(p => (
           <option key={p.id} value={p.id}>{p.display_name}</option>
         ))}
@@ -206,17 +209,25 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
   const renderModelSelect = (
     value: string,
     onChange: (v: string) => void,
-    models: { id: string; display_name: string }[],
+    selection: WorkerSelection,
     testId: string,
   ) => (
     <Label text="Model">
-      {models.length > 0 ? (
-        <select value={value} onChange={(e) => onChange(e.target.value)} className={inputClass} data-testid={testId}>
-          <option value="">Provider default</option>
-          {models.map(m => (
+      {selection.modelOptions.length > 0 ? (
+        <>
+          <select value={value} onChange={(e) => onChange(e.target.value)} className={inputClass} data-testid={testId}>
+            <option value="">Provider default: {selection.defaultModelLabel}</option>
+            {!selection.modelCompatible && <option value={value} disabled>Unavailable: {value}</option>}
+            {selection.modelOptions.map(m => (
             <option key={m.id} value={m.id}>{m.display_name}</option>
-          ))}
-        </select>
+            ))}
+          </select>
+          {!selection.modelCompatible && (
+            <p className="text-[10px] text-amber-500" role="alert">
+              {value} is unavailable for {selection.providerLabel}; choose a listed model or use {selection.defaultModelLabel}.
+            </p>
+          )}
+        </>
       ) : (
         <input
           value={value}
@@ -266,12 +277,13 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
           {renderProviderSelect(
             mem.extraction_agent,
             (v) => onUpdate("memory", { ...mem, extraction_agent: v }),
+            extractionSelection,
             "memory-settings-extraction-provider",
           )}
           {renderModelSelect(
             mem.extraction_model,
             (v) => onUpdate("memory", { ...mem, extraction_model: v }),
-            extractionModels,
+            extractionSelection,
             "memory-settings-extraction-model",
           )}
           <Label text="Dedup threshold">
@@ -360,12 +372,13 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
           {renderProviderSelect(
             mem.dreaming_agent,
             (v) => onUpdate("memory", { ...mem, dreaming_agent: v }),
+            dreamingSelection,
             "memory-settings-dreaming-provider",
           )}
           {renderModelSelect(
             mem.dreaming_model,
             (v) => onUpdate("memory", { ...mem, dreaming_model: v }),
-            dreamingModels,
+            dreamingSelection,
             "memory-settings-dreaming-model",
           )}
         </div>
