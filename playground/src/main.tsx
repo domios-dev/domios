@@ -1,6 +1,7 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { LiquidGlassLab } from "./concepts/liquidglass/LiquidGlassLab";
+import { GalleryDetail, GalleryIndex } from "./gallery/Gallery";
 import "./playground.css";
 import "./portal.css";
 
@@ -46,6 +47,14 @@ function Portal() {
     );
   }
 
+  if (route === "gallery") {
+    return <div className="portal"><GalleryIndex /></div>;
+  }
+
+  if (route.startsWith("gallery/")) {
+    return <div className="portal"><GalleryDetail id={route.slice("gallery/".length)} /></div>;
+  }
+
   return (
     <div className="portal">
       <main className="portal-inner">
@@ -64,6 +73,11 @@ function Portal() {
               <p>{l.blurb}</p>
             </a>
           ))}
+          <a className="portal-card" href="#gallery">
+            <span className="portal-card-tag">component archive</span>
+            <h2>Component Gallery</h2>
+            <p>Inspectable motion specimens with state controls and a frame-by-frame filmstrip.</p>
+          </a>
           {PAGES.map((p) => (
             <a key={p.href} className="portal-card" href={p.href}>
               <span className="portal-card-tag">{p.tag}</span>

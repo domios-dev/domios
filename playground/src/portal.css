@@ -82,6 +82,52 @@
 .portal-card h2 { margin: 0; font-size: 16px; font-weight: 600; }
 .portal-card p { margin: 0; color: var(--ct-muted-fg); font-size: 13px; line-height: 1.5; }
 
+.gallery-card { min-height: 178px; }
+.gallery-preview,
+.gallery-stage-instance,
+.gallery-frame-stage {
+  display: grid;
+  place-items: center;
+}
+.gallery-preview { min-height: 54px; border-bottom: 1px solid var(--ct-border); }
+.gallery-detail { padding-top: 88px; }
+.gallery-state-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 24px 0 14px; }
+.gallery-state-chips button,
+.gallery-play {
+  border: 1px solid var(--ct-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+.gallery-state-chips button { padding: 7px 12px; }
+.gallery-state-chips button:hover,
+.gallery-state-chips button.is-active,
+.gallery-play:hover { border-color: color-mix(in srgb, var(--ct-accent) 58%, var(--ct-border)); color: var(--ct-fg); }
+.gallery-state-chips button.is-active { background: color-mix(in srgb, var(--ct-accent) 16%, transparent); }
+.gallery-state-chips button:focus-visible,
+.gallery-play:focus-visible,
+.gallery-scrub input:focus-visible { outline: 2px solid var(--ct-accent); outline-offset: 2px; }
+.gallery-live-stage { min-height: 180px; border: 1px solid var(--ct-border); border-radius: 12px; background: linear-gradient(135deg, color-mix(in srgb, var(--ct-surface) 85%, transparent), color-mix(in srgb, var(--ct-bg) 80%, transparent)); }
+.gallery-stage-instance { min-height: 180px; padding: 32px; }
+.gallery-inspector { margin-top: 28px; padding: 20px; border: 1px solid var(--ct-border); border-radius: 12px; background: color-mix(in srgb, var(--ct-surface) 65%, transparent); }
+.gallery-section-heading { display: flex; align-items: end; justify-content: space-between; gap: 16px; }
+.gallery-section-heading h2 { margin: 0; font-size: 16px; }
+.gallery-animation-count { color: var(--ct-muted-fg); font: 11px ui-monospace, "Cascadia Code", monospace; }
+.gallery-scrub { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; margin: 20px 0; }
+.gallery-play { min-width: 58px; padding: 7px 10px; }
+.gallery-scrub input { width: 100%; accent-color: var(--ct-accent); }
+.gallery-scrub output { min-width: 52px; color: var(--ct-muted-fg); font: 11px ui-monospace, "Cascadia Code", monospace; text-align: right; }
+.gallery-filmstrip { display: grid; grid-template-columns: repeat(6, minmax(90px, 1fr)); overflow-x: auto; border: 1px solid var(--ct-border); border-radius: 8px; background: var(--ct-bg); }
+.gallery-frame { min-width: 90px; margin: 0; border-right: 1px solid var(--ct-border); }
+.gallery-frame:last-child { border-right: 0; }
+.gallery-frame-stage { min-height: 92px; padding: 16px; }
+.gallery-frame figcaption { padding: 7px 8px; border-top: 1px solid var(--ct-border); color: var(--ct-muted-fg); font: 10px ui-monospace, "Cascadia Code", monospace; text-align: center; }
+.gallery-empty { padding-top: 88px; }
+@media (max-width: 560px) { .gallery-section-heading { align-items: start; flex-direction: column; } .gallery-filmstrip { grid-template-columns: repeat(6, 96px); } }
+
 .portal-back {
   position: fixed;
   top: 14px;
