@@ -237,15 +237,15 @@ test("plans have only a Team-owned sidebar home", async () => {
     planIndex: [planIndexEntry()],
   });
 
-  assert(host.querySelector('[data-testid="team-effort"]')?.textContent === bound.title, "bound plan is in its Team card");
+  assert(host.querySelector('[data-testid="team-card-activation"]')?.getAttribute("aria-label") === `Open ${bound.title}`, "bound plan is owned by its Team card");
   assert(!host.querySelector('[data-testid="workspace-plan-entry"]'), "bound plan has no standalone row");
 
   await rerender([detached], [planIndexEntry("plan-team", null)]);
-  assert(!host.querySelector('[data-testid="team-effort"]'), "detach removes the plan from the Team card");
+  assert(!host.querySelector('[data-testid="team-card-activation"]'), "detach removes the plan from the Team card");
   assert(!host.querySelector('[data-testid="workspace-plan-entry"]'), "orphan plan has no workspace home");
 
   await rerender([bound], [planIndexEntry()]);
-  assert(host.querySelector('[data-testid="team-effort"]')?.textContent === bound.title, "adopt restores the Team-owned plan");
+  assert(host.querySelector('[data-testid="team-card-activation"]')?.getAttribute("aria-label") === `Open ${bound.title}`, "adopt restores the Team-owned plan");
   assert(!host.querySelector('[data-testid="workspace-plan-entry"]'), "adopt removes the standalone row without reload");
   await act(async () => root.unmount());
 });
@@ -599,6 +599,7 @@ test("teamless_tabs_render_plain", async () => {
 test("team header renders the live compact status tally", async () => {
   const panes = {
     orchestrator: pane({ id: "orchestrator", title: "Orchestrator", role: "Orchestrator", team_id: TEAM.id }),
+    worker: pane({ id: "worker", title: "Worker", role: "Worker", team_id: TEAM.id }),
   };
   const currentPlan = plan([
     task("pending-one", TaskStatus.Pending),
@@ -612,8 +613,9 @@ test("team header renders the live compact status tally", async () => {
   ]);
   const { host, root, rerender } = await renderSidebar({
     panes,
-    tabs: [tab("tab-orchestrator", "orchestrator", 0)],
+    tabs: [tab("tab-orchestrator", "orchestrator", 0), tab("tab-worker", "worker", 1)],
     plans: [currentPlan],
+    statuses: { worker: "Working" },
   });
 
   const tally = host.querySelector('[data-testid="team-status-tally"]');
@@ -647,13 +649,24 @@ test("team header renders the live compact status tally", async () => {
   const card = host.querySelector('[data-testid="team-card-activation"]') as HTMLButtonElement | null;
   assert(card, "bound Team exposes a dedicated plan activation surface");
   assert(!host.querySelector('[data-testid="team-plan-button"]'), "superseded Plan button is absent");
-  assert(/3\s*\/\s*8/.test(host.querySelector(".sidebar-team-header")?.textContent ?? ""), "header shows done/total progress fraction");
+  assert(!host.querySelector('[data-testid="team-effort"]'), "redundant plan title is not repeated below the Team title");
+  assert(!host.querySelector('[data-testid="team-done-count"]'), "header does not show a done/total progress fraction");
+  const title = host.querySelector('[data-testid="team-name"]');
+  const working = host.querySelector('[data-testid="team-working-indicator"]');
+  assert(title?.nextElementSibling === working, "working indicator follows the Team title");
+  assert(working?.getAttribute("role") === "status", "working indicator is announced to assistive technology");
   assert(!host.textContent?.includes("Open effort"), "Team unit has no Open effort chrome");
   canvasFocusStore.closeWorkspace();
   await act(async () => card.click());
   assert(
     canvasFocusStore.getWorkspaceTarget()?.planId === currentPlan.id,
     "bound Team card opens the exact bound plan through the Team canvas entry",
+  );
+
+  await act(async () => (disclosure as HTMLButtonElement).click());
+  assert(
+    host.querySelector('[data-testid="team-status-tally"]'),
+    "task status tally remains visible while the Team is collapsed",
   );
 
   const updatedPlan = plan(currentPlan.tasks.map((item) =>
@@ -718,9 +731,6 @@ test("Team card keeps plan activation separate from collapse and menu controls",
   terminalFallbackSurface.focus();
   assert(forwardTerminalFallback(terminalEnter, document.activeElement, (data) => ptyWrites.push(data)), "unfocused terminal fallback forwards Enter");
   assert(terminalEnter.defaultPrevented && ptyWrites.join("") === "\r", "terminal fallback preserves its PTY write");
-  await act(async () => (host.querySelector('[data-testid="team-done-count"]') as HTMLElement).click());
-  assert(canvasFocusStore.getWorkspaceTarget() === null, "same-slot done total never opens a plan");
-
   await act(async () => {
     header.dispatchEvent(new MouseEvent("contextmenu", {
       bubbles: true,

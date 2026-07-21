@@ -453,9 +453,18 @@ export function TeamUnit({
           }}
         />
       ) : (
-        <span data-testid="team-name" className="sidebar-team-name">{team.name?.trim() || "Team"}</span>
+        <span className="sidebar-team-title-row">
+          <span data-testid="team-name" className="sidebar-team-name">{team.name?.trim() || "Team"}</span>
+          {workingWorkerCount > 0 && (
+            <span
+              data-testid="team-working-indicator"
+              className="sidebar-hierarchy-typing-dots"
+              role="status"
+              aria-label={`${team.name?.trim() || "Team"} has working members`}
+            ><span /><span /><span /></span>
+          )}
+        </span>
       )}
-      {plan && <span data-testid="team-effort" className="sidebar-team-effort">{plan.title}</span>}
       {renameError && <div data-testid="team-rename-error" role="alert">{renameError}</div>}
     </span>
   </>;
@@ -485,18 +494,12 @@ export function TeamUnit({
         ) : (
           <div className="sidebar-team-card-static">{cardContents}</div>
         )}
-        {!expanded && workingWorkerCount > 0 && <span className="sidebar-hierarchy-typing-dots" aria-hidden><span /><span /><span /></span>}
         <span
           data-testid="team-progress-slot"
           className="sidebar-team-progress-slot"
           onClick={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
         >
-          {plan && (
-            <span data-testid="team-done-count" className="sidebar-team-count">
-              {buckets.find((bucket) => bucket.key === "done")?.count ?? 0}/{buckets.reduce((sum, bucket) => sum + bucket.count, 0)}
-            </span>
-          )}
             <TeamMenu
               providers={providers}
               providersLoading={providersLoading}
@@ -511,7 +514,7 @@ export function TeamUnit({
             />
         </span>
       </div>
-      {expanded && plan && (
+      {plan && (
         <span data-testid="team-status-tally" className="sidebar-team-readout">
           {buckets.map((bucket, index) => (
             <span key={bucket.key} className="sidebar-team-readout-segment">
