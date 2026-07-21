@@ -54,7 +54,12 @@ const baseHost = (over: Record<string, unknown>) => ({
   md5: (s: string) => crypto.createHash("md5").update(s).digest("hex"),
   exec: () => JSON.stringify({ code: 127, error: "not found" }),
   log: () => {},
-  shell: { quoteFor: (v: unknown) => String(v), quote: (v: unknown) => String(v) },
+  shell: {
+    quoteFor: (v: unknown) => String(v),
+    quote: (v: unknown) => String(v),
+    envPrefix: (n: unknown, v: unknown, platform: unknown) =>
+      platform === "windows" ? `$env:${n}='${v}'; ` : `${n}='${v}' `,
+  },
   fs: {
     fileExists: () => false,
     readFile: () => null,
@@ -139,7 +144,11 @@ console.log("\n--- buildLaunchCommand (workspace-trust pre-write + invocation) -
   // gate. Pre-writing it unconditionally would silently bypass that gate.
   const bare = p.buildLaunchCommand({});
   assert(bare.indexOf(".workspace-trusted") === -1, "bare launch does NOT pre-write the trust marker (gate honored)");
-  eq(bare, "cursor-agent", "bare launch is just the invocation, no trust prefix");
+  eq(
+    bare,
+    "CLAUDE_CODE_DISABLE_HOOKS='1' cursor-agent",
+    "bare launch is the hook-disable prefix + invocation, no trust prefix",
+  );
   // With skipPermissions (--force, the user's intentional 'trust everything'
   // flow): pre-write the marker so the TUI doesn't block on it.
   const forced = p.buildLaunchCommand({ skipPermissions: true });
@@ -174,10 +183,42 @@ console.log("\n--- buildResumeCommand (trust pre-write GATED behind skipPermissi
   const p = loadCursorWithHost(baseHost({}));
   const r = p.buildResumeCommand("1a7e8655-f97a-0000-0000-000000000000");
   assert(r.indexOf(".workspace-trusted") === -1, "resume without skipPermissions does NOT pre-write the trust marker");
-  assert(r === "cursor-agent --resume 1a7e8655-f97a-0000-0000-000000000000", "resume by session uuid, no trust prefix");
+  assert(
+    r === "CLAUDE_CODE_DISABLE_HOOKS='1' cursor-agent --resume 1a7e8655-f97a-0000-0000-000000000000",
+    "resume by session uuid carries the hook-disable prefix, no trust prefix",
+  );
   const forced = p.buildResumeCommand("abc", true);
   assert(forced.indexOf(".workspace-trusted") !== -1, "resume with skipPermissions pre-writes the trust marker");
   assert(forced.endsWith("cursor-agent --resume abc --force"), "resume carries --force when skipPermissions");
+}
+
+console.log("\n--- Claude PreToolUse hook import is disabled for every Cursor launch (sec_hook_ampersand) ---\n");
+{
+  // Regression: cursor-agent's Bash tool picks up ~/.claude/settings.json's
+  // PreToolUse hooks. A hook authored for Claude's shell dialect (e.g.
+  // PowerShell body) crashes Cursor's POSIX bash runner with a bare `&`
+  // parse error. CLAUDE_CODE_DISABLE_HOOKS=1 must be set on every launch,
+  // on both platforms, without ever touching the user's settings file.
+  const posix = loadCursorWithHost(baseHost({ platform: () => "linux" }));
+  for (const cmd of [
+    posix.buildLaunchCommand({}),
+    posix.buildLaunchCommand({ skipPermissions: true }),
+    posix.buildResumeCommand("abc"),
+    posix.buildResumeCommand("abc", true),
+  ]) {
+    assert(cmd.indexOf("CLAUDE_CODE_DISABLE_HOOKS='1'") === 0, "POSIX: hook-disable is the leading prefix", cmd);
+    assert(!cmd.includes("&&"), "POSIX: hook-disable prefix needs no `&&` chaining", cmd);
+  }
+
+  const win = loadCursorWithHost(baseHost({ platform: () => "windows" }));
+  for (const cmd of [
+    win.buildLaunchCommand({}),
+    win.buildLaunchCommand({ skipPermissions: true }),
+    win.buildResumeCommand("abc"),
+    win.buildResumeCommand("abc", true),
+  ]) {
+    assert(cmd.indexOf("$env:CLAUDE_CODE_DISABLE_HOOKS='1'; ") === 0, "windows: hook-disable is the leading prefix", cmd);
+  }
 }
 
 console.log("\n--- buildLaunchCommand (windows trust prefix, gated) ---\n");
@@ -185,6 +226,10 @@ console.log("\n--- buildLaunchCommand (windows trust prefix, gated) ---\n");
   const p = loadCursorWithHost(baseHost({ platform: () => "windows" }));
   const bare = p.buildLaunchCommand({});
   assert(bare.indexOf(".workspace-trusted") === -1, "windows bare launch does NOT pre-write the trust marker");
+  assert(
+    bare === "$env:CLAUDE_CODE_DISABLE_HOOKS='1'; cursor-agent",
+    "windows bare launch is the hook-disable prefix + invocation",
+  );
   const cmd = p.buildLaunchCommand({ skipPermissions: true });
   assert(cmd.indexOf(".workspace-trusted") !== -1, "windows launch with skipPermissions pre-writes the trust marker");
   assert(cmd.indexOf("Get-Location") !== -1, "windows trust prefix uses PowerShell Get-Location");
@@ -612,12 +657,13 @@ console.log("\n--- buildPromptResponse (vertical ↓ nav + Enter) ---\n");
       shell: {
         quoteFor: (v: unknown, platform?: unknown) => `Q(${platform}:${String(v)})`,
         quote: (v: unknown) => `BAD(${String(v)})`,
+        envPrefix: (n: unknown, v: unknown) => `ENV(${n}=${v}) `,
       },
     }),
   );
   eq(
     p.buildResumeCommand("sess 1"),
-    "cursor-agent --resume Q(windows:sess 1)",
+    "ENV(CLAUDE_CODE_DISABLE_HOOKS=1) cursor-agent --resume Q(windows:sess 1)",
     "buildResumeCommand quotes session id with quoteFor(platform)",
   );
 }

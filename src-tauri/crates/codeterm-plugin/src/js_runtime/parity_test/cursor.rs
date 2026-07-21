@@ -19,7 +19,16 @@ fn build_launch_command_shape() {
     let j = cursor();
     // Plain: bare cursor-agent, no force, no trust pre-write.
     let plain = j.build_launch_command(&AgentLaunchParams::default());
-    assert!(plain.starts_with("cursor-agent"), "{plain}");
+    // sec_hook_ampersand: every launch disables cursor-agent's import of the
+    // user's ~/.claude/settings.json PreToolUse hooks (a Claude-dialect hook
+    // body crashes Cursor's bash tool). Must lead, and never touch the file.
+    let hook_disable_pos = plain
+        .find("CLAUDE_CODE_DISABLE_HOOKS")
+        .expect("hook-import disable prefix must be present");
+    assert!(
+        hook_disable_pos < plain.find("cursor-agent").unwrap(),
+        "hook-import disable must lead the launch command: {plain}"
+    );
     assert!(!plain.contains("--force"), "no force without skip: {plain}");
     assert!(
         !plain.contains(".workspace-trusted"),
@@ -46,7 +55,13 @@ fn build_resume_command_shape() {
     }
     let j = cursor();
     let cmd = j.build_resume_command(CURSOR_UUID, true).unwrap();
-    assert!(cmd.contains("cursor-agent"), "{cmd}");
+    let hook_disable_pos = cmd
+        .find("CLAUDE_CODE_DISABLE_HOOKS")
+        .expect("hook-import disable prefix must be present");
+    assert!(
+        hook_disable_pos < cmd.find("cursor-agent").unwrap(),
+        "hook-import disable must lead the resume command: {cmd}"
+    );
     assert!(cmd.contains("--resume"), "{cmd}");
     assert!(cmd.contains(CURSOR_UUID), "{cmd}");
     assert!(cmd.contains("--force"), "skip adds --force: {cmd}");
