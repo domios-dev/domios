@@ -85,14 +85,24 @@ struct Unit {
 
 enum IndexJob {
     Plan(Plan),
+    DeletePlan(Plan),
     Spec(Spec),
 }
 
 impl IndexJob {
     fn key(&self) -> String {
         match self {
-            Self::Plan(plan) => format!("plan:{}", plan.id),
-            Self::Spec(spec) => format!("spec:{}", spec.id),
+            Self::Plan(plan) | Self::DeletePlan(plan) => {
+                format!("{}:plan:{}", self.project_key(), plan.id)
+            }
+            Self::Spec(spec) => format!("{}:spec:{}", self.project_key(), spec.id),
+        }
+    }
+
+    fn project_key(&self) -> String {
+        match self {
+            Self::Plan(plan) | Self::DeletePlan(plan) => project_scope(plan_project_root(plan)),
+            Self::Spec(spec) => project_scope(spec_project_root(spec)),
         }
     }
 }
@@ -101,6 +111,8 @@ impl IndexJob {
 struct IndexQueueState {
     order: VecDeque<String>,
     latest: HashMap<String, IndexJob>,
+    in_flight_keys: HashSet<String>,
+    in_flight_projects: HashSet<String>,
     in_flight: usize,
 }
 
@@ -119,28 +131,65 @@ impl IndexQueue {
         self.ready.notify_one();
     }
 
-    fn take(&self) -> IndexJob {
+    fn enqueue_and_wait(&self, job: IndexJob) {
+        let key = job.key();
+        self.enqueue(job);
         let mut state = self.state.lock();
-        while state.order.is_empty() {
+        while state.latest.contains_key(&key) || state.in_flight_keys.contains(&key) {
             self.ready.wait(&mut state);
         }
-        let key = state.order.pop_front().expect("non-empty index queue");
-        let job = state.latest.remove(&key).expect("queued index job");
-        state.in_flight += 1;
-        job
     }
 
-    fn complete(&self) {
+    fn take(&self) -> (String, String, IndexJob) {
         let mut state = self.state.lock();
+        while state.order.iter().all(|key| {
+            state.in_flight_keys.contains(key)
+                || state
+                    .latest
+                    .get(key)
+                    .is_some_and(|job| state.in_flight_projects.contains(&job.project_key()))
+        }) {
+            self.ready.wait(&mut state);
+        }
+        let position = state
+            .order
+            .iter()
+            .position(|key| {
+                !state.in_flight_keys.contains(key)
+                    && state
+                        .latest
+                        .get(key)
+                        .is_some_and(|job| !state.in_flight_projects.contains(&job.project_key()))
+            })
+            .expect("runnable index job");
+        let key = state.order.remove(position).expect("queued index job");
+        let job = state.latest.remove(&key).expect("queued index job");
+        let project = job.project_key();
+        state.in_flight_keys.insert(key.clone());
+        state.in_flight_projects.insert(project.clone());
+        state.in_flight += 1;
+        (key, project, job)
+    }
+
+    fn complete(&self, key: String, project: String) {
+        let mut state = self.state.lock();
+        state.in_flight_keys.remove(&key);
+        state.in_flight_projects.remove(&project);
         state.in_flight -= 1;
         self.ready.notify_all();
     }
 
     #[cfg(test)]
-    fn wait_until_idle(&self) {
+    fn wait_until_project_idle(&self, project_root: &Path) {
+        let project = project_scope(project_root);
         let mut state = self.state.lock();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-        while !state.latest.is_empty() || state.in_flight != 0 {
+        while state.in_flight_projects.contains(&project)
+            || state
+                .latest
+                .values()
+                .any(|job| job.project_key() == project)
+        {
             let remaining = deadline.saturating_duration_since(std::time::Instant::now());
             assert!(!remaining.is_zero(), "plan index queue did not drain");
             self.ready.wait_for(&mut state, remaining);
@@ -155,26 +204,33 @@ fn index_queue() -> &'static Arc<IndexQueue> {
             state: Mutex::new(IndexQueueState::default()),
             ready: Condvar::new(),
         });
-        let worker_queue = queue.clone();
-        std::thread::Builder::new()
-            .name("plan-index-queue".into())
-            .spawn(move || loop {
-                let job = worker_queue.take();
-                match job {
-                    IndexJob::Plan(plan) => {
-                        if let Err(error) = mirror_plan(&plan, true) {
-                            log::warn!("[plan.index] plan {}: {}", plan.id, error);
+        for worker in 0..if cfg!(test) { 16 } else { 1 } {
+            let worker_queue = queue.clone();
+            std::thread::Builder::new()
+                .name(format!("plan-index-queue-{worker}"))
+                .spawn(move || loop {
+                    let (key, project, job) = worker_queue.take();
+                    match job {
+                        IndexJob::Plan(plan) => {
+                            if let Err(error) = mirror_plan(&plan, true) {
+                                log::warn!("[plan.index] plan {}: {}", plan.id, error);
+                            }
+                        }
+                        IndexJob::DeletePlan(plan) => {
+                            if let Err(error) = delete_plan_units(&plan) {
+                                log::warn!("[plan.index] delete plan {}: {}", plan.id, error);
+                            }
+                        }
+                        IndexJob::Spec(spec) => {
+                            if let Err(error) = mirror_spec(&spec, true) {
+                                log::warn!("[plan.index] spec {}: {}", spec.id, error);
+                            }
                         }
                     }
-                    IndexJob::Spec(spec) => {
-                        if let Err(error) = mirror_spec(&spec, true) {
-                            log::warn!("[plan.index] spec {}: {}", spec.id, error);
-                        }
-                    }
-                }
-                worker_queue.complete();
-            })
-            .expect("spawn plan index queue");
+                    worker_queue.complete(key, project);
+                })
+                .expect("spawn plan index queue");
+        }
         queue
     })
 }
@@ -187,9 +243,13 @@ pub(super) fn enqueue_spec_index(spec: Spec) {
     index_queue().enqueue(IndexJob::Spec(spec));
 }
 
+pub(super) fn remove_plan_from_index(plan: Plan) {
+    index_queue().enqueue_and_wait(IndexJob::DeletePlan(plan));
+}
+
 #[cfg(test)]
-pub(crate) fn flush_index_queue_for_test() {
-    index_queue().wait_until_idle();
+pub(crate) fn flush_index_queue_for_test(project_root: &Path) {
+    index_queue().wait_until_project_idle(project_root);
 }
 
 impl super::PlanStore {
@@ -299,6 +359,10 @@ pub fn project_index_path(project_root: &Path) -> PathBuf {
 
 pub fn project_index_dir(project_root: &Path) -> PathBuf {
     let root = super::paths::project_root(project_root);
+    #[cfg(test)]
+    if super::paths::test_project_root(&root).is_some() {
+        return root.join(".codeterm").join("test-plan-index");
+    }
     port()
         .data_dir()
         .join("plan-indexes")
@@ -337,7 +401,7 @@ fn open_index(project_root: &Path) -> Result<Connection, String> {
 }
 
 fn open_search_index(project_root: &Path) -> Result<Connection, String> {
-    open_index_with_timeout(project_root, PLAN_INDEX_SEARCH_TIMEOUT, false)
+    open_index_with_timeout(project_root, PLAN_INDEX_SEARCH_TIMEOUT, true)
 }
 
 fn open_index_with_timeout(
