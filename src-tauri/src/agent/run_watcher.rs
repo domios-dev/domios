@@ -110,6 +110,27 @@ impl RunWatcherRegistry {
         runs.remove(pty_id);
     }
 
+    /// Finalize a run as Failed immediately, for a definite failure (e.g. a
+    /// genuine PTY write failure during task delivery) rather than waiting on
+    /// the idle / hard-timeout backstop. No-op if the run isn't registered yet
+    /// (delivery raced ahead of registration) or already completed.
+    pub fn fail_now(&self, svc: &ServiceContext, pty_id: &str, reason: String) {
+        let state = self.runs.lock().get(pty_id).cloned();
+        let Some(state) = state else {
+            return;
+        };
+        if state.completed.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        log::warn!(
+            "[run-watcher] failing run now: pane={} reason={}",
+            state.pane_id,
+            reason
+        );
+        finish_run(svc, &state, false, reason);
+        self.runs.lock().remove(pty_id);
+    }
+
     /// Stop hook fired = the agent finished its turn. For a hidden worker/cron
     /// run that didn't explicitly report, treat this as success completion —
     /// faster and cleaner than the 30s idle backstop. No-op for visible panes
@@ -317,11 +338,17 @@ fn agent_dropped_to_shell(svc: &ServiceContext, pty_id: &str) -> bool {
 /// True when the pane's screen shows the agent actively generating / running a
 /// tool (so a silent PTY is NOT an exit — defer idle reaping). Replaces the
 /// stream-json `in_flight()` signal that interactive launches no longer emit.
+///
+/// `screen_shows_working`'s markers are Claude's own spinner text, so a `false`
+/// there only proves "not Claude-busy" — it says nothing for a provider whose
+/// TUI never emits those strings. Absence of a recognized busy marker must
+/// never be read as completion, so the fallback is "still showing a live TUI,
+/// not a bare shell" rather than an unqualified "not busy".
 fn agent_screen_busy(svc: &ServiceContext, pty_id: &str) -> bool {
     let Some(text) = svc.screen_state.lock().get_screen_text(pty_id) else {
         return false;
     };
-    screen_shows_working(&text)
+    screen_shows_working(&text) || !screen_is_bare_shell(&text)
 }
 
 fn screen_shows_working(text: &str) -> bool {
