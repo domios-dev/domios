@@ -9,6 +9,7 @@ function LivingDotsSpecimen(props: Record<string, unknown>) {
 export default {
   id: "living-dots",
   title: "Living Dots",
+  category: "Status",
   where: "liquid glass · agent status",
   Component: LivingDotsSpecimen,
   notes: "The three-beat squash-jump signature used for working, thinking, and idle agent states.",
