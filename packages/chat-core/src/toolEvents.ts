@@ -82,9 +82,11 @@ export function coalesceWaitEvents(items: TimelineItem[]): TimelineItem[] {
   };
 
   for (const item of items) {
-    if (isWaitCall(item) && (members.length === 0 || item.event.message.sourceSessionId === sessionId)) {
+    if (isWaitCall(item) && members.length === 0) {
       members.push(item.event);
       sessionId = item.event.message.sourceSessionId;
+    } else if (isWaitCall(item) && sessionId !== undefined && item.event.message.sourceSessionId === sessionId) {
+      members.push(item.event);
     } else {
       flush();
       if (isWaitCall(item)) {
