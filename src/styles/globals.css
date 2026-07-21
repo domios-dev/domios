@@ -1864,14 +1864,24 @@ button,
   container-type: inline-size;
 }
 
+.sidebar-team-title-row {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+}
+
+.sidebar-team-title-row .sidebar-team-name {
+  min-width: 0;
+}
+
 .sidebar-team-controls {
   display: inline-flex;
   align-items: center;
   gap: 2px;
 }
 
-.sidebar-team-name,
-.sidebar-team-effort {
+.sidebar-team-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1920,11 +1930,6 @@ button,
   letter-spacing: 0.02em;
 }
 
-.sidebar-team-effort {
-  font-size: 10.5px;
-  color: var(--ct-muted-fg);
-}
-
 .sidebar-team-title-block input {
   min-width: 0;
   width: 100%;
@@ -1935,18 +1940,6 @@ button,
   color: var(--ct-fg);
   font-size: 12px;
   outline: none;
-}
-
-.sidebar-team-count {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: color-mix(in srgb, var(--ct-muted-fg) 62%, var(--ct-bg));
-  font-family: var(--font-mono, monospace);
-  font-size: 10.5px;
-  font-weight: 600;
 }
 
 .sidebar-team-progress-slot {
@@ -1990,18 +1983,12 @@ button,
   pointer-events: auto;
 }
 
-.sidebar-team-header:hover .sidebar-team-count,
-.sidebar-team-header:not([data-menu-dismissed="true"]):focus-within .sidebar-team-count {
-  opacity: 0;
-}
-
 @media (hover: none), (pointer: coarse) {
   .sidebar-team-menu-root .sidebar-team-kebab {
     opacity: 1;
     pointer-events: auto;
   }
 
-  .sidebar-team-count { opacity: 0; }
 }
 
 [data-touch-mode="true"] .sidebar-team-menu-root .sidebar-team-kebab {
