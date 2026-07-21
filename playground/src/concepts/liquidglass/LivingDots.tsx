@@ -1,5 +1,5 @@
 type Props = {
-  variant?: "signature" | "glass" | "thinking";
+  variant?: "signature" | "thinking";
   idle?: boolean;
   label?: string;
 };
@@ -9,7 +9,6 @@ type Props = {
 export function LivingDots({ variant = "signature", idle = false, label }: Props) {
   const classes = [
     "lg-dots",
-    variant === "glass" ? "lg-dots--glass" : "",
     variant === "thinking" ? "lg-dots--thinking" : "",
     idle ? "lg-dots--idle" : "",
   ]

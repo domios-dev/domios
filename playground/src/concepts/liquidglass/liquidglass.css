@@ -120,78 +120,32 @@
   background: color-mix(in srgb, var(--ct-red) 16%, transparent);
 }
 
-/* ── Liquid Glass layer over the real button ─────────────────────────────────
-   Nothing here changes the button's identity — it adds a translucent specular
-   film, a one-shot sheen sweep on hover, a glass focus ring, and a squash-jump
-   press that borrows the dots' physics. All transform/opacity/filter. */
+/* ── Liquid layer over the real button ───────────────────────────────────────
+   Nothing here changes the button's identity. Hover is a barely-there bounce
+   (the material acknowledges the cursor); press is the squash-jump. All
+   transform/opacity. No sheen, no sparkle. */
 .lg-lab .lg-btn {
   position: relative;
-  overflow: hidden;
   isolation: isolate;
   transform: translateZ(0);
   transition:
-    transform 0.5s var(--lg-spring),
     background var(--ct-duration-fast) var(--ct-ease-out-expo),
     color var(--ct-duration-fast) var(--ct-ease-out-expo),
-    box-shadow 0.35s var(--ct-ease-out-expo),
-    filter 0.25s ease;
+    box-shadow 0.25s var(--ct-ease-out-expo),
+    filter 0.2s ease;
   will-change: transform;
 }
 
-/* Refraction film: a soft top-lit glass sheet that fades in on intent. */
-.lg-lab .lg-btn::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  z-index: 1;
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.26),
-    rgba(255, 255, 255, 0.05) 44%,
-    transparent 72%
-  );
-  opacity: 0;
-  transform: translateY(-1px) scaleY(0.96);
-  transform-origin: top;
-  transition:
-    opacity 0.4s var(--ct-ease-out-expo),
-    transform 0.5s var(--lg-spring);
-  mix-blend-mode: screen;
+/* Hover: one very light bounce — a 1px lift that settles. Fires once per
+   hover-in; :active immediately overrides it. */
+.lg-lab .lg-btn:hover {
+  animation: lg-hover-bounce 0.4s var(--lg-jump);
 }
-.lg-lab .lg-btn:hover::before,
-.lg-lab .lg-btn:focus-visible::before {
-  opacity: 1;
-  transform: translateY(0) scaleY(1);
-}
-
-/* Specular sweep: a single light band that travels across on hover-in. */
-.lg-lab .lg-btn__sheen {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 42%;
-  z-index: 2;
-  pointer-events: none;
-  border-radius: inherit;
-  background: linear-gradient(
-    100deg,
-    transparent,
-    rgba(255, 255, 255, 0.55) 48%,
-    transparent
-  );
-  transform: translateX(-180%) skewX(-14deg);
-  opacity: 0;
-}
-.lg-lab .lg-btn:hover .lg-btn__sheen {
-  animation: lg-sheen 0.85s var(--lg-spring);
-}
-@keyframes lg-sheen {
-  0% { transform: translateX(-180%) skewX(-14deg); opacity: 0; }
-  16% { opacity: 0.9; }
-  100% { transform: translateX(320%) skewX(-14deg); opacity: 0; }
+@keyframes lg-hover-bounce {
+  0% { transform: translateY(0) scaleY(1); }
+  35% { transform: translateY(-1px) scaleY(1.015); }
+  70% { transform: translateY(0.25px) scaleY(0.995); }
+  100% { transform: translateY(0) scaleY(1); }
 }
 
 .lg-lab .lg-btn__label {
@@ -203,37 +157,31 @@
 }
 
 /* Anticipation: press compresses the button (squash), same shape the dots hit
-   at their 10% keyframe. */
+   at their 10% keyframe. animation:none so press always beats the hover bounce. */
 .lg-lab .lg-btn:active {
+  animation: none;
   transform: translateY(1px) scaleX(1.05) scaleY(0.86);
-  transition-duration: 60ms;
+  transition: transform 60ms var(--ct-ease-out-expo);
 }
-/* Release: jump up + stretch, then settle with a small overshoot squash —
-   the 10% → 24% → 42% → 54% arc of ct-dots-squash-jump. */
-.lg-lab .lg-btn--release {
-  animation: lg-press-jump 0.52s var(--lg-jump);
+/* Release: jump up + stretch, then settle — the 10% → 24% → 42% → 54% arc of
+   ct-dots-squash-jump. Extra class specificity so it beats :hover's bounce. */
+.lg-lab .lg-btn.lg-btn--release {
+  animation: lg-press-jump 0.48s var(--lg-jump);
 }
 @keyframes lg-press-jump {
   0% { transform: translateY(1px) scaleX(1.05) scaleY(0.86); }
-  34% { transform: translateY(-4px) scaleX(0.95) scaleY(1.09); }
-  60% { transform: translateY(0.4px) scaleX(1.04) scaleY(0.95); }
-  80% { transform: translateY(0) scaleX(0.99) scaleY(1.01); }
+  34% { transform: translateY(-3px) scaleX(0.96) scaleY(1.07); }
+  62% { transform: translateY(0.4px) scaleX(1.03) scaleY(0.96); }
   100% { transform: translateY(0) scaleX(1) scaleY(1); }
 }
 
-/* Glass focus ring: crisp inner edge + soft accent bloom, settled in with a
-   spring so focus lands rather than snaps. */
+/* Focus ring: crisp inner edge + soft accent bloom. No spring — it just lands. */
 .lg-lab .lg-btn:focus-visible {
   outline: none;
   box-shadow:
     0 0 0 2px var(--ct-bg),
     0 0 0 3.5px color-mix(in srgb, var(--ct-accent) 72%, transparent),
     0 4px 18px color-mix(in srgb, var(--ct-accent) 42%, transparent);
-  animation: lg-focus-in 0.4s var(--lg-spring);
-}
-@keyframes lg-focus-in {
-  0% { box-shadow: 0 0 0 2px var(--ct-bg), 0 0 0 0 color-mix(in srgb, var(--ct-accent) 72%, transparent), 0 0 0 color-mix(in srgb, var(--ct-accent) 0%, transparent); }
-  100% { box-shadow: 0 0 0 2px var(--ct-bg), 0 0 0 3.5px color-mix(in srgb, var(--ct-accent) 72%, transparent), 0 4px 18px color-mix(in srgb, var(--ct-accent) 42%, transparent); }
 }
 
 /* ── Living dots: ct-dots-squash-jump as a reusable signature ─────────────────
@@ -247,10 +195,17 @@
   color: var(--ct-accent);
 }
 .lg-lab .lg-dots i {
-  width: 4px;
-  height: 4px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
-  background: currentColor;
+  /* Soft radial core keeps the silhouette reading round through the squash —
+     a flat fill at this size rasterizes into a square when scaled non-uniformly. */
+  background: radial-gradient(
+    circle at 40% 32%,
+    color-mix(in srgb, currentColor 55%, white) 0%,
+    currentColor 55%,
+    color-mix(in srgb, currentColor 82%, transparent) 100%
+  );
   display: block;
   transform-origin: 50% 100%;
   animation: lg-dots-squash-jump 1.05s cubic-bezier(0.22, 0.9, 0.25, 1) infinite;
@@ -271,21 +226,6 @@
 .lg-lab .lg-dots--thinking i:nth-child(2) { animation-delay: 0.16s; }
 .lg-lab .lg-dots--thinking i:nth-child(3) { animation-delay: 0.32s; }
 
-/* Glass-bead variation: same jump physics, dots become refracting glass beads
-   with a top-left specular hotspot. */
-.lg-lab .lg-dots--glass { gap: 5px; height: 0.9em; }
-.lg-lab .lg-dots--glass i {
-  width: 10px;
-  height: 10px;
-  background:
-    radial-gradient(circle at 34% 26%, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0) 42%),
-    radial-gradient(circle at 50% 60%, color-mix(in srgb, var(--ct-accent) 92%, white), color-mix(in srgb, var(--ct-accent) 55%, transparent));
-  box-shadow:
-    inset 0 -1.5px 2px rgba(0, 0, 0, 0.35),
-    inset 0 1px 1px rgba(255, 255, 255, 0.5),
-    0 2px 6px color-mix(in srgb, var(--ct-accent) 45%, transparent);
-}
-
 .lg-lab .lg-dots--idle i {
   animation: none;
   opacity: 0.42;
@@ -299,6 +239,7 @@
 .lg-lab .lg-seg {
   position: relative;
   display: inline-flex;
+  overflow: hidden; /* the thumb never escapes the track */
   padding: 3px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--ct-surface) 80%, transparent);
@@ -320,17 +261,25 @@
     inset 0 1px 1px rgba(255, 255, 255, 0.28),
     0 2px 10px color-mix(in srgb, var(--ct-accent) 35%, transparent);
   transform: translateX(calc(var(--seg-index) * 100%));
-  transition: transform 0.46s var(--lg-spring);
+  /* No spring on travel — the wall does the bouncing (keyframes below). */
+  transition: transform 0.34s var(--lg-jump);
   pointer-events: none;
   z-index: 0;
 }
-.lg-lab .lg-seg__thumb--morph {
-  animation: lg-seg-morph 0.46s var(--lg-spring);
+/* Wall hit: the thumb arrives, compresses against the leading edge like liquid
+   meeting glass, and relaxes. Directional; scale only, so it stays in bounds. */
+.lg-lab .lg-seg__thumb--hit-right {
+  transform-origin: right center;
+  animation: lg-wall-hit 0.36s var(--lg-jump) 0.18s;
 }
-@keyframes lg-seg-morph {
+.lg-lab .lg-seg__thumb--hit-left {
+  transform-origin: left center;
+  animation: lg-wall-hit 0.36s var(--lg-jump) 0.18s;
+}
+@keyframes lg-wall-hit {
   0% { scale: 1 1; }
-  40% { scale: 1.16 0.82; }
-  70% { scale: 0.96 1.05; }
+  40% { scale: 0.88 1.06; }
+  72% { scale: 1.04 0.98; }
   100% { scale: 1 1; }
 }
 .lg-lab .lg-seg__opt {
@@ -391,18 +340,18 @@
     inset 0 -2px 3px rgba(0, 0, 0, 0.25),
     0 2px 6px rgba(0, 0, 0, 0.35);
   transform: translate(0, -50%);
-  transition: transform 0.44s var(--lg-spring);
+  /* Travel is a plain ease-out; the arrival squash reads as the wall stop. */
+  transition: transform 0.3s var(--lg-jump);
 }
 .lg-lab .lg-toggle[aria-checked="true"] .lg-toggle__knob {
   transform: translate(1.55rem, -50%);
 }
 .lg-lab .lg-toggle:active .lg-toggle__knob {
-  animation: lg-knob-squash 0.44s var(--lg-spring);
+  animation: lg-knob-squash 0.36s var(--lg-jump);
 }
 @keyframes lg-knob-squash {
   0% { scale: 1 1; }
-  45% { scale: 1.22 0.82; }
-  75% { scale: 0.94 1.04; }
+  45% { scale: 1.14 0.88; }
   100% { scale: 1 1; }
 }
 .lg-lab .lg-toggle:focus-visible {
@@ -410,21 +359,70 @@
   box-shadow: 0 0 0 2px var(--ct-bg), 0 0 0 4px color-mix(in srgb, var(--ct-accent) 60%, transparent);
 }
 
-/* ── Reduced motion: static, legible, no sweeps / squash / morph ─────────────*/
+/* ── Labelled flip toggle (off | on) ─────────────────────────────────────────
+   A compact word-pill: the active word sits on a raised chip that slides
+   between the two labels and bumps the pill wall on arrival. */
+.lg-lab .lg-flip {
+  position: relative;
+  display: inline-flex;
+  overflow: hidden;
+  padding: 3px;
+  border-radius: 8px;
+  border: 1px solid var(--ct-border);
+  background: color-mix(in srgb, var(--ct-bg) 72%, black);
+  cursor: pointer;
+  font-family: var(--ct-font-mono);
+  font-size: 0.72rem;
+}
+.lg-lab .lg-flip__chip {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc((100% - 6px) / 2);
+  border-radius: 5px;
+  background: var(--ct-surface);
+  border: 1px solid color-mix(in srgb, var(--ct-border) 80%, var(--ct-accent));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 4px rgba(0, 0, 0, 0.4);
+  transform: translateX(0);
+  transition: transform 0.3s var(--lg-jump);
+  pointer-events: none;
+}
+.lg-lab .lg-flip[aria-checked="true"] .lg-flip__chip { transform: translateX(100%); }
+.lg-lab .lg-flip__chip--hit-right {
+  transform-origin: right center;
+  animation: lg-wall-hit 0.32s var(--lg-jump) 0.16s;
+}
+.lg-lab .lg-flip__chip--hit-left {
+  transform-origin: left center;
+  animation: lg-wall-hit 0.32s var(--lg-jump) 0.16s;
+}
+.lg-lab .lg-flip__word {
+  position: relative;
+  z-index: 1;
+  padding: 0.24rem 0.72rem;
+  color: var(--ct-muted);
+  transition: color 0.25s var(--ct-ease-out-expo);
+}
+.lg-lab .lg-flip__word[data-active="true"] { color: var(--ct-fg); }
+.lg-lab .lg-flip:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ct-bg), 0 0 0 4px color-mix(in srgb, var(--ct-accent) 60%, transparent);
+}
+
+/* ── Reduced motion: static, legible, no bounce / squash / wall-hit ──────────*/
 @media (prefers-reduced-motion: reduce) {
   .lg-lab .lg-btn,
-  .lg-lab .lg-btn::before,
-  .lg-lab .lg-btn__sheen,
   .lg-lab .lg-seg__thumb,
   .lg-lab .lg-toggle,
   .lg-lab .lg-toggle__knob,
+  .lg-lab .lg-flip__chip,
+  .lg-lab .lg-flip__word,
   .lg-lab .lg-dots i {
     transition: none !important;
     animation: none !important;
   }
   .lg-lab .lg-btn:active { transform: none; }
-  .lg-lab .lg-btn__sheen { display: none; }
-  .lg-lab .lg-btn::before { opacity: 1; }
   .lg-lab .lg-dots i { opacity: 0.85; }
   .lg-lab .lg-btn:focus-visible {
     box-shadow: 0 0 0 2px var(--ct-bg), 0 0 0 3.5px var(--ct-accent);
