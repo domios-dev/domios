@@ -161,20 +161,18 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
         &run_id,
     );
 
-    // (shared default). Short labels (haiku|sonnet|opus) resolve at runtime via agent::models.
-    let model = model
-        .map(|s| s.to_string())
-        .or_else(|| {
-            let mem_cfg = crate::config::memory_config();
-            if !mem_cfg.dreaming_model.is_empty() {
-                Some(mem_cfg.dreaming_model.clone())
-            } else if !mem_cfg.worker_model.is_empty() {
-                Some(mem_cfg.worker_model.clone())
-            } else {
-                None
-            }
-        })
-        .map(|s| crate::agent::models::canonicalize_short(&s).to_string());
+    // (shared default). Resolved against `agent`'s own catalog so a cron job
+    // fired without a stored model still gets a model that provider accepts.
+    let model = model.map(|s| s.to_string()).or_else(|| {
+        let mem_cfg = crate::config::memory_config();
+        let (resolved, _fell_back) = codeterm_mem::worker_agent::resolve_worker_model(
+            &mem_cfg.dreaming_model,
+            &mem_cfg.worker_model,
+            agent,
+            &crate::service::spawn::CatalogBackgroundModelPort,
+        );
+        (!resolved.is_empty()).then_some(resolved)
+    });
 
     // Include cron job name in the pane title so reports show `cron:<job>` instead of plain `Terminal`.
     let job_name = cron_state

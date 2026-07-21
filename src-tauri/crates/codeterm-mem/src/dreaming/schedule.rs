@@ -1,9 +1,9 @@
 //! Schedule management for the bundled dreaming + legacy librarian crons.
 
-use codeterm_types::agent::models::canonicalize_short;
 use codeterm_types::config::MemoryConfig;
 
 use crate::ports::{MemCronCreateParams, MemSchedulerPort};
+use crate::worker_agent::{resolve_worker_agent, resolve_worker_model, BackgroundModelPort};
 
 /// Marker name for the auto-installed dreaming cron job. Used to
 /// detect "already exists" so we don't create duplicates on every start.
@@ -24,13 +24,10 @@ pub fn ensure_dreaming_cron(
     cron_store: &mut dyn MemSchedulerPort,
     mem_cfg: &MemoryConfig,
     default_agent: &str,
+    compat: &dyn BackgroundModelPort,
 ) -> Result<bool, String> {
     if let Some(job) = cron_store.find_job_by_name(DREAMING_CRON_NAME) {
-        let desired_agent = if mem_cfg.dreaming_agent.is_empty() {
-            default_agent.to_string()
-        } else {
-            mem_cfg.dreaming_agent.clone()
-        };
+        let desired_agent = resolve_worker_agent(None, &mem_cfg.dreaming_agent, default_agent);
         let agent_changed = job.agent != desired_agent;
         let legacy_schedule_match = matches!(job.schedule.as_str(), "0 3 * * *");
         let legacy_jitter_match = job.jitter_max_ms == Some(5_400_000);
@@ -79,20 +76,20 @@ pub fn ensure_dreaming_cron(
         return Ok(false);
     }
 
+    // Deferred default: `None` here means "pick the default agent at fire
+    // time", not "no agent" — deliberately NOT resolved eagerly, unlike the
+    // update path above. Only used as a hint below for the model-compat
+    // check, which does need to know which provider's catalog to consult.
     let agent = if mem_cfg.dreaming_agent.is_empty() {
         None
     } else {
         Some(mem_cfg.dreaming_agent.clone())
     };
+    let provider_hint = resolve_worker_agent(None, &mem_cfg.dreaming_agent, default_agent);
 
-    let model = if !mem_cfg.dreaming_model.is_empty() {
-        Some(mem_cfg.dreaming_model.clone())
-    } else if !mem_cfg.worker_model.is_empty() {
-        Some(mem_cfg.worker_model.clone())
-    } else {
-        None
-    }
-    .map(|s| canonicalize_short(&s).to_string());
+    let (model, _fell_back) =
+        resolve_worker_model(&mem_cfg.dreaming_model, &mem_cfg.worker_model, &provider_hint, compat);
+    let model = (!model.is_empty()).then_some(model);
 
     cron_store.create_job(MemCronCreateParams {
         name: DREAMING_CRON_NAME.into(),

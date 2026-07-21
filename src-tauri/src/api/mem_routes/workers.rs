@@ -48,31 +48,24 @@ pub async fn workers_spawn(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
 
     let mem_cfg = crate::config::memory_config();
-    let agent = b.agent.clone().unwrap_or_else(|| {
-        if mem_cfg.extraction_agent.is_empty() {
-            crate::config::default_agent_provider()
-        } else {
-            mem_cfg.extraction_agent.clone()
-        }
-    });
     let parent = b
         .parent
         .clone()
         .unwrap_or_else(|| "user:memory-panel".to_string());
-
-    let raw_model = if mem_cfg.extraction_model.is_empty() {
-        mem_cfg.worker_model.clone()
-    } else {
-        mem_cfg.extraction_model.clone()
-    };
-    let model =
-        crate::service::spawn::compatible_background_model(&agent, &raw_model).unwrap_or_default();
+    let resolved = codeterm_mem::worker_agent::resolve_worker(
+        b.agent.as_deref(),
+        &mem_cfg.extraction_agent,
+        &mem_cfg.extraction_model,
+        &crate::config::default_agent_provider(),
+        &mem_cfg.worker_model,
+        &crate::service::spawn::CatalogBackgroundModelPort,
+    );
 
     let svc = state.svc.clone();
     let intent = b.intent.clone();
     let task = b.task.clone();
     let worker_id = tokio::task::spawn_blocking(move || {
-        workers::spawn_headless(&svc, intent, task, parent, agent, model)
+        workers::spawn_headless(&svc, intent, task, parent, resolved.agent, resolved.model)
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("join: {}", e)))?

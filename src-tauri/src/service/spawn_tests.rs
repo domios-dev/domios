@@ -425,6 +425,97 @@ fn background_model_ignores_a_model_from_another_provider() {
     );
 }
 
+/// Per-provider resolution for all four worker-capable providers, using
+/// model ids mirroring their real plugin/native catalogs (`plugins/provider-
+/// {codex,cursor,opencode}/plugin.json`, and the claude short-alias set).
+/// Guards `CatalogBackgroundModelPort` (and therefore every memory
+/// background-worker call site that now shares it) against a regression that
+/// would let one provider's model id leak into another's launch args.
+#[test]
+fn background_model_resolves_correctly_for_every_installed_provider() {
+    use crate::agent::model_catalog::{register, RegisteredDefaults};
+    use crate::agent::provider::ModelInfo;
+    use codeterm_mem::worker_agent::BackgroundModelPort;
+
+    fn model(id: &str) -> ModelInfo {
+        ModelInfo {
+            id: id.into(),
+            display_name: id.into(),
+            description: None,
+            available: Some(true),
+        }
+    }
+
+    register(
+        "claude-provider-test",
+        RegisteredDefaults {
+            models: vec![model("opus"), model("sonnet"), model("haiku")],
+            default: Some("sonnet".into()),
+        },
+    );
+    register(
+        "codex-provider-test",
+        RegisteredDefaults {
+            models: vec![model("gpt-5.5"), model("gpt-5.4-mini")],
+            default: Some("gpt-5.5".into()),
+        },
+    );
+    register(
+        "cursor-provider-test",
+        RegisteredDefaults {
+            models: vec![
+                model("auto"),
+                model("composer-2.5"),
+                model("claude-4.6-sonnet-medium"),
+            ],
+            default: Some("auto".into()),
+        },
+    );
+    register(
+        "opencode-provider-test",
+        RegisteredDefaults {
+            models: vec![
+                model("anthropic/claude-opus-4-8"),
+                model("anthropic/claude-sonnet-4-6"),
+            ],
+            default: Some("anthropic/claude-opus-4-8".into()),
+        },
+    );
+
+    let cases: &[(&str, &str, &str)] = &[
+        ("claude-provider-test", "opus", "opus"),
+        ("codex-provider-test", "gpt-5.4-mini", "gpt-5.4-mini"),
+        ("cursor-provider-test", "composer-2.5", "composer-2.5"),
+        (
+            "opencode-provider-test",
+            "anthropic/claude-sonnet-4-6",
+            "anthropic/claude-sonnet-4-6",
+        ),
+    ];
+    for (provider_id, requested, expected) in cases {
+        assert_eq!(
+            compatible_background_model(provider_id, requested).as_deref(),
+            Some(*expected),
+            "provider {provider_id} should accept its own model {requested}"
+        );
+        let (resolved, fell_back) = CatalogBackgroundModelPort.resolve(provider_id, requested);
+        assert_eq!(resolved, *expected);
+        assert!(!fell_back);
+    }
+
+    // Cross-provider: codex's model id must not resolve against cursor's
+    // catalog (and vice versa) — proves no provider-id branching papers over
+    // an actual catalog mismatch.
+    assert_eq!(
+        compatible_background_model("cursor-provider-test", "gpt-5.5"),
+        None
+    );
+    let (resolved, fell_back) =
+        CatalogBackgroundModelPort.resolve("cursor-provider-test", "gpt-5.5");
+    assert_eq!(resolved, "");
+    assert!(fell_back);
+}
+
 #[test]
 fn resume_agent_model_does_not_inject_default() {
     let registry = registry_with(ModelProvider::new(

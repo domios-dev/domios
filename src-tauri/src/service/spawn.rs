@@ -20,7 +20,7 @@ pub use spawn_model::ModelFallbackNotice;
 pub(crate) use spawn_model::{
     attach_planned_model, compatible_background_model, model_fallback_notice_title,
     persist_model_launch_identity, resolve_fresh_agent_model,
-    resolve_fresh_agent_model_with_notice,
+    resolve_fresh_agent_model_with_notice, CatalogBackgroundModelPort,
 };
 
 #[path = "spawn_hidden_delivery.rs"]
