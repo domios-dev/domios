@@ -309,17 +309,23 @@ export type RemoteWorkersByOrchestrator = Record<string, RemoteWorker[]>;
 // Graph worker (Phase E memory visualization)
 
 export type GraphWorkerStatus =
+  | "queued"
   | "starting"
   | "reading"
   | "analyzing"
   | "writing"
   | "done"
   | "error"
+  | "failed"
+  | "cancelled"
+  | "hard_timeout"
+  | "timeout"
+  | "timed_out"
   | "orphaned";
 
 export interface GraphWorkerInfo {
   worker_id: string;
-  pane_id: string;
+  pane_id: string | null;
   intent: string;
   spawned_by: string;
   spawned_at: number;

@@ -17,6 +17,7 @@ import { AgentRunLogPopup } from "../AgentRun/AgentRunLogPopup";
 import { RunChatPopup } from "../AgentRun/RunChatPopup";
 import { AgentIcon } from "../AgentIcon";
 import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
+import { isTerminalWorkerStatus } from "../AgentRun/workerEmptyState";
 
 interface Props {
   api: ApiConfig;
@@ -133,8 +134,8 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
     }
   }, [autoScroll]);
 
-  const live = useMemo(() => workers.filter((w) => w.status !== "done" && w.status !== "error" && w.status !== "orphaned"), [workers]);
-  const recent = useMemo(() => workers.filter((w) => w.status === "done" || w.status === "error" || w.status === "orphaned").slice(0, 20), [workers]);
+  const live = useMemo(() => workers.filter((w) => !isTerminalWorkerStatus(w.status)), [workers]);
+  const recent = useMemo(() => workers.filter((w) => isTerminalWorkerStatus(w.status)).slice(0, 20), [workers]);
 
   const handleKill = useCallback(
     async (workerId: string) => {
@@ -386,7 +387,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
             provider={logWorker.agent_provider ?? defaultSpawnProviderId()}
             cwd={logWorker.cwd ?? ""}
             sessionId={logWorker.session_id}
-            live={!["done", "error", "orphaned"].includes(logWorker.status)}
+            live={!isTerminalWorkerStatus(logWorker.status)}
             onClose={() => setLogWorker(null)}
           />
         ) : (
@@ -403,8 +404,7 @@ interface WorkerCardProps {
 }
 
 export function WorkerCard({ worker, onOpen, onKill }: WorkerCardProps) {
-  const isDone =
-    worker.status === "done" || worker.status === "error" || worker.status === "orphaned";
+  const isDone = isTerminalWorkerStatus(worker.status);
   const elapsed = (() => {
     const end = isDone && worker.done_at ? worker.done_at : Date.now();
     const diff = end - worker.spawned_at;
