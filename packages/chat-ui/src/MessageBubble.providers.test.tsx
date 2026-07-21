@@ -356,9 +356,18 @@ test("Codex injected transcript rows render as collapsed neutral artifacts", asy
       content: "<turn_aborted>\nThe user interrupted the previous turn on purpose.\n</turn_aborted>",
       collapsed: true,
     },
+    {
+      id: "codex-environment-context",
+      provider: "codex",
+      type: "system",
+      systemSubtype: "environment_context",
+      content: "<environment_context>\n  <cwd>D:/Developer/codeterm</cwd>\n</environment_context>",
+      collapsed: true,
+    },
   ]);
   try {
     assertIncludes(host, "System context", "Codex instructions label");
+    assertIncludes(host, "Environment context", "Codex environment label");
     assertIncludes(host, "Turn interrupted", "Codex turn aborted label");
     assert(
       !textOf(host).includes("Full instructions visible only after expansion."),

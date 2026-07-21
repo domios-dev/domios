@@ -1491,6 +1491,9 @@ function classifyCodexSystemText(text) {
   if (/^# AGENTS\.md instructions for /m.test(trimmed) && trimmed.indexOf("<INSTRUCTIONS>") !== -1) {
     return "agent_instructions";
   }
+  if (/^<environment_context(?:\s[^>]*)?>[\s\S]*<\/environment_context>$/.test(trimmed)) {
+    return "environment_context";
+  }
   return null;
 }
 function isValidCodexSessionMessage(v) {
