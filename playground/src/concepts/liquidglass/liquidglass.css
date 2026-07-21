@@ -236,14 +236,22 @@
     transform: translateY(-2.9px) scaleX(0.98) scaleY(1.03);
     animation-timing-function: cubic-bezier(0.7, 0, 0.9, 0.5);
   }
-  45% {
-    opacity: 0.92;
-    transform: translateY(0.6px) scaleX(1.12) scaleY(0.84);
+  /* Splat: the soft body smears flat against the floor (origin is the base),
+     then jellies back through a small over-tall rebound. */
+  44% {
+    opacity: 0.95;
+    transform: translateY(0.9px) scaleX(1.32) scaleY(0.58);
     animation-timing-function: cubic-bezier(0.2, 0.6, 0.35, 1);
   }
-  56% {
-    opacity: 0.78;
-    transform: translateY(0) scaleX(1) scaleY(1);
+  52% {
+    opacity: 0.88;
+    transform: translateY(0) scaleX(0.96) scaleY(1.07);
+    animation-timing-function: cubic-bezier(0.4, 0, 0.5, 1);
+  }
+  59% {
+    opacity: 0.8;
+    transform: translateY(0) scaleX(1.04) scaleY(0.97);
+    animation-timing-function: cubic-bezier(0.4, 0, 0.6, 1);
   }
 }
 
