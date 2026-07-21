@@ -7,7 +7,7 @@ function provider(id: string, display_name: string, default_model: string, model
     id,
     display_name,
     transport: "pty",
-    system_prompt_delivery: "argv",
+    system_prompt_delivery: "external",
     available_models: models.map((model) => ({ id: model, display_name: model[0].toUpperCase() + model.slice(1) })),
     default_model,
     settings_schema: [],

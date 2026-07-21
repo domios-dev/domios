@@ -44,7 +44,7 @@ const ORCH: PaneComposerActivity = {
   extraPlans: 1,
 };
 
-const WORK: PaneComposerActivity = {
+const WORK: Extract<PaneComposerActivity, { kind: "working" }> = {
   kind: "working",
   planId: "pl_hidden",
   planTitle: "Canvas v2 — the full build (dogfood)",
