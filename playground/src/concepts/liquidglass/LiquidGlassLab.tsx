@@ -55,7 +55,7 @@ export function LiquidGlassLab() {
           <GlassButton variant="primary" size="sm">Small</GlassButton>
         </div>
         <p className="text-xs text-[var(--ct-muted-fg)]">
-          Hover barely lifts; press squashes and jumps. Tab to see the focus ring.
+          Hover swells with one soft wobble, the label rides a beat behind; press squashes and pops. Tab for the focus ring.
         </p>
       </Bay>
 
