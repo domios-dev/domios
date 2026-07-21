@@ -65,16 +65,17 @@ export function chatSetupView(
   pane: Pane | null | undefined,
   chatSessionAttached = false,
 ): PaneBootOverlayView {
-  if (chatSessionAttached) return { kind: "none" };
   const stage = pane?.boot_stage;
-  if (!stage || stage === "agent_ready" || stage === "pty_reattached") return { kind: "none" };
   if (stage === "spawn_failed") {
+    if (chatSessionAttached) return { kind: "none" };
     return {
       kind: "failed",
       reason: pane?.boot_failure_reason ?? null,
-      canRetry: pane?.protected === true,
+      canRetry: pane?.agent_type != null || pane?.role != null || pane?.protected === true,
     };
   }
+  if (pane?.agent_booting && !stage) return { kind: "starting", label: "Starting" };
+  if (stage === "agent_ready" || stage === "pty_reattached" || !stage) return { kind: "none" };
   switch (stage) {
     case "pty_starting":
     case "pty_spawned":
