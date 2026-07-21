@@ -53,7 +53,7 @@ struct RunState {
     completed: AtomicBool,
     armed: AtomicBool,
     saw_working: AtomicBool,
-    saw_post_session_working: AtomicBool,
+    saw_post_session_progress: AtomicBool,
     nudge_count: AtomicU32,
     restart_count: AtomicU32,
     last_restart_at: Mutex<Instant>,
@@ -94,7 +94,7 @@ impl RunWatcherRegistry {
             completed: AtomicBool::new(false),
             armed: AtomicBool::new(false),
             saw_working: AtomicBool::new(false),
-            saw_post_session_working: AtomicBool::new(false),
+            saw_post_session_progress: AtomicBool::new(false),
             nudge_count: AtomicU32::new(0),
             restart_count: AtomicU32::new(0),
             last_restart_at: Mutex::new(Instant::now()),
@@ -143,12 +143,7 @@ impl RunWatcherRegistry {
         }
     }
 
-    pub fn observe_output_status(
-        &self,
-        pty_id: &str,
-        status: crate::agent::status::PaneStatus,
-        session_was_bound: bool,
-    ) {
+    pub fn observe_output_status(&self, pty_id: &str, status: crate::agent::status::PaneStatus) {
         if status != crate::agent::status::PaneStatus::Working {
             return;
         }
@@ -157,11 +152,30 @@ impl RunWatcherRegistry {
             if armed {
                 state.saw_working.store(true, Ordering::Release);
             }
-            if records_post_session_working(armed, session_was_bound) {
-                state
-                    .saw_post_session_working
-                    .store(true, Ordering::Release);
-            }
+        }
+    }
+
+    pub fn observe_session_progress(&self, svc: &ServiceContext, pane_id: &str, source: &str) {
+        if !session_source_reports_progress(source) {
+            return;
+        }
+        let pty_id = self
+            .runs
+            .lock()
+            .values()
+            .find(|state| state.pane_id == pane_id)
+            .and_then(|state| {
+                if state.armed.load(Ordering::Acquire) {
+                    state
+                        .saw_post_session_progress
+                        .store(true, Ordering::Release);
+                    Some(state.pty_id.clone())
+                } else {
+                    None
+                }
+            });
+        if let Some(pty_id) = pty_id {
+            self.complete_via_semantic_idle(svc, &pty_id);
         }
     }
 
@@ -174,7 +188,7 @@ impl RunWatcherRegistry {
         if !can_complete_on_semantic_idle(
             state.armed.load(Ordering::Acquire),
             state.saw_working.load(Ordering::Acquire),
-            state.saw_post_session_working.load(Ordering::Acquire),
+            state.saw_post_session_progress.load(Ordering::Acquire),
             idle,
             session_bound,
         ) || state.completed.swap(true, Ordering::AcqRel)
@@ -333,7 +347,7 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
             let ready_for_success = can_complete_on_semantic_idle(
                 state.armed.load(Ordering::Acquire),
                 state.saw_working.load(Ordering::Acquire),
-                state.saw_post_session_working.load(Ordering::Acquire),
+                state.saw_post_session_progress.load(Ordering::Acquire),
                 idle_status_is_terminal_success(&svc, &state.pty_id),
                 session_bound,
             );
@@ -429,15 +443,15 @@ fn pane_completion_state(svc: &ServiceContext, pane_id: &str) -> (bool, bool) {
 fn can_complete_on_semantic_idle(
     armed: bool,
     saw_working: bool,
-    saw_post_session_working: bool,
+    saw_post_session_progress: bool,
     idle: bool,
     session_bound: bool,
 ) -> bool {
-    armed && saw_working && saw_post_session_working && idle && session_bound
+    armed && saw_working && saw_post_session_progress && idle && session_bound
 }
 
-fn records_post_session_working(armed: bool, session_was_bound: bool) -> bool {
-    armed && session_was_bound
+fn session_source_reports_progress(source: &str) -> bool {
+    matches!(source, "message.part.updated" | "tool.execute.before")
 }
 
 fn screen_shows_working(text: &str) -> bool {
@@ -827,9 +841,10 @@ mod tests {
     }
 
     #[test]
-    fn startup_working_cannot_count_as_post_session_progress() {
-        assert!(!records_post_session_working(true, false));
-        assert!(!records_post_session_working(false, true));
-        assert!(records_post_session_working(true, true));
+    fn session_created_is_not_task_progress() {
+        assert!(!session_source_reports_progress("session.created"));
+        assert!(!session_source_reports_progress("message.updated"));
+        assert!(session_source_reports_progress("message.part.updated"));
+        assert!(session_source_reports_progress("tool.execute.before"));
     }
 }
