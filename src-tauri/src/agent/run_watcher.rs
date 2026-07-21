@@ -53,6 +53,7 @@ struct RunState {
     completed: AtomicBool,
     armed: AtomicBool,
     saw_working: AtomicBool,
+    saw_post_session_working: AtomicBool,
     nudge_count: AtomicU32,
     restart_count: AtomicU32,
     last_restart_at: Mutex<Instant>,
@@ -93,6 +94,7 @@ impl RunWatcherRegistry {
             completed: AtomicBool::new(false),
             armed: AtomicBool::new(false),
             saw_working: AtomicBool::new(false),
+            saw_post_session_working: AtomicBool::new(false),
             nudge_count: AtomicU32::new(0),
             restart_count: AtomicU32::new(0),
             last_restart_at: Mutex::new(Instant::now()),
@@ -141,13 +143,24 @@ impl RunWatcherRegistry {
         }
     }
 
-    pub fn observe_output_status(&self, pty_id: &str, status: crate::agent::status::PaneStatus) {
+    pub fn observe_output_status(
+        &self,
+        pty_id: &str,
+        status: crate::agent::status::PaneStatus,
+        session_was_bound: bool,
+    ) {
         if status != crate::agent::status::PaneStatus::Working {
             return;
         }
         if let Some(state) = self.runs.lock().get(pty_id) {
-            if state.armed.load(Ordering::Acquire) {
+            let armed = state.armed.load(Ordering::Acquire);
+            if armed {
                 state.saw_working.store(true, Ordering::Release);
+            }
+            if records_post_session_working(armed, session_was_bound) {
+                state
+                    .saw_post_session_working
+                    .store(true, Ordering::Release);
             }
         }
     }
@@ -161,6 +174,7 @@ impl RunWatcherRegistry {
         if !can_complete_on_semantic_idle(
             state.armed.load(Ordering::Acquire),
             state.saw_working.load(Ordering::Acquire),
+            state.saw_post_session_working.load(Ordering::Acquire),
             idle,
             session_bound,
         ) || state.completed.swap(true, Ordering::AcqRel)
@@ -316,7 +330,14 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
 
         if idle_secs >= IDLE_COMPLETE_SECS {
             let session_bound = pane_completion_state(&svc, &state.pane_id).1;
-            let busy = !session_bound || agent_screen_busy(&svc, &state.pty_id);
+            let ready_for_success = can_complete_on_semantic_idle(
+                state.armed.load(Ordering::Acquire),
+                state.saw_working.load(Ordering::Acquire),
+                state.saw_post_session_working.load(Ordering::Acquire),
+                idle_status_is_terminal_success(&svc, &state.pty_id),
+                session_bound,
+            );
+            let busy = !ready_for_success || agent_screen_busy(&svc, &state.pty_id);
             if busy {
                 log::debug!(
                     "[run-watcher] idle {}s but agent remains active — deferring reap: pane={}",
@@ -335,7 +356,7 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
                 finish_run(
                     &svc,
                     &state,
-                    session_bound && idle_status_is_terminal_success(&svc, &state.pty_id),
+                    ready_for_success,
                     format!("idle for {}s without an explicit completion", idle_secs),
                 );
                 svc.run_watcher.runs.lock().remove(&state.pty_id);
@@ -408,10 +429,15 @@ fn pane_completion_state(svc: &ServiceContext, pane_id: &str) -> (bool, bool) {
 fn can_complete_on_semantic_idle(
     armed: bool,
     saw_working: bool,
+    saw_post_session_working: bool,
     idle: bool,
     session_bound: bool,
 ) -> bool {
-    armed && saw_working && idle && session_bound
+    armed && saw_working && saw_post_session_working && idle && session_bound
+}
+
+fn records_post_session_working(armed: bool, session_was_bound: bool) -> bool {
+    armed && session_was_bound
 }
 
 fn screen_shows_working(text: &str) -> bool {
@@ -781,11 +807,29 @@ mod tests {
     }
 
     #[test]
-    fn semantic_idle_requires_a_bound_delivered_turn() {
-        assert!(!can_complete_on_semantic_idle(false, false, true, true));
-        assert!(!can_complete_on_semantic_idle(true, false, true, true));
-        assert!(!can_complete_on_semantic_idle(true, true, false, true));
-        assert!(!can_complete_on_semantic_idle(true, true, true, false));
-        assert!(can_complete_on_semantic_idle(true, true, true, true));
+    fn semantic_idle_requires_post_session_progress() {
+        assert!(!can_complete_on_semantic_idle(
+            false, false, false, true, true
+        ));
+        assert!(!can_complete_on_semantic_idle(
+            true, false, false, true, true
+        ));
+        assert!(!can_complete_on_semantic_idle(
+            true, true, false, true, true
+        ));
+        assert!(!can_complete_on_semantic_idle(
+            true, true, true, false, true
+        ));
+        assert!(!can_complete_on_semantic_idle(
+            true, true, true, true, false
+        ));
+        assert!(can_complete_on_semantic_idle(true, true, true, true, true));
+    }
+
+    #[test]
+    fn startup_working_cannot_count_as_post_session_progress() {
+        assert!(!records_post_session_working(true, false));
+        assert!(!records_post_session_working(false, true));
+        assert!(records_post_session_working(true, true));
     }
 }
