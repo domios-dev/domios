@@ -561,7 +561,7 @@ fn mem_worker_spawn(
         resolved.agent,
         resolved.model,
     )
-        .map_err(internal_error)?;
+    .map_err(internal_error)?;
     let info = svc.workers.get(&worker_id);
     Ok(serde_json::json!({
         "worker_id": worker_id,
