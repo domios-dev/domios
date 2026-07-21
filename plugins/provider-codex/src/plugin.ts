@@ -1105,6 +1105,11 @@ function classifyCodexSystemText(text: string): string | null {
   ) {
     return "agent_instructions";
   }
+  if (
+    /^<environment_context(?:\s[^>]*)?>[\s\S]*<\/environment_context>$/.test(trimmed)
+  ) {
+    return "environment_context";
+  }
   return null;
 }
 

@@ -462,6 +462,12 @@ assert(warned === 1, "parseSessionDelta emits one warning for a session with inv
     "The user interrupted the previous turn on purpose.",
     "</turn_aborted>",
   ].join("\n");
+  const environmentText = [
+    "<environment_context>",
+    "  <current_date>2026-07-21</current_date>",
+    "  <timezone>Europe/Kiev</timezone>",
+    "</environment_context>",
+  ].join("\n");
   const systemChunk = [
     JSON.stringify({
       type: "response_item",
@@ -473,23 +479,28 @@ assert(warned === 1, "parseSessionDelta emits one warning for a session with inv
       timestamp: "2026-01-01T00:00:04Z",
       payload: { type: "message", role: "user", content: [{ type: "input_text", text: abortedText }] },
     }),
+    JSON.stringify({
+      type: "response_item",
+      timestamp: "2026-01-01T00:00:05Z",
+      payload: { type: "message", role: "user", content: [{ type: "input_text", text: environmentText }] },
+    }),
   ].join("\n");
   const systemParsed = hostPlugin.parseSessionDelta(systemChunk) as { messages: any[] };
   eq(
     systemParsed.messages.map((message) => [message.role, message.sourceSubtype]),
-    [["system", "agent_instructions"], ["system", "turn_aborted"]],
+    [["system", "agent_instructions"], ["system", "turn_aborted"], ["system", "environment_context"]],
     "parseSessionDelta maps Codex injected user-shaped rows to system subtypes",
   );
   eq(
     systemParsed.messages.map((message) => message.blocks[0].data.subtype),
-    ["agent_instructions", "turn_aborted"],
+    ["agent_instructions", "turn_aborted", "environment_context"],
     "parseSessionDelta preserves Codex system subtype in text block data",
   );
 
   const searchParsed = hostPlugin.parseSessionMessages(systemChunk) as any[];
   eq(
     searchParsed.map((message) => [message.role, message.isMeta, message.sourceSubtype]),
-    [["system", true, "agent_instructions"], ["system", true, "turn_aborted"]],
+    [["system", true, "agent_instructions"], ["system", true, "turn_aborted"], ["system", true, "environment_context"]],
     "parseSessionMessages marks Codex injected rows as system meta",
   );
 }

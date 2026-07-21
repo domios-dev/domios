@@ -427,6 +427,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
     const isSkillContext = message.systemSubtype === "skill_context";
     const isCompactSummary = message.systemSubtype === "compact_summary" || message.isCompactSummary === true;
     const isAgentInstructions = message.systemSubtype === "agent_instructions";
+    const isEnvironmentContext = message.systemSubtype === "environment_context";
     const isTurnAborted = message.systemSubtype === "turn_aborted";
     if (isCompactSummary) {
       return (
@@ -452,10 +453,10 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
         </div>
       );
     }
-    if (isAgentInstructions) {
+    if (isAgentInstructions || isEnvironmentContext) {
       return (
         <LongArtifact
-          label="System context"
+          label={isEnvironmentContext ? "Environment context" : "System context"}
           text={message.content}
           expanded={expanded}
           onToggle={() => setExpandedPersistent(!expanded)}
