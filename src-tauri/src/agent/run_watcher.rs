@@ -51,6 +51,8 @@ struct RunState {
     started_at: Instant,
     last_byte_at: Mutex<Instant>,
     completed: AtomicBool,
+    armed: AtomicBool,
+    saw_working: AtomicBool,
     nudge_count: AtomicU32,
     restart_count: AtomicU32,
     last_restart_at: Mutex<Instant>,
@@ -89,6 +91,8 @@ impl RunWatcherRegistry {
             started_at: Instant::now(),
             last_byte_at: Mutex::new(Instant::now()),
             completed: AtomicBool::new(false),
+            armed: AtomicBool::new(false),
+            saw_working: AtomicBool::new(false),
             nudge_count: AtomicU32::new(0),
             restart_count: AtomicU32::new(0),
             last_restart_at: Mutex::new(Instant::now()),
@@ -128,6 +132,50 @@ impl RunWatcherRegistry {
             reason
         );
         finish_run(svc, &state, false, reason);
+        self.runs.lock().remove(pty_id);
+    }
+
+    pub fn arm(&self, pty_id: &str) {
+        if let Some(state) = self.runs.lock().get(pty_id) {
+            state.armed.store(true, Ordering::Release);
+        }
+    }
+
+    pub fn observe_output_status(&self, pty_id: &str, status: crate::agent::status::PaneStatus) {
+        if status != crate::agent::status::PaneStatus::Working {
+            return;
+        }
+        if let Some(state) = self.runs.lock().get(pty_id) {
+            if state.armed.load(Ordering::Acquire) {
+                state.saw_working.store(true, Ordering::Release);
+            }
+        }
+    }
+
+    pub fn complete_via_semantic_idle(&self, svc: &ServiceContext, pty_id: &str) {
+        let state = self.runs.lock().get(pty_id).cloned();
+        let Some(state) = state else {
+            return;
+        };
+        let idle = svc
+            .mux
+            .read()
+            .get_pane(&state.pane_id)
+            .and_then(|pane| pane.agent_state.as_ref())
+            .is_some_and(|state| state.state == codeterm_types::pty::TimelineState::Idle);
+        if !can_complete_on_semantic_idle(
+            state.armed.load(Ordering::Acquire),
+            state.saw_working.load(Ordering::Acquire),
+            idle,
+        ) || state.completed.swap(true, Ordering::AcqRel)
+        {
+            return;
+        }
+        log::info!(
+            "[run-watcher] semantic-idle complete: pane={}",
+            state.pane_id
+        );
+        finish_run(svc, &state, true, "(agent returned to idle)".to_string());
         self.runs.lock().remove(pty_id);
     }
 
@@ -346,6 +394,10 @@ fn idle_status_is_terminal_success(svc: &ServiceContext, pty_id: &str) -> bool {
 
 fn status_is_idle(status: crate::agent::status::PaneStatus) -> bool {
     status == crate::agent::status::PaneStatus::Idle
+}
+
+fn can_complete_on_semantic_idle(armed: bool, saw_working: bool, idle: bool) -> bool {
+    armed && saw_working && idle
 }
 
 fn screen_shows_working(text: &str) -> bool {
@@ -712,5 +764,13 @@ mod tests {
         assert!(status_is_idle(crate::agent::status::PaneStatus::Idle));
         assert!(!status_is_idle(crate::agent::status::PaneStatus::Working));
         assert!(!status_is_idle(crate::agent::status::PaneStatus::Waiting));
+    }
+
+    #[test]
+    fn semantic_idle_requires_a_delivered_turn() {
+        assert!(!can_complete_on_semantic_idle(false, false, true));
+        assert!(!can_complete_on_semantic_idle(true, false, true));
+        assert!(!can_complete_on_semantic_idle(true, true, false));
+        assert!(can_complete_on_semantic_idle(true, true, true));
     }
 }
