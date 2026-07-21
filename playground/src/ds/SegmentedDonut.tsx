@@ -43,5 +43,5 @@ export function SegmentedDonut({ segments, size, className = "", style, ...props
     "--ds-segmented-donut-background": segmentedDonutBackground(segments),
   } as CSSProperties;
 
-  return <span className={`ds-root ds-segmented-donut ${className}`} style={donutStyle} {...props}><i /></span>;
+  return <span key={JSON.stringify(segments)} className={`ds-root ds-segmented-donut ${className}`} style={donutStyle} {...props}><i /></span>;
 }

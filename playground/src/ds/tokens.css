@@ -75,6 +75,13 @@
   /* Playground liquid-motion curves. */
   --ct-ease-squash-jump: cubic-bezier(.22, .9, .25, 1);
   --ct-ease-hover-swell: cubic-bezier(.3, 1.6, .4, 1);
+  --ct-ease-liquid-settle: cubic-bezier(.16, 1, .3, 1);
+  --ct-ease-liquid-breathe: cubic-bezier(.42, 0, .58, 1);
+  --ct-duration-liquid-hover: 380ms;
+  --ct-duration-liquid-press: 280ms;
+  --ct-duration-liquid-sweep: 560ms;
+  --ct-duration-liquid-donut: 420ms;
+  --ct-duration-recording-pulse: 1200ms;
 }
 
 .ds-root { color: var(--ct-fg); }
