@@ -268,8 +268,8 @@ test("wait batches are accessible, lossless, and provider-neutral", async () => 
     assert(item.kind === "tool" && item.event.waitBatch, `${provider} normalized casing reaches the wait predicate`);
   }
   const messages: NormalizedChatMessage[] = [
-    { id: "wait-one", type: "tool_call", content: "", toolId: "one", toolName: "wait", toolKind: "generic", toolSummary: "first wait", toolResult: "first result", timestamp: "1000" },
-    { id: "wait-two", type: "tool_call", content: "", toolId: "two", toolName: "wait_for", toolKind: "generic", toolSummary: "second wait", toolResult: "second result", timestamp: "2500" },
+    { id: "wait-one", type: "tool_call", content: "", toolId: "one", toolName: "wait", toolKind: "generic", toolSummary: "first wait", toolResult: "first result", timestamp: "1000", sourceSessionId: "wait-ui" },
+    { id: "wait-two", type: "tool_call", content: "", toolId: "two", toolName: "wait_for", toolKind: "generic", toolSummary: "second wait", toolResult: "second result", timestamp: "2500", sourceSessionId: "wait-ui" },
     { id: "command", type: "tool_call", content: "", toolId: "command", toolName: "wait", toolKind: "command", toolSummary: "command must remain separate" },
     { id: "assistant-break", type: "assistant", content: "breaks the run" },
     { id: "wait-three", type: "tool_call", content: "", toolId: "three", toolName: "tool_wait", toolKind: "generic", toolSummary: "third wait" },

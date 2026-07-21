@@ -154,6 +154,7 @@ console.log("ok - tool event lifecycle");
     toolName: name,
     toolSummary: `${name} ${id}`,
     timestamp: "1000",
+    sourceSessionId: "session",
     ...patch,
   });
   const items = reduceToolEvents([
@@ -187,8 +188,13 @@ console.log("ok - tool event lifecycle");
   assert(negativeTimes[0].kind === "tool" && negativeTimes[0].event.waitBatch?.elapsedMs === 0, "negative elapsed time clamps to zero");
   const sessions = reduceToolEvents([wait("session-a", "wait", { sourceSessionId: "a" }), wait("session-b", "wait", { sourceSessionId: "b" })]);
   assert(sessions.length === 2, "waits from different sessions never merge");
-  const reduced = reduceToolEvents([wait("duplicate", "wait"), wait("duplicate-next", "wait")]);
-  const recomputed = coalesceWaitEvents(reduced);
+  const unknownSessions = reduceToolEvents([
+    wait("unknown-a", "wait", { sourceSessionId: undefined }),
+    wait("unknown-b", "wait", { sourceSessionId: undefined }),
+  ]);
+  assert(unknownSessions.length === 2, "waits without session identity never merge");
+  const knownReduced = reduceToolEvents([wait("duplicate", "wait", { sourceSessionId: "same" }), wait("duplicate-next", "wait", { sourceSessionId: "same" })]);
+  const recomputed = coalesceWaitEvents(knownReduced);
   assert(recomputed.length === 1 && recomputed[0].kind === "tool" && recomputed[0].event.waitBatch?.members.length === 2, "recoalescing settled output does not duplicate members");
 }
 
