@@ -219,7 +219,10 @@ export function describeAction(inv: CodetermInvocation, result?: string, resolve
     return { lead: "tab new", object: commandObject(command) ?? "new tab", chips: ["new tab"], fields: command ? [{ label: "command", value: command }] : undefined };
   }
   if (path === "tab list") {
-    return { lead: "tabs", object: resultCount(result, "tabs") ?? "workspace tabs", chips: [] };
+    const json = inv.flags.json === true;
+    return json
+      ? { lead: "tab list", object: "JSON inspection", chips: [resultCount(result, "tabs")].filter((v): v is string => Boolean(v)) }
+      : { lead: "tab list", object: resultCount(result, "tabs") ?? "workspace tabs", chips: ["compact"] };
   }
   if (path === "tab focus") {
     return { lead: "tab focus", object: targetTab(inv, resolve), chips: ["focused"] };

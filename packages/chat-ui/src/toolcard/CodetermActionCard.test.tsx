@@ -112,7 +112,7 @@ const descriptorCases: Array<[string, string]> = [
   ["codeterm agent report --status in_review --sha abc123", "report"],
   ["codeterm send --tab e3fa0754 \"hello\"", "send"],
   ["codeterm mem save --kind fact \"remember this\"", "mem save"],
-  ["codeterm tab list", "tabs"],
+  ["codeterm tab list", "tab list"],
   ["codeterm workspace focus ws_codeterm", "workspace"],
   ["codeterm cron list", "crons"],
   ["codeterm keepawake status", "status"],
@@ -141,6 +141,19 @@ const wrappedTabList = await render(<CodetermActionCard event={{
   result: `Exit code: 0\nOutput:\n${JSON.stringify([{ id: "one" }, { id: "two" }, { id: "three" }], null, 2)}`,
 }} expanded={false} onToggle={() => {}} />);
 if (!wrappedTabList.host.textContent?.includes("3 tabs") || wrappedTabList.host.textContent.includes("11 tabs")) throw new Error("wrapped tab list must count JSON entries instead of output lines");
+const compactTabList = await render(<CodetermActionCard event={{
+  ...event("codeterm tab list"),
+  result: "General  ws_general\n  aaaa1111 Adele - Working\n\nResearch  ws_research\n  bbbb2222 Scout - Idle",
+}} expanded onToggle={() => {}} />);
+if (!compactTabList.host.querySelector('[data-testid="tab-list-compact"]') || compactTabList.host.querySelector('[data-testid="toolcard-result"]')) throw new Error("tab list must render compact output by default");
+if (!compactTabList.host.textContent?.includes("Adele") || !compactTabList.host.textContent.includes("Working")) throw new Error("compact tab list labels regression");
+const jsonTabList = await render(<CodetermActionCard event={{
+  ...event("codeterm tab list --json"),
+  result: '[{"id":"aaaa1111","title":"Adele"}]',
+}} expanded onToggle={() => {}} />);
+if (!jsonTabList.host.querySelector('[data-testid="tab-list-json"]') || jsonTabList.host.querySelector('[data-testid="tab-list-compact"]') || !jsonTabList.host.textContent?.includes("JSON inspection")) throw new Error("tab list JSON must remain full inspection output");
+const meshTabs = await render(<CodetermActionCard event={event("codeterm mesh tabs peer-a")} expanded onToggle={() => {}} />);
+if (meshTabs.host.querySelector('[data-testid="tab-list-compact"]')) throw new Error("mesh tabs must not use the local tab list renderer");
 
 const catalogVisuals: Array<[string, string]> = [
   ['codeterm plan create --title "Plan"', "lucide-map"],

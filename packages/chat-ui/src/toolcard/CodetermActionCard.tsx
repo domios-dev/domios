@@ -5,6 +5,7 @@ import { CompactMessageContent } from "../codeterm/CompactMessageContent";
 import { ToolCardActionButton, ToolCardFrame } from "./ToolCardFrame";
 import type { OpenPlan, ResolvedChatPlanRef } from "../codeterm/LinkedText";
 import { ToolOutputContent } from "../ToolOutputContent";
+import { TabListCard } from "./TabListCard";
 import {
   Activity, Bot, BookOpen, Brain, CalendarClock, CheckCircle2, CircleX, Clock3, Coffee,
   FilePenLine, FilePlus2, FileText, FolderKanban, GitBranch, Grid3X3, History, Inbox,
@@ -52,7 +53,7 @@ function actionVisual(invocation: NonNullable<ReturnType<typeof recognize>>): To
     "plan create": { glyph: Map, color: "var(--ct-accent)", label: "plan" },
     "tab get-text": { glyph: ScrollText, color: "var(--ct-cyan)", label: "tab output" },
     "tab new": { glyph: SquarePlus, color: "var(--ct-bright-blue)", label: "new tab" },
-    "tab list": { glyph: ListTree, color: "var(--ct-bright-blue)", label: "tabs" },
+    "tab list": { glyph: ListTree, color: "var(--ct-bright-blue)", label: "tab list" },
     "tab focus": { glyph: MousePointer2, color: "var(--ct-bright-blue)", label: "focus tab" },
     "tab exec": { glyph: Play, color: "var(--ct-green)", label: "tab exec" },
     "tab close": { glyph: CircleX, color: "var(--ct-red)", label: "close tab" },
@@ -133,7 +134,9 @@ export function CodetermActionCard({
     summary: descriptor.object ?? descriptor.lead,
     detail: undefined,
   };
-  const showResult = Boolean(event.result && (!inv || !isSend(inv) || event.status === "error"));
+  const isTabList = inv?.path.join(" ") === "tab list";
+  const tabListJson = isTabList && inv?.flags.json === true;
+  const showResult = Boolean(event.result && (!isTabList || tabListJson) && (!inv || !isSend(inv) || event.status === "error"));
 
   return (
     <ToolCardFrame
@@ -155,6 +158,8 @@ export function CodetermActionCard({
           resolvePlanRef={resolvePlanRef}
           fontScale={fontScale}
         />
+      ) : isTabList && !tabListJson ? (
+        <TabListCard event={event} />
       ) : descriptor.fields?.length ? (
         <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
           {descriptor.fields.map((field) => (
@@ -168,7 +173,7 @@ export function CodetermActionCard({
         <div className="break-words text-xs" style={{ color: "var(--ct-muted-fg)" }}>{descriptor.detail}</div>
       ) : null}
       {descriptor.bullets && <ul className="mt-2 list-disc pl-4 text-xs" style={{ color: "var(--ct-muted-fg)" }}>{descriptor.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}</ul>}
-      {showResult && <div data-testid="toolcard-result" className="mt-2"><ToolOutputContent text={event.result!} maxHeight="12rem" /></div>}
+      {showResult && <div data-testid={tabListJson ? "tab-list-json" : "toolcard-result"} className="mt-2"><ToolOutputContent text={event.result!} maxHeight="12rem" /></div>}
       {canNavigate && target && target.kind !== "tab" && (
         <button
           type="button"

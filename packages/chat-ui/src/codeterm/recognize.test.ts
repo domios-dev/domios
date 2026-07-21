@@ -43,6 +43,8 @@ ok(recognize("~/.codeterm/bin/codeterm mem search foo") !== null, "abs path bina
 ok(recognize("ls -la") === null, "non-codeterm → null");
 ok(recognize('echo hi | codeterm send "x"') === null, "buried after pipe → null");
 ok(recognize("codeterm-dev tab list") !== null, "codeterm-dev recognized");
+ok(recognize("codeterm tabs") === null, "legacy tabs command stays unknown");
+ok(recognize("codeterm tabs list") === null, "legacy tabs list stays unknown");
 eq(recognize("codeterm cron list --json")?.path, ["cron", "list"], "known depth-2 subcommand");
 eq(recognize("codeterm agent spawn claude")?.positionals, ["claude"], "trailing word stays positional");
 eq(recognize("codeterm tab get-text --tab abc")?.path, ["tab", "get-text"], "tab get-text path");
