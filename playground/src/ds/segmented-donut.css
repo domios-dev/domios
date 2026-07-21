@@ -1,2 +1,2 @@
 .ds-segmented-donut{position:relative;display:inline-grid;width:var(--ds-segmented-donut-size);height:var(--ds-segmented-donut-size);flex:0 0 auto;place-items:center;border-radius:50%;background:var(--ds-segmented-donut-background)}
-.ds-segmented-donut>i{width:45.45%;height:45.45%;border-radius:50%;background:var(--ct-sidebar-bg,var(--ct-bg,#0d1117))}
+.ds-segmented-donut>i{width:45.45%;height:45.45%;border-radius:50%;background:var(--ct-sidebar-bg)}
