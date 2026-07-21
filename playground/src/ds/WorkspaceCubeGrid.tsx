@@ -1,5 +1,29 @@
-import type { ButtonHTMLAttributes } from "react";
+import type { HTMLAttributes } from "react";
 import "./workspace-cube-grid.css";
-export interface WorkspaceCube { id: string; initials: string; name: string; selected?: boolean; working?: boolean; }
-export interface WorkspaceCubeGridProps { workspaces?: WorkspaceCube[]; onSelect?: (id: string) => void; onCreate?: () => void; }
-export function WorkspaceCubeGrid({ workspaces = [{ id:"aa", initials:"AA", name:"Atlas", selected:true },{ id:"am", initials:"AM", name:"Amber", working:true },{ id:"ct", initials:"CT", name:"CodeTerm" },{ id:"kp", initials:"KP", name:"Kite" }], onSelect, onCreate }: WorkspaceCubeGridProps) { return <div className="ds-root ds-workspace-grid" role="list" aria-label="Workspaces">{workspaces.map(w => <div key={w.id} className={`sidebar-workspace-card ds-workspace-cube ${w.selected ? "ds-workspace-cube--selected" : ""}`} role="listitem"><button type="button" className="sidebar-workspace-card-select ds-workspace-cube__select" aria-label={`Select workspace ${w.name}`} aria-pressed={w.selected} onClick={() => onSelect?.(w.id)}><span>{w.initials}</span></button>{w.working && <span className="ds-workspace-cube__dots lg-dots" role="status" aria-label={`${w.name} has working tabs`}><i /><i /><i /></span>}</div>)}<button type="button" className="sidebar-workspace-card-create ds-workspace-cube__create" aria-label="Create workspace" onClick={onCreate}>+</button></div> }
+
+export interface WorkspaceCube {
+  id: string;
+  initials: string;
+  name: string;
+  selected?: boolean;
+  working?: boolean;
+}
+
+export interface WorkspaceCubeGridProps extends HTMLAttributes<HTMLDivElement> {
+  workspaces: WorkspaceCube[];
+  onSelect?: (id: string) => void;
+  onCreate?: () => void;
+  createLabel?: string;
+}
+
+export function WorkspaceCubeGrid({ workspaces, onSelect, onCreate, createLabel = "Create workspace", className = "", ...props }: WorkspaceCubeGridProps) {
+  return <div className={`ds-root ds-workspace-grid ${className}`} role="list" aria-label="Workspaces" {...props}>
+    {workspaces.map((workspace) => <div key={workspace.id} className={`ds-workspace-cube${workspace.selected ? " ds-workspace-cube--selected" : ""}`} role="listitem">
+      <button type="button" className="ds-workspace-cube__select" aria-label={`Select workspace ${workspace.name}`} aria-pressed={workspace.selected} onClick={() => onSelect?.(workspace.id)}>
+        <span>{workspace.initials}</span>
+      </button>
+      {workspace.working && <span className="ds-workspace-cube__dots" role="status" aria-label={`${workspace.name} has working tabs`}><i /><i /><i /></span>}
+    </div>)}
+    {onCreate && <button type="button" className="ds-workspace-cube__create" aria-label={createLabel} onClick={onCreate}>+</button>}
+  </div>;
+}

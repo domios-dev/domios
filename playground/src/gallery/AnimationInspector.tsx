@@ -106,6 +106,7 @@ export function Filmstrip({ specimen, state, cycleMs, n = 6 }: { specimen: Speci
 
 export function AnimationInspector({ specimen, state, stage }: { specimen: Specimen; state: Specimen["states"][number]; stage: React.RefObject<HTMLDivElement | null> }) {
   const controls = useAnimationFreeze(stage, [specimen.id, state.id]);
+  const otherStates = specimen.states.filter((entry) => entry.id !== state.id).map((entry) => entry.label);
   return (
     <section className="gallery-inspector" aria-labelledby="animation-inspector-title">
       <div className="gallery-section-heading">
@@ -113,10 +114,16 @@ export function AnimationInspector({ specimen, state, stage }: { specimen: Speci
           <p className="portal-kicker">motion tool</p>
           <h2 id="animation-inspector-title">Animation inspector</h2>
         </div>
-        <span className="gallery-animation-count">{controls.animationCount ? `${controls.animationCount} animations · ${Math.round(controls.cycleMs)} ms` : "No browser animations found"}</span>
+        <span className="gallery-animation-count">{controls.animationCount ? `${controls.animationCount} animations · ${Math.round(controls.cycleMs)} ms` : "Focused state is still"}</span>
       </div>
-      <ScrubBar controls={controls} />
-      <Filmstrip specimen={specimen} state={state} cycleMs={controls.cycleMs} />
+      {controls.animationCount ? <>
+        <ScrubBar controls={controls} />
+        <Filmstrip specimen={specimen} state={state} cycleMs={controls.cycleMs} />
+      </> : <p className="gallery-inspector-note">{otherStates.length ? `Choose another state to inspect its motion: ${otherStates.join(", ")}.` : "This specimen has no other states to inspect."}</p>}
     </section>
   );
+}
+
+export function StaticComponentNote() {
+  return <p className="gallery-static-note">Static component — its states are shown above without an animation inspector.</p>;
 }

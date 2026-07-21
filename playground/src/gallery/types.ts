@@ -13,5 +13,6 @@ export type Specimen = {
   where: string;
   states: SpecimenState[];
   Component: ComponentType<Record<string, unknown>>;
+  motion?: "animated" | "static";
   notes?: string;
 };

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AnimationInspector } from "./AnimationInspector";
+import { AnimationInspector, StaticComponentNote } from "./AnimationInspector";
 import type { Specimen } from "./types";
 
 const modules = import.meta.glob("./specimens/*.spec.tsx", { eager: true }) as Record<string, { default?: Specimen }>;
@@ -58,6 +58,8 @@ export function GalleryDetail({ id }: { id: string }) {
           <span className="gallery-stage-instance" ref={entry.id === state.id ? stage : undefined}><Component {...entry.props} /></span>
         </button>)}
       </section>
-      <AnimationInspector specimen={specimen} state={state} stage={stage} />
+      {specimen.motion === "static"
+        ? <StaticComponentNote />
+        : <AnimationInspector specimen={specimen} state={state} stage={stage} />}
     </main></GalleryShell>;
 }
