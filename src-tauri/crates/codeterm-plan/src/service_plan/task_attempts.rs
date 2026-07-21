@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::plan::{
-    AgentRef, Task, TaskExecutionAttempt, TaskExecutionReportSnapshot, TaskLaneMetadata, TaskStatus,
+    AgentRef, Milestone, Task, TaskExecutionAttempt, TaskExecutionReportSnapshot, TaskLaneMetadata,
+    TaskStatus,
 };
 use codeterm_types::agent::ReportStatus;
 
@@ -82,6 +83,18 @@ pub struct TaskAttemptCreated {
     pub plan_id: String,
     pub task_id: String,
     pub attempt: TaskExecutionAttempt,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct BoundWorkerReport {
+    pub message: String,
+    pub status: Option<ReportStatus>,
+    pub branch: Option<String>,
+    pub sha: Option<String>,
+    pub changed_files: Vec<String>,
+    pub test_cmd: Option<String>,
+    pub test_result: Option<String>,
+    pub skipped: Option<String>,
 }
 
 fn gen_attempt_id() -> String {
@@ -839,6 +852,107 @@ impl PlanStore {
                 attempt.reported_at = Some(now_ms);
             }
             Ok(())
+        })
+    }
+
+    /// Ingest a worker report for its currently assigned task in one plan write.
+    /// Only a committed `in_review` report may advance the task; every other
+    /// accepted report remains a handoff milestone without changing task state.
+    pub fn ingest_bound_worker_report(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        from: &AgentRef,
+        report: BoundWorkerReport,
+        now_ms: u64,
+    ) -> Result<bool, PlanError> {
+        let Some(reporter_pane) = from.pane_id.as_deref() else {
+            return Ok(false);
+        };
+        let committed_review = report.status == Some(ReportStatus::InReview)
+            && report.sha.as_deref().is_some_and(|sha| !sha.trim().is_empty());
+        self.with_plan(plan_id, now_ms, |plan| {
+            let task_index = plan
+                .tasks
+                .iter()
+                .position(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+                .ok_or(PlanError::TaskNotFound)?;
+            if plan.tasks[task_index].assigned_pane_id.as_deref() != Some(reporter_pane) {
+                return Ok(false);
+            }
+            if plan.tasks[task_index]
+                .execution_attempts
+                .iter()
+                .filter(|attempt| attempt.executor_pane_id == reporter_pane)
+                .filter_map(|attempt| attempt.reported_at)
+                .any(|reported_at| reported_at >= now_ms)
+            {
+                return Ok(false);
+            }
+            let current = plan.tasks[task_index].status.clone();
+            if matches!(current, TaskStatus::Done | TaskStatus::Cancelled) {
+                return Ok(false);
+            }
+            if committed_review && current != TaskStatus::InReview {
+                super::mutations::validate_task_status_transition(
+                    plan,
+                    &plan.tasks[task_index].id,
+                    &current,
+                    &TaskStatus::InReview,
+                    None,
+                )?;
+            }
+            let task = &mut plan.tasks[task_index];
+            if task.lane.branch.as_deref().unwrap_or("").is_empty() {
+                task.lane.branch = report.branch.clone().filter(|branch| !branch.trim().is_empty());
+            }
+            task.milestones.push(Milestone {
+                id: crate::plan::ids::short_id("ms"),
+                from: from.clone(),
+                kind: "worker_report".into(),
+                text: match report.status {
+                    Some(ReportStatus::InReview) if !committed_review => {
+                        format!("HANDOFF (uncommitted): {}", report.message)
+                    }
+                    Some(status) => format!("{}: {}", status.label(), report.message),
+                    None => report.message.clone(),
+                },
+                ts: now_ms,
+                links: vec![],
+                loop_id: None,
+                iteration: None,
+                canvas: Default::default(),
+                attachments: vec![],
+            });
+            if let Some(attempt) = task.execution_attempts.iter_mut().rposition(|attempt| {
+                attempt.executor_pane_id == reporter_pane && attempt.closed_at.is_none()
+            }).map(|index| &mut task.execution_attempts[index]) {
+                attempt.report = Some(TaskExecutionReportSnapshot {
+                    id: format!("report_{now_ms}"),
+                    message: Some(report.message),
+                    status: report.status.map(report_status_key),
+                    sha: report.sha,
+                    reporter_pane_id: None,
+                    changed_files: report.changed_files,
+                    test_cmd: report.test_cmd,
+                    test_result: report.test_result,
+                    skipped: report.skipped,
+                    attachments: vec![],
+                });
+                attempt.reported_at = Some(now_ms);
+            }
+            let entering_review = committed_review && task.status != TaskStatus::InReview;
+            if entering_review {
+                task.status = TaskStatus::InReview;
+                task.status_changed_at = now_ms;
+                super::qa::normalize_task_review_fields(task);
+                crate::service_plan::review_gate::fix_oracle_and_consume_override(task, now_ms);
+            }
+            task.updated_at = now_ms;
+            if entering_review {
+                crate::service_plan::review_gate::spend_review_credit(&mut plan.review_policy);
+            }
+            Ok(committed_review)
         })
     }
 }
