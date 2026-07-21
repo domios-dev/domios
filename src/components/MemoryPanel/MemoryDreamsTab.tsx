@@ -15,6 +15,7 @@ import { RunChatPopup } from "../AgentRun/RunChatPopup";
 import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
 import { DreamCard, DreamDetailModal, type DreamDiaryEntry } from "./DreamCard";
 import { hasRenderableDreamInsight } from "./dreamVisuals";
+import { isTerminalWorkerStatus } from "../AgentRun/workerEmptyState";
 
 interface Props {
   api: ApiConfig;
@@ -220,7 +221,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
   }, [api, running]);
 
   const inflight = dreamWorkers.find(
-    (w) => w.status !== "done" && w.status !== "error" && w.status !== "orphaned",
+    (w) => !isTerminalWorkerStatus(w.status),
   );
 
   const scrollCarousel = useCallback((dir: 1 | -1) => {
@@ -395,7 +396,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
             provider={logWorker.agent_provider ?? defaultSpawnProviderId()}
             cwd={logWorker.cwd ?? ""}
             sessionId={logWorker.session_id}
-            live={!["done", "error", "orphaned"].includes(logWorker.status)}
+            live={!isTerminalWorkerStatus(logWorker.status)}
             onClose={() => setLogWorker(null)}
           />
         ) : (
@@ -478,8 +479,7 @@ function RecentSessionsList({
   const first = capped.slice(0, 5);
   const rest = capped.slice(5);
   const renderRow = (w: GraphWorkerInfo) => {
-    const isDone =
-      w.status === "done" || w.status === "error" || w.status === "orphaned";
+    const isDone = isTerminalWorkerStatus(w.status);
     const color = statusColor(w.status);
     const elapsed =
       isDone && w.done_at
