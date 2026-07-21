@@ -141,6 +141,16 @@ fn reserve_pair_tabs(
         &planner_name,
         crate::multiplexer::types::TitleLevel::User,
     )?;
+    for pane_id in [&orchestrator_pane_id, &planner_pane_id] {
+        if let Some(pane) = mux.get_pane_mut(pane_id) {
+            pane.agent_booting = true;
+            crate::service::boot_stage::apply_boot_stage(
+                pane,
+                codeterm_types::pty::BootStage::PtyStarting,
+                None,
+            );
+        }
+    }
     Ok(ReservedPairTabs {
         orchestrator_tab_id,
         orchestrator_pane_id,
@@ -448,6 +458,18 @@ impl ServiceContext {
         let orch_result = match self.spawn_agent(orch_params, Some(orch_ready_tx)).await {
             Ok(result) => result,
             Err(error) => {
+                self.emit_boot_stage(
+                    &reserved.orchestrator_pane_id,
+                    codeterm_types::pty::BootStage::SpawnFailed,
+                    Some(&error),
+                );
+                if let Some(pane) = self
+                    .mux
+                    .write()
+                    .get_pane_mut(&reserved.orchestrator_pane_id)
+                {
+                    pane.agent_booting = false;
+                }
                 let _ = self
                     .mux
                     .write()
@@ -511,6 +533,21 @@ impl ServiceContext {
                     (orch_status, planner_status) => {
                         let orch_error = orch_status.err();
                         let planner_error = planner_status.err();
+                        for (pane_id, error) in [
+                            (&orch_pane_id, orch_error.as_deref()),
+                            (&planner_pane_id, planner_error.as_deref()),
+                        ] {
+                            if let Some(error) = error {
+                                self.emit_boot_stage(
+                                    pane_id,
+                                    codeterm_types::pty::BootStage::SpawnFailed,
+                                    Some(error),
+                                );
+                                if let Some(pane) = self.mux.write().get_pane_mut(pane_id) {
+                                    pane.agent_booting = false;
+                                }
+                            }
+                        }
                         let fix_command = degraded_fix_command(
                             &orch_pane_id,
                             &params.planner_agent,
@@ -571,6 +608,14 @@ impl ServiceContext {
                 })
             }
             Err(e) => {
+                self.emit_boot_stage(
+                    &reserved.planner_pane_id,
+                    codeterm_types::pty::BootStage::SpawnFailed,
+                    Some(&e),
+                );
+                if let Some(pane) = self.mux.write().get_pane_mut(&reserved.planner_pane_id) {
+                    pane.agent_booting = false;
+                }
                 let fix_command = degraded_fix_command(
                     &orch_pane_id,
                     &params.planner_agent,
@@ -759,6 +804,15 @@ mod tests {
         assert_ne!(reserved.orchestrator_pane_id, reserved.planner_pane_id);
         assert!(mux.get_pane(&reserved.orchestrator_pane_id).is_some());
         assert!(mux.get_pane(&reserved.planner_pane_id).is_some());
+        for pane_id in [&reserved.orchestrator_pane_id, &reserved.planner_pane_id] {
+            let pane = mux.get_pane(pane_id).unwrap();
+            assert!(pane.agent_booting, "reserved pane must announce booting");
+            assert_eq!(
+                pane.boot_stage,
+                Some(codeterm_types::pty::BootStage::PtyStarting),
+                "reserved pane must never expose a blank chat before launch"
+            );
+        }
         assert_eq!(
             mux.display_label_for_pane(&reserved.planner_pane_id),
             reserved.planner_name

@@ -335,6 +335,12 @@ impl ServiceContext {
             }
             if let Some(pane) = mux.get_pane_mut(&result.1) {
                 pane.role_profile = params.role_profile.clone();
+                pane.agent_booting = true;
+                crate::service::boot_stage::apply_boot_stage(
+                    pane,
+                    crate::service::boot_stage::BootStage::PtyStarting,
+                    None,
+                );
             }
             if params.activate.unwrap_or(false) {
                 let _ = mux.set_active_tab(&ws_id, &result.0);
