@@ -38,9 +38,8 @@
   --ct-font-ui: "Inter", "Segoe UI", "Avenir Next", "Helvetica Neue", sans-serif;
   --ct-font-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
 
-  /* Motion language: spring settle for glass, squash-jump physics for press —
-     the jump curve is lifted verbatim from ct-dots-squash-jump. */
-  --lg-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* Motion language: one liquid gesture — stretch in flight, splat on the
+     wall, relax. The jump curve is lifted verbatim from ct-dots-squash-jump. */
   --lg-jump: cubic-bezier(0.22, 0.9, 0.25, 1);
 
   font-family: var(--ct-font-ui);
@@ -121,14 +120,15 @@
 }
 
 /* ── Liquid layer over the real button ───────────────────────────────────────
-   Nothing here changes the button's identity. Hover is a barely-there bounce
-   (the material acknowledges the cursor); press is the squash-jump. All
-   transform/opacity. No sheen, no sparkle. */
+   Nothing here changes the button's identity. All motion is center-origin
+   scale: hover is a smooth transition (no keyframes → nothing to restart, no
+   jerk), press squashes, release pops once. */
 .lg-lab .lg-btn {
   position: relative;
   isolation: isolate;
-  transform: translateZ(0);
+  transform-origin: 50% 50%;
   transition:
+    transform 0.3s cubic-bezier(0.3, 1.2, 0.4, 1),
     background var(--ct-duration-fast) var(--ct-ease-out-expo),
     color var(--ct-duration-fast) var(--ct-ease-out-expo),
     box-shadow 0.25s var(--ct-ease-out-expo),
@@ -136,16 +136,9 @@
   will-change: transform;
 }
 
-/* Hover: one very light bounce — a 1px lift that settles. Fires once per
-   hover-in; :active immediately overrides it. */
+/* Hover: the material swells 2% from its center and settles. */
 .lg-lab .lg-btn:hover {
-  animation: lg-hover-bounce 0.4s var(--lg-jump);
-}
-@keyframes lg-hover-bounce {
-  0% { transform: translateY(0) scaleY(1); }
-  35% { transform: translateY(-1px) scaleY(1.015); }
-  70% { transform: translateY(0.25px) scaleY(0.995); }
-  100% { transform: translateY(0) scaleY(1); }
+  transform: scale(1.02);
 }
 
 .lg-lab .lg-btn__label {
@@ -156,23 +149,19 @@
   gap: 0.4em;
 }
 
-/* Anticipation: press compresses the button (squash), same shape the dots hit
-   at their 10% keyframe. animation:none so press always beats the hover bounce. */
+/* Press: center squash. */
 .lg-lab .lg-btn:active {
-  animation: none;
-  transform: translateY(1px) scaleX(1.05) scaleY(0.86);
-  transition: transform 60ms var(--ct-ease-out-expo);
+  transform: scale(0.955);
+  transition-duration: 70ms;
 }
-/* Release: jump up + stretch, then settle — the 10% → 24% → 42% → 54% arc of
-   ct-dots-squash-jump. Extra class specificity so it beats :hover's bounce. */
+/* Release: one centered pop — up through the rest size, back to hover. */
 .lg-lab .lg-btn.lg-btn--release {
-  animation: lg-press-jump 0.48s var(--lg-jump);
+  animation: lg-press-pop 0.28s var(--lg-jump);
 }
-@keyframes lg-press-jump {
-  0% { transform: translateY(1px) scaleX(1.05) scaleY(0.86); }
-  34% { transform: translateY(-3px) scaleX(0.96) scaleY(1.07); }
-  62% { transform: translateY(0.4px) scaleX(1.03) scaleY(0.96); }
-  100% { transform: translateY(0) scaleX(1) scaleY(1); }
+@keyframes lg-press-pop {
+  0% { transform: scale(0.955); }
+  55% { transform: scale(1.045); }
+  100% { transform: scale(1.02); }
 }
 
 /* Focus ring: crisp inner edge + soft accent bloom. No spring — it just lands. */
@@ -212,12 +201,38 @@
 }
 .lg-lab .lg-dots i:nth-child(2) { animation-delay: 0.12s; }
 .lg-lab .lg-dots i:nth-child(3) { animation-delay: 0.24s; }
+/* Same beats as production, but with gravity: decelerate up to a hanging apex,
+   accelerate down, cushion the landing. Per-segment curves kill the jerk. */
 @keyframes lg-dots-squash-jump {
-  0%, 70%, 100% { opacity: 0.64; transform: translateY(0) scaleX(1) scaleY(1); }
-  10% { opacity: 0.9; transform: translateY(0.5px) scaleX(1.2) scaleY(0.72); }
-  24% { opacity: 1; transform: translateY(-3px) scaleX(0.92) scaleY(1.1); }
-  42% { opacity: 0.95; transform: translateY(0.25px) scaleX(1.14) scaleY(0.78); }
-  54% { opacity: 0.78; transform: translateY(0) scaleX(1) scaleY(1); }
+  0%, 70%, 100% {
+    opacity: 0.64;
+    transform: translateY(0) scaleX(1) scaleY(1);
+    animation-timing-function: cubic-bezier(0.4, 0, 0.6, 1);
+  }
+  10% {
+    opacity: 0.85;
+    transform: translateY(0.75px) scaleX(1.14) scaleY(0.82);
+    animation-timing-function: cubic-bezier(0.2, 0.6, 0.35, 1);
+  }
+  25% {
+    opacity: 1;
+    transform: translateY(-3.25px) scaleX(0.96) scaleY(1.05);
+    animation-timing-function: cubic-bezier(0.6, 0, 0.8, 0.4);
+  }
+  31% {
+    opacity: 1;
+    transform: translateY(-2.9px) scaleX(0.98) scaleY(1.03);
+    animation-timing-function: cubic-bezier(0.7, 0, 0.9, 0.5);
+  }
+  45% {
+    opacity: 0.92;
+    transform: translateY(0.6px) scaleX(1.12) scaleY(0.84);
+    animation-timing-function: cubic-bezier(0.2, 0.6, 0.35, 1);
+  }
+  56% {
+    opacity: 0.78;
+    transform: translateY(0) scaleX(1) scaleY(1);
+  }
 }
 
 /* thinking = slower, wider stagger, violet hue morph (mirrors production). */
@@ -261,26 +276,36 @@
     inset 0 1px 1px rgba(255, 255, 255, 0.28),
     0 2px 10px color-mix(in srgb, var(--ct-accent) 35%, transparent);
   transform: translateX(calc(var(--seg-index) * 100%));
-  /* No spring on travel — the wall does the bouncing (keyframes below). */
-  transition: transform 0.34s var(--lg-jump);
   pointer-events: none;
   z-index: 0;
 }
-/* Wall hit: the thumb arrives, compresses against the leading edge like liquid
-   meeting glass, and relaxes. Directional; scale only, so it stays in bounds. */
-.lg-lab .lg-seg__thumb--hit-right {
-  transform-origin: right center;
-  animation: lg-wall-hit 0.36s var(--lg-jump) 0.18s;
+/* Liquid travel: ONE gesture — the body stretches while it moves, splats
+   against the destination wall, relaxes round. translate + scale live in the
+   same keyframes so shape is always coupled to motion. --sx-from/--sx-to are
+   set inline per change (percentages of the thumb's own width). */
+.lg-lab .lg-seg__thumb--travel {
+  animation: lg-liquid-x 0.42s both;
 }
-.lg-lab .lg-seg__thumb--hit-left {
-  transform-origin: left center;
-  animation: lg-wall-hit 0.36s var(--lg-jump) 0.18s;
-}
-@keyframes lg-wall-hit {
-  0% { scale: 1 1; }
-  40% { scale: 0.88 1.06; }
-  72% { scale: 1.04 0.98; }
-  100% { scale: 1 1; }
+@keyframes lg-liquid-x {
+  0% {
+    transform: translateX(var(--sx-from)) scale(1, 1);
+    animation-timing-function: cubic-bezier(0.5, 0, 0.6, 0.6);
+  }
+  38% {
+    transform: translateX(calc(var(--sx-from) + (var(--sx-to) - var(--sx-from)) * 0.55)) scale(1.3, 0.82);
+    animation-timing-function: cubic-bezier(0.3, 0.3, 0.3, 1);
+  }
+  60% {
+    transform: translateX(var(--sx-to)) scale(0.86, 1.09);
+    animation-timing-function: cubic-bezier(0.2, 0, 0.4, 1);
+  }
+  78% {
+    transform: translateX(var(--sx-to)) scale(1.05, 0.97);
+    animation-timing-function: cubic-bezier(0.2, 0, 0.4, 1);
+  }
+  100% {
+    transform: translateX(var(--sx-to)) scale(1, 1);
+  }
 }
 .lg-lab .lg-seg__opt {
   position: relative;
@@ -340,19 +365,35 @@
     inset 0 -2px 3px rgba(0, 0, 0, 0.25),
     0 2px 6px rgba(0, 0, 0, 0.35);
   transform: translate(0, -50%);
-  /* Travel is a plain ease-out; the arrival squash reads as the wall stop. */
-  transition: transform 0.3s var(--lg-jump);
 }
 .lg-lab .lg-toggle[aria-checked="true"] .lg-toggle__knob {
   transform: translate(1.55rem, -50%);
 }
-.lg-lab .lg-toggle:active .lg-toggle__knob {
-  animation: lg-knob-squash 0.36s var(--lg-jump);
+/* Same liquid gesture as the segmented thumb, in rem (droplet crossing the
+   track). --kx-from/--kx-to set inline per flip. */
+.lg-lab .lg-toggle__knob--travel {
+  animation: lg-liquid-knob 0.38s both;
 }
-@keyframes lg-knob-squash {
-  0% { scale: 1 1; }
-  45% { scale: 1.14 0.88; }
-  100% { scale: 1 1; }
+@keyframes lg-liquid-knob {
+  0% {
+    transform: translate(var(--kx-from), -50%) scale(1, 1);
+    animation-timing-function: cubic-bezier(0.5, 0, 0.6, 0.6);
+  }
+  38% {
+    transform: translate(calc(var(--kx-from) + (var(--kx-to) - var(--kx-from)) * 0.55), -50%) scale(1.32, 0.8);
+    animation-timing-function: cubic-bezier(0.3, 0.3, 0.3, 1);
+  }
+  60% {
+    transform: translate(var(--kx-to), -50%) scale(0.85, 1.1);
+    animation-timing-function: cubic-bezier(0.2, 0, 0.4, 1);
+  }
+  78% {
+    transform: translate(var(--kx-to), -50%) scale(1.06, 0.96);
+    animation-timing-function: cubic-bezier(0.2, 0, 0.4, 1);
+  }
+  100% {
+    transform: translate(var(--kx-to), -50%) scale(1, 1);
+  }
 }
 .lg-lab .lg-toggle:focus-visible {
   outline: none;
@@ -385,17 +426,12 @@
   border: 1px solid color-mix(in srgb, var(--ct-border) 80%, var(--ct-accent));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 4px rgba(0, 0, 0, 0.4);
   transform: translateX(0);
-  transition: transform 0.3s var(--lg-jump);
   pointer-events: none;
 }
 .lg-lab .lg-flip[aria-checked="true"] .lg-flip__chip { transform: translateX(100%); }
-.lg-lab .lg-flip__chip--hit-right {
-  transform-origin: right center;
-  animation: lg-wall-hit 0.32s var(--lg-jump) 0.16s;
-}
-.lg-lab .lg-flip__chip--hit-left {
-  transform-origin: left center;
-  animation: lg-wall-hit 0.32s var(--lg-jump) 0.16s;
+/* Reuses the segmented thumb's liquid gesture (percent-based). */
+.lg-lab .lg-flip__chip--travel {
+  animation: lg-liquid-x 0.36s both;
 }
 .lg-lab .lg-flip__word {
   position: relative;
