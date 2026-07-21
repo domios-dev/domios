@@ -157,16 +157,12 @@ impl RunWatcherRegistry {
         let Some(state) = state else {
             return;
         };
-        let idle = svc
-            .mux
-            .read()
-            .get_pane(&state.pane_id)
-            .and_then(|pane| pane.agent_state.as_ref())
-            .is_some_and(|state| state.state == codeterm_types::pty::TimelineState::Idle);
+        let (idle, session_bound) = pane_completion_state(svc, &state.pane_id);
         if !can_complete_on_semantic_idle(
             state.armed.load(Ordering::Acquire),
             state.saw_working.load(Ordering::Acquire),
             idle,
+            session_bound,
         ) || state.completed.swap(true, Ordering::AcqRel)
         {
             return;
@@ -319,7 +315,8 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
         }
 
         if idle_secs >= IDLE_COMPLETE_SECS {
-            let busy = agent_screen_busy(&svc, &state.pty_id);
+            let session_bound = pane_completion_state(&svc, &state.pane_id).1;
+            let busy = !session_bound || agent_screen_busy(&svc, &state.pty_id);
             if busy {
                 log::debug!(
                     "[run-watcher] idle {}s but agent remains active — deferring reap: pane={}",
@@ -338,7 +335,7 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
                 finish_run(
                     &svc,
                     &state,
-                    idle_status_is_terminal_success(&svc, &state.pty_id),
+                    session_bound && idle_status_is_terminal_success(&svc, &state.pty_id),
                     format!("idle for {}s without an explicit completion", idle_secs),
                 );
                 svc.run_watcher.runs.lock().remove(&state.pty_id);
@@ -396,8 +393,25 @@ fn status_is_idle(status: crate::agent::status::PaneStatus) -> bool {
     status == crate::agent::status::PaneStatus::Idle
 }
 
-fn can_complete_on_semantic_idle(armed: bool, saw_working: bool, idle: bool) -> bool {
-    armed && saw_working && idle
+fn pane_completion_state(svc: &ServiceContext, pane_id: &str) -> (bool, bool) {
+    let mux = svc.mux.read();
+    let Some(pane) = mux.get_pane(pane_id) else {
+        return (false, false);
+    };
+    let idle = pane
+        .agent_state
+        .as_ref()
+        .is_some_and(|state| state.state == codeterm_types::pty::TimelineState::Idle);
+    (idle, pane.agent_session_id.is_some())
+}
+
+fn can_complete_on_semantic_idle(
+    armed: bool,
+    saw_working: bool,
+    idle: bool,
+    session_bound: bool,
+) -> bool {
+    armed && saw_working && idle && session_bound
 }
 
 fn screen_shows_working(text: &str) -> bool {
@@ -767,10 +781,11 @@ mod tests {
     }
 
     #[test]
-    fn semantic_idle_requires_a_delivered_turn() {
-        assert!(!can_complete_on_semantic_idle(false, false, true));
-        assert!(!can_complete_on_semantic_idle(true, false, true));
-        assert!(!can_complete_on_semantic_idle(true, true, false));
-        assert!(can_complete_on_semantic_idle(true, true, true));
+    fn semantic_idle_requires_a_bound_delivered_turn() {
+        assert!(!can_complete_on_semantic_idle(false, false, true, true));
+        assert!(!can_complete_on_semantic_idle(true, false, true, true));
+        assert!(!can_complete_on_semantic_idle(true, true, false, true));
+        assert!(!can_complete_on_semantic_idle(true, true, true, false));
+        assert!(can_complete_on_semantic_idle(true, true, true, true));
     }
 }
