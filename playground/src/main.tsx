@@ -2,6 +2,7 @@ import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { LiquidGlassLab } from "./concepts/liquidglass/LiquidGlassLab";
 import { GalleryDetail, GalleryIndex } from "./gallery/Gallery";
+import "./ds/tokens.css";
 import "./playground.css";
 import "./portal.css";
 
