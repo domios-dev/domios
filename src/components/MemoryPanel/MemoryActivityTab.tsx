@@ -15,6 +15,7 @@ import { useGraphWorkers } from "./useGraphWorkers";
 import { MemorySpawnWorkerDialog } from "./MemorySpawnWorkerDialog";
 import { AgentRunLogPopup } from "../AgentRun/AgentRunLogPopup";
 import { RunChatPopup } from "../AgentRun/RunChatPopup";
+import { AgentIcon } from "../AgentIcon";
 import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
 
 interface Props {
@@ -401,7 +402,7 @@ interface WorkerCardProps {
   onKill: (() => void) | null;
 }
 
-function WorkerCard({ worker, onOpen, onKill }: WorkerCardProps) {
+export function WorkerCard({ worker, onOpen, onKill }: WorkerCardProps) {
   const isDone =
     worker.status === "done" || worker.status === "error" || worker.status === "orphaned";
   const elapsed = (() => {
@@ -423,6 +424,13 @@ function WorkerCard({ worker, onOpen, onKill }: WorkerCardProps) {
       title={isDone ? "View log" : "View live output"}
     >
       <span className="flex-1 text-[11px] truncate text-[var(--ct-fg)]">{intent}</span>
+      {worker.agent_provider && (
+        <AgentIcon
+          providerId={worker.agent_provider}
+          className="text-[12px] shrink-0"
+          title={`Executed by ${worker.agent_provider}`}
+        />
+      )}
       {worker.model && (
         <span className="text-[9px] text-[var(--ct-muted-fg)] shrink-0 truncate max-w-[80px]">
           {worker.model}
