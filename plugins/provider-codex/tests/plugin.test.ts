@@ -428,7 +428,11 @@ assert(warned === 1, "parseSessionDelta emits one warning for a session with inv
     JSON.stringify({
       type: "response_item",
       timestamp: "2026-01-01T00:00:01Z",
-      payload: { type: "function_call", arguments: "{}" },
+      payload: {
+        type: "function_call",
+        name: "send_message",
+        arguments: JSON.stringify({ target: "worker", message: "internal handoff" }),
+      },
     }),
     JSON.stringify({
       type: "response_item",
@@ -441,7 +445,7 @@ assert(warned === 1, "parseSessionDelta emits one warning for a session with inv
     }),
   ].join("\n");
   const sparseParsed = hostPlugin.parseSessionDelta(sparseChunk) as { messages: any[] };
-  eq(sparseParsed.messages.length, 2, "parseSessionDelta filters empty sparse function_call rows");
+  eq(sparseParsed.messages.length, 2, "parseSessionDelta filters internal orchestration function_call rows");
   eq(
     sparseParsed.messages.map((message) => message.blocks[0].data.input.command),
     ["npm test", "npm run build"],
