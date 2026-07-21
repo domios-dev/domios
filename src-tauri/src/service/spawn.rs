@@ -975,7 +975,8 @@ impl ServiceContext {
                         ) {
                             log::error!(
                                 "[spawn.hidden] task delivery failed for pane {}: {}",
-                                pane_id_outer, e
+                                pane_id_outer,
+                                e
                             );
                             svc_outer.run_watcher.fail_now(
                                 &svc_outer,
