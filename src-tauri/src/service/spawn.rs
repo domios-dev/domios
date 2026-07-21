@@ -966,13 +966,24 @@ impl ServiceContext {
                     if let Err(e) = svc_outer.send_shell_spawn(&pty_id, &launch_cmd) {
                         log::error!("[spawn.hidden] shell spawn failed: {}", e);
                     } else if let Some(ref task_text) = pty_input_task {
-                        deliver_hidden_pty_task(
+                        if let Err(e) = deliver_hidden_pty_task(
                             &svc_outer,
                             &pty_id,
                             &pane_id_outer,
                             &provider,
                             task_text,
-                        );
+                        ) {
+                            log::error!(
+                                "[spawn.hidden] task delivery failed for pane {}: {}",
+                                pane_id_outer,
+                                e
+                            );
+                            svc_outer.run_watcher.fail_now(
+                                &svc_outer,
+                                &pty_id,
+                                format!("task delivery failed: {e}"),
+                            );
+                        }
                     }
                 }
                 Err(e) => log::error!("[spawn.hidden] no pty for pane {}: {}", pane_id_outer, e),
