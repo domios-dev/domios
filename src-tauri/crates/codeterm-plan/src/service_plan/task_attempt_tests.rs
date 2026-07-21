@@ -24,7 +24,9 @@ fn bound_report_store() -> (tempfile::TempDir, PlanStore, String, String) {
             2,
         )
         .unwrap();
-    store.assign_task(&plan.id, &task_id, "worker", None, 3).unwrap();
+    store
+        .assign_task(&plan.id, &task_id, "worker", None, 3)
+        .unwrap();
     (dir, store, plan.id, task_id)
 }
 
@@ -118,7 +120,15 @@ fn duplicate_stale_or_unbound_reports_never_regress_task() {
         .unwrap());
     let task = store.get(&plan_id).unwrap().tasks.remove(0);
     assert_eq!(task.status, TaskStatus::InReview);
-    assert_eq!(task.execution_attempts[0].report.as_ref().unwrap().sha.as_deref(), Some("abc123"));
+    assert_eq!(
+        task.execution_attempts[0]
+            .report
+            .as_ref()
+            .unwrap()
+            .sha
+            .as_deref(),
+        Some("abc123")
+    );
 }
 
 #[test]

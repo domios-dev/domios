@@ -87,8 +87,12 @@ pub fn ensure_dreaming_cron(
     };
     let provider_hint = resolve_worker_agent(None, &mem_cfg.dreaming_agent, default_agent);
 
-    let (model, _fell_back) =
-        resolve_worker_model(&mem_cfg.dreaming_model, &mem_cfg.worker_model, &provider_hint, compat);
+    let (model, _fell_back) = resolve_worker_model(
+        &mem_cfg.dreaming_model,
+        &mem_cfg.worker_model,
+        &provider_hint,
+        compat,
+    );
     let model = (!model.is_empty()).then_some(model);
 
     cron_store.create_job(MemCronCreateParams {
