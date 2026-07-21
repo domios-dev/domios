@@ -313,6 +313,10 @@ pub async fn hook_session_start(
 
     // while it runs — not only after completion.
     propagate_run_session(&state, &pane_id, &sid);
+    state
+        .svc
+        .run_watcher
+        .observe_session_progress(&state.svc, &pane_id, &source);
 
     if !claim.changed {
         if claim.nonce_verified {
