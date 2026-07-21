@@ -5,6 +5,7 @@ import { authHeaders, baseUrl } from "../MemoryPanel/memoryApi";
 import { EventRow } from "./EventRenderer";
 import { ClaudeStreamParser, mergeAssistantMessages } from "./streamParser";
 import { useAgentRunStream } from "./useAgentRunStream";
+import { isTerminalWorkerStatus, workerEmptyState } from "./workerEmptyState";
 
 interface Props {
   worker: GraphWorkerInfo;
@@ -12,12 +13,10 @@ interface Props {
   onClose: () => void;
 }
 
-const TERMINAL_STATUSES = new Set(["done", "error", "orphaned"]);
-
 export function AgentRunLogPopup({ worker, api, onClose }: Props) {
   const title = worker.intent.replace(/^extract:/, "");
   const subtitle = [worker.agent_provider, worker.model].filter(Boolean).join(" / ");
-  const isTerminal = TERMINAL_STATUSES.has(worker.status);
+  const isTerminal = isTerminalWorkerStatus(worker.status);
   const livePaneId = isTerminal ? null : worker.pane_id;
 
   const { events: liveEvents, rawLines, connected, error } = useAgentRunStream({
@@ -137,14 +136,8 @@ export function AgentRunLogPopup({ worker, api, onClose }: Props) {
           )}
 
           {events.length === 0 && rawLines.length === 0 && !showFallback && (
-            <div className="text-[var(--ct-muted-fg)]">
-              {livePaneId
-                ? connected
-                  ? "Waiting for first event…"
-                  : "Connecting…"
-                : worker.status.toLowerCase() === "queued"
-                  ? "Queued — waiting for worker slot…"
-                  : "Waiting for spawn…"}
+            <div className="text-[var(--ct-muted-fg)]" data-testid="worker-empty-state">
+              {workerEmptyState(livePaneId, connected, worker.status, worker.report)}
             </div>
           )}
 
@@ -188,11 +181,11 @@ export function AgentRunLogPopup({ worker, api, onClose }: Props) {
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const lc = status.toLowerCase();
+  const lc = status.toLowerCase().replaceAll("-", "_").replaceAll(" ", "_");
   const color =
     lc === "done" || lc === "success"
       ? "var(--ct-green)"
-      : lc === "error" || lc === "failed"
+      : lc === "error" || lc === "failed" || lc === "hard_timeout" || lc === "timeout" || lc === "timed_out"
         ? "var(--ct-red)"
         : lc === "orphaned" || lc === "cancelled"
           ? "var(--ct-muted-fg)"
@@ -200,7 +193,7 @@ function StatusBadge({ status }: { status: string }) {
             ? "var(--ct-yellow)"
             : "var(--ct-accent)";
   // any non-terminal worker is simply "running". Avoids a stuck "starting" label.
-  const terminal = ["done", "success", "error", "failed", "orphaned", "cancelled"];
+  const terminal = ["done", "success", "error", "failed", "orphaned", "cancelled", "hard_timeout", "timeout", "timed_out"];
   const label = terminal.includes(lc) ? status : "running";
   return (
     <span
