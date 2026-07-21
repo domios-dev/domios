@@ -1,6 +1,9 @@
 use crate::client::SocketClient;
 use crate::cmd::print::print_human;
 use crate::resolve_pane;
+use regex::Regex;
+
+const RESOLVED_TEXT_PREFIX: &str = "CODETERM_RESOLVED_TEXT=";
 
 /// Detect content that's almost certainly the result of bash command-substitution
 /// eating the agent's intended text — e.g. unquoted `mesh peers` inside a
@@ -62,7 +65,30 @@ pub fn analyze_send_text_response(value: &serde_json::Value) -> SendTextOutcome 
     SendTextOutcome::Other
 }
 
-pub fn handle_send_text_result(json: bool, result: Result<serde_json::Value, String>) {
+pub fn redact_resolved_send_text(text: &str) -> String {
+    let bearer = Regex::new(r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]{8,}").unwrap();
+    let assignment = Regex::new(r"(?i)\b([a-z][a-z0-9_]*(?:token|secret|password|api[_-]?key|credential)[a-z0-9_]*)=([^\s]+)").unwrap();
+    let openai_key = Regex::new(r"\bsk-[A-Za-z0-9_-]{8,}\b").unwrap();
+    let redacted = bearer.replace_all(text, "$1***REDACTED***");
+    let redacted = assignment.replace_all(&redacted, "$1=***REDACTED***");
+    openai_key
+        .replace_all(&redacted, "***REDACTED***")
+        .into_owned()
+}
+
+pub fn resolved_text_echo(text: &str) -> String {
+    format!(
+        "{}{}",
+        RESOLVED_TEXT_PREFIX,
+        serde_json::to_string(&redact_resolved_send_text(text)).unwrap()
+    )
+}
+
+pub fn handle_send_text_result(
+    json: bool,
+    result: Result<serde_json::Value, String>,
+    resolved_text: Option<&str>,
+) {
     match result {
         Ok(value) => {
             if json {
@@ -70,7 +96,12 @@ pub fn handle_send_text_result(json: bool, result: Result<serde_json::Value, Str
                 return;
             }
             match analyze_send_text_response(&value) {
-                SendTextOutcome::Success(msg) => println!("{}", msg),
+                SendTextOutcome::Success(msg) => {
+                    println!("{}", msg);
+                    if let Some(text) = resolved_text {
+                        println!("{}", resolved_text_echo(text));
+                    }
+                }
                 SendTextOutcome::Error { msg, exit_code } => {
                     eprintln!("Error: {}", msg);
                     std::process::exit(exit_code);
@@ -149,7 +180,7 @@ pub fn handle_send_text(
     let pane_id = resolve_pane(client, pane);
     if let Some(actions) = parsed_actions {
         let result = send_actions_via_http(json, &pane_id, &resolved_text, actions);
-        handle_send_text_result(json, result);
+        handle_send_text_result(json, result, Some(&resolved_text));
         return;
     }
     let mut params = serde_json::json!({
@@ -163,7 +194,7 @@ pub fn handle_send_text(
         }
     }
     let result = client.call("pane.send_text", Some(params));
-    handle_send_text_result(json, result);
+    handle_send_text_result(json, result, Some(&resolved_text));
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -409,7 +440,8 @@ pub fn resolve_send_text_input<R: std::io::Read>(
 mod tests {
     use super::{
         analyze_send_text_response, guard_against_shell_mangle, key_action_bytes,
-        parse_actions_spec, resolve_send_text_input, SendActionSpec, SendTextOutcome,
+        parse_actions_spec, redact_resolved_send_text, resolve_send_text_input, resolved_text_echo,
+        SendActionSpec, SendTextOutcome,
     };
 
     #[test]
@@ -419,6 +451,19 @@ mod tests {
             SendTextOutcome::Success(_) => {}
             other => panic!("expected Success, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn resolved_text_echo_redacts_secrets() {
+        let echo = resolved_text_echo("deliver sk-live-super-secret-token and API_TOKEN=hunter2");
+        assert!(echo.starts_with("CODETERM_RESOLVED_TEXT=\"deliver "));
+        assert!(echo.contains("***REDACTED***"));
+        assert!(!echo.contains("sk-live-super-secret-token"));
+        assert!(!echo.contains("hunter2"));
+        assert_eq!(
+            redact_resolved_send_text("Authorization: Bearer abcdefghijkl"),
+            "Authorization: Bearer ***REDACTED***"
+        );
     }
 
     #[test]

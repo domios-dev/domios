@@ -64,6 +64,15 @@ function result(id: string, toolId: string, detail: string, patch: Partial<Norma
 
 {
   const items = reduceToolEvents([
+    call("send-call", "send-id", { toolKind: "command", toolSummary: 'codeterm send "$VAR"', toolDetail: 'codeterm send "$VAR"' }),
+    result("send-output", "send-id", 'OK (sent)\nCODETERM_RESOLVED_TEXT="expanded ***REDACTED*** text"'),
+  ]);
+  assert(items[0].kind === "tool" && items[0].event.detail === 'codeterm send "$VAR"', "raw command detail remains source as typed");
+  assert(items[0].kind === "tool" && items[0].event.result?.includes("CODETERM_RESOLVED_TEXT"), "function output attaches as event result for resolved send rendering");
+}
+
+{
+  const items = reduceToolEvents([
     call("error-call", "sticky"),
     result("error-result", "sticky", "failed", { toolError: true }),
     result("success-result", "sticky", "later success"),
