@@ -155,8 +155,8 @@ impl RunWatcherRegistry {
         }
     }
 
-    pub fn observe_session_progress(&self, svc: &ServiceContext, pane_id: &str, source: &str) {
-        if !session_source_reports_progress(source) {
+    pub fn observe_durable_transcript(&self, svc: &ServiceContext, pane_id: &str, observed: bool) {
+        if !observed {
             return;
         }
         let pty_id = self
@@ -450,8 +450,16 @@ fn can_complete_on_semantic_idle(
     armed && saw_working && saw_post_session_progress && idle && session_bound
 }
 
-fn session_source_reports_progress(source: &str) -> bool {
-    matches!(source, "message.part.updated" | "tool.execute.before")
+pub(crate) fn has_nonempty_assistant_transcript(
+    transcript: &crate::agent::chat_types::StructuredChat,
+) -> bool {
+    transcript.messages.iter().any(|message| {
+        message.kind != "user"
+            && (!message.content.trim().is_empty()
+                || message.tool_name.is_some()
+                || message.tool_detail.is_some()
+                || message.tool_input.is_some())
+    })
 }
 
 fn screen_shows_working(text: &str) -> bool {
@@ -841,10 +849,24 @@ mod tests {
     }
 
     #[test]
-    fn session_created_is_not_task_progress() {
-        assert!(!session_source_reports_progress("session.created"));
-        assert!(!session_source_reports_progress("message.updated"));
-        assert!(session_source_reports_progress("message.part.updated"));
-        assert!(session_source_reports_progress("tool.execute.before"));
+    fn empty_assistant_metadata_is_not_durable_progress() {
+        let empty = crate::agent::chat_types::StructuredChat {
+            messages: vec![crate::agent::chat_types::ChatMsg {
+                kind: "assistant".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(!has_nonempty_assistant_transcript(&empty));
+
+        let completed = crate::agent::chat_types::StructuredChat {
+            messages: vec![crate::agent::chat_types::ChatMsg {
+                kind: "assistant".into(),
+                content: "done".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(has_nonempty_assistant_transcript(&completed));
     }
 }

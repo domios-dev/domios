@@ -313,10 +313,12 @@ pub async fn hook_session_start(
 
     // while it runs — not only after completion.
     propagate_run_session(&state, &pane_id, &sid);
+    let transcript_progress =
+        durable_transcript_progress(&state, &pane_id, &provider_id, &sid).await;
     state
         .svc
         .run_watcher
-        .observe_session_progress(&state.svc, &pane_id, &source);
+        .observe_durable_transcript(&state.svc, &pane_id, transcript_progress);
 
     if !claim.changed {
         if claim.nonce_verified {
@@ -364,6 +366,34 @@ pub async fn hook_session_start(
     state.svc.schedule_planner_replay(&pane_id);
     state.svc.emit_state_changed();
     Ok(Json(serde_json::json!({"ok": true, "changed": true})))
+}
+
+async fn durable_transcript_progress(
+    state: &AppState,
+    pane_id: &str,
+    provider_id: &str,
+    session_id: &str,
+) -> bool {
+    let cwd = state
+        .svc
+        .mux
+        .read()
+        .get_pane(pane_id)
+        .and_then(|pane| pane.cwd.clone())
+        .unwrap_or_default();
+    let registry = state.svc.agent_registry.clone();
+    let provider_id = provider_id.to_string();
+    let session_id = session_id.to_string();
+    tokio::task::spawn_blocking(move || {
+        registry
+            .with_provider(&provider_id, |provider| {
+                let transcript = provider.read_structured_chat(&cwd, &session_id, None);
+                crate::agent::run_watcher::has_nonempty_assistant_transcript(&transcript)
+            })
+            .unwrap_or(false)
+    })
+    .await
+    .unwrap_or(false)
 }
 
 fn acknowledge_authenticated_launch(
