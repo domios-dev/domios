@@ -49,6 +49,12 @@ const successfulSendHost = await render(<CodetermActionCard event={{ ...event('c
 if (successfulSendHost.host.querySelector('[data-testid="toolcard-result"]') || successfulSendHost.host.textContent?.includes("OK (sent)")) throw new Error("successful send result must stay hidden");
 const failedSendHost = await render(<CodetermActionCard event={{ ...event('codeterm send --tab e3fa0754 "hello"'), status: "error", result: "error: tab not found" }} expanded onToggle={() => {}} />);
 if (!failedSendHost.host.querySelector('[data-testid="toolcard-result"]') || !failedSendHost.host.textContent?.includes("tab not found")) throw new Error("failed send result must remain visible");
+const resolvedSendHost = await render(<CodetermActionCard event={{ ...event('codeterm send --tab e3fa0754 "$VAR"'), result: 'OK (sent)\nCODETERM_RESOLVED_TEXT="expanded ***REDACTED*** text"' }} expanded onToggle={() => {}} />);
+if (!resolvedSendHost.host.textContent?.includes("Delivered text")) throw new Error("resolved send must label delivered text");
+if (!resolvedSendHost.host.textContent.includes("expanded REDACTED text")) throw new Error("resolved send must render redacted text");
+if (resolvedSendHost.host.textContent.includes("expanded-secret")) throw new Error("resolved send must not reveal secret text");
+const typedSendHost = await render(<CodetermActionCard event={event('codeterm send --tab e3fa0754 "$VAR"')} expanded onToggle={() => {}} />);
+if (!typedSendHost.host.textContent?.includes("Source as typed") || !typedSendHost.host.textContent.includes("$VAR")) throw new Error("missing resolved output must honestly show source as typed");
 const sendHelpHost = await render(<CodetermActionCard event={event("codeterm send --help; codeterm docs ROUTING")} expanded={false} onToggle={() => {}} />);
 if (!sendHelpHost.host.textContent?.includes("help") || !sendHelpHost.host.textContent?.includes("send") || sendHelpHost.host.textContent?.includes("current tab")) throw new Error("send help must not look like an outgoing message");
 const docsHost = await render(<CodetermActionCard event={{ ...event("codeterm docs ORCHESTRATION"), result: "one two\nthree" }} expanded={false} onToggle={() => {}} />);
