@@ -20,6 +20,7 @@
 - **No external user base yet** — this is Andrey's personal project. No backward-compat shims, no migration paths. Breaking changes are fine. Delete legacy aggressively. When in doubt, rewrite rather than patch.
 - **Never kill prod CodeTerm.** Prod = port 7685, dev = port 7686. See *Process safety* below.
 - **Hot-reload over restart.** Subsystems should support stop/start without restarting the whole daemon when possible.
+- **Windows reserved names are forbidden.** Never create a file or directory named `NUL` (or another Windows device name). Use ordinary temporary filenames instead; remove any accidental reserved-name artifact immediately with an extended `\\?\` path.
 
 ## Source file size discipline
 
@@ -231,4 +232,4 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
