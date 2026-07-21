@@ -320,11 +320,15 @@ impl ServiceContext {
             }
         }
 
+        let current_status = self.agent_tracker.lock().get_status(pty_id);
         if agent_type.is_some() {
+            self.run_watcher
+                .observe_output_status(pty_id, current_status);
             self.recompute_agent_state(pty_id);
+            self.run_watcher.complete_via_semantic_idle(self, pty_id);
         }
 
-        (prev_status, self.agent_tracker.lock().get_status(pty_id))
+        (prev_status, current_status)
     }
 
     /// Build a pending prompt from the provider's STRUCTURED handle, if it has
