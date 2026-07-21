@@ -542,7 +542,7 @@ assert(warned === 1, "parseSessionDelta emits one warning for a session with inv
         type: "function_call",
         name: "exec_command",
         call_id: "call_exec_1",
-        arguments: JSON.stringify({ cmd: 'rg -n "needle" src' }),
+        arguments: JSON.stringify({ cmd: 'codeterm send "$VAR" --tab target' }),
       },
     }),
     JSON.stringify({
@@ -588,9 +588,11 @@ assert(warned === 1, "parseSessionDelta emits one warning for a session with inv
   eq(structuredParsed.messages[0].blocks[0].data.id, "call_patch_1", "call_id forwarded as tool id");
   eq(structuredParsed.messages[1].blocks[0].kind, "tool_result", "patch_apply_end maps to tool_result");
   eq(structuredParsed.messages[1].blocks[0].data.tool_use_id, "call_patch_1", "patch result links to call_id");
-  eq(structuredParsed.messages[2].blocks[0].data.input.command, 'rg -n "needle" src', "exec_command still parses");
+  eq(structuredParsed.messages[2].blocks[0].data.input.command, 'codeterm send "$VAR" --tab target', "function call keeps the raw command source");
+  eq(structuredParsed.messages[2].blocks[0].data.tool_detail, 'codeterm send "$VAR" --tab target', "canonical tool detail keeps the raw command source");
   eq(structuredParsed.messages[2].blocks[0].data.id, "call_exec_1", "function call id is preserved");
   eq(structuredParsed.messages[3].blocks[0].data.tool_use_id, "call_exec_1", "function result links to call id");
+  eq(structuredParsed.messages[3].blocks[0].data.content, "src/example.ts:1:needle", "function output is preserved for event result propagation");
   eq(structuredParsed.messages[4].blocks[0].data.id, "call_custom_1", "custom call id is preserved");
   eq(structuredParsed.messages[5].blocks[0].data.tool_use_id, "call_custom_1", "custom result links to call id");
   eq(structuredParsed.messages[5].blocks[0].data.content, "Script completed\nExit code: 0\n", "custom result text blocks are joined");

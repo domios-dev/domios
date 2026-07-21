@@ -1,6 +1,6 @@
 import type { ToolEvent } from "@codeterm/chat-core";
 import { recognize } from "../codeterm/recognize";
-import { describeAction, isHelp, isSend, navigationTarget, type NavigationTarget, type PaneNameResolver } from "../codeterm/templates";
+import { describeAction, isHelp, isSend, navigationTarget, parseSend, type NavigationTarget, type PaneNameResolver } from "../codeterm/templates";
 import { CompactMessageContent } from "../codeterm/CompactMessageContent";
 import { ToolCardActionButton, ToolCardFrame } from "./ToolCardFrame";
 import type { OpenPlan, ResolvedChatPlanRef } from "../codeterm/LinkedText";
@@ -13,7 +13,6 @@ import {
   Puzzle, RadioTower, ScrollText, Search, Send, Sparkles, SquarePlus, Sunrise, Terminal, Users,
 } from "lucide-react";
 import type { ToolKindVisual } from "./toolKindVisual";
-import { decodeCliMessageText } from "../codeterm/messageText";
 
 type PlanFocusKind = "plan" | "task" | "section";
 
@@ -120,6 +119,7 @@ export function CodetermActionCard({
   onOpenSource,
 }: Props) {
   const inv = recognize(commandFor(event));
+  const sent = inv && isSend(inv) ? parseSend(inv, event.result, resolvePaneName) : undefined;
   const target = inv ? navigationTarget(inv, event.result) : null;
   const descriptor = inv ? describeAction(inv, event.result, resolvePaneName) : { lead: "codeterm", chips: [] };
   const collapsedChips = descriptor.chips.filter((chip) => !/\b(?:pl|task|sec|sp|spec|mem|src)_[a-z0-9][a-z0-9_-]*/i.test(chip));
@@ -147,17 +147,20 @@ export function CodetermActionCard({
       summary={descriptor.object}
       variant="codeterm"
       visualOverride={inv ? actionVisual(inv) : undefined}
-      command={<div data-testid="toolcard-command" className="border-t px-3 py-2 whitespace-pre-wrap break-words font-mono text-xs" style={{ borderColor: "var(--ct-border)", color: "var(--ct-fg)", background: "var(--ct-bg)" }}>{event.detail || event.summary}</div>}
+      command={<div data-testid="toolcard-command" className="border-t px-3 py-2 whitespace-pre-wrap break-words font-mono text-xs" style={{ borderColor: "var(--ct-border)", color: "var(--ct-fg)", background: "var(--ct-bg)" }}>{sent && <div className="mb-1 text-[10px] uppercase" style={{ color: "var(--ct-muted-fg)" }}>Source as typed</div>}{event.detail || event.summary}</div>}
       metric={collapsedChips.length ? <span className="flex flex-wrap gap-1">{collapsedChips.map((chip) => <span key={chip} className="rounded border px-1.5 py-0.5 text-[10px]" style={{ borderColor: "var(--ct-border)", color: "var(--ct-muted-fg)" }}>{chip}</span>)}</span> : undefined}
       action={canNavigate && target?.kind === "tab" ? <ToolCardActionButton label="Show Tab" onClick={() => onFocusPane!(target.id)} testId="codeterm-focus-tab" /> : undefined}
     >
-      {inv && isSend(inv) ? (
-        <CompactMessageContent
-          text={decodeCliMessageText(descriptor.detail ?? "")}
+      {sent ? (
+        <div>
+          <div className="mb-1 font-mono text-[10px] uppercase" style={{ color: "var(--ct-muted-fg)" }}>{sent.bodySource === "resolved" ? "Delivered text" : "Source as typed"}</div>
+          <CompactMessageContent
+            text={sent.body}
           onOpenPlan={onOpenPlan}
           resolvePlanRef={resolvePlanRef}
           fontScale={fontScale}
-        />
+          />
+        </div>
       ) : isTabList && !tabListJson ? (
         <TabListCard event={event} />
       ) : descriptor.fields?.length ? (

@@ -369,6 +369,7 @@ export interface SentMessage {
   recipient: string;
   mesh?: string;
   body: string;
+  bodySource: "resolved" | "typed";
   status?: CardStatus;
 }
 
@@ -383,7 +384,25 @@ export function parseSend(
   if (typeof p !== "string") recipient = "current tab";
   else recipient = resolve?.(p) ?? `tab ${p}`;
   const mesh = typeof inv.flags.mesh === "string" ? inv.flags.mesh : undefined;
-  return { recipient, mesh, body: decodeCliMessageText(inv.positionals[0] ?? ""), status: deliveredStatus(result) };
+  const resolved = resolvedSendText(result);
+  return {
+    recipient,
+    mesh,
+    body: resolved ?? decodeCliMessageText(inv.positionals[0] ?? ""),
+    bodySource: resolved == null ? "typed" : "resolved",
+    status: deliveredStatus(result),
+  };
+}
+
+function resolvedSendText(result?: string): string | undefined {
+  const encoded = result?.match(/^CODETERM_RESOLVED_TEXT=(.+)$/m)?.[1];
+  if (!encoded) return undefined;
+  try {
+    const text = JSON.parse(encoded);
+    return typeof text === "string" ? text : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** True when this invocation is an outgoing `codeterm send`. */

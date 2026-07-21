@@ -45,6 +45,10 @@ const TASK = "task_" + "b".repeat(32);
 
   const ok = parseSend(inv(`codeterm send --tab bda "x"`), "OK (sent)", undefined);
   assert(ok.status?.ok === true && ok.status.label === "delivered", "delivered status");
+  const resolved = parseSend(inv(`codeterm send --tab bda "$VAR"`), 'OK (sent)\nCODETERM_RESOLVED_TEXT="expanded ***REDACTED*** text"', undefined);
+  assert(resolved.body === "expanded ***REDACTED*** text" && resolved.bodySource === "resolved", "resolved output overrides raw source");
+  const typed = parseSend(inv(`codeterm send --tab bda "$VAR"`), "OK (sent)", undefined);
+  assert(typed.body === "$VAR" && typed.bodySource === "typed", "missing resolved output is explicitly source as typed");
   const fail = parseSend(inv(`codeterm send --tab bda "x"`), "error: pane not found", undefined);
   assert(fail.status?.ok === false && fail.status.label === "failed", "failed status");
 
