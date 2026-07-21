@@ -161,6 +161,261 @@ impl crate::agent::provider::AgentProvider for DelayedStoreProvider {
     }
 }
 
+/// Deterministically resolves `path` on every poll regardless of whether the
+/// file exists on disk — mirrors real providers (e.g. claude) whose
+/// `session_jsonl_path` is a pure function of cwd/session_id, so a deleted
+/// file is a "disappeared" case, not a "path unknown" one.
+struct AlwaysPathProvider {
+    path: PathBuf,
+}
+
+impl crate::agent::provider::AgentProvider for AlwaysPathProvider {
+    fn id(&self) -> &str {
+        "always-path"
+    }
+    fn display_name(&self) -> &str {
+        "Always Path"
+    }
+    fn build_launch_command(&self, _: &crate::agent::provider::AgentLaunchParams) -> String {
+        String::new()
+    }
+    fn readiness_strategy(&self) -> crate::agent::provider::ReadinessStrategy {
+        crate::agent::provider::ReadinessStrategy::FixedDelay {
+            duration: Duration::ZERO,
+        }
+    }
+    fn task_delivery(&self) -> crate::agent::provider::TaskDelivery {
+        crate::agent::provider::TaskDelivery::PtyInput
+    }
+    fn detect_from_title(&self, _: &str) -> bool {
+        false
+    }
+    fn detect_from_output(&self, _: &str) -> bool {
+        false
+    }
+    fn session_file_path(&self, _: &str, _: &str) -> Option<PathBuf> {
+        None
+    }
+    fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
+        None
+    }
+    fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+        None
+    }
+    fn session_jsonl_path(&self, _: &str, _: &str) -> Option<PathBuf> {
+        Some(self.path.clone())
+    }
+    fn parse_session_delta(
+        &self,
+        path: &std::path::Path,
+        from_offset: u64,
+    ) -> crate::agent::chat_types::SessionDelta {
+        crate::agent::chat_types::SessionDelta {
+            new_offset: std::fs::metadata(path)
+                .map(|metadata| metadata.len())
+                .unwrap_or(from_offset),
+            messages: vec![RichMessage {
+                role: "assistant".into(),
+                ..Default::default()
+            }],
+        }
+    }
+}
+
+/// RED before the fix: with no consecutive-missing-poll reap, `handle.is_alive()`
+/// stays true forever once the file is deleted, so this `wait_until` times out.
+#[test]
+fn tailer_reaps_itself_after_file_disappears_past_threshold() {
+    let tmp = TempDir::new().unwrap();
+    let sid = "sess-reap-001";
+    let jsonl = tmp.path().join(format!("{sid}.jsonl"));
+    std::fs::write(
+        &jsonl,
+        "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"hi\"}}\n",
+    )
+    .unwrap();
+
+    let agent_registry = AgentRegistry::new();
+    agent_registry.register_provider(Box::new(AlwaysPathProvider {
+        path: jsonl.clone(),
+    }));
+    let agent_registry = Arc::new(agent_registry);
+
+    let sink = Arc::new(Collector {
+        msgs: Mutex::new(vec![]),
+    });
+    let handle = spawn_tailer(
+        TailConfig {
+            pane_id: "p-reap".into(),
+            provider_id: "always-path".into(),
+            cwd: "/proj".into(),
+            session_id: sid.into(),
+            start_offset: 0,
+            poll_interval: Duration::from_millis(20),
+        },
+        agent_registry,
+        sink.clone() as Arc<dyn DeltaSink>,
+    );
+
+    assert!(
+        wait_until(2000, || sink.msgs.lock().len() >= 1),
+        "initial message must arrive before the file disappears"
+    );
+    assert!(
+        handle.is_alive(),
+        "tailer must still be running while the file exists"
+    );
+
+    std::fs::remove_file(&jsonl).unwrap();
+
+    assert!(
+        wait_until(2000, || !handle.is_alive()),
+        "a previously-seen session file staying absent past the consecutive-poll threshold must reap the tailer",
+    );
+}
+
+/// RED before the fix: the tailer thread never exits on its own, so
+/// `chat_registry.acquire` keeps returning `true` forever — the second
+/// `wait_until` never observes `false` and the registry never evicts the
+/// corpse for reattachment.
+#[test]
+fn chat_registry_reattaches_after_tailer_reaps_missing_file() {
+    let tmp = TempDir::new().unwrap();
+    let sid = "sess-reap-registry-001";
+    let jsonl = tmp.path().join(format!("{sid}.jsonl"));
+    std::fs::write(
+        &jsonl,
+        "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"hi\"}}\n",
+    )
+    .unwrap();
+
+    let agent_registry = AgentRegistry::new();
+    agent_registry.register_provider(Box::new(AlwaysPathProvider {
+        path: jsonl.clone(),
+    }));
+    let agent_registry = Arc::new(agent_registry);
+    let chat_registry = ChatRegistry::new();
+
+    let sink = Arc::new(Collector {
+        msgs: Mutex::new(vec![]),
+    });
+    let handle = spawn_tailer(
+        TailConfig {
+            pane_id: "p-reap-registry".into(),
+            provider_id: "always-path".into(),
+            cwd: "/proj".into(),
+            session_id: sid.into(),
+            start_offset: 0,
+            poll_interval: Duration::from_millis(20),
+        },
+        agent_registry.clone(),
+        sink.clone() as Arc<dyn DeltaSink>,
+    );
+    assert!(chat_registry.insert("pane".into(), sid.into(), "desktop".into(), handle));
+    assert!(
+        wait_until(2000, || sink.msgs.lock().len() >= 1),
+        "initial message must arrive"
+    );
+
+    std::fs::remove_file(&jsonl).unwrap();
+
+    assert!(
+        wait_until(2000, || !chat_registry.acquire("pane", sid, "desktop")),
+        "registry must detect the reaped tailer and refuse to hand back a dead stream",
+    );
+    assert!(
+        !chat_registry.is_running("pane"),
+        "the corpse must be evicted so the caller spawns a fresh tailer"
+    );
+
+    // Recreate the session file (e.g. agent restarted) and confirm a fresh
+    // tailer registers and streams again — proving the pane can reattach.
+    std::fs::write(
+        &jsonl,
+        "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"hi again\"}}\n",
+    )
+    .unwrap();
+    let sink2 = Arc::new(Collector {
+        msgs: Mutex::new(vec![]),
+    });
+    let handle2 = spawn_tailer(
+        TailConfig {
+            pane_id: "p-reap-registry".into(),
+            provider_id: "always-path".into(),
+            cwd: "/proj".into(),
+            session_id: sid.into(),
+            start_offset: 0,
+            poll_interval: Duration::from_millis(20),
+        },
+        agent_registry,
+        sink2.clone() as Arc<dyn DeltaSink>,
+    );
+    assert!(chat_registry.insert("pane".into(), sid.into(), "desktop".into(), handle2));
+    assert!(
+        wait_until(2000, || sink2.msgs.lock().len() >= 1),
+        "reattached tailer must stream the recreated session"
+    );
+    chat_registry.stop("pane", "desktop");
+}
+
+/// A pending store watch has no missing-poll budget at all: a store that
+/// flaps unavailable/available for longer than a materialized tailer's own
+/// reap window must not cost the watch its eligibility for promotion.
+#[test]
+fn pending_store_watch_survives_flapping_availability_before_promotion() {
+    let tmp = TempDir::new().unwrap();
+    let sid = "sess-flap-001";
+    let jsonl = tmp.path().join(format!("{sid}.jsonl"));
+    let available = Arc::new(AtomicBool::new(false));
+    let agent_registry = AgentRegistry::new();
+    agent_registry.register_provider(Box::new(DelayedStoreProvider {
+        path: jsonl.clone(),
+        available: available.clone(),
+    }));
+
+    let chat_registry = ChatRegistry::new();
+    let sink = Arc::new(Collector {
+        msgs: Mutex::new(vec![]),
+    });
+    let watch = spawn_store_watch(
+        StoreWatchConfig {
+            pane_id: "p-flap".into(),
+            provider_id: "delayed-store".into(),
+            cwd: "/project".into(),
+            session_id: sid.into(),
+            poll_interval: Duration::from_millis(15),
+        },
+        Arc::new(agent_registry),
+        chat_registry.clone(),
+        sink.clone() as Arc<dyn DeltaSink>,
+    );
+    assert!(watch.register(&chat_registry, "desktop".into()));
+
+    // The store file never exists during this loop, so `available` flipping
+    // can never satisfy promotion — only exercises the watch's own
+    // never-give-up polling across a span well past 10 poll intervals.
+    for _ in 0..5 {
+        available.store(true, Ordering::Release);
+        std::thread::sleep(Duration::from_millis(15));
+        available.store(false, Ordering::Release);
+        std::thread::sleep(Duration::from_millis(15));
+    }
+
+    assert!(
+        chat_registry.is_running("p-flap"),
+        "a flapping store must not exhaust the pending watch's eligibility for promotion",
+    );
+
+    std::fs::write(&jsonl, "materialized\n").unwrap();
+    available.store(true, Ordering::Release);
+
+    assert!(
+        wait_until(2000, || !sink.msgs.lock().is_empty()),
+        "watch must still promote once the store settles",
+    );
+    chat_registry.stop("p-flap", "desktop");
+}
+
 #[test]
 fn tailer_streams_new_messages_as_file_grows() {
     // Skip if running in an env without the plugin checkout.
