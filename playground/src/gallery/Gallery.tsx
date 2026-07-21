@@ -9,7 +9,7 @@ export const specimens = Object.values(modules)
   .filter((specimen): specimen is Specimen => Boolean(specimen))
   .sort((a, b) => a.title.localeCompare(b.title));
 
-const CATEGORY_ORDER = ["Buttons", "Controls", "Status", "Sidebar"];
+const CATEGORY_ORDER = ["Buttons", "Controls", "Voice", "Status", "Sidebar"];
 
 function GalleryShell({ activeId, children }: { activeId?: string; children: React.ReactNode }) {
   const groups = CATEGORY_ORDER.map((category) => ({ category, entries: specimens.filter((specimen) => specimen.category === category) })).filter((group) => group.entries.length);
