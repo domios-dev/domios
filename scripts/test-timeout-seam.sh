@@ -8,37 +8,54 @@ run_with_timeout() {
     local timeout_secs="$1"
     shift
 
-    if command -v timeout >/dev/null 2>&1; then
-        timeout --kill-after=5s "${timeout_secs}s" "$@"
-        return $?
+    if [ -z "${CODETERM_FORCE_PORTABLE_TIMEOUT:-}" ]; then
+        if command -v timeout >/dev/null 2>&1; then
+            timeout --kill-after=5s "${timeout_secs}s" "$@"
+            return $?
+        fi
+
+        if command -v gtimeout >/dev/null 2>&1; then
+            gtimeout --kill-after=5s "${timeout_secs}s" "$@"
+            return $?
+        fi
     fi
 
-    if command -v gtimeout >/dev/null 2>&1; then
-        gtimeout --kill-after=5s "${timeout_secs}s" "$@"
+    if command -v perl >/dev/null 2>&1; then
+        perl -e '
+        use POSIX qw(setpgid);
+        my $timeout = $ARGV[0];
+        my @cmd = @ARGV[1..$#ARGV];
+
+        my $pid = fork();
+        exit 1 unless defined $pid;
+
+        if ($pid == 0) {
+            setpgid(0, 0);
+            exec { $cmd[0] } @cmd;
+            exit 127;
+        }
+
+        local $SIG{ALRM} = sub {
+            kill -15, $pid;
+            sleep 1;
+            kill -9, $pid if kill 0, $pid;
+            exit 124;
+        };
+
+        alarm($timeout);
+        waitpid($pid, 0);
+        my $status = $?;
+        alarm(0);
+
+        exit($status >> 8 || ($status & 127 ? 128 + ($status & 127) : 0));
+        ' "$timeout_secs" "$@"
         return $?
     fi
-
-    local timeout_sentinel
-    timeout_sentinel="$(mktemp)" || return 1
-    trap "rm -f '$timeout_sentinel'" RETURN
 
     "$@" &
     local pid=$!
-
-    (sleep "$timeout_secs" && touch "$timeout_sentinel" && kill -TERM -"$pid" 2>/dev/null; sleep 5; kill -KILL -"$pid" 2>/dev/null) &
-    local monitor_pid=$!
-
     wait "$pid" 2>/dev/null
-    local status=$?
-
-    kill "$monitor_pid" 2>/dev/null
-    wait "$monitor_pid" 2>/dev/null
-
-    if [ -f "$timeout_sentinel" ]; then
-        return 124
-    fi
-
-    return $status
+    return $?
 }
 
 test_count=0
