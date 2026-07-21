@@ -1,8 +1,12 @@
 //! One-pane JSONL tailer. Owns a thread that polls the session file,
 //! parses deltas via the agent provider plugin, and emits via the
 //! supplied sink. Stops when [`TailerHandle::shutdown`] is called
-//! or when the session file disappears for >10 consecutive polls
-//! (provider closed the session — no point spinning).
+//! or when a session file that was PREVIOUSLY OBSERVED TO EXIST goes
+//! missing for >10 consecutive polls (provider rotated/closed the
+//! session — no point spinning). A file that has never yet appeared
+//! (agent hasn't completed its first turn) is never reaped this way —
+//! see the W3-A regression (commit 05576a7d9): reaping on first-ever
+//! absence left chat empty forever on a slow first turn.
 
 use parking_lot::Mutex;
 use std::path::PathBuf;
@@ -41,9 +45,10 @@ impl TailerHandle {
     }
 
     /// True while the polling thread is still running. A tailer can die on its
-    /// own (session file vanished for >10 polls, provider path went None) yet
-    /// stay registered — the registry uses this to detect such a corpse and
-    /// respawn a fresh tailer instead of handing back a dead stream.
+    /// own (a previously-seen session file vanished for >10 consecutive polls,
+    /// or provider path went None) yet stay registered — the registry uses
+    /// this to detect such a corpse and respawn a fresh tailer instead of
+    /// handing back a dead stream.
     pub fn is_alive(&self) -> bool {
         self.join
             .lock()
@@ -100,6 +105,15 @@ pub struct TailConfig {
     pub poll_interval: Duration,
 }
 
+/// A session file that was previously seen to exist and then goes missing
+/// for more than this many consecutive polls is treated as gone for good
+/// (provider rotated/closed the session) — the tailer thread exits so
+/// [`crate::service::pane_chat::ChatRegistry`] can detect the corpse via
+/// [`TailerHandle::is_alive`] and spawn a fresh tailer on the next attach.
+/// Does NOT apply before the file has ever been observed to exist — see
+/// the module doc for the W3-A regression this must not reintroduce.
+const MAX_CONSECUTIVE_MISSING_POLLS: u32 = 10;
+
 pub fn spawn_tailer(
     cfg: TailConfig,
     registry: Arc<AgentRegistry>,
@@ -112,6 +126,8 @@ pub fn spawn_tailer(
     let off = offset.clone();
     let join = thread::spawn(move || {
         let mut cached_path: Option<PathBuf> = None;
+        let mut ever_existed = false;
+        let mut missing_polls: u32 = 0;
         while !stop.load(Ordering::Acquire) {
             // rotation. The `cached_path` is only for logging — we always re-ask the plugin.
             let path: Option<PathBuf> = registry
@@ -148,9 +164,21 @@ pub fn spawn_tailer(
                 // tailer. Today the session_id is fixed at spawn.
             }
             if !path.exists() {
+                if ever_existed {
+                    missing_polls += 1;
+                    if missing_polls > MAX_CONSECUTIVE_MISSING_POLLS {
+                        log::warn!(
+                            "[pane_chat] pane={} provider={} sid={} session file missing for {} consecutive polls — stopping",
+                            cfg.pane_id, cfg.provider_id, cfg.session_id, missing_polls
+                        );
+                        return;
+                    }
+                }
                 thread::sleep(cfg.poll_interval);
                 continue;
             }
+            ever_existed = true;
+            missing_polls = 0;
             let from = off.load(Ordering::Acquire);
             // I4: parse_session_delta is fault-tolerant — it advances offset past chunks the plugin couldn't handle, so we never busy-loop on broken bytes.
             let delta = registry
