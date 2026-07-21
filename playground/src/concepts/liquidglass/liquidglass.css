@@ -1,0 +1,432 @@
+/* Liquid Glass × Squash-Jump — Living Controls lab.
+   Tailwind utilities without preflight, so reused real Tailwind classes work
+   here without resetting the neighbouring Motion Lab. */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@source ".";
+
+/* Faithful CodeTerm design tokens (github-dark defaults + timing), scoped so
+   nothing leaks into the sibling playground. See src/styles/tokens.css and
+   src/lib/themeCss.ts for the source of truth. */
+.lg-lab {
+  --ct-bg: #0d1117;
+  --ct-fg: #c9d1d9;
+  --ct-accent: #58a6ff;
+  --ct-on-accent: #f0f6fc;
+  --ct-muted: #484f58;
+  --ct-muted-fg: #8b949e;
+  --ct-hover: #1b222c;
+  --ct-border: #262c36;
+  --ct-surface: #161b22;
+  --ct-red: #ff7b72;
+
+  --ct-radius-sm: 4px;
+  --ct-radius-md: 8px;
+  --ct-radius-lg: 12px;
+
+  --ct-control-height: 2.125rem;
+  --ct-control-height-small: 1.875rem;
+  --ct-control-height-micro: 1.625rem;
+
+  --ct-font-size-sm: 0.8125rem;
+  --ct-font-size-md: 0.875rem;
+
+  --ct-duration-fast: 120ms;
+  --ct-ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --ct-font-ui: "Inter", "Segoe UI", "Avenir Next", "Helvetica Neue", sans-serif;
+  --ct-font-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+
+  /* Motion language: spring settle for glass, squash-jump physics for press —
+     the jump curve is lifted verbatim from ct-dots-squash-jump. */
+  --lg-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --lg-jump: cubic-bezier(0.22, 0.9, 0.25, 1);
+
+  font-family: var(--ct-font-ui);
+  color: var(--ct-fg);
+}
+
+/* ── Button: faithful ct-btn reproduction ────────────────────────────────────
+   Mirrors src/styles/globals.css .ct-btn*. Do not restyle the core look here —
+   only the .lg-btn layers below add motion + material on top. */
+.lg-lab .ct-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--ct-control-height-small);
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+  border-radius: var(--ct-radius-sm);
+  font-family: var(--ct-font-ui);
+  font-size: var(--ct-font-size-sm);
+  cursor: pointer;
+  transition: all var(--ct-duration-fast) var(--ct-ease-out-expo);
+}
+.lg-lab .ct-btn-compact {
+  min-height: var(--ct-control-height-micro);
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+  font-size: var(--ct-font-size-sm);
+}
+.lg-lab .ct-btn-sm {
+  min-height: var(--ct-control-height-small);
+  padding-left: 0.65rem;
+  padding-right: 0.65rem;
+}
+.lg-lab .ct-btn-lg {
+  min-height: var(--ct-control-height);
+  padding-left: 0.9rem;
+  padding-right: 0.9rem;
+  font-size: var(--ct-font-size-md);
+}
+.lg-lab .ct-btn-icon {
+  width: var(--ct-control-height);
+  height: var(--ct-control-height);
+  padding: 0;
+  border-radius: var(--ct-radius-sm);
+}
+.lg-lab .ct-btn-primary {
+  background: var(--ct-accent);
+  color: var(--ct-bg);
+  border: 1px solid transparent;
+}
+.lg-lab .ct-btn-primary:hover {
+  filter: brightness(1.05);
+}
+.lg-lab .ct-btn-ghost {
+  background: transparent;
+  color: var(--ct-muted-fg);
+  border: 1px solid transparent;
+}
+.lg-lab .ct-btn-ghost:hover {
+  color: var(--ct-fg);
+  background: var(--ct-hover);
+}
+.lg-lab .ct-btn-accent {
+  background: color-mix(in srgb, var(--ct-accent) 14%, transparent);
+  color: var(--ct-accent);
+  border: 1px solid transparent;
+}
+.lg-lab .ct-btn-accent:hover {
+  background: color-mix(in srgb, var(--ct-accent) 24%, transparent);
+}
+.lg-lab .ct-btn-danger {
+  background: transparent;
+  color: var(--ct-red);
+  border: 1px solid transparent;
+}
+.lg-lab .ct-btn-danger:hover {
+  background: color-mix(in srgb, var(--ct-red) 16%, transparent);
+}
+
+/* ── Liquid Glass layer over the real button ─────────────────────────────────
+   Nothing here changes the button's identity — it adds a translucent specular
+   film, a one-shot sheen sweep on hover, a glass focus ring, and a squash-jump
+   press that borrows the dots' physics. All transform/opacity/filter. */
+.lg-lab .lg-btn {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  transform: translateZ(0);
+  transition:
+    transform 0.5s var(--lg-spring),
+    background var(--ct-duration-fast) var(--ct-ease-out-expo),
+    color var(--ct-duration-fast) var(--ct-ease-out-expo),
+    box-shadow 0.35s var(--ct-ease-out-expo),
+    filter 0.25s ease;
+  will-change: transform;
+}
+
+/* Refraction film: a soft top-lit glass sheet that fades in on intent. */
+.lg-lab .lg-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 1;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.26),
+    rgba(255, 255, 255, 0.05) 44%,
+    transparent 72%
+  );
+  opacity: 0;
+  transform: translateY(-1px) scaleY(0.96);
+  transform-origin: top;
+  transition:
+    opacity 0.4s var(--ct-ease-out-expo),
+    transform 0.5s var(--lg-spring);
+  mix-blend-mode: screen;
+}
+.lg-lab .lg-btn:hover::before,
+.lg-lab .lg-btn:focus-visible::before {
+  opacity: 1;
+  transform: translateY(0) scaleY(1);
+}
+
+/* Specular sweep: a single light band that travels across on hover-in. */
+.lg-lab .lg-btn__sheen {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 42%;
+  z-index: 2;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(
+    100deg,
+    transparent,
+    rgba(255, 255, 255, 0.55) 48%,
+    transparent
+  );
+  transform: translateX(-180%) skewX(-14deg);
+  opacity: 0;
+}
+.lg-lab .lg-btn:hover .lg-btn__sheen {
+  animation: lg-sheen 0.85s var(--lg-spring);
+}
+@keyframes lg-sheen {
+  0% { transform: translateX(-180%) skewX(-14deg); opacity: 0; }
+  16% { opacity: 0.9; }
+  100% { transform: translateX(320%) skewX(-14deg); opacity: 0; }
+}
+
+.lg-lab .lg-btn__label {
+  position: relative;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+}
+
+/* Anticipation: press compresses the button (squash), same shape the dots hit
+   at their 10% keyframe. */
+.lg-lab .lg-btn:active {
+  transform: translateY(1px) scaleX(1.05) scaleY(0.86);
+  transition-duration: 60ms;
+}
+/* Release: jump up + stretch, then settle with a small overshoot squash —
+   the 10% → 24% → 42% → 54% arc of ct-dots-squash-jump. */
+.lg-lab .lg-btn--release {
+  animation: lg-press-jump 0.52s var(--lg-jump);
+}
+@keyframes lg-press-jump {
+  0% { transform: translateY(1px) scaleX(1.05) scaleY(0.86); }
+  34% { transform: translateY(-4px) scaleX(0.95) scaleY(1.09); }
+  60% { transform: translateY(0.4px) scaleX(1.04) scaleY(0.95); }
+  80% { transform: translateY(0) scaleX(0.99) scaleY(1.01); }
+  100% { transform: translateY(0) scaleX(1) scaleY(1); }
+}
+
+/* Glass focus ring: crisp inner edge + soft accent bloom, settled in with a
+   spring so focus lands rather than snaps. */
+.lg-lab .lg-btn:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--ct-bg),
+    0 0 0 3.5px color-mix(in srgb, var(--ct-accent) 72%, transparent),
+    0 4px 18px color-mix(in srgb, var(--ct-accent) 42%, transparent);
+  animation: lg-focus-in 0.4s var(--lg-spring);
+}
+@keyframes lg-focus-in {
+  0% { box-shadow: 0 0 0 2px var(--ct-bg), 0 0 0 0 color-mix(in srgb, var(--ct-accent) 72%, transparent), 0 0 0 color-mix(in srgb, var(--ct-accent) 0%, transparent); }
+  100% { box-shadow: 0 0 0 2px var(--ct-bg), 0 0 0 3.5px color-mix(in srgb, var(--ct-accent) 72%, transparent), 0 4px 18px color-mix(in srgb, var(--ct-accent) 42%, transparent); }
+}
+
+/* ── Living dots: ct-dots-squash-jump as a reusable signature ─────────────────
+   Keyframe copied verbatim from src/styles/agent-state.css so the personality
+   is identical to production. */
+.lg-lab .lg-dots {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 0.72em;
+  color: var(--ct-accent);
+}
+.lg-lab .lg-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  display: block;
+  transform-origin: 50% 100%;
+  animation: lg-dots-squash-jump 1.05s cubic-bezier(0.22, 0.9, 0.25, 1) infinite;
+}
+.lg-lab .lg-dots i:nth-child(2) { animation-delay: 0.12s; }
+.lg-lab .lg-dots i:nth-child(3) { animation-delay: 0.24s; }
+@keyframes lg-dots-squash-jump {
+  0%, 70%, 100% { opacity: 0.64; transform: translateY(0) scaleX(1) scaleY(1); }
+  10% { opacity: 0.9; transform: translateY(0.5px) scaleX(1.2) scaleY(0.72); }
+  24% { opacity: 1; transform: translateY(-3px) scaleX(0.92) scaleY(1.1); }
+  42% { opacity: 0.95; transform: translateY(0.25px) scaleX(1.14) scaleY(0.78); }
+  54% { opacity: 0.78; transform: translateY(0) scaleX(1) scaleY(1); }
+}
+
+/* thinking = slower, wider stagger, violet hue morph (mirrors production). */
+.lg-lab .lg-dots--thinking { color: #a371f7; }
+.lg-lab .lg-dots--thinking i { animation-duration: 1.35s; }
+.lg-lab .lg-dots--thinking i:nth-child(2) { animation-delay: 0.16s; }
+.lg-lab .lg-dots--thinking i:nth-child(3) { animation-delay: 0.32s; }
+
+/* Glass-bead variation: same jump physics, dots become refracting glass beads
+   with a top-left specular hotspot. */
+.lg-lab .lg-dots--glass { gap: 5px; height: 0.9em; }
+.lg-lab .lg-dots--glass i {
+  width: 10px;
+  height: 10px;
+  background:
+    radial-gradient(circle at 34% 26%, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0) 42%),
+    radial-gradient(circle at 50% 60%, color-mix(in srgb, var(--ct-accent) 92%, white), color-mix(in srgb, var(--ct-accent) 55%, transparent));
+  box-shadow:
+    inset 0 -1.5px 2px rgba(0, 0, 0, 0.35),
+    inset 0 1px 1px rgba(255, 255, 255, 0.5),
+    0 2px 6px color-mix(in srgb, var(--ct-accent) 45%, transparent);
+}
+
+.lg-lab .lg-dots--idle i {
+  animation: none;
+  opacity: 0.42;
+  transform: scale(0.9);
+}
+
+/* ── Liquid segmented control ────────────────────────────────────────────────
+   A translucent glass thumb that slides + stretches between equal-width
+   segments; it stretches toward the travel direction, then squashes to settle
+   — the liquid-morph read. */
+.lg-lab .lg-seg {
+  position: relative;
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ct-surface) 80%, transparent);
+  border: 1px solid var(--ct-border);
+  backdrop-filter: blur(6px);
+  --seg-count: 3;
+  --seg-index: 0;
+}
+.lg-lab .lg-seg__thumb {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc((100% - 6px) / var(--seg-count));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ct-accent) 22%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ct-accent) 45%, transparent);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.28),
+    0 2px 10px color-mix(in srgb, var(--ct-accent) 35%, transparent);
+  transform: translateX(calc(var(--seg-index) * 100%));
+  transition: transform 0.46s var(--lg-spring);
+  pointer-events: none;
+  z-index: 0;
+}
+.lg-lab .lg-seg__thumb--morph {
+  animation: lg-seg-morph 0.46s var(--lg-spring);
+}
+@keyframes lg-seg-morph {
+  0% { scale: 1 1; }
+  40% { scale: 1.16 0.82; }
+  70% { scale: 0.96 1.05; }
+  100% { scale: 1 1; }
+}
+.lg-lab .lg-seg__opt {
+  position: relative;
+  z-index: 1;
+  flex: 1 0 0;
+  min-width: 5.5rem;
+  padding: 0.4rem 0.9rem;
+  border: 0;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  font: inherit;
+  font-size: var(--ct-font-size-sm);
+  cursor: pointer;
+  border-radius: 999px;
+  transition: color 0.3s var(--ct-ease-out-expo);
+}
+.lg-lab .lg-seg__opt[aria-selected="true"] { color: var(--ct-fg); }
+.lg-lab .lg-seg__opt:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ct-accent) 65%, transparent);
+}
+
+/* ── Liquid on/off toggle ────────────────────────────────────────────────────
+   The knob squashes as it travels and pops on arrival; the track tints to
+   accent when on. */
+.lg-lab .lg-toggle {
+  position: relative;
+  width: 3.4rem;
+  height: 1.85rem;
+  border-radius: 999px;
+  border: 1px solid var(--ct-border);
+  background: color-mix(in srgb, var(--ct-surface) 85%, transparent);
+  cursor: pointer;
+  padding: 0;
+  transition:
+    background 0.4s var(--ct-ease-out-expo),
+    border-color 0.4s var(--ct-ease-out-expo),
+    box-shadow 0.4s var(--ct-ease-out-expo);
+  backdrop-filter: blur(6px);
+}
+.lg-lab .lg-toggle[aria-checked="true"] {
+  background: color-mix(in srgb, var(--ct-accent) 32%, transparent);
+  border-color: color-mix(in srgb, var(--ct-accent) 55%, transparent);
+  box-shadow: inset 0 0 12px color-mix(in srgb, var(--ct-accent) 30%, transparent);
+}
+.lg-lab .lg-toggle__knob {
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 1.45rem;
+  height: 1.45rem;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 34% 28%, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0) 46%),
+    linear-gradient(180deg, #fbfdff, #cdd6e3);
+  box-shadow:
+    inset 0 -2px 3px rgba(0, 0, 0, 0.25),
+    0 2px 6px rgba(0, 0, 0, 0.35);
+  transform: translate(0, -50%);
+  transition: transform 0.44s var(--lg-spring);
+}
+.lg-lab .lg-toggle[aria-checked="true"] .lg-toggle__knob {
+  transform: translate(1.55rem, -50%);
+}
+.lg-lab .lg-toggle:active .lg-toggle__knob {
+  animation: lg-knob-squash 0.44s var(--lg-spring);
+}
+@keyframes lg-knob-squash {
+  0% { scale: 1 1; }
+  45% { scale: 1.22 0.82; }
+  75% { scale: 0.94 1.04; }
+  100% { scale: 1 1; }
+}
+.lg-lab .lg-toggle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ct-bg), 0 0 0 4px color-mix(in srgb, var(--ct-accent) 60%, transparent);
+}
+
+/* ── Reduced motion: static, legible, no sweeps / squash / morph ─────────────*/
+@media (prefers-reduced-motion: reduce) {
+  .lg-lab .lg-btn,
+  .lg-lab .lg-btn::before,
+  .lg-lab .lg-btn__sheen,
+  .lg-lab .lg-seg__thumb,
+  .lg-lab .lg-toggle,
+  .lg-lab .lg-toggle__knob,
+  .lg-lab .lg-dots i {
+    transition: none !important;
+    animation: none !important;
+  }
+  .lg-lab .lg-btn:active { transform: none; }
+  .lg-lab .lg-btn__sheen { display: none; }
+  .lg-lab .lg-btn::before { opacity: 1; }
+  .lg-lab .lg-dots i { opacity: 0.85; }
+  .lg-lab .lg-btn:focus-visible {
+    box-shadow: 0 0 0 2px var(--ct-bg), 0 0 0 3.5px var(--ct-accent);
+  }
+}
