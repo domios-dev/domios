@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { MessageBubble } from "@codeterm/chat-ui";
@@ -35,13 +35,7 @@ import { ChatSetupState, ChatSetupStatusLine, chatSetupView } from "./ChatSetupS
 import { usePlanRefResolver } from "./usePlanRefResolver";
 import { reattachPaneChat } from "./chatReattach";
 import { planRefViewState } from "./planRefViewState";
-import {
-  nextChatViewportMode,
-  shouldFollowChatSend,
-  shouldRestoreChatViewport,
-  snapChatViewportToBottom,
-  type ChatViewportMode,
-} from "./chatViewport";
+import { useChatScroll } from "./useChatScroll";
 import { resolveTabNavigationTarget } from "./tabNavigation";
 
 interface Props {
@@ -106,35 +100,9 @@ export function PaneSessionChat({
   }
 
   const touchMode = useTouchOptimizedUi();
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const scrollContentRef = useRef<HTMLDivElement>(null);
-  const viewportModeRef = useRef<ChatViewportMode>("pinned");
-  const scrollIntentRef = useRef(false);
-  const pointerScrollRef = useRef(false);
-  const sentMessageFollowRafRef = useRef(0);
   const lastStopAtRef = useRef(0);
   const chatRootRef = useRef<HTMLDivElement>(null);
   const [longIdle, setLongIdle] = useState(false);
-  // bottom-pinned agent indicator/composer, so it never overlaps streaming output.
-  const [showScrollDown, setShowScrollDown] = useState(false);
-
-  const scrollToBottom = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    viewportModeRef.current = "pinned";
-    snapChatViewportToBottom(el);
-    setShowScrollDown(false);
-  }, []);
-
-  const followSentMessage = useCallback(() => {
-    const wasPinned = viewportModeRef.current === "pinned";
-    if (!wasPinned) return;
-    if (sentMessageFollowRafRef.current) cancelAnimationFrame(sentMessageFollowRafRef.current);
-    sentMessageFollowRafRef.current = requestAnimationFrame(() => {
-      sentMessageFollowRafRef.current = 0;
-      if (shouldFollowChatSend(wasPinned, viewportModeRef.current === "pinned")) scrollToBottom();
-    });
-  }, [scrollToBottom]);
 
   const { setFocusedPane, selectTabByPane, addNotification, setActiveWorkspace } = useMultiplexer();
   const paneSelector = useCallback((s: Parameters<typeof selectPane>[0]) => selectPane(s, paneId), [paneId]);
@@ -200,7 +168,25 @@ export function PaneSessionChat({
   });
   const bootSetupView = chatSetupView(pane, loading || attachmentState === "attached");
 
-  const lastInstantBottomKeyRef = useRef("");
+  const {
+    scrollRef,
+    contentRef: scrollContentRef,
+    showScrollDown,
+    scrollToBottom,
+    followSend: followSentMessage,
+    handleWheel,
+    handlePointerDown,
+    handlePointerMove,
+    handlePointerUp,
+    handlePointerCancel,
+    handleKeyDown,
+    handleScroll,
+  } = useChatScroll({
+    sessionKey: `${paneId}:${agentSessionId ?? ""}`,
+    active: isActive,
+    loading,
+    messageCount: enrichedMessages.length,
+  });
 
   const [answeredInteractiveIds, setAnsweredInteractiveIds] = useState<Set<string>>(new Set());
   // clears pane.pending_prompt shortly after on the next state poll.
@@ -308,21 +294,6 @@ export function PaneSessionChat({
   );
 
   const deferredEnrichedMessages = useDeferredValue(enrichedMessages);
-  useLayoutEffect(() => {
-    if (!isActive) return;
-    const key = `${paneId}:${agentSessionId ?? ""}`;
-    if (!shouldRestoreChatViewport(
-      isActive,
-      loading,
-      deferredEnrichedMessages.length,
-      key,
-      lastInstantBottomKeyRef.current,
-    )) return;
-    lastInstantBottomKeyRef.current = key;
-    scrollToBottom();
-    const raf = requestAnimationFrame(scrollToBottom);
-    return () => cancelAnimationFrame(raf);
-  }, [agentSessionId, deferredEnrichedMessages.length, isActive, loading, paneId, scrollToBottom]);
   const latestFailedToolCallId = useMemo(() => {
     for (let i = deferredEnrichedMessages.length - 1; i >= 0; i -= 1) {
       const msg = deferredEnrichedMessages[i]?.msg;
@@ -418,31 +389,6 @@ export function PaneSessionChat({
     return () => window.clearTimeout(id);
   }, [backendState?.state, pendingPrompt]);
 
-  // rAF-batched: coalesce streamed-chunk bursts into one scroll write per frame, no per-message reflow.
-  const autoScrollRafRef = useRef(0);
-  useEffect(() => {
-    if (viewportModeRef.current !== "pinned" || autoScrollRafRef.current) return;
-    autoScrollRafRef.current = requestAnimationFrame(() => {
-      autoScrollRafRef.current = 0;
-      const el = scrollRef.current;
-      if (el && viewportModeRef.current === "pinned") el.scrollTop = el.scrollHeight;
-    });
-  }, [deferredEnrichedMessages, inlinePrompt?.question, backendState?.state]);
-  useEffect(() => () => {
-    if (autoScrollRafRef.current) cancelAnimationFrame(autoScrollRafRef.current);
-    if (sentMessageFollowRafRef.current) cancelAnimationFrame(sentMessageFollowRafRef.current);
-  }, []);
-  useEffect(() => {
-    const content = scrollContentRef.current;
-    if (!content) return;
-    const observer = new ResizeObserver(() => {
-      const el = scrollRef.current;
-      if (el && viewportModeRef.current === "pinned") el.scrollTop = el.scrollHeight;
-    });
-    observer.observe(content);
-    return () => observer.disconnect();
-  }, []);
-
   // subtype); it arrives via the mux snapshot and events, no local polling needed.
   const liveAgentState: AgentState = useMemo(() => {
     const kind = backendState?.state ?? "idle";
@@ -519,43 +465,13 @@ export function PaneSessionChat({
       <div className="relative flex-1 min-h-0">
       <div
         ref={scrollRef}
-        onWheel={(event) => {
-          if (event.deltaY >= 0) return;
-          viewportModeRef.current = "detached";
-          scrollIntentRef.current = true;
-        }}
-        onPointerDown={(event) => {
-          const bounds = event.currentTarget.getBoundingClientRect();
-          pointerScrollRef.current = event.clientX >= bounds.right - 20;
-        }}
-        onPointerMove={(event) => {
-          if (event.pointerType === "touch" || event.buttons !== 0) {
-            pointerScrollRef.current = true;
-          }
-        }}
-        onPointerUp={() => {
-          pointerScrollRef.current = false;
-        }}
-        onPointerCancel={() => {
-          pointerScrollRef.current = false;
-        }}
-        onKeyDown={(event) => {
-          if (["ArrowUp", "PageUp", "Home"].includes(event.key)) {
-            viewportModeRef.current = "detached";
-            scrollIntentRef.current = true;
-          }
-        }}
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          const dist = el.scrollHeight - (el.scrollTop + el.clientHeight);
-          viewportModeRef.current = nextChatViewportMode(
-            viewportModeRef.current,
-            el,
-            scrollIntentRef.current || pointerScrollRef.current,
-          );
-          scrollIntentRef.current = false;
-          setShowScrollDown(viewportModeRef.current === "detached" && dist > 240);
-        }}
+        onWheel={handleWheel}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
+        onKeyDown={handleKeyDown}
+        onScroll={handleScroll}
         className="absolute inset-0 overflow-y-auto overscroll-contain p-3"
         data-testid="pane-session-chat-messages"
         role="log"
@@ -629,6 +545,7 @@ export function PaneSessionChat({
               key={msg.id}
               data-testid="chat-message"
               data-message-role={msg.type}
+              data-message-id={msg.id}
               role="article"
               aria-label={`${msg.type} message`}
             >
