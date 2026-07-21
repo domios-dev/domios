@@ -76,13 +76,14 @@ impl ShellSyntax {
 
     /// Platform temp file path (no trailing separator issues).
     fn temp_path(name: &str) -> String {
+        let tmp = std::env::temp_dir();
+        let base = tmp.to_string_lossy();
         if Self::IS_WINDOWS {
-            let tmp = std::env::temp_dir();
-            let base = tmp.to_string_lossy();
             let base = base.trim_end_matches('\\');
             format!("{}\\{}", base, name)
         } else {
-            format!("/tmp/{}", name)
+            let base = base.trim_end_matches('/');
+            format!("{}/{}", base, name)
         }
     }
 }
