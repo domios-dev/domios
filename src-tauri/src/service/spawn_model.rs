@@ -45,11 +45,35 @@ pub(crate) fn model_fallback_notice_title(notice: &ModelFallbackNotice) -> Strin
     )
 }
 
+/// Kept as a thin, direct-`Option` convenience wrapper over
+/// [`CatalogBackgroundModelPort`] — call sites that only need "does this
+/// model resolve cleanly, yes/no" (vs. the fuller `(model, fell_back)` pair
+/// the shared `codeterm_mem::worker_agent` resolver needs) can use this.
 pub(crate) fn compatible_background_model(provider_id: &str, configured: &str) -> Option<String> {
-    let configured = non_empty_model(configured.to_string())?;
-    let canonical = codeterm_types::agent::models::canonicalize_short(&configured);
-    let resolved = crate::agent::model_catalog::resolve_model(provider_id, Some(canonical));
-    (!resolved.fell_back).then_some(resolved.id)
+    use codeterm_mem::worker_agent::BackgroundModelPort;
+    let (model, fell_back) = CatalogBackgroundModelPort.resolve(provider_id, configured);
+    (!model.is_empty() && !fell_back).then_some(model)
+}
+
+/// [`codeterm_mem::worker_agent::BackgroundModelPort`] impl over the catalog
+/// this crate owns — the seam that lets `codeterm-mem`'s shared worker-agent
+/// resolver (used by every memory background-worker call site) reach
+/// provider-model compatibility checking without a reverse crate dependency.
+pub(crate) struct CatalogBackgroundModelPort;
+
+impl codeterm_mem::worker_agent::BackgroundModelPort for CatalogBackgroundModelPort {
+    fn resolve(&self, provider_id: &str, configured: &str) -> (String, bool) {
+        let Some(configured) = non_empty_model(configured.to_string()) else {
+            return (String::new(), false);
+        };
+        let canonical = codeterm_types::agent::models::canonicalize_short(&configured);
+        let resolved = crate::agent::model_catalog::resolve_model(provider_id, Some(canonical));
+        if resolved.fell_back {
+            (String::new(), true)
+        } else {
+            (resolved.id, false)
+        }
+    }
 }
 
 pub(crate) fn resolve_fresh_agent_model(
