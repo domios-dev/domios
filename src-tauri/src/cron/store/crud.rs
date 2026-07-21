@@ -364,6 +364,17 @@ impl CronStore {
             .map(|h| h.iter().collect())
             .unwrap_or_default()
     }
+
+    /// Locate a run by id across all jobs' history, without knowing its job_id
+    /// up front — used to distinguish "no such run" from "run already
+    /// finalized" when its pane ownership has already been unregistered.
+    pub fn find_run_by_id(&self, run_id: &str) -> Option<(&str, &CronRunInfo)> {
+        self.file.history.iter().find_map(|(job_id, runs)| {
+            runs.iter()
+                .find(|r| r.run_id == run_id)
+                .map(|r| (job_id.as_str(), r))
+        })
+    }
 }
 
 /// Increments the failure streak (+backoff, +auto-disable) on `Failed`, resets
