@@ -40,6 +40,39 @@ test_names=()
 log_files=()
 fails=0
 
+run_with_timeout() {
+    local timeout_secs="$1"
+    shift
+
+    if command -v timeout >/dev/null 2>&1; then
+        timeout --kill-after=5s "${timeout_secs}s" "$@"
+        return $?
+    fi
+
+    if command -v gtimeout >/dev/null 2>&1; then
+        gtimeout --kill-after=5s "${timeout_secs}s" "$@"
+        return $?
+    fi
+
+    "$@" &
+    local pid=$!
+    local deadline=$(($(date +%s) + timeout_secs))
+
+    while kill -0 "$pid" 2>/dev/null; do
+        if [ "$(date +%s)" -ge "$deadline" ]; then
+            kill -TERM "$pid" 2>/dev/null
+            sleep 1
+            kill -KILL "$pid" 2>/dev/null
+            wait "$pid" 2>/dev/null
+            return 124
+        fi
+        sleep 0.1
+    done
+
+    wait "$pid"
+    return $?
+}
+
 reap_one() {
     local i status t log
 
@@ -75,7 +108,7 @@ reap_one() {
 for i in "${!tests[@]}"; do
     t="${tests[$i]}"
     log="$log_dir/$i.log"
-    timeout --kill-after=5s "${test_timeout}s" npx tsx "$t" >"$log" 2>&1 &
+    run_with_timeout "$test_timeout" npx tsx "$t" >"$log" 2>&1 &
     pid=$!
     pids+=("$pid")
     test_names+=("$t")
