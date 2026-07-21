@@ -14,6 +14,10 @@ export interface ToolEvent {
   result?: string;
   error?: boolean;
   message: NormalizedChatMessage;
+  waitBatch?: {
+    members: ToolEvent[];
+    elapsedMs?: number;
+  };
 }
 
 export type TimelineItem =
@@ -31,6 +35,68 @@ function isInternalOrchestrationTool(name: string | undefined): boolean {
 
 function text(value: string | undefined): string {
   return value?.trim() ?? "";
+}
+
+const WAIT_TOOL_NAMES = new Set(["wait", "tool_wait", "wait_for", "wait_for_result"]);
+
+function isWaitCall(item: TimelineItem): item is { kind: "tool"; event: ToolEvent } {
+  if (item.kind !== "tool") return false;
+  const { event } = item;
+  const name = event.message.toolName?.trim().toLowerCase();
+  return event.phase === "call"
+    && event.message.type === "tool_call"
+    && !event.waitBatch
+    && event.kind === "generic"
+    && Boolean(name && WAIT_TOOL_NAMES.has(name));
+}
+
+function numericTimestamp(message: NormalizedChatMessage): number | undefined {
+  if (typeof message.timestamp !== "string" || !message.timestamp.trim()) return undefined;
+  const value = Number(message.timestamp);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function waitBatch(members: ToolEvent[]): ToolEvent {
+  const first = members[0];
+  const start = numericTimestamp(first.message);
+  const end = numericTimestamp(members[members.length - 1].message);
+  const elapsedMs = start === undefined || end === undefined ? undefined : Math.max(0, end - start);
+  return {
+    ...first,
+    id: `${first.id}:wait-batch`,
+    kind: "generic",
+    summary: `${members.length} wait ${members.length === 1 ? "event" : "events"}`,
+    waitBatch: { members, elapsedMs },
+  };
+}
+
+/** Groups only adjacent normalized generic wait calls after call/result reconciliation. */
+export function coalesceWaitEvents(items: TimelineItem[]): TimelineItem[] {
+  const output: TimelineItem[] = [];
+  let members: ToolEvent[] = [];
+  let sessionId: string | undefined;
+  const flush = () => {
+    if (members.length) output.push({ kind: "tool", event: waitBatch(members) });
+    members = [];
+    sessionId = undefined;
+  };
+
+  for (const item of items) {
+    if (isWaitCall(item) && members.length === 0) {
+      members.push(item.event);
+      sessionId = item.event.message.sourceSessionId;
+    } else if (isWaitCall(item) && sessionId !== undefined && item.event.message.sourceSessionId === sessionId) {
+      members.push(item.event);
+    } else {
+      flush();
+      if (isWaitCall(item)) {
+        members.push(item.event);
+        sessionId = item.event.message.sourceSessionId;
+      } else output.push(item);
+    }
+  }
+  flush();
+  return output;
 }
 
 function firstNonEmpty(...values: (string | undefined)[]): string | undefined {
@@ -145,5 +211,5 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
       items.push({ kind: "tool", event });
     }
   }
-  return items;
+  return coalesceWaitEvents(items);
 }

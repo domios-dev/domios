@@ -11,6 +11,7 @@ import { GenericCard } from "./toolcard/GenericCard";
 import { ReadCard } from "./toolcard/ReadCard";
 import { SearchCard } from "./toolcard/SearchCard";
 import { TaskCard } from "./toolcard/TaskCard";
+import { WaitBatchCard } from "./toolcard/WaitBatchCard";
 
 type PlanFocusKind = "plan" | "task" | "section";
 
@@ -43,6 +44,7 @@ export function ToolCallBubble({
 }: ToolCallBubbleProps) {
   const event = suppliedEvent ?? (message ? materializeToolEvent(message) : null);
   if (!event) return null;
+  if (event.waitBatch) return <WaitBatchCard event={event} />;
 
   const props = { event, expanded, onToggle: () => onToggle(!expanded) };
   switch (event.kind) {
