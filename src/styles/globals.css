@@ -2651,6 +2651,15 @@ button,
   text-align: left;
   overflow: hidden;
 }
+.ct-composer-activity-capsule { min-width: 0; max-width: 100%; }
+.ct-composer-activity-chip__open { display: inline-flex; align-items: center; flex: 0 1 auto; min-width: 0; gap: 0.25rem; border: 0; border-radius: 0; padding: 0; background: transparent; color: inherit; text-align: left; }
+.ct-composer-activity-chip__next { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ct-muted-fg, #8b949e); }
+.ct-composer-attachment-capsule { display: inline-flex; flex: 0 0 auto; max-width: 9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0.15rem 0.4rem; border: 1px solid color-mix(in srgb, var(--ct-accent, #58a6ff) 30%, transparent); border-radius: 9999px; color: var(--ct-fg, #c9d1d9); background: color-mix(in srgb, var(--ct-accent, #58a6ff) 8%, transparent); font-size: 0.68rem; line-height: 1.1; }
+.ct-composer-activity-chip__expand { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; border: 0; padding: 0 0.2rem; color: var(--ct-muted-fg, #8b949e); background: transparent; }
+.ct-composer-activity-chip__expand svg { transition: transform 120ms ease; }
+.ct-composer-activity-capsule[data-expanded="true"] .ct-composer-activity-chip__expand svg { transform: rotate(180deg); }
+.ct-composer-activity-details { margin-top: 0.25rem; max-height: 14rem; overflow: auto; padding: 0.5rem 0.625rem; border: 1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent); border-radius: 0.5rem; background: color-mix(in srgb, var(--ct-fg, #c9d1d9) 4%, transparent); font-size: 0.75rem; line-height: 1.35; }
+.ct-composer-activity-details__attachments { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.45rem; }
 .ct-composer-activity-chip__prefix {
   flex: 0 0 auto;
   font-weight: 500;
