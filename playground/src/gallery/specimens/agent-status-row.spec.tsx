@@ -1,0 +1,4 @@
+import type { ComponentType } from "react";
+import { AgentStatusRow } from "../../ds/AgentStatusRow";
+type SpecimenDef = { id: string; title: string; where: string; states: Array<{ id: string; label: string; props: object }>; Component: ComponentType<any>; notes?: string };
+export default { id:"agent-status-row", title:"Agent status row", where:"src/components/Terminal/AgentStateIndicator.tsx", states:[{id:"working",label:"Working",props:{}},{id:"thinking",label:"Thinking",props:{phase:"thinking",activity:"Considering the next move…"}},{id:"streaming",label:"Streaming",props:{phase:"streaming",activity:"Writing response…"}},{id:"idle",label:"Idle",props:{phase:"idle",activity:"Completed"}}], Component:AgentStatusRow, notes:"Liquid dots retain the product work, thinking, streaming, and idle beats." } satisfies SpecimenDef;
