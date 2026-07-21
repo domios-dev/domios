@@ -185,88 +185,6 @@
     0 4px 18px color-mix(in srgb, var(--ct-accent) 42%, transparent);
 }
 
-/* ── Living dots: ct-dots-squash-jump as a reusable signature ─────────────────
-   Keyframe copied verbatim from src/styles/agent-state.css so the personality
-   is identical to production. */
-.lg-lab .lg-dots {
-  display: inline-flex;
-  align-items: flex-end;
-  gap: 3px;
-  height: 0.72em;
-  color: var(--ct-accent);
-}
-.lg-lab .lg-dots i {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  /* Soft radial core keeps the silhouette reading round through the squash —
-     a flat fill at this size rasterizes into a square when scaled non-uniformly. */
-  background: radial-gradient(
-    circle at 40% 32%,
-    color-mix(in srgb, currentColor 55%, white) 0%,
-    currentColor 55%,
-    color-mix(in srgb, currentColor 82%, transparent) 100%
-  );
-  display: block;
-  transform-origin: 50% 100%;
-  animation: lg-dots-squash-jump 1.05s cubic-bezier(0.22, 0.9, 0.25, 1) infinite;
-}
-.lg-lab .lg-dots i:nth-child(2) { animation-delay: 0.12s; }
-.lg-lab .lg-dots i:nth-child(3) { animation-delay: 0.24s; }
-/* Same beats as production, but with gravity: decelerate up to a hanging apex,
-   accelerate down, cushion the landing. Per-segment curves kill the jerk. */
-@keyframes lg-dots-squash-jump {
-  0%, 70%, 100% {
-    opacity: 0.64;
-    transform: translateY(0) scaleX(1) scaleY(1);
-    animation-timing-function: cubic-bezier(0.4, 0, 0.6, 1);
-  }
-  10% {
-    opacity: 0.85;
-    transform: translateY(0.75px) scaleX(1.14) scaleY(0.82);
-    animation-timing-function: cubic-bezier(0.2, 0.6, 0.35, 1);
-  }
-  25% {
-    opacity: 1;
-    transform: translateY(-3.25px) scaleX(0.96) scaleY(1.05);
-    animation-timing-function: cubic-bezier(0.6, 0, 0.8, 0.4);
-  }
-  31% {
-    opacity: 1;
-    transform: translateY(-2.9px) scaleX(0.98) scaleY(1.03);
-    animation-timing-function: cubic-bezier(0.7, 0, 0.9, 0.5);
-  }
-  /* Splat: the soft body smears flat against the floor (origin is the base),
-     then jellies back through a small over-tall rebound. */
-  44% {
-    opacity: 0.95;
-    transform: translateY(0.9px) scaleX(1.32) scaleY(0.58);
-    animation-timing-function: cubic-bezier(0.2, 0.6, 0.35, 1);
-  }
-  52% {
-    opacity: 0.88;
-    transform: translateY(0) scaleX(0.96) scaleY(1.07);
-    animation-timing-function: cubic-bezier(0.4, 0, 0.5, 1);
-  }
-  59% {
-    opacity: 0.8;
-    transform: translateY(0) scaleX(1.04) scaleY(0.97);
-    animation-timing-function: cubic-bezier(0.4, 0, 0.6, 1);
-  }
-}
-
-/* thinking = slower, wider stagger, violet hue morph (mirrors production). */
-.lg-lab .lg-dots--thinking { color: #a371f7; }
-.lg-lab .lg-dots--thinking i { animation-duration: 1.35s; }
-.lg-lab .lg-dots--thinking i:nth-child(2) { animation-delay: 0.16s; }
-.lg-lab .lg-dots--thinking i:nth-child(3) { animation-delay: 0.32s; }
-
-.lg-lab .lg-dots--idle i {
-  animation: none;
-  opacity: 0.42;
-  transform: scale(0.9);
-}
-
 /* ── Liquid segmented control ────────────────────────────────────────────────
    A translucent glass thumb that slides + stretches between equal-width
    segments; it stretches toward the travel direction, then squashes to settle
@@ -469,13 +387,11 @@
   .lg-lab .lg-toggle,
   .lg-lab .lg-toggle__knob,
   .lg-lab .lg-flip__chip,
-  .lg-lab .lg-flip__word,
-  .lg-lab .lg-dots i {
+  .lg-lab .lg-flip__word {
     transition: none !important;
     animation: none !important;
   }
   .lg-lab .lg-btn:active { transform: none; }
-  .lg-lab .lg-dots i { opacity: 0.85; }
   .lg-lab .lg-btn:focus-visible {
     box-shadow: 0 0 0 2px var(--ct-bg), 0 0 0 3.5px var(--ct-accent);
   }

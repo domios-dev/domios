@@ -1,4 +1,5 @@
 import type { HTMLAttributes } from "react";
+import { LivingDots } from "./LivingDots";
 import "./workspace-cube-grid.css";
 
 export interface WorkspaceCube {
@@ -22,7 +23,7 @@ export function WorkspaceCubeGrid({ workspaces, onSelect, onCreate, createLabel 
       <button type="button" className="ds-workspace-cube__select" aria-label={`Select workspace ${workspace.name}`} aria-pressed={workspace.selected} onClick={() => onSelect?.(workspace.id)}>
         <span>{workspace.initials}</span>
       </button>
-      {workspace.working && <span className="ds-workspace-cube__dots" role="status" aria-label={`${workspace.name} has working tabs`}><i /><i /><i /></span>}
+      {workspace.working && <span className="ds-workspace-cube__dots" role="status" aria-label={`${workspace.name} has working tabs`}><LivingDots size="micro" tone="accent" /></span>}
     </div>)}
     {onCreate && <button type="button" className="ds-workspace-cube__create" aria-label={createLabel} onClick={onCreate}>+</button>}
   </div>;
