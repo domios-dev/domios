@@ -453,7 +453,7 @@ mod tests {
         let plan = store
             .create_plan(
                 "Restart searchable plan".into(),
-                "D:/project".into(),
+                directory.path().display().to_string(),
                 OrchestratorRef::from_pane("orch"),
                 vec![],
                 11,
@@ -461,15 +461,13 @@ mod tests {
             .unwrap();
         let path = store.database_path_for_test();
         drop(store);
-        crate::service_plan::search_index::flush_index_queue_for_test(std::path::Path::new(
-            "D:/project",
-        ));
+        crate::service_plan::search_index::flush_index_queue_for_test(directory.path());
 
         let reopened = PlanStore::open(path).unwrap();
         assert_eq!(reopened.get(&plan.id), Some(plan.clone()));
         let hits = reopened
             .search_plan_index(
-                std::path::Path::new("D:/project"),
+                directory.path(),
                 &PlanIndexQuery {
                     query: "Restart searchable".into(),
                     scope: None,
