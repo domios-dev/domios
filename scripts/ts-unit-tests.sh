@@ -35,21 +35,26 @@ fi
 log_dir="$(mktemp -d)"
 trap 'rm -rf "$log_dir"' EXIT
 
-declare -a pids=()
-declare -A pid_test=()
-declare -A pid_log=()
+pids=()
+test_names=()
+log_files=()
 fails=0
 
 reap_one() {
-    local completed_pid status t log remaining_pid
-    if wait -n -p completed_pid "${pids[@]}"; then
+    local i status t log
+
+    if [ ${#pids[@]} -eq 0 ]; then
+        return
+    fi
+
+    if wait "${pids[0]}"; then
         status=0
     else
         status=$?
     fi
 
-    t="${pid_test[$completed_pid]}"
-    log="${pid_log[$completed_pid]}"
+    t="${test_names[0]}"
+    log="${log_files[0]}"
     echo
     echo "════ $t ════"
     cat "$log"
@@ -62,14 +67,9 @@ reap_one() {
         fi
     fi
 
-    unset 'pid_test[$completed_pid]' 'pid_log[$completed_pid]'
-    local -a remaining=()
-    for remaining_pid in "${pids[@]}"; do
-        if [ "$remaining_pid" != "$completed_pid" ]; then
-            remaining+=("$remaining_pid")
-        fi
-    done
-    pids=("${remaining[@]}")
+    pids=("${pids[@]:1}")
+    test_names=("${test_names[@]:1}")
+    log_files=("${log_files[@]:1}")
 }
 
 for i in "${!tests[@]}"; do
@@ -78,8 +78,8 @@ for i in "${!tests[@]}"; do
     timeout --kill-after=5s "${test_timeout}s" npx tsx "$t" >"$log" 2>&1 &
     pid=$!
     pids+=("$pid")
-    pid_test["$pid"]="$t"
-    pid_log["$pid"]="$log"
+    test_names+=("$t")
+    log_files+=("$log")
     if [ "${#pids[@]}" -ge "$jobs" ]; then
         reap_one
     fi
