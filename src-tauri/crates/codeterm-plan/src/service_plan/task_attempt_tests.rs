@@ -2,6 +2,125 @@ use super::*;
 use crate::plan::{AgentRef, OrchestratorRef, Plan, TaskLaneMetadata, TaskStatus};
 use codeterm_types::agent::ReportStatus;
 
+fn bound_report_store() -> (tempfile::TempDir, PlanStore, String, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "Worker reports".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("orch"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "bound task".into(),
+                kind: "implement".into(),
+                acceptance_criteria: vec!["works".into()],
+                test_plan: Some("cargo test -p codeterm-plan worker_report".into()),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    store.assign_task(&plan.id, &task_id, "worker", None, 3).unwrap();
+    (dir, store, plan.id, task_id)
+}
+
+fn worker_report(status: ReportStatus, sha: Option<&str>) -> task_attempts::BoundWorkerReport {
+    task_attempts::BoundWorkerReport {
+        message: "CHANGES: report ingestion\nTESTS RUN: cargo test".into(),
+        status: Some(status),
+        branch: Some("lane/worker".into()),
+        sha: sha.map(str::to_string),
+        changed_files: vec!["src/report.rs".into()],
+        test_cmd: Some("cargo test".into()),
+        test_result: Some("ok".into()),
+        skipped: None,
+    }
+}
+
+#[test]
+fn committed_bound_in_review_report_advances_with_matching_evidence() {
+    let (_dir, store, plan_id, task_id) = bound_report_store();
+    assert!(store
+        .ingest_bound_worker_report(
+            &plan_id,
+            &task_id,
+            &AgentRef::from_pane("worker"),
+            worker_report(ReportStatus::InReview, Some("abc123")),
+            4,
+        )
+        .unwrap());
+
+    let task = store.get(&plan_id).unwrap().tasks.remove(0);
+    assert_eq!(task.status, TaskStatus::InReview);
+    assert_eq!(task.lane.branch.as_deref(), Some("lane/worker"));
+    let report = task.execution_attempts[0].report.as_ref().unwrap();
+    assert_eq!(report.sha.as_deref(), Some("abc123"));
+    assert_eq!(task.execution_attempts[0].executor_pane_id, "worker");
+    assert_eq!(report.changed_files, vec!["src/report.rs"]);
+}
+
+#[test]
+fn partial_or_uncommitted_report_keeps_bound_task_actionable() {
+    for report in [
+        worker_report(ReportStatus::Partial, Some("abc123")),
+        worker_report(ReportStatus::InReview, None),
+    ] {
+        let (_dir, store, plan_id, task_id) = bound_report_store();
+        assert!(!store
+            .ingest_bound_worker_report(
+                &plan_id,
+                &task_id,
+                &AgentRef::from_pane("worker"),
+                report,
+                4,
+            )
+            .unwrap());
+        let task = store.get(&plan_id).unwrap().tasks.remove(0);
+        assert_eq!(task.status, TaskStatus::Pending);
+        assert!(task.execution_attempts[0].report.is_some());
+        assert_eq!(task.milestones.len(), 1);
+    }
+}
+
+#[test]
+fn duplicate_stale_or_unbound_reports_never_regress_task() {
+    let (_dir, store, plan_id, task_id) = bound_report_store();
+    store
+        .ingest_bound_worker_report(
+            &plan_id,
+            &task_id,
+            &AgentRef::from_pane("worker"),
+            worker_report(ReportStatus::InReview, Some("abc123")),
+            4,
+        )
+        .unwrap();
+    assert!(!store
+        .ingest_bound_worker_report(
+            &plan_id,
+            &task_id,
+            &AgentRef::from_pane("worker"),
+            worker_report(ReportStatus::Partial, Some("old")),
+            3,
+        )
+        .unwrap());
+    assert!(!store
+        .ingest_bound_worker_report(
+            &plan_id,
+            &task_id,
+            &AgentRef::from_pane("unbound"),
+            worker_report(ReportStatus::InReview, Some("other")),
+            5,
+        )
+        .unwrap());
+    let task = store.get(&plan_id).unwrap().tasks.remove(0);
+    assert_eq!(task.status, TaskStatus::InReview);
+    assert_eq!(task.execution_attempts[0].report.as_ref().unwrap().sha.as_deref(), Some("abc123"));
+}
+
 #[test]
 fn task_attempt_history_builds_respawn_prompt_from_prior_attempt() {
     let dir = tempfile::tempdir().unwrap();

@@ -510,81 +510,38 @@ impl ServiceContext {
         };
 
         if let Some(ref plan_id) = eff_plan_id {
-            // homing succeeded) — avoids a milestone landing on the wrong local plan.
+            // A worker report is authoritative only for the task actually bound
+            // to its pane. Explicit ids are useful routing hints, never authority.
             if !homed_to_remote && !foreign {
-                let task_id = eff_task_id
-                    .clone()
-                    .or_else(|| {
-                        self.plan_store.task_binding_for_pane(pane_id).and_then(
-                            |(bound_plan, bound_task)| {
-                                if &bound_plan == plan_id {
-                                    Some(bound_task)
-                                } else {
-                                    None
-                                }
-                            },
-                        )
+                let bound_task = self.plan_store.task_binding_for_pane(pane_id);
+                let task_id = eff_task_id.clone().or_else(|| {
+                    bound_task.as_ref().and_then(|(bound_plan, bound_task)| {
+                        (bound_plan == plan_id).then(|| bound_task.clone())
                     })
-                    .ok_or_else(|| "task_id required for plan report".to_string())?;
-                let mut ops = Vec::new();
-                if let Some(status) = task_status {
-                    ops.push(crate::service::plan::batch::BatchOp::SetTaskStatus {
-                        client_id: None,
-                        task: task_id.clone(),
-                        status: status.into(),
-                    });
-                }
-                ops.push(crate::service::plan::batch::BatchOp::AddMilestone {
-                    client_id: Some("report".into()),
-                    task: task_id.clone(),
-                    kind: milestone_kind.unwrap_or("status_update").into(),
-                    text: milestone_text(message, details.status),
-                    from: Some(from_ref.clone()),
-                    key: None,
-                    links: vec![],
                 });
-                let batch_result = self
-                    .plan_store
-                    .apply_batch(
-                        plan_id,
-                        crate::service::plan::batch::BatchRequest { key: None, ops },
-                        epoch_ms(),
-                    )
-                    .map_err(|e| e.to_string())?;
-                if !details.attachments.is_empty() {
-                    let milestone_id = batch_result
-                        .milestone_ids
-                        .first()
-                        .ok_or_else(|| "report milestone missing for attachments".to_string())?
-                        .clone();
-                    for path in &details.attachments {
+                if let (Some(task_id), Some((bound_plan, bound_task))) = (task_id, bound_task) {
+                    if &bound_plan == plan_id && bound_task == task_id {
+                        let evidence = crate::service::plan::task_attempts::BoundWorkerReport {
+                            message: message.to_string(),
+                            status: details.status,
+                            branch: details.branch.clone(),
+                            sha: details.sha.clone(),
+                            changed_files: details.changed_files.clone().unwrap_or_default(),
+                            test_cmd: details.test_cmd.clone(),
+                            test_result: details.test_result.clone(),
+                            skipped: details.skipped.clone(),
+                        };
                         self.plan_store
-                            .attach_to_milestone(
+                            .ingest_bound_worker_report(
                                 plan_id,
                                 &task_id,
-                                &milestone_id,
-                                std::path::Path::new(path),
+                                &from_ref,
+                                evidence,
                                 epoch_ms(),
                             )
                             .map_err(|e| e.to_string())?;
                     }
                 }
-                let _ = self.plan_store.record_task_attempt_report(
-                    plan_id,
-                    &task_id,
-                    &from_ref,
-                    message,
-                    details.status,
-                    epoch_ms(),
-                );
-                // Capture report lane truth without changing the executor binding.
-                let _ = self.plan_store.record_report_lane_truth(
-                    plan_id,
-                    &task_id,
-                    details.branch.as_deref(),
-                    None,
-                    epoch_ms(),
-                );
                 self.plan_turn_counter.reset_activity(pane_id);
                 crate::api::events::emit_everywhere(
                     &self.app_handle,
