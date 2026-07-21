@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -145,9 +145,6 @@ impl RunWatcherRegistry {
         let Some(state) = state else {
             return;
         };
-        if state.scanner.lock().in_flight() {
-            return;
-        }
         if state.completed.swap(true, Ordering::AcqRel) {
             return;
         }
@@ -262,7 +259,6 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
         // Nudge: when idle past the threshold, send Enter to clear any prompt auto_approve didn't recognize. Bounded so a finished run still reaches idle-complete. Never nudge an agent that's visibly working.
         if idle_secs >= NUDGE_AFTER_IDLE_SECS
             && state.nudge_count.load(Ordering::Acquire) < MAX_NUDGES
-            && !state.scanner.lock().in_flight()
             && !agent_screen_busy(&svc, &state.pty_id)
         {
             state.nudge_count.fetch_add(1, Ordering::AcqRel);
@@ -275,10 +271,10 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
         }
 
         if idle_secs >= IDLE_COMPLETE_SECS {
-            let busy = state.scanner.lock().in_flight() || agent_screen_busy(&svc, &state.pty_id);
+            let busy = agent_screen_busy(&svc, &state.pty_id);
             if busy {
                 log::debug!(
-                    "[run-watcher] idle {}s but tool in-flight — deferring reap: pane={}",
+                    "[run-watcher] idle {}s but agent remains active — deferring reap: pane={}",
                     idle_secs,
                     state.pane_id
                 );
@@ -294,11 +290,8 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
                 finish_run(
                     &svc,
                     &state,
-                    false,
-                    format!(
-                        "idle for {}s — agent exited without result event",
-                        idle_secs
-                    ),
+                    idle_status_is_terminal_success(&svc, &state.pty_id),
+                    format!("idle for {}s without an explicit completion", idle_secs),
                 );
                 svc.run_watcher.runs.lock().remove(&state.pty_id);
                 return;
@@ -335,20 +328,24 @@ fn agent_dropped_to_shell(svc: &ServiceContext, pty_id: &str) -> bool {
     screen_is_bare_shell(&text)
 }
 
-/// True when the pane's screen shows the agent actively generating / running a
-/// tool (so a silent PTY is NOT an exit — defer idle reaping). Replaces the
-/// stream-json `in_flight()` signal that interactive launches no longer emit.
-///
-/// `screen_shows_working`'s markers are Claude's own spinner text, so a `false`
-/// there only proves "not Claude-busy" — it says nothing for a provider whose
-/// TUI never emits those strings. Absence of a recognized busy marker must
-/// never be read as completion, so the fallback is "still showing a live TUI,
-/// not a bare shell" rather than an unqualified "not busy".
+/// A semantic Idle verdict is terminal; otherwise a live TUI remains active
+/// unless its screen is a bare shell.
 fn agent_screen_busy(svc: &ServiceContext, pty_id: &str) -> bool {
+    if idle_status_is_terminal_success(svc, pty_id) {
+        return false;
+    }
     let Some(text) = svc.screen_state.lock().get_screen_text(pty_id) else {
         return false;
     };
     screen_shows_working(&text) || !screen_is_bare_shell(&text)
+}
+
+fn idle_status_is_terminal_success(svc: &ServiceContext, pty_id: &str) -> bool {
+    status_is_idle(svc.agent_tracker.lock().get_status(pty_id))
+}
+
+fn status_is_idle(status: crate::agent::status::PaneStatus) -> bool {
+    status == crate::agent::status::PaneStatus::Idle
 }
 
 fn screen_shows_working(text: &str) -> bool {
@@ -483,52 +480,25 @@ fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: St
 }
 
 // Track only top-level run completion events (`{"type":"result"}`), not nested `message_stop`.
-// Tool lifecycle is in-flight tracked by `tool_use`/`tool_result`, so we skip idle reaping while tools run.
 struct ResultEventScanner {
     buffer: String,
-    tool_scan_pos: usize,
-    in_flight_tools: HashSet<String>,
 }
 
 const RESULT_NEEDLE: &str = "{\"type\":\"result\"";
-const TOOL_USE_NEEDLE: &str = "{\"type\":\"tool_use\"";
-const TOOL_RESULT_NEEDLE: &str = "{\"type\":\"tool_result\"";
-
-#[derive(Debug, Deserialize, Default)]
-struct ToolUseHeader {
-    #[serde(default)]
-    id: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-struct ToolResultHeader {
-    #[serde(default)]
-    tool_use_id: Option<String>,
-}
 
 impl ResultEventScanner {
     fn new() -> Self {
         Self {
             buffer: String::new(),
-            tool_scan_pos: 0,
-            in_flight_tools: HashSet::new(),
         }
-    }
-
-    fn in_flight(&self) -> bool {
-        !self.in_flight_tools.is_empty()
     }
 
     fn feed(&mut self, chunk: &str) -> Option<CompletionSignal> {
         let cleaned = crate::pty::ansi::strip_ansi_codes(chunk);
         self.buffer.push_str(&cleaned);
 
-        // Pass 1: tool-use / tool-result lifecycle. Done first so a buffer drain after the result-event pass below cannot lose unscanned tool events.
-        self.scan_tool_events();
-
         let mut search_from = 0;
         let mut found: Option<CompletionSignal> = None;
-        // dropping bytes past that cursor would lose the partial tool_use we're tracking.
         let mut consumed = 0usize;
 
         loop {
@@ -557,13 +527,12 @@ impl ResultEventScanner {
             }
         }
 
-        let mut safe_consume = consumed.min(self.tool_scan_pos);
-        if safe_consume > 0 {
+        if consumed > 0 {
+            let mut safe_consume = consumed;
             while safe_consume > 0 && !self.buffer.is_char_boundary(safe_consume) {
                 safe_consume -= 1;
             }
             self.buffer.drain(..safe_consume);
-            self.tool_scan_pos = self.tool_scan_pos.saturating_sub(safe_consume);
         }
         if self.buffer.len() > SCANNER_BUFFER_CAP {
             let mut cut = self.buffer.len() - SCANNER_BUFFER_CAP / 2;
@@ -571,53 +540,8 @@ impl ResultEventScanner {
                 cut += 1;
             }
             self.buffer = self.buffer.split_off(cut);
-            self.tool_scan_pos = self.tool_scan_pos.saturating_sub(cut);
         }
         found
-    }
-
-    fn scan_tool_events(&mut self) {
-        let mut pos = self.tool_scan_pos;
-        let mut max_consumed = pos;
-        loop {
-            let next_use = self.buffer[pos..].find(TOOL_USE_NEEDLE).map(|r| pos + r);
-            let next_result = self.buffer[pos..].find(TOOL_RESULT_NEEDLE).map(|r| pos + r);
-
-            // Pick whichever needle comes first.
-            let (start, is_use) = match (next_use, next_result) {
-                (Some(u), Some(r)) if u < r => (u, true),
-                (Some(_), Some(r)) => (r, false),
-                (Some(u), None) => (u, true),
-                (None, Some(r)) => (r, false),
-                (None, None) => break,
-            };
-
-            match find_balanced_end(&self.buffer, start) {
-                Some(end) => {
-                    let candidate = &self.buffer[start..=end];
-                    if is_use {
-                        if let Ok(parsed) = serde_json::from_str::<ToolUseHeader>(candidate) {
-                            if let Some(id) = parsed.id {
-                                self.in_flight_tools.insert(id);
-                            }
-                        }
-                    } else {
-                        if let Ok(parsed) = serde_json::from_str::<ToolResultHeader>(candidate) {
-                            if let Some(id) = parsed.tool_use_id {
-                                self.in_flight_tools.remove(&id);
-                            }
-                        }
-                    }
-                    pos = end + 1;
-                    max_consumed = pos;
-                }
-                None => {
-                    // Object incomplete — leave tool_scan_pos here so the next chunk re-attempts from the same start.
-                    break;
-                }
-            }
-        }
-        self.tool_scan_pos = max_consumed;
     }
 }
 
@@ -784,74 +708,9 @@ mod tests {
     }
 
     #[test]
-    fn scanner_in_flight_starts_false() {
-        let s = ResultEventScanner::new();
-        assert!(!s.in_flight());
-    }
-
-    #[test]
-    fn scanner_marks_tool_use_in_flight() {
-        let mut s = ResultEventScanner::new();
-        let chunk = r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_ABC","name":"Bash","input":{}}]}}"#;
-        let _ = s.feed(chunk);
-        assert!(s.in_flight(), "tool_use should mark scanner busy");
-    }
-
-    #[test]
-    fn scanner_clears_on_tool_result() {
-        let mut s = ResultEventScanner::new();
-        let _ = s.feed(r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_X","name":"Bash","input":{}}]}}"#);
-        assert!(s.in_flight());
-        let _ = s.feed(r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_X","content":"done"}]}}"#);
-        assert!(
-            !s.in_flight(),
-            "matching tool_result should clear in-flight"
-        );
-    }
-
-    #[test]
-    fn scanner_tracks_parallel_tools() {
-        let mut s = ResultEventScanner::new();
-        let _ = s.feed(r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_A","name":"Bash","input":{}},{"type":"tool_use","id":"toolu_B","name":"Read","input":{}}]}}"#);
-        assert!(s.in_flight());
-        let _ = s.feed(r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_A","content":"ok"}]}}"#);
-        assert!(s.in_flight(), "second tool still pending");
-        let _ = s.feed(r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_B","content":"ok"}]}}"#);
-        assert!(!s.in_flight(), "all tools resolved");
-    }
-
-    #[test]
-    fn scanner_handles_split_tool_use_across_chunks() {
-        let mut s = ResultEventScanner::new();
-        let _ =
-            s.feed(r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_"#);
-        assert!(!s.in_flight(), "incomplete object — id not yet visible");
-        let _ = s.feed(r#"SPLIT","name":"Bash","input":{}}]}}"#);
-        assert!(s.in_flight(), "completes once the closing brace arrives");
-    }
-
-    #[test]
-    fn scanner_picks_up_partial_message_content_block() {
-        // --include-partial-messages emits content_block_start with the tool_use shape nested inside. We must catch that form too.
-        let mut s = ResultEventScanner::new();
-        let chunk = r#"{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_PM","name":"Bash","input":{}}}}"#;
-        let _ = s.feed(chunk);
-        assert!(
-            s.in_flight(),
-            "partial-message tool_use must register in-flight"
-        );
-    }
-
-    #[test]
-    fn scanner_result_event_still_works_with_tool_tracking() {
-        // Sanity: extending the scanner must not break the existing top-level result detection.
-        let mut s = ResultEventScanner::new();
-        let _ = s.feed(r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_F","name":"Bash","input":{}}]}}"#);
-        let _ = s.feed(r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_F","content":"ok"}]}}"#);
-        let r = s
-            .feed(r#"{"type":"result","subtype":"success","is_error":false,"result":"done"}"#)
-            .expect("completion");
-        assert_eq!(r.subtype.as_deref(), Some("success"));
-        assert!(!s.in_flight());
+    fn idle_status_is_terminal_for_any_provider() {
+        assert!(status_is_idle(crate::agent::status::PaneStatus::Idle));
+        assert!(!status_is_idle(crate::agent::status::PaneStatus::Working));
+        assert!(!status_is_idle(crate::agent::status::PaneStatus::Waiting));
     }
 }
