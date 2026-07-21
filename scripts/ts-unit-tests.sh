@@ -79,6 +79,8 @@ run_with_timeout() {
         exit 127;
     }
 
+    setpgid($pid, $pid);
+
     my $timed_out = 0;
     my $stage = 0;
 
