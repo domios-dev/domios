@@ -245,6 +245,8 @@ pub struct TaskExecutionReportSnapshot {
     pub message: Option<String>,
     #[serde(default)]
     pub status: Option<String>,
+    #[serde(default)]
+    pub sha: Option<String>,
     /// Pane that submitted a proxy report; None means the executor reported.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reporter_pane_id: Option<String>,
