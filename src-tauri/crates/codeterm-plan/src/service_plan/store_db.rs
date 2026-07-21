@@ -461,7 +461,9 @@ mod tests {
             .unwrap();
         let path = store.database_path_for_test();
         drop(store);
-        crate::service_plan::search_index::flush_index_queue_for_test();
+        crate::service_plan::search_index::flush_index_queue_for_test(std::path::Path::new(
+            "D:/project",
+        ));
 
         let reopened = PlanStore::open(path).unwrap();
         assert_eq!(reopened.get(&plan.id), Some(plan.clone()));

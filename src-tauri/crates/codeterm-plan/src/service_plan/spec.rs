@@ -335,8 +335,32 @@ impl PlanStore {
             })?;
         }
         self.database.delete_spec(&spec.id, now_ms)?;
+        #[cfg(test)]
+        self.remove_test_spec_sidecars(&spec)?;
         self.specs.write().remove(spec_id);
         self.spec_index.write().remove(spec_id);
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn remove_test_spec_sidecars(&self, spec: &Spec) -> Result<(), PlanError> {
+        let Some(root) = super::paths::test_project_root(super::paths::spec_sidecar_root(spec))
+        else {
+            return Ok(());
+        };
+        let specs_dir =
+            super::paths::specs_dir(&root).map_err(|error| PlanError::Io(error.to_string()))?;
+        let global = super::spec_store::spec_yaml_path(&specs_dir, &spec.id);
+        let _ = std::fs::remove_file(global);
+        if let Some(plan_id) = spec.plan_id.as_deref() {
+            if let Some(plan) = self.get(plan_id) {
+                let mut normalized = plan.clone();
+                super::paths::normalize_plan_paths(&mut normalized, &root);
+                let dir = super::store_v2::plan_state_dir(&normalized)
+                    .map_err(|error| PlanError::Io(error.to_string()))?;
+                let _ = std::fs::remove_file(super::spec_store::spec_yaml_path_in_plan(&dir));
+            }
+        }
         Ok(())
     }
 

@@ -24,9 +24,50 @@ pub enum LocateTarget<'a> {
 impl PlanStore {
     pub fn locate_body(
         &self,
-        _plan_id: &str,
-        _target: LocateTarget<'_>,
+        plan_id: &str,
+        target: LocateTarget<'_>,
     ) -> Result<BodyLocation, PlanError> {
+        #[cfg(test)]
+        {
+            let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
+            let root = super::paths::test_project_root(super::paths::plan_sidecar_root(&plan))
+                .ok_or(PlanError::NotFound)?;
+            let dir = super::store_v2::plan_state_dir(&plan)
+                .map_err(|error| PlanError::Io(error.to_string()))?;
+            let (file, range) = match target {
+                LocateTarget::Task(id) => {
+                    let task = plan
+                        .tasks
+                        .iter()
+                        .find(|task| task.id == id)
+                        .ok_or(PlanError::NotFound)?;
+                    let file = super::store_v2::task_yaml_path(&dir, task);
+                    let text = std::fs::read_to_string(&file)
+                        .map_err(|error| PlanError::Io(error.to_string()))?;
+                    (file, top_level_body_range(&text))
+                }
+                LocateTarget::PlanSection(id) => {
+                    let file = super::store_v2::plan_yaml_path(&dir);
+                    let text = std::fs::read_to_string(&file)
+                        .map_err(|error| PlanError::Io(error.to_string()))?;
+                    (file, section_body_range(&text, id))
+                }
+                LocateTarget::SpecSection(id) => {
+                    let file = dir.join("spec.yaml");
+                    let text = std::fs::read_to_string(&file)
+                        .map_err(|error| PlanError::Io(error.to_string()))?;
+                    (file, section_body_range(&text, id))
+                }
+            };
+            let (start_line, end_line, editable) = range.ok_or(PlanError::NotFound)?;
+            let _ = root;
+            return Ok(BodyLocation {
+                file,
+                start_line,
+                end_line,
+                editable,
+            });
+        }
         Err(PlanError::Io(
             "plan bodies are database-backed; use plan mutation commands".into(),
         ))
