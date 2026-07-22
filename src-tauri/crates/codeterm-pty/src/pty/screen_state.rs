@@ -188,8 +188,7 @@ impl ScreenState {
 
         let screen = parser.screen().contents();
 
-        #[cfg(windows)]
-        if screen_has_windows_shell_prompt(&screen) {
+        if screen_has_shell_readiness_prompt(&screen) {
             self.mark_shell_ready_observed(pty_id);
         }
 
@@ -392,7 +391,16 @@ impl ScreenState {
             .or_insert_with(ShellReadySignal::new)
             .clone();
         let current_generation = self.pty_generations.get(pty_id).copied();
-        if self.shell_ready_generations.get(pty_id).copied() == Some(current_generation) {
+        let ready_generation =
+            self.shell_ready_generations.get(pty_id).copied() == Some(current_generation);
+        let ready_screen = self
+            .parsers
+            .get(pty_id)
+            .is_some_and(|parser| screen_has_shell_readiness_prompt(&parser.screen().contents()));
+        if ready_screen {
+            self.mark_shell_ready_observed(pty_id);
+        }
+        if ready_generation || ready_screen {
             signal.mark_ready();
         }
         signal
@@ -551,6 +559,22 @@ pub fn screen_has_bare_shell_prompt(screen_text: &str) -> bool {
     !screen_has_agent_tui(screen_text) && screen_has_shell_prompt(screen_text)
 }
 
+fn screen_has_shell_readiness_prompt(screen_text: &str) -> bool {
+    let last_line = screen_text.lines().rev().find(|l| !l.trim().is_empty());
+    let Some(line) = last_line.map(str::trim_end) else {
+        return false;
+    };
+    if screen_has_agent_tui(screen_text) || line.contains('\u{203A}') {
+        return false;
+    }
+    line.ends_with("$ ")
+        || line.ends_with('$')
+        || line.ends_with("% ")
+        || line.ends_with('%')
+        || (line.starts_with("PS ") && line.ends_with('>'))
+        || (line.ends_with('>') && (line.contains(":\\") || line.contains(":/")))
+}
+
 /// Heuristic: does the last non-empty line of screen text look like a shell prompt?
 ///
 /// Rejects PowerShell continuation prompts (`>>`, `>>>`) which are NOT
@@ -587,16 +611,6 @@ pub fn screen_has_shell_prompt(screen_text: &str) -> bool {
                 || (trimmed.ends_with('>') && trimmed.chars().any(|c| c != '>' && !c.is_whitespace()))
         }
     }
-}
-
-#[cfg(windows)]
-fn screen_has_windows_shell_prompt(screen_text: &str) -> bool {
-    screen_text
-        .lines()
-        .rev()
-        .find(|line| !line.trim().is_empty())
-        .map(str::trim_end)
-        .is_some_and(|line| line.starts_with("PS ") && line.ends_with('>'))
 }
 
 #[cfg(test)]
@@ -871,30 +885,53 @@ mod tests {
     }
 
     #[test]
-    fn shell_ready_requires_a_shell_integration_event() {
+    fn shell_ready_accepts_integration_or_bare_shell_prompt() {
         let mut ss = ScreenState::new();
         let signal = ss.arm_shell_ready_signal("pty1");
 
         ss.process("pty1", b"ordinary output");
         assert!(!signal.is_ready());
+        ss.process("pty1", b"user@host:~$ ");
+        assert!(signal.is_ready());
+    }
+
+    #[test]
+    fn shell_ready_accepts_macos_bash_zsh_notice_prompt() {
+        let mut ss = ScreenState::new();
+        let signal = ss.arm_shell_ready_signal("pty1");
+
+        ss.process(
+            "pty1",
+            b"The default interactive shell is now zsh.\n\
+To update your account to use zsh, please run `chsh -s /bin/zsh`.\n\
+For more details, please visit https://support.apple.com/kb/HT208050.\n\
+rollacode-bot:general ainyiva$ ",
+        );
+
+        assert!(signal.is_ready());
+    }
+
+    #[test]
+    fn shell_ready_accepts_shell_integration_event() {
+        let mut ss = ScreenState::new();
+        let signal = ss.arm_shell_ready_signal("pty1");
+
         ss.process("pty1", b"\x1b]133;A\x07");
         assert!(signal.is_ready());
     }
 
-    #[cfg(windows)]
     #[test]
-    fn windows_shell_prompt_is_a_shell_ready_event() {
+    fn shell_prompt_before_arm_is_remembered_for_current_generation() {
         let mut ss = ScreenState::new();
         assert!(ss.bind_pty_generation("pty1", 1));
 
-        assert!(ss.process_if_generation("pty1", 1, b"PS C:\\Developer\\codeterm> "));
+        assert!(ss.process_if_generation("pty1", 1, b"user@host:~$ "));
 
         assert!(ss.arm_shell_ready_signal("pty1").is_ready());
     }
 
-    #[cfg(windows)]
     #[test]
-    fn windows_continuation_prompt_does_not_mark_shell_ready() {
+    fn continuation_prompt_does_not_mark_shell_ready() {
         let mut ss = ScreenState::new();
         assert!(ss.bind_pty_generation("pty1", 1));
         let signal = ss.arm_shell_ready_signal("pty1");
@@ -904,9 +941,8 @@ mod tests {
         assert!(!signal.is_ready());
     }
 
-    #[cfg(windows)]
     #[test]
-    fn windows_agent_composers_and_generic_output_are_not_shell_ready() {
+    fn agent_composers_and_generic_output_are_not_shell_ready() {
         for output in [
             "╭──────────────────╮\n│ ❯                │",
             "› ask the agent",

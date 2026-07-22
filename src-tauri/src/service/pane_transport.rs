@@ -5,7 +5,8 @@
 
 use super::pty_io::SendBatchItem;
 use super::ServiceContext;
-use crate::multiplexer::types::PaneBacking;
+use crate::multiplexer::types::{Pane, PaneBacking};
+use codeterm_types::pty::BootStage;
 
 /// Transport-agnostic pane I/O. One impl per [`PaneBacking`].
 pub trait PaneTransport {
@@ -141,13 +142,13 @@ impl ServiceContext {
         }
     }
 
-    /// Whether `pane_id` is an agent pane (has `agent_type`), gating the outbound
-    /// preprocessor to agents — a shell pane must never get an injected `<context>` block.
+    /// Whether `pane_id` is ready to consume agent input.
+    /// Half-launched panes may have `agent_type` before the provider TUI exists.
     pub(crate) fn pane_has_agent(&self, pane_id: &str) -> bool {
         let mux = self.mux.write();
         mux.resolve_pane_id(pane_id)
-            .and_then(|resolved| mux.get_pane(&resolved).and_then(|p| p.agent_type.clone()))
-            .is_some()
+            .and_then(|resolved| mux.get_pane(&resolved).map(pane_accepts_agent_input))
+            .unwrap_or(false)
     }
 
     /// Run registered `chatPreprocessor` text stages over the outbound text (id order
@@ -207,14 +208,32 @@ impl ServiceContext {
     }
 }
 
+fn pane_accepts_agent_input(pane: &Pane) -> bool {
+    pane.agent_type.is_some() && pane.boot_stage == Some(BootStage::AgentReady)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::next_char_boundary;
+    use super::{next_char_boundary, pane_accepts_agent_input};
+    use crate::multiplexer::state::MultiplexerState;
+    use codeterm_types::pty::BootStage;
 
     #[test]
     fn next_char_boundary_handles_multibyte_offsets() {
         let s = "abкd";
         assert_eq!(next_char_boundary(s, 3), 4);
         assert_eq!(&s[next_char_boundary(s, 3)..], "d");
+    }
+
+    #[test]
+    fn pane_agent_input_requires_agent_ready_boot_stage() {
+        let (mut mux, pane_id) = MultiplexerState::new();
+        let pane = mux.get_pane_mut(&pane_id).expect("initial pane");
+        pane.agent_type = Some("codex".into());
+        pane.boot_stage = Some(BootStage::ShellReady);
+        assert!(!pane_accepts_agent_input(&pane));
+
+        pane.boot_stage = Some(BootStage::AgentReady);
+        assert!(pane_accepts_agent_input(&pane));
     }
 }

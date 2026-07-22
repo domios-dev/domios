@@ -238,7 +238,7 @@ impl ServiceContext {
         text: &str,
         enter: bool,
     ) -> Result<(), String> {
-        let (pane_id, agent_type) = self.resolve_pane_and_agent(pty_id);
+        let (pane_id, agent_type) = self.resolve_pane_and_ready_agent(pty_id);
         if let Some(ref pid) = pane_id {
             self.await_agent_boot_blocking(pid, std::time::Duration::from_secs(90))?;
         }
@@ -323,11 +323,15 @@ impl ServiceContext {
             .map_err(|e| e.to_string())
     }
 
-    fn resolve_pane_and_agent(&self, pty_id: &str) -> (Option<String>, Option<String>) {
+    fn resolve_pane_and_ready_agent(&self, pty_id: &str) -> (Option<String>, Option<String>) {
         let mux = self.mux.read();
         match mux.pane_id_for_pty(pty_id) {
             Some(pid) => {
-                let at = mux.get_pane(&pid).and_then(|p| p.agent_type.clone());
+                let at = mux.get_pane(&pid).and_then(|p| {
+                    (p.boot_stage == Some(codeterm_types::pty::BootStage::AgentReady))
+                        .then(|| p.agent_type.clone())
+                        .flatten()
+                });
                 (Some(pid), at)
             }
             None => (None, None),
@@ -344,7 +348,7 @@ impl ServiceContext {
         text: &str,
         enter: bool,
     ) -> Result<(), String> {
-        let (pane_id, agent_type) = self.resolve_pane_and_agent(pty_id);
+        let (pane_id, agent_type) = self.resolve_pane_and_ready_agent(pty_id);
         if let Some(ref pid) = pane_id {
             self.await_agent_boot_blocking(pid, std::time::Duration::from_secs(90))?;
         }
