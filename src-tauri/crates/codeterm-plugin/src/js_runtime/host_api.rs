@@ -314,6 +314,26 @@ pub(super) fn install(
         std::fs::read_to_string(&path).ok()
     });
     let sb = sandbox.clone();
+    bind!("readFileHead", move |path: String,
+                                max_bytes: i32|
+          -> Option<String> {
+        if !sb.can_read(&path) {
+            log::warn!("[plugin] denied readFileHead outside sandbox: {path}");
+            return None;
+        }
+        read_file_bounded(&path, max_bytes.max(0) as u64, false)
+    });
+    let sb = sandbox.clone();
+    bind!("readFileTail", move |path: String,
+                                max_bytes: i32|
+          -> Option<String> {
+        if !sb.can_read(&path) {
+            log::warn!("[plugin] denied readFileTail outside sandbox: {path}");
+            return None;
+        }
+        read_file_bounded(&path, max_bytes.max(0) as u64, true)
+    });
+    let sb = sandbox.clone();
     bind!("writeFile", move |path: String, contents: String| -> bool {
         if !sb.can_write(&path) {
             log::warn!("[plugin] denied writeFile outside sandbox: {path}");
@@ -523,6 +543,49 @@ fn since_epoch() -> std::time::Duration {
 }
 
 // ── Implementations ───────────────────────────────────────────────────
+
+/// Read at most `max_bytes` from the head (`tail=false`) or tail (`tail=true`)
+/// of a file, trimming any partial UTF-8 sequence at the cut boundary so the
+/// result is always valid UTF-8. Read-only: opens without create/truncate and
+/// never touches the file's contents — session files stay untouched.
+fn read_file_bounded(path: &str, max_bytes: u64, tail: bool) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(path).ok()?;
+    let len = f.metadata().ok()?.len();
+    let want = max_bytes.min(len);
+    let cut_front = tail && want < len;
+    if tail && want > 0 {
+        f.seek(SeekFrom::Start(len - want)).ok()?;
+    }
+    let mut buf = vec![0u8; want as usize];
+    let mut filled = 0usize;
+    while filled < buf.len() {
+        let n = f.read(&mut buf[filled..]).ok()?;
+        if n == 0 {
+            break;
+        }
+        filled += n;
+    }
+    buf.truncate(filled);
+    Some(utf8_trim_partial(&buf, cut_front))
+}
+
+/// Drop a partial UTF-8 sequence left dangling at a byte-cut boundary: leading
+/// continuation bytes when `trim_front` (tail cut mid-char) and any incomplete
+/// trailing sequence (head cut mid-char).
+fn utf8_trim_partial(bytes: &[u8], trim_front: bool) -> String {
+    let mut start = 0;
+    if trim_front {
+        while start < bytes.len() && (bytes[start] & 0xC0) == 0x80 {
+            start += 1;
+        }
+    }
+    let slice = &bytes[start..];
+    match std::str::from_utf8(slice) {
+        Ok(s) => s.to_string(),
+        Err(e) => String::from_utf8_lossy(&slice[..e.valid_up_to()]).into_owned(),
+    }
+}
 
 fn read_dir_json(path: &str) -> Option<String> {
     let entries = std::fs::read_dir(path).ok()?;
