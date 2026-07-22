@@ -2,6 +2,7 @@ import { startTransition, type Dispatch, type SetStateAction, useCallback, useEf
 import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
 import {
   reduceToolEvents,
+  stabilizeTimelineItems,
   lastSessionResetIndex,
   mergeById,
   mergeTimelineMessages,
@@ -12,7 +13,7 @@ import {
   type TimelineItem,
   type OptimisticEcho,
 } from "@codeterm/chat-core";
-import { detectChatPrefix, splitChatPrefixedMessages, type ChatOrigin } from "../../lib/chatPrefixes";
+import { enrichTimelineItems, type EnrichmentCache } from "./chatEnrichment";
 import { onResync } from "../../lib/resync";
 import { CHAT_REATTACHED_EVENT } from "./chatReattach";
 
@@ -539,42 +540,21 @@ export function useChatSession({
     return collapseDuplicateUserMessages(mergeTimelineMessages(resetParsed, stillPending));
   }, [resetParsed, liveOptimistic]);
 
-  const allTimelineItems = useMemo(() => reduceToolEvents(allMessages), [allMessages]);
+  // Both layers reuse prior objects for unchanged messages so MessageBubble
+  // memo keeps skipping the ~220 untouched bubbles on every streamed chunk.
+  const timelineRef = useRef<TimelineItem[] | undefined>(undefined);
+  const allTimelineItems = useMemo(() => {
+    const stabilized = stabilizeTimelineItems(timelineRef.current, reduceToolEvents(allMessages));
+    timelineRef.current = stabilized;
+    return stabilized;
+  }, [allMessages]);
 
+  const enrichmentCacheRef = useRef<EnrichmentCache>(new WeakMap());
   const enrichedMessages = useMemo(() => {
     const visible = allTimelineItems.length > visibleMessageCount
       ? allTimelineItems.slice(-visibleMessageCount)
       : allTimelineItems;
-    const out: Array<{ msg: ChatMessage; item: TimelineItem; origin: ChatOrigin | undefined }> = [];
-    for (const item of visible) {
-      const m = item.kind === "message" ? item.message : item.event.message;
-      if (m.type !== "user") {
-        out.push({ msg: m, item, origin: undefined });
-        continue;
-      }
-      const splitPrefixes = splitChatPrefixedMessages(m.content);
-      if (splitPrefixes && splitPrefixes.length > 1) {
-        splitPrefixes.forEach((prefix, index) => {
-          out.push({
-            msg: { ...m, id: `${m.id}-prefix-${index}`, content: prefix.body },
-            item: { kind: "message", message: { ...m, id: `${m.id}-prefix-${index}`, content: prefix.body } },
-            origin: prefix.origin,
-          });
-        });
-        continue;
-      }
-      const prefix = detectChatPrefix(m.content);
-      if (!prefix) {
-        out.push({ msg: m, item, origin: undefined });
-        continue;
-      }
-      out.push({
-        msg: { ...m, content: prefix.body },
-        item: item.kind === "message" ? { kind: "message", message: { ...m, content: prefix.body } } : item,
-        origin: prefix.origin,
-      });
-    }
-    return out;
+    return enrichTimelineItems(visible, enrichmentCacheRef.current);
   }, [allTimelineItems, visibleMessageCount]);
 
   const hiddenMessageCount = Math.max(0, allTimelineItems.length - enrichedMessages.length);
