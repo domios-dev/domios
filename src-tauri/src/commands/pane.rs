@@ -507,15 +507,15 @@ pub fn chat_start_core(
     const JSONL_SNAPSHOT_CAP: u64 = 10 * 1024 * 1024;
     const JSONL_SNAPSHOT_WINDOW: u64 = 4 * 1024 * 1024;
     let read_started = std::time::Instant::now();
-    let (messages, msg_count, tailer_start_offset) = if total > JSONL_SNAPSHOT_CAP {
+    let (messages, msg_count, tailer_start_offset, snapshot_start) = if total > JSONL_SNAPSHOT_CAP {
         let start = jsonl_tail_window_start(&path, total, JSONL_SNAPSHOT_WINDOW);
         let msgs = jsonl_snapshot_from_offset(&svc.agent_registry, &provider_id, &path, start);
         let count = msgs.len();
-        (msgs, count, total)
+        (msgs, count, total, start)
     } else {
         let (msgs, count) =
             crate::service::pane_chat::pane_chat_snapshot(svc, &pane_id, 0).unwrap_or_default();
-        (msgs, count, total)
+        (msgs, count, total, 0)
     };
     let read_ms = read_started.elapsed().as_millis();
 
@@ -569,8 +569,10 @@ pub fn chat_start_core(
     }
 
     Ok(ChatStartResult {
+        // start_offset > 0 tells the client older JSONL exists below the parsed
+        // window — its cursor for the bounded chat_backfill pager.
+        start_offset: snapshot_start,
         text: String::new(),
-        start_offset: 0,
         offset: total,
         pending: false,
         messages: Some(prepend_pending_greeting(svc, &pane_id, messages)),
@@ -685,6 +687,11 @@ pub struct ChatBackfillResult {
     pub text: String,
     pub start_offset: u64,
     pub end_offset: u64,
+    /// Window parsed with the pane's own provider parser — same normalized
+    /// shape as `ChatStartResult::messages`, ready to merge client-side.
+    pub messages: Vec<crate::agent::chat_types::ChatMsg>,
+    pub source_session_id: Option<String>,
+    pub session_binding_nonce: Option<String>,
 }
 
 #[tauri::command]
@@ -699,19 +706,23 @@ pub async fn chat_backfill(
 
 /// Shared by the Tauri command and the web mirror's
 /// POST /api/panes/{id}/chat-raw/backfill.
+/// Hard ceiling per page: a client cannot request an unbounded window.
+const BACKFILL_MAX_BYTES_CAP: u64 = 1024 * 1024;
+
 pub fn chat_backfill_core(
     svc: &ServiceState,
     pane_id: String,
     before_offset: u64,
     max_bytes: Option<u64>,
 ) -> Result<ChatBackfillResult, String> {
-    let (provider_id, cwd, session_id) = {
+    let (provider_id, cwd, session_id, session_binding_nonce) = {
         let m = svc.mux.write();
         let pane = m.get_pane(&pane_id).ok_or("pane not found")?;
         (
             pane.agent_type.clone().ok_or("no agent_type")?,
             pane.cwd.clone().unwrap_or_default(),
             pane.agent_session_id.clone().ok_or("no session_id")?,
+            pane.session_binding_nonce.clone(),
         )
     };
     let path = svc
@@ -720,14 +731,17 @@ pub fn chat_backfill_core(
         .flatten()
         .ok_or("no JSONL")?;
 
-    let max_bytes = max_bytes.unwrap_or(128 * 1024);
+    let max_bytes = max_bytes.unwrap_or(128 * 1024).min(BACKFILL_MAX_BYTES_CAP);
     let start = before_offset.saturating_sub(max_bytes);
 
-    let bytes = std::fs::read(&path).map_err(|e| format!("read jsonl: {e}"))?;
-    let total = bytes.len() as u64;
-    let clamped_end = before_offset.min(total) as usize;
-    let clamped_start = (start as usize).min(clamped_end);
-    let window = &bytes[clamped_start..clamped_end];
+    // Windowed read: multi-hundred-MiB session files must never be fully loaded.
+    let total = std::fs::metadata(&path)
+        .map(|m| m.len())
+        .map_err(|e| format!("stat jsonl: {e}"))?;
+    let clamped_end = before_offset.min(total);
+    let clamped_start = start.min(clamped_end);
+    let window = read_file_window(&path, clamped_start, (clamped_end - clamped_start) as usize)
+        .map_err(|e| format!("read jsonl: {e}"))?;
     // Align to the first \n so the parser doesn't see a partial first line.
     let aligned_offset = if clamped_start == 0 {
         0usize
@@ -739,12 +753,45 @@ pub fn chat_backfill_core(
             .unwrap_or(0)
     };
     let text = String::from_utf8_lossy(&window[aligned_offset..]).to_string();
+    let messages = parse_backfill_window(&svc.agent_registry, &provider_id, &text);
 
     Ok(ChatBackfillResult {
         text,
-        start_offset: clamped_start as u64 + aligned_offset as u64,
-        end_offset: before_offset,
+        start_offset: clamped_start + aligned_offset as u64,
+        end_offset: clamped_end,
+        messages,
+        source_session_id: Some(session_id),
+        session_binding_nonce,
     })
+}
+
+fn read_file_window(path: &std::path::Path, start: u64, len: usize) -> std::io::Result<Vec<u8>> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path)?;
+    file.seek(SeekFrom::Start(start))?;
+    let mut window = Vec::with_capacity(len);
+    file.take(len as u64).read_to_end(&mut window)?;
+    Ok(window)
+}
+
+/// The provider parsers are path-based (native and JS drop-ins alike), so the
+/// window is parsed from a private temp copy — no new trait surface.
+fn parse_backfill_window(
+    registry: &std::sync::Arc<crate::agent::registry::AgentRegistry>,
+    provider_id: &str,
+    text: &str,
+) -> Vec<crate::agent::chat_types::ChatMsg> {
+    if text.trim().is_empty() {
+        return Vec::new();
+    }
+    let tmp =
+        std::env::temp_dir().join(format!("codeterm-backfill-{}.jsonl", uuid::Uuid::new_v4()));
+    if std::fs::write(&tmp, text).is_err() {
+        return Vec::new();
+    }
+    let messages = jsonl_snapshot_from_offset(registry, provider_id, &tmp, 0);
+    let _ = std::fs::remove_file(&tmp);
+    messages
 }
 
 #[tauri::command]
