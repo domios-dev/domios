@@ -23,6 +23,7 @@ fn event(kind: KpiEventKind, plan_id: Option<&str>, pane_id: &str, bytes: u64) -
         timestamp: 1_700_000_000,
         kind,
         bytes,
+        tokens: None,
     }
 }
 
@@ -115,6 +116,58 @@ fn rows_survive_drop_and_reopen() {
     let rows = reopened.list_all().unwrap();
     assert_eq!(rows.len(), 1, "ledger rows persist across reopen");
     assert_eq!(rows[0].kind, KpiEventKind::Spawn);
+
+    cleanup(&db);
+}
+
+#[test]
+fn v1_ledger_migrates_to_v2_keeping_existing_rows() {
+    let db = temp_db();
+    {
+        std::fs::create_dir_all(db.parent().unwrap()).unwrap();
+        let conn = Connection::open(&db).unwrap();
+        KpiLedger::create_v1_schema(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO kpi_events (schema_version, plan_id, pane_id, provider, ts, kind, bytes)
+             VALUES (1, 'pl_1', 'pane-a', 'claude', 1700000000, 'send', 42)",
+            [],
+        )
+        .unwrap();
+        assert_eq!(KpiLedger::user_version(&conn).unwrap(), 1);
+    }
+
+    let ledger = KpiLedger::open_at(&db).unwrap();
+    {
+        let conn = ledger.conn.lock();
+        assert_eq!(
+            KpiLedger::user_version(&conn).unwrap(),
+            CURRENT_KPI_SCHEMA_VERSION
+        );
+    }
+    let rows = ledger.list_all().unwrap();
+    assert_eq!(rows.len(), 1, "v1 row survives the v2 migration");
+    assert_eq!(rows[0].bytes, 42);
+    assert_eq!(rows[0].tokens, None, "pre-v2 rows have no token breakdown");
+
+    ledger
+        .insert(&KpiEventInput {
+            tokens: Some(TokenCounts {
+                input: 1000,
+                uncached_input: 250,
+                output: 40,
+            }),
+            ..event(KpiEventKind::TokenUsage, Some("pl_1"), "pane-a", 1040)
+        })
+        .unwrap();
+    let rows = ledger.list_all().unwrap();
+    assert_eq!(
+        rows[1].tokens,
+        Some(TokenCounts {
+            input: 1000,
+            uncached_input: 250,
+            output: 40
+        })
+    );
 
     cleanup(&db);
 }
@@ -262,6 +315,7 @@ fn thousand_mixed_synthetic_events_round_trip_and_aggregate() {
                 timestamp: 1_700_000_000 + i as u64,
                 kind,
                 bytes,
+                tokens: None,
             })
             .unwrap();
 

@@ -221,6 +221,20 @@ impl Messenger {
         envelope: MessageEnvelope,
         body: &str,
     ) -> Result<Delivery, String> {
+        let kind = envelope.kind;
+        let result = Self::deliver_inner(svc, to_pane, envelope, body);
+        if result.is_ok() {
+            svc.record_kpi_delivery(to_pane, kind, body.len());
+        }
+        result
+    }
+
+    fn deliver_inner(
+        svc: &super::ServiceContext,
+        to_pane: &str,
+        envelope: MessageEnvelope,
+        body: &str,
+    ) -> Result<Delivery, String> {
         // A real inbound message/report landing here means the reader no longer
         // needs a reminder — clear its reminder-nudge streak (skip system reminders).
         if matches!(envelope.kind, MessageKind::Message | MessageKind::Report) {
