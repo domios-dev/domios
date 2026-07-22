@@ -3,8 +3,9 @@
 How a versioned release goes from `develop` to a published GitHub release the
 in-app updater can pull. This is the **map**; the **executable procedure** (every
 command, every secret, every retry) lives in the `github-release` skill:
-`.agents/skills/github-release/SKILL.md`. For a local build with no release, use
-the `prod-build` skill instead.
+`.agents/skills/github-release/SKILL.md`. Build-farm/runner internals live in
+`.codeterm/build-machine/README.md`. For a local build with no release, use the
+`prod-build` skill instead.
 
 **Golden rule:** every artifact is built from the **tagged commit on `master`** —
 never from `develop`, never from an untagged tree.
@@ -16,78 +17,239 @@ never from `develop`, never from an untagged tree.
 | `rollacode/codeterm` | private source. Releases here are archival only — the GUI updater can't read private-repo assets anonymously. |
 | `rollacode/codeterm-releases` | public mirror: artifacts + signed `latest.json`. `tauri.conf.json`'s updater endpoint points here. **Without the mirror, in-app `update install --auto` 404s.** |
 
-## The flow
+## Build farm
 
-1. **Bump version on `develop`** (one commit). Run
-   `npm run sync:versions -- X.Y.Z`, then `./build.sh check` to refresh
-   `Cargo.lock`, then `npm run check:versions`. The script is the single version
-   sync point for root package metadata, Tauri config, Rust packages, provider
-   plugins, `plugins/channel.json`, and shared packages. Commit `release:
-   vX.Y.Z`, push.
-2. **Merge `develop` → `master`** via a GitHub PR (merge commit), then locally
-   `git checkout master && git pull && git tag -a vX.Y.Z -m "…" && git push --tags`.
-   Before tagging a release candidate, run the QA-machine orchestration gate:
-   `bash evals/orchestration-golden/run.sh`. This is the one-command golden
-   tier for orchestration creation, restore, refresh, and report round-trip
-   harnesses; archive the printed summary table with the release notes.
-3. **Draft the GitHub release** (`gh release create vX.Y.Z --draft`).
-4. **Checkout the tag** (`git checkout vX.Y.Z` → detached HEAD). All builds run
-   from this tree.
-5. **CI builds on tag push**: `release-macos`, `release-windows`, and
-   `release-linux` build from the tag, upload private source artifacts, produce
-   updater fragments whose URLs point at `rollacode/codeterm-releases`, and
-   mirror public assets + merged `latest.json`.
-6. **Manual builder fallback**: if a platform workflow is down, use the skill's
-   Mac/Windows mesh instructions. If the source artifacts exist but mirror upload
-   failed, use the skill's manual mirror fallback instead of rebuilding.
-7. **Publish** the release (un-draft) and verify the updater endpoint serves the
-   new `latest.json`.
-8. **Sync `master` → `develop`** and return to `develop`.
-9. (Optional, while repos are private) bump the Homebrew cask.
+Three self-hosted runners, one `release-X.Y.Z` tag fires all three in parallel:
 
-## Gotchas that have cost real build time
+| Runner | Machine | Workflow | Builds |
+|---|---|---|---|
+| `codeterm-builder` | Mac (ARM64) | `.github/workflows/release.yml` | macOS `x64`+`arm64` (Developer ID + notarized), **and** `arm64` Linux `.deb`+`.AppImage` (Docker) |
+| `windows-build` | ROG (Windows x86_64) | `release-windows.yml` | Windows `x64`+`arm64` NSIS, signed on the runner |
+| `linux-build` | ROG's WSL2 Ubuntu 24.04 (x86_64) | `release-linux.yml` | `x86_64` Linux `.deb`+`.AppImage`, native |
 
-- **Windows updater artifact is the NSIS `.exe` in Tauri v2 mode.** This repo
-  uses `bundle.createUpdaterArtifacts = true`; `.nsis.zip` belongs to the old
-  `"v1Compatible"` mode. Do not make the manifest point at `.nsis.zip` unless
-  the config is intentionally changed.
-- **macOS notarize** needs a *real* `Developer ID Application` signature with the
-  hardened-runtime flag (`flags=0x10000`) — `build-mac.sh` sanity-checks this
-  before submitting, so you don't discover an ad-hoc signature 30 min into
-  Apple's queue.
-- **macOS updater tar** must use `tar --no-mac-metadata`, else AppleDouble
-  `._CodeTerm.app` shadows make the updater reject the bundle.
-- **Sign with `node_modules/.bin/tauri signer sign`** on Windows — `npx … signer
-  sign` fails with *"Unknown command"*.
-- **Verify version parity before tagging** (step 1) — the cheapest place to catch
-  a mismatch; the most expensive is a finished build with the wrong filename.
-- **macOS Intel CI must use `macos-15-intel`, not `macos-13`.** GitHub retired
-  `macos-13` in December 2025; x86 jobs on that label can sit queued forever.
-- **`PACKAGE_REPOS_TOKEN` must have `contents:write` on
-  `rollacode/codeterm-releases`.** The source release can upload with
-  `GITHUB_TOKEN`, but the public updater mirror is a different repo and fails
-  with HTTP 403 when this token is missing or scoped only to the source repo.
-- **macOS updater URLs must be arch-specific.** Never point both
-  `darwin-aarch64` and `darwin-x86_64` at generic `CodeTerm.app.tar.gz`; the
-  second macOS job can clobber that asset. Use `CodeTerm_aarch64.app.tar.gz`
-  and `CodeTerm_x64.app.tar.gz`.
-- **`latest.json` URLs must point at `rollacode/codeterm-releases`, not the
-  private source repo.** The updater runs anonymously, so private source URLs
-  fail even when the public mirror exists.
-- **Tauri v2 updater artifact names follow `createUpdaterArtifacts`.** With our
-  current `true` setting, Linux uses `.AppImage` and Windows uses NSIS `.exe`.
-  `.AppImage.tar.gz` / `.nsis.zip` are for `"v1Compatible"` only.
-- **If source release assets are valid but mirror failed**, download from
-  `rollacode/codeterm`, regenerate `latest.json` with public
-  `rollacode/codeterm-releases` URLs, upload to the mirror with `--clobber`, and
-  only then publish the private source release.
+No SSH between machines; each runner builds, signs, and (macOS/Linux-arm64) publishes/mirrors
+itself. Full setup and hard-won constraints: `.codeterm/build-machine/README.md`.
+
+## 1. Preflight (before bumping the version)
+
+Run from the canonical checkout, on `develop`:
+
+```bash
+git fetch origin --prune
+git checkout develop
+git pull --ff-only origin develop
+git merge-base --is-ancestor origin/master HEAD || {
+  git merge --no-ff origin/master --no-edit
+  # resolve conflicts, run the gates below, push develop before bumping the version
+}
+git status --short                  # must be clean
+curl -s http://127.0.0.1:7686/api/health
+```
+
+**Cargo.lock is part of preflight, not an afterthought.** `npm run sync:versions` rewrites the
+Rust package versions but does not by itself guarantee `src-tauri/Cargo.lock` is in sync — run
+`./build.sh check` right after `sync:versions` (it refreshes the lockfile) and include
+`src-tauri/Cargo.lock` in the version-bump commit. A stale lockfile passed a first tag push in the
+1.7.2 release: the initial `release-1.7.2` push (PR #241) had its CI runs cancelled, a follow-up
+commit (`fix(release): sync Tauri lockfile version`) landed via PR #243, and the tag had to be
+re-cut from the new merge commit — a full wasted build cycle across all three runners. Verify with
+`git diff --exit-code src-tauri/Cargo.lock` returning clean before opening the master PR.
+
+```bash
+VER=X.Y.Z
+npm run sync:versions -- "$VER"
+./build.sh check                      # refreshes Cargo.lock
+npm run check:versions
+git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock \
+  src-tauri/tauri.conf.json cli/Cargo.toml plugins packages scripts
+git commit -m "release: v$VER"
+git push origin develop
+```
+
+Then start dev from the main checkout and visually confirm the app, clean old lane worktrees
+(`../codeterm-worktrees/`), and open the PR `develop` → `master`.
+
+## 2. Cut the release: one trigger tag
+
+Always via PR — never direct-push `master`. After the PR is merged:
+
+```bash
+git checkout master
+git pull --ff-only origin master
+git rev-parse --abbrev-ref HEAD   # must print master
+INTENDED_MASTER_SHA=$(git rev-parse HEAD)
+git ls-remote --tags origin "refs/tags/release-$VER" "refs/tags/v$VER"   # must be empty
+test "$(git rev-parse origin/master)" = "$INTENDED_MASTER_SHA"
+
+git tag "release-$VER" "$INTENDED_MASTER_SHA"
+git push origin "release-$VER"
+```
+
+Push **only** `release-X.Y.Z`. Do not also create/push `vX.Y.Z` — the three workflows stamp and
+publish under `vX.Y.Z` themselves. Watch it: `gh run watch --repo rollacode/codeterm`.
+
+## 3. Artifact matrix
+
+What the pipeline is designed to produce per release, and where each comes from:
+
+| Platform/arch | Asset(s) | Built on | Notes |
+|---|---|---|---|
+| macOS arm64 | `CodeTerm_<ver>_aarch64.dmg`, `CodeTerm_aarch64.app.tar.gz` | `codeterm-builder` (native) | Developer ID signed + notarized |
+| macOS x86_64 | `CodeTerm_<ver>_x64.dmg`, `CodeTerm_x64.app.tar.gz` | `codeterm-builder` (cross) | needs `CODETERM_MONTEREY_LIBCXX_DIR`, see Troubleshooting |
+| Linux arm64 | `CodeTerm_<ver>_arm64.deb`, `CodeTerm_<ver>_aarch64.AppImage` | `codeterm-builder` (Docker) | image `codeterm-build-linux-arm64` |
+| Linux x86_64 | `CodeTerm_<ver>_amd64.deb`, `CodeTerm_<ver>_amd64.AppImage` | ROG WSL2 (native) | `linux-build` runner |
+| Windows x64 | `CodeTerm_<ver>_x64-setup.exe` (+ `.sig`) | ROG (native) | `windows-build` runner |
+| Windows arm64 | `CodeTerm_<ver>_arm64-setup.exe` (+ `.sig`) | ROG (cross, `vcvarsall x64_arm64`) | same runner — **no separate machine or fallback path exists for this arch** |
+
+Public mirror also carries `latest.json` (all four `platforms` keys: `darwin-aarch64`,
+`darwin-x86_64`, `linux-x86_64`, `windows-x86_64`) plus per-arch `updater-*.json` fragments and a
+Debian-specific `latest-deb.json`.
+
+**Do not claim an artifact exists without checking the actual release asset list first** —
+`gh release view vX.Y.Z --repo rollacode/codeterm-releases --json assets` — or the `latest.json`
+`platforms` map. A platform missing from both means it was not shipped for that version, not that
+the doc is out of date.
+
+## 4. Public mirror + latest.json verification
+
+```bash
+.agents/skills/github-release/scripts/release-status.sh "$VER"   # one-shot: assets + manifest coverage + CI state
+
+curl -sIL https://github.com/rollacode/codeterm-releases/releases/latest/download/latest.json \
+  | grep -E '^HTTP' | tail -1     # -> HTTP/2 200
+
+# per-platform URL reachability + version match
+python3 - <<'PY'
+import json, urllib.request
+m = json.load(urllib.request.urlopen(
+    "https://github.com/rollacode/codeterm-releases/releases/latest/download/latest.json"))
+print("version:", m["version"])
+for platform, entry in m["platforms"].items():
+    req = urllib.request.Request(entry["url"], method="HEAD")
+    print(platform, urllib.request.urlopen(req).status, entry["url"])
+PY
+```
+
+`python3` is not on every builder's PATH (confirm with `which python3` first) — fall back to
+`curl -sIL <url> | grep '^HTTP'` per platform URL if it's missing.
+
+## 5. Rerunning a failed workflow — without retagging
+
+A failed or cancelled run at the **same commit** the tag already points at does not need a new
+tag. Retagging (`git tag -f` + `--force` push) is only for moving the trigger to a **different**
+commit, and is unilaterally allowed only **pre-publish** (no artifacts public yet for that
+version). Once anything has published, cut a new patch version instead of moving the tag.
+
+Safe, no-retag options, in order of preference:
+
+1. **Rerun the same workflow run** (fixes a transient/runner issue, same SHA, same tag):
+   ```bash
+   gh run rerun <run-id> --failed --repo rollacode/codeterm
+   ```
+2. **Manually dispatch a single workflow against the existing tag** to validate a runner fix in
+   isolation, without touching the stable channel:
+   ```bash
+   gh workflow run release-windows.yml --ref master -f tag=vX.Y.Z-rcN
+   # an -rc suffix routes to latest-rc.json; the stable mirror step is skipped
+   ```
+3. **Manual builder fallback** (the skill's per-platform scripts, e.g. `win-release.sh`) when the
+   runner itself is down and you need the release shippable now — see Troubleshooting below.
+
+Only force-move the tag (`git tag -f "release-$VER" && git push origin "release-$VER" --force`)
+when you deliberately need every platform to rebuild from a new commit and nothing has published
+yet.
+
+## 6. Troubleshooting (from the 1.7.2 release)
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| macOS x86_64 leg queues far longer than the arm64/Docker legs, or `release-macos-x86_64.sh` exits with `FATAL: set CODETERM_MONTEREY_LIBCXX_DIR` | The Mac runner's environment lost `CODETERM_MONTEREY_LIBCXX_DIR` (must point at x86_64/universal LLVM `libc++.1.dylib` + `libc++abi.1.dylib`; the arm64 Homebrew LLVM libc++ cannot be used for the x86_64 updater — it's bundled so ONNX Runtime doesn't depend on newer system libc++ symbols missing on macOS 12 Monterey) | Restore the env var **in the runner service's persistent environment** (not just an interactive shell — a `launchd`/`svc.sh` restart drops shell-only exports), then rerun per §5. In the 1.7.2 run this cost ~85 minutes of queued-but-not-started time before the build itself ran normally. |
+| Linux arm64 leg fails to start, or the Docker build errors on missing tools | `codeterm-build-linux-arm64` Docker image is missing or stale on the Mac runner | `cd .codeterm/build-machine/docker && docker build -t codeterm-build-linux-arm64 -f Dockerfile.linux-arm64 .`. Also confirm Docker Desktop memory is ~20 GiB — the `codeterm` crate needs ≳8 GiB to compile and an under-provisioned Docker OOM-kills `rustc`. |
+| `release-windows.yml` jobs show `cancelled` for both `x86_64-pc-windows-msvc` and `aarch64-pc-windows-msvc` shortly after the tag push, no `.exe` uploaded by CI | The `windows-build` (ROG) self-hosted runner was offline/unreachable when the tag fired | Dispatch a worker on the ROG mesh peer to run `bash .agents/skills/github-release/scripts/win-release.sh $VER` directly (checkout → build → sign → upload, machine-parseable report). This produces the **x64** installer only — see next row. Once the runner is confirmed back online, `gh run rerun` (§5) can still be used for future tags; it does not retroactively fill in the missed run for this version. |
+| `latest.json` / release assets have no `windows-aarch64` entry for this version | The manual x64 fallback above has no ARM64 equivalent — cross-compiling `aarch64-pc-windows-msvc` needs the runner's `vcvarsall x64_arm64` toolchain, which only exists on the registered `windows-build` runner, not on an ad-hoc peer | Do not synthesize or claim a `windows-aarch64` asset for a release built this way. Either wait for the runner and rerun `release-windows.yml` before publishing, or ship without it and note the gap in the release notes; 1.7.2 shipped without it. |
+
+## 7. Runner restoration boundaries
+
+Safe for an agent to do unilaterally:
+- Restart a runner service (`./svc.sh start`/`stop` on the Mac; the equivalent runner-service
+  restart on ROG) and confirm it shows **Idle** under repo Settings → Actions → Runners.
+- Re-export an env var whose correct value is already documented/backed up (e.g.
+  `CODETERM_MONTEREY_LIBCXX_DIR` pointing at an existing LLVM libc++ install).
+- Rebuild a Docker image from the checked-in Dockerfile.
+- `gh run rerun --failed` / `gh workflow run … -f tag=vX.Y.Z-rcN` (§5).
+
+Escalate to Andrey before doing:
+- Anything touching signing/notary credentials or the minisign key.
+- Provisioning a **new** runner/VM, or changing which physical machine is registered as
+  `codeterm-builder` / `windows-build` / `linux-build`.
+- A `master` force-push touching commits already present in both local copies, or any public
+  mirror destructive op (delete a release, change the updater endpoint URL, alter the pubkey).
+
+These mirror the catastrophic-ack list in the `github-release` skill's multi-machine protocol.
+
+## 8. Draft/publication validation
+
+```bash
+gh release view "v$VER" --repo rollacode/codeterm --json assets,isDraft,publishedAt
+gh release view "v$VER" --repo rollacode/codeterm-releases --json assets,isDraft,publishedAt
+```
+
+Before un-drafting/marking `--latest`:
+- Every platform that is actually going to ship for this version has its asset(s) on **both**
+  repos (private source + public mirror) — check against the artifact matrix in §3, not assumption.
+- `latest.json`'s `version` field equals `$VER` and every entry in `platforms` resolves with a
+  live URL (§4).
+- If a platform is deliberately being shipped without (per §6, e.g. a missing Windows ARM64), that
+  is a conscious exception — call it out in the release notes rather than silently publishing a
+  gap.
+
+```bash
+gh release edit "v$VER" --repo rollacode/codeterm --draft=false --latest
+```
+
+## 9. Cleanup
+
+```bash
+git worktree list
+find ../codeterm-worktrees -mindepth 1 -maxdepth 1 -type d -print
+cargo sweep --time 2
+```
+
+Remove merged lane worktrees and delete their merged `lane/*` branches, close finished worker
+panes, stop lane-specific dev daemons. Then fast-forward `develop`:
+
+```bash
+git checkout develop
+git pull --ff-only origin master
+git push origin develop
+```
+
+If `--ff-only` refuses, `git merge --no-ff origin/master --no-edit && git push origin develop`.
+Don't skip this — a stale `develop` makes the next release start from a missing-commits base.
+
+## Gotchas that have cost real build time (general, not version-specific)
+
+- **Windows updater artifact is the NSIS `.exe` in Tauri v2 mode.** This repo uses
+  `bundle.createUpdaterArtifacts = true`; `.nsis.zip` belongs to the old `"v1Compatible"` mode.
+- **macOS notarize** needs a *real* `Developer ID Application` signature with the hardened-runtime
+  flag (`flags=0x10000`) — `build-mac.sh` sanity-checks this before submitting.
+- **macOS updater tar** must use `tar --no-mac-metadata`, else AppleDouble `._CodeTerm.app` shadows
+  make the updater reject the bundle.
+- **macOS Intel CI must use `macos-15-intel`, not `macos-13`** — GitHub retired `macos-13`.
+- **`PACKAGE_REPOS_TOKEN` must have `contents:write` on `rollacode/codeterm-releases`** — the
+  source release can upload with `GITHUB_TOKEN`, but the public mirror is a different repo.
+- **macOS updater URLs must be arch-specific** (`CodeTerm_aarch64.app.tar.gz` /
+  `CodeTerm_x64.app.tar.gz`), never both pointing at a generic `CodeTerm.app.tar.gz`.
+- **`latest.json` URLs must point at `rollacode/codeterm-releases`, not the private source repo** —
+  the updater runs anonymously.
+- **If source release assets are valid but the mirror failed**, download from `rollacode/codeterm`,
+  regenerate `latest.json` with public mirror URLs, upload with `--clobber`, then publish.
 
 ## Secrets (per builder machine)
 
-The minisign updater key (`~/.tauri/codeterm.key`, empty password; its public
-half is baked into `tauri.conf.json::plugins.updater.pubkey`) and the Apple
-notary credentials are backed up in mem — the skill lists the exact ids and
-restore paths. A builder without the minisign key produces artifacts the updater
-can't verify.
+The minisign updater key (`~/.tauri/codeterm.key`, empty password; its public half is baked into
+`tauri.conf.json::plugins.updater.pubkey`) and the Apple notary credentials are backed up in mem —
+the `github-release` skill lists the exact ids and restore paths. A builder without the minisign
+key produces artifacts the updater can't verify.
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->
