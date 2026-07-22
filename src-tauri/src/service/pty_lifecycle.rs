@@ -35,6 +35,7 @@ fn epoch_ms() -> u64 {
 pub struct PreparedBackendReader {
     reader: Box<dyn Read + Send>,
     frontend_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
+    lease: BackendReaderLease,
 }
 
 /// Synchronously claim the PTY stream: clone the reader AND register the
@@ -53,18 +54,32 @@ pub fn prepare_backend_reader(
     let session = manager
         .get_session(pty_id)
         .ok_or_else(|| format!("PTY not found: {}", pty_id))?;
-    let pair = session.pair.lock().unwrap();
+    let pair_guard = session.pair.lock().unwrap();
+    let Some(pair) = pair_guard.as_ref() else {
+        return Err(format!("PTY {} is closed", pty_id));
+    };
     let reader = pair
         .master
         .try_clone_reader()
         .map_err(|e| format!("Failed to clone PTY reader: {}", e))?;
-    drop(pair);
+    drop(pair_guard);
     let frontend_tx = manager
         .setup_backend_channel(pty_id)
         .ok_or_else(|| format!("Failed to set up backend channel for PTY: {}", pty_id))?;
+    let generation = session.generation;
+    drop(manager);
+    if !svc
+        .screen_state
+        .lock()
+        .bind_pty_generation(pty_id, generation)
+    {
+        return Err(format!("PTY {} was replaced before reader start", pty_id));
+    }
+    session.mark_backend_reader_started();
     Ok(Some(PreparedBackendReader {
         reader,
         frontend_tx,
+        lease: BackendReaderLease(session),
     }))
 }
 
@@ -77,20 +92,19 @@ pub fn spawn_prepared_backend_reader(
 ) -> JoinHandle<()> {
     let svc = svc.clone();
     let pty_id = pty_id.to_string();
+    let PreparedBackendReader {
+        reader,
+        frontend_tx,
+        lease,
+    } = prepared;
+    let generation = lease.0.generation;
     tokio::spawn(async move {
+        let _lease = lease;
         log::info!(
             "[backend-reader] started for pty {}",
             &pty_id[..pty_id.len().min(8)]
         );
-        backend_read_loop(
-            prepared.reader,
-            svc,
-            pty_id,
-            prepared.frontend_tx,
-            true,
-            headless,
-        )
-        .await;
+        backend_read_loop(reader, svc, pty_id, generation, frontend_tx, true, headless).await;
     })
 }
 
@@ -120,13 +134,23 @@ async fn backend_read_loop(
     mut reader: Box<dyn Read + Send>,
     svc: ServiceState,
     pty_id: String,
+    generation: u64,
     frontend_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
     _measure_first_byte: bool,
     headless: bool,
 ) {
     let mut first_byte_logged = false;
+    let rd_trace = std::env::var("CODETERM_RD_TRACE").is_ok();
+    const FEED_QUEUE_CAPACITY: usize = 1024;
+    let (feed_tx, feed_rx) = tokio::sync::mpsc::channel(FEED_QUEUE_CAPACITY);
+    let feed_svc = svc.clone();
+    let feed_pty_id = pty_id.clone();
+    let feed_task = tokio::task::spawn_blocking(move || {
+        process_pty_feed(feed_rx, feed_svc, feed_pty_id, generation, rd_trace)
+    });
     loop {
         // Blocking read in a dedicated thread — same pattern as read_pty.
+        let read_started = std::time::Instant::now();
         let result = tokio::task::spawn_blocking(move || {
             let mut buf = vec![0u8; 8192];
             let n = reader.read(&mut buf).map_err(|e| e.to_string())?;
@@ -138,6 +162,7 @@ async fn backend_read_loop(
             Ok((buf, reader))
         })
         .await;
+        let read_block_us = read_started.elapsed().as_micros();
 
         match result {
             Ok(Ok((data, reader_back))) => {
@@ -155,34 +180,41 @@ async fn backend_read_loop(
                     }
                 }
 
-                if data.windows(4).any(|w| w == b"\x1b[6n") {
-                    let is_hidden = {
-                        let mux = svc.mux.write();
-                        mux.pane_id_for_pty(&pty_id)
-                            .and_then(|pid| mux.get_pane(&pid).map(|p| p.hidden))
-                            .unwrap_or(false)
-                    };
-                    let no_owner = || {
-                        use tauri::Manager;
-                        svc.app_handle
-                            .try_state::<crate::ResizeOwnerState>()
-                            .map(|ro| ro.lock().get(&pty_id).is_none())
-                            .unwrap_or(true)
-                    };
-                    if is_hidden || (headless && no_owner()) {
-                        let _ = svc.pty.lock().write(&pty_id, b"\x1b[1;1R");
-                    }
+                let mut reply_count = 0;
+                for reply in terminal_query_replies(&data, headless) {
+                    reply_count += 1;
+                    let reply_svc = svc.clone();
+                    let reply_pty_id = pty_id.clone();
+                    let reply = reply.to_vec();
+                    tokio::task::spawn_blocking(move || {
+                        let _ = crate::service::pty_io::submit_transaction::write_terminal_reply(
+                            &reply_svc,
+                            &reply_pty_id,
+                            &reply,
+                        );
+                    });
+                }
+                let _ = frontend_tx.try_send(data.clone());
+                let data_len = data.len();
+                if feed_tx.send(data).await.is_err() {
+                    log::error!(
+                        "[backend-reader] output processor closed for {}",
+                        &pty_id[..pty_id.len().min(8)]
+                    );
+                    break;
                 }
 
-                let (prev, now) = svc.feed_pty_output(&pty_id, &data);
-
-                let _ = frontend_tx.try_send(data.clone());
-
-                svc.emit_pane_status_if_changed(&pty_id, prev, now);
+                if rd_trace && data_len > 16 {
+                    log::info!(
+                        "[rd-trace] pty={} n={} read_block={}us replies={}",
+                        &pty_id[..pty_id.len().min(8)],
+                        data_len,
+                        read_block_us,
+                        reply_count,
+                    );
+                }
             }
             Ok(Err(_e)) => {
-                // EOF — PTY closed.
-                handle_pty_death(&svc, &pty_id);
                 break;
             }
             Err(e) => {
@@ -192,20 +224,70 @@ async fn backend_read_loop(
                     &pty_id[..pty_id.len().min(8)],
                     e
                 );
-                handle_pty_death(&svc, &pty_id);
                 break;
             }
         }
     }
 
+    drop(feed_tx);
+    if let Err(error) = feed_task.await {
+        log::error!(
+            "[backend-reader] output processor failed for {}: {}",
+            &pty_id[..pty_id.len().min(8)],
+            error
+        );
+    }
+    handle_pty_death(&svc, &pty_id, generation);
     log::info!(
         "[backend-reader] exited for pty {}",
         &pty_id[..pty_id.len().min(8)]
     );
 }
 
+fn process_pty_feed(
+    mut rx: tokio::sync::mpsc::Receiver<Vec<u8>>,
+    svc: ServiceState,
+    pty_id: String,
+    generation: u64,
+    rd_trace: bool,
+) {
+    const FEED_BATCH_CAP: usize = 256 * 1024;
+    while let Some(mut data) = rx.blocking_recv() {
+        drain_feed_batch(&mut rx, &mut data, FEED_BATCH_CAP);
+        let started = std::time::Instant::now();
+        let (prev, now) = svc.feed_pty_output_for_generation(&pty_id, generation, &data);
+        if rd_trace && data.len() > 16 {
+            log::info!(
+                "[feed-batch] pty={} n={} elapsed={}us",
+                &pty_id[..pty_id.len().min(8)],
+                data.len(),
+                started.elapsed().as_micros(),
+            );
+        }
+        svc.emit_pane_status_if_changed(&pty_id, prev, now);
+    }
+}
+
+fn drain_feed_batch(rx: &mut tokio::sync::mpsc::Receiver<Vec<u8>>, data: &mut Vec<u8>, cap: usize) {
+    while data.len() < cap {
+        match rx.try_recv() {
+            Ok(next) => data.extend_from_slice(&next),
+            Err(_) => break,
+        }
+    }
+}
+
 /// Mark PTY as dead and emit events — mirrors the Err branch in read_pty.
-fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
+fn handle_pty_death(svc: &ServiceState, pty_id: &str, generation: u64) {
+    if !handle_pty_screen_death(&svc.pty, &svc.screen_state, pty_id, generation) {
+        log::debug!(
+            "[backend-reader] ignoring stale EOF for pty {} generation {}",
+            &pty_id[..pty_id.len().min(8)],
+            generation
+        );
+        return;
+    }
+    crate::service::orchestrator::record_reader_termination(svc, pty_id);
     let pane_id = svc.mux.read().pane_id_for_pty(pty_id);
     svc.agent_tracker.lock().set_dead(pty_id);
     svc.shell_caps.lock().remove(pty_id);
@@ -224,21 +306,33 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
         // Cron fallback: if agent died without calling cron complete, mark as failed.
         use tauri::Manager;
         if let Some(cron_state) = svc.app_handle.try_state::<crate::CronState>() {
-            // Hold the cron lock ACROSS owner-lookup and the read/write below.
-            let mut store = cron_state.lock();
-            let owner = store.get_pane_owner(pid).cloned();
-            if let Some((job_id, run_id)) = owner {
-                if store.read_log(&job_id, &run_id).is_none() {
-                    let text = svc.output_buf.lock().get_text(pty_id).unwrap_or_default();
-                    let clean = crate::pty::ansi::clean_terminal_output(&text);
-                    let _ = store.save_log(&job_id, &run_id, &clean);
-                    let _ = store.update_run_status(
-                        &job_id,
-                        &run_id,
-                        crate::cron::store::CronRunStatus::Failed,
-                    );
+            let mut fresh_transition = false;
+            let owner = {
+                // Hold the cron lock ACROSS owner-lookup and the read/write below.
+                let mut store = cron_state.lock();
+                let owner = store.get_pane_owner(pid).cloned();
+                if let Some((ref job_id, ref run_id)) = owner {
+                    if store.read_log(job_id, run_id).is_none() {
+                        let text = svc.output_buf.lock().get_text(pty_id).unwrap_or_default();
+                        let clean = crate::pty::ansi::clean_terminal_output(&text);
+                        let _ = store.save_log(job_id, run_id, &clean);
+                        fresh_transition = store
+                            .update_run_status(
+                                job_id,
+                                run_id,
+                                crate::cron::store::CronRunStatus::Failed,
+                            )
+                            .unwrap_or(false);
+                    }
+                    store.unregister_pane(pid);
                 }
-                store.unregister_pane(pid);
+                owner
+            };
+            // Notify after the store guard drops — it re-locks internally.
+            if let Some((job_id, run_id)) = owner {
+                if fresh_transition {
+                    crate::cron::notify::notify_on_consecutive_failure(svc, &cron_state, &job_id);
+                }
                 log::info!(
                     "[backend-reader] cron pane exited: job={}, run={}",
                     job_id,
@@ -291,5 +385,236 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
                 );
             }
         }
+    }
+}
+
+struct BackendReaderLease(std::sync::Arc<crate::pty::manager::PtySession>);
+
+impl Drop for BackendReaderLease {
+    fn drop(&mut self) {
+        self.0.mark_backend_reader_finished();
+    }
+}
+
+pub(crate) fn handle_pty_screen_death(
+    pty: &crate::PtyState,
+    screen_state: &crate::ScreenStateHandle,
+    pty_id: &str,
+    generation: u64,
+) -> bool {
+    handle_pty_screen_death_after_validation(pty, screen_state, pty_id, generation, || {})
+}
+
+fn handle_pty_screen_death_after_validation(
+    pty: &crate::PtyState,
+    screen_state: &crate::ScreenStateHandle,
+    pty_id: &str,
+    generation: u64,
+    after_validation: impl FnOnce(),
+) -> bool {
+    if !pty.lock().session_generation_matches(pty_id, generation) {
+        return false;
+    }
+    after_validation();
+    screen_state.lock().remove_if_generation(pty_id, generation)
+}
+
+fn terminal_query_replies(data: &[u8], _headless: bool) -> Vec<&'static [u8]> {
+    let mut replies = Vec::with_capacity(3);
+    if data.windows(3).any(|window| window == b"\x1b[c") {
+        replies.push(b"\x1b[?1;2c".as_slice());
+    }
+    if data.windows(4).any(|window| window == b"\x1b[5n") {
+        replies.push(b"\x1b[0n".as_slice());
+    }
+    if data.windows(4).any(|window| window == b"\x1b[6n") {
+        replies.push(b"\x1b[1;1R".as_slice());
+    }
+    replies
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::pty::manager::PtyManager;
+    use codeterm_pty::pty::screen_state::ScreenState;
+    use codeterm_util::lock_hold::TimedMutex;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    fn pty_state() -> crate::PtyState {
+        Arc::new(TimedMutex::new("pty", PtyManager::new()))
+    }
+
+    fn spawn_generation(pty: &crate::PtyState, pty_id: &str) -> u64 {
+        let (_, session) = pty
+            .lock()
+            .spawn_with_id(Some(pty_id.to_string()), None, None, 80, 24, HashMap::new())
+            .expect("spawn test PTY");
+        session.generation
+    }
+
+    fn replace_generation(pty: &crate::PtyState, pty_id: &str) -> u64 {
+        pty.lock().kill(pty_id).expect("remove replaced PTY");
+        spawn_generation(pty, pty_id)
+    }
+
+    fn bind_generation(screen_state: &crate::ScreenStateHandle, pty_id: &str, generation: u64) {
+        assert!(screen_state.lock().bind_pty_generation(pty_id, generation));
+    }
+
+    #[test]
+    fn resize_burst_is_drained_as_one_available_feed_batch() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(300);
+        for _ in 0..269 {
+            tx.try_send(vec![b'x'; 112]).unwrap();
+        }
+        drop(tx);
+
+        let mut data = rx.blocking_recv().unwrap();
+        super::drain_feed_batch(&mut rx, &mut data, 256 * 1024);
+
+        assert_eq!(data.len(), 269 * 112);
+        assert!(rx.blocking_recv().is_none());
+    }
+
+    #[test]
+    fn device_attributes_query_is_answered_without_frontend_input() {
+        assert_eq!(
+            super::terminal_query_replies(b"\x1b[c", false),
+            vec![b"\x1b[?1;2c".as_slice()]
+        );
+    }
+
+    #[test]
+    fn status_and_cursor_queries_are_answered_after_frontend_input_attaches() {
+        assert_eq!(
+            super::terminal_query_replies(b"\x1b[5n\x1b[6n", false),
+            vec![b"\x1b[0n".as_slice(), b"\x1b[1;1R".as_slice()]
+        );
+    }
+
+    #[test]
+    fn terminal_queries_are_answered_for_headless_panes() {
+        assert_eq!(
+            super::terminal_query_replies(b"\x1b[c\x1b[6n", true),
+            vec![b"\x1b[?1;2c".as_slice(), b"\x1b[1;1R".as_slice()]
+        );
+    }
+
+    #[test]
+    fn pty_death_screen_teardown_closes_armed_waiter() {
+        let pty = pty_state();
+        let pty_generation = spawn_generation(&pty, "pty-1");
+        let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
+        bind_generation(&screen_state, "pty-1", pty_generation);
+        let signal = screen_state.lock().subscribe_screen_changes("pty-1");
+        let generation = signal.generation();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let waiter_signal = signal.clone();
+        let waiter = std::thread::spawn(move || {
+            done_tx
+                .send(waiter_signal.wait_after(generation, Duration::from_secs(1)))
+                .unwrap();
+        });
+
+        assert!(super::handle_pty_screen_death(
+            &pty,
+            &screen_state,
+            "pty-1",
+            pty_generation,
+        ));
+
+        assert!(!done_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+        waiter.join().unwrap();
+        pty.lock().kill("pty-1").expect("cleanup PTY");
+    }
+
+    #[test]
+    fn reused_current_pty_eof_tears_down_through_global_seam() {
+        let pty = pty_state();
+        let generation = spawn_generation(&pty, "pty-1");
+        let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
+        bind_generation(&screen_state, "pty-1", generation);
+        screen_state
+            .lock()
+            .process("pty-1", b"current session output");
+
+        assert!(super::handle_pty_screen_death(
+            &pty,
+            &screen_state,
+            "pty-1",
+            generation,
+        ));
+        assert!(screen_state.lock().get_screen_text("pty-1").is_none());
+        pty.lock().kill("pty-1").expect("cleanup PTY");
+    }
+
+    #[test]
+    fn replaced_old_pty_eof_does_not_teardown_replacement_through_global_seam() {
+        let pty = pty_state();
+        let old_generation = spawn_generation(&pty, "pty-1");
+        let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
+        bind_generation(&screen_state, "pty-1", old_generation);
+        let replacement_generation = replace_generation(&pty, "pty-1");
+        bind_generation(&screen_state, "pty-1", replacement_generation);
+        screen_state
+            .lock()
+            .process("pty-1", b"replacement session output");
+
+        assert!(!super::handle_pty_screen_death(
+            &pty,
+            &screen_state,
+            "pty-1",
+            old_generation,
+        ));
+        assert!(pty
+            .lock()
+            .session_generation_matches("pty-1", replacement_generation));
+        assert!(screen_state.lock().get_screen_text("pty-1").is_some());
+        pty.lock().kill("pty-1").expect("cleanup PTY");
+    }
+
+    #[test]
+    fn reader_termination_after_replacement_preserves_new_screen_state() {
+        let pty = pty_state();
+        let old_generation = spawn_generation(&pty, "pty-1");
+        let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
+        bind_generation(&screen_state, "pty-1", old_generation);
+        let teardown_pty = pty.clone();
+        let teardown_screen = screen_state.clone();
+        let (validated_tx, validated_rx) = std::sync::mpsc::channel();
+        let (resume_tx, resume_rx) = std::sync::mpsc::channel();
+        let (result_tx, result_rx) = std::sync::mpsc::channel();
+        let old_reader = std::thread::spawn(move || {
+            result_tx
+                .send(super::handle_pty_screen_death_after_validation(
+                    &teardown_pty,
+                    &teardown_screen,
+                    "pty-1",
+                    old_generation,
+                    || {
+                        validated_tx.send(()).unwrap();
+                        resume_rx.recv().unwrap();
+                    },
+                ))
+                .unwrap();
+        });
+
+        validated_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let replacement_generation = replace_generation(&pty, "pty-1");
+        bind_generation(&screen_state, "pty-1", replacement_generation);
+        screen_state
+            .lock()
+            .process("pty-1", b"replacement session output");
+        resume_tx.send(()).unwrap();
+
+        assert!(!result_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+        old_reader.join().unwrap();
+        assert!(pty
+            .lock()
+            .session_generation_matches("pty-1", replacement_generation));
+        assert!(screen_state.lock().get_screen_text("pty-1").is_some());
+        pty.lock().kill("pty-1").expect("cleanup PTY");
     }
 }

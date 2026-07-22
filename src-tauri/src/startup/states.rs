@@ -38,11 +38,79 @@ pub(crate) struct AppStates {
     pub(crate) resize_owner: ResizeOwnerState,
 }
 
+/// Orchestration bindings the dead epoch persisted, versus what came back.
+/// Roleless panes are ordinary terminals, not in-flight work.
+fn snapshot_role_bindings(
+    snapshot: &crate::session::store::SessionSnapshot,
+) -> Vec<crate::crash::lifecycle::BindingIdentity> {
+    use crate::session::store::SplitNodeSnapshot;
+    fn collect_node(
+        node: &SplitNodeSnapshot,
+        bindings: &mut Vec<crate::crash::lifecycle::BindingIdentity>,
+    ) {
+        match node {
+            SplitNodeSnapshot::Leaf {
+                pane_id,
+                claude_session_id,
+                role,
+                ..
+            } if role.is_some() => bindings.push(crate::crash::lifecycle::BindingIdentity {
+                pane_id: pane_id.clone(),
+                agent_session_id: claude_session_id.clone(),
+            }),
+            SplitNodeSnapshot::Leaf { .. } => {}
+            SplitNodeSnapshot::Split { children, .. } => {
+                for child in children {
+                    collect_node(child, bindings);
+                }
+            }
+        }
+    }
+    let mut bindings = Vec::new();
+    for tab in snapshot.workspaces.iter().flat_map(|ws| ws.tabs.iter()) {
+        collect_node(&tab.split_tree, &mut bindings);
+    }
+    bindings
+}
+
+fn restored_role_bindings(
+    mux: &crate::multiplexer::state::MultiplexerState,
+) -> Vec<crate::crash::lifecycle::BindingIdentity> {
+    mux.snapshot()
+        .panes
+        .values()
+        .filter(|pane| pane.role.is_some())
+        .map(|pane| crate::crash::lifecycle::BindingIdentity {
+            pane_id: pane.id.clone(),
+            agent_session_id: pane.agent_session_id.clone(),
+        })
+        .collect()
+}
+
+/// Scrub prod-targeting CodeTerm env inherited when dev starts inside prod.
+/// PTYs inherit daemon env, so every child must see this instance's API target.
+pub(crate) fn scrub_inherited_api_env(config_state: &ConfigState) {
+    let api = config_state.lock().api.clone();
+    let (url, port) = config::api_callback_url(&api);
+    std::env::set_var("CODETERM_API_URL", &url);
+    std::env::set_var("CODETERM_API_PORT", &port);
+    std::env::set_var(
+        "CODETERM_SOCKET_PATH",
+        crate::socket::server::socket_display_path(),
+    );
+    match api.token {
+        Some(ref tok) if !tok.is_empty() => std::env::set_var("CODETERM_API_TOKEN", tok),
+        _ => std::env::remove_var("CODETERM_API_TOKEN"),
+    }
+    log::info!("[startup] scrubbed inherited CODETERM_API_* env -> {}", url);
+}
+
 /// Create and initialize all application states.
 pub(crate) fn init_states() -> AppStates {
     let app_config = config::load_config();
     log::info!("Config loaded: theme={}", app_config.theme.name);
     let config_state: ConfigState = Arc::new(Mutex::new(app_config));
+    scrub_inherited_api_env(&config_state);
 
     let pty_state: PtyState = Arc::new(TimedMutex::new("pty", PtyManager::new()));
     let notif_state: NotifState = Arc::new(Mutex::new(NotificationStore::new(500)));
@@ -94,10 +162,12 @@ pub(crate) fn init_states() -> AppStates {
     }));
 
     let ga_enabled = config_state.lock().general_agent.enabled;
+    let mut bound_at_shutdown = Vec::new();
     let mux_state_inner = {
         let last = session_state.lock().load_last();
         match last {
             Ok(Some(snapshot)) if !snapshot.workspaces.is_empty() => {
+                bound_at_shutdown = snapshot_role_bindings(&snapshot);
                 log::info!(
                     "Restoring session with {} workspaces, {} tabs total",
                     snapshot.workspaces.len(),
@@ -152,6 +222,13 @@ pub(crate) fn init_states() -> AppStates {
             ghost_count
         );
     }
+    let restored_bindings = restored_role_bindings(&mux_state_inner);
+    crate::crash::lifecycle::note_restored_bindings(crate::crash::lifecycle::BindingEvidence {
+        bound_at_shutdown: bound_at_shutdown.len() as u32,
+        restored: restored_bindings.len() as u32,
+        bound_identities: bound_at_shutdown,
+        restored_identities: restored_bindings,
+    });
     if general_config.enabled {
         service::general_agent::ensure_directories();
         let mut general_config = general_config;
@@ -192,5 +269,72 @@ pub(crate) fn init_states() -> AppStates {
         mesh: mesh_state,
         keepawake: keepawake::new_state(),
         resize_owner,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Serialize process-env mutation across tests in this binary.
+    static ENV_GUARD: Mutex<()> = Mutex::new(());
+
+    /// Dev launched inside prod must scrub inherited API env before PTYs spawn.
+    #[test]
+    fn scrub_overwrites_inherited_prod_api_env_with_instance_values() {
+        let _guard = ENV_GUARD.lock();
+        std::env::set_var("CODETERM_API_URL", "http://127.0.0.1:7685");
+        std::env::set_var("CODETERM_API_PORT", "7685");
+        std::env::set_var("CODETERM_API_TOKEN", "prod-token-inherited");
+
+        let mut cfg = crate::config::schema::AppConfig::default();
+        cfg.api.host = "0.0.0.0".to_string();
+        cfg.api.port = 7686;
+        cfg.api.token = Some("dev-token".to_string());
+        let config_state: ConfigState = Arc::new(Mutex::new(cfg));
+
+        scrub_inherited_api_env(&config_state);
+
+        assert_eq!(
+            std::env::var("CODETERM_API_URL").ok().as_deref(),
+            Some("http://127.0.0.1:7686"),
+            "inherited prod URL must be replaced by the running instance URL"
+        );
+        assert_eq!(
+            std::env::var("CODETERM_API_PORT").ok().as_deref(),
+            Some("7686")
+        );
+        assert_eq!(
+            std::env::var("CODETERM_API_TOKEN").ok().as_deref(),
+            Some("dev-token"),
+            "inherited prod token must be replaced by the running instance token"
+        );
+
+        std::env::remove_var("CODETERM_API_URL");
+        std::env::remove_var("CODETERM_API_PORT");
+        std::env::remove_var("CODETERM_API_TOKEN");
+    }
+
+    /// A tokenless instance must not leave a stale inherited prod token in env —
+    /// otherwise a pane would present a foreign bearer that 401s everywhere.
+    #[test]
+    fn scrub_removes_inherited_token_when_instance_has_none() {
+        let _guard = ENV_GUARD.lock();
+        std::env::set_var("CODETERM_API_TOKEN", "prod-token-inherited");
+
+        let mut cfg = crate::config::schema::AppConfig::default();
+        cfg.api.port = 7686;
+        cfg.api.token = None;
+        let config_state: ConfigState = Arc::new(Mutex::new(cfg));
+
+        scrub_inherited_api_env(&config_state);
+
+        assert!(
+            std::env::var("CODETERM_API_TOKEN").is_err(),
+            "tokenless instance must clear an inherited token, not keep prod's"
+        );
+        std::env::remove_var("CODETERM_API_URL");
+        std::env::remove_var("CODETERM_API_PORT");
+        std::env::remove_var("CODETERM_SOCKET_PATH");
     }
 }

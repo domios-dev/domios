@@ -1,0 +1,14 @@
+.ds-plan-entry{position:relative;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:var(--ct-space-2);width:100%;padding:var(--ct-space-1-5);border:0;border-radius:5px;background:transparent;color:var(--ct-fg);text-align:left;cursor:pointer;overflow:hidden;transform-origin:center;transition:transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell),background var(--ct-duration-fast) var(--ct-ease-decel)}
+.ds-plan-entry:hover,.ds-plan-entry--selected{background:var(--ct-hover)}.ds-plan-entry:hover{transform:scale(1.01)}.ds-plan-entry:active{transform:scale(.978);transition-duration:var(--ct-duration-instant)}
+.ds-plan-entry--selected{box-shadow:inset 2px 0 var(--ct-accent)}
+.ds-plan-entry__donut{animation:ds-plan-donut-in var(--ct-duration-liquid-donut) var(--ct-ease-squash-jump)}
+.ds-plan-entry__copy{display:grid;gap:2px;min-width:0;font-size:12px;font-weight:600}
+.ds-plan-entry__title{display:flex;align-items:center;gap:var(--ct-space-1);min-width:0}
+.ds-plan-entry__title-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ds-plan-entry__copy small{overflow:hidden;color:var(--ct-muted-fg);font-size:10px;font-weight:400;text-overflow:ellipsis;white-space:nowrap}
+.ds-plan-entry__count{align-self:start;margin-top:2px;font:10px var(--ct-font-mono);color:var(--ct-muted-fg);animation:ds-plan-press-pop var(--ct-duration-liquid-press) var(--ct-ease-squash-jump)}
+.ds-plan-entry.is-all-done:after{position:absolute;inset:0;content:"";pointer-events:none;background:linear-gradient(105deg,transparent 35%,color-mix(in srgb,var(--ct-on-accent) 30%,transparent) 50%,transparent 65%);transform:translateX(-120%);animation:ds-plan-all-done-sweep var(--ct-duration-liquid-sweep) var(--ct-ease-liquid-settle)}
+@keyframes ds-plan-donut-in{0%{transform:scale(.86)}55%{transform:scale(1.06)}100%{transform:scale(1)}}
+@keyframes ds-plan-press-pop{0%{transform:scale(.955)}55%{transform:scale(1.045)}100%{transform:scale(1)}}
+@keyframes ds-plan-all-done-sweep{to{transform:translateX(120%)}}
+@media(prefers-reduced-motion:reduce){.ds-plan-entry,.ds-plan-entry:hover,.ds-plan-entry:active{transform:none;transition:none}.ds-plan-entry__donut,.ds-plan-entry__count,.ds-plan-entry.is-all-done:after{animation:none}}

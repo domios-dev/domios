@@ -27,6 +27,17 @@ fn codex() -> JsProvider {
 }
 
 #[test]
+fn busy_turn_steers_after_the_next_tool_call() {
+    if require_plugins().is_none() {
+        return;
+    }
+    assert_eq!(
+        codex().busy_submit_strategy(),
+        crate::provider::BusySubmitStrategy::SubmitNormally
+    );
+}
+
+#[test]
 fn build_launch_command_shape() {
     if require_plugins().is_none() {
         return;
@@ -66,6 +77,43 @@ fn build_launch_command_shape() {
 }
 
 #[test]
+fn idle_starter_case() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let provider = codex();
+    let task = "manager identity arrives in the developer channel";
+    let assigned = provider.build_launch_command(&AgentLaunchParams {
+        task: Some(task.into()),
+        ..Default::default()
+    });
+    let idle = provider.build_launch_command(&AgentLaunchParams {
+        task: Some(task.into()),
+        starter_prompt: crate::provider::StarterPrompt::IdleWakeup,
+        ..Default::default()
+    });
+    let team = provider.build_launch_command(&AgentLaunchParams {
+        task: Some(task.into()),
+        starter_prompt: crate::provider::StarterPrompt::TeamBootstrap,
+        ..Default::default()
+    });
+    let assigned_prompt = provider
+        .starter_prompt_text(crate::provider::StarterPrompt::AssignedTask)
+        .expect("Codex plugin must provide the assigned-task starter");
+    let idle_prompt = provider
+        .starter_prompt_text(crate::provider::StarterPrompt::IdleWakeup)
+        .expect("Codex plugin must provide the idle starter");
+    let team_prompt = provider
+        .starter_prompt_text(crate::provider::StarterPrompt::TeamBootstrap)
+        .expect("Codex plugin must provide the team starter");
+    assert!(assigned.contains(&assigned_prompt));
+    assert!(idle.contains(&idle_prompt));
+    assert!(!idle.contains(&assigned_prompt));
+    assert!(team.contains(&team_prompt));
+    assert!(!team.contains(&assigned_prompt));
+}
+
+#[test]
 fn build_resume_command_shape() {
     if require_plugins().is_none() {
         return;
@@ -85,6 +133,41 @@ fn build_resume_command_shape() {
     assert!(!no_skip.contains("--dangerously-bypass-approvals-and-sandbox"));
     assert!(!no_skip.contains("--dangerously-bypass-hook-trust"));
     assert!(no_skip.contains(CODEX_UUID));
+}
+
+#[test]
+fn directory_trust_prompt_response_is_provider_declared() {
+    if require_plugins().is_none() {
+        return;
+    }
+    use codeterm_types::pty::{PendingPrompt, PromptOption};
+    let prompt = PendingPrompt {
+        question: "Do you trust the contents of this directory?".into(),
+        options: vec![
+            PromptOption {
+                label: "Yes, continue".into(),
+                value: "1".into(),
+            },
+            PromptOption {
+                label: "No, quit".into(),
+                value: "2".into(),
+            },
+        ],
+        sections: None,
+        multi_select: None,
+        submit_available: None,
+        selected_values: None,
+    };
+    assert!(codex()
+        .directory_trust_prompt_response(&prompt, "1. Yes, continue")
+        .is_some());
+    let foreign_prompt = PendingPrompt {
+        question: "Approve this command?".into(),
+        ..prompt
+    };
+    assert!(codex()
+        .directory_trust_prompt_response(&foreign_prompt, "1. Yes, continue")
+        .is_none());
 }
 
 #[test]
@@ -233,7 +316,7 @@ fn session_fs_capabilities_over_rollout_tree() {
         "\n",
         r#"{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}}"#,
         "\n",
-        r#"{"type":"turn_context","payload":{"model":"gpt-5-codex"}}"#,
+        r#"{"type":"turn_context","payload":{"model":"gpt-5.6-sol"}}"#,
         "\n",
     );
     std::fs::write(&file, contents).unwrap();
@@ -266,11 +349,11 @@ fn session_fs_capabilities_over_rollout_tree() {
     assert_eq!(s.project_path.as_deref(), Some("/work/proj"));
     assert_eq!(s.file_path, file.to_string_lossy());
 
-    // detectSessionModel reads turn_context.model → short label → catalog id.
+    // detectSessionModel preserves the exact model reported by this session.
     let model = j
         .detect_session_model("/work/proj", CODEX_UUID)
         .expect("detectSessionModel must resolve a model");
-    assert!(!model.is_empty(), "resolved model id must be non-empty");
+    assert_eq!(model, "gpt-5.6-sol");
 }
 
 #[test]

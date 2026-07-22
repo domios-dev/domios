@@ -18,7 +18,7 @@ pub struct AgedOpenTask {
     pub age_ms: u64,
 }
 
-// non-open (terminal/parked) statuses.
+// non-open (terminal/paused) statuses.
 pub fn stale_threshold_ms(status: &TaskStatus) -> Option<u64> {
     match status {
         TaskStatus::InReview => Some(IN_REVIEW_UNJUDGED_STALE_MS),
@@ -63,8 +63,27 @@ pub enum PaneRole {
 pub struct PaneProbe {
     pub exists: bool,
     pub live_agent: bool,
+    /// The session which proved it owns this pane through the launch nonce.
+    pub agent_session_id: Option<String>,
+    /// A nonce-verified session binding exists for the reported session.
+    pub session_binding_valid: bool,
+    /// Delivery is directed to an agent chat transport, never a bare shell.
+    pub chat_delivery_target: bool,
+    /// The agent is ready, working, or idle; questions and unknown states do not route work.
+    pub agent_accepting_work: bool,
     pub role: Option<PaneRole>,
     pub parent_pane_id: Option<String>,
+}
+
+impl PaneProbe {
+    pub fn planner_routable_for(&self, expected_session_id: Option<&str>) -> bool {
+        self.live_agent
+            && self.session_binding_valid
+            && self.chat_delivery_target
+            && self.agent_accepting_work
+            && expected_session_id
+                .is_some_and(|expected| self.agent_session_id.as_deref() == Some(expected))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -380,6 +399,11 @@ mod tests {
             status,
             review_stage: Default::default(),
             qa_state: None,
+            review_round: 0,
+            review_oracle: None,
+            review_evidence: vec![],
+            review_override: None,
+            review_audit: vec![],
             status_label: None,
             priority: TaskPriority::P2,
             created_at: 0,
@@ -394,6 +418,7 @@ mod tests {
             competition: None,
             intent: None,
             parent_task_id: None,
+            depends_on: vec![],
             assigned_pane_id: None,
             lane: Default::default(),
             taken_by_role: None,
@@ -402,8 +427,9 @@ mod tests {
             canvas: Default::default(),
             milestones: vec![],
             execution_attempts: vec![],
-            park_reason: None,
+            pause_reason: None,
             personality: None,
+            personality_provenance: None,
             attachments: vec![],
         }
     }
@@ -461,15 +487,15 @@ mod tests {
     }
 
     #[test]
-    fn aged_open_tasks_names_stale_work_and_skips_parked() {
+    fn aged_open_tasks_names_stale_work_and_skips_paused() {
         let mut pending = task("p1", TaskStatus::Pending);
         pending.status_changed_at = 1;
-        let mut parked = task("k1", TaskStatus::Parked);
-        parked.status_changed_at = 1;
+        let mut paused = task("k1", TaskStatus::Paused);
+        paused.status_changed_at = 1;
         let mut fresh = task("f1", TaskStatus::InReview);
         fresh.status_changed_at = PENDING_UNSTAFFED_STALE_MS;
         let now = PENDING_UNSTAFFED_STALE_MS + 10;
-        let aged = aged_open_tasks(&plan(vec![pending, parked, fresh]), now);
+        let aged = aged_open_tasks(&plan(vec![pending, paused, fresh]), now);
         assert_eq!(aged.len(), 1);
         assert_eq!(aged[0].task_id, "p1");
     }
@@ -533,6 +559,7 @@ mod tests {
             live_agent: false,
             role: Some(PaneRole::Worker),
             parent_pane_id: Some("other-orch".into()),
+            ..Default::default()
         });
         assert!(items[0].not_mine);
     }
@@ -617,6 +644,7 @@ mod tests {
                     live_agent: false,
                     role: Some(PaneRole::Worker),
                     parent_pane_id: Some("other-orch".into()),
+                    ..Default::default()
                 }
             });
         assert!(demotions.is_empty());

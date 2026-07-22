@@ -48,7 +48,7 @@ itself, bounded:
 - Shell/drill: poll for the log marker / file / health endpoint with a
   timeout loop (`until <check> || deadline; sleep 1`).
 - Agents: **spawned is not ready.** A pane existing does not mean the agent
-  accepts input. Poll readiness (`pane status`, the launch-ready log line)
+  accepts input. Poll readiness (`tab status`, the launch-ready log line)
   before the first injection. Case study: a drill triggered its scenario 8s
   after spawn; the agent took 15s to become ready; every injection bounced
   and the test "hung" — the race was in the harness, not the product.
@@ -56,7 +56,31 @@ itself, bounded:
 Justified sleep residue (a truly time-based contract) carries an inline
 one-line reason, or it gets deleted by the next hygiene pass.
 
-## 4. Testing systems that contain agents
+## 4. Playwright mechanics
+
+The Playwright suite has concrete helper contracts; use them instead of
+re-deriving timing and cleanup in each spec.
+
+- Canvas and Mission Control specs wait on `waitForCanvasSettled` from
+  `tests/playwright/helpers/canvas-inspect.ts`. It watches projected geometry
+  across animation frames, so a spec waits for the app surface instead of a
+  blanket sleep.
+- Daemon-killing coverage is isolated in the restart project. Specs tagged
+  `@restart` are excluded from shared `smoke`, `golden`, and `full` runs, then
+  executed serially so ordinary shards do not lose their daemon mid-test.
+- The default fixture snapshots state with `snapshotBaseline` and tears down
+  only test-created work with `diffReset` from `tests/playwright/helpers/reset.ts`.
+  Fixture setup may self-heal a dead dev daemon, but one crash must fail one
+  test, not cascade into a whole shard.
+- Agent-flow golden tests use the debug-only `CODETERM_STUB_AGENT_CMD` transport
+  when real provider liveness is not the oracle. The replayer lives under
+  `tests/playwright/fixtures/stub-agent/` and preserves the real provider launch,
+  parser, detection, status, and session paths.
+- Playwright measurement harnesses live outside flow assertions. Latency, rAF,
+  longtask, and replay-speed probes produce metrics artifacts; product-flow
+  specs assert behavior and keep their own caps tight.
+
+## 5. Testing systems that contain agents
 
 The hardest class. Rules:
 
@@ -74,14 +98,14 @@ The hardest class. Rules:
   — faster, exact oracles, no flake. Go live only when liveness is the thing
   under test.
 
-## 5. Bounded everything
+## 6. Bounded everything
 
 Every run has a per-test timeout and a global timeout. Every spawned process
 group can be killed as a group. A test that *can* hang forever is a defect
 regardless of what it asserts. When a cap fires mid-execution, that is a
 finding to read, not a number to raise.
 
-## 6. Scripts are code
+## 7. Scripts are code
 
 A drill/harness that shells out to a CLI must be smoke-run against the real
 binary before it is committed — CLI signatures drift, hint lines pollute
@@ -89,14 +113,14 @@ stdout, `--json` output gets wrapped. Parse defensively (extract the JSON,
 don't assume the stream is clean). The harness gets the same red-green
 treatment as the test.
 
-## 7. Say what you test
+## 8. Say what you test
 
 Every spec/drill opens with a 3–8 line header: **WHAT** is tested, **WHY**
 it exists (feature contract or regression root cause), and the **ORACLE** in
 one sentence. In-file codename taxonomies (RAIL-4, GRP-*) are defined in the
 header that uses them or not used at all. Headerless test files fail review.
 
-## 8. Evidence, not claims
+## 9. Evidence, not claims
 
 A test report states: the exact command run, pass/fail/skip counts, and for
 reds — the trace/log excerpt naming the failing oracle. "Passed locally" with
@@ -130,4 +154,4 @@ Keeping the repo path in the role_guidance still matters for local contributors;
 the embedded copy gives spawned agents a stable recovery path when they are
 outside this checkout.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

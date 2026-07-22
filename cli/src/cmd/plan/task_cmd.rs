@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 
 use crate::args::plan::PlanTaskAction;
-use crate::client::SocketClient;
+use crate::client::RpcClient;
 use crate::cmd::hints::{
     maybe_orchestration_reminder, push_hints, task_model_hint, task_quality_guard_hint,
     task_sections_hint,
@@ -126,7 +126,7 @@ fn render_attempt(value: &Value) -> String {
 }
 
 pub(super) fn run_task(
-    client: &mut SocketClient,
+    client: &mut dyn RpcClient,
     json: bool,
     action: PlanTaskAction,
 ) -> Result<Option<Value>, String> {
@@ -142,11 +142,13 @@ pub(super) fn run_task(
             if let Some(plan_id) = plan_id {
                 params["plan_id"] = json!(plan_id);
             }
-            if let Some(project) = std::env::current_dir()
-                .ok()
-                .map(|path| path.display().to_string())
-            {
-                params["project"] = json!(project);
+            if !client.is_remote() {
+                if let Some(project) = std::env::current_dir()
+                    .ok()
+                    .map(|path| path.display().to_string())
+                {
+                    params["project"] = json!(project);
+                }
             }
             if let Some(status) = status {
                 params["status"] = json!(status);
@@ -173,6 +175,7 @@ pub(super) fn run_task(
             intent,
             intent_file,
             parent,
+            depends_on,
             assign_pane,
             workspace_id,
             workspace_name,
@@ -200,6 +203,7 @@ pub(super) fn run_task(
                 .unwrap_or(false);
             let has_model = model.as_deref().is_some_and(|s| !s.trim().is_empty());
             let has_why = why_text.as_deref().is_some_and(|s| !s.trim().is_empty());
+            let has_body = body_text.as_deref().is_some_and(|s| !s.trim().is_empty());
             let has_criteria = criterion.iter().any(|s| !s.trim().is_empty());
             let has_test_plan = test_plan.as_deref().is_some_and(|s| !s.trim().is_empty());
             let has_correctness = correctness.as_deref().is_some_and(|s| !s.trim().is_empty());
@@ -245,6 +249,9 @@ pub(super) fn run_task(
             }
             if let Some(p) = parent {
                 params["parent"] = json!(p);
+            }
+            if !depends_on.is_empty() {
+                params["depends_on"] = json!(depends_on);
             }
             if let Some(p) = assign_pane {
                 params["assign_pane"] = json!(p);
@@ -301,6 +308,7 @@ pub(super) fn run_task(
                 if let Some(hint) = task_quality_guard_hint(
                     &plan_id,
                     &task_id,
+                    has_body,
                     has_criteria,
                     has_test_plan,
                     has_correctness,
@@ -337,6 +345,8 @@ pub(super) fn run_task(
             test_plan,
             correctness,
             parent,
+            depends_on,
+            clear_dependencies,
             pane,
             workspace_id,
             workspace_name,
@@ -377,6 +387,8 @@ pub(super) fn run_task(
                 test_plan,
                 correctness,
                 parent,
+                depends_on,
+                clear_dependencies,
                 pane,
                 workspace_id,
                 workspace_name,
@@ -418,7 +430,7 @@ pub(super) fn run_task(
             }
             call(client, "plan.task.close", params).map(Some)
         }
-        PlanTaskAction::Park {
+        PlanTaskAction::Pause {
             plan_id,
             task_id,
             reason,
@@ -432,9 +444,9 @@ pub(super) fn run_task(
             if let Some(pid) = plan_ref {
                 params["plan_id"] = json!(pid);
             }
-            call(client, "plan.task.park", params).map(Some)
+            call(client, "plan.task.pause", params).map(Some)
         }
-        PlanTaskAction::Unpark { plan_id, task_id } => {
+        PlanTaskAction::Resume { plan_id, task_id } => {
             let (plan_ref, task_ref) = split_task_ref(Some(plan_id), task_id);
             let mut params = json!({
                 "task_id": task_ref,
@@ -443,7 +455,7 @@ pub(super) fn run_task(
             if let Some(pid) = plan_ref {
                 params["plan_id"] = json!(pid);
             }
-            call(client, "plan.task.unpark", params).map(Some)
+            call(client, "plan.task.resume", params).map(Some)
         }
         PlanTaskAction::Assign {
             plan_id,
@@ -469,6 +481,7 @@ pub(super) fn run_task(
             task_id,
             agent,
             model,
+            reasoning_effort,
             parent,
             workspace,
             cwd,
@@ -483,6 +496,9 @@ pub(super) fn run_task(
             }
             if let Some(model) = model {
                 params["model"] = json!(model);
+            }
+            if let Some(effort) = reasoning_effort {
+                params["reasoning_effort"] = json!(effort);
             }
             if let Some(parent) = parent {
                 params["parent_pane_id"] = json!(parent);

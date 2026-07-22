@@ -129,7 +129,7 @@ element + sidecar for the same plan fixture.
    send-to-pane path (the one `agent compact` uses). Fresh zero-context session, same tab.
 3. **Detect fresh session ready** — wait for the pane's new session id / prompt-ready signal
    (reuse pane-status plumbing), flip `reseed_state:"sent"`.
-4. **Seed ONE message** via `codeterm send --pane <self>` — the generated `resume_prompt`,
+4. **Seed ONE message** via `codeterm send --tab <self>` — the generated `resume_prompt`,
    deliberately LEAN (does not inline the whole handoff):
    > You are the orchestrator resuming plan `<handle>` after a directed context reset
    > (handoff #3). Do this IN ORDER, do not re-plan:
@@ -239,6 +239,8 @@ emit. The orchestrator does this constantly -> verbose, high-friction, fan-out c
 **Consolidated surface — `codeterm plan record` over a batch endpoint.**
 
 ```
+
+<!-- revision: 1 -->
 POST /api/plans/:id/batch  { "ops": [ {op,...}, ... ] }   # atomic, single-writer, ONE emit
   ops: upsert_task | set_body | add_milestone | declare_kind | link | add_handoff
 ```

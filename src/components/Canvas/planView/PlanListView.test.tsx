@@ -3,6 +3,7 @@
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
+import type { Workspace } from "../../../lib/types";
 import { FIXTURE_PLAN, FIXTURE_SECTION, FIXTURE_TASK } from "../cards/fixtures.testdata";
 import { buildPerfFixturePlans } from "../perfFixture";
 import { TaskStatus, type Plan } from "../types";
@@ -51,13 +52,28 @@ async function render(ui: ReactElement) {
   };
 }
 
+// FIXTURE_PLAN owner is orch-1; perf-fixture plans own perf_orch — bind both.
+const WS_ID = "ws-test";
+const WORKSPACES: Workspace[] = [
+  {
+    id: WS_ID,
+    name: "Test",
+    tabs: [
+      { id: "tab-orch", pane_id: "orch-1" },
+      { id: "tab-perf", pane_id: "perf_orch" },
+    ],
+    active_tab_id: null,
+    cwd: null,
+  },
+];
+
 test("renders plan root and task rows with stable test ids", async () => {
   const plan: Plan = {
     ...FIXTURE_PLAN,
     sections: [FIXTURE_SECTION],
     tasks: [FIXTURE_TASK],
   };
-  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const { host, unmount } = await render(<PlanListView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[plan]} />);
   assert(host.querySelector('[data-testid="plan-list-view"]'), "root");
   assert(host.querySelector('[data-testid="plan-list-scroll"]'), "scroll region");
   assert(host.querySelector('[data-testid="plan-list-filter"]'), "filter toolbar");
@@ -76,7 +92,7 @@ test("renders plan root and task rows with stable test ids", async () => {
 
 test("spec opens via header chip, not a spec tree in the list", async () => {
   const [plan] = buildPerfFixturePlans(8);
-  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const { host, unmount } = await render(<PlanListView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[plan]} />);
   assert(host.querySelector('[data-testid="plan-board-spec-title"]'), "spec chip in context header");
   assert(!host.querySelector('[data-testid="plan-list-spec-root"]'), "no spec root band in list");
   assert(!host.querySelector('[data-testid="plan-list-spec-section"]'), "no spec sections in list");
@@ -84,7 +100,7 @@ test("spec opens via header chip, not a spec tree in the list", async () => {
 });
 
 test("empty state when no active plans", async () => {
-  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[]} />);
+  const { host, unmount } = await render(<PlanListView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[]} />);
   assert(host.querySelector('[data-testid="plan-list-empty"]'), "empty state");
   await unmount();
 });
@@ -95,7 +111,7 @@ test("task title is a single-line cell with full name preserved for tooltip", as
     ...FIXTURE_PLAN,
     tasks: [{ ...FIXTURE_TASK, name: longName }],
   };
-  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const { host, unmount } = await render(<PlanListView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[plan]} />);
   const row = host.querySelector('[data-testid="plan-list-task"]') as HTMLElement | null;
   const title = host.querySelector('[data-testid="plan-list-task"] [data-testid="plan-list-title"]') as HTMLElement | null;
   assert(title?.className.includes("plan-list-title"), "alignment-grid title cell");
@@ -113,7 +129,7 @@ test("done-only section defaults to rollup instead of task rows", async () => {
       { ...FIXTURE_TASK, id: "t-done-2", status: TaskStatus.Done, name: "Also done", section_ids: ["sec-done"] },
     ],
   };
-  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const { host, unmount } = await render(<PlanListView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[plan]} />);
   assert(host.querySelector('[data-testid="plan-list-done-rollup"]'), "rollup row");
   assert(!host.querySelector('[data-testid="plan-list-task"]'), "no expanded done tasks");
   assert(host.textContent?.includes("2 done"), "rollup count");
@@ -126,7 +142,7 @@ test("section collapse toggle expands hidden tasks", async () => {
     sections: [{ ...FIXTURE_SECTION, id: "sec-done", title: "Shipped" }],
     tasks: [{ ...FIXTURE_TASK, id: "t-done-1", status: TaskStatus.Done, section_ids: ["sec-done"] }],
   };
-  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const { host, unmount } = await render(<PlanListView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[plan]} />);
   const section = host.querySelector('[data-testid="plan-list-plan-section"]') as HTMLElement;
   assert(section, "section row");
   await act(async () => {
@@ -145,7 +161,7 @@ test("status filter chip limits visible tasks", async () => {
       { ...FIXTURE_TASK, id: "t-done", status: TaskStatus.Done, name: "Finished" },
     ],
   };
-  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const { host, unmount } = await render(<PlanListView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[plan]} />);
   const doneChip = host.querySelector('[data-testid="plan-list-filter-status-done"]') as HTMLElement;
   await act(async () => {
     doneChip.click();
@@ -156,28 +172,28 @@ test("status filter chip limits visible tasks", async () => {
   await unmount();
 });
 
-test("parked tasks stay in pending group with parked chip and reason title", async () => {
+test("paused tasks stay in pending group with paused chip and reason title", async () => {
   const plan: Plan = {
     ...FIXTURE_PLAN,
     sections: [FIXTURE_SECTION],
     tasks: [
       {
         ...FIXTURE_TASK,
-        id: "t-parked",
-        status: TaskStatus.Parked,
+        id: "t-paused",
+        status: TaskStatus.Paused,
         name: "Deferred lane",
-        park_reason: "Provider quotas exhausted",
+        pause_reason: "Provider quotas exhausted",
       },
     ],
   };
-  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const { host, unmount } = await render(<PlanListView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[plan]} />);
   const group = host.querySelector('[data-testid="plan-list-plan-section"]') as HTMLElement;
-  assert(group?.textContent?.includes("Pending"), "parked task grouped under pending");
+  assert(group?.textContent?.includes("Pending"), "paused task grouped under pending");
   const row = host.querySelector('[data-testid="plan-list-task"]') as HTMLElement;
-  assert(row?.getAttribute("data-task-id") === "t-parked", "parked task visible");
-  assert(row.className.includes("plan-list-row-parked"), "parked row style");
-  assert(row.getAttribute("title") === "Parked: Provider quotas exhausted", "park reason title");
-  assert(row.querySelector('[data-testid="plan-list-parked-chip"]')?.textContent === "parked", "parked chip");
+  assert(row?.getAttribute("data-task-id") === "t-paused", "paused task visible");
+  assert(row.className.includes("plan-list-row-paused"), "paused row style");
+  assert(row.getAttribute("title") === "Paused: Provider quotas exhausted", "pause reason title");
+  assert(row.querySelector('[data-testid="plan-list-paused-chip"]')?.textContent === "paused", "paused chip");
   await unmount();
 });
 
@@ -187,7 +203,7 @@ test("clicking a task row opens PlanDetailOverlay", async () => {
     sections: [FIXTURE_SECTION],
     tasks: [{ ...FIXTURE_TASK, id: "t-open", status: TaskStatus.Pending, name: "Open me" }],
   };
-  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const { host, unmount } = await render(<PlanListView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[plan]} />);
   const row = host.querySelector('[data-testid="plan-list-task"]') as HTMLElement;
   assert(row, "task row");
   await act(async () => {
@@ -204,7 +220,7 @@ test("clicking context header plan title opens plan detail overlay", async () =>
     ...FIXTURE_PLAN,
     tasks: [{ ...FIXTURE_TASK, status: TaskStatus.Pending }],
   };
-  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const { host, unmount } = await render(<PlanListView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[plan]} />);
   const planTitle = host.querySelector('[data-testid="plan-board-plan-title"]') as HTMLElement;
   await act(async () => {
     planTitle.click();
@@ -221,7 +237,7 @@ test("clicking a row belonging chip opens plan detail overlay", async () => {
     sections: [FIXTURE_SECTION],
     tasks: [{ ...FIXTURE_TASK, id: "t-chip", status: TaskStatus.Pending, name: "Chip target" }],
   };
-  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const { host, unmount } = await render(<PlanListView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[plan]} />);
   const chip = host.querySelector('[data-testid="plan-list-belonging-chip"]') as HTMLElement;
   assert(chip, "belonging chip");
   await act(async () => {
@@ -241,7 +257,7 @@ test("cancelled filter chip shows only cancelled tasks", async () => {
       { ...FIXTURE_TASK, id: "t-cancelled", status: TaskStatus.Cancelled, name: "Dropped work", handle: "drop-it" },
     ],
   };
-  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const { host, unmount } = await render(<PlanListView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[plan]} />);
   const chip = host.querySelector('[data-testid="plan-list-filter-status-cancelled"]') as HTMLElement;
   assert(chip?.textContent?.includes("Cancelled (1)"), "cancelled chip with count");
   await act(async () => {
@@ -260,7 +276,7 @@ test("task row is selectable and suppresses open on drag", async () => {
     sections: [FIXTURE_SECTION],
     tasks: [{ ...FIXTURE_TASK, id: "t-drag", status: TaskStatus.Pending, name: "Drag test" }],
   };
-  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const { host, unmount } = await render(<PlanListView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[plan]} />);
   const row = host.querySelector('[data-testid="plan-list-task"]') as HTMLElement;
   assert(row?.getAttribute("role") === "button", "task row remains activatable");
   assert(row.className.includes("plan-task-selectable"), "selectable class");
@@ -297,7 +313,7 @@ test("list: archive action removes plan from active switcher and switches select
     updated_at: 999,
     tasks: [{ ...FIXTURE_TASK, id: "b1", status: TaskStatus.Pending, name: "Beta task" }],
   };
-  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[planA, planB]} />);
+  const { host, unmount } = await render(<PlanListView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[planA, planB]} />);
   assert(host.querySelector('[data-testid="plan-switcher"]'), "switcher visible");
 
   const kebab = host.querySelector(
@@ -339,7 +355,7 @@ test("list: unarchive brings plan back to active switcher", async () => {
     tasks: [],
   };
   const { host, unmount } = await render(
-    <PlanListView mode="workspace" plans={[active, archived]} />,
+    <PlanListView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[active, archived]} />,
   );
   const toggle = host.querySelector('[data-testid="plan-switcher-archived-toggle"]') as HTMLElement;
   assert(toggle, "archived toggle present");
@@ -371,7 +387,7 @@ test("default list hides in-flight strip when status group shows tasks", async (
     sections: [FIXTURE_SECTION],
     tasks: [{ ...FIXTURE_TASK, id: "t-wip", status: TaskStatus.InProgress, name: "WIP task" }],
   };
-  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const { host, unmount } = await render(<PlanListView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[plan]} />);
   assert(host.querySelector('[data-testid="plan-list-task"][data-task-id="t-wip"]'), "in-flight task in list");
   assert(!host.querySelector('[data-testid="active-work-strip"]'), "strip hidden when list shows in-flight");
   await unmount();
@@ -386,7 +402,7 @@ test("done filter shows in-flight strip for hidden active tasks", async () => {
       { ...FIXTURE_TASK, id: "t-done", status: TaskStatus.Done, name: "Done task" },
     ],
   };
-  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const { host, unmount } = await render(<PlanListView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[plan]} />);
   const doneChip = host.querySelector('[data-testid="plan-list-filter-status-done"]') as HTMLElement;
   await act(async () => {
     doneChip.click();
@@ -402,7 +418,7 @@ test("collapsed in progress section shows in-flight strip", async () => {
     ...FIXTURE_PLAN,
     tasks: [{ ...FIXTURE_TASK, id: "t-wip", status: TaskStatus.InProgress, name: "WIP task" }],
   };
-  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const { host, unmount } = await render(<PlanListView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[plan]} />);
   const section = host.querySelector('[data-testid="plan-list-plan-section"]') as HTMLElement;
   assert(section?.textContent?.includes("In progress + review"), "active status group");
   await act(async () => {
@@ -423,7 +439,7 @@ test("done filter caps heavy done plans with show-all toggle", async () => {
     updated_at: 250 - i,
   }));
   const plan: Plan = { ...FIXTURE_PLAN, tasks };
-  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const { host, unmount } = await render(<PlanListView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[plan]} />);
   const doneChip = host.querySelector('[data-testid="plan-list-filter-status-done"]') as HTMLElement;
   await act(async () => {
     doneChip.click();
@@ -454,7 +470,7 @@ test("in-flight strip click opens task detail when strip is visible", async () =
       { ...FIXTURE_TASK, id: "t-done", status: TaskStatus.Done, name: "Done task" },
     ],
   };
-  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const { host, unmount } = await render(<PlanListView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[plan]} />);
   const doneChip = host.querySelector('[data-testid="plan-list-filter-status-done"]') as HTMLElement;
   await act(async () => {
     doneChip.click();

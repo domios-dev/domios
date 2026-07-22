@@ -43,6 +43,7 @@ pub(in crate::service_plan) struct TaskAddExpectation {
     executor_role: Option<String>,
     intent: Option<String>,
     parent_task_id: Option<String>,
+    pub(in crate::service_plan) depends_on: Vec<String>,
     assigned_pane_id: Option<String>,
     lane: TaskLaneMetadata,
     group: Option<String>,
@@ -88,6 +89,7 @@ impl PlanStore {
             executor_role: task.executor_role.clone(),
             intent: task.intent.clone(),
             parent_task_id: task.parent_task_id.clone(),
+            depends_on: task.depends_on.clone(),
             assigned_pane_id: task.assigned_pane_id.clone(),
             lane: task.lane.clone(),
             group: task.group.clone(),
@@ -231,6 +233,9 @@ impl PlanStore {
         }
         if task.parent_task_id != expected.parent_task_id {
             return Err(fail("parent_task_id"));
+        }
+        if task.depends_on != expected.depends_on {
+            return Err(fail("depends_on"));
         }
         if task.assigned_pane_id != expected.assigned_pane_id {
             return Err(fail("assigned_pane_id"));
@@ -476,6 +481,22 @@ impl PlanStore {
         Ok(())
     }
 
+    pub(in crate::service_plan) fn verify_task_dependencies_updated(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        depends_on: &[String],
+    ) -> Result<(), PlanError> {
+        let task = self.read_task_for_verification(plan_id, task_id)?;
+        if task.depends_on != depends_on {
+            return Err(Self::task_readback_error(
+                "task_dependency_update",
+                format!("depends_on did not match for {}", task.id),
+            ));
+        }
+        Ok(())
+    }
+
     pub(in crate::service_plan) fn verify_task_removed(
         &self,
         plan_id: &str,
@@ -493,6 +514,48 @@ impl PlanStore {
                 "task_remove",
                 format!("task {task_id} still exists after removal"),
             ));
+        }
+        Ok(())
+    }
+
+    pub(in crate::service_plan) fn verify_task_removal_rejected(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        dependent_task_ids: &[String],
+    ) -> Result<(), PlanError> {
+        let plan = self
+            .committed_plan_for(plan_id)
+            .ok_or(PlanError::NotFound)?;
+        if !plan
+            .tasks
+            .iter()
+            .any(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+        {
+            return Err(Self::task_readback_error(
+                "task_remove",
+                format!("task {task_id} was removed despite dependency rejection"),
+            ));
+        }
+        for dependent_task_id in dependent_task_ids {
+            let Some(task) = plan.tasks.iter().find(|task| task.id == *dependent_task_id) else {
+                return Err(Self::task_readback_error(
+                    "task_remove",
+                    format!("dependent task {dependent_task_id} missing after rejection"),
+                ));
+            };
+            if !task
+                .depends_on
+                .iter()
+                .any(|dependency_id| dependency_id == task_id)
+            {
+                return Err(Self::task_readback_error(
+                    "task_remove",
+                    format!(
+                        "dependent task {dependent_task_id} no longer references {task_id} after rejection"
+                    ),
+                ));
+            }
         }
         Ok(())
     }

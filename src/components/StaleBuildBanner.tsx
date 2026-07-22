@@ -42,9 +42,11 @@ export function StaleBuildBanner() {
         style={{ color: "var(--ct-yellow)" }}
       />
       <span className="flex-1 text-[11px]" style={{ color: "var(--ct-fg)" }}>
-        <span className="font-semibold">Backend is stale</span>
-        {" — "}built{" "}
+        <span className="font-semibold">Runtime identity mismatch</span>
+        {" — "}
+        daemon <code className="font-mono">{mismatch.backendVersion}</code>/
         <code className="font-mono">{mismatch.backendHash}</code>, UI expects{" "}
+        <code className="font-mono">{mismatch.frontendVersion}</code>/
         <code className="font-mono">{mismatch.frontendHash}</code>. Restart dev:{" "}
         <code className="font-mono">./build.sh dev</code>
       </span>

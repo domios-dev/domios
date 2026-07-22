@@ -1,67 +1,30 @@
-use super::mem_post_request;
+use super::transport::mem_unavailable_message;
 use crate::{Cli, Commands, MemAction};
 use clap::Parser;
-use std::io::{Read, Write};
-use std::net::TcpListener;
-use std::sync::mpsc;
 
-fn one_response_server(status: &'static str, body: &'static str) -> String {
-    let (url, _) = capture_response_server(status, body);
-    url
-}
+#[test]
+fn unavailable_message_explains_socket_alive_but_http_down() {
+    let msg = mem_unavailable_message("http://127.0.0.1:7686", Some("codeterm-dev.sock"));
 
-fn capture_response_server(
-    status: &'static str,
-    body: &'static str,
-) -> (String, mpsc::Receiver<String>) {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let addr = listener.local_addr().unwrap();
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        let (mut stream, _) = listener.accept().unwrap();
-        let mut request = [0; 4096];
-        let n = stream.read(&mut request).unwrap_or(0);
-        let _ = tx.send(String::from_utf8_lossy(&request[..n]).to_string());
-        let response = format!(
-            "HTTP/1.1 {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-            status,
-            body.len(),
-            body
-        );
-        stream.write_all(response.as_bytes()).unwrap();
-    });
-    (format!("http://{}", addr), rx)
+    assert!(msg.contains("codeterm-dev.sock"));
+    assert!(msg.contains("http://127.0.0.1:7686"));
+    assert!(
+        msg.contains("HTTP-only"),
+        "must explain a live socket does not carry secrets: {msg}"
+    );
+    assert!(
+        msg.contains("secret"),
+        "must name what this message is about: {msg}"
+    );
+    assert!(msg.contains("CODETERM_API_PORT"));
 }
 
 #[test]
-fn mem_post_request_reports_status_and_plain_text_body() {
-    let http = reqwest::blocking::Client::new();
-    let url = one_response_server("400 Bad Request", "text required");
-    let err = mem_post_request(&http, &url, &serde_json::json!({})).unwrap_err();
-    assert_eq!(err, "400 Bad Request text required");
-}
+fn unavailable_message_reports_no_daemon_when_socket_is_dead_too() {
+    let msg = mem_unavailable_message("http://127.0.0.1:7686", None);
 
-#[test]
-fn append_action_posts_text_and_returns_result() {
-    let http = reqwest::blocking::Client::new();
-    let (base, rx) = capture_response_server("200 OK", r#"{"appended":"note_x","new_len":22}"#);
-    let out = super::item::handle_mem_items(
-        &http,
-        &base,
-        MemAction::Append {
-            id: "note_x".into(),
-            text: Some("append me".into()),
-            file: None,
-            changed_by: None,
-        },
-    )
-    .unwrap();
-
-    assert_eq!(out["appended"], "note_x");
-    assert_eq!(out["new_len"], 22);
-    let request = rx.recv().unwrap();
-    assert!(request.starts_with("POST /api/mem/items/note_x/append "));
-    assert!(request.contains(r#""text":"append me""#));
+    assert!(msg.contains("no CodeTerm daemon is reachable"));
+    assert!(msg.contains("Start CodeTerm"));
 }
 
 #[test]
@@ -230,6 +193,21 @@ fn wakeup_no_explain_default_false() {
         } => assert!(!explain),
         _ => panic!("expected WakeUp"),
     }
+}
+
+#[test]
+fn wakeup_workspace_prefers_explicit_then_inherits_calling_workspace() {
+    use super::item::resolve_wakeup_workspace;
+
+    assert_eq!(
+        resolve_wakeup_workspace(Some("explicit".into()), Some("inherited".into())),
+        Some("explicit".into())
+    );
+    assert_eq!(
+        resolve_wakeup_workspace(None, Some(" workspace-a ".into())),
+        Some("workspace-a".into())
+    );
+    assert_eq!(resolve_wakeup_workspace(None, Some("  ".into())), None);
 }
 
 #[test]

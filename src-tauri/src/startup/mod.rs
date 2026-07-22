@@ -8,18 +8,21 @@ mod bridge;
 mod cli_install;
 mod cli_shim;
 mod conpty_host;
+mod frontend_ready;
 mod logging;
 mod servers;
 mod states;
 mod window;
 
 pub(crate) use background::start_background_tasks;
-#[cfg(test)]
-pub use bridge::start_telegram_bridge_for_test;
 pub use bridge::{spawn_telegram_bridge, start_telegram_bridge, unmark_pane_connected_service};
 pub(crate) use cli_install::{install_bundled_cli, refresh_bundled_cli};
 pub(crate) use cli_shim::forward_to_cli_if_invoked;
 pub(crate) use conpty_host::setup_conpty_host;
+pub(crate) use frontend_ready::{
+    arm_frontend_readiness, frontend_readiness_generation, mark_frontend_ready,
+    wait_for_frontend_ready_until,
+};
 pub(crate) use logging::setup_logging;
 pub(crate) use servers::start_servers;
 pub(crate) use states::init_states;

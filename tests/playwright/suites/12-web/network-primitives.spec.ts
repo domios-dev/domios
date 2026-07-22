@@ -4,7 +4,7 @@
  * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test, type Page, API_BASE, readDevToken } from "../../helpers/fixtures";
-import { networkDisruption } from "../../helpers/network-disruption";
+import { NETWORK_DISRUPTION_ABORT_REGISTRY, networkDisruption } from "../../helpers/network-disruption";
 import { createManagedWebSession } from "../../helpers/web-session";
 import { delayRoute } from "../../helpers/route-delay";
 import { dispatchPageShow, setHidden, setLifecycleState } from "../../helpers/visibility-emulation";
@@ -14,12 +14,23 @@ const WEB_URL = `${API_BASE}/`;
 /** Starts a long-lived SSE fetch from the page and tracks its lifecycle on
  * `window.__sseState` — polled from Node so we never block on an open stream. */
 async function openTrackedSse(page: Page, token: string): Promise<void> {
-  await page.evaluate((t) => {
+  await page.evaluate(({ key, t }) => {
     (window as unknown as { __sseState: unknown }).__sseState = { opened: false, closed: false };
     const state = (window as unknown as { __sseState: { opened: boolean; closed: boolean } }).__sseState;
+    const controller = new AbortController();
+    const win = window as unknown as Record<string, {
+      sse: AbortController[];
+      "pty-read": AbortController[];
+      "pty-stream": AbortController[];
+    }>;
+    const registry = (win[key] ??= { sse: [], "pty-read": [], "pty-stream": [] });
+    registry.sse.push(controller);
     void (async () => {
       try {
-        const res = await fetch("/api/events/stream", { headers: { Authorization: `Bearer ${t}` } });
+        const res = await fetch("/api/events/stream", {
+          headers: { Authorization: `Bearer ${t}` },
+          signal: controller.signal,
+        });
         state.opened = res.ok;
         const reader = res.body!.getReader();
         for (;;) {
@@ -29,10 +40,13 @@ async function openTrackedSse(page: Page, token: string): Promise<void> {
       } catch {
         /* falls through to closed=true below */
       } finally {
+        const controllers = win[key]?.sse ?? [];
+        const index = controllers.indexOf(controller);
+        if (index >= 0) controllers.splice(index, 1);
         state.closed = true;
       }
     })();
-  }, token);
+  }, { key: NETWORK_DISRUPTION_ABORT_REGISTRY, t: token });
 }
 
 async function sseState(page: Page): Promise<{ opened: boolean; closed: boolean }> {
@@ -92,15 +106,21 @@ test.describe("@golden network-disruption primitive", () => {
 
     try {
       await openTrackedSse(page, token);
-      await page.waitForFunction(() => (window as unknown as { __sseState?: { opened: boolean } }).__sseState?.opened === true, { timeout: 10_000 });
+      await page.waitForFunction(
+        () => (window as unknown as { __sseState?: { opened: boolean } }).__sseState?.opened === true,
+        undefined,
+        { timeout: 10_000 },
+      );
 
       // Soft sever of a DIFFERENT target must not touch the already-open SSE connection:
       // waitForFunction is expected to time out (nothing closed it) within the window.
       await disruption.sever("pty-read");
       await page
-        .waitForFunction(() => (window as unknown as { __sseState?: { closed: boolean } }).__sseState?.closed === true, {
-          timeout: 1_500,
-        })
+        .waitForFunction(
+          () => (window as unknown as { __sseState?: { closed: boolean } }).__sseState?.closed === true,
+          undefined,
+          { timeout: 1_500 },
+        )
         .then(() => {
           throw new Error("SSE connection closed after severing an unrelated target");
         })
@@ -112,7 +132,11 @@ test.describe("@golden network-disruption primitive", () => {
 
       // not wait for its own reconnect cycle.
       await disruption.sever("sse", { hard: true });
-      await page.waitForFunction(() => (window as unknown as { __sseState?: { closed: boolean } }).__sseState?.closed === true, { timeout: 10_000 });
+      await page.waitForFunction(
+        () => (window as unknown as { __sseState?: { closed: boolean } }).__sseState?.closed === true,
+        undefined,
+        { timeout: 10_000 },
+      );
       expect((await sseState(page)).closed).toBe(true);
     } finally {
       await disruption.restoreAll();

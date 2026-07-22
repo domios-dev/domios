@@ -10,9 +10,22 @@ use super::{get_string_param, JsonRpcError};
 use crate::plan::TaskStatus;
 use crate::service::plan::task_queries::TaskListFilter;
 use crate::service::plan::{hints, NewTask, PlanError};
-use crate::service::ServiceState;
+use crate::service::{persist_attempt_executor_identity, respawn_title_provenance, ServiceState};
 use serde_json::{json, Value};
 use tauri::AppHandle;
+
+fn dependency_vec_field(p: Option<&Value>) -> Result<Option<Vec<String>>, JsonRpcError> {
+    let Some(value) = p.and_then(|x| x.get("depends_on").or_else(|| x.get("dependency_task_ids")))
+    else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(Some(Vec::new()));
+    }
+    serde_json::from_value(value.clone())
+        .map(Some)
+        .map_err(|_| plan_rpc_err(PlanError::BadStatus))
+}
 
 pub(super) fn handles(method: &str) -> bool {
     matches!(
@@ -196,6 +209,7 @@ pub(super) fn dispatch(
                             .and_then(|v| v.as_str())
                             .map(str::to_string),
                         competition: super::plan_competition::metadata_field(p)?,
+                        depends_on: dependency_vec_field(p)?.unwrap_or_default(),
                         assigned_pane_id: assign_pane.clone(),
                         ..Default::default()
                     },
@@ -284,6 +298,16 @@ pub(super) fn dispatch(
                             .and_then(|x| x.get("personality"))
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string()),
+                        personality_provenance: p
+                            .and_then(|x| x.get("personality_provenance"))
+                            .cloned()
+                            .map(serde_json::from_value)
+                            .transpose()
+                            .map_err(|e| JsonRpcError {
+                                code: -32602,
+                                message: format!("invalid personality_provenance: {e}"),
+                                data: None,
+                            })?,
                         acceptance_criteria,
                         test_plan,
                         correctness,
@@ -309,6 +333,7 @@ pub(super) fn dispatch(
                             .and_then(|x| x.get("parent"))
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string()),
+                        depends_on: dependency_vec_field(p)?.unwrap_or_default(),
                         assigned_pane_id: p
                             .and_then(|x| x.get("assign_pane"))
                             .and_then(|v| v.as_str())
@@ -392,15 +417,13 @@ pub(super) fn dispatch(
             let test_plan = optional_string_field(p, "test_plan");
             let correctness = optional_string_field(p, "correctness");
             let lane = lane_update_field(p)?;
-            // Lane binds BEFORE the status write so `--status in_progress --pane X`
-            // satisfies pane-requiring transition invariants in one command.
-            if let Some(lane) = lane.clone() {
+            if let Some(depends_on) = dependency_vec_field(p)? {
                 store
-                    .update_task_lane(&id, &tid, lane, now)
+                    .update_task_dependencies(&id, &tid, depends_on, now)
                     .map_err(plan_rpc_err)?;
             }
             store
-                .update_task(
+                .update_task_with_lane(
                     &id,
                     &tid,
                     p.and_then(|x| x.get("name")).and_then(|v| v.as_str()),
@@ -422,6 +445,7 @@ pub(super) fn dispatch(
                     &tags_field(p),
                     p.and_then(|x| x.get("primary")).and_then(|v| v.as_str()),
                     p.and_then(|x| x.get("handle")).and_then(|v| v.as_str()),
+                    lane,
                     now,
                 )
                 .map_err(plan_rpc_err)?;
@@ -537,12 +561,14 @@ pub(super) fn dispatch(
             let spawn_params = crate::service::SpawnAgentParams {
                 agent: Some(draft.provider.clone()),
                 cwd: Some(draft.cwd.clone()),
-                title: Some(draft.title.clone()),
+                title: draft.title.clone(),
+                title_provenance: Some(respawn_title_provenance(draft.explicit_title)),
                 role: Some("Worker".into()),
                 parent_pane_id: draft.parent_pane_id.clone(),
                 task: Some(draft.task_prompt.clone()),
                 workspace_id: draft.workspace_id.clone(),
                 model: draft.model.clone(),
+                planned_model: draft.planned_model.clone(),
                 spawned_by_pane_id: draft.parent_pane_id.clone(),
                 ..Default::default()
             };
@@ -563,6 +589,16 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
+            persist_attempt_executor_identity(
+                store,
+                svc,
+                &id,
+                &tid,
+                &spawn.pane_id,
+                &spawn.title,
+                now,
+            )
+            .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
             Ok(json!({
                 "ok": true,
@@ -599,5 +635,36 @@ pub(super) fn dispatch(
             message: format!("Method not found: {other}"),
             data: None,
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::dependency_vec_field;
+    use serde_json::json;
+
+    #[test]
+    fn rpc_dependency_field_omitted_is_none() {
+        assert!(matches!(dependency_vec_field(Some(&json!({}))), Ok(None)));
+    }
+
+    #[test]
+    fn rpc_dependency_field_array_replaces() {
+        assert!(matches!(
+            dependency_vec_field(Some(&json!({ "depends_on": ["task_a", "task_b"] }))),
+            Ok(Some(ids)) if ids == ["task_a", "task_b"]
+        ));
+    }
+
+    #[test]
+    fn rpc_dependency_field_null_or_empty_clears() {
+        assert!(matches!(
+            dependency_vec_field(Some(&json!({ "depends_on": null }))),
+            Ok(Some(ids)) if ids.is_empty()
+        ));
+        assert!(matches!(
+            dependency_vec_field(Some(&json!({ "depends_on": [] }))),
+            Ok(Some(ids)) if ids.is_empty()
+        ));
     }
 }

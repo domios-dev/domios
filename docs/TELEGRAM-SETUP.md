@@ -76,6 +76,19 @@ codeterm bridge send --to 123456789 --service telegram --append "1. Item one
 
 The user sees both parts merged into one Telegram message. **Send only the new text** to `--append`, not the full message — concatenation is server-side.
 
+## Escaped newlines from the CLI
+
+`codeterm bridge send` decodes each literal `\n` in its text argument into a
+Telegram newline. This keeps quoted one-line shell commands readable:
+
+```bash
+codeterm bridge send --to 123456789 --service telegram "first line\nsecond line"
+```
+
+Use `--raw-text` only when the recipient must receive the literal characters
+backslash and `n` instead of a line break. Tabs are unchanged; actual tabs pass
+through as supplied by the shell.
+
 ## Photos
 
 ```bash
@@ -93,4 +106,4 @@ codeterm bridge migrate --to PEER [--announce] [--no-rollback] [--force] [--clai
 
 Run on the **source** machine. `--mesh PEER` is rejected (exit 6) because each daemon resolves its own vault and secrets never cross the mesh.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

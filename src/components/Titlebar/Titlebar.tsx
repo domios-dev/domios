@@ -1,7 +1,7 @@
 import { useCallback, useState, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { ThemeConfig } from "../../lib/types";
-import { CloseXIcon } from "../Icons";
+import { CloseXIcon, HamburgerIcon } from "../Icons";
 import logoUrl from "../../assets/logo.png";
 
 import { isMac } from "../../lib/keybindings";
@@ -10,49 +10,60 @@ import { UI_BUTTON, UI_TRAY_DIVIDER } from "../shared/design";
 import { KeepAwakeTray } from "./KeepAwakeTray";
 import { ExtensionsTray } from "./ExtensionsTray";
 import { SettingsMenu } from "./SettingsMenu";
-import { CanvasButton } from "../Canvas/CanvasButton";
-import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
 import type { SectionId } from "../Settings/sections";
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
 import type { Notification } from "../../lib/types";
+import { NotificationBell } from "../Notifications/NotificationBell";
+import { developmentBuildLabel } from "./buildIdentity";
+import { CanvasButton } from "../Canvas/CanvasButton";
 
 interface TitlebarProps {
   onToggleSidebar?: () => void;
+  showSidebarToggle?: boolean;
   onNewTab?: () => void;
   theme: ThemeConfig;
   onOpenSettingsAbout?: () => void;
   onOpenExtensions?: () => void;
   onOpenSettings?: (section?: SectionId) => void;
-  workspaceCanvasActive?: boolean;
+  notifications?: Notification[];
   toasts?: Notification[];
+  onMarkNotificationRead?: (id: string) => void;
+  onMarkAllNotificationsRead?: () => void;
+  onDeleteNotification?: (id: string) => void;
   onDismissToast?: (id: string) => void;
   onNavigateToast?: (paneId: string) => void;
+  workspaceCanvasActive?: boolean;
 }
 
 export function Titlebar({
-  onToggleSidebar: _onToggleSidebar,
+  onToggleSidebar,
+  showSidebarToggle = false,
   theme: _theme,
   onOpenSettingsAbout,
   onOpenExtensions,
   onOpenSettings,
-  workspaceCanvasActive = false,
+  notifications = [],
   toasts = [],
+  onMarkNotificationRead,
+  onMarkAllNotificationsRead,
+  onDeleteNotification,
   onDismissToast,
   onNavigateToast,
+  workspaceCanvasActive = false,
 }: TitlebarProps) {
   void _theme;
-  void _onToggleSidebar;
   // Window chrome controls only exist in the Tauri shell; the browser tab owns its own window in web-mirror mode.
   const isTauri = !IS_WEB;
   const appWindow = isTauri ? getCurrentWindow() : null;
   const handleMinimize = useCallback(() => appWindow?.minimize(), [appWindow]);
   const handleMaximize = useCallback(() => appWindow?.toggleMaximize(), [appWindow]);
   const handleClose = useCallback(() => appWindow?.close(), [appWindow]);
+  const buildLabel = developmentBuildLabel(__CODETERM_DEV__, __APP_VERSION__);
 
   return (
     <div
       data-testid="titlebar"
-      className="flex items-center bg-[var(--ct-titlebar-bg)] select-none shrink-0"
+      className={`flex min-w-0 items-center bg-[var(--ct-titlebar-bg)] select-none shrink-0 ${IS_WEB ? "max-sm:min-h-[calc(44px+var(--ct-safe-top,0px))]" : ""}`}
       style={{
         boxShadow: "inset 0 -0.5px 0 var(--ct-border-subtle)",
         height: "calc(2rem + var(--ct-safe-top, 0px))",
@@ -68,18 +79,23 @@ export function Titlebar({
           onMaximize={handleMaximize}
         />
       )}
-      {/* Web mirror: traffic lights never render (isTauri false above) —
-          the peer picker occupies that same left corner instead. */}
-      {IS_WEB && (
-        <div className="flex items-center h-full pl-2.5">
-          <WebPeerPicker />
-        </div>
+      {showSidebarToggle && onToggleSidebar && (
+        <button
+          type="button"
+          data-testid="web-sidebar-open"
+          aria-label="Open sidebar"
+          title="Open sidebar"
+          onClick={onToggleSidebar}
+          className="inline-flex h-full w-8 shrink-0 items-center justify-center text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+        >
+          <HamburgerIcon size={15} />
+        </button>
       )}
 
       <button
         type="button"
         onClick={onOpenSettingsAbout}
-        className="flex h-full items-center gap-2 pl-3 pr-2 text-left hover:bg-[var(--ct-hover)]"
+        className="hidden h-full shrink-0 items-center gap-2 pl-3 pr-2 text-left hover:bg-[var(--ct-hover)] min-[430px]:flex"
         title="About CodeTerm"
       >
         <img
@@ -92,16 +108,34 @@ export function Titlebar({
         >
           CodeTerm
         </span>
+        {buildLabel && (
+          <span
+            className="rounded bg-[var(--ct-accent)] px-1.5 py-0.5 font-mono text-[8px] font-bold leading-none tracking-wide text-[var(--ct-bg)]"
+            aria-label={`Development build, version ${__APP_VERSION__}`}
+          >
+            {buildLabel}
+          </span>
+        )}
       </button>
 
-      <div className="flex-1" data-tauri-drag-region />
+      <div className="min-w-0 flex-1" data-tauri-drag-region />
 
-      <div className="flex items-center h-full gap-1 pr-1.5">
+      <div className="flex shrink-0 items-center h-full gap-0.5 pr-1 sm:gap-1 sm:pr-1.5">
         <CanvasButton active={workspaceCanvasActive} />
+        {onMarkNotificationRead && onMarkAllNotificationsRead && onDeleteNotification && onNavigateToast && (
+          <NotificationBell
+            notifications={notifications}
+            onMarkRead={onMarkNotificationRead}
+            onMarkAllRead={onMarkAllNotificationsRead}
+            onDelete={onDeleteNotification}
+            onNavigate={onNavigateToast}
+          />
+        )}
         {onDismissToast && (
           <NotificationToastContainer
             toasts={toasts}
             onDismiss={onDismissToast}
+            onMarkRead={onMarkNotificationRead}
             onNavigate={onNavigateToast}
             embedded
           />

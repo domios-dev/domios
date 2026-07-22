@@ -1,6 +1,6 @@
 //! `AgentTransport` — the runtime half of a provider behind one seam, plus the
 //! atomic spawn entry the frontend calls. Both impls wrap existing substrates
-//! ([`PtyTransport`] → the FE-delivered launch command; [`ChatTransport`] →
+//! ([`PtyTransport`] → backend-owned PTY launch; [`ChatTransport`] →
 //! `chatbackend_launch_async`). [`ServiceContext::spawn_pane_atomic`] builds the
 //! pane and kicks launch async, returning a snapshot the client applies once.
 
@@ -36,8 +36,8 @@ fn default_true() -> bool {
     true
 }
 
-/// Authoritative result the client applies once. `launch_command` is `Some` only
-/// for PTY (the FE types it when ready); chat opens its session in the background, reporting `None`.
+/// Authoritative result the client applies once. PTY and chat launch work stays
+/// in the backend, so no mounted frontend surface is required to start either.
 #[derive(Debug, Clone, Serialize)]
 pub struct AtomicSpawn {
     pub snapshot: MultiplexerSnapshot,
@@ -62,8 +62,7 @@ pub struct TransportLaunchCtx<'a> {
 }
 
 /// The runtime half of a provider. `launch` never blocks pane visibility: it
-/// either returns the command the FE delivers (PTY) or kicks the network
-/// openSession onto a background task and returns `None` (chat).
+/// kicks its work onto a backend task and returns `None`.
 pub trait AgentTransport {
     fn launch(
         &self,
@@ -81,6 +80,14 @@ fn finish_launch<F: FnOnce()>(
     launch.inspect_err(|_| rollback())
 }
 
+fn backend_owned_pty_launch(
+    launch_command: String,
+    dispatch: impl FnOnce(String),
+) -> Option<String> {
+    dispatch(launch_command);
+    None
+}
+
 pub struct PtyTransport;
 pub struct ChatTransport;
 
@@ -90,17 +97,23 @@ impl AgentTransport for PtyTransport {
         svc: &ServiceContext,
         ctx: &TransportLaunchCtx<'_>,
     ) -> Result<Option<String>, String> {
-        let model_args = crate::service::spawn::resolve_fresh_agent_model(
+        let model_resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
             &svc.agent_registry,
             ctx.provider_id,
             ctx.model.map(str::to_string),
             None,
-        )
-        .and_then(|model| {
-            svc.agent_registry
-                .with_provider(ctx.provider_id, |p| p.model_launch_args(&model))
-        })
-        .unwrap_or_default();
+        );
+        if let Some(pane) = svc.mux.write().get_pane_mut(ctx.pane_id) {
+            crate::service::spawn::persist_model_launch_identity(pane, None, &model_resolution);
+        }
+        let model_args = model_resolution
+            .model
+            .as_deref()
+            .and_then(|model| {
+                svc.agent_registry
+                    .with_provider(ctx.provider_id, |p| p.model_launch_args(model))
+            })
+            .unwrap_or_default();
         let cwd = svc
             .mux
             .read()
@@ -116,15 +129,31 @@ impl AgentTransport for PtyTransport {
         let params = AgentLaunchParams {
             agent_name: None,
             task: None,
+            starter_prompt: Default::default(),
             args: (!model_args.is_empty()).then_some(model_args),
             skip_permissions: ctx.skip_permissions,
             session_id: None,
             structured_prompt_server,
         };
-        svc.agent_registry
-            .with_provider(ctx.provider_id, |p| p.build_launch_command(&params))
-            .map(Some)
-            .ok_or_else(|| format!("Unknown agent provider: {}", ctx.provider_id))
+        let launch_command = svc
+            .agent_registry
+            .with_provider(ctx.provider_id, |p| {
+                crate::agent::stub_launch::apply(ctx.provider_id, p.build_launch_command(&params))
+            })
+            .ok_or_else(|| format!("Unknown agent provider: {}", ctx.provider_id))?;
+        Ok(backend_owned_pty_launch(launch_command, |launch_command| {
+            crate::service::orchestrator::launch_agent_in_background(
+                svc.clone(),
+                ctx.pane_id.to_string(),
+                ctx.tab_id.to_string(),
+                ctx.workspace_id.to_string(),
+                launch_command,
+                ctx.provider_id.to_string(),
+                None,
+                None,
+                None,
+            );
+        }))
     }
 }
 
@@ -248,6 +277,12 @@ impl ServiceContext {
                 if let Some(ref dir) = resolved_cwd {
                     pane.cwd = Some(dir.clone());
                 }
+                pane.agent_requested_model = params
+                    .model
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|m| !m.is_empty())
+                    .map(str::to_string);
                 if chat_view {
                     pane.chat_view = true;
                 }

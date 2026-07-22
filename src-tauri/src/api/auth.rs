@@ -64,6 +64,15 @@ fn is_custom_auth(method: &Method, path: &str) -> bool {
         && path.matches('/').count() == 4
 }
 
+/// Non-leaking token fingerprint for diagnostics: byte length + a short
+/// non-cryptographic hash. Never logs the token itself.
+pub(crate) fn token_fp(token: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    token.hash(&mut h);
+    format!("len={} fp={:08x}", token.len(), (h.finish() as u32))
+}
+
 fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity, ()> {
     let token = auth_header.strip_prefix("Bearer ").unwrap_or("");
     if token.is_empty() {
@@ -285,7 +294,25 @@ pub async fn auth_middleware(
                     .into_response()
             }
         }
-        Err(()) => (StatusCode::UNAUTHORIZED, "Invalid or missing token").into_response(),
+        Err(()) => {
+            let presented = auth.strip_prefix("Bearer ").unwrap_or("");
+            let expected = state.config.lock().api.token.clone();
+            log::warn!(
+                "[auth-401] {} {} presented[{}] expected[{}]",
+                method,
+                path,
+                if presented.is_empty() {
+                    "MISSING".to_string()
+                } else {
+                    token_fp(presented)
+                },
+                match expected {
+                    Some(ref t) if !t.is_empty() => token_fp(t),
+                    _ => "NONE".to_string(),
+                }
+            );
+            (StatusCode::UNAUTHORIZED, "Invalid or missing token").into_response()
+        }
     }
 }
 

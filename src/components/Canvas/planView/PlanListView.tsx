@@ -80,8 +80,12 @@ export function PlanListView({
   error = null,
   onRetry,
   planId,
+  teamId,
   orchestratorPaneId,
   panes = {},
+  workspaceId,
+  workspaces,
+  teams,
   onOpenPane,
   api,
   onClose,
@@ -100,19 +104,19 @@ export function PlanListView({
 
   const filteredPlans = useMemo(
     () => {
-      const active = filterPlansForBoard(effectivePlans, mode, { planId, orchestratorPaneId, panes });
+      const active = filterPlansForBoard(effectivePlans, mode, { planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams });
       if (!manualPlanId || active.some((p) => p.id === manualPlanId)) return active;
       const archivedPlan = plans.find((p) => p.id === manualPlanId && p.status === "archived");
       if (!archivedPlan || (mode === "focus" && planId && planId !== archivedPlan.id)) return active;
       return [...active, archivedPlan];
     },
-    [effectivePlans, manualPlanId, mode, planId, orchestratorPaneId, panes, plans],
+    [effectivePlans, manualPlanId, mode, planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams, plans],
   );
   const orderedPlans = useMemo(() => orderPlansByActivity(filteredPlans), [filteredPlans]);
 
   const defaultPlanId = useMemo(
-    () => selectDefaultPlanId(orderedPlans, { planId, orchestratorPaneId, panes }),
-    [orderedPlans, planId, orchestratorPaneId, panes],
+    () => selectDefaultPlanId(orderedPlans, { planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams }),
+    [orderedPlans, planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams],
   );
 
   const [navStack, setNavStack] = useState<NavStack>(EMPTY_NAV_STACK);
@@ -325,12 +329,14 @@ export function PlanListView({
       {showsData && selectedPlan && boardModel && (
         <>
           <div className="plan-list-chrome">
-            <PlanSwitcher
-              plans={switcherWithInflight}
-              selectedId={selectedPlan.id}
-              onSelect={selectPlan}
-              onAction={handleAction}
-            />
+            {!teamId && (
+              <PlanSwitcher
+                plans={switcherWithInflight}
+                selectedId={selectedPlan.id}
+                onSelect={selectPlan}
+                onAction={handleAction}
+              />
+            )}
             <PlanContextHeader
               summary={boardModel.planSummary}
               spec={boardModel.spec}

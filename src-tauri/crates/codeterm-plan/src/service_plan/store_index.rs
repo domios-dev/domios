@@ -6,6 +6,7 @@ impl PlanStore {
             plan_id: plan.id.clone(),
             file_path,
             owner: plan.owner.clone(),
+            team_id: plan.team_id.clone(),
             title: plan.title.clone(),
             status: plan.status.clone(),
             updated_at: plan.updated_at,
@@ -130,13 +131,6 @@ impl PlanStore {
             .persist_plan_and_spec(&committed)
             .map_err(|e| PlanError::Io(e.to_string()))?;
         self.note_plan_write(&committed, &path);
-        if let Err(e) = self.mirror_plan_index(&committed) {
-            log::warn!(
-                "[plan.index] mirror lag in commit_loaded_plan for {}: {}",
-                committed.id,
-                e
-            );
-        }
         let entry = Self::index_entry(&committed, path);
         self.index.write().insert(committed.id.clone(), entry);
         self.reset_bound_panes(&committed);
@@ -149,13 +143,6 @@ impl PlanStore {
             .persist_spec(&committed)
             .map_err(|e| PlanError::Io(e.to_string()))?;
         self.note_spec_write(&committed, &path);
-        if let Err(e) = self.mirror_spec_index(&committed) {
-            log::warn!(
-                "[plan.index] mirror lag in commit_loaded_spec for {}: {}",
-                committed.id,
-                e
-            );
-        }
         let entry = Self::spec_index_entry(&committed, path);
         self.spec_index.write().insert(committed.id.clone(), entry);
         Ok(())
@@ -180,26 +167,23 @@ impl PlanStore {
             let migrated = body_files::hydrate_and_migrate(&mut plan)
                 .map_err(|e| PlanError::Io(e.to_string()))?;
             if migrated {
-                let wp = Self::persist_plan(&plan).map_err(|e| PlanError::Io(e.to_string()))?;
+                let wp = self
+                    .persist_plan_and_spec(&plan)
+                    .map_err(|e| PlanError::Io(e.to_string()))?;
                 self.note_plan_write(&plan, &wp);
             }
             plan
         };
         paths::normalize_plan_paths(&mut plan, project_root);
         tag_model::normalize_plan(&mut plan);
-        let committed = self.upsert_plan_arc(plan);
-        self.note_plan_write(&committed, &path);
-        let entry = Self::index_entry(&committed, path.clone());
-        self.index.write().insert(committed.id.clone(), entry);
         // Co-located spec.yaml rides with its plan (startup scan + reconcile).
         if let Some(dir) = path.parent() {
             let spec_yaml = dir.join("spec.yaml");
             if spec_yaml.is_file() {
-                if let Err(e) = self.load_spec_file_into_index(spec_yaml, project_root) {
-                    log::warn!("[spec] skip malformed co-located spec: {e}");
-                }
+                self.load_spec_file_into_index(spec_yaml, project_root)?;
             }
         }
+        self.commit_loaded_plan(plan)?;
         Ok(())
     }
 
@@ -211,15 +195,16 @@ impl PlanStore {
         let mut spec: Spec =
             spec_store::load_spec_from_path(&path).map_err(|e| PlanError::Io(e.to_string()))?;
         paths::normalize_spec_paths(&mut spec, project_root);
-        let committed = self.upsert_spec_arc(spec);
-        self.note_spec_write(&committed, &path);
-        let entry = Self::spec_index_entry(&committed, path);
-        self.spec_index.write().insert(committed.id.clone(), entry);
-        Ok(())
+        self.commit_loaded_spec(spec)
     }
 
     pub fn scan_project(&self, project_path: &Path) -> Result<PathBuf, PlanError> {
         let project_root = paths::project_root(project_path);
+        let import_root = project_root.to_string_lossy().replace('\\', "/");
+        if self.database.legacy_imported(&import_root)? {
+            return Ok(project_root);
+        }
+        let mut import_error = None;
         let plans_dir =
             paths::plans_dir(&project_root).map_err(|e| PlanError::Io(e.to_string()))?;
         for bucket in ["active", "archive"] {
@@ -245,6 +230,7 @@ impl PlanStore {
                 };
                 if let Err(e) = self.load_file_into_index(path.clone(), &project_root) {
                     log::warn!("[plan] skip malformed plan {}: {}", path.display(), e);
+                    import_error.get_or_insert(e);
                 }
             }
         }
@@ -261,13 +247,24 @@ impl PlanStore {
                 }
                 if let Err(e) = self.load_spec_file_into_index(path.clone(), &project_root) {
                     log::warn!("[spec] skip malformed spec {}: {}", path.display(), e);
+                    import_error.get_or_insert(e);
                 }
             }
         }
+        if let Some(error) = import_error {
+            return Err(error);
+        }
+        self.database
+            .mark_legacy_imported(&import_root, unix_time_millis())?;
         Ok(project_root)
     }
 
     pub fn save(&self, plan: &mut Plan, now_ms: u64) -> std::io::Result<()> {
+        let _writer_turn = self.mutation_writer.enter();
+        self.save_in_writer(plan, now_ms)
+    }
+
+    pub(super) fn save_in_writer(&self, plan: &mut Plan, now_ms: u64) -> std::io::Result<()> {
         if plan.created_at == 0 {
             plan.created_at = now_ms;
         }
@@ -287,23 +284,29 @@ impl PlanStore {
                 .or_insert_with(|| Arc::new(Mutex::new(plan.clone())))
                 .clone()
         };
-        let mut guard = arc.lock();
-        if guard.updated_at <= plan.updated_at {
-            *guard = plan.clone();
+        let staged = {
+            let guard = arc.lock();
+            if guard.updated_at <= plan.updated_at {
+                plan.clone()
+            } else {
+                guard.clone()
+            }
+        };
+        *plan = staged.clone();
+        let path = self.persist_plan_and_spec(&staged)?;
+        {
+            let mut guard = arc.lock();
+            *guard = staged.clone();
         }
-        *plan = guard.clone();
-        let path = self.persist_plan_and_spec(&guard)?;
-        self.note_plan_write(&guard, &path);
-        if let Err(e) = self.mirror_plan_index(&guard) {
-            log::warn!("[plan.index] mirror lag in save for {}: {}", guard.id, e);
-        }
+        self.note_plan_write(&staged, &path);
         self.index
             .write()
-            .insert(guard.id.clone(), Self::index_entry(&guard, path));
+            .insert(staged.id.clone(), Self::index_entry(&staged, path));
         Ok(())
     }
 
     pub fn save_spec(&self, spec: &mut Spec, now_ms: u64) -> std::io::Result<()> {
+        let _writer_turn = self.mutation_writer.enter();
         if spec.created_at == 0 {
             spec.created_at = now_ms;
         }
@@ -323,82 +326,62 @@ impl PlanStore {
                 .or_insert_with(|| Arc::new(Mutex::new(spec.clone())))
                 .clone()
         };
-        let mut guard = arc.lock();
-        if guard.updated_at <= spec.updated_at {
-            *guard = spec.clone();
+        let staged = {
+            let guard = arc.lock();
+            if guard.updated_at <= spec.updated_at {
+                spec.clone()
+            } else {
+                guard.clone()
+            }
+        };
+        *spec = staged.clone();
+        let path = self.persist_spec(&staged)?;
+        {
+            let mut guard = arc.lock();
+            *guard = staged.clone();
         }
-        *spec = guard.clone();
-        let path = self.persist_spec(&guard)?;
-        self.note_spec_write(&guard, &path);
-        if let Err(e) = self.mirror_spec_index(&guard) {
-            log::warn!(
-                "[plan.index] mirror lag in save_spec for {}: {}",
-                guard.id,
-                e
-            );
-        }
+        self.note_spec_write(&staged, &path);
         self.spec_index
             .write()
-            .insert(guard.id.clone(), Self::spec_index_entry(&guard, path));
+            .insert(staged.id.clone(), Self::spec_index_entry(&staged, path));
         Ok(())
     }
 
     pub fn reload_from_disk(&self, id: &str) -> Result<(), PlanError> {
-        let path = self
-            .index
+        #[cfg(test)]
+        let sidecar_reload_blocked = self
+            .plans
             .read()
             .get(id)
-            .map(|e| e.file_path.clone())
-            .ok_or(PlanError::NotFound)?;
-        // v2-first: a converted plan has plan.yaml — load it directly (walk the
-        // hierarchy, no plan.json, no hydrate-and-rewrite churn). Fall through
-        // to the legacy json path for plans not yet converted.
-        if let Some(dir) = path.parent() {
-            if store_v2::plan_yaml_path(dir).exists() {
-                let mut plan =
-                    store_v2::load_plan(dir).map_err(|e| PlanError::Io(e.to_string()))?;
-                if plan.id != id {
-                    return Err(PlanError::Io(format!(
-                        "plan id mismatch: expected {id}, found {}",
-                        plan.id
-                    )));
+            .is_some_and(|plan| plan.try_lock().is_none());
+        #[cfg(test)]
+        if !sidecar_reload_blocked {
+            if let Some(plan) = self.get(id) {
+                if let Some(root) = paths::test_project_root(paths::plan_sidecar_root(&plan)) {
+                    let mut normalized = plan.clone();
+                    paths::normalize_plan_paths(&mut normalized, &root);
+                    let dir = store_v2::plan_state_dir(&normalized)
+                        .map_err(|error| PlanError::Io(error.to_string()))?;
+                    let yaml = store_v2::plan_yaml_path(&dir);
+                    if yaml.is_file() {
+                        return self.load_file_into_index(yaml, &root);
+                    }
                 }
-                let project_root = paths::project_root(Path::new(&plan.project_path));
-                paths::normalize_plan_paths(&mut plan, &project_root);
-                tag_model::normalize_plan(&mut plan);
-                let committed = self.upsert_plan_arc(plan);
-                let _ = self.mirror_plan_index(&committed);
-                self.index
-                    .write()
-                    .insert(committed.id.clone(), Self::index_entry(&committed, path));
-                return Ok(());
             }
         }
-        let json = std::fs::read_to_string(&path).map_err(|e| PlanError::Io(e.to_string()))?;
-        let mut plan: Plan =
-            serde_json::from_str(&json).map_err(|e| PlanError::Io(e.to_string()))?;
-        if plan.id != id {
-            return Err(PlanError::Io(format!(
-                "plan id mismatch: expected {id}, found {}",
-                plan.id
-            )));
-        }
-        let project_root = paths::project_root(Path::new(&plan.project_path));
-        paths::normalize_plan_paths(&mut plan, &project_root);
-        let migrated =
-            body_files::hydrate_and_migrate(&mut plan).map_err(|e| PlanError::Io(e.to_string()))?;
-        tag_model::normalize_plan(&mut plan);
-        if migrated {
-            let path = Self::persist_plan(&plan).map_err(|e| PlanError::Io(e.to_string()))?;
-            self.note_plan_write(&plan, &path);
-        }
+        let plan = self.database.load_plan(id)?.ok_or(PlanError::NotFound)?;
         let committed = self.upsert_plan_arc(plan);
-        self.mirror_plan_index(&committed)
-            .map_err(|e| PlanError::Io(e.to_string()))?;
-        self.note_plan_write(&committed, &path);
+        let path = self.database.path();
         self.index
             .write()
             .insert(committed.id.clone(), Self::index_entry(&committed, path));
         Ok(())
     }
+}
+
+fn unix_time_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }

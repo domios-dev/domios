@@ -30,6 +30,10 @@ const DOCS: &[(&str, &str)] = &[
     ("LANES", include_str!("../../../docs/LANES.md")),
     ("PLANNER", include_str!("../../../docs/PLANNER.md")),
     (
+        "BOUNCE",
+        include_str!("../../../src-tauri/prompts/bounce_unwinding_contract.md"),
+    ),
+    (
         "TEST-AUTHORING",
         include_str!("../../../docs/contributing/test-authoring.md"),
     ),
@@ -200,7 +204,14 @@ mod tests {
         let rendered = render_doc("lanes", true, None, false).expect("LANES doc exists");
 
         assert!(rendered.contains("# Lane Lifecycle Standard"));
-        assert!(rendered.contains("Do not cherry-pick"));
+    }
+
+    #[test]
+    fn bounce_doc_preserves_registered_source() {
+        let source = include_str!("../../../src-tauri/prompts/bounce_unwinding_contract.md");
+        let rendered = render_doc("bounce", true, None, false).expect("BOUNCE doc exists");
+
+        assert_eq!(rendered, source);
     }
 
     #[test]

@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { useMemo, type CSSProperties, type ReactNode } from "react";
 import {
   DndContext,
   type DragEndEvent,
@@ -57,11 +57,13 @@ export function SortableRow({
   id,
   data,
   disabled,
+  layoutStyle,
   children,
 }: {
   id: string;
   data: SortableGroupData;
   disabled?: boolean;
+  layoutStyle?: CSSProperties;
   children: ReactNode;
 }) {
   const { setNodeRef, transform, transition, attributes, listeners, isDragging } =
@@ -72,6 +74,7 @@ export function SortableRow({
       data-dnd-group={`${data.group}:${data.groupKey}`}
       data-dnd-dragging={isDragging ? "true" : undefined}
       style={{
+        ...layoutStyle,
         transform: CSS.Translate.toString(transform),
         transition,
         opacity: isDragging ? 0.5 : undefined,
@@ -135,4 +138,4 @@ export function SidebarDnd({
   );
 }
 
-export { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+export { SortableContext, rectSortingStrategy, verticalListSortingStrategy } from "@dnd-kit/sortable";

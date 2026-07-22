@@ -61,6 +61,8 @@ console.log("bridge coverage guard:");
 
 const invoked = scanInvokeLiterals();
 const { http, canned } = readBridgeSets();
+const bridgeSource = fs.readFileSync(path.join(ROOT, "src/lib/bridge.ts"), "utf8");
+const httpBlock = bridgeSource.match(/const HTTP_MAP[\s\S]*?^};/m)?.[0] ?? "";
 const unsupported = new Set(Object.keys(WEB_UNSUPPORTED));
 const special = new Set(Object.keys(WEB_SPECIAL));
 const covered = new Set([...http, ...canned, ...unsupported, ...special]);
@@ -71,6 +73,29 @@ assert(
     ? "every literal invoke() command is covered"
     : `unmapped invoke command(s): ${unmapped.join(", ")}`,
   unmapped.length === 0,
+);
+
+assert(
+  "mux_rename_team maps to the Team rename route with caller-pane identity",
+  /mux_rename_team:\s*\(a\)\s*=>[\s\S]*?\/api\/teams\/\$\{enc\(s\(a, "teamId"\)\)\}\/rename[\s\S]*?\{ name: a\.name \}[\s\S]*?a\.callerTabId/.test(httpBlock),
+);
+assert(
+  "Team rename bridge writes callerTabId to the authenticated pane header",
+  /if \(callerTabId\) headers\.set\("X-CodeTerm-Pane-Id", String\(callerTabId\)\)/.test(
+    bridgeSource,
+  ),
+);
+assert(
+  "restart_agent_pane maps to the generic pane restart route",
+  /restart_agent_pane:\s*\(a\)\s*=>[\s\S]*?\/api\/panes\/\$\{enc\(s\(a, "paneId"\) \?\? s\(a, "pane_id"\)\)\}\/agent\/restart/.test(httpBlock),
+);
+assert(
+  "mux_add_team_member maps to the Team members route with caller-pane identity",
+  /mux_add_team_member:\s*\(a\)\s*=>[\s\S]*?\/api\/teams\/\$\{enc\(s\(a, "teamId"\)\)\}\/members[\s\S]*?provider: a\.provider[\s\S]*?role: a\.role[\s\S]*?a\.callerTabId/.test(httpBlock),
+);
+assert(
+  "mux_close_team maps to the Team close route with caller-pane identity",
+  /mux_close_team:\s*\(a\)\s*=>[\s\S]*?\/api\/teams\/\$\{enc\(s\(a, "teamId"\)\)\}\/close[\s\S]*?a\.callerTabId/.test(httpBlock),
 );
 
 for (const [cmd, reason] of Object.entries(WEB_UNSUPPORTED)) {

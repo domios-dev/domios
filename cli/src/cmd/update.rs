@@ -87,14 +87,14 @@ pub fn handle_update(
             manifest_url: action_manifest_url,
             from_file,
             continue_prompt,
-            continue_pane,
+            continue_tab,
             after_update: action_after_update,
         } => UpdateAction::Install {
             auto,
             manifest_url: action_manifest_url.or(manifest_url),
             from_file,
             continue_prompt,
-            continue_pane,
+            continue_tab,
             after_update: action_after_update.or(after_update),
         },
         other => other,
@@ -152,13 +152,12 @@ pub fn handle_update(
             manifest_url,
             from_file,
             continue_prompt,
-            continue_pane,
+            continue_tab,
             after_update,
         } => {
             if let Some(path) = from_file {
-                let pane = continue_pane.or_else(|| std::env::var("CODETERM_PANE_ID").ok());
-                // Persist current pane ids NOW so restore reuses them and the
-                // continue-pane target survives the restart (30s autosave may be stale).
+                let tab = continue_tab.or_else(|| std::env::var("CODETERM_PANE_ID").ok());
+                // Persist current tab ids so the continuation target survives restart.
                 let save_url = format!("{}/api/session/save", base_url);
                 if let Err(e) = http.post(&save_url).send() {
                     eprintln!("[install --from-file] WARN: session save failed ({e}) — pane id may rotate");
@@ -167,7 +166,7 @@ pub fn handle_update(
                     &path,
                     json,
                     continue_prompt.as_deref(),
-                    pane.as_deref(),
+                    tab.as_deref(),
                 );
                 return;
             }

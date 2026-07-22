@@ -17,3 +17,32 @@
     the check command as the fixed oracle. Cites the `--check`/oracle when
     describing keep/discard. English only.
   safety: execute
+- id: plan.skill.edit.oracle-immutable
+  command: "plan skill edit"
+  prompt: "A bounce showed the old workaround was wrong, but the proving command `cargo test loop_engine::stagnation_deviates_only_after_k` is still the oracle. Update the existing plan skill without weakening that oracle."
+  expect: |
+    Uses the existing plan-skill surface (`codeterm plan skill list` and
+    `codeterm plan skill edit <slug>` or `show` first) and keeps the exact check
+    command as the fixed oracle. Must describe the bounce outcome as keep,
+    discard, or supersede without changing the oracle to make the result pass.
+    Must NOT move the recipe into chat, mem-only notes, or a markdown side file.
+  safety: execute
+- id: plan.skill.new.bounded-bounce-research
+  command: "plan skill new"
+  prompt: "Capture a reusable bounce-unwinding recipe for a planner task: start with repo files and existing fixtures, allow one bounded external-doc lookup only if the repo is insufficient, and stop once you can route the next follow-up."
+  expect: |
+    Reaches for `codeterm plan skill new <slug>` and writes a procedure that is
+    repo-first, bounded, and oracle-preserving. The skill must rank evidence
+    applicability, name a stop rule/budget, and gate follow-ups so it does not
+    create duplicate or unbounded research tasks. Must mention keep/discard or
+    supersede. English only.
+  safety: execute
+- id: plan.skill.edit.followup-dedup
+  command: "plan skill edit"
+  prompt: "A second bounce proved that spawning another identical research follow-up would be waste. Update the existing bounce-unwinding skill so it tells the orchestrator to split or reroute instead of cloning the same follow-up."
+  expect: |
+    Uses the existing plan-skill surface and updates the skill with explicit
+    bounded follow-up gating: no duplicate follow-up for the same finding, split
+    or reroute after repeated bounce, and preserve the original oracle. Must NOT
+    create a new parallel skill for the same recipe when an existing one fits.
+  safety: execute

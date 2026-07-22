@@ -2,8 +2,8 @@
 // SET_STATE monotonic generation guard (T3 Fix B): a snapshot whose generation
 
 import { reducer } from "./reducer";
-import { makeVirtualPickerTab, type ExtendedState } from "./tree";
-import type { MultiplexerState, Workspace, Pane, Tab } from "../../lib/types";
+import type { ExtendedState } from "./tree";
+import type { MultiplexerState, Notification, Workspace, Pane, Tab, Team } from "../../lib/types";
 import { TitleLevel } from "../../lib/types";
 
 let failures = 0;
@@ -24,6 +24,7 @@ function base(): ExtendedState {
   return {
     workspaces: [],
     panes: {},
+    teams: [],
     active_workspace_id: null,
     focused_pane_id: null,
     notifications: [],
@@ -31,7 +32,6 @@ function base(): ExtendedState {
     toasts: [],
     activeTabIds: {},
     generation: 0,
-    virtualTabs: {},
   };
 }
 
@@ -46,11 +46,131 @@ function snap(generation: number, wsId: string): MultiplexerState {
   return {
     workspaces: [ws],
     panes: {},
+    teams: [],
     active_workspace_id: wsId,
     focused_pane_id: null,
     generation,
   };
 }
+
+function snapWithTeams(generation: number, teams: Team[]): MultiplexerState {
+  return {
+    ...snap(generation, "w-team"),
+    teams,
+  };
+}
+
+test("SET_STATE copies the exact incoming teams array", () => {
+  const teams: Team[] = [{
+    id: "team-1",
+    name: "Launch",
+    lifecycle: "forming",
+    created_at: 1,
+    workspace_id: "w-team",
+  }];
+  const next = reducer(base(), { type: "SET_STATE", state: snapWithTeams(1, teams) });
+  assert(next.teams === teams, "incoming teams array is retained exactly");
+});
+
+test("SET_STATE removes orphaned and duplicate tabs before the sidebar can count them", () => {
+  const workspace = {
+    id: "w-clean",
+    name: "Clean",
+    tabs: [
+      { id: "tab-live", pane_id: "pane-live" },
+      { id: "tab-duplicate-pane", pane_id: "pane-live" },
+      { id: "tab-orphan", pane_id: "pane-closed" },
+    ],
+    active_tab_id: "tab-orphan",
+    cwd: null,
+  } as unknown as Workspace;
+  const incoming: MultiplexerState = {
+    workspaces: [workspace],
+    panes: { "pane-live": { id: "pane-live", title: "Live" } as Pane },
+    teams: [],
+    active_workspace_id: "w-clean",
+    focused_pane_id: null,
+    generation: 1,
+  };
+
+  const next = reducer(base(), { type: "SET_STATE", state: incoming });
+  assert(next.workspaces[0].tabs.map((tab) => tab.id).join(",") === "tab-live", "only the live tab survives");
+  assert(next.workspaces[0].active_tab_id === "tab-live", "active tab falls back to the surviving tab");
+});
+
+test("SET_STATE replaces teams on a higher generation without retaining removed entries", () => {
+  const initial = reducer(base(), {
+    type: "SET_STATE",
+    state: snapWithTeams(1, [
+      { id: "team-1", name: "Before rename", lifecycle: "forming", created_at: 1, workspace_id: "w-team" },
+      { id: "team-removed", name: "Removed", lifecycle: "active", created_at: 2, workspace_id: "w-team" },
+    ]),
+  });
+  const incoming: Team[] = [
+    { id: "team-1", name: "Renamed", lifecycle: "active", created_at: 1, workspace_id: "w-team" },
+  ];
+  const next = reducer(initial, { type: "SET_STATE", state: snapWithTeams(2, incoming) });
+  const teams = next.teams;
+  assert(teams === incoming, "higher generation replaces the complete teams registry");
+  assert(teams?.length === 1 && teams[0].name === "Renamed", "rename becomes observable and removed team stays absent");
+});
+
+test("SET_STATE rejects stale generations without resurrecting teams", () => {
+  const applied = reducer(base(), {
+    type: "SET_STATE",
+    state: snapWithTeams(2, [{ id: "team-1", name: "Current", lifecycle: "active", created_at: 1, workspace_id: "w-team" }]),
+  });
+  const after = reducer(applied, {
+    type: "SET_STATE",
+    state: snapWithTeams(1, [{ id: "team-stale", name: "Stale", lifecycle: "forming", created_at: 2, workspace_id: "w-team" }]),
+  });
+  assert(after === applied, "stale snapshot returns the applied state reference");
+  assert(after.teams[0].id === "team-1", "stale teams cannot resurrect");
+  const duplicate = reducer(after, {
+    type: "SET_STATE",
+    state: snapWithTeams(2, [{ id: "team-duplicate", name: "Duplicate", lifecycle: "forming", created_at: 3, workspace_id: "w-team" }]),
+  });
+  assert(duplicate === after, "duplicate snapshot returns the applied state reference");
+  assert(duplicate.teams[0].id === "team-1", "duplicate teams cannot overwrite the registry");
+});
+
+test("deleting a notification removes its history entry and active toast", () => {
+  const item: Notification = {
+    id: "notice-1",
+    pane_id: "tab-pane-1",
+    workspace_id: "workspace-1",
+    title: "Needs attention",
+    body: "Read the full message",
+    level: "Warning",
+    timestamp: 1,
+    read: false,
+  };
+  const state = { ...base(), notifications: [item], toasts: [item] };
+  const next = reducer(state, { type: "DELETE_NOTIFICATION", id: item.id });
+  assert(next.notifications.length === 0, "history entry removed");
+  assert(next.toasts.length === 0, "active toast removed");
+});
+
+test("notification hydration keeps newer live entries and restores backend history", () => {
+  const historical: Notification = {
+    id: "history-1",
+    pane_id: null,
+    workspace_id: null,
+    title: "Historical",
+    body: null,
+    level: "Info",
+    timestamp: 1,
+    read: false,
+  };
+  const live = { ...historical, id: "live-1", title: "Live" };
+  const state = { ...base(), notifications: [live] };
+  const next = reducer(state, {
+    type: "HYDRATE_NOTIFICATIONS",
+    notifications: [historical, { ...live, title: "Stale backend copy" }],
+  });
+  assert(next.notifications.length === 2, "history and live entries should be deduplicated by id");
+  assert(next.notifications.find((item) => item.id === live.id)?.title === live.title, "live event wins a hydration race");
+});
 
 test("a newer snapshot is applied", () => {
   const next = reducer(base(), { type: "SET_STATE", state: snap(5, "w-new") });
@@ -78,6 +198,36 @@ test("snapshots without a generation still apply (back-compat)", () => {
   delete (noGen as { generation?: number }).generation;
   const next = reducer(base(), { type: "SET_STATE", state: noGen });
   assert(next.active_workspace_id === "w-x", "ungenerationed snapshot applied");
+});
+
+test("peer switch reset removes every old-peer pane and selection immediately", () => {
+  const oldPane = { id: "blackstar-pane", title: "Planner" } as unknown as Pane;
+  const oldTab = { id: "blackstar-tab", pane_id: oldPane.id } as unknown as Tab;
+  const oldWorkspace = {
+    id: "blackstar-workspace",
+    name: "BLACKSTAR",
+    tabs: [oldTab],
+    active_tab_id: oldTab.id,
+    cwd: null,
+  } as unknown as Workspace;
+  const start: ExtendedState = {
+    ...base(),
+    workspaces: [oldWorkspace],
+    panes: { [oldPane.id]: oldPane },
+    active_workspace_id: oldWorkspace.id,
+    focused_pane_id: oldPane.id,
+    paneStatuses: { [oldPane.id]: "Working" },
+    activeTabIds: { [oldWorkspace.id]: oldTab.id },
+    generation: 42,
+  };
+
+  const reset = reducer(start, { type: "RESET_PEER_CONTEXT" });
+  assert(reset.workspaces.length === 0, "old peer workspaces cleared");
+  assert(Object.keys(reset.panes).length === 0, "old peer panes cleared");
+  assert(reset.active_workspace_id === null, "old active workspace cleared");
+  assert(reset.focused_pane_id === null, "old focused pane cleared");
+  assert(Object.keys(reset.activeTabIds).length === 0, "old active tabs cleared");
+  assert(reset.generation === -1, "new peer snapshot cannot be rejected by old peer generation");
 });
 
 test("SET_STATE seeds paneStatuses from the snapshot (reload hydration)", () => {
@@ -148,6 +298,84 @@ test("SET_STATE keeps a genuine tracker-reported Waiting even without pending_pr
   };
   const next = reducer(withWaiting, { type: "SET_STATE", state: stillWaiting });
   assert(next.paneStatuses["p-1"] === "Waiting", "tracker-reaffirmed Waiting is not dropped");
+});
+
+test("boot stage events preserve failure reason and clear it on retry and ready", () => {
+  const hydrated = {
+    ...base(),
+    panes: { "p-1": { id: "p-1", pty_id: null, title: "General", protected: true } as unknown as Pane },
+  };
+  const starting = reducer(hydrated, {
+    type: "UPDATE_BOOT_STAGE",
+    paneId: "p-1",
+    stage: "pty_starting",
+  });
+  assert(starting.panes["p-1"].boot_stage === "pty_starting", "pty_starting recorded");
+  assert(starting.panes["p-1"].boot_failure_reason === null, "retry clears stale reason");
+
+  const failed = reducer(starting, {
+    type: "UPDATE_BOOT_STAGE",
+    paneId: "p-1",
+    stage: "spawn_failed",
+    reason: "provider missing",
+  });
+  assert(failed.panes["p-1"].boot_stage === "spawn_failed", "spawn_failed recorded");
+  assert(failed.panes["p-1"].boot_failure_reason === "provider missing", "failure reason recorded");
+
+  const retry = reducer(failed, {
+    type: "UPDATE_BOOT_STAGE",
+    paneId: "p-1",
+    stage: "pty_starting",
+  });
+  assert(retry.panes["p-1"].boot_stage === "pty_starting", "retry moves back to starting");
+  assert(retry.panes["p-1"].boot_failure_reason === null, "stale failure reason cleared on retry");
+
+  const ready = reducer(retry, {
+    type: "UPDATE_BOOT_STAGE",
+    paneId: "p-1",
+    stage: "agent_ready",
+  });
+  assert(ready.panes["p-1"].boot_stage === "agent_ready", "agent_ready recorded");
+  assert(ready.panes["p-1"].boot_failure_reason === null, "ready leaves no stale failure reason");
+});
+
+test("late attach hydration carries spawn failure and later snapshot clears it", () => {
+  const failedSnapshot = {
+    ...snap(7, "w-new"),
+    panes: {
+      "p-1": {
+        id: "p-1",
+        pty_id: null,
+        title: "General",
+        protected: true,
+        boot_stage: "spawn_failed",
+        boot_failure_reason: "child exited",
+      } as unknown as Pane,
+    },
+  };
+  const hydrated = reducer(base(), { type: "SET_STATE", state: failedSnapshot });
+  assert(hydrated.panes["p-1"].boot_stage === "spawn_failed", "late attach sees failed stage");
+  assert(
+    hydrated.panes["p-1"].boot_failure_reason === "child exited",
+    "late attach sees failure detail",
+  );
+
+  const readySnapshot = {
+    ...snap(8, "w-new"),
+    panes: {
+      "p-1": {
+        id: "p-1",
+        pty_id: "pty-1",
+        title: "General",
+        protected: true,
+        boot_stage: "agent_ready",
+        boot_failure_reason: null,
+      } as unknown as Pane,
+    },
+  };
+  const ready = reducer(hydrated, { type: "SET_STATE", state: readySnapshot });
+  assert(ready.panes["p-1"].boot_stage === "agent_ready", "new snapshot hydrates ready stage");
+  assert(ready.panes["p-1"].boot_failure_reason === null, "new snapshot clears stale failure detail");
 });
 
 function pane(id: string): Pane {
@@ -455,119 +683,106 @@ test("without RESET_GENERATION a low post-restart snapshot would be rejected (sa
   assert(after === highGen, "monotonic guard still rejects a low generation outside the boot-changed path");
 });
 
-test("OPEN_SESSION_PICKER adds a virtual tab + pane and activates it, no backend call", () => {
-  const start = reducer(base(), { type: "SET_STATE", state: snap(1, "w1") });
-  const virtual = makeVirtualPickerTab("/tmp/x");
-  const open = reducer(start, { type: "OPEN_SESSION_PICKER", workspaceId: "w1", virtual });
-  const ws = open.workspaces.find((w) => w.id === "w1")!;
-  assert(ws.tabs.some((t) => t.id === virtual.tab.id), "virtual tab present in workspace");
-  assert(open.panes[virtual.pane.id]?.virtual === true, "virtual pane registered");
-  assert(open.panes[virtual.pane.id]?.title === "New session", "virtual pane titled, never a husk");
-  assert(open.activeTabIds["w1"] === virtual.tab.id, "virtual tab is active");
-  assert(open.virtualTabs["w1"]?.tab.id === virtual.tab.id, "virtualTabs map tracks it");
-});
+test("CLOSE_TAB removes every tab whose pane is in the removed cascade", () => {
+  const orch: Tab = { id: "tab-orch", pane_id: "pane-orch" } as unknown as Tab;
+  const planner: Tab = { id: "tab-planner", pane_id: "pane-planner" } as unknown as Tab;
+  const worker: Tab = { id: "tab-worker", pane_id: "pane-worker" } as unknown as Tab;
+  const start: ExtendedState = {
+    ...base(),
+    workspaces: [
+      {
+        id: "w1",
+        name: "W",
+        tabs: [orch, planner, worker],
+        active_tab_id: "tab-worker",
+        cwd: null,
+      } as unknown as Workspace,
+    ],
+    panes: {
+      "pane-orch": { id: "pane-orch", title: "Orchestrator" } as unknown as Pane,
+      "pane-planner": {
+        id: "pane-planner",
+        title: "Planner",
+        parent_pane_id: "pane-orch",
+      } as unknown as Pane,
+      "pane-worker": {
+        id: "pane-worker",
+        title: "Worker",
+        parent_pane_id: "pane-planner",
+      } as unknown as Pane,
+    },
+    paneStatuses: {
+      "pane-orch": "Idle",
+      "pane-planner": "Working",
+      "pane-worker": "Waiting",
+    },
+    activeTabIds: { w1: "tab-worker" },
+  };
 
-test("OPEN_SESSION_PICKER twice reuses the open picker (one per workspace)", () => {
-  const start = reducer(base(), { type: "SET_STATE", state: snap(1, "w1") });
-  const first = makeVirtualPickerTab();
-  const open = reducer(start, { type: "OPEN_SESSION_PICKER", workspaceId: "w1", virtual: first });
-  const second = makeVirtualPickerTab();
-  const again = reducer(open, { type: "OPEN_SESSION_PICKER", workspaceId: "w1", virtual: second });
-  const ws = again.workspaces.find((w) => w.id === "w1")!;
-  const virtualTabCount = ws.tabs.filter((t) => t.id === first.tab.id || t.id === second.tab.id).length;
-  assert(virtualTabCount === 1, "no second picker stacked");
-  assert(again.activeTabIds["w1"] === first.tab.id, "existing picker re-activated");
-});
-
-test("SET_STATE re-injects the virtual picker across a backend snapshot (no husk, survives reconcile)", () => {
-  const start = reducer(base(), { type: "SET_STATE", state: snap(1, "w1") });
-  const virtual = makeVirtualPickerTab();
-  const open = reducer(start, { type: "OPEN_SESSION_PICKER", workspaceId: "w1", virtual });
-  // the picker) must NOT drop the open picker.
-  const after = reducer(open, { type: "SET_STATE", state: snap(2, "w1") });
+  const after = reducer(start, {
+    type: "CLOSE_TAB",
+    workspaceId: "w1",
+    tabId: "tab-orch",
+    removedPaneIds: ["pane-orch", "pane-planner", "pane-worker"],
+  });
   const ws = after.workspaces.find((w) => w.id === "w1")!;
-  assert(ws.tabs.some((t) => t.id === virtual.tab.id), "virtual tab re-injected after snapshot");
-  assert(after.panes[virtual.pane.id]?.virtual === true, "virtual pane re-injected");
-  assert(after.activeTabIds["w1"] === virtual.tab.id, "virtual tab stays active across snapshot");
+  assert(ws.tabs.length === 0, `all cascade tabs removed, got ${ws.tabs.length}`);
+  assert(ws.active_tab_id === null, "workspace active tab cleared");
+  assert(after.activeTabIds.w1 === undefined, "activeTabIds cleared");
+  assert(Object.keys(after.panes).length === 0, "all cascade panes removed");
+  assert(Object.keys(after.paneStatuses).length === 0, "all cascade statuses removed");
 });
 
-test("CLOSE_SESSION_PICKER removes the virtual tab + pane and clears the map", () => {
-  const start = reducer(base(), { type: "SET_STATE", state: snap(1, "w1") });
-  const virtual = makeVirtualPickerTab();
-  const open = reducer(start, { type: "OPEN_SESSION_PICKER", workspaceId: "w1", virtual });
-  const closed = reducer(open, { type: "CLOSE_SESSION_PICKER", workspaceId: "w1", tabId: virtual.tab.id });
-  const ws = closed.workspaces.find((w) => w.id === "w1")!;
-  assert(!ws.tabs.some((t) => t.id === virtual.tab.id), "virtual tab removed");
-  assert(closed.panes[virtual.pane.id] === undefined, "virtual pane removed");
-  assert(closed.virtualTabs["w1"] === undefined, "virtualTabs entry cleared");
-  // A later snapshot must NOT resurrect it.
-  const after = reducer(closed, { type: "SET_STATE", state: snap(3, "w1") });
-  assert(!after.workspaces.find((w) => w.id === "w1")!.tabs.some((t) => t.id === virtual.tab.id), "stays gone after snapshot");
-});
-
-test("CLOSE_SESSION_PICKER closes on workspace key even when the tab id mismatches (post-refresh)", () => {
-  const start = reducer(base(), { type: "SET_STATE", state: snap(1, "w1") });
-  const virtual = makeVirtualPickerTab();
-  const open = reducer(start, { type: "OPEN_SESSION_PICKER", workspaceId: "w1", virtual });
-  // A caller closing with a STALE/unknown tab id must still close the picker
-  // for the workspace — never a silent no-op on mismatch.
-  const closed = reducer(open, { type: "CLOSE_SESSION_PICKER", workspaceId: "w1", tabId: "some-stale-id" });
-  const ws = closed.workspaces.find((w) => w.id === "w1")!;
-  assert(!ws.tabs.some((t) => t.id === virtual.tab.id), "virtual tab removed despite id mismatch");
-  assert(closed.virtualTabs["w1"] === undefined, "virtualTabs entry cleared");
-  assert(closed.panes[virtual.pane.id] === undefined, "virtual pane removed");
-});
-
-test("close-then-select: SET_ACTIVE_TAB after close targets the created tab, picker gone", () => {
-  // Backend snapshot carries the created (orchestrator) tab alongside the picker.
-  const created: Tab = { id: "tab-created", pane_id: "pane-created" } as unknown as Tab;
-  const withTab: MultiplexerState = {
+test("CLOSE_TAB removes a manager-root subtree", () => {
+  const orch: Tab = { id: "tab-orch", pane_id: "pane-orch" } as unknown as Tab;
+  const manager: Tab = { id: "tab-manager", pane_id: "pane-manager" } as unknown as Tab;
+  const worker: Tab = { id: "tab-worker", pane_id: "pane-worker" } as unknown as Tab;
+  const start: ExtendedState = {
+    ...base(),
     workspaces: [
-      { id: "w1", name: "W", tabs: [created], active_tab_id: created.id, cwd: null } as unknown as Workspace,
+      {
+        id: "w1",
+        name: "W",
+        tabs: [orch, manager, worker],
+        active_tab_id: "tab-worker",
+        cwd: null,
+      } as unknown as Workspace,
     ],
-    panes: { "pane-created": { id: "pane-created", title: "Orchestrator" } as unknown as Pane },
-    active_workspace_id: "w1",
-    focused_pane_id: null,
-    generation: 1,
+    panes: {
+      "pane-orch": { id: "pane-orch", title: "Orchestrator" } as unknown as Pane,
+      "pane-manager": {
+        id: "pane-manager",
+        title: "Planner",
+        role: "Manager",
+        parent_pane_id: "pane-orch",
+      } as unknown as Pane,
+      "pane-worker": {
+        id: "pane-worker",
+        title: "Worker",
+        role: "Worker",
+        parent_pane_id: "pane-manager",
+      } as unknown as Pane,
+    },
+    paneStatuses: {
+      "pane-manager": "Working",
+      "pane-worker": "Waiting",
+    },
+    activeTabIds: { w1: "tab-worker" },
   };
-  const start = reducer(base(), { type: "SET_STATE", state: withTab });
-  const virtual = makeVirtualPickerTab();
-  const open = reducer(start, { type: "OPEN_SESSION_PICKER", workspaceId: "w1", virtual });
-  assert(open.activeTabIds["w1"] === virtual.tab.id, "picker is active while open");
-  // App order: close the picker, then select the created tab.
-  const closed = reducer(open, { type: "CLOSE_SESSION_PICKER", workspaceId: "w1", tabId: virtual.tab.id });
-  const selected = reducer(closed, { type: "SET_ACTIVE_TAB", workspaceId: "w1", tabId: created.id });
-  assert(selected.activeTabIds["w1"] === created.id, "created tab is active after select");
-  const ws = selected.workspaces.find((w) => w.id === "w1")!;
-  assert(!ws.tabs.some((t) => t.id === virtual.tab.id), "no lingering picker tab");
-  // A later snapshot must not resurrect the picker nor steal the active tab.
-  const after = reducer(selected, { type: "SET_STATE", state: { ...withTab, generation: 2 } });
-  assert(after.activeTabIds["w1"] === created.id, "selection survives the next snapshot");
-  assert(after.virtualTabs["w1"] === undefined, "picker stays gone");
-});
 
-test("cross-workspace select: created tab in another workspace stays active after picker close in host", () => {
-  const created: Tab = { id: "tab-b", pane_id: "pane-b" } as unknown as Tab;
-  const two: MultiplexerState = {
-    workspaces: [
-      { id: "wA", name: "A", tabs: [], active_tab_id: null, cwd: null } as unknown as Workspace,
-      { id: "wB", name: "B", tabs: [created], active_tab_id: created.id, cwd: null } as unknown as Workspace,
-    ],
-    panes: { "pane-b": { id: "pane-b", title: "Orchestrator" } as unknown as Pane },
-    active_workspace_id: "wA",
-    focused_pane_id: null,
-    generation: 1,
-  };
-  const start = reducer(base(), { type: "SET_STATE", state: two });
-  const virtual = makeVirtualPickerTab();
-  const open = reducer(start, { type: "OPEN_SESSION_PICKER", workspaceId: "wA", virtual });
-  // Pair created in wB while the picker hosts wA.
-  const closed = reducer(open, { type: "CLOSE_SESSION_PICKER", workspaceId: "wA", tabId: virtual.tab.id });
-  const selected = reducer(closed, { type: "SET_ACTIVE_TAB", workspaceId: "wB", tabId: created.id });
-  const activated = reducer(selected, { type: "SET_ACTIVE_WORKSPACE", id: "wB" });
-  assert(activated.active_workspace_id === "wB", "active workspace switched to the created one");
-  assert(activated.activeTabIds["wB"] === created.id, "created tab active in its workspace");
-  assert(!activated.workspaces.find((w) => w.id === "wA")!.tabs.some((t) => t.id === virtual.tab.id), "host picker removed");
+  const after = reducer(start, {
+    type: "CLOSE_TAB",
+    workspaceId: "w1",
+    tabId: "tab-manager",
+    removedPaneIds: ["pane-manager", "pane-worker"],
+  });
+  const ws = after.workspaces.find((w) => w.id === "w1")!;
+  assert(ws.tabs.map((t) => t.id).join(",") === "tab-orch", "only orchestrator remains");
+  assert(ws.active_tab_id === "tab-orch", "active tab falls back to orchestrator");
+  assert(after.activeTabIds.w1 === "tab-orch", "activeTabIds falls back to orchestrator");
+  assert(after.panes["pane-orch"], "orchestrator pane remains");
+  assert(!after.panes["pane-manager"] && !after.panes["pane-worker"], "manager subtree panes removed");
+  assert(Object.keys(after.paneStatuses).length === 0, "manager subtree statuses removed");
 });
 
 console.log(failures === 0 ? "✓ reducer tests green" : `✗ ${failures} failure(s)`);

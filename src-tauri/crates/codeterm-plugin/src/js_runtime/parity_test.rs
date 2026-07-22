@@ -12,7 +12,10 @@
 
 use std::path::PathBuf;
 
-use crate::provider::{AgentLaunchParams, AgentProvider, ModelInfo};
+use crate::{
+    chatbackend_provider::{ChatBackendError, ChatBackendProvider},
+    provider::{AgentLaunchParams, AgentProvider, ModelInfo},
+};
 
 use super::{load_one, JsProvider};
 
@@ -167,6 +170,68 @@ impl AgentProvider for DiscoverModelsNativeStub {
     async fn discover_models(&self) -> Option<Vec<ModelInfo>> {
         Some(discover_models_fixture())
     }
+}
+
+struct SessionConfigNativeStub;
+
+impl ChatBackendProvider for SessionConfigNativeStub {
+    fn id(&self) -> &str {
+        "session-config-fixture"
+    }
+
+    fn supports_session_config(&self) -> bool {
+        true
+    }
+
+    fn open_session(&self, _: serde_json::Value) -> Result<String, ChatBackendError> {
+        unreachable!("descriptor parity does not open a session")
+    }
+
+    fn send_message(&self, _: &str, _: &str) -> Result<(), ChatBackendError> {
+        unreachable!("descriptor parity does not send messages")
+    }
+
+    fn poll(
+        &self,
+        _: &str,
+        _: Option<&str>,
+    ) -> Result<codeterm_types::agent::chat_types::StructuredChat, ChatBackendError> {
+        unreachable!("descriptor parity does not poll sessions")
+    }
+
+    fn close_session(&self, _: &str) -> Result<(), ChatBackendError> {
+        unreachable!("descriptor parity does not close sessions")
+    }
+
+    fn list_models(&self) -> Result<Vec<ModelInfo>, ChatBackendError> {
+        unreachable!("descriptor parity does not list models")
+    }
+}
+
+#[test]
+fn chatbackend_session_config_descriptor_native_js_parity() {
+    use std::sync::Arc;
+
+    let manifest_json = r#"{
+        "id":"session-config-fixture",
+        "version":"0.1.0",
+        "displayName":"Session Config Fixture",
+        "capabilities":{"chatBackend":{"sessionConfig":true}}
+    }"#;
+    let manifest: super::PluginManifest = serde_json::from_str(manifest_json).unwrap();
+    let vm = super::PluginVm::from_source_with(
+        "session-config-fixture",
+        "module.exports.default = {};".into(),
+        Some(manifest_json.into()),
+    )
+    .unwrap();
+    let js = super::JsChatBackend::from_manifest(Arc::new(vm), &manifest);
+    let native = SessionConfigNativeStub;
+
+    assert_eq!(
+        js.describe().system_prompt_delivery,
+        native.describe().system_prompt_delivery
+    );
 }
 
 #[tokio::test]
@@ -403,6 +468,85 @@ fn all_workspace_plugins_load() {
     }
 }
 
+#[test]
+fn launch_adapter_matrix_uses_each_installed_descriptor() {
+    let Some(root) = require_plugins() else {
+        return;
+    };
+    let task = "adapter-task-fixture";
+    let mut plugin_dirs = std::fs::read_dir(root)
+        .expect("read bundled plugin directory")
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with("provider-"))
+        .filter(|entry| entry.path().join("plugin.json").is_file())
+        .collect::<Vec<_>>();
+    plugin_dirs.sort_by_key(|entry| entry.file_name());
+
+    assert!(
+        !plugin_dirs.is_empty(),
+        "installed descriptor matrix is empty"
+    );
+    for entry in plugin_dirs {
+        let manifest = entry.path().join("plugin.json");
+        let provider = load_one(&manifest)
+            .unwrap_or_else(|error| panic!("load {}: {error}", manifest.display()));
+        let descriptor = provider.describe();
+        let command = provider.build_launch_command(&AgentLaunchParams {
+            task: Some(task.into()),
+            ..Default::default()
+        });
+
+        assert!(
+            !command.trim().is_empty(),
+            "{} launch command",
+            descriptor.id
+        );
+        match provider.task_delivery() {
+            crate::provider::TaskDelivery::InlineFlag => {}
+            crate::provider::TaskDelivery::PtyInput => {
+                assert!(
+                    !command.contains(task),
+                    "{} PTY delivery must preserve first-message fallback",
+                    descriptor.id
+                );
+            }
+        }
+        match provider.system_prompt_delivery() {
+            crate::provider::SystemPromptDelivery::External => {
+                assert!(
+                    !command.contains(task),
+                    "{} external delivery must reserve confirmed fallback",
+                    descriptor.id
+                );
+            }
+            crate::provider::SystemPromptDelivery::CliFlag(mechanism) => {
+                let marker = mechanism
+                    .split_whitespace()
+                    .last()
+                    .expect("CLI system prompt mechanism must not be empty");
+                assert!(
+                    command.contains(marker),
+                    "{} system delivery must use declared mechanism {marker}",
+                    descriptor.id
+                );
+                assert!(
+                    !command.contains(task),
+                    "{} system delivery must not use fallback text",
+                    descriptor.id
+                );
+            }
+            crate::provider::SystemPromptDelivery::SessionConfig => {
+                assert!(
+                    !command.contains(task),
+                    "{} session config must not use fallback text",
+                    descriptor.id
+                );
+            }
+        }
+    }
+}
+
 /// Structured-prompt-server capability contract across the bundled providers.
 /// JS-only providers have no native counterpart to diff against, so the honest
 /// "parity" is plugin-output-vs-documented-contract: opencode is the ONLY
@@ -460,6 +604,62 @@ fn model_launch_args_match_each_cli_flag_format() {
             "{id}: model flag format"
         );
     }
+}
+
+/// Reasoning-effort capability is declared in the manifest and surfaced through
+/// the descriptor. codex declares low/medium/high with a scriptable `-c`
+/// launch flag; providers that declare no efforts must expose no selector and
+/// reject any requested effort structurally (no silent downgrade).
+#[test]
+fn reasoning_effort_capability_is_declared_and_gated() {
+    if require_plugins().is_none() {
+        return;
+    }
+
+    let codex = load_js("codex");
+    let d = codex.describe();
+    let ids: Vec<String> = d.reasoning_efforts.iter().map(|e| e.id.clone()).collect();
+    assert_eq!(
+        ids,
+        vec!["low", "medium", "high"],
+        "codex must surface its declared effort levels"
+    );
+    assert_eq!(d.default_reasoning_effort.as_deref(), Some("medium"));
+    assert_eq!(
+        codex.reasoning_effort_launch_args("high"),
+        vec![
+            "-c".to_string(),
+            "model_reasoning_effort=\"high\"".to_string()
+        ],
+        "codex effort launch flag must match its CLI config-override contract"
+    );
+    assert!(
+        codex.reasoning_effort_launch_args("").is_empty(),
+        "empty effort must produce no launch flags"
+    );
+    assert!(codex.supports_reasoning_effort("medium"));
+    assert!(codex.validate_reasoning_effort(Some("high")).is_ok());
+    let rejection = codex
+        .validate_reasoning_effort(Some("ultra"))
+        .expect_err("unsupported effort must be rejected");
+    assert_eq!(rejection.requested, "ultra");
+    assert_eq!(rejection.supported, vec!["low", "medium", "high"]);
+
+    // A provider that declares no efforts: no selector, and any effort rejects.
+    let claude = load_js("claude");
+    assert!(
+        claude.describe().reasoning_efforts.is_empty(),
+        "claude declares no efforts ⇒ no selector"
+    );
+    assert!(
+        claude.reasoning_effort_launch_args("high").is_empty(),
+        "no-capability provider adds no effort flags"
+    );
+    assert!(claude.validate_reasoning_effort(None).is_ok());
+    assert!(
+        claude.validate_reasoning_effort(Some("high")).is_err(),
+        "no-capability provider must reject an explicit effort, not silently ignore it"
+    );
 }
 
 /// `supports_stop` (the UI Stop-affordance flag in the provider descriptor)

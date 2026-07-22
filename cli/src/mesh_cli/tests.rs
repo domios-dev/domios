@@ -1,7 +1,7 @@
 use super::api_map::cli_command_to_api;
 use super::parse_ip_port;
 use super::{MeshAction, MeshPeerAction};
-use crate::{AgentAction, Commands, UpdateAction};
+use crate::{BridgeAction, Commands, UpdateAction};
 
 fn update_cmd(action: Option<UpdateAction>, manifest_url: Option<String>) -> Commands {
     Commands::Update {
@@ -101,6 +101,29 @@ fn paste_get_and_list_over_mesh_map_to_remote_pasteboard() {
 }
 
 #[test]
+fn bridge_send_over_mesh_decodes_quoted_newline() {
+    let (method, path, body) = cli_command_to_api(&Commands::Bridge {
+        action: BridgeAction::Send {
+            text: Some("first\\nsecond".into()),
+            raw_text: false,
+            service: "telegram".into(),
+            to: 42,
+            append: false,
+            r#type: "text".into(),
+            file: None,
+            caption: None,
+            filename: None,
+            buttons: None,
+        },
+    });
+
+    assert_eq!(method, "POST");
+    assert_eq!(path, "/api/bridge/send");
+    let body: serde_json::Value = serde_json::from_str(&body.expect("body")).unwrap();
+    assert_eq!(body["text"], "first\nsecond");
+}
+
+#[test]
 fn remote_worker_record_body_builds_from_spawn_request_and_response() {
     use super::relay::remote_worker_record_body;
     let spawn_body = serde_json::json!({
@@ -160,7 +183,7 @@ fn apply_maps_to_install_auto() {
             manifest_url: None,
             from_file: None,
             continue_prompt: None,
-            continue_pane: None,
+            continue_tab: None,
             after_update: None,
         }),
         None,
@@ -178,7 +201,7 @@ fn apply_with_manifest_url_appends_query() {
             manifest_url: None,
             from_file: None,
             continue_prompt: None,
-            continue_pane: None,
+            continue_tab: None,
             after_update: None,
         }),
         Some("http://localhost:9999/latest.json".to_string()),
@@ -196,7 +219,7 @@ fn update_install_local_only_options_are_rejected_over_mesh() {
             manifest_url: None,
             from_file: Some("C:/tmp/CodeTerm.exe".into()),
             continue_prompt: Some("verify".into()),
-            continue_pane: Some("pane_1".into()),
+            continue_tab: Some("tab_1".into()),
             after_update: None,
         }),
         None,
@@ -434,6 +457,7 @@ fn mesh_cron_create_forwards_all_advanced_fields() {
             agent: "claude".into(),
             model: None,
             cwd: None,
+            skill: None,
             description: None,
             creator_pane: Some("pane_9".into()),
             once: true,
@@ -457,7 +481,7 @@ fn mesh_cron_create_forwards_all_advanced_fields() {
 #[test]
 fn pane_new_relays_cmd_field() {
     use crate::PaneAction;
-    let cmd = Commands::Pane {
+    let cmd = Commands::Tab {
         action: PaneAction::New {
             workspace: Some("ws_1".into()),
             cwd: Some("C:/Developer/codeterm".into()),
@@ -611,24 +635,6 @@ fn send_text_is_fire_and_forget_on_mesh() {
 }
 
 #[test]
-fn agent_message_uses_send_transport_on_mesh() {
-    let cmd = Commands::Agent {
-        action: AgentAction::Message {
-            text: Some("steer now".into()),
-            pane: "abc123".into(),
-            from_file: None,
-            stdin: false,
-        },
-    };
-    let (m, p, b) = cli_command_to_api(&cmd);
-    assert_eq!(m, "POST");
-    assert_eq!(p, "/api/panes/abc123/send");
-    let body: serde_json::Value = serde_json::from_str(&b.expect("body")).unwrap();
-    assert_eq!(body["text"], "steer now");
-    assert_eq!(body["enter"], true);
-}
-
-#[test]
 fn send_delay_maps_to_delayed_messages() {
     let cmd = Commands::SendText {
         text: Some("later".into()),
@@ -687,6 +693,64 @@ fn send_actions_allows_empty_payload_on_mesh() {
     assert!(body.get("text").is_none());
     assert_eq!(body["actions"][0]["type"], "key");
     assert_eq!(body["actions"][0]["key"], "enter");
+}
+
+#[test]
+fn only_post_sends_are_delivery_id_bearing() {
+    assert!(super::relay::is_send_relay(
+        "POST",
+        "/api/panes/abc123/send"
+    ));
+    assert!(super::relay::is_send_relay(
+        "post",
+        "/api/panes/general/send"
+    ));
+    assert!(
+        !super::relay::is_send_relay("GET", "/api/panes/abc123/send"),
+        "a GET is never a logical send"
+    );
+    assert!(!super::relay::is_send_relay("POST", "/api/panes"));
+}
+
+#[test]
+fn delivery_id_prefers_explicit_env_override() {
+    assert_eq!(
+        super::relay::delivery_id_or_generate(Some("pinned-key-123".to_string())),
+        "pinned-key-123",
+        "an explicit id is reused verbatim so retries dedupe"
+    );
+}
+
+#[test]
+fn delivery_id_generates_uuid_when_unset_or_blank() {
+    let generated = super::relay::delivery_id_or_generate(None);
+    assert!(
+        uuid::Uuid::parse_str(&generated).is_ok(),
+        "unset env yields a fresh v4 uuid: {generated}"
+    );
+    let from_blank = super::relay::delivery_id_or_generate(Some("   ".to_string()));
+    assert!(
+        uuid::Uuid::parse_str(&from_blank).is_ok(),
+        "blank env falls back to a generated uuid: {from_blank}"
+    );
+}
+
+#[test]
+fn relay_envelope_stamps_delivery_id_only_on_sends() {
+    let send =
+        super::relay::build_relay_envelope("POST", "/api/panes/abc/send", Some(r#"{"text":"hi"}"#));
+    let id = send
+        .get("delivery_id")
+        .and_then(|v| v.as_str())
+        .expect("send envelope carries a delivery_id");
+    assert!(!id.is_empty());
+    assert_eq!(send["body"]["text"], "hi", "body is preserved");
+
+    let read = super::relay::build_relay_envelope("GET", "/api/panes", None);
+    assert!(
+        read.get("delivery_id").is_none(),
+        "reads carry no delivery_id"
+    );
 }
 
 /// `web link` embeds the LOCAL token — relaying would mint a link with

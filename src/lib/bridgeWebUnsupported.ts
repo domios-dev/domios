@@ -1,5 +1,7 @@
 /** Native-only IPC commands — honest web degradation via webCapability(). */
 export const WEB_UNSUPPORTED: Record<string, string> = {
+  get_recovery_state:
+    "Native crash recovery state is sourced from the desktop supervisor",
   get_pane_history_raw:
     "Native xterm scrollback replay on remount; web uses read_pty tail instead",
   materialize_dropped_files:
@@ -8,6 +10,10 @@ export const WEB_UNSUPPORTED: Record<string, string> = {
     "OS clipboard file paths; web uses navigator.clipboard.read()",
   read_clipboard_text:
     "OS clipboard text reader; web uses navigator.clipboard.readText()",
+  frontend_ready:
+    "Desktop startup readiness acknowledgement has no browser equivalent",
+  frontend_readiness_generation:
+    "Desktop startup readiness generation has no browser equivalent",
 };
 
 /** Handled in invokeRaw without HTTP_MAP / CANNED membership. */

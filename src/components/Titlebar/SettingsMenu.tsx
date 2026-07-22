@@ -147,7 +147,7 @@ export function SettingsMenu({ onOpenSection }: SettingsMenuProps) {
             ref={menuRef}
             role="menu"
             data-testid="settings-menu"
-            className="ct-menu-pop ct-float fixed z-50 overflow-hidden rounded-2xl border border-[var(--ct-border)] bg-[var(--ct-surface)] shadow-[var(--ct-shadow-lg)]"
+            className="ct-menu-pop ct-float ct-portal-menu fixed overflow-hidden rounded-2xl border border-[var(--ct-border)] bg-[var(--ct-surface)] shadow-[var(--ct-shadow-lg)]"
             style={{ top: pos.top, right: pos.right, width: MENU_WIDTH }}
           >
             <div className="flex items-center justify-between px-3.5 pt-3 pb-2">

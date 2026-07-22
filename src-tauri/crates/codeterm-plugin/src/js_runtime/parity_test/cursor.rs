@@ -19,7 +19,16 @@ fn build_launch_command_shape() {
     let j = cursor();
     // Plain: bare cursor-agent, no force, no trust pre-write.
     let plain = j.build_launch_command(&AgentLaunchParams::default());
-    assert!(plain.starts_with("cursor-agent"), "{plain}");
+    // sec_hook_ampersand: every launch disables cursor-agent's import of the
+    // user's ~/.claude/settings.json PreToolUse hooks (a Claude-dialect hook
+    // body crashes Cursor's bash tool). Must lead, and never touch the file.
+    let hook_disable_pos = plain
+        .find("CLAUDE_CODE_DISABLE_HOOKS")
+        .expect("hook-import disable prefix must be present");
+    assert!(
+        hook_disable_pos < plain.find("cursor-agent").unwrap(),
+        "hook-import disable must lead the launch command: {plain}"
+    );
     assert!(!plain.contains("--force"), "no force without skip: {plain}");
     assert!(
         !plain.contains(".workspace-trusted"),
@@ -46,7 +55,13 @@ fn build_resume_command_shape() {
     }
     let j = cursor();
     let cmd = j.build_resume_command(CURSOR_UUID, true).unwrap();
-    assert!(cmd.contains("cursor-agent"), "{cmd}");
+    let hook_disable_pos = cmd
+        .find("CLAUDE_CODE_DISABLE_HOOKS")
+        .expect("hook-import disable prefix must be present");
+    assert!(
+        hook_disable_pos < cmd.find("cursor-agent").unwrap(),
+        "hook-import disable must lead the resume command: {cmd}"
+    );
     assert!(cmd.contains("--resume"), "{cmd}");
     assert!(cmd.contains(CURSOR_UUID), "{cmd}");
     assert!(cmd.contains("--force"), "skip adds --force: {cmd}");
@@ -68,7 +83,7 @@ fn parse_session_delta_strips_user_query_and_maps_tool_use() {
     }
     let j = cursor();
     let jsonl = concat!(
-        r#"{"role":"user","message":{"content":[{"type":"text","text":"<user_query>\nrefactor this\n</user_query>"}]}}"#,
+        r#"{"role":"user","message":{"content":[{"type":"text","text":"<timestamp>Monday, Jul 20, 2026, 1:21 PM (UTC+3)</timestamp>\n<user_query>\nrefactor this\n</user_query>"}]}}"#,
         "\n",
         r#"{"role":"assistant","message":{"content":[{"type":"text","text":"on it"},{"type":"tool_use","name":"Edit","input":{"path":"a.rs"}}]}}"#,
         "\n",
@@ -89,7 +104,7 @@ fn parse_session_delta_strips_user_query_and_maps_tool_use() {
     assert_eq!(
         user.blocks[0].data.get("text").and_then(|v| v.as_str()),
         Some("refactor this"),
-        "user_query framing must be stripped"
+        "timestamp and user_query framing must be stripped"
     );
 
     let asst = &delta.messages[1];
@@ -100,6 +115,13 @@ fn parse_session_delta_strips_user_query_and_maps_tool_use() {
     assert_eq!(
         asst.blocks[1].data.get("name").and_then(|v| v.as_str()),
         Some("Edit")
+    );
+    assert_eq!(
+        asst.blocks[1]
+            .data
+            .get("tool_status")
+            .and_then(|v| v.as_str()),
+        Some("success")
     );
 }
 

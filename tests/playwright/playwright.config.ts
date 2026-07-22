@@ -1,4 +1,5 @@
 import { defineConfig } from "@playwright/test";
+import { playwrightWorkerCount } from "./helpers/dev-instance";
 
 const postMortemArtifacts = {
   trace: "retain-on-failure" as const,
@@ -7,13 +8,12 @@ const postMortemArtifacts = {
 };
 
 /**
- * One app instance, one worker — every suite drives the same live dev
- * console (port 7686) over CDP + REST. Parallel workers would fight over
- * focus and global mux state.
+ * Serial uses the isolated `playwright` dev instance by default. CT_E2E_WORKERS=N
+ * opts into one named isolated dev instance per Playwright parallel worker slot.
  */
 export default defineConfig({
   testDir: "./suites",
-  workers: 1,
+  workers: playwrightWorkerCount(),
   fullyParallel: false,
   timeout: 90_000,
   expect: { timeout: 10_000 },
@@ -25,15 +25,41 @@ export default defineConfig({
   use: postMortemArtifacts,
   globalSetup: "./helpers/global-setup",
   projects: [
-    { name: "smoke", grep: /@smoke/, grepInvert: /@quarantine/, retries: 0 },
+    // Daemon kill/restart tests run only in the serial `restart` project, so
+    // every other shard keeps its daemon alive for the whole run.
+    { name: "smoke", grep: /@smoke/, grepInvert: /@quarantine|@restart/, retries: 0 },
     {
       name: "golden",
       grep: /@golden/,
+      grepInvert: /@quarantine|@restart|@live|@perf/,
+      retries: 0,
+      timeout: 300_000,
+    },
+    { name: "full", grepInvert: /@quarantine|@restart|@live|@perf/, retries: 0 },
+    // Deterministic latency budgets with hard asserts; metrics.jsonl trend
+    // artifact per run. LLM-free (stub transport for churn).
+    {
+      name: "perf",
+      grep: /@perf/,
       grepInvert: /@quarantine/,
       retries: 0,
       timeout: 300_000,
     },
-    { name: "full", grepInvert: /@quarantine/, retries: 0 },
+    // Real-provider LLM flows, run on their own cadence outside golden.
+    {
+      name: "live",
+      grep: /@live/,
+      grepInvert: /@quarantine/,
+      retries: 0,
+      timeout: 420_000,
+    },
+    {
+      name: "restart",
+      grep: /@restart/,
+      grepInvert: /@quarantine/,
+      retries: 0,
+      timeout: 300_000,
+    },
     { name: "quarantine", grep: /@quarantine/, retries: 0 },
   ],
 });

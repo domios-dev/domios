@@ -16,8 +16,9 @@ fn resolve_routed_pane(state: &AppState, plan_id: &str) -> Option<String> {
         resolve_planner_ref(&plan.planner, &plan.owner, |pid| state.svc.pane_probe(pid));
     match resolution {
         PeerResolution::Planner { pane_id } => Some(pane_id),
-        PeerResolution::OrchestratorFallback { .. } => plan.owner.pane_id.clone(),
-        PeerResolution::Waived { .. } | PeerResolution::Unbound => None,
+        PeerResolution::OrchestratorFallback { .. }
+        | PeerResolution::Waived { .. }
+        | PeerResolution::Unbound => None,
     }
 }
 
@@ -40,25 +41,87 @@ pub async fn gate_ask(
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let routed_to = resolve_routed_pane(&state, &id);
-    let gate = state
+    let caller_session_id = body.asked_by_pane_id.as_deref().and_then(|pane_id| {
+        state
+            .svc
+            .mux
+            .read()
+            .get_pane(pane_id)
+            .and_then(|pane| pane.agent_session_id.clone())
+    });
+    let (gate, request) = state
         .svc
         .plan_store
-        .ask_gate(
+        .ask_gate_with_planner_request(
             &id,
             &body.question,
             &body.context,
             &body.blocking_task_ids,
-            routed_to,
+            routed_to.clone(),
             body.asked_by_pane_id.as_deref(),
+            caller_session_id.as_deref(),
             epoch_ms(),
         )
         .map_err(plan_err)?;
-    state.svc.deliver_gate_question(
-        &id,
-        &gate.id,
-        &gate.question,
-        body.asked_by_pane_id.as_deref(),
-    );
+    let request_id = request.request_id.clone();
+    if let Some(pane_id) = routed_to.as_deref() {
+        let svc = state.svc.clone();
+        let pane_id = pane_id.to_string();
+        let _ =
+            tokio::task::spawn_blocking(move || svc.replay_planner_requests_if_routable(&pane_id))
+                .await;
+    }
+    let request = state
+        .svc
+        .plan_store
+        .get(&id)
+        .and_then(|plan| {
+            plan.planner_requests
+                .into_iter()
+                .find(|item| item.request_id == request_id)
+        })
+        .unwrap_or(request);
+    if !matches!(
+        request.state,
+        crate::plan::PlannerRequestState::Accepted | crate::plan::PlannerRequestState::Completed
+    ) {
+        let plan = state.svc.plan_store.get(&id);
+        let resolution = plan.as_ref().map(|plan| {
+            resolve_planner_ref(&plan.planner, &plan.owner, |pane_id| {
+                state.svc.pane_probe(pane_id)
+            })
+        });
+        let delivery = plan.as_ref().and_then(|plan| {
+            plan.planner_inbox
+                .iter()
+                .find(|entry| entry.request_id == request.request_id)
+        });
+        let planner_dead = matches!(
+            resolution,
+            Some(PeerResolution::OrchestratorFallback { .. })
+        );
+        let recovery_action = if delivery.is_some_and(|entry| {
+            entry.phase == crate::plan::PlannerDeliveryPhase::DeliveryUncertain
+        }) {
+            "resolve_delivery_uncertain"
+        } else {
+            "replace_or_rebind_planner"
+        };
+        emit_plan_changed(&state, &id);
+        return Err((
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "agent_unavailable",
+                "request_id": request.request_id,
+                "state": request.state,
+                "request": request,
+                "delivery": delivery,
+                "planner_resolution": resolution,
+                "planner_dead": planner_dead,
+                "recovery_action": recovery_action
+            })),
+        ));
+    }
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::to_value(&gate).unwrap_or_default()))
 }

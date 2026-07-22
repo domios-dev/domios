@@ -8,7 +8,7 @@ use crate::plan::peer::{resolve_planner_ref, PeerResolution};
 use crate::plan::reconcile::{DriftItem, PaneProbe};
 use crate::plan::{
     Goal, LoopStatus, OrchestratorRef, Plan, PlanMode, PlanStatus, PlannerRef, PlanningState,
-    QaState, ReviewStage, TaskStatus,
+    QaState, RegressionGateOverride, ReviewStage, TaskStatus,
 };
 
 use super::next_actions::{compute_next_actions, NextAction};
@@ -35,7 +35,7 @@ pub struct TaskCounts {
     pub in_progress: usize,
     pub in_review: usize,
     pub blocked: usize,
-    pub parked: usize,
+    pub paused: usize,
     pub done: usize,
     pub cancelled: usize,
     pub total: usize,
@@ -80,6 +80,44 @@ pub struct OpenLane {
     pub live_competition_attempts: usize,
     pub review_stage: ReviewStage,
     pub qa_state: Option<QaState>,
+    pub presentation: TaskPresentation,
+    pub waiting_on_dependencies: bool,
+    pub dependency_waits: Vec<DependencyWait>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskPresentation {
+    ActionablePending,
+    WaitingOnDependencies,
+    InProgress,
+    InReview,
+    Blocked,
+    Paused,
+    Terminal,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct DependencyWait {
+    pub task_id: String,
+    pub name: String,
+    pub status: Option<TaskStatus>,
+    pub missing: bool,
+}
+
+pub(crate) fn task_presentation(
+    status: &TaskStatus,
+    dependency_waits: &[DependencyWait],
+) -> TaskPresentation {
+    match status {
+        TaskStatus::Pending if dependency_waits.is_empty() => TaskPresentation::ActionablePending,
+        TaskStatus::Pending => TaskPresentation::WaitingOnDependencies,
+        TaskStatus::InProgress => TaskPresentation::InProgress,
+        TaskStatus::InReview => TaskPresentation::InReview,
+        TaskStatus::Blocked => TaskPresentation::Blocked,
+        TaskStatus::Paused => TaskPresentation::Paused,
+        TaskStatus::Done | TaskStatus::Cancelled => TaskPresentation::Terminal,
+    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -117,6 +155,9 @@ pub struct PlanStateSnapshot {
     pub owner: OrchestratorRef,
     pub planner: Option<PlannerRef>,
     pub planner_resolution: PeerResolution,
+    pub planner_dead: bool,
+    pub undelivered_request_count: usize,
+    pub planner_recovery_action: Option<String>,
     pub goal: Option<Goal>,
     pub task_counts: TaskCounts,
     pub percent_done: f64,
@@ -131,6 +172,10 @@ pub struct PlanStateSnapshot {
     pub live_agents: Vec<LiveAgent>,
     pub recent_strides: Vec<StrideSnapshot>,
     pub pending_regression_gates: Vec<super::milestone_gates::RegressionGate>,
+    // Pending gates minus authorized waivers — the set that actually blocks dispatch.
+    pub blocking_regression_gates: Vec<super::milestone_gates::RegressionGate>,
+    pub regression_overrides: Vec<RegressionGateOverride>,
+    pub review_gate: super::review_gate::ReviewGateStatus,
     pub next_actions: Vec<NextAction>,
 }
 
@@ -143,7 +188,7 @@ fn task_counts(plan: &Plan) -> TaskCounts {
             TaskStatus::InProgress => c.in_progress += 1,
             TaskStatus::InReview => c.in_review += 1,
             TaskStatus::Blocked => c.blocked += 1,
-            TaskStatus::Parked => c.parked += 1,
+            TaskStatus::Paused => c.paused += 1,
             TaskStatus::Done => c.done += 1,
             TaskStatus::Cancelled => c.cancelled += 1,
         }
@@ -151,12 +196,12 @@ fn task_counts(plan: &Plan) -> TaskCounts {
     c
 }
 
-// Completion over non-cancelled, non-parked tasks: both are out of active scope.
+// Completion over non-cancelled, non-paused tasks: both are out of active scope.
 fn percent_done(counts: &TaskCounts) -> f64 {
     let denom = counts
         .total
         .saturating_sub(counts.cancelled)
-        .saturating_sub(counts.parked);
+        .saturating_sub(counts.paused);
     if denom == 0 {
         0.0
     } else {
@@ -267,6 +312,33 @@ fn planning_readiness(plan: &Plan) -> PlanningReadiness {
     }
 }
 
+pub(crate) fn dependency_waits(plan: &Plan, task: &crate::plan::Task) -> Vec<DependencyWait> {
+    task.depends_on
+        .iter()
+        .filter_map(|dependency_id| {
+            match plan
+                .tasks
+                .iter()
+                .find(|candidate| candidate.id == *dependency_id)
+            {
+                Some(dependency) if !dependency.status.is_terminal() => Some(DependencyWait {
+                    task_id: dependency.id.clone(),
+                    name: dependency.name.clone(),
+                    status: Some(dependency.status.clone()),
+                    missing: false,
+                }),
+                Some(_) => None,
+                None => Some(DependencyWait {
+                    task_id: dependency_id.clone(),
+                    name: format!("missing dependency {}", dependency_id),
+                    status: None,
+                    missing: true,
+                }),
+            }
+        })
+        .collect()
+}
+
 /// Readiness gate for advancing planning_state to approved. Empty = ready.
 /// The approval doctor and the planner's advance both consult this.
 pub fn planning_approval_blockers(readiness: &PlanningReadiness, plan_id: &str) -> Vec<String> {
@@ -301,18 +373,42 @@ pub fn build_plan_state_snapshot(
     cleanup_debt: Vec<CleanupDebtTask>,
     lanes: Vec<lane_rows::LaneRow>,
     live_agent_panes: &HashSet<String>,
+    resolved_planner: Option<PeerResolution>,
     now_ms: u64,
 ) -> PlanStateSnapshot {
-    let planner_resolution = resolve_planner_ref(&plan.planner, &plan.owner, |pane_id| PaneProbe {
-        exists: true,
-        live_agent: live_agent_panes.contains(pane_id),
-        role: None,
-        parent_pane_id: None,
+    let bound_session_id = match &plan.planner {
+        Some(PlannerRef::Pane { session_id, .. }) => session_id.clone(),
+        _ => None,
+    };
+    let planner_resolution = resolved_planner.unwrap_or_else(|| {
+        resolve_planner_ref(&plan.planner, &plan.owner, |pane_id| PaneProbe {
+            exists: true,
+            live_agent: live_agent_panes.contains(pane_id),
+            agent_session_id: bound_session_id.clone(),
+            session_binding_valid: live_agent_panes.contains(pane_id),
+            chat_delivery_target: live_agent_panes.contains(pane_id),
+            agent_accepting_work: live_agent_panes.contains(pane_id),
+            role: None,
+            parent_pane_id: None,
+        })
     });
     let counts = task_counts(plan);
     let pct = percent_done(&counts);
     let readiness = planning_readiness(plan);
     let approval_blockers = planning_approval_blockers(&readiness, &plan.id);
+    let undelivered_request_count = plan
+        .planner_requests
+        .iter()
+        .filter(|request| !matches!(request.state, crate::plan::PlannerRequestState::Completed))
+        .count();
+    let planner_dead = matches!(
+        &planner_resolution,
+        PeerResolution::OrchestratorFallback { .. }
+    );
+    let delivery_uncertain = plan
+        .planner_inbox
+        .iter()
+        .any(|entry| entry.phase == crate::plan::PlannerDeliveryPhase::DeliveryUncertain);
 
     let open_lanes = plan
         .tasks
@@ -323,15 +419,21 @@ pub fn build_plan_state_snapshot(
                 TaskStatus::Pending | TaskStatus::InProgress | TaskStatus::InReview
             )
         })
-        .map(|t| OpenLane {
-            task_id: t.id.clone(),
-            name: t.name.clone(),
-            status: t.status.clone(),
-            executor_role: t.executor_role.clone(),
-            competition: super::competition::competition_summary(t),
-            live_competition_attempts: super::competition::live_competition_attempt_count(t),
-            review_stage: t.review_stage.clone(),
-            qa_state: t.qa_state.clone(),
+        .map(|t| {
+            let dependency_waits = dependency_waits(plan, t);
+            OpenLane {
+                task_id: t.id.clone(),
+                name: t.name.clone(),
+                status: t.status.clone(),
+                executor_role: t.executor_role.clone(),
+                competition: super::competition::competition_summary(t),
+                live_competition_attempts: super::competition::live_competition_attempt_count(t),
+                review_stage: t.review_stage.clone(),
+                qa_state: t.qa_state.clone(),
+                presentation: task_presentation(&t.status, &dependency_waits),
+                waiting_on_dependencies: !dependency_waits.is_empty(),
+                dependency_waits,
+            }
         })
         .collect();
 
@@ -339,15 +441,21 @@ pub fn build_plan_state_snapshot(
         .tasks
         .iter()
         .filter(|t| t.status == TaskStatus::Blocked)
-        .map(|t| OpenLane {
-            task_id: t.id.clone(),
-            name: t.name.clone(),
-            status: t.status.clone(),
-            executor_role: t.executor_role.clone(),
-            competition: super::competition::competition_summary(t),
-            live_competition_attempts: super::competition::live_competition_attempt_count(t),
-            review_stage: t.review_stage.clone(),
-            qa_state: t.qa_state.clone(),
+        .map(|t| {
+            let dependency_waits = dependency_waits(plan, t);
+            OpenLane {
+                task_id: t.id.clone(),
+                name: t.name.clone(),
+                status: t.status.clone(),
+                executor_role: t.executor_role.clone(),
+                competition: super::competition::competition_summary(t),
+                live_competition_attempts: super::competition::live_competition_attempt_count(t),
+                review_stage: t.review_stage.clone(),
+                qa_state: t.qa_state.clone(),
+                presentation: task_presentation(&t.status, &dependency_waits),
+                waiting_on_dependencies: !dependency_waits.is_empty(),
+                dependency_waits,
+            }
         })
         .collect();
     let qa_queued = plan
@@ -412,6 +520,15 @@ pub fn build_plan_state_snapshot(
         owner: plan.owner.clone(),
         planner: plan.planner.clone(),
         planner_resolution,
+        planner_dead,
+        undelivered_request_count,
+        planner_recovery_action: if delivery_uncertain {
+            Some("resolve_delivery_uncertain".into())
+        } else if planner_dead {
+            Some("replace_or_rebind_planner".into())
+        } else {
+            None
+        },
         goal: plan.goal.clone(),
         task_counts: counts,
         percent_done: pct,
@@ -432,6 +549,9 @@ pub fn build_plan_state_snapshot(
         live_agents,
         recent_strides: recent_strides(plan),
         pending_regression_gates: super::milestone_gates::pending_regression_gates(plan),
+        blocking_regression_gates: super::milestone_gates::blocking_regression_gates(plan),
+        regression_overrides: plan.regression_gate_overrides.clone(),
+        review_gate: super::review_gate::review_gate_status(plan),
         next_actions: vec![],
     };
     snapshot.next_actions = compute_next_actions(&snapshot);
@@ -485,6 +605,11 @@ mod tests {
             status,
             review_stage: Default::default(),
             qa_state: None,
+            review_round: 0,
+            review_oracle: None,
+            review_evidence: vec![],
+            review_override: None,
+            review_audit: vec![],
             status_label: None,
             priority: Default::default(),
             created_at: 0,
@@ -499,6 +624,7 @@ mod tests {
             competition: None,
             intent: None,
             parent_task_id: None,
+            depends_on: vec![],
             assigned_pane_id: None,
             lane: Default::default(),
             taken_by_role: None,
@@ -507,8 +633,9 @@ mod tests {
             canvas: Default::default(),
             milestones: vec![],
             execution_attempts: vec![],
-            park_reason: None,
+            pause_reason: None,
             personality: None,
+            personality_provenance: None,
             attachments: vec![],
         }
     }
@@ -562,7 +689,8 @@ mod tests {
         }];
         let live: HashSet<String> = ["pane_live".to_string()].into_iter().collect();
 
-        let snap = build_plan_state_snapshot(&plan, coverage, drift, vec![], vec![], &live, 1);
+        let snap =
+            build_plan_state_snapshot(&plan, coverage, drift, vec![], vec![], &live, None, 1);
 
         assert_eq!(snap.task_counts.total, 5);
         assert_eq!(snap.task_counts.done, 1);
@@ -610,8 +738,16 @@ mod tests {
             .map(|i| milestone(&format!("k{i}"), i as u64))
             .collect();
         let coverage = compute_coverage_report(&plan);
-        let snap =
-            build_plan_state_snapshot(&plan, coverage, vec![], vec![], vec![], &HashSet::new(), 1);
+        let snap = build_plan_state_snapshot(
+            &plan,
+            coverage,
+            vec![],
+            vec![],
+            vec![],
+            &HashSet::new(),
+            None,
+            1,
+        );
         assert_eq!(snap.recent_strides.len(), RECENT_STRIDE_LIMIT);
         assert_eq!(snap.recent_strides[0].id, "k14");
         assert_eq!(snap.recent_strides[9].id, "k5");
@@ -626,8 +762,16 @@ mod tests {
         plan.tasks[0].milestones = vec![milestone("task_ms", 100)];
         plan.strides = vec![milestone("plan_ms", 200)];
         let coverage = compute_coverage_report(&plan);
-        let snap =
-            build_plan_state_snapshot(&plan, coverage, vec![], vec![], vec![], &HashSet::new(), 1);
+        let snap = build_plan_state_snapshot(
+            &plan,
+            coverage,
+            vec![],
+            vec![],
+            vec![],
+            &HashSet::new(),
+            None,
+            1,
+        );
         let plan_level: Vec<_> = snap
             .recent_strides
             .iter()
@@ -649,8 +793,192 @@ mod tests {
         let plan = fixture();
         let before = plan.clone();
         let coverage = compute_coverage_report(&plan);
-        let _ =
-            build_plan_state_snapshot(&plan, coverage, vec![], vec![], vec![], &HashSet::new(), 1);
+        let _ = build_plan_state_snapshot(
+            &plan,
+            coverage,
+            vec![],
+            vec![],
+            vec![],
+            &HashSet::new(),
+            None,
+            1,
+        );
         assert_eq!(plan, before);
+    }
+
+    #[test]
+    fn explicit_dependency_waits_without_becoming_paused() {
+        let mut plan = fixture();
+        let dependency = task("t_dependency", TaskStatus::InProgress, &["s1"]);
+        let mut child = task("t_child", TaskStatus::Pending, &["s1"]);
+        child.depends_on = vec!["t_dependency".into()];
+        plan.tasks = vec![dependency, child];
+
+        let coverage = compute_coverage_report(&plan);
+        let snap = build_plan_state_snapshot(
+            &plan,
+            coverage,
+            vec![],
+            vec![],
+            vec![],
+            &HashSet::new(),
+            None,
+            1,
+        );
+
+        assert_eq!(snap.task_counts.pending, 1);
+        assert_eq!(snap.task_counts.paused, 0);
+        let child_lane = snap
+            .open_lanes
+            .iter()
+            .find(|lane| lane.task_id == "t_child")
+            .expect("child lane");
+        assert_eq!(child_lane.status, TaskStatus::Pending);
+        assert_eq!(
+            child_lane.presentation,
+            TaskPresentation::WaitingOnDependencies
+        );
+        assert!(child_lane.waiting_on_dependencies);
+        assert_eq!(child_lane.dependency_waits.len(), 1);
+        assert_eq!(child_lane.dependency_waits[0].task_id, "t_dependency");
+        assert_eq!(
+            child_lane.dependency_waits[0].status,
+            Some(TaskStatus::InProgress)
+        );
+        assert!(!child_lane.dependency_waits[0].missing);
+    }
+
+    #[test]
+    fn hierarchy_without_explicit_dependency_does_not_wait() {
+        let mut plan = fixture();
+        let parent = task("t_parent", TaskStatus::InProgress, &["s1"]);
+        let mut child = task("t_child", TaskStatus::Pending, &["s1"]);
+        child.parent_task_id = Some("t_parent".into());
+        plan.tasks = vec![parent, child];
+        let coverage = compute_coverage_report(&plan);
+        let snap = build_plan_state_snapshot(
+            &plan,
+            coverage,
+            vec![],
+            vec![],
+            vec![],
+            &HashSet::new(),
+            None,
+            1,
+        );
+        let child_lane = snap
+            .open_lanes
+            .iter()
+            .find(|lane| lane.task_id == "t_child")
+            .expect("child lane");
+        assert!(!child_lane.waiting_on_dependencies);
+        assert_eq!(child_lane.presentation, TaskPresentation::ActionablePending);
+        assert!(child_lane.dependency_waits.is_empty());
+    }
+
+    #[test]
+    fn terminal_dependencies_do_not_block_waiting() {
+        let mut plan = fixture();
+        let mut child = task("t_child", TaskStatus::Pending, &["s1"]);
+        child.depends_on = vec!["t_done".into(), "t_cancel".into()];
+        let done = task("t_done", TaskStatus::Done, &["s1"]);
+        let cancelled = task("t_cancel", TaskStatus::Cancelled, &["s1"]);
+        plan.tasks = vec![done, cancelled, child];
+        let coverage = compute_coverage_report(&plan);
+        let snap = build_plan_state_snapshot(
+            &plan,
+            coverage,
+            vec![],
+            vec![],
+            vec![],
+            &HashSet::new(),
+            None,
+            1,
+        );
+        let child_lane = snap
+            .open_lanes
+            .iter()
+            .find(|lane| lane.task_id == "t_child")
+            .expect("child lane");
+        assert!(!child_lane.waiting_on_dependencies);
+        assert!(child_lane.dependency_waits.is_empty());
+    }
+
+    #[test]
+    fn dangling_dependency_stays_waiting_and_visible() {
+        let mut plan = fixture();
+        let mut child = task("t_child", TaskStatus::Pending, &["s1"]);
+        child.depends_on = vec!["t_missing".into()];
+        plan.tasks = vec![child];
+        let coverage = compute_coverage_report(&plan);
+        let snap = build_plan_state_snapshot(
+            &plan,
+            coverage,
+            vec![],
+            vec![],
+            vec![],
+            &HashSet::new(),
+            None,
+            1,
+        );
+        let child_lane = snap
+            .open_lanes
+            .iter()
+            .find(|lane| lane.task_id == "t_child")
+            .expect("child lane");
+        assert!(child_lane.waiting_on_dependencies);
+        assert_eq!(child_lane.dependency_waits.len(), 1);
+        assert_eq!(child_lane.dependency_waits[0].task_id, "t_missing");
+        assert!(child_lane.dependency_waits[0].missing);
+        assert_eq!(child_lane.dependency_waits[0].status, None);
+        assert_eq!(
+            child_lane.dependency_waits[0].name,
+            "missing dependency t_missing"
+        );
+    }
+
+    #[test]
+    fn queued_request_marks_stale_planner_dead_with_recovery_action() {
+        let mut plan = fixture();
+        plan.planner = Some(crate::plan::PlannerRef::Pane {
+            pane_id: "dead-planner".into(),
+            session_id: None,
+            title: None,
+        });
+        plan.planner_requests.push(crate::plan::PlannerRequest {
+            request_id: "req-1".into(),
+            payload: "audit".into(),
+            payload_blob: None,
+            caller_pane_id: Some("caller".into()),
+            caller_session_id: Some("caller-session".into()),
+            state: crate::plan::PlannerRequestState::Queued,
+            created_at: 1,
+            accepted_at: None,
+            lease_expires_at: None,
+            delivery_attempts: 0,
+            completed_at: None,
+            failed_at: None,
+            delivered_to_pane_id: None,
+            delivered_to_session_id: None,
+            delivered_with_binding_nonce: None,
+        });
+        let coverage = compute_coverage_report(&plan);
+        let snapshot = build_plan_state_snapshot(
+            &plan,
+            coverage,
+            vec![],
+            vec![],
+            vec![],
+            &HashSet::new(),
+            None,
+            2,
+        );
+
+        assert!(snapshot.planner_dead);
+        assert_eq!(snapshot.undelivered_request_count, 1);
+        assert_eq!(
+            snapshot.planner_recovery_action.as_deref(),
+            Some("replace_or_rebind_planner")
+        );
     }
 }

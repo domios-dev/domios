@@ -18,6 +18,7 @@ fn setup() -> (tempfile::TempDir, PlanStore, String, String, String) {
             &plan.id,
             NewTask {
                 name: "first".into(),
+                acceptance_criteria: vec!["it works".into()],
                 test_plan: Some("run focused first test".into()),
                 competition: None,
                 ..Default::default()
@@ -30,6 +31,7 @@ fn setup() -> (tempfile::TempDir, PlanStore, String, String, String) {
             &plan.id,
             NewTask {
                 name: "second".into(),
+                acceptance_criteria: vec!["it works".into()],
                 test_plan: Some("run focused second test".into()),
                 competition: None,
                 ..Default::default()

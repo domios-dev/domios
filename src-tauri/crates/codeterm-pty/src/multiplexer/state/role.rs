@@ -1,7 +1,61 @@
-use super::MultiplexerState;
+use super::{MultiplexerState, TeamResolution};
 use crate::multiplexer::types::AgentRole;
+use codeterm_types::team::Team;
+
+fn now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
 
 impl MultiplexerState {
+    /// Resolve or mint a parent's Team while holding the mux write lock.
+    pub fn resolve_or_mint_team_for_parent(
+        &mut self,
+        parent_id: &str,
+    ) -> Result<TeamResolution, String> {
+        let existing = self
+            .panes
+            .get(parent_id)
+            .ok_or_else(|| format!("Pane {parent_id} not found"))?
+            .team_id
+            .clone();
+        if let Some(id) = existing {
+            return Ok(TeamResolution {
+                team_id: id,
+                minted: false,
+            });
+        }
+        let workspace_id = self.find_workspace_for_pane(parent_id).unwrap_or_default();
+        let team = Team::new(workspace_id, now_millis());
+        let team_id = team.id.clone();
+        self.upsert_team(team);
+        self.panes
+            .get_mut(parent_id)
+            .expect("pane checked before team mint")
+            .team_id = Some(team_id.clone());
+        Ok(TeamResolution {
+            team_id,
+            minted: true,
+        })
+    }
+
+    pub fn rollback_minted_team_for_parent(&mut self, parent_id: &str, team_id: &str) {
+        let is_current = self
+            .panes
+            .get(parent_id)
+            .and_then(|pane| pane.team_id.as_deref())
+            == Some(team_id);
+        if is_current {
+            self.panes
+                .get_mut(parent_id)
+                .expect("pane checked before team rollback")
+                .team_id = None;
+            self.remove_team(team_id);
+        }
+    }
+
     /// Set a pane's orchestration role with validation.
     pub fn set_pane_role(
         &mut self,
@@ -48,6 +102,7 @@ impl MultiplexerState {
                     return Err("Parent does not allow spawning".to_string());
                 }
                 let final_parent_depth = parent.depth;
+                let team_id = self.resolve_or_mint_team_for_parent(parent_id)?.team_id;
                 let pane = self
                     .panes
                     .get_mut(pane_id)
@@ -56,6 +111,7 @@ impl MultiplexerState {
                 pane.parent_pane_id = Some(parent_id.to_string());
                 pane.can_spawn = false;
                 pane.depth = final_parent_depth + 1;
+                pane.team_id = Some(team_id);
             }
             AgentRole::Worker => {
                 let parent_id = parent_pane_id.ok_or("Worker requires a parent_pane_id")?;
@@ -96,6 +152,7 @@ impl MultiplexerState {
                     }
                     parent.depth
                 };
+                let team_id = self.resolve_or_mint_team_for_parent(parent_id)?.team_id;
                 let pane = self
                     .panes
                     .get_mut(pane_id)
@@ -104,6 +161,7 @@ impl MultiplexerState {
                 pane.parent_pane_id = Some(parent_id.to_string());
                 pane.can_spawn = false;
                 pane.depth = final_parent_depth + 1;
+                pane.team_id = Some(team_id);
             }
         }
 
@@ -377,5 +435,177 @@ mod tests {
             .unwrap();
         let err = mux.set_can_spawn(&worker, true).unwrap_err();
         assert!(err.contains("Only Orchestrator"));
+    }
+
+    #[test]
+    fn no_team_before_first_spawn() {
+        let (mut mux, _root) = MultiplexerState::new();
+        let pane = mux.create_pane();
+        assert_eq!(mux.team_count(), 0, "a roleless pane mints no team");
+        assert_eq!(
+            mux.get_pane(&pane).unwrap().team_id,
+            None,
+            "roleless pane carries no team membership"
+        );
+    }
+
+    #[test]
+    fn make_orchestrator_without_child_mints_nothing() {
+        let (mut mux, _root) = MultiplexerState::new();
+        let pane = mux.create_pane();
+        mux.set_pane_role(&pane, AgentRole::Orchestrator, None)
+            .expect("explicit Orchestrator promotion");
+        assert_eq!(
+            mux.team_count(),
+            0,
+            "a promoted Orchestrator with zero children stays teamless"
+        );
+        assert_eq!(mux.get_pane(&pane).unwrap().team_id, None);
+    }
+
+    #[test]
+    fn first_worker_spawn_mints_exactly_one_team() {
+        let (mut mux, _root) = MultiplexerState::new();
+        let parent = mux.create_pane();
+        let worker = mux.create_pane();
+        mux.set_pane_role(&worker, AgentRole::Worker, Some(&parent))
+            .expect("worker under free parent auto-promotes and mints");
+        assert_eq!(
+            mux.team_count(),
+            1,
+            "first child link mints exactly one team"
+        );
+        let team_id = mux
+            .get_pane(&parent)
+            .unwrap()
+            .team_id
+            .clone()
+            .expect("parent bound to the minted team");
+        assert!(team_id.starts_with("team_"));
+        assert_eq!(
+            mux.get_pane(&worker).unwrap().team_id.as_deref(),
+            Some(team_id.as_str()),
+            "child shares the parent's team"
+        );
+        assert!(
+            mux.get_team(&team_id).is_some(),
+            "team registered in the store"
+        );
+    }
+
+    #[test]
+    fn explicit_orchestrator_then_first_spawn_mints_once() {
+        let (mut mux, _root) = MultiplexerState::new();
+        let parent = mux.create_pane();
+        mux.set_pane_role(&parent, AgentRole::Orchestrator, None)
+            .expect("explicit Orchestrator");
+        assert_eq!(mux.team_count(), 0, "promotion alone does not mint");
+        let worker = mux.create_pane();
+        mux.set_pane_role(&worker, AgentRole::Worker, Some(&parent))
+            .expect("first worker child link");
+        assert_eq!(
+            mux.team_count(),
+            1,
+            "team minted at the child link, not promotion"
+        );
+        let team_id = mux.get_pane(&parent).unwrap().team_id.clone().unwrap();
+        assert_eq!(
+            mux.get_pane(&worker).unwrap().team_id.as_deref(),
+            Some(team_id.as_str())
+        );
+    }
+
+    #[test]
+    fn second_worker_inherits_single_team() {
+        let (mut mux, _root) = MultiplexerState::new();
+        let parent = mux.create_pane();
+        let w1 = mux.create_pane();
+        let w2 = mux.create_pane();
+        mux.set_pane_role(&w1, AgentRole::Worker, Some(&parent))
+            .expect("first worker mints");
+        mux.set_pane_role(&w2, AgentRole::Worker, Some(&parent))
+            .expect("second worker inherits");
+        assert_eq!(
+            mux.team_count(),
+            1,
+            "parent team_id presence is the idempotency guard"
+        );
+        let team_id = mux.get_pane(&parent).unwrap().team_id.clone().unwrap();
+        assert_eq!(
+            mux.get_pane(&w1).unwrap().team_id.as_deref(),
+            Some(team_id.as_str())
+        );
+        assert_eq!(
+            mux.get_pane(&w2).unwrap().team_id.as_deref(),
+            Some(team_id.as_str())
+        );
+    }
+
+    #[test]
+    fn manager_child_link_mints_team() {
+        let (mut mux, _root) = MultiplexerState::new();
+        let parent = mux.create_pane();
+        mux.set_pane_role(&parent, AgentRole::Orchestrator, None)
+            .unwrap();
+        let planner = mux.create_pane();
+        mux.set_pane_role(&planner, AgentRole::Manager, Some(&parent))
+            .expect("planner (Manager) child link");
+        assert_eq!(
+            mux.team_count(),
+            1,
+            "Manager child link mints exactly one team"
+        );
+        let team_id = mux.get_pane(&parent).unwrap().team_id.clone().unwrap();
+        assert_eq!(
+            mux.get_pane(&planner).unwrap().team_id.as_deref(),
+            Some(team_id.as_str()),
+            "Manager child inherits/binds the parent's team"
+        );
+    }
+
+    #[test]
+    fn concurrent_first_spawns_single_team() {
+        use parking_lot::Mutex;
+        use std::sync::Arc;
+
+        for _ in 0..100 {
+            let (mut m, _root) = MultiplexerState::new();
+            let parent = m.create_pane();
+            let c1 = m.create_pane();
+            let c2 = m.create_pane();
+            let state = Arc::new(Mutex::new(m));
+
+            let (s1, s2) = (Arc::clone(&state), Arc::clone(&state));
+            let (p1, p2) = (parent.clone(), parent.clone());
+            let (child1, child2) = (c1.clone(), c2.clone());
+            let t1 = std::thread::spawn(move || {
+                s1.lock()
+                    .set_pane_role(&child1, AgentRole::Worker, Some(&p1))
+                    .unwrap();
+            });
+            let t2 = std::thread::spawn(move || {
+                s2.lock()
+                    .set_pane_role(&child2, AgentRole::Worker, Some(&p2))
+                    .unwrap();
+            });
+            t1.join().unwrap();
+            t2.join().unwrap();
+
+            let guard = state.lock();
+            assert_eq!(
+                guard.team_count(),
+                1,
+                "two concurrent first-spawns yield exactly one team"
+            );
+            let team_id = guard.get_pane(&parent).unwrap().team_id.clone().unwrap();
+            assert_eq!(
+                guard.get_pane(&c1).unwrap().team_id.as_deref(),
+                Some(team_id.as_str())
+            );
+            assert_eq!(
+                guard.get_pane(&c2).unwrap().team_id.as_deref(),
+                Some(team_id.as_str())
+            );
+        }
     }
 }

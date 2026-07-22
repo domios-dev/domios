@@ -91,10 +91,39 @@ const baseHost = (over: Record<string, unknown>) => ({
     readJson: () => null,
     writeJson: () => true,
     writeFile: () => true,
+    writeTempFile: () => "/tmp/codeterm task.md",
     walkDir: () => [],
   },
   ...over,
 });
+
+console.log("\n--- task instructions launch ---\n");
+
+{
+  const p = loadCodexWithHost(baseHost({
+    platform: () => "windows",
+    shell: { quoteFor: (v: unknown) => `'${String(v)}'`, quote: (v: unknown) => `'${String(v)}'` },
+    fs: { ...baseHost({}).fs, writeTempFile: () => "C:\\Temp\\codeterm task.md" },
+  }));
+  const hostileTask = "line one\n<location>D:\\repo</location>\n'quotes' \"double\" $HOME `whoami` --flag\nюникод";
+  const cmd = p.buildLaunchCommand({ task: hostileTask, args: ["--model", "gpt-5.5"] });
+  assert(cmd.includes("System.Web.Script.Serialization.JavaScriptSerializer"), "Windows serializes instructions without native argv interpolation");
+  assert(cmd.includes("$ctTaskInstructions = Get-Content -Raw -Encoding UTF8 'C:\\Temp\\codeterm task.md'"), "Windows loads developer instructions from the task file");
+  assert(cmd.includes("$env:CODETERM_PANE_ID -replace '[^A-Za-z0-9_-]', '-'"), "Windows scopes the temporary profile to the pane lifecycle");
+  assert(cmd.includes("Set-Content -LiteralPath $ctProfilePath"), "Windows writes a temporary Codex profile");
+  assert(cmd.includes("Remove-Item -LiteralPath 'C:\\Temp\\codeterm task.md'"), "Windows removes the copied task file before Codex starts");
+  assert(cmd.includes("--profile $ctProfileName --"), "Windows passes only the short profile name through native argv");
+  assert(cmd.includes("finally { Remove-Item -LiteralPath $ctProfilePath"), "Windows removes the temporary profile on exit");
+  assert(!cmd.includes('-c ("developer_instructions=" +'), "Windows never expands multiline task text inline in the native call");
+  assert(!cmd.includes("<location>") && !cmd.includes("whoami") && !cmd.includes("юникод"), "task body is absent from the launch command");
+  const idle = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "idle_wakeup" });
+  assert(idle.includes("You are a newly started agent. Wait for instructions from the user or your orchestration parent."), "idle launch uses the non-actionable wake-up starter");
+  assert(!idle.includes("Execute the assigned task."), "idle launch never uses the task starter");
+  const teamText = "host-owned team bootstrap";
+  const team = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "team_bootstrap", starterPromptText: teamText });
+  assert(team.includes(teamText), "team launch uses the host-owned starter text");
+  eq(p.starterPromptText?.("team_bootstrap"), undefined, "team starter text is not duplicated in the plugin");
+}
 
 console.log("\n--- meta ---\n");
 eq(plugin.meta.id, "codex", "meta.id is 'codex'");
@@ -119,6 +148,19 @@ for (const literal of ["OpenAI Codex", "codex/", "ctrl+c to cancel"]) {
   );
 }
 assert(!plugin.detect({ bytes: "$ ls\nfile.txt", title: "bash" }), "plain shell negative");
+
+{
+  const p = loadHostPlugin();
+  assert(
+    p.screenHasTui("› Explain this codebase\n  gpt-5.5 medium · D:\\Developer\\codeterm"),
+    "current prompt and Windows status footer prove a Codex TUI",
+  );
+  assert(
+    p.screenHasTui("› Explain this codebase\n  gpt-5.5 medium · /home/user/codeterm"),
+    "current prompt and Unix status footer prove a Codex TUI",
+  );
+  assert(!p.screenHasTui("PS D:\\Developer\\codeterm>"), "plain shell is not a Codex TUI");
+}
 assert(!plugin.detect({ bytes: "claude code", title: "claude" }), "claude title is not codex");
 
 console.log("\n--- statusOf ---\n");
@@ -148,7 +190,10 @@ console.log("\n--- sessions ---\n");
           return '{"type":"session_meta","payload":{"id":"11111111-1111-1111-1111-111111111111","cwd":"/work/proj"}}\n';
         }
         if (p === "/sessions/new.jsonl") {
-          return '{"type":"session_meta","payload":{"id":"22222222-2222-2222-2222-222222222222","cwd":"/work/proj"}}\n';
+          return [
+            '{"type":"session_meta","payload":{"id":"22222222-2222-2222-2222-222222222222","cwd":"/work/proj"}}',
+            '{"type":"turn_context","payload":{"model":"gpt-5.6-sol"}}',
+          ].join("\n");
         }
         return null;
       },
@@ -166,6 +211,11 @@ console.log("\n--- sessions ---\n");
     "detectSessionId returns newest matching unclaimed rollout",
   );
   eq(p.detectSessionId("/other/proj", [], 300000), null, "detectSessionId filters cwd");
+  eq(
+    p.detectSessionModel("/work/proj", "22222222-2222-2222-2222-222222222222"),
+    "gpt-5.6-sol",
+    "detectSessionModel preserves the exact session-scoped model id",
+  );
 }
 
 console.log("\n--- parseUsage (/status screen) ---\n");
@@ -378,7 +428,11 @@ assert(warned === 1, "parseSessionDelta emits one warning for a session with inv
     JSON.stringify({
       type: "response_item",
       timestamp: "2026-01-01T00:00:01Z",
-      payload: { type: "function_call", arguments: "{}" },
+      payload: {
+        type: "function_call",
+        name: "send_message",
+        arguments: JSON.stringify({ target: "worker", message: "internal handoff" }),
+      },
     }),
     JSON.stringify({
       type: "response_item",
@@ -391,7 +445,7 @@ assert(warned === 1, "parseSessionDelta emits one warning for a session with inv
     }),
   ].join("\n");
   const sparseParsed = hostPlugin.parseSessionDelta(sparseChunk) as { messages: any[] };
-  eq(sparseParsed.messages.length, 2, "parseSessionDelta filters empty sparse function_call rows");
+  eq(sparseParsed.messages.length, 2, "parseSessionDelta filters internal orchestration function_call rows");
   eq(
     sparseParsed.messages.map((message) => message.blocks[0].data.input.command),
     ["npm test", "npm run build"],
@@ -412,6 +466,12 @@ assert(warned === 1, "parseSessionDelta emits one warning for a session with inv
     "The user interrupted the previous turn on purpose.",
     "</turn_aborted>",
   ].join("\n");
+  const environmentText = [
+    "<environment_context>",
+    "  <current_date>2026-07-21</current_date>",
+    "  <timezone>Europe/Kiev</timezone>",
+    "</environment_context>",
+  ].join("\n");
   const systemChunk = [
     JSON.stringify({
       type: "response_item",
@@ -423,23 +483,28 @@ assert(warned === 1, "parseSessionDelta emits one warning for a session with inv
       timestamp: "2026-01-01T00:00:04Z",
       payload: { type: "message", role: "user", content: [{ type: "input_text", text: abortedText }] },
     }),
+    JSON.stringify({
+      type: "response_item",
+      timestamp: "2026-01-01T00:00:05Z",
+      payload: { type: "message", role: "user", content: [{ type: "input_text", text: environmentText }] },
+    }),
   ].join("\n");
   const systemParsed = hostPlugin.parseSessionDelta(systemChunk) as { messages: any[] };
   eq(
     systemParsed.messages.map((message) => [message.role, message.sourceSubtype]),
-    [["system", "agent_instructions"], ["system", "turn_aborted"]],
+    [["system", "agent_instructions"], ["system", "turn_aborted"], ["system", "environment_context"]],
     "parseSessionDelta maps Codex injected user-shaped rows to system subtypes",
   );
   eq(
     systemParsed.messages.map((message) => message.blocks[0].data.subtype),
-    ["agent_instructions", "turn_aborted"],
+    ["agent_instructions", "turn_aborted", "environment_context"],
     "parseSessionDelta preserves Codex system subtype in text block data",
   );
 
   const searchParsed = hostPlugin.parseSessionMessages(systemChunk) as any[];
   eq(
     searchParsed.map((message) => [message.role, message.isMeta, message.sourceSubtype]),
-    [["system", true, "agent_instructions"], ["system", true, "turn_aborted"]],
+    [["system", true, "agent_instructions"], ["system", true, "turn_aborted"], ["system", true, "environment_context"]],
     "parseSessionMessages marks Codex injected rows as system meta",
   );
 }
@@ -480,12 +545,44 @@ assert(warned === 1, "parseSessionDelta emits one warning for a session with inv
       payload: {
         type: "function_call",
         name: "exec_command",
-        arguments: JSON.stringify({ cmd: 'rg -n "needle" src' }),
+        call_id: "call_exec_1",
+        arguments: JSON.stringify({ cmd: 'codeterm send "$VAR" --tab target' }),
+      },
+    }),
+    JSON.stringify({
+      type: "response_item",
+      timestamp: "2026-06-23T18:06:00.100Z",
+      payload: {
+        type: "function_call_output",
+        call_id: "call_exec_1",
+        output: "src/example.ts:1:needle",
+      },
+    }),
+    JSON.stringify({
+      type: "response_item",
+      timestamp: "2026-06-23T18:06:00.200Z",
+      payload: {
+        type: "custom_tool_call",
+        name: "exec",
+        call_id: "call_custom_1",
+        input: JSON.stringify({ command: "git status --short" }),
+      },
+    }),
+    JSON.stringify({
+      type: "response_item",
+      timestamp: "2026-06-23T18:06:00.300Z",
+      payload: {
+        type: "custom_tool_call_output",
+        call_id: "call_custom_1",
+        output: [
+          { type: "input_text", text: "Script completed\n" },
+          { type: "input_text", text: "Exit code: 0\n" },
+        ],
       },
     }),
   ].join("\n");
   const structuredParsed = hostPlugin.parseSessionDelta(structuredChunk) as { messages: any[] };
-  eq(structuredParsed.messages.length, 3, "apply_patch + patch_apply_end + exec_command survive parseSessionDelta");
+  eq(structuredParsed.messages.length, 6, "tool starts and completions survive parseSessionDelta");
   eq(structuredParsed.messages[0].blocks[0].kind, "tool_use", "custom_tool_call maps to tool_use");
   eq(structuredParsed.messages[0].blocks[0].data.name, "apply_patch", "apply_patch name preserved");
   assert(
@@ -495,7 +592,54 @@ assert(warned === 1, "parseSessionDelta emits one warning for a session with inv
   eq(structuredParsed.messages[0].blocks[0].data.id, "call_patch_1", "call_id forwarded as tool id");
   eq(structuredParsed.messages[1].blocks[0].kind, "tool_result", "patch_apply_end maps to tool_result");
   eq(structuredParsed.messages[1].blocks[0].data.tool_use_id, "call_patch_1", "patch result links to call_id");
-  eq(structuredParsed.messages[2].blocks[0].data.input.command, 'rg -n "needle" src', "exec_command still parses");
+  eq(structuredParsed.messages[2].blocks[0].data.input.command, 'codeterm send "$VAR" --tab target', "function call keeps the raw command source");
+  eq(structuredParsed.messages[2].blocks[0].data.tool_detail, 'codeterm send "$VAR" --tab target', "canonical tool detail keeps the raw command source");
+  eq(structuredParsed.messages[2].blocks[0].data.id, "call_exec_1", "function call id is preserved");
+  eq(structuredParsed.messages[3].blocks[0].data.tool_use_id, "call_exec_1", "function result links to call id");
+  eq(structuredParsed.messages[3].blocks[0].data.content, "src/example.ts:1:needle", "function output is preserved for event result propagation");
+  eq(structuredParsed.messages[4].blocks[0].data.id, "call_custom_1", "custom call id is preserved");
+  eq(structuredParsed.messages[5].blocks[0].data.tool_use_id, "call_custom_1", "custom result links to call id");
+  eq(structuredParsed.messages[5].blocks[0].data.content, "Script completed\nExit code: 0\n", "custom result text blocks are joined");
+}
+
+{
+  const patch = "*** Begin Patch\n*** Update File: src/demo.ts\n@@\n-old\n+new\n*** End Patch";
+  const directRaw = `text(await tools.apply_patch(${JSON.stringify(patch)}));`;
+  const variableRaw = `const patch = ${JSON.stringify(patch)};\ntext(await tools.apply_patch(patch));`;
+  const chunk = [directRaw, variableRaw].map((raw, index) => JSON.stringify({
+    type: "response_item",
+    payload: {
+      type: "custom_tool_call",
+      name: "exec",
+      call_id: `call_nested_patch_${index}`,
+      input: JSON.stringify({ raw }),
+    },
+  })).join("\n");
+  const parsed = hostPlugin.parseSessionDelta(chunk) as { messages: any[] };
+
+  eq(parsed.messages.length, 2, "nested patch calls survive parseSessionDelta");
+  for (const message of parsed.messages) {
+    eq(message.blocks[0].data.name, "apply_patch", "nested exec normalizes to apply_patch");
+    eq(message.blocks[0].data.input.patch, patch, "nested exec preserves patch text for DiffView");
+    eq(message.blocks[0].data.tool_kind, "edit", "nested apply_patch emits edit kind");
+    eq(message.blocks[0].data.tool_edits[0].path, "src/demo.ts", "nested apply_patch emits edit path");
+  }
+}
+
+{
+  const command = String.raw`const r = await tools.shell_command({command:"powershell -Command \"Write-Host 'ready'; Get-ChildItem -Filter \\\"*.ts\\\"\"",workdir:"D:\\x",timeout_ms:20000}); text(r)`;
+  const malformed = String.raw`const r = await tools.shell_command({command:"unterminated}); text(r)`;
+  const parsed = hostPlugin.parseSessionDelta([
+    JSON.stringify({ type: "response_item", payload: { type: "custom_tool_call", name: "exec", input: JSON.stringify({ raw: command }) } }),
+    JSON.stringify({ type: "response_item", payload: { type: "custom_tool_call", name: "exec", input: JSON.stringify({ raw: malformed }) } }),
+  ].join("\n")) as { messages: any[] };
+  const commandData = parsed.messages[0].blocks[0].data;
+  eq(commandData.tool_kind, "command", "nested shell wrapper emits command kind");
+  eq(commandData.tool_summary, `powershell -Command "Write-Host 'ready'; Get-ChildItem -Filter \\\"*.ts\\\""`, "nested shell wrapper preserves escaped command");
+  eq(commandData.tool_detail, commandData.tool_summary, "command detail is the full command string");
+  const malformedData = parsed.messages[1].blocks[0].data;
+  eq(malformedData.tool_kind, "generic", "malformed shell wrapper falls back to generic");
+  assert(!String(malformedData.tool_summary).includes("{"), "malformed shell wrapper does not expose JSON summary");
 }
 
 console.log("\n--- discoverModels ---\n");
@@ -553,13 +697,15 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
 // session-start report can prove pane ownership (release/1.4.6 binding-nonce).
 {
   let writtenJson: any = null;
+  let writtenScript = "";
   const host = baseHost({
+    platform: () => "windows",
     fs: {
       fileExists: () => false,
       readJson: () => null,
       readFile: () => null,
       writeJson: (_p: string, json: unknown) => { writtenJson = json; return true; },
-      writeFile: () => true,
+      writeFile: (_p: string, body: string) => { writtenScript = body; return true; },
     },
   });
   const p = loadCodexWithHost(host);
@@ -570,6 +716,38 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
     cmd.indexOf("X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}") !== -1,
     "session_start hook curl carries the binding-nonce header",
     cmd,
+  );
+  assert(
+    writtenScript.includes("codeterm-profile-cleanup-v1") &&
+      writtenScript.includes('codeterm-$profileSuffix.config.toml') &&
+      writtenScript.includes("Remove-Item -LiteralPath $profilePath"),
+    "Windows session_start removes the pane-scoped profile after Codex loads it",
+    writtenScript,
+  );
+}
+
+{
+  const staleScript = "# codeterm-codex-session-binding-v1\n$env:CODETERM_SESSION_BINDING_NONCE";
+  const p = loadCodexWithHost(baseHost({
+    platform: () => "windows",
+    fs: {
+      fileExists: (path: string) => path.endsWith("hooks.json") || path.endsWith("codeterm-session-start.ps1"),
+      readJson: () => ({
+        hooks: {
+          SessionStart: [{ hooks: [{
+            _source: "codeterm-codex-session-binding-v1",
+            commandWindows: 'powershell -File "codeterm-session-start.ps1"',
+          }] }],
+        },
+      }),
+      readFile: (path: string) => path.endsWith("codeterm-session-start.ps1") ? staleScript : "",
+      writeJson: () => true,
+      writeFile: () => true,
+    },
+  }));
+  assert(
+    p.checkIntegration().session_start_hook === false,
+    "Windows integration rejects a pre-cleanup hook so startup reinstalls it",
   );
 }
 

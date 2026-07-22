@@ -62,7 +62,7 @@ impl ServiceContext {
             .get("enter")
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
-        self.send_text(&pane_id, &text, enter)?;
+        self.send_text_detached(&pane_id, &text, enter);
         Ok(serde_json::json!({"ok": true}))
     }
 

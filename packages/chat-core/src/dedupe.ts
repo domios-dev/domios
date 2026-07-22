@@ -24,6 +24,8 @@ export interface OptimisticEcho {
   content: string;
   /** Epoch ms the bubble was sent at (the stable client send time). */
   sentAtMs: number;
+  /** Monotonic frontend order captured before transport submission. */
+  clientOrder?: number;
 }
 
 interface CoverageToken {
@@ -115,6 +117,14 @@ function consumeTokenSequence(tokens: CoverageToken[], needle: string[]): boolea
   return false;
 }
 
+function candidateFollowsEcho<T extends NormalizedChatMessage>(echo: OptimisticEcho, candidate: T): boolean {
+  if (echo.clientOrder != null && candidate.clientOrder != null) {
+    return candidate.clientOrder >= echo.clientOrder;
+  }
+  const ts = timestampMs(candidate.timestamp);
+  return ts == null || ts >= echo.sentAtMs - ECHO_SKEW_MS;
+}
+
 /** Decide which optimistic user bubbles now have a confirmed real counterpart
  *  in the parsed stream and should be dropped.
  *
@@ -152,8 +162,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
         ) {
           continue;
         }
-        const ts = timestampMs(candidate.timestamp);
-        if (!markerMatch && ts != null && ts < echo.sentAtMs - ECHO_SKEW_MS) continue;
+        if (!markerMatch && !candidateFollowsEcho(echo, candidate)) continue;
         hit = i;
         break;
       }
@@ -166,17 +175,15 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
   const coverageClaimed = new Set<number>();
   const coverage = parsedUsers.map((message, index) => ({
     index,
+    message,
     tokens: consumed[index] ? [] : coverageTokens(message.content),
-    timestamp: timestampMs(message.timestamp),
   }));
   for (const echo of optimistic) {
     if (exactMatched.has(echo.id)) continue;
     const wanted = tokenNeedle(echo.content);
     if (wanted.length === 0) continue;
     for (const candidate of coverage) {
-      if (candidate.timestamp != null && candidate.timestamp < echo.sentAtMs - ECHO_SKEW_MS) {
-        continue;
-      }
+      if (!candidateFollowsEcho(echo, candidate.message)) continue;
       if (consumeTokenSequence(candidate.tokens, wanted)) {
         coveredMatched.add(echo.id);
         coverageClaimed.add(candidate.index);
@@ -197,8 +204,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
       if (consumed[i] || coverageClaimed.has(i)) continue;
       const candidate = parsedUsers[i];
       if ((candidate.type !== "user" && candidate.type !== "local_command") || isFileIdentityMarker(candidate.content)) continue;
-      const ts = timestampMs(candidate.timestamp);
-      if (ts != null && ts < echo.sentAtMs - ECHO_SKEW_MS) continue;
+      if (!candidateFollowsEcho(echo, candidate)) continue;
       const candidateTokens = meaningfulTokens(candidate.content);
       if (candidateTokens.length === 0) continue;
       if (candidateTokens.join(" ") === echoText) {
@@ -225,4 +231,41 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
     }
   }
   return { matchedIds, pendingIds };
+}
+
+/** Window (ms) within which two consecutive user messages with identical content
+ *  are the same logical send recorded twice (a re-read transcript tail, a double
+ *  delivery) rather than a deliberate resend. Generous enough to collapse an
+ *  impatient double-send, while a genuine repeat minutes later — in practice
+ *  always with an assistant turn between it — survives. */
+const USER_DUP_WINDOW_MS = 60_000;
+
+/** Drop consecutive user messages that repeat the immediately-preceding user
+ *  message's content within {@link USER_DUP_WINDOW_MS}. View-layer only: the
+ *  stored transcript keeps every record; this just stops the chat UI painting
+ *  the same bubble two or three times. Messages carrying attachments never
+ *  collapse (their content may match while the attachment differs). */
+export function collapseDuplicateUserMessages<T extends NormalizedChatMessage>(messages: T[]): T[] {
+  const out: T[] = [];
+  for (const message of messages) {
+    const prev = out[out.length - 1];
+    const content = message.type === "user" ? normalizeChatText(message.content).toLowerCase() : "";
+    if (
+      prev
+      && prev.type === "user"
+      && message.type === "user"
+      && content.length > 0
+      && !message.attachments?.length
+      && !(prev.seq != null && message.seq != null && prev.seq !== message.seq)
+      && content === normalizeChatText(prev.content).toLowerCase()
+    ) {
+      const pt = timestampMs(prev.timestamp);
+      const mt = timestampMs(message.timestamp);
+      if (pt == null || mt == null || Math.abs(mt - pt) <= USER_DUP_WINDOW_MS) {
+        continue;
+      }
+    }
+    out.push(message);
+  }
+  return out;
 }

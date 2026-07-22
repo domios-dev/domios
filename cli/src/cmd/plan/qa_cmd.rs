@@ -1,11 +1,11 @@
 use crate::args::plan::PlanQaAction;
-use crate::client::SocketClient;
+use crate::client::RpcClient;
 use serde_json::{json, Value};
 
 use super::{call_plan_rpc, maybe_inject_caller_pane, owner_from_env};
 
 pub(super) fn handle(
-    client: &mut SocketClient,
+    client: &mut dyn RpcClient,
     json_output: bool,
     action: PlanQaAction,
 ) -> Result<Option<Value>, String> {
@@ -87,7 +87,58 @@ pub(super) fn handle(
             maybe_inject_caller_pane(&mut params);
             call_plan_rpc(client, "plan.qa.fail", params).map(Some)
         }
+        PlanQaAction::Override {
+            plan_id,
+            gate,
+            reason,
+        } => {
+            let mut params = json!({ "reason": reason, "gates": gate, "from": owner_from_env() });
+            if let Some(plan_id) = plan_id {
+                params["plan_id"] = json!(plan_id);
+            }
+            maybe_inject_caller_pane(&mut params);
+            let val = call_plan_rpc(client, "plan.qa.override", params)?;
+            if json_output {
+                return Ok(Some(val));
+            }
+            print!("{}", render_override(&val));
+            Ok(None)
+        }
     }
+}
+
+fn render_override(value: &Value) -> String {
+    let Some(record) = value.get("override").filter(|v| !v.is_null()) else {
+        return "No regression gate override recorded.\n".into();
+    };
+    let gates = record
+        .get("gates")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|g| g.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_default();
+    let reason = record.get("reason").and_then(|v| v.as_str()).unwrap_or("");
+    let mut out = format!("Recorded override for regression gate(s): {gates}\nReason: {reason}\n");
+    let remaining = value
+        .get("blocking_gates")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|g| g.get("key").and_then(|k| k.as_str()))
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_default();
+    if remaining.is_empty() {
+        out.push_str("Frontier dispatch unblocked.\n");
+    } else {
+        out.push_str(&format!("Still blocking: {remaining}\n"));
+    }
+    out
 }
 
 fn qa_entry_line(entry: &Value) -> String {
@@ -183,6 +234,28 @@ mod tests {
         });
         let out = render_qa_claim(&value);
         assert!(out.contains(crate::cmd::test_plan::TEST_PLAN_VAGUE_BANNER));
+    }
+
+    #[test]
+    fn override_render_names_gates_reason_and_unblock() {
+        let value = json!({
+            "override": {"gates": ["phase-1", "phase-2"], "reason": "warm QA down; owner sign-off"},
+            "blocking_gates": []
+        });
+        let out = render_override(&value);
+        assert!(out.contains("phase-1, phase-2"));
+        assert!(out.contains("warm QA down; owner sign-off"));
+        assert!(out.contains("Frontier dispatch unblocked."));
+    }
+
+    #[test]
+    fn override_render_reports_remaining_blockers() {
+        let value = json!({
+            "override": {"gates": ["phase-1"], "reason": "partial waiver"},
+            "blocking_gates": [{"key": "phase-2", "label": "Phase 2"}]
+        });
+        let out = render_override(&value);
+        assert!(out.contains("Still blocking: phase-2"));
     }
 
     #[test]

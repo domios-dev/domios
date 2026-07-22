@@ -6,6 +6,7 @@
 import { expect, test, type SpawnAgent } from "../../helpers/fixtures";
 import { type ApiClient } from "../../helpers/api-client";
 import { pollUntil } from "../../helpers/poll";
+import { isStubTransportActive } from "../../helpers/stub-gate";
 
 interface ChatMsg {
   role?: string;
@@ -14,15 +15,18 @@ interface ChatMsg {
 }
 
 async function chatContains(api: ApiClient, paneId: string, needle: string): Promise<ChatMsg | undefined> {
-  const res = await api.get<{ messages: ChatMsg[] }>(`/panes/${paneId}/chat`);
+  // 400 while the session binds after spawn is a normal warmup state.
+  const res = await api
+    .get<{ messages: ChatMsg[] }>(`/panes/${paneId}/chat`)
+    .catch(() => ({ messages: [] as ChatMsg[] }));
   return res.messages.find((m) => (m.content ?? "").includes(needle));
 }
 
-async function waitChatContains(api: ApiClient, paneId: string, needle: string, timeout = 120_000): Promise<ChatMsg> {
+async function waitChatContains(api: ApiClient, paneId: string, needle: string, timeout = 60_000): Promise<ChatMsg> {
   const msg = await pollUntil(
     () => chatContains(api, paneId, needle),
     timeout,
-    2_000,
+    500,
     `pane ${paneId} chat receives "${needle}"`,
   );
   if (!msg) throw new Error(`pane ${paneId} chat never received "${needle}"`);
@@ -36,10 +40,7 @@ async function spawnChatAgent(api: ApiClient, spawnAgent: SpawnAgent, title: str
     title,
     skip_permissions: true,
     activate: true,
-    task:
-      "You are a passive test fixture. Reply with the single word READY now. " +
-      "For any later message, reply with only the word ACK. " +
-      "Never run shell commands and never run any codeterm command.",
+    task: "STUB_ECHO READY",
   });
   // Flip the pane into chat UI (API toggle broadcasts pane-chat-view to clients).
   await api.post(`/panes/${spawned.pane_id}/chat-view`, { enabled: true });
@@ -47,8 +48,8 @@ async function spawnChatAgent(api: ApiClient, spawnAgent: SpawnAgent, title: str
 }
 
 test("@golden two chat panes exchange a cross-pane message, origin rendered", async ({ api, ui, spawnAgent }) => {
-  // Two agent boots + a turn each. Bounded for real model + CLI latency.
-  test.setTimeout(420_000);
+  test.setTimeout(150_000);
+  test.skip(!(await isStubTransportActive(api)), "dev daemon is not running with CODETERM_STUB_AGENT_CMD");
 
   const stamp = Date.now();
   const aTitle = `pw-A-${stamp}`;

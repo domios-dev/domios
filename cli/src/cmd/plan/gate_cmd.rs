@@ -1,11 +1,11 @@
 use crate::args::plan::PlanDecisionAction;
-use crate::client::SocketClient;
+use crate::client::RpcClient;
 use serde_json::{json, Value};
 
 use super::{call_plan_rpc, maybe_inject_caller_pane};
 
 pub(super) fn handle(
-    client: &mut SocketClient,
+    client: &mut dyn RpcClient,
     json_output: bool,
     action: PlanDecisionAction,
 ) -> Result<Option<Value>, String> {
@@ -55,6 +55,29 @@ pub(super) fn handle(
                 return Ok(Some(gate));
             }
             println!("{}", render_gate(&gate));
+            Ok(None)
+        }
+
+        PlanDecisionAction::AckRequest {
+            plan_id,
+            request_id,
+        } => {
+            let mut params = json!({
+                "plan_id": plan_id,
+                "request_id": request_id,
+            });
+            maybe_inject_caller_pane(&mut params);
+            let request = call_plan_rpc(client, "plan.decision.ack_request", params)?;
+            if json_output {
+                return Ok(Some(request));
+            }
+            println!(
+                "Acknowledged Planner request {}.",
+                request
+                    .get("request_id")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("?")
+            );
             Ok(None)
         }
 

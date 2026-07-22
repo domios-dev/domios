@@ -1,7 +1,7 @@
 use std::io::Read;
 
 use crate::args::task::{CanvasAction, TaskAction};
-use crate::client::SocketClient;
+use crate::client::RpcClient;
 use crate::cmd::hints::{
     extract_hints_from_value, maybe_orchestration_reminder, print_hints_stderr, push_hints,
     task_model_hint, task_quality_guard_hint, task_sections_hint,
@@ -33,25 +33,31 @@ fn resolve_text(value: Option<String>, file: Option<String>) -> Result<Option<St
     }
 }
 
-fn call(client: &mut SocketClient, method: &str, params: Value) -> Result<Value, String> {
+fn call(client: &mut dyn RpcClient, method: &str, params: Value) -> Result<Value, String> {
     client
         .call_detailed(method, Some(params.clone()))
         .map_err(|err| render_plan_call_error(err, &params))
 }
 
-fn caller_pane() -> Option<String> {
+fn caller_pane(client: &dyn RpcClient) -> Option<String> {
+    if client.is_remote() {
+        return None;
+    }
     std::env::var("CODETERM_PANE_ID")
         .ok()
         .filter(|s| !s.is_empty())
 }
 
-fn cwd_project() -> Option<String> {
+fn cwd_project(client: &dyn RpcClient) -> Option<String> {
+    if client.is_remote() {
+        return None;
+    }
     std::env::current_dir()
         .ok()
         .map(|path| path.display().to_string())
 }
 
-pub fn handle_task(client: &mut SocketClient, json: bool, action: TaskAction) {
+pub fn handle_task(client: &mut dyn RpcClient, json: bool, action: TaskAction) {
     match run_task(client, json, action) {
         Ok((val, show_opts)) => print_task_result(json, &val, show_opts),
         Err(e) => {
@@ -61,7 +67,7 @@ pub fn handle_task(client: &mut SocketClient, json: bool, action: TaskAction) {
     }
 }
 
-pub fn handle_canvas(client: &mut SocketClient, json: bool, action: CanvasAction) {
+pub fn handle_canvas(client: &mut dyn RpcClient, json: bool, action: CanvasAction) {
     let result = match action {
         CanvasAction::Focus { task, pane, plan } => {
             let mut params = json!({});
@@ -88,7 +94,7 @@ pub fn handle_canvas(client: &mut SocketClient, json: bool, action: CanvasAction
 }
 
 fn run_task(
-    client: &mut SocketClient,
+    client: &mut dyn RpcClient,
     _json_output: bool,
     action: TaskAction,
 ) -> Result<(Value, Option<TaskShowOpts>), String> {
@@ -107,10 +113,10 @@ fn run_task(
                 "mine": mine,
                 "unassigned": unassigned,
             });
-            if let Some(project) = cwd_project() {
+            if let Some(project) = cwd_project(client) {
                 params["project"] = json!(project);
             }
-            if let Some(caller) = caller_pane() {
+            if let Some(caller) = caller_pane(client) {
                 params["caller_pane_id"] = json!(caller);
             }
             if let Some(plan_id) = plan {
@@ -135,7 +141,9 @@ fn run_task(
             )
         }),
         TaskAction::Take { task_id } => {
-            let caller = caller_pane().ok_or("CODETERM_PANE_ID is required for task take")?;
+            let caller = caller_pane(client).ok_or(
+                "task take requires a pane on the target machine and is unavailable over mesh",
+            )?;
             call(
                 client,
                 "task.take",
@@ -163,7 +171,9 @@ fn run_task(
         } => {
             let has_model = model.as_deref().is_some_and(|s| !s.trim().is_empty());
             let why_text = resolve_text(why, why_file)?;
+            let body_text = resolve_text(body, body_file)?;
             let has_why = why_text.as_deref().is_some_and(|s| !s.trim().is_empty());
+            let has_body = body_text.as_deref().is_some_and(|s| !s.trim().is_empty());
             let has_criteria = criterion.iter().any(|s| !s.trim().is_empty());
             let has_test_plan = test_plan.as_deref().is_some_and(|s| !s.trim().is_empty());
             let has_correctness = correctness.as_deref().is_some_and(|s| !s.trim().is_empty());
@@ -171,10 +181,10 @@ fn run_task(
                 "name": name,
                 "type": kind.unwrap_or_else(|| "task".to_string()),
             });
-            if let Some(project) = cwd_project() {
+            if let Some(project) = cwd_project(client) {
                 params["project"] = json!(project);
             }
-            if let Some(caller) = caller_pane() {
+            if let Some(caller) = caller_pane(client) {
                 params["caller_pane_id"] = json!(caller);
                 params["owner"] = json!({ "pane_id": caller });
             }
@@ -193,7 +203,7 @@ fn run_task(
             if let Some(correctness) = correctness {
                 params["correctness"] = json!(correctness);
             }
-            if let Some(b) = resolve_text(body, body_file)? {
+            if let Some(b) = body_text {
                 params["body"] = json!(b);
             }
             if let Some(i) = resolve_text(intent, intent_file)? {
@@ -218,6 +228,7 @@ fn run_task(
                 if let Some(hint) = task_quality_guard_hint(
                     &plan_id,
                     &task_id,
+                    has_body,
                     has_criteria,
                     has_test_plan,
                     has_correctness,
@@ -268,6 +279,7 @@ fn print_task_result(json: bool, val: &Value, show_opts: Option<TaskShowOpts>) {
             .unwrap_or("?");
         println!("{id}\t{status}\t{plan}\t{name}");
         println!("plan: {plan_title} ({plan})");
+        print_task_presentation(val);
         print_competition(task, plan, id);
         print_executor_role(task);
         if let Some(body) = task
@@ -303,6 +315,46 @@ fn print_task_result(json: bool, val: &Value, show_opts: Option<TaskShowOpts>) {
         print_object(val);
     }
     print_hints_stderr(&hints);
+}
+
+fn print_task_presentation(val: &Value) {
+    if let Some(line) = task_presentation_line(val) {
+        println!("{line}");
+    }
+}
+
+fn task_presentation_line(val: &Value) -> Option<String> {
+    match val.get("presentation").and_then(|value| value.as_str()) {
+        Some("actionable_pending") => Some("presentation: actionable pending".into()),
+        Some("waiting_on_dependencies") => {
+            let dependencies = val
+                .get("dependency_waits")
+                .and_then(|value| value.as_array())
+                .map(|waits| {
+                    waits
+                        .iter()
+                        .map(|wait| {
+                            let id = wait
+                                .get("task_id")
+                                .and_then(|value| value.as_str())
+                                .unwrap_or("?");
+                            let name = wait
+                                .get("name")
+                                .and_then(|value| value.as_str())
+                                .unwrap_or("dependency");
+                            format!("{id} ({name})")
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .unwrap_or_default();
+            Some(format!(
+                "presentation: waiting on dependency — {dependencies}"
+            ))
+        }
+        Some("paused") => Some("presentation: paused (explicit operator hold)".into()),
+        _ => None,
+    }
 }
 
 fn is_closed_sibling_status(status: &str) -> bool {
@@ -714,6 +766,24 @@ mod executor_role_render_tests {
         assert!(executor_role_line(&json!({ "id": "task_1" })).is_none());
         assert!(executor_role_line(&json!({ "executor_role": "  " })).is_none());
         assert!(executor_role_line(&json!({ "executor_role": null })).is_none());
+    }
+}
+
+#[cfg(test)]
+mod task_presentation_render_tests {
+    use super::task_presentation_line;
+    use serde_json::json;
+
+    #[test]
+    fn renders_waiting_dependency_as_pending_not_paused() {
+        let task = json!({
+            "presentation": "waiting_on_dependencies",
+            "dependency_waits": [{"task_id": "task_before", "name": "Before"}],
+        });
+        assert_eq!(
+            task_presentation_line(&task).as_deref(),
+            Some("presentation: waiting on dependency — task_before (Before)")
+        );
     }
 }
 

@@ -86,6 +86,7 @@ impl MemSchedulerPort for CronSchedulerPort<'_> {
                 model: params.model,
                 cwd: params.cwd,
                 role: params.role,
+                skill: None,
                 creator_pane_id: params.creator_pane_id,
                 enabled: params.enabled,
                 max_history: params.max_history,
@@ -237,6 +238,7 @@ pub fn spawn_headless_worker(
                 description: None,
                 command: PaneCommand::Agent(AgentSpawnSpec {
                     provider: agent_for_spawn,
+                    planned_model: None,
                     model: if model_for_spawn.is_empty() {
                         None
                     } else {
@@ -361,17 +363,16 @@ pub fn spawn_extraction_worker(
         &title,
         &body,
     );
-    let agent_provider = if mem_cfg.extraction_agent.is_empty() {
-        default_agent.to_string()
-    } else {
-        mem_cfg.extraction_agent.clone()
-    };
-    let raw_model = if mem_cfg.extraction_model.is_empty() {
-        mem_cfg.worker_model.clone()
-    } else {
-        mem_cfg.extraction_model.clone()
-    };
-    let model = codeterm_types::agent::models::canonicalize_short(&raw_model).to_string();
+    let resolved = codeterm_mem::worker_agent::resolve_worker(
+        None,
+        &mem_cfg.extraction_agent,
+        &mem_cfg.extraction_model,
+        default_agent,
+        &mem_cfg.worker_model,
+        &crate::service::spawn::CatalogBackgroundModelPort,
+    );
+    let agent_provider = resolved.agent;
+    let model = resolved.model;
     let intent = format!("extract:{mem_item_id}");
     match spawn_headless(
         svc,
@@ -444,17 +445,16 @@ pub fn spawn_rem_worker(
     use codeterm_mem::dreaming::{DREAMING_TELEGRAM_STEP_DISABLED, DREAMING_TELEGRAM_STEP_ENABLED};
     use codeterm_mem::workers::DREAMING_INTENT_PREFIX;
 
-    let agent = if mem_cfg.dreaming_agent.is_empty() {
-        default_agent.to_string()
-    } else {
-        mem_cfg.dreaming_agent.clone()
-    };
-    let raw_model = if mem_cfg.dreaming_model.is_empty() {
-        mem_cfg.worker_model.clone()
-    } else {
-        mem_cfg.dreaming_model.clone()
-    };
-    let model = codeterm_types::agent::models::canonicalize_short(&raw_model).to_string();
+    let resolved = codeterm_mem::worker_agent::resolve_worker(
+        None,
+        &mem_cfg.dreaming_agent,
+        &mem_cfg.dreaming_model,
+        default_agent,
+        &mem_cfg.worker_model,
+        &crate::service::spawn::CatalogBackgroundModelPort,
+    );
+    let agent = resolved.agent;
+    let model = resolved.model;
     let telegram_step = if mem_cfg.dreaming_telegram_notify {
         DREAMING_TELEGRAM_STEP_ENABLED
     } else {

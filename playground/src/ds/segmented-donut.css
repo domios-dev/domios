@@ -1,0 +1,4 @@
+.ds-segmented-donut{position:relative;display:inline-grid;width:var(--ds-segmented-donut-size);height:var(--ds-segmented-donut-size);flex:0 0 auto;place-items:center;border-radius:50%;background:var(--ds-segmented-donut-background);animation:ds-segmented-donut-grow var(--ct-duration-liquid-donut) var(--ct-ease-squash-jump)}
+.ds-segmented-donut>i{width:45.45%;height:45.45%;border-radius:50%;background:var(--ct-sidebar-bg)}
+@keyframes ds-segmented-donut-grow{0%{transform:scale(.9)}58%{transform:scale(1.04)}100%{transform:scale(1)}}
+@media(prefers-reduced-motion:reduce){.ds-segmented-donut{animation:none}}

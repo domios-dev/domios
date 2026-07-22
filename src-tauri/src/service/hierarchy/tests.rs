@@ -1,14 +1,21 @@
 use super::{
-    is_explicit_plan_foreign, ledger_with_live_children, milestone_text,
-    report_task_status_transition, resolve_plan_ctx, resolve_report_target, worker_death_report,
-    ReportTarget,
+    is_explicit_plan_foreign, ledger_with_live_children, milestone_text, planner_rehydrate_payload,
+    planner_request_payload, planner_specs_for_plan, report_task_status_transition,
+    resolve_plan_ctx, resolve_report_target, worker_death_report, ReportTarget,
 };
 use crate::agent::ledger::LedgerRow;
 use crate::agent::reports::{ReportStatus, ReportStore};
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
-use crate::plan::{OrchestratorRef, Plan};
-use crate::service::plan::{NewTask, PlanStore};
+use crate::plan::{
+    Goal, Milestone, OrchestratorRef, Plan, PlannerRequest, PlannerRequestState, Spec,
+};
+use crate::service::hierarchy::first_plan::create_first_plan_for_orchestrator;
+use crate::service::plan::{NewTask, PlanError, PlanStore};
+use crate::service::FirstPlanTeamError;
+use crate::{lock_hold::TimedRwLock, multiplexer::commands::MuxState};
+use std::path::Path;
+use std::sync::{Arc, Barrier};
 
 // Enforce report key symmetry: reporter writes and parent query must use the same key.
 // This avoids "report succeeded" with empty parent results.
@@ -314,6 +321,124 @@ fn milestone_text_prefixes_structured_status_only() {
         milestone_text("ready", Some(ReportStatus::InReview)),
         "IN_REVIEW: ready"
     );
+}
+
+#[test]
+fn planner_rehydrate_preserves_all_36_tasks_and_strides() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "Windows recovery".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("owner"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    for index in 0..36 {
+        store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: format!("task {index}"),
+                    kind: "implement".into(),
+                    body: format!("body {index}"),
+                    competition: None,
+                    ..Default::default()
+                },
+                index + 2,
+            )
+            .unwrap();
+    }
+    let mut hydrated = store.get(&plan.id).unwrap();
+    hydrated.goal = Some(Goal {
+        vector: "recover".into(),
+        ..Default::default()
+    });
+    let task_stride = Milestone {
+        id: "task-stride".into(),
+        from: OrchestratorRef::from_pane("worker"),
+        kind: "status_update".into(),
+        text: "task evidence".into(),
+        ts: 10,
+        links: vec![],
+        loop_id: None,
+        iteration: None,
+        canvas: Default::default(),
+        attachments: vec![],
+    };
+    hydrated.tasks[0].milestones.push(task_stride);
+    hydrated.strides.push(Milestone {
+        id: "plan-stride".into(),
+        from: OrchestratorRef::from_pane("owner"),
+        kind: "decision".into(),
+        text: "plan evidence".into(),
+        ts: 11,
+        links: vec![],
+        loop_id: None,
+        iteration: None,
+        canvas: Default::default(),
+        attachments: vec![],
+    });
+    let mut spec = Spec::new(
+        "Authoritative spec".into(),
+        dir.path().display().to_string(),
+    );
+    spec.plan_id = Some(plan.id.clone());
+    store.save_spec(&mut spec, 12).unwrap();
+    let mut linked_spec = Spec::new("Linked spec".into(), dir.path().display().to_string());
+    store.save_spec(&mut linked_spec, 13).unwrap();
+    hydrated.primary_spec_id = Some(spec.id.clone());
+    hydrated.spec_refs = vec![spec.id.clone(), linked_spec.id.clone()];
+
+    let payload = planner_rehydrate_payload(&hydrated, planner_specs_for_plan(&store, &hydrated));
+    let snapshot: serde_json::Value =
+        serde_json::from_str(payload.split_once('\n').unwrap().1).unwrap();
+    let tasks = snapshot["tasks"].as_array().unwrap();
+    assert_eq!(tasks.len(), 36);
+    assert_eq!(
+        tasks
+            .iter()
+            .filter_map(|task| task["id"].as_str())
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        36
+    );
+    assert_eq!(tasks[0]["milestones"][0]["id"], "task-stride");
+    assert_eq!(snapshot["strides"][0]["id"], "plan-stride");
+    assert_eq!(snapshot["goal"]["vector"], "recover");
+    assert_eq!(snapshot["specs"].as_array().unwrap().len(), 2);
+    let spec_titles = snapshot["specs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|spec| spec["title"].as_str())
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(spec_titles, ["Authoritative spec", "Linked spec"].into());
+}
+
+#[test]
+fn planner_request_envelope_preserves_shell_metacharacters_as_chat_data() {
+    let payload = "- audit `model`\n- <nonexistent>\n$env:BAD='x'; echo $(whoami)\n$(false) && :";
+    let request = PlannerRequest {
+        request_id: "req-shell".into(),
+        payload: payload.into(),
+        payload_blob: None,
+        caller_pane_id: Some("caller".into()),
+        caller_session_id: Some("caller-session".into()),
+        state: PlannerRequestState::Accepted,
+        created_at: 1,
+        accepted_at: Some(2),
+        lease_expires_at: None,
+        delivery_attempts: 1,
+        completed_at: None,
+        failed_at: None,
+        delivered_to_pane_id: Some("planner".into()),
+        delivered_to_session_id: Some("planner-session".into()),
+        delivered_with_binding_nonce: Some("planner-nonce".into()),
+    };
+
+    let envelope = planner_request_payload("pl-shell", &request);
+    assert!(envelope.contains(payload));
+    assert!(envelope.contains("ack-request pl-shell req-shell"));
 }
 
 #[test]
@@ -760,4 +885,142 @@ fn resolve_plan_ctx_explicit_plan_overridden_by_binding_triggers_foreign() {
         is_explicit_plan_foreign(Some("pl_foreign_x"), eff.as_deref()),
         "explicit plan overridden by local binding must be detected as foreign"
     );
+}
+
+struct FirstPlanHarness {
+    mux: MuxState,
+    plan_store: Arc<PlanStore>,
+}
+
+impl FirstPlanHarness {
+    fn new(root: &Path) -> Self {
+        let (state, _) = MultiplexerState::new();
+        Self {
+            mux: Arc::new(TimedRwLock::new("mux", state)),
+            plan_store: Arc::new(PlanStore::new_for_test(root)),
+        }
+    }
+}
+
+fn teamless_orchestrator(mux: &MuxState) -> (String, String) {
+    let mut mux = mux.write();
+    let workspace_id = mux.list_workspaces()[0].id.clone();
+    let (_tab_id, owner_pane_id) = mux.create_tab(&workspace_id).unwrap();
+    mux.set_pane_role(&owner_pane_id, AgentRole::Orchestrator, None)
+        .unwrap();
+    (workspace_id, owner_pane_id)
+}
+
+#[test]
+fn first_plan_mints_team_enrolls_manager_and_binds() {
+    let dir = tempfile::tempdir().unwrap();
+    let harness = FirstPlanHarness::new(dir.path());
+    let (_workspace_id, owner_pane_id) = teamless_orchestrator(&harness.mux);
+
+    let outcome = create_first_plan_for_orchestrator(
+        &harness.mux,
+        &harness.plan_store,
+        "First effort".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane(&owner_pane_id),
+        vec![],
+        None,
+        1,
+    )
+    .unwrap();
+
+    assert!(outcome.team_minted);
+    assert_eq!(harness.plan_store.list_index().len(), 1);
+    assert_eq!(
+        outcome.plan.team_id.as_deref(),
+        Some(outcome.team_id.as_str())
+    );
+    let mux = harness.mux.read();
+    assert_eq!(mux.team_count(), 1);
+    let owner = mux.get_pane(&owner_pane_id).unwrap();
+    assert_eq!(owner.role, Some(AgentRole::Orchestrator));
+    assert_eq!(owner.team_id.as_deref(), Some(outcome.team_id.as_str()));
+}
+
+#[test]
+fn concurrent_first_plan_and_first_child_converge() {
+    let dir = tempfile::tempdir().unwrap();
+    let harness = FirstPlanHarness::new(dir.path());
+    let (workspace_id, owner_pane_id) = teamless_orchestrator(&harness.mux);
+    let child_pane_id = harness.mux.write().create_tab(&workspace_id).unwrap().1;
+    let barrier = Arc::new(Barrier::new(3));
+    let plan_mux = harness.mux.clone();
+    let plan_store = harness.plan_store.clone();
+    let plan_owner = owner_pane_id.clone();
+    let plan_root = dir.path().display().to_string();
+    let plan_barrier = barrier.clone();
+    let plan_thread = std::thread::spawn(move || {
+        plan_barrier.wait();
+        create_first_plan_for_orchestrator(
+            &plan_mux,
+            &plan_store,
+            "Concurrent effort".into(),
+            plan_root,
+            OrchestratorRef::from_pane(&plan_owner),
+            vec![],
+            None,
+            1,
+        )
+    });
+    let child_mux = harness.mux.clone();
+    let child_owner = owner_pane_id.clone();
+    let child_pane = child_pane_id.clone();
+    let child_barrier = barrier.clone();
+    let child_thread = std::thread::spawn(move || {
+        child_barrier.wait();
+        child_mux
+            .write()
+            .set_pane_role(&child_pane, AgentRole::Worker, Some(&child_owner))
+    });
+    barrier.wait();
+    let outcome = plan_thread.join().unwrap().unwrap();
+    child_thread.join().unwrap().unwrap();
+
+    let mux = harness.mux.read();
+    assert_eq!(mux.team_count(), 1);
+    assert_eq!(harness.plan_store.list_index().len(), 1);
+    assert_eq!(
+        mux.get_pane(&owner_pane_id).unwrap().team_id.as_deref(),
+        Some(outcome.team_id.as_str())
+    );
+    assert_eq!(
+        mux.get_pane(&child_pane_id).unwrap().team_id.as_deref(),
+        Some(outcome.team_id.as_str())
+    );
+    assert_eq!(
+        outcome.plan.team_id.as_deref(),
+        Some(outcome.team_id.as_str())
+    );
+}
+
+#[test]
+fn first_plan_failure_is_atomic() {
+    let dir = tempfile::tempdir().unwrap();
+    let harness = FirstPlanHarness::new(dir.path());
+    let (_workspace_id, owner_pane_id) = teamless_orchestrator(&harness.mux);
+    let invalid_project = dir.path().join("not-a-directory");
+    std::fs::write(&invalid_project, "file").unwrap();
+
+    let error = create_first_plan_for_orchestrator(
+        &harness.mux,
+        &harness.plan_store,
+        "Failure".into(),
+        invalid_project.display().to_string(),
+        OrchestratorRef::from_pane(&owner_pane_id),
+        vec![],
+        None,
+        1,
+    )
+    .unwrap_err();
+
+    assert!(matches!(error, FirstPlanTeamError::Plan(PlanError::Io(_))));
+    assert!(harness.plan_store.list_index().is_empty());
+    let mux = harness.mux.read();
+    assert_eq!(mux.team_count(), 0);
+    assert!(mux.get_pane(&owner_pane_id).unwrap().team_id.is_none());
 }

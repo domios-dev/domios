@@ -128,7 +128,18 @@ impl ServiceContext {
     pub fn cron_trigger(&self, cron: &CronState, id: &str) -> Result<CronRunInfo, String> {
         use crate::service::spawn::{AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec};
 
-        let (agent, model, task, cwd, role, workspace_id, creator_pane_id, job_name, job_timeout) = {
+        let (
+            agent,
+            model,
+            task,
+            cwd,
+            role,
+            skill,
+            workspace_id,
+            creator_pane_id,
+            job_name,
+            job_timeout,
+        ) = {
             let store = cron.lock();
             let job = store
                 .get(id)
@@ -142,6 +153,7 @@ impl ServiceContext {
                 job.task.clone(),
                 job.cwd.clone(),
                 job.role.clone(),
+                job.skill.clone(),
                 job.workspace_id.clone(),
                 job.creator_pane_id.clone(),
                 job.name.clone(),
@@ -166,24 +178,24 @@ impl ServiceContext {
             cwd: None,
         };
 
-        let mut task_text = task;
-        if creator_pane_id.is_some() {
-            task_text.push_str(crate::prompts::CRON_REPORT_HINT);
-        }
-        task_text.push_str(&crate::prompts::CRON_COMPLETE_SUFFIX.replace("{}", &run_id));
+        let skill_block = skill.as_deref().map(crate::commands::cron_skill_block);
+        let task_text = crate::cron::task_text::build_cron_task_text(
+            &task,
+            skill_block.as_deref(),
+            creator_pane_id.as_deref(),
+            &run_id,
+        );
 
-        let model = model
-            .or_else(|| {
-                let mem_cfg = crate::config::memory_config();
-                if !mem_cfg.dreaming_model.is_empty() {
-                    Some(mem_cfg.dreaming_model.clone())
-                } else if !mem_cfg.worker_model.is_empty() {
-                    Some(mem_cfg.worker_model.clone())
-                } else {
-                    None
-                }
-            })
-            .map(|s| crate::agent::models::canonicalize_short(&s).to_string());
+        let model = model.or_else(|| {
+            let mem_cfg = crate::config::memory_config();
+            let (resolved, _fell_back) = codeterm_mem::worker_agent::resolve_worker_model(
+                &mem_cfg.dreaming_model,
+                &mem_cfg.worker_model,
+                &agent,
+                &crate::service::spawn::CatalogBackgroundModelPort,
+            );
+            (!resolved.is_empty()).then_some(resolved)
+        });
 
         let spec = SpawnPaneSpec {
             workspace_id: if workspace_id.is_empty() {
@@ -199,6 +211,7 @@ impl ServiceContext {
             eager: false,
             command: PaneCommand::Agent(AgentSpawnSpec {
                 provider: agent,
+                planned_model: None,
                 model,
                 task: Some(task_text),
                 role,
@@ -311,16 +324,38 @@ impl ServiceContext {
                 self.run_watcher.mark_completed_externally(pid);
             }
 
-            let _ = self.close_pane(&pane_id);
-
-            if is_oneshot {
-                log::info!("Oneshot cron auto-deleting: job={}", job_id);
-                if let Err(e) = self.cron_delete(cron, wake, &job_id) {
-                    log::error!("Failed to auto-delete oneshot cron: {}", e);
+            // The `codeterm cron complete` CLI client that drove this request is a
+            // child of the pane we're about to kill. Killing it before the caller
+            // writes the JSON-RPC response would break the pipe mid-write, which
+            // interprocess escalates to std::process::abort(). Defer the teardown
+            // so the response reaches the live client and it disconnects first.
+            let svc = self.clone();
+            let cron = cron.clone();
+            let wake = wake.clone();
+            let pane_id = pane_id.clone();
+            let job_id = job_id.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(250));
+                let _ = svc.close_pane(&pane_id);
+                if is_oneshot {
+                    log::info!("Oneshot cron auto-deleting: job={}", job_id);
+                    if let Err(e) = svc.cron_delete(&cron, &wake, &job_id) {
+                        log::error!("Failed to auto-delete oneshot cron: {}", e);
+                    }
                 }
-            }
-
-            self.emit_cron_changed();
+                svc.emit_cron_changed();
+            });
+            Ok(())
+        } else if let Some((job_id, run)) = store.find_run_by_id(run_id) {
+            // The watchdog (idle / hard timeout) already finalized this run and
+            // unregistered its pane before this explicit completion arrived —
+            // a durable race, not a caller error. The terminal status already
+            // recorded stands (first terminal wins); log it so the race stays
+            // observable instead of surfacing as an opaque "not found".
+            log::warn!(
+                "[cron] cron.complete for run={} (job={}) arrived after the run was already finalized as {:?} — treating as idempotent no-op",
+                run_id, job_id, run.status
+            );
             Ok(())
         } else {
             Err(format!("No cron run found for run_id: {}", run_id))

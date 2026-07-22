@@ -1,0 +1,414 @@
+.opus-concepts {
+  --opc-line: #1e2632;
+  --opc-cyan: var(--lab-accent);
+  --opc-amber: #f0a94b;
+  --opc-green: #5fd97a;
+  --opc-glow: 0 0 6px currentColor, 0 0 14px currentColor;
+}
+
+.opus-concepts *,
+.opus-concepts *::before,
+.opus-concepts *::after {
+  box-sizing: border-box;
+}
+
+.opus-concepts .concept-stage {
+  grid-template-columns: minmax(0, 1fr) 88px;
+}
+
+.opc-stage {
+  position: relative;
+  width: 88px;
+  height: 44px;
+  overflow: hidden;
+}
+
+/* 1. Relay ---------------------------------------------------------------- */
+.opc-relay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+}
+
+.opc-relay-track {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  height: 1px;
+  background: var(--opc-line);
+}
+
+.opc-node {
+  position: relative;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--opc-line);
+  color: var(--opc-cyan);
+  animation: opc-node-hit 2.8s calc(var(--i) * 0.7s) infinite;
+}
+
+.opc-token {
+  position: absolute;
+  top: 50%;
+  left: 12px;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  border-radius: 50%;
+  background: var(--opc-amber);
+  color: var(--opc-amber);
+  box-shadow: var(--opc-glow);
+  animation: opc-token-run 2.8s linear infinite;
+}
+
+@keyframes opc-token-run {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(64px); }
+}
+
+@keyframes opc-node-hit {
+  0%, 18%, 100% { background: var(--opc-line); transform: scale(1); }
+  6% { background: var(--opc-cyan); box-shadow: var(--opc-glow); transform: scale(1.5); }
+}
+
+/* 2. Sync ----------------------------------------------------------------- */
+.opc-sync {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--opc-cyan);
+}
+
+.opc-core {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--opc-cyan);
+  box-shadow: var(--opc-glow);
+  animation: opc-core-beat 2.2s ease-in-out infinite;
+}
+
+.opc-ring {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1px solid var(--opc-cyan);
+  opacity: 0;
+  animation: opc-ring-out 2.2s calc(var(--i) * 0.55s) ease-out infinite;
+}
+
+@keyframes opc-ring-out {
+  0% { transform: scale(1); opacity: 0.7; }
+  100% { transform: scale(3.6); opacity: 0; }
+}
+
+@keyframes opc-core-beat {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.35); }
+}
+
+/* 3. Merge ---------------------------------------------------------------- */
+.opc-merge {
+  position: absolute;
+  inset: 0;
+}
+
+.opc-lane {
+  position: absolute;
+  left: 8px;
+  width: 50px;
+  height: 1px;
+  background: var(--opc-line);
+  transform-origin: left center;
+}
+.opc-lane-a { top: 12px; transform: rotate(9deg); }
+.opc-lane-b { top: 22px; }
+.opc-lane-c { top: 32px; transform: rotate(-9deg); }
+
+.opc-chip {
+  position: absolute;
+  left: 8px;
+  width: 5px;
+  height: 5px;
+  margin-top: -2px;
+  border-radius: 1px;
+  background: var(--opc-cyan);
+  color: var(--opc-cyan);
+  animation: opc-chip-run 2.6s ease-in infinite;
+}
+.opc-chip-a { top: 12px; --dy: -10px; animation-delay: 0s; }
+.opc-chip-b { top: 22px; --dy: 0px; animation-delay: 0.18s; }
+.opc-chip-c { top: 32px; --dy: 10px; animation-delay: 0.36s; }
+
+.opc-merge-target {
+  position: absolute;
+  top: 22px;
+  left: 64px;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: var(--opc-line);
+  color: var(--opc-green);
+  animation: opc-target-land 2.6s ease-out infinite;
+}
+
+@keyframes opc-chip-run {
+  0% { transform: translate(0, 0); opacity: 0; }
+  15% { opacity: 1; }
+  70%, 100% { transform: translate(52px, var(--dy)); opacity: 0; }
+}
+
+@keyframes opc-target-land {
+  0%, 60% { background: var(--opc-line); transform: scale(1); box-shadow: none; }
+  70%, 84% { background: var(--opc-green); transform: scale(1.5); box-shadow: var(--opc-glow); }
+  100% { background: var(--opc-line); transform: scale(1); }
+}
+
+/* 4. Standup -------------------------------------------------------------- */
+.opc-standup {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.opc-bar {
+  width: 5px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--opc-line);
+  color: var(--opc-amber);
+  transform-origin: center bottom;
+  animation: opc-bar-speak 3s calc(var(--i) * 0.5s) ease-in-out infinite;
+}
+
+@keyframes opc-bar-speak {
+  0%, 28%, 100% { transform: scaleY(1); background: var(--opc-line); box-shadow: none; }
+  7%, 15% { transform: scaleY(2.6); background: var(--opc-amber); box-shadow: var(--opc-glow); }
+}
+
+/* 5. Weave ---------------------------------------------------------------- */
+.opc-weave {
+  position: absolute;
+  inset: 0;
+}
+
+.opc-peer {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  height: 1px;
+  background: var(--opc-line);
+}
+.opc-peer-a { top: 13px; }
+.opc-peer-b { bottom: 13px; }
+
+.opc-msg {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--opc-cyan);
+  color: var(--opc-cyan);
+  box-shadow: var(--opc-glow);
+  animation: opc-msg-cross 2.4s calc(var(--i) * 0.8s) ease-in-out infinite;
+}
+
+@keyframes opc-msg-cross {
+  0% { transform: translate(0, 0); opacity: 0; }
+  12% { opacity: 1; }
+  50% { transform: translate(30px, 18px); opacity: 1; }
+  88% { opacity: 1; }
+  100% { transform: translate(60px, 0); opacity: 0; }
+}
+
+/* 6. Orbit ---------------------------------------------------------------- */
+.opc-orbit {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+.opc-orbit-ring {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px dashed var(--opc-line);
+}
+
+.opc-hub {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--opc-amber);
+  color: var(--opc-amber);
+  box-shadow: var(--opc-glow);
+}
+
+.opc-orbit-spin {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  animation: opc-spin 4s linear infinite;
+}
+
+.opc-worker {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px;
+  border-radius: 50%;
+  background: var(--opc-cyan);
+  color: var(--opc-cyan);
+  box-shadow: 0 0 5px currentColor;
+  transform: rotate(var(--a)) translateX(17px);
+}
+
+@keyframes opc-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 7. Pipeline ------------------------------------------------------------- */
+.opc-pipeline {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+}
+
+.opc-slot {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid var(--opc-line);
+  color: var(--opc-green);
+  animation: opc-slot-light 3s calc(var(--i) * 1s) ease-in-out infinite;
+}
+
+.opc-task {
+  position: absolute;
+  top: 50%;
+  left: 15px;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border-radius: 2px;
+  background: var(--opc-amber);
+  color: var(--opc-amber);
+  box-shadow: var(--opc-glow);
+  animation: opc-task-step 3s steps(1, end) infinite;
+}
+
+@keyframes opc-task-step {
+  0%, 33% { transform: translateX(0); }
+  34%, 66% { transform: translateX(29px); }
+  67%, 100% { transform: translateX(58px); }
+}
+
+@keyframes opc-slot-light {
+  0%, 24%, 100% { border-color: var(--opc-line); box-shadow: none; }
+  8%, 20% { border-color: var(--opc-green); box-shadow: 0 0 6px currentColor; }
+}
+
+/* 8. Quorum --------------------------------------------------------------- */
+.opc-quorum {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.opc-vote {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1px solid var(--opc-line);
+  background: transparent;
+  color: var(--opc-cyan);
+  animation: opc-vote-fill 3.2s calc(0.4s + var(--i) * 0.32s) ease-out infinite;
+}
+
+.opc-check {
+  position: absolute;
+  right: 8px;
+  width: 9px;
+  height: 5px;
+  border-left: 2px solid var(--opc-green);
+  border-bottom: 2px solid var(--opc-green);
+  transform: rotate(-45deg) scale(0);
+  opacity: 0;
+  color: var(--opc-green);
+  animation: opc-check-pop 3.2s ease-out infinite;
+}
+
+@keyframes opc-vote-fill {
+  0%, 8% { background: transparent; border-color: var(--opc-line); }
+  20%, 62% { background: var(--opc-cyan); border-color: var(--opc-cyan); box-shadow: 0 0 5px currentColor; }
+  75%, 100% { background: transparent; border-color: var(--opc-line); box-shadow: none; }
+}
+
+@keyframes opc-check-pop {
+  0%, 60% { transform: rotate(-45deg) scale(0); opacity: 0; }
+  70% { transform: rotate(-45deg) scale(1.15); opacity: 1; box-shadow: 0 0 6px currentColor; }
+  86%, 100% { transform: rotate(-45deg) scale(1); opacity: 0; }
+}
+
+.opus-concepts :is(
+  .opc-node,
+  .opc-token,
+  .opc-core,
+  .opc-ring,
+  .opc-chip,
+  .opc-merge-target,
+  .opc-bar,
+  .opc-msg,
+  .opc-orbit-spin,
+  .opc-slot,
+  .opc-task,
+  .opc-vote,
+  .opc-check
+) {
+  animation-duration: calc(var(--motion-duration) * 2.25);
+}
+
+/* Reduced motion: freeze on a legible representative frame ----------------- */
+@media (prefers-reduced-motion: reduce) {
+  .opus-concepts *,
+  .opus-concepts *::before,
+  .opus-concepts *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .opc-token { transform: translateX(32px); }
+  .opc-n1 { background: var(--opc-cyan); box-shadow: var(--opc-glow); }
+  .opc-r1 { opacity: 0.5; transform: scale(2.2); }
+  .opc-chip { opacity: 0; }
+  .opc-merge-target { background: var(--opc-green); box-shadow: var(--opc-glow); }
+  .opc-b2 { transform: scaleY(2.6); background: var(--opc-amber); box-shadow: var(--opc-glow); }
+  .opc-m1 { opacity: 1; transform: translate(30px, 18px); }
+  .opc-m0, .opc-m2 { opacity: 0; }
+  .opc-task { transform: translateX(29px); }
+  .opc-s1 { border-color: var(--opc-green); box-shadow: 0 0 6px currentColor; }
+  .opc-v0, .opc-v1, .opc-v2 { background: var(--opc-cyan); border-color: var(--opc-cyan); }
+  .opc-check { transform: rotate(-45deg) scale(1); opacity: 1; }
+}

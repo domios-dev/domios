@@ -1,12 +1,6 @@
-tests/playwright/suites/12-web/tab-switch-bounce.spec.ts:24 Playwright force: true is banned; wait for an actionable element instead.
-tests/playwright/suites/12-web/tab-switch-bounce.spec.ts:51 Playwright force: true is banned; wait for an actionable element instead.
-tests/playwright/suites/13-canvas/_diag.spec.ts:17 Playwright test title is missing @smoke, @golden, or @quarantine.
-tests/playwright/suites/13-canvas/_diag.spec.ts:17 Playwright test has no expect() assertion.
-tests/playwright/suites/13-canvas/canvas-calm-ux.spec.ts:39 Playwright force: true is banned; wait for an actionable element instead.
-tests/playwright/suites/13-canvas/canvas-perf.spec.ts:145 Playwright test title is missing @smoke, @golden, or @quarantine.
-tests/playwright/suites/13-canvas/canvas-ux1-schematic.spec.ts:30 Playwright test title is missing @smoke, @golden, or @quarantine.
-tests/playwright/suites/13-canvas/canvas-visual-sweep.spec.ts:34 Playwright test has no expect() assertion.
-tests/playwright/suites/13-canvas/canvas-visual.spec.ts:20 Playwright test title is missing @smoke, @golden, or @quarantine.
-tests/playwright/suites/13-canvas/plan-card-metadata.spec.ts:110 Playwright test has no expect() assertion.
-tests/playwright/suites/13-canvas/tab-switch-latency.spec.ts:65 Playwright test title is missing @smoke, @golden, or @quarantine.
-tests/playwright/suites/13-canvas/workspace-plan-entry.spec.ts:99 Playwright force: true is banned; wait for an actionable element instead.
+tests/playwright/suites/12-web/tab-switch-bounce.spec.ts:43 Playwright force: true is banned; wait for an actionable element instead.
+tests/playwright/suites/12-web/tab-switch-bounce.spec.ts:71 Playwright force: true is banned; wait for an actionable element instead.
+tests/playwright/suites/20-event-freeze/event-freeze-probe.spec.ts:65 waitForTimeout is banned; use web-first assertions or pollUntil.
+tests/playwright/suites/20-event-freeze/event-freeze-probe.spec.ts:72 Raw connectUi() is banned in specs; use the ui fixture.
+tests/playwright/suites/20-event-freeze/event-freeze-probe.spec.ts:112 Raw connectUi() is banned in specs; use the ui fixture.
+tests/playwright/suites/20-event-freeze/event-freeze-probe.spec.ts:133 Raw connectUi() is banned in specs; use the ui fixture.

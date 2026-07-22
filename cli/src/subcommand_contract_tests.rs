@@ -53,7 +53,7 @@ enum DocsOnly {
 struct SendOnly {
     #[arg(allow_hyphen_values = true)]
     text: Option<String>,
-    #[arg(long, alias = "id")]
+    #[arg(long = "tab")]
     pane: Option<String>,
     #[arg(long, value_name = "PATH")]
     from_file: Option<String>,
@@ -208,8 +208,8 @@ fn orchestrator_handoff_reseed_dry_run_parses() {
         "pl_1",
         "--task",
         "task_1",
-        "--pane",
-        "pane_1",
+        "--tab",
+        "tab_1",
         "--reseed",
         "--dry-run",
         "--mode",
@@ -231,7 +231,7 @@ fn orchestrator_handoff_reseed_dry_run_parses() {
         } => {
             assert_eq!(plan.as_deref(), Some("pl_1"));
             assert_eq!(task.as_deref(), Some("task_1"));
-            assert_eq!(pane.as_deref(), Some("pane_1"));
+            assert_eq!(pane.as_deref(), Some("tab_1"));
             assert!(reseed);
             assert!(dry_run);
             assert_eq!(mode, "new");
@@ -242,17 +242,17 @@ fn orchestrator_handoff_reseed_dry_run_parses() {
 }
 
 #[test]
-fn pane_new_chat_backend_parses() {
-    // entry point that opens a plugin-driven chat pane.
+fn tab_new_chat_backend_parses() {
+    // entry point that opens a plugin-driven chat tab.
     let parsed = PaneOnly::try_parse_from([
-        "pane",
+        "tab",
         "new",
         "--chat-backend",
         "local-shell",
         "--config",
         r#"{"model":"llama"}"#,
     ])
-    .expect("pane new --chat-backend parses");
+    .expect("tab new --chat-backend parses");
     match parsed.action {
         PaneAction::New {
             chat_backend,
@@ -262,30 +262,48 @@ fn pane_new_chat_backend_parses() {
             assert_eq!(chat_backend.as_deref(), Some("local-shell"));
             assert_eq!(config.as_deref(), Some(r#"{"model":"llama"}"#));
         }
-        _ => panic!("expected pane new"),
+        _ => panic!("expected tab new"),
     }
 }
 
 #[test]
-fn pane_new_without_chat_backend_defaults_to_none() {
-    let parsed = PaneOnly::try_parse_from(["pane", "new"]).expect("plain pane new parses");
+fn tab_new_without_chat_backend_defaults_to_none() {
+    let parsed = PaneOnly::try_parse_from(["tab", "new"]).expect("plain tab new parses");
     match parsed.action {
         PaneAction::New { chat_backend, .. } => assert!(chat_backend.is_none()),
-        _ => panic!("expected pane new"),
+        _ => panic!("expected tab new"),
     }
+}
+
+#[test]
+fn tab_new_is_primary_command() {
+    let tab = Cli::try_parse_from(["codeterm", "tab", "new"]).expect("tab new parses");
+    assert!(matches!(
+        tab.command,
+        Commands::Tab {
+            action: PaneAction::New { .. }
+        }
+    ));
 }
 
 #[test]
 fn send_stdin_without_positional_parses() {
-    let parsed = SendOnly::try_parse_from(["send", "--stdin", "--pane", "abc123"])
+    let parsed = SendOnly::try_parse_from(["send", "--stdin", "--tab", "abc123"])
         .expect("send --stdin parses");
     assert!(parsed.text.is_none());
     assert!(parsed.stdin);
 }
 
 #[test]
+fn send_tab_target_parses() {
+    let parsed = SendOnly::try_parse_from(["send", "--stdin", "--tab", "abc123"])
+        .expect("send --tab parses");
+    assert_eq!(parsed.pane.as_deref(), Some("abc123"));
+}
+
+#[test]
 fn send_actions_without_text_parses() {
-    let parsed = SendOnly::try_parse_from(["send", "--actions", "enter", "--pane", "abc123"])
+    let parsed = SendOnly::try_parse_from(["send", "--actions", "enter", "--tab", "abc123"])
         .expect("send --actions parses");
     assert!(parsed.text.is_none());
     assert_eq!(parsed.actions.as_deref(), Some("enter"));
@@ -299,31 +317,9 @@ fn send_actions_conflicts_with_delay() {
         "enter",
         "--delay",
         "10m",
-        "--pane",
+        "--tab",
         "abc123",
     ]);
-    assert!(parsed.is_err());
-}
-
-#[test]
-fn agent_message_parses_immediate_targeted_message() {
-    let parsed =
-        AgentOnly::try_parse_from(["agent", "message", "check status", "--pane", "abc123"])
-            .expect("agent message parses");
-    assert!(matches!(
-        parsed.action,
-        AgentAction::Message {
-            text: Some(ref text),
-            ref pane,
-            from_file: None,
-            stdin: false,
-        } if text == "check status" && pane == "abc123"
-    ));
-}
-
-#[test]
-fn agent_message_requires_target_pane() {
-    let parsed = AgentOnly::try_parse_from(["agent", "message", "check status"]);
     assert!(parsed.is_err());
 }
 

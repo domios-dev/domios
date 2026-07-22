@@ -61,10 +61,7 @@ mod tests {
 
     #[tokio::test]
     async fn tcp_probe_closed_port_is_down() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        drop(listener);
-        let snap = probe_tcp("127.0.0.1", port, 500).await.unwrap();
+        let snap = probe_tcp("127.0.0.1", 0, 500).await.unwrap();
         assert_eq!(snap.status, HealthStatus::Down);
     }
 

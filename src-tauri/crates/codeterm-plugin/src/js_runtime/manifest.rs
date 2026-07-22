@@ -20,7 +20,8 @@ use serde::{Deserialize, Serialize};
 pub use capabilities::{Capabilities, ChatBackendCap, ChatPreprocessorCap};
 pub use config::{
     CommandsConfig, CwdEncoding, IntegrationConfig, IntegrationKind, NetworkPermission,
-    PermissionsConfig, RuleConfig, SerdeModelInfo, SerdeReadinessStrategy, SerdeSessionIdInjection,
+    PermissionsConfig, RuleConfig, SerdeBusySubmit, SerdeModelInfo, SerdeReadinessStrategy,
+    SerdeReasoningEffortInfo, SerdeSessionIdInjection, SerdeSystemPromptDelivery,
     SerdeTaskDelivery, SerdeVerifySubmit, SessionsConfig, SkillsConfig, SpawnConfig,
     SubprocessPermission, UsageConfig,
 };
@@ -93,6 +94,13 @@ pub struct PluginManifest {
     #[serde(default)]
     pub default_model: Option<String>,
 
+    // Reasoning-effort levels — camelCase in plugin.json, mapped to the
+    // snake_case wire `ReasoningEffortInfo` through a local wrapper.
+    #[serde(default)]
+    pub reasoning_efforts: Vec<SerdeReasoningEffortInfo>,
+    #[serde(default)]
+    pub default_reasoning_effort: Option<String>,
+
     // Per-platform installer (macos/linux/windows)
     #[serde(default)]
     pub installer: std::collections::HashMap<String, String>,
@@ -117,9 +125,8 @@ pub struct PluginManifest {
     #[serde(default)]
     pub settings_schema: Option<String>,
 
-    /// Agent-facing, one-paragraph "how to use me + what knobs I expose" string.
-    /// Read into the snapshot's `config_help` and wrapped by core into the
-    /// safety-enveloped "Configure with AI" prompt. Every plugin should declare it.
+    /// Opt-in agent-facing configuration instructions. When absent, the UI does
+    /// not offer AI configuration for this plugin.
     #[serde(default)]
     pub config_help: Option<String>,
 

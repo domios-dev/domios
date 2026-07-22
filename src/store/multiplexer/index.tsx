@@ -29,12 +29,10 @@ import type {
   AtomicSpawn,
   OrchestrationPairInput,
   OrchestrationPairResult,
+  PaneBootStageEvent,
 } from "../../lib/types";
-import {
-  makeVirtualPickerTab,
-  type ExtendedState,
-} from "./tree";
-import { reducer } from "./reducer";
+import type { ExtendedState } from "./tree";
+import { reducer, type Action } from "./reducer";
 import { applyPendingTabGuard, type TabGuards } from "./pendingTabGuard";
 import { mountMuxPerfTestHook } from "./muxPerfTestHook";
 import { isCodeTermFrontendTestMode } from "../../components/Terminal/useChatSession";
@@ -46,6 +44,7 @@ export { useMuxState, useMuxSelector } from "./selectorStore";
 export { highestTitleLevel } from "./tree";
 
 const HYDRATED_GENERATION = 0.5;
+const MUX_EVENT_RENEW_MS = 10_000;
 
 /** True when the web boot path paints sync cached mux state before reconcile. */
 export function webBootHasSyncCache(): boolean {
@@ -56,6 +55,7 @@ function buildInitialState(): ExtendedState {
   const empty: ExtendedState = {
     workspaces: [],
     panes: {},
+    teams: [],
     active_workspace_id: null,
     focused_pane_id: null,
     notifications: [],
@@ -63,7 +63,6 @@ function buildInitialState(): ExtendedState {
     toasts: [],
     activeTabIds: {},
     generation: 0,
-    virtualTabs: {},
   };
   if (!IS_WEB) return empty;
   const cached = loadCachedStateSync();
@@ -72,6 +71,7 @@ function buildInitialState(): ExtendedState {
     ...empty,
     workspaces: cached.workspaces,
     panes: cached.panes,
+    teams: cached.teams ?? [],
     active_workspace_id: cached.active_workspace_id,
     focused_pane_id: cached.focused_pane_id,
     recently_closed: cached.recently_closed,
@@ -90,6 +90,15 @@ export function muxStateEventAction(payload: unknown): "apply-snapshot" | "refre
   return "refresh";
 }
 
+export function paneBootStageEventAction(payload: PaneBootStageEvent): Action {
+  return {
+    type: "UPDATE_BOOT_STAGE",
+    paneId: payload.pane_id,
+    stage: payload.stage,
+    reason: payload.reason,
+  };
+}
+
 export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, null, buildInitialState);
   const stateRef = useRef(state);
@@ -103,6 +112,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   // In-flight user tab selections; masks a stale backend snapshot until the
   // backend confirms the switch or the guard's deadline passes.
   const pendingTabSwitchRef = useRef<TabGuards>({});
+  const peerSwitchRef = useRef(0);
 
   const applyBackendState = useCallback((s: MultiplexerState) => {
     // here silently dropped the closed-history on every reload.
@@ -149,9 +159,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
     invoke<MultiplexerState>("mux_get_state")
       .then((backendState) => {
-        if (backendState && backendState.workspaces.length > 0) {
-          applyBackendState(backendState);
-        }
+        if (backendState) applyBackendState(backendState);
         reconciledRef.current = true;
         writeGateRef.current.unlock();
         if (IS_WEB) window.dispatchEvent(new Event("codeterm-cache-reconciled"));
@@ -159,6 +167,9 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       .catch((err) => {
         console.warn("Failed to load backend state, using local state:", err);
       });
+    invoke<Notification[]>("list_notifications", { unreadOnly: false })
+      .then((notifications) => dispatch({ type: "HYDRATE_NOTIFICATIONS", notifications }))
+      .catch((err) => console.warn("Failed to load notification history:", err));
   }, [applyBackendState]);
 
   useEffect(() => mountWebLifecycle(), []);
@@ -168,6 +179,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     const unlisteners: (() => void)[] = [];
 
     listen<{
+      id: string;
       pane_id: string | null;
       workspace_id: string | null;
       title: string;
@@ -179,7 +191,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       dispatch({
         type: "ADD_NOTIFICATION",
         notification: {
-          id: uid(),
+          id: event.payload.id,
           pane_id: event.payload.pane_id,
           workspace_id: event.payload.workspace_id,
           title: event.payload.title,
@@ -205,6 +217,11 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       },
     ).then((unlisten) => unlisteners.push(unlisten));
 
+    listen<PaneBootStageEvent>("pane-boot-stage", (event) => {
+      if (!event.payload) return;
+      dispatch(paneBootStageEventAction(event.payload));
+    }).then((unlisten) => unlisteners.push(unlisten));
+
     listen<{ pane_id: string; title: string }>("pane-title-pinned", (event) => {
       dispatch({
         type: "SET_PANE_TITLE",
@@ -214,7 +231,14 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       });
     }).then((unlisten) => unlisteners.push(unlisten));
 
-    listen<MultiplexerState>("mux-state-changed", (event) => {
+    let muxUnlisten: (() => void) | null = null;
+    let muxListenGeneration = 0;
+    const eventStats = window as unknown as {
+      __ctEvents?: { received: number; lastAt: number; reconnects: number; breakMuxStream?: () => void };
+    };
+    const applyMuxEvent = (event: { payload: MultiplexerState }) => {
+      (eventStats.__ctEvents ??= { received: 0, lastAt: 0, reconnects: 0 }).received++;
+      eventStats.__ctEvents.lastAt = Date.now();
       const s = event.payload;
       if (muxStateEventAction(s) === "apply-snapshot") {
         applyBackendState(s);
@@ -225,11 +249,65 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       } else {
         refreshFromBackend();
       }
-    }).then((unlisten) => unlisteners.push(unlisten));
+    };
+    const renewMuxListener = () => {
+      const generation = ++muxListenGeneration;
+      muxUnlisten?.();
+      muxUnlisten = null;
+      void listen<MultiplexerState>("mux-state-changed", applyMuxEvent)
+        .then((unlisten) => {
+          if (generation !== muxListenGeneration) {
+            unlisten();
+            return;
+          }
+          muxUnlisten = unlisten;
+          (eventStats.__ctEvents ??= { received: 0, lastAt: 0, reconnects: 0 }).reconnects++;
+        })
+        .catch((error) => console.warn("Failed to renew mux event listener:", error));
+      refreshFromBackend();
+    };
+    renewMuxListener();
+    let muxRenewInterval = window.setInterval(renewMuxListener, MUX_EVENT_RENEW_MS);
+    if (isCodeTermFrontendTestMode()) {
+      (eventStats.__ctEvents ??= { received: 0, lastAt: 0, reconnects: 0 }).breakMuxStream = () => {
+        muxUnlisten?.();
+        muxUnlisten = null;
+        window.clearInterval(muxRenewInterval);
+        muxRenewInterval = window.setInterval(renewMuxListener, MUX_EVENT_RENEW_MS);
+      };
+    }
+    unlisteners.push(() => {
+      window.clearInterval(muxRenewInterval);
+      muxListenGeneration++;
+      muxUnlisten?.();
+      delete eventStats.__ctEvents?.breakMuxStream;
+    });
 
-    const refreshMuxState = () => refreshFromBackend();
+    const refreshMuxState = () => void refreshFromBackend();
     window.addEventListener("codeterm-refresh-mux-state", refreshMuxState);
     unlisteners.push(() => window.removeEventListener("codeterm-refresh-mux-state", refreshMuxState));
+
+    const resetPeerContext = (event: Event) => {
+      const switchId = (event as CustomEvent<{ switchId: number }>).detail.switchId;
+      peerSwitchRef.current = switchId;
+      pendingTabSwitchRef.current = {};
+      writeGateRef.current.lock();
+      dispatch({ type: "RESET_PEER_CONTEXT" });
+    };
+    const rebindPeerContext = (event: Event) => {
+      const switchId = (event as CustomEvent<{ switchId: number }>).detail.switchId;
+      void refreshFromBackend().then((success) => {
+        if (peerSwitchRef.current !== switchId) return;
+        if (success) writeGateRef.current.unlock();
+        window.dispatchEvent(new CustomEvent("codeterm-peer-switch-ready", {
+          detail: { switchId, success },
+        }));
+      });
+    };
+    window.addEventListener("codeterm-peer-switch-reset", resetPeerContext);
+    window.addEventListener("codeterm-peer-switch-rebind", rebindPeerContext);
+    unlisteners.push(() => window.removeEventListener("codeterm-peer-switch-reset", resetPeerContext));
+    unlisteners.push(() => window.removeEventListener("codeterm-peer-switch-rebind", rebindPeerContext));
 
     const onBootChanged = () => dispatch({ type: "RESET_GENERATION" });
     window.addEventListener("codeterm-web-boot-changed", onBootChanged);
@@ -279,14 +357,17 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const refreshFromBackend = useCallback(() => {
-    invoke<MultiplexerState>("mux_get_state")
-      .then((s) => {
-        if (s && s.workspaces.length > 0) {
-          applyBackendState(s);
-        }
-      })
-      .catch((e) => console.warn("Failed to refresh state:", e));
+  const refreshFromBackend = useCallback(async (): Promise<boolean> => {
+    try {
+      const s = await invoke<MultiplexerState>("mux_get_state");
+      if (s) applyBackendState(s);
+      return !!s;
+    } catch (e) {
+      if (!(e instanceof DOMException && e.name === "AbortError")) {
+        console.warn("Failed to refresh state:", e);
+      }
+      return false;
+    }
   }, [applyBackendState]);
 
   const createTab = useCallback(async (workspaceId: string, cwd?: string) => {
@@ -314,21 +395,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       console.error("Failed to create tab:", e);
     }
   }, [refreshFromBackend, guardedInvoke]);
-
-  const openSessionPicker = useCallback((workspaceId: string, cwd?: string) => {
-    guardedInvoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
-    const ws = stateRef.current.workspaces.find((w) => w.id === workspaceId);
-    const effectiveCwd = cwd || ws?.cwd || undefined;
-    dispatch({
-      type: "OPEN_SESSION_PICKER",
-      workspaceId,
-      virtual: makeVirtualPickerTab(effectiveCwd),
-    });
-  }, [guardedInvoke]);
-
-  const closeSessionPicker = useCallback((workspaceId: string, tabId: string) => {
-    dispatch({ type: "CLOSE_SESSION_PICKER", workspaceId, tabId });
-  }, []);
 
   const reopenClosed = useCallback(async (workspaceId: string, index = 0) => {
     try {
@@ -390,17 +456,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   const closeWorkspace = useCallback(
     (id: string) => {
-      const { workspaces, panes } = stateRef.current;
-      const ws = workspaces.find((w) => w.id === id);
-      if (ws) {
-        const paneIds = ws.tabs.map((t) => t.pane_id);
-        for (const pid of paneIds) {
-          const pane = panes[pid];
-          if (pane?.pty_id) {
-            guardedInvoke("kill_pty", { ptyId: pane.pty_id }).catch(() => {});
-          }
-        }
-      }
       guardedInvoke("mux_close_workspace", { workspaceId: id }).catch(() => {});
       dispatch({ type: "CLOSE_WORKSPACE", id });
     },
@@ -461,9 +516,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     console.error(`Failed to spawn ${agentId} tab:`, e);
   }, []);
 
-  // Never throws — self-notifies on failure and returns null so callers can
-  // branch (the picker keeps itself open on null). Success returns the ids the
-  // caller needs to select/focus the freshly-created tab.
+  // Failures self-notify; success returns the ids needed to focus the new tab.
   const spawnAgentTab = useCallback(async (
     workspaceId: string,
     agentId: string,
@@ -482,7 +535,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
           model,
           activate: true,
         });
-        refreshFromBackend();
+        await refreshFromBackend();
         return { workspaceId, paneId: res.pane_id };
       } catch (e) {
         notifySpawnFailure(workspaceId, agentId, e);
@@ -502,9 +555,12 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         if (cwd) setPendingCwd(res.pane_id, cwd);
         setPendingCommand(res.pane_id, res.launch_command);
       }
+      pendingTabSwitchRef.current[res.workspace_id] = { tabId: res.tab_id, deadline: Date.now() + 1000 };
+      dispatch({ type: "SET_ACTIVE_WORKSPACE", id: res.workspace_id });
+      dispatch({ type: "SET_ACTIVE_TAB", workspaceId: res.workspace_id, tabId: res.tab_id });
       // Snappy local focus; backend also emits the authoritative pane-focused.
       dispatch({ type: "SET_FOCUSED_PANE", paneId: res.pane_id });
-      return { workspaceId: res.workspace_id, paneId: res.pane_id };
+      return { workspaceId: res.workspace_id, paneId: res.pane_id, tabId: res.tab_id };
     } catch (e) {
       notifySpawnFailure(workspaceId, agentId, e);
       return null;
@@ -540,30 +596,12 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   const closeTab = useCallback(
     (workspaceId: string, tabId: string) => {
-      const { workspaces, panes } = stateRef.current;
+      const { workspaces } = stateRef.current;
       const ws = workspaces.find((w) => w.id === workspaceId);
       const tab = ws?.tabs.find((t) => t.id === tabId);
       if (!tab) return;
-      // send a close to the daemon for a pane it never knew about.
-      if (stateRef.current.virtualTabs[workspaceId]?.tab.id === tabId) {
-        dispatch({ type: "CLOSE_SESSION_PICKER", workspaceId, tabId });
-        return;
-      }
-      const removedPaneIds = [tab.pane_id];
-      for (const pid of removedPaneIds) {
-        guardedInvoke("mux_close_pane", { paneId: pid }).catch(() => {});
-      }
-      const allRemoved = new Set(removedPaneIds);
-      const collectChildren = (parentId: string) => {
-        for (const [id, p] of Object.entries(panes)) {
-          if (p.parent_pane_id === parentId && !allRemoved.has(id)) {
-            allRemoved.add(id);
-            collectChildren(id);
-          }
-        }
-      };
-      for (const pid of removedPaneIds) collectChildren(pid);
-      dispatch({ type: "CLOSE_TAB", workspaceId, tabId, removedPaneIds: [...allRemoved] });
+      guardedInvoke("mux_close_tab", { workspaceId, tabId }).catch(() => {});
+      dispatch({ type: "CLOSE_TAB", workspaceId, tabId, removedPaneIds: [tab.pane_id] });
       refreshFromBackend();
     },
     [refreshFromBackend, guardedInvoke],
@@ -606,11 +644,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     (paneId: string) => {
       const ctx = findContext(paneId);
       if (!ctx) return;
-      const { panes, workspaces } = stateRef.current;
-      const pane = panes[paneId];
-      if (pane?.pty_id) {
-        guardedInvoke("kill_pty", { ptyId: pane.pty_id }).catch(() => {});
-      }
+      const { workspaces } = stateRef.current;
       guardedInvoke("mux_close_pane", { paneId }).catch(() => {});
       const ws = workspaces.find((w) => w.id === ctx.workspaceId);
       const tab = ws?.tabs.find((t) => t.id === ctx.tabId);
@@ -682,14 +716,33 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   const markRead = useCallback((id: string) => {
     dispatch({ type: "MARK_READ", id });
+    void invoke("mark_notification_read", { id }).catch((err) => {
+      console.warn("Failed to mark notification read:", err);
+    });
   }, []);
 
   const markAllRead = useCallback(() => {
+    const unreadIds = stateRef.current.notifications
+      .filter((notification) => !notification.read)
+      .map((notification) => notification.id);
     dispatch({ type: "MARK_ALL_READ" });
+    void Promise.all(unreadIds.map((id) => invoke("mark_notification_read", { id }))).catch((err) => {
+      console.warn("Failed to mark all notifications read:", err);
+    });
+  }, []);
+
+  const deleteNotification = useCallback((id: string) => {
+    dispatch({ type: "DELETE_NOTIFICATION", id });
+    void invoke("clear_notifications", { id }).catch((err) => {
+      console.warn("Failed to delete notification:", err);
+    });
   }, []);
 
   const clearNotifications = useCallback(() => {
     dispatch({ type: "CLEAR_NOTIFICATIONS" });
+    void invoke("clear_notifications").catch((err) => {
+      console.warn("Failed to clear notifications:", err);
+    });
   }, []);
 
   const dismissToast = useCallback((id: string) => {
@@ -735,8 +788,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       reorderTabs,
       reorderWorkspaces,
       createTab,
-      openSessionPicker,
-      closeSessionPicker,
       closeTab,
       reopenClosed,
       reopenGroup,
@@ -750,6 +801,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       upsertToast,
       markRead,
       markAllRead,
+      deleteNotification,
       clearNotifications,
       dismissToast,
       setPaneTitle,
@@ -769,8 +821,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       reorderTabs,
       reorderWorkspaces,
       createTab,
-      openSessionPicker,
-      closeSessionPicker,
       closeTab,
       reopenClosed,
       reopenGroup,
@@ -784,6 +834,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       upsertToast,
       markRead,
       markAllRead,
+      deleteNotification,
       clearNotifications,
       dismissToast,
       setPaneTitle,

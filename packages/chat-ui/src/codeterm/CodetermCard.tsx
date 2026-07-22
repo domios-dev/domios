@@ -2,7 +2,7 @@ import React from "react";
 import type { CodetermInvocation } from "./recognize";
 import { renderTemplate, isSend, type PaneNameResolver } from "./templates";
 import { SentMessageBubble } from "./SentMessageBubble";
-import { LinkedText, type OpenPlan } from "./LinkedText";
+import { LinkedText, type OpenPlan, type ResolvedChatPlanRef } from "./LinkedText";
 import { hasPlanRefs } from "./planRefs";
 
 interface Props {
@@ -12,10 +12,11 @@ interface Props {
   onToggle: () => void;
   resolvePaneName?: PaneNameResolver;
   onOpenPlan?: OpenPlan;
+  resolvePlanRef?: (planId: string, focusId?: string, focusKind?: "plan" | "task" | "section") => ResolvedChatPlanRef | null;
   fontScale?: number;
 }
 
-export function CodetermCard({ inv, result, expanded, onToggle, resolvePaneName, onOpenPlan, fontScale }: Props) {
+export function CodetermCard({ inv, result, expanded, onToggle, resolvePaneName, onOpenPlan, resolvePlanRef, fontScale }: Props) {
   if (isSend(inv)) {
     return (
       <SentMessageBubble
@@ -23,6 +24,7 @@ export function CodetermCard({ inv, result, expanded, onToggle, resolvePaneName,
         result={result}
         resolvePaneName={resolvePaneName}
         onOpenPlan={onOpenPlan}
+        resolvePlanRef={resolvePlanRef}
         fontScale={fontScale}
       />
     );
@@ -77,7 +79,7 @@ export function CodetermCard({ inv, result, expanded, onToggle, resolvePaneName,
           {card.detail && !expanded && (
             <div className="px-2.5 py-1 text-xs truncate" style={{ color: "var(--ct-muted-fg)" }}>
               {hasPlanRefs(card.detail) ? (
-                <LinkedText text={card.detail} onOpenPlan={onOpenPlan} />
+                <LinkedText text={card.detail} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
               ) : (
                 card.detail
               )}
@@ -88,11 +90,7 @@ export function CodetermCard({ inv, result, expanded, onToggle, resolvePaneName,
               <pre className="whitespace-pre-wrap break-all" style={{ color: "var(--ct-muted-fg)" }}>
                 {inv.raw}
               </pre>
-              {result && (
-                <div className="mt-1 whitespace-pre-wrap break-all" style={{ color: "var(--ct-fg)" }}>
-                  {hasPlanRefs(result) ? <LinkedText text={result} onOpenPlan={onOpenPlan} /> : <pre className="whitespace-pre-wrap break-all">{result}</pre>}
-                </div>
-              )}
+              {result && <pre className="mt-1 whitespace-pre-wrap break-all" style={{ color: "var(--ct-fg)" }}>{result}</pre>}
             </div>
           )}
         </div>

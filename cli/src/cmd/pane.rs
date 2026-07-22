@@ -683,7 +683,7 @@ fn score_field(
 /// so the user gets the same info they see in the sidebar.
 pub fn format_pane_row(p: &serde_json::Value) -> String {
     let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-    // One label — the sidebar name. Tab title wins (that's what the user sees and what `pane rename` updates); falls back to pane.title only when the tab title is missing.
+    // One label — the sidebar name. Tab title wins (that's what the user sees and what `tab rename` updates); falls back to pane.title only when the tab title is missing.
     let label = {
         let tab_title = p.get("tab_title").and_then(|v| v.as_str()).unwrap_or("");
         let pane_title = p.get("title").and_then(|v| v.as_str()).unwrap_or("");

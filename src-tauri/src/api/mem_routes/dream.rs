@@ -126,11 +126,22 @@ async fn run_recluster_inline(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     use crate::mem::dreaming::recluster::{run_recluster_phase_with_lock, AnthropicCaller};
 
+    // Recluster always calls Anthropic directly via `AnthropicCaller` (no
+    // pane spawn, no per-provider dispatch) — so unlike every other memory
+    // worker it has no *agent* ladder, only a *model* one, resolved against
+    // the fixed "claude" catalog. "sonnet" is only the last-resort literal
+    // if the catalog itself can't resolve anything.
     let mem_cfg = crate::config::memory_config();
-    let model = if mem_cfg.dreaming_model.is_empty() {
+    let (model, _fell_back) = codeterm_mem::worker_agent::resolve_worker_model(
+        &mem_cfg.dreaming_model,
+        &mem_cfg.worker_model,
+        "claude",
+        &crate::service::spawn::CatalogBackgroundModelPort,
+    );
+    let model = if model.is_empty() {
         "sonnet".to_string()
     } else {
-        mem_cfg.dreaming_model.clone()
+        model
     };
 
     let plan_dir = crate::paths::data_dir().join("mem").join("dream-plans");

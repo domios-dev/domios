@@ -20,27 +20,11 @@ pub struct OrphanAttachmentDir {
     pub path: PathBuf,
 }
 
-pub fn attachment_dir(plan: &Plan, target: AttachmentTarget, entity_id: &str) -> PathBuf {
-    paths::plan_dir(paths::plan_sidecar_root(plan), &plan.status, &plan.id)
-        .unwrap_or_else(|_| {
-            paths::plan_sidecar_root(plan)
-                .join(".codeterm")
-                .join("plans")
-        })
+fn attachment_dir(plan_root: &Path, target: AttachmentTarget, entity_id: &str) -> PathBuf {
+    plan_root
         .join("attachments")
         .join(target_dir(target))
         .join(entity_id)
-}
-
-pub fn attachment_abs_path(plan: &Plan, rel_path: &str) -> Option<PathBuf> {
-    if rel_path.contains("..") || Path::new(rel_path).is_absolute() {
-        return None;
-    }
-    Some(
-        paths::plan_dir(paths::plan_sidecar_root(plan), &plan.status, &plan.id)
-            .ok()?
-            .join(rel_path),
-    )
 }
 
 pub fn safe_filename(path: &Path) -> String {
@@ -91,7 +75,7 @@ fn media_type_for(path: &Path) -> String {
 }
 
 fn copy_attachment(
-    plan: &Plan,
+    plan_root: &Path,
     target: AttachmentTarget,
     entity_id: &str,
     source: &Path,
@@ -113,15 +97,13 @@ fn copy_attachment(
     }
     let id = crate::plan::ids::short_id("att");
     let safe = safe_filename(source);
-    let dir = attachment_dir(plan, target, entity_id);
+    let dir = attachment_dir(plan_root, target, entity_id);
     std::fs::create_dir_all(&dir).map_err(|e| PlanError::Io(e.to_string()))?;
     let filename = format!("{id}-{safe}");
     let dest = dir.join(&filename);
     std::fs::copy(source, &dest).map_err(|e| PlanError::Io(e.to_string()))?;
-    let plan_dir = paths::plan_dir(paths::plan_sidecar_root(plan), &plan.status, &plan.id)
-        .map_err(|e| PlanError::Io(e.to_string()))?;
     let rel = dest
-        .strip_prefix(&plan_dir)
+        .strip_prefix(plan_root)
         .map_err(|e| PlanError::Io(e.to_string()))?
         .to_string_lossy()
         .replace('\\', "/");
@@ -166,7 +148,7 @@ fn collect_section_ids(sections: &[Section], out: &mut HashSet<String>) {
     }
 }
 
-fn remove_dir_if_exists(path: PathBuf) -> Result<(), PlanError> {
+pub(super) fn remove_dir_if_exists(path: PathBuf) -> Result<(), PlanError> {
     match std::fs::remove_dir_all(&path) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -175,6 +157,22 @@ fn remove_dir_if_exists(path: PathBuf) -> Result<(), PlanError> {
 }
 
 impl PlanStore {
+    pub(super) fn plan_data_dir(&self, plan_id: &str) -> PathBuf {
+        self.database
+            .path()
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("plans")
+            .join(plan_id)
+    }
+
+    pub fn attachment_abs_path(&self, plan: &Plan, rel_path: &str) -> Option<PathBuf> {
+        if rel_path.contains("..") || Path::new(rel_path).is_absolute() {
+            return None;
+        }
+        Some(self.plan_data_dir(&plan.id).join(rel_path))
+    }
+
     pub fn attach_to_task(
         &self,
         plan_id: &str,
@@ -183,6 +181,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<AttachmentRef, PlanError> {
         let mut attached = None;
+        let plan_root = self.plan_data_dir(plan_id);
         self.with_plan(plan_id, now_ms, |plan| {
             let pos = plan
                 .tasks
@@ -197,7 +196,7 @@ impl PlanStore {
             }
             let canonical_task_id = plan.tasks[pos].id.clone();
             let attachment = copy_attachment(
-                plan,
+                &plan_root,
                 AttachmentTarget::Task,
                 &canonical_task_id,
                 source,
@@ -220,6 +219,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<AttachmentRef, PlanError> {
         let mut attached = None;
+        let plan_root = self.plan_data_dir(plan_id);
         self.with_plan(plan_id, now_ms, |plan| {
             let section =
                 section_ref(&plan.sections, section_id).ok_or(PlanError::ElementNotFound)?;
@@ -231,7 +231,7 @@ impl PlanStore {
             }
             let sid = section.id.clone();
             let attachment =
-                copy_attachment(plan, AttachmentTarget::Section, &sid, source, now_ms)?;
+                copy_attachment(&plan_root, AttachmentTarget::Section, &sid, source, now_ms)?;
             let section =
                 section_mut(&mut plan.sections, &sid).ok_or(PlanError::ElementNotFound)?;
             section.attachments.push(attachment.clone());
@@ -250,6 +250,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<AttachmentRef, PlanError> {
         let mut attached = None;
+        let plan_root = self.plan_data_dir(plan_id);
         self.with_plan(plan_id, now_ms, |plan| {
             let task_pos = plan
                 .tasks
@@ -272,7 +273,7 @@ impl PlanStore {
                 )));
             }
             let attachment = copy_attachment(
-                plan,
+                &plan_root,
                 AttachmentTarget::Milestone,
                 milestone_id,
                 source,
@@ -295,7 +296,11 @@ impl PlanStore {
     }
 
     pub fn remove_task_attachment_dir(&self, plan: &Plan, task_id: &str) -> Result<(), PlanError> {
-        remove_dir_if_exists(attachment_dir(plan, AttachmentTarget::Task, task_id))
+        remove_dir_if_exists(attachment_dir(
+            &self.plan_data_dir(&plan.id),
+            AttachmentTarget::Task,
+            task_id,
+        ))
     }
 
     pub fn remove_section_attachment_dir(
@@ -303,7 +308,11 @@ impl PlanStore {
         plan: &Plan,
         section_id: &str,
     ) -> Result<(), PlanError> {
-        remove_dir_if_exists(attachment_dir(plan, AttachmentTarget::Section, section_id))
+        remove_dir_if_exists(attachment_dir(
+            &self.plan_data_dir(&plan.id),
+            AttachmentTarget::Section,
+            section_id,
+        ))
     }
 
     pub fn orphan_attachment_dirs(&self, project_path: &Path) -> Vec<OrphanAttachmentDir> {
@@ -323,21 +332,41 @@ impl PlanStore {
             }
             let mut section_ids = HashSet::new();
             collect_section_ids(&plan.sections, &mut section_ids);
-            collect_orphans(&plan, AttachmentTarget::Task, &task_ids, &mut out);
-            collect_orphans(&plan, AttachmentTarget::Section, &section_ids, &mut out);
-            collect_orphans(&plan, AttachmentTarget::Milestone, &milestone_ids, &mut out);
+            let plan_root = self.plan_data_dir(&plan.id);
+            collect_orphans(
+                &plan_root,
+                &plan.id,
+                AttachmentTarget::Task,
+                &task_ids,
+                &mut out,
+            );
+            collect_orphans(
+                &plan_root,
+                &plan.id,
+                AttachmentTarget::Section,
+                &section_ids,
+                &mut out,
+            );
+            collect_orphans(
+                &plan_root,
+                &plan.id,
+                AttachmentTarget::Milestone,
+                &milestone_ids,
+                &mut out,
+            );
         }
         out
     }
 }
 
 fn collect_orphans(
-    plan: &Plan,
+    plan_root: &Path,
+    plan_id: &str,
     target: AttachmentTarget,
     live_ids: &HashSet<String>,
     out: &mut Vec<OrphanAttachmentDir>,
 ) {
-    let root = attachment_dir(plan, target, "_")
+    let root = attachment_dir(plan_root, target, "_")
         .parent()
         .map(Path::to_path_buf);
     let Some(root) = root else {
@@ -356,7 +385,7 @@ fn collect_orphans(
         let id = entry.file_name().to_string_lossy().to_string();
         if !live_ids.contains(&id) {
             out.push(OrphanAttachmentDir {
-                plan_id: plan.id.clone(),
+                plan_id: plan_id.to_string(),
                 path: entry.path(),
             });
         }

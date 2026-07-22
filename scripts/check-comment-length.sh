@@ -28,8 +28,6 @@ case "$MODE" in
     *) echo "usage: $0 [--warn|--fail]" >&2; exit 2 ;;
 esac
 
-EXCLUDE_PATHS='(/target/|/node_modules/|/dist/|/build/|/gen/|/references/|/vendor/|/pty-fork/|/\.git/)'
-
 # Read allowlist: path<TAB>baseline_count
 ALLOW_PATHS=()
 ALLOW_BASELINES=()
@@ -58,43 +56,12 @@ allowlist_baseline() {
     return 1
 }
 
-# Count long comment blocks (>=3 consecutive exempt-filtered // lines) in a file.
-count_violations() {
-    local file="$1"
-    awk '
-    BEGIN { run=0; total=0 }
-    {
-        s = $0
-        # strip leading whitespace
-        gsub(/^[[:space:]]+/, "", s)
-        # exempt lines
-        if (s ~ /^\/\/!/ || s ~ /^\/\/\// || s ~ /^#\[/ ||
-            s ~ /^\/\/ eslint-disable/ || s ~ /^\/\/ @ts-/ ||
-            s ~ /^\/\/ NOSONAR/ || s ~ /^\/\/ prettier-ignore/) {
-            # treat as non-comment for run counting
-            if (run >= 3) total++
-            run = 0
-            next
-        }
-        if (s ~ /^\/\//) {
-            run++
-        } else {
-            if (run >= 3) total++
-            run = 0
-        }
-    }
-    END { if (run >= 3) total++; print total }
-    ' "$file"
-}
-
 new_violations=()
 regressions=()
 
-while IFS= read -r file; do
+while IFS=$'\t' read -r file count; do
     rel="${file#$ROOT/}"
     rel="${rel#./}"
-    count="$(count_violations "$file")"
-    [ "$count" -eq 0 ] && continue
 
     if baseline="$(allowlist_baseline "$rel")"; then
         if [ "$count" -gt "$baseline" ]; then
@@ -104,11 +71,45 @@ while IFS= read -r file; do
         new_violations+=("${rel}|${count}")
     fi
 done < <(
-    find "$ROOT" -type f \( \
+    find "$ROOT" \( -type d \( \
+        -name target -o -name node_modules -o -name dist -o -name build -o \
+        -name gen -o -name references -o -name vendor -o -name pty-fork -o \
+        -name .git -o -name .claude \
+    \) -prune \) -o \( -type f \( \
         -name '*.rs' -o \
         -name '*.ts' -o \
         -name '*.tsx' \
-    \) | grep -Ev "$EXCLUDE_PATHS"
+    \) -print0 \) | xargs -0 awk '
+        function finish_file() {
+            if (!have_file) return
+            if (run >= 3) total++
+            if (total > 0) printf "%s\t%d\n", current_file, total
+        }
+        FNR == 1 {
+            finish_file()
+            current_file = FILENAME
+            have_file = 1
+            run = 0
+            total = 0
+        }
+        {
+            s = $0
+            gsub(/^[[:space:]]+/, "", s)
+            if (s ~ /^\/\/!/ || s ~ /^\/\/\// || s ~ /^#\[/ ||
+                s ~ /^\/\/ eslint-disable/ || s ~ /^\/\/ @ts-/ ||
+                s ~ /^\/\/ NOSONAR/ || s ~ /^\/\/ prettier-ignore/) {
+                if (run >= 3) total++
+                run = 0
+                next
+            }
+            if (s ~ /^\/\//) run++
+            else {
+                if (run >= 3) total++
+                run = 0
+            }
+        }
+        END { finish_file() }
+    '
 )
 
 exit_code=0

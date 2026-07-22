@@ -26,14 +26,6 @@ function isNetworkOnly(pathname: string): boolean {
   return NETWORK_ONLY.some((re) => re.test(pathname));
 }
 
-self.addEventListener("fetch", (event) => {
-  const url = new URL(event.request.url);
-  if (url.origin !== self.location.origin) return;
-  if (isNetworkOnly(url.pathname)) {
-    event.respondWith(fetch(event.request));
-  }
-});
-
 registerRoute(
   ({ request, url }) => {
     if (request.mode !== "navigate") return false;

@@ -6,6 +6,7 @@ import { Window } from "happy-dom";
 import { ExtensionsView } from "./ExtensionsView";
 import type { PluginSnapshot } from "./types";
 import { __setInvokeForTest } from "../../lib/bridge";
+import { __resetPluginSnapshotStoreForTest } from "../../lib/pluginSnapshotStore";
 
 type TestFn = () => void | Promise<void>;
 
@@ -112,6 +113,7 @@ function installInvokeMock(snapshot: PluginSnapshot = SNAPSHOT) {
 }
 
 async function renderExtensions() {
+  __resetPluginSnapshotStoreForTest();
   const calls = installInvokeMock();
   const view = await render(
     <ExtensionsView
@@ -144,7 +146,34 @@ async function openChannels(host: HTMLElement) {
   await flush();
 }
 
+function cleanup() {
+  __resetPluginSnapshotStoreForTest();
+  __setInvokeForTest(null);
+}
+
 setupDom();
+
+test("selecting a plugin opens its detail view and back returns to the list", async () => {
+  const { host, root } = await renderExtensions();
+  const row = host.querySelector('[data-testid="extensions-plugin-row"]');
+  assert(row instanceof window.HTMLElement, "plugin row should render");
+
+  await act(async () => {
+    row.click();
+  });
+
+  const layout = host.querySelector("[data-narrow-view]");
+  assert(layout?.getAttribute("data-narrow-view") === "detail", "selection should open the narrow detail view");
+  assert(host.querySelector('[data-testid="extensions-detail-back"]'), "detail view should provide a back control");
+
+  await act(async () => {
+    button(host, '[data-testid="extensions-detail-back"]').click();
+  });
+  assert(layout?.getAttribute("data-narrow-view") === "list", "back should restore the narrow plugin list");
+
+  await act(async () => root.unmount());
+  cleanup();
+});
 
 test("Channels tab renders compact collapsed channel rows", async () => {
   const { host, root } = await renderExtensions();
@@ -157,7 +186,7 @@ test("Channels tab renders compact collapsed channel rows", async () => {
   assert(!rows[0].textContent?.includes("github.com"), "channel row should stay collapsed without URL detail");
 
   await act(async () => root.unmount());
-  __setInvokeForTest(null);
+  cleanup();
 });
 
 test("selecting a channel shows channel attributes in the preview", async () => {
@@ -175,7 +204,7 @@ test("selecting a channel shows channel attributes in the preview", async () => 
   assert(detail?.textContent?.includes("custom"), "preview should show custom source");
 
   await act(async () => root.unmount());
-  __setInvokeForTest(null);
+  cleanup();
 });
 
 test("Add channel toggles the inline form", async () => {
@@ -189,25 +218,20 @@ test("Add channel toggles the inline form", async () => {
   assert(host.querySelector('[data-testid="extensions-channel-add-form"]'), "add form should open inline");
 
   await act(async () => root.unmount());
-  __setInvokeForTest(null);
+  cleanup();
 });
 
-test("TTL guard: second open within 60s skips channel refresh", async () => {
+test("shared snapshot cache reuses plugin_manager_snapshot within 15s", async () => {
+  __resetPluginSnapshotStoreForTest();
   const calls = installInvokeMock();
   const { root } = await render(
     <ExtensionsView visible pluginActivities={new Map()} pluginActivityDisplayMap={new Map()} />,
   );
   await flush();
 
-  const refreshCalls = () =>
-    calls.filter((c) => {
-      const a = c.args?.action as { kind?: string } | undefined;
-      return c.cmd === "plugin_manager_action" && a?.kind === "refresh-channel";
-    });
+  const snapshotCalls = () => calls.filter((c) => c.cmd === "plugin_manager_snapshot");
+  assert(snapshotCalls().length === 1, `expected 1 plugin_manager_snapshot on first open, got ${snapshotCalls().length}`);
 
-  assert(refreshCalls().length === 1, `expected 1 refresh-channel on first open, got ${refreshCalls().length}`);
-
-  // Hide then immediately re-show (within 60s TTL) — channel refresh must be skipped.
   await act(async () => {
     root.render(<ExtensionsView visible={false} pluginActivities={new Map()} pluginActivityDisplayMap={new Map()} />);
   });
@@ -218,17 +242,14 @@ test("TTL guard: second open within 60s skips channel refresh", async () => {
   });
   await flush();
 
-  const newRefreshes = calls.slice(before).filter((c) => {
-    const a = c.args?.action as { kind?: string } | undefined;
-    return c.cmd === "plugin_manager_action" && a?.kind === "refresh-channel";
-  });
-  assert(newRefreshes.length === 0, `expected 0 refresh-channel on re-open within TTL, got ${newRefreshes.length}`);
+  const newSnapshots = calls.slice(before).filter((c) => c.cmd === "plugin_manager_snapshot");
+  assert(newSnapshots.length === 0, `expected 0 plugin_manager_snapshot calls on re-open within TTL, got ${newSnapshots.length}`);
 
   await act(async () => root.unmount());
-  __setInvokeForTest(null);
+  cleanup();
 });
 
-test("submitting Add channel calls the add-channel API action", async () => {
+test("submitting Add channel calls add-channel then refresh-channel and renders cached snapshot", async () => {
   const { host, root, calls } = await renderExtensions();
   await openChannels(host);
   await act(async () => {
@@ -250,18 +271,90 @@ test("submitting Add channel calls the add-channel API action", async () => {
   });
   await flush();
 
-  const addCall = calls.find((call) => {
+  const actionCalls = calls.filter((call) => call.cmd === "plugin_manager_action");
+  const addCall = actionCalls.find((call) => {
     const action = call.args?.action as { kind?: string; name?: string; url?: string } | undefined;
-    return call.cmd === "plugin_manager_action" && action?.kind === "add-channel";
+    return action?.kind === "add-channel";
   });
   assert(addCall, "submit should invoke plugin_manager_action add-channel");
   const action = addCall.args?.action as { name?: string; url?: string };
   assert(action.name === "tools", `expected name tools, got ${action.name}`);
   assert(action.url === "https://example.com/tools.git", `expected tools URL, got ${action.url}`);
+  const refreshIndex = actionCalls.findIndex((call) => {
+    const nextAction = call.args?.action as { kind?: string; channel?: string } | undefined;
+    return nextAction?.kind === "refresh-channel" && nextAction.channel === "tools";
+  });
+  const addIndex = actionCalls.indexOf(addCall);
+  assert(refreshIndex > addIndex, "refresh-channel for the new channel should occur after add-channel");
   assert(host.querySelector('[data-channel-name="tools"]'), "new channel should render after add");
+  assert(!host.querySelector('[data-testid="plugin-error-toast"]'), "extensions flow should not route through global/plugin toast state");
 
   await act(async () => root.unmount());
-  __setInvokeForTest(null);
+  cleanup();
+});
+
+test("first loading state renders before snapshot resolves", async () => {
+  __resetPluginSnapshotStoreForTest();
+  let release!: () => void;
+  __setInvokeForTest(async <T,>(cmd: string): Promise<T> => {
+    if (cmd === "get_config") return { plugins: {} } as T;
+    if (cmd === "plugin_manager_snapshot") {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return SNAPSHOT as T;
+    }
+    throw new Error(`unexpected invoke: ${cmd}`);
+  });
+
+  const { host, root } = await render(
+    <ExtensionsView visible pluginActivities={new Map()} pluginActivityDisplayMap={new Map()} />,
+  );
+  assert(host.querySelector('[data-testid="extensions-loading"]'), "loading state should render before first snapshot resolves");
+
+  await act(async () => {
+    release();
+  });
+  await flush();
+
+  assert(!host.querySelector('[data-testid="extensions-loading"]'), "loading state should clear after snapshot resolves");
+  await act(async () => root.unmount());
+  cleanup();
+});
+
+test("refresh failure preserves cached rows and shows error", async () => {
+  __resetPluginSnapshotStoreForTest();
+  let snapshotCalls = 0;
+  __setInvokeForTest(async <T,>(cmd: string): Promise<T> => {
+    if (cmd === "get_config") return { plugins: {} } as T;
+    if (cmd === "plugin_manager_snapshot") {
+      snapshotCalls += 1;
+      if (snapshotCalls === 1) return SNAPSHOT as T;
+      throw new Error("snapshot refresh failed");
+    }
+    if (cmd === "plugin_manager_action") {
+      throw new Error("snapshot refresh failed");
+    }
+    throw new Error(`unexpected invoke: ${cmd}`);
+  });
+
+  const { host, root } = await render(
+    <ExtensionsView visible pluginActivities={new Map()} pluginActivityDisplayMap={new Map()} />,
+  );
+  await flush();
+
+  await act(async () => {
+    button(host, '[data-testid="extensions-refresh"]').click();
+  });
+  await flush();
+
+  assert(host.querySelector('[data-testid="extensions-error"]'), "refresh failure should show extensions-error");
+  assert(!host.querySelector('[data-testid="extensions-loading"]'), "refresh failure with cached rows should not fall back to first-load state");
+  assert(host.querySelector('[data-channel-name="lab"]'), "cached rows should remain rendered after refresh failure");
+  assert(!host.querySelector('[data-testid="plugin-error-toast"]'), "refresh failure should stay inline and not use toast state");
+
+  await act(async () => root.unmount());
+  cleanup();
 });
 
 async function main() {

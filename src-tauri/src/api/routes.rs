@@ -10,8 +10,8 @@ use super::{
     agent_routes, bridge_routes, clipboard_routes, config_routes, cron_routes, debug_routes,
     fs_routes, health_routes, logs_routes, mem_routes, mesh_routes, network_routes,
     notification_routes, output_stream, pane_agent_routes, pane_routes, pasteboard_routes,
-    plan_routes, pty_routes, services_routes, session_routes, task_routes, theme_routes,
-    updater_routes, usage_routes, web_routes, webhook_routes, workspace_routes,
+    plan_routes, pty_routes, services_routes, session_routes, task_routes, team_routes,
+    theme_routes, updater_routes, usage_routes, web_routes, webhook_routes, workspace_routes,
 };
 
 #[derive(Clone)]
@@ -47,6 +47,15 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/identify", get(health_routes::identify))
         .route("/api/fs/list-dir", get(fs_routes::list_dir))
         .route("/api/fs/mkdir", post(fs_routes::mkdir))
+        .route(
+            "/api/teams/{team_id}/rename",
+            post(team_routes::rename_team),
+        )
+        .route("/api/teams/{team_id}/close", post(team_routes::close_team))
+        .route(
+            "/api/teams/{team_id}/members",
+            post(team_routes::add_team_member),
+        )
         .route(
             "/api/workspaces",
             get(workspace_routes::list_workspaces).post(workspace_routes::create_workspace),
@@ -107,6 +116,7 @@ pub fn create_router(state: AppState) -> Router {
             "/api/plans",
             get(plan_routes::list).post(plan_routes::create),
         )
+        .route("/api/plans/resolve-refs", post(plan_routes::resolve_refs))
         .route(
             "/api/specs",
             get(plan_routes::spec::list).post(plan_routes::spec::create),
@@ -271,6 +281,14 @@ pub fn create_router(state: AppState) -> Router {
             post(notification_routes::clear_notifications),
         )
         .route(
+            "/api/notifications/{id}/read",
+            post(notification_routes::mark_notification_read),
+        )
+        .route(
+            "/api/notifications/{id}",
+            axum::routing::delete(notification_routes::delete_notification),
+        )
+        .route(
             "/api/webhooks",
             get(webhook_routes::list_webhooks).post(webhook_routes::register_webhook),
         )
@@ -330,7 +348,20 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/debug/clock/advance",
             post(debug_routes::clock_advance),
+        )
+        .route("/api/debug/events/stats", get(debug_routes::event_stats))
+        .route(
+            "/api/debug/events/force-latch",
+            post(debug_routes::force_latch),
+        )
+        .route(
+            "/api/debug/events/reset-latch",
+            post(debug_routes::reset_latch),
         );
+    let router = router.route(
+        "/api/debug/shutdown/clean-restart",
+        post(debug_routes::clean_restart),
+    );
     let router = pane_agent_routes::mount(router);
     #[cfg(debug_assertions)]
     let router = router.route(
@@ -515,6 +546,7 @@ pub fn create_router(state: AppState) -> Router {
             post(mesh_routes::mesh_stop_broadcast),
         )
         .route("/api/mesh/relay", post(mesh_routes::mesh_relay))
+        .route("/api/mesh/rpc", post(mesh_routes::mesh_rpc))
         .route(
             "/api/mesh/relay-stream",
             get(mesh_routes::mesh_relay_stream),
@@ -744,6 +776,10 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/agents/general/restart",
             post(agent_routes::restart_general_agent),
+        )
+        .route(
+            "/api/agents/general/{pane_id}/restart",
+            post(agent_routes::restart_general_agent_pane),
         )
         .route(
             "/api/agents/general/complete-first-run",

@@ -71,6 +71,14 @@ fn parse_extracts_kind_attrs_payload() {
 }
 
 #[test]
+fn parse_unwraps_bracketed_paste_marker() {
+    let p = parse("\x1b[200~-=-codeterm:pane label=main pane=bda0e267-=-hello\x1b[201~").unwrap();
+    assert_eq!(p.kind, "pane");
+    assert_eq!(p.attr("pane"), Some("bda0e267"));
+    assert_eq!(p.payload, "hello");
+}
+
+#[test]
 fn percent_encoding_round_trips_structural_chars() {
     let nasty = "a b c=d%e\"f\ng";
     let wire = Marker::new("pane").attr("label", nasty).build();

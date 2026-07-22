@@ -51,10 +51,13 @@ impl SpawnPaneSpec {
         let agent_command = command.unwrap_or_else(|| {
             PaneCommand::Agent(AgentSpawnSpec {
                 provider: params.agent.clone().unwrap_or_default(),
+                planned_model: params.planned_model.clone(),
                 model: params.model.clone(),
+                reasoning_effort: params.reasoning_effort.clone(),
                 task: params.task.clone(),
                 agent_name: params.agent_name.clone(),
                 extra_args: params.args.clone().unwrap_or_default(),
+                provisioned_cwd: params.provisioned_cwd.clone(),
                 role: params.role.clone(),
                 role_profile: params.role_profile.clone(),
                 can_spawn: params.can_spawn,
@@ -97,7 +100,9 @@ impl SpawnPaneSpec {
             agent_name: agent.agent_name.clone(),
             args: if args.is_empty() { None } else { Some(args) },
             cwd: self.cwd.clone(),
+            provisioned_cwd: None,
             title: self.title.clone(),
+            title_provenance: None,
             description: self.description.clone(),
             role: agent.role.clone(),
             role_profile: agent.role_profile.clone(),
@@ -105,6 +110,7 @@ impl SpawnPaneSpec {
             plan_id: None,
             can_spawn: agent.can_spawn,
             task: agent.task.clone(),
+            starter_prompt: Default::default(),
             task_id: None,
             plan_task: None,
             allow_shared_checkout: None,
@@ -119,7 +125,10 @@ impl SpawnPaneSpec {
             skip_permissions: Some(agent.auto_approve),
             spawned_by_pane_id: agent.spawned_by_pane_id.clone(),
             model: agent.model.clone(),
+            planned_model: agent.planned_model.clone(),
+            reasoning_effort: agent.reasoning_effort.clone(),
             system_prompt: None,
+            manager_bootstrap: None,
             preset: None,
             resume_session_id: agent.resume_session_id.clone(),
             charter: None,
@@ -312,5 +321,38 @@ pub(crate) fn validate_watcher_spawn_target(
             "watcher spawn requires a watcher-capable chatBackend provider; '{}' is not a chatBackend provider",
             agent_cmd
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn worker_launch_has_no_manager_bootstrap() {
+        let spec = SpawnPaneSpec::from_agent_params(SpawnAgentParams {
+            agent: Some("worker-provider".into()),
+            role: Some("Worker".into()),
+            task: Some("worker task fixture".into()),
+            ..Default::default()
+        });
+        let params = spec.to_agent_params().unwrap();
+        assert_eq!(params.role.as_deref(), Some("Worker"));
+        assert!(params.manager_bootstrap.is_none());
+        assert!(params.system_prompt.is_none());
+        assert_eq!(
+            crate::service::launch_delivery::fallback_delivery_spec(
+                params
+                    .manager_bootstrap
+                    .as_ref()
+                    .map(|value| value.compose())
+                    .as_deref(),
+                params.task.as_deref(),
+                None,
+            )
+            .unwrap()
+            .channel,
+            crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput
+        );
     }
 }

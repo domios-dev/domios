@@ -1,5 +1,6 @@
 use codeterm_types::agent::AgentRole;
 use parking_lot::Mutex;
+use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,16 +61,17 @@ const SECONDS_PER_DAY: u64 = 86_400;
 
 // Consecutive coordinator polls of a worker pane before one anti-polling nudge fires.
 pub const POLL_NUDGE_THRESHOLD: u32 = 3;
+pub const UNCHANGED_REMINDER_COOLDOWN_SECS: u64 = 300;
 
 pub fn polling_nudge_text() -> String {
     "Polling smell: worker reports auto-inject into this tab the moment they land — repeatedly reading a worker tab's output/text/chat just burns your turn. Wait for the report; don't poll.".to_string()
 }
 
 // Verbatim heartbeat/nudge contract — MUST appear in every open-work nudge.
-pub const CONTRACT: &str = "repeats until every open task is dispatched, parked with a reason, or sent to replanning; silence is not an option.";
+pub const CONTRACT: &str = "repeats until every open task is dispatched, paused with a reason, or sent to replanning; silence is not an option.";
 
 // The five sanctioned exits for an open task.
-pub const EXITS: &str = "(1) dispatch it to a worker, (2) park with a reason (`codeterm plan task park <plan> <task> --reason \"<why>\"`), (3) judge an in_review task to done or bounce it, (4) send it to replanning, (5) escalate to a smarter model";
+pub const EXITS: &str = "(1) dispatch it to a worker, (2) pause with a reason (`codeterm plan task pause <plan> <task> --reason \"<why>\"`), (3) judge an in_review task to done or bounce it, (4) send it to replanning, (5) escalate to a smarter model";
 
 fn next_interval(base: u32, last_nudge: u32) -> u32 {
     if last_nudge == 0 {
@@ -113,14 +115,26 @@ struct PollState {
     nudged: bool,
 }
 
+/// Scheduler telemetry is deliberately independent from turn/activity state.
+/// A pane can be continuously active and still retain its time deadline.
+#[derive(Debug, Default, Clone, Serialize, PartialEq, Eq)]
+pub struct TimeReminderTelemetry {
+    pub last_tick: Option<u64>,
+    pub last_due: Option<u64>,
+    pub last_delivery: Option<u64>,
+    pub delivery_failure_retry_reason: Option<String>,
+}
+
 #[derive(Debug, Default)]
 pub struct TurnCounter {
     panes: Mutex<HashMap<String, (u32, u32)>>,
     timed: Mutex<HashMap<String, u64>>,
+    time_telemetry: Mutex<HashMap<String, TimeReminderTelemetry>>,
     digest_rules: Mutex<HashMap<String, u64>>,
     idle: Mutex<HashMap<String, IdlePokeState>>,
     complete_wrapup: Mutex<HashSet<String>>,
     polls: Mutex<HashMap<String, PollState>>,
+    reminder_content: Mutex<HashMap<String, (String, u64)>>,
 }
 
 impl TurnCounter {
@@ -143,13 +157,37 @@ impl TurnCounter {
     }
 
     pub fn time_nudge_due(&self, pane_id: &str, now_secs: u64, interval_secs: u64) -> bool {
+        self.time_nudge_due_with_initial_state(pane_id, now_secs, interval_secs, false)
+    }
+
+    pub fn idle_owner_time_nudge_due(
+        &self,
+        pane_id: &str,
+        now_secs: u64,
+        interval_secs: u64,
+    ) -> bool {
+        self.time_nudge_due_with_initial_state(pane_id, now_secs, interval_secs, true)
+    }
+
+    fn time_nudge_due_with_initial_state(
+        &self,
+        pane_id: &str,
+        now_secs: u64,
+        interval_secs: u64,
+        initially_due: bool,
+    ) -> bool {
         if interval_secs == 0 {
             return false;
         }
         let mut timed = self.timed.lock();
         let Some(last_nudge) = timed.get(pane_id).copied() else {
-            timed.insert(pane_id.to_string(), now_secs);
-            return false;
+            let initial_deadline = if initially_due {
+                now_secs.saturating_sub(interval_secs)
+            } else {
+                now_secs
+            };
+            timed.insert(pane_id.to_string(), initial_deadline);
+            return initially_due;
         };
         now_secs.saturating_sub(last_nudge) >= interval_secs
     }
@@ -158,14 +196,93 @@ impl TurnCounter {
         self.timed.lock().insert(pane_id.to_string(), now_secs);
     }
 
-    pub fn reset(&self, pane_id: &str) {
+    pub fn reminder_content_due(&self, pane_id: &str, state_key: &str, now_secs: u64) -> bool {
+        self.reminder_content
+            .lock()
+            .get(pane_id)
+            .is_none_or(|(last_key, last_at)| {
+                last_key != state_key
+                    || now_secs.saturating_sub(*last_at) >= UNCHANGED_REMINDER_COOLDOWN_SECS
+            })
+    }
+
+    pub fn mark_reminder_content_delivered(&self, pane_id: &str, state_key: String, now_secs: u64) {
+        self.reminder_content
+            .lock()
+            .insert(pane_id.to_string(), (state_key, now_secs));
+    }
+
+    /// Reset counters coupled to normal pane activity, without touching the
+    /// independent time-reminder deadline. Use this for Idle->Working and
+    /// ordinary reports.
+    pub fn reset_activity(&self, pane_id: &str) {
         self.panes.lock().insert(pane_id.to_string(), (0, 0));
-        self.timed.lock().remove(pane_id);
         self.digest_rules
             .lock()
             .retain(|key, _| !key.starts_with(pane_id));
         self.idle.lock().remove(pane_id);
         self.polls.lock().remove(pane_id);
+        self.reminder_content.lock().remove(pane_id);
+    }
+
+    /// Clear all reminder state when a pane is no longer reminder-eligible.
+    pub fn reset(&self, pane_id: &str) {
+        self.reset_activity(pane_id);
+        self.timed.lock().remove(pane_id);
+        self.time_telemetry.lock().remove(pane_id);
+    }
+
+    pub fn retain_time_reminders(&self, eligible_panes: &HashSet<String>) {
+        self.timed
+            .lock()
+            .retain(|pane_id, _| eligible_panes.contains(pane_id));
+        self.time_telemetry
+            .lock()
+            .retain(|pane_id, _| eligible_panes.contains(pane_id));
+    }
+
+    pub fn clear_time_reminders(&self) {
+        self.timed.lock().clear();
+        self.time_telemetry.lock().clear();
+    }
+
+    pub fn record_time_tick(&self, pane_id: &str, now_secs: u64) {
+        self.time_telemetry
+            .lock()
+            .entry(pane_id.to_string())
+            .or_default()
+            .last_tick = Some(now_secs);
+    }
+
+    pub fn record_time_due(&self, pane_id: &str, now_secs: u64) {
+        self.time_telemetry
+            .lock()
+            .entry(pane_id.to_string())
+            .or_default()
+            .last_due = Some(now_secs);
+    }
+
+    pub fn record_time_delivery(&self, pane_id: &str, now_secs: u64) {
+        let mut telemetry = self.time_telemetry.lock();
+        let entry = telemetry.entry(pane_id.to_string()).or_default();
+        entry.last_delivery = Some(now_secs);
+        entry.delivery_failure_retry_reason = None;
+    }
+
+    pub fn record_time_failure(&self, pane_id: &str, reason: impl Into<String>) {
+        self.time_telemetry
+            .lock()
+            .entry(pane_id.to_string())
+            .or_default()
+            .delivery_failure_retry_reason = Some(reason.into());
+    }
+
+    pub fn time_reminder_telemetry(&self, pane_id: &str) -> TimeReminderTelemetry {
+        self.time_telemetry
+            .lock()
+            .get(pane_id)
+            .cloned()
+            .unwrap_or_default()
     }
 
     // Count one poll by `pane_id`; return true exactly once when it crosses the
@@ -341,9 +458,9 @@ mod tests {
     fn open_work_nudges_carry_contract_and_five_exits() {
         for kind in [NudgeKind::Orchestrator, NudgeKind::Escalated] {
             let text = nudge_text(kind);
-            assert!(text.contains("repeats until every open task is dispatched, parked with a reason, or sent to replanning; silence is not an option."));
+            assert!(text.contains("repeats until every open task is dispatched, paused with a reason, or sent to replanning; silence is not an option."));
             assert!(text.contains("dispatch"));
-            assert!(text.contains("park with a reason"));
+            assert!(text.contains("pause with a reason"));
             assert!(text.contains("judge"));
             assert!(text.contains("replanning"));
             assert!(text.contains("escalate to a smarter model"));
@@ -381,6 +498,85 @@ mod tests {
         counter.reset("p1");
         assert_eq!(counter.get("p1"), (0, 0));
         assert!(!counter.time_nudge_due("p1", 200, 30));
+    }
+
+    #[test]
+    fn activity_resets_do_not_restart_a_live_time_deadline() {
+        let counter = TurnCounter::new();
+        let interval = 30 * 60;
+        assert!(!counter.time_nudge_due("orch", 0, interval));
+
+        // Simulate 30 minutes of ordinary reports and Idle->Working transitions.
+        for now in (60..=interval).step_by(60) {
+            counter.reset_activity("orch");
+            assert_eq!(counter.get("orch"), (0, 0));
+            assert_eq!(
+                counter.time_nudge_due("orch", now, interval),
+                now == interval
+            );
+        }
+
+        // Due survives more activity until a delivery acknowledges it.
+        counter.reset_activity("orch");
+        assert!(counter.time_nudge_due("orch", interval + 60, interval));
+        counter.mark_time_nudged("orch", interval + 60);
+        assert!(!counter.time_nudge_due("orch", interval + 61, interval));
+    }
+
+    #[test]
+    fn unchanged_reminder_content_is_rate_limited_until_state_changes() {
+        let counter = TurnCounter::new();
+        assert!(counter.reminder_content_due("orch", "plan:1", 100));
+        counter.mark_reminder_content_delivered("orch", "plan:1".into(), 100);
+        assert!(!counter.reminder_content_due("orch", "plan:1", 101));
+        assert!(counter.reminder_content_due("orch", "plan:2", 101));
+        assert!(counter.reminder_content_due(
+            "orch",
+            "plan:1",
+            100 + UNCHANGED_REMINDER_COOLDOWN_SECS
+        ));
+    }
+
+    #[test]
+    fn idle_owner_is_due_when_first_observed_and_then_respects_cadence() {
+        let counter = TurnCounter::new();
+        let interval = 30 * 60;
+        let now = interval * 10;
+
+        assert!(counter.idle_owner_time_nudge_due("idle-owner", now, interval));
+        assert!(counter.idle_owner_time_nudge_due("idle-owner", now + 1, interval));
+        let delivered_at = now + 1;
+        counter.mark_time_nudged("idle-owner", delivered_at);
+        assert!(!counter.idle_owner_time_nudge_due(
+            "idle-owner",
+            delivered_at + interval - 1,
+            interval
+        ));
+        assert!(counter.idle_owner_time_nudge_due("idle-owner", delivered_at + interval, interval));
+    }
+
+    #[test]
+    fn time_telemetry_tracks_due_delivery_and_retry_reason() {
+        let counter = TurnCounter::new();
+        counter.record_time_tick("orch", 10);
+        counter.record_time_due("orch", 11);
+        counter.record_time_failure("orch", "pane unavailable; retry on next tick");
+        assert_eq!(
+            counter.time_reminder_telemetry("orch"),
+            TimeReminderTelemetry {
+                last_tick: Some(10),
+                last_due: Some(11),
+                last_delivery: None,
+                delivery_failure_retry_reason: Some("pane unavailable; retry on next tick".into()),
+            }
+        );
+        counter.record_time_delivery("orch", 12);
+        assert_eq!(
+            counter
+                .time_reminder_telemetry("orch")
+                .delivery_failure_retry_reason,
+            None
+        );
     }
 
     #[test]

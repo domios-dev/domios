@@ -57,7 +57,7 @@ fn task_status_label(status: &crate::plan::TaskStatus) -> &'static str {
         crate::plan::TaskStatus::InProgress => "in_progress",
         crate::plan::TaskStatus::InReview => "in_review",
         crate::plan::TaskStatus::Blocked => "blocked",
-        crate::plan::TaskStatus::Parked => "parked",
+        crate::plan::TaskStatus::Paused => "paused",
         crate::plan::TaskStatus::Done => "done",
         crate::plan::TaskStatus::Cancelled => "cancelled",
     }
@@ -87,6 +87,11 @@ mod tests {
             status: TaskStatus::Done,
             review_stage: ReviewStage::Review,
             qa_state: Option::<QaState>::None,
+            review_round: 0,
+            review_oracle: None,
+            review_evidence: vec![],
+            review_override: None,
+            review_audit: vec![],
             status_label: None,
             priority: TaskPriority::P2,
             created_at: 0,
@@ -101,6 +106,7 @@ mod tests {
             competition: None,
             intent: None,
             parent_task_id: None,
+            depends_on: vec![],
             assigned_pane_id: None,
             lane: TaskLaneMetadata {
                 pane_id: Some("pane-1".into()),
@@ -115,8 +121,9 @@ mod tests {
             canvas: Default::default(),
             milestones: vec![],
             execution_attempts: vec![],
-            park_reason: None,
+            pause_reason: None,
             personality: None,
+            personality_provenance: None,
             attachments: vec![],
         };
         plan.tasks.push(task);

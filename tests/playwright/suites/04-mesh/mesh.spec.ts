@@ -22,6 +22,17 @@ async function pairedPeer(api: { get<T>(p: string): Promise<T> }, id: string): P
   return peers.paired.find((p) => p.instance_id === id);
 }
 
+async function dismissRecoveryBannerIfPresent(page: {
+  locator(selector: string): {
+    click(opts?: { timeout?: number }): Promise<void>;
+  };
+}) {
+  await page
+    .locator('[data-testid="recovery-status-banner"] button[aria-label="Dismiss crash recovery"]')
+    .click({ timeout: 1_000 })
+    .catch(() => {});
+}
+
 test("@golden stub peer: pair → online → wedged → offline (hysteresis) → recovered, in API and Mesh-tab UI", async ({ api, ui }) => {
   // Liveness transitions ride the 15s health loop with a 2-miss threshold;
   test.setTimeout(420_000);
@@ -68,15 +79,19 @@ test("@golden stub peer: pair → online → wedged → offline (hysteresis) →
 
     // fresh (not stale) in the services drawer.
     await ui.page.locator('[data-testid="nav-mesh"]').click();
+    await dismissRecoveryBannerIfPresent(ui.page);
     await ui.page.locator('[data-testid="mesh-tab-network"]').click();
     const peerRow = ui.page.locator(`[data-testid="mesh-peer"][data-peer-id="${peerId}"]`);
     await expect(peerRow).toBeVisible({ timeout: 15_000 });
     await expect(peerRow).toHaveAttribute("data-online", "true", { timeout: 15_000 });
 
     await ui.page.locator('[data-testid="mesh-tab-map"]').click();
-    await ui.page.locator('[data-testid="mesh-services-toggle"]').click();
+    const serviceRows = ui.page.locator('[data-testid="service-row"]');
+    if ((await serviceRows.count()) === 0) {
+      await ui.page.locator('[data-testid="mesh-services-toggle"]').click();
+    }
     const stubServices = ui.page.locator(
-      `[data-testid="service-row"][data-source-peer="${stub.instanceName}"]`,
+      `[data-testid="service-row"][data-source-peer-id="${peerId}"]`,
     );
     await expect(stubServices).toHaveCount(3, { timeout: 20_000 });
     await expect(stubServices.first()).toHaveAttribute("data-stale", "false");
@@ -118,7 +133,7 @@ test("@golden stub peer: pair → online → wedged → offline (hysteresis) →
     await ui.page
       .locator('[data-testid="workspace-item"]')
       .first()
-      .click()
+      .click({ timeout: 2_000 })
       .catch(() => {});
     if (peerId) {
       await api.post(`/mesh/peers/disconnect/${peerId}`).catch(() => {});

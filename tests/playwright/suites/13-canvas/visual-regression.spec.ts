@@ -35,10 +35,34 @@ async function stabilize(page: Page): Promise<void> {
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 }
 
-async function expectGolden(locator: Locator, name: string): Promise<void> {
+async function isolateSidebarGolden(page: Page): Promise<void> {
+  await page.addStyleTag({
+    content: `
+      [data-testid="workspace-item"][data-workspace-name^="pw-"] {
+        display: none !important;
+      }
+
+      div:has(> [data-testid="workspace-item"][data-workspace-name^="pw-"]) {
+        display: none !important;
+      }
+    `,
+  });
+
+  await page.locator('[data-testid="workspace-item"][data-workspace-name="General"]').evaluate((item) => {
+    const count = item.querySelector('.text-\\[9px\\], .text-\\[10px\\], .text-\\[11px\\], .text-xs');
+    if (count) {
+      count.textContent = "1";
+    }
+  });
+}
+
+// Relative-age chips ("688mo", "20642d") are wall-clock derived; mask them so
+// the golden asserts layout/content without rotting daily.
+async function expectGolden(locator: Locator, name: string, mask?: Locator[]): Promise<void> {
   await expect(locator).toHaveScreenshot(`${name}.png`, {
     ...DIFF,
     animations: "disabled",
+    ...(mask ? { mask } : {}),
   });
 }
 
@@ -61,7 +85,9 @@ test("@golden @visual-regression board seeded plan matches golden", async ({ api
     const { page } = canvas;
     await switchMode(page, "board");
     await expect(page.locator('[data-testid="plan-board-task-card"]').first()).toBeVisible({ timeout: 20_000 });
-    await expectGolden(page.locator('[data-testid="plan-view-shell"]').first(), "plan-board-seeded");
+    await expectGolden(page.locator('[data-testid="plan-view-shell"]').first(), "plan-board-seeded", [
+      page.locator('[data-testid="plan-board-task-age"]'),
+    ]);
   } finally {
     await close(canvas);
   }
@@ -74,7 +100,9 @@ test("@golden @visual-regression list seeded plan matches golden", async ({ api,
     const { page } = canvas;
     await switchMode(page, "list");
     await expect(page.locator('[data-testid="plan-list-task"]').first()).toBeVisible({ timeout: 20_000 });
-    await expectGolden(page.locator('[data-testid="plan-list-view"]').first(), "plan-list-seeded");
+    await expectGolden(page.locator('[data-testid="plan-list-view"]').first(), "plan-list-seeded", [
+      page.locator('[data-testid="plan-list-age"]'),
+    ]);
   } finally {
     await close(canvas);
   }
@@ -102,9 +130,10 @@ test("@golden @visual-regression sidebar seeded pair tree matches golden", async
   try {
     const { page } = canvas;
     await page.setViewportSize(VIEWPORT);
-    await stabilize(page);
     await openSidebarIfNeeded(page);
     await expect(page.locator('[data-testid="workspace-item"]').first()).toBeVisible({ timeout: 20_000 });
+    await isolateSidebarGolden(page);
+    await stabilize(page);
     await expectGolden(page.locator('[data-testid="sidebar"], aside, nav').first(), "sidebar-seeded-pair-tree");
   } finally {
     await close(canvas);

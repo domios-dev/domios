@@ -2,14 +2,14 @@
 // match the JSON wire shape (serde snake_case; Task.type via serde rename).
 
 export type PlanStatus = "active" | "archived";
-export type TaskStatus = "pending" | "in_progress" | "in_review" | "blocked" | "parked" | "done" | "cancelled";
+export type TaskStatus = "pending" | "in_progress" | "in_review" | "blocked" | "paused" | "done" | "cancelled";
 // instead of bare string literals (type + value namespaces merge by design).
 export const TaskStatus = {
   Pending: "pending",
   InProgress: "in_progress",
   InReview: "in_review",
   Blocked: "blocked",
-  Parked: "parked",
+  Paused: "paused",
   Done: "done",
   Cancelled: "cancelled",
 } as const satisfies Record<string, TaskStatus>;
@@ -206,7 +206,7 @@ export interface Task {
   peer: string | null;
   competition?: TaskCompetitionMetadata | null;
   execution_attempts?: TaskExecutionAttempt[];
-  park_reason?: string | null;
+  pause_reason?: string | null;
   canvas: ElementCanvas;
   milestones: Milestone[];
   attachments?: PlanAttachment[];
@@ -294,6 +294,8 @@ export interface Plan {
   planning_state?: PlanningState;
   owner: OrchestratorRef;
   planner?: PlannerRef | null;
+  /** Optional 1:1 team binding; absent keeps legacy plans teamless. */
+  team_id?: string | null;
   project_path: string;
   created_at: number;
   updated_at: number;
@@ -323,7 +325,7 @@ export interface GateAnswer {
   at: number;
 }
 
-/** Structured decision request that parks blocking tasks until answered. */
+/** Structured decision request that pauses blocking tasks until answered. */
 export interface DecisionGate {
   id: string;
   question: string;

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { invoke } from "../../lib/bridge";
 import { IS_WEB } from "../../lib/webApi";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { AppConfig } from "../../lib/types";
@@ -14,27 +15,27 @@ import {
 } from "../../lib/newSessionChoice";
 import { buildDestinationPreview, MODE_HELP_TEXT, WORKSPACE_HELP_TEXT } from "../../lib/newSessionPickerContent";
 import { probeProviderInstallMap } from "../../lib/providerInstallStatus";
+import { AgentIcon } from "../AgentIcon";
 import { OrchestrationPairForm, OrchestrationRoleRow } from "../Sidebar/OrchestrationPairForm";
 import { ModeCards, WorkspaceRow } from "./NewSessionPickerParts";
 import { FloatingTooltip } from "../shared/FloatingTooltip";
 import { Button } from "../shared/Button";
+import { X } from "lucide-react";
+import { createPortal } from "react-dom";
 
 export function NewSessionPicker({
   workspaceId,
-  tabId,
   workspaceCwd,
   agentsConfig,
+  onClose,
 }: {
-  /** Virtual picker pane id — kept for the caller's prop shape; the confirm
-   *  flow works off the workspace + virtual tab id, not the pane. */
-  paneId: string;
   workspaceId: string;
-  tabId: string;
   workspaceCwd?: string | null;
   agentsConfig?: AppConfig["agents"];
+  onClose: () => void;
 }) {
   const { providers } = useAgentProviders();
-  const { spawnAgentTab, createOrchestrationPair, closeSessionPicker, selectTabByPane, addNotification, createWorkspace } = useMultiplexer();
+  const { spawnAgentTab, createOrchestrationPair, selectTabByPane, addNotification, createWorkspace } = useMultiplexer();
   const state = useMuxState();
   const visibleProviders = useMemo(
     () => providers.filter((provider) => agentsConfig?.[provider.id]?.visible_in_menu !== false),
@@ -48,12 +49,12 @@ export function NewSessionPicker({
     () => agentsConfig?.claude?.spawn_skip_permissions === true,
   );
   const [claudeRememberChoice, setClaudeRememberChoice] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const disabledProviderIds = useMemo(
     () => new Set(visibleProviders.filter((p) => installMap[p.id] === false).map((p) => p.id)),
     [visibleProviders, installMap],
   );
 
-  // workspace) but never persisted — reopening the picker always resets here.
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(workspaceId);
   const [creatingWorkspace, setCreatingWorkspace] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
@@ -78,13 +79,65 @@ export function NewSessionPicker({
 
   useEffect(() => {
     let cancelled = false;
-    void probeProviderInstallMap(visibleProviders).then((map) => {
-      if (!cancelled) setInstallMap(map);
-    });
+    const probe = () => {
+      void probeProviderInstallMap(visibleProviders).then((map) => {
+        if (!cancelled) setInstallMap(map);
+      });
+    };
+    probe();
+    // Re-probe on refocus so "install in a terminal tab → come back" just works.
+    window.addEventListener("focus", probe);
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", probe);
     };
   }, [visibleProviders]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || busy || claudeModalOpen) return;
+      event.preventDefault();
+      onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [busy, claudeModalOpen, onClose]);
+
+  useEffect(() => {
+    const priorFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialogRef.current?.focus();
+    return () => priorFocus?.focus();
+  }, []);
+
+  const handleInstallProvider = useCallback((providerId: string) => {
+    void (async () => {
+      try {
+        const res = await invoke<{ tab_id: string; pane_id: string }>(
+          "install_provider_in_pane",
+          { providerId },
+        );
+        const wsId = state.active_workspace_id;
+        if (wsId && res?.pane_id) await selectTabByPane(wsId, res.pane_id).catch(() => {});
+        addNotification({
+          pane_id: null,
+          workspace_id: workspaceId,
+          title: "Installer running",
+          body: "The install command is running in a terminal tab. Come back to Start a session when it finishes.",
+          level: "Info",
+          sticky: false,
+        });
+      } catch (e) {
+        addNotification({
+          pane_id: null,
+          workspace_id: workspaceId,
+          title: "Install failed to start",
+          body: e instanceof Error ? e.message : String(e),
+          level: "Error",
+          sticky: true,
+        });
+      }
+    })();
+  }, [addNotification, selectTabByPane, state.active_workspace_id, workspaceId]);
 
   const handleStartCreateWorkspace = useCallback(() => {
     if (IS_WEB) {
@@ -121,17 +174,17 @@ export function NewSessionPicker({
     if (info?.id) setSelectedWorkspaceId(info.id);
   }, [newWorkspaceName, createWorkspace]);
 
-  // On accept: keep the picker visible while the agent spawns, select the
-  // created tab, THEN drop the picker — the new session replaces it in place
-  // with no blank flash. `null` / a throw keeps the picker open to retry.
   const finishSpawn = useCallback(async (
-    runner: () => Promise<{ workspaceId: string; paneId: string } | null>,
+    runner: () => Promise<{ workspaceId: string; paneId: string; tabId?: string } | null>,
   ) => {
     setBusy(true);
     try {
       const created = await runner();
       if (created) {
-        await selectTabByPane(created.workspaceId, created.paneId).catch(() => {});
+        if (!created.tabId) {
+          await selectTabByPane(created.workspaceId, created.paneId).catch(() => {});
+        }
+        onClose();
       }
     } catch (e) {
       addNotification({
@@ -143,28 +196,32 @@ export function NewSessionPicker({
         sticky: true,
       });
     } finally {
-      // The picker never survives a Start click: success replaces it with the
-      // session, failure surfaces as a notification. A stuck picker is worse
-      // than either.
-      closeSessionPicker(workspaceId, tabId);
       setBusy(false);
     }
-  }, [addNotification, closeSessionPicker, selectTabByPane, tabId, workspaceId]);
+  }, [addNotification, onClose, selectTabByPane, workspaceId]);
 
-  const runSingleSpawn = useCallback(async (skipPermissions: boolean) => {
-    if (choice.mode !== "single") return;
-    if (disabledProviderIds.has(choice.providerId)) return;
+  const runProviderSpawn = useCallback(async (
+    providerId: string,
+    modelId: string | undefined,
+    skipPermissions: boolean,
+  ) => {
+    if (disabledProviderIds.has(providerId)) return;
     const targetCwd = selectedWorkspace?.cwd ?? workspaceCwd ?? undefined;
     await finishSpawn(() =>
       spawnAgentTab(
         selectedWorkspaceId,
-        choice.providerId,
+        providerId,
         skipPermissions,
         targetCwd ?? undefined,
-        choice.modelId,
+        modelId,
       ),
     );
-  }, [choice, disabledProviderIds, finishSpawn, spawnAgentTab, selectedWorkspace, selectedWorkspaceId, workspaceCwd]);
+  }, [disabledProviderIds, finishSpawn, spawnAgentTab, selectedWorkspace, selectedWorkspaceId, workspaceCwd]);
+
+  const runSingleSpawn = useCallback(async (skipPermissions: boolean) => {
+    if (choice.mode !== "single") return;
+    await runProviderSpawn(choice.providerId, choice.modelId, skipPermissions);
+  }, [choice, runProviderSpawn]);
 
   const runPairSpawn = useCallback(() => {
     if (choice.mode !== "pair") return;
@@ -174,10 +231,8 @@ export function NewSessionPicker({
     ) {
       return;
     }
-    // Pair creation takes tens of seconds (two agent launches) — never hold
-    // the picker on it. Close now; select the orchestrator when it lands.
     const wsId = selectedWorkspaceId;
-    closeSessionPicker(workspaceId, tabId);
+    onClose();
     void createOrchestrationPair({
       orchestratorAgent: choice.orchestratorProviderId,
       orchestratorModel: choice.orchestratorModelId,
@@ -196,7 +251,7 @@ export function NewSessionPicker({
           sticky: true,
         });
       });
-  }, [addNotification, choice, closeSessionPicker, createOrchestrationPair, disabledProviderIds, selectTabByPane, selectedWorkspaceId, tabId, workspaceId]);
+  }, [addNotification, choice, createOrchestrationPair, disabledProviderIds, onClose, selectTabByPane, selectedWorkspaceId]);
 
   const handleStart = useCallback(() => {
     if (choice.mode === "pair") {
@@ -270,23 +325,49 @@ export function NewSessionPicker({
   const orchestratorProviderId = choice.mode === "pair" ? choice.orchestratorProviderId : singleProviderId;
   const plannerProviderId = choice.mode === "pair" ? choice.plannerProviderId : singleProviderId;
 
-  return (
+  return createPortal(
     <div
       data-testid="new-session-picker"
-      className="new-session-picker flex h-full w-full items-center justify-center p-6"
-      style={{ background: "var(--ct-bg)" }}
+      className="new-session-picker fixed inset-0 z-[1000] flex items-start justify-center overflow-y-auto overflow-x-hidden bg-black/55 p-6 backdrop-blur-sm"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !busy) onClose();
+      }}
     >
-      <div className="new-session-picker-card picker-stagger w-full max-w-lg rounded-xl border border-[var(--ct-border)] bg-[var(--ct-surface)] p-5 shadow-lg relative overflow-hidden">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="new-session-picker-title"
+        tabIndex={-1}
+        className="new-session-picker-card picker-stagger relative my-auto w-full max-w-lg overflow-hidden rounded-xl border border-[var(--ct-border)] bg-[var(--ct-surface)] p-5 shadow-2xl outline-none"
+      >
         <span
           aria-hidden
           className="picker-ambient-wash"
           data-mode={choice.mode}
         />
-        <div className="relative mb-4">
-          <div className="text-[15px] font-medium text-[var(--ct-fg)]">Start a session</div>
+        <div className="relative mb-4 pr-8">
+          <h2 id="new-session-picker-title" className="text-[15px] font-medium text-[var(--ct-fg)]">Start a session</h2>
           <div className="mt-1 text-[12px] text-[var(--ct-muted-fg)]">
             Choose a single agent or an Orchestrator + Planner pair. Your last choice is remembered.
           </div>
+        </div>
+        <button
+          type="button"
+          data-testid="picker-close"
+          aria-label="Close new session dialog"
+          disabled={busy}
+          onClick={onClose}
+          className="absolute right-3 top-3 z-10 flex h-7 w-7 items-center justify-center rounded-md text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)] disabled:opacity-40"
+        >
+          <X aria-hidden size={14} />
+        </button>
+
+        <div className="relative mb-1.5 flex items-center gap-1.5">
+          <span className="text-[11px] font-medium text-[var(--ct-muted-fg)]">Mode</span>
+          <FloatingTooltip content={<div>{MODE_HELP_TEXT}</div>} className="picker-help-glyph">
+            <span className="picker-help-glyph-mark">?</span>
+          </FloatingTooltip>
         </div>
 
         <div className="relative mb-4">
@@ -297,13 +378,6 @@ export function NewSessionPicker({
             plannerProviderId={plannerProviderId}
             onSelect={handleModeSelect}
           />
-        </div>
-
-        <div className="relative mb-4 flex items-center gap-1.5">
-          <span className="text-[11px] font-medium text-[var(--ct-muted-fg)]">Mode</span>
-          <FloatingTooltip content={<div>{MODE_HELP_TEXT}</div>} className="picker-help-glyph">
-            <span className="picker-help-glyph-mark">?</span>
-          </FloatingTooltip>
         </div>
 
         <div className="relative mb-4">
@@ -337,6 +411,7 @@ export function NewSessionPicker({
                 });
               }}
               onModelChange={(modelId) => setChoice({ ...choice, modelId })}
+              onInstallProvider={handleInstallProvider}
             />
           ) : (
             <OrchestrationPairForm
@@ -363,12 +438,31 @@ export function NewSessionPicker({
                 plannerProvider: "picker-provider-planner",
                 plannerModel: "picker-model-planner",
               }}
+              onInstallProvider={handleInstallProvider}
             />
           )}
         </div>
 
-        <div className="relative mt-4 text-[11px] text-[var(--ct-muted-fg)]" data-testid="picker-preview">
-          {previewText}
+        <div
+          className="relative mt-4 flex items-center gap-2 rounded-md border px-2.5 py-2 text-[11px] text-[var(--ct-muted-fg)]"
+          style={{
+            borderColor: "color-mix(in srgb, var(--ct-border) 70%, transparent)",
+            background: "color-mix(in srgb, var(--ct-bg) 60%, transparent)",
+          }}
+          data-testid="picker-preview"
+        >
+          <span className="flex shrink-0 items-center gap-1" aria-hidden>
+            {choice.mode === "pair" ? (
+              <>
+                <AgentIcon providerId={orchestratorProviderId} className="text-[13px]" />
+                <span className="opacity-50 text-[10px]">⟷</span>
+                <AgentIcon providerId={plannerProviderId} className="text-[13px]" />
+              </>
+            ) : (
+              <AgentIcon providerId={singleProviderId} className="text-[13px]" />
+            )}
+          </span>
+          <span className="min-w-0 truncate">{previewText}</span>
         </div>
 
         <div className="relative mt-4 flex justify-end">
@@ -379,15 +473,20 @@ export function NewSessionPicker({
             loading={busy}
             onClick={handleStart}
           >
-            {choice.mode === "pair" ? "Start orchestration" : "Start session"}
+            {choice.mode === "pair" ? "Start team" : "Start session"}
           </Button>
         </div>
       </div>
 
       {claudeModalOpen && (
         <>
-          <div className="fixed inset-0 z-50 bg-black/40" onClick={() => setClaudeModalOpen(false)} />
-          <div className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-lg shadow-2xl w-[320px] overflow-hidden">
+          <div className="fixed inset-0 z-[1010] bg-black/40" onClick={() => setClaudeModalOpen(false)} />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Claude launch options"
+            className="fixed z-[1010] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-lg shadow-2xl w-[320px] overflow-hidden"
+          >
             <div className="px-4 pt-4 pb-2">
               <div className="text-[13px] font-medium text-[var(--ct-fg)]">Spawn Claude</div>
             </div>
@@ -418,6 +517,7 @@ export function NewSessionPicker({
           </div>
         </>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }

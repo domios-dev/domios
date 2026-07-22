@@ -84,7 +84,7 @@ pub fn detect_cleanup_debt(input: &CleanupDebtInput<'_>) -> Option<CleanupDebtTa
             issues.push(CleanupDebtIssue {
                 kind: CleanupDebtKind::LivePane,
                 detail: format!("worker pane {pane_id} is still live"),
-                command: Some(format!("codeterm pane close {}", shell_quote(pane_id))),
+                command: Some(format!("codeterm tab close {}", shell_quote(pane_id))),
             });
         }
     }

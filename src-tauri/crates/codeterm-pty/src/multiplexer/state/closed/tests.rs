@@ -6,7 +6,7 @@ use std::collections::HashSet;
 
 use super::*;
 use crate::multiplexer::state::MultiplexerState;
-use crate::multiplexer::types::PaneBacking;
+use crate::multiplexer::types::{AgentRole, PaneBacking};
 
 fn ws_id(state: &MultiplexerState) -> String {
     state.list_workspaces()[0].id.clone()
@@ -37,6 +37,31 @@ fn close_tab_records_pane_into_history_with_backing() {
             session_id: "s1".into(),
         }
     );
+}
+
+#[test]
+fn close_tab_detaches_children_without_closing_them() {
+    let (mut state, orchestrator_id) = MultiplexerState::new();
+    let workspace_id = state.list_workspaces()[0].id.clone();
+    let orchestrator_tab = state.find_tab_for_pane(&orchestrator_id).unwrap();
+    state
+        .set_pane_role(&orchestrator_id, AgentRole::Orchestrator, None)
+        .unwrap();
+    let (_worker_tab, worker_id) = state.create_tab(&workspace_id).unwrap();
+    state
+        .set_pane_role(&worker_id, AgentRole::Worker, Some(&orchestrator_id))
+        .unwrap();
+    state
+        .get_pane_mut(&worker_id)
+        .unwrap()
+        .report_target_pane_id = Some(orchestrator_id.clone());
+
+    state.close_tab(&workspace_id, &orchestrator_tab).unwrap();
+
+    let worker = state.get_pane(&worker_id).expect("worker remains open");
+    assert_eq!(worker.parent_pane_id, None);
+    assert_eq!(worker.report_target_pane_id, None);
+    assert_eq!(worker.depth, 0);
 }
 
 #[test]
@@ -128,7 +153,7 @@ fn reopen_cascade_group_activates_root_not_leaf() {
     state.rename_tab(&wsid, &w1_tab, "Worker").unwrap();
     state.get_pane_mut(&worker1).unwrap().parent_pane_id = Some(orch_pane.clone());
 
-    state.close_pane(&orch_pane).unwrap();
+    state.close_pane_for_team_close(&orch_pane).unwrap();
     let group_id = state.recent_closed_view()[0].group_id.clone();
 
     let (_ws, _tab, activated) = state.reopen_closed_group(&group_id).unwrap();
@@ -235,7 +260,7 @@ fn reopen_cascade_group_preserves_each_pane_mode() {
     w.agent_type = Some("codex".into());
     w.chat_view = true;
 
-    state.close_pane(&orch_pane).unwrap();
+    state.close_pane_for_team_close(&orch_pane).unwrap();
     let group_id = state.recent_closed_view()[0].group_id.clone();
     let closed_modes: Vec<(String, bool)> = state
         .recent_closed_view()
@@ -373,7 +398,7 @@ fn cascade_close_records_one_group_with_hierarchy() {
     state.rename_tab(&wsid, &w2_tab, "Worker 2").unwrap();
     state.get_pane_mut(&worker2).unwrap().parent_pane_id = Some(orch_pane.clone());
 
-    state.close_pane(&orch_pane).unwrap();
+    state.close_pane_for_team_close(&orch_pane).unwrap();
 
     // All three land in history under ONE cascade group.
     let list = state.list_recently_closed(&wsid);
@@ -407,7 +432,7 @@ fn reopen_cascade_group_restores_subtree_and_relinks_parents() {
     state.rename_tab(&wsid, &w1_tab, "Worker").unwrap();
     state.get_pane_mut(&worker1).unwrap().parent_pane_id = Some(orch_pane.clone());
 
-    state.close_pane(&orch_pane).unwrap();
+    state.close_pane_for_team_close(&orch_pane).unwrap();
 
     let group_id = state.recent_closed_view()[0].group_id.clone();
     let (ws, _tab, first_pane) = state.reopen_closed_group(&group_id).unwrap();

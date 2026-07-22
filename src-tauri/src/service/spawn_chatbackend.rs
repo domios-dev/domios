@@ -10,7 +10,7 @@ use super::ServiceContext;
 use crate::agent::chat_types::{ChatMsg, StructuredChat};
 use crate::agent::reports::ReportDetails;
 use crate::multiplexer::types::{PaneBacking, WatcherPolicy, WatcherSpec};
-use crate::service::messenger::{MessageEnvelope, Messenger};
+use crate::service::messenger::MessageEnvelope;
 use crate::service::watcher::{
     apply_guardrails, build_observation, collect_watch_group, observation_config_from_json,
     parse_verdict, ObservationSources, VerdictOutcome, WatcherAction, WatcherVerdictStatus,
@@ -257,7 +257,11 @@ where
 }
 
 impl ServiceContext {
-    pub(crate) fn spawn_chatbackend_impl(&self, spec: SpawnPaneSpec) -> Result<PaneHandle, String> {
+    pub(crate) fn spawn_chatbackend_impl_with_state_change(
+        &self,
+        spec: SpawnPaneSpec,
+        emit_state_change: bool,
+    ) -> Result<PaneHandle, String> {
         let (plugin_id, config, role, role_profile, can_spawn, watcher) = match &spec.command {
             PaneCommand::ChatBackend {
                 plugin_id,
@@ -325,15 +329,28 @@ impl ServiceContext {
             }
         }
         if let Some(ref role) = role {
-            if let Err(e) =
+            let role_result = if emit_state_change {
                 self.set_pane_role(&pane_id, role, spec.parent_pane_id.as_deref(), can_spawn)
-            {
+            } else {
+                let parsed = Self::parse_role(role)?;
+                let mut mux = self.mux.write();
+                mux.set_pane_role(&pane_id, parsed, spec.parent_pane_id.as_deref())?;
+                if let Some(can_spawn) = can_spawn {
+                    mux.set_can_spawn(&pane_id, can_spawn)?;
+                }
+                Ok(())
+            };
+            if let Err(e) = role_result {
                 let _ = self.mux.write().close_tab(&ws_id, &tab_id);
-                self.emit_state_changed();
+                if emit_state_change {
+                    self.emit_state_changed();
+                }
                 return Err(e);
             }
         }
-        self.emit_state_changed();
+        if role.is_none() && emit_state_change {
+            self.emit_state_changed();
+        }
 
         self.chatbackend_launch_async(
             plugin_id,
@@ -353,6 +370,7 @@ impl ServiceContext {
             description: spec.description,
             worker_id: None,
             warning: None,
+            model_fallback: None,
             budget_notice,
         })
     }
@@ -413,6 +431,19 @@ impl ServiceContext {
                     }
                 }
             }
+            if let Err(error) =
+                svc.bind_in_process_chatbackend_session(&pane_id, &plugin_id, &session_id)
+            {
+                log::warn!(
+                    "[spawn.chatbackend] failed to bind provider session for {}: {}",
+                    pane_id,
+                    error
+                );
+                let _ = svc.chatbackend_close(&plugin_id, &session_id);
+                let _ = svc.mux.write().close_tab(&ws_id, &tab_id);
+                svc.emit_state_changed();
+                return;
+            }
             svc.emit_state_changed();
 
             log::info!(
@@ -441,7 +472,9 @@ impl ServiceContext {
                 });
             }
 
+            let replay_pane = pane_id.clone();
             svc.spawn_chatbackend_poll_loop(pane_id, plugin_id, session_id, history_meta);
+            svc.schedule_planner_replay(&replay_pane);
         });
     }
 
@@ -458,7 +491,22 @@ impl ServiceContext {
         let svc = self.clone();
         let app = self.app_handle.clone();
         spawn_bg(async move {
-            let inner = crate::service::pane_chat::structured_sink::make_sink(app);
+            let (source_session_id, session_binding_nonce) = svc
+                .mux
+                .read()
+                .get_pane(&pane_id)
+                .map(|pane| {
+                    (
+                        pane.agent_session_id.clone(),
+                        pane.session_binding_nonce.clone(),
+                    )
+                })
+                .unwrap_or((None, None));
+            let inner = crate::service::pane_chat::structured_sink::make_sink(
+                app,
+                source_session_id,
+                session_binding_nonce,
+            );
             // Durable wrapper: forwards to the UI sink and UPSERTs each delta to the session JSONL by id.
             let sink: std::sync::Arc<
                 dyn crate::service::pane_chat::structured_sink::StructuredSink,
@@ -785,7 +833,13 @@ impl ServiceContext {
             cooldowns,
             |target, message| {
                 let envelope = MessageEnvelope::pane("Watcher", pane_id);
-                Messenger::deliver(self, target, envelope, message).map(|_| {
+                self.gateway_deliver(
+                    target,
+                    envelope,
+                    message,
+                    crate::service::message_gateway::DeliveryClass::AgentTraffic,
+                )
+                .map(|_| {
                     self.emit_watcher_note(
                         pane_id,
                         format!("Nudge delivered to {target}: {message}"),
@@ -816,11 +870,24 @@ impl ServiceContext {
             .lock()
             .upsert(std::slice::from_ref(&note));
         }
+        let (source_session_id, session_binding_nonce) = self
+            .mux
+            .read()
+            .get_pane(pane_id)
+            .map(|pane| {
+                (
+                    pane.agent_session_id.clone(),
+                    pane.session_binding_nonce.clone(),
+                )
+            })
+            .unwrap_or((None, None));
         crate::service::pane_chat::structured_sink::emit_chat_msgs(
             &self.app_handle,
             pane_id,
             &[note],
             None,
+            source_session_id.as_deref(),
+            session_binding_nonce.as_deref(),
         );
     }
 }

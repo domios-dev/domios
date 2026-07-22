@@ -60,6 +60,10 @@ export interface LaunchParams {
   agentName?: string;
   sessionId?: string;
   task?: string;
+  /** Provider-visible wake-up turn, selected by the host's task-delivery policy. */
+  starterPrompt?: "assigned_task" | "idle_wakeup" | "team_bootstrap";
+  /** Host-owned text for starter prompts shared across providers. */
+  starterPromptText?: string;
   /// Fixed local server the host wants this agent's structured-prompt handle to
   /// listen on. Set only for providers that declare `supportsStructuredPrompts`;
   /// the plugin maps it to the provider's own server flags (opencode:
@@ -79,6 +83,7 @@ export interface ParsedPrompt {
 }
 
 export interface AgentProvider {
+  starterPromptText?(prompt: "assigned_task" | "idle_wakeup" | "team_bootstrap"): string | undefined;
   detectFromTitle?(title: string): boolean;
   detectFromOutput?(text: string): boolean;
   screenHasTui?(screen: string): boolean;
@@ -89,6 +94,7 @@ export interface AgentProvider {
   buildLaunchCommand?(params: LaunchParams): string;
   buildResumeCommand?(sessionId: string, skipPermissions?: boolean): string;
   buildPromptResponse?(optionIndex: number, screen?: string): string[];
+  directoryTrustPromptResponse?(prompt: ParsedPrompt, screen?: string): string[] | null;
   parsePrompt?(text: string): ParsedPrompt | null;
   sessionFilePath?(cwd: string, sessionId: string): string | null;
   sessionJsonlPath?(cwd: string, sessionId: string): string | null;
@@ -99,6 +105,11 @@ export interface AgentProvider {
   detectActiveSession?(cwd: string, currentSid?: string): string | null;
   detectSessionModel?(cwd: string, sessionId: string): string | null;
   enumerateSessions?(): unknown[];
+  describeSession?(filePath: string, head?: string): {
+    projectPath?: string;
+    title?: string;
+    summary?: string;
+  } | null;
   parseUsage?(rawText: string, nowMs: number): unknown;
   fetchUsage?(nowMs: number): unknown;
   discoverModels?(): ModelInfo[];
@@ -186,6 +197,22 @@ export interface Transcriber {
 
 // ── chatBackend (non-PTY chat transport; mirrors the ChatBackendProvider trait) ──
 
+export type ToolEventKind =
+  | "command"
+  | "edit"
+  | "read"
+  | "search"
+  | "task"
+  | "fetch"
+  | "codeterm"
+  | "generic";
+
+export interface ToolEdit {
+  path: string;
+  old: string;
+  new: string;
+}
+
 // Minimal shared chat shape mapped onto Rust ChatMsg. Only id/type/content are contractual; extra fields are allowed.
 export interface NormalizedChatMessage {
   id: string;
@@ -198,6 +225,11 @@ export interface NormalizedChatMessage {
   fromModel?: string;
   fromMesh?: string;
   inboundKind?: "pane" | "report" | "reminder" | "mesh" | "telegram";
+  /** Provider-neutral canonical tool metadata, available on any chat transport. */
+  toolKind?: ToolEventKind;
+  toolSummary?: string;
+  toolDetail?: string;
+  toolEdits?: ToolEdit[];
   toolError?: boolean;
 }
 

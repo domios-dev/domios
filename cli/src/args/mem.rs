@@ -227,7 +227,7 @@ pub enum MemAction {
         /// Append a per-item L1 score breakdown for debugging selection.
         #[arg(long)]
         explain: bool,
-        /// Current workspace id — boosts pinned-in-workspace items in L1.
+        /// Workspace override; defaults to the calling tab's workspace.
         #[arg(long)]
         workspace: Option<String>,
     },
@@ -271,11 +271,11 @@ pub enum MemAction {
     LearnList,
     /// Promote a learning to a fact (raises importance)
     LearnPromote { id: String },
-    /// Flush a pane's PTY scrollback as a kind=conversation mem_item
+    /// Flush a tab's PTY scrollback as a kind=conversation mem_item
     /// (called by PreCompact hook before context summarization).
     Flush {
-        /// Pane id (default: $CODETERM_PANE_ID)
-        #[arg(long)]
+        /// Tab id (default: $CODETERM_PANE_ID)
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
         /// Optional title hint
         #[arg(long)]

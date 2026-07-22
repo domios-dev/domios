@@ -16,6 +16,22 @@ export type ChatMessageKind =
 /** Lifecycle status of a `shell_command` chat item (OSC 133/633 boundaries). */
 export type ShellCommandStatus = "running" | "ok" | "failed";
 
+export type ToolEventKind =
+  | "command"
+  | "edit"
+  | "read"
+  | "search"
+  | "task"
+  | "fetch"
+  | "codeterm"
+  | "generic";
+
+export interface ToolEdit {
+  path: string;
+  old: string;
+  new: string;
+}
+
 export interface ChatAttachment {
   id: string;
   mimeType: string;
@@ -53,6 +69,9 @@ export interface NormalizedChatMessage {
    *  index, structured row position). Stable tiebreaker when timestamps are coarse
    *  (codex floors to seconds) or absent (cursor emits none) — see `mergeById`. */
   seq?: number;
+  /** Frontend join context for a parser sequence; sequence values repeat when a
+   * pane rotates to a new agent session. */
+  sourceSessionId?: string;
   /** Frontend-only arrival/send order hint for live optimistic merges. Providers
    *  do not emit this; refresh paths rely on `timestamp`/`seq` instead. */
   clientOrder?: number;
@@ -73,6 +92,10 @@ export interface NormalizedChatMessage {
   toolId?: string;
   toolResult?: string;
   toolError?: boolean;
+  toolKind?: ToolEventKind;
+  toolSummary?: string;
+  toolDetail?: string;
+  toolEdits?: ToolEdit[];
   collapsed?: boolean;
   duration?: string;
   payload?: unknown;

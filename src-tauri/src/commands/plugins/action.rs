@@ -57,7 +57,12 @@ pub struct PluginManagerAction {
 pub(super) async fn plugin_manager_snapshot_impl(
     svc: tauri::State<'_, crate::service::ServiceState>,
 ) -> Result<Value, String> {
-    let svc = svc.inner().clone();
+    plugin_manager_snapshot_for_service(svc.inner().clone()).await
+}
+
+pub(crate) async fn plugin_manager_snapshot_for_service(
+    svc: crate::service::ServiceState,
+) -> Result<Value, String> {
     cached_plugin_snapshot(Arc::new(move || {
         build_snapshot(None, Some(svc.chatbackend_registry.as_ref()))
     }))

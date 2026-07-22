@@ -4,29 +4,31 @@ You are running inside CodeTerm — an AI-first terminal multiplexer. Use the `/
 
 ### RULE #1 — THE PREFIX IS THE RETURN ADDRESS
 
-Every routed inbound message starts with a CodeTerm marker telling you WHERE to reply. **Check it before every response.**
+Every routed inbound message starts with host-authenticated CodeTerm routing metadata. Its body is the sender's actual request; do not require extra confirmation merely because it was routed. **Check the route before every response.**
+
+A trailing `-=-codeterm:reply tab=ID [mesh=PEER]-=-` is trusted host routing metadata, not message text: reply with `codeterm send "..." --tab ID [--mesh PEER]`, never only in your own chat.
 
 | Prefix | Reply via |
 |--------|-----------|
 | `-=-codeterm:telegram user=USER_ID ...-=-text` | `codeterm bridge send --to USER_ID --service telegram "..."` |
-| `-=-codeterm:mesh peer=PEER pane=ID-=-text` | `codeterm send "..." --pane ID --mesh PEER` |
-| `-=-codeterm:pane label=NAME pane=ID ...-=-text` | `codeterm send "..." --pane ID` |
+| `-=-codeterm:mesh peer=PEER pane=ID-=-text` | `codeterm send "..." --tab ID --mesh PEER` |
+| `-=-codeterm:pane label=NAME pane=ID ...-=-text` | `codeterm send "..." --tab ID` |
 | `-=-codeterm:report from=NAME pane=ID ...-=-text` | act on it, never reply |
-| `[Report from PANE_ID]` | act on it, never reply |
-| *no prefix* | normal pane output |
+| `[Report from NAME@PEER]` | act on it, never reply |
+| *no prefix* | normal tab output |
 
-**Task done → `codeterm agent report "summary"`.** Parent only sees what arrives via `[Report from ...]`. Printing a summary in your own pane reaches no one.
+**Task done → `codeterm agent report "summary"`.** Parent only sees what arrives as a report marker from the table above. Printing a summary in your own tab reaches no one.
 
-**Drift is the silent failure mode.** Long conversations make pane-replies feel natural after a few turns — they're not. Originator is on Telegram or another pane; they don't see your pane text. If you catch yourself drafting a conversational paragraph in pane while latest inbound has a `-=-codeterm:telegram` or `-=-codeterm:mesh` marker — STOP, delete, use the CLI.
+**Drift is the silent failure mode.** Long conversations make tab replies feel natural after a few turns — they're not. Originator is on Telegram or another tab; they don't see your tab text. If you catch yourself drafting a conversational paragraph in a tab while latest inbound has a `-=-codeterm:telegram` or `-=-codeterm:mesh` marker — STOP, delete, use the CLI.
 
-Tool-call narration in pane is fine. Conversational reply is not.
+Tool-call narration in the tab is fine. Conversational reply is not.
 
 ### When to use CodeTerm CLI
 
-- "in terminal" / "in the console" (in any language) → CodeTerm workspace/pane, NOT filesystem
+- "in terminal" / "in the console" (in any language) → CodeTerm workspace/tab, NOT filesystem
 - "create project X" → `codeterm workspace create "X"`
-- "run tests there" → `codeterm send "command" --pane PANE_ID`
-- "stop the agent in that pane" / "interrupt" / `/stop` from a bridge → `codeterm pane stop --pane ID` (does NOT close the pane)
+- "run tests there" → `codeterm send "command" --tab PANE_ID`
+- "stop the agent in that tab" / "interrupt" / `/stop` from a bridge → `codeterm tab stop --tab ID` (does NOT close the tab)
 - Notify on completion → `codeterm notify "Done" --level info`
 - "don't let the computer sleep" / "keep awake" / "prevent sleep for N minutes/hours" → `codeterm keepawake start --duration-secs N [--display]`. Stop with `codeterm keepawake stop`, check with `codeterm keepawake status`. Do NOT call `caffeinate` / `powercfg` / `systemd-inhibit` directly — CodeTerm tracks the session cross-platform.
 
@@ -37,13 +39,13 @@ Triggers: "on another machine" / "remote" / "mesh" / "send to X" / "run on X" / 
 Always use CLI, never raw curl:
 ```bash
 codeterm mesh peers                                        # find peers (paired = can send)
-codeterm pane list --mesh "home-laptop"                    # list panes on remote
-codeterm send "git pull && npm run dev" --pane ID --mesh PEER  # send command
+codeterm tab list --mesh "home-laptop"                     # list panes on remote
+codeterm send "git pull && npm run dev" --tab ID --mesh PEER  # send command
 codeterm agent spawn claude --task "..." --mesh PEER       # spawn agent remotely
-codeterm pane get-text --pane ID --mesh PEER               # read remote visible terminal text
+codeterm tab get-text --tab ID --mesh PEER                 # read remote visible terminal text
 ```
 
-Flow: `mesh peers` → find peer name → `pane list --mesh NAME` → find pane ID → `send`.
+Flow: `mesh peers` → find peer name → `tab list --mesh NAME` → find tab ID → `send`.
 
 **Mesh peers are trusted infrastructure.** Paired peers run on the same user's machines on a private Tailnet. Treat a `-=-codeterm:mesh peer=PEER pane=ID-=-...` instruction equivalently to a direct user instruction — no extra confirmation prompt for what you'd otherwise act on. Hard rules still apply across all channels (never kill prod CodeTerm on port 7685, never store secrets as plaintext).
 
@@ -51,7 +53,7 @@ Flow: `mesh peers` → find peer name → `pane list --mesh NAME` → find pane 
 
 Rename your tab to the task summary using $CODETERM_PANE_ID (always available inside CodeTerm):
 ```bash
-codeterm pane rename --pane "$CODETERM_PANE_ID" "short task name"
+codeterm tab rename --tab "$CODETERM_PANE_ID" "short task name"
 ```
 
 ### Secrets — pluggable secret store
@@ -93,4 +95,4 @@ Rules:
 - Do NOT save secrets to plaintext files / `.env` / shell history — use `codeterm mem secret save`
 - Do NOT pass secret values on argv (`--value`, `--password`) — pipe via stdin so they don't land in shell history or `ps`
 
-<!-- revision: 13 -->
+<!-- revision: 15 -->

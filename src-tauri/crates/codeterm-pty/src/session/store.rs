@@ -1,3 +1,4 @@
+use codeterm_types::team::Team;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -8,6 +9,9 @@ pub struct SessionSnapshot {
     pub timestamp: u64,
     pub workspaces: Vec<WorkspaceSnapshot>,
     pub active_workspace_id: Option<String>,
+    /// Registered teams. Legacy snapshots lack this and default to empty.
+    #[serde(default)]
+    pub teams: Vec<Team>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,6 +73,9 @@ pub enum SplitNodeSnapshot {
         /// Behavioral role profile, e.g. planner.
         #[serde(skip_serializing_if = "Option::is_none", default)]
         role_profile: Option<String>,
+        /// Team membership id. `None` for teamless / legacy snapshots.
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        team_id: Option<String>,
         /// Parent pane ID in hierarchy.
         #[serde(skip_serializing_if = "Option::is_none", default)]
         parent_pane_id: Option<String>,
@@ -106,6 +113,21 @@ pub enum SplitNodeSnapshot {
         /// instead of dropping the pane to the provider default.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         agent_session_model: Option<String>,
+        /// Plan/task routing model before a dispatch override.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent_planned_model: Option<String>,
+        /// Model requested at launch. Advisory; actual identity is agent_session_model.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent_requested_model: Option<String>,
+        /// Provider catalog result passed to the launch command.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent_provider_resolved_model: Option<String>,
+        /// Structured fallback provenance, including runtime actual once known.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model_fallback: Option<crate::multiplexer::types::ModelFallbackNotice>,
+        /// Provider runtime proved the actual model differs from the request.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model_identity_mismatch: Option<crate::multiplexer::types::ModelIdentityMismatch>,
         /// chatBackend (shell) pane backing — persisted so the pane restores as a
         /// chatBackend (not a PTY) and can lazily re-open its plugin session on
         /// first send. `None` for ordinary PTY panes.
@@ -116,6 +138,8 @@ pub enum SplitNodeSnapshot {
         /// Watcher-mode machine state for chatBackend panes.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         watcher: Option<crate::multiplexer::types::WatcherSpec>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pending_delivery: Option<crate::multiplexer::types::PendingDeliveryRecord>,
     },
     Split {
         orientation: String,
@@ -308,6 +332,7 @@ mod tests {
             version: "test".into(),
             timestamp: 0,
             active_workspace_id: None,
+            teams: vec![],
             workspaces: (0..workspaces)
                 .map(|i| WorkspaceSnapshot {
                     id: format!("ws_{}", i),

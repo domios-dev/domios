@@ -1,0 +1,1 @@
+codeterm usage latest and refresh must parse Codex /status, and common /stat-style user intent if routed there, reliably on Windows and macOS. Parsers must not accept loading or partial screens as valid snapshots, and percent-left gauges must remain stored as percent-used.

@@ -115,7 +115,7 @@ fn plan_delete_confirmation_flags_parse() {
 }
 
 #[test]
-fn plan_park_alias_parses_as_pause() {
+fn plan_pause_parses_without_park_alias() {
     #[derive(clap::Parser)]
     struct PlanOnly {
         #[command(subcommand)]
@@ -123,8 +123,8 @@ fn plan_park_alias_parses_as_pause() {
     }
 
     let parsed =
-        PlanOnly::try_parse_from(["plan", "park", "pl_1", "--reason", "waiting for quota"])
-            .expect("plan park alias parses");
+        PlanOnly::try_parse_from(["plan", "pause", "pl_1", "--reason", "waiting for quota"])
+            .expect("plan pause parses");
     match parsed.action {
         PlanAction::Pause { plan_id, reason } => {
             assert_eq!(plan_id, "pl_1");
@@ -197,6 +197,87 @@ fn plan_task_update_parses_quality_fields() {
         }
         _ => panic!("expected plan task update"),
     }
+}
+
+#[test]
+fn plan_task_update_parses_dependency_flags() {
+    let parsed = parse_plan_cli_result([
+        "codeterm",
+        "plan",
+        "task",
+        "update",
+        "pl_1",
+        "task_1",
+        "--depends-on",
+        "task_a",
+        "--depends-on",
+        "task_b",
+    ])
+    .expect("plan task update parses dependencies");
+    match parsed.command {
+        Commands::Plan {
+            action:
+                PlanAction::Task {
+                    action:
+                        crate::args::plan::PlanTaskAction::Update {
+                            depends_on,
+                            clear_dependencies,
+                            ..
+                        },
+                },
+        } => {
+            assert_eq!(depends_on, vec!["task_a", "task_b"]);
+            assert!(!clear_dependencies);
+        }
+        _ => panic!("expected plan task update"),
+    }
+}
+
+#[test]
+fn plan_task_update_parses_clear_dependencies_flag() {
+    let parsed = parse_plan_cli_result([
+        "codeterm",
+        "plan",
+        "task",
+        "update",
+        "pl_1",
+        "task_1",
+        "--clear-dependencies",
+    ])
+    .expect("plan task update parses clear dependencies");
+    match parsed.command {
+        Commands::Plan {
+            action:
+                PlanAction::Task {
+                    action:
+                        crate::args::plan::PlanTaskAction::Update {
+                            depends_on,
+                            clear_dependencies,
+                            ..
+                        },
+                },
+        } => {
+            assert!(depends_on.is_empty());
+            assert!(clear_dependencies);
+        }
+        _ => panic!("expected plan task update"),
+    }
+}
+
+#[test]
+fn plan_task_update_rejects_conflicting_dependency_flags() {
+    assert!(parse_plan_cli_result([
+        "codeterm",
+        "plan",
+        "task",
+        "update",
+        "pl_1",
+        "task_1",
+        "--depends-on",
+        "task_a",
+        "--clear-dependencies",
+    ])
+    .is_err());
 }
 
 #[test]

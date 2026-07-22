@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
 
-use crate::client::SocketClient;
+use crate::client::RpcClient;
 use crate::cmd::hints::{maybe_orchestration_reminder, push_hints};
 use crate::cmd::plan::call_plan_rpc;
 
@@ -46,7 +46,7 @@ fn implicit_key(plan_id: &str, seed: &Value) -> String {
 
 #[allow(clippy::too_many_arguments)]
 pub fn record(
-    client: &mut SocketClient,
+    client: &mut dyn RpcClient,
     plan_id: Option<String>,
     task: Option<String>,
     upsert_task: Option<String>,

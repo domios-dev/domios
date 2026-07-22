@@ -1,4 +1,40 @@
 // Detached NSIS install helper keeps running after CLI exits.
+#[cfg(target_os = "windows")]
+fn windows_continue_block(
+    cli_exe: &std::path::Path,
+    continue_file: &std::path::Path,
+    pane: &str,
+) -> String {
+    format!(
+        "echo [self-install] waiting for daemon API >> \"%LOG%\"\r\n\
+        set /a TRIES=0\r\n\
+        :wait_api\r\n\
+        curl -s -m 2 -o nul -w \"%%{{http_code}}\" http://127.0.0.1:7685/api/health > \"%TEMP%\\codeterm-health.txt\" 2>nul\r\n\
+        set /p HC=<\"%TEMP%\\codeterm-health.txt\"\r\n\
+        if \"%HC%\"==\"200\" goto api_ready\r\n\
+        set /a TRIES+=1\r\n\
+        if %TRIES% GEQ 60 goto api_timeout\r\n\
+        timeout /t 1 /nobreak > nul\r\n\
+        goto wait_api\r\n\
+        :api_timeout\r\n\
+        echo [self-install] daemon API never came up - continuation retained at {file} >> \"%LOG%\"\r\n\
+        goto cleanup\r\n\
+        :api_ready\r\n\
+        echo [self-install] daemon API ready, awaiting acknowledged continuation submit >> \"%LOG%\"\r\n\
+        \"{cli}\" send --tab {pane} --from-file \"{file}\" >> \"%LOG%\" 2>&1\r\n\
+        if errorlevel 1 goto continue_failed\r\n\
+        echo [self-install] continue prompt submission confirmed >> \"%LOG%\"\r\n\
+        del \"{file}\" 2>nul\r\n\
+        goto cleanup\r\n\
+        :continue_failed\r\n\
+        echo [self-install] continue prompt failed - continuation retained at {file} >> \"%LOG%\"\r\n\
+        :cleanup\r\n",
+        cli = cli_exe.display(),
+        pane = pane,
+        file = continue_file.display(),
+    )
+}
+
 // If continuation is set, wait for API readiness and forward text to `continue_pane`.
 #[cfg(target_os = "windows")]
 pub fn run_install_from_file(
@@ -31,7 +67,6 @@ pub fn run_install_from_file(
         std::env::temp_dir().join(format!("codeterm-self-install-{}.bat", std::process::id()));
 
     // Use a temp file for continuation text to avoid cmd.exe quoting issues.
-    // Resume from it with `--continue-from-file` after restart.
     let continue_file = continue_prompt.map(|text| {
         let p =
             std::env::temp_dir().join(format!("codeterm-continuation-{}.txt", std::process::id()));
@@ -40,31 +75,7 @@ pub fn run_install_from_file(
     });
 
     let continue_block = match (continue_file.as_ref(), continue_pane) {
-        (Some(file), Some(pane)) => format!(
-            "echo [self-install] waiting for daemon API >> \"%LOG%\"\r\n\
-            set /a TRIES=0\r\n\
-            :wait_api\r\n\
-            curl -s -m 2 -o nul -w \"%%{{http_code}}\" http://127.0.0.1:7685/api/health > \"%TEMP%\\codeterm-health.txt\" 2>nul\r\n\
-            set /p HC=<\"%TEMP%\\codeterm-health.txt\"\r\n\
-            if \"%HC%\"==\"200\" goto api_ready\r\n\
-            set /a TRIES+=1\r\n\
-            if %TRIES% GEQ 60 goto api_timeout\r\n\
-            timeout /t 1 /nobreak > nul\r\n\
-            goto wait_api\r\n\
-            :api_timeout\r\n\
-            echo [self-install] daemon API never came up — skipping continue prompt >> \"%LOG%\"\r\n\
-            goto cleanup\r\n\
-            :api_ready\r\n\
-            echo [self-install] daemon API ready, waiting 5s for shell+agent resume >> \"%LOG%\"\r\n\
-            timeout /t 5 /nobreak > nul\r\n\
-            \"{cli}\" send --pane {pane} --from-file \"{file}\" >> \"%LOG%\" 2>&1\r\n\
-            echo [self-install] continue prompt delivered >> \"%LOG%\"\r\n\
-            del \"{file}\" 2>nul\r\n\
-            :cleanup\r\n",
-            cli = cli_exe.display(),
-            pane = pane,
-            file = file.display(),
-        ),
+        (Some(file), Some(pane)) => windows_continue_block(&cli_exe, file, pane),
         _ => String::from(":cleanup\r\n"),
     };
 
@@ -72,15 +83,12 @@ pub fn run_install_from_file(
         "@echo off\r\n\
         set \"LOG={log}\"\r\n\
         echo [self-install] starting at %date% %time% > \"%LOG%\"\r\n\
-        timeout /t 2 /nobreak > nul\r\n\
         taskkill /F /IM codeterm.exe >> \"%LOG%\" 2>&1\r\n\
         taskkill /F /IM codeterm-embed.exe >> \"%LOG%\" 2>&1\r\n\
-        timeout /t 2 /nobreak > nul\r\n\
         echo [self-install] running installer >> \"%LOG%\"\r\n\
         \"{installer}\" /S >> \"%LOG%\" 2>&1\r\n\
         echo [self-install] installer exited %errorlevel% >> \"%LOG%\"\r\n\
-        timeout /t 1 /nobreak > nul\r\n\
-        start \"\" /B \"{target}\"\r\n\
+        start \"\" \"{target}\"\r\n\
         echo [self-install] launched {target} >> \"%LOG%\"\r\n\
         {continue_block}\
         del \"%~f0\" 2>nul\r\n",
@@ -104,7 +112,7 @@ pub fn run_install_from_file(
             continue_pane.unwrap_or("?")
         );
     } else if continue_prompt.is_some() {
-        eprintln!("[install --from-file] WARN: --continue-prompt set but no --continue-pane / $CODETERM_PANE_ID — prompt will be DROPPED");
+        eprintln!("[install --from-file] WARN: --continue-prompt set but no --continue-tab / $CODETERM_PANE_ID — prompt will be DROPPED");
     }
     eprintln!("[install --from-file] Detaching. Daemon will go down in ~2s.");
 
@@ -170,11 +178,13 @@ pub fn run_install_from_file(
              \x20 [ \"$code\" = 200 ] && break\n\
              \x20 sleep 1\n\
              done\n\
-             echo '[self-install] daemon healthy; waiting 5s for shell+agent resume'\n\
-             sleep 5\n\
-             \"{cli}\" send --pane {pane} --from-file \"{file}\"\n\
-             echo '[self-install] continue prompt delivered'\n\
-             rm -f \"{file}\"\n",
+             echo '[self-install] daemon healthy; awaiting acknowledged continuation submit'\n\
+             if \"{cli}\" send --tab {pane} --from-file \"{file}\"; then\n\
+             \x20 echo '[self-install] continue prompt submission confirmed'\n\
+             \x20 rm -f \"{file}\"\n\
+             else\n\
+             \x20 echo '[self-install] continue prompt failed; continuation retained at {file}'\n\
+             fi\n",
             cli = cli_exe.display(),
             pane = pane,
             file = file.display(),
@@ -274,6 +284,29 @@ pub fn run_install_from_file(
     }
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod tests {
+    use super::windows_continue_block;
+
+    #[test]
+    fn continuation_is_deleted_only_after_acknowledged_submit() {
+        let script = windows_continue_block(
+            std::path::Path::new("codeterm.exe"),
+            std::path::Path::new("continuation.txt"),
+            "pane-1",
+        );
+
+        assert!(script.contains("if errorlevel 1 goto continue_failed"));
+        assert!(script.contains("continue prompt submission confirmed"));
+        assert!(script.contains("continue prompt failed - continuation retained"));
+        assert!(!script.contains("waiting 5s"));
+        assert!(
+            script.find("if errorlevel 1").unwrap()
+                < script.find("del \"continuation.txt\"").unwrap()
+        );
+    }
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]

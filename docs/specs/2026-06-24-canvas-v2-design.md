@@ -182,7 +182,7 @@ codeterm task take  <task_id>                      # caller's pane (worker OR or
 codeterm task drop  <task_id>                      # release assignment
 codeterm task add   --name <n> --type <k> [...]    # standalone (lands in Inbox) — alias of plan task add w/o plan
 codeterm plan gaps  <plan_id>                      # sections with 0 tasks (what's left) — wraps coverage
-codeterm canvas focus [--task <id>|--pane <id>|--plan <id>]   # emit canvas-focus → camera + blink
+codeterm canvas focus [--task <id>|--tab <id>|--plan <id>]   # emit canvas-focus -> camera + blink
 ```
 - `task list --active` = not done/cancelled across all plans in the workspace project
   → "what's still in flight". `--mine` = assigned to the caller's pane/ancestors.
@@ -198,7 +198,7 @@ codeterm canvas focus [--task <id>|--pane <id>|--plan <id>]   # emit canvas-focu
 - **Orchestrator pane that owns ≥1 active plan → "Plan".** Click → focus canvas on
   its plans. **Pulses** on `plan-changed` for an owned plan; pulse clears on open.
 - **Worker pane bound to a task (`CODETERM_PLAN_ID`/`TASK_ID`) → "Tasks".** Click →
-  open canvas and `canvas focus --pane <self>`: camera fits + **blinks** this worker's
+  open canvas and `canvas focus --tab <self>`: camera fits + **blinks** this worker's
   task(s). Pulses on `plan-changed` touching its task.
 - **Neither → button hidden.** Workspace overview is reached by clicking the workspace
   (no pane focused), independent of these buttons.
@@ -1069,7 +1069,7 @@ native+JS parity is structural (`parity_test` asserts identical element + identi
 3. Daemon sends the provider fresh-context command to the SAME pane — `/new` for Claude-like providers,
    via the provider CAPABILITY (same path `agent compact` uses), never a hardcoded string in core.
 4. On `SessionStart` with a new session id ≠ source, daemon sends EXACTLY ONE lean seed via
-   `codeterm send --pane <self>`: "run `plan handoff show --latest` FIRST, load the orchestrator role
+   `codeterm send --tab <self>`: "run `plan handoff show --latest` FIRST, load the orchestrator role
    (docs/contributing/agents.md + AGENTS.md), `plan get`, resume from next_actions. Do not re-handoff."
 5. Guaranteed-read = it's the first and only instruction; the fresh agent's handoff-ack report flips
    `reseed_state`. Monotonic states created→new_sent→session_seen→resume_sent→acked; per-pane lock +
@@ -1689,3 +1689,5 @@ no-reflow, and the frontend-designer eye covers taste/vector-alignment tests can
 body → strides → into a stride. Deep zoom (to 1000%) is the granularity dial (§37.2). A node that
 just gets bigger with no new detail (or that reflows/garbles) fails the vector. This is the loop's
 north-star: zoom in and in and keep finding more, with the frame fixed and content adapting.
+
+<!-- revision: 1 -->

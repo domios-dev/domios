@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 
-use crate::client::SocketClient;
+use crate::client::RpcClient;
 use crate::cmd::plan::call_plan_rpc;
 use crate::cmd::task_list_render::{build_task_tree, task_str, task_value};
 use serde_json::{json, Value};
@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 const IN_PROGRESS_STATUSES: [&str; 3] = ["in_progress", "in_review", "blocked"];
 
 pub(crate) fn run(
-    client: &mut SocketClient,
+    client: &mut dyn RpcClient,
     json_output: bool,
     plan_id: Option<String>,
     all: bool,
@@ -21,7 +21,7 @@ pub(crate) fn run(
     if let Some(plan_id) = plan_id {
         params["plan_id"] = json!(plan_id);
     }
-    if !all {
+    if !all && !client.is_remote() {
         if let Some(project) = std::env::current_dir()
             .ok()
             .map(|path| path.display().to_string())

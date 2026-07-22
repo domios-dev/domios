@@ -18,11 +18,11 @@ if (-not $candidates -or $candidates.Count -eq 0) {
 
 $bash = $candidates[0]
 $repo = Split-Path -Parent $MyInvocation.MyCommand.Path
-$scriptArgs = @("-lc", "./build.sh $($BuildArgs -join ' ')")
-
 function Invoke-CdpReload {
   param([int]$TimeoutSeconds = 90)
-  $target_url = "http://127.0.0.1:1420/"
+  $vitePort = if ($env:CODETERM_VITE_PORT) { [int]$env:CODETERM_VITE_PORT } else { 1420 }
+  $cdpPort = if ($env:CODETERM_CDP_PORT) { [int]$env:CODETERM_CDP_PORT } else { 9223 }
+  $target_url = "http://127.0.0.1:$vitePort/"
   $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
 
   while ((Get-Date) -lt $deadline) {
@@ -36,7 +36,7 @@ function Invoke-CdpReload {
 
   while ((Get-Date) -lt $deadline) {
     try {
-      $targets = Invoke-RestMethod "http://127.0.0.1:9223/json"
+      $targets = Invoke-RestMethod "http://127.0.0.1:$cdpPort/json"
       $page = @($targets | Where-Object { $_.type -eq "page" })[0]
       if (-not $page) {
         Start-Sleep -Milliseconds 250
@@ -131,7 +131,7 @@ function Invoke-CdpReload {
 Push-Location $repo
 try {
   git config core.hooksPath .githooks 2>$null
-  & $bash @scriptArgs
+  & $bash "./build.sh" @BuildArgs
   $exitCode = $LASTEXITCODE
   if ($exitCode -eq 0 -and $BuildArgs.Count -gt 0 -and $BuildArgs[0] -eq "dev") {
     Invoke-CdpReload

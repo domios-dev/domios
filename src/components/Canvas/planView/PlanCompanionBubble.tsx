@@ -52,7 +52,7 @@ export function PlanCompanionBubble({
 
   const activePlan = useMemo(() => {
     const ordered = orderPlansByActivity(plans);
-    const id = selectDefaultPlanId(ordered, { planId, orchestratorPaneId, panes });
+    const id = selectDefaultPlanId(ordered, { planId, orchestratorPaneId, panes, workspaceId: undefined });
     return ordered.find((p) => p.id === id) ?? null;
   }, [plans, planId, orchestratorPaneId, panes]);
 

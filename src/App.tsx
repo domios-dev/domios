@@ -1,8 +1,9 @@
 import { memo, useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { invoke } from "./lib/bridge";
-import { IS_WEB } from "./lib/webApi";
+import { invoke, IS_WEB } from "./lib/bridge";
+import { buildTeamActions } from "./lib/teamActions";
 import { getCurrentPaneUiMode, listenPaneUiModeDefaultChanged } from "./lib/clientPaneUiMode";
 import { isChatDefaultEnabled } from "./lib/chatUiMode";
+import { pruneOrphanComposerDrafts } from "./lib/composerDraftGc";
 import { Titlebar } from "./components/Titlebar/Titlebar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { TabContent } from "./components/Terminal/TabContent";
@@ -12,19 +13,21 @@ import { MemoryPanel, type MemoryInitialState } from "./components/MemoryPanel/M
 import { MeshPanel } from "./components/MeshPanel/MeshPanel";
 import { ExtensionsView } from "./components/Extensions/ExtensionsView";
 import { PluginView } from "./components/Extensions/PluginView";
+import { pluginViewBelongsToActiveTab, pluginViewScope, type PluginViewScope } from "./components/Extensions/pluginViewScope";
 import { NavigationBackBar } from "./components/Navigation/NavigationBackBar";
 import { navigationStore } from "./components/Navigation/navigationStore";
 import { workerFocusStore } from "./components/MemoryPanel/workerFocusStore";
 import { CommandPalette, buildDefaultCommands } from "./components/CommandPalette/CommandPalette";
-import { CrashReportToast } from "./components/CrashReportToast";
+import { RecoveryStatusBanner } from "./components/CrashReportToast";
 import { StaleBuildBanner } from "./components/StaleBuildBanner";
 import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
-import { HamburgerIcon } from "./components/Icons";
 import { CanvasView } from "./components/Canvas/CanvasView";
 import { PlansProvider } from "./components/Canvas/PlansProvider";
 import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget, useCanvasWorkspaceDismissed, useCanvasWorkspaceOpen } from "./components/Canvas/canvasFocusStore";
 import { useConfig } from "./hooks/useConfig";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
+import { useTabPrewarm } from "./hooks/terminal/useTabPrewarm";
+import { usageTrackingOverrides } from "./components/Terminal/usageTracking";
 import { useAgentProviders } from "./hooks/useAgentProviders";
 import { usePluginProviderMetaSync } from "./hooks/usePluginProviderMeta";
 import { UpdateProvider } from "./hooks/useUpdate";
@@ -35,7 +38,7 @@ import {
   useMuxState,
 } from "./store/multiplexer";
 import { matchesBinding } from "./lib/keybindings";
-import { terminalFallbackData } from "./lib/terminalFallbackInput";
+import { forwardTerminalFallback } from "./lib/terminalFallbackInput";
 import { cacheThemeSnapshot, isLightColor, themeToCSS } from "./lib/themeCss";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { fontSizeToUiFontScale } from "./lib/uiFontScale";
@@ -58,11 +61,24 @@ function useStableJsonValue<T>(value: T): T {
 function AppInner() {
   useAgentProviders();
   usePluginProviderMetaSync();
+  useEffect(() => {
+    if (!IS_WEB) {
+      void (async () => {
+        const generation = await invoke<number>("frontend_readiness_generation");
+        const accepted = await invoke<boolean>("frontend_ready", { generation });
+        if (!accepted) throw new Error("frontend readiness generation was replaced");
+      })().catch((error) => {
+        console.warn("Unable to report frontend readiness", error);
+      });
+    }
+  }, []);
   const { activities: pluginActivities, displayMap: pluginActivityDisplayMap } = usePluginActivity();
   // Phones start with the sidebar collapsed; the hamburger opens it as an overlay (see the wrapper at the render site).
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window === "undefined" || window.innerWidth > 640,
   );
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+  const toggleSidebar = useCallback(() => setSidebarOpen((open) => !open), []);
   // On phones the sidebar is an overlay (≤640px) — collapse it right after a selection so picking a tab/panel is one tap, not two.
   const closeSidebarOnMobile = useCallback(() => {
     if (typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches) {
@@ -102,6 +118,7 @@ function AppInner() {
   const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "mesh" | "extensions">("workspace");
   const [pluginViewId, setPluginViewId] = useState<string | null>(null);
   const [pluginViewCwd, setPluginViewCwd] = useState<string | null>(null);
+  const [pluginViewOwner, setPluginViewOwner] = useState<PluginViewScope | null>(null);
   const [settingsSection, setSettingsSection] = useState<SectionId | undefined>(undefined);
   const [memoryInitial, setMemoryInitial] = useState<MemoryInitialState | undefined>(undefined);
   // Lazy-mount panels: mount once on first open, stay mounted for instant switching.
@@ -109,7 +126,6 @@ function AppInner() {
   const [mountedMemory, setMountedMemory] = useState(false);
   const [mountedMesh, setMountedMesh] = useState(false);
   const [mountedExtensions, setMountedExtensions] = useState(false);
-  const [mountedTabIds, setMountedTabIds] = useState<Set<string>>(() => new Set());
   useEffect(() => {
     if (mainView === "settings") setMountedSettings(true);
     if (mainView === "memory") setMountedMemory(true);
@@ -153,11 +169,7 @@ function AppInner() {
 
   // events on its own (the per-bubble `useConfig` was multiplying invokes by pane count and made the webview unresponsive after many resumes).
   const computedUsageEnabledByProvider = useMemo(() => {
-    const out: Record<string, boolean> = {};
-    for (const [pid, pc] of Object.entries(config.agents ?? {})) {
-      out[pid] = pc?.usage_tracking_enabled === true;
-    }
-    return out;
+    return usageTrackingOverrides(config.agents ?? {});
   }, [config.agents]);
   const usageEnabledByProvider = useStableJsonValue(computedUsageEnabledByProvider);
 
@@ -180,6 +192,9 @@ function AppInner() {
     setActiveTab,
     setFocusedPane,
     setPanePty,
+    markRead,
+    markAllRead,
+    deleteNotification,
     dismissToast,
     spawnClaudeTab,
   } = useMultiplexer();
@@ -197,6 +212,23 @@ function AppInner() {
 
   const stateRef = useRef(state);
   stateRef.current = state;
+  const teamActions = useMemo(
+    () => buildTeamActions({
+      invoke,
+    }),
+    [],
+  );
+
+  // Reclaim composer drafts left behind by closed panes so a reused/colliding
+  // pane id can never inherit a dead pane's unsent text.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      pruneOrphanComposerDrafts(window.localStorage, new Set(Object.keys(state.panes)));
+    } catch {
+      // Best-effort: draft GC must never break the app.
+    }
+  }, [state.panes]);
   const configRef = useRef(config);
   configRef.current = config;
 
@@ -214,6 +246,7 @@ function AppInner() {
           ? stateRef.current.panes[stateRef.current.focused_pane_id]
           : null;
         setPluginViewCwd(detail?.cwd || fp?.cwd || null);
+        setPluginViewOwner(pluginViewScope(stateRef.current.active_workspace_id, stateRef.current.activeTabIds));
         setPluginViewId(panel.slice("view:".length));
       } else if (panel === "extensions") {
         setExtensionsOpen(true);
@@ -266,6 +299,48 @@ function AppInner() {
     () => activeWs?.tabs.find((t) => t.id === state.activeTabIds[activeWs.id]),
     [activeWs, state.activeTabIds],
   );
+  const activePluginViewScope = useMemo(
+    () => pluginViewScope(state.active_workspace_id, state.activeTabIds),
+    [state.active_workspace_id, state.activeTabIds],
+  );
+  const closePluginView = useCallback(() => {
+    setPluginViewId(null);
+    setPluginViewCwd(null);
+    setPluginViewOwner(null);
+  }, []);
+  useEffect(() => {
+    if (pluginViewId && !pluginViewBelongsToActiveTab(pluginViewOwner, activePluginViewScope)) {
+      closePluginView();
+    }
+  }, [activePluginViewScope, closePluginView, pluginViewId, pluginViewOwner]);
+  const prewarmBackendTab = useCallback(async (tabId: string) => {
+    const current = stateRef.current;
+    const tab = current.workspaces.flatMap((ws) => ws.tabs).find((candidate) => candidate.id === tabId);
+    if (!tab) return;
+    const pane = current.panes[tab.pane_id];
+    if (!pane || pane.backing?.kind === "chat_backend" || !pane.agent_type) return;
+    await invoke("spawn_pty", {
+      paneId: pane.id,
+      cwd: pane.cwd ?? undefined,
+      cols: 120,
+      rows: 30,
+    }).catch((error) => {
+      console.warn(`[prewarm] failed to activate backend for tab ${tabId}:`, error);
+    });
+  }, []);
+  const prewarmTabIds = useTabPrewarm({
+    workspaceId: activeWs?.id ?? null,
+    activeTabId: activeTab?.id ?? null,
+    tabIds:
+      activeWs?.tabs
+        .filter((tab) => {
+          const pane = state.panes[tab.pane_id];
+          return pane && !(activeWs.protected === true && pane.protected === true);
+        })
+        .map((tab) => tab.id) ?? [],
+    liveTabIds: state.workspaces.flatMap((ws) => ws.tabs.map((tab) => tab.id)),
+    prewarmTab: prewarmBackendTab,
+  });
   const showWorkspaceCanvas =
     mainView === "workspace" && !pluginViewId && activeWs != null && !activeTab;
   const workspaceCanvasOpen = useCanvasWorkspaceOpen();
@@ -288,31 +363,6 @@ function AppInner() {
   }, [activeTab]);
   const canvasFocusOpen = useCanvasFocusOpen();
   const canvasFocusTarget = useCanvasFocusTarget();
-  useEffect(() => {
-    if (!activeTab?.id) return;
-    setMountedTabIds((prev) => {
-      if (prev.has(activeTab.id)) return prev;
-      const next = new Set(prev);
-      next.add(activeTab.id);
-      return next;
-    });
-  }, [activeTab?.id]);
-  useEffect(() => {
-    const liveTabIds = new Set(state.workspaces.flatMap((ws) => ws.tabs.map((tab) => tab.id)));
-    setMountedTabIds((prev) => {
-      let changed = false;
-      const next = new Set<string>();
-      for (const id of prev) {
-        if (liveTabIds.has(id)) {
-          next.add(id);
-        } else {
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [state.workspaces]);
-
   const handleNewTab = useCallback(() => {
     if (!activeWs) return;
     const focusedPane = state.focused_pane_id ? state.panes[state.focused_pane_id] : null;
@@ -393,20 +443,14 @@ function AppInner() {
       // FALLBACK: If xterm.js textarea doesn't have focus, send keys directly to PTY.
       // Skip when the focused pane is in Chat UI mode — keys shouldn't leak into the PTY.
       const active = document.activeElement;
-      const isXtermFocused = active?.classList.contains("xterm-helper-textarea");
-      const isInputFocused = active?.tagName === "INPUT" || active?.tagName === "TEXTAREA" || active?.getAttribute("contenteditable") === "true";
-      if (!isXtermFocused && !isInputFocused && stateRef.current.focused_pane_id) {
+      if (stateRef.current.focused_pane_id) {
         const focusedPaneId = stateRef.current.focused_pane_id;
         const paneUiMode = getCurrentPaneUiMode(focusedPaneId)
           ?? (stateRef.current.panes[focusedPaneId]?.chat_view ? "chat" : "terminal");
         if (paneUiMode === "chat") return;
         const pane = stateRef.current.panes[focusedPaneId];
         if (pane?.pty_id) {
-          const data = terminalFallbackData(e);
-          if (data) {
-            e.preventDefault();
-            invoke("write_pty_string", { ptyId: pane.pty_id, data });
-          }
+          forwardTerminalFallback(e, active, (data) => invoke("write_pty_string", { ptyId: pane.pty_id, data }));
         }
       }
     };
@@ -459,42 +503,22 @@ function AppInner() {
       {/* Native + web mirror share one titlebar strip (parity decision A) — its
           own --ct-safe-top padding covers the web notch/status-bar inset. */}
       <Titlebar
-        onToggleSidebar={() => setSidebarOpen((v) => !v)}
+        onToggleSidebar={toggleSidebar}
+        showSidebarToggle={!sidebarOpen}
         onNewTab={handleNewTab}
         theme={stableTheme}
         onOpenSettingsAbout={() => { setSettingsSection("about"); setSettingsOpen(true); }}
         onOpenSettings={(section) => { setSettingsSection(section); setSettingsOpen(true); }}
         onOpenExtensions={() => { setExtensionsOpen(true); }}
-        workspaceCanvasActive={workspaceCanvasVisible}
+        notifications={state.notifications}
         toasts={state.toasts}
+        onMarkNotificationRead={markRead}
+        onMarkAllNotificationsRead={markAllRead}
+        onDeleteNotification={deleteNotification}
         onDismissToast={dismissToast}
         onNavigateToast={setFocusedPane}
+        workspaceCanvasActive={workspaceCanvasVisible}
       />
-      {IS_WEB && !sidebarOpen && (
-        <button
-          data-testid="web-sidebar-open"
-          onClick={() => setSidebarOpen(true)}
-          className="fixed left-3 z-50 flex items-center justify-center rounded-full active:scale-95"
-          style={{
-            // Explicit size, NOT Tailwind h-11/w-11 — the phone button-shrink rule (button.h-11{height!important}) would squash it into an ellipse.
-            width: "2.75rem",
-            height: "2.75rem",
-            aspectRatio: "1 / 1",
-            top:
-              mainView === "workspace"
-                ? "calc(2rem + var(--ct-safe-top, 0px) + 2.6rem)"
-                : "calc(2rem + var(--ct-safe-top, 0px) + 3.65rem)",
-            background: "var(--ct-accent)",
-            color: "var(--ct-bg)",
-            border: "1px solid color-mix(in srgb, var(--ct-fg) 18%, transparent)",
-            transition: "top 340ms cubic-bezier(0.16, 1, 0.3, 1), transform 120ms ease",
-          }}
-          title="Open sidebar"
-        >
-          <HamburgerIcon size={17} />
-        </button>
-      )}
-
       <PlansProvider api={stableApiConfig}>
       <div className="flex flex-1 min-h-0 relative">
         {sidebarMounted && (
@@ -504,10 +528,17 @@ function AppInner() {
             <div
               className={`sm:hidden fixed inset-0 z-30 bg-black/40 ct-sidebar-backdrop ${sidebarShown ? "is-open" : ""}`}
               onClick={() => setSidebarOpen(false)}
+              aria-hidden={!sidebarShown}
+              style={{ pointerEvents: sidebarShown ? "auto" : "none" }}
             />
             {/* Fixed overlay escapes #root's safe-area padding — re-add it here. */}
-            <div className={`ct-sidebar-drawer ${sidebarShown ? "is-open" : ""} max-sm:fixed max-sm:inset-y-0 max-sm:left-0 max-sm:z-40 max-sm:shadow-2xl max-sm:pt-[var(--ct-safe-top,0px)] max-sm:pb-[var(--ct-safe-bottom,0px)] max-sm:bg-[var(--ct-sidebar-bg)] flex min-h-0 overflow-visible`}>
+            <div
+              className={`ct-sidebar-drawer ${sidebarShown ? "is-open" : ""} max-sm:fixed max-sm:inset-y-0 max-sm:left-0 max-sm:z-40 max-sm:shadow-2xl max-sm:pt-[var(--ct-safe-top,0px)] max-sm:pb-[var(--ct-safe-bottom,0px)] max-sm:bg-[var(--ct-sidebar-bg)] flex min-h-0 overflow-visible`}
+              aria-hidden={!sidebarShown}
+              inert={!sidebarShown || undefined}
+            >
               <Sidebar
+                onCollapse={closeSidebar}
                 onOpenMemory={() => { setMemoryOpen(true); closeSidebarOnMobile(); }}
                 onOpenMesh={() => { setMeshOpen(true); closeSidebarOnMobile(); }}
                 onOpenExtensions={() => { setExtensionsOpen(true); closeSidebarOnMobile(); }}
@@ -516,6 +547,7 @@ function AppInner() {
                 config={config}
                 uiFontScale={uiFontScale}
                 workspaceCanvasActive={workspaceCanvasVisible}
+                teamActions={teamActions}
               />
             </div>
           </>
@@ -527,7 +559,12 @@ function AppInner() {
               Unmounting the workspace would tear down xterm + re-run get_pane_text
               on return, blocking the main thread with MB of escape codes. */}
           {mountedSettings && (
-            <div className="absolute inset-0" style={viewLayerStyle(mainView === "settings")}>
+            <div
+              className="absolute inset-0"
+              style={viewLayerStyle(mainView === "settings")}
+              aria-hidden={mainView !== "settings"}
+              inert={mainView !== "settings" || undefined}
+            >
               <SettingsPanel
                 config={config}
                 onUpdateConfig={updateConfig}
@@ -537,7 +574,12 @@ function AppInner() {
             </div>
           )}
           {mountedMemory && (
-            <div className="absolute inset-0" style={viewLayerStyle(mainView === "memory")}>
+            <div
+              className="absolute inset-0"
+              style={viewLayerStyle(mainView === "memory")}
+              aria-hidden={mainView !== "memory"}
+              inert={mainView !== "memory" || undefined}
+            >
               <MemoryPanel
                 api={stableApiConfig}
                 onClose={() => {
@@ -552,7 +594,12 @@ function AppInner() {
             </div>
           )}
           {mountedMesh && (
-            <div className="absolute inset-0" style={viewLayerStyle(mainView === "mesh")}>
+            <div
+              className="absolute inset-0"
+              style={viewLayerStyle(mainView === "mesh")}
+              aria-hidden={mainView !== "mesh"}
+              inert={mainView !== "mesh" || undefined}
+            >
               <MeshPanel
                 api={stableApiConfig}
                 config={config}
@@ -562,7 +609,12 @@ function AppInner() {
             </div>
           )}
           {mountedExtensions && (
-            <div className="absolute inset-0" style={viewLayerStyle(mainView === "extensions")}>
+            <div
+              className="absolute inset-0"
+              style={viewLayerStyle(mainView === "extensions")}
+              aria-hidden={mainView !== "extensions"}
+              inert={mainView !== "extensions" || undefined}
+            >
               <ExtensionsView
                 visible={mainView === "extensions"}
                 pluginActivities={pluginActivities}
@@ -572,7 +624,7 @@ function AppInner() {
           )}
           {pluginViewId && (
             <div className="absolute inset-0 z-30">
-              <PluginView pluginId={pluginViewId} api={config.api} cwd={pluginViewCwd} onClose={() => setPluginViewId(null)} />
+              <PluginView pluginId={pluginViewId} api={config.api} cwd={pluginViewCwd} onClose={closePluginView} />
             </div>
           )}
           {showInlineWorkspaceCanvas && (
@@ -612,7 +664,7 @@ function AppInner() {
                 // lazy — mount it on boot so its chat/SSE state is live.
                 const isMainTab =
                   ws.protected === true && state.panes[tab.pane_id]?.protected === true;
-                const shouldMountTab = isActiveTab || isMainTab || mountedTabIds.has(tab.id);
+                const shouldMountTab = isActiveTab || isMainTab || prewarmTabIds.has(tab.id);
                 if (!shouldMountTab) return null;
                 const isVisible = mainView === "workspace" && !pluginViewId && isActiveTab;
                 return (
@@ -629,8 +681,6 @@ function AppInner() {
               >
                 <MemoizedTabContent
                   pane={state.panes[tab.pane_id]}
-                  workspaceId={ws.id}
-                  tabId={tab.id}
                   isFocused={state.focused_pane_id === tab.pane_id}
                   onFocusPane={setFocusedPane}
                   onPtySpawned={handlePtySpawned}
@@ -644,7 +694,6 @@ function AppInner() {
                   isVisible={isVisible}
                   chatFirst={chatPaneDefault}
                   chatDefaultPrompted={chatDefaultPrompted}
-                  agentsConfig={config.agents}
                 />
               </div>
                 );
@@ -660,7 +709,7 @@ function AppInner() {
 
       <CommandPalette commands={paletteCommands} />
 
-      <CrashReportToast />
+      <RecoveryStatusBanner />
 
       <StaleBuildBanner />
 

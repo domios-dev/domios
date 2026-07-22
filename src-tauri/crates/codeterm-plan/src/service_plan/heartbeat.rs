@@ -145,6 +145,18 @@ fn render_qa_queue(plan: &Plan, out: &mut String) {
     }
 }
 
+fn render_review_gate(plan: &Plan, out: &mut String) {
+    let status = super::review_gate::review_gate_status(plan);
+    if !status.blocked {
+        return;
+    }
+    out.push_str("Review backpressure:\n");
+    out.push_str(&format!(
+        "- {}\n",
+        status.reason.as_deref().unwrap_or("review_wip_exceeded")
+    ));
+}
+
 fn render_regression_gates(plan: &Plan, out: &mut String) {
     let gates = super::milestone_gates::pending_regression_gates(plan);
     if gates.is_empty() {
@@ -217,9 +229,12 @@ fn role_identity_line(plan: &Plan, pane_id: Option<&str>) -> String {
     let peer_text = peer
         .map(|pane| format!("; peer tab {peer_role} is pane {pane}"))
         .unwrap_or_else(|| format!("; peer tab {peer_role} is unbound"));
-    format!(
-        "<codeterm-role-identity plan=\"{}\">\nYou are the {role} for plan {}{peer_text}.\n</codeterm-role-identity>",
-        plan.id, plan.id
+    codeterm_types::agent::role_identity::render(
+        codeterm_types::agent::role_identity::RoleIdentity::Heartbeat {
+            role,
+            plan_id: &plan.id,
+            peer_text: &peer_text,
+        },
     )
 }
 
@@ -257,6 +272,7 @@ fn render_heartbeat(
     });
     let has_open_gates = plan.gates.iter().any(|g| g.is_open());
     let has_regression_gates = !super::milestone_gates::pending_regression_gates(plan).is_empty();
+    let has_review_gate = super::review_gate::review_gate_status(plan).blocked;
     let has_reflection =
         !super::reflection::pending_reflections(plan, reflect_every_gates()).is_empty();
     let has_digests = !extra_digest_lines.is_empty();
@@ -269,6 +285,7 @@ fn render_heartbeat(
         && !has_qa
         && !has_open_gates
         && !has_regression_gates
+        && !has_review_gate
         && !has_reflection
         && !has_digests
     {
@@ -305,6 +322,7 @@ fn render_heartbeat(
         }
     }
     render_qa_queue(plan, &mut out);
+    render_review_gate(plan, &mut out);
     render_regression_gates(plan, &mut out);
     super::reflection::render_reflection(plan, reflect_every_gates(), &mut out);
     render_competitive_attempts(plan, &mut out);
@@ -334,15 +352,15 @@ fn render_heartbeat(
 pub(super) fn reconciliation_prompt(plan_id: &str, pane_id: Option<&str>) -> String {
     let reports = pane_id.map_or_else(
         || "codeterm agent reports".to_string(),
-        |pane| format!("codeterm agent reports --pane {pane}"),
+        |pane| format!("codeterm agent reports --tab {pane}"),
     );
     let status = pane_id.map_or_else(
         || format!("codeterm orchestrator status --plan {plan_id} --json"),
-        |pane| format!("codeterm orchestrator status --plan {plan_id} --pane {pane} --json"),
+        |pane| format!("codeterm orchestrator status --plan {plan_id} --tab {pane} --json"),
     );
     format!(
         "STATE-RECONCILIATION:\n\
-         - This pane owns an execution-mode plan with unfinished work; do not park while open tasks remain.\n\
+         - This pane owns an execution-mode plan with unfinished work; do not pause while open tasks remain.\n\
          - If you forgot how to orchestrate, read `codeterm docs ORCHESTRATION` first.\n\
          - First run `{reports}` and process queued reports before inspecting panes.\n\
          - Pull the full plan-owned snapshot with `{status}`.\n\
@@ -350,7 +368,7 @@ pub(super) fn reconciliation_prompt(plan_id: &str, pane_id: Option<&str>) -> Str
          - {} \n\
          - Parallelize independent writer lanes, but serialize broad/heavy gates in one warm integration checkout so worker worktrees do not all rebuild/test at once.\n\
          - Close verified tasks with `codeterm plan task close {plan_id} <task_id>`.\n\
-         - Bounce incomplete work with `codeterm send \"<next concrete instruction>\" --pane <worker_pane_id>` and record `codeterm plan record {plan_id} --task <task_id> --step decision:<text>`.\n\
+         - Bounce incomplete work with `codeterm send \"<next concrete instruction>\" --tab <worker_tab_id>` and record `codeterm plan record {plan_id} --task <task_id> --step decision:<text>`.\n\
          - Clean finished lane worktrees/branches/dev daemons, then record `codeterm plan task update {plan_id} <task_id> --cleanup-status done` or why cleanup is deferred.\n\
          - Keep the plan-owned heartbeat current with `codeterm orchestrator heartbeat set --plan {plan_id} --focus \"<now>\" --lane \"<active-lane>\"`.",
         super::prompts_plan::QA_PIPELINE_DISCIPLINE.trim()

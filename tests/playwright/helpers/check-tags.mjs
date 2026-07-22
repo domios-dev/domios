@@ -5,7 +5,7 @@ import ts from "typescript";
 
 const suitesDir = fileURLToPath(new URL("../suites", import.meta.url));
 const baselinePath = fileURLToPath(new URL("./check-tags-baseline.txt", import.meta.url));
-const tagRe = /@(smoke|golden|quarantine)/;
+const tagRe = /@(smoke|golden|perf|live|stub|quarantine)/;
 const quarantineTaskRe = /(?:task_[a-z0-9]+|#[0-9]+)/i;
 const strictEnv = process.env.PW_LINT_STRICT ?? process.env.PLAYWRIGHT_STRICT_LINT;
 const strictEnabled = !/^(0|false|no)$/i.test(strictEnv ?? "");
@@ -138,7 +138,7 @@ function checkFile(file) {
     if (isTestCall(node)) {
       const title = titleFromArg(node.arguments[0]);
       if (title !== null && !tagRe.test(title)) {
-        add(node, "Playwright test title is missing @smoke, @golden, or @quarantine.");
+        add(node, "Playwright test title is missing a project tag.");
       }
       if (title !== null && /@quarantine/.test(title) && !quarantineTaskRe.test(title)) {
         add(node, "Quarantined Playwright test title must include task_<id> or #<issue>.");

@@ -2,7 +2,7 @@ import React from "react";
 import type { CodetermInvocation } from "./recognize";
 import { parseSend, type PaneNameResolver } from "./templates";
 import { RichMarkdown } from "../MarkdownBody";
-import { LinkedText, type OpenPlan } from "./LinkedText";
+import { LinkedText, type OpenPlan, type ResolvedChatPlanRef } from "./LinkedText";
 import { hasPlanRefs } from "./planRefs";
 import { pickUiFontScaleValue } from "../uiFontScale";
 import { CrossPaneMessageShell } from "../crossPaneBubble";
@@ -12,6 +12,7 @@ interface Props {
   result?: string;
   resolvePaneName?: PaneNameResolver;
   onOpenPlan?: OpenPlan;
+  resolvePlanRef?: (planId: string, focusId?: string, focusKind?: "plan" | "task" | "section") => ResolvedChatPlanRef | null;
   fontScale?: number;
 }
 
@@ -21,7 +22,7 @@ function bodyLineCount(body: string): number {
   return body.split("\n").length;
 }
 
-export function SentMessageBubble({ inv, result, resolvePaneName, onOpenPlan, fontScale }: Props) {
+export function SentMessageBubble({ inv, result, resolvePaneName, onOpenPlan, resolvePlanRef, fontScale }: Props) {
   const msg = parseSend(inv, result, resolvePaneName);
   const collapsible = bodyLineCount(msg.body) > COLLAPSE_LINES;
   const [expanded, setExpanded] = React.useState(false);
@@ -74,7 +75,7 @@ export function SentMessageBubble({ inv, result, resolvePaneName, onOpenPlan, fo
       }
     >
       {hasPlanRefs(shown) ? (
-        <LinkedText text={shown} onOpenPlan={onOpenPlan} />
+        <LinkedText text={shown} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
       ) : (
         <RichMarkdown text={shown} fontScale={fontScale} />
       )}

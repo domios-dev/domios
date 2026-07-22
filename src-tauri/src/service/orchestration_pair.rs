@@ -9,9 +9,12 @@
 use serde::{Deserialize, Serialize};
 
 use crate::plan::{OrchestratorRef, PlannerRef};
-use crate::service::messenger::{MessageEnvelope, Messenger};
+use crate::service::messenger::MessageEnvelope;
 use crate::service::orchestrator::SpawnAgentParams;
 use crate::service::ServiceContext;
+
+const PAIR_AGENT_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
+const PAIR_API_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(75);
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct OrchestrationPairParams {
@@ -20,7 +23,6 @@ pub struct OrchestrationPairParams {
     pub planner_agent: String,
     pub planner_model: Option<String>,
     pub workspace_id: Option<String>,
-    pub title: Option<String>,
     pub spawned_by_pane_id: Option<String>,
     /// Blank picker tab to claim for the Orchestrator in place, instead of
     /// spawning it as a brand-new tab (new-session picker confirm path).
@@ -48,66 +50,6 @@ pub struct OrchestrationPairResult {
     pub budget_notice: Option<crate::service::pane_budget::PaneBudgetNotice>,
 }
 
-fn epoch_ms() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
-
-/// Default plan title for a pair created without an explicit one. Carries the
-/// workspace name + a timestamp so many pairs stay distinguishable instead of
-/// piling up as identical bare "Orchestration" rows.
-fn default_orchestration_plan_title(workspace_name: &str, now_ms: u64) -> String {
-    let stamp = chrono::DateTime::from_timestamp_millis(now_ms as i64)
-        .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
-        .unwrap_or_default();
-    let name = workspace_name.trim();
-    match (name.is_empty(), stamp.is_empty()) {
-        (true, true) => "Orchestration".to_string(),
-        (true, false) => format!("Orchestration — {stamp}"),
-        (false, true) => format!("Orchestration — {name}"),
-        (false, false) => format!("Orchestration — {name} {stamp}"),
-    }
-}
-
-/// Orchestrator's first task. Unlike the generic promotion mandate
-/// ([`crate::prompts::peer_pairing_mandate_full`]), this flow has ALREADY
-/// spawned the Planner synchronously by the time the Orchestrator reads this
-/// — the generic "spawn it if not live" instruction previously caused a live
-/// model to race ahead and spawn a redundant, mis-parented Planner of its own
-/// (observed live: `codeterm agent spawn ... --role Planner` with no
-/// `--parent`, immediately after the real one was already bound) before the
-/// async "Planner is live" follow-up could reach it. Tell it plainly not to.
-fn orchestrator_pair_task() -> String {
-    format!(
-        "You are the Orchestrator for a fresh paired session. No plan exists yet. A Planner \
-         specialist is being spawned and parented to your pane automatically as part of this \
-         request — do NOT run `codeterm agent spawn` yourself to create it; wait for the \
-         follow-up message naming its live pane id.\n\n\
-         First set your GOAL with CodeTerm (`codeterm plan goal set` or create the plan first); \
-         that first goal/plan create lazily creates and claims the plan, then binds the paired \
-         Planner. Until the user states a goal, WAIT.\n\n\
-         ## Planner attachment\n\n\
-         The plan will have an attached Planner specialist after the first goal/plan create. \
-         The Orchestrator is the single authority for structure, execution, and acceptance. \
-         Do not treat the Planner as a co-owner.\n\n\
-         {}\n{}",
-        crate::prompts::PEER_PLANNER_CHARTER_LINE,
-        crate::prompts::PEER_ORCH_DEFERENCE_LINE,
-    )
-}
-
-/// Follow-up delivered to the Orchestrator once the Planner spawn succeeds —
-/// the first point both real pane ids are known.
-fn orchestrator_pair_followup_ready(planner_pane_id: &str) -> String {
-    format!(
-        "Your Planner specialist is live: pane {planner_pane_id}. No plan exists yet; your first goal/plan create will claim the plan and bind this Planner. {}",
-        crate::prompts::PEER_ORCH_DEFERENCE_LINE
-    )
-}
-
 /// The exact command to finish a degraded pair by hand, using the real
 /// requested provider/model rather than a hardcoded default.
 fn degraded_fix_command(
@@ -121,6 +63,28 @@ fn degraded_fix_command(
         .unwrap_or_default();
     format!(
         "codeterm agent spawn {planner_agent}{model_flag} --parent {orch_pane_id} --role Planner"
+    )
+}
+
+fn pair_retry_command(
+    workspace_id: &str,
+    orchestrator_agent: &str,
+    orchestrator_model: Option<&str>,
+    planner_agent: &str,
+    planner_model: Option<&str>,
+) -> String {
+    let provider_spec = |provider: &str, model: Option<&str>| match model
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+    {
+        Some(model) => format!("{provider}:{model}"),
+        None => provider.to_string(),
+    };
+    format!(
+        "codeterm orchestration new --orchestrator {} --planner {} --workspace {}",
+        provider_spec(orchestrator_agent, orchestrator_model),
+        provider_spec(planner_agent, planner_model),
+        workspace_id
     )
 }
 
@@ -143,6 +107,59 @@ fn derive_planner_name<'a>(
     "Specialist".to_string()
 }
 
+struct ReservedPairTabs {
+    orchestrator_tab_id: String,
+    orchestrator_pane_id: String,
+    planner_tab_id: String,
+    planner_pane_id: String,
+    planner_name: String,
+}
+
+fn reserve_pair_tabs(
+    mux: &mut crate::multiplexer::state::MultiplexerState,
+    workspace_id: &str,
+    existing_orchestrator_tab_id: Option<&str>,
+) -> Result<ReservedPairTabs, String> {
+    let (orchestrator_tab_id, orchestrator_pane_id) = match existing_orchestrator_tab_id {
+        Some(tab_id) => mux.claim_existing_tab(workspace_id, tab_id)?,
+        None => mux.create_tab(workspace_id)?,
+    };
+    let orchestrator_label = mux.display_label_for_pane(&orchestrator_pane_id);
+    let existing_titles: Vec<String> = mux
+        .get_workspace(workspace_id)
+        .into_iter()
+        .flat_map(|workspace| workspace.tabs.iter())
+        .filter_map(|tab| mux.get_pane(&tab.pane_id).map(|pane| pane.title.clone()))
+        .collect();
+    let planner_name = derive_planner_name(
+        existing_titles.iter().map(String::as_str),
+        &orchestrator_label,
+    );
+    let (planner_tab_id, planner_pane_id) = mux.create_tab(workspace_id)?;
+    mux.rename_pane_at_level(
+        &planner_pane_id,
+        &planner_name,
+        crate::multiplexer::types::TitleLevel::User,
+    )?;
+    for pane_id in [&orchestrator_pane_id, &planner_pane_id] {
+        if let Some(pane) = mux.get_pane_mut(pane_id) {
+            pane.agent_booting = true;
+            crate::service::boot_stage::apply_boot_stage(
+                pane,
+                codeterm_types::pty::BootStage::PtyStarting,
+                None,
+            );
+        }
+    }
+    Ok(ReservedPairTabs {
+        orchestrator_tab_id,
+        orchestrator_pane_id,
+        planner_tab_id,
+        planner_pane_id,
+        planner_name,
+    })
+}
+
 fn orchestrator_pair_followup_degraded(fix_command: &str, error: &str) -> String {
     format!(
         "Planner spawn failed ({error}). No plan exists yet and there is no live Planner specialist.\n\n{}\n\nAfter setting a goal, complete attachment with:\n  {fix_command}",
@@ -150,7 +167,131 @@ fn orchestrator_pair_followup_degraded(fix_command: &str, error: &str) -> String
     )
 }
 
+fn pair_agent_state_allows_followup(
+    booting: bool,
+    boot_stage: Option<codeterm_types::pty::BootStage>,
+    is_chat_backend: bool,
+    tui_visible: bool,
+) -> bool {
+    !booting
+        && boot_stage == Some(codeterm_types::pty::BootStage::AgentReady)
+        && (is_chat_backend || tui_visible)
+}
+
 impl ServiceContext {
+    fn pair_agent_live_now(&self, pane_id: &str, provider: &str) -> bool {
+        let (booting, boot_stage, backing, pty_id) = {
+            let mux = self.mux.read();
+            let Some(pane) = mux.get_pane(pane_id) else {
+                return false;
+            };
+            (
+                pane.agent_booting,
+                pane.boot_stage,
+                pane.backing.clone(),
+                pane.pty_id.clone(),
+            )
+        };
+        let is_chat_backend = matches!(
+            backing,
+            crate::multiplexer::types::PaneBacking::ChatBackend { .. }
+        );
+        if is_chat_backend {
+            return pair_agent_state_allows_followup(booting, boot_stage, true, false);
+        }
+        let Some(pty_id) = pty_id else {
+            return false;
+        };
+        let screen = self
+            .screen_state
+            .lock()
+            .get_screen_text(&pty_id)
+            .unwrap_or_default();
+        let provider_ready = self
+            .agent_registry
+            .with_provider(provider, |p| p.screen_has_tui(&screen));
+        let tui_visible = crate::service::pty_io::provider_or_generic_tui(
+            provider_ready,
+            crate::pty::screen_state::screen_has_agent_tui(&screen),
+        );
+        pair_agent_state_allows_followup(booting, boot_stage, false, tui_visible)
+    }
+
+    async fn await_pair_agent_ready(
+        &self,
+        pane_id: &str,
+        provider: &str,
+        ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>,
+        deadline: std::time::Instant,
+    ) -> Result<(), String> {
+        let now = std::time::Instant::now();
+        let agent_deadline = deadline.min(now + PAIR_AGENT_READY_TIMEOUT);
+        let is_chat_backend = self.mux.read().get_pane(pane_id).is_some_and(|pane| {
+            matches!(
+                &pane.backing,
+                crate::multiplexer::types::PaneBacking::ChatBackend { .. }
+            )
+        });
+        if !is_chat_backend {
+            let endpoint_remaining = deadline.saturating_duration_since(now);
+            let remaining = agent_deadline.saturating_duration_since(now);
+            let timeout_reason = if endpoint_remaining <= PAIR_AGENT_READY_TIMEOUT {
+                format!(
+                    "pair launch readiness deadline exceeded after {}s",
+                    PAIR_API_READY_TIMEOUT.as_secs()
+                )
+            } else {
+                format!(
+                    "agent launch readiness deadline exceeded after {}s",
+                    PAIR_AGENT_READY_TIMEOUT.as_secs()
+                )
+            };
+            if remaining.is_zero() {
+                return Err(timeout_reason);
+            }
+            match tokio::time::timeout(remaining, ready_rx).await {
+                Ok(Ok(result)) => result?,
+                Ok(Err(_)) => return Err("agent launch readiness channel closed".into()),
+                Err(_) => return Err(timeout_reason),
+            }
+        }
+        loop {
+            if self.pair_agent_live_now(pane_id, provider) {
+                return Ok(());
+            }
+            if std::time::Instant::now() >= agent_deadline {
+                let failure = self
+                    .mux
+                    .read()
+                    .get_pane(pane_id)
+                    .and_then(|pane| pane.boot_failure_reason.clone())
+                    .unwrap_or_else(|| "agent TUI was not confirmed live".into());
+                return Err(failure);
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+    }
+
+    fn deliver_pair_followup(
+        &self,
+        orchestrator_pane_id: &str,
+        orchestrator_provider: &str,
+        body: &str,
+    ) -> Result<(), String> {
+        if !self.pair_agent_live_now(orchestrator_pane_id, orchestrator_provider) {
+            return Err(format!(
+                "orchestrator pane {orchestrator_pane_id} is not a confirmed live agent"
+            ));
+        }
+        self.gateway_deliver(
+            orchestrator_pane_id,
+            MessageEnvelope::codeterm_reminder("orchestration-pair"),
+            body,
+            crate::service::message_gateway::DeliveryClass::SystemNotice,
+        )
+        .map(|_| ())
+    }
+
     /// Bind a pending pair-spawned Planner when an Orchestrator creates its
     /// first plan. Returns true only when a pending pane was consumed.
     pub(crate) fn bind_pending_paired_planner(
@@ -240,39 +381,66 @@ impl ServiceContext {
             }
         }
 
-        let now_ms = epoch_ms();
-        let (workspace_id, project_path, workspace_name) = {
+        let readiness_deadline = std::time::Instant::now() + PAIR_API_READY_TIMEOUT;
+        let workspace_id = {
             let mux = self.mux.write();
-            let ws_id = params
+            params
                 .workspace_id
                 .clone()
                 .or_else(|| mux.get_active_workspace().map(|w| w.id.clone()))
                 .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
-                .ok_or_else(|| "No workspace found".to_string())?;
-            let cwd = mux
-                .get_workspace(&ws_id)
-                .and_then(|ws| ws.cwd.clone())
-                .unwrap_or_default();
-            let name = mux
-                .get_workspace(&ws_id)
-                .map(|ws| ws.name.clone())
-                .unwrap_or_default();
-            (ws_id, cwd, name)
+                .ok_or_else(|| "No workspace found".to_string())?
         };
-
-        let _title = params
-            .title
-            .clone()
-            .filter(|t| !t.trim().is_empty())
-            .unwrap_or_else(|| default_orchestration_plan_title(&workspace_name, now_ms));
-        let _project_path = project_path;
+        let project = self
+            .mux
+            .read()
+            .get_workspace(&workspace_id)
+            .map(|workspace| workspace.name.clone())
+            .unwrap_or_else(|| workspace_id.clone());
 
         let orchestrator_model = params
             .orchestrator_model
             .clone()
             .filter(|m| !m.trim().is_empty())
             .or_else(|| crate::agent::model_catalog::resolve_default(&params.orchestrator_agent));
+        let planner_model = params
+            .planner_model
+            .clone()
+            .filter(|m| !m.trim().is_empty())
+            .or_else(|| crate::agent::model_catalog::resolve_default(&params.planner_agent));
+        let pair_fix_command = pair_retry_command(
+            &workspace_id,
+            &params.orchestrator_agent,
+            orchestrator_model.as_deref(),
+            &params.planner_agent,
+            planner_model.as_deref(),
+        );
 
+        let reserved = {
+            let mut mux = self.mux.write();
+            reserve_pair_tabs(&mut mux, &workspace_id, params.existing_tab_id.as_deref())?
+        };
+        let orchestrator_label = self
+            .mux
+            .read()
+            .display_label_for_pane(&reserved.orchestrator_pane_id);
+        let orch_counterpart = crate::service::spawn_factory::Counterpart::new(
+            "Orchestrator",
+            &orchestrator_label,
+            &reserved.orchestrator_pane_id,
+        );
+        let planner_counterpart = crate::service::spawn_factory::Counterpart::new(
+            "Planner",
+            &reserved.planner_name,
+            &reserved.planner_pane_id,
+        );
+        let mut orchestrator_bootstrap =
+            crate::service::spawn_factory::forming_identity("Orchestrator", project.clone());
+        orchestrator_bootstrap.coordination =
+            Some(crate::service::spawn_factory::introduction_body(
+                &orch_counterpart,
+                &planner_counterpart,
+            ));
         let orch_params = SpawnAgentParams {
             agent: Some(params.orchestrator_agent.clone()),
             model: orchestrator_model.clone(),
@@ -280,85 +448,138 @@ impl ServiceContext {
             can_spawn: Some(true),
             workspace_id: Some(workspace_id.clone()),
             spawned_by_pane_id: params.spawned_by_pane_id.clone(),
-            task: Some(orchestrator_pair_task()),
-            existing_tab_id: params.existing_tab_id.clone(),
+            task: None,
+            manager_bootstrap: Some(orchestrator_bootstrap),
+            existing_tab_id: Some(reserved.orchestrator_tab_id.clone()),
             skip_orchestrator_onboarding: Some(true),
             ..Default::default()
         };
-        let orch_result = self.spawn_agent(orch_params, None).await.map_err(|e| {
-            format!(
-                "Failed to spawn Orchestrator ({e}); no plan was created. Retry `orchestration new`."
-            )
-        })?;
+        let (orch_ready_tx, orch_ready_rx) = tokio::sync::oneshot::channel();
+        let orch_result = match self.spawn_agent(orch_params, Some(orch_ready_tx)).await {
+            Ok(result) => result,
+            Err(error) => {
+                self.emit_boot_stage(
+                    &reserved.orchestrator_pane_id,
+                    codeterm_types::pty::BootStage::SpawnFailed,
+                    Some(&error),
+                );
+                if let Some(pane) = self
+                    .mux
+                    .write()
+                    .get_pane_mut(&reserved.orchestrator_pane_id)
+                {
+                    pane.agent_booting = false;
+                }
+                let _ = self
+                    .mux
+                    .write()
+                    .close_tab(&workspace_id, &reserved.planner_tab_id);
+                self.emit_state_changed();
+                return Err(format!(
+                    "Failed to spawn Orchestrator ({error}); no plan was created. Retry with: {pair_fix_command}"
+                ));
+            }
+        };
         let orch_pane_id = orch_result.pane_id.clone();
 
-        let planner_model = params
-            .planner_model
-            .clone()
-            .filter(|m| !m.trim().is_empty())
-            .or_else(|| crate::agent::model_catalog::resolve_default(&params.planner_agent));
-
-        let planner_name = {
-            let mux = self.mux.read();
-            let existing: Vec<String> = mux
-                .get_workspace(&workspace_id)
-                .map(|ws| {
-                    ws.tabs
-                        .iter()
-                        .filter_map(|t| mux.get_pane(&t.pane_id).map(|p| p.title.clone()))
-                        .collect()
-                })
-                .unwrap_or_default();
-            let orch_title = mux.display_label_for_pane(&orch_pane_id);
-            derive_planner_name(existing.iter().map(String::as_str), &orch_title)
-        };
-
+        let mut planner_bootstrap =
+            crate::service::spawn_factory::forming_identity("Planner", project);
+        planner_bootstrap.coordination = Some(crate::service::spawn_factory::introduction_body(
+            &planner_counterpart,
+            &orch_counterpart,
+        ));
         let planner_params = SpawnAgentParams {
             agent: Some(params.planner_agent.clone()),
             model: planner_model.clone(),
-            title: Some(planner_name),
+            title: Some(reserved.planner_name.clone()),
             role: Some("Manager".into()),
             role_profile: Some("planner".into()),
             parent_pane_id: Some(orch_pane_id.clone()),
             plan_id: None,
             workspace_id: Some(workspace_id.clone()),
             spawned_by_pane_id: Some(orch_pane_id.clone()),
-            task: Some(crate::prompts::planner_onboarding_task_no_plan(
-                &self.mux.read().display_label_for_pane(&orch_pane_id),
-                &orch_pane_id,
-            )),
+            task: None,
+            manager_bootstrap: Some(planner_bootstrap),
+            existing_tab_id: Some(reserved.planner_tab_id.clone()),
             ..Default::default()
         };
 
-        match self.spawn_agent(planner_params, None).await {
+        let (planner_ready_tx, planner_ready_rx) = tokio::sync::oneshot::channel();
+        match self
+            .spawn_agent(planner_params, Some(planner_ready_tx))
+            .await
+        {
             Ok(planner_result) => {
                 let planner_pane_id = planner_result.pane_id.clone();
-                let planner_label = self
-                    .agent_registry
-                    .with_provider(&params.planner_agent, |p| p.display_name().to_string())
-                    .unwrap_or_else(|| params.planner_agent.clone());
-                if let Some(pane) = self.mux.write().get_pane_mut(&orch_pane_id) {
-                    pane.pending_greeting =
-                        Some(crate::prompts::peer_orch_greeting(&planner_label));
-                }
-                // boots into silence — names its Orchestrator + charter.
-                let orch_label = self.mux.read().display_label_for_pane(&orch_pane_id);
-                if let Some(pane) = self.mux.write().get_pane_mut(&planner_pane_id) {
-                    pane.pending_greeting = Some(crate::prompts::peer_planner_greeting(
-                        &orch_label,
-                        &orch_pane_id,
-                    ));
-                }
                 if let Some(pane) = self.mux.write().get_pane_mut(&orch_pane_id) {
                     pane.pending_paired_planner_pane_id = Some(planner_pane_id.clone());
                 }
-                let followup = orchestrator_pair_followup_ready(&planner_pane_id);
-                let envelope = MessageEnvelope::codeterm_reminder("orchestration-pair");
-                if let Err(e) = Messenger::deliver(self, &orch_pane_id, envelope, &followup) {
-                    log::warn!(
-                        "[orchestration-pair] failed to notify orchestrator {orch_pane_id} of live Planner specialist: {e}"
-                    );
-                }
+                let (orch_ready, planner_ready) = tokio::join!(
+                    self.await_pair_agent_ready(
+                        &orch_pane_id,
+                        &params.orchestrator_agent,
+                        orch_ready_rx,
+                        readiness_deadline,
+                    ),
+                    self.await_pair_agent_ready(
+                        &planner_pane_id,
+                        &params.planner_agent,
+                        planner_ready_rx,
+                        readiness_deadline,
+                    )
+                );
+                let warning = match (orch_ready, planner_ready) {
+                    (Ok(()), Ok(())) => None,
+                    (orch_status, planner_status) => {
+                        let orch_error = orch_status.err();
+                        let planner_error = planner_status.err();
+                        for (pane_id, error) in [
+                            (&orch_pane_id, orch_error.as_deref()),
+                            (&planner_pane_id, planner_error.as_deref()),
+                        ] {
+                            if let Some(error) = error {
+                                self.emit_boot_stage(
+                                    pane_id,
+                                    codeterm_types::pty::BootStage::SpawnFailed,
+                                    Some(error),
+                                );
+                                if let Some(pane) = self.mux.write().get_pane_mut(pane_id) {
+                                    pane.agent_booting = false;
+                                }
+                            }
+                        }
+                        let fix_command = degraded_fix_command(
+                            &orch_pane_id,
+                            &params.planner_agent,
+                            planner_model.as_deref(),
+                        );
+                        if let Some(ref planner_error) = planner_error {
+                            let followup =
+                                orchestrator_pair_followup_degraded(&fix_command, planner_error);
+                            if let Err(notify_err) = self.deliver_pair_followup(
+                                &orch_pane_id,
+                                &params.orchestrator_agent,
+                                &followup,
+                            ) {
+                                log::warn!(
+                                    "[orchestration-pair] failed to notify orchestrator {orch_pane_id} of degraded pairing: {notify_err}"
+                                );
+                            }
+                        }
+                        let mut parts = Vec::new();
+                        if let Some(error) = orch_error {
+                            parts
+                                .push(format!("Orchestrator readiness was not confirmed: {error}"));
+                        }
+                        if let Some(error) = planner_error {
+                            parts.push(format!("Planner readiness was not confirmed: {error}"));
+                        }
+                        parts.push(format!(
+                            "Both tabs were kept open. If the Planner is actually missing after the first goal, complete attachment with: {fix_command}"
+                        ));
+                        Some(parts.join(" "))
+                    }
+                };
                 // Activate server-side: the client continuation may be gone by
                 // the time the pair lands (page reload); the daemon owns focus.
                 {
@@ -382,20 +603,27 @@ impl ServiceContext {
                     orchestrator_model,
                     planner_pane_id,
                     planner_model,
-                    warning: orch_result.warning.or(planner_result.warning),
+                    warning: warning.or(orch_result.warning).or(planner_result.warning),
                     budget_notice,
                 })
             }
             Err(e) => {
+                self.emit_boot_stage(
+                    &reserved.planner_pane_id,
+                    codeterm_types::pty::BootStage::SpawnFailed,
+                    Some(&e),
+                );
+                if let Some(pane) = self.mux.write().get_pane_mut(&reserved.planner_pane_id) {
+                    pane.agent_booting = false;
+                }
                 let fix_command = degraded_fix_command(
                     &orch_pane_id,
                     &params.planner_agent,
                     planner_model.as_deref(),
                 );
                 let followup = orchestrator_pair_followup_degraded(&fix_command, &e);
-                let envelope = MessageEnvelope::codeterm_reminder("orchestration-pair");
                 if let Err(notify_err) =
-                    Messenger::deliver(self, &orch_pane_id, envelope, &followup)
+                    self.deliver_pair_followup(&orch_pane_id, &params.orchestrator_agent, &followup)
                 {
                     log::warn!(
                         "[orchestration-pair] failed to notify orchestrator {orch_pane_id} of degraded pairing: {notify_err}"
@@ -422,20 +650,6 @@ mod tests {
     }
 
     #[test]
-    fn default_plan_title_disambiguates_by_workspace_and_stamp() {
-        let t = default_orchestration_plan_title("my-ws", 1_609_459_200_000);
-        assert!(t.contains("my-ws"), "title carries the workspace name: {t}");
-        assert!(t.contains("2021-01-01"), "title carries a date stamp: {t}");
-        assert_ne!(t, "Orchestration", "never the bare piled-up default");
-        // Empty workspace still avoids the bare string when a stamp exists.
-        let no_ws = default_orchestration_plan_title("  ", 1_609_459_200_000);
-        assert!(
-            no_ws.starts_with("Orchestration — "),
-            "stamped even without a name: {no_ws}"
-        );
-    }
-
-    #[test]
     fn pair_spawn_creates_no_plan_until_first_goal() {
         let (_root, store) = store_for_test();
         assert!(
@@ -444,10 +658,11 @@ mod tests {
         );
 
         let plan = store
-            .create_plan(
+            .create_plan_for_team(
                 "First goal".into(),
                 _root.path().display().to_string(),
                 OrchestratorRef::from_pane("orch-1"),
+                "team-orch-1".into(),
                 Vec::new(),
                 1,
             )
@@ -488,39 +703,6 @@ mod tests {
     }
 
     #[test]
-    fn orchestrator_task_has_no_plan_yet_wording_and_reuses_peer_constants() {
-        let task = orchestrator_pair_task();
-        assert!(task.contains("No plan exists yet"));
-        assert!(task.contains("first goal/plan create"));
-        assert!(task.contains(crate::prompts::PEER_PLANNER_CHARTER_LINE));
-        assert!(task.contains(crate::prompts::PEER_ORCH_DEFERENCE_LINE));
-        assert!(task.contains("will have an attached Planner specialist"));
-    }
-
-    /// Regression for a live-dogfood finding: the pair-creation flow always
-    /// spawns the Planner synchronously before the Orchestrator's task is
-    /// even delivered, so telling it to spawn one "if not live" raced a real
-    /// model into creating a redundant, mis-parented extra Worker pane.
-    #[test]
-    fn orchestrator_task_never_tells_model_to_spawn_its_own_planner() {
-        let task = orchestrator_pair_task();
-        assert!(
-            !task.contains("--role Planner --plan"),
-            "task must never hand the model a copy-pasteable Planner spawn command: {task}"
-        );
-        assert!(task.contains("do NOT run"));
-    }
-
-    #[test]
-    fn followup_ready_names_real_planner_pane_and_no_plan_yet() {
-        let msg = orchestrator_pair_followup_ready("pane-planner-1");
-        assert!(msg.contains("pane-planner-1"));
-        assert!(msg.contains("No plan exists yet"));
-        assert!(msg.contains(crate::prompts::PEER_ORCH_DEFERENCE_LINE));
-        assert!(msg.contains("Planner specialist is live"));
-    }
-
-    #[test]
     fn degraded_fix_command_includes_model_when_present() {
         let cmd = degraded_fix_command("orch-1", "codex", Some("gpt-5"));
         assert!(cmd.contains("agent spawn codex"));
@@ -534,6 +716,53 @@ mod tests {
     fn degraded_fix_command_omits_model_flag_when_absent() {
         let cmd = degraded_fix_command("orch-1", "codex", None);
         assert!(!cmd.contains("--model"));
+    }
+
+    #[test]
+    fn pair_retry_command_preserves_provider_models_and_workspace() {
+        let cmd = pair_retry_command("ws-1", "claude", Some("opus"), "codex", Some("gpt-5"));
+        assert_eq!(
+            cmd,
+            "codeterm orchestration new --orchestrator claude:opus --planner codex:gpt-5 --workspace ws-1"
+        );
+    }
+
+    #[test]
+    fn pair_readiness_budgets_cap_each_agent_and_the_whole_request() {
+        assert_eq!(PAIR_AGENT_READY_TIMEOUT, std::time::Duration::from_secs(45));
+        assert_eq!(PAIR_API_READY_TIMEOUT, std::time::Duration::from_secs(75));
+        assert!(PAIR_AGENT_READY_TIMEOUT < PAIR_API_READY_TIMEOUT);
+        assert!(PAIR_API_READY_TIMEOUT < PAIR_AGENT_READY_TIMEOUT * 2);
+    }
+
+    #[test]
+    fn pair_followup_refuses_bare_shell_and_booting_agent() {
+        use codeterm_types::pty::BootStage;
+
+        assert!(!pair_agent_state_allows_followup(
+            false,
+            Some(BootStage::SpawnFailed),
+            false,
+            false
+        ));
+        assert!(!pair_agent_state_allows_followup(
+            false,
+            Some(BootStage::AgentReady),
+            false,
+            false
+        ));
+        assert!(!pair_agent_state_allows_followup(
+            true,
+            Some(BootStage::AgentReady),
+            false,
+            true
+        ));
+        assert!(pair_agent_state_allows_followup(
+            false,
+            Some(BootStage::AgentReady),
+            false,
+            true
+        ));
     }
 
     #[test]
@@ -564,6 +793,36 @@ mod tests {
             );
             assert_ne!(name, "Planner");
         }
+    }
+
+    #[test]
+    fn pair_tabs_are_reserved_before_either_agent_launches() {
+        let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
+        let workspace_id = mux.list_workspaces()[0].id.clone();
+        let reserved = reserve_pair_tabs(&mut mux, &workspace_id, None).unwrap();
+
+        assert_ne!(reserved.orchestrator_pane_id, reserved.planner_pane_id);
+        assert!(mux.get_pane(&reserved.orchestrator_pane_id).is_some());
+        assert!(mux.get_pane(&reserved.planner_pane_id).is_some());
+        for pane_id in [&reserved.orchestrator_pane_id, &reserved.planner_pane_id] {
+            let pane = mux.get_pane(pane_id).unwrap();
+            assert!(pane.agent_booting, "reserved pane must announce booting");
+            assert_eq!(
+                pane.boot_stage,
+                Some(codeterm_types::pty::BootStage::PtyStarting),
+                "reserved pane must never expose a blank chat before launch"
+            );
+        }
+        assert_eq!(
+            mux.display_label_for_pane(&reserved.planner_pane_id),
+            reserved.planner_name
+        );
+        assert!(mux
+            .claim_existing_tab(&workspace_id, &reserved.orchestrator_tab_id)
+            .is_ok());
+        assert!(mux
+            .claim_existing_tab(&workspace_id, &reserved.planner_tab_id)
+            .is_ok());
     }
 
     #[test]

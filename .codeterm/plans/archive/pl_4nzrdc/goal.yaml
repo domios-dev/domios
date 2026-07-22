@@ -1,9 +1,0 @@
-vector: Cursor panes show real plan-limit progress (percent used / remaining, warn/danger thresholds, burn-rate projection) instead of 100x-inflated dollars — using the percentages Cursor's own API already returns.
-vision: 'Every provider bubble speaks the same language: percent of limit left. Cursor stops being the odd one out with a meaningless $ pill; its 97%-used state shows danger-red exactly when Cursor itself says ''you have hit your usage limit''.'
-constraints:
-- Fix lives in plugins/provider-cursor + one data-shaped line in UsageBubble; no Rust schema changes, no provider-id branching in core
-- Units verbatim from API (cents) — no invented conversions or 'remaining' semantics for fields that do not exist
-- 'System-plugin lockstep: plugin.js rebuild + sync:versions/check:versions must stay green'
-postulates:
-- 'Cursor GetCurrentPeriodUsage is the source of truth: totalPercentUsed/apiPercentUsed/autoPercentUsed + billingCycleStart/End (verified live 2026-07-07, fixture captured)'
-- Existing UsageSnapshot pct fields + projection engine light up with zero backend changes once the plugin fills them

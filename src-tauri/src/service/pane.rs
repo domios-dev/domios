@@ -102,12 +102,18 @@ impl ServiceContext {
 
     pub fn close_pane(&self, pane_id: &str) -> Result<(), String> {
         // iteration; once close_pane drops the entry, future polls would see Provider::None and bail anyway, but explicit stop joins the thread cleanly and frees the JSONL handle.
-        self.chat_registry.stop(pane_id);
+        self.chat_registry.shutdown_pane(pane_id);
 
         if let Some((plugin_id, session_id)) = self.pane_chat_backing(pane_id) {
             let _ = self.chatbackend_close(&plugin_id, &session_id);
         }
 
+        let pending_digest = self
+            .mux
+            .read()
+            .get_pane(pane_id)
+            .and_then(|pane| pane.pending_delivery.as_ref())
+            .map(|record| record.content_digest.clone());
         let pre_focus = self.mux.read().get_focused_pane_id().map(str::to_string);
         let pty_ids = self.mux.write().close_pane(pane_id)?;
         let post_focus = self.mux.read().get_focused_pane_id().map(str::to_string);
@@ -115,6 +121,15 @@ impl ServiceContext {
         self.flag_bound_tasks_for_gone_pane(pane_id, epoch_ms());
         self.prompt_detector.lock().remove_pane(pane_id);
         crate::service::structured_prompt::clear_pane(pane_id);
+        if let Some(digest) = pending_digest {
+            if let Err(error) = self.pending_delivery_payloads.delete(&digest) {
+                log::warn!(
+                    "[pending-delivery] close cleanup failed for digest {}: {}",
+                    digest,
+                    error
+                );
+            }
+        }
         // Drop any remote-worker ghosts that reported to this (now-closed) pane.
         self.remote_workers.forget_orchestrator(pane_id);
         self.emit_state_changed();
@@ -161,16 +176,46 @@ impl ServiceContext {
         )
     }
 
-    pub fn link_pty(&self, pane_id: &str, pty_id: String) {
-        if let Some(orphan) = self.mux.write().link_pty(pane_id, pty_id) {
-            log::warn!(
-                "[link_pty] pane {} relinked — killing orphan pty {}",
-                pane_id,
-                &orphan[..orphan.len().min(8)]
-            );
-            self.kill_ptys(&[orphan]);
-        }
-        self.emit_state_changed();
+    pub fn link_pty(&self, pane_id: &str, pty_id: String) -> String {
+        let claim = self.pty_ownership.acquire(pane_id);
+        self.link_pty_with_claim(&claim, pane_id, pty_id, false)
+            .pty_id
+    }
+
+    pub(crate) fn link_pty_with_claim(
+        &self,
+        claim: &crate::service::pty_ownership::PanePtyClaim,
+        pane_id: &str,
+        pty_id: String,
+        launch_owned: bool,
+    ) -> crate::service::pty_ownership::PtySelection {
+        claim.settle(
+            pty_id,
+            launch_owned,
+            |candidate| self.pty.lock().get_session(candidate).is_some(),
+            |selected| {
+                let mut mux = self.mux.write();
+                if mux.get_pane(pane_id).is_none() {
+                    crate::service::pty_ownership::LinkOutcome::PaneMissing
+                } else {
+                    crate::service::pty_ownership::LinkOutcome::Linked(
+                        mux.link_pty(pane_id, selected.to_string()),
+                    )
+                }
+            },
+            |orphan| {
+                log::warn!(
+                    "[link_pty] pane {} rejected orphan pty {}",
+                    pane_id,
+                    &orphan[..orphan.len().min(8)]
+                );
+                self.kill_ptys(&[orphan.to_string()]);
+            },
+            |_| {
+                crate::service::orchestrator::pane_relink_signal::notify_pane_relinked();
+                self.emit_state_changed();
+            },
+        )
     }
 
     pub fn update_pane_cwd(&self, pane_id: &str, cwd: String) {
@@ -220,6 +265,12 @@ impl ServiceContext {
             // Clearing agent_type also clears the lock — agent died/disconnected.
             if agent_type.is_none() {
                 pane.agent_type_locked = false;
+                pane.session_binding_nonce = None;
+                pane.reported_session_binding_nonce = None;
+                pane.agent_session_id = None;
+                pane.agent_state = None;
+                pane.pending_prompt = None;
+                pane.boot_stage = Some(codeterm_types::pty::BootStage::ShellReady);
             } else if lock {
                 pane.agent_type_locked = true;
             }
@@ -241,6 +292,7 @@ impl ServiceContext {
                 self.refresh_session_model_once(pane_id, &new_type);
             }
         } else {
+            self.clear_dead_planner_binding(pane_id);
             // Drop friendly name on agent clear; keep the last-seen model so the tab doesn't flicker blank between sessions.
             let mut mux = self.mux.write();
             if let Some(pane) = mux.get_pane_mut(pane_id) {
@@ -299,6 +351,7 @@ impl ServiceContext {
             self.kick_off_session_name_detection(&pane_id, &agent_id);
             self.refresh_session_model_once(&pane_id, &agent_id);
         }
+        self.heal_recovery_state_if_ready();
         self.start_focused_pane_model_poller();
     }
 
@@ -352,16 +405,12 @@ impl ServiceContext {
     }
 
     fn refresh_session_model_once(&self, pane_id: &str, agent_id: &str) {
-        let (cwd, session_id, current_model) = {
+        let (cwd, session_id) = {
             let mux = self.mux.read();
             let Some(p) = mux.get_pane(pane_id) else {
                 return;
             };
-            (
-                p.cwd.clone(),
-                p.agent_session_id.clone(),
-                p.agent_session_model.clone(),
-            )
+            (p.cwd.clone(), p.agent_session_id.clone())
         };
         let Some(cwd) = cwd else { return };
         // Provider rolled its live session (e.g. opencode /model swap): follow it to the new sid before scanning the model. Provider-owned signal (screen/event), guarded so it never steals a sibling pane's session.
@@ -373,11 +422,12 @@ impl ServiceContext {
             {
                 let claimed = {
                     let mut mux = self.mux.write();
-                    if mux.other_session_ids(pane_id).contains(&new_sid) {
+                    if new_sid == *current || mux.other_session_ids(pane_id).contains(&new_sid) {
                         false
                     } else if let Some(p) = mux.get_pane_mut(pane_id) {
                         if p.agent_type.as_deref() == Some(agent_id) {
                             p.agent_session_id = Some(new_sid.clone());
+                            clear_runtime_model_evidence(p);
                             true
                         } else {
                             false
@@ -405,6 +455,27 @@ impl ServiceContext {
                 .and_then(|p| p.agent_session_id.clone())
         };
         let Some(sid) = sid else { return };
+        let (
+            current_model,
+            planned_model,
+            requested_model,
+            provider_resolved_model,
+            current_fallback,
+            current_mismatch,
+        ) = {
+            let mux = self.mux.read();
+            let Some(pane) = mux.get_pane(pane_id) else {
+                return;
+            };
+            (
+                pane.agent_session_model.clone(),
+                pane.agent_planned_model.clone(),
+                pane.agent_requested_model.clone(),
+                pane.agent_provider_resolved_model.clone(),
+                pane.model_fallback.clone(),
+                pane.model_identity_mismatch.clone(),
+            )
+        };
         // A failed detection (None) must not clobber a known model — restore seeds it from the snapshot and the session file may not name the model yet.
         let Some(model) = self
             .agent_registry
@@ -413,20 +484,57 @@ impl ServiceContext {
         else {
             return;
         };
-        if Some(&model) == current_model.as_ref() {
+        let identity_update = model_identity_update(
+            current_model.as_deref(),
+            planned_model.as_deref(),
+            requested_model.as_deref(),
+            provider_resolved_model.as_deref(),
+            current_fallback.clone(),
+            &model,
+        );
+        let mismatch_changed = identity_update.mismatch != current_mismatch;
+        let fallback_changed = identity_update.fallback != current_fallback;
+        if !identity_update.model_changed && !mismatch_changed && !fallback_changed {
             return;
+        }
+        let should_notify = identity_update.mismatch.is_some() && current_mismatch.is_none();
+        if should_notify {
+            if let Some(mismatch) = identity_update.mismatch.as_ref() {
+                let title = format!(
+                    "model fallback: requested {}, actual {}",
+                    mismatch.requested_model, mismatch.actual_model
+                );
+                self.create_notification(
+                    title,
+                    Some(
+                        "Provider runtime session metadata reported a different model than the launch request."
+                            .to_string(),
+                    ),
+                    Some("warning"),
+                );
+                log::warn!(
+                    "[session-model] pane={} requested_model={} actual_model={} fallback_reason=runtime_session_model_mismatch",
+                    pane_id,
+                    mismatch.requested_model,
+                    mismatch.actual_model
+                );
+            }
         }
         let model = Some(model);
         let mut mux = self.mux.write();
         if let Some(p) = mux.get_pane_mut(pane_id) {
-            if p.agent_type.as_deref() == Some(agent_id) {
-                log::info!(
-                    "[session-model] pane={} {:?} -> {:?}",
-                    pane_id,
-                    p.agent_session_model,
-                    model
-                );
+            if runtime_model_update_matches_session(p, agent_id, &sid) {
+                if identity_update.model_changed {
+                    log::info!(
+                        "[session-model] pane={} {:?} -> {:?}",
+                        pane_id,
+                        p.agent_session_model,
+                        model
+                    );
+                }
                 p.agent_session_model = model;
+                p.model_fallback = identity_update.fallback;
+                p.model_identity_mismatch = identity_update.mismatch;
                 drop(mux);
                 self.emit_state_changed();
             }
@@ -551,6 +659,7 @@ impl ServiceContext {
     /// atomically. Resume/snapshot rehydrate paths intentionally re-set the
     /// same id on the same pane and are unaffected.
     pub fn set_agent_session_id(&self, pane_id: &str, session_id: Option<String>) {
+        let session_bound = session_id.is_some();
         let mut mux = self.mux.write();
         if let Some(ref new_sid) = session_id {
             let conflict = mux
@@ -566,11 +675,32 @@ impl ServiceContext {
             }
         }
         if let Some(pane) = mux.get_pane_mut(pane_id) {
+            let changed = pane.agent_session_id != session_id;
             pane.agent_session_id = session_id;
+            pane.reported_session_binding_nonce = None;
+            if changed {
+                clear_runtime_model_evidence(pane);
+            }
         }
+        drop(mux);
+        if session_bound {
+            crate::service::general_agent::binding_wait::notify_session_bound();
+        }
+        self.bind_planner_session(pane_id);
+        self.heal_recovery_state_if_ready();
     }
 
-    /// Per-launch binding nonce for a pane, generated once and reused. Injected as CODETERM_SESSION_BINDING_NONCE so a provider's session-start report can prove it owns this pane; a report carrying a different nonce is a stale/foreign claim and gets rejected.
+    /// Rotate the per-launch binding nonce before a provider command is written.
+    pub fn rotate_session_binding_nonce(&self, pane_id: &str) -> String {
+        let nonce = uuid::Uuid::new_v4().to_string();
+        if let Some(pane) = self.mux.write().get_pane_mut(pane_id) {
+            pane.session_binding_nonce = Some(nonce.clone());
+            pane.reported_session_binding_nonce = None;
+        }
+        nonce
+    }
+
+    /// Per-launch binding nonce for a pane. Injected as CODETERM_SESSION_BINDING_NONCE so a provider's session-start report can prove it owns this pane; a report carrying a different nonce is a stale/foreign claim and gets rejected.
     pub fn ensure_session_binding_nonce(&self, pane_id: &str) -> String {
         let mut mux = self.mux.write();
         if let Some(pane) = mux.get_pane_mut(pane_id) {
@@ -579,6 +709,7 @@ impl ServiceContext {
             }
             let nonce = uuid::Uuid::new_v4().to_string();
             pane.session_binding_nonce = Some(nonce.clone());
+            pane.reported_session_binding_nonce = None;
             nonce
         } else {
             uuid::Uuid::new_v4().to_string()
@@ -710,6 +841,89 @@ impl ServiceContext {
     }
 }
 
+fn models_match(requested: &str, actual: &str) -> bool {
+    requested.trim().eq_ignore_ascii_case(actual.trim())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ModelIdentityUpdate {
+    model_changed: bool,
+    fallback: Option<crate::multiplexer::types::ModelFallbackNotice>,
+    mismatch: Option<crate::multiplexer::types::ModelIdentityMismatch>,
+}
+
+fn model_identity_update(
+    current_model: Option<&str>,
+    planned_model: Option<&str>,
+    requested_model: Option<&str>,
+    provider_resolved_model: Option<&str>,
+    current_fallback: Option<crate::multiplexer::types::ModelFallbackNotice>,
+    actual_model: &str,
+) -> ModelIdentityUpdate {
+    let actual = actual_model.trim().to_string();
+    let planned = planned_model
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let provider_resolved = provider_resolved_model
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let mismatch = requested_model
+        .map(str::trim)
+        .filter(|requested| !requested.is_empty())
+        .and_then(|requested| {
+            (!models_match(requested, &actual)).then(|| {
+                crate::multiplexer::types::ModelIdentityMismatch {
+                    planned_model: planned.map(str::to_string),
+                    requested_model: requested.to_string(),
+                    provider_resolved_model: provider_resolved.map(str::to_string),
+                    actual_model: actual.clone(),
+                    reason: "runtime_session_model_mismatch".to_string(),
+                }
+            })
+        });
+    let fallback = current_fallback
+        .map(|mut fallback| {
+            fallback.actual_model = Some(actual.clone());
+            fallback
+        })
+        .or_else(|| {
+            mismatch
+                .as_ref()
+                .map(|mismatch| crate::multiplexer::types::ModelFallbackNotice {
+                    planned_model: mismatch.planned_model.clone(),
+                    requested_model: mismatch.requested_model.clone(),
+                    provider_resolved_model: mismatch
+                        .provider_resolved_model
+                        .clone()
+                        .unwrap_or_else(|| mismatch.requested_model.clone()),
+                    actual_model: Some(mismatch.actual_model.clone()),
+                    reason: mismatch.reason.clone(),
+                })
+        });
+    ModelIdentityUpdate {
+        model_changed: current_model.is_none_or(|current| !models_match(current, &actual)),
+        fallback,
+        mismatch,
+    }
+}
+
+pub(crate) fn clear_runtime_model_evidence(pane: &mut crate::multiplexer::types::Pane) {
+    pane.agent_session_model = None;
+    pane.model_identity_mismatch = None;
+    if let Some(fallback) = pane.model_fallback.as_mut() {
+        fallback.actual_model = None;
+    }
+}
+
+fn runtime_model_update_matches_session(
+    pane: &crate::multiplexer::types::Pane,
+    agent_id: &str,
+    session_id: &str,
+) -> bool {
+    pane.agent_type.as_deref() == Some(agent_id)
+        && pane.agent_session_id.as_deref() == Some(session_id)
+}
+
 pub(crate) fn focus_pane_hot_path(
     mux: &crate::multiplexer::commands::MuxState,
     pane_id: &str,
@@ -746,5 +960,130 @@ mod self_close_tests {
     fn plain_worker_is_not_coordinator() {
         assert!(!is_coordinator(Some(AgentRole::Worker), false, false));
         assert!(!is_coordinator(None, false, false));
+    }
+}
+
+#[cfg(test)]
+mod model_identity_tests {
+    use super::*;
+
+    #[test]
+    fn runtime_model_mismatch_records_actual_and_structured_reason() {
+        let update = model_identity_update(
+            None,
+            Some("planned-codex"),
+            Some("gpt-5.6-luna"),
+            Some("gpt-5.6-luna"),
+            None,
+            "gpt-5.6-terra",
+        );
+
+        assert!(update.model_changed);
+        let mismatch = update.mismatch.expect("mismatch must be structured");
+        assert_eq!(mismatch.requested_model, "gpt-5.6-luna");
+        assert_eq!(mismatch.planned_model.as_deref(), Some("planned-codex"));
+        assert_eq!(
+            mismatch.provider_resolved_model.as_deref(),
+            Some("gpt-5.6-luna")
+        );
+        assert_eq!(mismatch.actual_model, "gpt-5.6-terra");
+        assert_eq!(mismatch.reason, "runtime_session_model_mismatch");
+        let fallback = update.fallback.expect("fallback must be surfaced");
+        assert_eq!(fallback.actual_model.as_deref(), Some("gpt-5.6-terra"));
+    }
+
+    #[test]
+    fn repeated_runtime_mismatch_keeps_actual_without_second_model_change() {
+        let update = model_identity_update(
+            Some("gpt-5.6-terra"),
+            None,
+            Some("gpt-5.6-luna"),
+            Some("gpt-5.6-luna"),
+            None,
+            "gpt-5.6-terra",
+        );
+
+        assert!(!update.model_changed);
+        assert_eq!(
+            update.mismatch,
+            Some(crate::multiplexer::types::ModelIdentityMismatch {
+                planned_model: None,
+                requested_model: "gpt-5.6-luna".into(),
+                provider_resolved_model: Some("gpt-5.6-luna".into()),
+                actual_model: "gpt-5.6-terra".into(),
+                reason: "runtime_session_model_mismatch".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn matching_runtime_model_clears_mismatch_shape() {
+        let update = model_identity_update(
+            Some("gpt-5.6-luna"),
+            None,
+            Some("gpt-5.6-luna"),
+            Some("gpt-5.6-luna"),
+            None,
+            "GPT-5.6-LUNA",
+        );
+
+        assert!(!update.model_changed);
+        assert!(update.mismatch.is_none());
+        assert!(update.fallback.is_none());
+    }
+
+    #[test]
+    fn session_change_clears_stale_actual_but_keeps_launch_provenance() {
+        let (mut mux, pane_id) = crate::multiplexer::state::MultiplexerState::new();
+        let pane = mux.get_pane_mut(&pane_id).unwrap();
+        pane.agent_planned_model = Some("codex/gpt-planned".into());
+        pane.agent_requested_model = Some("gpt-requested".into());
+        pane.agent_provider_resolved_model = Some("gpt-resolved".into());
+        pane.agent_session_model = Some("gpt-actual-old".into());
+        pane.model_identity_mismatch = Some(crate::multiplexer::types::ModelIdentityMismatch {
+            planned_model: Some("codex/gpt-planned".into()),
+            requested_model: "gpt-requested".into(),
+            provider_resolved_model: Some("gpt-resolved".into()),
+            actual_model: "gpt-actual-old".into(),
+            reason: "runtime_session_model_mismatch".into(),
+        });
+
+        clear_runtime_model_evidence(pane);
+
+        assert_eq!(
+            pane.agent_planned_model.as_deref(),
+            Some("codex/gpt-planned")
+        );
+        assert_eq!(pane.agent_requested_model.as_deref(), Some("gpt-requested"));
+        assert_eq!(
+            pane.agent_provider_resolved_model.as_deref(),
+            Some("gpt-resolved")
+        );
+        assert!(pane.agent_session_model.is_none());
+        assert!(pane.model_identity_mismatch.is_none());
+    }
+
+    #[test]
+    fn delayed_runtime_model_result_cannot_cross_session_boundary() {
+        let (mut mux, pane_id) = crate::multiplexer::state::MultiplexerState::new();
+        let pane = mux.get_pane_mut(&pane_id).unwrap();
+        pane.agent_type = Some("provider-a".into());
+        pane.agent_session_id = Some("session-new".into());
+
+        assert!(!runtime_model_update_matches_session(
+            pane,
+            "provider-a",
+            "session-old"
+        ));
+        assert!(!runtime_model_update_matches_session(
+            pane,
+            "provider-b",
+            "session-new"
+        ));
+        assert!(runtime_model_update_matches_session(
+            pane,
+            "provider-a",
+            "session-new"
+        ));
     }
 }

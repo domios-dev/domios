@@ -1,5 +1,5 @@
 use super::*;
-use crate::service_plan::{paths, retrospective};
+use crate::service_plan::retrospective;
 
 impl PlanStore {
     pub fn ensure_task_creation_allowed(
@@ -25,28 +25,6 @@ impl PlanStore {
         }
     }
 
-    pub fn create_plan(
-        &self,
-        title: String,
-        project_path: String,
-        owner: OrchestratorRef,
-        kinds: Vec<MilestoneKind>,
-        now_ms: u64,
-    ) -> Result<Plan, PlanError> {
-        // one root (not a sub-path like src-tauri/ or the daemon cwd).
-        let project_path = paths::project_root(std::path::Path::new(&project_path))
-            .display()
-            .to_string();
-        let mut plan = Plan::new(title, project_path, owner);
-        if self.id_taken(&plan.id) {
-            plan.id = self.mint_id("pl");
-        }
-        plan.milestone_kinds = kinds;
-        self.save(&mut plan, now_ms)
-            .map_err(|e| PlanError::Io(e.to_string()))?;
-        Ok(plan)
-    }
-
     pub fn update_plan(
         &self,
         plan_id: &str,
@@ -61,6 +39,11 @@ impl PlanStore {
                 p.title = t.into();
             }
             if let Some(s) = status_for_write {
+                if s == PlanStatus::Active && p.status == PlanStatus::Archived {
+                    return Err(PlanError::PlanActivationRequiresUnarchive {
+                        plan_id: plan_id.into(),
+                    });
+                }
                 p.status = s;
             }
             if let Some(mode) = mode {
@@ -221,34 +204,45 @@ impl PlanStore {
     where
         F: FnOnce(&mut Plan) -> Result<T, PlanError>,
     {
+        let _writer_turn = self.mutation_writer.enter();
+        self.with_plan_in_writer(id, now_ms, f)
+    }
+
+    pub(super) fn with_plan_in_writer<T, F>(
+        &self,
+        id: &str,
+        now_ms: u64,
+        f: F,
+    ) -> Result<T, PlanError>
+    where
+        F: FnOnce(&mut Plan) -> Result<T, PlanError>,
+    {
         let arc = self
             .plans
             .read()
             .get(id)
             .cloned()
             .ok_or(PlanError::NotFound)?;
-        let mut guard = arc.lock();
-        let out = f(&mut guard)?;
-        guard.updated_at = now_ms;
-        if guard.canonical_project_path.trim().is_empty() {
-            guard.canonical_project_path = guard.project_path.clone();
+        let mut staged = arc.lock().clone();
+        let out = f(&mut staged)?;
+        staged.updated_at = now_ms;
+        if staged.canonical_project_path.trim().is_empty() {
+            staged.canonical_project_path = staged.project_path.clone();
         }
-        super::tag_model::normalize_plan(&mut guard);
+        super::tag_model::normalize_plan(&mut staged);
         let path = self
-            .persist_plan_and_spec(&guard)
+            .persist_plan_and_spec(&staged)
             .map_err(|e| PlanError::Io(e.to_string()))?;
-        self.note_plan_write(&guard, &path);
-        if let Err(e) = self.mirror_plan_index(&guard) {
-            log::warn!(
-                "[plan.index] mirror lag after committed write for {}: {}",
-                guard.id,
-                e
-            );
-        }
-        self.record_committed_snapshot(&guard);
-        let entry = Self::index_entry(&guard, path);
-        self.index.write().insert(guard.id.clone(), entry);
-        self.reset_bound_panes(&guard);
+        let committed = {
+            let mut guard = arc.lock();
+            *guard = staged;
+            guard.clone()
+        };
+        self.note_plan_write(&committed, &path);
+        self.record_committed_snapshot(&committed);
+        let entry = Self::index_entry(&committed, path);
+        self.index.write().insert(committed.id.clone(), entry);
+        self.reset_bound_panes(&committed);
         Ok(out)
     }
 
@@ -315,6 +309,11 @@ impl PlanStore {
             status: TaskStatus::Pending,
             review_stage: Default::default(),
             qa_state: None,
+            review_round: 0,
+            review_oracle: None,
+            review_evidence: vec![],
+            review_override: None,
+            review_audit: vec![],
             status_label: None,
             priority: new.priority.unwrap_or_default(),
             created_at: now_ms,
@@ -327,9 +326,11 @@ impl PlanStore {
             role_guidance: new.role_guidance,
             executor_role: new.executor_role,
             personality: new.personality,
+            personality_provenance: new.personality_provenance,
             competition: new.competition,
             intent: new.intent,
             parent_task_id: new.parent_task_id,
+            depends_on: normalized_dependency_ids(&new.depends_on),
             assigned_pane_id,
             lane,
             taken_by_role: None,
@@ -338,18 +339,29 @@ impl PlanStore {
             canvas: Default::default(),
             milestones: vec![],
             execution_attempts: vec![],
-            park_reason: None,
+            pause_reason: None,
             attachments: vec![],
         };
         let verify_sections = !task.section_ids.is_empty();
-        let expected = Self::task_add_expectation(&task, verify_sections);
+        let mut expected = Self::task_add_expectation(&task, verify_sections);
         let write = self.with_plan(plan_id, now_ms, |p| {
+            let resolved_depends_on = validate_task_dependencies(p, &tid, &task.depends_on)?;
+            task.depends_on = resolved_depends_on.clone();
             if task.section_ids.is_empty() {
                 task.section_ids = super::section_links::auto_section_ids_for_task(p, &task);
             }
             p.tasks.push(task);
-            Ok(())
+            Ok(resolved_depends_on)
         });
+        // depends_on refs (e.g. handles) resolve to canonical task ids during the
+        // write; the expectation must track the resolved form or readback always fails.
+        let write = match write {
+            Ok(resolved_depends_on) => {
+                expected.depends_on = resolved_depends_on;
+                Ok(())
+            }
+            Err(err) => Err(err),
+        };
         pending_after_verified(
             write,
             self.verify_task_added(plan_id, &tid, &expected),
@@ -372,18 +384,20 @@ impl PlanStore {
                 .iter()
                 .position(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
-            let task_id = p.tasks[task_index].id.clone();
-            reject_done_with_open_subtasks(p, &task_id)?;
-            let task = &mut p.tasks[task_index];
-            if task.status != TaskStatus::Done {
-                task.status_changed_at = now_ms;
+            let was_in_review = p.tasks[task_index].status == TaskStatus::InReview;
+            super::finalize_task_done(p, task_index, now_ms)?;
+            if was_in_review {
+                p.tasks[task_index].review_evidence.push(ReviewEvidence {
+                    id: crate::plan::ids::short_id("rev"),
+                    from: from.clone(),
+                    verdict: ReviewVerdict::Accept,
+                    note: result.unwrap_or("").into(),
+                    at: now_ms,
+                    changed_executable_surfaces: false,
+                    distinct_oracle: false,
+                });
+                crate::service_plan::review_gate::earn_review_credit(&mut p.review_policy);
             }
-            task.status = TaskStatus::Done;
-            super::qa::normalize_task_review_fields(task);
-            let assigned = task.assigned_pane_id.clone();
-            super::task_attempts::mark_task_assignment_closed(task, assigned.as_deref(), now_ms);
-            clear_task_assignment(task);
-            task.updated_at = now_ms;
             if let Some(text) = result {
                 let mid = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));
                 p.tasks[task_index].milestones.push(Milestone {
@@ -543,7 +557,28 @@ impl PlanStore {
     }
 
     pub fn unarchive(&self, plan_id: &str, now_ms: u64) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
+        let _writer_turn = self.mutation_writer.enter();
+        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
+        let team_id = plan
+            .team_id
+            .as_deref()
+            .filter(|team_id| !team_id.trim().is_empty());
+        #[cfg(not(test))]
+        let team_id = Some(team_id.ok_or_else(|| PlanError::ActivePlanRequiresTeam {
+            plan_id: plan_id.into(),
+        })?);
+        if let Some(team_id) = team_id {
+            if let Some((existing_plan_id, existing_title)) = self.active_plan_for_team(team_id) {
+                if existing_plan_id != plan_id {
+                    return Err(PlanError::TeamAlreadyHasActivePlan {
+                        team_id: team_id.into(),
+                        existing_plan_id,
+                        existing_title,
+                    });
+                }
+            }
+        }
+        self.with_plan_in_writer(plan_id, now_ms, |p| {
             p.status = PlanStatus::Active;
             Ok(())
         })
@@ -759,3 +794,256 @@ mod planning_state_tests {
         assert!(add(&s, &pid, "implement").is_ok());
     }
 }
+
+#[cfg(test)]
+mod team_binding_tests {
+    use std::sync::{Arc, Barrier};
+
+    use crate::plan::{OrchestratorRef, PlanMode, PlanStatus};
+    use crate::service_plan::{PlanError, PlanStore};
+    use tempfile::TempDir;
+
+    fn store() -> (TempDir, PlanStore) {
+        let dir = TempDir::new().unwrap();
+        let s = PlanStore::new_for_test(dir.path());
+        (dir, s)
+    }
+
+    fn create(
+        s: &PlanStore,
+        dir: &TempDir,
+        title: &str,
+        team: &str,
+        now: u64,
+    ) -> Result<crate::plan::Plan, PlanError> {
+        s.create_plan_for_team(
+            title.into(),
+            dir.path().display().to_string(),
+            OrchestratorRef::from_pane("orch"),
+            team.to_string(),
+            vec![],
+            now,
+        )
+    }
+
+    #[test]
+    fn teamless_creator_is_rejected_without_a_fallback_plan() {
+        let (dir, s) = store();
+        let error = create(&s, &dir, "A", "", 1).unwrap_err();
+        assert!(matches!(error, PlanError::ActivePlanRequiresTeam { .. }));
+        assert!(s.list_index().is_empty());
+    }
+
+    #[test]
+    fn team_bound_creation_persists_team_id() {
+        let (dir, s) = store();
+        let plan = create(&s, &dir, "Bound", "team_alpha", 1).unwrap();
+        assert_eq!(plan.team_id.as_deref(), Some("team_alpha"));
+        assert_eq!(
+            s.active_plan_for_team("team_alpha"),
+            Some((plan.id.clone(), "Bound".into()))
+        );
+        // Exposed in the plan index.
+        let entry = s
+            .list_index()
+            .into_iter()
+            .find(|e| e.plan_id == plan.id)
+            .unwrap();
+        assert_eq!(entry.team_id.as_deref(), Some("team_alpha"));
+    }
+
+    #[test]
+    fn team_close_archives_plan_until_atomic_adoption() {
+        let (dir, s) = store();
+        let plan = create(&s, &dir, "Bound", "team_closed", 1).unwrap();
+
+        assert_eq!(
+            s.archive_and_detach_team_plans("team_closed", 2).unwrap(),
+            vec![plan.id.clone()]
+        );
+        let archived = s.get(&plan.id).unwrap();
+        assert_eq!(archived.team_id, None);
+        assert_eq!(archived.status, PlanStatus::Archived);
+
+        assert!(matches!(
+            s.resume_plan(&plan.id, 3),
+            Err(PlanError::ActivePlanRequiresTeam { .. })
+        ));
+        let rebound = s
+            .adopt_plan_for_team(
+                &plan.id,
+                "team_new",
+                OrchestratorRef::from_pane("new-owner"),
+                4,
+            )
+            .unwrap();
+        assert_eq!(rebound.team_id.as_deref(), Some("team_new"));
+        assert_eq!(rebound.status, PlanStatus::Active);
+        assert_eq!(rebound.owner.pane_id.as_deref(), Some("new-owner"));
+    }
+
+    #[test]
+    fn dangling_team_reconciliation_archives_every_active_orphan() {
+        let (dir, s) = store();
+        let parked = create(&s, &dir, "Parked", "team_missing", 1).unwrap();
+        s.set_mode(&parked.id, PlanMode::Paused, 2).unwrap();
+        let done = create(&s, &dir, "Done", "team_done", 3).unwrap();
+        s.set_mode(&done.id, PlanMode::Complete, 4).unwrap();
+        let archived = create(&s, &dir, "Archived", "team_archived", 5).unwrap();
+        s.update_plan(&archived.id, None, Some(PlanStatus::Archived), None, 6)
+            .unwrap();
+        let healthy = create(&s, &dir, "Healthy", "team_live", 7).unwrap();
+        let live = std::collections::BTreeSet::from(["team_live".to_string()]);
+
+        let mut expected = vec![done.id.clone(), parked.id.clone()];
+        expected.sort();
+        assert_eq!(
+            s.archive_active_plans_without_live_team(&live, 8).unwrap(),
+            expected
+        );
+        assert_eq!(s.get(&parked.id).unwrap().status, PlanStatus::Archived);
+        assert_eq!(s.get(&done.id).unwrap().status, PlanStatus::Archived);
+        assert_eq!(s.get(&archived.id).unwrap().status, PlanStatus::Archived);
+        assert_eq!(
+            s.get(&healthy.id).unwrap().team_id.as_deref(),
+            Some("team_live")
+        );
+        assert!(s
+            .archive_active_plans_without_live_team(&live, 9)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn second_active_plan_hard_refused() {
+        let (dir, s) = store();
+        let first = create(&s, &dir, "First", "team_alpha", 1).unwrap();
+        let before = s.list_index().len();
+        let err = create(&s, &dir, "Second", "team_alpha", 2).unwrap_err();
+        match &err {
+            PlanError::TeamAlreadyHasActivePlan {
+                team_id,
+                existing_plan_id,
+                existing_title,
+            } => {
+                assert_eq!(team_id, "team_alpha");
+                assert_eq!(existing_plan_id, &first.id);
+                assert_eq!(existing_title, "First");
+            }
+            other => panic!("expected hard refuse, got {other:?}"),
+        }
+        let msg = err.to_string();
+        assert!(msg.contains(&first.id), "error must name the existing plan");
+        assert!(msg.contains("team_alpha"), "error must name the team");
+        assert!(
+            msg.to_lowercase().contains("another team"),
+            "error must instruct to use another Team: {msg}"
+        );
+        // Hard refuse leaves the store unchanged — no teamless fallback plan.
+        assert_eq!(s.list_index().len(), before);
+    }
+
+    #[test]
+    fn concurrent_team_plan_creation_allows_exactly_one() {
+        let dir = TempDir::new().unwrap();
+        let store = Arc::new(PlanStore::new_for_test(dir.path()));
+        let barrier = Arc::new(Barrier::new(3));
+        let root = dir.path().display().to_string();
+        let spawn = |title: &'static str, now| {
+            let store = store.clone();
+            let barrier = barrier.clone();
+            let root = root.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                store.create_plan_for_team(
+                    title.into(),
+                    root,
+                    OrchestratorRef::from_pane(title),
+                    "team_alpha".into(),
+                    vec![],
+                    now,
+                )
+            })
+        };
+        let first = spawn("First", 1);
+        let second = spawn("Second", 2);
+        barrier.wait();
+        let results = [first.join().unwrap(), second.join().unwrap()];
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(
+            results
+                .iter()
+                .filter(|result| matches!(result, Err(PlanError::TeamAlreadyHasActivePlan { .. })))
+                .count(),
+            1
+        );
+        assert_eq!(store.list_index().len(), 1);
+    }
+
+    #[test]
+    fn concurrent_team_plan_create_and_bind_allow_exactly_one() {
+        let dir = TempDir::new().unwrap();
+        let store = Arc::new(PlanStore::new_for_test(dir.path()));
+        let mut teamless = crate::plan::Plan::new(
+            "Existing".into(),
+            dir.path().display().to_string(),
+            OrchestratorRef::from_pane("orch"),
+        );
+        store.save(&mut teamless, 1).unwrap();
+        let barrier = Arc::new(Barrier::new(3));
+        let bind_store = store.clone();
+        let bind_barrier = barrier.clone();
+        let bind_plan_id = teamless.id.clone();
+        let bind = std::thread::spawn(move || {
+            bind_barrier.wait();
+            bind_store.bind_plan_to_team(&bind_plan_id, "team_alpha", 2)
+        });
+        let create_store = store.clone();
+        let create_barrier = barrier.clone();
+        let root = dir.path().display().to_string();
+        let create = std::thread::spawn(move || {
+            create_barrier.wait();
+            create_store.create_plan_for_team(
+                "New".into(),
+                root,
+                OrchestratorRef::from_pane("orch"),
+                "team_alpha".into(),
+                vec![],
+                3,
+            )
+        });
+        barrier.wait();
+        let results = [bind.join().unwrap(), create.join().unwrap()];
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(
+            results
+                .iter()
+                .filter(|result| matches!(result, Err(PlanError::TeamAlreadyHasActivePlan { .. })))
+                .count(),
+            1
+        );
+        assert!(store.active_plan_for_team("team_alpha").is_some());
+    }
+
+    #[test]
+    fn different_team_gets_its_own_plan() {
+        let (dir, s) = store();
+        create(&s, &dir, "Alpha", "team_alpha", 1).unwrap();
+        let beta = create(&s, &dir, "Beta", "team_beta", 2).unwrap();
+        assert_eq!(beta.team_id.as_deref(), Some("team_beta"));
+    }
+
+    #[test]
+    fn archiving_frees_the_team_for_a_new_plan() {
+        let (dir, s) = store();
+        let first = create(&s, &dir, "First", "team_alpha", 1).unwrap();
+        s.archive(&first.id, 2).unwrap();
+        // The 1:1 rule counts only ACTIVE plans — an archived one no longer blocks.
+        let second = create(&s, &dir, "Second", "team_alpha", 3).unwrap();
+        assert_eq!(second.team_id.as_deref(), Some("team_alpha"));
+        assert_ne!(first.id, second.id);
+    }
+}
+
+#[cfg(test)]
+mod writer_queue_tests;

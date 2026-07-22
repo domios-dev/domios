@@ -70,7 +70,7 @@ fn resolve_service_id(client: &mut SocketClient, input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_service_outcome, ResolveOutcome};
+    use super::{resolve_service_outcome, service_add_json, ResolveOutcome};
 
     #[test]
     fn canonical_id_passes_through_unchanged() {
@@ -115,6 +115,36 @@ mod tests {
             other => panic!("expected Ambiguous, got {:?}", other),
         }
     }
+
+    #[test]
+    fn service_add_json_omits_token_without_push() {
+        let response = serde_json::json!({
+            "service": {"id": "svc_demo", "name": "demo"},
+            "token": "secret-token"
+        });
+
+        let output = service_add_json(&response, false);
+
+        assert_eq!(output["service"]["id"], "svc_demo");
+        assert!(output.get("token").is_none());
+    }
+
+    #[test]
+    fn service_add_json_retains_token_with_push() {
+        let response = serde_json::json!({"token": "secret-token"});
+
+        assert_eq!(service_add_json(&response, true)["token"], "secret-token");
+    }
+}
+
+fn service_add_json(value: &serde_json::Value, push: bool) -> serde_json::Value {
+    let mut value = value.clone();
+    if !push {
+        if let Some(object) = value.as_object_mut() {
+            object.remove("token");
+        }
+    }
+    value
 }
 
 pub fn handle_service(client: &mut SocketClient, json: bool, action: ServiceAction) {
@@ -210,7 +240,10 @@ pub fn handle_service(client: &mut SocketClient, json: bool, action: ServiceActi
             match client.call("services.create", Some(params)) {
                 Ok(val) => {
                     if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&service_add_json(&val, push)).unwrap()
+                        );
                     } else {
                         let svc = val.get("service").unwrap_or(&val);
                         let token = val.get("token").and_then(|v| v.as_str()).unwrap_or("");

@@ -3,8 +3,22 @@
 //! attachers and live subscribers see where a spawn actually is.
 
 use super::ServiceContext;
+use crate::multiplexer::types::Pane;
 
 pub use codeterm_types::pty::{BootStage, BootStageSink};
+
+pub(crate) fn allows_shell_prompt_exit(stage: Option<BootStage>) -> bool {
+    matches!(stage, Some(BootStage::AgentReady))
+}
+
+/// Record a stage on the pane. Only SpawnFailed carries a reason, so any other
+/// stage clears a previously latched failure.
+pub(crate) fn apply_boot_stage(pane: &mut Pane, stage: BootStage, reason: Option<&str>) {
+    pane.boot_stage = Some(stage);
+    pane.boot_failure_reason = (stage == BootStage::SpawnFailed)
+        .then(|| reason.map(str::to_string))
+        .flatten();
+}
 
 impl BootStageSink for ServiceContext {
     fn record(&self, pane_id: &str, stage: BootStage, reason: Option<&str>) {
@@ -18,8 +32,9 @@ impl ServiceContext {
     /// — never blocks the launch thread.
     pub(crate) fn emit_boot_stage(&self, pane_id: &str, stage: BootStage, reason: Option<&str>) {
         if let Some(p) = self.mux.write().get_pane_mut(pane_id) {
-            p.boot_stage = Some(stage);
+            apply_boot_stage(p, stage, reason);
         }
+        super::boot_wait::notify_boot_changed();
         crate::api::events::emit_everywhere(
             &self.app_handle,
             "pane-boot-stage",
@@ -29,6 +44,42 @@ impl ServiceContext {
                 "reason": reason,
             }),
         );
+        if stage == BootStage::AgentReady {
+            self.schedule_planner_replay(pane_id);
+            self.heal_recovery_state_if_ready();
+        }
+    }
+
+    /// Proven health for the recovery record: every exact role binding has a
+    /// rehydrated agent state. Read at real state transitions, never a timer.
+    pub(crate) fn heal_recovery_state_if_ready(&self) {
+        if !crate::crash::lifecycle::recovery_heal_pending() {
+            return;
+        }
+        let healthy = {
+            let mux = self.mux.read();
+            mux.snapshot()
+                .panes
+                .values()
+                .filter_map(|pane| {
+                    if pane.role.is_none() || pane.agent_type.is_none() {
+                        return None;
+                    }
+                    crate::crash::lifecycle::BindingIdentity::healthy_lazy_restored(
+                        &pane.id,
+                        pane.agent_session_id.as_deref(),
+                        pane.agent_state.is_some(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        if crate::crash::lifecycle::heal_current_epoch(&healthy) {
+            crate::api::events::emit_everywhere(
+                &self.app_handle,
+                "recovery-state-changed",
+                crate::crash::lifecycle::recovery_state(),
+            );
+        }
     }
 }
 

@@ -121,7 +121,7 @@ export const enHelpContent: HelpLocaleContent = {
         },
         {
           type: "paragraph",
-          text: "Tasks move pending → in progress → in review (with an optional QA stage) → done, with blocked and parked for stuck or deferred work. Every step is recorded as a working point — open any task to read its full activity trail: who did what, when, and why. Loops re-run a task until its stop condition holds; competitive tasks run several agents on the same problem and let the Orchestrator judge the winner.",
+          text: "Tasks move pending → in progress → in review (with an optional QA stage) → done, with blocked and paused for stuck or explicitly held work. Every step is recorded as a working point — open any task to read its full activity trail: who did what, when, and why. Loops re-run a task until its stop condition holds; competitive tasks run several agents on the same problem and let the Orchestrator judge the winner.",
         },
         { type: "figure", figureId: "task-status-flow" },
         {

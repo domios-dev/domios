@@ -21,7 +21,7 @@
 # ONLY have come through the SSE subscriber (C2). If it instead settles idle/working,
 # the structured path did not deliver (server-without-subscriber, or no server).
 #
-# Pure dev API. Disposable pane (spawn one, or pass --pane). Cleans up if it spawned.
+# Pure dev API. Disposable tab (spawn one, or pass --tab). Cleans up if it spawned.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; cd "$ROOT"
 source evals/_lib/lib.sh 2>/dev/null; export PATH="/usr/bin:/bin:$PATH"
@@ -31,7 +31,7 @@ ocget(){ /usr/bin/curl -s -H "Authorization: Bearer $TOK" "http://127.0.0.1:7686
 
 PANE=""; SPAWNED_WS=""
 PROMPT="Ask me a multiple-choice question with options A, B, C using your real interactive question/poll UI (not prose). Wait for my choice."
-while [ "$#" -gt 0 ]; do case "$1" in --pane) PANE="$2"; shift 2;; --prompt) PROMPT="$2"; shift 2;; *) echo "unknown $1"; exit 2;; esac; done
+while [ "$#" -gt 0 ]; do case "$1" in --tab) PANE="$2"; shift 2;; --prompt) PROMPT="$2"; shift 2;; *) echo "unknown $1"; exit 2;; esac; done
 
 st(){ ocget /api/panes 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);print(next(((p.get('agent_state') or {}).get('state') for p in d if p['id']=='$1'),'?'))"; }
 

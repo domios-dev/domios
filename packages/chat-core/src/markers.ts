@@ -11,6 +11,8 @@
  */
 export const MARKER_OPEN = "-=-codeterm:";
 export const MARKER_CLOSE = "-=-";
+const BRACKETED_PASTE_START = "\x1b[200~";
+const BRACKETED_PASTE_END = "\x1b[201~";
 
 function encode(value: string): string {
   let out = "";
@@ -38,6 +40,15 @@ export interface ParsedMarker {
   payload: string;
 }
 
+export function isPaneMarkerPlaceholderLabel(label: string | null | undefined): boolean {
+  const normalized = label?.trim().toLowerCase();
+  return !normalized || normalized === "current pane";
+}
+
+export function shortPaneRef(paneRef: string | null | undefined): string {
+  return (paneRef ?? "").trim().slice(0, 8);
+}
+
 export function buildMarker(
   kind: string,
   attrs: Array<[string, string]> = [],
@@ -50,7 +61,13 @@ export function buildMarker(
 
 /** Parse a marker, or null if `text` isn't a CodeTerm marker frame. */
 export function parseMarker(text: string): ParsedMarker | null {
-  const normalized = text.replace(/^\s+/, "");
+  let normalized = text.replace(/^\s+/, "");
+  if (normalized.startsWith(BRACKETED_PASTE_START)) {
+    normalized = normalized.slice(BRACKETED_PASTE_START.length);
+    if (normalized.endsWith(BRACKETED_PASTE_END)) {
+      normalized = normalized.slice(0, -BRACKETED_PASTE_END.length);
+    }
+  }
   if (!normalized.startsWith(MARKER_OPEN)) return null;
   const rest = normalized.slice(MARKER_OPEN.length);
   const close = rest.indexOf(MARKER_CLOSE);

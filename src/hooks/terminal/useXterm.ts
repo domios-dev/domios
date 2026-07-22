@@ -18,6 +18,9 @@ const E2E_TEST_MODE = shouldEnableXtermA11yMode({
   isViteDev: viteEnv.DEV,
   viteCodeTermTest: viteEnv.VITE_CODETERM_TEST,
   locationSearch: typeof window !== "undefined" ? window.location.search : "",
+  locationProtocol: typeof window !== "undefined" ? window.location.protocol : "",
+  locationHostname: typeof window !== "undefined" ? window.location.hostname : "",
+  locationPort: typeof window !== "undefined" ? window.location.port : "",
 });
 
 export interface UseXtermOptions {
@@ -111,6 +114,9 @@ export function useXterm({
       term.unicode.activeVersion = "11";
 
       term.open(containerRef.current);
+      if (viteEnv.DEV) {
+        (containerRef.current as HTMLDivElement & { __codetermTerminal?: Terminal }).__codetermTerminal = term;
+      }
 
       if (E2E_TEST_MODE) {
         invoke("report_webgl_status", { state: "skipped_test_mode", detail: null }).catch(() => {});
@@ -137,6 +143,9 @@ export function useXterm({
       webglRef.current?.dispose();
       webglRef.current = null;
       created?.dispose();
+      if (containerRef.current && viteEnv.DEV) {
+        delete (containerRef.current as HTMLDivElement & { __codetermTerminal?: Terminal }).__codetermTerminal;
+      }
       termRef.current = null;
       fitAddonRef.current = null;
       searchAddonRef.current = null;
@@ -149,16 +158,7 @@ export function useXterm({
     const term = termRef.current;
     if (!term || !termReady || E2E_TEST_MODE) return;
 
-    if (!renderEnabled) {
-      if (webglRef.current) {
-        webglRef.current.dispose();
-        webglRef.current = null;
-        invoke("report_webgl_status", { state: "disposed_hidden", detail: null }).catch(() => {});
-      }
-      return;
-    }
-
-    if (webglRef.current) return;
+    if (!renderEnabled || webglRef.current) return;
 
     try {
       const webgl = new WebglAddon();

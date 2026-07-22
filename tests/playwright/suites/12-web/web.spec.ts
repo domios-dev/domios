@@ -6,6 +6,8 @@
 import { expect, test, type Browser, type Page, API_BASE, readDevToken } from "../../helpers/fixtures";
 import { MeshStub } from "../../helpers/mesh-stub";
 import { pollUntil } from "../../helpers/poll";
+import { tempSpawnCwd } from "../../helpers/spawn-cwd";
+import { createStubWorkspace, isStubTransportActive } from "../../helpers/stub-gate";
 
 const WEB_URL = `${API_BASE}/`;
 
@@ -55,7 +57,8 @@ test("@golden bad token is rejected with a rendered error, not a broken app", as
 test("@golden peer switching: dropdown lists the stub, traffic routes to it, switch-back restores", async ({ api, webBrowser }) => {
   test.setTimeout(240_000);
   const STUB_TOKEN = "stub-web-token-123";
-  const stub = new MeshStub({ services: 1, webToken: STUB_TOKEN });
+  const stub = new MeshStub({ services: 1, webToken: STUB_TOKEN, daemonBase: API_BASE });
+  stub.muxDelayMs = 500;
   let peerId: string | undefined;
 
   // before its cleanup — drop them so selectors stay unambiguous.
@@ -79,6 +82,7 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
     peerId = added.instance_id;
     stub.instanceId = peerId;
     await api.post("/mesh/connect", { instance_id: peerId });
+    await stub.waitForPairAccept();
     await pollUntil(async () => {
       const peers = await api.get<{ paired: { instance_id: string }[] }>("/mesh/peers");
       return peers.paired.some((p) => p.instance_id === peerId);
@@ -94,15 +98,18 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
     await expect(item).toBeVisible({ timeout: 15_000 });
     await expect(item).toHaveAttribute("data-peer-online", "true");
 
-    // stores it for the target host, then reloads directly into the stub.
+    const oldPaneId = await page.locator("[data-pane-id]").first().getAttribute("data-pane-id");
+    expect(oldPaneId, "self host should expose an active pane before switching").toBeTruthy();
+
     const before = stub.requests.length;
     await item.click();
     await expect(page.locator('[data-testid="web-token-input"]')).toHaveCount(0);
+    await expect(page.locator(`[data-pane-id="${oldPaneId}"]`)).toHaveCount(0);
 
-    // the stub actually received the web client's API calls.
     await expect(
       page.locator(`[data-testid="workspace-item"][data-workspace-name="${stub.instanceName}-workspace"]`),
     ).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('[data-testid="peer-picker-button"]')).toContainText(stub.instanceName);
     expect(stub.requests.length, "stub saw no web traffic after switch").toBeGreaterThan(before);
     expect(
       stub.requests.some(
@@ -117,6 +124,10 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
       1,
       `stub requests: ${stub.requests.slice(-10).join(", ")}`,
     );
+    expect(
+      stub.requests.slice(before).filter((request) => request.includes(`/api/panes/${oldPaneId}/`)),
+      "new peer received a request for the old peer pane",
+    ).toEqual([]);
 
     // Switch back to self: real workspaces return, no stub data leaks.
     await page.click('[data-testid="peer-picker-button"]');
@@ -135,59 +146,130 @@ test("@golden peer switching: dropdown lists the stub, traffic routes to it, swi
 });
 
 test("@golden unreachable peer fails gracefully at the gate, back-to-self recovers", async ({ webBrowser }) => {
-  test.setTimeout(120_000);
   const page = await newWebPage(webBrowser);
-  // went down after being selected.
   await page.goto(WEB_URL, { waitUntil: "domcontentloaded" });
-  await page.evaluate(() => {
-    sessionStorage.setItem("codeterm-web-host", "http://127.0.0.1:39999");
-    localStorage.setItem("codeterm-web-token:http://127.0.0.1:39999", "x");
-  });
+  await page.evaluate((token) => {
+    const self = window.location.origin;
+    localStorage.setItem(`codeterm-web-token:${self}`, token);
+    localStorage.setItem(`codeterm-web-relay-peer:${self}`, "unreachable-peer");
+    localStorage.setItem(`codeterm-web-relay-peer-name:${self}`, "unreachable peer");
+  }, readDevToken());
   await page.reload({ waitUntil: "domcontentloaded" });
-  // Gate must surface the failure and offer the way home.
-  await page.waitForSelector('[data-testid="web-token-back-to-self"]', { timeout: 30_000 });
-  await page.click('[data-testid="web-token-back-to-self"]');
-  await passTokenGate(page);
+
+  const backToSelf = page.locator('[data-testid="web-token-back-to-self"]');
+  await expect(page.locator('[data-testid="web-token-error"]')).toBeVisible();
+  await expect(backToSelf).toBeVisible();
+  await expect(backToSelf).toContainText("Back to");
+  await backToSelf.click();
+
+  await expect(page.locator('[data-testid="peer-picker-button"]')).toBeVisible();
   await expect(page.locator('[data-testid="peer-picker-button"]')).toContainText("this host");
   await expect(page.locator('[data-testid="workspace-item"]').first()).toBeVisible();
+  const relayPeer = await page.evaluate(() =>
+    localStorage.getItem(`codeterm-web-relay-peer:${window.location.origin}`),
+  );
+  expect(relayPeer).toBeNull();
   await page.context().close();
 });
 
 test("@golden mobile viewport: no horizontal scroll, sidebar overlays, picker reachable", async ({ webBrowser }) => {
-  const page = await newWebPage(webBrowser, { width: 375, height: 812 });
+  const page = await newWebPage(webBrowser, { width: 390, height: 844 });
   await page.goto(WEB_URL, { waitUntil: "domcontentloaded" });
   await passTokenGate(page);
 
   const scrollW = await page.evaluate(() => document.documentElement.scrollWidth);
-  expect(scrollW, "horizontal scroll on phone viewport").toBeLessThanOrEqual(375);
+  expect(scrollW, "horizontal scroll on phone viewport").toBeLessThanOrEqual(390);
 
-  // workspaces, nav) lives in the overlay the hamburger opens.
   const burger = page.locator('[data-testid="web-sidebar-open"]');
-  if (await burger.isVisible()) {
-    await burger.click();
-  }
   const picker = page.locator('[data-testid="peer-picker-button"]');
+  await expect(burger).toBeVisible({ timeout: 10_000 });
   await expect(picker).toBeVisible({ timeout: 10_000 });
   const box = await picker.boundingBox();
   expect(box && box.height >= 40, `picker touch target ${box?.height}px`).toBe(true);
 
+  const burgerBox = await burger.boundingBox();
+  const optionalBox = async (selector: string) => {
+    const control = page.locator(selector).first();
+    return (await control.isVisible().catch(() => false)) ? control.boundingBox() : null;
+  };
+  const reconnectBox = await optionalBox('[data-testid="chat-reconnect"]');
+  const modeBox = await optionalBox('[data-testid="pane-mode-switch"]');
+  const overlaps = (
+    a: { x: number; y: number; width: number; height: number },
+    b: { x: number; y: number; width: number; height: number },
+  ) => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+  if (box && burgerBox) expect(overlaps(box, burgerBox), "peer picker overlaps hamburger").toBe(false);
+  if (burgerBox && reconnectBox) expect(overlaps(burgerBox, reconnectBox), "hamburger overlaps reconnect").toBe(false);
+  if (burgerBox && modeBox) expect(overlaps(burgerBox, modeBox), "hamburger overlaps mode switch").toBe(false);
+
   const navMesh = page.locator('[data-testid="nav-mesh"]');
+  await burger.click();
   await expect(navMesh).toBeVisible({ timeout: 5_000 });
   await navMesh.click();
   await expect(page.locator('[data-testid="mesh-tab-network"]')).toBeVisible({ timeout: 10_000 });
   await page.context().close();
 });
 
+test("@golden mobile sidebar stays open for workspace cards and closes for tabs", async ({ api, webBrowser, paneCleanup }) => {
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const firstName = `pw-mobile-workspace-a-${suffix}`;
+  const secondName = `pw-mobile-workspace-b-${suffix}`;
+  await api.createWorkspace(firstName);
+  await api.createWorkspace(secondName);
+  const workspaces = await api.workspaces();
+  const first = workspaces.find((workspace) => workspace.name === firstName);
+  const second = workspaces.find((workspace) => workspace.name === secondName);
+  if (!first || !second) throw new Error("mobile sidebar test workspaces were not created");
+  const pane = await paneCleanup.createPane<{ tab_id: string }>({
+    workspace_id: second.id,
+    title: `pw-mobile-tab-${suffix}`,
+  });
+  await api.focusWorkspace(first.id);
+
+  const page = await newWebPage(webBrowser, { width: 390, height: 844 });
+  try {
+    await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
+    const burger = page.locator('[data-testid="web-sidebar-open"]');
+    await expect(burger).toBeVisible({ timeout: 20_000 });
+    await burger.click();
+
+    const drawer = page.locator(".ct-sidebar-drawer.is-open");
+    await expect(drawer).toBeVisible({ timeout: 10_000 });
+    await drawer
+      .getByRole("button", { name: `Select workspace ${secondName}`, exact: true })
+      .and(page.locator("[aria-pressed]"))
+      .click();
+
+    await expect(drawer, "workspace selection keeps the mobile drawer open").toBeVisible();
+    const region = drawer.getByRole("region", { name: `${secondName} workspace contents` });
+    await expect(region, "workspace selection reveals its tabs in the open drawer").toBeVisible();
+    await region.locator(`[data-testid="tab-item"][data-tab-id="${pane.tab_id}"]`).click();
+
+    await expect(page.locator(".ct-sidebar-drawer.is-open"), "tab selection dismisses the mobile drawer").toHaveCount(0);
+    await expect(burger, "tab selection restores the mobile drawer trigger").toBeVisible();
+  } finally {
+    await page.context().close();
+    await api.closeWorkspace(first.id).catch(() => {});
+    await api.closeWorkspace(second.id).catch(() => {});
+  }
+});
+
 test("@golden fully live on mobile: General Agent responds, read from the rendered DOM", async ({ api, webBrowser, paneCleanup, spawnAgent, pollMarkerInDom }) => {
   test.setTimeout(300_000);
+  test.skip(
+    !(await isStubTransportActive(api)),
+    "dev daemon is not running with CODETERM_STUB_AGENT_CMD",
+  );
   const page = await newWebPage(webBrowser, { width: 375, height: 812 });
   // Runtime a11y opt-in gives the browser terminal a readable DOM.
   await page.goto(`${WEB_URL}?a11y=1`, { waitUntil: "domcontentloaded" });
   await passTokenGate(page);
 
   const marker = `PW-WEB-${Date.now()}`;
+  const expected = `ack ${marker}`;
   // Drive the spawn through the API (deterministic), observe in the DOM.
-  const inbox = await paneCleanup.createPane({ title: "pw-web-inbox" });
+  const workspace = await createStubWorkspace(api);
+  const inbox = await paneCleanup.createPane({ title: "pw-web-inbox", workspace_id: workspace.id });
   let agentPaneId: string | undefined;
   try {
     await api.post(`/panes/${inbox.id}/role`, { role: "Orchestrator" });
@@ -200,13 +282,14 @@ test("@golden fully live on mobile: General Agent responds, read from the render
       report_target_pane_id: inbox.id,
       skip_permissions: true,
       activate: true,
-      task: `Reply with a single line containing exactly ${marker} and nothing else.`,
+      cwd: tempSpawnCwd("pw-web-agent-"),
+      task: `STUB_ECHO ${marker}`,
     });
     agentPaneId = spawned.pane_id;
 
     // render as a chat bubble instead of xterm a11y text — accept either.
-    await pollMarkerInDom(marker, { page, includeChatMessages: true });
-    await expect(page.locator(`[data-pane-id="${agentPaneId!}"]`)).toContainText(marker);
+    await pollMarkerInDom(expected, { page, includeChatMessages: true });
+    await expect(page.locator(`[data-testid="pane-session-chat"][data-pane-id="${agentPaneId!}"]`)).toContainText(expected);
   } finally {
     if (agentPaneId) paneCleanup.track(agentPaneId);
     await page.context().close();

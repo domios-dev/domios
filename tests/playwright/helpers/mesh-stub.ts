@@ -28,6 +28,9 @@ export class MeshStub {
   private serviceCount: number;
   /** Daemon base for the pair-accept callback. */
   private daemonBase: string;
+  private pairAcceptCompleted = false;
+  private pairAcceptError: Error | null = null;
+  private pairAcceptWaiters = new Set<{ resolve: () => void; reject: (error: Error) => void }>();
 
   /** When set, the stub also answers the web-mirror's direct API calls
    * (gate validation, mux state, peers …) gated by this bearer token —
@@ -36,6 +39,7 @@ export class MeshStub {
   /** Config payload for /api/config — seed with a REAL daemon config so
    * the SPA's boot path doesn't choke on missing fields. */
   configPayload: unknown = {};
+  muxDelayMs = 0;
 
   constructor(opts: { services?: number; daemonBase?: string; webToken?: string } = {}) {
     this.serviceCount = opts.services ?? 3;
@@ -70,6 +74,40 @@ export class MeshStub {
       this.server.close(() => resolve());
       this.server = null;
     });
+  }
+
+  waitForPairAccept(timeoutMs = 10_000): Promise<void> {
+    if (this.pairAcceptCompleted) {
+      return this.pairAcceptError ? Promise.reject(this.pairAcceptError) : Promise.resolve();
+    }
+    return new Promise((resolve, reject) => {
+      let timer: ReturnType<typeof setTimeout>;
+      const waiter = {
+        resolve: () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        reject: (error: Error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      };
+      timer = setTimeout(() => {
+        this.pairAcceptWaiters.delete(waiter);
+        reject(new Error(`mesh stub pair-accept callback did not finish within ${timeoutMs}ms`));
+      }, timeoutMs);
+      this.pairAcceptWaiters.add(waiter);
+    });
+  }
+
+  private completePairAccept(error: Error | null): void {
+    this.pairAcceptCompleted = true;
+    this.pairAcceptError = error;
+    for (const waiter of this.pairAcceptWaiters) {
+      if (error) waiter.reject(error);
+      else waiter.resolve();
+    }
+    this.pairAcceptWaiters.clear();
   }
 
   services(): unknown[] {
@@ -131,8 +169,8 @@ export class MeshStub {
           } catch {
             return json(400, { error: "bad pairing request body" });
           }
-          setTimeout(() => void this.sendAccept(request_id), 150);
-          return json(200, { ok: true });
+          res.once("finish", () => void this.sendAccept(request_id));
+          return json(200, { ok: true, instance_id: this.instanceId });
         }
 
         case "/api/mesh/sync":
@@ -156,26 +194,32 @@ export class MeshStub {
               return json(200, { ok: true, status: 200, data: this.services(), error: null });
             }
             if (cmd.method === "GET" && cmd.path === "/api/mux/state") {
-              return json(200, {
-                ok: true,
-                status: 200,
-                data: {
-                  workspaces: [
-                    {
-                      id: "stub-ws",
-                      name: `${this.instanceName}-workspace`,
-                      tabs: [],
-                      active_tab_id: null,
-                      cwd: null,
-                      protected: true,
-                    },
-                  ],
-                  panes: {},
-                  active_workspace_id: "stub-ws",
-                  focused_pane_id: null,
-                },
-                error: null,
-              });
+              const sendMux = () =>
+                json(200, {
+                  ok: true,
+                  status: 200,
+                  data: {
+                    workspaces: [
+                      {
+                        id: "stub-ws",
+                        name: `${this.instanceName}-workspace`,
+                        tabs: [],
+                        active_tab_id: null,
+                        cwd: null,
+                        protected: true,
+                      },
+                    ],
+                    panes: {},
+                    active_workspace_id: "stub-ws",
+                    focused_pane_id: null,
+                  },
+                  error: null,
+                });
+              if (this.muxDelayMs > 0) {
+                setTimeout(sendMux, this.muxDelayMs);
+                return;
+              }
+              return sendMux();
             }
           } catch {
             /* fall through */
@@ -285,7 +329,7 @@ export class MeshStub {
 
   private async sendAccept(requestId: string): Promise<void> {
     try {
-      await fetch(`${this.daemonBase}/api/mesh/pair/accept`, {
+      const response = await fetch(`${this.daemonBase}/api/mesh/pair/accept`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -296,9 +340,14 @@ export class MeshStub {
         }),
         signal: AbortSignal.timeout(5_000),
       });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      this.completePairAccept(null);
     } catch (e) {
-      // Surfaced via the test's pairing-poll timeout; log for diagnosis.
-      console.warn(`[mesh-stub] pair-accept callback failed: ${e}`);
+      const error = e instanceof Error ? e : new Error(String(e));
+      this.completePairAccept(error);
+      console.warn(`[mesh-stub] pair-accept callback failed: ${error.message}`);
     }
   }
 }

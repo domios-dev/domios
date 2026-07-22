@@ -32,6 +32,7 @@
 import type { Page } from "@playwright/test";
 
 export type DisruptionTarget = "sse" | "pty-read" | "pty-stream" | "all";
+type SelectiveTarget = Exclude<DisruptionTarget, "all">;
 
 export interface SeverOptions {
   /** Force an immediate kill of whatever is currently in flight (see module doc). */
@@ -45,6 +46,11 @@ const ROUTE_GLOB: Record<Exclude<DisruptionTarget, "all">, string> = {
 };
 
 const BLIP_MS = 150;
+export const NETWORK_DISRUPTION_ABORT_REGISTRY = "__ctNetworkDisruptionAborters";
+
+type AbortRegistryWindow = Window & {
+  [key: string]: Record<SelectiveTarget, AbortController[]> | unknown;
+};
 
 export interface NetworkDisruption {
   /** Start severing `target`. Idempotent (a repeated call still honors `hard`). */
@@ -75,6 +81,20 @@ export function networkDisruption(page: Page): NetworkDisruption {
     await ctx.setOffline(false);
   }
 
+  async function abortRegistered(target: SelectiveTarget): Promise<void> {
+    await page.evaluate(
+      ({ key, t }) => {
+        const win = window as AbortRegistryWindow;
+        const registry = win[key] as Record<SelectiveTarget, AbortController[]> | undefined;
+        const controllers = registry?.[t] ?? [];
+        for (const controller of controllers.splice(0)) {
+          controller.abort();
+        }
+      },
+      { key: NETWORK_DISRUPTION_ABORT_REGISTRY, t: target },
+    );
+  }
+
   const disruption: NetworkDisruption = {
     async sever(target, opts = {}) {
       if (!active.has(target)) {
@@ -86,6 +106,7 @@ export function networkDisruption(page: Page): NetworkDisruption {
         await severSelective(target);
       }
       if (opts.hard && target !== "all") {
+        await abortRegistered(target);
         await blip();
       }
     },

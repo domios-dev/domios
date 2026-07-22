@@ -73,6 +73,52 @@ export interface ServeStatus {
   https_url?: string | null;
   self_dns?: string | null;
   platform?: string | null;
+  snapshot?: ServeReconcileSnapshot | null;
+}
+
+export type ServeReconcileState =
+  | "ready"
+  | "setup_required"
+  | "operator_bootstrap_required"
+  | "conflict"
+  | "unhealthy";
+
+export interface ServeReconcileSnapshot {
+  state: ServeReconcileState;
+  url?: string | null;
+  api_port: number;
+  desired_https_port: number;
+  chosen_https_port?: number | null;
+  operator_bootstrap_required: boolean;
+  bootstrap_command?: string | null;
+  binary: {
+    installed: boolean;
+    path?: string | null;
+    cli_version?: string | null;
+    daemon_version?: string | null;
+    version_skew: boolean;
+    version_output?: string | null;
+    error?: string | null;
+  };
+  route?: ServeRouteSnapshot | null;
+  routes: ServeRouteSnapshot[];
+  conflict?: string | null;
+  health: {
+    checked_url?: string | null;
+    ok: boolean;
+    status?: number | null;
+    daemon_build?: string | null;
+    expected_build?: string | null;
+    build_matches?: boolean | null;
+    error?: string | null;
+  };
+}
+
+export interface ServeRouteSnapshot {
+  host?: string | null;
+  https_port: number;
+  proxy?: string | null;
+  ownership: "owned" | "conflict" | "free" | "unknown";
 }
 
 export type ServeSetupState = "not-installed" | "active" | "port-collision" | "can-enable";

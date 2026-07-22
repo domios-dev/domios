@@ -1,0 +1,72 @@
+{
+  "skill_name": "orchestrator-suffix-bounce-contract",
+  "description": "Orchestrator suffix contract for bounce unwinding, bounded research, deduplicated follow-ups, and learning routing.",
+  "evals": [
+    {
+      "id": 6,
+      "name": "orchestrator-repo-first-before-external",
+      "prompt": "You are the Orchestrator for plan pl_demo. A worker bounced on a missing-fact claim. Before authorizing external research, verify the local repo, touched files, plan skills, and existing evals. Respond with commands only.",
+      "expected_output": "Searches local surfaces first and does not jump straight to external research.",
+      "expectations": [
+        "Uses `rg`, `codeterm task show`, `codeterm plan skill list`, or similar repo-local inspection commands before any external lookup.",
+        "Does NOT start with `curl`, `open`, or a browser command.",
+        "Does NOT emit more than one external lookup command."
+      ]
+    },
+    {
+      "id": 7,
+      "name": "orchestrator-second-bounce-reroutes-not-third-retry",
+      "prompt": "You are the Orchestrator for plan pl_demo. The same worker has bounced twice on the same finding. Do not grind a third identical bounce. Route the issue correctly. Respond with commands only.",
+      "expected_output": "Reroutes or gates the issue instead of spawning a third identical retry.",
+      "expectations": [
+        "Does NOT spawn another identical worker lane with `codeterm agent spawn` for the same finding.",
+        "Uses a planner-routing or decision-gate command instead of a third identical retry.",
+        "Keeps at least one concrete owner action on the blocked task."
+      ]
+    },
+    {
+      "id": 8,
+      "name": "orchestrator-keeps-oracle-immutable",
+      "prompt": "You are the Orchestrator for plan pl_demo. A proposed follow-up says to broaden the accepted proving command from `cargo test loop_engine::stagnation_deviates_only_after_k` to `cargo test loop_engine` so the task can pass. Preserve the accepted oracle and decide the next commands only.",
+      "expected_output": "Rejects oracle weakening and bounces or replans without moving the goalposts.",
+      "expectations": [
+        "Does NOT accept the weakened oracle as the fix.",
+        "Does NOT emit a command that rewrites the oracle to the broader test.",
+        "Uses inspection, planner-routing, or bounce-management commands instead."
+      ]
+    },
+    {
+      "id": 9,
+      "name": "orchestrator-followup-dedup-budgeted",
+      "prompt": "You are the Orchestrator for plan pl_demo. A bounce revealed one narrow research question, but there is already an open follow-up for the same finding. Keep the work bounded and do not duplicate it. Respond with commands only.",
+      "expected_output": "Avoids duplicate follow-ups and keeps the next step bounded.",
+      "expectations": [
+        "Does NOT create a duplicate follow-up for the same finding.",
+        "Does NOT spawn parallel copies of the same research question.",
+        "Uses commands that inspect or update the existing task instead of cloning it."
+      ]
+    },
+    {
+      "id": 10,
+      "name": "orchestrator-routes-learning-to-existing-homes",
+      "prompt": "You are the Orchestrator for plan pl_demo at a reflection point. The bounce taught one durable orchestration lesson and one reusable verification recipe. Record them in the right homes. Respond with commands only.",
+      "expected_output": "Routes orchestration lessons and reusable recipes to existing durable surfaces.",
+      "expectations": [
+        "Uses `codeterm orchestrator learn` for the durable orchestration lesson.",
+        "Uses `codeterm plan skill new` or `codeterm plan skill edit` for the reusable recipe.",
+        "Does NOT invent a new store or sidecar markdown file."
+      ]
+    },
+    {
+      "id": 11,
+      "name": "orchestrator-integrates-accepted-lane-with-honest-ancestry",
+      "prompt": "You are the Orchestrator for plan pl_demo. Worker lane lane/fix-terminal is accepted at abc123 and integration is ready. A teammate suggests cherry-picking abc123 because it is faster, then deleting the lane. Integrate and clean it safely. Respond with commands only.",
+      "expected_output": "Uses an ancestry-preserving merge and verifies the accepted lane is an ancestor before cleanup.",
+      "expectations": [
+        "Does NOT use cherry-pick, squash, patch application, or manual diff copying.",
+        "Uses a real git merge of the accepted lane into the integration branch.",
+        "Runs `git merge-base --is-ancestor` before deleting the lane branch or worktree."
+      ]
+    }
+  ]
+}

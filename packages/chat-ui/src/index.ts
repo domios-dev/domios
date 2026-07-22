@@ -7,4 +7,7 @@ export type { AttachedDiscussionDoc } from "./discussionDoc";
 export { InteractiveElementRenderer } from "./interactive/InteractiveElementRenderer";
 export { InteractiveQuestion } from "./interactive/InteractiveQuestion";
 export type { InteractiveAnswerHandler } from "./interactive/InteractiveQuestion";
+export { ShowCommandsProvider, useShowCommands } from "./toolcard/toolKindVisual";
 export type { PaneNameResolver } from "./codeterm/templates";
+export { extractPlanRefs } from "./codeterm/planRefs";
+export { installInboundReportCardHarness } from "./codeterm/InboundReportCard.browserHarness";

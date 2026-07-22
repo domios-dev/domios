@@ -97,30 +97,3 @@ pub fn spawn_telegram_bridge(svc: ServiceState) {
         }
     });
 }
-
-/// Test helper — start a TelegramService against an explicit api_base, with a
-/// fresh supervisor. Returns the supervisor so the test can stop it later.
-#[cfg(test)]
-pub async fn start_telegram_bridge_for_test(
-    token: String,
-    api_base: String,
-) -> std::sync::Arc<codeterm_bridge::bridge::supervisor::BridgeSupervisor> {
-    use std::sync::Arc;
-
-    let supervisor = Arc::new(codeterm_bridge::bridge::supervisor::BridgeSupervisor::new());
-    let cancel = supervisor.cancel_token();
-    let status = supervisor.as_status_sink();
-
-    let attachments = attachment_store();
-    let svc = bridge::telegram::TelegramService::with_base(token, api_base, attachments);
-    let (tx, mut rx_inbound) = tokio::sync::mpsc::channel(8);
-    tokio::spawn(async move { while rx_inbound.recv().await.is_some() {} });
-
-    use crate::bridge::traits::MessagingService;
-    let svc_box: Box<dyn MessagingService> = Box::new(svc);
-    let handle = tokio::spawn(async move {
-        svc_box.start(tx, cancel, status).await;
-    });
-    supervisor.set_task(handle, Utc::now());
-    supervisor
-}

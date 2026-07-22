@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 
 use crate::args::plan::PlanSkillAction;
-use crate::client::SocketClient;
+use crate::client::RpcClient;
 use crate::cmd::plan_local::project_root;
 
 pub mod ledger;
@@ -9,7 +9,7 @@ pub mod mem;
 pub mod store;
 
 pub fn handle(
-    client: &mut SocketClient,
+    client: &mut dyn RpcClient,
     json: bool,
     action: PlanSkillAction,
 ) -> Result<Option<Value>, String> {
@@ -37,7 +37,7 @@ pub fn handle(
 // Record the sidecar ledger entry in the plan timeline via a task-less stride.
 // Sidecar write already succeeded; a failure here must be surfaced, not swallowed.
 fn record_stride(
-    client: &mut SocketClient,
+    client: &mut dyn RpcClient,
     plan_id: &str,
     slug: &str,
     verdict: &str,
@@ -90,7 +90,7 @@ fn best_effort_index(plan_id: &str, plan_dir: &std::path::Path, slug: &str) -> b
 
 #[allow(clippy::too_many_arguments)]
 fn new_skill(
-    client: &mut SocketClient,
+    client: &mut dyn RpcClient,
     json: bool,
     slug: String,
     plan: Option<String>,
@@ -145,7 +145,7 @@ fn new_skill(
 
 #[allow(clippy::too_many_arguments)]
 fn edit_skill(
-    client: &mut SocketClient,
+    client: &mut dyn RpcClient,
     json: bool,
     slug: String,
     plan: Option<String>,

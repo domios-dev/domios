@@ -1,4 +1,5 @@
 use super::{json_str, orchestrator::SpawnAgentParams};
+use crate::service::SpawnIdentityProvenance;
 
 impl SpawnAgentParams {
     pub fn from_json(params: &serde_json::Value) -> Result<Self, String> {
@@ -11,7 +12,17 @@ impl SpawnAgentParams {
                     .collect()
             }),
             cwd: json_str(params, "cwd"),
+            provisioned_cwd: None,
             title: super::spawn_title::normalize_agent_title(json_str(params, "title")),
+            title_provenance: json_str(params, "title_provenance")
+                .as_deref()
+                .map(parse_spawn_identity_provenance)
+                .transpose()?
+                .or_else(|| {
+                    json_str(params, "title")
+                        .filter(|value| !value.trim().is_empty())
+                        .map(|_| SpawnIdentityProvenance::UserSupplied)
+                }),
             description: json_str(params, "description")
                 .map(|s| crate::service::normalize_pane_description(&s))
                 .transpose()?
@@ -23,6 +34,7 @@ impl SpawnAgentParams {
             plan_id: json_str(params, "plan_id").or_else(|| json_str(params, "plan")),
             can_spawn: params.get("can_spawn").and_then(|v| v.as_bool()),
             task: json_str(params, "task"),
+            starter_prompt: Default::default(),
             task_id: json_str(params, "task_id"),
             plan_task: json_str(params, "plan_task").or_else(|| json_str(params, "plan-task")),
             allow_shared_checkout: params
@@ -39,6 +51,9 @@ impl SpawnAgentParams {
             skip_permissions: params.get("skip_permissions").and_then(|v| v.as_bool()),
             spawned_by_pane_id: json_str(params, "spawned_by_pane_id"),
             model: json_str(params, "model"),
+            planned_model: json_str(params, "planned_model"),
+            reasoning_effort: json_str(params, "reasoning_effort")
+                .or_else(|| json_str(params, "reasoning-effort")),
             system_prompt: json_str(params, "system_prompt").or_else(|| json_str(params, "system")),
             preset: json_str(params, "preset"),
             resume_session_id: json_str(params, "resume_session_id"),
@@ -48,10 +63,21 @@ impl SpawnAgentParams {
             max_actions_per_tick: json_u64(params, "max_actions_per_tick")
                 .and_then(|v| u32::try_from(v).ok()),
             activate: params.get("activate").and_then(|v| v.as_bool()),
+            manager_bootstrap: None,
             structured_prompt_server: None,
         };
         out.normalize_role_profile()?;
         Ok(out)
+    }
+}
+
+fn parse_spawn_identity_provenance(value: &str) -> Result<SpawnIdentityProvenance, String> {
+    match value.trim() {
+        "user_supplied" => Ok(SpawnIdentityProvenance::UserSupplied),
+        "suggested" => Ok(SpawnIdentityProvenance::Suggested),
+        other => Err(format!(
+            "invalid title_provenance '{other}'; expected user_supplied|suggested"
+        )),
     }
 }
 

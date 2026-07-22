@@ -7,7 +7,7 @@ The always-on protocol that fires regardless of which skill is loaded lives in `
 | Command | Purpose |
 |---------|---------|
 | `codeterm mem search "<query>" [--kind K] [--area A] [--limit N] [--rerank]` | Hybrid search (FTS5 + vector embedding fused via RRF). Default limit 5. |
-| `codeterm mem get <id>` | Print the full body of one item. Bumps `evidence_count` for `skill\|lesson\|rule\|fact\|preference` (skipped automatically when called from a worker pane via `$CODETERM_WORKER_ID`). |
+| `codeterm mem get <id>` | Print the full body of one item. Bumps `evidence_count` for `skill\|lesson\|rule\|fact\|preference` (skipped automatically when called from a worker tab via `$CODETERM_WORKER_ID`). |
 | `codeterm mem save --kind <kind> [--title T] [--area A] [--tags T] [--source-path P] [--scope global\|workspace:<id>] [--workspace WS] [--pin] [--importance N] [--replace] [--skip-extract] "<body>"` | Capture something new. `--pin` sets `is_pinned_wakeup=1` in the same INSERT (atomic, no follow-up PATCH). `--workspace WS` is shorthand for `--scope workspace:WS`. |
 | `codeterm mem update <id> [--title T] [--summary S] [--area A] [--tags T] [--body B] [--importance N] [--changed-by ACTOR]` | Patch an existing item. `--changed-by` sets the `X-CodeTerm-Actor` header so the change lands in `mem_item_history.changed_by` with that label (default `"user"`). |
 | `codeterm mem delete <id>` | Remove an item (also cleans vectors and relations). |
@@ -84,10 +84,10 @@ codeterm mem save --kind fact --title "API base url" --pin --workspace "$CODETER
   "Staging API base: https://api-staging.example.com (no trailing slash)"
 
 # Workspace-aware wake-up — boosts ws-scoped rows in the score
-codeterm mem wake-up --workspace "$CODETERM_WORKSPACE_ID"
+codeterm mem wake-up
 
 # Debug what L1 selected
-codeterm mem wake-up --workspace "$CODETERM_WORKSPACE_ID" --explain | tail -30
+codeterm mem wake-up --explain | tail -30
 
 # Inspect / curate pinned set
 codeterm mem pinned --limit 50

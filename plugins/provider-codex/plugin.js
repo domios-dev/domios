@@ -478,8 +478,125 @@ function codexParseWeeklyResets(raw, nowMs) {
   return cand.getTime();
 }
 
+// plugins/provider-codex/src/execWrapper.ts
+function quotedValue(source, key) {
+  const keyMatch = new RegExp("\\b" + key + "\\s*:\\s*").exec(source);
+  if (!keyMatch) return null;
+  const quoteIndex = keyMatch.index + keyMatch[0].length;
+  const quote = source[quoteIndex];
+  if (quote !== '"' && quote !== "'") return null;
+  let value = "";
+  for (let i = quoteIndex + 1; i < source.length; i++) {
+    const char = source[i];
+    if (char === quote) return decodeString(value, quote);
+    if (char === "\\" && i + 1 < source.length) {
+      value += char + source[++i];
+    } else {
+      value += char;
+    }
+  }
+  return null;
+}
+function decodeString(value, quote) {
+  return value.replace(/\\(.)/g, (_match, escaped) => {
+    if (escaped === "n") return "\n";
+    if (escaped === "r") return "\r";
+    if (escaped === "t") return "	";
+    if (escaped === "\\" || escaped === '"' || quote === "'" && escaped === "'") return escaped;
+    return "\\" + escaped;
+  });
+}
+function callObject(source) {
+  const start = source.indexOf("tools.shell_command");
+  const open = start < 0 ? -1 : source.indexOf("{", start);
+  if (open < 0) return null;
+  let depth = 0;
+  let quote = "";
+  for (let i = open; i < source.length; i++) {
+    const char = source[i];
+    if (quote) {
+      if (char === "\\") i++;
+      else if (char === quote) quote = "";
+    } else if (char === '"' || char === "'") {
+      quote = char;
+    } else if (char === "{") {
+      depth++;
+    } else if (char === "}" && --depth === 0) {
+      return source.substring(open + 1, i);
+    }
+  }
+  return null;
+}
+function jsonCallObject(source) {
+  const match = /\btools\.shell_command\(\s*(\{[\s\S]*\})\s*\)\s*;/.exec(source);
+  if (!match) return null;
+  try {
+    const value = JSON.parse(match[1]);
+    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  } catch (_) {
+    return null;
+  }
+}
+function unwrapShellCommand(raw) {
+  if (typeof raw !== "string") return null;
+  try {
+    const value = jsonCallObject(raw);
+    if (value) {
+      const command2 = typeof value.command === "string" ? value.command : typeof value.cmd === "string" ? value.cmd : "";
+      if (!command2.trim()) return null;
+      const workdir2 = typeof value.workdir === "string" && value.workdir ? value.workdir : void 0;
+      const timeout_ms2 = typeof value.timeout_ms === "number" ? value.timeout_ms : void 0;
+      return { command: command2, ...workdir2 ? { workdir: workdir2 } : {}, ...timeout_ms2 !== void 0 ? { timeout_ms: timeout_ms2 } : {} };
+    }
+    const body = callObject(raw);
+    if (!body) return null;
+    const command = quotedValue(body, "command") || quotedValue(body, "cmd");
+    if (!command || !command.trim()) return null;
+    const workdir = quotedValue(body, "workdir") || void 0;
+    const timeoutText = /\btimeout_ms\s*:\s*(\d+)/.exec(body);
+    const timeout_ms = timeoutText ? Number(timeoutText[1]) : void 0;
+    return { command, ...workdir ? { workdir } : {}, ...timeout_ms !== void 0 ? { timeout_ms } : {} };
+  } catch (_) {
+    return null;
+  }
+}
+
+// plugins/provider-codex/src/patchEdits.ts
+function patchEdits(patch) {
+  if (typeof patch !== "string" || patch.indexOf("*** Begin Patch") < 0) return [];
+  try {
+    const edits = [];
+    let path = null;
+    let oldLines = [];
+    let newLines = [];
+    const flush = () => {
+      if (path && (oldLines.length > 0 || newLines.length > 0)) edits.push({ path, old: oldLines.join("\n"), new: newLines.join("\n") });
+      oldLines = [];
+      newLines = [];
+    };
+    for (const line of patch.replace(/\r\n/g, "\n").split("\n")) {
+      const header = /^\*\*\* (?:Update|Add|Delete) File: (.+)$/.exec(line);
+      if (header) {
+        flush();
+        path = header[1].trim();
+      } else if (line === "@@" || line.indexOf("@@ ") === 0) {
+        flush();
+      } else if (path && line.indexOf("-") === 0) {
+        oldLines.push(line.substring(1));
+      } else if (path && line.indexOf("+") === 0) {
+        newLines.push(line.substring(1));
+      }
+    }
+    flush();
+    return edits;
+  } catch (_) {
+    return [];
+  }
+}
+
 // plugins/provider-codex/src/plugin.ts
 var CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
+var CODETERM_CODEX_PROFILE_CLEANUP_MARKER = "codeterm-profile-cleanup-v1";
 var TITLE_RE = /codex/i;
 var OUTPUT_FINGERPRINTS = [
   "OpenAI Codex",
@@ -492,7 +609,28 @@ var OUTPUT_FINGERPRINTS = [
   "codex>"
 ];
 var TUI_FRAGMENTS = ["openai codex", "ctrl+c to cancel"];
+var ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the provided developer instructions.";
+var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
+function starterPrompt(params) {
+  if (params.starterPrompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
+  if (params.starterPrompt === "team_bootstrap") {
+    if (!params.starterPromptText) throw new Error("team_bootstrap requires host starterPromptText");
+    return params.starterPromptText;
+  }
+  return ASSIGNED_TASK_START_PROMPT;
+}
+function hasPromptAndStatusFooter(screen) {
+  if (screen.indexOf("\u203A") === -1) return false;
+  return screen.split(/\r?\n/).some((line) => {
+    const separator = line.indexOf(" \xB7 ");
+    if (separator === -1) return false;
+    return /(?:[a-z]:\\|\/)/i.test(line.slice(separator + 3));
+  });
+}
 var plugin = {
+  starterPromptText(prompt) {
+    return prompt === "team_bootstrap" ? void 0 : starterPrompt({ starterPrompt: prompt });
+  },
   detectFromTitle(title) {
     return TITLE_RE.test(String(title || ""));
   },
@@ -504,11 +642,12 @@ var plugin = {
     return false;
   },
   screenHasTui(screen) {
-    const lower = String(screen || "").toLowerCase();
+    const text = String(screen || "");
+    const lower = text.toLowerCase();
     for (let i = 0; i < TUI_FRAGMENTS.length; i++) {
       if (lower.indexOf(TUI_FRAGMENTS[i]) !== -1) return true;
     }
-    return false;
+    return hasPromptAndStatusFooter(text);
   },
   isOutputNoise(text) {
     const trimmed = String(text || "").trim();
@@ -540,6 +679,15 @@ var plugin = {
   buildPromptResponse(optionIndex, screen) {
     return responseKeysForIndex(optionIndex, String(screen || ""));
   },
+  directoryTrustPromptResponse(prompt, screen) {
+    const question = String(prompt.question || "").toLowerCase();
+    const first = prompt.options[0];
+    const firstLabel = Array.isArray(first) ? first[1] : first.label;
+    if (!question.includes("trust the contents of this directory") || !firstLabel || !/^yes\b/i.test(firstLabel)) {
+      return null;
+    }
+    return responseKeysForIndex(0, String(screen || ""));
+  },
   // Codex CLI has no model-list subcommand; its local cache is the only sync account-scoped source. Missing => seed.
   discoverModels() {
     return discoverCodexModels();
@@ -547,6 +695,7 @@ var plugin = {
   buildLaunchCommand(params) {
     const p = params || {};
     const parts = [];
+    let prefix = "";
     parts.push("codex");
     if (p.skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
@@ -554,7 +703,25 @@ var plugin = {
     if (p.args && p.args.length > 0) {
       for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }
-    return parts.join(" ");
+    if (p.task) {
+      const taskPath = host.fs.writeTempFile(p.task, ".ct-task.md");
+      if (!taskPath) throw new Error("failed to write Codex task instructions");
+      const quotedPath = host.shell.quoteFor(taskPath, host.platform());
+      if (host.platform() === "windows") {
+        prefix = `Add-Type -AssemblyName System.Web.Extensions; $ctTaskInstructions = Get-Content -Raw -Encoding UTF8 ${quotedPath}; $ctTaskJson = (New-Object System.Web.Script.Serialization.JavaScriptSerializer).Serialize($ctTaskInstructions); $ctProfileSuffix = if ($env:CODETERM_PANE_ID) { $env:CODETERM_PANE_ID -replace '[^A-Za-z0-9_-]', '-' } else { [guid]::NewGuid().ToString('N') }; $ctProfileName = 'codeterm-' + $ctProfileSuffix; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); Set-Content -LiteralPath $ctProfilePath -Encoding UTF8 -Value ('developer_instructions = ' + $ctTaskJson); Remove-Item -LiteralPath ${quotedPath} -Force -ErrorAction SilentlyContinue; try { `;
+        parts.push("--profile");
+        parts.push("$ctProfileName");
+      } else {
+        parts.push("-c");
+        parts.push(`"developer_instructions=$(cat ${quotedPath})"`);
+      }
+      parts.push("--");
+      parts.push(host.shell.quoteFor(starterPrompt(p), host.platform()));
+      if (host.platform() === "windows") {
+        return prefix + parts.join(" ") + " } finally { Remove-Item -LiteralPath $ctProfilePath -Force -ErrorAction SilentlyContinue }";
+      }
+    }
+    return prefix + parts.join(" ");
   },
   buildResumeCommand(sessionId, skipPermissions) {
     const parts = ["codex", "resume"];
@@ -665,25 +832,27 @@ var plugin = {
         }
         if (input && input.cmd && !input.command) input.command = input.cmd;
         const name = typeof p.name === "string" ? p.name.trim() : "";
-        if (!hasUsefulFunctionCall(name, input, p.arguments)) continue;
+        if (isInternalOrchestrationCall(name) || !hasUsefulFunctionCall(name, input, p.arguments)) continue;
+        const callId = typeof p.call_id === "string" ? p.call_id : "";
+        const canonical = canonicalToolFields(name, input);
         out.push({
           role: "assistant",
-          blocks: [{ kind: "tool_use", data: { name: name || "tool", input } }],
+          blocks: [{ kind: "tool_use", data: { name: name || "tool", id: callId, input, ...canonical } }],
           ts,
           timestamp: tsIso
         });
-      } else if (p.type === "function_call_output") {
-        let content = p.output;
-        if (content && typeof content === "object") content = JSON.stringify(content);
+      } else if (p.type === "function_call_output" || p.type === "custom_tool_call_output") {
+        const callId = typeof p.call_id === "string" ? p.call_id : "";
         out.push({
           role: "assistant",
-          blocks: [{ kind: "tool_result", data: { content: String(content == null ? "" : content) } }],
+          blocks: [{ kind: "tool_result", data: { content: codexToolOutputText(p.output), tool_use_id: callId } }],
           ts,
           timestamp: tsIso
         });
       } else if (p.type === "custom_tool_call") {
-        const name = typeof p.name === "string" ? p.name.trim() : "";
+        let name = typeof p.name === "string" ? p.name.trim() : "";
         if (!name) continue;
+        if (isInternalOrchestrationCall(name)) continue;
         let input = {};
         if (name === "apply_patch" && typeof p.input === "string") {
           input = { patch: p.input };
@@ -696,10 +865,16 @@ var plugin = {
         } else if (p.input && typeof p.input === "object" && !Array.isArray(p.input)) {
           input = p.input;
         }
+        const nestedPatch = name === "exec" && typeof input.raw === "string" ? nestedApplyPatch(input.raw) : null;
+        if (nestedPatch) {
+          name = "apply_patch";
+          input = { patch: nestedPatch };
+        }
         const callId = typeof p.call_id === "string" ? p.call_id : "";
+        const canonical = canonicalToolFields(name, input);
         out.push({
           role: "assistant",
-          blocks: [{ kind: "tool_use", data: { name, id: callId, input } }],
+          blocks: [{ kind: "tool_use", data: { name, id: callId, input, ...canonical } }],
           ts,
           timestamp: tsIso
         });
@@ -742,8 +917,9 @@ var plugin = {
     const arr = json.hooks && json.hooks.SessionStart;
     const installed = Array.isArray(arr) && arr.some(isCodetermCodexHook);
     const winScript = codexWindowsHookScriptPath();
-    const windowsReady = host.platform() !== "windows" || !!winScript && host.fs.fileExists(winScript) && Array.isArray(arr) && arr.some(hasCodetermCodexWindowsCommand);
-    const nonceOk = host.platform() === "windows" ? !!winScript && host.fs.fileExists(winScript) && String(host.fs.readFile(winScript) || "").indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 : Array.isArray(arr) && arr.some((entry) => {
+    const winScriptText = winScript && host.fs.fileExists(winScript) ? String(host.fs.readFile(winScript) || "") : "";
+    const windowsReady = host.platform() !== "windows" || !!winScript && winScriptText.indexOf(CODETERM_CODEX_PROFILE_CLEANUP_MARKER) !== -1 && Array.isArray(arr) && arr.some(hasCodetermCodexWindowsCommand);
+    const nonceOk = host.platform() === "windows" ? winScriptText.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 : Array.isArray(arr) && arr.some((entry) => {
       const hk = entry && entry.hooks;
       return Array.isArray(hk) && hk.some((h) => {
         return !!h && String(h.command || "").indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1;
@@ -846,7 +1022,7 @@ var plugin = {
     }
     return out;
   },
-  // Read tail-most `turn_context.payload.model` and map to short model labels.
+  // Read the exact model identity from this session's latest turn context.
   detectSessionModel(cwd, sessionId) {
     const path = this.sessionFilePath(cwd, sessionId);
     if (!path) return null;
@@ -864,7 +1040,7 @@ var plugin = {
       }
       if (!v || v.type !== "turn_context") continue;
       const m = v.payload && v.payload.model;
-      if (typeof m === "string" && m) return codexShortLabel(m);
+      if (typeof m === "string" && m.trim()) return m.trim();
     }
     return null;
   },
@@ -1092,6 +1268,35 @@ function scoreAuthPrompt(screen) {
   if (/enter your\b[^\n]*\b(api key|token|credential)/i.test(s)) score += 0.6;
   return score > 1 ? 1 : score;
 }
+function nestedApplyPatch(raw) {
+  const call = /\btools\.apply_patch\(\s*([A-Za-z_$][\w$]*|"(?:\\.|[^"\\])*")\s*\)/.exec(raw);
+  if (!call) return null;
+  let literal = call[1];
+  if (literal.charAt(0) !== '"') {
+    const escaped = literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const declaration = new RegExp(`\\b(?:const|let)\\s+${escaped}\\s*=\\s*("(?:\\\\.|[^"\\\\])*")\\s*;`).exec(raw);
+    if (!declaration) return null;
+    literal = declaration[1];
+  }
+  try {
+    const patch = JSON.parse(literal);
+    return typeof patch === "string" && patch.includes("*** Begin Patch") && patch.includes("*** End Patch") ? patch : null;
+  } catch (_) {
+    return null;
+  }
+}
+function canonicalToolFields(name, input) {
+  const raw = typeof input.raw === "string" ? input.raw : "";
+  const command = typeof input.command === "string" ? input.command : typeof input.cmd === "string" ? input.cmd : "";
+  const shell = raw ? unwrapShellCommand(raw) : null;
+  const patch = typeof input.patch === "string" ? input.patch : name === "apply_patch" && typeof input.input === "string" ? input.input : "";
+  const edits = patch ? patchEdits(patch) : [];
+  if (shell) return { tool_kind: "command", tool_summary: shell.command, tool_detail: shell.command };
+  if (command.trim()) return { tool_kind: "command", tool_summary: command.trim(), tool_detail: command.trim() };
+  if (edits.length > 0) return { tool_kind: "edit", tool_summary: edits[0].path, tool_detail: patch, tool_edits: edits };
+  if (patch.indexOf("*** Begin Patch") >= 0) return { tool_kind: "edit", tool_summary: "Apply patch", tool_detail: patch, tool_edits: [] };
+  return { tool_kind: "generic", tool_summary: name || "Tool call", tool_detail: name || "Tool call" };
+}
 function endsWith(s, suffix) {
   return s.length >= suffix.length && s.substring(s.length - suffix.length) === suffix;
 }
@@ -1124,6 +1329,7 @@ function codexWindowsHookScriptPath() {
 function codexWindowsHookScript(apiPort) {
   return [
     "# " + CODETERM_CODEX_HOOK_MARKER,
+    "# " + CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
     '$ErrorActionPreference = "SilentlyContinue"',
     "$pane = $env:CODETERM_PANE_ID",
     "if ([string]::IsNullOrWhiteSpace($pane)) { exit 0 }",
@@ -1141,6 +1347,9 @@ function codexWindowsHookScript(apiPort) {
     "}",
     "$body = [Console]::In.ReadToEnd()",
     'Invoke-RestMethod -Method Post -Uri "$base/api/panes/$pane/hook/session_start" -Headers $headers -Body $body -TimeoutSec 5 | Out-Null',
+    "$profileSuffix = $pane -replace '[^A-Za-z0-9_-]', '-'",
+    '$profilePath = Join-Path $env:USERPROFILE (".codex\\codeterm-$profileSuffix.config.toml")',
+    "Remove-Item -LiteralPath $profilePath -Force -ErrorAction SilentlyContinue",
     "exit 0",
     ""
   ].join("\n");
@@ -1237,22 +1446,6 @@ function extractSessionUuid(stem) {
   if (rest.charAt(19) !== "-") return null;
   return rest.substring(20);
 }
-function codexShortLabel(modelId) {
-  const m = String(modelId || "").toLowerCase();
-  if (m.indexOf("codex") !== -1) return "Codex";
-  const fams = ["opus", "sonnet", "haiku", "gemini"];
-  for (let i = 0; i < fams.length; i++) {
-    if (m.indexOf(fams[i]) !== -1) {
-      return fams[i].charAt(0).toUpperCase() + fams[i].substring(1);
-    }
-  }
-  if (m.indexOf("gpt") === 0) {
-    const head = m.split("-").slice(0, 2).join("-");
-    return "GPT" + head.substring(3);
-  }
-  const first = m.split("-")[0] || m;
-  return first.charAt(0).toUpperCase() + first.substring(1);
-}
 function isValidCodexSessionDelta(v) {
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;
   if (v.type === "event_msg") {
@@ -1262,10 +1455,25 @@ function isValidCodexSessionDelta(v) {
   if (v.type !== "response_item") return false;
   if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
   const kind = v.payload.type;
-  if (kind !== "message" && kind !== "function_call" && kind !== "function_call_output" && kind !== "custom_tool_call") {
+  if (kind !== "message" && kind !== "function_call" && kind !== "function_call_output" && kind !== "custom_tool_call" && kind !== "custom_tool_call_output") {
     return false;
   }
   return true;
+}
+function codexToolOutputText(output) {
+  if (typeof output === "string") return output;
+  if (Array.isArray(output)) {
+    const text = [];
+    for (let i = 0; i < output.length; i++) {
+      const item = output[i];
+      if (item && typeof item === "object" && typeof item.text === "string") {
+        text.push(item.text);
+      }
+    }
+    if (text.length > 0) return text.join("");
+  }
+  if (output == null) return "";
+  return typeof output === "object" ? JSON.stringify(output) : String(output);
 }
 function validateEntry(v) {
   return isValidCodexSessionDelta(v);
@@ -1275,6 +1483,9 @@ function hasUsefulFunctionCall(name, input, args) {
   if (typeof args === "string" && args.trim() && args.trim() !== "{}") return true;
   return Object.keys(input || {}).length > 0;
 }
+function isInternalOrchestrationCall(name) {
+  return name === "send_message" || name === "spawn_agent" || name === "followup_task" || name === "interrupt_agent" || name === "list_agents" || name === "wait_agent";
+}
 function classifyCodexSystemText(text) {
   const trimmed = String(text || "").trim();
   if (!trimmed) return null;
@@ -1283,6 +1494,9 @@ function classifyCodexSystemText(text) {
   }
   if (/^# AGENTS\.md instructions for /m.test(trimmed) && trimmed.indexOf("<INSTRUCTIONS>") !== -1) {
     return "agent_instructions";
+  }
+  if (/^<environment_context(?:\s[^>]*)?>[\s\S]*<\/environment_context>$/.test(trimmed)) {
+    return "environment_context";
   }
   return null;
 }

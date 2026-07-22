@@ -1,25 +1,49 @@
 # Install codeterm from a local NSIS installer, replacing the running daemon.
 #
 # Usage:
-#   powershell -ExecutionPolicy Bypass -File scripts\self-install-local.ps1 -Installer <path> [-Resume]
+#   powershell -ExecutionPolicy Bypass -File scripts\self-install-local.ps1 -Installer <path>
 #
 # -Installer  Absolute path to CodeTerm_X.Y.Z_x64-setup.exe.
-# -Resume     If set, launches codeterm again after install completes.
-#             (Auto-resume of pane sessions is a separate concern handled by
-#             codeterm's own SessionStart hook; see learning_auto_resume_*.)
+# The installed application always relaunches after a successful install.
 
 param(
     [Parameter(Mandatory=$true)]
     [string]$Installer,
 
-    [switch]$Resume
+    [switch]$Worker,
+
+    [string]$LogPath
 )
 
 $ErrorActionPreference = 'Stop'
 
+if (-not $LogPath) {
+    $LogPath = Join-Path $env:TEMP 'codeterm-self-install.log'
+}
+
 if (-not (Test-Path $Installer)) {
     Write-Error "Installer not found: $Installer"
     exit 1
+}
+
+$scriptPath = $PSCommandPath
+if (-not $Worker) {
+    $outLog = "$LogPath.out"
+    $errLog = "$LogPath.err"
+    Remove-Item -LiteralPath $outLog, $errLog -ErrorAction SilentlyContinue
+    $args = @(
+        '-NoProfile',
+        '-ExecutionPolicy', 'Bypass',
+        '-File', "`"$scriptPath`"",
+        '-Installer', "`"$((Resolve-Path $Installer).Path)`"",
+        '-Worker',
+        '-LogPath', "`"$LogPath`""
+    )
+    Write-Host "[self-install] Spawning detached installer helper..."
+    Start-Process -FilePath 'powershell.exe' -ArgumentList $args -WindowStyle Hidden -RedirectStandardOutput $outLog -RedirectStandardError $errLog | Out-Null
+    Write-Host "[self-install] Helper started. This CodeTerm instance will restart."
+    Write-Host "[self-install] Logs: $outLog / $errLog"
+    exit 0
 }
 
 $expectedExe = Join-Path $env:LocalAppData 'codeterm\codeterm.exe'
@@ -38,10 +62,8 @@ Get-Process codeterm -ErrorAction SilentlyContinue | ForEach-Object {
 Get-Process codeterm-embed -ErrorAction SilentlyContinue | ForEach-Object {
     Write-Host "[self-install] Stopping codeterm-embed PID $($_.Id) ..."
     $_.Kill()
+    $_.WaitForExit(5000) | Out-Null
 }
-
-# Brief settle so NSIS sees no file locks.
-Start-Sleep -Milliseconds 500
 
 # 2. Run the installer silently. installMode=currentUser in tauri.conf.json
 #    means no UAC prompt — `/S` is fully unattended.
@@ -61,10 +83,14 @@ if (-not (Test-Path $expectedExe)) {
 $ver = (Get-Item $expectedExe).VersionInfo.FileVersion
 Write-Host "[self-install] Installed FileVersion: $ver"
 
-# 4. Launch the new daemon if asked. Detached so this script can return.
-if ($Resume) {
-    Write-Host "[self-install] Launching $expectedExe ..."
-    Start-Process -FilePath $expectedExe -WindowStyle Hidden | Out-Null
+# 4. Launch the new application visibly. A second launch activates the existing
+# single-instance window, so this also restores focus after an in-place update.
+Write-Host "[self-install] Launching $expectedExe ..."
+$app = Start-Process -FilePath $expectedExe -WindowStyle Normal -PassThru
+try {
+    $null = $app.WaitForInputIdle(30000)
+} catch {
+    Write-Host "[self-install] Application launch was handed to the existing instance."
 }
 
 Write-Host "[self-install] Done."

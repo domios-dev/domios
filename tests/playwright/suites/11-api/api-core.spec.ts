@@ -4,7 +4,6 @@
  * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
 import { expect, test, API_BASE, readDevToken } from "../../helpers/fixtures";
-import { pollUntil } from "../../helpers/poll";
 
 async function raw(
   method: string,
@@ -22,6 +21,26 @@ async function raw(
     signal: AbortSignal.timeout(15_000),
   });
   return { status: r.status, body: await r.text() };
+}
+
+async function waitForPaneOutput(paneId: string, marker: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/panes/${paneId}/output/stream?from=0`, {
+    headers: { Authorization: `Bearer ${readDevToken()}` },
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!response.ok || !response.body) {
+    throw new Error(`output stream for ${paneId} failed with HTTP ${response.status}`);
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let received = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    received += decoder.decode(value, { stream: true });
+    if (received.includes(marker)) return;
+  }
+  throw new Error(`output stream for ${paneId} ended before ${marker}`);
 }
 
 // ── auth contract ────────────────────────────────────────────────────
@@ -60,23 +79,21 @@ test("@golden pane ops on a nonexistent id return 404", async () => {
 });
 
 test("@golden PTY echo round-trip: send a command, read it back from output", async ({ api, paneCleanup }) => {
-  test.setTimeout(120_000);
-  const created = await paneCleanup.createPane();
+  const created = await paneCleanup.createPane({ eager: true });
   const marker = `pw-api-${Date.now()}`;
   const left = marker.slice(0, Math.floor(marker.length / 2));
   const right = marker.slice(Math.floor(marker.length / 2));
   try {
+    const outputSeen = waitForPaneOutput(created.id, marker);
     await api.post(`/panes/${created.id}/send`, {
       text: `node -e "console.log('${left}' + '${right}')"`,
       enter: true,
     });
+    await outputSeen;
 
-    const seen = await pollUntil(async () => {
-      const out = await api.get<{ text?: string } | string>(`/panes/${created.id}/output`);
-      const text = typeof out === "string" ? out : (out.text ?? JSON.stringify(out));
-      return text.includes(marker);
-    }, 30_000, 1_000, `marker ${marker} appears in pane output`);
-    expect(seen, `marker ${marker} never appeared in pane output`).toBe(true);
+    const out = await api.get<{ text?: string } | string>(`/panes/${created.id}/output`);
+    const text = typeof out === "string" ? out : (out.text ?? JSON.stringify(out));
+    expect(text).toContain(marker);
   } finally {
     await api.closePane(created.id).catch(() => {});
   }

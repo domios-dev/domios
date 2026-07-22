@@ -32,7 +32,9 @@ pub async fn serve_status_handler(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let status = crate::mesh::probe_serve_status(state.api_port);
+    let build = state.mesh.lock().build_hash.clone();
+    let mut status = crate::mesh::probe_serve_status(state.api_port);
+    status.snapshot = crate::mesh::reconcile_web_serve(state.api_port, None, Some(build));
     Ok(Json(
         serde_json::to_value(status).unwrap_or(serde_json::Value::Null),
     ))
@@ -127,7 +129,12 @@ pub async fn restart_app(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let app = state.svc.app_handle.clone();
-    tokio::task::spawn_blocking(move || app.restart());
+    tokio::task::spawn_blocking(move || {
+        crate::crash::shutdown::mark_shutting_down_for(
+            crate::crash::lifecycle::ShutdownReason::Restart,
+        );
+        app.restart();
+    });
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 

@@ -100,14 +100,14 @@ assert_jq "$PLAN_JSON" \
   --arg task "$TASK_ID" --arg s1 "$SPEC_SECTION" --arg s2 "$IMPL_SECTION" \
   '.tasks[] | select(.id == $task) | (.section_ids | index($s1)) and (.section_ids | index($s2))'
 
-dc plan task assign "$PLAN_ID" "$TASK_ID" --pane "plan-lifecycle-worker" >/dev/null
+dc plan task assign "$PLAN_ID" "$TASK_ID" --tab "plan-lifecycle-worker" >/dev/null
 PLAN_JSON="$(json_get "$PLAN_ID")"
 assert_jq "$PLAN_JSON" \
   "task assignment persisted" \
   --arg task "$TASK_ID" \
   '.tasks[] | select(.id == $task) | .assigned_pane_id == "plan-lifecycle-worker"'
 
-dc agent report "Lifecycle milestone appended" --pane "plan-lifecycle-worker" --plan "$PLAN_ID" --task "$TASK_ID" --status done >/dev/null
+dc agent report "Lifecycle milestone appended" --tab "plan-lifecycle-worker" --plan "$PLAN_ID" --task "$TASK_ID" --status done >/dev/null
 PLAN_JSON="$(json_get "$PLAN_ID")"
 assert_jq "$PLAN_JSON" \
   "agent report appended a milestone" \

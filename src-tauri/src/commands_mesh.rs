@@ -102,8 +102,17 @@ pub async fn mesh_connect(
         let body = resp.text().await.unwrap_or_default();
         return Err(format!("Pair request rejected: {}", body));
     }
+    let receipt = resp
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|e| format!("Invalid pair response: {}", e))?;
+    let remote_instance_id = receipt["instance_id"]
+        .as_str()
+        .ok_or("Pair response omitted the peer identity")?;
+    mesh.lock()
+        .confirm_pairing_target_identity(&request.request_id, remote_instance_id)?;
 
-    log::info!("[mesh] Pairing request sent to {}", instance_id);
+    log::info!("[mesh] Pairing request sent to {}", remote_instance_id);
     Ok(())
 }
 

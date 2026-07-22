@@ -1,5 +1,6 @@
 // Run: npx tsx src/components/Canvas/planView/boardModel.test.ts
 
+import type { Team, Workspace } from "../../../lib/types";
 import { FIXTURE_PLAN, FIXTURE_SECTION, FIXTURE_TASK } from "../cards/fixtures.testdata";
 import { TaskStatus, type Plan, type Section, type Task } from "../types";
 import {
@@ -47,6 +48,7 @@ function doneCard(t: Task): BoardTaskCardModel {
     loopBadge: null,
     competeBadge: null,
     focusMatch: false,
+    locator: null,
   };
 }
 
@@ -119,28 +121,29 @@ test("deriveBoardPlanSummary prefers bound planner title over remote fallback", 
   assert(summary.plannerLabel === "Prod planner", "ref title when pane absent");
 });
 
-test("groupTasksIntoColumns folds parked tasks into pending column", () => {
+test("groupTasksIntoColumns folds paused tasks into pending column", () => {
   const plan: Plan = {
     ...FIXTURE_PLAN,
     tasks: [
-      task({ id: "parked-a", status: TaskStatus.Parked, name: "Deferred auth" }),
-      task({ id: "parked-b", status: TaskStatus.Parked, name: "Wait on API" }),
+      task({ id: "paused-a", status: TaskStatus.Paused, name: "Deferred auth" }),
+      task({ id: "paused-b", status: TaskStatus.Paused, name: "Wait on API" }),
       task({ id: "pending", status: TaskStatus.Pending }),
     ],
   };
   const { columns } = groupTasksIntoColumns(plan, PANES);
-  assert(!columns.map((c) => String(c.key)).includes("parked"), "no separate parked column");
+  assert(!columns.map((c) => String(c.key)).includes("paused"), "no separate paused column");
   const pending = columns.find((c) => c.key === "pending")!;
   assert(pending.cards.length === 3, `pending count=${pending.cards.length}`);
-  assert(pending.cards.filter((card) => card.task.status === TaskStatus.Parked).length === 2, "parked visible in pending");
+  assert(pending.cards.filter((card) => card.task.status === TaskStatus.Paused).length === 2, "paused visible in pending");
 });
 
-test("groupTasksIntoColumns places tasks by status and sorts freshest first", () => {
+test("groupTasksIntoColumns places tasks by status in planned execution order", () => {
   const plan: Plan = {
     ...FIXTURE_PLAN,
     tasks: [
-      task({ id: "old", status: TaskStatus.Pending, status_changed_at: 1 }),
-      task({ id: "new", status: TaskStatus.Pending, status_changed_at: 99 }),
+      task({ id: "later", status: TaskStatus.Pending, created_at: 20, status_changed_at: 1 }),
+      task({ id: "first", status: TaskStatus.Pending, created_at: 10, status_changed_at: 99 }),
+      task({ id: "unsequenced", status: TaskStatus.Pending, created_at: undefined }),
       task({ id: "live", status: TaskStatus.InProgress, assigned_pane_id: "pane-worker" }),
       task({ id: "gone", status: TaskStatus.Cancelled }),
     ],
@@ -148,7 +151,10 @@ test("groupTasksIntoColumns places tasks by status and sorts freshest first", ()
   const { columns, cancelledCount } = groupTasksIntoColumns(plan, PANES);
   assert(cancelledCount === 1, "cancelled tracked");
   const pending = columns.find((c) => c.key === "pending")!;
-  assert(pending.cards.map((c) => c.task.id).join(",") === "new,old", "pending sort");
+  assert(
+    pending.cards.map((c) => c.task.id).join(",") === "first,later,unsequenced",
+    "created order wins over recent activity, with unsequenced tasks last",
+  );
   const live = columns.find((c) => c.key === "in_progress")!;
   assert(live.cards[0]?.presenceLabel === "Puccini", "presence from pane title");
   assert(!live.cards[0]?.historicalExecutorSummary, "active task has no historical summary");
@@ -216,7 +222,7 @@ test("buildBoardPlanModel wires spec + columns", () => {
   assert(model.columns.find((c) => c.key === "blocked")?.cards[0]?.task.name === "Blocked lane", "blocked card");
 });
 
-test("boundDoneColumnCards keeps newest N when collapsed", () => {
+test("boundDoneColumnCards preserves the column sequence when collapsed", () => {
   const cards = Array.from({ length: 8 }, (_, i) =>
     task({ id: `done-${i}`, status: TaskStatus.Done, status_changed_at: 100 - i }),
   ).map(doneCard);
@@ -224,7 +230,7 @@ test("boundDoneColumnCards keeps newest N when collapsed", () => {
   assert(collapsed.total === 8, "total count");
   assert(collapsed.hidden === 3, `hidden=${collapsed.hidden}`);
   assert(collapsed.visible.length === DONE_COLUMN_COLLAPSED_LIMIT, "visible capped");
-  assert(collapsed.visible[0]?.task.id === "done-0", "newest first");
+  assert(collapsed.visible.map((card) => card.task.id).join(",") === "done-0,done-1,done-2,done-3,done-4", "sequence preserved");
 
   const expanded = boundDoneColumnCards(cards, true);
   assert(expanded.visible.length === 8 && expanded.hidden === 0, "expanded shows all");
@@ -299,9 +305,9 @@ test("selectDefaultPlanId honors explicit id, then orchestrator ownership, then 
   const a: Plan = { ...FIXTURE_PLAN, id: "p-a", title: "Alpha", created_at: 0, updated_at: 5, tasks: [] };
   const b: Plan = { ...FIXTURE_PLAN, id: "p-b", title: "Beta", created_at: 0, updated_at: 99, tasks: [] };
   const ordered = orderPlansByActivity([a, b]);
-  assert(selectDefaultPlanId(ordered, {}) === "p-b", "freshest fallback");
-  assert(selectDefaultPlanId(ordered, { planId: "p-a" }) === "p-a", "explicit id wins");
-  assert(selectDefaultPlanId([], {}) === null, "empty -> null");
+  assert(selectDefaultPlanId(ordered, { workspaceId: undefined }) === "p-b", "freshest fallback");
+  assert(selectDefaultPlanId(ordered, { planId: "p-a", workspaceId: undefined }) === "p-a", "explicit id wins");
+  assert(selectDefaultPlanId([], { workspaceId: undefined }) === null, "empty -> null");
 });
 
 test("selectDefaultPlanId prefers a plan with real work over a fresh junk 0-task plan", () => {
@@ -316,7 +322,52 @@ test("selectDefaultPlanId prefers a plan with real work over a fresh junk 0-task
   };
   const ordered = orderPlansByActivity([junk, bound]); // junk is freshest
   assert(ordered[0].id === "p-junk", "junk sorts first by freshness");
-  assert(selectDefaultPlanId(ordered, {}) === "p-bound", "but selector picks the plan with actionable work");
+  assert(selectDefaultPlanId(ordered, { workspaceId: undefined }) === "p-bound", "but selector picks the plan with actionable work");
+});
+
+const WS_CURRENT = "ws-current";
+const WS_OTHER = "ws-other";
+const scopeWorkspaces: Workspace[] = [
+  { id: WS_CURRENT, name: WS_CURRENT, tabs: [{ id: "t-cur", pane_id: "orch-current" }], active_tab_id: null, cwd: null },
+  { id: WS_OTHER, name: WS_OTHER, tabs: [{ id: "t-oth", pane_id: "orch-other" }], active_tab_id: null, cwd: null },
+];
+const scopeTeams: Team[] = [
+  { id: "team-other", lifecycle: "active", created_at: 0, workspace_id: WS_OTHER },
+];
+
+test("selectDefaultPlanId returns null when no plan is bound to the workspace (no fallback)", () => {
+  const foreign: Plan = {
+    ...FIXTURE_PLAN,
+    id: "p-foreign",
+    team_id: "team-other",
+    owner: { pane_id: "orch-other", session_id: null, title: "Other" },
+    tasks: [{ ...FIXTURE_TASK, id: "t1", status: TaskStatus.InProgress }],
+  };
+  const ordered = orderPlansByActivity([foreign]);
+  const id = selectDefaultPlanId(ordered, {
+    workspaceId: WS_CURRENT,
+    workspaces: scopeWorkspaces,
+    teams: scopeTeams,
+  });
+  assert(id === null, `no workspace-bound plan → null default, got ${id}`);
+});
+
+test("selectDefaultPlanId still honors explicit planId under workspace scope", () => {
+  const foreign: Plan = {
+    ...FIXTURE_PLAN,
+    id: "p-foreign",
+    team_id: "team-other",
+    owner: { pane_id: "orch-other", session_id: null, title: "Other" },
+    tasks: [],
+  };
+  const ordered = orderPlansByActivity([foreign]);
+  const id = selectDefaultPlanId(ordered, {
+    planId: "p-foreign",
+    workspaceId: WS_CURRENT,
+    workspaces: scopeWorkspaces,
+    teams: scopeTeams,
+  });
+  assert(id === "p-foreign", `explicit planId wins even across workspace scope, got ${id}`);
 });
 
 let passed = 0;

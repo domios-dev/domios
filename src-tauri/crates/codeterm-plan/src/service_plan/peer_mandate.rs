@@ -43,7 +43,9 @@ pub fn planning_structure_nudge(
 /// in onboarding text).
 pub fn planner_spawn_cmd_hint(orchestrator_pane_id: Option<&str>, plan_id: &str) -> String {
     let parent = orchestrator_pane_id.unwrap_or("<orch-pane>");
-    format!("codeterm agent spawn claude --model fable --parent {parent} --role Planner --plan {plan_id}")
+    format!(
+        "Choose an available provider and model appropriate for this planning task, then run: codeterm agent spawn <provider> [--model <model>] --parent {parent} --role Planner --plan {plan_id}"
+    )
 }
 
 /// One-line onboarding text delivered to a freshly-spawned Planner naming the
@@ -101,6 +103,10 @@ mod tests {
         assert!(hint.contains("--parent orch-1"));
         assert!(hint.contains("--plan pl_123"));
         assert!(hint.contains("--role Planner"));
+        assert!(hint.contains("Choose an available provider and model"));
+        assert!(hint.contains("agent spawn <provider> [--model <model>]"));
+        assert!(!hint.contains("agent spawn claude"));
+        assert!(!hint.contains("fable"));
     }
 
     #[test]

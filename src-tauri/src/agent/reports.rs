@@ -62,6 +62,20 @@ pub struct AgentReport {
     pub skipped: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<crate::plan::AttachmentRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planned_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_resolved_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actual_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_fallback: Option<crate::multiplexer::types::ModelFallbackNotice>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_identity_mismatch: Option<crate::multiplexer::types::ModelIdentityMismatch>,
 }
 
 impl AgentReport {
@@ -179,6 +193,50 @@ impl ReportStore {
         details: ReportDetails,
         model: Option<&str>,
     ) -> AgentReport {
+        self.add_detailed_with_model_identity(
+            orchestrator_pane_id,
+            from_pane_id,
+            from_title,
+            message,
+            details,
+            model.map(|m| ReportModelIdentity {
+                actual_model: Some(m.to_string()),
+                planned_model: None,
+                requested_model: None,
+                provider_resolved_model: None,
+                fallback: None,
+                mismatch: None,
+            }),
+        )
+    }
+
+    pub fn add_detailed_with_model_identity(
+        &mut self,
+        orchestrator_pane_id: &str,
+        from_pane_id: &str,
+        from_title: &str,
+        message: &str,
+        details: ReportDetails,
+        model_identity: Option<ReportModelIdentity>,
+    ) -> AgentReport {
+        let actual_model = model_identity
+            .as_ref()
+            .and_then(|identity| identity.actual_model.clone());
+        let planned_model = model_identity
+            .as_ref()
+            .and_then(|identity| identity.planned_model.clone());
+        let requested_model = model_identity
+            .as_ref()
+            .and_then(|identity| identity.requested_model.clone());
+        let provider_resolved_model = model_identity
+            .as_ref()
+            .and_then(|identity| identity.provider_resolved_model.clone());
+        let fallback = model_identity
+            .as_ref()
+            .and_then(|identity| identity.fallback.clone());
+        let mismatch = model_identity
+            .as_ref()
+            .and_then(|identity| identity.mismatch.clone());
         let report = AgentReport {
             id: uuid::Uuid::new_v4().to_string(),
             from_pane_id: from_pane_id.to_string(),
@@ -198,6 +256,13 @@ impl ReportStore {
             test_result: details.test_result.clone(),
             skipped: details.skipped.clone(),
             attachments: Vec::new(),
+            model: actual_model.clone(),
+            planned_model,
+            requested_model,
+            provider_resolved_model,
+            actual_model: actual_model.clone(),
+            model_fallback: fallback,
+            model_identity_mismatch: mismatch,
         };
 
         // a ledger write failure is logged, never blocks the live report path.
@@ -209,7 +274,7 @@ impl ReportStore {
                 plan_id: details.plan_id.clone(),
                 task_id: details.task_id.clone(),
                 branch: details.branch.clone(),
-                model: model.map(str::to_string),
+                model: actual_model,
                 status: details.status,
                 message: message.to_string(),
                 sha: details.sha.clone(),
@@ -276,6 +341,16 @@ impl ReportStore {
     pub fn remove(&mut self, orchestrator_pane_id: &str) {
         self.reports.remove(orchestrator_pane_id);
     }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ReportModelIdentity {
+    pub actual_model: Option<String>,
+    pub planned_model: Option<String>,
+    pub requested_model: Option<String>,
+    pub provider_resolved_model: Option<String>,
+    pub fallback: Option<crate::multiplexer::types::ModelFallbackNotice>,
+    pub mismatch: Option<crate::multiplexer::types::ModelIdentityMismatch>,
 }
 
 #[cfg(test)]
@@ -400,6 +475,50 @@ mod tests {
     }
 
     #[test]
+    fn report_exposes_actual_requested_and_runtime_mismatch() {
+        let mismatch = crate::multiplexer::types::ModelIdentityMismatch {
+            planned_model: Some("codex/gpt-5.6-luna".into()),
+            requested_model: "gpt-5.6-luna".into(),
+            provider_resolved_model: Some("gpt-5.6-luna".into()),
+            actual_model: "gpt-5.6-terra".into(),
+            reason: "runtime_session_model_mismatch".into(),
+        };
+        let mut store = ReportStore::new(100);
+        let report = store.add_detailed_with_model_identity(
+            "orch",
+            "w1",
+            "Worker",
+            "done",
+            ReportDetails::default(),
+            Some(ReportModelIdentity {
+                actual_model: Some("gpt-5.6-terra".into()),
+                planned_model: Some("codex/gpt-5.6-luna".into()),
+                requested_model: Some("gpt-5.6-luna".into()),
+                provider_resolved_model: Some("gpt-5.6-luna".into()),
+                fallback: Some(crate::multiplexer::types::ModelFallbackNotice {
+                    planned_model: Some("codex/gpt-5.6-luna".into()),
+                    requested_model: "gpt-5.6-luna".into(),
+                    provider_resolved_model: "gpt-5.6-luna".into(),
+                    actual_model: Some("gpt-5.6-terra".into()),
+                    reason: "runtime_session_model_mismatch".into(),
+                }),
+                mismatch: Some(mismatch.clone()),
+            }),
+        );
+
+        assert_eq!(report.model.as_deref(), Some("gpt-5.6-terra"));
+        assert_eq!(report.actual_model.as_deref(), Some("gpt-5.6-terra"));
+        assert_eq!(report.planned_model.as_deref(), Some("codex/gpt-5.6-luna"));
+        assert_eq!(report.requested_model.as_deref(), Some("gpt-5.6-luna"));
+        assert_eq!(
+            report.provider_resolved_model.as_deref(),
+            Some("gpt-5.6-luna")
+        );
+        assert!(report.model_fallback.is_some());
+        assert_eq!(report.model_identity_mismatch, Some(mismatch));
+    }
+
+    #[test]
     fn message_only_report_omits_structured_keys_in_json() {
         // without any of the new keys so old consumers round-trip unchanged.
         let mut store = ReportStore::new(100);
@@ -420,6 +539,13 @@ mod tests {
             "test_cmd",
             "test_result",
             "skipped",
+            "model",
+            "planned_model",
+            "requested_model",
+            "provider_resolved_model",
+            "actual_model",
+            "model_fallback",
+            "model_identity_mismatch",
         ] {
             assert!(
                 json.get(key).is_none(),

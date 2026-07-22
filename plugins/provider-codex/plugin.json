@@ -1,6 +1,6 @@
 {
   "id": "codex",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "minCodeterm": "1.0.0",
   "hostApi": 2,
   "displayName": "Codex",
@@ -15,12 +15,16 @@
       "kind": "poll_shell_prompt",
       "timeoutSecs": 30
     },
-    "taskDelivery": "pty_input",
-    "taskInputWarmupMs": 3000,
+    "taskDelivery": "inline_flag",
+    "systemPromptDelivery": {
+      "kind": "cli_flag",
+      "flag": "-c developer_instructions"
+    },
     "verifySubmit": {
-      "kind": "tui_input_drained",
-      "timeoutSecs": 15,
-      "idleAfterDrainMs": 800
+      "kind": "tui_input_drained"
+    },
+    "busySubmit": {
+      "kind": "submit_normally"
     },
     "sessionIdInjection": "none",
     "statusBarRows": 1,
@@ -57,6 +61,24 @@
     }
   ],
   "defaultModel": "gpt-5.5",
+  "reasoningEfforts": [
+    {
+      "id": "low",
+      "displayName": "Low",
+      "description": "Fast responses with lighter reasoning."
+    },
+    {
+      "id": "medium",
+      "displayName": "Medium",
+      "description": "Balances speed and reasoning depth for everyday tasks."
+    },
+    {
+      "id": "high",
+      "displayName": "High",
+      "description": "Greater reasoning depth for complex problems."
+    }
+  ],
+  "defaultReasoningEffort": "medium",
   "installer": {
     "macos": "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
     "linux": "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
@@ -74,6 +96,10 @@
     "modelLaunchArgsFormat": [
       "-m",
       "{model}"
+    ],
+    "reasoningEffortLaunchArgsFormat": [
+      "-c",
+      "model_reasoning_effort=\"{effort}\""
     ]
   }
 }

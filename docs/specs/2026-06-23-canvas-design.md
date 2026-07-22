@@ -304,7 +304,7 @@ codeterm plan list --unowned                           # plans with no live owne
 codeterm plan task add    <plan_id> --name <n> --type <kind> [--sections <id,id,...>] [--model <m>] [--why <text>|--why-file <p>] [--body/--body-file ...] [--intent <text>|--intent-file <p>] [--assign-pane <id>] [--loop-from <task_id>]
 codeterm plan task update <plan_id> <task_id> [--name|--type|--model|--why|--status|--status-label|--body ...]
 codeterm plan task close  <plan_id> <task_id> [--result/--result-file ...] [--mesh <peer>]   # worker closes their section; remote close routes home via mesh
-codeterm plan task assign <plan_id> <task_id> --pane <id> [--mesh <peer>]   # --mesh/--peer: spawn/target on another machine, daemon brokers over mesh
+codeterm plan task assign <plan_id> <task_id> --tab <id> [--mesh <peer>]   # --mesh/--peer: spawn/target on another machine, daemon brokers over mesh
 codeterm plan task rm     <plan_id> <task_id>
 
 codeterm plan milestone add    <plan_id> <task_id> --kind <k> [--add-kind] [--text/--text-file ...] [--from <agent>]
@@ -332,7 +332,7 @@ New module `src/components/Canvas/`:
 - **`CanvasComposer.tsx` — talk-to-area input.** A floating, small centered/bottom bubble (not full-screen), styled like the chat-UI composer, with text + voice + document-attach (reuse the existing composer + attachments + voice machinery). It is **context-addressed**: whatever you type/say is routed to the orchestrator that owns the region currently in focus.
   - **Targeting:** in `mode="focus"` → that plan's owner orchestrator. In `mode="workspace"` → the orchestrator whose region the viewport is centered over (or an explicitly selected plan/area); a small target chip on the bubble shows "→ <orchestrator/plan>" so it's never ambiguous.
   - **Context attached:** the message carries which plan/task/area is in view, so the orchestrator knows what you're reacting to.
-  - **Delivery:** reuse the existing send path — message + attachments go to that orchestrator's pane (the same mechanism `codeterm send --pane <id>` / the chat composer already use). No new transport.
+  - **Delivery:** reuse the existing send path — message + attachments go to that orchestrator's tab (the same mechanism `codeterm send --tab <id>` / the chat composer already use). No new transport.
   - Always present whenever a region is in view → the canvas is conversational, not read-only.
 
 Mounts:
@@ -378,6 +378,8 @@ Canvas content is a nested cascade, laid out without overlap, stable across live
 ### 6.2 Layout settings (tunable, real-time, no recompile)
 Every layout parameter lives in one typed abstraction, not scattered as inline magic numbers, so the whole canvas can be tuned live and frozen later.
 ```
+
+<!-- revision: 1 -->
 CanvasLayoutSettings {
   cardWidth, cardMinHeight, cardMaxHeight,
   sectionGapY, taskGapY, laneWidth, laneGapX,

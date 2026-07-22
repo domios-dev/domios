@@ -67,8 +67,8 @@ Think step by step inside <reasoning>...</reasoning> tags before deciding:
 Rules:
 - Positive expectation naming a command, flag, or argument — the command list must contain that command/flag (PASS) or not (FAIL). Order does not matter.
 - Negative expectation ("Does NOT use X" / "Should NOT ...") — the command list must NOT contain X. If X is present anywhere, FAIL. If absent, PASS.
-- Behavioral expectation about WHAT the agent does — interpret based on the commands present. E.g. "explores the directory first" passes if `ls`, `tree`, `cat`, `pane exec`, or `send-text "ls ..."` appears before any `workspace create`.
-- "Uses send-text --pane general --mesh PEER" requires the response to contain literally `send-text` AND `--pane general` AND `--mesh PEER` (or `--mesh <similar peer name>`).
+- Behavioral expectation about WHAT the agent does — interpret based on the commands present. E.g. "explores the directory first" passes if `ls`, `tree`, `cat`, `tab exec`, or `send-text "ls ..."` appears before any `workspace create`.
+- "Uses send-text --tab general --mesh PEER" requires the response to contain literally `send-text` AND `--tab general` AND `--mesh PEER` (or `--mesh <similar peer name>`).
 - If the agent emitted `# NO_COMMAND: ...` and the expectation requires a specific command, FAIL. If the expectation is negative (should NOT do X) and the agent emitted no commands, PASS.
 - Ignore minor formatting (extra whitespace, code fences, line numbering).
 

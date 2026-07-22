@@ -33,14 +33,19 @@ pub fn plan_create_spec_first_hint() -> String {
     "WARNING: plans start with a spec. Sequence: `codeterm spec create --title <title>` -> `codeterm plan create --from-spec <id> --title <title>` -> `codeterm plan goal set` -> `codeterm plan section add` -> `codeterm plan task add` -> `codeterm plan doctor <plan> --kind quality`".to_string()
 }
 
-pub fn task_quality_guard_hint(
-    plan_id: &str,
-    task_id: &str,
+/// Shared rule set for the task-quality lint: what `plan task add` warns on at
+/// creation and what `plan doctor --kind quality` errors on later must never drift
+/// apart, so both go through this one field list.
+pub fn missing_task_quality_fields(
+    has_body: bool,
     has_criteria: bool,
     has_test_plan: bool,
     has_correctness: bool,
-) -> Option<String> {
+) -> Vec<&'static str> {
     let mut missing = vec![];
+    if !has_body {
+        missing.push("body");
+    }
     if !has_criteria {
         missing.push("acceptance criteria");
     }
@@ -50,11 +55,24 @@ pub fn task_quality_guard_hint(
     if !has_correctness {
         missing.push("correctness vector");
     }
+    missing
+}
+
+pub fn task_quality_guard_hint(
+    plan_id: &str,
+    task_id: &str,
+    has_body: bool,
+    has_criteria: bool,
+    has_test_plan: bool,
+    has_correctness: bool,
+) -> Option<String> {
+    let missing =
+        missing_task_quality_fields(has_body, has_criteria, has_test_plan, has_correctness);
     if missing.is_empty() {
         return None;
     }
     Some(format!(
-        "WARNING: task is missing {}. Add checkable work definition now: codeterm plan task add {plan_id} --name <name> --criterion <condition> --test-plan <how verified> --correctness <one-line vector>; existing task: {task_id}",
+        "WARNING: task is missing {}. Add checkable work definition now: codeterm plan task add {plan_id} --name <name> --body <work brief> --criterion <condition> --test-plan <how verified> --correctness <one-line vector>; existing task: {task_id}",
         missing.join(", ")
     ))
 }
@@ -112,12 +130,6 @@ pub fn push_hints(value: &mut Value, hints: Vec<String>) {
         _ => {
             *value = json!({ "value": value.take(), "_hints": hints });
         }
-    }
-}
-
-pub fn print_hints(hints: &[String]) {
-    for hint in hints {
-        println!("{hint}");
     }
 }
 
@@ -212,8 +224,9 @@ mod tests {
 
     #[test]
     fn quality_guard_is_loud_and_actionable() {
-        let hint = task_quality_guard_hint("pl_1", "task_1", false, false, false).unwrap();
+        let hint = task_quality_guard_hint("pl_1", "task_1", false, false, false, false).unwrap();
         assert!(hint.starts_with("WARNING:"));
+        assert!(hint.contains("--body <work brief>"));
         assert!(hint.contains("--criterion <condition>"));
         assert!(hint.contains("--test-plan <how verified>"));
         assert!(hint.contains("--correctness <one-line vector>"));
@@ -222,14 +235,16 @@ mod tests {
     #[test]
     fn quality_guard_lists_only_missing_fields() {
         let cases = [
-            (false, true, true, vec!["acceptance criteria"]),
-            (true, false, true, vec!["test plan"]),
-            (true, true, false, vec!["correctness vector"]),
+            (false, true, true, true, vec!["body"]),
+            (true, false, true, true, vec!["acceptance criteria"]),
+            (true, true, false, true, vec!["test plan"]),
+            (true, true, true, false, vec!["correctness vector"]),
         ];
-        for (has_criteria, has_test_plan, has_correctness, expected) in cases {
+        for (has_body, has_criteria, has_test_plan, has_correctness, expected) in cases {
             let hint = task_quality_guard_hint(
                 "pl_1",
                 "task_1",
+                has_body,
                 has_criteria,
                 has_test_plan,
                 has_correctness,
@@ -241,6 +256,9 @@ mod tests {
             if has_criteria {
                 assert!(!hint.contains("acceptance criteria"), "{hint}");
             }
+            if has_body {
+                assert!(!hint.contains("task is missing body"), "{hint}");
+            }
             if has_test_plan {
                 assert!(!hint.contains("task is missing test plan"), "{hint}");
             }
@@ -248,7 +266,7 @@ mod tests {
                 assert!(!hint.contains("correctness vector"), "{hint}");
             }
         }
-        assert!(task_quality_guard_hint("pl_1", "task_1", true, true, true).is_none());
+        assert!(task_quality_guard_hint("pl_1", "task_1", true, true, true, true).is_none());
     }
 
     #[test]

@@ -350,6 +350,11 @@ pub struct RelayCommand {
     /// Request body (for POST/PUT/PATCH).
     #[serde(default)]
     pub body: serde_json::Value,
+    /// Opaque per-logical-message delivery id (UUID), stable across the sender's
+    /// transport retries. Lets the target dedupe by (authenticated sender, id).
+    /// Absent for commands that opt out of at-most-once (reads, management).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery_id: Option<String>,
 }
 
 fn default_method() -> String {
