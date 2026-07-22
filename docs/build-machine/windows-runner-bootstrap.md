@@ -71,3 +71,5 @@ Then dispatch the non-secret `tests.yml` workflow and confirm `rust (windows)` r
 ## Secret Handling
 
 Registration tokens, signing keys, package tokens, and Tauri signing passwords stay outside the repository and outside this script. Pass runner registration through `-RegistrationTokenCommand` so the token can be fetched from an ephemeral external source at runtime. The script never writes the token to `.env`, docs, or logs.
+
+<!-- revision: 1 -->
