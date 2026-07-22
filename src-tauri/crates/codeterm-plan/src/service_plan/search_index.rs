@@ -396,6 +396,19 @@ pub fn delete_plan_units(plan: &Plan) -> Result<(), String> {
     delete_units(plan_project_root(plan), &format!("planunit_{}_%", plan.id))
 }
 
+// `journal_mode=WAL` in init_schema ignores busy_timeout and BUSY-fails under contention; run it once per path so the mode switch never contends (reads/writes stay unserialized).
+fn ensure_schema_once(db_path: &Path, conn: &Connection) -> Result<(), String> {
+    static INITIALIZED: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
+    let set = INITIALIZED.get_or_init(|| Mutex::new(HashSet::new()));
+    let mut guard = set.lock();
+    if guard.contains(db_path) {
+        return Ok(());
+    }
+    port().init_schema(conn)?;
+    guard.insert(db_path.to_path_buf());
+    Ok(())
+}
+
 fn open_index(project_root: &Path) -> Result<Connection, String> {
     open_index_with_timeout(project_root, PLAN_INDEX_BUSY_TIMEOUT, true)
 }
@@ -418,7 +431,7 @@ fn open_index_with_timeout(
     conn.busy_timeout(timeout)
         .map_err(|e| format!("set plan index busy_timeout: {e}"))?;
     if init_schema {
-        port().init_schema(&conn)?;
+        ensure_schema_once(&db_path, &conn)?;
     }
     port().init_embedding_ext(&conn);
     Ok(conn)
