@@ -77,6 +77,10 @@ fn vector_indexing_available(_db: &Path) -> bool {
 }
 
 fn hold_plan_index_lock(root: &Path) -> std::thread::JoinHandle<()> {
+    // Drain any index jobs the test's own setup (create_plan/add_task) already
+    // enqueued, so this simulated external locker never races the shared
+    // IndexQueue's background writers for BEGIN IMMEDIATE on the same db.
+    flush_index_queue_for_test(root);
     let project = super::super::paths::project_root(root);
     let (ready_tx, ready_rx) = mpsc::channel();
     let locker = std::thread::spawn(move || {
