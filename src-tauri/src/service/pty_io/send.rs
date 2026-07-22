@@ -326,6 +326,8 @@ impl ServiceContext {
         } else {
             b"\r".to_vec()
         };
+        let strategy_verifies =
+            !matches!(strategy, crate::agent::provider::VerifySubmitStrategy::None);
         super::submit_transaction::submit_text_with_key(
             self,
             pty_id,
@@ -340,7 +342,27 @@ impl ServiceContext {
                 ..Default::default()
             },
         )
-        .map(|_| ())
+        .map(|result| {
+            if submit_needs_unconfirmed_warning(enter, strategy_verifies, result.submit_observed) {
+                let target = pane_id.as_deref().unwrap_or(pty_id);
+                log::warn!("[send-unconfirmed] pane {target}: submit not acknowledged");
+                let title = pane_id
+                    .as_deref()
+                    .and_then(|id| self.mux.read().get_pane(id).map(|p| p.title.clone()));
+                let display = title
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|t| !t.is_empty())
+                    .unwrap_or(target);
+                self.create_notification(
+                    "Message delivery unconfirmed".to_string(),
+                    Some(format!(
+                        "{display}: the agent UI did not acknowledge the submit — check the tab."
+                    )),
+                    Some("warning"),
+                );
+            }
+        })
         .map_err(|error| error.to_string())
     }
 
@@ -636,6 +658,8 @@ impl ServiceContext {
     }
 
     /// PTY work runs off-thread so CodeTerm-originated senders return immediately.
+    /// Failures MUST surface to the user: this detached seam is the only place
+    /// composer/messenger sends can die, and a log line alone loses messages.
     pub fn send_text_detached(&self, pane_id: &str, text: &str, enter: bool) {
         let svc = self.clone();
         let pane = pane_id.to_string();
@@ -643,6 +667,10 @@ impl ServiceContext {
         std::thread::spawn(move || {
             if let Err(error) = svc.send_text(&pane, &text, enter) {
                 log::warn!("[send-async] delivery to pane {pane} failed: {error}");
+                let title = svc.mux.read().get_pane(&pane).map(|p| p.title.clone());
+                let (notice_title, notice_body) =
+                    send_failure_notice(title.as_deref(), &pane, &error);
+                svc.create_notification(notice_title, Some(notice_body), Some("error"));
             }
         });
     }
@@ -695,6 +723,64 @@ fn provider_frame_ready(
     let structural_tui_ready = tui_ready || (alternate_screen && composer_ready);
     (structural_tui_ready && (!require_composer || composer_ready))
         || (!require_composer && prompt_ready)
+}
+
+/// User-facing notice for a failed detached send: `(title, body)`.
+pub(crate) fn send_failure_notice(
+    pane_title: Option<&str>,
+    pane_id: &str,
+    error: &str,
+) -> (String, String) {
+    let target = pane_title
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .unwrap_or(pane_id);
+    (
+        "Message not delivered".to_string(),
+        format!("{target}: {error}"),
+    )
+}
+
+/// An Enter-submitted send that a verifying provider never acknowledged must
+/// warn the user; silent optimistic success is how follow-ups get lost.
+pub(crate) fn submit_needs_unconfirmed_warning(
+    enter: bool,
+    strategy_verifies: bool,
+    submit_observed: bool,
+) -> bool {
+    enter && strategy_verifies && !submit_observed
+}
+
+#[cfg(test)]
+mod send_notice_tests {
+    use super::{send_failure_notice, submit_needs_unconfirmed_warning};
+
+    #[test]
+    fn failed_detached_send_names_the_pane_and_reason() {
+        let (title, body) = send_failure_notice(Some("Fermat"), "38cf30e1", "PTY did not start");
+        assert_eq!(title, "Message not delivered");
+        assert_eq!(body, "Fermat: PTY did not start");
+    }
+
+    #[test]
+    fn missing_or_blank_pane_title_falls_back_to_the_pane_id() {
+        let (_, body) = send_failure_notice(None, "38cf30e1", "boot timeout");
+        assert_eq!(body, "38cf30e1: boot timeout");
+        let (_, body) = send_failure_notice(Some("   "), "38cf30e1", "boot timeout");
+        assert_eq!(body, "38cf30e1: boot timeout");
+    }
+
+    #[test]
+    fn unconfirmed_submit_warns_only_for_verifying_enter_sends() {
+        // The reported field failure: Enter send, verifying TUI provider, no ack.
+        assert!(submit_needs_unconfirmed_warning(true, true, false));
+        // Acknowledged submits stay quiet.
+        assert!(!submit_needs_unconfirmed_warning(true, true, true));
+        // Non-verifying providers (bare shell) never observe submits — no spam.
+        assert!(!submit_needs_unconfirmed_warning(true, false, false));
+        // Text without Enter cannot be an unconfirmed submission.
+        assert!(!submit_needs_unconfirmed_warning(false, true, false));
+    }
 }
 
 #[cfg(test)]
