@@ -61,16 +61,20 @@ impl PlanStore {
             };
             let (start_line, end_line, editable) = range.ok_or(PlanError::NotFound)?;
             let _ = root;
-            return Ok(BodyLocation {
+            Ok(BodyLocation {
                 file,
                 start_line,
                 end_line,
                 editable,
-            });
+            })
         }
-        Err(PlanError::Io(
-            "plan bodies are database-backed; use plan mutation commands".into(),
-        ))
+        #[cfg(not(test))]
+        {
+            let _ = (plan_id, target);
+            Err(PlanError::Io(
+                "plan bodies are database-backed; use plan mutation commands".into(),
+            ))
+        }
     }
 }
 
