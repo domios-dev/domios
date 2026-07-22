@@ -137,14 +137,19 @@ export function PaneSessionChat({
   const isActive = isVisible;
 
   const showComposerError = useCallback((message: string) => {
+    const duplicate = message.startsWith("Duplicate message ignored");
     addNotification({
       pane_id: paneId,
       workspace_id: null,
-      title: isMicrophonePermissionError(message) ? "Microphone unavailable" : "Chat error",
+      title: isMicrophonePermissionError(message)
+        ? "Microphone unavailable"
+        : duplicate
+          ? "Message not sent"
+          : "Chat error",
       body: isMicrophonePermissionError(message)
         ? `${message} Open microphone permissions in Settings if needed.`
         : message,
-      level: "Error",
+      level: duplicate ? "Warning" : "Error",
     });
   }, [addNotification, paneId]);
 
