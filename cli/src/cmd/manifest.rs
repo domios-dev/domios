@@ -36,7 +36,13 @@ fn walk(cmd: &Command) -> ManifestCommand {
         .get_arguments()
         .filter(|a| a.get_id() != "help" && a.get_id() != "version")
         .map(|a| ManifestArg {
-            name: a.get_id().to_string(),
+            name: if a.is_positional() {
+                a.get_id().to_string()
+            } else {
+                a.get_long()
+                    .map(|long| long.to_string())
+                    .unwrap_or_else(|| a.get_id().to_string())
+            },
             positional: a.is_positional(),
             value_name: a
                 .get_value_names()
@@ -235,6 +241,22 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/../src-tauri/prompts/codeterm_cli.md"
     );
+    const SKILL_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../skills/codeterm/SKILL.md");
+
+    #[test]
+    fn shipped_agent_instructions_use_tab_cli_vocabulary() {
+        for path in [PROMPT_PATH, SKILL_PATH] {
+            let text = std::fs::read_to_string(path).expect("read agent instruction source");
+            assert!(
+                !text.contains("codeterm pane "),
+                "{path} teaches the removed `codeterm pane` namespace"
+            );
+            assert!(
+                !text.contains(" --pane "),
+                "{path} teaches the removed `--pane` flag"
+            );
+        }
+    }
 
     fn resolve<'a>(root: &'a ManifestCommand, path: &[&str]) -> Option<&'a ManifestCommand> {
         let mut cur = root;
@@ -335,7 +357,7 @@ mod tests {
     fn manifest_has_core_commands() {
         let m = build();
         let names: Vec<&str> = m.subcommands.iter().map(|c| c.name.as_str()).collect();
-        for expected in ["send", "agent", "mem", "pane", "cli-manifest"] {
+        for expected in ["send", "agent", "mem", "tab", "cli-manifest"] {
             assert!(
                 names.contains(&expected),
                 "missing top-level command: {expected}"

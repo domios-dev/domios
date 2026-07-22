@@ -1,6 +1,6 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 31 -->
+<!-- revision: 34 -->
 
 Full reference for the `codeterm plan` CLI and orchestration discipline. The *why* (when to spawn, model routing, role contracts) lives here and in your role prompt — this doc is the authority; machine-specific deltas live in mem preferences (kind=preference, area=orchestration).
 
@@ -30,7 +30,7 @@ Plan  (HOW)       built FROM the spec — its OWN section tree (execution phases
 - **A spec section may belong to MANY plan sections** (M:N) via `spec_links`. Coverage of a spec section = union of tasks across its linked plan sections.
 - **Tasks** attach to plan sections via `--sections`. Coverage is derived.
 - **Strides / Milestones** are the persisted projection of `codeterm agent report --plan/--task` (authorship auto-resolved from `CODETERM_PANE_ID`). `milestone_kinds` declared at plan creation define the column vocabulary; **Loops** (`LoopSpec`) declare self-improving cycles.
-- **Task env:** assigning a task to a pane exports `CODETERM_PLAN_ID` + `CODETERM_TASK_ID`; workers report without being told the ids.
+- **Task env:** assigning a task to a tab exports `CODETERM_PLAN_ID` + `CODETERM_TASK_ID`; workers report without being told the ids.
 
 ## Lifecycle (author top-down, GOAL-first)
 
@@ -44,11 +44,11 @@ plan create --from-spec <spec> --title ...   # 3. Plan (HOW), built FROM the spe
         --spec-section <ss> --plan-section <ps>
   plan task add --model --why \              #    tasks carry routing rationale +
         --acceptance-criteria ... --test-plan ... --correctness ...
-  plan task assign --pane                     #    bind a pane (exports CODETERM_TASK_ID)
+  plan task assign --tab                      #    bind a tab (exports CODETERM_TASK_ID)
   ...workers run, report → strides/milestones...
   # §38 acceptance: workers report in_review; the ORCHESTRATOR judges `done`.
   plan loop create                            #    declare a self-improving cycle
-  # CLOSEOUT (mandatory before archive): close every worker + Planner pane you
+  # CLOSEOUT (mandatory before archive): close every worker + Planner tab you
   # spawned, remove lane worktrees + delete merged branches, stop lane dev
   # daemons, prune stale/superseded milestones. Your spawned tabs/worktrees/
   # branches are THIS effort's mess to clear — never the next orchestrator's.
@@ -60,7 +60,7 @@ plan create --from-spec <spec> --title ...   # 3. Plan (HOW), built FROM the spe
 An effort is not complete when the code merges; it is complete when the workspace
 is clean. Before `plan archive`, the orchestrator MUST:
 
-1. **Close every worker pane and the Planner pane** it spawned (`codeterm pane close <id>`).
+1. **Close every worker tab and the Planner tab** it spawned (`codeterm tab close <id>`).
    Accepted lanes must not linger as zombie tabs — a screen full of dead worker
    tabs is unfinished cleanup, not finished work.
 2. **Sweep lanes** (LANES rule 8): remove merged worktrees, delete merged branches,
@@ -68,7 +68,7 @@ is clean. Before `plan archive`, the orchestrator MUST:
 3. **Prune milestones**: drop stale/superseded strides so the completed plan reads clean.
 
 The self-termination guard prevents an orchestrator/planner from closing its OWN
-pane — so close children, not yourself. Sweep at every group close too, not only
+tab — so close children, not yourself. Sweep at every group close too, not only
 at the end, so tabs and worktrees never accumulate.
 
 Edit while work runs — `codeterm plan ...`/`spec ...` mutate a running effort safely. Re-orient with `plan get PLAN_ID` / `spec show SPEC_ID` (markdown) at any time.
@@ -137,18 +137,19 @@ task nudges only while their assigned task is still waiting for their report.
 ## Long-running shell gates — completion contract, never polling
 
 Long-running shell commands (builds, soaks, remote regressions) are gates, not
-things to watch. Never wait by polling — sleep/get-text loops are
-implementer-mode waiting. Give the command a completion contract at launch:
+things to watch from the Orchestrator's control loop. Delegate them or launch
+them in a separate visible tab/tracked process, and give the command a
+completion contract at launch:
 
 ```bash
-<cmd>; codeterm send --pane $CODETERM_PANE_ID [--mesh <your-peer>] "GATE:<task_id> rc=$?"
+codeterm tab new --cmd '<cmd>; rc=$?; codeterm send --tab <orchestrator-tab> "GATE:<task_id> rc=$rc"; exit $rc'
 ```
 
 Record the gate on the task and work other frontier items until the marker
-arrives. For an already-running command, start a companion watcher in that
-pane (`while pgrep -f <name> >/dev/null; do sleep 30; done; codeterm send ...;
-codeterm pane close $CODETERM_PANE_ID`): the wait runs remotely, never in your
-loop, and the watcher closes itself after sending its gate.
+arrives. A process handle, process-exit event, channel close, or the command's
+own completion message is the readiness signal. Never block the user
+conversation on a long tool call, and never substitute sleep/poll loops for a
+completion signal. If no signal exists, add one at the ownership boundary.
 
 ## Worker Lanes — Git worktrees + task metadata
 
@@ -161,19 +162,19 @@ The Orchestrator's integration checkout stays separate from worker edits:
 ```bash
 git worktree add -b lane/<handle> ../codeterm-<handle> HEAD
 codeterm agent spawn codex \
-  --parent <orchestrator-pane> --role Worker \
+  --parent <orchestrator-tab> --role Worker \
   --cwd ../codeterm-<handle> \
   --title <handle> \
   --task-file /tmp/<task>.md
 codeterm plan task update PLAN_ID TASK_ID \
-  --pane <worker-pane> \
+  --tab <worker-tab> \
   --branch lane/<handle> \
   --worktree ../codeterm-<handle> \
   --workspace-name <workspace>
 ```
 
 This is durable task state, not only a chat convention. The task lane metadata
-must identify the worker pane, branch, worktree path, workspace, cleanup status,
+must identify the worker tab, branch, worktree path, workspace, cleanup status,
 and any cleanup hints. Use that metadata for canvas presence, reports,
 reconciliation, handoffs, and cleanup.
 
@@ -189,11 +190,11 @@ Worker lanes normally end this way:
    `codeterm plan qa pass PLAN_ID TASK_ID --note "<evidence>"` closes the task;
    `codeterm plan qa fail PLAN_ID TASK_ID --note "<failure>"` bounces it to
    `in_progress` and nudges the implementing worker.
-5. Orchestrator integrates by merging or rebasing the unmerged lane branch into
-   the integration target. Cherry-pick is forbidden for orchestration lanes. If
-   a branch cannot be merged cleanly or has the wrong ancestry, create a new lane
-   and manually port the diff with a recorded reason.
-6. Orchestrator closes the worker pane, removes the clean
+5. Orchestrator integrates with a real merge commit from the lane into the
+   integration target. Cherry-pick, squash, replay, and patch-copy are forbidden.
+   If ancestry is wrong, rebase the same lane onto the target, re-run its bounded
+   review, then merge that lane.
+6. Orchestrator closes the worker tab, removes the clean
    worktree, and sets `--cleanup-status done`.
 
 QA is still part of the `in_review` lifecycle. The persisted task keeps
@@ -219,6 +220,12 @@ OAuth, real email/payment, or a production side effect.
 ### Milestone gates — three-tier testing ladder
 
 Regression cost scales with scope, so testing is tiered, not uniform.
+
+Verification stays proportional to risk. During implementation, run one
+smallest meaningful oracle after a coherent change, not a broad suite after
+every edit. Batch compatible expensive checks at the group boundary. Deferring
+critical evidence is allowed while work continues, but it remains explicit
+open risk and cannot support a done or release verdict.
 
 Testing ladder — per-task = focused filters only; per-group (milestone) = one full regression gate (cargo suite + ts-unit + playwright golden, serialized in the warm checkout); per-release = the farm matrix across every platform.
 
@@ -259,11 +266,11 @@ Promotion and onboarding **do not create a planner bootstrap task** — planning
 progress lives in the plan's own state, advanced by the Planner (or the user):
 
 ```bash
-codeterm plan planning-state PLAN_ID --set structure_ready --pane <planner-pane> --note "skeleton done"
+codeterm plan planning-state PLAN_ID --set structure_ready --tab <planner-tab> --note "skeleton done"
 codeterm plan approve PLAN_ID          # user/orchestrator: advances to approved
 ```
 
-Only the Planner pane or the user may advance the state; each advance records an
+Only the Planner tab or the user may advance the state; each advance records an
 author and note as a working point in `planning_log`. `codeterm plan approve`
 still runs the quality doctor first, which gates approval on a set GOAL, a linked
 spec, plan sections, and a verification hint. Nudges and `next_actions` derive
@@ -273,16 +280,18 @@ plus the plan's `planner` binding — named by binding, never guessed.
 Preferred spawn shape:
 
 ```bash
-codeterm agent spawn claude --model fable \
-  --parent <orch-pane> \
+codeterm agent providers
+codeterm agent models <provider>
+codeterm agent spawn <provider> [--model <model>] \
+  --parent <orchestrator-tab> \
   --role Planner \
   --task-file <brief>
 ```
 
-Use `fable` first for planning depth. If that model is unavailable in
-`codeterm agent models claude`, fall back to `opus` and keep the rest of the
-spawn shape unchanged. Put the brief in a task file so long planning context,
-backticks, and command snippets arrive byte-for-byte.
+The Orchestrator owns the provider/model choice based on availability, planning
+depth, and current usage headroom. Omit `--model` to use the provider default.
+Put the brief in a task file so long planning context, backticks, and command
+snippets arrive byte-for-byte.
 
 The Planner must hand back:
 
@@ -370,7 +379,7 @@ A handoff is a durable, goal-anchored resume point attached to the plan — far 
 **HOW (commands):**
 - `codeterm plan handoff create <plan_id> --from-file body.md --goal "<vector>" --next "..." [--next ...] --rule "..." --decision "..."` — attach a structured handoff to the plan.
 - `codeterm plan handoff show <plan_id> --latest [--markdown]` or `codeterm plan handoff show <plan_id> --seq <n> [--markdown]` / `plan handoff list <plan_id>` — read them back.
-- `codeterm orchestrator handoff --mode new|compact [--reseed] [--from-file|--stdin] [--plan <id>]` — compose + (optionally) reseed this pane in one shot.
+- `codeterm orchestrator handoff --mode new|compact [--reseed] [--from-file|--stdin] [--plan <id>]` — compose + (optionally) reseed this tab in one shot.
 
 ### Compaction discipline — verify-loop before reseed
 
@@ -387,32 +396,36 @@ The orchestrator **heartbeat** is durable state attached to the plan (`current_f
 
 Plan nudges are automatic while an execution-mode plan has unfinished work:
 
-- **Owner orchestrator:** receives a timed reminder while the owned plan has any task that is not `done`, `cancelled`, or `parked`.
+- **Owner orchestrator:** receives a timed reminder while the owned plan has any task that is not `done`, `cancelled`, or `paused`.
 - **Assigned worker:** receives a timed reminder while its task is `pending`, `in_progress`, or `blocked` and it has not reported back.
-- **Event nudges:** pane sends and agent reports still count as activity triggers, but they are not required for the timer to fire.
+- **Event nudges:** tab sends and agent reports still count as activity triggers, but they are not required for the timer to fire.
 - **Cadence:** `[orchestration].nudge_interval_secs` defaults to `1800` (30 minutes). `[orchestration].nudge_after_turns` remains the message-count fallback. `[orchestration].plan_reminders = false` disables both.
 
-### Task lifecycle — PARKED and the relentless nudge contract
+### Task lifecycle — PAUSED and the relentless nudge contract
 
 The open-work set and the heartbeat-stop condition are the **same predicate**:
 a task counts as open only while it is `pending`, `in_progress`, `in_review`,
-or `blocked`. `done` and `cancelled` are terminal; **`parked`** is a
-non-terminal deferral that is *also* excluded from the open-work set — parked
+or `blocked`. `done` and `cancelled` are terminal; **`paused`** is an explicit
+operator hold that is *also* excluded from the open-work set — paused
 tasks do not keep the heartbeat alive and are folded/de-emphasized in read
-models. So there is no nudge dead-zone: while any non-terminal, non-parked task
-is open, the nudge **repeats until every open task is dispatched, parked with a
+models. So there is no nudge dead-zone: while any non-terminal, non-paused task
+is open, the nudge **repeats until every open task is dispatched, paused with a
 reason, or sent to replanning; silence is not an option.**
 
 Every open task must take exactly one of five exits: (1) dispatch it to a
-worker, (2) park with a reason, (3) judge an `in_review` task to done or bounce
+worker, (2) pause with a reason, (3) judge an `in_review` task to done or bounce
 it, (4) send it to replanning, (5) escalate to a smarter model.
 
-- **Park:** `codeterm plan task park <plan> <task> --reason "<why>"` — requires a
-  reason, sets `parked`, clears the lane assignment, and records a working-point
-  stride. Parking with no reason is rejected; a task parked without a reason is a
-  **doctor error** (`parked_without_reason`).
-- **Unpark:** `codeterm plan task unpark <plan> <task>` — returns the task to
-  `pending`, clears `park_reason`, and records a stride.
+- **Pause:** `codeterm plan task pause <plan> <task> --reason "<why>"` — requires a
+  reason, sets `paused`, clears the lane assignment, and records a working-point
+  stride. Pausing with no reason is rejected; a paused task without a reason is a
+  **doctor error** (`paused_without_reason`).
+- **Resume:** `codeterm plan task resume <plan> <task>` — returns the task to
+  dependency-waiting `pending`, clears `pause_reason`, and records a stride.
+- **Sequencing is not parking:** express ordering with `--depends-on`. A
+  `pending` task with unfinished dependencies is shown as **waiting on dependency**;
+  an actionable `pending` task is shown separately. Use `paused` only for an
+  explicit operator hold with a reason, never as a sequencing surrogate.
 - **Age thresholds (drift):** a `pending` task that stays **unstaffed over 4h**,
   or an `in_review` task that stays **unjudged over 2h**, is recorded as drift
   and named explicitly in the escalated nudge so stalled work cannot hide. Doctor
@@ -420,31 +433,31 @@ it, (4) send it to replanning, (5) escalate to a smarter model.
 
 ### Task-status state machine — transitions, preconditions, ownership
 
-Statuses: `pending → in_progress → in_review → done`, with `blocked`, `parked`
+Statuses: `pending → in_progress → in_review → done`, with `blocked`, `paused`
 (non-terminal deferrals) and `cancelled` (terminal) off to the side. Two rules
 keep the board honest about what is actually running:
 
-- **`in_progress` requires a bound executor pane.** A task cannot be "in
+- **`in_progress` requires a bound executor tab.** A task cannot be "in
   progress" with nobody on it — the transition is rejected (`in_progress
-  requires an executor pane`) unless a pane is assigned.
+  requires an executor tab`) unless a tab is assigned.
 - **Taking a task IS starting it.** `codeterm task take <task>` binds the
-  caller's pane as executor **and atomically flips `pending → in_progress`** in
-  one step — the pane binding is the precondition, so there is no separate
+  caller's tab as executor **and atomically flips `pending → in_progress`** in
+  one step — the tab binding is the precondition, so there is no separate
   "record --status in_progress". Dispatching a worker to a task (which binds the
-  pane) advances it the same way. The execution layer (a worker really coding in
+  tab) advances it the same way. The execution layer (a worker really coding in
   a lane) and the tracking layer (the task row) can no longer diverge, so the
   board never shows `pending` while a worker is live. Only `pending` auto-advances
   on bind; other states are left untouched.
 
 Who owns each flip:
 
-- **Worker owns `pending → in_progress`** — it holds the pane, so `task take`
+- **Worker owns `pending → in_progress`** — it holds the tab, so `task take`
   (or being dispatched) is what starts the task. The worker does not need the
   orchestrator to flip its status.
 - **Worker owns `in_progress → in_review`** — it moves the task to review when
   its work is ready and reports back.
 - **Orchestrator owns the `in_review` gate** — it judges an `in_review` task to
-  `done` or bounces it back; it owns `blocked`/`parked`/replanning decisions.
+  `done` or bounces it back; it owns `blocked`/`paused`/replanning decisions.
 
 ### Event-driven orchestration: no manual wait loops
 
@@ -457,14 +470,14 @@ are ready to dispatch or review.
 Allowed checks:
 
 - Run one immediate sanity check after a concrete event: a worker report, a plan
-  reminder, a pane death, a user message, a gate finishing, or a command you just
+  reminder, a tab death, a user message, a gate finishing, or a command you just
   started returning.
 - If no event happened, do not keep polling a worker. Keep the heartbeat lane map
   accurate, leave the worker assigned, and advance another independent task if
   one exists.
 - If a worker appears overdue only because a plan nudge told you so, check
-  `codeterm orchestrator status --plan PLAN_ID --pane ORCH_PANE --json` first.
-  Inspect a worker pane at most once, then either bounce it with a concrete next
+  `codeterm orchestrator status --plan PLAN_ID --tab ORCH_TAB --json` first.
+  Inspect a worker tab at most once, then either bounce it with a concrete next
   instruction or record why the lane remains in progress.
 
 The correct idle posture is not "wait 30 seconds and poll again"; it is "the
@@ -486,13 +499,13 @@ unchanged at the next nudge."
 
 Every acceptance/close/integration changes which pending tasks are unblocked.
 Immediately after closing a task or accepting a lane, re-check the frontier:
-any task whose precondition just became true gets dispatched NOW, parked with
+any task whose precondition just became true gets dispatched NOW, paused with
 a recorded reason, or routed to replanning. The most common stall: a gating
 task (review/verification) becomes dispatchable at the moment the last lane
 integrates, while the stale focus still describes the finished wave.
 
 A nudge is handled only if it ends in a state change for at least one open
-task: dispatch / park (or a decision stride) / judge a report / bounce a
+task: dispatch / pause (or a decision stride) / judge a report / bounce a
 worker / hand to replanning. "Waiting" is a valid response only for tasks
 with a live assigned lane.
 
@@ -526,7 +539,7 @@ codeterm orchestrator learn "QuickJS lacks console — guard host calls"   # app
 codeterm --json orchestrator status --plan PLAN_ID       # reports + live_lanes + drift + next_actions
 ```
 
-`set` writes only the fields you pass (omitted fields are left intact); `--clear-lanes` / `--clear-rules` empty those lists and cannot be combined with `--lane` / `--rule` in the same command. Plan is resolved from `--plan`/`CODETERM_PLAN_ID`, else the active plan owned by this pane/session. Keep the plan-owned heartbeat current after each state-reconciliation pass — the focus + lanes are what get reinjected.
+`set` writes only the fields you pass (omitted fields are left intact); `--clear-lanes` / `--clear-rules` empty those lists and cannot be combined with `--lane` / `--rule` in the same command. Plan is resolved from `--plan`/`CODETERM_PLAN_ID`, else the active plan owned by this tab/session. Keep the plan-owned heartbeat current after each state-reconciliation pass — the focus + lanes are what get reinjected.
 
 ## Test plans — executable, not descriptive
 
@@ -630,7 +643,7 @@ codeterm plan approve PLAN_ID
 codeterm plan unapprove PLAN_ID
 codeterm plan mode PLAN_ID --set planning|approved|execution|complete
 codeterm plan planning-state PLAN_ID --set drafting|structure_ready|approved \
-  [--pane PLANNER_PANE] [--note "..."]
+  [--tab PLANNER_TAB] [--note "..."]
 
 codeterm plan state PLAN_ID
 codeterm plan doctor [PLAN_ID] [--kind storage|structure|quality|all]
@@ -726,7 +739,7 @@ codeterm plan task add PLAN_ID --name NAME \
   [--why "..." | --why-file PATH] \
   [--body "..." | --body-file PATH] \
   [--intent "..." | --intent-file PATH] \
-  [--assign-pane PANE_ID] \
+  [--assign-tab TAB_ID] \
   [--loop-from TASK_ID] [--force]
 
 codeterm plan task update PLAN_ID TASK_ID \
@@ -740,7 +753,7 @@ codeterm plan task update PLAN_ID TASK_ID \
 codeterm plan task close PLAN_ID TASK_ID \
   [--result "..." | --result-file PATH] [--mesh PEER]
 
-codeterm plan task assign PLAN_ID TASK_ID --pane PANE_ID [--mesh PEER]
+codeterm plan task assign PLAN_ID TASK_ID --tab TAB_ID [--mesh PEER]
 
 codeterm plan task rm PLAN_ID TASK_ID
 codeterm plan task rm PLAN_ID --all --yes
@@ -830,7 +843,7 @@ The plan is a live object edited while work runs. Every `codeterm plan ...` call
 
 Hierarchy is flat: Orchestrator → Workers. Workers do not spawn Workers.
 
-**ALWAYS ATTACH workers to yourself: `--parent <your-pane-id> --role Worker`.** Without `--parent`, the spawn is standalone and untracked (report routing, hierarchy, lifecycle/cleanup all break). Standalone root spawning is reserved only for an independent sub-orchestrator running its own workstream.
+**ALWAYS ATTACH workers to yourself: `--parent <your-tab-id> --role Worker`.** Without `--parent`, the spawn is standalone and untracked (report routing, hierarchy, lifecycle/cleanup all break). Standalone root spawning is reserved only for an independent sub-orchestrator running its own workstream.
 
 **Give each Worker an identity: `--title` + `--description`.** A worker with a clear title is legible in the agent tree, ledger, and presence layer.
 
@@ -859,18 +872,18 @@ Workers report `in_review` — not `done`. The Orchestrator decides `done` after
 
 ### Heartbeat Discipline
 
-**HEARTBEAT = ACTION, never PARK.** Parking = sinking into over-verifying one change or sitting on a self-imposed gate while the backlog sits untouched.
+**HEARTBEAT = ACTION, never IDLE.** Idling means sinking into over-verifying one change or sitting on a self-imposed gate while the backlog sits untouched.
 
 Each heartbeat:
 1. **Reports first** — process any worker reports (accept/bounce). Don't inspect worker panes if reports arrived.
 2. **Re-scan the whole backlog** — list ALL open tasks; ask "what can I dispatch RIGHT NOW in parallel?"
 3. **Dispatch — if your focus is blocked, switch lanes, never sit.** A blocked/waiting lane is a signal to advance a DIFFERENT open task.
-4. **Timebox verification** — if a gate or test is blocked, record the friction, park that lane WITH A NOTE, and advance other work.
+4. **Timebox verification** — if a gate or test is blocked, record the friction, pause that lane WITH A NOTE, and advance other work.
 5. Keep plan heartbeat current (owner, active assignments, lane metadata, latest handoff).
 6. **Focus names an action YOU own** — never a wait. If blocked on someone: focus = "bounce <agent> re <thing> if unchanged at next nudge."
-7. **Re-derive the frontier after every gate.** Each accept/close unblocks tasks — dispatch, park with a reason, or replan NOW.
+7. **Re-derive the frontier after every gate.** Each accept/close unblocks tasks — dispatch, pause with a reason, or replan NOW.
 
-Do not create delayed self-send heartbeats as normal orchestration. If a worker is silent and overdue, check `pane status`/`pane chat` ONCE, record the lane state, and advance a different open task.
+Do not create delayed self-send heartbeats as normal orchestration. If a worker is silent and overdue, check `tab status`/`tab chat` ONCE, record the lane state, and advance a different open task.
 
 ### Verification Gates
 
@@ -899,14 +912,14 @@ How to convince yourself (pick by what needs verifying):
 ### State Reconciliation — a Reflex
 
 Plan state silently drifts from reality. RECONCILE on two triggers, every time:
-- **After every task you close or receive** (report, pane death, accept/bounce).
+- **After every task you close or receive** (report, tab death, accept/bounce).
 - **On every heartbeat** — before dispatching the next lane, sweep for drift first.
 
 What to check:
-- `in_progress` but assigned pane is dead/absent → clear binding, re-dispatch or flag.
+- `in_progress` but assigned tab is dead/absent → clear binding, re-dispatch or flag.
 - `in_review` sitting unaccepted → gate it NOW.
 - Accepted/merged branch but task still open → mark `done`.
-- Task bound to a closed pane → clear the dead binding.
+- Task bound to a closed tab → clear the dead binding.
 - **NOT YOURS → flag, never touch.**
 
 Don't do this by eye — run: `codeterm plan reconcile <plan>` (lists mismatches); `--fix` applies safe transitions.
@@ -916,13 +929,13 @@ Don't do this by eye — run: `codeterm plan reconcile <plan>` (lists mismatches
 Two layers — do not conflate them:
 
 - **Self-review (every report):** read the actual `git diff`, re-run the meaningful gate in the integration checkout, grep risk patterns. The report is a signal, not proof.
-- **Independent review (separate adversarial reviewer AGENT):** spawn a reviewer prompted to REFUTE / find consequences. Self-review is NOT a substitute — per-pane fetch fan-outs and hot-path regressions routinely sail past tests and self-review; only an independent reviewer catches them.
+- **Independent review (separate adversarial reviewer AGENT):** spawn a reviewer prompted to REFUTE / find consequences. Self-review is NOT a substitute — per-tab fetch fan-outs and hot-path regressions routinely sail past tests and self-review; only an independent reviewer catches them.
 
 Run independent review on:
 - Broad plans before dispatch.
 - Risky lane diffs before integration.
 - Final integration diff before declaring a phase done.
-- Hot-path / perf-sensitive changes (render loops, fan-out, caching, per-pane mounts).
+- Hot-path / perf-sensitive changes (render loops, fan-out, caching, per-tab mounts).
 - Security, provider-boundary, session-binding, or cross-platform changes.
 
 **Tailor review prompt to the model — prefer running TWO in parallel:**
@@ -959,21 +972,21 @@ Routing matrix:
 
 Heuristic: judgment → Opus. General coding/research → Sonnet. Mechanical/verify/fan-out → Haiku. Bounded IDE-coding lane → Composer. Terminal/agentic build → GPT-5.5.
 
-### Agent / Pane Hygiene
+### Agent / Tab Hygiene
 
 Long runs accumulate finished Worker panes. Sweep them — it's expected, not optional.
 
-- After a lane integrates/verifies AND its Worker has reported: `codeterm pane close <pane_id>`.
-- Sweep periodically: `codeterm pane list` → close panes whose lane is done.
+- After a lane integrates/verifies AND its Worker has reported: `codeterm tab close <pane_id>`.
+- Sweep periodically: `codeterm tab list` → close panes whose lane is done.
 - Closing is recoverable: `codeterm sessions search "<what it was doing>"` → `codeterm sessions resume <id>`.
-- Never close mid-task, a pane you don't own, or the General/main pane.
+- Never close mid-task, a tab you don't own, or the General/main tab.
 - Close dedicated workspaces when lanes land: `codeterm workspace close <ws_id>`.
-- **Worktree pairing:** closing a Worker's pane + removing its git worktree go together: `git worktree remove <path> --force`.
+- **Worktree pairing:** closing a Worker's tab + removing its git worktree go together: `git worktree remove <path> --force`.
 
 ### Sharp Edges
 
 - Never blind-retry a write that returned an error — it may have SUCCEEDED, so retrying DUPLICATES the row. Verify by reading back, not by retrying.
-- An inbox / SendMessage-style message does NOT reach a running agent pane — it's silently dropped. Brief at spawn with `--task-file`; steer a running agent with `codeterm send`.
+- An inbox / SendMessage-style message does NOT reach a running agent tab — it's silently dropped. Brief at spawn with `--task-file`; steer a running agent with `codeterm send`.
 
 ### Usage Check Before Any Big Task Batch
 
@@ -989,3 +1002,5 @@ Check both providers before heavy spawning: `codeterm usage latest --provider cl
 | Orchestration principle (when to spawn, model routing, discipline) | `codeterm docs ORCHESTRATION` + role prompts; machine deltas are mem preferences |
 | Full mem reference | `codeterm docs MEMORY` |
 | REST + socket API | `codeterm docs API` |
+
+<!-- revision: 3 -->

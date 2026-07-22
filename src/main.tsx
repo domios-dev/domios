@@ -3,6 +3,9 @@ import { App } from "./App";
 import { WebGate } from "./components/WebGate/WebGate";
 import { isMissionControlPrototypeRoute, MissionControlPrototype } from "./components/Canvas/missionControl";
 import { loadBundledPlugins } from "./lib/plugins/loader";
+import { installToolOutputCardHarness } from "./components/AgentRun/ToolOutputCard.browserHarness";
+import { installInboundReportCardHarness } from "@codeterm/chat-ui";
+import { installCodeTermTestChatHandle, isCodeTermFrontendTestMode } from "./components/Terminal/useChatSession";
 import "./styles/globals.css";
 import "./components/Canvas/missionControl/missionControl.css";
 
@@ -10,6 +13,10 @@ const root = document.getElementById("root")!;
 const missionControlPrototype = isMissionControlPrototypeRoute();
 
 const isGalleryRoute = new URLSearchParams(window.location.search).get("prototype") === "gallery";
+
+installToolOutputCardHarness();
+installInboundReportCardHarness(isCodeTermFrontendTestMode());
+installCodeTermTestChatHandle();
 
 if (!missionControlPrototype && !isGalleryRoute) {
   loadBundledPlugins();

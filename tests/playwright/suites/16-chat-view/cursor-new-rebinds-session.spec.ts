@@ -56,7 +56,7 @@ function assistantJsonl(text: string): string {
 }
 
 test(
-  "@golden cursor /new re-binds chat to the new session",
+  "@live cursor /new re-binds chat to the new session",
   async ({ api, ui, paneCleanup }) => {
     test.skip(!existsSync(CURSOR_AGENT_BIN), "cursor-agent not installed on this machine");
 
@@ -98,9 +98,9 @@ test(
     }, 1_000);
 
     try {
-      for (let i = 0; i < 30; i++) {
-        // PW_JUSTIFIED_SLEEP: fixed 1_000ms sampling/settle window; no app event exists for this probe.
-        await ui.page.waitForTimeout(1_000);
+      for (let i = 0; i < 120; i++) {
+        // PW_JUSTIFIED_SLEEP: fixed API polling interval within a 30s budget.
+        await ui.page.waitForTimeout(250);
         const panes = await api.get<{ id: string; agent_session_id?: string | null }[]>("/panes");
         const pane = panes.find((p) => p.id === paneId);
         if (pane?.agent_session_id) {
@@ -155,9 +155,9 @@ test(
       );
 
       let reboundSession: string | null = null;
-      for (let i = 0; i < 40; i++) {
-        // PW_JUSTIFIED_SLEEP: fixed 1_000ms sampling/settle window; no app event exists for this probe.
-        await ui.page.waitForTimeout(1_000);
+      for (let i = 0; i < 160; i++) {
+        // PW_JUSTIFIED_SLEEP: fixed API polling interval within a 40s budget.
+        await ui.page.waitForTimeout(250);
         const panes = await api.get<{ id: string; agent_session_id?: string | null }[]>("/panes");
         const pane = panes.find((p) => p.id === paneId);
         if (pane?.agent_session_id && pane.agent_session_id !== session1) {

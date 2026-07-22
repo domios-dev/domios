@@ -134,6 +134,45 @@ test("done card with stale pane id never renders pane-gone", async () => {
   assert(host.querySelector('[data-testid="plan-board-task-age"]'), "age row on done");
 });
 
+test("locator renders the task group and its lead section (what + where)", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    task_groups: [{ key: "planner-cli-dx", label: "planner-cli-dx", color: "#a371f7" }],
+    tasks: [
+      task({ id: "t-loc", group: "planner-cli-dx", section_ids: ["sec-auth"] }),
+    ],
+  };
+  const { host } = await render(<BoardTaskCard card={cardFor(plan, "t-loc")} />);
+  const loc = host.querySelector('[data-testid="plan-board-task-locator"]');
+  assert(loc, "locator present when group/section exist");
+  const group = host.querySelector('[data-testid="plan-board-task-locator-group"]');
+  assert(group?.textContent?.includes("planner-cli-dx"), "group label shown");
+  const section = host.querySelector('[data-testid="plan-board-task-locator-section"]');
+  assert(section?.textContent?.includes("Authentication"), "lead section title shown");
+});
+
+test("locator is absent when a task has neither group nor section", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    tasks: [task({ id: "t-bare", group: null, section_ids: [] })],
+  };
+  const { host } = await render(<BoardTaskCard card={cardFor(plan, "t-bare")} />);
+  assert(!host.querySelector('[data-testid="plan-board-task-locator"]'), "no locator without group/section");
+});
+
+test("interactive card exposes its task action to assistive technology", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    tasks: [task({ id: "t-accessible", name: "Repair board layout" })],
+  };
+  const { host } = await render(
+    <BoardTaskCard card={cardFor(plan, "t-accessible")} onOpen={() => {}} />,
+  );
+  const card = host.querySelector('[data-testid="plan-board-task-card"]');
+  assert(card?.getAttribute("role") === "button", "interactive card role");
+  assert(card?.getAttribute("aria-label") === "Open task Repair board layout", "task action name");
+});
+
 let passed = 0;
 (async () => {
   for (const [name, fn] of tests) {

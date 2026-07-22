@@ -1,0 +1,104 @@
+.forge-anvil {
+  position: absolute;
+  right: 6px;
+  bottom: 7px;
+  width: 21px;
+  height: 5px;
+  border-radius: 2px 2px 4px 4px;
+  background: color-mix(in srgb, currentColor 42%, #4c5664);
+  transform-origin: center bottom;
+  animation: forge-anvil-recoil var(--motion-duration) ease-out infinite;
+}
+
+.forge-anvil::before {
+  position: absolute;
+  right: 2px;
+  bottom: 4px;
+  width: 14px;
+  height: 4px;
+  border-radius: 1px;
+  background: color-mix(in srgb, currentColor 68%, #798391);
+  content: "";
+}
+
+.forge-hammer {
+  position: absolute;
+  top: 4px;
+  left: 8px;
+  width: 18px;
+  height: 7px;
+  transform-origin: 14px 18px;
+  animation: forge-strike var(--motion-duration) cubic-bezier(.3, .8, .35, 1) infinite;
+}
+
+.forge-hammer::before { position: absolute; width: 14px; height: 6px; border-radius: 2px; background: currentColor; content: ""; }
+.forge-hammer i { position: absolute; top: 4px; left: 9px; width: 3px; height: 18px; border-radius: 2px; background: color-mix(in srgb, currentColor 52%, #8b725c); transform: rotate(-20deg); }
+
+@keyframes forge-strike {
+  0%, 16% { transform: rotate(-28deg) translateY(-1px); }
+  42%, 50% { transform: rotate(15deg) translate(5px, 7px); }
+  72%, 100% { transform: rotate(-28deg) translateY(-1px); }
+}
+
+@keyframes forge-anvil-recoil {
+  0%, 38%, 58%, 100% { transform: translateY(0) scaleX(1); }
+  45% { transform: translateY(1px) scaleX(1.06); }
+}
+
+.forge-spark { position: absolute; right: 14px; bottom: 12px; width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: 0; }
+.spark-a { animation: spark-a var(--motion-duration) ease-out infinite; }
+.spark-b { animation: spark-b var(--motion-duration) ease-out infinite; }
+.spark-c { animation: spark-c var(--motion-duration) ease-out infinite; }
+@keyframes spark-a { 0%, 38% { transform: translate(0); opacity: 0; } 44%, 52% { opacity: 1; } 72%, 100% { transform: translate(9px, -9px); opacity: 0; } }
+@keyframes spark-b { 0%, 40% { transform: translate(0); opacity: 0; } 46%, 54% { opacity: .85; } 74%, 100% { transform: translate(-7px, -11px); opacity: 0; } }
+@keyframes spark-c { 0%, 42% { transform: translate(0); opacity: 0; } 48%, 56% { opacity: .7; } 76%, 100% { transform: translate(11px, -3px); opacity: 0; } }
+
+.workbeat-rail { position: absolute; inset: 15px 3px auto; height: 2px; border-radius: 2px; background: color-mix(in srgb, currentColor 16%, #343c47); }
+.workbeat-rail i { position: absolute; top: -2px; left: 0; width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: workbeat var(--motion-duration) ease-in-out infinite; }
+.workbeat-rail i:nth-child(2) { animation-delay: -.4s; }
+.workbeat-rail i:nth-child(3) { animation-delay: -.8s; }
+@keyframes workbeat { 0% { transform: translateX(0) scale(.55); opacity: 0; } 28% { opacity: 1; } 72% { opacity: 1; } 100% { transform: translateX(36px) scale(.9); opacity: 0; } }
+
+.relay-node { position: absolute; top: 12px; width: 10px; height: 10px; border: 1px solid color-mix(in srgb, currentColor 55%, #45505e); border-radius: 50%; }
+.relay-left { left: 2px; }
+.relay-right { right: 2px; }
+.relay-path { position: absolute; top: 16px; left: 12px; width: 20px; border-top: 1px dashed color-mix(in srgb, currentColor 36%, #45505e); }
+.relay-packet { position: absolute; top: 14px; left: 9px; width: 5px; height: 5px; border-radius: 2px; background: currentColor; animation: relay-packet var(--motion-duration) cubic-bezier(.5, 0, .5, 1) infinite alternate; }
+@keyframes relay-packet { 0% { transform: translateX(0) rotate(0); opacity: .45; } 24% { opacity: 1; } 100% { transform: translateX(26px) rotate(90deg); opacity: .8; } }
+
+.blueprint { position: absolute; inset: 5px 3px; overflow: hidden; border: 1px solid color-mix(in srgb, currentColor 34%, #3a4553); border-radius: 3px; }
+.blueprint i { position: absolute; left: 5px; width: 25px; height: 1px; background: currentColor; opacity: .24; }
+.blueprint i:nth-child(1) { top: 7px; }
+.blueprint i:nth-child(2) { top: 13px; width: 18px; }
+.blueprint i:nth-child(3) { top: 20px; width: 28px; }
+.blueprint-scan { position: absolute; top: 6px; left: 4px; width: 2px; height: 24px; background: currentColor; box-shadow: 4px 0 9px color-mix(in srgb, currentColor 65%, transparent); animation: blueprint-scan var(--motion-duration) ease-in-out infinite alternate; }
+@keyframes blueprint-scan { from { transform: translateX(0); opacity: .3; } to { transform: translateX(34px); opacity: 1; } }
+
+.pixel-grid { position: absolute; inset: 7px 8px; display: grid; grid-template-columns: repeat(3, 6px); grid-auto-rows: 6px; gap: 3px; place-content: center; }
+.pixel-grid i { border-radius: 1px; background: currentColor; animation: pixel-assembly var(--motion-duration) cubic-bezier(.2, .8, .2, 1) infinite alternate; }
+.pixel-grid i:nth-child(1) { transform: translate(-8px, -6px); animation-delay: -.1s; }
+.pixel-grid i:nth-child(2) { transform: translate(4px, -9px); animation-delay: -.25s; }
+.pixel-grid i:nth-child(3) { transform: translate(8px, 2px); animation-delay: -.4s; }
+.pixel-grid i:nth-child(4) { transform: translate(-7px, 7px); animation-delay: -.55s; }
+.pixel-grid i:nth-child(5) { transform: translate(2px, 8px); animation-delay: -.7s; }
+.pixel-grid i:nth-child(6) { transform: translate(9px, 8px); animation-delay: -.85s; }
+@keyframes pixel-assembly { 0%, 18% { opacity: .15; } 78%, 100% { transform: translate(0); opacity: .9; } }
+
+.tool-ring { position: absolute; inset: 3px 8px; border: 1px solid color-mix(in srgb, currentColor 22%, #394451); border-radius: 50%; animation: tool-ring var(--motion-duration) ease-in-out infinite; }
+.tool-ring i { position: absolute; display: grid; width: 15px; height: 15px; place-items: center; border-radius: 5px; background: color-mix(in srgb, currentColor 22%, #151c24); color: currentColor; font-size: 8px; font-style: normal; font-weight: 800; }
+.tool-code { top: -3px; left: -4px; }
+.tool-build { right: -4px; bottom: -3px; }
+@keyframes tool-ring { 0%, 10% { transform: rotate(0); } 45%, 60% { transform: rotate(180deg); } 92%, 100% { transform: rotate(360deg); } }
+
+.signal-braid { position: absolute; inset: 6px 4px; }
+.signal-braid i { position: absolute; top: 5px; left: 0; width: 38px; height: 3px; border-radius: 4px; background: currentColor; opacity: .55; animation: signal-braid var(--motion-duration) ease-in-out infinite alternate; }
+.signal-braid i:nth-child(2) { top: 13px; transform: scaleX(.65); animation-delay: -.35s; }
+.signal-braid i:nth-child(3) { top: 21px; transform: scaleX(.35); animation-delay: -.7s; }
+@keyframes signal-braid { 0% { transform: translateX(-5px) scaleX(.35); opacity: .2; } 55% { opacity: .85; } 100% { transform: translateX(5px) scaleX(1); opacity: .55; } }
+
+.commit-press { position: absolute; top: 2px; left: 15px; width: 14px; height: 14px; border: 2px solid currentColor; border-bottom: 0; border-radius: 3px 3px 0 0; animation: commit-press var(--motion-duration) cubic-bezier(.25, .8, .35, 1) infinite; }
+.commit-press i { position: absolute; top: 11px; left: 4px; width: 3px; height: 8px; background: currentColor; }
+.commit-plate { position: absolute; left: 8px; bottom: 8px; width: 28px; height: 3px; border-radius: 2px; background: color-mix(in srgb, currentColor 40%, #52606e); }
+.commit-line { position: absolute; left: 16px; bottom: 12px; width: 12px; height: 2px; border-radius: 2px; background: currentColor; animation: commit-mark var(--motion-duration) ease-out infinite; }
+@keyframes commit-press { 0%, 24%, 100% { transform: translateY(-3px); } 48%, 60% { transform: translateY(7px); } }
+@keyframes commit-mark { 0%, 46% { transform: scaleX(.15); opacity: 0; } 62%, 88% { transform: scaleX(1); opacity: 1; } 100% { opacity: 0; } }

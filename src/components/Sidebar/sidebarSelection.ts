@@ -1,5 +1,9 @@
 /** Sidebar workspace surface: exactly one of plan entry or session tab is visually active. */
 
+export function workspacePlanTabId(workspaceId: string): string {
+  return `workspace-plan:${workspaceId}`;
+}
+
 export function isWorkspacePlanEntryActive(
   workspaceIsActiveVisual: boolean,
   workspaceCanvasActive: boolean,

@@ -1,0 +1,230 @@
+{
+  "schema_version": 1,
+  "required_fields": [
+    "Trigger", "Question", "Hypothesis", "Baseline target", "Baseline oracle",
+    "Baseline pass/fail", "Evidence", "Budget", "Stop rule", "Keep", "Discard",
+    "Supersede", "Route", "Fixture", "Follow-up"
+  ],
+  "fixtures": [
+    {
+      "id": "F1",
+      "role": "planner",
+      "expected_output_sha256": "71c4d046ea8178a7f89aca8119087a68b70017263c241e219659805f30c247f6",
+      "record": {
+        "Trigger": "brief cites an unknown symbol",
+        "Question": "Does resolveLoopBudget exist?",
+        "Hypothesis": "The symbol was invented by the brief.",
+        "Baseline target": "preserve loop behavior",
+        "Baseline oracle": "cargo test loop_engine::stagnation_deviates_only_after_k",
+        "Baseline pass/fail": "the exact focused test passes",
+        "Evidence": "repo/fixture src-tauri/crates/codeterm-plan/src/plan/loop_engine.rs — owns the symbol; official source none — repo answer is sufficient",
+        "Budget": "inspect at most 5 repo surfaces; consult at most 1 external source",
+        "Stop rule": "stop when the symbol is found or absent in the named repo surfaces",
+        "Keep": "accepted oracle",
+        "Discard": "invented-symbol assumption",
+        "Supersede": "none",
+        "Route": "plan edit",
+        "Fixture": "rg -n \"resolveLoopBudget\" src-tauri/crates/codeterm-plan",
+        "Follow-up": "none"
+      }
+    },
+    {
+      "id": "F2",
+      "role": "planner",
+      "expected_output_sha256": "e41505f1d462fa39477182e8c62250b4f77ebb130930112d951fdb94b8e70628",
+      "record": {
+        "Trigger": "focused oracle failed",
+        "Question": "Why did the exact stagnation test fail?",
+        "Hypothesis": "the implementation changed behavior",
+        "Baseline target": "preserve loop behavior",
+        "Baseline oracle": "cargo test loop_engine::stagnation_deviates_only_after_k",
+        "Baseline pass/fail": "the exact focused test passes",
+        "Evidence": "repo/fixture src-tauri/crates/codeterm-plan/src/plan/loop_engine.rs — contains the oracle; official source none — local test is authoritative",
+        "Budget": "inspect at most 5 repo surfaces; consult at most 1 external source",
+        "Stop rule": "stop after reproducing the focused failure",
+        "Keep": "accepted oracle",
+        "Discard": "broaden-the-test proposal",
+        "Supersede": "none",
+        "Route": "stride",
+        "Fixture": "cargo test loop_engine::stagnation_deviates_only_after_k",
+        "Follow-up": "none"
+      }
+    },
+    {
+      "id": "F3",
+      "role": "planner",
+      "expected_output_sha256": "1b316fa03a19950feec955d88898e746b792232ee2411f9e3aaa9609f33a3041",
+      "record": {
+        "Trigger": "old workaround disproved",
+        "Question": "Which reusable guidance remains valid?",
+        "Hypothesis": "the existing plan skill needs one ledgered replacement",
+        "Baseline target": "preserve loop behavior",
+        "Baseline oracle": "cargo test loop_engine::stagnation_deviates_only_after_k",
+        "Baseline pass/fail": "the exact focused test passes",
+        "Evidence": "repo/fixture evals/loop-deviation/run.sh — captures behavior; official source none — executable fixture ranks first",
+        "Budget": "inspect at most 5 repo surfaces; consult at most 1 external source",
+        "Stop rule": "stop after the existing skill is identified",
+        "Keep": "accepted oracle",
+        "Discard": "old workaround",
+        "Supersede": "old skill guidance with a cited replacement",
+        "Route": "codeterm plan skill edit",
+        "Fixture": "codeterm plan skill show <plan> <skill>",
+        "Follow-up": "none"
+      }
+    },
+    {
+      "id": "F4",
+      "role": "planner",
+      "expected_output_sha256": "afe4df319fe50e8d65390e96d7c2ac143f6b8db06e380cb18277df5593c12b49",
+      "record": {
+        "Trigger": "one API fact is missing",
+        "Question": "What is the documented API limit?",
+        "Hypothesis": "one official source answers it",
+        "Baseline target": "preserve loop behavior",
+        "Baseline oracle": "cargo test loop_engine::stagnation_deviates_only_after_k",
+        "Baseline pass/fail": "the exact focused test passes",
+        "Evidence": "repo/fixture src-tauri/crates/codeterm-plan/src/service_plan/loop_mutations.rs — local API caller; official source pending — external lookup only if caller lacks the fact",
+        "Budget": "inspect at most 5 repo surfaces; consult at most 1 external source",
+        "Stop rule": "stop after one official source answers the Question",
+        "Keep": "accepted oracle",
+        "Discard": "unbounded research request",
+        "Supersede": "none",
+        "Route": "one planner task",
+        "Fixture": "codeterm plan task list <plan>",
+        "Follow-up": "owner: API scout; action: answer the one Question"
+      }
+    },
+    {
+      "id": "F5",
+      "role": "planner",
+      "expected_output_sha256": "f099de62cab98c5f9a69d12b1cee660a40f2eb4d56a9c75eb1804eb3676014f9",
+      "record": {
+        "Trigger": "plan close reflection",
+        "Question": "Which procedure is reusable?",
+        "Hypothesis": "the verification recipe belongs in a plan skill",
+        "Baseline target": "preserve loop behavior",
+        "Baseline oracle": "cargo test loop_engine::stagnation_deviates_only_after_k",
+        "Baseline pass/fail": "the exact focused test passes",
+        "Evidence": "repo/fixture scripts/test-plan-strides-union-merge.sh — deterministic verification; official source none — local fixture proves the procedure",
+        "Budget": "inspect at most 5 repo surfaces; consult at most 1 external source",
+        "Stop rule": "stop after the retrospective records one reusable procedure",
+        "Keep": "accepted oracle",
+        "Discard": "dead-end workaround",
+        "Supersede": "none",
+        "Route": "codeterm plan retrospective <plan> --body \"...\"; codeterm plan skill new",
+        "Fixture": "scripts/test-plan-strides-union-merge.sh",
+        "Follow-up": "none"
+      }
+    },
+    {
+      "id": "F6",
+      "role": "orchestrator",
+      "expected_output_sha256": "23775917c47eba8586a3e6d0de209e7103c16ac204d44291cda5119730d8df56",
+      "record": {
+        "Trigger": "worker claims a missing fact",
+        "Question": "Is local evidence sufficient?",
+        "Hypothesis": "the repo answers the claim",
+        "Baseline target": "preserve loop behavior",
+        "Baseline oracle": "cargo test loop_engine::stagnation_deviates_only_after_k",
+        "Baseline pass/fail": "the exact focused test passes",
+        "Evidence": "repo/fixture src-tauri/crates/codeterm-plan/src/plan/loop_engine.rs — implementation authority; official source none — no external source is needed",
+        "Budget": "inspect at most 5 repo surfaces; consult at most 1 external source",
+        "Stop rule": "stop when local code or fixture answers the Question",
+        "Keep": "accepted oracle",
+        "Discard": "external-first request",
+        "Supersede": "none",
+        "Route": "bounce to same worker with local evidence",
+        "Fixture": "rg -n \"LoopSpec\" src-tauri/crates/codeterm-plan",
+        "Follow-up": "none"
+      }
+    },
+    {
+      "id": "F7",
+      "role": "orchestrator",
+      "expected_output_sha256": "7bba9875f8395e4979c42cf1b1e1671049f957c0f267d9a83bcb8f59e5a5c650",
+      "record": {
+        "Trigger": "same finding bounced twice",
+        "Question": "Is the task definition wrong?",
+        "Hypothesis": "the task must be split or replanned",
+        "Baseline target": "preserve loop behavior",
+        "Baseline oracle": "cargo test loop_engine::stagnation_deviates_only_after_k",
+        "Baseline pass/fail": "the exact focused test passes",
+        "Evidence": "repo/fixture evals/loop-deviation/run.sh — current behavior remains covered; official source none — repeated finding is task-definition evidence",
+        "Budget": "inspect at most 5 repo surfaces; consult at most 1 external source",
+        "Stop rule": "stop after Planner receives the exact repeated finding",
+        "Keep": "accepted oracle",
+        "Discard": "third identical retry",
+        "Supersede": "task definition with a split or Planner route",
+        "Route": "Planner",
+        "Fixture": "codeterm plan task attempts <plan> <task>",
+        "Follow-up": "owner: Planner; action: split or reframe the task"
+      }
+    },
+    {
+      "id": "F8",
+      "role": "orchestrator",
+      "expected_output_sha256": "9d62111c216bb940b8db83ad1270ba7863897a29e7a9562739bc9cbffbb17a20",
+      "record": {
+        "Trigger": "proposal broadens the proving command",
+        "Question": "What caused the focused oracle to fail?",
+        "Hypothesis": "the implementation or evidence is wrong",
+        "Baseline target": "preserve loop behavior",
+        "Baseline oracle": "cargo test loop_engine::stagnation_deviates_only_after_k",
+        "Baseline pass/fail": "the exact focused test passes",
+        "Evidence": "repo/fixture src-tauri/crates/codeterm-plan/src/plan/loop_engine.rs — defines the focused behavior; official source none — code and test are authoritative",
+        "Budget": "inspect at most 5 repo surfaces; consult at most 1 external source",
+        "Stop rule": "stop after the focused failure is reproduced",
+        "Keep": "accepted oracle",
+        "Discard": "broader proving command",
+        "Supersede": "none",
+        "Route": "bounce",
+        "Fixture": "cargo test loop_engine::stagnation_deviates_only_after_k",
+        "Follow-up": "none"
+      }
+    },
+    {
+      "id": "F9",
+      "role": "orchestrator",
+      "expected_output_sha256": "8c2868b2a9b086c669f7ae0c0f35ae01173c7534af471250410cc3cb3e39cd19",
+      "record": {
+        "Trigger": "matching research follow-up is already open",
+        "Question": "Can the existing owner answer the fact?",
+        "Hypothesis": "the open task already covers the question",
+        "Baseline target": "preserve loop behavior",
+        "Baseline oracle": "cargo test loop_engine::stagnation_deviates_only_after_k",
+        "Baseline pass/fail": "the exact focused test passes",
+        "Evidence": "repo/fixture codeterm plan task list <plan> — lists open ownership; official source none — task state decides duplication",
+        "Budget": "inspect at most 5 repo surfaces; consult at most 1 external source",
+        "Stop rule": "stop after matching open ownership is confirmed",
+        "Keep": "existing follow-up",
+        "Discard": "duplicate task",
+        "Supersede": "none",
+        "Route": "update existing task",
+        "Fixture": "codeterm plan task list <plan>",
+        "Follow-up": "none"
+      }
+    },
+    {
+      "id": "F10",
+      "role": "orchestrator",
+      "expected_output_sha256": "feb9967327935e1d9378b3bea530eef2541be4b497545d828d93cedeeb309487",
+      "record": {
+        "Trigger": "reflection reveals a durable lesson and recipe",
+        "Question": "Where do the lesson and recipe belong?",
+        "Hypothesis": "they use existing learning and plan-skill surfaces",
+        "Baseline target": "preserve loop behavior",
+        "Baseline oracle": "cargo test loop_engine::stagnation_deviates_only_after_k",
+        "Baseline pass/fail": "the exact focused test passes",
+        "Evidence": "repo/fixture src-tauri/crates/codeterm-plan/src/service_plan/reflection.rs — renders existing routing; official source none — runtime already exposes the homes",
+        "Budget": "inspect at most 5 repo surfaces; consult at most 1 external source",
+        "Stop rule": "stop after both homes are recorded",
+        "Keep": "accepted oracle",
+        "Discard": "new runtime store",
+        "Supersede": "none",
+        "Route": "codeterm orchestrator learn; codeterm plan skill new",
+        "Fixture": "codeterm orchestrator learn \"...\" --plan <plan>",
+        "Follow-up": "none"
+      }
+    }
+  ]
+}

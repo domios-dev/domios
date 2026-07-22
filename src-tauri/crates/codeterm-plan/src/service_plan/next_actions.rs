@@ -16,6 +16,8 @@ pub enum NextActionKind {
     ClaimQa,
     SpawnTester,
     RegressionGate,
+    Continue,
+    ReviewWipBlocked,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -129,6 +131,27 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
         });
     }
 
+    let has_unblocked_work = s
+        .open_lanes
+        .iter()
+        .any(|lane| lane.status == TaskStatus::Pending);
+    let qa_only = !s.open_lanes.is_empty()
+        && s.open_lanes.iter().all(|lane| {
+            lane.status == TaskStatus::InReview && lane.review_stage == ReviewStage::Qa
+        });
+    if s.execution_tasks_unlocked && has_unblocked_work && s.live_agents.is_empty() && !qa_only {
+        actions.push(NextAction {
+            priority: 1,
+            kind: NextActionKind::Continue,
+            task_id: None,
+            loop_id: None,
+            message: format!(
+                "continue plan {}: open unblocked work has zero live workers",
+                s.plan_id
+            ),
+        });
+    }
+
     for l in &s.loops {
         if loop_near_limit(l) {
             actions.push(NextAction {
@@ -144,26 +167,55 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
         }
     }
 
-    for lane in &s.open_lanes {
-        if lane.status == TaskStatus::Pending {
-            let message = if let Some(summary) = lane.competition.as_deref() {
-                format!(
-                    "{} {} ({summary}): plan.task.compete route for plan {} task {}",
-                    crate::service_plan::competition::COMPETITIVE_DISPATCH_NUDGE,
-                    lane.task_id,
-                    s.plan_id,
-                    lane.task_id
-                )
-            } else {
-                format!("dispatch {} ({})", lane.task_id, lane.name)
-            };
-            actions.push(NextAction {
-                priority: 5,
-                kind: NextActionKind::Dispatch,
-                task_id: Some(lane.task_id.clone()),
-                loop_id: None,
-                message,
-            });
+    let pending_dispatchable = s
+        .open_lanes
+        .iter()
+        .any(|lane| lane.status == TaskStatus::Pending && !lane.waiting_on_dependencies);
+    if pending_dispatchable && s.review_gate.blocked {
+        actions.push(NextAction {
+            priority: 1,
+            kind: NextActionKind::ReviewWipBlocked,
+            task_id: None,
+            loop_id: None,
+            message: s
+                .review_gate
+                .reason
+                .clone()
+                .unwrap_or_else(|| "review_wip_exceeded".into()),
+        });
+    } else {
+        for lane in &s.open_lanes {
+            if lane.status == TaskStatus::Pending && !lane.waiting_on_dependencies {
+                let message = if let Some(summary) = lane.competition.as_deref() {
+                    format!(
+                        "{} {} ({summary}): plan.task.compete route for plan {} task {}",
+                        crate::service_plan::competition::COMPETITIVE_DISPATCH_NUDGE,
+                        lane.task_id,
+                        s.plan_id,
+                        lane.task_id
+                    )
+                } else {
+                    format!("dispatch {} ({})", lane.task_id, lane.name)
+                };
+                let message = if s.blocking_regression_gates.is_empty() {
+                    message
+                } else {
+                    let gates = s
+                        .blocking_regression_gates
+                        .iter()
+                        .map(|g| g.key.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("{message} — BLOCKED by pending regression gate(s): {gates}; clear the gate, tag the task release-blocking/regression-gate, or record an authorized override")
+                };
+                actions.push(NextAction {
+                    priority: 5,
+                    kind: NextActionKind::Dispatch,
+                    task_id: Some(lane.task_id.clone()),
+                    loop_id: None,
+                    message,
+                });
+            }
         }
     }
 
@@ -174,18 +226,25 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::service_plan::state::{DriftSummary, OpenLane};
+    use crate::service_plan::state::{DriftSummary, LiveAgent, OpenLane, TaskPresentation};
 
     fn lane(id: &str, status: TaskStatus) -> OpenLane {
         OpenLane {
             task_id: id.into(),
             name: format!("name-{id}"),
-            status,
+            status: status.clone(),
             executor_role: None,
             competition: None,
             live_competition_attempts: 0,
             review_stage: ReviewStage::Review,
             qa_state: None,
+            presentation: if status == TaskStatus::Pending {
+                TaskPresentation::ActionablePending
+            } else {
+                TaskPresentation::InReview
+            },
+            waiting_on_dependencies: false,
+            dependency_waits: vec![],
         }
     }
 
@@ -217,6 +276,9 @@ mod tests {
             owner: Default::default(),
             planner: None,
             planner_resolution: crate::plan::peer::PeerResolution::Unbound,
+            planner_dead: false,
+            undelivered_request_count: 0,
+            planner_recovery_action: None,
             goal: None,
             task_counts: Default::default(),
             percent_done: 0.0,
@@ -237,6 +299,9 @@ mod tests {
             live_agents: vec![],
             recent_strides: vec![],
             pending_regression_gates: vec![],
+            blocking_regression_gates: vec![],
+            regression_overrides: vec![],
+            review_gate: Default::default(),
             next_actions: vec![],
         }
     }
@@ -301,9 +366,90 @@ mod tests {
         let mut s = empty();
         s.open_lanes = vec![lane("tp", TaskStatus::Pending)];
         let a = compute_next_actions(&s);
+        // A lone pending lane with no live worker also emits a Continue nudge.
+        assert!(a
+            .iter()
+            .any(|x| x.kind == NextActionKind::Dispatch && x.task_id.as_deref() == Some("tp")));
+    }
+
+    #[test]
+    fn review_wip_blocked_suppresses_dispatch_with_structured_reason() {
+        let mut s = empty();
+        s.open_lanes = vec![lane("tp", TaskStatus::Pending)];
+        s.live_agents = vec![LiveAgent {
+            task_id: "other".into(),
+            name: "other".into(),
+            pane_id: "pane_other".into(),
+        }];
+        s.review_gate = super::super::review_gate::ReviewGateStatus {
+            wip_count: 5,
+            wip_limit: 5,
+            credit: 0,
+            blocked: true,
+            reason: Some("review_wip_exceeded: 5/5 tasks in_review".into()),
+        };
+        let a = compute_next_actions(&s);
+        assert_eq!(a.len(), 1);
+        assert_eq!(a[0].kind, NextActionKind::ReviewWipBlocked);
+        assert!(a[0].message.contains("review_wip_exceeded"));
+        assert!(a
+            .iter()
+            .all(|action| action.kind != NextActionKind::Dispatch));
+    }
+
+    #[test]
+    fn review_gate_not_blocked_leaves_dispatch_untouched() {
+        let mut s = empty();
+        s.open_lanes = vec![lane("tp", TaskStatus::Pending)];
+        s.live_agents = vec![LiveAgent {
+            task_id: "other".into(),
+            name: "other".into(),
+            pane_id: "pane_other".into(),
+        }];
+        s.review_gate = super::super::review_gate::ReviewGateStatus {
+            wip_count: 1,
+            wip_limit: 5,
+            credit: 0,
+            blocked: false,
+            reason: None,
+        };
+        let a = compute_next_actions(&s);
         assert_eq!(a.len(), 1);
         assert_eq!(a[0].kind, NextActionKind::Dispatch);
-        assert_eq!(a[0].task_id.as_deref(), Some("tp"));
+    }
+
+    #[test]
+    fn dispatch_rule_skips_pending_lane_waiting_on_dependency() {
+        let mut s = empty();
+        let mut waiting = lane("tp", TaskStatus::Pending);
+        waiting.waiting_on_dependencies = true;
+        waiting.dependency_waits = vec![super::super::state::DependencyWait {
+            task_id: "ta".into(),
+            name: "name-ta".into(),
+            status: Some(TaskStatus::InProgress),
+            missing: false,
+        }];
+        s.open_lanes = vec![waiting];
+        assert!(compute_next_actions(&s)
+            .iter()
+            .all(|action| action.kind != NextActionKind::Dispatch));
+    }
+
+    #[test]
+    fn zero_worker_open_work_emits_continuation_but_qa_only_does_not() {
+        let mut s = empty();
+        s.open_lanes = vec![lane("pending", TaskStatus::Pending)];
+        assert!(compute_next_actions(&s)
+            .iter()
+            .any(|action| action.kind == NextActionKind::Continue));
+        s.open_lanes = vec![OpenLane {
+            review_stage: ReviewStage::Qa,
+            qa_state: Some(QaState::Queued),
+            ..lane("qa", TaskStatus::InReview)
+        }];
+        assert!(compute_next_actions(&s)
+            .iter()
+            .all(|action| action.kind != NextActionKind::Continue));
     }
 
     #[test]
@@ -323,6 +469,7 @@ mod tests {
             kinds,
             vec![
                 NextActionKind::Gate,
+                NextActionKind::Continue,
                 NextActionKind::Advance,
                 NextActionKind::Reconcile,
                 NextActionKind::ConsiderStop,

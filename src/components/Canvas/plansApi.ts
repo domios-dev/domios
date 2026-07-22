@@ -10,6 +10,7 @@ export interface PlanIndexEntry {
   title: string;
   status: PlanStatus;
   updated_at: number;
+  team_id?: string | null;
   assigned_pane_ids: string[];
   task_count?: number;
   open_task_count?: number;
@@ -27,10 +28,37 @@ interface PlansFullResponse {
   plans: Plan[];
 }
 
+export type PlanRefTargetKind = "plan" | "task" | "section";
+
+export interface PlanRefRequest {
+  plan_id: string;
+  target_id?: string;
+  target_kind: PlanRefTargetKind;
+}
+
+export interface ResolvedPlanRef {
+  plan_id: string;
+  target_id?: string;
+  target_kind: PlanRefTargetKind;
+  state: "resolved" | "archived" | "unowned" | "stale" | "missing" | "unreachable" | "permission";
+  title: string;
+  plan_title: string;
+  task_title?: string;
+  section_title?: string;
+  file_path?: string;
+  status?: PlanStatus;
+  owner_pane_id?: string;
+  owner_session_id?: string;
+}
+
 interface ReconcileReport {
   drift: DriftItem[];
   fixed: [];
   accepted_signal: string;
+}
+
+interface ResolveRefsResponse {
+  refs: ResolvedPlanRef[];
 }
 
 export async function fetchPlan(api: ApiConfig, planId: string, signal?: AbortSignal): Promise<Plan> {
@@ -72,6 +100,22 @@ export async function fetchPlanIndex(api: ApiConfig, signal?: AbortSignal): Prom
   if (!res.ok) throw new Error(`plans list failed: ${res.status} ${await res.text()}`);
   const body = (await res.json()) as PlanIndexResponse;
   return body.plans ?? [];
+}
+
+export async function resolvePlanRefs(
+  api: ApiConfig,
+  refs: readonly PlanRefRequest[],
+  signal?: AbortSignal,
+): Promise<ResolvedPlanRef[]> {
+  const res = await fetch(`${baseUrl(api)}/api/plans/resolve-refs`, {
+    method: "POST",
+    headers: jsonHeaders(api),
+    body: JSON.stringify({ refs }),
+    signal,
+  });
+  if (!res.ok) throw new Error(`plan ref resolve failed: ${res.status} ${await res.text()}`);
+  const body = (await res.json()) as ResolveRefsResponse;
+  return body.refs ?? [];
 }
 
 // Full plan bodies in ONE batched request (?full=1) — no N+1 per-plan fan-out.

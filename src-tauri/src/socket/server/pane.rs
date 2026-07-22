@@ -123,7 +123,7 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("enter"))
                 .and_then(|v| v.as_bool())
                 .unwrap_or(true);
-            // Resolve target via the alias-aware lookup so short ids (`--pane ce9bce56`) and tab labels both work.
+            // Resolve target via alias-aware lookup so short ids (`--tab ce9bce56`) and labels work.
             let resolved_target = {
                 let m = mux.write();
                 m.resolve_pane_id(&raw_pane_id)
@@ -146,29 +146,25 @@ pub(super) fn dispatch(
                 let envelope =
                     crate::service::messenger::MessageEnvelope::pane(from_label, src.to_string())
                         .model(model);
-                crate::service::messenger::Messenger::deliver(
-                    svc.as_ref(),
-                    &resolved_target,
-                    envelope,
-                    &raw_text,
-                )
-                .map_err(|e| JsonRpcError {
-                    code: -32603,
-                    message: e,
-                    data: None,
-                })?;
+                svc.as_ref()
+                    .gateway_deliver(
+                        &resolved_target,
+                        envelope,
+                        &raw_text,
+                        crate::service::message_gateway::DeliveryClass::AgentTraffic,
+                    )
+                    .map_err(|e| JsonRpcError {
+                        code: -32603,
+                        message: e,
+                        data: None,
+                    })?;
                 if !raw_text.trim().is_empty() {
                     svc.as_ref()
                         .maybe_send_owned_plan_reminder(&resolved_target);
                 }
             } else {
                 svc.as_ref()
-                    .send_text(&resolved_target, &raw_text, enter)
-                    .map_err(|e| JsonRpcError {
-                        code: -32603,
-                        message: e,
-                        data: None,
-                    })?;
+                    .send_text_detached(&resolved_target, &raw_text, enter);
                 if !raw_text.trim().is_empty() {
                     svc.as_ref()
                         .maybe_send_owned_plan_reminder(&resolved_target);

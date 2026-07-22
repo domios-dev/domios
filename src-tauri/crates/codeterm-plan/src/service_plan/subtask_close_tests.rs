@@ -16,6 +16,8 @@ fn store_with_task() -> (PlanStore, String, String) {
             NewTask {
                 name: "parent".into(),
                 kind: "implement".into(),
+                acceptance_criteria: vec!["it works".into()],
+                test_plan: Some("run focused test".into()),
                 competition: None,
                 ..Default::default()
             },
@@ -33,6 +35,7 @@ fn add_child(store: &PlanStore, plan_id: &str, parent_id: &str) -> String {
                 name: "child".into(),
                 kind: "implement".into(),
                 parent_task_id: Some(parent_id.into()),
+                depends_on: vec![],
                 competition: None,
                 ..Default::default()
             },

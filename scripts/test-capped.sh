@@ -18,44 +18,75 @@ set -euo pipefail
 
 TEST_CAP_SECS="${TEST_CAP_SECS:-90}"
 CARGO_TEST_CMD="${CARGO_TEST_CMD:-cargo test}"
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+HOST_TRIPLE="${CODETERM_TEST_HOST_TRIPLE:-$(rustc -vV | awk -F': ' '/^host:/{print $2; exit}')}"
 
-# Job control: gives each background job its own process group.
-# cargo becomes the PGID leader; all test binaries it spawns inherit that PGID.
-set -m
+[[ -n "$HOST_TRIPLE" ]] || {
+    printf 'error: unable to determine Rust host triple.\n' >&2
+    exit 2
+}
 
-TIMEOUT_FLAG=$(mktemp)
-trap 'rm -f "$TIMEOUT_FLAG"' EXIT
+configure_windows_test_target() {
+    [[ "$HOST_TRIPLE" == *-windows-* ]] || return 0
+    [ -z "${CARGO_TARGET_DIR:-}" ] || return 0
+    if [ "${CODETERM_TEST_DEV_HEALTH:-}" = "healthy" ] ||
+        curl --silent --fail --max-time 1 http://127.0.0.1:7686/api/health >/dev/null 2>&1; then
+        CARGO_TARGET_DIR="$ROOT/target-check"
+        export CARGO_TARGET_DIR
+        printf '[test-capped] Windows dev owns the app target; using isolated test target: %s\n' "$CARGO_TARGET_DIR"
+        if command -v sccache >/dev/null 2>&1; then
+            RUSTC_WRAPPER=sccache
+            SCCACHE_BASEDIRS="${SCCACHE_BASEDIRS:-$ROOT}"
+            export RUSTC_WRAPPER SCCACHE_BASEDIRS
+            printf '[test-capped] sccache enabled for the isolated Windows test target.\n'
+        fi
+    fi
+    return 0
+}
 
-# shellcheck disable=SC2086
-$CARGO_TEST_CMD "$@" &
-CARGO_PID=$!
+ensure_embed_sidecar() {
+    local extension=""
+    local sidecar
 
-# Watchdog: after the cap, mark the flag, print the banner, and kill the whole group.
-(
-    sleep "$TEST_CAP_SECS" || true
-    printf '1' > "$TIMEOUT_FLAG"
-    printf '\n'
-    printf '══════════════════════════════════════════════════════════════════\n'
-    printf '  DEADLOCK / HANG: cargo test exceeded %ss cap.\n' "$TEST_CAP_SECS"
-    printf '  Read the code — do NOT re-run with a bigger cap.\n'
-    printf '  Killing process group %s (cargo + spawned test binaries)...\n' "$CARGO_PID"
-    printf '══════════════════════════════════════════════════════════════════\n'
-    kill -- "-${CARGO_PID}" 2>/dev/null || true
-) &
-WATCHDOG_PID=$!
+    [[ "$HOST_TRIPLE" == *-windows-* ]] && extension=".exe"
+    sidecar="$ROOT/src-tauri/bundled-embed/codeterm-embed-${HOST_TRIPLE}${extension}"
 
-# Wait for cargo; capture its exit code without letting set -e abort us.
-if wait "$CARGO_PID"; then
-    CARGO_EXIT=0
+    [ -e "$sidecar" ] && return
+
+    printf '[test-capped] missing bundled embed sidecar; creating test-only stub.\n'
+    (
+        cd "$ROOT"
+        node scripts/prepare-embed-stub.js >/dev/null
+    )
+    [ -e "$sidecar" ] || {
+        printf 'error: bundled embed stub was not created: %s\n' "$sidecar" >&2
+        exit 2
+    }
+}
+
+ARGS_JOINED=" $* "
+if [[ "$ARGS_JOINED" == *" --manifest-path cli/Cargo.toml "* && "$ARGS_JOINED" == *" --lib "* ]]; then
+    printf 'error: cli/Cargo.toml is a binary crate and has no --lib test target.\n' >&2
+    printf 'hint: use scripts/test-capped.sh --manifest-path cli/Cargo.toml <test-filter>\n' >&2
+    exit 2
+fi
+
+configure_windows_test_target
+ensure_embed_sidecar
+
+# GNU timeout owns the bounded failure deadline. It preserves the child status
+# unless it enforces the deadline, avoiding MSYS job-control group kills.
+if timeout --signal=TERM --kill-after=5s "$TEST_CAP_SECS" $CARGO_TEST_CMD "$@"; then
+    exit 0
 else
     CARGO_EXIT=$?
 fi
 
-kill "$WATCHDOG_PID" 2>/dev/null || true
-wait "$WATCHDOG_PID" 2>/dev/null || true
-
-# If the watchdog wrote the flag, report 124 (timeout).
-if [ -s "$TIMEOUT_FLAG" ]; then
-    exit 124
+if [ "$CARGO_EXIT" -eq 124 ]; then
+    printf '\n'
+    printf '══════════════════════════════════════════════════════════════════\n'
+    printf '  DEADLOCK / HANG: cargo test exceeded %ss cap.\n' "$TEST_CAP_SECS"
+    printf '  Read the code — do NOT re-run with a bigger cap.\n'
+    printf '══════════════════════════════════════════════════════════════════\n'
 fi
 exit "$CARGO_EXIT"

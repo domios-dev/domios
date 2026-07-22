@@ -1,0 +1,4 @@
+[
+  {"id":"native-agent","system_prompt_delivery":"cli_flag","kind":"pty"},
+  {"id":"external-agent","system_prompt_delivery":"external","kind":"pty"}
+]

@@ -1,11 +1,14 @@
 import { chromium, test as base, type Browser, type Page } from "@playwright/test";
 import { ApiClient, readDevToken } from "./api-client";
-import { apiReset } from "./reset";
-import { API_BASE, connectUi, isHealthy, type UiSession } from "./dev-console";
+import { currentDevInstance, type DevInstance } from "./dev-instance";
+import { apiReset, diffReset, snapshotBaseline } from "./reset";
+import { API_BASE, connectUi, ensureDevConsole, isHealthy, type UiSession } from "./dev-console";
 
 type WorkerFixtures = {
+  devInstance: DevInstance;
   uiSession: ManagedUiSession;
   webBrowser: Browser;
+  resetTracker: { lastFile: string };
 };
 
 export type ManagedUiSession = UiSession & {
@@ -49,10 +52,66 @@ type TestFixtures = {
   mediaMocks: MediaMocks;
 };
 
+export const DEV_FIXTURE_TIMEOUT_MS = 660_000;
+
+type MediaUploadMock = { path: string; size: number };
+type MediaTranscriptionMock = { line?: string; status?: number; body?: string; delayMs?: number };
+
+async function installMediaFetchMocks(page: Page): Promise<void> {
+  const script = () => {
+    const win = window as typeof window & {
+      __ctMediaFetchMocksInstalled?: boolean;
+      __ctMediaUploadMock?: MediaUploadMock;
+      __ctMediaTranscriptionMock?: MediaTranscriptionMock;
+    };
+    if (win.__ctMediaFetchMocksInstalled) return;
+    win.__ctMediaFetchMocksInstalled = true;
+    const originalFetch = win.fetch.bind(win);
+    const requestUrl = (input: RequestInfo | URL) =>
+      new URL(input instanceof Request ? input.url : String(input), win.location.href);
+    win.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input);
+      if (url.pathname === "/api/upload" && win.__ctMediaUploadMock) {
+        return new Response(JSON.stringify(win.__ctMediaUploadMock), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.pathname === "/api/transcribe-voice" && win.__ctMediaTranscriptionMock) {
+        const mock = win.__ctMediaTranscriptionMock;
+        if (mock.delayMs) await new Promise((resolve) => setTimeout(resolve, mock.delayMs));
+        return new Response(mock.body ?? JSON.stringify({ line: mock.line ?? "" }), {
+          status: mock.status ?? 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return originalFetch(input, init);
+    };
+  };
+  await page.addInitScript(script);
+  await page.evaluate(script).catch(() => {});
+}
+
 export const test = base.extend<TestFixtures, WorkerFixtures>({
+  devInstance: [
+    async ({}, use, workerInfo) => {
+      const instance = currentDevInstance();
+      if (instance.slot !== workerInfo.parallelIndex) {
+        throw new Error(
+          `worker ${workerInfo.workerIndex} resolved ${instance.name} for slot ${instance.slot}, expected parallel slot ${workerInfo.parallelIndex}`,
+        );
+      }
+      console.log(
+        `[playwright-instance] worker=${workerInfo.workerIndex} slot=${workerInfo.parallelIndex} instance=${instance.name || "default"} api=${instance.apiPort}`,
+      );
+      await use(instance);
+    },
+    { scope: "worker", auto: true },
+  ],
+
   uiSession: [
-    async ({}, use) => {
-      let current = await connectUi();
+    async ({ devInstance }, use) => {
+      let current = await connectUi(devInstance);
       const session: ManagedUiSession = {
         get browser() {
           return current.browser;
@@ -62,7 +121,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
         },
         reconnect: async () => {
           await current.browser.close().catch(() => {});
-          current = await connectUi();
+          current = await connectUi(devInstance);
           return session;
         },
       };
@@ -72,7 +131,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
         await current.browser.close();
       }
     },
-    { scope: "worker" },
+    { scope: "worker", timeout: DEV_FIXTURE_TIMEOUT_MS },
   ],
 
   webBrowser: [
@@ -86,24 +145,46 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
         await browser.close();
       }
     },
-    { scope: "worker" },
+    { scope: "worker", timeout: DEV_FIXTURE_TIMEOUT_MS },
   ],
 
-  ui: async ({ uiSession }, use) => {
-    if (!(await isHealthy())) {
+  ui: async ({ devInstance, uiSession }, use) => {
+    if (!(await isHealthy(devInstance))) {
       throw new Error("dev console health check failed before Playwright test");
     }
     await use(uiSession);
   },
 
-  api: async ({}, use) => {
-    const client = new ApiClient();
-    try {
-      await use(client);
-    } finally {
-      await apiReset(client);
-    }
-  },
+  resetTracker: [
+    async ({}, use) => {
+      await use({ lastFile: "" });
+    },
+    { scope: "worker" },
+  ],
+
+  // Diff-based teardown closes only what the test created; the blanket sweep
+  // runs once per spec file as a stray-state safety net. A daemon that died
+  // mid-previous-test is revived here so one crash fails one test, not a cascade
+  // (own timeout: revival can rebuild dev, which never fits a per-test budget).
+  api: [
+    async ({ devInstance, resetTracker }, use, testInfo) => {
+      if (!(await isHealthy(devInstance))) {
+        await ensureDevConsole(devInstance);
+      }
+      const client = new ApiClient(undefined, devInstance);
+      if (resetTracker.lastFile !== testInfo.file) {
+        resetTracker.lastFile = testInfo.file;
+        await apiReset(client);
+      }
+      const baseline = await snapshotBaseline(client);
+      try {
+        await use(client);
+      } finally {
+        await diffReset(client, baseline).catch(() => {});
+      }
+    },
+    { timeout: DEV_FIXTURE_TIMEOUT_MS },
+  ],
 
   paneCleanup: async ({ api }, use) => {
     const paneIds = new Set<string>();
@@ -168,7 +249,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
           normalize: options.normalize ?? false,
           includeChatMessages: options.includeChatMessages ?? false,
         },
-        { timeout: options.timeout ?? 240_000, polling: options.polling ?? 1_000 },
+        { timeout: options.timeout ?? 240_000, polling: options.polling ?? 250 },
       );
     });
   },
@@ -176,27 +257,26 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   mediaMocks: async ({}, use) => {
     await use({
       mockUpload: async (page, response = {}) => {
-        await page.route("**/api/upload", (route) =>
-          route.fulfill({
-            contentType: "application/json",
-            body: JSON.stringify({
-              path: response.path ?? "/tmp/pw-voice.ogg",
-              size: response.size ?? 8192,
-            }),
-          }),
-        );
+        await installMediaFetchMocks(page);
+        const mock = {
+          path: response.path ?? "/tmp/pw-voice.ogg",
+          size: response.size ?? 8192,
+        };
+        await page.addInitScript((nextMock) => {
+          (window as typeof window & { __ctMediaUploadMock?: MediaUploadMock }).__ctMediaUploadMock = nextMock;
+        }, mock);
+        await page.evaluate((nextMock) => {
+          (window as typeof window & { __ctMediaUploadMock?: MediaUploadMock }).__ctMediaUploadMock = nextMock;
+        }, mock);
       },
       mockTranscription: async (page, response) => {
-        await page.route("**/api/transcribe-voice", async (route) => {
-          if (response.delayMs) {
-            await new Promise((resolve) => setTimeout(resolve, response.delayMs));
-          }
-          await route.fulfill({
-            status: response.status,
-            contentType: "application/json",
-            body: response.body ?? JSON.stringify({ line: response.line ?? "" }),
-          });
-        });
+        await installMediaFetchMocks(page);
+        await page.addInitScript((mock) => {
+          (window as typeof window & { __ctMediaTranscriptionMock?: MediaTranscriptionMock }).__ctMediaTranscriptionMock = mock;
+        }, response);
+        await page.evaluate((mock) => {
+          (window as typeof window & { __ctMediaTranscriptionMock?: MediaTranscriptionMock }).__ctMediaTranscriptionMock = mock;
+        }, response);
       },
       installVoiceRecorder: async (page, script) => {
         await page.addInitScript(script);

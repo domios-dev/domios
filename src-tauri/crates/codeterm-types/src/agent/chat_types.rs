@@ -169,6 +169,14 @@ pub struct ChatMsg {
     #[serde(default)]
     pub seq: i64,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_detail: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub tool_edits: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_name: Option<String>,
     /// Short, human-readable summary of the tool input (file path, command, …).
     #[serde(skip_serializing_if = "Option::is_none", default)]

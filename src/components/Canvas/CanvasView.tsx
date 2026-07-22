@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { listen } from "../../lib/bridge";
-import type { ApiConfig, Pane, Workspace } from "../../lib/types";
+import type { ApiConfig, Pane, Team, Workspace } from "../../lib/types";
 import { useMultiplexer, useMuxState } from "../../store/multiplexer";
 import { resolveCanvasFocusNodeIds, type CanvasFocusPayload } from "./canvasFocusPayload";
 import { CanvasEmptyActions } from "./CanvasEmptyActions";
 import { CanvasToolbar } from "./CanvasToolbar";
 import { CanvasMinimap } from "./CanvasMinimap";
 import { CanvasTagLegend } from "./CanvasTagLegend";
-import { CanvasUnownedTray } from "./CanvasUnownedTray";
 import {
   layoutWorkspace,
   layoutInputRevision,
@@ -26,7 +25,7 @@ import { useCanvasPlans } from "./PlansProvider";
 import { useCanvasWorkspaceTarget } from "./canvasFocusStore";
 import { isTagFilterActive, taskMatchesTagFilter, toggleTagFilter, type TagFilterSelection } from "./tagModel";
 import type { PlanGhostModel } from "./canvasView/models";
-import type { OrchestratorRef, Plan, Section, TagFacet } from "./types";
+import type { Plan, Section, TagFacet } from "./types";
 import { derivePlanWorkspaceScope } from "./planWorkspaceScope";
 import { usePlanDrift } from "./usePlanDrift";
 import { useCanvasViewport, paintLayer, CANVAS_MIN_SCALE, CANVAS_MAX_SCALE, type ViewportTransform } from "./useCanvasViewport";
@@ -52,6 +51,7 @@ import { useStableSet } from "./canvasView/useStableSet";
 import { useCanvasFrameProbe } from "./canvasView/useCanvasFrameProbe";
 import { bumpCanvasChurn } from "./canvasChurn";
 import { PlanViewShell } from "./PlanViewShell";
+import { selectCanvasPlans } from "./canvasPlanSelection";
 import { PlanFetchErrorState, PlanFetchReconnectingBanner } from "./planView/PlanFetchErrorState";
 import { planFetchShowsData } from "./planView/planViewFetchGate";
 import { revealAssignedAgentPane } from "./planRevealAgentPane";
@@ -73,7 +73,9 @@ export interface CanvasViewInnerProps {
   focusPaneId?: string | null;
   panes?: Record<string, Pane>;
   workspaces?: Workspace[];
-  focusedPaneId?: string | null;
+  /** Current workspace; workspace mode scopes plans to those bound here. */
+  workspaceId?: string;
+  teams?: Team[];
   projectPath?: string | null;
   workspaceTarget?: CanvasWorkspaceTarget | null;
   onClose?: () => void;
@@ -104,7 +106,8 @@ export function CanvasViewInner({
   focusPaneId = null,
   panes = {},
   workspaces = EMPTY_WORKSPACES,
-  focusedPaneId = null,
+  workspaceId,
+  teams,
   projectPath = null,
   workspaceTarget = null,
   onClose,
@@ -122,9 +125,10 @@ export function CanvasViewInner({
   const planFilterRevision = plans
     .map((p) => [p.id, p.status, p.owner.pane_id ?? "", p.owner.session_id ?? ""].join(":"))
     .join("\0");
+  const teamId = mode === "workspace" ? workspaceTarget?.teamId : undefined;
   const filteredPlans = useMemo(
-    () => filterPlansForCanvas(plans, mode, { planId, orchestratorPaneId, panes }),
-    [plans, plansRevision, planFilterRevision, mode, planId, orchestratorPaneId, panes],
+    () => filterPlansForCanvas(plans, mode, { planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams }),
+    [plans, plansRevision, planFilterRevision, mode, planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams],
   );
 
   const activeWork = useMemo(
@@ -302,17 +306,6 @@ export function CanvasViewInner({
     [planModelById, specModelById, ghostModelById, lookups],
   );
 
-
-  const claimOwner = useMemo((): OrchestratorRef | undefined => {
-    if (orchestratorPaneId) return { pane_id: orchestratorPaneId, session_id: null, title: null };
-    const owned = filteredPlans.find((p) => p.owner.pane_id);
-    if (owned?.owner.pane_id) return owned.owner;
-    if (focusedPaneId) {
-      const pane = panes[focusedPaneId];
-      return { pane_id: focusedPaneId, session_id: null, title: pane?.title ?? null };
-    }
-    return undefined;
-  }, [orchestratorPaneId, filteredPlans, focusedPaneId, panes]);
 
   const [tagFilter, setTagFilter] = useState<TagFilterSelection>(() => new Map());
   const onToggleTagFilter = useCallback((tag: string) => {
@@ -749,7 +742,7 @@ export function CanvasViewInner({
             style={{ color: "var(--ct-fg)", opacity: "var(--ct-text-secondary-opacity)" }}
           >
             <p>No active plans yet.</p>
-            {mode === "workspace" && api && <CanvasEmptyActions api={api} projectPath={projectPath} />}
+            {mode === "workspace" && teamId && api && <CanvasEmptyActions api={api} projectPath={projectPath} />}
           </div>
         )}
         {!loading && filteredPlans.length > 0 && (
@@ -834,7 +827,6 @@ export function CanvasViewInner({
           lodMarkers={sceneLod.markers}
         />
       )}
-      {api && mode === "workspace" && <CanvasUnownedTray api={api} claimOwner={claimOwner} />}
       <CanvasDetailOverlay
         nodeId={detailNodeId}
         nodeById={lookups.nodeById}
@@ -863,7 +855,7 @@ export interface CanvasViewProps {
   onClose?: () => void;
 }
 
-export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api, onClose }: CanvasViewProps) {
+export function CanvasView({ mode, workspaceId, planId, orchestratorPaneId, focusPaneId, api, onClose }: CanvasViewProps) {
   const { setFocusedPane, setActiveTab } = useMultiplexer();
   const state = useMuxState();
   const onOpenPane = useCallback(
@@ -878,19 +870,18 @@ export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api,
   const activeWs = state.workspaces.find((ws) => ws.id === state.active_workspace_id);
   const projectPath = activeWs?.cwd ?? null;
   const workspaceTarget = useCanvasWorkspaceTarget();
-  const [allPlans, setAllPlans] = useState(false);
-  // All-plans mode lifts the workspace filter: fetch with no project scope.
+  const requestedPlanId = planId ?? (mode === "workspace" ? workspaceTarget?.planId : undefined);
+  const teamId = mode === "workspace" ? workspaceTarget?.teamId : undefined;
   const { plans: livePlans, loading, reconnecting, error, refetch } = useCanvasPlans(
     mode,
-    allPlans ? null : projectPath,
+    projectPath,
   );
   // Dev harness: real exported plan, or a synthetic N-task plan, when flagged.
   const perfN = perfFixtureCount();
   const perfProfile = perfFixtureProfile();
   const useReal = realFixtureEnabled();
-  const plans = useMemo(
-    () =>
-      useReal
+  const plans = useMemo(() => {
+    const fixturePlans = useReal
         ? realFixturePlans()
         : perfProfile === "card-metadata"
           ? buildCardMetadataFixturePlans()
@@ -904,9 +895,9 @@ export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api,
             ? buildDoneHeavyPerfFixturePlans()
             : perfN > 0
               ? buildPerfFixturePlans(perfN)
-              : livePlans,
-    [useReal, perfProfile, perfN, livePlans],
-  );
+              : livePlans;
+    return selectCanvasPlans(livePlans, fixturePlans, requestedPlanId);
+  }, [useReal, perfProfile, perfN, livePlans, requestedPlanId]);
   // (the live-pane gate filters real plans correctly; this only feeds the demo plan).
   const panes = useMemo(() => {
     if (perfN <= 0 || useReal) return state.panes;
@@ -928,19 +919,19 @@ export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api,
       reconnecting={reconnecting}
       error={error}
       onRetry={refetch}
-      planId={planId}
+      planId={requestedPlanId}
+      teamId={teamId}
       orchestratorPaneId={orchestratorPaneId}
       focusPaneId={focusPaneId}
       panes={panes}
       workspaces={state.workspaces}
-      focusedPaneId={state.focused_pane_id}
+      workspaceId={mode === "workspace" ? workspaceId ?? state.active_workspace_id ?? undefined : undefined}
+      teams={state.teams}
       projectPath={projectPath}
       workspaceTarget={mode === "workspace" ? workspaceTarget : null}
       onClose={onClose}
       onOpenPane={onOpenPane}
       api={api}
-      allPlans={allPlans}
-      onAllPlansChange={setAllPlans}
     />
   );
 }

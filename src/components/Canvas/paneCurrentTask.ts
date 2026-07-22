@@ -7,7 +7,7 @@ export interface PaneCurrentTask {
 }
 
 export function isActiveTaskStatus(status: TaskStatusType): boolean {
-  return status !== TaskStatus.Done && status !== TaskStatus.Cancelled && status !== TaskStatus.Parked;
+  return status !== TaskStatus.Done && status !== TaskStatus.Cancelled && status !== TaskStatus.Paused;
 }
 
 // lane it physically runs in. We honor both (the index only carries the former).
@@ -21,7 +21,7 @@ const STATUS_RANK: Record<TaskStatusType, number> = {
   [TaskStatus.InReview]: 1,
   [TaskStatus.Blocked]: 2,
   [TaskStatus.Pending]: 3,
-  [TaskStatus.Parked]: 4,
+  [TaskStatus.Paused]: 4,
   [TaskStatus.Done]: 5,
   [TaskStatus.Cancelled]: 6,
 };

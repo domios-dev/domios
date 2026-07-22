@@ -1,4 +1,4 @@
-"""Replicate exactly what `codeterm pane list --mesh PEER` does at HTTP level.
+"""Replicate exactly what `codeterm tab list --mesh PEER` does at HTTP level.
 
 The CLI in mesh_relay_generic does:
   1. GET {local}/api/mesh/peers with Authorization: Bearer {signed}

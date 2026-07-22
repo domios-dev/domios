@@ -1,8 +1,9 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
 import { invoke } from "../../lib/bridge";
 import { isMac } from "../../lib/keybindings";
 import { routeClipboardToTerm } from "../../lib/clipboardPaste";
+import { createTerminalReplyFilter } from "./terminalReplyFilter";
 
 export interface UseTerminalInputOptions {
   termRef: React.MutableRefObject<Terminal | null>;
@@ -30,6 +31,10 @@ export function useTerminalInput({
   onNonTabKey,
   onInputData,
 }: UseTerminalInputOptions): UseTerminalInputReturn {
+  const terminalReplyFilterRef = useRef(createTerminalReplyFilter());
+  const terminalReplyFilterPtyRef = useRef<string | null>(null);
+  const terminalReplyFlushTimerRef = useRef<number | null>(null);
+
   const copySelection = useCallback(() => {
     const selection = termRef.current?.getSelection();
     if (selection) navigator.clipboard.writeText(selection).catch(() => {});
@@ -77,12 +82,39 @@ export function useTerminalInput({
     });
 
     const onDataDisposable = term.onData((data) => {
+      const currentPty = connectedPtyRef.current;
+      if (terminalReplyFilterPtyRef.current !== currentPty) {
+        if (terminalReplyFlushTimerRef.current !== null) {
+          window.clearTimeout(terminalReplyFlushTimerRef.current);
+          terminalReplyFlushTimerRef.current = null;
+        }
+        terminalReplyFilterRef.current.reset();
+        terminalReplyFilterPtyRef.current = currentPty;
+      }
+      if (terminalReplyFlushTimerRef.current !== null) {
+        window.clearTimeout(terminalReplyFlushTimerRef.current);
+        terminalReplyFlushTimerRef.current = null;
+      }
+      const filtered = terminalReplyFilterRef.current.push(data);
+      if (filtered) forwardInput(filtered, currentPty);
+      const flushPty = currentPty;
+      terminalReplyFlushTimerRef.current = window.setTimeout(() => {
+        terminalReplyFlushTimerRef.current = null;
+        if (terminalReplyFilterPtyRef.current !== flushPty || connectedPtyRef.current !== flushPty) {
+          terminalReplyFilterRef.current.reset();
+          return;
+        }
+        const flushed = terminalReplyFilterRef.current.flushStandaloneEsc();
+        if (flushed) forwardInput(flushed, flushPty);
+      }, 25);
+    });
+
+    const forwardInput = (data: string, currentPty: string | null) => {
       if (data === "\t" && onTabKey()) return;
       if (data !== "\t") onNonTabKey();
       onInputData(data);
-      const currentPty = connectedPtyRef.current;
       if (currentPty) invoke("write_pty_string", { ptyId: currentPty, data });
-    });
+    };
 
     // execCommand("paste"), etc. Capture phase + stopImmediatePropagation cancels xterm.js's own bubble-phase listener (#1803, #3516) so routeClipboardToTerm fires exactly once.
     const el = containerRef.current;
@@ -97,6 +129,10 @@ export function useTerminalInput({
     el?.addEventListener("mousedown", focusXterm);
 
     return () => {
+      if (terminalReplyFlushTimerRef.current !== null) {
+        window.clearTimeout(terminalReplyFlushTimerRef.current);
+        terminalReplyFlushTimerRef.current = null;
+      }
       onDataDisposable.dispose();
       el?.removeEventListener("mousedown", focusXterm);
       el?.removeEventListener("paste", onPaste, true);

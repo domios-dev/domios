@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-/// The five verified steps plus terminal outcomes.
+/// The five verified refresh steps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RefreshPhase {
     /// S1 — waiting for the requested HANDOFF stride to land in plan readback.
@@ -18,10 +18,6 @@ pub enum RefreshPhase {
     Reorient,
     /// S5 — waiting for the orchestrator's first post-refresh plan-state read.
     VerifyResumption,
-    /// Terminal: orchestrator resumed (verified).
-    Resumed,
-    /// Terminal: refresh stranded → alert raised (never silent).
-    Alerted,
 }
 
 impl RefreshPhase {
@@ -33,8 +29,6 @@ impl RefreshPhase {
             Self::CompactSettle => "s3_settle",
             Self::Reorient => "s4_reorient",
             Self::VerifyResumption => "s5_verify",
-            Self::Resumed => "resumed",
-            Self::Alerted => "alerted",
         }
     }
 }
@@ -144,7 +138,6 @@ pub fn advance(phase: RefreshPhase, obs: &Observation, t: &RefreshTuning) -> Ste
                 Step::Hold
             }
         }
-        RefreshPhase::Resumed | RefreshPhase::Alerted => Step::Hold,
     }
 }
 
@@ -341,8 +334,7 @@ mod tests {
                     order.push(phase.tag());
                 }
                 Step::Complete => {
-                    phase = RefreshPhase::Resumed;
-                    order.push(phase.tag());
+                    order.push("resumed");
                     break;
                 }
                 other => panic!("unexpected step {other:?} in phase {phase:?}"),
@@ -359,12 +351,5 @@ mod tests {
                 "resumed",
             ]
         );
-    }
-
-    #[test]
-    fn terminal_phases_are_inert() {
-        let t = tuning();
-        assert_eq!(advance(RefreshPhase::Resumed, &obs(), &t), Step::Hold);
-        assert_eq!(advance(RefreshPhase::Alerted, &obs(), &t), Step::Hold);
     }
 }

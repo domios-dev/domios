@@ -82,24 +82,29 @@ test("@golden @workspace-plan-entry sidebar Plan entry opens workspace canvas", 
       )
       .toBe(true);
 
-    const entry = page.locator(`div:has([data-workspace-id="${workspace.id}"]) [data-testid="workspace-plan-entry"]`);
+    const planTabId = `workspace-plan:${workspace.id}`;
+    const entry = page.locator(`[data-testid="workspace-plan-entry"][data-tab-id="${planTabId}"]`);
     await expect(entry).toBeVisible({ timeout: 30_000 });
     await expect(entry).toHaveAttribute("data-workspace-action", "plan");
-    await expect(entry).toHaveAttribute("data-pinned", "true");
-    await expect(entry).toHaveText(/Plan/);
+    await expect(entry).toHaveAttribute("data-tab-kind", "workspace-plan");
+    await expect(entry).not.toHaveAttribute("role", "tab");
+    await expect(entry).not.toHaveAttribute("aria-selected");
+    await expect(entry).not.toHaveAttribute("aria-current");
     await entry.click();
 
     await expect(page.locator('[data-testid="plan-view-shell"]').first()).toBeVisible({ timeout: 30_000 });
     await expect(page.locator('[data-testid="plan-board-view"]')).toBeVisible({ timeout: 30_000 });
     await expect(entry).toHaveAttribute("data-active", "true");
+    await expect(entry).toHaveAttribute("aria-current", "page");
     await expect(page.getByTitle("Close plan canvas")).toHaveCount(0);
 
     const pane = await paneCleanup.createPane<{ id: string; tab_id?: string }>({ workspace_id: workspace.id });
     if (pane.tab_id) {
-      await page.locator(`[data-testid="tab-item"][data-tab-id="${pane.tab_id}"]`).click({ force: true });
+      await page.locator(`[data-testid="tab-item"][data-tab-id="${pane.tab_id}"]`).click();
     }
     await expect(page.locator('[data-testid="plan-view-shell"]').first()).toBeHidden({ timeout: 30_000 });
     await expect(entry).toHaveAttribute("data-active", "false");
+    await expect(entry).not.toHaveAttribute("aria-current");
   } finally {
     await closeCanvasWebSession(session);
   }

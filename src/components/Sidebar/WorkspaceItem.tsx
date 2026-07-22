@@ -1,12 +1,13 @@
 import { memo, useCallback, useMemo, useState } from "react";
 import { invoke } from "../../lib/bridge";
-import { X, TerminalSquare, FolderOpen } from "lucide-react";
+import { X, TerminalSquare, FolderOpen, Sparkles, SquarePlus } from "lucide-react";
 import { isMac } from "../../lib/keybindings";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useConfig } from "../../hooks/useConfig";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { FolderIcon, ShieldCheckIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
+import { SidebarDisclosure } from "./SidebarDisclosure";
 import type { PaneStatus, Workspace } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 
@@ -19,10 +20,12 @@ interface WorkspaceItemProps {
   onClose: () => void;
   onRename: (name: string) => void;
   onNewTerminal: () => void;
+  onNewSession: () => void;
   onNewAgent: (agentId: string) => void;
   canClose: boolean;
   status: PaneStatus | null;
-  hasWaiting: boolean;
+  showDisclosure?: boolean;
+  detailHeader?: boolean;
   touchMode?: boolean;
   uiFontScale?: number;
 }
@@ -36,10 +39,12 @@ function WorkspaceItemInner({
   onClose,
   onRename,
   onNewTerminal,
+  onNewSession,
   onNewAgent,
   canClose: _canClose,
   status: _status,
-  hasWaiting,
+  showDisclosure = true,
+  detailHeader = false,
   touchMode = false,
   uiFontScale,
 }: WorkspaceItemProps) {
@@ -74,21 +79,46 @@ function WorkspaceItemInner({
   const workspaceCountText = pickUiFontScaleValue(uiFontScale, ["text-[9px]", "text-[10px]", "text-[11px]", "text-xs"]);
 
   const menuItems: DropdownMenuItem[] = useMemo(() => {
+    const quickProviders = [
+      { id: "codex", label: "Codex" },
+      { id: "claude", label: "Claude Code" },
+      { id: "opencode", label: "OpenCode" },
+      { id: "cursor", label: "Cursor" },
+    ].map(({ id, label }) => {
+      const provider = providers.find((candidate) => candidate.id === id);
+      const visible = agentsConfig[id]?.visible_in_menu !== false;
+      return {
+        label,
+        icon: <AgentIcon providerId={id} className="text-[12px]" />,
+        disabled: !provider || !visible,
+        title: !provider || !visible ? `${label} is unavailable` : undefined,
+        onClick: provider && visible ? () => onNewAgent(id) : undefined,
+        "data-testid": `workspace-quick-spawn-${id}`,
+      } satisfies DropdownMenuItem;
+    });
     const items: DropdownMenuItem[] = [
+      {
+        label: "New session",
+        icon: <SquarePlus size={11} strokeWidth={1.6} />,
+        onClick: onNewSession,
+        "data-testid": "workspace-new-session",
+      },
+      {
+        label: "Quick spawn",
+        icon: <Sparkles size={11} strokeWidth={1.6} />,
+        submenu: {
+          label: "Quick spawn",
+          description: "Spawns a default Worker",
+          items: quickProviders,
+        },
+        "data-testid": "workspace-quick-spawn",
+      },
       {
         label: "New Terminal",
         icon: <TerminalSquare size={11} strokeWidth={1.5} />,
         onClick: onNewTerminal,
       },
     ];
-    for (const provider of providers) {
-      if (agentsConfig[provider.id]?.visible_in_menu === false) continue;
-      items.push({
-        label: `New ${provider.display_name} Session`,
-        icon: <AgentIcon providerId={provider.id} className="text-[12px]" />,
-        onClick: () => onNewAgent(provider.id),
-      });
-    }
     if (workspace.cwd) {
       items.push({
         label: isMac ? "Show in Finder" : "Show in Explorer",
@@ -107,56 +137,46 @@ function WorkspaceItemInner({
       });
     }
     return items;
-  }, [onNewTerminal, onNewAgent, onClose, workspace.protected, workspace.cwd, agentsConfig, providers]);
+  }, [onNewTerminal, onNewSession, onNewAgent, onClose, workspace.protected, workspace.cwd, agentsConfig, providers]);
 
   return (
     <div
       data-testid="workspace-item"
       data-workspace-id={workspace.id}
       data-workspace-name={workspace.name}
+      data-variant={detailHeader ? "detail-header" : "tree-row"}
       className={`
-        group relative flex items-center justify-between cursor-pointer transition-colors
+        ${detailHeader ? "sidebar-workspace-detail-header" : "sidebar-workspace-row"} group relative flex items-center justify-between cursor-pointer transition-colors
         ${touchMode ? "min-h-11 px-2 py-2" : "px-1 py-2"}
-        ${isActive ? "bg-[var(--ct-active)] text-[var(--ct-fg)]" : "text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"}
-        ${hasWaiting ? "bg-[var(--ct-yellow)]/10" : ""}
+        ${detailHeader ? "text-[var(--ct-fg)]" : isActive ? "bg-[var(--ct-active)] text-[var(--ct-fg)]" : "text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"}
       `}
     >
       <div className={`flex items-center min-w-0 ${touchMode ? "gap-2" : "gap-1"}`}>
-        {/* Chevron toggle — rotates on expand/collapse */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleExpand();
-          }}
-          className={`${touchMode ? "w-8 h-8" : "w-4 h-4"} flex items-center justify-center shrink-0 text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] transition-colors`}
-          title={isExpanded ? "Collapse" : "Expand"}
-        >
-          <svg
-            width="8"
-            height="8"
-            viewBox="0 0 8 8"
-            fill="currentColor"
-            className="transition-transform duration-[320ms]"
-            style={{
-              transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)",
-              transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+        {showDisclosure && (
+          <SidebarDisclosure
+            expanded={isExpanded}
+            touchMode={touchMode}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleExpand();
             }}
-          >
-            <path d="M2 1l4 3-4 3V1z" />
-          </svg>
-        </button>
-        {/* Icon + name (click to activate, double-click to rename) */}
-        <div className={`flex items-center min-w-0 ${touchMode ? "gap-2.5" : "gap-2"}`} onClick={onClick}>
-          {workspace.protected ? (
-            <span className="relative shrink-0 flex items-center justify-center w-[14px] h-[14px]">
-              <ShieldCheckIcon style={{ stroke: "var(--ct-muted-fg)" }} className="shrink-0" />
-            </span>
-          ) : (
-          <FolderIcon open={isExpanded} className="shrink-0" />
-          )}
-          {editing ? (
+            className="shrink-0"
+            title={isExpanded ? "Collapse" : "Expand"}
+          />
+        )}
+        {/* Tree rows activate; detail headers identify the selected workspace. */}
+        {editing ? (
+          <div className={`flex items-center min-w-0 ${touchMode ? "gap-2.5" : "gap-2"}`}>
+            {!detailHeader && (workspace.protected ? (
+              <span className="relative shrink-0 flex items-center justify-center w-[14px] h-[14px]">
+                <ShieldCheckIcon style={{ stroke: "var(--ct-muted-fg)" }} className="shrink-0" />
+              </span>
+            ) : (
+              <FolderIcon open={isExpanded} className="shrink-0" />
+            ))}
             <input
               autoFocus
+              aria-label={`Rename workspace ${workspace.name}`}
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
               onBlur={commitRename}
@@ -164,20 +184,44 @@ function WorkspaceItemInner({
               onClick={(e) => e.stopPropagation()}
               className={`${touchMode ? `${workspaceTouchText} py-1` : `${workspaceText} py-0`} bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 w-full outline-none`}
             />
-          ) : (
+          </div>
+        ) : detailHeader ? (
+          <div
+            className={`flex items-center min-w-0 ${touchMode ? "gap-2.5" : "gap-2"}`}
+            onClick={onClick}
+          >
+            <span
+              className={`${touchMode ? workspaceTouchText : workspaceText} font-medium truncate`}
+              onDoubleClick={handleDoubleClick}
+              title={workspace.cwd || undefined}
+              role="heading"
+              aria-level={3}
+            >
+              {workspace.name}
+            </span>
+          </div>
+        ) : (
+          <button
+            type="button"
+            aria-label={`Open workspace ${workspace.name}`}
+            className={`flex items-center min-w-0 bg-transparent border-0 p-0 text-inherit font-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
+            onClick={onClick}
+          >
+            {workspace.protected ? (
+              <span className="relative shrink-0 flex items-center justify-center w-[14px] h-[14px]">
+                <ShieldCheckIcon style={{ stroke: "var(--ct-muted-fg)" }} className="shrink-0" />
+              </span>
+            ) : (
+              <FolderIcon open={isExpanded} className="shrink-0" />
+            )}
             <span className={`${touchMode ? workspaceTouchText : workspaceText} font-medium truncate`} onDoubleClick={handleDoubleClick} title={workspace.cwd || undefined}>
               {workspace.name}
             </span>
-          )}
-        </div>
+          </button>
+        )}
         <span className={`${workspaceCountText} text-[var(--ct-muted)]`}>
           {workspace.tabs.length}
         </span>
-        {hasWaiting && (
-          <span className="inline-flex items-center justify-center min-w-[14px] h-3.5 px-0.5 rounded-full bg-[var(--ct-yellow)]/20 text-[var(--ct-yellow)] text-[9px] font-bold leading-none">
-            !
-          </span>
-        )}
       </div>
       {/* 3-dot menu — visible on hover */}
       <DropdownMenu
@@ -189,6 +233,7 @@ function WorkspaceItemInner({
         }
         trigger={
           <button
+            aria-label={`Actions for ${workspace.name}`}
             className={`${touchMode ? "h-11 w-11" : "w-5 h-5"} flex items-center justify-center rounded hover:bg-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors`}
             title="Workspace actions"
           >
@@ -205,8 +250,9 @@ function workspacePropsEqual(prev: WorkspaceItemProps, next: WorkspaceItemProps)
     prev.isActive === next.isActive &&
     prev.isExpanded === next.isExpanded &&
     prev.status === next.status &&
-    prev.hasWaiting === next.hasWaiting &&
     prev.canClose === next.canClose &&
+    prev.showDisclosure === next.showDisclosure &&
+    prev.detailHeader === next.detailHeader &&
     prev.touchMode === next.touchMode &&
     prev.uiFontScale === next.uiFontScale &&
     prev.workspace.id === next.workspace.id &&

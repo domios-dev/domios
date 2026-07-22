@@ -54,22 +54,22 @@ Built with **Tauri v2** (Rust) + **React** + **xterm.js**.
 - **Session persistence** — workspaces, tabs, and working directories are saved and restored across restarts
 
 ### AI Agent Integration
-- **Agent detection** — automatically detects Claude Code running in a pane (orange indicator)
-- **Session resume** — saves Claude Code session IDs and resumes them on restart with `--resume`. Stale ids are validated before launch (`session_exists`) so missing JSONLs don't loop. Pre-generated `--session-id` UUIDs keep multiple panes in the same cwd disambiguated. Cross-provider session search/resume is exposed via `codeterm sessions` and `/api/sessions/*`
+- **Agent detection** — automatically detects Claude Code running in a tab (orange indicator)
+- **Session resume** — saves Claude Code session IDs and resumes them on restart with `--resume`. Stale ids are validated before launch (`session_exists`) so missing JSONLs don't loop. Pre-generated `--session-id` UUIDs keep multiple tabs in the same cwd disambiguated. Cross-provider session search/resume is exposed via `codeterm sessions` and `/api/sessions/*`
 - **Permission notifications** — surfaces Claude Code permission requests as desktop notifications
 - **Webhook system** — register webhooks for agent events (permission requests, task completion)
-- **Programmatic control** — agents can create panes, run commands, read output via API
-- **Agent restart** — `codeterm agent restart --pane ID` runs a graceful `/exit` + auto-resume on any pane (`--force` to kill a hung agent), reusing the same lifecycle as `update --apply` post-install relaunch
+- **Programmatic control** — agents can create tabs, run commands, read output via API
+- **Agent restart** — `codeterm agent restart --tab ID` runs a graceful `/exit` + auto-resume on any tab (`--force` to kill a hung agent), reusing the same lifecycle as `update --apply` post-install relaunch
 
 ### Full API — let external AI operate your terminal
-- **REST API** — 30+ endpoints for complete terminal control (port 7685). An external AI (e.g. a gateway, custom agents) can create workspaces, spawn panes, run commands, read output, and orchestrate Claude Code sessions — all remotely
+- **REST API** — 30+ endpoints for complete terminal control (port 7685). An external AI (e.g. a gateway, custom agents) can create workspaces, spawn tabs, run commands, read output, and orchestrate Claude Code sessions — all remotely
 - **CLI tool** — `codeterm` command-line tool for scripting and automation
 - **Socket API** — JSON-RPC v2 over named pipes (Windows) / Unix sockets
 - **Agent prompt** — copy the integration prompt from Settings to give any LLM full control over CodeTerm
 - **Real-time streaming** — SSE endpoint for live terminal output
 
 ### Bridges & external services
-- **Telegram bridge** — bidirectional. Inbound messages arrive in the General Agent pane as `[Telegram: USER_ID] text`; outbound replies go through `codeterm bridge send` with HTML formatting (sanitizer auto-escapes stray `<word>` placeholders so unsupported tokens never break the parser). `codeterm bridge migrate --to PEER` hot-relocates the active poller to a paired mesh peer without restarting either daemon — secrets stay local to each host's vault
+- **Telegram bridge** — bidirectional. Inbound messages arrive in the General Agent tab as `[Telegram: USER_ID] text`; outbound replies go through `codeterm bridge send` with HTML formatting (sanitizer auto-escapes stray `<word>` placeholders so unsupported tokens never break the parser). `codeterm bridge migrate --to PEER` hot-relocates the active poller to a paired mesh peer without restarting either daemon — secrets stay local to each host's vault
 - **Voice transcription** — when `integrations.voice_transcribe.enabled = true`, voice / video-note attachments are transcribed by a local Whisper daemon (`http://127.0.0.1:7891` by default) before reaching any agent — Claude, Codex, future clients, all covered by one upstream change
 - **Webhook bridge** — register URLs for agent events (`agent.permission_request`, `agent.task_complete`, `agent.report`)
 
@@ -80,7 +80,7 @@ Built with **Tauri v2** (Rust) + **React** + **xterm.js**.
 - **Auto online/offline** — backend ping scheduler (20 s interval) flips peer `online` flags and emits `mesh-state-changed` so the canvas updates without polling. Toggling `mesh.enabled = false` makes every `/api/mesh/*` route return `503` for both local and peer callers — kill-switch with no restart.
 
 ### Self-update & resilience
-- **Self-update** — `codeterm update --check / --apply / --channel <stable|rc|nightly>`. Manifests are signed with ed25519 and verified before any binary is touched; auto-install runs a 9-step graceful shutdown (mem WAL checkpoint, supervisor stop, signed binary swap), then panes auto-resume so context survives the upgrade
+- **Self-update** — `codeterm update --check / --apply / --channel <stable|rc|nightly>`. Manifests are signed with ed25519 and verified before any binary is touched; auto-install runs a 9-step graceful shutdown (mem WAL checkpoint, supervisor stop, signed binary swap), then tabs auto-resume so context survives the upgrade
 - **Subprocess supervisor** — heavy mem operations (dreaming, librarian extraction) run as child processes with a circuit breaker (3 failures in 60s → open). Worker death does not take the API down; `503` timeouts on heavy mem requests keep the daemon responsive
 - **External watchdog** — health probe at `/api/health`; setup recipes for Windows Task Scheduler, launchd, and systemd live in [docs/RESILIENCE.md](docs/RESILIENCE.md)
 
@@ -91,7 +91,7 @@ Built with **Tauri v2** (Rust) + **React** + **xterm.js**.
 - **Light theme support** — automatic color derivation works for both light and dark themes
 
 ### Canvas Panels
-- **Canvas panes** — open web content side-by-side with your terminal for dashboards, docs, or visualizations
+- **Canvas tabs** — open web content beside your terminal for dashboards, docs, or visualizations
 
 ### Developer Experience
 - **Clipboard & paste** — Ctrl+V pastes images from clipboard (Windows Snipping Tool, screenshots), text from any source
@@ -184,7 +184,7 @@ pnpm test:pw:smoke      # Playwright/CDP UI smoke against dev
 
 > **Windows:** from PowerShell, use `.\build.ps1 ...`; it selects Git Bash directly. Avoid plain `bash` from PowerShell because it may resolve to WSL (`C:\Windows\System32\bash.exe`). To load MSVC env inside Git Bash, run `source build.sh env`.
 >
-> **Dev vs prod isolation:** dev runs on port `7686` with data dir `~/.codeterm-dev/`; prod runs on `7685` with `~/.codeterm/`. Both can run side-by-side. The CLI auto-routes to dev when invoked from inside a dev pane and to prod otherwise.
+> **Dev vs prod isolation:** dev runs on port `7686` with data dir `~/.codeterm-dev/`; prod runs on `7685` with `~/.codeterm/`. Both can run side-by-side. The CLI auto-routes to dev when invoked from inside a dev tab and to prod otherwise.
 
 ## Keyboard Shortcuts
 
@@ -196,7 +196,7 @@ All shortcuts use `Cmd` on macOS, `Ctrl` on Windows/Linux. Configurable in Setti
 | `Cmd/Ctrl+W` | Close tab |
 | `Cmd/Ctrl+Shift+→` | Split right |
 | `Cmd/Ctrl+Shift+↓` | Split down |
-| `Cmd/Ctrl+Shift+Q` | Close pane |
+| `Cmd/Ctrl+Shift+Q` | Close tab |
 | `Cmd/Ctrl+Shift+N` | New workspace |
 | `Cmd/Ctrl+Shift+F` | Search in terminal |
 | `Ctrl+Tab` | Next tab |
@@ -205,7 +205,7 @@ All shortcuts use `Cmd` on macOS, `Ctrl` on Windows/Linux. Configurable in Setti
 | `Cmd/Ctrl+,` | Settings |
 | `Cmd/Ctrl+=` / `Cmd/Ctrl+-` | Zoom in/out |
 | `Cmd/Ctrl+0` | Reset zoom |
-| `Alt+Arrows` | Navigate panes |
+| `Alt+Arrows` | Navigate tabs |
 
 ## API
 
@@ -214,7 +214,7 @@ CodeTerm exposes three APIs for integration:
 ### REST API (port 7685)
 
 ```bash
-# List panes
+# List tabs
 curl http://localhost:7685/api/panes
 
 # Execute a command and get output
@@ -232,7 +232,7 @@ curl -X POST http://localhost:7685/api/workspaces \
   -H "Content-Type: application/json" \
   -d '{"name": "My Project"}'
 
-# Spawn an agent in a new pane next to a parent
+# Spawn an agent in a new tab next to a parent
 curl -X POST http://localhost:7685/api/agents/spawn \
   -H "Content-Type: application/json" \
   -d '{"agent": "claude", "parent_pane_id": "PANE_ID"}'
@@ -249,8 +249,8 @@ codeterm workspace list
 codeterm workspace create "Project"
 
 # Terminal control
-codeterm pane list
-codeterm send --pane PANE_ID "npm run build"
+codeterm tab list
+codeterm send --tab TAB_ID "npm run build"
 codeterm get-output PANE_ID --lines 50
 
 # Notifications
@@ -264,7 +264,7 @@ CodeTerm sets these in every PTY session:
 | Variable | Description |
 |----------|-------------|
 | `CODETERM` | Always `1` — detect if running inside CodeTerm |
-| `CODETERM_PANE_ID` | UUID of the current pane |
+| `CODETERM_PANE_ID` | UUID of the current tab |
 | `CODETERM_SOCKET_PATH` | Socket path for JSON-RPC API |
 | `CODETERM_API_PORT` / `CODETERM_API_TOKEN` | API port and bearer token, so CLI subcommands and Claude hooks (`/api/panes/*/hook/*`, `/api/mem/flush`) can authenticate without per-call wiring |
 | `TERM_PROGRAM` | `CodeTerm` |
@@ -307,7 +307,7 @@ See [Configuration Guide](docs/CONFIG.md) for all options.
 │                  CodeTerm                    │
 │  ┌──────────┐  ┌──────────┐  ┌───────────┐  │
 │  │ React UI │  │ xterm.js │  │  Browser   │  │
-│  │ Sidebar  │  │ Terminal │  │   Panes    │  │
+│  │ Sidebar  │  │ Terminal │  │    Tabs    │  │
 │  └────┬─────┘  └────┬─────┘  └─────┬─────┘  │
 │       │              │              │        │
 │  ┌────┴──────────────┴──────────────┴────┐   │

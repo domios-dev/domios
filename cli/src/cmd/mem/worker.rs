@@ -1,9 +1,8 @@
-use super::{mem_get_request, mem_post_request};
+use crate::client::SocketClient;
 use crate::MemWorkerAction;
 
 pub(crate) fn handle_mem_worker(
-    http: &reqwest::blocking::Client,
-    base: &str,
+    client: &mut SocketClient,
     action: MemWorkerAction,
 ) -> Result<serde_json::Value, String> {
     match action {
@@ -12,47 +11,35 @@ pub(crate) fn handle_mem_worker(
             task,
             agent,
             parent,
-        } => {
-            let payload = serde_json::json!({
+        } => client.call(
+            "mem.worker.spawn",
+            Some(serde_json::json!({
                 "intent": intent,
                 "task": task,
                 "agent": agent,
                 "parent": parent,
-            });
-            mem_post_request(http, &format!("{}/api/mem/workers", base), &payload)
-        }
-        MemWorkerAction::List => mem_get_request(http, &format!("{}/api/mem/workers", base)),
+            })),
+        ),
+        MemWorkerAction::List => client.call("mem.worker.list", None),
         MemWorkerAction::Get { id } => {
-            mem_get_request(http, &format!("{}/api/mem/workers/{}", base, id))
+            client.call("mem.worker.get", Some(serde_json::json!({ "id": id })))
         }
         MemWorkerAction::Progress { text, status } => match std::env::var("CODETERM_WORKER_ID") {
-            Ok(id) => {
-                let payload = serde_json::json!({ "text": text, "status": status });
-                mem_post_request(
-                    http,
-                    &format!("{}/api/mem/workers/{}/progress", base, id),
-                    &payload,
-                )
-            }
+            Ok(id) => client.call(
+                "mem.worker.progress",
+                Some(serde_json::json!({ "id": id, "text": text, "status": status })),
+            ),
             Err(_) => Err("not in a worker pane: $CODETERM_WORKER_ID is not set".into()),
         },
         MemWorkerAction::Report { summary } => match std::env::var("CODETERM_WORKER_ID") {
-            Ok(id) => {
-                let payload = serde_json::json!({ "summary": summary });
-                mem_post_request(
-                    http,
-                    &format!("{}/api/mem/workers/{}/report", base, id),
-                    &payload,
-                )
-            }
+            Ok(id) => client.call(
+                "mem.worker.report",
+                Some(serde_json::json!({ "id": id, "summary": summary })),
+            ),
             Err(_) => Err("not in a worker pane: $CODETERM_WORKER_ID is not set".into()),
         },
         MemWorkerAction::Kill { id } => {
-            let resp = http
-                .delete(format!("{}/api/mem/workers/{}", base, id))
-                .send()
-                .map_err(|e| e.to_string());
-            resp.map(|r| serde_json::json!({"ok": r.status().is_success()}))
+            client.call("mem.worker.kill", Some(serde_json::json!({ "id": id })))
         }
     }
 }

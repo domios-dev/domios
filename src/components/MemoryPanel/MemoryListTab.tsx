@@ -33,7 +33,7 @@ function relTime(iso: string): string {
 
 const PAGE_SIZE = 50;
 
-function MemoryListTabImpl({ api, nodes, onSelectItem, removeNode }: Props) {
+function MemoryListTabImpl({ api, nodes, onViewInGraph, onSelectItem, removeNode }: Props) {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("recent");
   const [kindFilter, setKindFilter] = useState<Set<string>>(new Set());
@@ -202,6 +202,17 @@ function MemoryListTabImpl({ api, nodes, onSelectItem, removeNode }: Props) {
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
                     <span className="flex-1 text-xs text-[var(--ct-fg)] truncate font-medium">{n.title}</span>
+                    <button
+                      type="button"
+                      data-testid="memory-list-view-graph"
+                      className="text-[10px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] shrink-0"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onViewInGraph(n.id);
+                      }}
+                    >
+                      Graph
+                    </button>
                     <span className="text-[10px] text-[var(--ct-muted-fg)] shrink-0 tabular-nums">{n.created_at ? relTime(n.created_at) : ""}</span>
                   </div>
                   <div className="flex items-center gap-2 pl-[18px] mt-0.5 flex-wrap">

@@ -9,6 +9,7 @@ fn gen_id(prefix: &str) -> String {
 }
 
 impl PlanStore {
+    #[cfg(test)]
     pub fn create_plan_from_spec(
         &self,
         spec_id: &str,
@@ -17,8 +18,35 @@ impl PlanStore {
         kinds: Vec<crate::plan::MilestoneKind>,
         now_ms: u64,
     ) -> Result<crate::plan::Plan, PlanError> {
+        let team_id = self.mint_id("team_test");
+        self.create_plan_from_spec_for_team(spec_id, title, owner, team_id, kinds, now_ms)
+    }
+
+    pub fn create_plan_from_spec_for_team(
+        &self,
+        spec_id: &str,
+        title: String,
+        owner: crate::plan::OrchestratorRef,
+        team_id: String,
+        kinds: Vec<crate::plan::MilestoneKind>,
+        now_ms: u64,
+    ) -> Result<crate::plan::Plan, PlanError> {
         let spec = self.get_spec(spec_id).ok_or(PlanError::NotFound)?;
-        let mut plan = self.create_plan(title, spec.project_path.clone(), owner, kinds, now_ms)?;
+        // Claim ownership before inserting the plan row: a spec-conflict must
+        // leave zero orphan plans behind.
+        if let Some(owner) = spec.plan_id.as_deref() {
+            return Err(PlanError::Io(format!(
+                "spec {spec_id} already owned by plan {owner}"
+            )));
+        }
+        let mut plan = self.create_plan_for_team(
+            title,
+            spec.project_path.clone(),
+            owner,
+            team_id,
+            kinds,
+            now_ms,
+        )?;
         plan.primary_spec_id = Some(spec_id.to_string());
         if !plan.spec_refs.iter().any(|id| id == spec_id) {
             plan.spec_refs.push(spec_id.to_string());
@@ -58,7 +86,12 @@ impl PlanStore {
         plan.sections = mirror_sections(&spec.sections, &mut links, spec_id);
         plan.spec_links = links;
         self.commit_loaded_plan(plan.clone())?;
-        self.adopt_spec_to_plan(spec_id, &plan.id, now_ms)?;
+        // Roll back the just-committed plan if the claim races another owner,
+        // so no orphan survives the failure.
+        if let Err(e) = self.adopt_spec_to_plan(spec_id, &plan.id, now_ms) {
+            let _ = self.delete(&plan.id);
+            return Err(e);
+        }
         Ok(plan)
     }
 
@@ -141,8 +174,6 @@ impl PlanStore {
             .persist_spec(&guard)
             .map_err(|e| PlanError::Io(e.to_string()))?;
         self.note_spec_write(&guard, &path);
-        self.mirror_spec_index(&guard)
-            .map_err(|e| PlanError::Io(e.to_string()))?;
         let entry = Self::spec_index_entry(&guard, path);
         self.spec_index.write().insert(guard.id.clone(), entry);
         Ok(out)
@@ -303,12 +334,33 @@ impl PlanStore {
                 Ok(())
             })?;
         }
-        let path = self
-            .spec_yaml_target(&spec)
-            .map_err(|e| PlanError::Io(e.to_string()))?;
-        let _ = std::fs::remove_file(path);
+        self.database.delete_spec(&spec.id, now_ms)?;
+        #[cfg(test)]
+        self.remove_test_spec_sidecars(&spec)?;
         self.specs.write().remove(spec_id);
         self.spec_index.write().remove(spec_id);
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn remove_test_spec_sidecars(&self, spec: &Spec) -> Result<(), PlanError> {
+        let Some(root) = super::paths::test_project_root(super::paths::spec_sidecar_root(spec))
+        else {
+            return Ok(());
+        };
+        let specs_dir =
+            super::paths::specs_dir(&root).map_err(|error| PlanError::Io(error.to_string()))?;
+        let global = super::spec_store::spec_yaml_path(&specs_dir, &spec.id);
+        let _ = std::fs::remove_file(global);
+        if let Some(plan_id) = spec.plan_id.as_deref() {
+            if let Some(plan) = self.get(plan_id) {
+                let mut normalized = plan.clone();
+                super::paths::normalize_plan_paths(&mut normalized, &root);
+                let dir = super::store_v2::plan_state_dir(&normalized)
+                    .map_err(|error| PlanError::Io(error.to_string()))?;
+                let _ = std::fs::remove_file(super::spec_store::spec_yaml_path_in_plan(&dir));
+            }
+        }
         Ok(())
     }
 
@@ -651,6 +703,42 @@ mod tests {
             .unwrap()
             .join("spec.yaml");
         assert!(!co_located.exists(), "co-located yaml must be removed");
+    }
+
+    #[test]
+    fn from_spec_conflict_leaves_no_orphan_plan() {
+        let (root, store) = store_root();
+        let spec = store
+            .create_spec("SCRATCH-dx-spec".into(), root.display().to_string(), 1)
+            .unwrap();
+        let owner = store
+            .create_plan_from_spec(
+                &spec.id,
+                "SCRATCH-owner-plan".into(),
+                OrchestratorRef::default(),
+                vec![],
+                2,
+            )
+            .unwrap();
+        assert_eq!(store.list_full().len(), 1);
+
+        let conflict = store.create_plan_from_spec(
+            &spec.id,
+            "SCRATCH-conflict-plan".into(),
+            OrchestratorRef::default(),
+            vec![],
+            3,
+        );
+        assert!(conflict.is_err(), "second from-spec must be rejected");
+        assert_eq!(
+            store.list_full().len(),
+            1,
+            "spec-conflict must leave zero orphan plans"
+        );
+        assert_eq!(
+            store.get_spec(&spec.id).unwrap().plan_id.as_deref(),
+            Some(owner.id.as_str())
+        );
     }
 
     #[test]

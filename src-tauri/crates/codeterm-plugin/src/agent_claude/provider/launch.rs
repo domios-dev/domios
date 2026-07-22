@@ -3,6 +3,21 @@
 use crate::provider::AgentLaunchParams;
 use codeterm_util::shell::ShellSyntax;
 
+const ASSIGNED_TASK_START_PROMPT: &str =
+    "Execute the CodeTerm task provided in the appended system prompt. Follow its reporting instructions exactly.";
+const IDLE_WAKEUP_START_PROMPT: &str =
+    "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
+
+pub(super) fn starter_prompt_text(prompt: crate::provider::StarterPrompt) -> &'static str {
+    match prompt {
+        crate::provider::StarterPrompt::AssignedTask => ASSIGNED_TASK_START_PROMPT,
+        crate::provider::StarterPrompt::IdleWakeup => IDLE_WAKEUP_START_PROMPT,
+        crate::provider::StarterPrompt::TeamBootstrap => {
+            crate::prompts::TEAM_BOOTSTRAP_STARTER.trim()
+        }
+    }
+}
+
 pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
     let mut parts: Vec<String> = Vec::new();
     parts.push(ShellSyntax::UNSET_CLAUDECODE.to_string());
@@ -26,10 +41,15 @@ pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
         parts.extend(extra.iter().cloned());
     }
 
-    // Prompt is a positional, last, after `--`: a spawn task can start with the `-=-codeterm:...-=-` origin marker, which commander would otherwise reject as an unknown option.
+    // Keep large worker prompts out of shell parsing and argv on every platform.
     if let Some(ref task) = params.task {
+        let path = ShellSyntax::task_file_path(task);
+        parts.push("--append-system-prompt-file".to_string());
+        parts.push(ShellSyntax::quote(&path));
         parts.push("--".to_string());
-        parts.push(ShellSyntax::task_file_expr(task));
+        parts.push(ShellSyntax::quote(starter_prompt_text(
+            params.starter_prompt,
+        )));
     }
 
     parts.join(" ")
@@ -62,6 +82,7 @@ mod tests {
             skip_permissions: true,
             session_id: None,
             structured_prompt_server: None,
+            starter_prompt: Default::default(),
         };
         let cmd = build_launch_command(&params);
         if cfg!(target_os = "windows") {
@@ -80,11 +101,12 @@ mod tests {
     fn test_build_launch_with_task() {
         let params = AgentLaunchParams {
             agent_name: None,
-            task: Some("count files".to_string()),
+            task: Some("line one\n<location>/repo</location>\n'quotes' \"double\" $HOME `whoami` --flag\nюникод".to_string()),
             args: None,
             skip_permissions: true,
             session_id: None,
             structured_prompt_server: None,
+            starter_prompt: Default::default(),
         };
         let cmd = build_launch_command(&params);
         assert!(cmd.contains("--dangerously-skip-permissions"));
@@ -94,10 +116,38 @@ mod tests {
             cmd.contains(" -- "),
             "task positional must follow -- separator"
         );
-        assert!(
-            cmd.find(" -- ").unwrap() < cmd.find(".ct-task-").unwrap(),
-            "-- must precede the task positional: {}",
-            cmd
+        assert!(cmd.contains("--append-system-prompt-file"));
+        assert!(!cmd.contains("Get-Content"));
+        assert!(!cmd.contains("$(cat "));
+        assert!(!cmd.contains("<location>") && !cmd.contains("whoami") && !cmd.contains("юникод"));
+        assert!(cmd.contains(ASSIGNED_TASK_START_PROMPT));
+    }
+
+    #[test]
+    fn task_bound_starter_remains_byte_identical() {
+        assert_eq!(
+            starter_prompt_text(crate::provider::StarterPrompt::AssignedTask),
+            ASSIGNED_TASK_START_PROMPT
+        );
+    }
+
+    #[test]
+    fn no_task_manager_starter_is_idle_only() {
+        let params = AgentLaunchParams {
+            starter_prompt: crate::provider::StarterPrompt::IdleWakeup,
+            ..Default::default()
+        };
+        assert_eq!(
+            starter_prompt_text(params.starter_prompt),
+            IDLE_WAKEUP_START_PROMPT
+        );
+    }
+
+    #[test]
+    fn team_manager_starter_names_the_host_context() {
+        assert_eq!(
+            starter_prompt_text(crate::provider::StarterPrompt::TeamBootstrap),
+            crate::prompts::TEAM_BOOTSTRAP_STARTER.trim()
         );
     }
 
@@ -110,6 +160,7 @@ mod tests {
             skip_permissions: true,
             session_id: None,
             structured_prompt_server: None,
+            starter_prompt: Default::default(),
         };
         let cmd = build_launch_command(&params);
         assert!(cmd.contains("--agent"));
@@ -126,17 +177,18 @@ mod tests {
             skip_permissions: true,
             session_id: None,
             structured_prompt_server: None,
+            starter_prompt: Default::default(),
         };
         let cmd = build_launch_command(&params);
         assert!(cmd.contains(".ct-task-"));
         assert!(cmd.contains(&format!("--model {}", model_id)));
-        // Flags first, then `--`, then the task positional last.
+        // Flags first, then file-backed task setup if needed, then `--`, then prompt last.
         let model_pos = cmd.find("--model").unwrap();
         let sep_pos = cmd.find(" -- ").unwrap();
         let task_pos = cmd.find(".ct-task-").unwrap();
         assert!(
-            model_pos < sep_pos && sep_pos < task_pos,
-            "order must be flags -> -- -> task: {}",
+            model_pos < task_pos && task_pos < sep_pos,
+            "order must be flags -> task file flag -> --: {}",
             cmd
         );
     }
@@ -150,6 +202,7 @@ mod tests {
             skip_permissions: true,
             session_id: Some("my-pre-generated-uuid".to_string()),
             structured_prompt_server: None,
+            starter_prompt: Default::default(),
         };
         let cmd = build_launch_command(&params);
         assert!(
@@ -174,6 +227,7 @@ mod tests {
             skip_permissions: true,
             session_id: Some("sid-xyz".to_string()),
             structured_prompt_server: None,
+            starter_prompt: Default::default(),
         };
         let cmd = build_launch_command(&params);
         assert!(cmd.contains("--session-id"));

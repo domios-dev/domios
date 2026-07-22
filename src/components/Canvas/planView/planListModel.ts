@@ -44,8 +44,8 @@ export function taskRowMatchesStatus(row: PlanListRow, filter: PlanListStatusFil
   if (!isPlanListTaskRow(row)) return true;
   const status = row.status as TaskStatus | undefined;
   if (filter === "all") return true;
-  // Parked work is deferred, not active — fold it out of the Active filter.
-  if (filter === "active") return status !== "done" && status !== "cancelled" && status !== "parked";
+  // Paused work is deferred, not active — fold it out of the Active filter.
+  if (filter === "active") return status !== "done" && status !== "cancelled" && status !== "paused";
   if (filter === "done") return status === "done";
   if (filter === "blocked") return status === "blocked";
   if (filter === "cancelled") return status === "cancelled";

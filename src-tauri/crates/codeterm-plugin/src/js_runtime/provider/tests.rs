@@ -105,6 +105,17 @@ fn missing_detect_returns_false() {
 }
 
 #[test]
+fn session_jsonl_path_accepts_plugin_null() {
+    let js = r#"
+            module.exports.default = {
+                sessionJsonlPath() { return null; }
+            };
+        "#;
+    let p = load(MIN_MANIFEST, js);
+    assert_eq!(p.session_jsonl_path("/work", "pending-session"), None);
+}
+
+#[test]
 fn build_launch_command_passes_params_to_js() {
     let js = r#"
             module.exports.default = {
@@ -141,6 +152,7 @@ fn readiness_and_verify_from_manifest_enums() {
         p.verify_submit_strategy(),
         VerifySubmitStrategy::None
     ));
+    assert_eq!(p.busy_submit_strategy(), BusySubmitStrategy::SubmitNormally);
 }
 
 #[test]

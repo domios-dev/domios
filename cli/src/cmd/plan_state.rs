@@ -8,6 +8,68 @@ fn u(val: &Value, key: &str) -> u64 {
     val.get(key).and_then(|v| v.as_u64()).unwrap_or(0)
 }
 
+fn gate_keys(val: &Value, field: &str) -> Vec<String> {
+    val.get(field)
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|g| g.get("key").and_then(|k| k.as_str()).map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+// Regression gates block: what still needs a real QA run, what actually blocks
+// dispatch right now, and any authorized waivers standing between the two.
+fn render_regression_gates(val: &Value, out: &mut String) {
+    let pending = gate_keys(val, "pending_regression_gates");
+    let blocking = gate_keys(val, "blocking_regression_gates");
+    let overrides = val
+        .get("regression_overrides")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if pending.is_empty() && blocking.is_empty() && overrides.is_empty() {
+        return;
+    }
+    if !pending.is_empty() {
+        out.push_str(&format!(
+            "regression gates pending: {}\n",
+            pending.join(", ")
+        ));
+    }
+    if blocking.is_empty() {
+        out.push_str("dispatch: unblocked (no pending regression gate blocks the frontier)\n");
+    } else {
+        out.push_str(&format!(
+            "dispatch: BLOCKED by regression gate(s): {} — non-blocker tasks cannot dispatch until cleared or overridden\n",
+            blocking.join(", ")
+        ));
+    }
+    for o in &overrides {
+        let actor = o
+            .get("actor")
+            .and_then(|a| a.get("pane_id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        let reason = o.get("reason").and_then(|v| v.as_str()).unwrap_or("");
+        let ts = o.get("ts").and_then(|v| v.as_u64()).unwrap_or(0);
+        let gates = o
+            .get("gates")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|g| g.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+            .unwrap_or_default();
+        out.push_str(&format!(
+            "  override by {actor} @ {ts} [{gates}]: {reason}\n"
+        ));
+    }
+}
+
 pub fn render_state(val: &Value) -> String {
     let mut out = String::new();
 
@@ -188,6 +250,8 @@ pub fn render_state(val: &Value) -> String {
         out.push('\n');
     }
 
+    render_regression_gates(val, &mut out);
+
     if let Some(hb) = val.get("heartbeat") {
         let focus = hb
             .get("current_focus")
@@ -248,10 +312,12 @@ pub fn render_state(val: &Value) -> String {
                         format!(" competition:{c} live:{live}")
                     })
                     .unwrap_or_default();
+                let presentation = lane_presentation(l);
                 out.push_str(&format!(
-                    "  - {} [{}]{}{} {}\n",
+                    "  - {} [{}; {}]{}{} {}\n",
                     s(l, "task_id"),
                     s(l, "status"),
+                    presentation,
                     role_part,
                     competition_part,
                     s(l, "name"),
@@ -293,6 +359,30 @@ pub fn render_state(val: &Value) -> String {
     out
 }
 
+fn lane_presentation(lane: &Value) -> String {
+    match s(lane, "presentation") {
+        "actionable_pending" => "actionable pending".into(),
+        "waiting_on_dependencies" => {
+            let waits = lane
+                .get("dependency_waits")
+                .and_then(|value| value.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .map(|wait| s(wait, "task_id"))
+                        .filter(|id| !id.is_empty())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .filter(|ids| !ids.is_empty())
+                .unwrap_or_else(|| "dependencies".into());
+            format!("waiting on dependency: {waits}")
+        }
+        "" => s(lane, "status").into(),
+        other => other.replace('_', " "),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -313,7 +403,7 @@ mod tests {
             "drift": {"total": 1, "by_kind": {"in_progress_pane_gone": 1}},
             "heartbeat": {"current_focus": "foundation", "active_lanes": ["loop-state"]},
             "loops": [{"id": "lp_1", "status": "running", "target": "harden", "count": 2, "budget": 5, "stop_when": "0 bugs"}],
-            "open_lanes": [{"task_id": "t_p", "status": "pending", "name": "pend"}],
+            "open_lanes": [{"task_id": "t_p", "status": "pending", "presentation": "actionable_pending", "name": "pend"}],
             "live_agents": [{"task_id": "t_r", "pane_id": "pane_live", "name": "rev"}],
             "recent_strides": [{"kind": "decision", "text": "did a thing"}]
         });
@@ -325,9 +415,81 @@ mod tests {
         assert!(out.contains("drift: 1 (in_progress_pane_gone 1)"));
         assert!(out.contains("focus: foundation"));
         assert!(out.contains("lp_1 [running] harden: 2/5; stop_when: 0 bugs"));
-        assert!(out.contains("t_p [pending] pend"));
+        assert!(out.contains("t_p [pending; actionable pending] pend"));
         assert!(out.contains("t_r -> pane_live (rev)"));
         assert!(out.contains("[decision] did a thing"));
+    }
+
+    #[test]
+    fn renders_dependency_waiting_pending_as_distinct_from_paused() {
+        let val = json!({
+            "plan_id": "pl_1",
+            "title": "Sequenced",
+            "status": "active",
+            "mode": "execution",
+            "task_counts": {"total": 2, "done": 0, "in_progress": 1, "in_review": 0, "pending": 1, "blocked": 0, "cancelled": 0},
+            "percent_done": 0.0,
+            "open_lanes": [
+                {"task_id": "task_ready", "status": "pending", "presentation": "actionable_pending", "name": "Ready"},
+                {"task_id": "task_after", "status": "pending", "presentation": "waiting_on_dependencies", "dependency_waits": [{"task_id": "task_before"}], "name": "After"}
+            ]
+        });
+        let out = render_state(&val);
+        assert!(out.contains("task_ready [pending; actionable pending] Ready"));
+        assert!(out.contains("task_after [pending; waiting on dependency: task_before] After"));
+        assert!(!out.contains("parked"));
+    }
+
+    #[test]
+    fn renders_blocking_regression_gates_and_override() {
+        let val = json!({
+            "plan_id": "pl_1",
+            "title": "Gated",
+            "status": "active",
+            "mode": "execution",
+            "task_counts": {"total": 2, "done": 2, "in_progress": 0, "in_review": 0, "pending": 0, "blocked": 0, "cancelled": 0},
+            "percent_done": 1.0,
+            "pending_regression_gates": [{"key": "phase-1", "label": "Phase 1"}, {"key": "phase-2", "label": "Phase 2"}],
+            "blocking_regression_gates": [{"key": "phase-2", "label": "Phase 2"}],
+            "regression_overrides": [{"actor": {"pane_id": "pane_o"}, "reason": "hotfix under sign-off", "gates": ["phase-1"], "ts": 42}]
+        });
+        let out = render_state(&val);
+        assert!(out.contains("regression gates pending: phase-1, phase-2"));
+        assert!(out.contains("dispatch: BLOCKED by regression gate(s): phase-2"));
+        assert!(out.contains("override by pane_o @ 42 [phase-1]: hotfix under sign-off"));
+    }
+
+    #[test]
+    fn renders_unblocked_when_no_blocking_gates() {
+        let val = json!({
+            "plan_id": "pl_1",
+            "title": "Cleared",
+            "status": "active",
+            "mode": "execution",
+            "task_counts": {"total": 1, "done": 1, "in_progress": 0, "in_review": 0, "pending": 0, "blocked": 0, "cancelled": 0},
+            "percent_done": 1.0,
+            "pending_regression_gates": [{"key": "phase-1", "label": "Phase 1"}],
+            "blocking_regression_gates": [],
+            "regression_overrides": [{"actor": {"pane_id": "pane_o"}, "reason": "waiver", "gates": ["phase-1"], "ts": 7}]
+        });
+        let out = render_state(&val);
+        assert!(out.contains("regression gates pending: phase-1"));
+        assert!(out.contains("dispatch: unblocked"));
+    }
+
+    #[test]
+    fn omits_regression_block_when_nothing_pending() {
+        let val = json!({
+            "plan_id": "pl_1",
+            "title": "Clean",
+            "status": "active",
+            "mode": "execution",
+            "task_counts": {"total": 1, "done": 0, "in_progress": 1, "in_review": 0, "pending": 0, "blocked": 0, "cancelled": 0},
+            "percent_done": 0.0
+        });
+        let out = render_state(&val);
+        assert!(!out.contains("regression gates"));
+        assert!(!out.contains("dispatch:"));
     }
 
     #[test]

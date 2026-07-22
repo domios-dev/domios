@@ -1,0 +1,1 @@
+Every daemon subprocess spawn must be classified. Helper subprocesses must go through process_util no-window helpers. PTY/ConPTY child process creation must go through the pty-fork ConPTY boundary and must never use CREATE_NO_WINDOW. New raw Command::new call sites in daemon code require explicit review or tests.

@@ -120,6 +120,12 @@ pub trait ChatBackendProvider: Send + Sync {
         false
     }
 
+    /// Whether this backend accepts host-composed instruction through the
+    /// `openSession` systemPrompt context.
+    fn supports_session_config(&self) -> bool {
+        false
+    }
+
     fn watcher_tick(
         &self,
         session_id: &str,
@@ -145,6 +151,8 @@ pub trait ChatBackendProvider: Send + Sync {
             icon_color: self.icon_color().map(|s| s.to_string()),
             available_models: Vec::new(),
             default_model: None,
+            reasoning_efforts: Vec::new(),
+            default_reasoning_effort: None,
             settings_schema: Vec::new(),
             notifications_schema: Vec::new(),
             supports_lazy_skills: false,
@@ -163,7 +171,11 @@ pub trait ChatBackendProvider: Send + Sync {
             transport: ProviderTransport::ChatBackend,
             behavior_config: BehaviorConfig::PresetsAndSystemPrompt,
             presets: Vec::new(),
-            system_prompt_delivery: SystemPromptDelivery::SessionConfig,
+            system_prompt_delivery: if self.supports_session_config() {
+                SystemPromptDelivery::SessionConfig
+            } else {
+                SystemPromptDelivery::External
+            },
         }
     }
 }

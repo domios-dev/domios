@@ -21,7 +21,7 @@ export const PRE_WRAP_CLASS = "whitespace-pre-wrap break-words [overflow-wrap:an
 export const LONG_CODE_PREVIEW_LINES = 300;
 const CODE_PREVIEW_HEAD_LINES = 8;
 const CODE_PREVIEW_TAIL_LINES = 8;
-export const CODE_BLOCK_DEFAULT_MAX_HEIGHT = "16rem";
+export const CODE_BLOCK_DEFAULT_MAX_HEIGHT = "500px";
 export const MERMAID_BLOCK_MAX_HEIGHT = "72rem";
 const CODE_BLOCK_PLAIN_FALLBACK_THRESHOLD = 200_000;
 
@@ -173,23 +173,26 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
   const resolvedLanguage = language !== "text" ? language : inferCodeLanguage(null, displayedText);
   if (forcePlainText) {
     return (
-      <pre
-        className={`${PRE_WRAP_CLASS} m-0 p-3 font-mono text-xs leading-[1.4]`}
-        style={{
-          maxHeight: fullSize ? "100%" : maxHeight,
-          background: "var(--ct-bg)",
-          overflow: "auto",
-          color: "var(--ct-fg)",
-          whiteSpace: "pre-wrap",
-        }}
+      <div
+        className="min-w-0 w-full max-w-full overflow-auto"
+        style={{ maxHeight: fullSize ? "100%" : maxHeight }}
       >
-        {displayedText}
-      </pre>
+        <pre
+          className="m-0 w-max min-w-full whitespace-pre p-3 font-mono text-xs leading-[1.4]"
+          style={{
+            background: "var(--ct-bg)",
+            color: "var(--ct-fg)",
+            whiteSpace: "pre",
+          }}
+        >
+          {displayedText}
+        </pre>
+      </div>
     );
   }
   return (
     <div
-      className={`${SYNTAX_HIGHLIGHT_ROOT_CLASS} overflow-x-auto overflow-y-auto`}
+      className={`${SYNTAX_HIGHLIGHT_ROOT_CLASS} min-w-0 w-full max-w-full overflow-x-auto overflow-y-auto`}
       style={{ maxHeight: fullSize ? "100%" : maxHeight }}
     >
       {suppressMermaidErrorOutput ? null : shouldDisplayMermaid ? (
@@ -243,18 +246,21 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
               fontSize: "0.75rem",
               lineHeight: "1.4",
               background: fullSize ? "var(--ct-bg)" : "var(--ct-bg)",
-              maxWidth: "100%",
-              overflowWrap: "anywhere",
-              wordBreak: "break-word",
+              width: "max-content",
+              minWidth: "100%",
+              maxWidth: "none",
+              whiteSpace: "pre",
+              overflowWrap: "normal",
+              wordBreak: "normal",
             }}
             codeTagProps={{
               style: {
                 fontFamily: "inherit",
-                overflowWrap: "anywhere",
-                wordBreak: "break-word",
+                whiteSpace: "pre",
+                overflowWrap: "normal",
+                wordBreak: "normal",
               },
             }}
-            wrapLongLines
           >
             {displayedText}
           </SyntaxHighlighter>
@@ -685,8 +691,8 @@ export function CodeBlock({
     : undefined;
 
   return (
-    <div ref={blockRef} data-testid="chat-code-block" data-code-language={language}>
-      <div className="overflow-hidden rounded-md border border-[var(--ct-border)]" style={{ background: "var(--ct-bg)" }}>
+    <div ref={blockRef} className="min-w-0 w-full max-w-full" data-testid="chat-code-block" data-code-language={language}>
+      <div className="min-w-0 w-full max-w-full overflow-hidden rounded-md border border-[var(--ct-border)]" style={{ background: "var(--ct-bg)" }}>
         <div className="flex items-center gap-1.5 px-2 py-1.5 text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
           <span className="font-medium" style={{ color: "var(--ct-fg)" }}>Code</span>
           <span className="font-mono opacity-70">{language}</span>

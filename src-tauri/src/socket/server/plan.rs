@@ -6,7 +6,7 @@ use crate::plan::{OrchestratorRef, PlanStatus, PlannerRef};
 use crate::service::plan::adopt::AdoptPlanExt;
 use crate::service::plan::batch::BatchRequest;
 use crate::service::plan::{hints, PlanError};
-use crate::service::ServiceState;
+use crate::service::{FirstPlanTeamError, ServiceState};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 pub(super) fn plan_rpc_err(e: PlanError) -> JsonRpcError {
@@ -39,6 +39,9 @@ pub(super) fn dispatch(
     }
     if method.starts_with("plan.qa.") {
         return super::plan_qa::dispatch(method, params, app, svc);
+    }
+    if method.starts_with("plan.review.") {
+        return super::plan_review::dispatch(method, params, app, svc);
     }
     if method.starts_with("plan.decision.") {
         return super::plan_gates::dispatch(method, params, app, svc);
@@ -125,15 +128,25 @@ pub(super) fn dispatch(
                 .and_then(|v| v.as_str())
                 .filter(|s| !s.trim().is_empty())
                 .map(str::to_string);
-            let plan = if let Some(spec_id) = from_spec.clone() {
-                store
-                    .create_plan_from_spec(&spec_id, title, owner_from_params(body), kinds, now)
-                    .map_err(plan_rpc_err)?
-            } else {
-                store
-                    .create_plan(title, project, owner_from_params(body), kinds, now)
-                    .map_err(plan_rpc_err)?
-            };
+            let owner = owner_from_params(body);
+            let outcome = svc
+                .create_first_plan_for_orchestrator(
+                    title,
+                    project,
+                    owner,
+                    kinds,
+                    from_spec.clone(),
+                    now,
+                )
+                .map_err(|error| match error {
+                    FirstPlanTeamError::Plan(error) => plan_rpc_err(error),
+                    FirstPlanTeamError::Team(message) => JsonRpcError {
+                        code: -32602,
+                        message,
+                        data: None,
+                    },
+                })?;
+            let plan = outcome.plan.clone();
             let plan_id = plan.id.clone();
             let _ = svc.bind_pending_paired_planner(&plan_id, &plan.owner, now);
             let empty_sections = plan.sections.is_empty();
@@ -145,6 +158,7 @@ pub(super) fn dispatch(
             if empty_sections {
                 response["_hints"] = json!([hints::plan_sections_hint(&plan_id)]);
             }
+            outcome.apply_to_response(&mut response);
             emit_plan_changed(app, &plan_id);
             Ok(response)
         }
@@ -197,6 +211,8 @@ pub(super) fn dispatch(
         }
 
         "plan.list" => {
+            svc.validate_active_team_plan_bindings()
+                .map_err(super::team::team_plan_rpc_err)?;
             let want =
                 if let Some(project) = p.and_then(|x| x.get("project")).and_then(|v| v.as_str()) {
                     Some(
@@ -263,7 +279,7 @@ pub(super) fn dispatch(
             Ok(json!({ "ok": true, "plan_id": id }))
         }
         "plan.archive" => super::plan_archive::archive(store, svc, app, params, now),
-        "plan.unarchive" => super::plan_archive::unarchive(store, app, params, now),
+        "plan.unarchive" => super::plan_archive::unarchive(store, svc, params, now),
         "plan.delete" => {
             let id = plan_refs::resolve_plan(store, params)?;
             store.delete(&id).map_err(|e| JsonRpcError {
@@ -289,14 +305,9 @@ pub(super) fn dispatch(
                 .and_then(|x| x.get("reason"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            let new_owner_pane = to.pane_id.clone();
-            store.transfer(&id, to, reason, now).map_err(plan_rpc_err)?;
-            // Relink AFTER transfer returns — mux is only reachable here, never
-            // under the plan lock (lock ordering: mux is acquired first).
-            if let Some(pane) = new_owner_pane {
-                svc.relink_plan_hierarchy(&id, &pane);
-            }
-            emit_plan_changed(app, &id);
+            let caller = transfer_caller(params)?;
+            svc.transfer_team_plan(&id, to, reason, caller, now)
+                .map_err(super::team::team_plan_rpc_err)?;
             Ok(json!({ "ok": true, "plan_id": id }))
         }
 
@@ -459,7 +470,15 @@ pub(super) fn dispatch(
         "plan.state" => {
             let id = plan_refs::resolve_plan(store, params)?;
             let snapshot = svc.build_plan_state(&id, now).map_err(plan_rpc_err)?;
-            Ok(serde_json::to_value(snapshot).unwrap_or_default())
+            let mut value = serde_json::to_value(snapshot).unwrap_or_default();
+            let pane_id = store
+                .get(&id)
+                .and_then(|plan| plan.owner.pane_id)
+                .unwrap_or_default();
+            value["reminder"] =
+                serde_json::to_value(svc.plan_turn_counter.time_reminder_telemetry(&pane_id))
+                    .unwrap_or_default();
+            Ok(value)
         }
 
         "plan.next" => {
@@ -552,6 +571,20 @@ pub(super) fn dispatch(
             data: None,
         }),
     }
+}
+
+fn transfer_caller(params: &Option<Value>) -> Result<String, JsonRpcError> {
+    params
+        .as_ref()
+        .and_then(|value| value.get("caller_pane_id"))
+        .and_then(|value| value.as_str())
+        .filter(|pane_id| !pane_id.trim().is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| JsonRpcError {
+            code: -32602,
+            message: "caller_pane_id is required for plan transfer".into(),
+            data: None,
+        })
 }
 
 #[cfg(test)]

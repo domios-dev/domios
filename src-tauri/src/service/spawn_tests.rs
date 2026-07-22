@@ -61,7 +61,9 @@ pub fn spawn_params(provider: &str) -> SpawnAgentParams {
         agent_name: None,
         args: None,
         cwd: None,
+        provisioned_cwd: None,
         title: None,
+        title_provenance: None,
         description: None,
         role: None,
         role_profile: None,
@@ -69,6 +71,7 @@ pub fn spawn_params(provider: &str) -> SpawnAgentParams {
         plan_id: None,
         can_spawn: None,
         task: None,
+        starter_prompt: Default::default(),
         task_id: None,
         plan_task: None,
         allow_shared_checkout: None,
@@ -81,6 +84,8 @@ pub fn spawn_params(provider: &str) -> SpawnAgentParams {
         skip_permissions: None,
         spawned_by_pane_id: None,
         model: None,
+        planned_model: None,
+        reasoning_effort: None,
         system_prompt: None,
         preset: None,
         resume_session_id: None,
@@ -89,6 +94,7 @@ pub fn spawn_params(provider: &str) -> SpawnAgentParams {
         nudge_cooldown_secs: None,
         max_actions_per_tick: None,
         activate: None,
+        manager_bootstrap: None,
         structured_prompt_server: None,
     }
 }
@@ -371,25 +377,143 @@ fn fresh_agent_model_reports_fallback_notice() {
         &["model-a", "model-b"],
     ));
 
-    let resolved = resolve_fresh_agent_model_with_notice(
+    let mut resolved = resolve_fresh_agent_model_with_notice(
         &registry,
         "model-test-fallback-notice",
         Some("stale".into()),
         None,
     );
+    attach_planned_model(&mut resolved, Some("codex/model-planned"));
 
     assert_eq!(resolved.model.as_deref(), Some("model-a"));
+    assert_eq!(resolved.requested_model.as_deref(), Some("stale"));
     assert_eq!(
         resolved.fallback_notice,
         Some(ModelFallbackNotice {
-            requested: "stale".into(),
-            using: "model-a".into(),
+            planned_model: Some("codex/model-planned".into()),
+            requested_model: "stale".into(),
+            provider_resolved_model: "model-a".into(),
+            actual_model: None,
+            reason: "requested_model_unavailable".into(),
         })
     );
     assert_eq!(
         model_fallback_notice_title(&resolved.fallback_notice.unwrap()),
         "model stale unavailable -> using model-a"
     );
+}
+
+#[test]
+fn background_model_ignores_a_model_from_another_provider() {
+    let provider_id = "background-model-test";
+    crate::agent::model_catalog::register(
+        provider_id,
+        crate::agent::model_catalog::RegisteredDefaults {
+            models: vec![crate::agent::provider::ModelInfo {
+                id: "model-a".into(),
+                display_name: "Model A".into(),
+                description: None,
+                available: Some(true),
+            }],
+            default: Some("model-a".into()),
+        },
+    );
+    assert_eq!(compatible_background_model(provider_id, "haiku"), None);
+    assert_eq!(
+        compatible_background_model(provider_id, "model-a").as_deref(),
+        Some("model-a")
+    );
+}
+
+/// Per-provider resolution for all four worker-capable providers, using
+/// model ids mirroring their real plugin/native catalogs (`plugins/provider-
+/// {codex,cursor,opencode}/plugin.json`, and the claude short-alias set).
+/// Guards `CatalogBackgroundModelPort` (and therefore every memory
+/// background-worker call site that now shares it) against a regression that
+/// would let one provider's model id leak into another's launch args.
+#[test]
+fn background_model_resolves_correctly_for_every_installed_provider() {
+    use crate::agent::model_catalog::{register, RegisteredDefaults};
+    use crate::agent::provider::ModelInfo;
+    use codeterm_mem::worker_agent::BackgroundModelPort;
+
+    fn model(id: &str) -> ModelInfo {
+        ModelInfo {
+            id: id.into(),
+            display_name: id.into(),
+            description: None,
+            available: Some(true),
+        }
+    }
+
+    register(
+        "claude-provider-test",
+        RegisteredDefaults {
+            models: vec![model("opus"), model("sonnet"), model("haiku")],
+            default: Some("sonnet".into()),
+        },
+    );
+    register(
+        "codex-provider-test",
+        RegisteredDefaults {
+            models: vec![model("gpt-5.5"), model("gpt-5.4-mini")],
+            default: Some("gpt-5.5".into()),
+        },
+    );
+    register(
+        "cursor-provider-test",
+        RegisteredDefaults {
+            models: vec![
+                model("auto"),
+                model("composer-2.5"),
+                model("claude-4.6-sonnet-medium"),
+            ],
+            default: Some("auto".into()),
+        },
+    );
+    register(
+        "opencode-provider-test",
+        RegisteredDefaults {
+            models: vec![
+                model("anthropic/claude-opus-4-8"),
+                model("anthropic/claude-sonnet-4-6"),
+            ],
+            default: Some("anthropic/claude-opus-4-8".into()),
+        },
+    );
+
+    let cases: &[(&str, &str, &str)] = &[
+        ("claude-provider-test", "opus", "opus"),
+        ("codex-provider-test", "gpt-5.4-mini", "gpt-5.4-mini"),
+        ("cursor-provider-test", "composer-2.5", "composer-2.5"),
+        (
+            "opencode-provider-test",
+            "anthropic/claude-sonnet-4-6",
+            "anthropic/claude-sonnet-4-6",
+        ),
+    ];
+    for (provider_id, requested, expected) in cases {
+        assert_eq!(
+            compatible_background_model(provider_id, requested).as_deref(),
+            Some(*expected),
+            "provider {provider_id} should accept its own model {requested}"
+        );
+        let (resolved, fell_back) = CatalogBackgroundModelPort.resolve(provider_id, requested);
+        assert_eq!(resolved, *expected);
+        assert!(!fell_back);
+    }
+
+    // Cross-provider: codex's model id must not resolve against cursor's
+    // catalog (and vice versa) — proves no provider-id branching papers over
+    // an actual catalog mismatch.
+    assert_eq!(
+        compatible_background_model("cursor-provider-test", "gpt-5.5"),
+        None
+    );
+    let (resolved, fell_back) =
+        CatalogBackgroundModelPort.resolve("cursor-provider-test", "gpt-5.5");
+    assert_eq!(resolved, "");
+    assert!(fell_back);
 }
 
 #[test]
@@ -440,6 +564,7 @@ fn agent_spec_roundtrips_json() {
         visibility: PaneVisibility::Hidden,
         command: PaneCommand::Agent(AgentSpawnSpec {
             provider: "claude".into(),
+            planned_model: None,
             model: Some("opus".into()),
             task: Some("hello".into()),
             role: Some("Worker".into()),
@@ -473,7 +598,9 @@ fn from_agent_params_carries_model_into_spec() {
         agent_name: None,
         args: None,
         cwd: None,
+        provisioned_cwd: None,
         title: None,
+        title_provenance: None,
         description: Some("triage failing snapshot".into()),
         role: None,
         role_profile: None,
@@ -481,6 +608,7 @@ fn from_agent_params_carries_model_into_spec() {
         plan_id: None,
         can_spawn: None,
         task: None,
+        starter_prompt: Default::default(),
         task_id: None,
         plan_task: None,
         allow_shared_checkout: None,
@@ -493,6 +621,8 @@ fn from_agent_params_carries_model_into_spec() {
         skip_permissions: None,
         spawned_by_pane_id: None,
         model: Some("gpt-5.4-mini".into()),
+        planned_model: None,
+        reasoning_effort: None,
         system_prompt: None,
         preset: None,
         resume_session_id: None,
@@ -501,6 +631,7 @@ fn from_agent_params_carries_model_into_spec() {
         nudge_cooldown_secs: None,
         max_actions_per_tick: None,
         activate: None,
+        manager_bootstrap: None,
         structured_prompt_server: None,
     };
     let spec = SpawnPaneSpec::from_agent_params(params);
@@ -584,7 +715,9 @@ fn from_agent_params_preserves_can_spawn_option() {
         agent_name: None,
         args: None,
         cwd: None,
+        provisioned_cwd: None,
         title: None,
+        title_provenance: None,
         description: None,
         role: Some("Orchestrator".into()),
         role_profile: None,
@@ -592,6 +725,7 @@ fn from_agent_params_preserves_can_spawn_option() {
         plan_id: None,
         can_spawn: None,
         task: None,
+        starter_prompt: Default::default(),
         task_id: None,
         plan_task: None,
         allow_shared_checkout: None,
@@ -604,6 +738,8 @@ fn from_agent_params_preserves_can_spawn_option() {
         skip_permissions: None,
         spawned_by_pane_id: None,
         model: None,
+        planned_model: None,
+        reasoning_effort: None,
         system_prompt: None,
         preset: None,
         resume_session_id: None,
@@ -612,6 +748,7 @@ fn from_agent_params_preserves_can_spawn_option() {
         nudge_cooldown_secs: None,
         max_actions_per_tick: None,
         activate: None,
+        manager_bootstrap: None,
         structured_prompt_server: None,
     };
     let spec = SpawnPaneSpec::from_agent_params(p.clone());
@@ -637,7 +774,9 @@ fn from_agent_params_carries_activate_into_spec() {
         agent_name: None,
         args: None,
         cwd: None,
+        provisioned_cwd: None,
         title: None,
+        title_provenance: None,
         description: None,
         role: None,
         role_profile: None,
@@ -645,6 +784,7 @@ fn from_agent_params_carries_activate_into_spec() {
         plan_id: None,
         can_spawn: None,
         task: None,
+        starter_prompt: Default::default(),
         task_id: None,
         plan_task: None,
         allow_shared_checkout: None,
@@ -657,6 +797,8 @@ fn from_agent_params_carries_activate_into_spec() {
         skip_permissions: None,
         spawned_by_pane_id: None,
         model: None,
+        planned_model: None,
+        reasoning_effort: None,
         system_prompt: None,
         preset: None,
         resume_session_id: None,
@@ -665,6 +807,7 @@ fn from_agent_params_carries_activate_into_spec() {
         nudge_cooldown_secs: None,
         max_actions_per_tick: None,
         activate: Some(true),
+        manager_bootstrap: None,
         structured_prompt_server: None,
     };
     let spec = SpawnPaneSpec::from_agent_params(p.clone());

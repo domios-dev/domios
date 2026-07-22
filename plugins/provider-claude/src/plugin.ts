@@ -1,7 +1,7 @@
 // plugin.js by scripts/build-plugin.mjs. Frontend contract lives in src/index.ts.
 import type { LaunchParams, ParsedPrompt, PluginModule } from "@codeterm/plugin-sdk";
 import { manifest } from "./shared";
-import { usageNormalize, usageParseBlock } from "./usage";
+import { usageBlockIsComplete, usageNormalize, usageParseBlock } from "./usage";
 import {
   ClaudeEntry,
   claudeSessionFilePath,
@@ -53,6 +53,19 @@ const NOISE_FRAGMENTS = [
   "hold Space",
 ];
 
+const FILE_TASK_PROMPT =
+  "Execute the CodeTerm task provided in the appended system prompt. Follow its reporting instructions exactly.";
+const IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
+
+function starterPrompt(prompt: LaunchParams["starterPrompt"], hostText?: string): string {
+  if (prompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
+  if (prompt === "team_bootstrap") {
+    if (!hostText) throw new Error("team_bootstrap requires host starterPromptText");
+    return hostText;
+  }
+  return FILE_TASK_PROMPT;
+}
+
 function xmlTagBody(content: string, tag: string): string | null {
   const open = `<${tag}>`;
   const close = `</${tag}>`;
@@ -94,6 +107,19 @@ const TUI_FRAGMENTS = [
 const SESSION_EXPLICIT_RE = /session(?:\s+id)?\s*[:=]\s*([a-z]+-[a-z]+-\d{2,6})\b/i;
 const SESSION_BARE_RE = /(?:^|\n)\s*([a-z]{4,10}-[a-z]{4,10}-\d{4})\s*(?:$|\n)/m;
 
+function sessionProjectPath(head: string): string | null {
+  const lines = String(head || "").split("\n", 64);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]?.trim();
+    if (!line) continue;
+    try {
+      const entry = JSON.parse(line) as { cwd?: unknown };
+      if (typeof entry.cwd === "string" && entry.cwd.trim()) return entry.cwd;
+    } catch {}
+  }
+  return null;
+}
+
 function isBrailleSpinner(ch: string): boolean {
   if (!ch) return false;
   const code = ch.charCodeAt(0);
@@ -102,6 +128,9 @@ function isBrailleSpinner(ch: string): boolean {
 
 
 const plugin: PluginModule = {
+  starterPromptText(prompt: "assigned_task" | "idle_wakeup" | "team_bootstrap"): string | undefined {
+    return prompt === "team_bootstrap" ? undefined : starterPrompt(prompt);
+  },
   detectFromTitle(title: string): boolean {
     const t = String(title || "");
     if (TITLE_RE.test(t)) return true;
@@ -170,6 +199,11 @@ const plugin: PluginModule = {
     return null;
   },
 
+  describeSession(_filePath: string, head?: string) {
+    const projectPath = sessionProjectPath(head ?? "");
+    return projectPath ? { projectPath } : null;
+  },
+
   detectEvents(text: string): string[] {
     const t = String(text || "");
     const events: string[] = [];
@@ -206,6 +240,15 @@ const plugin: PluginModule = {
     return buildClaudePromptResponse(optionIndex, String(screen || ""));
   },
 
+  directoryTrustPromptResponse(prompt: ParsedPrompt, screen?: string): string[] | null {
+    const question = String(prompt.question || "").toLowerCase();
+    const first = prompt.options[0];
+    const firstLabel = Array.isArray(first) ? first[0] : (first as unknown as { label?: string }).label;
+    const isTrustGate = question.includes("trust") && question.includes("project");
+    if (!isTrustGate || !firstLabel || !/^yes\b.*trust/i.test(firstLabel)) return null;
+    return buildClaudePromptResponse(0, String(screen || ""));
+  },
+
   // Launch command parity for native behavior across OS-specific execution modes.
   buildLaunchCommand(params: LaunchParams): string {
     const p = params || {};
@@ -233,13 +276,13 @@ const plugin: PluginModule = {
       // Quote each caller-supplied arg — it reaches a shell (a mesh peer could inject `; cmd`).
       for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }
-    // Prompt is a positional after `--`: a task may start with the -=-codeterm:...-=- marker, which commander would reject as an option.
+    // Keep large worker prompts out of shell parsing and argv on every platform.
     if (p.task) {
       const visiblePath = writeTaskTempFile(p.task);
+      parts.push("--append-system-prompt-file");
+      parts.push(host.shell.quoteFor(String(visiblePath), host.platform()));
       parts.push("--");
-      parts.push(win
-        ? "\"$(Get-Content '" + visiblePath + "' -Raw -Encoding UTF8)\""
-        : "\"$(cat " + visiblePath + ")\"");
+      parts.push(host.shell.quoteFor(starterPrompt(p.starterPrompt, p.starterPromptText), host.platform()));
     }
     return parts.join(" ");
   },
@@ -298,6 +341,7 @@ const plugin: PluginModule = {
     const weekly = usageParseBlock(text, "Current week\\s*\\(\\s*all\\s*models\\s*\\)", true, nowMs);
 
     if (session.pct === null && weekly.pct === null) return null;
+    if (!usageBlockIsComplete(session) || !usageBlockIsComplete(weekly)) return null;
     return {
       provider: "claude",
       account_id: null,
@@ -433,6 +477,16 @@ const plugin: PluginModule = {
               if (Object.prototype.hasOwnProperty.call(b, k) && k !== "type") {
                 data[k] = (b as Record<string, unknown>)[k];
               }
+            }
+            if (b.type === "tool_use") {
+              const canonical = canonicalToolFields(
+                typeof data.name === "string" ? data.name : "",
+                data.input,
+              );
+              data.tool_kind = canonical.kind;
+              data.tool_summary = canonical.summary;
+              data.tool_detail = canonical.detail;
+              data.tool_edits = canonical.edits;
             }
             blocks.push({ kind: b.type, data: data });
           }
@@ -672,6 +726,66 @@ const plugin: PluginModule = {
     return classifyClaudePaneState(snapshot);
   },
 };
+
+interface CanonicalToolFields {
+  kind: string;
+  summary: string;
+  detail: string;
+  edits: Array<{ path: string; old: string; new: string }>;
+}
+
+function canonicalToolFields(name: string, input: unknown): CanonicalToolFields {
+  const tool = name.trim();
+  const value = input && typeof input === "object" && !Array.isArray(input)
+    ? input as Record<string, unknown>
+    : {};
+  const text = (key: string): string => typeof value[key] === "string" ? value[key] as string : "";
+  const command = text("command");
+  const path = text("file_path") || text("filePath") || text("path");
+  const pattern = text("pattern");
+  const edits = extractCanonicalEdits(value);
+  const lower = tool.toLowerCase();
+  if (lower === "bash" || lower === "shell" || lower === "exec") {
+    return { kind: "command", summary: cleanToolText(command, "Command"), detail: command, edits: [] };
+  }
+  if (lower === "edit" || lower === "multiedit" || lower === "write") {
+    return { kind: "edit", summary: path || "File edit", detail: path, edits: edits };
+  }
+  if (lower === "read") {
+    return { kind: "read", summary: path || "Read file", detail: path, edits: [] };
+  }
+  if (lower === "glob" || lower === "grep" || lower === "search") {
+    return { kind: "search", summary: cleanToolText(pattern || path, "Search"), detail: pattern || path, edits: [] };
+  }
+  return {
+    kind: "generic",
+    summary: cleanToolText(tool, "Tool"),
+    detail: tool,
+    edits: edits,
+  };
+}
+
+function extractCanonicalEdits(input: Record<string, unknown>): Array<{ path: string; old: string; new: string }> {
+  const parentPath = typeof input.file_path === "string" ? input.file_path : typeof input.filePath === "string" ? input.filePath : typeof input.path === "string" ? input.path : "";
+  const pair = (value: unknown, fallbackPath: string): { path: string; old: string; new: string } | null => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const item = value as Record<string, unknown>;
+    const oldValue = typeof item.old_string === "string" ? item.old_string : item.oldString;
+    const newValue = typeof item.new_string === "string" ? item.new_string : item.newString;
+    if (typeof oldValue !== "string" && typeof newValue !== "string") return null;
+    const path = typeof item.file_path === "string" ? item.file_path : typeof item.filePath === "string" ? item.filePath : typeof item.path === "string" ? item.path : fallbackPath;
+    return { path: path, old: typeof oldValue === "string" ? oldValue : "", new: typeof newValue === "string" ? newValue : "" };
+  };
+  if (Array.isArray(input.edits)) return input.edits.map((edit) => pair(edit, parentPath)).filter((e): e is { path: string; old: string; new: string } => e !== null);
+  const single = pair(input, parentPath);
+  return single ? [single] : [];
+}
+
+function cleanToolText(value: string, fallback: string): string {
+  const text = String(value || "").replace(/[\r\n\t]+/g, " ").trim();
+  if (!text) return fallback;
+  return text.length > 120 ? text.slice(0, 117) + "..." : text;
+}
 
 // Task-file helpers: write to host temp files with provider-specific suffixes.
 // Windows adds a UTF-8 BOM so PowerShell parses task bodies correctly.

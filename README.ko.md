@@ -61,7 +61,7 @@ CodeTerm은 AI 지원 개발을 위해 처음부터 설계된 크로스 플랫�
 - **권한 알림** — Claude Code 권한 요청을 데스크톱 알림으로 표시
 - **웹훅 시스템** — 에이전트 이벤트(권한 요청, 작업 완료)에 대한 웹훅 등록
 - **프로그래밍 제어** — 에이전트가 API를 통해 패널 생성, 명령 실행, 출력 읽기 가능
-- **에이전트 재시작** — `codeterm agent restart --pane ID`로 모든 패널에서 정상적인 `/exit` + 자동 재개를 실행 (`--force`로 멈춘 에이전트 강제 종료); 자동 업데이트와 동일한 메커니즘 재사용
+- **에이전트 재시작** — `codeterm agent restart --tab ID`로 모든 탭에서 정상적인 `/exit` + 자동 재개를 실행 (`--force`로 멈춘 에이전트 강제 종료); 자동 업데이트와 동일한 메커니즘 재사용
 
 ### 완전한 API
 - **REST API** — 터미널 전체 제어를 위한 30개 이상의 엔드포인트 (포트 7685)
@@ -204,8 +204,8 @@ codeterm workspace list
 codeterm workspace create "Project"
 
 # 터미널 제어
-codeterm pane list
-codeterm send --pane PANE_ID "npm run build"
+codeterm tab list
+codeterm send --tab TAB_ID "npm run build"
 codeterm get-output PANE_ID --lines 50
 
 # 알림
@@ -264,7 +264,7 @@ port = 7685
 │                  CodeTerm                    │
 │  ┌──────────┐  ┌──────────┐  ┌───────────┐  │
 │  │ React UI │  │ xterm.js │  │  Browser   │  │
-│  │ Sidebar  │  │ Terminal │  │   Panes    │  │
+│  │ Sidebar  │  │ Terminal │  │    Tabs    │  │
 │  └────┬─────┘  └────┬─────┘  └─────┬─────┘  │
 │       │              │              │        │
 │  ┌────┴──────────────┴──────────────┴────┐   │

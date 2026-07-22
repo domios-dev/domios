@@ -14,15 +14,22 @@ export function usageNormalize(raw: string): string {
 
 interface UsageBlock { pct: number | null; resetsMs: number | null }
 
+export function usageBlockIsComplete(block: UsageBlock): boolean {
+  return block.pct === null || block.resetsMs !== null;
+}
+
 export function usageParseBlock(text: string, marker: string, isWeekly: boolean, nowMs: number): UsageBlock {
-  const re = new RegExp(
-    marker + "[\\s\\S]{0,800}?(\\d+(?:\\.\\d+)?)\\s*%\\s*used[\\s\\S]*?Resets?\\s*([^()\\n]+?)\\s*\\(",
-  );
-  const caps = re.exec(text);
-  if (!caps) return { pct: null, resetsMs: null };
-  let pct: number | null = parseFloat(caps[1]);
+  const markerMatch = new RegExp(marker).exec(text);
+  if (!markerMatch) return { pct: null, resetsMs: null };
+  const tail = text.slice(markerMatch.index + markerMatch[0].length, markerMatch.index + markerMatch[0].length + 800);
+  const nextBlock = /\n\s*Current\s+/i.exec(tail);
+  const block = nextBlock ? tail.slice(0, nextBlock.index) : tail;
+  const pctCaps = /(\d+(?:\.\d+)?)\s*%\s*used/.exec(block);
+  if (!pctCaps) return { pct: null, resetsMs: null };
+  let pct: number | null = parseFloat(pctCaps[1]);
   if (isNaN(pct)) pct = null;
-  const timeRaw = (caps[2] || "").trim();
+  const resetCaps = /Resets?\s*([^()\n]+?)\s*\(/.exec(block);
+  const timeRaw = (resetCaps?.[1] || "").trim();
   const resetsMs = isWeekly
     ? usageParseWeeklyReset(timeRaw, nowMs)
     : usageParseTodayClock(timeRaw, nowMs);

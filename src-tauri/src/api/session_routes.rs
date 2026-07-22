@@ -207,11 +207,13 @@ pub async fn resume_session_api(
         agent_name: None,
         args: None,
         cwd: Some(cwd.clone()),
+        provisioned_cwd: None,
         title: body.title.or_else(|| {
             meta.title
                 .clone()
                 .or_else(|| Some(format!("resumed {}", &meta.session_id[..8])))
         }),
+        title_provenance: Some(crate::service::SpawnIdentityProvenance::UserSupplied),
         description: None,
         role: None,
         role_profile: None,
@@ -219,6 +221,7 @@ pub async fn resume_session_api(
         plan_id: None,
         can_spawn: None,
         task: None,
+        starter_prompt: Default::default(),
         task_id: None,
         plan_task: None,
         allow_shared_checkout: None,
@@ -231,6 +234,8 @@ pub async fn resume_session_api(
         skip_permissions: Some(true),
         spawned_by_pane_id: None,
         model: body.model.clone(),
+        planned_model: None,
+        reasoning_effort: None,
         system_prompt: None,
         preset: None,
         resume_session_id: Some(meta.session_id.clone()),
@@ -239,6 +244,7 @@ pub async fn resume_session_api(
         nudge_cooldown_secs: None,
         max_actions_per_tick: None,
         activate: None,
+        manager_bootstrap: None,
         structured_prompt_server: None,
     };
     let spawned = state

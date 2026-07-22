@@ -77,6 +77,10 @@ fn vector_indexing_available(_db: &Path) -> bool {
 }
 
 fn hold_plan_index_lock(root: &Path) -> std::thread::JoinHandle<()> {
+    // Drain any index jobs the test's own setup (create_plan/add_task) already
+    // enqueued, so this simulated external locker never races the shared
+    // IndexQueue's background writers for BEGIN IMMEDIATE on the same db.
+    flush_index_queue_for_test(root);
     let project = super::super::paths::project_root(root);
     let (ready_tx, ready_rx) = mpsc::channel();
     let locker = std::thread::spawn(move || {
@@ -128,9 +132,20 @@ fn mirrors_plan_units_into_project_local_mem_db() {
         )
         .unwrap();
 
+    flush_index_queue_for_test(root.path());
+
     let db = project_index_path(&super::super::paths::project_root(root.path()));
     assert!(db.exists());
-    assert!(db.starts_with(super::super::test_support::test_data_dir().join("plan-indexes")));
+    let expected_index_root = root
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join(".codeterm/test-plan-index");
+    assert!(
+        db.starts_with(&expected_index_root),
+        "index path {db:?} escaped test root {:?}",
+        root.path()
+    );
     assert!(!root.path().join(".codeterm/plan-index.sqlite").exists());
     let conn = rusqlite::Connection::open(&db).unwrap();
     let fts_count: i64 = conn
@@ -143,16 +158,16 @@ fn mirrors_plan_units_into_project_local_mem_db() {
             "expected vectors for task unit when embeddings are available"
         );
     }
-    let hits = store
-        .search_plan_index(
-            root.path(),
-            &PlanIndexQuery {
-                query: "plan button soft-lock".into(),
-                scope: None,
-                limit: Some(5),
-            },
-        )
-        .unwrap();
+    let hits = search_project(
+        root.path(),
+        &PlanIndexQuery {
+            query: "plan button soft-lock".into(),
+            scope: None,
+            limit: Some(5),
+        },
+        PlanSearchStatus::Active,
+    )
+    .unwrap();
     assert!(!hits.is_empty());
     let task_hit = hits
         .iter()
@@ -168,6 +183,191 @@ fn mirrors_plan_units_into_project_local_mem_db() {
     let encoded = serde_json::to_value(task_hit).unwrap();
     assert_eq!(encoded["updated_at"], serde_json::json!(3));
     assert!(encoded["age_ms"].as_u64().is_some());
+}
+
+#[test]
+fn changing_one_task_reembeds_only_that_task_unit() {
+    let (root, store) = store_and_root();
+    let plan = store
+        .create_plan(
+            "Incremental index".into(),
+            root.path().display().to_string(),
+            OrchestratorRef::default(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Only this task changes".into(),
+                kind: "fix".into(),
+                body: "initial task body".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    flush_index_queue_for_test(root.path());
+
+    let mut changed_plan = store.get(&plan.id).unwrap();
+    let task = changed_plan
+        .tasks
+        .iter_mut()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    task.body = "changed task body".into();
+    task.updated_at = 3;
+    changed_plan.updated_at = 3;
+
+    let changed = replace_units_once(
+        root.path(),
+        &format!("planunit_{}_%", changed_plan.id),
+        &plan_units(&changed_plan, &project_scope(root.path())),
+        false,
+    )
+    .unwrap();
+
+    assert_eq!(
+        changed
+            .iter()
+            .map(|unit| unit.id.as_str())
+            .collect::<Vec<_>>(),
+        vec![format!("planunit_{}_task_{task_id}", changed_plan.id)]
+    );
+}
+
+#[test]
+fn changing_one_section_reembeds_only_that_section_unit() {
+    let (root, store) = store_and_root();
+    let plan = store
+        .create_plan(
+            "Incremental sections".into(),
+            root.path().display().to_string(),
+            OrchestratorRef::default(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let section_id = store
+        .add_section(
+            &plan.id,
+            "One section",
+            "initial section body",
+            None,
+            &[],
+            None,
+            None,
+            2,
+        )
+        .unwrap();
+    flush_index_queue_for_test(root.path());
+
+    let mut changed_plan = store.get(&plan.id).unwrap();
+    changed_plan.sections[0].body = "changed section body".into();
+    changed_plan.updated_at = 3;
+
+    let changed = replace_units_once(
+        root.path(),
+        &format!("planunit_{}_%", changed_plan.id),
+        &plan_units(&changed_plan, &project_scope(root.path())),
+        false,
+    )
+    .unwrap();
+
+    assert_eq!(
+        changed
+            .iter()
+            .map(|unit| unit.id.as_str())
+            .collect::<Vec<_>>(),
+        vec![format!(
+            "planunit_{}_plan_section_{section_id}",
+            changed_plan.id
+        )]
+    );
+}
+
+#[test]
+fn changing_one_spec_section_reembeds_only_that_spec_section_unit() {
+    let (root, store) = store_and_root();
+    let spec = store
+        .create_spec(
+            "Incremental spec".into(),
+            root.path().display().to_string(),
+            1,
+        )
+        .unwrap();
+    let section_id = store
+        .add_spec_section(
+            &spec.id,
+            "One spec section",
+            "initial spec body",
+            None,
+            &[],
+            None,
+            None,
+            2,
+        )
+        .unwrap();
+    flush_index_queue_for_test(root.path());
+
+    let mut changed_spec = store.get_spec(&spec.id).unwrap();
+    changed_spec.sections[0].body = "changed spec body".into();
+    changed_spec.updated_at = 3;
+
+    let changed = replace_units_once(
+        root.path(),
+        &format!("planunit_{}_%", changed_spec.id),
+        &spec_units(&changed_spec, &project_scope(root.path())),
+        false,
+    )
+    .unwrap();
+
+    assert_eq!(
+        changed
+            .iter()
+            .map(|unit| unit.id.as_str())
+            .collect::<Vec<_>>(),
+        vec![format!(
+            "planunit_{}_spec_section_{section_id}",
+            changed_spec.id
+        )]
+    );
+}
+
+#[test]
+fn index_queue_keeps_only_the_latest_snapshot_per_document() {
+    let queue = IndexQueue {
+        state: Mutex::new(IndexQueueState::default()),
+        ready: Condvar::new(),
+    };
+    let mut first = crate::plan::Plan::new(
+        "First title".into(),
+        "project".into(),
+        OrchestratorRef::default(),
+    );
+    first.id = "pl_queue".into();
+    let mut latest = first.clone();
+    latest.title = "Latest title".into();
+
+    queue.enqueue(IndexJob::Plan(first));
+    queue.enqueue(IndexJob::Plan(latest));
+
+    let state = queue.state.lock();
+    assert_eq!(state.order.len(), 1);
+    assert_eq!(state.latest.len(), 1);
+    let IndexJob::Plan(snapshot) = state
+        .latest
+        .get(&format!(
+            "{}:plan:pl_queue",
+            project_scope(Path::new("project"))
+        ))
+        .unwrap()
+    else {
+        panic!("expected a plan snapshot");
+    };
+    assert_eq!(snapshot.title, "Latest title");
 }
 
 #[test]
@@ -634,8 +834,10 @@ fn task_drop_readback_clears_assignment_role_and_peer() {
 
 #[test]
 fn linked_worktree_uses_main_project_for_listing_search_and_index_scope() {
-    let (_tmp, main, linked) = git_worktree_pair();
-    let store = PlanStore::new_for_test(Path::new("/unused"));
+    let (tmp, main, linked) = git_worktree_pair();
+    let store_root = tmp.path().join("store");
+    std::fs::create_dir(&store_root).unwrap();
+    let store = PlanStore::new_for_test(&store_root);
     let main_root = super::super::paths::project_root(&main);
     let linked_root = super::super::paths::project_root(&linked);
 
@@ -668,10 +870,12 @@ fn linked_worktree_uses_main_project_for_listing_search_and_index_scope() {
 
     let loaded = store.get(&plan.id).unwrap();
     assert_eq!(loaded.project_path, main_root.display().to_string());
-    assert!(main_root
+    assert!(store.database_path_for_test().exists());
+    assert!(!main_root
         .join(format!(".codeterm/plans/active/{}/plan.yaml", plan.id))
         .exists());
     assert!(!linked.join(".codeterm/plans").exists());
+    flush_index_queue_for_test(&main_root);
 
     let tasks = store.list_tasks(TaskListFilter {
         project_path: Some(linked.display().to_string()),
@@ -739,6 +943,7 @@ fn reindex_removes_deleted_units_and_old_text() {
             2,
         )
         .unwrap();
+    flush_index_queue_for_test(root.path());
     assert!(!store
         .search_plan_index(
             root.path(),
@@ -759,6 +964,7 @@ fn reindex_removes_deleted_units_and_old_text() {
     }
 
     store.rm_task(&plan.id, &task_id, 3).unwrap();
+    flush_index_queue_for_test(root.path());
     let hits = store
         .search_plan_index(
             root.path(),
@@ -830,6 +1036,7 @@ fn explicit_reindex_backfills_multiple_plans_for_project_search() {
         .unwrap();
 
     let scope = project_scope(root.path());
+    flush_index_queue_for_test(root.path());
     delete_units_by_scope(root.path(), &scope).unwrap();
     assert!(store
         .search_plan_index(
@@ -844,6 +1051,7 @@ fn explicit_reindex_backfills_multiple_plans_for_project_search() {
         .is_empty());
 
     let result = store.reindex_project_index(root.path()).unwrap();
+    flush_index_queue_for_test(root.path());
     assert_eq!(result.plans, 2);
     assert!(result.units >= 4);
     let hits = store
@@ -888,6 +1096,7 @@ fn archived_plan_stays_searchable_only_when_history_is_requested() {
             2,
         )
         .unwrap();
+    flush_index_queue_for_test(root.path());
     assert!(!store
         .search_plan_index(
             root.path(),
@@ -901,6 +1110,7 @@ fn archived_plan_stays_searchable_only_when_history_is_requested() {
         .is_empty());
 
     store.archive(&plan.id, 3).unwrap();
+    flush_index_queue_for_test(root.path());
     assert!(store
         .search_plan_index(
             root.path(),

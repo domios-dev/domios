@@ -10,18 +10,15 @@ impl ServiceContext {
         self.mux.read().list_workspaces()
     }
 
-    /// Best-effort auto-load: scan + watch project-local plans under a workspace cwd so the
-    /// plan index reflects on-disk plans without a manual reindex. Gated on the watcher set so
-    /// the heavy scan runs once per project (the watcher then keeps it fresh).
     fn ensure_workspace_plans_loaded(&self, cwd: Option<&str>) {
         let Some(cwd) = cwd.filter(|c| !c.is_empty()) else {
             return;
         };
         let path = std::path::Path::new(cwd);
         if self
-            .plan_watchers
+            .loaded_plan_projects
             .lock()
-            .keys()
+            .iter()
             .any(|root| path.starts_with(root))
         {
             return;
@@ -220,10 +217,32 @@ impl ServiceContext {
     }
 
     pub fn close_tab(&self, workspace_id: &str, tab_id: &str) -> Result<(), String> {
+        let pending_digest = {
+            let mux = self.mux.read();
+            mux.get_workspace(workspace_id)
+                .and_then(|workspace| {
+                    workspace
+                        .tabs
+                        .iter()
+                        .find(|tab| tab.id == tab_id)
+                        .and_then(|tab| mux.get_pane(&tab.pane_id))
+                })
+                .and_then(|pane| pane.pending_delivery.as_ref())
+                .map(|record| record.content_digest.clone())
+        };
         let pre_focus = self.mux.read().get_focused_pane_id().map(str::to_string);
         let pty_ids = self.mux.write().close_tab(workspace_id, tab_id)?;
         let post_focus = self.mux.read().get_focused_pane_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
+        if let Some(digest) = pending_digest {
+            if let Err(error) = self.pending_delivery_payloads.delete(&digest) {
+                log::warn!(
+                    "[pending-delivery] tab-close cleanup failed for digest {}: {}",
+                    digest,
+                    error
+                );
+            }
+        }
         self.emit_state_changed();
         if pre_focus != post_focus {
             if let Some(new) = post_focus {

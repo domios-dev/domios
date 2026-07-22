@@ -6,6 +6,35 @@ import { subscribePaneOutput, webOutputStreamActive, type PaneOutputSink } from 
 import { useMuxSelector } from "../../store/multiplexer";
 import { consumePendingCwd } from "../../lib/pendingCommands";
 import { uid } from "../../lib/uid";
+import { writeTerminalHistory } from "./terminalHistoryWrite";
+import {
+  captureTerminalViewport,
+  restoreTerminalViewport,
+  restoreTerminalViewportAfterQueue,
+  type TerminalViewport,
+} from "./terminalViewport";
+import {
+  abandonInitialTerminalHistory,
+  claimInitialTerminalHistory,
+  completeInitialTerminalHistory,
+  type TerminalHistoryClaim,
+} from "./terminalHistoryReplay";
+
+async function fetchPaneHistory(paneId: string): Promise<string> {
+  try {
+    const raw = await invoke<string>("get_pane_history_raw", { paneId });
+    if (raw) return raw;
+  } catch { /* fall back to screen dump */ }
+  try {
+    const formatted = await invoke<string>("get_pane_text", { paneId, formatted: true });
+    if (formatted) return formatted;
+  } catch { /* fall back to plain */ }
+  try {
+    const text = await invoke<string>("get_pane_text", { paneId, formatted: false });
+    if (text) return text;
+  } catch { /* ignore */ }
+  return "";
+}
 
 export interface UsePtyConnectionOptions {
   termRef: React.MutableRefObject<Terminal | null>;
@@ -17,11 +46,12 @@ export interface UsePtyConnectionOptions {
   onPtySpawned?: (paneId: string, ptyId: string) => void;
   onShellReady: () => void;
   onOutputChunk: (text: string) => void;
-  jiggleResize: (ptyId: string) => void;
   localFitEnabled?: boolean;
   ioEnabled?: boolean;
   renderEnabled?: boolean;
   resizeClientId?: string;
+  onHistoryReplayStateChange?: (replaying: boolean) => void;
+  onConnectionStateChange?: (ready: boolean) => void;
 }
 
 export interface UsePtyConnectionReturn {
@@ -38,38 +68,93 @@ export function usePtyConnection({
   onPtySpawned,
   onShellReady,
   onOutputChunk,
-  jiggleResize,
   localFitEnabled = true,
   ioEnabled = true,
   renderEnabled = true,
   resizeClientId,
+  onHistoryReplayStateChange,
+  onConnectionStateChange,
 }: UsePtyConnectionOptions): UsePtyConnectionReturn {
   const paneCwd = useMuxSelector(
     (s) => s.panes[paneId]?.cwd ?? null,
     (a, b) => a === b,
   );
+  const paneCwdRef = useRef(paneCwd);
   const localFitEnabledRef = useRef(localFitEnabled);
-  const renderEnabledRef = useRef(renderEnabled);
-  const hiddenPendingRef = useRef<Uint8Array[]>([]);
+  const hiddenViewportRef = useRef<TerminalViewport>({ followOutput: true, line: 0 });
+  const cancelVisibleReplayRef = useRef<(() => void) | null>(null);
+  const replayRequestRef = useRef(0);
+  const replayTerminalRef = useRef<Terminal | null>(null);
+  const viewportRestoreRequestRef = useRef(0);
   // Web resets the tail cursor once per mount; toggles resume it.
   const webReplayedPtysRef = useRef<Set<string>>(new Set());
-  // xterm instance is keep-alive (never destroyed on tab switch); replay scrollback only once per pane lifetime.
-  const replayDoneRef = useRef<Set<string>>(new Set());
+
+  const cancelReplay = useCallback(() => {
+    replayRequestRef.current += 1;
+    cancelVisibleReplayRef.current?.();
+    cancelVisibleReplayRef.current = null;
+    replayTerminalRef.current?.element?.style.removeProperty("visibility");
+    replayTerminalRef.current = null;
+    onHistoryReplayStateChange?.(false);
+  }, [onHistoryReplayStateChange]);
+
+  const replayHistory = useCallback((
+    term: Terminal,
+    history: Uint8Array | string,
+    viewport: TerminalViewport,
+    onComplete?: () => void,
+    onCancel?: () => void,
+  ) => {
+    cancelReplay();
+    const request = replayRequestRef.current;
+    replayTerminalRef.current = term;
+    term.element?.style.setProperty("visibility", "hidden");
+    onHistoryReplayStateChange?.(true);
+    let settled = false;
+    const complete = () => {
+      if (request !== replayRequestRef.current) return;
+      settled = true;
+      onComplete?.();
+      cancelVisibleReplayRef.current = null;
+      restoreTerminalViewport(term, viewport);
+      term.element?.style.removeProperty("visibility");
+      replayTerminalRef.current = null;
+      onHistoryReplayStateChange?.(false);
+    };
+    const cancelWrite = writeTerminalHistory(term, history, complete);
+    cancelVisibleReplayRef.current = () => {
+      cancelWrite();
+      if (!settled) onCancel?.();
+    };
+  }, [cancelReplay, onHistoryReplayStateChange]);
 
   useEffect(() => {
     localFitEnabledRef.current = localFitEnabled;
   }, [localFitEnabled]);
 
   useEffect(() => {
-    renderEnabledRef.current = renderEnabled;
-    if (!renderEnabled || hiddenPendingRef.current.length === 0) return;
+    paneCwdRef.current = paneCwd;
+  }, [paneCwd]);
+
+  useEffect(() => {
     const term = termRef.current;
-    if (!term) return;
-    for (const chunk of hiddenPendingRef.current) {
-      term.write(chunk);
+    const request = ++viewportRestoreRequestRef.current;
+    if (!renderEnabled) {
+      if (term) hiddenViewportRef.current = captureTerminalViewport(term);
+      return;
     }
-    hiddenPendingRef.current = [];
+    if (term) {
+      restoreTerminalViewportAfterQueue(
+        term,
+        hiddenViewportRef.current,
+        () => request === viewportRestoreRequestRef.current,
+      );
+    }
   }, [renderEnabled, termRef]);
+
+  useEffect(() => () => {
+    cancelReplay();
+  }, [cancelReplay]);
 
   const writePty = useCallback((data: string) => {
     const id = connectedPtyRef.current;
@@ -89,10 +174,33 @@ export function usePtyConnection({
 
     let cleanupFns: (() => void)[] = [];
     let disposed = false;
+    let historyClaim: TerminalHistoryClaim | null = null;
+    let historySettled = true;
+    let transportStarted = false;
+    const reportConnectionReady = () => {
+      if (!disposed && historySettled && transportStarted) onConnectionStateChange?.(true);
+    };
+    onConnectionStateChange?.(false);
 
     const setupAndConnect = async () => {
       const predictedId = ptyId || uid();
       connectedPtyRef.current = predictedId;
+      if (ptyId && resizeClientId) {
+        requestAnimationFrame(() => {
+          if (disposed || !localFitEnabledRef.current) return;
+          try {
+            fitAddonRef.current?.fit();
+            if (term.cols > 0 && term.rows > 0) {
+              void invoke("resize_pty", {
+                ptyId: predictedId,
+                cols: term.cols,
+                rows: term.rows,
+                clientId: resizeClientId,
+              });
+            }
+          } catch { /* teardown */ }
+        });
+      }
       // user killswitched it back via localStorage `codeterm-web-output-stream=off`.
       const useOutputStream = webOutputStreamActive();
 
@@ -105,56 +213,51 @@ export function usePtyConnection({
           if (!useOutputStream) resetWebPtyTail(ptyId);
         }
       } else if (ptyId) {
-        if (!replayDoneRef.current.has(ptyId)) {
-          replayDoneRef.current.add(ptyId);
-
-          let restored = false;
-          try {
-            const raw = await invoke<string>("get_pane_history_raw", { paneId });
-            if (raw) {
-              term.write(raw);
-              restored = true;
-            }
-          } catch { /* fall back to screen dump */ }
-
-          if (!restored) {
-            try {
-              const formatted = await invoke<string>(
-                "get_pane_text",
-                { paneId, formatted: true },
-              );
-              if (formatted) term.write(formatted);
-            } catch {
-              try {
-                const text = await invoke<string>(
-                  "get_pane_text",
-                  { paneId, formatted: false },
-                );
-                if (text) term.write(text);
-              } catch { /* ignore */ }
-            }
+        const claim = claimInitialTerminalHistory(paneId, term);
+        if (claim) {
+          historyClaim = claim;
+          historySettled = false;
+          const history = await fetchPaneHistory(paneId);
+          if (disposed) {
+            abandonInitialTerminalHistory(claim);
+            return;
+          }
+          if (history) {
+            replayHistory(
+              term,
+              history,
+              { followOutput: true, line: 0 },
+              () => {
+                completeInitialTerminalHistory(claim);
+                historyClaim = null;
+                historySettled = true;
+                reportConnectionReady();
+              },
+              () => {
+                abandonInitialTerminalHistory(claim);
+                historyClaim = null;
+                historySettled = true;
+                reportConnectionReady();
+              },
+            );
+          } else {
+            completeInitialTerminalHistory(claim);
+            historyClaim = null;
           }
         }
-        // One fit() + resize on every (re)connect to sync PTY dimensions.
-        requestAnimationFrame(() => {
-          if (!localFitEnabledRef.current) return;
-          try {
-            fitAddonRef.current?.fit();
-            jiggleResize(ptyId);
-          } catch { /* ignore */ }
-        });
       }
 
       let reading = true;
       let firstData = true;
       let staleRespawnStarted = false;
       const WRITE_HIGH_WATERMARK = 128 * 1024;
+      const LIVE_FLUSH_MAX_BYTES = 256 * 1024;
       let pendingBytes = 0;
       let readPaused = false;
       let resumeResolve: (() => void) | null = null;
       let pendingWriteChunks: Uint8Array[] = [];
       let pendingWriteLength = 0;
-      let writeFrame: number | null = null;
+      let cancelActiveWrite: (() => void) | null = null;
       const TRANSIENT_RETRY_BASE_MS = 500;
       const TRANSIENT_RETRY_MAX_MS = 8_000;
       let transientRetryMs = TRANSIENT_RETRY_BASE_MS;
@@ -165,31 +268,35 @@ export function usePtyConnection({
       };
 
       const flushPendingWrites = () => {
-        writeFrame = null;
         if (!reading || disposed || pendingWriteLength === 0) return;
 
-        let payload: Uint8Array;
-        if (pendingWriteChunks.length === 1) {
-          payload = pendingWriteChunks[0];
-        } else {
-          payload = new Uint8Array(pendingWriteLength);
-          let offset = 0;
-          for (const chunk of pendingWriteChunks) {
-            payload.set(chunk, offset);
-            offset += chunk.length;
-          }
+        const targetLength = Math.min(pendingWriteLength, LIVE_FLUSH_MAX_BYTES);
+        const payload = new Uint8Array(targetLength);
+        let copied = 0;
+        while (copied < targetLength && pendingWriteChunks.length > 0) {
+          const chunk = pendingWriteChunks[0];
+          const take = Math.min(chunk.length, targetLength - copied);
+          payload.set(chunk.slice(0, take), copied);
+          copied += take;
+          if (take === chunk.length) pendingWriteChunks.shift();
+          else pendingWriteChunks[0] = chunk.slice(take);
         }
+        pendingWriteLength -= targetLength;
 
-        pendingWriteChunks = [];
-        pendingWriteLength = 0;
-
-        term.write(payload, () => {
+        const completeWrite = () => {
+          cancelActiveWrite = null;
           pendingBytes -= payload.length;
           if (readPaused && pendingBytes < WRITE_HIGH_WATERMARK / 2) {
             readPaused = false;
             resumeResolve?.();
             resumeResolve = null;
           }
+          if (pendingWriteLength > 0) flushPendingWrites();
+        };
+        let cancelled = false;
+        cancelActiveWrite = () => { cancelled = true; };
+        term.write(payload, () => {
+          if (!cancelled) completeWrite();
         });
 
         if (firstData) {
@@ -204,17 +311,9 @@ export function usePtyConnection({
           onOutputChunk(text);
         } catch { /* ignore decode errors */ }
 
-        if (!renderEnabledRef.current) {
-          hiddenPendingRef.current.push(chunk);
-          if (firstData) firstData = false;
-          return;
-        }
-
         pendingWriteChunks.push(chunk);
         pendingWriteLength += chunk.length;
-        if (writeFrame == null) {
-          writeFrame = requestAnimationFrame(flushPendingWrites);
-        }
+        if (cancelActiveWrite == null) flushPendingWrites();
       };
 
       // multiplexed output stream's `{ended: true}` frame both mean the same thing.
@@ -228,7 +327,8 @@ export function usePtyConnection({
         try {
           const cols = Math.max(term.cols, 80);
           const rows = Math.max(term.rows, 24);
-          const paneData = paneCwd != null ? { cwd: paneCwd } : undefined;
+          const paneCwdNow = paneCwdRef.current;
+          const paneData = paneCwdNow != null ? { cwd: paneCwdNow } : undefined;
           const cwd = consumePendingCwd(paneId) || paneData?.cwd || undefined;
           const spawnedId = await invoke<string>("spawn_pty", { cols, rows, cwd, paneId });
           if (!disposed) {
@@ -278,11 +378,6 @@ export function usePtyConnection({
           }
         }
       };
-      const onResizeDisposable = term.onResize(({ cols, rows }) => {
-        invoke("resize_pty", { ptyId: predictedId, cols, rows, clientId: resizeClientId });
-      });
-      cleanupFns.push(() => onResizeDisposable.dispose());
-
       if (IS_WEB && !useOutputStream) {
         const onBootChanged = () => resetWebPtyTail(predictedId);
         window.addEventListener("codeterm-web-boot-changed", onBootChanged);
@@ -294,7 +389,7 @@ export function usePtyConnection({
       if (!ptyId) {
         const cols = Math.max(term.cols, 80);
         const rows = Math.max(term.rows, 24);
-        const cwd = consumePendingCwd(paneId) || paneCwd || undefined;
+        const cwd = consumePendingCwd(paneId) || paneCwdRef.current || undefined;
         const spawnedId = await invoke<string>("spawn_pty", {
           cols, rows, predictedId, cwd, paneId,
         });
@@ -348,15 +443,15 @@ export function usePtyConnection({
       } else {
         readLoop();
       }
+      transportStarted = true;
+      reportConnectionReady();
       cleanupFns.push(() => {
         reading = false;
         unsubscribeOutputStream?.();
-        if (writeFrame != null) {
-          cancelAnimationFrame(writeFrame);
-          writeFrame = null;
-        }
         pendingWriteChunks = [];
         pendingWriteLength = 0;
+        cancelActiveWrite?.();
+        cancelActiveWrite = null;
       });
     };
 
@@ -367,10 +462,12 @@ export function usePtyConnection({
 
     return () => {
       disposed = true;
+      onConnectionStateChange?.(false);
+      if (historyClaim) abandonInitialTerminalHistory(historyClaim);
       for (const fn of cleanupFns) fn();
       connectedPtyRef.current = null;
     };
-  }, [ptyId, paneId, paneCwd, termReady, ioEnabled, renderEnabled, resizeClientId, onPtySpawned]);
+  }, [ptyId, paneId, termReady, ioEnabled, resizeClientId, onPtySpawned, replayHistory, onConnectionStateChange]);
 
   return { writePty };
 }

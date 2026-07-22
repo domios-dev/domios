@@ -1,6 +1,39 @@
-import type { Pane } from "../../lib/types";
+import type { Pane, Team, Workspace } from "../../lib/types";
 import type { PlanIndexEntry } from "./plansApi";
+import { derivePlanWorkspaceScope } from "./planWorkspaceScope";
 import { TaskStatus, type OrchestratorRef, type Plan } from "./types";
+
+/** Read-only context that scopes plans to a single workspace. */
+export interface PlanWorkspaceContext {
+  workspaces?: Workspace[];
+  teams?: Team[];
+}
+
+export interface PlanFilterOpts extends PlanWorkspaceContext {
+  planId?: string;
+  /** Team-plan canvas is immutable to workspace-wide plan selection. */
+  teamId?: string;
+  orchestratorPaneId?: string;
+  panes?: Record<string, Pane>;
+  /** Current workspace, or `undefined` for unscoped focus/companion contexts.
+   *  Required (never optional) so a workspace-mode caller cannot silently omit
+   *  scoping and fall back to every plan. */
+  workspaceId: string | undefined;
+}
+
+/** True when a plan belongs to this workspace via its team binding or its owner
+ *  orchestrator pane living in the workspace. */
+export function planBelongsToWorkspace(
+  plan: Plan,
+  workspaceId: string,
+  ctx: PlanWorkspaceContext,
+): boolean {
+  if (plan.team_id) {
+    const team = ctx.teams?.find((t) => t.id === plan.team_id);
+    if (team && team.workspace_id === workspaceId) return true;
+  }
+  return derivePlanWorkspaceScope(plan, ctx.workspaces ?? []).ownerWorkspaceId === workspaceId;
+}
 
 export function collectPaneChain(
   paneId: string,
@@ -93,10 +126,15 @@ export function findPlansForPane(
 export function filterPlansForCanvas(
   plans: Plan[],
   mode: "workspace" | "focus",
-  opts: { planId?: string; orchestratorPaneId?: string; panes?: Record<string, Pane> },
+  opts: PlanFilterOpts,
 ): Plan[] {
   const active = plans.filter((p) => p.status === "active");
-  if (mode === "workspace") return active;
+  if (mode === "workspace") {
+    if (opts.teamId) return active.filter((plan) => plan.team_id === opts.teamId);
+    // No workspace scope → no board, never every plan (the bug we removed).
+    if (!opts.workspaceId) return [];
+    return active.filter((p) => planBelongsToWorkspace(p, opts.workspaceId!, opts));
+  }
   if (opts.planId) return active.filter((p) => p.id === opts.planId);
   if (opts.orchestratorPaneId && opts.panes) {
     const chain = collectPaneChain(opts.orchestratorPaneId, opts.panes);

@@ -19,7 +19,7 @@ function q(s: string): string {
 }
 
 test(
-  "@golden opencode db-fallback binds session without hook and shows assistant replies",
+  "@live opencode db-fallback binds session without hook and shows assistant replies",
   async ({ api, ui, paneCleanup }) => {
     const db = opencodeDbPath();
     test.skip(!existsSync(db), "opencode DB not found — opencode not installed on this machine");
@@ -69,9 +69,9 @@ test(
 
     try {
       let boundSessionId: string | null = null;
-      for (let i = 0; i < 30; i++) {
-        // PW_JUSTIFIED_SLEEP: fixed 1_000ms sampling/settle window; no app event exists for this probe.
-        await ui.page.waitForTimeout(1_000);
+      for (let i = 0; i < 120; i++) {
+        // PW_JUSTIFIED_SLEEP: fixed API polling interval within a 30s budget.
+        await ui.page.waitForTimeout(250);
         const panes = await api.get<{ id: string; agent_session_id?: string }[]>("/panes");
         const pane = panes.find((p) => p.id === paneId);
         if (pane?.agent_session_id) {

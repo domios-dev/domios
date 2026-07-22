@@ -11,6 +11,7 @@
 //! `service::general_agent::ensure_directories`, `start_general_agent`,
 //! `GENERAL_ALIAS`, etc., unchanged.
 
+pub(crate) mod binding_wait;
 pub mod blocker;
 mod first_run;
 mod instructions;
@@ -26,14 +27,17 @@ pub use first_run::{
     snapshot_has_protected_main, FIRST_RUN_PANE_MARKER,
 };
 pub use instructions::{generate_instructions, sync_identity_to_mem};
-pub use lifecycle::{restart_general_agent, start_general_agent};
+pub use lifecycle::{
+    claim_general_agent_pane_retry, restart_general_agent, restart_general_agent_pane,
+    start_general_agent, validate_general_agent_pane_retry,
+};
 pub use watchdog::start_watchdog;
 pub use workspace::{
     apply_general_chat_view_default, default_chat_view_for_provider, ensure_general_workspace,
 };
 
 pub const GENERAL_ALIAS: &str = "general";
-/// Second alias for the GA pane — `codeterm pane ... main` resolves to it too.
+/// Second alias for the GA tab — `codeterm tab ... main` resolves to it too.
 pub const MAIN_ALIAS: &str = "main";
 pub const GENERAL_WORKSPACE_NAME: &str = "General";
 pub const GENERAL_PANE_TITLE: &str = "Main";

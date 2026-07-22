@@ -57,4 +57,11 @@ mod tests {
         let latest = latest_retrospective(&plan).unwrap();
         assert_eq!(latest.text, "final write-up");
     }
+
+    #[test]
+    fn has_retrospective_ignores_supersede_only_history() {
+        let mut plan = Plan::new("P".into(), "/tmp".into(), OrchestratorRef::from_pane("o"));
+        plan.strides = vec![stride(RETROSPECTIVE_KIND, SUPERSEDE_NOTE, 100)];
+        assert!(!has_retrospective(&plan));
+    }
 }

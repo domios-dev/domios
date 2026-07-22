@@ -70,6 +70,10 @@ pub struct CronJob {
     pub cwd: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+    /// Mem skill slug (`codeterm mem skill new <slug>`) resolved and injected
+    /// into the task brief at fire time — see `cron::scheduler::fire_job`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub creator_pane_id: Option<String>,
     #[serde(default, skip_serializing_if = "is_false")]
@@ -202,6 +206,8 @@ pub struct CronCreateParams {
     #[serde(default)]
     pub role: Option<String>,
     #[serde(default)]
+    pub skill: Option<String>,
+    #[serde(default)]
     pub creator_pane_id: Option<String>,
     #[serde(default)]
     pub enabled: Option<bool>,
@@ -231,6 +237,9 @@ pub struct CronUpdateParams {
     pub cwd: Option<String>,
     #[serde(default)]
     pub role: Option<String>,
+    /// `Some("")` clears the skill back to none. `Some(non-empty)` sets it. `None` leaves unchanged.
+    #[serde(default)]
+    pub skill: Option<String>,
     #[serde(default)]
     pub enabled: Option<bool>,
     #[serde(default)]

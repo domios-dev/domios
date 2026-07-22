@@ -16,6 +16,7 @@ import { NetworkTab } from "./NetworkTab";
 import { ActivityTab } from "./ActivityTab";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { PeerStatus } from "./useMeshData";
+import { MeshWebUiControl, type WebUiAction } from "../Titlebar/MeshWebUiControl";
 import { tabClass, UI_BUTTON, UI_INPUT, UI_PANEL, UI_TEXT } from "../shared/design";
 import {
   buildWebAccessUrls,
@@ -269,6 +270,9 @@ function WebUiModal({
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/55 px-4 backdrop-blur-[2px] pt-[var(--ct-safe-top,0px)] pb-[var(--ct-safe-bottom,0px)]">
       <div
         data-testid="web-ui-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Web UI access"
         className="w-full max-w-[360px] overflow-hidden rounded-2xl border border-[var(--ct-border)] bg-[var(--ct-bg)] shadow-2xl"
       >
         <div className="flex items-center justify-between border-b border-[var(--ct-border)] px-4 py-3">
@@ -464,8 +468,43 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
   const data = useMeshData(refreshKey);
   const [recentPushes, setRecentPushes] = useState<RecentPush[]>([]);
   const [webUiOpen, setWebUiOpen] = useState(false);
+  const [serve, setServe] = useState<ServeStatus | null>(null);
+  const [serveLoading, setServeLoading] = useState(true);
 
   const triggerRefresh = useCallback(() => setRefreshKey((k) => k + 1), []);
+
+  const loadServe = useCallback(async () => {
+    const status = await invoke<ServeStatus>("get_serve_status").catch(() => null);
+    setServe(status);
+    setServeLoading(false);
+    return status;
+  }, []);
+
+  useEffect(() => {
+    void loadServe();
+  }, [loadServe, refreshKey]);
+
+  const runWebUiAction = useCallback(
+    async (action: WebUiAction): Promise<string | void> => {
+      if (action === "disable") {
+        const res = await invoke<ServeResult>("disable_web_access", {});
+        await loadServe();
+        if (!res.ok) throw new Error(`Could not disable (${res.code}).`);
+        return "Web UI disabled.";
+      }
+      const snap = serve?.snapshot;
+      if (action === "setup" && snap?.operator_bootstrap_required) {
+        return snap.bootstrap_command
+          ? `Run in a terminal: ${snap.bootstrap_command}, then Repair.`
+          : "Grant Tailscale Serve operator access, then Repair.";
+      }
+      const res = await invoke<ServeResult>("enable_web_access", {});
+      await loadServe();
+      if (!res.ok) throw new Error(`Could not ${action} (${res.code}).`);
+      return action === "repair" ? "Route reconciled." : res.warning ?? "Web UI enabled.";
+    },
+    [serve, loadServe],
+  );
 
   useEffect(() => {
     let unlistenHealth: (() => void) | null = null;
@@ -570,6 +609,15 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
             <BusySpinner icon={RefreshCw} size={touchUi ? 16 : 13} spinning={data.loading} />
           </button>
         </div>
+        <div className="flex items-center border-l border-[var(--ct-border)] pl-3 pr-1 shrink-0">
+          <MeshWebUiControl
+            snapshot={serve?.snapshot ?? null}
+            loading={serveLoading}
+            onOpenSurface={() => setWebUiOpen(true)}
+            onAction={runWebUiAction}
+            touchUi={touchUi}
+          />
+        </div>
         <div className="flex items-center gap-1 border-l border-[var(--ct-border)] pl-3">
           {TABS.map((tab) => (
             <button
@@ -598,7 +646,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
                 onAddPeerClick={() => setActiveTab("network")}
                 meshEnabled={config.mesh.enabled}
                 onGoOnline={goOnline}
-                onOpenWebUi={() => setWebUiOpen(true)}
+                onOpenPeerWebUi={(url) => void invoke("open_url", { url })}
               />
             </div>
             <CollapsibleTablesDrawer

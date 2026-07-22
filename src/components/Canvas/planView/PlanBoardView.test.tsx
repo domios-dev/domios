@@ -4,6 +4,7 @@ import { act, type ReactElement } from "react";
 import { readFileSync } from "node:fs";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
+import type { Workspace } from "../../../lib/types";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "../cards/fixtures.testdata";
 import { TaskStatus, type Plan, type Task } from "../types";
 import { DONE_COLUMN_COLLAPSED_LIMIT } from "./boardModel";
@@ -54,9 +55,15 @@ const PANES = {
   "pane-worker": { id: "pane-worker", title: "Puccini" } as never,
 };
 
+// FIXTURE_PLAN.owner.pane_id is orch-1 → bind it to this test workspace.
+const WS_ID = "ws-test";
+const WORKSPACES: Workspace[] = [
+  { id: WS_ID, name: "Test", tabs: [{ id: "tab-orch", pane_id: "orch-1" }], active_tab_id: null, cwd: null },
+];
+
 test("renders loading gate", async () => {
   const { host } = await render(
-    <PlanBoardView mode="workspace" plans={[]} loading error={null} />,
+    <PlanBoardView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[]} loading error={null} />,
   );
   assert(host.querySelector('[data-testid="plan-board-loading"]'), "loading visible");
 });
@@ -134,7 +141,7 @@ test("single-plan switcher: no vertical stacking, switch selects one plan", asyn
     updated_at: 999,
     tasks: [task({ id: "b1", status: TaskStatus.Pending, name: "Beta task", created_at: 0, updated_at: 999 })],
   };
-  const { host } = await render(<PlanBoardView mode="workspace" plans={[planA, planB]} panes={PANES} />);
+  const { host } = await render(<PlanBoardView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[planA, planB]} panes={PANES} />);
   const boards = host.querySelectorAll('[data-testid="plan-board-plan"]');
   assert(boards.length === 1, `single board rendered, got ${boards.length}`);
   assert(host.querySelector('[data-testid="plan-switcher"]'), "switcher present for >1 plan");
@@ -151,7 +158,7 @@ test("single-plan switcher: no vertical stacking, switch selects one plan", asyn
 
 test("switcher hidden for a single plan", async () => {
   const plan: Plan = { ...FIXTURE_PLAN, tasks: [task({ id: "solo", status: TaskStatus.Pending })] };
-  const { host } = await render(<PlanBoardView mode="workspace" plans={[plan]} panes={PANES} />);
+  const { host } = await render(<PlanBoardView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[plan]} panes={PANES} />);
   assert(!host.querySelector('[data-testid="plan-switcher"]'), "no switcher for single plan");
   assert(host.querySelectorAll('[data-testid="plan-board-plan"]').length === 1, "single board");
 });
@@ -224,29 +231,29 @@ test("done column collapses to recent N with show-all toggle", async () => {
   assert(expandedCards?.length === doneTasks.length, `expanded cards=${expandedCards?.length}`);
 });
 
-test("parked tasks render in pending column with distinct status and reason title", async () => {
+test("paused tasks render in pending column with distinct status and reason title", async () => {
   const plan: Plan = {
     ...FIXTURE_PLAN,
     tasks: [
       task({
-        id: "task-parked",
-        status: TaskStatus.Parked,
+        id: "task-paused",
+        status: TaskStatus.Paused,
         name: "Deferred lane",
-        park_reason: "Provider quotas exhausted",
+        pause_reason: "Provider quotas exhausted",
       }),
       task({ id: "task-pending", status: TaskStatus.Pending, name: "Queue next" }),
     ],
   };
   const { host } = await render(<PlanBoardView mode="focus" planId={plan.id} plans={[plan]} panes={PANES} />);
-  assert(!host.querySelector('[data-testid="plan-board-column"][data-column="parked"]'), "no parked column");
+  assert(!host.querySelector('[data-testid="plan-board-column"][data-column="paused"]'), "no paused column");
   const pendingCol = host.querySelector('[data-testid="plan-board-column"][data-column="pending"]');
   assert(pendingCol, "pending column");
   assert(pendingCol?.querySelector('[data-testid="plan-board-column-count"]')?.textContent === "2", "pending count");
-  const parkedCard = pendingCol?.querySelector('[data-task-id="task-parked"]') as HTMLElement;
-  assert(parkedCard, "parked card in pending");
-  assert(parkedCard.className.includes("plan-board-task-card-parked"), "parked card style");
-  assert(parkedCard.getAttribute("title") === "Parked: Provider quotas exhausted", "park reason title");
-  assert(parkedCard.querySelector('[data-testid="status-chip"]')?.textContent === "parked", "parked status chip");
+  const pausedCard = pendingCol?.querySelector('[data-task-id="task-paused"]') as HTMLElement;
+  assert(pausedCard, "paused card in pending");
+  assert(pausedCard.className.includes("plan-board-task-card-paused"), "paused card style");
+  assert(pausedCard.getAttribute("title") === "Paused: Provider quotas exhausted", "pause reason title");
+  assert(pausedCard.querySelector('[data-testid="status-chip"]')?.textContent === "paused", "paused status chip");
 });
 
 test("done task card shows historical executor without active executor row", async () => {
@@ -386,7 +393,7 @@ test("task card: title stays primary and does not allow single-letter wrapping",
 });
 
 test("empty workspace shows stable empty gate", async () => {
-  const { host } = await render(<PlanBoardView mode="workspace" plans={[]} />);
+  const { host } = await render(<PlanBoardView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[]} />);
   assert(host.querySelector('[data-testid="plan-board-empty"]'), "empty state");
 });
 
@@ -396,6 +403,12 @@ test("mobile board CSS enables horizontal snap columns and 44px touch targets", 
   assert(mobileBlock.includes("scroll-snap-type: x mandatory"), "column snap scroll");
   assert(mobileBlock.includes(".plan-board-column-head") && mobileBlock.includes("min-height: 44px"), "sticky column heads");
   assert(mobileBlock.includes(".plan-board-task-card-interactive") && mobileBlock.includes("min-height: 44px"), "card touch targets");
+  const cardRule = css.match(/\.plan-board-task-card\s*\{[^}]+\}/)?.[0] ?? "";
+  assert(cardRule.includes("flex: 0 0 auto"), "cards keep their content height inside scroll columns");
+  assert(cardRule.includes("overflow: hidden"), "card metadata cannot bleed into adjacent cards");
+  const valueRule = css.match(/\.plan-board-task-meta-value\s*\{[^}]+\}/)?.[0] ?? "";
+  assert(valueRule.includes("text-overflow: ellipsis"), "narrow metadata values use ellipsis");
+  assert(valueRule.includes("white-space: nowrap"), "metadata values remain within one row");
 });
 
 test("board: archive action removes plan from active switcher and switches selection", async () => {
@@ -423,7 +436,7 @@ test("board: archive action removes plan from active switcher and switches selec
     tasks: [task({ id: "b1", status: TaskStatus.Pending, name: "Beta task" })],
   };
   const { host } = await render(
-    <PlanBoardView mode="workspace" plans={[planA, planB]} panes={PANES} />,
+    <PlanBoardView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[planA, planB]} panes={PANES} />,
   );
   // Stub confirm on the window created by setupDom (which runs once at module level).
   (window as unknown as { confirm: () => boolean }).confirm = () => true;
@@ -481,7 +494,7 @@ test("board: unarchive brings plan back to active switcher", async () => {
     tasks: [],
   };
   const { host } = await render(
-    <PlanBoardView mode="workspace" plans={[active, archived]} panes={PANES} />,
+    <PlanBoardView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[active, archived]} panes={PANES} />,
   );
   // Archived toggle should be present (1 active + 1 archived = switcher shows)
   const archivedToggle = host.querySelector(
@@ -534,7 +547,7 @@ test("board: selecting an archived plan from dropdown shows it for inspection", 
     tasks: [task({ id: "archived-task", status: TaskStatus.Pending, name: "Archived task" })],
   };
   const { host } = await render(
-    <PlanBoardView mode="workspace" plans={[active, archived]} panes={PANES} />,
+    <PlanBoardView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[active, archived]} panes={PANES} />,
   );
   assert(
     host.querySelector('[data-testid="plan-board-plan"]')?.getAttribute("data-plan-id") === "plan-active",

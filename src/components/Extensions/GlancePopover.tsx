@@ -30,7 +30,7 @@ export function GlancePopover({
 }: {
   pluginId: string;
   displayName: string;
-  /** Agent-facing help for the auto-appended "Configure with AI" button (Part D). */
+  /** Opt-in instructions; absent means this plugin is not AI-configurable. */
   configHelp?: string;
   anchor: GlanceAnchor;
   ctx?: Record<string, unknown>;
@@ -45,18 +45,19 @@ export function GlancePopover({
     async (action?: string) => {
       try {
         const v = await invoke<GlanceView>("plugin_glance", { pluginId, action, ctx: ctx ?? {} });
-        // plugin (Part D) — intercepted in onAction, never seen by the plugin.
-        v.nodes = [
-          ...(v.nodes ?? []),
-          { kind: "button", label: "Configure with AI", action: "configure-with-ai" },
-        ];
+        if (configHelp) {
+          v.nodes = [
+            ...(v.nodes ?? []),
+            { kind: "button", label: "Configure with AI", action: "configure-with-ai" },
+          ];
+        }
         setView(v);
         setError(null);
       } catch (e) {
         setError(String(e));
       }
     },
-    [pluginId, ctx],
+    [pluginId, ctx, configHelp],
   );
 
   useEffect(() => {
@@ -93,14 +94,13 @@ export function GlancePopover({
         return;
       }
       if (action === "configure-with-ai") {
-        const help =
-          configHelp || `Help the user configure and use the ${displayName} plugin.`;
+        if (!configHelp) return;
         void (async () => {
           // (M2); read it from the daemon config at click time.
           const cfg = await invoke<{ api?: DaemonApiConfig }>("get_config").catch(
             () => ({}) as { api?: DaemonApiConfig },
           );
-          await configureWithAI(pluginId, displayName, help, cfg.api ?? {});
+          await configureWithAI(pluginId, displayName, configHelp, cfg.api ?? {});
         })();
         onClose();
         return;

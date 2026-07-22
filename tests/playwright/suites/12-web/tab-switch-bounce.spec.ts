@@ -5,27 +5,47 @@
  */
 import { test, expect } from "../../helpers/fixtures";
 
+function visibleTabs(ws: any, panes: Record<string, any>) {
+  return ws.tabs.filter((tab: any) => {
+    const pane = panes[tab.pane_id];
+    return pane && pane.hidden !== true && pane.show_in_tabbar !== false;
+  });
+}
+
 // Regression oracle for applyBackendState tab-bounce: POST#1 can emit stale
 // active_tab before POST#2, reverting the optimistic switch.
 test("@golden web tab-switch does not bounce to previous tab", async ({ ui, api }) => {
   const page = ui.page;
 
   let st = await api.get<any>("/mux/state");
-  let ws = st.workspaces.find((w: any) => w.tabs.length >= 2) ?? st.workspaces[0];
-  if (!ws || ws.tabs.length < 2) {
+  let ws =
+    st.workspaces.find((w: any) => visibleTabs(w, st.panes).length >= 2) ??
+    st.workspaces[0];
+  for (let attempt = 0; ws && visibleTabs(ws, st.panes).length < 2 && attempt < 3; attempt++) {
     await api.post(`/workspaces/${ws.id}/tabs`, { eager: true });
     st = await api.get<any>("/mux/state");
     ws = st.workspaces.find((w: any) => w.id === ws.id);
   }
-  const [tabA, tabB] = ws.tabs.slice(0, 2).map((t: any) => t.id);
+  if (!ws || visibleTabs(ws, st.panes).length < 2) {
+    throw new Error("expected at least two sidebar-visible tabs for bounce regression");
+  }
+  const [tabA, tabB] = visibleTabs(ws, st.panes).slice(0, 2).map((t: any) => t.id);
+
+  await expect(page.locator(`[data-testid="tab-item"][data-tab-id="${tabA}"]`).first()).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(page.locator(`[data-testid="tab-item"][data-tab-id="${tabB}"]`).first()).toBeVisible({
+    timeout: 20_000,
+  });
 
   // force: dnd-kit stamps aria-disabled on the sortable row wrapper, which
   // trips Playwright's actionability check even though real clicks work.
-  await page.locator(`[data-tab-id="${tabA}"]`).click({ force: true });
+  await page.locator(`[data-testid="tab-item"][data-tab-id="${tabA}"]`).first().click({ force: true });
   await expect
     .poll(async () =>
       page
-        .locator(`[data-tab-id="${tabA}"]`)
+        .locator(`[data-testid="tab-item"][data-tab-id="${tabA}"]`)
+        .first()
         .evaluate((e) => !e.className.includes("sidebar-tab-dimmed")),
     )
     .toBe(true);
@@ -48,7 +68,7 @@ test("@golden web tab-switch does not bounce to previous tab", async ({ ui, api 
     (window as any).__obsStop = () => obs.disconnect();
     sample();
   });
-  await page.locator(`[data-tab-id="${tabB}"]`).click({ force: true });
+  await page.locator(`[data-testid="tab-item"][data-tab-id="${tabB}"]`).first().click({ force: true });
   // PW_JUSTIFIED_SLEEP: fixed 700ms sampling/settle window; no app event exists for this probe.
   await page.waitForTimeout(700);
   await page.evaluate(() => (window as any).__obsStop());

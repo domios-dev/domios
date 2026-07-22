@@ -8,6 +8,7 @@ import { readDevToken } from "./api-client";
 import { API_BASE, isHealthy } from "./dev-console";
 
 const PERF_FIXTURE_KEY = "canvas.perfFixtureN";
+const PERF_FIXTURE_PROFILE_KEY = "canvas.perfFixtureProfile";
 const SUBSTRATE_V2_KEY = "canvas.substrateV2";
 
 export type CanvasWebSession = {
@@ -17,6 +18,7 @@ export type CanvasWebSession = {
 
 export type CanvasWebInit = {
   perfFixtureN?: number;
+  perfFixtureProfile?: string;
   clearHarness?: boolean;
   viewport?: { width: number; height: number };
   // them (the SW proxies /api/* via its own fetch, bypassing page.route).
@@ -32,18 +34,20 @@ export async function openCanvasWebPage(browser: Browser, init: CanvasWebInit = 
   const context = await browser.newContext({ viewport, serviceWorkers: init.serviceWorkers });
   const page = await context.newPage();
   await page.addInitScript(
-    ({ devToken, perfN, clearHarness, perfKey, subKey }) => {
+    ({ devToken, perfN, perfProfile, clearHarness, perfKey, profileKey, subKey }) => {
       try {
         localStorage.setItem(`codeterm-web-token:${window.location.origin}`, devToken);
         localStorage.removeItem("codeterm-chat-ui-default-enabled");
         if (clearHarness) {
           localStorage.removeItem(perfKey);
+          localStorage.removeItem(profileKey);
           localStorage.removeItem(subKey);
         }
         if (perfN != null && perfN > 0) {
           localStorage.setItem(perfKey, String(perfN));
           localStorage.setItem(subKey, "true");
         }
+        if (perfProfile) localStorage.setItem(profileKey, perfProfile);
       } catch {
         /* surfaced by canvas wait helpers */
       }
@@ -51,8 +55,10 @@ export async function openCanvasWebPage(browser: Browser, init: CanvasWebInit = 
     {
       devToken: token,
       perfN: init.perfFixtureN,
+      perfProfile: init.perfFixtureProfile,
       clearHarness: init.clearHarness ?? false,
       perfKey: PERF_FIXTURE_KEY,
+      profileKey: PERF_FIXTURE_PROFILE_KEY,
       subKey: SUBSTRATE_V2_KEY,
     },
   );

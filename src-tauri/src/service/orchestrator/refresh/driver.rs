@@ -11,7 +11,7 @@ use parking_lot::Mutex;
 
 use crate::agent::status::PaneStatus;
 use crate::service::inject_verify::screen_contains_echo;
-use crate::service::messenger::{MessageEnvelope, Messenger};
+use crate::service::messenger::MessageEnvelope;
 use crate::service::ServiceContext;
 
 use super::machine::{advance, Observation, RefreshPhase, RefreshTuning, Step};
@@ -172,7 +172,12 @@ impl ServiceContext {
         } else {
             MessageEnvelope::pane("", "")
         };
-        if let Err(e) = Messenger::deliver(self, pane_id, envelope, body) {
+        if let Err(e) = self.gateway_deliver(
+            pane_id,
+            envelope,
+            body,
+            crate::service::message_gateway::DeliveryClass::SystemNotice,
+        ) {
             log::warn!("[refresh] inject failed pane={} err={}", short(pane_id), e);
         }
     }
@@ -296,7 +301,7 @@ fn build_observation(
         RefreshPhase::VerifyResumption => {
             obs.resumption_observed = matches!(svc.pane_status(&ctx.pty_id), PaneStatus::Working);
         }
-        RefreshPhase::Compact | RefreshPhase::Resumed | RefreshPhase::Alerted => {}
+        RefreshPhase::Compact => {}
     }
     obs
 }

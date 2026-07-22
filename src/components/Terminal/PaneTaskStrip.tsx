@@ -41,6 +41,9 @@ function ResolvedPaneTaskStrip({
     return activeWorkForPane(snapshot, paneId);
   }, [full.plans, paneId, panes]);
   if (!activity) return null;
+  const renderedTask = activity.kind === "working"
+    ? full.plans.flatMap((plan) => plan.tasks).find((task) => task.id === activity.taskId) ?? paneActiveWork?.task
+    : null;
 
   const onOpen = () => {
     if (activity.kind === "working") {
@@ -57,6 +60,9 @@ function ResolvedPaneTaskStrip({
         onOpen={onOpen}
         taskStatus={activity.kind === "working" ? activity.taskStatus : null}
         stale={paneActiveWork?.stale ?? false}
+        nextAction={activity.kind === "working" && activity.taskStatus === "blocked" ? "Resolve blocker" : activity.kind === "working" && activity.taskStatus === "in_review" ? "Review task" : activity.kind === "working" ? "Continue task" : activity.kind === "planning" ? "Shape the plan" : "Coordinate open work"}
+        attachments={renderedTask?.attachments}
+        detailText={renderedTask?.body}
       />
     </div>
   );

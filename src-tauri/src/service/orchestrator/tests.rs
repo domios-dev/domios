@@ -59,9 +59,6 @@ fn worker_onboarding_requires_a_task_body() {
 fn planner_profile_uses_planner_suffix() {
     let task = role_onboarding_task(Some("plan it"), Some("Manager"), Some("planner")).unwrap();
     assert!(task.contains(&crate::prompts::planner_suffix()));
-    assert!(task.contains(crate::prompts::PLANNER_TESTING_ORACLE_FIRST));
-    assert!(task.contains(crate::prompts::PLAN_SKILLS_PRINCIPLES));
-    assert!(!task.contains("{planner_testing_methodology}"));
     assert!(!task.contains(crate::prompts::WORKER_SUFFIX));
 }
 
@@ -72,25 +69,80 @@ fn manager_watcher_does_not_get_worker_suffix() {
 }
 
 #[test]
-fn orchestrator_onboarding_is_sent_even_without_task_body() {
-    let task = role_onboarding_task(None, Some("Orchestrator"), None).unwrap();
-    assert!(task.contains("CodeTerm planner is the source of truth"));
-    assert!(task.contains(&crate::prompts::orchestrator_suffix()));
-    assert!(task.contains(crate::prompts::PLAN_SKILLS_PRINCIPLES));
-    assert!(!task.contains("{plan_skills_principles}"));
+fn plain_orchestrator_no_task_spawn_submits_nothing() {
+    assert_eq!(role_onboarding_task(None, Some("Orchestrator"), None), None);
+
+    let mut params = make_params("codex", None);
+    params.role = Some("Orchestrator".into());
+    assert_eq!(spawn_onboarding_task(&params), None);
+}
+
+#[test]
+fn paired_orchestrator_starts_idle_without_a_synthetic_turn() {
+    let mut params = make_params("codex", None);
+    params.role = Some("Orchestrator".into());
+    params.skip_orchestrator_onboarding = Some(true);
+    assert_eq!(spawn_onboarding_task(&params), None);
+}
+
+#[test]
+fn explicit_orchestrator_task_still_starts_an_execution_turn() {
+    let mut params = make_params("codex", Some("inspect the launch path"));
+    params.role = Some("Orchestrator".into());
+    params.skip_orchestrator_onboarding = Some(true);
+    let task = spawn_onboarding_task(&params).expect("explicit task");
+    assert_eq!(task, "inspect the launch path");
+}
+
+#[test]
+fn idle_planner_does_not_receive_a_preferences_turn() {
+    assert!(!should_deliver_spawn_preferences(true, None));
+    assert!(should_deliver_spawn_preferences(
+        true,
+        Some("plan this goal")
+    ));
+    assert!(!should_deliver_spawn_preferences(false, Some("execute")));
+}
+
+#[test]
+fn fresh_spawn_never_uses_existing_pane_promotion_delivery() {
+    for source in [include_str!("spawn.rs"), include_str!("../spawn.rs")] {
+        assert!(!source.contains("maybe_deliver_orchestrator_promotion_onboarding"));
+        assert!(
+            source.contains("spawn_onboarding_task") || source.contains("role_onboarding_task")
+        );
+        assert!(source.contains("launch_agent_in_background("));
+    }
+}
+
+#[test]
+fn launch_paths_route_through_seam() {
+    let call_count = [
+        include_str!("spawn.rs"),
+        include_str!("../spawn.rs"),
+        include_str!("../pty_io/lifecycle.rs"),
+    ]
+    .into_iter()
+    .map(|source| source.matches("launch_agent_in_background(").count())
+    .sum::<usize>();
+
+    assert_eq!(call_count, 3);
 }
 
 fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
     SpawnAgentParams {
         agent: Some(agent.to_string()),
         task: task.map(|t| t.to_string()),
+        starter_prompt: Default::default(),
         task_id: None,
         plan_task: None,
         allow_shared_checkout: None,
         agent_name: None,
         args: None,
         cwd: None,
+        provisioned_cwd: None,
         title: None,
+        title_provenance: None,
         description: None,
         role: None,
         role_profile: None,
@@ -106,6 +158,8 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         skip_permissions: None,
         spawned_by_pane_id: None,
         model: None,
+        planned_model: None,
+        reasoning_effort: None,
         system_prompt: None,
         preset: None,
         resume_session_id: None,
@@ -114,6 +168,7 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         nudge_cooldown_secs: None,
         max_actions_per_tick: None,
         activate: None,
+        manager_bootstrap: None,
         structured_prompt_server: None,
     }
 }
@@ -131,12 +186,12 @@ fn test_build_claude_with_task() {
     let cmd = build_agent_command("claude", &params, Some("count files"), None, &reg);
     assert!(cmd.contains("--dangerously-skip-permissions"));
     assert!(cmd.contains(".ct-task-"), "task via temp file");
+    assert!(cmd.contains("--append-system-prompt-file"));
+    assert!(cmd.contains("Execute the CodeTerm task provided in the appended system prompt"));
     if cfg!(target_os = "windows") {
         assert!(cmd.contains("Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue;"));
-        assert!(cmd.contains("(Get-Content"));
     } else {
         assert!(cmd.contains("unset CLAUDECODE &&"));
-        assert!(cmd.contains("$(cat /tmp/"));
     }
 }
 
@@ -164,6 +219,79 @@ fn test_build_claude_with_agent_name() {
     params.agent_name = Some("architect".to_string());
     let cmd = build_agent_command("claude", &params, None, None, &reg);
     assert!(cmd.contains("--agent 'architect'"));
+}
+
+fn effort_registry() -> AgentRegistry {
+    let reg = AgentRegistry::new();
+    reg.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+        "flat",
+    )));
+    reg.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_reasoning_efforts(
+            "tiered",
+            &["low", "medium", "high"],
+        ),
+    ));
+    reg
+}
+
+#[test]
+fn build_agent_command_injects_supported_reasoning_effort() {
+    let reg = effort_registry();
+    let mut params = make_params("tiered", None);
+    params.reasoning_effort = Some("high".into());
+    let cmd = build_agent_command("tiered", &params, None, None, &reg);
+    assert!(
+        cmd.contains("--effort high"),
+        "supported effort must reach the launch command: {cmd}"
+    );
+}
+
+#[test]
+fn build_agent_command_omits_undeclared_reasoning_effort() {
+    let reg = effort_registry();
+    let mut params = make_params("tiered", None);
+    params.reasoning_effort = Some("ultra".into());
+    let cmd = build_agent_command("tiered", &params, None, None, &reg);
+    assert!(
+        !cmd.contains("--effort"),
+        "undeclared effort adds no launch flag"
+    );
+}
+
+#[test]
+fn build_agent_command_omits_effort_for_flat_provider() {
+    // Defend direct callers that bypass upstream dispatch validation.
+    let reg = effort_registry();
+    let mut params = make_params("flat", None);
+    params.reasoning_effort = Some("high".into());
+    let cmd = build_agent_command("flat", &params, None, None, &reg);
+    assert!(
+        !cmd.contains("--effort"),
+        "flat provider adds no effort flag"
+    );
+}
+
+#[test]
+fn validate_reasoning_effort_gates_dispatch() {
+    use crate::service::spawn::validate_agent_reasoning_effort;
+    let reg = effort_registry();
+    // No selection is always valid.
+    assert!(validate_agent_reasoning_effort(&reg, "tiered", None).is_ok());
+    assert!(validate_agent_reasoning_effort(&reg, "tiered", Some("")).is_ok());
+    // Supported level passes.
+    assert!(validate_agent_reasoning_effort(&reg, "tiered", Some("medium")).is_ok());
+    // Unsupported level is rejected structurally — no silent downgrade.
+    let err = validate_agent_reasoning_effort(&reg, "tiered", Some("ultra"))
+        .expect_err("unsupported effort must reject");
+    assert!(
+        err.contains("low, medium, high"),
+        "error lists support: {err}"
+    );
+    // A provider with no capability rejects any explicit effort.
+    assert!(validate_agent_reasoning_effort(&reg, "flat", Some("high")).is_err());
+    // Unknown provider cannot be validated → error, never a silent pass.
+    assert!(validate_agent_reasoning_effort(&reg, "ghost", Some("high")).is_err());
 }
 
 #[test]
@@ -242,13 +370,22 @@ fn test_build_claude_task_temp_file_created() {
     let params = make_params("claude", Some(task));
     let cmd = build_agent_command("claude", &params, Some(task), None, &reg);
     if cfg!(not(target_os = "windows")) {
-        // Command looks like: ... "$(cat /tmp/.ct-task-XXXXXXXX)"
-        let start = cmd.find("/tmp/.ct-task-").unwrap();
-        let end = cmd[start..].find(')').unwrap() + start;
-        let path = &cmd[start..end];
-        let content = std::fs::read_to_string(path).unwrap();
+        let path = cmd
+            .split_once("--append-system-prompt-file '")
+            .and_then(|(_, rest)| rest.split_once("' -- "))
+            .map(|(path, _)| path)
+            .expect("command should expose the task file argument");
+        if cfg!(target_os = "macos") {
+            assert_ne!(
+                std::path::Path::new(path).parent(),
+                Some(std::path::Path::new("/tmp")),
+                "macOS must use its configured temp directory"
+            );
+        }
+        let content = std::fs::read_to_string(path).expect("temp file should exist");
         assert_eq!(content, task, "temp file should contain the task verbatim");
-        let _ = std::fs::remove_file(path);
+        std::fs::remove_file(path).expect("temp task file should be removable");
+        assert!(!std::path::Path::new(path).exists());
     }
 }
 

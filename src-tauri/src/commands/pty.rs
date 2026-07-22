@@ -3,7 +3,7 @@ use std::io::Read;
 use tauri::AppHandle;
 
 use crate::multiplexer::commands::MuxState;
-use crate::service::ServiceState;
+use crate::service::{boot_stage::BootStage, ServiceState};
 use crate::{AgentTrackerState, OutputBufferState, PtyState, ScreenStateHandle};
 
 #[tauri::command]
@@ -41,6 +41,10 @@ pub async fn spawn_pty_core(
     predicted_id: Option<String>,
     pane_id: Option<String>,
 ) -> Result<String, String> {
+    let mut pty_claim = match pane_id.clone() {
+        Some(id) => Some(svc.pty_ownership.acquire_async(id).await?),
+        None => None,
+    };
     let state = &svc.pty;
     let mux_state = &svc.mux;
     let screen_state = &svc.screen_state;
@@ -58,46 +62,40 @@ pub async fn spawn_pty_core(
         if let Some(existing) = existing {
             let alive = state.lock().get_session(&existing).is_some();
             if alive {
+                let selected = svc.link_pty_with_claim(
+                    pty_claim.as_ref().expect("pane claim"),
+                    pid,
+                    existing,
+                    false,
+                );
+                if !selected.linked {
+                    return Err(format!("Pane {} closed before PTY link", pid));
+                }
                 log::info!(
                     "[spawn_pty] pane {} already has live pty {} — reusing",
                     pid,
-                    existing,
+                    selected.pty_id,
                 );
-                return Ok(existing);
+                return Ok(selected.pty_id);
             }
         }
         if is_protected {
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-            loop {
-                if let Some(existing) = mux_state
-                    .read()
-                    .get_pane(pid)
-                    .and_then(|p| p.pty_id.clone())
-                {
-                    let alive = state.lock().get_session(&existing).is_some();
-                    if alive {
-                        log::info!(
-                            "[spawn_pty] protected pane {} already has live backend pty {} — reusing",
-                            pid,
-                            existing,
-                        );
-                        return Ok(existing);
-                    }
-                    log::warn!(
-                        "[spawn_pty] protected pane {} has stale backend pty {} — waiting for relink",
-                        pid,
-                        existing,
-                    );
-                }
-                if std::time::Instant::now() > deadline {
-                    log::warn!(
-                        "[spawn_pty] protected pane {} still has no backend pty after 5s — falling through",
-                        pid,
-                    );
-                    break;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            drop(pty_claim.take());
+            let svc_wait = svc.clone();
+            let pane_wait = pid.clone();
+            let relinked = tokio::task::spawn_blocking(move || {
+                svc_wait.await_pty_link_blocking(&pane_wait, std::time::Duration::from_secs(5))
+            })
+            .await
+            .map_err(|error| format!("protected pane relink waiter failed: {error}"))?;
+            if let Ok(existing) = relinked {
+                return Ok(existing);
             }
+            log::warn!(
+                "[spawn_pty] protected pane {} still has no backend pty after 5s — falling through",
+                pid,
+            );
+            pty_claim = Some(svc.pty_ownership.acquire_async(pid.clone()).await?);
         }
     }
 
@@ -136,13 +134,14 @@ pub async fn spawn_pty_core(
         "CODETERM_VERSION".to_string(),
         env!("CARGO_PKG_VERSION").to_string(),
     );
-    // Pass token/port to REST callbacks to avoid silent 401s.
+    // URL/port/token for REST callbacks — derived strictly from this instance's
+    // config, never inherited process env. Setting CODETERM_API_URL explicitly is
+    // what stops a prod-inherited URL (7685) from leaking into the pane and 401ing
+    // this instance's bearer against prod.
     let api_cfg = config_state.lock().api.clone();
-    if let Ok(port) = std::env::var("CODETERM_API_PORT") {
-        env_vars.insert("CODETERM_API_PORT".into(), port);
-    } else {
-        env_vars.insert("CODETERM_API_PORT".into(), api_cfg.port.to_string());
-    }
+    let (api_url, api_port) = crate::config::api_callback_url(&api_cfg);
+    env_vars.insert("CODETERM_API_URL".into(), api_url);
+    env_vars.insert("CODETERM_API_PORT".into(), api_port);
     if let Some(ref tok) = api_cfg.token {
         if !tok.is_empty() {
             env_vars.insert("CODETERM_API_TOKEN".into(), tok.clone());
@@ -157,44 +156,50 @@ pub async fn spawn_pty_core(
     .map_err(|e| format!("spawn_pty join error: {}", e))??;
     let build_ms = t0.elapsed().as_millis();
 
-    let (pty_id, _session) = state.lock().register_session(predicted_id, built);
+    let (mut pty_id, _session) = state.lock().register_session(predicted_id, built);
+    svc.screen_state.lock().resize(&pty_id, cols, rows);
     log::info!("PTY {} spawned (build={}ms)", pty_id, build_ms);
 
-    if let Some(ref pid) = pane_id {
-        svc.link_pty(pid, pty_id.clone());
-    }
-    if let Err(e) = crate::service::pty_lifecycle::start_backend_reader(&svc, &pty_id, false) {
-        log::warn!(
-            "[spawn_pty] failed to start backend reader for {}: {}",
-            &pty_id[..pty_id.len().min(8)],
-            e
-        );
+    let reader_pty_id = if let Some(ref pid) = pane_id {
+        let selected =
+            svc.link_pty_with_claim(pty_claim.as_ref().expect("pane claim"), pid, pty_id, false);
+        if !selected.linked {
+            return Err(format!("Pane {} closed before PTY link", pid));
+        }
+        let reader_pty_id = selected.reader_pty_id().map(str::to_string);
+        pty_id = selected.pty_id;
+        reader_pty_id
+    } else {
+        Some(pty_id.clone())
+    };
+    if let Some(reader_pty_id) = reader_pty_id {
+        if let Err(e) =
+            crate::service::pty_lifecycle::start_backend_reader(&svc, &reader_pty_id, false)
+        {
+            log::warn!(
+                "[spawn_pty] failed to start backend reader for {}: {}",
+                &reader_pty_id[..reader_pty_id.len().min(8)],
+                e
+            );
+        }
     }
 
     // Auto-resume pane session after shell is ready.
     if let Some(ref pid) = pane_id {
-        let (session_id, is_protected, pane_cwd, restored_from_snapshot, agent_type, pane_model) = {
-            let m = mux_state.read();
-            let pane = m.get_pane(pid);
-            (
-                pane.and_then(|p| p.agent_session_id.clone()),
-                pane.map(|p| p.protected).unwrap_or(false),
-                pane.and_then(|p| p.cwd.clone()),
-                pane.map(|p| p.restored_from_snapshot).unwrap_or(false),
-                pane.and_then(|p| p.agent_type.clone()),
-                pane.and_then(|p| p.agent_session_model.clone()),
-            )
+        let Some(restore) = crate::service::pty_io::claim_restored_pty_boot(mux_state, pid)? else {
+            return Ok(pty_id);
         };
-        let mut should_fresh_launch =
-            restored_from_snapshot && !is_protected && agent_type.is_some();
+        let session_id = restore.session_id;
+        let pane_cwd = restore.cwd;
+        let agent_type = restore.provider_id;
+        let pane_model = restore.model;
+        let mut should_fresh_launch = true;
         let agent_type_for_fresh = agent_type.clone();
+        svc.emit_boot_stage(pid, BootStage::PtySpawned, None);
 
         // Resume only restored snapshots; direct spawn uses backend start.
-        if let Some(session_id) = session_id
-            .filter(|_| !is_protected)
-            .filter(|_| restored_from_snapshot)
-        {
-            let provider_id = agent_type.unwrap_or_else(crate::config::default_agent_provider);
+        if let Some(session_id) = session_id {
+            let provider_id = agent_type;
 
             // Clear stale id if session is gone to avoid resume loop.
             let session_valid = pane_cwd
@@ -248,20 +253,24 @@ pub async fn spawn_pty_core(
                     let screen_state_clone = screen_state.clone();
                     let svc_for_launch = svc.clone();
                     let pane_id_for_boot = pid.clone();
-                    let submit_strategy = svc
-                        .agent_registry
-                        .with_provider(&provider_id, |p| p.verify_submit_strategy())
-                        .unwrap_or(crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
-                            timeout: std::time::Duration::from_secs(15),
-                        });
-                    svc.clear_pane_restored_flag(pid);
+                    let provider_for_ready = provider_id.clone();
                     tokio::spawn(async move {
                         if !resume_enabled {
+                            if let Some(pane) =
+                                svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot)
+                            {
+                                pane.agent_booting = false;
+                            }
+                            svc_for_launch.clear_pane_restored_flag(&pane_id_for_boot);
+                            svc_for_launch.emit_boot_stage(
+                                &pane_id_for_boot,
+                                BootStage::AgentReady,
+                                None,
+                            );
                             return;
                         }
 
-                        // Wait up to 60s for shell readiness before writing resume command.
-                        let ready = tokio::task::spawn_blocking(move || {
+                        let shell_ready = tokio::task::spawn_blocking(move || {
                             crate::service::pty_io::poll_bare_shell_prompt(
                                 &screen_state_clone,
                                 &pty_id_for_poll,
@@ -270,63 +279,112 @@ pub async fn spawn_pty_core(
                         })
                         .await
                         .unwrap_or(false);
-
-                        if !ready {
-                            log::warn!(
-                                "[resume] shell not ready for session {}, skipping",
-                                session_id
+                        if !shell_ready {
+                            if let Some(pane) =
+                                svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot)
+                            {
+                                pane.agent_booting = false;
+                            }
+                            svc_for_launch.emit_boot_stage(
+                                &pane_id_for_boot,
+                                BootStage::SpawnFailed,
+                                Some("shell did not become ready for session resume"),
                             );
                             return;
                         }
 
                         log::info!("[resume] sending: {}", cmd);
-                        if let Some(pane) =
-                            svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot)
-                        {
-                            pane.agent_booting = true;
-                        }
+                        svc_for_launch.emit_boot_stage(
+                            &pane_id_for_boot,
+                            BootStage::ShellReady,
+                            None,
+                        );
+                        svc_for_launch.emit_boot_stage(
+                            &pane_id_for_boot,
+                            BootStage::AgentLaunching,
+                            None,
+                        );
                         let svc_for_blocking = svc_for_launch.clone();
                         let launch_result = tokio::task::spawn_blocking(move || {
-                            let opts = crate::service::inject_verify::VerifyOpts {
-                                require_prompt_first: false,
-                                verify_echo: true,
-                                verify_submit: true,
-                                prompt_timeout: std::time::Duration::from_secs(0),
-                                echo_timeout: std::time::Duration::from_secs(3),
-                                submit_timeout: std::time::Duration::from_secs(15),
-                            };
-                            svc_for_blocking.send_shell_spawn_verified(
+                            svc_for_blocking
+                                .send_shell_spawn_after_ready(&pty_id_for_launch, &cmd)?;
+                            Ok::<bool, String>(svc_for_blocking.await_agent_tui_frame_on_screen(
                                 &pty_id_for_launch,
-                                &cmd,
-                                submit_strategy,
-                                opts,
-                            )
+                                &provider_for_ready,
+                                std::time::Duration::from_secs(30),
+                            ))
                         })
                         .await;
-                        if let Some(pane) =
-                            svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot)
-                        {
-                            pane.agent_booting = false;
-                        }
                         match launch_result {
-                            Ok(Ok(_)) => {}
+                            Ok(Ok(true)) => {
+                                if let Some(pane) =
+                                    svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot)
+                                {
+                                    pane.agent_booting = false;
+                                }
+                                svc_for_launch.clear_pane_restored_flag(&pane_id_for_boot);
+                                svc_for_launch.emit_boot_stage(
+                                    &pane_id_for_boot,
+                                    BootStage::AgentReady,
+                                    None,
+                                );
+                            }
+                            Ok(Ok(false)) => {
+                                if let Some(pane) =
+                                    svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot)
+                                {
+                                    pane.agent_booting = false;
+                                }
+                                svc_for_launch.emit_boot_stage(
+                                    &pane_id_for_boot,
+                                    BootStage::SpawnFailed,
+                                    Some("provider TUI did not become ready after session resume"),
+                                );
+                            }
                             Ok(Err(e)) => {
-                                log::error!("[resume] verified launch failed: {}", e);
+                                log::error!("[resume] launch write failed: {}", e);
+                                if let Some(pane) =
+                                    svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot)
+                                {
+                                    pane.agent_booting = false;
+                                }
+                                svc_for_launch.emit_boot_stage(
+                                    &pane_id_for_boot,
+                                    BootStage::SpawnFailed,
+                                    Some(&format!("resume launch write failed: {}", e)),
+                                );
                             }
                             Err(e) => {
-                                log::error!("[resume] verified launch task failed: {}", e);
+                                log::error!("[resume] launch task failed: {}", e);
+                                if let Some(pane) =
+                                    svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot)
+                                {
+                                    pane.agent_booting = false;
+                                }
+                                svc_for_launch.emit_boot_stage(
+                                    &pane_id_for_boot,
+                                    BootStage::SpawnFailed,
+                                    Some(&format!("resume launch task failed: {}", e)),
+                                );
                             }
                         }
                     });
+                    should_fresh_launch = false;
+                } else {
+                    log::warn!(
+                        "[resume] provider {} has no resume command for pane {}; starting fresh",
+                        provider_id,
+                        pid
+                    );
+                    svc.set_agent_session_id(pid, None);
+                    svc.emit_state_changed();
                 }
-                should_fresh_launch = false;
             }
         }
 
         if should_fresh_launch {
-            let provider_id = agent_type_for_fresh.expect("checked above");
+            let provider_id = agent_type_for_fresh;
             // Restored pane without session falls back to fresh launch.
-            svc.clear_pane_restored_flag(pid);
             let pc = crate::config::provider_config(&provider_id);
             let skip_perms = pc.resume_skip_permissions.unwrap_or(true);
             let launch_cmd = svc.agent_registry.with_provider(&provider_id, |p| {
@@ -335,11 +393,14 @@ pub async fn spawn_pty_core(
                     .filter(|m| !m.trim().is_empty())
                     .map(|m| p.model_launch_args(m))
                     .filter(|a| !a.is_empty());
-                p.build_launch_command(&crate::agent::provider::AgentLaunchParams {
-                    skip_permissions: skip_perms,
-                    args,
-                    ..Default::default()
-                })
+                crate::agent::stub_launch::apply(
+                    &provider_id,
+                    p.build_launch_command(&crate::agent::provider::AgentLaunchParams {
+                        skip_permissions: skip_perms,
+                        args,
+                        ..Default::default()
+                    }),
+                )
             });
             if let Some(cmd) = launch_cmd {
                 let pty_id_for_poll = pty_id.clone();
@@ -348,14 +409,8 @@ pub async fn spawn_pty_core(
                 let provider_label = provider_id.clone();
                 let svc_for_launch = svc.clone();
                 let pane_id_for_boot = pid.clone();
-                let submit_strategy = svc
-                    .agent_registry
-                    .with_provider(&provider_id, |p| p.verify_submit_strategy())
-                    .unwrap_or(crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
-                        timeout: std::time::Duration::from_secs(15),
-                    });
                 tokio::spawn(async move {
-                    let ready = tokio::task::spawn_blocking(move || {
+                    let shell_ready = tokio::task::spawn_blocking(move || {
                         crate::service::pty_io::poll_bare_shell_prompt(
                             &screen_state_clone,
                             &pty_id_for_poll,
@@ -364,10 +419,16 @@ pub async fn spawn_pty_core(
                     })
                     .await
                     .unwrap_or(false);
-                    if !ready {
-                        log::warn!(
-                            "[restore-fresh] shell not ready for {} pane, skipping launch",
-                            provider_label
+                    if !shell_ready {
+                        if let Some(pane) =
+                            svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot)
+                        {
+                            pane.agent_booting = false;
+                        }
+                        svc_for_launch.emit_boot_stage(
+                            &pane_id_for_boot,
+                            BootStage::SpawnFailed,
+                            Some("shell did not become ready for restored fresh launch"),
                         );
                         return;
                     }
@@ -376,48 +437,99 @@ pub async fn spawn_pty_core(
                         provider_label,
                         cmd
                     );
-                    if let Some(pane) = svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot) {
-                        pane.agent_booting = true;
-                    }
+                    svc_for_launch.emit_boot_stage(&pane_id_for_boot, BootStage::ShellReady, None);
+                    svc_for_launch.emit_boot_stage(
+                        &pane_id_for_boot,
+                        BootStage::AgentLaunching,
+                        None,
+                    );
                     let svc_for_blocking = svc_for_launch.clone();
+                    let provider_for_ready = provider_label.clone();
                     let launch_result = tokio::task::spawn_blocking(move || {
-                        let opts = crate::service::inject_verify::VerifyOpts {
-                            require_prompt_first: false,
-                            verify_echo: true,
-                            verify_submit: true,
-                            prompt_timeout: std::time::Duration::from_secs(0),
-                            echo_timeout: std::time::Duration::from_secs(3),
-                            submit_timeout: std::time::Duration::from_secs(15),
-                        };
-                        svc_for_blocking.send_shell_spawn_verified(
+                        svc_for_blocking.send_shell_spawn_after_ready(&pty_id_for_launch, &cmd)?;
+                        Ok::<bool, String>(svc_for_blocking.await_agent_tui_frame_on_screen(
                             &pty_id_for_launch,
-                            &cmd,
-                            submit_strategy,
-                            opts,
-                        )
+                            &provider_for_ready,
+                            std::time::Duration::from_secs(30),
+                        ))
                     })
                     .await;
-                    if let Some(pane) = svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot) {
-                        pane.agent_booting = false;
-                    }
                     match launch_result {
-                        Ok(Ok(_)) => {}
+                        Ok(Ok(true)) => {
+                            if let Some(pane) =
+                                svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot)
+                            {
+                                pane.agent_booting = false;
+                            }
+                            svc_for_launch.clear_pane_restored_flag(&pane_id_for_boot);
+                            svc_for_launch.emit_boot_stage(
+                                &pane_id_for_boot,
+                                BootStage::AgentReady,
+                                None,
+                            );
+                        }
+                        Ok(Ok(false)) => {
+                            if let Some(pane) =
+                                svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot)
+                            {
+                                pane.agent_booting = false;
+                            }
+                            svc_for_launch.emit_boot_stage(
+                                &pane_id_for_boot,
+                                BootStage::SpawnFailed,
+                                Some("provider TUI did not become ready after fresh restore"),
+                            );
+                        }
                         Ok(Err(e)) => {
                             log::error!(
-                                "[restore-fresh] verified launch failed for {} pane: {}",
+                                "[restore-fresh] launch write failed for {} pane: {}",
                                 provider_label,
                                 e
+                            );
+                            if let Some(pane) =
+                                svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot)
+                            {
+                                pane.agent_booting = false;
+                            }
+                            svc_for_launch.emit_boot_stage(
+                                &pane_id_for_boot,
+                                BootStage::SpawnFailed,
+                                Some(&format!("restored fresh launch write failed: {}", e)),
                             );
                         }
                         Err(e) => {
                             log::error!(
-                                "[restore-fresh] verified launch task failed for {} pane: {}",
+                                "[restore-fresh] launch task failed for {} pane: {}",
                                 provider_label,
                                 e
+                            );
+                            if let Some(pane) =
+                                svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot)
+                            {
+                                pane.agent_booting = false;
+                            }
+                            svc_for_launch.emit_boot_stage(
+                                &pane_id_for_boot,
+                                BootStage::SpawnFailed,
+                                Some(&format!("restored fresh launch task failed: {}", e)),
                             );
                         }
                     }
                 });
+            } else {
+                log::error!(
+                    "[restore-fresh] provider {} has no launch command for pane {}",
+                    provider_id,
+                    pid
+                );
+                if let Some(pane) = svc.mux.write().get_pane_mut(pid) {
+                    pane.agent_booting = false;
+                }
+                svc.emit_boot_stage(
+                    pid,
+                    BootStage::SpawnFailed,
+                    Some("provider did not produce a restored launch command"),
+                );
             }
         }
     }
@@ -471,7 +583,7 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
                             data.len()
                         );
                     }
-                    coalesce_backend_chunks(&mut rx, &mut data).await;
+                    coalesce_backend_chunks(&mut rx, &mut data);
                     *session.backend_reader_rx.lock().unwrap() = Some(rx);
                     return Ok(data);
                 }
@@ -497,7 +609,7 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
                     let result = rx.recv().await;
                     match result {
                         Some(mut data) => {
-                            coalesce_backend_chunks(&mut rx, &mut data).await;
+                            coalesce_backend_chunks(&mut rx, &mut data);
                             *session.backend_reader_rx.lock().unwrap() = Some(rx);
                             return Ok(data);
                         }
@@ -519,6 +631,16 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
         }
     }
 
+    if !svc
+        .screen_state
+        .lock()
+        .bind_pty_generation(&pty_id, session.generation)
+    {
+        return Err(format!(
+            "PTY {} was replaced before raw reader start",
+            pty_id
+        ));
+    }
     let pid = pty_id.clone();
 
     // One read loop owns the reader; clone fresh via try_clone_reader if taken.
@@ -528,6 +650,9 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
             Some(r) => r,
             None => {
                 let pair = session.pair.lock().unwrap();
+                let Some(pair) = pair.as_ref() else {
+                    return Ok(Vec::new());
+                };
                 pair.master.try_clone_reader().map_err(|e| e.to_string())?
             }
         }
@@ -562,7 +687,8 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
             let mut reader_slot = session.reader.lock().unwrap();
             *reader_slot = Some(reader_back);
 
-            let (prev, now) = svc.feed_pty_output(&pty_id, &data);
+            let (prev, now) =
+                svc.feed_pty_output_for_generation(&pty_id, session.generation, &data);
             svc.emit_pane_status_if_changed(&pty_id, prev, now);
 
             Ok(data)
@@ -585,19 +711,32 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
                 if let Some(cron_state) = app.try_state::<crate::CronState>() {
                     let owner = cron_state.lock().get_pane_owner(pid).cloned();
                     if let Some((job_id, run_id)) = owner {
-                        let mut store = cron_state.lock();
-                        // Only save if no log exists yet (don't overwrite clean summary)
-                        if store.read_log(&job_id, &run_id).is_none() {
-                            let text = output_buf.lock().get_text(&pty_id).unwrap_or_default();
-                            let clean = crate::pty::ansi::clean_terminal_output(&text);
-                            let _ = store.save_log(&job_id, &run_id, &clean);
-                            let _ = store.update_run_status(
+                        let mut fresh_transition = false;
+                        {
+                            let mut store = cron_state.lock();
+                            // Only save if no log exists yet (don't overwrite clean summary)
+                            if store.read_log(&job_id, &run_id).is_none() {
+                                let text = output_buf.lock().get_text(&pty_id).unwrap_or_default();
+                                let clean = crate::pty::ansi::clean_terminal_output(&text);
+                                let _ = store.save_log(&job_id, &run_id, &clean);
+                                fresh_transition = store
+                                    .update_run_status(
+                                        &job_id,
+                                        &run_id,
+                                        crate::cron::store::CronRunStatus::Failed,
+                                    )
+                                    .unwrap_or(false);
+                            }
+                            store.unregister_pane(pid);
+                        }
+                        // Notify after the store guard drops — it re-locks internally.
+                        if fresh_transition {
+                            crate::cron::notify::notify_on_consecutive_failure(
+                                svc,
+                                &cron_state,
                                 &job_id,
-                                &run_id,
-                                crate::cron::store::CronRunStatus::Failed,
                             );
                         }
-                        store.unregister_pane(pid);
                         log::info!("Cron pane exited: job={}, run={}", job_id, run_id);
                         crate::api::events::emit_everywhere(&app, "cron-run-finished", ());
                     }
@@ -608,14 +747,9 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
     }
 }
 
-async fn coalesce_backend_chunks(
-    rx: &mut tokio::sync::mpsc::Receiver<Vec<u8>>,
-    data: &mut Vec<u8>,
-) {
-    const COALESCE_WAIT: std::time::Duration = std::time::Duration::from_millis(8);
+fn coalesce_backend_chunks(rx: &mut tokio::sync::mpsc::Receiver<Vec<u8>>, data: &mut Vec<u8>) {
     const COALESCE_CAP: usize = 64 * 1024;
 
-    tokio::time::sleep(COALESCE_WAIT).await;
     while data.len() < COALESCE_CAP {
         match rx.try_recv() {
             Ok(mut next) => data.append(&mut next),
@@ -772,6 +906,7 @@ fn parse_pty_input(
 #[tauri::command]
 pub async fn resize_pty(
     state: tauri::State<'_, PtyState>,
+    screen_state: tauri::State<'_, ScreenStateHandle>,
     resize_owner: tauri::State<'_, crate::ResizeOwnerState>,
     pty_id: String,
     cols: u16,
@@ -783,7 +918,7 @@ pub async fn resize_pty(
             return Ok(());
         }
     }
-    resize_pty_core(&state, pty_id, cols, rows)
+    resize_pty_core(&state, &screen_state, pty_id, cols, rows)
 }
 
 #[tauri::command]
@@ -815,6 +950,7 @@ pub async fn claim_resize_owner(
 /// Shared by the Tauri command and the web mirror's POST /api/pty/{id}/resize.
 pub fn resize_pty_core(
     state: &PtyState,
+    screen_state: &ScreenStateHandle,
     pty_id: String,
     cols: u16,
     rows: u16,
@@ -827,6 +963,7 @@ pub fn resize_pty_core(
     };
 
     let _ = session.resize(cols, rows)?;
+    screen_state.lock().resize(&pty_id, cols, rows);
     crate::pty::capture::CaptureRegistry::global().tap_resize(&pty_id, cols, rows);
     Ok(())
 }
@@ -846,12 +983,84 @@ pub async fn kill_pty(
     };
     if owned_by_protected {
         log::info!(
-            "[kill_pty] {} is owned by a protected pane — ignoring frontend kill",
+            "[kill_pty] {} is owned by a protected pane - ignoring frontend kill",
             pty_id,
         );
         return Ok(());
     }
     let mut manager = state.lock();
-    manager.remove(&pty_id);
-    Ok(())
+    kill_pty_idempotent(&mut manager, &pty_id)
+}
+
+pub(crate) fn kill_pty_idempotent(
+    manager: &mut crate::pty::manager::PtyManager,
+    pty_id: &str,
+) -> Result<(), String> {
+    match manager.kill(pty_id) {
+        Ok(()) => Ok(()),
+        Err(e) if is_missing_pty_error(pty_id, &e) => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+fn is_missing_pty_error(pty_id: &str, error: &str) -> bool {
+    error == format!("PTY {} not found", pty_id)
+}
+
+#[cfg(test)]
+mod kill_pty_tests {
+    use std::collections::HashMap;
+
+    use super::{is_missing_pty_error, kill_pty_idempotent};
+
+    #[test]
+    fn kill_pty_idempotent_kills_child_and_allows_repeat() {
+        let mut manager = crate::pty::manager::PtyManager::new();
+        let (pty_id, session) = manager
+            .spawn(None, None, 80, 24, HashMap::new())
+            .expect("spawn default shell");
+        let child_pid = session.child.lock().expect("child lock").process_id();
+        assert!(child_pid.is_some(), "spawned child should expose a pid");
+
+        kill_pty_idempotent(&mut manager, &pty_id).expect("first kill succeeds");
+        assert!(
+            manager.get_session(&pty_id).is_none(),
+            "kill must remove session from manager"
+        );
+        // TerminateProcess is async on Windows and the reaper thread may reap
+        // concurrently; poll until the child is gone (here or in background).
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            match session.child.lock().expect("child lock").try_wait() {
+                Ok(Some(_)) | Err(_) => break,
+                Ok(None) => {}
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "kill must terminate the child"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+
+        kill_pty_idempotent(&mut manager, &pty_id).expect("repeat kill is a no-op");
+        kill_pty_idempotent(&mut manager, "missing-pty").expect("unknown kill is a no-op");
+    }
+
+    #[test]
+    fn kill_pty_idempotent_does_not_swallow_unrelated_errors() {
+        let mut manager = crate::pty::manager::PtyManager::new();
+        let err = manager
+            .kill("real-id")
+            .expect_err("manager should expose exact missing-id error");
+        assert!(is_missing_pty_error("real-id", &err));
+        assert!(!is_missing_pty_error("other-id", &err));
+        assert!(!is_missing_pty_error(
+            "real-id",
+            "PTY real-id not found: access denied"
+        ));
+        assert!(!is_missing_pty_error(
+            "real-id",
+            "wrapped PTY real-id not found"
+        ));
+    }
 }

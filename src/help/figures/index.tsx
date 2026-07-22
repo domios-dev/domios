@@ -143,7 +143,7 @@ function TaskStatusFlowFigure() {
         </g>
       ))}
       <Box x={88} y={82} w={78} h={36} label="Blocked" />
-      <Box x={178} y={82} w={78} h={36} label="Parked" />
+      <Box x={178} y={82} w={78} h={36} label="Paused" />
       <line x1={127} y1={60} x2={127} y2={82} stroke={muted} strokeWidth={1} strokeDasharray="4 3" />
       <line x1={217} y1={60} x2={217} y2={82} stroke={muted} strokeWidth={1} strokeDasharray="4 3" />
     </svg>

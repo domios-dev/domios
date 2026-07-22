@@ -3,31 +3,32 @@ import type {
   ChatOrigin,
   NormalizedChatMessage as ChatMessage,
   ChatAttachment as ImageAttachment,
+  TimelineItem,
 } from "@codeterm/chat-core";
+import { isPaneMarkerPlaceholderLabel, shortPaneRef } from "@codeterm/chat-core";
 import {
   Download, Image,
-  ArrowRight,      // pane -> pane
   Send,            // generic chat (telegram / service)
   Network,         // mesh
   ChevronsRight,   // slash-command chip
-  CornerUpLeft,    // report (bubbled up to parent)
   Settings,        // plugin_config (Configure card)
   Info,
 } from "lucide-react";
 import { ToolCallBubble } from "./ToolCallBubble";
 import { ShellCommandItem } from "./ShellCommandItem";
 import { ReminderCard } from "./codeterm/ReminderCard";
+import { InboundReportCard } from "./codeterm/InboundReportCard";
+import { InboundMessageCard } from "./codeterm/InboundMessageCard";
 import { messageTimestamp } from "./codeterm/relativeTime";
-import type { PaneNameResolver } from "./codeterm/templates";
+import { isSend, type PaneNameResolver } from "./codeterm/templates";
+import { recognize } from "./codeterm/recognize";
 import { ChevronIcon, PRE_WRAP_CLASS } from "./CodeBlock";
 import {
   CommandBody,
   ImageBadge,
   LongArtifact,
-  ModelAvatar,
   RichMarkdown,
   TEXT_WRAP_CLASS,
-  extractEdits,
   isLargeArtifact,
   renderUserContent,
 } from "./MarkdownBody";
@@ -38,18 +39,17 @@ import { ToolOutputContent } from "./ToolOutputContent";
 import { isImageOnlyToolOutput } from "./toolImageOutput";
 import { ContextRequestCard } from "./ContextRequestCard";
 import { WatcherVerdictCard } from "./WatcherVerdictCard";
-import { LinkedText, PlanRefCards } from "./codeterm/LinkedText";
+import { LinkedText, PlanRefCards, type ResolvedChatPlanRef } from "./codeterm/LinkedText";
 import { hasPlanRefs } from "./codeterm/planRefs";
 import {
-  INBOUND_KIND_LABELS,
   hasMeaningfulToolResult,
   isRenderableMessage,
   structuredInboundFromMessage,
 } from "./MessageBubble.helpers";
-import { CrossPaneMessageShell } from "./crossPaneBubble";
 
 interface MessageBubbleProps {
   message: ChatMessage;
+  item?: TimelineItem;
   isLatestFailedToolCall?: boolean;
   /** Route an interactive widget's answer back to the agent (existing send path). */
   onAnswerInteractive?: InteractiveAnswerHandler;
@@ -64,8 +64,11 @@ interface MessageBubbleProps {
   onOriginClick?: () => void;
   /** Resolve a pane id/short-id to a tab name for CodeTerm cards (e.g. "Sent to <name>"). */
   resolvePaneName?: PaneNameResolver;
+  /** Focus a referenced Tab from a CodeTerm action card. */
+  onFocusPane?: (paneRef: string) => void;
   /** Open the plan view for a plan, optionally focused on a task/section node. */
   onOpenPlan?: (planId: string, focusId?: string, focusKind?: "plan" | "task" | "section") => void;
+  resolvePlanRef?: (planId: string, focusId?: string, focusKind?: "plan" | "task" | "section") => ResolvedChatPlanRef | null;
   fontScale?: number;
   /** `shell_command` decoration — re-run the command in the pane's PTY. */
   onRerunShellCommand?: (command: string) => void;
@@ -76,12 +79,41 @@ interface MessageBubbleProps {
 const INTERACTIVE_QUESTIONS_ENABLED = false;
 const TOOL_EXPANDED_BY_ID = new Map<string, boolean>();
 
-export const MessageBubble = React.memo(function MessageBubble({ message, isLatestFailedToolCall = false, origin, originAvatar, onOriginClick, resolvePaneName, onOpenPlan, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
+function isCommunicationTool(item: TimelineItem | undefined): boolean {
+  if (item?.kind !== "tool") return false;
+  const event = item.event;
+  if (event.kind !== "command" && event.kind !== "codeterm") return false;
+  const invocation = recognize(event.detail?.trim() || event.summary || event.result?.trim() || "");
+  return Boolean(invocation && (isSend(invocation) || invocation.path.join(" ") === "agent report"));
+}
+
+function paneOriginTitle(origin: Extract<ChatOrigin, { kind: "pane" }>, resolvePaneName?: PaneNameResolver): string {
+  const paneRef = shortPaneRef(origin.paneIdShort);
+  const resolved = paneRef ? resolvePaneName?.(paneRef) : undefined;
+  if (isPaneMarkerPlaceholderLabel(origin.title)) return resolved ?? (paneRef || "tab");
+  return origin.title.trim() || resolved || paneRef || "tab";
+}
+
+// Test-only render counter (opt-in: a harness sets window.__bubbleRenderCounts
+// to {}). No-op in production — a single property read on window.
+function recordBubbleRender(id: string): void {
+  if (typeof window === "undefined") return;
+  const counts = (window as { __bubbleRenderCounts?: Record<string, number> }).__bubbleRenderCounts;
+  if (!counts) return;
+  counts[id] = (counts[id] ?? 0) + 1;
+}
+
+export const MessageBubble = React.memo(function MessageBubble({ message, item, isLatestFailedToolCall = false, origin, onOriginClick, resolvePaneName, onFocusPane, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
+  recordBubbleRender(message.id);
   const isFailedToolCall = message.type === "tool_call" && message.toolError === true;
+  const isInboundCommunication = origin?.kind === "pane" || message.inboundKind === "pane" || message.inboundKind === "report" || message.inboundKind === "mesh";
   const shouldAutoExpand = message.type === "tool_call"
     && (message.toolInput?.content != null
-      || extractEdits(message).length > 0
-      || (isFailedToolCall && isLatestFailedToolCall));
+      || Boolean(message.toolEdits?.length)
+      || (item?.kind === "tool" && Boolean(item.event.result) && isImageOnlyToolOutput(item.event.result ?? ""))
+      || (isFailedToolCall && isLatestFailedToolCall)
+      || isCommunicationTool(item))
+    || isInboundCommunication;
   const [expanded, setExpanded] = useState(() => {
     const persisted = TOOL_EXPANDED_BY_ID.get(message.id);
     return persisted ?? shouldAutoExpand;
@@ -93,12 +125,12 @@ export const MessageBubble = React.memo(function MessageBubble({ message, isLate
       return (
         <>
           <RichMarkdown text={message.content} fontScale={fontScale} />
-          <PlanRefCards text={message.content} onOpenPlan={onOpenPlan} />
+          <PlanRefCards text={message.content} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
         </>
       );
     }
     return null;
-  }, [message.type, message.content, fontScale, onOpenPlan]);
+  }, [message.type, message.content, fontScale, onOpenPlan, resolvePlanRef]);
 
   const handleImageClick = useCallback((att: ImageAttachment) => {
     setViewingImage(att);
@@ -203,67 +235,40 @@ export const MessageBubble = React.memo(function MessageBubble({ message, isLate
       );
     }
 
+    if (effectiveOrigin?.kind === "pane" && effectiveOrigin.report) {
+      return (
+        <InboundReportCard
+          message={message}
+          sender={paneOriginTitle(effectiveOrigin, resolvePaneName)}
+          expanded={expanded}
+          onToggle={() => setExpandedPersistent(!expanded)}
+          onFocusTab={onOriginClick}
+          onOpenPlan={onOpenPlan}
+          resolvePlanRef={resolvePlanRef}
+          fontScale={fontScale}
+        />
+      );
+    }
+
+    if (effectiveOrigin?.kind === "pane") {
+      return (
+        <InboundMessageCard
+          message={message}
+          sender={paneOriginTitle(effectiveOrigin, resolvePaneName)}
+          model={effectiveOrigin.model}
+          channel={inboundKind === "mesh" || effectiveOrigin.mesh ? "mesh" : "pane"}
+          expanded={expanded}
+          onToggle={() => setExpandedPersistent(!expanded)}
+          onFocusTab={onOriginClick}
+          onOpenPlan={onOpenPlan}
+          resolvePlanRef={resolvePlanRef}
+          fontScale={fontScale}
+        />
+      );
+    }
+
     // codeterm channel (cross-pane, telegram, mesh) or wraps slash-commands.
     const originHeader = effectiveOrigin ? (() => {
-      // Cross-pane / report: model-avatar + "from <Name>" + mesh·model subtitle.
-      if (effectiveOrigin.kind === "pane") {
-        const LeadIcon = effectiveOrigin.report ? CornerUpLeft : ArrowRight;
-        const subtitle = [effectiveOrigin.mesh ? `via ${effectiveOrigin.mesh}` : null, effectiveOrigin.model]
-          .filter(Boolean)
-          .join(" · ");
-        return (
-          <button
-            type="button"
-            onClick={onOriginClick}
-            disabled={!onOriginClick}
-            className="flex items-center gap-1.5 mb-1"
-            style={{
-              cursor: onOriginClick ? "pointer" : "default",
-              background: "transparent",
-              border: "none",
-              padding: 0,
-              textAlign: "left",
-            }}
-            title={onOriginClick ? "Click to focus source pane" : undefined}
-          >
-            {originAvatar ?? <ModelAvatar model={effectiveOrigin.model} />}
-            <span className="flex flex-col min-w-0" style={{ lineHeight: 1.1 }}>
-              <span
-                className="flex items-center gap-1 text-xs uppercase tracking-wider"
-                style={{ color: "var(--ct-accent, #58a6ff)" }}
-              >
-                <LeadIcon size={11} style={{ opacity: 0.85 }} />
-                <span className="truncate">
-                  {effectiveOrigin.report ? "report · " : "from "}
-                  {effectiveOrigin.title}
-                </span>
-                {inboundKind && (
-                  <span
-                    data-testid="chat-inbound-kind-badge"
-                    className="rounded px-1 py-px text-[9px] font-mono uppercase"
-                    style={{
-                      background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 16%, transparent)",
-                      color: "var(--ct-muted-fg, #8b949e)",
-                      letterSpacing: 0,
-                    }}
-                  >
-                    {INBOUND_KIND_LABELS[inboundKind]}
-                  </span>
-                )}
-              </span>
-              {subtitle && (
-                <span
-                  className="text-[10px] truncate"
-                  style={{ color: "var(--ct-muted-fg, #8b949e)", textTransform: "none", letterSpacing: 0 }}
-                >
-                  {subtitle}
-                </span>
-              )}
-            </span>
-          </button>
-        );
-      }
-
       const OriginIcon =
         effectiveOrigin.kind === "mesh"          ? Network :
         effectiveOrigin.kind === "command"       ? ChevronsRight :
@@ -293,7 +298,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, isLate
             padding: 0,
             textTransform: "uppercase",
           }}
-          title={onOriginClick ? "Click to focus source pane" : undefined}
+          title={onOriginClick ? "Click to focus source Tab" : undefined}
         >
           <OriginIcon size={12} />
           <span>{label}</span>
@@ -306,7 +311,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, isLate
         {effectiveOrigin?.kind === "command" ? (
           <CommandBody commands={effectiveOrigin.commands} body={message.content} />
         ) : hasPlanRefs(message.content) ? (
-          <LinkedText text={message.content} onOpenPlan={onOpenPlan} />
+          <LinkedText text={message.content} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
         ) : (
           renderUserContent(message.content)
         )}
@@ -378,14 +383,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, isLate
       );
     })();
 
-    if (effectiveOrigin?.kind === "pane") {
-      return (
-        <CrossPaneMessageShell header={originHeader} textSize={userText} footer={timestampFooter}>
-          {userBubbleInner}
-        </CrossPaneMessageShell>
-      );
-    }
-
     return (
       <div className={`group flex mb-3 w-full max-w-4xl min-w-0 mx-auto ${effectiveOrigin ? "justify-start" : "justify-end"}`}>
         <div className="min-w-0 max-w-[75%] sm:max-w-[75%]">
@@ -430,6 +427,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, isLate
     const isSkillContext = message.systemSubtype === "skill_context";
     const isCompactSummary = message.systemSubtype === "compact_summary" || message.isCompactSummary === true;
     const isAgentInstructions = message.systemSubtype === "agent_instructions";
+    const isEnvironmentContext = message.systemSubtype === "environment_context";
     const isTurnAborted = message.systemSubtype === "turn_aborted";
     if (isCompactSummary) {
       return (
@@ -455,10 +453,10 @@ export const MessageBubble = React.memo(function MessageBubble({ message, isLate
         </div>
       );
     }
-    if (isAgentInstructions) {
+    if (isAgentInstructions || isEnvironmentContext) {
       return (
         <LongArtifact
-          label="System context"
+          label={isEnvironmentContext ? "Environment context" : "System context"}
           text={message.content}
           expanded={expanded}
           onToggle={() => setExpandedPersistent(!expanded)}
@@ -525,14 +523,17 @@ export const MessageBubble = React.memo(function MessageBubble({ message, isLate
 
   if (message.type === "tool_call") {
     return (
-      <ToolCallBubble
-        message={message}
-        expanded={expanded}
-        onToggle={setExpandedPersistent}
-        resolvePaneName={resolvePaneName}
-        onOpenPlan={onOpenPlan}
-        fontScale={fontScale}
-      />
+        <ToolCallBubble
+          event={item?.kind === "tool" ? item.event : undefined}
+          message={item?.kind === "tool" ? undefined : message}
+          expanded={expanded}
+          onToggle={setExpandedPersistent}
+          resolvePaneName={resolvePaneName}
+          onFocusPane={onFocusPane}
+          onOpenPlan={onOpenPlan}
+          resolvePlanRef={resolvePlanRef}
+          fontScale={fontScale}
+        />
     );
   }
 

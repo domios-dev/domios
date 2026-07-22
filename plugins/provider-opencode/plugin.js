@@ -37,11 +37,24 @@ var OUTPUT_SIGNALS = [
   "\u2579"
 ];
 var TUI_FRAGMENTS = ["tab agents", "ctrl+p commands"];
+var ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the configured instructions.";
+var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
+function starterPrompt(params) {
+  if (params.starterPrompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
+  if (params.starterPrompt === "team_bootstrap") {
+    if (!params.starterPromptText) throw new Error("team_bootstrap requires host starterPromptText");
+    return params.starterPromptText;
+  }
+  return ASSIGNED_TASK_START_PROMPT;
+}
 var QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
 var QUESTION_MENU_SELECTORS = [">", "\u276F", "\u25B6", "\u27A4", "\u2192", "\u25CF"];
 var PICKER_TITLE_RE = /^(Select model|Connect a provider)\b.*\besc\b/i;
 var lastPromptShape = "horizontal";
 var plugin = {
+  starterPromptText(prompt) {
+    return prompt === "team_bootstrap" ? void 0 : starterPrompt({ starterPrompt: prompt });
+  },
   detectFromTitle(title) {
     return TITLE_RE.test(String(title || ""));
   },
@@ -123,7 +136,20 @@ var plugin = {
   },
   buildLaunchCommand(params) {
     const p = params || {};
-    const parts = ["opencode"];
+    const parts = [];
+    let localTaskPath = null;
+    if (p.task) {
+      const taskPath = host.fs.writeTempFile(p.task, ".ct-task.md");
+      if (!taskPath) throw new Error("failed to write OpenCode task instructions");
+      const platform = host.platform();
+      const taskName = taskPath.split(/[\\/]/).pop().replace(/[^A-Za-z0-9._-]/g, "-");
+      localTaskPath = `.codeterm/${taskName}`;
+      const source = host.shell.quoteFor(taskPath, platform);
+      const local = host.shell.quoteFor(localTaskPath, platform);
+      const config = host.shell.quoteFor(JSON.stringify({ instructions: [localTaskPath] }), platform);
+      parts.push(platform === "windows" ? `New-Item -ItemType Directory -Force -Path '.codeterm' | Out-Null; Copy-Item -LiteralPath ${source} -Destination ${local} -Force; $env:OPENCODE_CONFIG_CONTENT = ${config}; try {` : `mkdir -p .codeterm && cp -- ${source} ${local} && OPENCODE_CONFIG_CONTENT=${config}`);
+    }
+    parts.push("opencode");
     const sps = p.structuredPromptServer;
     if (sps && sps.port) {
       const platform = host.platform();
@@ -135,6 +161,13 @@ var plugin = {
     }
     if (p.args && p.args.length > 0) {
       for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
+    }
+    if (p.task) {
+      parts.push("--prompt", host.shell.quoteFor(starterPrompt(p), host.platform()));
+    }
+    if (localTaskPath) {
+      const local = host.shell.quoteFor(localTaskPath, host.platform());
+      parts.push(host.platform() === "windows" ? `} finally { Remove-Item -LiteralPath ${local} -Force -ErrorAction SilentlyContinue }` : `; ct_status=$?; rm -f -- ${local}; exit $ct_status`);
     }
     return parts.join(" ");
   },
@@ -162,6 +195,21 @@ var plugin = {
       return id;
     }
     return null;
+  },
+  enumerateSessions() {
+    const db = opencodeDbPath();
+    if (!db || !host.fs.fileExists(db)) return [];
+    const rows = host.fs.sqliteQuery(db, "SELECT id, directory, title, time_created, time_updated FROM session ORDER BY time_updated DESC", []);
+    return rows.filter((row) => typeof row.id === "string" && row.id.startsWith("ses_")).map((row) => ({
+      sessionId: row.id,
+      provider: "opencode",
+      projectPath: typeof row.directory === "string" && row.directory ? row.directory : null,
+      title: typeof row.title === "string" && row.title ? row.title : null,
+      summary: null,
+      filePath: db,
+      createdTs: typeof row.time_created === "number" ? Math.floor(row.time_created / 1e3) : null,
+      modifiedTs: typeof row.time_updated === "number" ? Math.floor(row.time_updated / 1e3) : null
+    }));
   },
   checkIntegration() {
     const cfg = opencodeConfigPath();
@@ -567,12 +615,66 @@ function partToChatMsg(part, role, id, tsMs) {
   if (type === "tool") {
     const tool = part.tool || "tool";
     const state = part.state || {};
-    const out = { id, type: "tool_call", content: "", timestamp, toolName: tool };
+    const canonical = canonicalToolFields(tool, state.input);
+    const out = {
+      id,
+      type: "tool_call",
+      content: "",
+      timestamp,
+      toolName: tool,
+      toolKind: canonical.kind,
+      toolSummary: canonical.summary,
+      toolDetail: canonical.detail,
+      toolEdits: canonical.edits
+    };
     if (state.input !== void 0) out.toolInput = state.input;
     if (typeof state.output === "string") out.toolResult = state.output;
     return out;
   }
   return null;
+}
+function canonicalToolFields(name, input) {
+  const tool = String(name || "").trim();
+  const value = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  const text = (key) => typeof value[key] === "string" ? value[key] : "";
+  const command = text("command") || text("cmd");
+  const path = text("file_path") || text("filePath") || text("path");
+  const pattern = text("pattern");
+  const edits = extractCanonicalEdits(value);
+  const lower = tool.toLowerCase();
+  if (lower === "bash" || lower === "shell" || lower === "exec" || lower === "run") {
+    return { kind: "command", summary: cleanToolText(command, "Command"), detail: command, edits: [] };
+  }
+  if (lower === "edit" || lower === "multiedit" || lower === "write") {
+    return { kind: "edit", summary: path || "File edit", detail: path, edits };
+  }
+  if (lower === "read") {
+    return { kind: "read", summary: path || "Read file", detail: path, edits: [] };
+  }
+  if (lower === "glob" || lower === "grep" || lower === "search") {
+    return { kind: "search", summary: cleanToolText(pattern || path, "Search"), detail: pattern || path, edits: [] };
+  }
+  return { kind: "generic", summary: cleanToolText(tool, "Tool"), detail: tool, edits };
+}
+function extractCanonicalEdits(input) {
+  const parentPath = typeof input.file_path === "string" ? input.file_path : typeof input.filePath === "string" ? input.filePath : typeof input.path === "string" ? input.path : "";
+  const pair = (value, fallbackPath) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const item = value;
+    const oldValue = typeof item.old_string === "string" ? item.old_string : item.oldString;
+    const newValue = typeof item.new_string === "string" ? item.new_string : item.newString;
+    if (typeof oldValue !== "string" && typeof newValue !== "string") return null;
+    const path = typeof item.file_path === "string" ? item.file_path : typeof item.filePath === "string" ? item.filePath : typeof item.path === "string" ? item.path : fallbackPath;
+    return { path, old: typeof oldValue === "string" ? oldValue : "", new: typeof newValue === "string" ? newValue : "" };
+  };
+  if (Array.isArray(input.edits)) return input.edits.map((edit) => pair(edit, parentPath)).filter((e) => e !== null);
+  const single = pair(input, parentPath);
+  return single ? [single] : [];
+}
+function cleanToolText(value, fallback) {
+  const text = String(value || "").replace(/[\r\n\t]+/g, " ").trim();
+  if (!text) return fallback;
+  return text.length > 120 ? text.slice(0, 117) + "..." : text;
 }
 function opencodeDbPath() {
   let base = host.envGet("XDG_DATA_HOME");

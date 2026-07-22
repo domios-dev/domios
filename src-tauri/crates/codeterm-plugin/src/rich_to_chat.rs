@@ -399,6 +399,11 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> 
             "tool_use" => {
                 let name = get("name");
                 let args = summarize_tool_input(b.data.get("input"));
+                let tool_error = match b.data.get("tool_status").and_then(|v| v.as_str()) {
+                    Some("success") => Some(false),
+                    Some("error") => Some(true),
+                    _ => None,
+                };
                 let tool_id = b.data.get("id").and_then(|v| v.as_str());
                 let interactive = rich
                     .interactive
@@ -417,6 +422,7 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> 
                     tool_args: Some(args),
                     tool_input: b.data.get("input").cloned(),
                     tool_id: tool_id.map(String::from),
+                    tool_error,
                     collapsed: true,
                     interactive,
                     ..Default::default()

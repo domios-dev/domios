@@ -41,7 +41,7 @@ Run it in the **background** so you can keep working:
 
 `build.sh kill` guarantees the old dev is dead before `build.sh dev` starts the new one — so any `/api/health` response after restart is from the fresh build.
 
-When running from inside a production CodeTerm pane, the shell may inherit
+When running from inside a production CodeTerm tab, the shell may inherit
 `CODETERM_API_PORT=7685`. `build.sh dev`, `build.sh kill`, and e2e commands
 guard against that and switch the canonical dev instance back to 7686; do not
 override that guard unless you are intentionally running a named non-prod
@@ -117,7 +117,7 @@ The build.sh bg task's own output stream also contains the Rust compile log and 
 CODETERM_API_PORT=7686 codeterm <subcommand>
 ```
 
-Even then, auth will fail unless the dev mesh identity matches — prod-signed tokens are rejected by dev. Cleanest path: just use curl with manual token from `~/.codeterm-dev/config.toml` `[api] token`, or run commands from inside a dev pane.
+Even then, auth will fail unless the dev mesh identity matches — prod-signed tokens are rejected by dev. Cleanest path: just use curl with manual token from `~/.codeterm-dev/config.toml` `[api] token`, or run commands from inside a dev tab.
 
 ## "Start from a clean dev" / засранный конфиг
 

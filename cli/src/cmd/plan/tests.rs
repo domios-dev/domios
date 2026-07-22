@@ -17,6 +17,24 @@ fn plan_delete_confirmation_builds_rpc_params() {
 }
 
 #[test]
+fn plan_transfer_params_require_agent_caller() {
+    let agent = plan_transfer_params(
+        "pl_1".into(),
+        "destination".into(),
+        Some("handoff".into()),
+        Some("source-manager"),
+    )
+    .unwrap();
+    assert_eq!(agent["caller_pane_id"], "source-manager");
+    assert_eq!(agent["to"]["pane_id"], "destination");
+    assert_eq!(agent["reason"], "handoff");
+
+    let missing =
+        plan_transfer_params("pl_1".into(), "destination".into(), None, None).unwrap_err();
+    assert!(missing.contains("CODETERM_PANE_ID"));
+}
+
+#[test]
 fn renders_undeclared_kind_fix() {
     let msg = render_plan_error(
         &json!({ "type": "undeclared_kind", "declared": ["status_update", "review"] }),
@@ -37,9 +55,19 @@ fn renders_bad_status_fix() {
     )
     .unwrap();
     assert!(msg.contains("valid task statuses"));
-    assert!(msg.contains("pending|in_progress|in_review|blocked|done|cancelled"));
+    assert!(msg.contains("pending|in_progress|in_review|blocked|paused|done|cancelled"));
     assert!(msg.contains("codeterm plan task update plan_1 task_1 --status pending"));
     assert!(msg.contains("--status-label"));
+}
+
+#[test]
+fn renders_task_pause_reason_fix() {
+    let msg = render_plan_error(
+        &json!({ "type": "task_pause_requires_reason" }),
+        &json!({ "plan_id": "plan_1", "task_id": "task_1" }),
+    )
+    .unwrap();
+    assert!(msg.contains("codeterm plan task pause plan_1 task_1 --reason"));
 }
 
 #[test]
@@ -349,8 +377,9 @@ fn ref_not_found_renderer_is_actionable() {
         &json!({ "plan_id": "pl_missing" }),
     )
     .expect("ref_not_found renderer");
-    assert!(msg.contains("no plan matches"));
+    assert!(msg.contains("not found"));
     assert!(msg.contains("pl_missing"));
+    assert!(msg.contains("codeterm plan list --active"));
 }
 
 fn extract_plan_error_type(line: &str) -> Option<String> {

@@ -21,17 +21,35 @@ pub const MILESTONE_GATE_LADDER: &str = "Testing ladder — per-task = focused f
 /// Appended to Planner-profile Worker tasks.
 pub const PLANNER_SUFFIX: &str = include_str!("../prompts/planner_suffix.md");
 
+/// Shared bounce-unwinding contract exposed through embedded docs and fixtures.
+pub const BOUNCE_UNWINDING_CONTRACT: &str = include_str!("../prompts/bounce_unwinding_contract.md");
+
 /// Canonical role_guidance for tasks whose primary deliverable is tests.
 pub const TEST_AUTHOR_GUIDANCE: &str = "You are a test-author. docs/contributing/test-authoring.md is your operating charter — read it fully before writing the first test. Non-negotiables: oracle-first, red-green demo in your report, condition-waits never sleeps, agent-readiness gates, bounded everything, smoke-run every harness script against the real CLI.";
 
 /// Appended to Orchestrator tasks — no-sleep rule.
 pub const ORCHESTRATOR_SUFFIX: &str = include_str!("../prompts/orchestrator_suffix.md");
 
+/// Delivered when an existing agent tab becomes an Orchestrator.
+pub const ORCHESTRATOR_ONBOARDING: &str = include_str!("../prompts/orchestrator_onboarding.md");
+
+/// Contextual bootstrap for Team-staffed managers. Rendered by the shared
+/// role-identity builder before launch delivery chooses a provider channel.
+pub const MANAGER_BOOTSTRAP_TEMPLATE: &str = include_str!("../prompts/manager_bootstrap.md");
+
 /// Appended to cron tasks when creator_pane_id is set.
 pub const CRON_REPORT_HINT: &str = include_str!("../prompts/cron_report_hint.md");
 
 /// Appended to every cron task — completion instruction. `{}` is replaced with run_id.
 pub const CRON_COMPLETE_SUFFIX: &str = include_str!("../prompts/cron_complete_suffix.md");
+
+/// Appended to a cron task when the job declares `--skill <slug>` and the
+/// skill folder was found. Placeholders: `{skill_slug}`, `{skill_path}`.
+pub const CRON_SKILL_HINT: &str = include_str!("../prompts/cron_skill_hint.md");
+
+/// Appended to a cron task when the job declares `--skill <slug>` but the
+/// skill folder is missing. Placeholders: `{skill_slug}`, `{skill_path}`.
+pub const CRON_SKILL_MISSING: &str = include_str!("../prompts/cron_skill_missing.md");
 
 /// CodeTerm rule installed to ~/.claude/rules/codeterm.md.
 pub const CODETERM_RULE: &str = include_str!("../prompts/codeterm_rule.md");
@@ -81,32 +99,10 @@ pub const PEER_PAIRING_MANDATE_BLOCK: &str = "\
 This plan requires an attached Planner specialist. Spawn it with `{spawn_cmd}` if it is not live. \
 The Orchestrator remains the single authority for plan structure, execution, and acceptance.";
 
-/// Orchestrator's opening greeting on a fresh pair spawn — rendered verbatim
-/// as the pane's first assistant message (never model-improvised), so the
-/// user always lands on a ready, invitational state. `{planner}` is filled
-/// with the Planner's display name.
-pub const PEER_ORCH_GREETING: &str =
-    "Ready — {planner} is attached as my Planner specialist. Tell me the goal; I will own the plan and delegate drafting to the Planner where useful. Until you state a goal, we hold — no scanning the project for work.";
-
-/// Fills the `{planner}` placeholder in [`PEER_ORCH_GREETING`].
-pub fn peer_orch_greeting(planner: &str) -> String {
-    PEER_ORCH_GREETING.replace("{planner}", planner)
-}
-
 /// Short user-facing hint shown in the tab for a freshly-promoted Orchestrator
 /// (display only — the detailed onboarding is delivered separately as real input).
 pub fn orchestrator_display_hint() -> String {
     "Orchestrator for this tab — I own the plan's execution: I dispatch tasks to workers and accept or bounce their results. Tell me the goal; until then, we hold.".to_string()
-}
-
-/// Planner's opening greeting — the mirror of [`PEER_ORCH_GREETING`] for the
-/// subordinate side, rendered verbatim as the Planner pane's first assistant
-/// message so it never boots into silence. Identity framing only; the
-/// subordination prose is reused from the shared charter/deference constants.
-pub fn peer_planner_greeting(orchestrator_label: &str, _orchestrator_pane_id: &str) -> String {
-    format!(
-        "Planner specialist paired with Orchestrator {orchestrator_label} — I draft the GOAL, spec, and plan structure and cut the tasks when a plan exists. Ready; I will wait for the goal before doing anything."
-    )
 }
 
 /// The Planner's detailed onboarding, delivered as its own real launch input by
@@ -149,33 +145,18 @@ pub fn peer_pairing_mandate_full(spawn_cmd: &str) -> String {
     )
 }
 
-/// Planner testing methodology, part 1 — oracle-first (inserted after workflow
-/// item 5 via the `{planner_testing_methodology}` placeholder).
-pub const PLANNER_TESTING_ORACLE_FIRST: &str = "Test plans start from the oracle: name the command or observation that PROVES the task done before choosing the method. Then pick the method by the work: TDD for code paths, fixtures for parsers and formats, live dev walkthrough for UX, seeded eval cases for prompt or behavior changes. If the oracle is expensive (full build, broad suite, e2e), route it through the QA queue instead of per-lane gates. A criterion without an oracle is an opinion.";
-
-/// Planner testing methodology, part 2 — executable test plans (extends the
-/// oracle-first paragraph; enforced mechanically by the doctor + QA claim).
-pub const PLANNER_TEST_PLAN_EXECUTABLE: &str = "Test plans are EXECUTABLE, not descriptive. A test plan names: (1) the exact command(s) to run, (2) the exact surfaces touched (testids, selectors, files, endpoints), (3) numbered steps with the observable pass condition for each. If the executing worker would have to invent a selector, a step, or an expected value, the plan is incomplete — write the scenario, not the intention. \"Component tests + manual check\" is not a test plan.";
-
-/// Oracle-first + executable paragraphs, joined — fills `{planner_testing_methodology}`.
-pub fn planner_testing_methodology() -> String {
-    format!("{PLANNER_TESTING_ORACLE_FIRST}\n\n{PLANNER_TEST_PLAN_EXECUTABLE}")
-}
-
-/// Orchestrator suffix with the shared plan-skills principles substituted in.
 pub fn orchestrator_suffix() -> String {
-    ORCHESTRATOR_SUFFIX.replace("{plan_skills_principles}", PLAN_SKILLS_PRINCIPLES)
+    ORCHESTRATOR_SUFFIX.to_string()
 }
 
-/// Planner suffix with the testing methodology and plan-skills principles substituted in.
+pub fn orchestrator_onboarding(planner_spawn_cmd: &str) -> String {
+    ORCHESTRATOR_ONBOARDING
+        .replace("{planner_spawn_cmd}", planner_spawn_cmd)
+        .replace("{orchestrator_suffix}", ORCHESTRATOR_SUFFIX)
+}
+
 pub fn planner_suffix() -> String {
-    PLANNER_SUFFIX
-        .replace(
-            "{planner_testing_methodology}",
-            &planner_testing_methodology(),
-        )
-        .replace("{test_author_guidance}", TEST_AUTHOR_GUIDANCE)
-        .replace("{plan_skills_principles}", PLAN_SKILLS_PRINCIPLES)
+    PLANNER_SUFFIX.replace("{test_author_guidance}", TEST_AUTHOR_GUIDANCE)
 }
 
 #[cfg(test)]
@@ -251,6 +232,32 @@ mod tests {
         assert!(!DREAMING_REM.contains("mem search returns BOTH"));
     }
 
+    /// The find-guardrail must reach both spawned Worker agents and every
+    /// cron-fired agent — unconditionally, not only when a skill is declared.
+    #[test]
+    fn find_guardrail_reaches_worker_and_cron_briefs() {
+        assert!(worker_suffix()
+            .to_lowercase()
+            .contains("home-/root-wide `find`"));
+        assert!(CRON_COMPLETE_SUFFIX
+            .to_lowercase()
+            .contains("home-/root-wide `find`"));
+    }
+
+    /// A cron job's declared skill must resolve to an exact, Read-able path —
+    /// never the Skill tool (cron agents can't resolve mem skills through it) or a search.
+    #[test]
+    fn cron_skill_prompts_point_at_exact_path_not_tool_or_search() {
+        assert!(CRON_SKILL_HINT.contains("{skill_path}"));
+        assert!(CRON_SKILL_HINT.contains("{skill_slug}"));
+        assert!(CRON_SKILL_HINT
+            .to_lowercase()
+            .contains("do not use the skill tool"));
+        assert!(CRON_SKILL_MISSING.contains("{skill_slug}"));
+        assert!(CRON_SKILL_MISSING.to_lowercase().contains("cron complete"));
+        assert!(CRON_SKILL_MISSING.to_lowercase().contains("find`"));
+    }
+
     #[test]
     fn general_agent_requires_mem_skill_search_before_declaring_missing() {
         assert!(GENERAL_AGENT_TEMPLATE.contains("Skill lookup"));
@@ -268,24 +275,6 @@ mod tests {
         assert!(CODETERM_CLI.contains("You are not automatically an Orchestrator"));
         assert!(CODETERM_CLI.contains("Make Orchestrator"));
         assert!(CODETERM_CLI.contains("codeterm docs ORCHESTRATION"));
-        assert!(ORCHESTRATOR_SUFFIX.contains("CodeTerm planner is the source of truth"));
-    }
-
-    #[test]
-    fn planner_prompt_and_docs_keep_planner_contract() {
-        const ORCHESTRATION_DOC: &str = include_str!("../../docs/ORCHESTRATION.md");
-
-        assert!(PLANNER_SUFFIX.contains("CodeTerm planner is the source of truth"));
-        assert!(PLANNER_SUFFIX.contains("Do not create standalone markdown implementation plans"));
-        assert!(PLANNER_SUFFIX.contains("Discovery/research is an intermediate wave"));
-        assert!(PLANNER_SUFFIX.contains("autonomously build the remaining implementation"));
-        assert!(PLANNER_SUFFIX.contains("role_guidance"));
-        assert!(PLANNER_SUFFIX.contains("Do not invent a third structural AgentRole"));
-        assert!(ORCHESTRATION_DOC.contains("--role Planner"));
-        assert!(ORCHESTRATION_DOC.contains("--model fable"));
-        assert!(ORCHESTRATION_DOC.contains("fall back to `opus`"));
-        assert!(ORCHESTRATION_DOC.contains("Planner-authored `role_guidance`"));
-        assert!(ORCHESTRATION_DOC.contains("CodeTerm planner"));
     }
 
     #[test]
@@ -306,17 +295,6 @@ mod tests {
         assert!(full.contains("single authority"));
         assert!(!full.contains("Peer contract"));
         assert!(!full.contains("Planner acknowledgment"));
-    }
-
-    #[test]
-    fn peer_planner_greeting_is_a_short_user_hint() {
-        let g = peer_planner_greeting("Opus Orchestrator", "pane_orch_9");
-        assert!(g.contains("Opus Orchestrator"), "names the orchestrator");
-        assert!(g.contains("Planner"), "identifies the role");
-        assert!(g.contains("wait for the goal"), "conveys the hold state");
-        // Display hint only — no CLI commands, no docs/toolset detail.
-        assert!(!g.contains("codeterm "), "greeting carries no commands");
-        assert!(!g.contains("--personality"), "greeting carries no flags");
     }
 
     #[test]
@@ -352,34 +330,22 @@ mod tests {
     }
 
     #[test]
-    fn orchestrator_suffix_carries_plan_skills_principles() {
+    fn orchestrator_suffix_is_bounded_and_fully_rendered() {
         let rendered = orchestrator_suffix();
-        assert!(rendered.contains(PLAN_SKILLS_PRINCIPLES));
+        assert!(rendered.split_whitespace().count() < 650);
+        assert!(rendered.contains("Keep your control loop responsive"));
+        assert!(rendered.contains("blocking tool call"));
+        assert!(rendered.contains("verification proportional to risk"));
+        assert!(rendered.contains("OPEN RISK"));
+        assert!(!rendered.contains("{bounce_unwinding_contract}"));
         assert!(!rendered.contains("{plan_skills_principles}"));
-        // Emergent phrasing (why + when), not a bare checklist.
-        assert!(PLAN_SKILLS_PRINCIPLES.contains("the oracle"));
-        assert!(PLAN_SKILLS_PRINCIPLES.contains("codeterm plan skill new"));
     }
 
     #[test]
-    fn planner_suffix_carries_testing_methodology_and_principles() {
+    fn planner_suffix_is_bounded_and_fully_rendered() {
         let rendered = planner_suffix();
-        assert!(rendered.contains(PLANNER_TESTING_ORACLE_FIRST));
-        assert!(rendered.contains(PLANNER_TEST_PLAN_EXECUTABLE));
-        assert!(rendered.contains(PLAN_SKILLS_PRINCIPLES));
-        assert!(!rendered.contains("{planner_testing_methodology}"));
-        assert!(!rendered.contains("{plan_skills_principles}"));
-    }
-
-    #[test]
-    fn planner_testing_methodology_is_oracle_first_then_executable() {
-        let methodology = planner_testing_methodology();
-        let oracle = methodology.find(PLANNER_TESTING_ORACLE_FIRST).unwrap();
-        let executable = methodology.find(PLANNER_TEST_PLAN_EXECUTABLE).unwrap();
-        assert!(
-            oracle < executable,
-            "oracle-first paragraph must come first"
-        );
+        assert!(rendered.split_whitespace().count() < 800);
+        assert!(!rendered.contains("{test_author_guidance}"));
     }
 
     #[test]
@@ -425,50 +391,9 @@ mod tests {
     }
 
     #[test]
-    fn orchestrator_suffix_pins_scratch_and_open_risk_lines_and_tripwire() {
-        assert!(ORCHESTRATOR_SUFFIX.contains(
-            "Inspecting or prototyping? Scratch worktree — the integration checkout stays clean; a dirty checkout is a gate hazard."
-        ));
-        assert!(ORCHESTRATOR_SUFFIX.contains(
-            "An accepted lane with deferred/skipped evidence is OPEN RISK: track it as such until the evidence lands or the user explicitly accepts the substitute."
-        ));
-        assert!(ORCHESTRATOR_SUFFIX
-            .contains("Editing a non-scratch integration file while orchestrating = STOP"));
-        assert!(orchestrator_suffix().contains("codeterm orchestrator learn"));
-    }
-
-    #[test]
-    fn planner_suffix_has_reflection_symmetry_line() {
-        assert!(PLANNER_SUFFIX.contains("At reflection points"));
-        assert!(PLANNER_SUFFIX.contains("task or test-plan quality"));
-    }
-
-    #[test]
     fn general_agent_routes_project_work_to_workspaces() {
         assert!(GENERAL_AGENT_TEMPLATE.contains("Machine scope, not project scope"));
         assert!(GENERAL_AGENT_TEMPLATE.contains("spawn or reuse an orchestrator there"));
-    }
-
-    #[test]
-    fn orchestrator_suffix_has_cross_machine_etiquette() {
-        assert!(ORCHESTRATOR_SUFFIX.contains("Cross-machine work:"));
-        assert!(ORCHESTRATOR_SUFFIX.contains("redirected into a workspace, not executed"));
-    }
-
-    #[test]
-    fn orchestrator_suffix_has_blocked_triage_rule() {
-        assert!(ORCHESTRATOR_SUFFIX.contains("a claim, not a parking spot"));
-        assert!(ORCHESTRATOR_SUFFIX.contains("record the unblock trigger"));
-    }
-
-    #[test]
-    fn orchestrator_suffix_routes_uncertainty_to_planner() {
-        assert!(ORCHESTRATOR_SUFFIX.contains("ask your Planner before guessing"));
-    }
-
-    #[test]
-    fn planner_suffix_answers_with_decisions() {
-        assert!(PLANNER_SUFFIX.contains("decisions and rationale, not options"));
     }
 
     #[test]
@@ -504,9 +429,15 @@ mod tests {
             "testing_discipline.md",
             "qa_pipeline_discipline.md",
             "planner_suffix.md",
+            "bounce_unwinding_contract.md",
             "orchestrator_suffix.md",
+            "orchestrator_onboarding.md",
+            "manager_bootstrap.md",
+            "team_bootstrap_starter.md",
             "cron_report_hint.md",
             "cron_complete_suffix.md",
+            "cron_skill_hint.md",
+            "cron_skill_missing.md",
             "codeterm_rule.md",
             "bridge_mem.md",
             "general_agent.md",

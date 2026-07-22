@@ -21,6 +21,28 @@ pub(crate) fn render_plan_call_error(err: SocketCallError, params: &Value) -> St
     }
 }
 
+fn render_regression_gate_blocked(data: &Value, plan_id: &str, task_id: Option<&str>) -> String {
+    let gates = data
+        .get("blocking_gates")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|g| g.get("key").and_then(|k| k.as_str()))
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "<gate>".into());
+    let task = task_id.unwrap_or("<task_id>");
+    format!(
+        "✗ dispatch blocked: pending regression gate(s) {gates} must clear before a non-blocker task dispatches.\n\
+choose one:\n\
+  clear the gate with a warm integration QA run: codeterm plan qa next {plan_id} --group <gate> --note \"<evidence>\"\n\
+  mark {task} as the exception (gate-clearing or release-blocking): codeterm plan task update {plan_id} {task} --tags regression-gate\n\
+  record an authorized owner override: codeterm plan qa override {plan_id} --reason \"<why>\""
+    )
+}
+
 pub(crate) fn render_plan_error(data: &Value, params: &Value) -> Option<String> {
     let kind = data.get("type")?.as_str()?;
     let plan_id = params
@@ -82,15 +104,15 @@ After approval/execution starts, set heartbeat with:\n\
             ))
         }
         "in_progress_requires_pane" => Some(format!(
-            "✗ in_progress requires an executor pane.\nfix: set status and pane in one command:\n  codeterm plan task update {plan_id} {} --status in_progress --pane <pane-id>\n(emergency override: CODETERM_STATE_INVARIANTS=off)",
+            "✗ in_progress requires an executor tab.\nfix: set status and tab in one command:\n  codeterm plan task update {plan_id} {} --status in_progress --tab <tab-id>\n(emergency override: CODETERM_STATE_INVARIANTS=off)",
             task_id.unwrap_or("<task_id>")
         )),
         "blocked_requires_label" => Some(format!(
-            "✗ blocked is a claim, not a parking spot.\nfix: say what unblocks it, or open a decision gate:\n  codeterm plan task update {plan_id} {} --status blocked --status-label \"<what unblocks it>\"\n  codeterm plan decision ask {plan_id} \"<question>\"",
+            "✗ blocked is a claim, not an operator hold.\nfix: say what unblocks it, or open a decision gate:\n  codeterm plan task update {plan_id} {} --status blocked --status-label \"<what unblocks it>\"\n  codeterm plan decision ask {plan_id} \"<question>\"",
             task_id.unwrap_or("<task_id>")
         )),
-        "park_requires_reason" => Some(format!(
-            "✗ park requires a reason.\nfix: codeterm plan task update {plan_id} {} --status parked --note \"<reason>\"",
+        "task_pause_requires_reason" => Some(format!(
+            "✗ pause requires a reason.\nfix: codeterm plan task pause {plan_id} {} --reason \"<reason>\"",
             task_id.unwrap_or("<task_id>")
         )),
         "pause_requires_reason" => Some(format!(
@@ -122,6 +144,61 @@ After approval/execution starts, set heartbeat with:\n\
         "waiting_focus_requires_open_gate" => Some(format!(
             "✗ waiting_focus status requires an open decision gate.\nfix: ask a gate question first, then set the focus:\n  codeterm plan decision ask {plan_id} \"<question>\"\n  codeterm orchestrator heartbeat set --plan {plan_id} --focus waiting_focus"
         )),
+        "dependency_task_not_found" => Some(format!(
+            "✗ dependency task '{}' was not found in plan '{plan_id}'.\nfix: list tasks, then choose an existing dependency:\n  codeterm plan task list {plan_id}\n  codeterm plan task update {plan_id} {} --depends-on <task_id>",
+            data.get("task_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<dependency-task-id>"),
+            task_id.unwrap_or("<task_id>")
+        )),
+        "dependency_self_reference" => Some(format!(
+            "✗ a task cannot depend on itself.\nfix: remove the self-dependency or choose another task:\n  codeterm plan task update {plan_id} {} --clear-dependencies true",
+            task_id.unwrap_or("<task_id>")
+        )),
+        "dependency_cycle" => Some(format!(
+            "✗ task dependency would create a cycle.\nfix: inspect the task dependency graph, then remove or reorder the edge:\n  codeterm task show {}\n  codeterm plan task update {plan_id} {} --depends-on <acyclic-task-id>",
+            task_id.unwrap_or("<task_id>"),
+            task_id.unwrap_or("<task_id>")
+        )),
+        "regression_gate_blocked" => Some(render_regression_gate_blocked(data, plan_id, task_id)),
+        "override_reason_required" => Some(
+            "✗ overriding a regression gate requires an explicit reason.\nfix: codeterm plan qa override <plan_id> --reason \"<why the frontier may advance past the gate>\"".into()
+        ),
+        "override_not_authorized" => Some(format!(
+            "✗ only the plan Orchestrator (owner) may override a regression gate.\nfix: have the owner run the override, or clear the gate with a real QA run:\n  codeterm plan qa next {plan_id} --group <gate> --note \"<evidence>\""
+        )),
+        "review_wip_exceeded" => {
+            let wip_count = data.get("wip_count").and_then(|v| v.as_u64()).unwrap_or(0);
+            let wip_limit = data.get("wip_limit").and_then(|v| v.as_u64()).unwrap_or(0);
+            let credit = data.get("credit").and_then(|v| v.as_i64()).unwrap_or(0);
+            Some(format!(
+                "✗ review WIP exceeded: {wip_count}/{wip_limit} tasks in_review (credit={credit}).\nfix: close a review first, then retry dispatch:\n  codeterm plan review status {plan_id}\n  codeterm plan review accept {plan_id} <task_id> --note \"<verdict>\""
+            ))
+        }
+        "review_evidence_required" => Some(format!(
+            "✗ in_review requires evidence: an executable exact QA plan (acceptance_criteria + test_plan) or attached independent review evidence.\nfix: set both fields, or record review evidence first:\n  codeterm plan task update {plan_id} {} --status in_review",
+            task_id.unwrap_or("<task_id>")
+        )),
+        "review_round_exceeded" => {
+            let round = data.get("round").and_then(|v| v.as_u64()).unwrap_or(0);
+            let max_rounds = data.get("max_rounds").and_then(|v| v.as_u64()).unwrap_or(0);
+            Some(format!(
+                "✗ review round {round} exceeds the default max of {max_rounds}.\nfix: record a P0 exception first:\n  codeterm plan review override {plan_id} {} --owner <you> --reason \"<why>\" --reproduction \"<repro steps>\"",
+                task_id.unwrap_or("<task_id>")
+            ))
+        }
+        "review_oracle_scope_expansion" => Some(format!(
+            "✗ correction review cannot expand the fixed acceptance oracle without new reproducible release-impact evidence.\nfix: record a P0 override to justify the scope change:\n  codeterm plan review override {plan_id} {} --owner <you> --reason \"<why>\" --reproduction \"<repro steps>\"",
+            task_id.unwrap_or("<task_id>")
+        )),
+        "review_override_incomplete" => Some(
+            "✗ review override requires non-empty --owner, --reason, and --reproduction.".into(),
+        ),
+        "review_not_in_review" => Some(format!(
+            "✗ task '{}' is not in_review.\nfix: codeterm plan task update {plan_id} {} --status in_review",
+            task_id.unwrap_or("<task_id>"),
+            task_id.unwrap_or("<task_id>")
+        )),
         "write_pending" => render_write_pending(data, plan_id, task_id),
         "readback_mismatch" => render_readback_mismatch(data, plan_id, task_id),
         "io" => Some(render_io(data, plan_id, params)),
@@ -134,8 +211,19 @@ After approval/execution starts, set heartbeat with:\n\
 fn render_ref_not_found(data: &Value) -> Option<String> {
     let kind = data.get("kind")?.as_str()?;
     let reference = data.get("reference")?.as_str()?;
+    // A longer prefix only helps a truncated real id; for a nonexistent ref it
+    // is dead-end advice, so point at the relevant list command instead.
+    let list_hint = match kind {
+        "plan" => "codeterm plan list --active",
+        "spec" => "codeterm spec list --active",
+        "task" => "codeterm plan task list <plan_id>",
+        "section" => "codeterm plan get <plan_id> --sections",
+        "spec section" => "codeterm spec show <spec_id>",
+        "loop" => "codeterm plan state <plan_id>",
+        _ => "list the matching entities, then retry with an exact id or handle",
+    };
     Some(format!(
-        "✗ no {kind} matches '{reference}'.\nfix: pass the full id or a longer unique prefix; list candidates with the matching list command."
+        "✗ {kind} '{reference}' not found.\nfix: {list_hint}"
     ))
 }
 
@@ -160,7 +248,7 @@ fn render_ref_ambiguous(data: &Value) -> Option<String> {
 fn render_bad_status(plan_id: &str, task_id: Option<&str>, params: &Value) -> String {
     if is_task_status_context(params, task_id) {
         return format!(
-            "✗ invalid task status.\nvalid task statuses: pending|in_progress|in_review|blocked|done|cancelled\nfix: codeterm plan task update {plan_id} {} --status pending\nuse --status-label for free-text nuance.",
+            "✗ invalid task status.\nvalid task statuses: pending|in_progress|in_review|blocked|paused|done|cancelled\nfix: codeterm plan task update {plan_id} {} --status pending\nuse --status-label for free-text nuance.",
             task_id.unwrap_or("<task_id>")
         );
     }
@@ -367,4 +455,41 @@ fn render_readback_mismatch(data: &Value, plan_id: &str, task_id: Option<&str>) 
         "✗ {operation} did not read back the requested state for task '{target}'.\n\
 do not retry blindly: inspect current state first with `codeterm task show {target}` or `codeterm plan get {plan_id} --json`."
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn spec_delete_on_nonexistent_id_says_not_found_not_longer_prefix() {
+        let data = json!({
+            "type": "ref_not_found",
+            "kind": "spec",
+            "reference": "sp_nope",
+        });
+        let message = render_plan_error(&data, &json!({})).expect("ref_not_found renders");
+        assert!(message.contains("not found"), "{message}");
+        assert!(
+            !message.contains("longer unique prefix") && !message.contains("longer prefix"),
+            "not-found should not suggest a longer prefix: {message}"
+        );
+        assert!(message.contains("codeterm spec list --active"), "{message}");
+    }
+
+    #[test]
+    fn ambiguous_spec_ref_still_suggests_a_longer_prefix() {
+        let data = json!({
+            "type": "ref_ambiguous",
+            "kind": "spec",
+            "reference": "sp",
+            "candidates": [
+                { "id": "sp_alpha", "label": "Alpha" },
+                { "id": "sp_beta", "label": "Beta" },
+            ],
+        });
+        let message = render_plan_error(&data, &json!({})).expect("ref_ambiguous renders");
+        assert!(message.contains("longer prefix"), "{message}");
+    }
 }

@@ -63,6 +63,104 @@ fn list_returns_all_services() {
 }
 
 #[test]
+fn health_history_is_capped_and_list_reads_latest_snapshot() {
+    use super::schema::SERVICE_HEALTH_RETENTION;
+
+    let store = ServicesStore::open_in_memory().unwrap();
+    let id = store.create(make_input("history")).unwrap();
+    for probed_at in 1..=SERVICE_HEALTH_RETENTION + 25 {
+        store
+            .record_health_snapshot(
+                &id,
+                &HealthSnapshot {
+                    status: if probed_at == SERVICE_HEALTH_RETENTION + 25 {
+                        HealthStatus::Down
+                    } else {
+                        HealthStatus::Healthy
+                    },
+                    probed_at: Some(probed_at),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+    }
+
+    let conn = store.conn();
+    let conn = conn.lock();
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM service_health", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, SERVICE_HEALTH_RETENTION);
+    let mut plan = conn
+        .prepare(
+            "EXPLAIN QUERY PLAN
+             SELECT rowid FROM service_health
+             WHERE service_id = ?1
+             ORDER BY probed_at DESC
+             LIMIT 1",
+        )
+        .unwrap();
+    let plan_details = plan
+        .query_map([&id], |row| row.get::<_, String>(3))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    assert!(
+        plan_details
+            .iter()
+            .any(|detail| detail.contains("idx_health_service_time")),
+        "latest-row query must use the service/time index: {plan_details:?}"
+    );
+    drop(plan);
+    drop(conn);
+
+    let service = store.list(None, None).unwrap().pop().unwrap();
+    assert_eq!(service.health.status, HealthStatus::Down);
+    assert_eq!(
+        service.health.probed_at,
+        Some(SERVICE_HEALTH_RETENTION + 25)
+    );
+}
+
+#[test]
+fn opening_an_existing_store_compacts_oversized_health_history() {
+    use super::schema::SERVICE_HEALTH_RETENTION;
+    use tempfile::tempdir;
+
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("services.db");
+    let store = ServicesStore::open(&path).unwrap();
+    let id = store.create(make_input("oversized-history")).unwrap();
+    let conn = store.conn();
+    let mut conn = conn.lock();
+    let tx = conn.transaction().unwrap();
+    for probed_at in 1..=SERVICE_HEALTH_RETENTION + 25 {
+        tx.execute(
+            "INSERT INTO service_health (service_id, probed_at, status) VALUES (?1, ?2, 'healthy')",
+            rusqlite::params![id, probed_at],
+        )
+        .unwrap();
+    }
+    tx.commit().unwrap();
+    drop(conn);
+    drop(store);
+
+    let store = ServicesStore::open(&path).unwrap();
+    let conn = store.conn();
+    let conn = conn.lock();
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM service_health", [], |row| row.get(0))
+        .unwrap();
+    let oldest: i64 = conn
+        .query_row("SELECT MIN(probed_at) FROM service_health", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(count, SERVICE_HEALTH_RETENTION);
+    assert_eq!(oldest, 26);
+}
+
+#[test]
 fn list_filters_by_kind() {
     let store = ServicesStore::open_in_memory().unwrap();
     store.create(make_input("daemon-svc")).unwrap();
@@ -119,6 +217,7 @@ fn list_local_includes_cron_jobs_as_virtual_services() {
             model: None,
             cwd: None,
             role: None,
+            skill: None,
             creator_pane_id: None,
             enabled: Some(true),
             max_history: None,

@@ -17,7 +17,7 @@ Token cost is read from the provider's own usage counters around the cycle.
 Capture usage before the trigger and after `resumed`:
 
 ```
-dc pane list --json | jq '.[] | select(.id=="<PANE>") | .usage'   # before + after
+dc tab list --json | jq '.[] | select(.id=="<TAB>") | .usage'   # before + after
 ```
 
 ## The comparison to record

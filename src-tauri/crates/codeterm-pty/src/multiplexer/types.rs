@@ -20,6 +20,28 @@ pub struct Workspace {
     pub sort_order: i32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelIdentityMismatch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planned_model: Option<String>,
+    pub requested_model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_resolved_model: Option<String>,
+    pub actual_model: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelFallbackNotice {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planned_model: Option<String>,
+    pub requested_model: String,
+    pub provider_resolved_model: String,
+    #[serde(default)]
+    pub actual_model: Option<String>,
+    pub reason: String,
+}
+
 /// A closed pane retained for browser-style reopen. Captures just enough to
 /// re-materialize the pane with the SAME backing — the `backing` reuses the
 /// existing `PaneBacking` serialization, and `agent_type` / `agent_session_id`
@@ -175,6 +197,147 @@ pub enum PaneBacking {
     },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PendingDeliveryChannel {
+    SystemPrompt,
+    InteractiveInput,
+    FallbackBootstrap,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PendingDeliveryProvenance {
+    SystemPrompt,
+    InteractiveInput,
+    FallbackBootstrap,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeliveryAttemptProvenance {
+    pub attempt_id: String,
+    pub started_at_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PendingDeliveryState {
+    Pending,
+    Confirmed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PendingDeliveryRecord {
+    pub content_digest: String,
+    pub channel: PendingDeliveryChannel,
+    pub provenance: PendingDeliveryProvenance,
+    state: PendingDeliveryState,
+    attempt_provenance: Option<DeliveryAttemptProvenance>,
+}
+
+#[derive(Deserialize)]
+struct PendingDeliveryRecordWire {
+    content_digest: String,
+    channel: PendingDeliveryChannel,
+    #[serde(default)]
+    provenance: Option<PendingDeliveryProvenance>,
+    state: PendingDeliveryState,
+    attempt_provenance: Option<DeliveryAttemptProvenance>,
+}
+
+impl<'de> Deserialize<'de> for PendingDeliveryRecord {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let wire = PendingDeliveryRecordWire::deserialize(deserializer)?;
+        let provenance = wire
+            .provenance
+            .unwrap_or_else(|| PendingDeliveryProvenance::for_channel(&wire.channel));
+        Ok(Self {
+            content_digest: wire.content_digest,
+            channel: wire.channel,
+            provenance,
+            state: wire.state,
+            attempt_provenance: wire.attempt_provenance,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PendingDeliveryTransitionError {
+    ConfirmedTerminal,
+    AttemptAlreadyInFlight,
+}
+
+impl PendingDeliveryRecord {
+    pub fn new(content_digest: String, channel: PendingDeliveryChannel) -> Self {
+        let provenance = PendingDeliveryProvenance::for_channel(&channel);
+        Self {
+            content_digest,
+            channel,
+            provenance,
+            state: PendingDeliveryState::Pending,
+            attempt_provenance: None,
+        }
+    }
+
+    pub fn state(&self) -> PendingDeliveryState {
+        self.state
+    }
+
+    pub fn attempt_provenance(&self) -> Option<&DeliveryAttemptProvenance> {
+        self.attempt_provenance.as_ref()
+    }
+
+    pub fn begin_attempt(
+        &mut self,
+        provenance: DeliveryAttemptProvenance,
+    ) -> Result<(), PendingDeliveryTransitionError> {
+        match self.state {
+            PendingDeliveryState::Confirmed => {
+                Err(PendingDeliveryTransitionError::ConfirmedTerminal)
+            }
+            PendingDeliveryState::Pending if self.attempt_provenance.is_some() => {
+                Err(PendingDeliveryTransitionError::AttemptAlreadyInFlight)
+            }
+            PendingDeliveryState::Pending => {
+                self.attempt_provenance = Some(provenance);
+                Ok(())
+            }
+        }
+    }
+
+    pub fn replace_attempt(
+        &mut self,
+        provenance: DeliveryAttemptProvenance,
+    ) -> Result<(), PendingDeliveryTransitionError> {
+        if self.state == PendingDeliveryState::Confirmed {
+            return Err(PendingDeliveryTransitionError::ConfirmedTerminal);
+        }
+        self.attempt_provenance = Some(provenance);
+        Ok(())
+    }
+
+    pub fn confirm(&mut self) -> Result<(), PendingDeliveryTransitionError> {
+        if self.state == PendingDeliveryState::Confirmed {
+            return Err(PendingDeliveryTransitionError::ConfirmedTerminal);
+        }
+        self.state = PendingDeliveryState::Confirmed;
+        Ok(())
+    }
+}
+
+impl PendingDeliveryProvenance {
+    fn for_channel(channel: &PendingDeliveryChannel) -> Self {
+        match channel {
+            PendingDeliveryChannel::SystemPrompt => Self::SystemPrompt,
+            PendingDeliveryChannel::InteractiveInput => Self::InteractiveInput,
+            PendingDeliveryChannel::FallbackBootstrap => Self::FallbackBootstrap,
+        }
+    }
+}
+
 /// A pane represents a single terminal or browser panel.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pane {
@@ -185,10 +348,14 @@ pub struct Pane {
     #[serde(default)]
     pub backing: PaneBacking,
     pub pane_type: PaneType,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub pending_delivery: Option<PendingDeliveryRecord>,
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description: Option<String>,
     pub cwd: Option<String>,
+    #[serde(skip, default)]
+    pub provisioned_cwd: Option<String>,
     /// URL for browser panes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
@@ -222,15 +389,37 @@ pub struct Pane {
     pub agent_session_id: Option<String>,
     /// Human-readable session name emitted by the agent's TUI (e.g. Claude
     /// Code's "vivid-bhabha-1234" handle). Captured once per agent run via
-    /// AgentProvider::extract_session_name. Searchable via `codeterm pane find`.
+    /// AgentProvider::extract_session_name. Searchable via `codeterm tab find`.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_session_name: Option<String>,
     /// Current model family on the live session ("Opus"/"Sonnet"/"Haiku").
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_session_model: Option<String>,
+    /// Model selected by plan/task routing before a launch-time override.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub agent_planned_model: Option<String>,
+    /// Model explicitly requested at launch. Advisory only: the pane badge and
+    /// reports use `agent_session_model`, which must come from runtime evidence.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub agent_requested_model: Option<String>,
+    /// Model accepted by provider catalog resolution and passed to launch args.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub agent_provider_resolved_model: Option<String>,
+    /// Structured catalog/runtime fallback provenance. Runtime actual is absent
+    /// until provider-owned session evidence supplies it.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub model_fallback: Option<ModelFallbackNotice>,
+    /// Runtime evidence that the provider ran a different model than requested.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub model_identity_mismatch: Option<ModelIdentityMismatch>,
     /// Per-launch binding nonce, injected as CODETERM_SESSION_BINDING_NONCE and echoed back by the provider's session-start report. Rejects stale/foreign reports claiming this pane.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub session_binding_nonce: Option<String>,
+    /// Exact launch nonce echoed by the agent's accepted session-start report.
+    /// This is cleared on every session transition; the configured nonce alone
+    /// never proves that the current agent owns the pane.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub reported_session_binding_nonce: Option<String>,
     /// Per-session nonce (env CODETERM_SHELL_NONCE) guarding OSC 633;E command text against forged output.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shell_integration_nonce: Option<String>,
@@ -240,6 +429,10 @@ pub struct Pane {
     /// Behavioral profile layered on top of the structural role.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub role_profile: Option<String>,
+    /// Team membership: the `(team_id, role, role_profile)` triple IS the
+    /// membership relation. `None` = teamless. Minted at the spawn edge (Phase 2).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub team_id: Option<String>,
     /// Watcher-mode machine state (charter, policy, tick counters).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub watcher: Option<WatcherSpec>,
@@ -331,6 +524,10 @@ pub struct Pane {
     /// hand-built session snapshot omits it).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub boot_stage: Option<codeterm_types::pty::BootStage>,
+    /// Human-readable reason for a failed boot stage. Runtime-only and paired
+    /// with `boot_stage == SpawnFailed`; cleared by any later non-failed stage.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub boot_failure_reason: Option<String>,
 }
 
 fn default_show_in_tabbar() -> bool {
@@ -383,19 +580,28 @@ mod tests {
             pty_id: None,
             backing,
             pane_type: PaneType::Terminal,
+            pending_delivery: None,
             title: "Terminal".to_string(),
             description: None,
             cwd: None,
+            provisioned_cwd: None,
             url: None,
             agent_type: None,
             agent_type_locked: false,
             agent_session_id: None,
             agent_session_name: None,
             agent_session_model: None,
+            agent_planned_model: None,
+            agent_requested_model: None,
+            agent_provider_resolved_model: None,
+            model_fallback: None,
+            model_identity_mismatch: None,
             session_binding_nonce: None,
+            reported_session_binding_nonce: None,
             shell_integration_nonce: None,
             role: None,
             role_profile: None,
+            team_id: None,
             watcher: None,
             parent_pane_id: None,
             pending_paired_planner_pane_id: None,
@@ -421,6 +627,7 @@ mod tests {
             skip_snapshot: false,
             pending_greeting: None,
             boot_stage: None,
+            boot_failure_reason: None,
         }
     }
 
@@ -431,6 +638,68 @@ mod tests {
     }
 
     #[test]
+    fn confirmed_is_terminal() {
+        let mut delivery =
+            PendingDeliveryRecord::new("digest".into(), PendingDeliveryChannel::InteractiveInput);
+        delivery
+            .begin_attempt(DeliveryAttemptProvenance {
+                attempt_id: "attempt-1".into(),
+                started_at_ms: 42,
+            })
+            .unwrap();
+        assert_eq!(delivery.confirm(), Ok(()));
+        assert_eq!(delivery.state(), PendingDeliveryState::Confirmed);
+        assert_eq!(
+            delivery.begin_attempt(DeliveryAttemptProvenance {
+                attempt_id: "attempt-2".into(),
+                started_at_ms: 43,
+            }),
+            Err(PendingDeliveryTransitionError::ConfirmedTerminal)
+        );
+        assert_eq!(
+            delivery.confirm(),
+            Err(PendingDeliveryTransitionError::ConfirmedTerminal)
+        );
+    }
+
+    #[test]
+    fn legacy_pending_delivery_defaults_provenance_from_channel() {
+        let record: PendingDeliveryRecord = serde_json::from_str(
+            r#"{
+                "content_digest":"legacy",
+                "channel":"fallback_bootstrap",
+                "state":"pending",
+                "attempt_provenance":null
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(record.channel, PendingDeliveryChannel::FallbackBootstrap);
+        assert_eq!(
+            record.provenance,
+            PendingDeliveryProvenance::FallbackBootstrap
+        );
+    }
+
+    #[test]
+    fn pending_allows_one_inflight_attempt() {
+        let mut delivery =
+            PendingDeliveryRecord::new("digest".into(), PendingDeliveryChannel::InteractiveInput);
+        delivery
+            .begin_attempt(DeliveryAttemptProvenance {
+                attempt_id: "attempt-1".into(),
+                started_at_ms: 42,
+            })
+            .unwrap();
+        assert_eq!(
+            delivery.begin_attempt(DeliveryAttemptProvenance {
+                attempt_id: "attempt-2".into(),
+                started_at_ms: 43,
+            }),
+            Err(PendingDeliveryTransitionError::AttemptAlreadyInFlight)
+        );
+    }
+
+    #[test]
     fn mid_boot_snapshot_exposes_current_stage() {
         use codeterm_types::pty::BootStage;
         // the live snapshot.
@@ -438,6 +707,7 @@ mod tests {
         p.boot_stage = Some(BootStage::AgentLaunching);
         let v = serde_json::to_value(&p).unwrap();
         assert_eq!(v["boot_stage"], "agent_launching");
+        assert!(v.as_object().unwrap().get("boot_failure_reason").is_none());
 
         // Before any boot progress the field is omitted entirely (skip_if None).
         let idle = pane_with("b", PaneBacking::Pty);

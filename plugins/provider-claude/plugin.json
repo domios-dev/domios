@@ -1,6 +1,6 @@
 {
   "id": "claude",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "minCodeterm": "1.0.0",
   "hostApi": 2,
   "displayName": "Claude Code",
@@ -16,10 +16,12 @@
       "timeoutSecs": 30
     },
     "taskDelivery": "inline_flag",
+    "systemPromptDelivery": {
+      "kind": "cli_flag",
+      "flag": "--append-system-prompt-file"
+    },
     "verifySubmit": {
-      "kind": "tui_input_drained",
-      "timeoutSecs": 15,
-      "idleAfterDrainMs": 800
+      "kind": "tui_input_drained"
     },
     "sessionIdInjection": "none",
     "statusBarRows": 3,

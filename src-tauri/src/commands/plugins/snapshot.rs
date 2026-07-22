@@ -2,12 +2,6 @@ use serde_json::Value;
 
 use super::cli::{read_audit_events, run_plugin_cli};
 
-pub(crate) fn snapshot(
-    chatbackends: Option<&crate::chatbackend::ChatBackendRegistry>,
-) -> Result<Value, String> {
-    build_snapshot(None, chatbackends)
-}
-
 /// Scan plugin roots for `plugin.json` manifests, keyed by id. The CLI `plugin list`
 /// only reports installed plugins with empty paths, so it can't surface capabilities
 /// or workspace-loaded plugins; this gives the on-disk truth the daemon loads.
@@ -155,12 +149,8 @@ fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
         if let Some(desc) = m.get("description").and_then(|v| v.as_str()) {
             obj.insert("description".into(), serde_json::json!(desc));
         }
-        // Agent-facing help for the "Configure with AI" button; `configHelp` canonical, falls back to `description`.
-        if let Some(help) = m
-            .get("configHelp")
-            .and_then(|v| v.as_str())
-            .or_else(|| m.get("description").and_then(|v| v.as_str()))
-        {
+        // Configure-with-AI is opt-in. A description alone does not imply configurability.
+        if let Some(help) = m.get("configHelp").and_then(|v| v.as_str()) {
             obj.insert("config_help".into(), serde_json::json!(help));
         }
         if let Some(hp) = m.get("homepage").and_then(|v| v.as_str()) {
@@ -398,7 +388,7 @@ mod tests {
     }
 
     #[test]
-    fn enrich_exposes_config_help_with_description_fallback() {
+    fn enrich_exposes_only_explicit_config_help() {
         let dir = std::env::temp_dir().join(format!("ct-confhelp-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
 
@@ -415,17 +405,14 @@ mod tests {
             serde_json::json!("Set `baseUrl` and `model` to point at your LM Studio server.")
         );
 
-        // has agent-facing text.
+        // Description-only plugins are not AI-configurable.
         let no_help = serde_json::json!({
             "id": "git",
             "description": "Shows git status in the pane bubble.",
         });
         let mut entry2 = serde_json::json!({ "id": "git" });
         enrich_from_manifest(&mut entry2, &dir, &no_help);
-        assert_eq!(
-            entry2["config_help"],
-            serde_json::json!("Shows git status in the pane bubble.")
-        );
+        assert!(entry2.get("config_help").is_none());
 
         let _ = std::fs::remove_dir_all(&dir);
     }

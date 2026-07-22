@@ -1,9 +1,8 @@
-use super::{mem_get_request, mem_post_request};
+use crate::client::SocketClient;
 use crate::MemGraphAction;
 
 pub(crate) fn handle_mem_graph(
-    http: &reqwest::blocking::Client,
-    base: &str,
+    client: &mut SocketClient,
     action: MemGraphAction,
 ) -> Result<serde_json::Value, String> {
     match action {
@@ -18,7 +17,7 @@ pub(crate) fn handle_mem_graph(
             let payload = serde_json::json!({
                 "id": id, "type": entity_type, "scope": scope, "properties": props_val,
             });
-            mem_post_request(http, &format!("{}/api/mem/graph/entities", base), &payload)
+            client.call("mem.graph.create", Some(payload))
         }
         MemGraphAction::Relate {
             from,
@@ -36,7 +35,7 @@ pub(crate) fn handle_mem_graph(
                 "confidence": confidence, "scope": scope,
                 "reason": reason,
             });
-            mem_post_request(http, &format!("{}/api/mem/graph/relate", base), &payload)
+            client.call("mem.graph.relate", Some(payload))
         }
         MemGraphAction::Related {
             id,
@@ -44,21 +43,10 @@ pub(crate) fn handle_mem_graph(
             as_of,
             include_invalidated,
         } => {
-            let mut url = format!(
-                "{}/api/mem/graph/related?id={}",
-                base,
-                urlencoding::encode(&id)
-            );
-            if let Some(r) = &rel {
-                url.push_str(&format!("&rel={}", r));
-            }
-            if let Some(d) = &as_of {
-                url.push_str(&format!("&as_of={}", urlencoding::encode(d)));
-            }
-            if include_invalidated {
-                url.push_str("&include_invalidated=true");
-            }
-            mem_get_request(http, &url)
+            let payload = serde_json::json!({
+                "id": id, "rel": rel, "as_of": as_of, "include_invalidated": include_invalidated,
+            });
+            client.call("mem.graph.related", Some(payload))
         }
         MemGraphAction::Invalidate {
             from,
@@ -69,25 +57,16 @@ pub(crate) fn handle_mem_graph(
             let payload = serde_json::json!({
                 "from": from, "rel": rel, "to": to, "ended": ended,
             });
-            mem_post_request(
-                http,
-                &format!("{}/api/mem/graph/invalidate", base),
-                &payload,
-            )
+            client.call("mem.graph.invalidate", Some(payload))
         }
         MemGraphAction::Timeline {
             entity,
             include_invalidated,
         } => {
-            let mut url = format!(
-                "{}/api/mem/graph/timeline?entity={}",
-                base,
-                urlencoding::encode(&entity)
-            );
-            if include_invalidated {
-                url.push_str("&include_invalidated=true");
-            }
-            mem_get_request(http, &url)
+            let payload = serde_json::json!({
+                "entity": entity, "include_invalidated": include_invalidated,
+            });
+            client.call("mem.graph.timeline", Some(payload))
         }
         MemGraphAction::Traverse {
             from,
@@ -96,20 +75,11 @@ pub(crate) fn handle_mem_graph(
             as_of,
             include_invalidated,
         } => {
-            let mut url = format!(
-                "{}/api/mem/graph/traverse?from={}&hops={}&max_nodes={}",
-                base,
-                urlencoding::encode(&from),
-                hops,
-                max_nodes
-            );
-            if let Some(d) = &as_of {
-                url.push_str(&format!("&as_of={}", urlencoding::encode(d)));
-            }
-            if include_invalidated {
-                url.push_str("&include_invalidated=true");
-            }
-            mem_get_request(http, &url)
+            let payload = serde_json::json!({
+                "from": from, "hops": hops, "max_nodes": max_nodes,
+                "as_of": as_of, "include_invalidated": include_invalidated,
+            });
+            client.call("mem.graph.traverse", Some(payload))
         }
         MemGraphAction::Path {
             from,
@@ -117,30 +87,21 @@ pub(crate) fn handle_mem_graph(
             max_hops,
             include_invalidated,
         } => {
-            let mut url = format!(
-                "{}/api/mem/graph/path?from={}&to={}&max_hops={}",
-                base,
-                urlencoding::encode(&from),
-                urlencoding::encode(&to),
-                max_hops
-            );
-            if include_invalidated {
-                url.push_str("&include_invalidated=true");
-            }
-            mem_get_request(http, &url)
+            let payload = serde_json::json!({
+                "from": from, "to": to, "max_hops": max_hops,
+                "include_invalidated": include_invalidated,
+            });
+            client.call("mem.graph.path", Some(payload))
         }
         MemGraphAction::Tunnels {
             include_invalidated,
         } => {
-            let mut url = format!("{}/api/mem/graph/tunnels", base);
-            if include_invalidated {
-                url.push_str("?include_invalidated=true");
-            }
-            mem_get_request(http, &url)
+            let payload = serde_json::json!({ "include_invalidated": include_invalidated });
+            client.call("mem.graph.tunnels", Some(payload))
         }
         MemGraphAction::Alias { alias, canonical } => {
             let payload = serde_json::json!({ "alias": alias, "canonical": canonical });
-            mem_post_request(http, &format!("{}/api/mem/graph/alias", base), &payload)
+            client.call("mem.graph.alias", Some(payload))
         }
         MemGraphAction::FindDuplicateRelations { group_by, limit } => {
             let group_by_vec: Vec<&str> = group_by.split(',').map(|s| s.trim()).collect();
@@ -148,11 +109,7 @@ pub(crate) fn handle_mem_graph(
                 "group_by": group_by_vec,
                 "limit": limit,
             });
-            mem_post_request(
-                http,
-                &format!("{}/api/mem/graph/repair/find-relations", base),
-                &payload,
-            )
+            client.call("mem.graph.repair.find_relations", Some(payload))
         }
         MemGraphAction::DeleteRelations { rowids, actor } => {
             let rowids_vec: Vec<i64> = rowids
@@ -163,11 +120,7 @@ pub(crate) fn handle_mem_graph(
                 "rowids": rowids_vec,
                 "actor": actor,
             });
-            mem_post_request(
-                http,
-                &format!("{}/api/mem/graph/repair/delete-relations", base),
-                &payload,
-            )
+            client.call("mem.graph.repair.delete_relations", Some(payload))
         }
         MemGraphAction::MergeRelations { keep, merge, actor } => {
             let merge_vec: Vec<i64> = merge
@@ -179,11 +132,7 @@ pub(crate) fn handle_mem_graph(
                 "merge": merge_vec,
                 "actor": actor,
             });
-            mem_post_request(
-                http,
-                &format!("{}/api/mem/graph/repair/merge-relations", base),
-                &payload,
-            )
+            client.call("mem.graph.repair.merge_relations", Some(payload))
         }
         MemGraphAction::FindDuplicateEntities {
             strategy,
@@ -213,11 +162,7 @@ pub(crate) fn handle_mem_graph(
                 "strategy": strategy_value,
                 "limit": limit,
             });
-            mem_post_request(
-                http,
-                &format!("{}/api/mem/graph/repair/find-entities", base),
-                &payload,
-            )
+            client.call("mem.graph.repair.find_entities", Some(payload))
         }
         MemGraphAction::AugmentEntity { id, patch, actor } => {
             let patch_val: serde_json::Value =
@@ -231,51 +176,27 @@ pub(crate) fn handle_mem_graph(
                 "patch": patch_val,
                 "actor": actor,
             });
-            mem_post_request(
-                http,
-                &format!("{}/api/mem/graph/repair/augment-entity", base),
-                &payload,
-            )
+            client.call("mem.graph.repair.augment_entity", Some(payload))
         }
         MemGraphAction::RepairOrphanVectors { dry_run, actor } => {
             let payload = serde_json::json!({"dry_run": dry_run, "actor": actor});
-            mem_post_request(
-                http,
-                &format!("{}/api/mem/graph/repair/orphan-vectors", base),
-                &payload,
-            )
+            client.call("mem.graph.repair.orphan_vectors", Some(payload))
         }
         MemGraphAction::PruneThinVectors { dry_run, actor } => {
             let payload = serde_json::json!({"dry_run": dry_run, "actor": actor});
-            mem_post_request(
-                http,
-                &format!("{}/api/mem/graph/repair/prune-thin-vectors", base),
-                &payload,
-            )
+            client.call("mem.graph.repair.prune_thin_vectors", Some(payload))
         }
         MemGraphAction::CollapseSynonymEdges { dry_run, actor } => {
             let payload = serde_json::json!({"dry_run": dry_run, "actor": actor});
-            mem_post_request(
-                http,
-                &format!("{}/api/mem/graph/repair/collapse-synonym-edges", base),
-                &payload,
-            )
+            client.call("mem.graph.repair.collapse_synonym_edges", Some(payload))
         }
         MemGraphAction::PruneDreamHubEdges { dry_run, actor } => {
             let payload = serde_json::json!({"dry_run": dry_run, "actor": actor});
-            mem_post_request(
-                http,
-                &format!("{}/api/mem/graph/repair/prune-dream-hub-edges", base),
-                &payload,
-            )
+            client.call("mem.graph.repair.prune_dream_hub_edges", Some(payload))
         }
         MemGraphAction::RepairOrphanBlobs { dry_run, actor } => {
             let payload = serde_json::json!({"dry_run": dry_run, "actor": actor});
-            mem_post_request(
-                http,
-                &format!("{}/api/mem/graph/repair/orphan-blobs", base),
-                &payload,
-            )
+            client.call("mem.graph.repair.orphan_blobs", Some(payload))
         }
         MemGraphAction::DeleteEntity {
             id,
@@ -289,11 +210,7 @@ pub(crate) fn handle_mem_graph(
                 "purge_history": purge_history,
                 "actor": actor,
             });
-            mem_post_request(
-                http,
-                &format!("{}/api/mem/graph/repair/delete-entity", base),
-                &payload,
-            )
+            client.call("mem.graph.repair.delete_entity", Some(payload))
         }
         // Local-only mutations + reads that benefit from direct DB access: route through the same dispatcher as main()
         // cannot turn this into a panic in production. The run_* helpers exit; the line after never runs.

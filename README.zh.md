@@ -61,7 +61,7 @@ CodeTerm 是一款从零开始为 AI 辅助开发而设计的跨平台终端复�
 - **权限通知** — 将 Claude Code 的权限请求作为桌面通知呈现
 - **Webhook 系统** — 为代理事件（权限请求、任务完成）注册 webhook
 - **编程控制** — 代理可以通过 API 创建窗格、运行命令、读取输出
-- **代理重启** — `codeterm agent restart --pane ID` 在任意窗格执行优雅 `/exit` 加自动恢复（`--force` 强制结束挂起的代理）；与自更新使用同一机制
+- **代理重启** — `codeterm agent restart --tab ID` 在任意标签页执行优雅 `/exit` 加自动恢复（`--force` 强制结束挂起的代理）；与自更新使用同一机制
 
 ### 完整 API
 - **REST API** — 30+ 个端点，提供完整的终端控制（端口 7685）
@@ -204,8 +204,8 @@ codeterm workspace list
 codeterm workspace create "Project"
 
 # 终端控制
-codeterm pane list
-codeterm send --pane PANE_ID "npm run build"
+codeterm tab list
+codeterm send --tab TAB_ID "npm run build"
 codeterm get-output PANE_ID --lines 50
 
 # 通知

@@ -1,0 +1,13 @@
+:root {
+  --motion-duration-instant: 90ms;
+  --motion-duration-fast: 150ms;
+  --motion-duration-moderate: 240ms;
+  --motion-duration-expressive: 420ms;
+  --motion-period-ambient: 2800ms;
+  --motion-rest-fraction: 0.65;
+  --motion-duration-glow: 90ms;
+  --motion-ease-standard: cubic-bezier(0.2, 0, 0.38, 0.9);
+  --motion-ease-enter: cubic-bezier(0, 0, 0.38, 0.9);
+  --motion-ease-exit: cubic-bezier(0.2, 0, 1, 0.9);
+  --motion-ease-expressive: cubic-bezier(0.4, 0.14, 0.3, 1);
+}

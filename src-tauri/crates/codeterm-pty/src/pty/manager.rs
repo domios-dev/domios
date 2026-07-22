@@ -1,11 +1,13 @@
 use portable_pty::{native_pty_system, CommandBuilder, PtyPair, PtySize};
 use std::collections::HashMap;
 use std::io::Read;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::time::Instant;
 
 use parking_lot::Mutex as PlMutex;
 
+pub use super::teardown::{PtyReaper, PtyTeardownSignal};
 use super::write_queue::WriteQueue;
 
 pub struct SpawnMark {
@@ -16,6 +18,11 @@ pub struct SpawnMark {
 fn spawn_times() -> &'static PlMutex<HashMap<String, SpawnMark>> {
     static SPAWN_TIMES: OnceLock<PlMutex<HashMap<String, SpawnMark>>> = OnceLock::new();
     SPAWN_TIMES.get_or_init(|| PlMutex::new(HashMap::new()))
+}
+
+fn next_session_generation() -> u64 {
+    static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
+    NEXT_GENERATION.fetch_add(1, Ordering::Relaxed)
 }
 
 pub fn record_spawn_time(pty_id: &str, shell: &str) {
@@ -34,7 +41,8 @@ pub fn take_spawn_time(pty_id: &str) -> Option<SpawnMark> {
 
 /// A PTY session — stores the pair, reader, writer, child.
 pub struct PtySession {
-    pub pair: StdMutex<PtyPair>,
+    pub generation: u64,
+    pub pair: StdMutex<Option<PtyPair>>,
     pub size: StdMutex<(u16, u16)>,
     pub reader: StdMutex<Option<Box<dyn Read + Send>>>,
     pub write_queue: WriteQueue,
@@ -44,6 +52,8 @@ pub struct PtySession {
     /// Bounded to prevent memory leaks when frontend isn't consuming (hidden tabs).
     pub backend_reader_tx: StdMutex<Option<tokio::sync::mpsc::Sender<Vec<u8>>>>,
     pub backend_reader_rx: StdMutex<Option<tokio::sync::mpsc::Receiver<Vec<u8>>>>,
+    pub backend_reader_active: AtomicBool,
+    pub teardown: PtyTeardownSignal,
 }
 
 impl PtySession {
@@ -53,6 +63,9 @@ impl PtySession {
             return Ok(false);
         }
         let pair = self.pair.lock().map_err(|e| e.to_string())?;
+        let pair = pair
+            .as_ref()
+            .ok_or_else(|| "PTY already closed".to_string())?;
         pair.master
             .resize(PtySize {
                 rows,
@@ -63,6 +76,16 @@ impl PtySession {
             .map_err(|e| format!("Resize failed: {}", e))?;
         *size = (cols, rows);
         Ok(true)
+    }
+
+    pub fn mark_backend_reader_started(&self) {
+        self.backend_reader_active.store(true, Ordering::Release);
+        self.teardown.mark_reader_started();
+    }
+
+    pub fn mark_backend_reader_finished(&self) {
+        self.backend_reader_active.store(false, Ordering::Release);
+        self.teardown.mark_reader_finished();
     }
 }
 
@@ -173,6 +196,8 @@ impl OutputBuffer {
 #[cfg(test)]
 mod output_buffer_tests {
     use super::*;
+    use std::sync::mpsc;
+    use std::time::Instant;
 
     #[test]
     fn read_since_survives_ring_rotation() {
@@ -210,6 +235,73 @@ mod output_buffer_tests {
         assert_eq!(total, 5);
         assert!(chunk.is_empty());
     }
+
+    #[test]
+    fn teardown_completion_wakes_on_child_and_reader_events() {
+        let signal = Arc::new(PtyTeardownSignal::default());
+        signal.mark_reader_started();
+        let waiter = signal.clone();
+        let (tx, rx) = mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            tx.send(waiter.wait_for_completion(Instant::now() + std::time::Duration::from_secs(1)))
+                .unwrap();
+        });
+
+        signal.mark_child_exited();
+        signal.mark_reader_finished();
+
+        assert!(rx
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .unwrap()
+            .is_ok());
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn teardown_completion_emit_before_wait_begin_succeeds() {
+        let signal = Arc::new(PtyTeardownSignal::default());
+        let emitted = signal.clone();
+        let (emitted_tx, emitted_rx) = mpsc::channel();
+        let emitter = std::thread::spawn(move || {
+            emitted.mark_reader_started();
+            emitted.mark_child_exited();
+            emitted.mark_reader_finished();
+            emitted_tx.send(()).unwrap();
+        });
+
+        emitted_rx.recv().unwrap();
+        assert!(signal.wait_for_completion(Instant::now()).is_ok());
+        emitter.join().unwrap();
+    }
+
+    #[test]
+    fn teardown_failure_emit_before_wait_begin_fails() {
+        let signal = Arc::new(PtyTeardownSignal::default());
+        let emitted = signal.clone();
+        let (emitted_tx, emitted_rx) = mpsc::channel();
+        let emitter = std::thread::spawn(move || {
+            emitted.mark_child_failed("reader failed".to_string());
+            emitted_tx.send(()).unwrap();
+        });
+
+        emitted_rx.recv().unwrap();
+        let error = signal
+            .wait_for_completion(Instant::now())
+            .expect_err("failure emitted before wait must remain a failure");
+        assert!(error.contains("reader failed"), "{error}");
+        emitter.join().unwrap();
+    }
+
+    #[test]
+    fn teardown_deadline_is_a_failure() {
+        let signal = PtyTeardownSignal::default();
+
+        let error = signal
+            .wait_for_completion(Instant::now())
+            .expect_err("deadline must not report successful teardown");
+
+        assert!(error.contains("deadline"), "{error}");
+    }
 }
 
 /// A freshly opened PTY plus its child process, not yet registered in any manager.
@@ -227,6 +319,7 @@ pub const STRIPPED_PTY_ENV: &[&str] = &[
     "CLAUDECODE",
     "CLAUDE_CODE_SESSION_ID",
     "CLAUDE_CODE_CHILD_SESSION",
+    "AI_AGENT",
     "NO_COLOR",
     "CI",
     "CONTINUOUS_INTEGRATION",
@@ -307,13 +400,16 @@ pub fn build_session(
     let write_queue = WriteQueue::new(writer);
 
     let session = Arc::new(PtySession {
-        pair: StdMutex::new(pair),
+        generation: next_session_generation(),
+        pair: StdMutex::new(Some(pair)),
         size: StdMutex::new((cols, rows)),
         reader: StdMutex::new(Some(reader)),
         write_queue,
         child: StdMutex::new(child),
         backend_reader_tx: StdMutex::new(None),
         backend_reader_rx: StdMutex::new(None),
+        backend_reader_active: AtomicBool::new(false),
+        teardown: PtyTeardownSignal::default(),
     });
 
     Ok(BuiltSession { shell, session })
@@ -365,7 +461,17 @@ impl PtyManager {
     ) -> (String, Arc<PtySession>) {
         let BuiltSession { shell, session } = built;
         let pty_id = custom_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-        log::info!("Spawned PTY {} with shell '{}'", pty_id, shell);
+        let child_pid = session
+            .child
+            .lock()
+            .ok()
+            .and_then(|child| child.process_id());
+        log::info!(
+            "Spawned PTY {} with shell '{}' child_pid={:?}",
+            pty_id,
+            shell,
+            child_pid
+        );
         record_spawn_time(&pty_id, &shell);
         self.sessions.insert(pty_id.clone(), session.clone());
         (pty_id, session)
@@ -373,6 +479,12 @@ impl PtyManager {
 
     pub fn get_session(&self, pty_id: &str) -> Option<Arc<PtySession>> {
         self.sessions.get(pty_id).cloned()
+    }
+
+    pub fn session_generation_matches(&self, pty_id: &str, generation: u64) -> bool {
+        self.sessions
+            .get(pty_id)
+            .is_some_and(|session| session.generation == generation)
     }
 
     /// Write to PTY via the serialized write queue.
@@ -385,6 +497,20 @@ impl PtyManager {
         session.write_queue.send(data.to_vec())
     }
 
+    pub fn write_and_flush(
+        &self,
+        pty_id: &str,
+        data: &[u8],
+        timeout: std::time::Duration,
+    ) -> Result<(), String> {
+        let session = self
+            .sessions
+            .get(pty_id)
+            .ok_or_else(|| format!("PTY not found: {pty_id}"))?;
+        crate::pty::capture::CaptureRegistry::global().tap_input(pty_id, "pty.write", data);
+        session.write_queue.send_and_wait(data.to_vec(), timeout)
+    }
+
     /// Resize PTY
     pub fn resize(&mut self, pty_id: &str, cols: u16, rows: u16) -> Result<(), String> {
         let session = self
@@ -395,35 +521,50 @@ impl PtyManager {
         Ok(())
     }
 
+    /// Current (cols, rows) of a PTY, as last applied by spawn or resize.
+    pub fn size(&self, pty_id: &str) -> Option<(u16, u16)> {
+        let session = self.sessions.get(pty_id)?;
+        session.size.lock().ok().map(|s| *s)
+    }
+
     /// Kill/remove PTY. Returns error if PTY not found (already killed).
     pub fn kill(&mut self, pty_id: &str) -> Result<(), String> {
+        let reaper = self.begin_kill(pty_id)?;
+        reaper.reap_in_background();
+        Ok(())
+    }
+
+    pub fn begin_kill(&mut self, pty_id: &str) -> Result<PtyReaper, String> {
         let session = self
             .sessions
             .remove(pty_id)
             .ok_or_else(|| format!("PTY {} not found", pty_id))?;
-        match session.child.lock() {
-            Ok(mut child) => {
-                let _ = child.kill();
-            }
-            Err(e) => log::warn!("PTY {} child mutex poisoned during kill: {}", pty_id, e),
+        let kill_error = match session.child.lock() {
+            Ok(mut child) => child.kill().err().map(|error| error.to_string()),
+            Err(error) => Some(format!("child mutex poisoned: {error}")),
+        };
+        session.write_queue.close();
+        if let Ok(mut reader) = session.reader.lock() {
+            let _ = reader.take();
         }
-        // background thread so PTY lock is released immediately.
-        let id = pty_id.to_string();
-        std::thread::spawn(move || {
-            match session.child.lock() {
-                Ok(mut c) => {
-                    let _ = c.wait();
-                }
-                Err(_) => {}
+        if let Ok(mut tx) = session.backend_reader_tx.lock() {
+            let _ = tx.take();
+        }
+        if let Ok(mut rx) = session.backend_reader_rx.lock() {
+            let _ = rx.take();
+        }
+        match session.pair.lock() {
+            Ok(mut pair) => {
+                let _ = pair.take();
             }
-            drop(session);
-            log::info!("PTY {} child reaped", id);
-        });
-        log::info!(
-            "Killed PTY {} (SIGKILL sent, reaping in background)",
-            pty_id
-        );
-        Ok(())
+            Err(e) => log::warn!("PTY {} pair mutex poisoned during kill: {}", pty_id, e),
+        }
+        log::info!("Killed PTY {} process tree; ConPTY handles closed", pty_id);
+        Ok(PtyReaper {
+            pty_id: pty_id.to_string(),
+            session,
+            kill_error,
+        })
     }
 
     pub fn remove(&mut self, pty_id: &str) {
@@ -463,7 +604,8 @@ impl PtyManager {
 fn detect_default_shell() -> String {
     #[cfg(target_os = "windows")]
     {
-        // Avoid the WindowsApps stub for pwsh.exe — Store loader serialises ConPTY spawns for 10–30s. Prefer real installs.
+        // Avoid WindowsApps pwsh.exe — Store-packaged PowerShell can answer terminal
+        // queries while leaking prompt output outside ConPTY. Prefer real installs.
         let candidates = [
             r"C:\Program Files\PowerShell\7\pwsh.exe",
             r"C:\Program Files (x86)\PowerShell\7\pwsh.exe",
@@ -495,8 +637,7 @@ fn which_exe(name: &str) -> Option<String> {
         if dir.is_empty() {
             continue;
         }
-        // Skip WindowsApps App Execution Alias dir — see detect_default_shell.
-        if dir.to_ascii_lowercase().contains(r"\microsoft\windowsapps") {
+        if is_windowsapps_path(dir) {
             continue;
         }
         let full = std::path::Path::new(dir).join(name);
@@ -505,6 +646,11 @@ fn which_exe(name: &str) -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(target_os = "windows")]
+fn is_windowsapps_path(path: &str) -> bool {
+    path.to_ascii_lowercase().contains(r"\windowsapps")
 }
 
 #[cfg(test)]
@@ -567,15 +713,10 @@ mod tests {
             "session should be gone from manager after kill"
         );
 
-        let mut child = session.child.lock().expect("child mutex");
-        let status = child
-            .try_wait()
-            .expect("try_wait after kill should not error");
-        assert!(
-            status.is_some(),
-            "child must have exited after PtyManager::kill (was: {:?})",
-            status
-        );
+        session
+            .teardown
+            .wait_for_completion(std::time::Instant::now() + std::time::Duration::from_secs(5))
+            .expect("child and backend reader must finish after PtyManager::kill");
     }
 
     /// Regression guard for the CREATE_NO_WINDOW ConPTY bug: spawning a child
@@ -620,6 +761,145 @@ mod tests {
 
     #[cfg(target_os = "windows")]
     #[test]
+    fn conpty_cmd_produces_prompt_beyond_control_bytes() {
+        use std::io::Read;
+        use std::sync::mpsc;
+        let pty_system = native_pty_system();
+        let pair = pty_system
+            .openpty(PtySize {
+                rows: 30,
+                cols: 100,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .expect("openpty");
+        let mut reader = pair.master.try_clone_reader().expect("clone reader");
+        let _child = pair
+            .slave
+            .spawn_command(CommandBuilder::new("cmd.exe"))
+            .expect("spawn cmd.exe");
+        drop(pair.slave);
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut got = Vec::new();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+            while std::time::Instant::now() < deadline {
+                let mut buf = vec![0u8; 4096];
+                let n = reader.read(&mut buf).unwrap_or(0);
+                if n == 0 {
+                    break;
+                }
+                buf.truncate(n);
+                got.extend_from_slice(&buf);
+                if String::from_utf8_lossy(&got).contains('>') {
+                    break;
+                }
+            }
+            let _ = tx.send(got);
+        });
+        let got = rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .unwrap_or_default();
+        let text = String::from_utf8_lossy(&got);
+        assert!(
+            text.contains('>') && got.len() > 4,
+            "cmd.exe never produced a prompt beyond control bytes; bytes={:?}, text={:?}",
+            got,
+            text
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn conpty_pwsh_prompt_produces_output_beyond_cursor_query() {
+        use std::io::{Read, Write};
+        use std::sync::mpsc;
+        use std::time::{Duration, Instant};
+
+        let shell = detect_default_shell();
+        assert!(
+            shell.to_lowercase().contains("pwsh") || shell.to_lowercase().contains("powershell"),
+            "expected Windows PowerShell default shell, got {shell}"
+        );
+
+        let pty_system = native_pty_system();
+        let pair = pty_system
+            .openpty(PtySize {
+                rows: 30,
+                cols: 100,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .expect("openpty");
+        let mut reader = pair.master.try_clone_reader().expect("clone reader");
+        let mut writer = pair.master.take_writer().expect("take writer");
+        let mut cmd = CommandBuilder::new(&shell);
+        crate::pty::shell_integration::apply_env(&mut cmd, &shell);
+        let _child = pair.slave.spawn_command(cmd).expect("spawn pwsh");
+        drop(pair.slave);
+
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(8);
+            while Instant::now() < deadline {
+                let mut buf = vec![0u8; 4096];
+                let n = reader.read(&mut buf).unwrap_or(0);
+                if n == 0 {
+                    break;
+                }
+                buf.truncate(n);
+                if tx.send(buf).is_err() {
+                    break;
+                }
+            }
+        });
+
+        let mut got = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let chunk = rx.recv_timeout(remaining).unwrap_or_default();
+            if chunk.is_empty() {
+                break;
+            }
+            if chunk.windows(4).any(|w| w == b"\x1b[6n") {
+                let _ = writer.write_all(b"\x1b[1;1R");
+                let _ = writer.flush();
+            }
+            got.extend_from_slice(&chunk);
+            let text = String::from_utf8_lossy(&got);
+            if text.contains("PS ") && text.contains('>') {
+                break;
+            }
+        }
+        assert!(
+            got.len() > 4,
+            "pwsh produced only terminal capability bytes: {:?}",
+            got
+        );
+        let text = String::from_utf8_lossy(&got);
+        assert!(
+            text.contains("PS ") && text.contains('>'),
+            "pwsh never produced a prompt beyond cursor query; bytes={:?}, text={:?}",
+            got,
+            text
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windowsapps_paths_are_rejected_for_default_shell_lookup() {
+        assert!(is_windowsapps_path(
+            r"C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.3.0_x64__8wekyb3d8bbwe"
+        ));
+        assert!(is_windowsapps_path(
+            r"C:\Users\dev\AppData\Local\Microsoft\WindowsApps"
+        ));
+        assert!(!is_windowsapps_path(r"C:\Program Files\PowerShell\7"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
     fn conpty_shell_does_not_spawn_legacy_child_conhost() {
         use std::io::Read;
         use std::sync::mpsc;
@@ -652,13 +932,84 @@ mod tests {
         assert!(!got.is_empty(), "ConPTY child produced no output");
 
         let child_pid = child.process_id().expect("child pid");
-        std::thread::sleep(std::time::Duration::from_millis(300));
         let legacy = legacy_conhost_children(child_pid);
         assert!(
             legacy.is_empty(),
             "ConPTY child {} spawned legacy conhost children {:?}; only the headless ConPTY host should exist",
             child_pid,
             legacy
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn kill_reaps_conpty_host_before_next_spawn() {
+        let mut manager = PtyManager::new();
+        let before = conpty_host_children_of_current_process();
+        let (old_pty, old_session) = manager
+            .spawn(None, None, 80, 24, HashMap::new())
+            .expect("spawn old pty");
+        let old_child = old_session
+            .child
+            .lock()
+            .expect("old child mutex")
+            .process_id()
+            .expect("old child pid");
+        let old_hosts = wait_for_new_conpty_hosts(&before, std::time::Duration::from_secs(5));
+        assert_eq!(
+            old_hosts.len(),
+            1,
+            "old PTY should create exactly one ConPTY host; got {old_hosts:?}"
+        );
+
+        manager
+            .begin_kill(&old_pty)
+            .expect("begin old pty kill")
+            .wait_bounded(std::time::Duration::from_secs(5))
+            .expect("old PTY process tree must reap before retry");
+        assert!(
+            wait_for_processes_gone(
+                old_hosts
+                    .iter()
+                    .copied()
+                    .chain(std::iter::once(old_child))
+                    .collect(),
+                std::time::Duration::from_secs(5),
+            ),
+            "old child {old_child} and ConPTY hosts {old_hosts:?} must exit after kill"
+        );
+
+        let after_old = conpty_host_children_of_current_process();
+        let (new_pty, new_session) = manager
+            .spawn(None, None, 80, 24, HashMap::new())
+            .expect("spawn new pty");
+        let new_hosts = wait_for_new_conpty_hosts(&after_old, std::time::Duration::from_secs(5));
+        assert_eq!(
+            new_hosts.len(),
+            1,
+            "new PTY should own exactly one ConPTY host; got {new_hosts:?}"
+        );
+        let new_child = new_session
+            .child
+            .lock()
+            .expect("new child mutex")
+            .process_id()
+            .expect("new child pid");
+        manager
+            .begin_kill(&new_pty)
+            .expect("begin new pty kill")
+            .wait_bounded(std::time::Duration::from_secs(5))
+            .expect("new PTY process tree must reap");
+        assert!(
+            wait_for_processes_gone(
+                new_hosts
+                    .iter()
+                    .copied()
+                    .chain(std::iter::once(new_child))
+                    .collect(),
+                std::time::Duration::from_secs(5),
+            ),
+            "new child {new_child} and ConPTY hosts {new_hosts:?} must exit after kill"
         );
     }
 
@@ -684,6 +1035,76 @@ mod tests {
             .lines()
             .filter_map(|line| line.trim().parse::<u32>().ok())
             .collect()
+    }
+
+    // The ConPTY host is OpenConsole.exe only when a sideloaded conpty.dll sits next to
+    // the exe (packaged app); a bare test binary falls back to the in-box headless
+    // conhost.exe. Match both so host observation is deployment-independent.
+    #[cfg(target_os = "windows")]
+    fn conpty_host_children_of_current_process() -> std::collections::HashSet<u32> {
+        let script = format!(
+            "$p={}; Get-CimInstance Win32_Process -Filter \"ParentProcessId = $p AND (Name = 'OpenConsole.exe' OR Name = 'conhost.exe')\" | Where-Object {{ $_.Name -eq 'OpenConsole.exe' -or $_.CommandLine -like '*--headless*' }} | ForEach-Object {{ $_.ProcessId }}",
+            std::process::id()
+        );
+        let mut cmd = std::process::Command::new("powershell.exe");
+        cmd.args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &script,
+        ]);
+        codeterm_util::process_util::no_window_std(&mut cmd);
+        let Ok(output) = cmd.output() else {
+            return std::collections::HashSet::new();
+        };
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| line.trim().parse::<u32>().ok())
+            .collect()
+    }
+
+    #[cfg(target_os = "windows")]
+    // The Windows test API has no process-tree event subscription; this is a bounded OS observation contract.
+    fn wait_for_new_conpty_hosts(
+        before: &std::collections::HashSet<u32>,
+        timeout: std::time::Duration,
+    ) -> Vec<u32> {
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            let current = conpty_host_children_of_current_process();
+            let hosts: Vec<u32> = current.difference(before).copied().collect();
+            if !hosts.is_empty() || std::time::Instant::now() >= deadline {
+                return hosts;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    // The Windows test API has no process-tree event subscription; this is a bounded OS observation contract.
+    fn wait_for_processes_gone(pids: Vec<u32>, timeout: std::time::Duration) -> bool {
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            let alive = pids.iter().any(|pid| process_exists(*pid));
+            if !alive {
+                return true;
+            }
+            if std::time::Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn process_exists(pid: u32) -> bool {
+        let mut cmd = std::process::Command::new("tasklist.exe");
+        cmd.args(["/fi", &format!("PID eq {}", pid), "/fo", "csv", "/nh"]);
+        codeterm_util::process_util::no_window_std(&mut cmd);
+        cmd.output()
+            .map(|output| String::from_utf8_lossy(&output.stdout).contains(&pid.to_string()))
+            .unwrap_or(false)
     }
 
     #[test]

@@ -469,6 +469,7 @@ fn enqueue_agent_turn(
                 workspace_id,
                 command: PaneCommand::Agent(AgentSpawnSpec {
                     provider,
+                    planned_model: None,
                     model: if model.is_empty() { None } else { Some(model) },
                     task: Some(task),
                     worker_id: Some(worker_id_blocking.clone()),

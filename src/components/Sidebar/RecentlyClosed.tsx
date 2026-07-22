@@ -1,10 +1,11 @@
 import { memo, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, GitBranch, Layers } from "lucide-react";
+import { GitBranch, Layers } from "lucide-react";
 import type { ClosedPaneView } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { SidebarModelBadge } from "./SidebarModelBadge";
+import { SidebarDisclosure } from "./SidebarDisclosure";
 
 /** A render group collapsed from the flat closed-history view. A `single`
  *  close is one pane; `cascade` is an orchestrator subtree; `workspace` is a
@@ -73,7 +74,6 @@ interface RecentlyClosedProps {
   onReopenGroup: (groupId: string) => void;
   touchMode?: boolean;
   uiFontScale?: number;
-  headerTextClass?: string;
 }
 
 interface TooltipState {
@@ -89,7 +89,6 @@ function RecentlyClosedInner({
   onReopenGroup,
   touchMode = false,
   uiFontScale,
-  headerTextClass,
 }: RecentlyClosedProps) {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
@@ -173,20 +172,16 @@ function RecentlyClosedInner({
   };
 
   return (
-    <div data-testid="recently-closed" className="mt-0.5 mb-1 border-t border-[var(--ct-border)] pt-1">
-      <button
+    <div data-testid="recently-closed" className="sidebar-recently-closed">
+      <SidebarDisclosure
+        expanded={open}
+        touchMode={touchMode}
         onClick={() => setOpen((v) => !v)}
-        className={`flex items-center gap-1.5 w-full px-2 ${touchMode ? "py-2" : "py-1"} rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] transition-colors`}
+        className="sidebar-structural-header w-full"
         title="Recently closed tabs"
       >
-        <ChevronRight
-          size={11}
-          strokeWidth={1.5}
-          className="shrink-0 transition-transform duration-200"
-          style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)" }}
-        />
-        <span className={`${headerTextClass ?? metaText} font-normal truncate`}>Recently closed</span>
-      </button>
+        <span className="sidebar-structural-label truncate">RECENTLY CLOSED</span>
+      </SidebarDisclosure>
       {open && (
         <div className="mt-0.5 overflow-y-auto" style={{ maxHeight: 165 }}>
           {groups.map((group) => {
@@ -200,20 +195,14 @@ function RecentlyClosedInner({
                 <div
                   className={`group/grp flex items-center w-full pr-2 rounded-md text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] transition-colors`}
                 >
-                  <button
+                  <SidebarDisclosure
                     data-testid="recently-closed-group-toggle"
                     onClick={() => toggleGroup(group.id)}
-                    aria-expanded={isOpen}
+                    expanded={isOpen}
+                    touchMode={touchMode}
                     aria-label={isOpen ? "Collapse group" : "Expand group"}
                     className={`flex items-start justify-center shrink-0 pl-2 pr-1 ${rowPad} text-[var(--ct-muted)] hover:text-[var(--ct-fg)]`}
-                  >
-                    <ChevronRight
-                      size={11}
-                      strokeWidth={1.75}
-                      className="mt-0.5 transition-transform duration-200"
-                      style={{ transform: isOpen ? "rotate(90deg)" : "rotate(0deg)" }}
-                    />
-                  </button>
+                  />
                   <button
                     data-testid="recently-closed-group-restore"
                     onClick={() => {

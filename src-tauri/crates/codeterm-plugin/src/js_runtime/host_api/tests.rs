@@ -403,6 +403,64 @@ fn host_shell_quote_for_windows_uses_double_single_quote() {
 }
 
 #[test]
+fn host_shell_env_prefix_posix_uses_inline_assignment_no_chaining() {
+    let vm = vm_with(
+        r#"
+            module.exports.default = {
+                p(n, v) { return host.shellEnvPrefix(n, v, "linux"); }
+            };
+        "#,
+    );
+    let out: String = crate::js_runtime::vm::call_json(
+        &vm,
+        "p",
+        &[json!("CLAUDE_CODE_DISABLE_HOOKS"), json!("1")],
+    )
+    .unwrap();
+    assert_eq!(out, "CLAUDE_CODE_DISABLE_HOOKS='1' ");
+    assert!(
+        !out.contains("&&") && !out.contains(';'),
+        "POSIX env prefix must not need a statement joiner: {out:?}"
+    );
+}
+
+#[test]
+fn host_shell_env_prefix_windows_uses_env_drive_and_semicolon() {
+    let vm = vm_with(
+        r#"
+            module.exports.default = {
+                p(n, v) { return host.shellEnvPrefix(n, v, "windows"); }
+            };
+        "#,
+    );
+    let out: String = crate::js_runtime::vm::call_json(
+        &vm,
+        "p",
+        &[json!("CLAUDE_CODE_DISABLE_HOOKS"), json!("1")],
+    )
+    .unwrap();
+    assert_eq!(out, "$env:CLAUDE_CODE_DISABLE_HOOKS='1'; ");
+    assert!(
+        !out.contains("&&"),
+        "windows env prefix must not use POSIX `&&`: {out:?}"
+    );
+}
+
+#[test]
+fn host_shell_env_prefix_windows_quotes_embedded_single_quote() {
+    let vm = vm_with(
+        r#"
+            module.exports.default = {
+                p(n, v) { return host.shellEnvPrefix(n, v, "windows"); }
+            };
+        "#,
+    );
+    let out: String =
+        crate::js_runtime::vm::call_json(&vm, "p", &[json!("X"), json!("can't")]).unwrap();
+    assert_eq!(out, "$env:X='can''t'; ");
+}
+
+#[test]
 fn host_write_temp_file_returns_real_path() {
     let vm = vm_with(
         r#"

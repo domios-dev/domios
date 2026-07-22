@@ -42,6 +42,27 @@ pub enum SocketCallError {
     Rpc(RpcError),
 }
 
+pub trait RpcClient {
+    fn call_detailed(
+        &mut self,
+        method: &str,
+        params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, SocketCallError>;
+
+    fn call(
+        &mut self,
+        method: &str,
+        params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, String> {
+        self.call_detailed(method, params)
+            .map_err(|e| e.to_string())
+    }
+
+    fn is_remote(&self) -> bool {
+        false
+    }
+}
+
 impl std::fmt::Display for SocketCallError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -160,6 +181,16 @@ impl SocketClient {
     }
 }
 
+impl RpcClient for SocketClient {
+    fn call_detailed(
+        &mut self,
+        method: &str,
+        params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, SocketCallError> {
+        SocketClient::call_detailed(self, method, params)
+    }
+}
+
 /// Discover the CodeTerm socket path.
 ///
 /// 1. Check `CODETERM_SOCKET_PATH` env var, but VERIFY the named pipe / socket
@@ -207,6 +238,13 @@ pub fn discover_socket() -> Result<String, String> {
     {
         discover_unix_socket()
     }
+}
+
+/// Name of a live CodeTerm daemon socket, or None when none is reachable.
+///
+/// Diagnostics only — callers that need to talk to the daemon use `discover_socket`.
+pub fn live_socket_name() -> Option<String> {
+    discover_socket().ok().filter(|name| socket_is_live(name))
 }
 
 /// Return true when the named socket exists and is reachable. Used by

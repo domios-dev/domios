@@ -1,5 +1,5 @@
 use super::*;
-use crate::provider::{ReadinessStrategy, VerifySubmitStrategy};
+use crate::provider::{BusySubmitStrategy, ReadinessStrategy, VerifySubmitStrategy};
 
 #[test]
 fn parse_minimal_manifest() {
@@ -33,7 +33,7 @@ fn parse_full_manifest() {
                 "readinessStrategy": { "kind": "poll_shell_prompt", "timeoutSecs": 30 },
                 "taskDelivery": "inline_flag",
                 "taskInputWarmupMs": 0,
-                "verifySubmit": { "kind": "tui_input_drained", "timeoutSecs": 15, "idleAfterDrainMs": 800 },
+                "verifySubmit": { "kind": "tui_input_drained" },
                 "sessionIdInjection": "fresh_and_fork",
                 "statusBarRows": 3,
                 "preservesContextOnResume": true,
@@ -84,7 +84,7 @@ fn parse_full_manifest() {
     assert_eq!(m.spawn.status_bar_rows, 3);
     assert!(matches!(
         m.spawn.verify_submit,
-        SerdeVerifySubmit::TuiInputDrained { .. }
+        SerdeVerifySubmit::TuiInputDrained
     ));
     assert!(matches!(
         m.spawn.session_id_injection,
@@ -198,6 +198,7 @@ fn chat_backend_round_trips_symmetrically() {
         enabled: true,
         spawnable: true,
         watcher: false,
+        session_config: false,
     };
     let v = serde_json::to_value(&spawnable).unwrap();
     assert_eq!(v, serde_json::json!({ "spawnable": true }));
@@ -208,11 +209,23 @@ fn chat_backend_round_trips_symmetrically() {
         enabled: true,
         spawnable: false,
         watcher: true,
+        session_config: false,
     };
     let v = serde_json::to_value(&watcher).unwrap();
     assert_eq!(v, serde_json::json!({ "watcher": true }));
     let back: ChatBackendCap = serde_json::from_value(v).unwrap();
     assert!(back.enabled() && !back.spawnable() && back.watcher());
+
+    let session_config = ChatBackendCap {
+        enabled: true,
+        spawnable: false,
+        watcher: false,
+        session_config: true,
+    };
+    let v = serde_json::to_value(&session_config).unwrap();
+    assert_eq!(v, serde_json::json!({ "sessionConfig": true }));
+    let back: ChatBackendCap = serde_json::from_value(v).unwrap();
+    assert!(back.enabled() && back.session_config());
 }
 
 #[test]
@@ -295,19 +308,19 @@ fn readiness_conversion() {
 
 #[test]
 fn verify_submit_conversion() {
-    let s = SerdeVerifySubmit::TuiInputDrained {
-        timeout_secs: 15,
-        idle_after_drain_ms: 800,
-    };
+    let s = SerdeVerifySubmit::TuiInputDrained;
     let v: VerifySubmitStrategy = (&s).into();
     match v {
-        VerifySubmitStrategy::TuiInputDrained {
-            timeout,
-            idle_after_drain,
-        } => {
-            assert_eq!(timeout.as_secs(), 15);
-            assert_eq!(idle_after_drain.as_millis(), 800);
-        }
+        VerifySubmitStrategy::TuiInputDrained => {}
         _ => panic!(),
     }
+}
+
+#[test]
+fn busy_submit_conversion() {
+    let strategy = SerdeBusySubmit::Key { key: "tab".into() };
+    assert_eq!(
+        BusySubmitStrategy::from(&strategy),
+        BusySubmitStrategy::Key("tab".into())
+    );
 }

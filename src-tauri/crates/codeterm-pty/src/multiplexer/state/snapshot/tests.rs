@@ -13,6 +13,7 @@ fn chatbackend_leaf(pane_id: &str, plugin_id: &str, session_id: &str) -> SplitNo
         claude_session_id: None,
         role: None,
         role_profile: None,
+        team_id: None,
         parent_pane_id: None,
         spawned_by_pane_id: None,
         report_target_pane_id: None,
@@ -22,9 +23,15 @@ fn chatbackend_leaf(pane_id: &str, plugin_id: &str, session_id: &str) -> SplitNo
         chat_view: Some(true),
         auto_approve: false,
         agent_session_model: None,
+        agent_planned_model: None,
+        agent_requested_model: None,
+        agent_provider_resolved_model: None,
+        model_fallback: None,
+        model_identity_mismatch: None,
         chatbackend_plugin_id: Some(plugin_id.into()),
         chatbackend_session_id: Some(session_id.into()),
         watcher: None,
+        pending_delivery: None,
     }
 }
 
@@ -33,6 +40,7 @@ fn snapshot_with(leaf: SplitNodeSnapshot) -> SessionSnapshot {
         version: "test".into(),
         timestamp: 0,
         active_workspace_id: Some("ws".into()),
+        teams: vec![],
         workspaces: vec![WorkspaceSnapshot {
             id: "ws".into(),
             name: "ws".into(),
@@ -49,6 +57,197 @@ fn snapshot_with(leaf: SplitNodeSnapshot) -> SessionSnapshot {
             }],
         }],
     }
+}
+
+#[test]
+fn team_snapshot_roundtrip() {
+    use codeterm_types::team::{Team, TeamLifecycle};
+
+    let mut state = MultiplexerState::empty();
+    let wsid = state.create_workspace("Team WS".to_string(), None).id;
+
+    let team = Team {
+        id: "team_abc123".into(),
+        name: Some("Alpha".into()),
+        lifecycle: TeamLifecycle::Active,
+        created_at: 1_700_000_000_000,
+        workspace_id: wsid.clone(),
+    };
+    state.upsert_team(team.clone());
+
+    let (_t1, m1) = state.create_tab(&wsid).unwrap();
+    let (_t2, m2) = state.create_tab(&wsid).unwrap();
+    state.get_pane_mut(&m1).unwrap().team_id = Some(team.id.clone());
+    state.get_pane_mut(&m2).unwrap().team_id = Some(team.id.clone());
+
+    let snap = state.to_session_snapshot();
+    let restored = MultiplexerState::from_session_snapshot(&snap);
+
+    assert_eq!(
+        restored.get_team("team_abc123"),
+        Some(&team),
+        "teams registry must survive the snapshot round-trip"
+    );
+    assert_eq!(restored.team_count(), 1, "exactly one team survives");
+    assert_eq!(
+        restored.panes.get(&m1).unwrap().team_id.as_deref(),
+        Some("team_abc123"),
+        "member pane team_id must survive the round-trip"
+    );
+    assert_eq!(
+        restored.panes.get(&m2).unwrap().team_id.as_deref(),
+        Some("team_abc123"),
+        "second member pane team_id must survive too"
+    );
+}
+
+#[test]
+fn pending_record_snapshot_round_trip() {
+    use crate::multiplexer::types::{
+        DeliveryAttemptProvenance, PendingDeliveryChannel, PendingDeliveryRecord,
+    };
+
+    let (mut state, pane_id) = MultiplexerState::new();
+    let mut pending = PendingDeliveryRecord::new(
+        "e8b7be43c6c1de318beb5c4a99e5406d2d1861f55ad8c03b2b4591f8ac44d784".into(),
+        PendingDeliveryChannel::InteractiveInput,
+    );
+    pending
+        .begin_attempt(DeliveryAttemptProvenance {
+            attempt_id: "delivery-17".into(),
+            started_at_ms: 1_700_000_000_000,
+        })
+        .unwrap();
+    state.get_pane_mut(&pane_id).unwrap().pending_delivery = Some(pending);
+
+    let snapshot = state.to_session_snapshot();
+    let before = serde_json::to_vec(&snapshot.workspaces[0].tabs[0].split_tree).unwrap();
+    let restored = MultiplexerState::from_session_snapshot(&snapshot);
+    let after_snapshot = restored.to_session_snapshot();
+    let after = serde_json::to_vec(&after_snapshot.workspaces[0].tabs[0].split_tree).unwrap();
+
+    assert_eq!(before, after);
+}
+
+#[test]
+fn pending_record_absent_round_trips_absent() {
+    let (state, pane_id) = MultiplexerState::new();
+    assert_eq!(state.get_pane(&pane_id).unwrap().pending_delivery, None);
+
+    let snapshot = state.to_session_snapshot();
+    let restored = MultiplexerState::from_session_snapshot(&snapshot);
+    assert_eq!(restored.get_pane(&pane_id).unwrap().pending_delivery, None);
+}
+
+#[test]
+fn legacy_snapshot_without_field_deserializes() {
+    let snapshot: SessionSnapshot = serde_json::from_value(serde_json::json!({
+        "version": "legacy",
+        "timestamp": 0,
+        "workspaces": [{
+            "id": "ws",
+            "name": "ws",
+            "tabs": [{
+                "id": "tab",
+                "title": "tab",
+                "split_tree": { "type": "Leaf", "pane_id": "pane", "cwd": null }
+            }],
+            "active_tab_id": "tab"
+        }],
+        "active_workspace_id": "ws"
+    }))
+    .unwrap();
+
+    let restored = MultiplexerState::from_session_snapshot(&snapshot);
+    assert_eq!(restored.get_pane("pane").unwrap().pending_delivery, None);
+}
+
+#[test]
+fn manager_close_survives_snapshot_restore_without_resurrection() {
+    use crate::multiplexer::types::AgentRole;
+
+    let (mut state, root_id) = MultiplexerState::new();
+    let workspace_id = state.list_workspaces()[0].id.clone();
+    state
+        .set_pane_role(&root_id, AgentRole::Orchestrator, None)
+        .unwrap();
+    let team_id = state
+        .resolve_or_mint_team_for_parent(&root_id)
+        .unwrap()
+        .team_id;
+    let (_tab, manager_id) = state.create_tab(&workspace_id).unwrap();
+    state
+        .set_pane_role(&manager_id, AgentRole::Manager, Some(&root_id))
+        .unwrap();
+    let (_tab, worker_id) = state.create_tab(&workspace_id).unwrap();
+    state
+        .set_pane_role(&worker_id, AgentRole::Worker, Some(&root_id))
+        .unwrap();
+    state.repoint_parent(&worker_id, &manager_id);
+
+    state.close_pane(&manager_id).unwrap();
+    let restored = MultiplexerState::from_session_snapshot(&state.to_session_snapshot());
+
+    assert!(restored.get_pane(&manager_id).is_none());
+    let worker = restored.get_pane(&worker_id).expect("worker restores");
+    assert!(worker.parent_pane_id.is_none());
+    assert_eq!(worker.team_id.as_deref(), Some(team_id.as_str()));
+    assert!(restored.get_team(&team_id).is_some());
+}
+
+#[test]
+fn snapshot_includes_teams() {
+    use codeterm_types::team::Team;
+
+    let mut state = MultiplexerState::empty();
+    let workspace_id = state.create_workspace("Team WS".to_string(), None).id;
+    let team = Team::new(&workspace_id, 1);
+    let team_id = team.id.clone();
+    state.upsert_team(team);
+    let (_tab_id, pane_id) = state.create_tab(&workspace_id).unwrap();
+    state.get_pane_mut(&pane_id).unwrap().team_id = Some(team_id.clone());
+
+    let snapshot = serde_json::to_value(state.snapshot()).unwrap();
+    assert_eq!(snapshot["teams"][0]["id"], team_id);
+    assert_eq!(snapshot["panes"][pane_id]["team_id"], team_id);
+}
+
+#[test]
+fn legacy_snapshot_no_team_fields_restores() {
+    // A pre-team last.json lacks both the top-level `teams` array and each
+    // leaf's `team_id`. Emulate one by stripping those keys from a current
+    // snapshot, then prove it still restores cleanly and teamless.
+    let (mut state, _root) = MultiplexerState::new();
+    let wsid = state.list_workspaces()[0].id.clone();
+    let (_t, pane_id) = state.create_tab(&wsid).unwrap();
+
+    let snap = state.to_session_snapshot();
+    let mut json = serde_json::to_value(&snap).unwrap();
+    json.as_object_mut().unwrap().remove("teams");
+    for ws in json["workspaces"].as_array_mut().unwrap() {
+        for tab in ws["tabs"].as_array_mut().unwrap() {
+            tab["split_tree"].as_object_mut().unwrap().remove("team_id");
+        }
+    }
+    assert!(
+        json.get("teams").is_none(),
+        "fixture must genuinely lack the new team fields"
+    );
+
+    let legacy: SessionSnapshot =
+        serde_json::from_value(json).expect("legacy snapshot must deserialize with defaults");
+    let restored = MultiplexerState::from_session_snapshot(&legacy);
+
+    assert_eq!(restored.team_count(), 0, "legacy snapshot mints no teams");
+    assert!(
+        restored.panes.contains_key(&pane_id),
+        "legacy pane must restore"
+    );
+    assert_eq!(
+        restored.panes.get(&pane_id).unwrap().team_id,
+        None,
+        "legacy pane restores teamless"
+    );
 }
 
 #[test]
@@ -141,6 +340,7 @@ fn pty_pane_round_trips_without_chatbackend_fields() {
         claude_session_id: Some("c-1".into()),
         role: None,
         role_profile: None,
+        team_id: None,
         parent_pane_id: None,
         spawned_by_pane_id: None,
         report_target_pane_id: None,
@@ -150,9 +350,15 @@ fn pty_pane_round_trips_without_chatbackend_fields() {
         chat_view: Some(false),
         auto_approve: false,
         agent_session_model: None,
+        agent_planned_model: None,
+        agent_requested_model: None,
+        agent_provider_resolved_model: None,
+        model_fallback: None,
+        model_identity_mismatch: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
         watcher: None,
+        pending_delivery: None,
     };
     let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
     let pane = state.panes.get("p2").expect("pane restored");
@@ -172,6 +378,7 @@ fn pane_description_round_trips_through_snapshot() {
         claude_session_id: None,
         role: Some("Worker".into()),
         role_profile: Some("planner".into()),
+        team_id: None,
         parent_pane_id: None,
         spawned_by_pane_id: None,
         report_target_pane_id: None,
@@ -181,9 +388,15 @@ fn pane_description_round_trips_through_snapshot() {
         chat_view: Some(false),
         auto_approve: false,
         agent_session_model: None,
+        agent_planned_model: None,
+        agent_requested_model: None,
+        agent_provider_resolved_model: None,
+        model_fallback: None,
+        model_identity_mismatch: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
         watcher: None,
+        pending_delivery: None,
     };
     let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
     let pane = state.panes.get("p-desc").expect("pane restored");
@@ -220,6 +433,7 @@ fn spawned_by_and_report_target_restore_intact_not_none() {
         claude_session_id: None,
         role: Some("Worker".into()),
         role_profile: None,
+        team_id: None,
         parent_pane_id: Some("orch-1".into()),
         spawned_by_pane_id: Some("spawner-1".into()),
         report_target_pane_id: Some("target-1".into()),
@@ -229,9 +443,15 @@ fn spawned_by_and_report_target_restore_intact_not_none() {
         chat_view: Some(false),
         auto_approve: false,
         agent_session_model: None,
+        agent_planned_model: None,
+        agent_requested_model: None,
+        agent_provider_resolved_model: None,
+        model_fallback: None,
+        model_identity_mismatch: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
         watcher: None,
+        pending_delivery: None,
     };
     let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
     let pane = state.panes.get("worker-1").expect("pane restored");
@@ -261,6 +481,7 @@ fn legacy_tab_title_seeds_default_provider_pane_title() {
         claude_session_id: None,
         role: Some("Worker".into()),
         role_profile: None,
+        team_id: None,
         parent_pane_id: None,
         spawned_by_pane_id: None,
         report_target_pane_id: None,
@@ -270,9 +491,15 @@ fn legacy_tab_title_seeds_default_provider_pane_title() {
         chat_view: Some(false),
         auto_approve: false,
         agent_session_model: None,
+        agent_planned_model: None,
+        agent_requested_model: None,
+        agent_provider_resolved_model: None,
+        model_fallback: None,
+        model_identity_mismatch: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
         watcher: None,
+        pending_delivery: None,
     };
     let mut snap = snapshot_with(leaf);
     snap.workspaces[0].tabs[0].title = "Euler".into();
@@ -501,6 +728,7 @@ fn spawned_by_round_trips_through_snapshot() {
         claude_session_id: None,
         role: Some("Worker".into()),
         role_profile: None,
+        team_id: None,
         parent_pane_id: Some("orch".into()),
         spawned_by_pane_id: Some("spawner".into()),
         report_target_pane_id: None,
@@ -510,9 +738,15 @@ fn spawned_by_round_trips_through_snapshot() {
         chat_view: Some(false),
         auto_approve: false,
         agent_session_model: None,
+        agent_planned_model: None,
+        agent_requested_model: None,
+        agent_provider_resolved_model: None,
+        model_fallback: None,
+        model_identity_mismatch: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
         watcher: None,
+        pending_delivery: None,
     };
     let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
     let round = state.to_session_snapshot();
@@ -527,6 +761,54 @@ fn spawned_by_round_trips_through_snapshot() {
         }
         _ => panic!("expected a leaf"),
     }
+}
+
+#[test]
+fn requested_and_actual_model_identity_round_trips_through_snapshot() {
+    let (mut state, _root) = MultiplexerState::new();
+    let wsid = state.list_workspaces()[0].id.clone();
+    let (_, pane_id) = state.create_tab(&wsid).unwrap();
+    let mismatch = crate::multiplexer::types::ModelIdentityMismatch {
+        planned_model: Some("codex/gpt-5.6-luna".into()),
+        requested_model: "gpt-5.6-luna".into(),
+        provider_resolved_model: Some("gpt-5.6-luna".into()),
+        actual_model: "gpt-5.6-terra".into(),
+        reason: "runtime_session_model_mismatch".into(),
+    };
+    let fallback = crate::multiplexer::types::ModelFallbackNotice {
+        planned_model: Some("codex/gpt-5.6-luna".into()),
+        requested_model: "gpt-5.6-luna".into(),
+        provider_resolved_model: "gpt-5.6-luna".into(),
+        actual_model: Some("gpt-5.6-terra".into()),
+        reason: "runtime_session_model_mismatch".into(),
+    };
+    {
+        let pane = state.get_pane_mut(&pane_id).unwrap();
+        pane.agent_type = Some("codex".into());
+        pane.agent_session_model = Some("gpt-5.6-terra".into());
+        pane.agent_planned_model = Some("codex/gpt-5.6-luna".into());
+        pane.agent_requested_model = Some("gpt-5.6-luna".into());
+        pane.agent_provider_resolved_model = Some("gpt-5.6-luna".into());
+        pane.model_fallback = Some(fallback.clone());
+        pane.model_identity_mismatch = Some(mismatch.clone());
+    }
+
+    let snap = state.to_session_snapshot();
+    let restored = MultiplexerState::from_session_snapshot(&snap);
+    let pane = restored.panes.get(&pane_id).expect("pane restored");
+
+    assert_eq!(pane.agent_session_model.as_deref(), Some("gpt-5.6-terra"));
+    assert_eq!(
+        pane.agent_planned_model.as_deref(),
+        Some("codex/gpt-5.6-luna")
+    );
+    assert_eq!(pane.agent_requested_model.as_deref(), Some("gpt-5.6-luna"));
+    assert_eq!(
+        pane.agent_provider_resolved_model.as_deref(),
+        Some("gpt-5.6-luna")
+    );
+    assert_eq!(pane.model_fallback, Some(fallback));
+    assert_eq!(pane.model_identity_mismatch, Some(mismatch));
 }
 
 // ── Ghost-tab repro harness ───────────────────────────────────────────────
@@ -600,4 +882,41 @@ fn ghost_repro_mixed_workspace_drops_only_ephemeral() {
         }
         _ => panic!("expected a leaf"),
     }
+}
+
+#[test]
+fn snapshots_exclude_orphaned_and_duplicate_live_tabs() {
+    let mut state = MultiplexerState::empty();
+    let workspace_id = state.create_workspace("Clean".to_string(), None).id;
+    let (tab_id, pane_id) = state.create_tab(&workspace_id).unwrap();
+    let workspace = state
+        .workspaces
+        .iter_mut()
+        .find(|workspace| workspace.id == workspace_id)
+        .unwrap();
+    workspace.tabs.push(crate::multiplexer::types::Tab {
+        id: "duplicate-tab".to_string(),
+        description: None,
+        pane_id: pane_id.clone(),
+        sort_order: 1,
+    });
+    workspace.tabs.push(crate::multiplexer::types::Tab {
+        id: "orphaned-tab".to_string(),
+        description: None,
+        pane_id: "closed-pane".to_string(),
+        sort_order: 2,
+    });
+    workspace.active_tab_id = Some("orphaned-tab".to_string());
+
+    let live = state.snapshot();
+    assert_eq!(live.workspaces[0].tabs.len(), 1);
+    assert_eq!(live.workspaces[0].tabs[0].id, tab_id);
+    assert_eq!(
+        live.workspaces[0].active_tab_id.as_deref(),
+        Some(tab_id.as_str())
+    );
+
+    let persisted = state.to_session_snapshot();
+    assert_eq!(persisted.workspaces[0].tabs.len(), 1);
+    assert_eq!(persisted.workspaces[0].tabs[0].id, tab_id);
 }

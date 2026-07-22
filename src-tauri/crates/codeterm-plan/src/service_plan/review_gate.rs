@@ -1,0 +1,548 @@
+use serde::Serialize;
+
+use super::mutations::plan_contains_id;
+use super::{PlanError, PlanStore};
+use crate::plan::{
+    AgentRef, Milestone, Plan, ReviewAuditEntry, ReviewEvidence, ReviewOverride, ReviewPolicy,
+    ReviewStage, ReviewVerdict, Task, TaskStatus, DEFAULT_MAX_REVIEW_ROUNDS,
+};
+
+pub const REVIEW_MILESTONE_KIND: &str = "review";
+pub const REVIEW_ESCALATION_MILESTONE_KIND: &str = "review_escalation";
+
+fn max_review_rounds() -> u32 {
+    std::env::var("CODETERM_PLAN_REVIEW_MAX_ROUNDS")
+        .ok()
+        .and_then(|raw| raw.parse::<u32>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(DEFAULT_MAX_REVIEW_ROUNDS)
+}
+
+/// A stable signature over the fields that define "what must be true to accept"
+/// for a task. Locked into `Task.review_oracle` the first time it enters review.
+pub fn oracle_signature(task: &Task) -> String {
+    let mut criteria = task.acceptance_criteria.clone();
+    criteria.sort();
+    format!(
+        "ac:{}|tp:{}",
+        criteria.join(";"),
+        task.test_plan.as_deref().unwrap_or("").trim()
+    )
+}
+
+/// An "executable exact QA plan": both a non-empty test plan and at least one
+/// acceptance criterion, so an evaluator has a concrete oracle to run.
+pub fn has_exact_qa_evidence(task: &Task) -> bool {
+    task.test_plan
+        .as_deref()
+        .is_some_and(|s| !s.trim().is_empty())
+        && !task.acceptance_criteria.is_empty()
+}
+
+/// Independently recorded review evidence: at least one prior verdict already
+/// attached to this task by a distinct reviewer pass.
+pub fn has_independent_review_evidence(task: &Task) -> bool {
+    !task.review_evidence.is_empty()
+}
+
+fn override_is_complete(o: &ReviewOverride) -> bool {
+    !o.owner.trim().is_empty() && !o.reason.trim().is_empty() && !o.reproduction.trim().is_empty()
+}
+
+pub fn in_review_count(plan: &Plan) -> usize {
+    plan.tasks
+        .iter()
+        .filter(|t| t.status == TaskStatus::InReview)
+        .count()
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Default)]
+pub struct ReviewGateStatus {
+    pub wip_count: usize,
+    pub wip_limit: u32,
+    pub credit: i64,
+    pub blocked: bool,
+    pub reason: Option<String>,
+}
+
+/// Read-only: does review capacity/credit currently forbid dispatching new
+/// ordinary implementation work? Never mutates.
+pub fn review_gate_status(plan: &Plan) -> ReviewGateStatus {
+    let wip_count = in_review_count(plan);
+    let wip_limit = plan.review_policy.wip_limit;
+    let credit = plan.review_policy.credit;
+    // Debt policy: once the closure/entry credit ledger runs a full WIP limit
+    // in the red, review throughput (not raw slot count) is the constraint.
+    let credit_debt_exceeded = credit <= -(wip_limit as i64);
+    let wip_exceeded = wip_count >= wip_limit as usize;
+    let blocked = wip_exceeded || credit_debt_exceeded;
+    let reason = blocked.then(|| {
+        if wip_exceeded {
+            format!(
+                "review_wip_exceeded: {wip_count}/{wip_limit} tasks in_review; close a review before dispatching more implementation work"
+            )
+        } else {
+            format!(
+                "review_credit_exceeded: credit={credit} (limit=-{wip_limit}); implementation is outrunning review closures"
+            )
+        }
+    });
+    ReviewGateStatus {
+        wip_count,
+        wip_limit,
+        credit,
+        blocked,
+        reason,
+    }
+}
+
+/// Validates entry into `in_review`: evidence, review-depth bound, and oracle
+/// stability. Does NOT check WIP/credit — that gates ordinary dispatch
+/// (Pending -> in_progress), not review entry, so a task already in flight can
+/// always be submitted for review.
+pub fn validate_enter_review(task: &Task) -> Result<(), PlanError> {
+    if !has_exact_qa_evidence(task) && !has_independent_review_evidence(task) {
+        return Err(PlanError::ReviewEvidenceRequired);
+    }
+    let rounds = max_review_rounds();
+    if task.review_round >= rounds {
+        match &task.review_override {
+            Some(o) if override_is_complete(o) => {}
+            Some(_) => return Err(PlanError::ReviewOverrideIncomplete),
+            None => {
+                return Err(PlanError::ReviewRoundExceeded {
+                    round: task.review_round,
+                    max_rounds: rounds,
+                })
+            }
+        }
+    }
+    if task.review_round > 0 {
+        if let Some(prev_oracle) = task.review_oracle.as_deref() {
+            let current = oracle_signature(task);
+            let has_override = task
+                .review_override
+                .as_ref()
+                .is_some_and(override_is_complete);
+            if prev_oracle != current && !has_override {
+                return Err(PlanError::ReviewOracleScopeExpansion);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Called once, at the moment a task's status flips into `in_review`: fixes
+/// the acceptance oracle on first entry and (on a correction round beyond the
+/// default bound) consumes any pending override into the immutable audit
+/// log. Takes `&mut Task` only (not `&mut Plan`) so callers that already hold
+/// a live per-task borrow don't have to give it up first.
+pub fn fix_oracle_and_consume_override(task: &mut Task, now_ms: u64) {
+    let rounds = max_review_rounds();
+    if task.review_oracle.is_none() {
+        task.review_oracle = Some(oracle_signature(task));
+    }
+    if task.review_round >= rounds {
+        if let Some(o) = task.review_override.take() {
+            if override_is_complete(&o) {
+                task.review_audit.push(ReviewAuditEntry {
+                    id: crate::plan::ids::short_id("aud"),
+                    owner: o.owner,
+                    reason: o.reason,
+                    reproduction: o.reproduction,
+                    round: task.review_round,
+                    at: now_ms,
+                });
+            } else {
+                task.review_override = Some(o);
+            }
+        }
+    }
+}
+
+/// Entering `in_review` spends one unit of review credit.
+pub fn spend_review_credit(policy: &mut ReviewPolicy) {
+    policy.credit -= 1;
+}
+
+/// Closing a review round (BOUNCE, ACCEPT, or a direct `close_task` on a task
+/// that was in_review) earns back one unit of review credit.
+pub fn earn_review_credit(policy: &mut ReviewPolicy) {
+    policy.credit += 1;
+}
+
+fn review_milestone(
+    id: String,
+    from: AgentRef,
+    verdict: &ReviewVerdict,
+    note: &str,
+    now_ms: u64,
+) -> Milestone {
+    Milestone {
+        id,
+        from,
+        kind: REVIEW_MILESTONE_KIND.into(),
+        text: format!("{verdict:?}: {note}"),
+        ts: now_ms,
+        links: vec![],
+        attachments: vec![],
+        loop_id: None,
+        iteration: None,
+        canvas: Default::default(),
+    }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct ReviewTransitionResult {
+    pub plan_id: String,
+    pub task_id: String,
+    pub milestone_id: String,
+    pub task_name: String,
+    pub verdict: ReviewVerdict,
+    pub review_round: u32,
+    pub follow_up_task_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct QaWave {
+    pub wave_id: String,
+    pub group_key: String,
+    pub label: String,
+    pub task_ids: Vec<String>,
+}
+
+/// Groups batch-compatible (same task `group`) queued/running QA-stage tasks
+/// into one named wave, mirroring the group-key dedup already used for
+/// regression gates. Read-only: callers decide whether to claim/dispatch.
+pub fn qa_waves(plan: &Plan) -> Vec<QaWave> {
+    let mut by_group: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
+    for task in &plan.tasks {
+        if task.status != TaskStatus::InReview || task.review_stage != ReviewStage::Qa {
+            continue;
+        }
+        let Some(key) = task.group.as_deref() else {
+            continue;
+        };
+        by_group
+            .entry(key.to_string())
+            .or_default()
+            .push(task.id.clone());
+    }
+    by_group
+        .into_iter()
+        .map(|(key, task_ids)| {
+            let label = plan
+                .task_groups
+                .iter()
+                .find(|g| g.key == key)
+                .map(|g| g.label.clone())
+                .unwrap_or_else(|| key.clone());
+            QaWave {
+                wave_id: format!("wave:{key}"),
+                group_key: key,
+                label,
+                task_ids,
+            }
+        })
+        .collect()
+}
+
+fn require_in_review(task: &Task) -> Result<(), PlanError> {
+    if task.status == TaskStatus::InReview {
+        Ok(())
+    } else {
+        Err(PlanError::ReviewNotInReview)
+    }
+}
+
+impl PlanStore {
+    /// Read-only review-backpressure status for heartbeat/status surfaces.
+    pub fn review_gate_status(&self, plan_id: &str) -> Result<ReviewGateStatus, PlanError> {
+        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
+        Ok(review_gate_status(&plan))
+    }
+
+    pub fn qa_waves(&self, plan_id: &str) -> Result<Vec<QaWave>, PlanError> {
+        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
+        Ok(qa_waves(&plan))
+    }
+
+    /// Authorizes the next over-round-limit re-entry into review. Consumed
+    /// atomically (moved into the immutable audit log) the next time this
+    /// task re-enters `in_review` past the round bound.
+    pub fn record_review_override(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        owner: &str,
+        reason: &str,
+        reproduction: &str,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        let owner = owner.trim();
+        let reason = reason.trim();
+        let reproduction = reproduction.trim();
+        if owner.is_empty() || reason.is_empty() || reproduction.is_empty() {
+            return Err(PlanError::ReviewOverrideIncomplete);
+        }
+        self.with_plan(plan_id, now_ms, |p| {
+            let task = p
+                .tasks
+                .iter_mut()
+                .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+                .ok_or(PlanError::TaskNotFound)?;
+            task.review_override = Some(ReviewOverride {
+                owner: owner.into(),
+                reason: reason.into(),
+                reproduction: reproduction.into(),
+                at: now_ms,
+            });
+            task.updated_at = now_ms;
+            Ok(())
+        })
+    }
+
+    /// Generic BOUNCE: atomically exits `in_review` regardless of stage
+    /// (plain Review or claimed Qa), returns the task to `in_progress`, and
+    /// leaves no stale QA claim. This is the read-only-review-stage
+    /// counterpart to `fail_qa` (which is the Qa-claim-stage bounce).
+    pub fn bounce_review(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        note: &str,
+        changed_executable_surfaces: bool,
+        distinct_oracle: bool,
+        from: AgentRef,
+        now_ms: u64,
+    ) -> Result<ReviewTransitionResult, PlanError> {
+        let note = note.trim();
+        if note.is_empty() {
+            return Err(PlanError::QaNoteRequired);
+        }
+        let mut result = None;
+        self.with_plan(plan_id, now_ms, |p| {
+            let idx = p
+                .tasks
+                .iter()
+                .position(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+                .ok_or(PlanError::TaskNotFound)?;
+            require_in_review(&p.tasks[idx])?;
+            let mid = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));
+            {
+                let task = &mut p.tasks[idx];
+                task.review_evidence.push(ReviewEvidence {
+                    id: crate::plan::ids::short_id("rev"),
+                    from: from.clone(),
+                    verdict: ReviewVerdict::Bounce,
+                    note: note.into(),
+                    at: now_ms,
+                    changed_executable_surfaces,
+                    distinct_oracle,
+                });
+                task.review_round += 1;
+                task.status = TaskStatus::InProgress;
+                task.review_stage = ReviewStage::Review;
+                task.qa_state = None;
+                task.status_label = Some("review bounced".into());
+                task.status_changed_at = now_ms;
+                task.updated_at = now_ms;
+                task.milestones.push(review_milestone(
+                    mid.clone(),
+                    from,
+                    &ReviewVerdict::Bounce,
+                    note,
+                    now_ms,
+                ));
+            }
+            earn_review_credit(&mut p.review_policy);
+            result = Some(ReviewTransitionResult {
+                plan_id: p.id.clone(),
+                task_id: p.tasks[idx].id.clone(),
+                milestone_id: mid,
+                task_name: p.tasks[idx].name.clone(),
+                verdict: ReviewVerdict::Bounce,
+                review_round: p.tasks[idx].review_round,
+                follow_up_task_id: None,
+            });
+            Ok(())
+        })?;
+        result.ok_or(PlanError::TaskNotFound)
+    }
+
+    /// ACCEPT verdict: attaches evidence AND closes the task (in_review -> done)
+    /// in one step, so a reviewer never has to follow up with a separate
+    /// `close_task`. Rejects while subtasks are still open. Past the default
+    /// round bound, residual risk is routed to a separate follow-up task.
+    pub fn accept_review(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        note: &str,
+        changed_executable_surfaces: bool,
+        distinct_oracle: bool,
+        residual_risk: Option<&str>,
+        from: AgentRef,
+        now_ms: u64,
+    ) -> Result<ReviewTransitionResult, PlanError> {
+        let note = note.trim();
+        if note.is_empty() {
+            return Err(PlanError::QaNoteRequired);
+        }
+        let mut result = None;
+        self.with_plan(plan_id, now_ms, |p| {
+            let idx = p
+                .tasks
+                .iter()
+                .position(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+                .ok_or(PlanError::TaskNotFound)?;
+            require_in_review(&p.tasks[idx])?;
+            let mid = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));
+            let rounds = max_review_rounds();
+            let mut follow_up_task_id = None;
+            {
+                let task = &mut p.tasks[idx];
+                task.review_evidence.push(ReviewEvidence {
+                    id: crate::plan::ids::short_id("rev"),
+                    from: from.clone(),
+                    verdict: ReviewVerdict::Accept,
+                    note: note.into(),
+                    at: now_ms,
+                    changed_executable_surfaces,
+                    distinct_oracle,
+                });
+                task.updated_at = now_ms;
+                task.milestones.push(review_milestone(
+                    mid.clone(),
+                    from.clone(),
+                    &ReviewVerdict::Accept,
+                    note,
+                    now_ms,
+                ));
+            }
+            super::mutations::finalize_task_done(p, idx, now_ms)?;
+            if p.tasks[idx].review_round >= rounds {
+                if let Some(risk) = residual_risk.map(str::trim).filter(|r| !r.is_empty()) {
+                    let fid = crate::plan::ids::mint_id("task", |c| plan_contains_id(p, c));
+                    let parent_id = p.tasks[idx].id.clone();
+                    let parent_name = p.tasks[idx].name.clone();
+                    let mut follow_up = Task {
+                        id: fid.clone(),
+                        name: format!("Follow-up hardening: {parent_name}"),
+                        kind: "implement".into(),
+                        model: None,
+                        model_rationale: None,
+                        personality: None,
+                        personality_provenance: None,
+                        acceptance_criteria: vec![],
+                        test_plan: None,
+                        correctness: None,
+                        status: TaskStatus::Pending,
+                        review_stage: ReviewStage::Review,
+                        qa_state: None,
+                        review_round: 0,
+                        review_oracle: None,
+                        review_evidence: vec![],
+                        review_override: None,
+                        review_audit: vec![],
+                        status_label: Some("residual risk from bounded review".into()),
+                        priority: p.tasks[idx].priority.clone(),
+                        created_at: now_ms,
+                        updated_at: now_ms,
+                        status_changed_at: now_ms,
+                        handle: None,
+                        tags: vec![],
+                        section_ids: p.tasks[idx].section_ids.clone(),
+                        body: format!("Residual risk documented at round bound: {risk}"),
+                        role_guidance: None,
+                        executor_role: p.tasks[idx].executor_role.clone(),
+                        competition: None,
+                        intent: None,
+                        parent_task_id: Some(parent_id),
+                        depends_on: vec![],
+                        assigned_pane_id: None,
+                        lane: Default::default(),
+                        taken_by_role: None,
+                        peer: None,
+                        group: p.tasks[idx].group.clone(),
+                        canvas: Default::default(),
+                        milestones: vec![],
+                        execution_attempts: vec![],
+                        pause_reason: None,
+                        attachments: vec![],
+                    };
+                    follow_up.id = fid.clone();
+                    p.tasks.push(follow_up);
+                    follow_up_task_id = Some(fid);
+                }
+            }
+            earn_review_credit(&mut p.review_policy);
+            result = Some(ReviewTransitionResult {
+                plan_id: p.id.clone(),
+                task_id: p.tasks[idx].id.clone(),
+                milestone_id: mid,
+                task_name: p.tasks[idx].name.clone(),
+                verdict: ReviewVerdict::Accept,
+                review_round: p.tasks[idx].review_round,
+                follow_up_task_id,
+            });
+            Ok(())
+        })?;
+        result.ok_or(PlanError::TaskNotFound)
+    }
+
+    /// Idempotent stale-review escalation: records a durable, auditable
+    /// milestone once per stale spell (re-arms if the task re-enters review
+    /// and goes stale again). Returns whether this call newly escalated it.
+    pub fn escalate_stale_review(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        stale_after_ms: u64,
+        from: AgentRef,
+        now_ms: u64,
+    ) -> Result<bool, PlanError> {
+        let mut escalated = false;
+        self.with_plan(plan_id, now_ms, |p| {
+            let idx = p
+                .tasks
+                .iter()
+                .position(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+                .ok_or(PlanError::TaskNotFound)?;
+            let task = &p.tasks[idx];
+            require_in_review(task)?;
+            let age_ms = now_ms.saturating_sub(task.status_changed_at);
+            if age_ms <= stale_after_ms {
+                return Ok(());
+            }
+            let already = task.milestones.iter().any(|m| {
+                m.kind == REVIEW_ESCALATION_MILESTONE_KIND && m.ts >= task.status_changed_at
+            });
+            if already {
+                return Ok(());
+            }
+            let mid = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));
+            p.tasks[idx].milestones.push(Milestone {
+                id: mid,
+                from,
+                kind: REVIEW_ESCALATION_MILESTONE_KIND.into(),
+                text: format!(
+                    "stale-review escalation: in_review for {age_ms}ms (threshold {stale_after_ms}ms)"
+                ),
+                ts: now_ms,
+                links: vec![],
+                loop_id: None,
+                iteration: None,
+                canvas: Default::default(),
+                attachments: vec![],
+            });
+            escalated = true;
+            Ok(())
+        })?;
+        Ok(escalated)
+    }
+}
+
+#[cfg(test)]
+mod tests;

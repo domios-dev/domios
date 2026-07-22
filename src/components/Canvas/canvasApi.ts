@@ -1,24 +1,49 @@
 import { baseUrl, jsonHeaders } from "../MemoryPanel/memoryApi";
-import type { ApiConfig } from "../../lib/types";
-
+import type { ApiConfig, ProviderDescriptor } from "../../lib/types";
+import type { CreatePlanParams } from "./plansApi";
 
 export interface SpawnOrchestratorOptions {
+  providerId: string;
+  workspaceId: string;
   title?: string;
-  task?: string;
 }
 
-export async function spawnOrchestrator(api: ApiConfig, opts: SpawnOrchestratorOptions = {}): Promise<string | null> {
+export function resolveCanvasSpawnProvider(
+  selectedProviderId: string | null | undefined,
+  providers: readonly ProviderDescriptor[],
+): string {
+  const selected = selectedProviderId?.trim();
+  const provider = providers.find((candidate) => candidate.id === selected)
+    ?? providers[0];
+  if (!provider || (provider.transport !== "pty" && provider.transport !== "chat_backend")) {
+    throw new Error("No spawn-capable provider is available for the Canvas orchestrator");
+  }
+  return provider.id;
+}
+
+export async function spawnOrchestrator(api: ApiConfig, opts: SpawnOrchestratorOptions): Promise<string | null> {
   const res = await fetch(`${baseUrl(api)}/api/agents/spawn`, {
     method: "POST",
     headers: jsonHeaders(api),
     body: JSON.stringify({
-      agent: "claude",
+      agent: opts.providerId,
       title: opts.title ?? "Canvas Orchestrator",
-      task: opts.task ?? "You are the orchestrator for a new plan on the workspace canvas.",
+      role: "Orchestrator",
+      workspace_id: opts.workspaceId,
       activate: true,
     }),
   });
   if (!res.ok) throw new Error(`spawn failed: ${res.status}`);
   const body = (await res.json()) as { id?: string; pane_id?: string };
   return body.id ?? body.pane_id ?? null;
+}
+
+export async function createCanvasPlanRequest(api: ApiConfig, params: CreatePlanParams): Promise<unknown> {
+  const res = await fetch(`${baseUrl(api)}/api/plans`, {
+    method: "POST",
+    headers: jsonHeaders(api),
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) throw new Error(`plan create failed: ${res.status} ${await res.text()}`);
+  return res.json();
 }

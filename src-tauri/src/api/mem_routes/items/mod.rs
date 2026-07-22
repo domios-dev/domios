@@ -84,7 +84,7 @@ pub async fn mem_pinned_list(
 }
 
 /// Bumps `evidence_count` for L1-selectable kinds (skill|lesson|rule|fact|preference); no-op otherwise. Caller decides whether to invoke.
-fn bump_on_get(conn: &rusqlite::Connection, kind: &str, id: &str) {
+pub(crate) fn bump_on_get(conn: &rusqlite::Connection, kind: &str, id: &str) {
     if !matches!(kind, "skill" | "lesson" | "rule" | "fact" | "preference") {
         return;
     }
@@ -248,22 +248,18 @@ pub struct UpdateBody {
     pub changed_by: Option<String>,
 }
 
-pub async fn mem_update(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-    Json(body): Json<UpdateBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+/// Shared field-level validation for a partial-update patch, used by both
+/// the HTTP and socket transports so the two can never drift.
+pub(crate) fn validate_update_body(body: &UpdateBody) -> Result<(), String> {
     if let Some(ref t) = body.title {
         let tt = t.trim();
         if tt.is_empty() || tt.len() < 3 || tt.len() > 200 {
-            return Err((StatusCode::BAD_REQUEST, "title must be 3..200 chars".into()));
+            return Err("title must be 3..200 chars".into());
         }
     }
     if let Some(ref b) = body.body {
         if b.len() > 1_048_576 {
-            return Err((StatusCode::BAD_REQUEST, "body too large (max 1 MB)".into()));
+            return Err("body too large (max 1 MB)".into());
         }
     }
     if let Some(ref a) = body.area {
@@ -273,27 +269,35 @@ pub async fn mem_update(
                     .chars()
                     .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'))
         {
-            return Err((StatusCode::BAD_REQUEST, format!("invalid area: `{}`", a)));
+            return Err(format!("invalid area: `{}`", a));
         }
     }
     if let Some(ref ts) = body.tags {
         if ts.len() > 20 {
-            return Err((StatusCode::BAD_REQUEST, "too many tags (max 20)".into()));
+            return Err("too many tags (max 20)".into());
         }
         for t in ts {
             if t.len() > 50 {
-                return Err((StatusCode::BAD_REQUEST, format!("tag too long: `{}`", t)));
+                return Err(format!("tag too long: `{}`", t));
             }
         }
     }
     if let Some(i) = body.importance {
         if !(0.0..=5.0).contains(&i) {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                format!("importance must be 0..5, got {}", i),
-            ));
+            return Err(format!("importance must be 0..5, got {}", i));
         }
     }
+    Ok(())
+}
+
+pub async fn mem_update(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    validate_update_body(&body).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let patch = MemUpdate {
         title: body.title,
         summary: body.summary,
@@ -322,7 +326,7 @@ pub async fn mem_update(
 }
 
 #[derive(Deserialize)]
-pub struct WakeUpParams {
+pub(crate) struct WakeUpParams {
     #[serde(default)]
     pub budget: Option<usize>,
     #[serde(default)]
@@ -341,7 +345,9 @@ pub async fn mem_wake_up(
     Query(p): Query<WakeUpParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let opts = wake_up_options_from_params(&p);
+    let caller_workspace = crate::api::pane_routes::caller_pane_header(&headers)
+        .and_then(|pane_id| state.svc.mux.read().find_workspace_for_pane(&pane_id));
+    let opts = wake_up_options_from_params(&p, caller_workspace);
     let text = state
         .svc
         .mem
@@ -350,12 +356,15 @@ pub async fn mem_wake_up(
     Ok(Json(serde_json::json!({ "text": text })))
 }
 
-fn wake_up_options_from_params(p: &WakeUpParams) -> WakeUpOptions {
+pub(crate) fn wake_up_options_from_params(
+    p: &WakeUpParams,
+    caller_workspace: Option<String>,
+) -> WakeUpOptions {
     let mut opts = WakeUpOptions::default();
     opts.include_l0 = !p.no_l0.unwrap_or(false);
     opts.include_l1 = !p.l0_only.unwrap_or(false);
     opts.explain = p.explain.unwrap_or(false);
-    opts.current_workspace = p.workspace.clone();
+    opts.current_workspace = p.workspace.clone().or(caller_workspace);
 
     if let Some(total) = p.budget {
         let total = total.max(1);
@@ -592,7 +601,7 @@ pub async fn mem_history(
 
 /// Join an existing body and appended text with a blank-line separator.
 /// Empty/whitespace-only bodies are replaced outright (no leading blank lines).
-fn compose_appended_body(old: &str, text: &str) -> String {
+pub(crate) fn compose_appended_body(old: &str, text: &str) -> String {
     if old.trim().is_empty() {
         text.to_string()
     } else {
@@ -603,7 +612,7 @@ fn compose_appended_body(old: &str, text: &str) -> String {
 /// Choose the body to restore from an item's history. `version` targets a
 /// specific history row id (its `new_body`, falling back to `old_body`);
 /// `None` undoes the most recent body change (latest non-null `old_body`).
-fn pick_restore_body(
+pub(crate) fn pick_restore_body(
     history: &[crate::mem::store::HistoryEntry],
     version: Option<i64>,
 ) -> Result<String, (StatusCode, String)> {

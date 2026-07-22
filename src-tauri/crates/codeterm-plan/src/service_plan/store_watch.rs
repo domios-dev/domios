@@ -52,10 +52,12 @@ impl PlanStore {
     ) -> Result<WatchOutcome, PlanError> {
         match self.find_plan_file_on_disk(project_root, plan_id) {
             Some(path) => {
+                let known = self.plans.read().contains_key(plan_id)
+                    || self.index.read().contains_key(plan_id);
                 // Own-write suppression must consider every per-entity file: a
                 // hand-edit of tasks/<h>.yaml or spec.yaml arrives while
                 // plan.yaml itself is still our own untouched write.
-                if !self.plan_dir_externally_dirty(&path) {
+                if known && !self.plan_dir_externally_dirty(&path) {
                     return Ok(WatchOutcome::Unchanged);
                 }
                 self.load_file_into_index(path, project_root)?;
@@ -64,6 +66,13 @@ impl PlanStore {
             None => {
                 let known = self.plans.read().contains_key(plan_id)
                     || self.index.read().contains_key(plan_id);
+                if self.database.load_plan(plan_id)?.is_some() {
+                    if known {
+                        return Ok(WatchOutcome::Unchanged);
+                    }
+                    self.reload_from_disk(plan_id)?;
+                    return Ok(WatchOutcome::Loaded);
+                }
                 if known {
                     self.forget_plan(plan_id);
                     Ok(WatchOutcome::Removed)

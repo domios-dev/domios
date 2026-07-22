@@ -10,6 +10,8 @@ mod agent_commands;
 mod bridge;
 mod canvas;
 mod cron;
+mod dispatch;
+mod mem;
 mod notification;
 mod orchestration;
 mod orchestrator;
@@ -32,20 +34,35 @@ mod plan_mode;
 mod plan_qa;
 mod plan_read;
 mod plan_refs;
+mod plan_review;
 mod plan_role_helpers;
 mod plan_task_dispatch;
 mod plan_task_rpc;
 mod plan_time;
 mod services;
 mod spec;
+mod team;
 mod workspace;
 
-use std::io::{BufRead, BufReader, Read, Write};
+pub(crate) use dispatch::dispatch_service_rpc;
+
+use std::io::{self, BufRead, BufReader, Read, Write};
 
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 
 use interprocess::local_socket::{prelude::*, GenericNamespaced, ListenerOptions};
+
+#[cfg(target_os = "windows")]
+use std::os::windows::io::{AsRawHandle, OwnedHandle, RawHandle};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::Foundation::{CloseHandle, ERROR_IO_PENDING, HANDLE};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::Storage::FileSystem::{FlushFileBuffers, ReadFile, WriteFile};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::System::Threading::CreateEventW;
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::System::IO::{GetOverlappedResult, OVERLAPPED};
 
 use crate::multiplexer::commands::MuxState;
 use crate::notification::NotifState;
@@ -73,12 +90,12 @@ struct JsonRpcResponse {
     error: Option<JsonRpcError>,
 }
 
-#[derive(Serialize)]
-pub(super) struct JsonRpcError {
-    pub(super) code: i32,
-    pub(super) message: String,
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct JsonRpcError {
+    pub(crate) code: i32,
+    pub(crate) message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) data: Option<serde_json::Value>,
+    pub(crate) data: Option<serde_json::Value>,
 }
 
 impl JsonRpcResponse {
@@ -222,6 +239,9 @@ impl SocketServer {
             for conn in listener.incoming() {
                 match conn {
                     Ok(stream) => {
+                        #[cfg(target_os = "windows")]
+                        let stream = WindowsBlockingPipe::from(stream);
+
                         let mux = mux_state.clone();
                         let pty = pty_state.clone();
                         let notif = notif_state.clone();
@@ -249,6 +269,122 @@ impl SocketServer {
         });
 
         Ok(())
+    }
+}
+
+#[cfg(target_os = "windows")]
+struct WindowsBlockingPipe {
+    handle: OwnedHandle,
+}
+
+#[cfg(target_os = "windows")]
+struct WindowsEvent(HANDLE);
+
+#[cfg(target_os = "windows")]
+impl WindowsEvent {
+    fn new() -> io::Result<Self> {
+        let handle = unsafe { CreateEventW(std::ptr::null(), 1, 0, std::ptr::null()) };
+        if handle.is_null() {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(Self(handle))
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for WindowsEvent {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe {
+                CloseHandle(self.0);
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl From<interprocess::local_socket::Stream> for WindowsBlockingPipe {
+    fn from(stream: interprocess::local_socket::Stream) -> Self {
+        let interprocess::local_socket::Stream::NamedPipe(stream) = stream;
+        Self {
+            handle: stream.into(),
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Read for WindowsBlockingPipe {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+
+        let len = u32::try_from(buf.len()).unwrap_or(u32::MAX);
+        run_overlapped_io(self.handle.as_raw_handle(), |overlapped| unsafe {
+            ReadFile(
+                self.handle.as_raw_handle(),
+                buf.as_mut_ptr().cast(),
+                len,
+                std::ptr::null_mut(),
+                overlapped,
+            )
+        })
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Write for WindowsBlockingPipe {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+
+        let len = u32::try_from(buf.len()).unwrap_or(u32::MAX);
+        run_overlapped_io(self.handle.as_raw_handle(), |overlapped| unsafe {
+            WriteFile(
+                self.handle.as_raw_handle(),
+                buf.as_ptr().cast(),
+                len,
+                std::ptr::null_mut(),
+                overlapped,
+            )
+        })
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        let ok = unsafe { FlushFileBuffers(self.handle.as_raw_handle()) };
+        if ok == 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn run_overlapped_io(
+    handle: RawHandle,
+    issue: impl FnOnce(*mut OVERLAPPED) -> i32,
+) -> io::Result<usize> {
+    let event = WindowsEvent::new()?;
+    let mut overlapped = OVERLAPPED::default();
+    overlapped.hEvent = event.0;
+
+    let ok = issue(&mut overlapped);
+    if ok == 0 {
+        let err = io::Error::last_os_error();
+        if err.raw_os_error() != Some(ERROR_IO_PENDING as i32) {
+            return Err(err);
+        }
+    }
+
+    let mut transferred = 0_u32;
+    let ok = unsafe { GetOverlappedResult(handle, &overlapped, &mut transferred, 1) };
+    if ok == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(transferred as usize)
     }
 }
 
@@ -284,7 +420,7 @@ fn handle_connection(
                         // We surface a real JSON-RPC error instead.
                         let dispatched =
                             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                dispatch(
+                                dispatch::dispatch(
                                     &req.method,
                                     req.params,
                                     mux,
@@ -327,11 +463,10 @@ fn handle_connection(
                     Err(e) => JsonRpcResponse::error(None, -32700, format!("Parse error: {}", e)),
                 };
 
-                if let Ok(json) = serde_json::to_string(&response) {
-                    let writer = reader.get_mut();
-                    let _ = writer.write_all(json.as_bytes());
-                    let _ = writer.write_all(b"\n");
-                    let _ = writer.flush();
+                if let Ok(keep_open) = write_json_rpc_response(reader.get_mut(), &response) {
+                    if !keep_open {
+                        break;
+                    }
                 }
             }
             Err(e) => {
@@ -342,204 +477,39 @@ fn handle_connection(
     }
 }
 
-// ── Dispatch ────────────────────────────────────────────────────────
-
-fn dispatch(
-    method: &str,
-    params: Option<serde_json::Value>,
-    mux: &MuxState,
-    _pty: &PtyState,
-    notif: &NotifState,
-    app: &AppHandle,
-    _output_buf: &OutputBufferState,
-    svc: &ServiceState,
-) -> Result<serde_json::Value, JsonRpcError> {
-    // System methods are tiny — handle inline.
-    match method {
-        "system.identify" => {
-            return Ok(serde_json::json!({
-                "name": "CodeTerm",
-                "version": env!("CARGO_PKG_VERSION"),
-                "platform": std::env::consts::OS,
-                "features": ["multiplexer", "agent-detection", "notifications"]
-            }));
+fn write_json_rpc_response(
+    writer: &mut impl Write,
+    response: &JsonRpcResponse,
+) -> io::Result<bool> {
+    let json = serde_json::to_string(response).map_err(io::Error::other)?;
+    match write_response_line(writer, json.as_bytes()) {
+        Ok(()) => Ok(true),
+        Err(e) if is_disconnected_client(&e) => {
+            log::debug!("Socket client disconnected before response write: {}", e);
+            Ok(false)
         }
-        "system.capabilities" => {
-            let methods = vec![
-                "system.identify",
-                "system.capabilities",
-                "workspace.list",
-                "workspace.create",
-                "workspace.focus",
-                "workspace.rename",
-                "workspace.close",
-                "workspace.move_tab",
-                "workspace.recently_closed",
-                "workspace.reopen_closed",
-                "workspace.reopen_closed_group",
-                "pane.list",
-                "pane.focus",
-                "pane.close",
-                "pane.send_text",
-                "pane.get_output",
-                "pane.rename",
-                "pane.resize",
-                "pane.kill_pty",
-                "browser.open",
-                "notification.create",
-                "notification.list",
-                "notification.clear",
-                "agent.list",
-                "agent.hierarchy",
-                "agent.spawn",
-                "agent.set_role",
-                "agent.clear_role",
-                "agent.status",
-                "agent.children",
-                "agent.link",
-                "agent.report",
-                "agent.reports",
-                "orchestration.new",
-                "orchestrator.refresh",
-                "plan.create",
-                "plan.adopt",
-                "plan.batch",
-                "plan.handoff.create",
-                "plan.handoff.list",
-                "plan.handoff.show",
-                "plan.handoff.reseed",
-                "plan.list",
-                "plan.get",
-                "plan.goal.set",
-                "plan.goal.show",
-                "plan.spec",
-                "plan.files",
-                "plan.tags",
-                "plan.update",
-                "plan.mode.set",
-                "plan.planning.set",
-                "plan.archive",
-                "plan.delete",
-                "plan.transfer",
-                "plan.disown",
-                "plan.claim",
-                "plan.ingest",
-                "plan.section.add",
-                "plan.section.update",
-                "plan.section.attach",
-                "plan.section.rm",
-                "plan.kinds.set",
-                "plan.tag_facets.set",
-                "plan.task.add",
-                "plan.task.update",
-                "plan.task.attach",
-                "plan.task.close",
-                "plan.task.assign",
-                "plan.task.dispatch",
-                "plan.task.attempts",
-                "plan.task.attempt.show",
-                "plan.task.respawn",
-                "plan.task.compete",
-                "plan.task.judge",
-                "plan.task.rm",
-                "plan.milestone.add",
-                "plan.milestone.update",
-                "plan.milestone.rm",
-                "plan.stride.add",
-                "plan.skills.list",
-                "plan.skills.show",
-                "plan.retrospective",
-                "plan.loop.create",
-                "plan.loop.set",
-                "plan.loop.status",
-                "plan.loop.stop",
-                "plan.loop.record",
-                "plan.layout.set",
-                "plan.note.add",
-                "plan.note.update",
-                "plan.element.add",
-                "plan.element.update",
-                "plan.element.rm",
-                "plan.element.list",
-                "plan.element.show",
-                "spec.create",
-                "spec.list",
-                "spec.show",
-                "spec.files",
-                "spec.section.add",
-                "spec.section.update",
-                "spec.section.rm",
-                "spec.link.add",
-                "spec.link.rm",
-                "spec.link.list",
-                "effort.show",
-                "effort.link",
-                "task.list",
-                "task.show",
-                "task.take",
-                "task.drop",
-                "task.add",
-                "canvas.focus",
-                "canvas.filter",
-                "cron.list",
-                "cron.get",
-                "cron.create",
-                "cron.update",
-                "cron.delete",
-                "cron.enable",
-                "cron.disable",
-                "cron.trigger",
-                "cron.cancel",
-                "cron.history",
-                "cron.complete",
-                "services.list",
-                "services.create",
-                "services.get",
-                "services.update",
-                "services.delete",
-                "services.regenerate_token",
-                "activity.list",
-                "bridge.send",
-                "bridge.react",
-                "bridge.restart",
-            ];
-            return Ok(serde_json::json!({ "methods": methods }));
+        Err(e) => {
+            log::error!("Socket response write error: {}", e);
+            Err(e)
         }
-        #[cfg(debug_assertions)]
-        "debug.crash" => {
-            let kind = get_string_param(&params, "kind")?;
-            crate::crash::trigger_test_crash(&kind).map_err(|e| JsonRpcError {
-                code: -32602,
-                message: e,
-                data: None,
-            })?;
-            return Ok(serde_json::json!({"ok": true, "kind": kind}));
-        }
-        _ => {}
     }
+}
 
-    let prefix = method.split(['.', ':']).next().unwrap_or("");
-    match prefix {
-        "workspace" => workspace::dispatch(method, &params, mux, app, svc),
-        "pane" | "agents" | "browser" => pane::dispatch(method, &params, mux, app, svc),
-        "notification" => notification::dispatch(method, &params, notif, app),
-        "agent" => agent::dispatch(method, &params, app, svc),
-        "orchestration" => orchestration::dispatch(method, &params, app, svc),
-        "orchestrator" => orchestrator::dispatch(method, &params, app, svc),
-        "plan" if plan_mode::handles(method) => plan_mode::dispatch(method, &params, app, svc),
-        "plan" | "task" => plan::dispatch(method, &params, app, svc),
-        "canvas" => canvas::dispatch(method, &params, app),
-        "spec" | "effort" => spec::dispatch(method, &params, app, svc),
-        "plugin" => agent_commands::dispatch(method, &params, svc),
-        "cron" => cron::dispatch(method, &params, app, svc),
-        "services" | "activity" => services::dispatch(method, &params, app, svc),
-        "bridge" => bridge::dispatch(method, &params, svc),
-        _ => Err(JsonRpcError {
-            code: -32601,
-            message: "Method not found".to_string(),
-            data: None,
-        }),
-    }
+fn write_response_line(writer: &mut impl Write, bytes: &[u8]) -> io::Result<()> {
+    writer.write_all(bytes)?;
+    writer.write_all(b"\n")?;
+    writer.flush()
+}
+
+fn is_disconnected_client(e: &io::Error) -> bool {
+    matches!(
+        e.kind(),
+        io::ErrorKind::BrokenPipe
+            | io::ErrorKind::ConnectionAborted
+            | io::ErrorKind::ConnectionReset
+            | io::ErrorKind::NotConnected
+            | io::ErrorKind::UnexpectedEof
+    )
 }
 
 /// Extract a required string parameter from JSON-RPC params.
@@ -566,4 +536,210 @@ pub(super) fn get_string_param(
             message: format!("Missing required parameter: {}", key),
             data: None,
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    struct FailingWriter {
+        kind: io::ErrorKind,
+    }
+
+    impl Write for FailingWriter {
+        fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+            Err(io::Error::new(self.kind, "test disconnect"))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn test_response() -> JsonRpcResponse {
+        JsonRpcResponse::success(Some(serde_json::json!(1)), serde_json::json!({"ok": true}))
+    }
+
+    #[test]
+    fn disconnected_response_write_closes_connection_without_error() {
+        for kind in [
+            io::ErrorKind::BrokenPipe,
+            io::ErrorKind::ConnectionReset,
+            io::ErrorKind::ConnectionAborted,
+            io::ErrorKind::NotConnected,
+            io::ErrorKind::UnexpectedEof,
+        ] {
+            let mut writer = FailingWriter { kind };
+            let keep_open = write_json_rpc_response(&mut writer, &test_response()).unwrap();
+            assert!(
+                !keep_open,
+                "{kind:?} should close only the client connection"
+            );
+        }
+    }
+
+    #[test]
+    fn normal_response_write_stays_open() {
+        let mut out = Vec::new();
+        let keep_open = write_json_rpc_response(&mut out, &test_response()).unwrap();
+        assert!(keep_open);
+        let line = std::str::from_utf8(&out).unwrap();
+        assert!(line.ends_with('\n'));
+        assert!(line.contains("\"result\":{\"ok\":true}"));
+    }
+
+    #[test]
+    fn local_socket_response_write_survives_client_disconnect() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let socket_name = format!(
+            "{}-disconnect-repro-{}-{}.sock",
+            crate::paths::socket_prefix(),
+            std::process::id(),
+            nonce
+        );
+
+        let server_name = socket_name
+            .clone()
+            .to_ns_name::<GenericNamespaced>()
+            .unwrap();
+        let listener = ListenerOptions::new()
+            .name(server_name)
+            .create_sync()
+            .unwrap();
+        let client_name = socket_name
+            .clone()
+            .to_ns_name::<GenericNamespaced>()
+            .unwrap();
+        let (accepted_tx, accepted_rx) = mpsc::channel();
+
+        let server = std::thread::spawn(move || {
+            let mut stream = listener.incoming().next().unwrap().unwrap();
+            accepted_tx.send(()).unwrap();
+            std::thread::sleep(Duration::from_millis(100));
+            write_json_rpc_response(&mut stream, &test_response())
+        });
+
+        let client = interprocess::local_socket::Stream::connect(client_name).unwrap();
+        accepted_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        drop(client);
+
+        let keep_open = server.join().unwrap().unwrap();
+        assert!(
+            !keep_open,
+            "disconnected local-socket client must end only its connection"
+        );
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = std::fs::remove_file(format!("/tmp/{socket_name}"));
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_blocking_pipe_read_survives_client_disconnect() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let socket_name = format!(
+            "{}-read-disconnect-repro-{}-{}.sock",
+            crate::paths::socket_prefix(),
+            std::process::id(),
+            nonce
+        );
+
+        let server_name = socket_name
+            .clone()
+            .to_ns_name::<GenericNamespaced>()
+            .unwrap();
+        let listener = ListenerOptions::new()
+            .name(server_name)
+            .create_sync()
+            .unwrap();
+        let client_name = socket_name.to_ns_name::<GenericNamespaced>().unwrap();
+        let (accepted_tx, accepted_rx) = mpsc::channel();
+
+        let server = std::thread::spawn(move || {
+            let stream = listener.incoming().next().unwrap().unwrap();
+            let mut reader = BufReader::new(WindowsBlockingPipe::from(stream));
+            accepted_tx.send(()).unwrap();
+            let mut line = String::new();
+            reader.read_line(&mut line)
+        });
+
+        let client = interprocess::local_socket::Stream::connect(client_name).unwrap();
+        accepted_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        drop(client);
+
+        let result = server.join().unwrap();
+        if let Err(e) = result {
+            assert!(
+                is_disconnected_client(&e),
+                "disconnect read should not surface as fatal socket error: {e}"
+            );
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_blocking_pipe_round_trips_delayed_json_rpc() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let socket_name = format!(
+            "{}-read-write-roundtrip-{}-{}.sock",
+            crate::paths::socket_prefix(),
+            std::process::id(),
+            nonce
+        );
+
+        let server_name = socket_name
+            .clone()
+            .to_ns_name::<GenericNamespaced>()
+            .unwrap();
+        let listener = ListenerOptions::new()
+            .name(server_name)
+            .create_sync()
+            .unwrap();
+        let client_name = socket_name.to_ns_name::<GenericNamespaced>().unwrap();
+        let (accepted_tx, accepted_rx) = mpsc::channel();
+
+        let server = std::thread::spawn(move || {
+            let stream = listener.incoming().next().unwrap().unwrap();
+            let mut pipe = WindowsBlockingPipe::from(stream);
+            accepted_tx.send(()).unwrap();
+
+            let mut line = String::new();
+            {
+                let mut reader = BufReader::new(&mut pipe);
+                reader.read_line(&mut line).unwrap();
+            }
+
+            assert!(line.contains("\"method\":\"socket.roundtrip\""));
+            write_json_rpc_response(&mut pipe, &test_response()).unwrap();
+        });
+
+        let mut client = interprocess::local_socket::Stream::connect(client_name).unwrap();
+        accepted_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        std::thread::sleep(Duration::from_millis(50));
+        client
+            .write_all(br#"{"jsonrpc":"2.0","id":1,"method":"socket.roundtrip"}"#)
+            .unwrap();
+        client.write_all(b"\n").unwrap();
+        client.flush().unwrap();
+
+        let mut response = String::new();
+        BufReader::new(client).read_line(&mut response).unwrap();
+        server.join().unwrap();
+
+        assert!(response.contains("\"id\":1"));
+        assert!(response.contains("\"ok\":true"));
+    }
 }

@@ -5,6 +5,7 @@
 //!   crash-<ts>-native.dmp — binary minidump from crash-handler
 //!   crash-<ts>-native.txt — readable sidecar for the minidump
 
+pub mod lifecycle;
 mod native;
 mod panic;
 pub mod report;
@@ -20,6 +21,19 @@ pub fn install() {
     if let Some(h) = native::install() {
         Box::leak(Box::new(h));
     }
+}
+
+pub fn record_startup() -> lifecycle::RecoveryState {
+    lifecycle::record_startup()
+}
+
+pub fn record_clean_shutdown(reason: lifecycle::ShutdownReason) {
+    lifecycle::record_clean_shutdown(reason);
+}
+
+#[tauri::command]
+pub fn get_recovery_state() -> lifecycle::RecoveryState {
+    lifecycle::recovery_state()
 }
 
 /// Trigger a synthetic crash for verifying the handlers work end-to-end.

@@ -26,7 +26,7 @@
   Starting a multi-step test wizard with native question UI — several stages, including select-all steps — then
   waiting for your input.
 
-  $ codeterm pane rename "test picker wizard" 530ms
+  $ codeterm tab rename "test picker wizard" 530ms
       ok  true
 
  ┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐

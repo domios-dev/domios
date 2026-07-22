@@ -222,7 +222,7 @@ impl Messenger {
         body: &str,
     ) -> Result<Delivery, String> {
         // A real inbound message/report landing here means the reader no longer
-        // needs to poll — clear its polling-nudge streak (skip system reminders).
+        // needs a reminder — clear its reminder-nudge streak (skip system reminders).
         if matches!(envelope.kind, MessageKind::Message | MessageKind::Report) {
             let resolved = svc
                 .mux
@@ -236,13 +236,19 @@ impl Messenger {
             let (plugin_id, session_id) = svc
                 .pane_chat_backing(to_pane)
                 .ok_or_else(|| "chatBackend pane lost its backing".to_string())?;
-            return Self::deliver_chatbackend(
-                svc,
-                to_pane,
-                &plugin_id,
-                &session_id,
-                envelope,
-                body,
+            return dispatch_delivery(
+                DeliveryTransport::ChatBackend,
+                || {
+                    Self::deliver_chatbackend(
+                        svc,
+                        to_pane,
+                        &plugin_id,
+                        &session_id,
+                        envelope.clone(),
+                        body,
+                    )
+                },
+                || unreachable!(),
             );
         }
 
@@ -262,15 +268,134 @@ impl Messenger {
                 &resolved_target,
             )
         };
+        let entry = if envelope.kind == MessageKind::Report {
+            crate::service::pty_io::submit_transaction::PtySubmitEntry::Report
+        } else {
+            crate::service::pty_io::submit_transaction::PtySubmitEntry::Messenger
+        };
         let text = if should_prefix {
             Self::from(envelope).wrap(body)
         } else {
             body.to_string()
         };
-        svc.send_text(to_pane, &text, true)?;
-        // Backstop a swallowed submit Enter: idempotent, only nudges a parked pane.
-        svc.confirm_wake_async(to_pane, &text);
-        Ok(Delivery::Pty { text })
+        dispatch_delivery(
+            DeliveryTransport::Pty,
+            || unreachable!(),
+            || {
+                crate::service::pty_io::submit_transaction::submit_entry(entry, &text, |text| {
+                    svc.send_text_detached(to_pane, text, true);
+                    Ok::<(), String>(())
+                })?;
+                Ok(Delivery::Pty { text })
+            },
+        )
+    }
+
+    pub fn deliver_planner_session(
+        svc: &super::ServiceContext,
+        to_pane: &str,
+        expected_session_id: &str,
+        expected_binding_nonce: &str,
+        envelope: MessageEnvelope,
+        body: &str,
+        message_id: String,
+    ) -> Result<Delivery, String> {
+        let is_chatbackend = {
+            let mux = svc.mux.read();
+            let resolved = mux
+                .resolve_pane_id(to_pane)
+                .ok_or_else(|| "agent_unavailable: planner pane missing".to_string())?;
+            matches!(
+                mux.get_pane(&resolved).map(|pane| &pane.backing),
+                Some(crate::multiplexer::types::PaneBacking::ChatBackend { .. })
+            )
+        };
+        if is_chatbackend {
+            svc.chatbackend_reopen_if_restored(to_pane)?;
+        }
+        let backing = {
+            let mux = svc.mux.read();
+            let resolved = mux
+                .resolve_pane_id(to_pane)
+                .ok_or_else(|| "agent_unavailable: planner pane missing".to_string())?;
+            let pane = mux
+                .get_pane(&resolved)
+                .ok_or_else(|| "agent_unavailable: planner pane missing".to_string())?;
+            if pane.agent_session_id.as_deref() != Some(expected_session_id)
+                || pane.session_binding_nonce.as_deref() != Some(expected_binding_nonce)
+                || pane.reported_session_binding_nonce.as_deref() != Some(expected_binding_nonce)
+            {
+                return Err("agent_unavailable: planner session is stale".into());
+            }
+            pane.backing.clone()
+        };
+        if matches!(backing, crate::multiplexer::types::PaneBacking::Pty) {
+            let text = Self::from(envelope).wrap(body);
+            crate::service::pty_io::submit_transaction::submit_entry(
+                crate::service::pty_io::submit_transaction::PtySubmitEntry::Planner,
+                &text,
+                |text| {
+                    svc.send_to_authenticated_agent_session(
+                        to_pane,
+                        expected_session_id,
+                        expected_binding_nonce,
+                        text,
+                    )
+                },
+            )?;
+            return Ok(Delivery::Pty { text });
+        }
+        let (plugin_id, session_id) = svc
+            .pane_chat_backing(to_pane)
+            .ok_or_else(|| "agent_unavailable: planner has no chat delivery target".to_string())?;
+        if session_id != expected_session_id {
+            return Err(format!(
+                "agent_unavailable: planner provider session rotated before send; expected={expected_session_id} observed={session_id}"
+            ));
+        }
+        let delivery = Self::deliver_chatbackend_with_id(
+            svc,
+            to_pane,
+            &plugin_id,
+            &session_id,
+            envelope,
+            body,
+            message_id,
+        )?;
+        let observed = {
+            let mux = svc.mux.read();
+            let resolved = mux.resolve_pane_id(to_pane);
+            resolved
+                .and_then(|pane_id| mux.get_pane(&pane_id))
+                .map(|pane| {
+                    (
+                        pane.agent_session_id.clone(),
+                        pane.reported_session_binding_nonce.clone(),
+                        pane.backing.clone(),
+                    )
+                })
+        };
+        let still_bound = observed.as_ref().is_some_and(|(session, nonce, backing)| {
+            planner_chatbackend_binding_matches(
+                session.as_deref(),
+                nonce.as_deref(),
+                Some(backing),
+                expected_session_id,
+                expected_binding_nonce,
+                &plugin_id,
+            )
+        });
+        if !still_bound {
+            let (observed_session, observed_nonce) = observed
+                .map(|(session, nonce, _)| (session, nonce))
+                .unwrap_or_default();
+            return Err(format!(
+                "delivery_uncertain: planner provider binding rotated after send started; expected_session={expected_session_id} expected_nonce={expected_binding_nonce} observed_session={} observed_nonce={}",
+                observed_session.as_deref().unwrap_or("missing"),
+                observed_nonce.as_deref().unwrap_or("missing")
+            ));
+        }
+        Ok(delivery)
     }
 
     fn deliver_chatbackend(
@@ -282,23 +407,62 @@ impl Messenger {
         body: &str,
     ) -> Result<Delivery, String> {
         let message_id = format!("inbound-{}", uuid::Uuid::new_v4().simple());
+        Self::deliver_chatbackend_with_id(
+            svc, to_pane, plugin_id, session_id, envelope, body, message_id,
+        )
+    }
+
+    fn deliver_chatbackend_with_id(
+        svc: &super::ServiceContext,
+        to_pane: &str,
+        plugin_id: &str,
+        session_id: &str,
+        envelope: MessageEnvelope,
+        body: &str,
+        message_id: String,
+    ) -> Result<Delivery, String> {
         let (msg, marked) = build_chatbackend_inbound(&envelope, body, message_id.clone());
 
-        // Upsert into the shared per-session mirror the poll loop's sink flushes, so this host row survives later flushes.
-        crate::service::pane_chat::chatbackend_history::ChatBackendHistory::shared(
+        let inserted = crate::service::pane_chat::chatbackend_history::ChatBackendHistory::shared(
             plugin_id, session_id,
         )
         .lock()
         .upsert(std::slice::from_ref(&msg));
-        crate::service::pane_chat::structured_sink::emit_chat_msgs(
-            &svc.app_handle,
-            to_pane,
-            std::slice::from_ref(&msg),
-            None,
-        );
+        if inserted {
+            let (source_session_id, session_binding_nonce) = svc
+                .mux
+                .read()
+                .get_pane(to_pane)
+                .map(|pane| {
+                    (
+                        pane.agent_session_id.clone(),
+                        pane.session_binding_nonce.clone(),
+                    )
+                })
+                .unwrap_or((None, None));
+            crate::service::pane_chat::structured_sink::emit_chat_msgs(
+                &svc.app_handle,
+                to_pane,
+                std::slice::from_ref(&msg),
+                None,
+                source_session_id.as_deref(),
+                session_binding_nonce.as_deref(),
+            );
+        }
 
         // The model gets the marker (sender + return address); the stored row carries only the clean body.
-        svc.chatbackend_send(plugin_id, session_id, &marked)?;
+        if let Err(error) = submit_chatbackend_provider_input(&marked, |input| {
+            svc.chatbackend_send(plugin_id, session_id, input)
+        }) {
+            if inserted {
+                crate::service::pane_chat::chatbackend_history::ChatBackendHistory::shared(
+                    plugin_id, session_id,
+                )
+                .lock()
+                .remove(&message_id);
+            }
+            return Err(error);
+        }
         Ok(Delivery::ChatBackend { message_id })
     }
 
@@ -348,8 +512,69 @@ impl Messenger {
 
     /// Prefix marker + the message body.
     pub fn wrap(&self, body: &str) -> String {
-        format!("{}{}", self.build(), body)
+        let Some(reply_hint) = self.reply_hint() else {
+            return format!("{}{}", self.build(), body);
+        };
+        format!("{}{}\n{}", self.build(), body, reply_hint)
     }
+
+    fn reply_hint(&self) -> Option<String> {
+        if self.envelope.kind != MessageKind::Message
+            || self.envelope.from_pane.is_empty()
+            || self.envelope.from_pane == MessageEnvelope::CODETERM_PANE
+        {
+            return None;
+        }
+        Some(
+            crate::message_markers::Marker::new("reply")
+                .attr("tab", short_id(&self.envelope.from_pane))
+                .attr_opt("mesh", self.envelope.from_mesh.as_deref().map(str::trim))
+                .build(),
+        )
+    }
+}
+
+fn submit_chatbackend_provider_input<T>(
+    marked: &str,
+    submit: impl FnOnce(&str) -> Result<T, String>,
+) -> Result<T, String> {
+    submit(marked)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DeliveryTransport {
+    ChatBackend,
+    Pty,
+}
+
+fn dispatch_delivery<T, E>(
+    transport: DeliveryTransport,
+    chat: impl FnOnce() -> Result<T, E>,
+    pty: impl FnOnce() -> Result<T, E>,
+) -> Result<T, E> {
+    match transport {
+        DeliveryTransport::ChatBackend => chat(),
+        DeliveryTransport::Pty => pty(),
+    }
+}
+
+fn planner_chatbackend_binding_matches(
+    observed_session_id: Option<&str>,
+    observed_binding_nonce: Option<&str>,
+    observed_backing: Option<&crate::multiplexer::types::PaneBacking>,
+    expected_session_id: &str,
+    expected_binding_nonce: &str,
+    expected_plugin_id: &str,
+) -> bool {
+    observed_session_id == Some(expected_session_id)
+        && observed_binding_nonce == Some(expected_binding_nonce)
+        && matches!(
+            observed_backing,
+            Some(crate::multiplexer::types::PaneBacking::ChatBackend {
+                plugin_id,
+                session_id,
+            }) if plugin_id == expected_plugin_id && session_id == expected_session_id
+        )
 }
 
 /// Build the `(stored_row, model_facing_string)` pair for a chatBackend inbound:
@@ -490,8 +715,27 @@ mod tests {
         let p = Messenger::message("Edison", "e8a0ac20");
         assert_eq!(
             p.wrap("hello"),
-            "-=-codeterm:pane label=Edison pane=e8a0ac20-=-hello"
+            "-=-codeterm:pane label=Edison pane=e8a0ac20-=-hello\n-=-codeterm:reply tab=e8a0ac20-=-"
         );
+    }
+
+    #[test]
+    fn mesh_reply_hint_carries_the_return_peer() {
+        let p = Messenger::message("Edison", "e8a0ac20").mesh(Some("BLACKSTAR".into()));
+        assert_eq!(
+            p.wrap("hello"),
+            "-=-codeterm:pane label=Edison pane=e8a0ac20 mesh=BLACKSTAR-=-hello\n-=-codeterm:reply tab=e8a0ac20 mesh=BLACKSTAR-=-"
+        );
+    }
+
+    #[test]
+    fn codeterm_and_reports_do_not_request_a_reply() {
+        assert!(!Messenger::from(MessageEnvelope::from_codeterm())
+            .wrap("hello")
+            .contains("codeterm:reply"));
+        assert!(!Messenger::report("Worker", "abc12345")
+            .wrap("done")
+            .contains("codeterm:reply"));
     }
 
     #[test]
@@ -728,6 +972,72 @@ mod tests {
         assert!(marked.contains("-=-codeterm:inbound"));
         assert!(marked.contains("from_label=Gauss"));
         assert!(marked.contains("ship it"));
+    }
+
+    #[test]
+    fn chatbackend_planner_payload_reaches_provider_input_as_data() {
+        let payload = "- audit `model`\n- <nonexistent>\n$env:X='y'; $(false)";
+        let envelope = MessageEnvelope::codeterm_reminder("planner-request");
+        let (_, marked) = build_chatbackend_inbound(&envelope, payload, "planner-request-1".into());
+        let mut provider_input = Vec::new();
+        submit_chatbackend_provider_input(&marked, |input| {
+            provider_input.push(input.to_string());
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(provider_input.len(), 1);
+        assert!(provider_input[0].contains(payload));
+    }
+
+    #[test]
+    fn chat_backend_delivery_bypasses_pty_submit() {
+        let mut provider_inputs = Vec::new();
+        let mut pty_submits = 0;
+        dispatch_delivery(
+            DeliveryTransport::ChatBackend,
+            || {
+                submit_chatbackend_provider_input("hello", |input| {
+                    provider_inputs.push(input.to_string());
+                    Ok::<_, String>(())
+                })
+            },
+            || {
+                pty_submits += 1;
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(provider_inputs, ["hello"]);
+        assert_eq!(pty_submits, 0);
+    }
+
+    #[test]
+    fn chatbackend_rotation_after_preflight_is_not_accepted_as_delivered() {
+        let opened = crate::multiplexer::types::PaneBacking::ChatBackend {
+            plugin_id: "provider".into(),
+            session_id: "opened-session".into(),
+        };
+        assert!(planner_chatbackend_binding_matches(
+            Some("opened-session"),
+            Some("opened-nonce"),
+            Some(&opened),
+            "opened-session",
+            "opened-nonce",
+            "provider",
+        ));
+
+        let rotated = crate::multiplexer::types::PaneBacking::ChatBackend {
+            plugin_id: "provider".into(),
+            session_id: "rotated-session".into(),
+        };
+        assert!(!planner_chatbackend_binding_matches(
+            Some("rotated-session"),
+            Some("rotated-nonce"),
+            Some(&rotated),
+            "opened-session",
+            "opened-nonce",
+            "provider",
+        ));
     }
 
     #[test]

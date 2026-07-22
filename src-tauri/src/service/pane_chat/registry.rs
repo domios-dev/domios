@@ -11,14 +11,14 @@
 //! live delta stream stays dead and reopening chat never recovers.
 
 use parking_lot::Mutex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use super::tailer::TailerHandle;
 
 struct Entry {
     handle: TailerHandle,
-    refs: usize,
+    subscribers: HashSet<String>,
     /// The agent session this tailer is bound to. A pane can roll to a new
     /// backing session (Codex resume mints a fresh rollout); the old tailer is
     /// then stale even though it is still alive.
@@ -42,15 +42,18 @@ impl ChatRegistry {
         Arc::new(Self::default())
     }
 
-    /// Attach one more subscriber to a live tailer bound to `session_id`.
-    /// Returns `true` only when such a tailer exists (refcount incremented).
+    /// Attach `subscriber_id` to a live tailer bound to `session_id`.
+    /// Returns `true` only when such a tailer exists.
     /// A dead or stale-session entry is dropped (and its thread stopped) and
     /// `false` is returned so the caller spawns a fresh tailer.
-    pub fn acquire(&self, pane_id: &str, session_id: &str) -> bool {
+    pub fn acquire(&self, pane_id: &str, session_id: &str, subscriber_id: &str) -> bool {
         let mut g = self.inner.lock();
         match g.get(pane_id) {
             Some(entry) if entry.usable(session_id) => {
-                g.get_mut(pane_id).unwrap().refs += 1;
+                g.get_mut(pane_id)
+                    .unwrap()
+                    .subscribers
+                    .insert(subscriber_id.to_string());
                 true
             }
             Some(_) => {
@@ -70,13 +73,22 @@ impl ChatRegistry {
     /// Returns `true` if the new tailer was registered. Returns `false` only
     /// when a still-usable tailer for the same session raced in ahead of this
     /// caller — then the provided duplicate handle is shut down and the
-    /// existing entry's subscriber count is incremented. A dead or
+    /// existing entry adopts `subscriber_id`. A dead or
     /// stale-session entry is replaced by the new handle.
-    pub fn insert(&self, pane_id: String, session_id: String, handle: TailerHandle) -> bool {
+    pub fn insert(
+        &self,
+        pane_id: String,
+        session_id: String,
+        subscriber_id: String,
+        handle: TailerHandle,
+    ) -> bool {
         let mut g = self.inner.lock();
         match g.get(&pane_id) {
             Some(entry) if entry.usable(&session_id) => {
-                g.get_mut(&pane_id).unwrap().refs += 1;
+                g.get_mut(&pane_id)
+                    .unwrap()
+                    .subscribers
+                    .insert(subscriber_id);
                 drop(g);
                 handle.shutdown();
                 false
@@ -86,7 +98,7 @@ impl ChatRegistry {
                     pane_id,
                     Entry {
                         handle,
-                        refs: 1,
+                        subscribers: HashSet::from([subscriber_id]),
                         session_id,
                     },
                 );
@@ -99,16 +111,51 @@ impl ChatRegistry {
         }
     }
 
-    /// Release one subscriber for `pane_id`; the worker is stopped only when
-    /// the last client leaves. Safe to call on a pane that never had a tailer.
-    pub fn stop(&self, pane_id: &str) {
+    /// Replace this pane/session's pending watcher with its materialized tailer.
+    /// The watcher owns the call, so dropping its handle signals without joining it.
+    pub fn replace_if_current(
+        &self,
+        pane_id: &str,
+        session_id: &str,
+        handle: TailerHandle,
+    ) -> bool {
+        let old = {
+            let mut g = self.inner.lock();
+            let Some(entry) = g.get(pane_id) else {
+                drop(g);
+                handle.shutdown();
+                return false;
+            };
+            if entry.session_id != session_id || !entry.handle.is_alive() {
+                drop(g);
+                handle.shutdown();
+                return false;
+            }
+            let subscribers = entry.subscribers.clone();
+            g.insert(
+                pane_id.to_string(),
+                Entry {
+                    handle,
+                    subscribers,
+                    session_id: session_id.to_string(),
+                },
+            )
+        };
+        drop(old);
+        true
+    }
+
+    /// Release `subscriber_id`; an unknown subscription cannot stop a shared tailer.
+    pub fn stop(&self, pane_id: &str, subscriber_id: &str) {
         let h = {
             let mut g = self.inner.lock();
             let Some(entry) = g.get_mut(pane_id) else {
                 return;
             };
-            if entry.refs > 1 {
-                entry.refs -= 1;
+            if !entry.subscribers.remove(subscriber_id) {
+                return;
+            }
+            if !entry.subscribers.is_empty() {
                 return;
             }
             g.remove(pane_id).map(|entry| entry.handle)
@@ -172,20 +219,20 @@ mod tests {
     }
 
     #[test]
-    fn stop_releases_one_subscriber_at_a_time() {
+    fn two_leases_release_one_subscriber_at_a_time() {
         let registry = ChatRegistry::default();
-        assert!(registry.insert("pane".into(), SID.into(), handle_at(42)));
-        assert!(registry.acquire("pane", SID));
+        assert!(registry.insert("pane".into(), SID.into(), "desktop".into(), handle_at(42)));
+        assert!(registry.acquire("pane", SID, "web"));
         assert!(registry.is_running("pane"));
 
-        registry.stop("pane");
+        registry.stop("pane", "desktop");
         assert!(
             registry.is_running("pane"),
             "first client leaving must not stop shared tailer",
         );
         assert_eq!(registry.current_offset("pane"), Some(42));
 
-        registry.stop("pane");
+        registry.stop("pane", "web");
         assert!(
             !registry.is_running("pane"),
             "last client leaving stops shared tailer",
@@ -193,28 +240,26 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_insert_counts_as_another_subscriber() {
+    fn duplicate_lease_start_is_idempotent() {
         let registry = ChatRegistry::default();
-        assert!(registry.insert("pane".into(), SID.into(), handle_at(10)));
-        assert!(!registry.insert("pane".into(), SID.into(), handle_at(99)));
+        assert!(registry.insert("pane".into(), SID.into(), "desktop".into(), handle_at(10)));
+        assert!(!registry.insert("pane".into(), SID.into(), "desktop".into(), handle_at(99)));
         assert_eq!(
             registry.current_offset("pane"),
             Some(10),
             "duplicate insert must keep original tailer",
         );
 
-        registry.stop("pane");
-        assert!(registry.is_running("pane"));
-        registry.stop("pane");
+        registry.stop("pane", "desktop");
         assert!(!registry.is_running("pane"));
     }
 
     #[test]
     fn acquire_drops_dead_tailer_and_signals_respawn() {
         let registry = ChatRegistry::default();
-        assert!(registry.insert("pane".into(), SID.into(), dead_handle()));
+        assert!(registry.insert("pane".into(), SID.into(), "desktop".into(), dead_handle()));
         assert!(
-            !registry.acquire("pane", SID),
+            !registry.acquire("pane", SID, "desktop"),
             "a dead-but-registered tailer must not be reused",
         );
         assert!(
@@ -222,28 +267,62 @@ mod tests {
             "the corpse must be evicted so the caller spawns fresh",
         );
         // The fresh tailer registers cleanly.
-        assert!(registry.insert("pane".into(), SID.into(), handle_at(7)));
+        assert!(registry.insert("pane".into(), SID.into(), "desktop".into(), handle_at(7)));
         assert_eq!(registry.current_offset("pane"), Some(7));
     }
 
     #[test]
     fn acquire_drops_stale_session_tailer() {
         let registry = ChatRegistry::default();
-        assert!(registry.insert("pane".into(), "old-sid".into(), handle_at(5)));
+        assert!(registry.insert(
+            "pane".into(),
+            "old-sid".into(),
+            "desktop".into(),
+            handle_at(5)
+        ));
         assert!(
-            !registry.acquire("pane", "new-sid"),
+            !registry.acquire("pane", "new-sid", "desktop"),
             "a tailer bound to a rolled-past session is stale",
         );
         assert!(!registry.is_running("pane"));
-        assert!(registry.insert("pane".into(), "new-sid".into(), handle_at(9)));
+        assert!(registry.insert(
+            "pane".into(),
+            "new-sid".into(),
+            "desktop".into(),
+            handle_at(9)
+        ));
         assert_eq!(registry.current_offset("pane"), Some(9));
+    }
+
+    #[test]
+    fn rotation_stops_stale_pending_watch_before_replacement() {
+        let registry = ChatRegistry::default();
+        let stopped = Arc::new(AtomicBool::new(false));
+        let watch_stop = stopped.clone();
+        let watch = TailerHandle::new(
+            watch_stop.clone(),
+            Arc::new(AtomicU64::new(0)),
+            thread::spawn(move || {
+                while !watch_stop.load(Ordering::Acquire) {
+                    thread::sleep(Duration::from_millis(5));
+                }
+            }),
+        );
+        assert!(registry.insert("pane".into(), "old-sid".into(), "desktop".into(), watch));
+
+        assert!(
+            !registry.acquire("pane", "new-sid", "desktop"),
+            "rotation must evict the stale watch rather than reuse it",
+        );
+        assert!(stopped.load(Ordering::Acquire));
+        assert!(!registry.is_running("pane"));
     }
 
     #[test]
     fn shutdown_pane_stops_even_with_multiple_subscribers() {
         let registry = ChatRegistry::default();
-        assert!(registry.insert("pane".into(), SID.into(), handle_at(42)));
-        assert!(registry.acquire("pane", SID));
+        assert!(registry.insert("pane".into(), SID.into(), "desktop".into(), handle_at(42)));
+        assert!(registry.acquire("pane", SID, "web"));
         registry.shutdown_pane("pane");
         assert!(!registry.is_running("pane"));
     }
@@ -251,9 +330,9 @@ mod tests {
     #[test]
     fn insert_replaces_dead_tailer() {
         let registry = ChatRegistry::default();
-        assert!(registry.insert("pane".into(), SID.into(), dead_handle()));
+        assert!(registry.insert("pane".into(), SID.into(), "desktop".into(), dead_handle()));
         assert!(
-            registry.insert("pane".into(), SID.into(), handle_at(33)),
+            registry.insert("pane".into(), SID.into(), "desktop".into(), handle_at(33)),
             "a fresh tailer must replace a dead corpse rather than be discarded",
         );
         assert_eq!(registry.current_offset("pane"), Some(33));
@@ -263,19 +342,41 @@ mod tests {
     fn rapid_start_stop_churn_keeps_one_live_tailer() {
         let registry = ChatRegistry::default();
         for _ in 0..50 {
-            if !registry.acquire("pane", SID) {
-                registry.insert("pane".into(), SID.into(), handle_at(1));
+            if !registry.acquire("pane", SID, "desktop") {
+                registry.insert("pane".into(), SID.into(), "desktop".into(), handle_at(1));
             }
-            registry.stop("pane");
+            registry.stop("pane", "desktop");
         }
         // Final mount with no matching stop leaves a single live tailer.
-        if !registry.acquire("pane", SID) {
-            registry.insert("pane".into(), SID.into(), handle_at(1));
+        if !registry.acquire("pane", SID, "desktop") {
+            registry.insert("pane".into(), SID.into(), "desktop".into(), handle_at(1));
         }
         assert!(registry.is_running("pane"));
         assert!(
-            registry.acquire("pane", SID),
+            registry.acquire("pane", SID, "web"),
             "the surviving tailer is alive and reusable",
         );
+    }
+
+    #[test]
+    fn unknown_lease_stop_is_a_noop() {
+        let registry = ChatRegistry::default();
+        assert!(registry.insert("pane".into(), SID.into(), "desktop".into(), handle_at(42)));
+        registry.stop("pane", "never-acquired");
+        assert!(registry.is_running("pane"));
+        registry.stop("pane", "desktop");
+        assert!(!registry.is_running("pane"));
+    }
+
+    #[test]
+    fn replacement_preserves_live_leases() {
+        let registry = ChatRegistry::default();
+        assert!(registry.insert("pane".into(), SID.into(), "desktop".into(), handle_at(1)));
+        assert!(registry.acquire("pane", SID, "web"));
+        assert!(registry.replace_if_current("pane", SID, handle_at(2)));
+        registry.stop("pane", "desktop");
+        assert!(registry.is_running("pane"));
+        registry.stop("pane", "web");
+        assert!(!registry.is_running("pane"));
     }
 }

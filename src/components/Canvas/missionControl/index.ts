@@ -19,7 +19,7 @@ export { MissionControlPrototype } from "./MissionControlPrototype";
 export { useReducedMotion } from "./useReducedMotion";
 export { missionControlInputRevision } from "./missionControlInputRevision";
 export { MissionControlStage } from "./MissionControlStage";
-export { MISSION_CONTROL_FIXTURE, activeLaneCount, dispatchFrontierCount, totalBlockedParked } from "./fixtures";
+export { MISSION_CONTROL_FIXTURE, activeLaneCount, dispatchFrontierCount, totalBlockedPaused } from "./fixtures";
 export type { MissionControlSnapshot, MissionControlVariant, MissionControlLod } from "./types";
 export { MISSION_CONTROL_VARIANTS, VARIANT_LABELS } from "./types";
 

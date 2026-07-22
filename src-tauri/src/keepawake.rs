@@ -120,6 +120,7 @@ fn save_children_to(path: &std::path::Path, children: &[KeepAwakeChild]) {
     }
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn register_child(pid: u32, display: bool, wrapper: bool) {
     let child = KeepAwakeChild {
         pid,
@@ -134,6 +135,7 @@ fn register_child(pid: u32, display: bool, wrapper: bool) {
     save_children_to(&path, &guard);
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn unregister_child(pid: u32) {
     let path = children_path();
     let mut guard = child_registry().lock();
@@ -317,6 +319,7 @@ fn inspect_process(pid: u32) -> Option<ProcessSnapshot> {
     }
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 fn parse_ps_snapshot(output: &str) -> Option<ProcessSnapshot> {
     let line = output.lines().find(|l| !l.trim().is_empty())?.trim();
     let (ppid, command) = line.split_once(char::is_whitespace)?;

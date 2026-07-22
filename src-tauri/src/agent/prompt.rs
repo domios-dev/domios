@@ -348,21 +348,6 @@ where
     }
 }
 
-/// Build a PendingPrompt from parsed (question, options) tuple.
-pub(crate) fn build_prompt(question: String, opts: Vec<(String, String)>) -> PendingPrompt {
-    PendingPrompt {
-        question,
-        options: opts
-            .into_iter()
-            .map(|(label, value)| PromptOption { label, value })
-            .collect(),
-        sections: None,
-        multi_select: None,
-        submit_available: None,
-        selected_values: None,
-    }
-}
-
 fn same_prompt(a: &PendingPrompt, b: &PendingPrompt) -> bool {
     a.question == b.question
         && same_options(&a.options, &b.options)
@@ -404,12 +389,9 @@ mod tests {
 
     fn parse_yes_no(text: &str) -> ParsedPrompt {
         if text.contains("proceed") {
-            Some(build_prompt(
-                "Do you want to proceed?".to_string(),
-                vec![
-                    ("Yes".to_string(), "1".to_string()),
-                    ("No".to_string(), "2".to_string()),
-                ],
+            Some(make_prompt(
+                "Do you want to proceed?",
+                &[("Yes", "1"), ("No", "2")],
             ))
         } else {
             None
@@ -418,13 +400,9 @@ mod tests {
 
     fn parse_three_opts(text: &str) -> ParsedPrompt {
         if text.contains("proceed") {
-            Some(build_prompt(
-                "Do you want to proceed?".to_string(),
-                vec![
-                    ("Yes".to_string(), "1".to_string()),
-                    ("Yes, always".to_string(), "2".to_string()),
-                    ("No".to_string(), "3".to_string()),
-                ],
+            Some(make_prompt(
+                "Do you want to proceed?",
+                &[("Yes", "1"), ("Yes, always", "2"), ("No", "3")],
             ))
         } else {
             None

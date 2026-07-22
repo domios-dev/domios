@@ -33,14 +33,14 @@ Wait for a reply.
 ### Step 2: A 60-second capability tour
 
 After they answer, give a short tour. Pick **two or three** concrete demos, run the commands live
-in the pane, and narrate what just happened. Don't lecture — show. Examples (mix & match, don't do all):
+in the tab, and narrate what just happened. Don't lecture — show. Examples (mix & match, don't do all):
 
 - **mem** — `codeterm mem save --kind preference --title nickname "user goes by <name>"` and immediately
   `codeterm mem search "nickname"` so they see it stuck. Mention: persistent across sessions,
   vector + keyword search, the worker dedupes and classifies.
 - **mesh** — `codeterm mesh peers`. If there are paired peers, point them out. Say: "Any of these
   machines can take a job — I can spawn agents on them with one command."
-- **sub-agents** — `codeterm pane list`. Mention: you can split a task into parallel
+- **sub-agents** — `codeterm tab list`. Mention: you can split a task into parallel
   Workers, they report back automatically.
 - **schedule** — `codeterm cron list`. Mention: schedule yourself to do things at intervals,
   or `--once --schedule "in 30m"` for a one-shot reminder.

@@ -204,7 +204,8 @@ pub struct ChatStartResult {
     pub text: String,
     pub start_offset: u64,
     pub offset: u64,
-    /// Agent pane exists but its session hasn't been created yet — render an empty chat and retry once the mux reports a session id.
+    /// Agent provisioning is in flight; the pane boot state supplies its visible
+    /// progress until the mux reports a session id.
     #[serde(default)]
     pub pending: bool,
     /// Structured providers (sqlite-backed, e.g. opencode) return parsed
@@ -214,15 +215,33 @@ pub struct ChatStartResult {
     pub messages: Option<Vec<crate::agent::chat_types::ChatMsg>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
+    pub source_session_id: Option<String>,
+    pub session_binding_nonce: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subscription_id: Option<String>,
+}
+
+fn pane_chat_authority(svc: &ServiceState, pane_id: &str) -> (Option<String>, Option<String>) {
+    svc.mux
+        .read()
+        .get_pane(pane_id)
+        .map(|pane| {
+            (
+                pane.agent_session_id.clone(),
+                pane.session_binding_nonce.clone(),
+            )
+        })
+        .unwrap_or((None, None))
 }
 
 #[tauri::command]
 pub async fn chat_start(
     svc: tauri::State<'_, ServiceState>,
     pane_id: String,
+    subscription_id: String,
 ) -> Result<ChatStartResult, String> {
     let svc_owned = svc.inner().clone();
-    tokio::task::spawn_blocking(move || chat_start_core(&svc_owned, pane_id))
+    tokio::task::spawn_blocking(move || chat_start_core(&svc_owned, pane_id, subscription_id))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -230,10 +249,10 @@ pub async fn chat_start(
 /// Shared by the Tauri command and the web mirror's
 /// POST /api/panes/{id}/chat-raw/start — identical result shape, so the
 /// chat view renders the same in both shells.
-/// Prepends the pane's pending orchestrator greeting (task_e0ddee08) as a
-/// synthetic assistant `ChatMsg` — verbatim from [`crate::prompts::PEER_ORCH_GREETING`],
-/// never model-generated. Ordered first via a sentinel `seq` below any real
-/// transcript entry. No-op (returns `messages` unchanged) when unset.
+/// Prepends the pane's pending orchestrator greeting (set on orchestrator
+/// promotion) as a synthetic assistant `ChatMsg`, never model-generated.
+/// Ordered first via a sentinel `seq` below any real transcript entry.
+/// No-op (returns `messages` unchanged) when unset.
 fn prepend_pending_greeting(
     svc: &ServiceState,
     pane_id: &str,
@@ -259,8 +278,13 @@ fn prepend_pending_greeting(
     out
 }
 
-pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartResult, String> {
+pub fn chat_start_core(
+    svc: &ServiceState,
+    pane_id: String,
+    subscription_id: String,
+) -> Result<ChatStartResult, String> {
     let started = std::time::Instant::now();
+    let initial_authority = pane_chat_authority(svc, &pane_id);
     if svc.pane_chat_backing(&pane_id).is_some() {
         let (messages, _total) =
             crate::service::pane_chat::pane_chat_snapshot(svc, &pane_id, 0).unwrap_or_default();
@@ -271,13 +295,31 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             pending: false,
             messages: Some(prepend_pending_greeting(svc, &pane_id, messages)),
             cursor: None,
+            source_session_id: initial_authority.0,
+            session_binding_nonce: initial_authority.1,
+            subscription_id: None,
         });
     }
     let (provider_id, cwd, mut session_id, mux_ms) = {
         let t = std::time::Instant::now();
         let m = svc.mux.write();
         let pane = m.get_pane(&pane_id).ok_or("pane not found")?;
-        let provider = pane.agent_type.clone().ok_or("pane has no agent_type")?;
+        let Some(provider) = pane.agent_type.clone() else {
+            if pane.agent_booting || pane.boot_stage.is_some() {
+                return Ok(ChatStartResult {
+                    text: String::new(),
+                    start_offset: 0,
+                    offset: 0,
+                    pending: true,
+                    messages: None,
+                    cursor: None,
+                    source_session_id: None,
+                    session_binding_nonce: pane.session_binding_nonce.clone(),
+                    subscription_id: None,
+                });
+            }
+            return Err("pane has no agent_type".into());
+        };
         let cwd = pane.cwd.clone().unwrap_or_default();
         let Some(sid) = pane.agent_session_id.clone() else {
             if let Some(content) = pane.pending_greeting.clone() {
@@ -294,6 +336,9 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
                         ..Default::default()
                     }]),
                     cursor: None,
+                    source_session_id: None,
+                    session_binding_nonce: pane.session_binding_nonce.clone(),
+                    subscription_id: None,
                 });
             }
             return Ok(ChatStartResult {
@@ -303,6 +348,9 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
                 pending: true,
                 messages: None,
                 cursor: None,
+                source_session_id: None,
+                session_binding_nonce: pane.session_binding_nonce.clone(),
+                subscription_id: None,
             });
         };
         (provider, cwd, sid, t.elapsed().as_millis())
@@ -317,11 +365,12 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
     {
         let claimed = {
             let mut mux = svc.mux.write();
-            if mux.other_session_ids(&pane_id).contains(&active_sid) {
+            if active_sid == session_id || mux.other_session_ids(&pane_id).contains(&active_sid) {
                 false
             } else if let Some(pane) = mux.get_pane_mut(&pane_id) {
                 if pane.agent_type.as_deref() == Some(provider_id.as_str()) {
                     pane.agent_session_id = Some(active_sid.clone());
+                    crate::service::pane::clear_runtime_model_evidence(pane);
                     true
                 } else {
                     false
@@ -343,6 +392,11 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
         }
     }
     let detect_ms = detect_started.elapsed().as_millis();
+    let session_binding_nonce = svc
+        .mux
+        .read()
+        .get_pane(&pane_id)
+        .and_then(|pane| pane.session_binding_nonce.clone());
 
     // structured messages in Rust and stream deltas from a DB poller.
     if svc
@@ -357,9 +411,15 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             })
             .unwrap_or_default();
         let cursor = delta.cursor.clone();
-        if !svc.chat_registry.acquire(&pane_id, &session_id) {
-            let sink =
-                crate::service::pane_chat::structured_sink::make_sink(svc.app_handle.clone());
+        if !svc
+            .chat_registry
+            .acquire(&pane_id, &session_id, &subscription_id)
+        {
+            let sink = crate::service::pane_chat::structured_sink::make_sink(
+                svc.app_handle.clone(),
+                Some(session_id.clone()),
+                session_binding_nonce.clone(),
+            );
             let handle = crate::service::pane_chat::spawn_structured_poller(
                 crate::service::pane_chat::StructuredPollConfig {
                     pane_id: pane_id.clone(),
@@ -372,8 +432,12 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
                 svc.agent_registry.clone(),
                 sink,
             );
-            svc.chat_registry
-                .insert(pane_id.clone(), session_id.clone(), handle);
+            svc.chat_registry.insert(
+                pane_id.clone(),
+                session_id.clone(),
+                subscription_id.clone(),
+                handle,
+            );
         }
         return Ok(ChatStartResult {
             text: String::new(),
@@ -382,6 +446,9 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             pending: false,
             messages: Some(prepend_pending_greeting(svc, &pane_id, delta.messages)),
             cursor,
+            source_session_id: Some(session_id.clone()),
+            session_binding_nonce: session_binding_nonce.clone(),
+            subscription_id: Some(subscription_id),
         });
     }
 
@@ -397,6 +464,31 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             provider_id,
             session_id
         );
+        if !svc
+            .chat_registry
+            .acquire(&pane_id, &session_id, &subscription_id)
+        {
+            let sink = crate::service::pane_chat::structured_sink::make_flatten_sink(
+                svc.app_handle.clone(),
+                0,
+                Some(session_id.clone()),
+                session_binding_nonce.clone(),
+            );
+            let handle = crate::service::pane_chat::spawn_store_watch(
+                crate::service::pane_chat::StoreWatchConfig {
+                    pane_id: pane_id.clone(),
+                    provider_id: provider_id.clone(),
+                    cwd: cwd.clone(),
+                    session_id: session_id.clone(),
+                    poll_interval:
+                        crate::service::pane_chat::store_watch::PENDING_STORE_WATCH_POLL_INTERVAL,
+                },
+                svc.agent_registry.clone(),
+                svc.chat_registry.clone(),
+                sink,
+            );
+            handle.register(&svc.chat_registry, subscription_id.clone());
+        }
         return Ok(ChatStartResult {
             text: String::new(),
             start_offset: 0,
@@ -404,6 +496,9 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             pending: true,
             messages: None,
             cursor: None,
+            source_session_id: Some(session_id.clone()),
+            session_binding_nonce: session_binding_nonce.clone(),
+            subscription_id: Some(subscription_id),
         });
     };
     let total = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
@@ -426,10 +521,15 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
 
     // is already running so one client's stop() cannot kill another's stream.
     let tailer_started = std::time::Instant::now();
-    if !svc.chat_registry.acquire(&pane_id, &session_id) {
+    if !svc
+        .chat_registry
+        .acquire(&pane_id, &session_id, &subscription_id)
+    {
         let sink = crate::service::pane_chat::structured_sink::make_flatten_sink(
             svc.app_handle.clone(),
             msg_count,
+            Some(session_id.clone()),
+            session_binding_nonce.clone(),
         );
         let handle = crate::service::pane_chat::spawn_tailer(
             crate::service::pane_chat::TailConfig {
@@ -443,8 +543,12 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
             svc.agent_registry.clone(),
             sink,
         );
-        svc.chat_registry
-            .insert(pane_id.clone(), session_id.clone(), handle);
+        svc.chat_registry.insert(
+            pane_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            handle,
+        );
     }
     let tailer_ms = tailer_started.elapsed().as_millis();
     let total_ms = started.elapsed().as_millis();
@@ -471,6 +575,9 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
         pending: false,
         messages: Some(prepend_pending_greeting(svc, &pane_id, messages)),
         cursor: None,
+        source_session_id: Some(session_id),
+        session_binding_nonce,
+        subscription_id: Some(subscription_id),
     })
 }
 
@@ -535,12 +642,19 @@ pub fn session_transcript(
         pending: false,
         messages: Some(messages),
         cursor: None,
+        source_session_id: Some(session_id),
+        session_binding_nonce: None,
+        subscription_id: None,
     })
 }
 
 #[tauri::command]
-pub async fn chat_stop(svc: tauri::State<'_, ServiceState>, pane_id: String) -> Result<(), String> {
-    svc.chat_registry.stop(&pane_id);
+pub async fn chat_stop(
+    svc: tauri::State<'_, ServiceState>,
+    pane_id: String,
+    subscription_id: String,
+) -> Result<(), String> {
+    svc.chat_registry.stop(&pane_id, &subscription_id);
     Ok(())
 }
 
@@ -638,11 +752,9 @@ pub async fn chat_send_text(
     svc: tauri::State<'_, ServiceState>,
     pane_id: String,
     text: String,
-    enter: Option<bool>,
 ) -> Result<String, String> {
     // Agent without knowing its pane id — parity with the REST send route.
     let pane_id = svc.mux.read().resolve_pane_id(&pane_id).unwrap_or(pane_id);
-    let enter = enter.unwrap_or(true);
     let run_stages =
         crate::chatpipeline::is_user_turn_send(false, false, svc.pane_has_agent(&pane_id));
     let text = if run_stages {
@@ -650,7 +762,8 @@ pub async fn chat_send_text(
     } else {
         text
     };
-    svc.send_text_when_ready(&pane_id, &text, enter).await?;
+    // A chat send always submits.
+    svc.send_text_when_ready(&pane_id, &text, true).await?;
     Ok(pane_id)
 }
 

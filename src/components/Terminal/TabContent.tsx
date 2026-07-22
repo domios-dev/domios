@@ -1,44 +1,39 @@
 import { TerminalPane } from "./TerminalPane";
 import { PaneSessionChat } from "./PaneSessionChat";
 import { PaneTopBar } from "./PaneTopBar";
-import { NewSessionPicker } from "./NewSessionPicker";
 import { isPaneVisible } from "../MemoryPanel/workerFocusStore";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { FirstRunGeneralPicker, isFirstRunGeneralPane } from "../AgentPicker";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import type {
   ApiConfig,
-  AppConfig,
   Pane,
   ThemeConfig,
   FontConfig,
   TerminalConfigSettings,
 } from "../../lib/types";
+import { usageTrackingEnabled } from "./usageTracking";
+import { paneSessionActionView } from "./paneSessionActions";
 
 interface TabContentProps {
   pane: Pane | undefined;
-  workspaceId: string;
-  tabId: string;
   isFocused: boolean;
   onFocusPane: (paneId: string) => void;
   onPtySpawned: (paneId: string, ptyId: string) => void;
   theme: ThemeConfig;
   fontConfig?: FontConfig;
   terminalConfig?: TerminalConfigSettings;
-  usageEnabledByProvider?: Record<string, boolean>;
+  usageEnabledByProvider?: Record<string, boolean | undefined>;
   api?: ApiConfig;
   workspaceCwd?: string | null;
   uiFontScale?: number;
   isVisible: boolean;
   chatFirst: boolean;
   chatDefaultPrompted: boolean;
-  agentsConfig?: AppConfig["agents"];
 }
 
 export function TabContent({
   pane,
-  workspaceId,
-  tabId,
   isFocused,
   onFocusPane,
   onPtySpawned,
@@ -52,7 +47,6 @@ export function TabContent({
   chatFirst,
   chatDefaultPrompted,
   api,
-  agentsConfig,
 }: TabContentProps) {
   const descriptor = useAgentDescriptor(pane?.agent_type);
   const { providers } = useAgentProviders();
@@ -68,28 +62,19 @@ export function TabContent({
     );
   }
 
-  if (pane.virtual && !pane.agent_type) {
-    return (
-      <PaneWrapper paneId={pane.id}>
-        <NewSessionPicker
-          paneId={pane.id}
-          workspaceId={workspaceId}
-          tabId={tabId}
-          workspaceCwd={workspaceCwd}
-          agentsConfig={agentsConfig}
-        />
-      </PaneWrapper>
-    );
-  }
-
-  const isChatBackend = pane.backing?.kind === "chat_backend";
+  const chatBacking = pane.backing?.kind === "chat_backend" ? pane.backing : null;
+  const isChatBackend = chatBacking !== null;
+  const sessionActions = paneSessionActionView(pane);
   const showSwitch = !isChatBackend && descriptor?.supports_chat_ui === true;
   const usageProvider = !isChatBackend ? (pane.agent_type ?? null) : null;
-  const usageVisible = !!usageProvider && usageEnabledByProvider?.[usageProvider] === true;
+  const usageVisible = usageTrackingEnabled(
+    descriptor?.settings_schema ?? [],
+    usageProvider ? usageEnabledByProvider?.[usageProvider] : false,
+  );
   const cwd = pane.cwd ?? workspaceCwd ?? null;
 
   const body = isChatBackend ? (
-    <PaneSessionChat paneId={pane.id} chatBackend uiFontScale={uiFontScale} isVisible={isVisible} />
+    <PaneSessionChat paneId={pane.id} api={api} chatBackend uiFontScale={uiFontScale} isVisible={isVisible} />
   ) : (
     <TerminalPane
       key={pane.id}
@@ -104,6 +89,7 @@ export function TabContent({
       fontConfig={fontConfig}
       terminalConfig={terminalConfig}
       uiFontScale={uiFontScale}
+      api={api}
     />
   );
 
@@ -121,6 +107,10 @@ export function TabContent({
           api={api}
           isWatcherPane={pane.watcher != null}
           watcherLastStatus={pane.watcher?.last_status ?? null}
+          canReconnect={sessionActions.canReconnect}
+          canRestartSession={sessionActions.canRestart}
+          sessionId={sessionActions.sessionId}
+          isActive={isVisible}
         />
         <div className="relative min-h-0 flex-1" style={{ background: theme.background }}>
           {body}

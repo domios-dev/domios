@@ -13,12 +13,14 @@
 pub mod chatbackend_history;
 pub mod raw_text_sink;
 pub mod registry;
+pub mod store_watch;
 pub mod structured_poller;
 pub mod structured_sink;
 pub mod tailer;
 pub mod tauri_sink;
 
 pub use registry::ChatRegistry;
+pub use store_watch::{spawn_store_watch, StoreWatchConfig};
 pub use structured_poller::{spawn_structured_poller, StructuredPollConfig};
 pub use tailer::{
     spawn_raw_tailer, spawn_tailer, DeltaSink, RawTailConfig, RawTextSink, TailConfig, TailerHandle,
@@ -45,30 +47,10 @@ pub fn enrich_interactive(
     msg.interactive = provider.parse_interactive_events(msg);
 }
 
-/// Short, human-readable summary of a tool input (file path, command, …),
-/// mirroring the desktop parser's `summarizeInput`.
-fn summarize_tool_input(input: Option<&serde_json::Value>) -> String {
-    let Some(obj) = input.and_then(|v| v.as_object()) else {
-        return String::new();
-    };
-    let s = |k: &str| obj.get(k).and_then(|v| v.as_str());
-    let take = |v: &str, n: usize| v.chars().take(n).collect::<String>();
-    if let Some(v) = s("file_path") {
-        return v.to_string();
-    }
-    if let Some(v) = s("command") {
-        return take(v, 80);
-    }
-    if let Some(v) = s("pattern") {
-        return v.to_string();
-    }
-    if let Some(v) = s("prompt") {
-        return format!("{}...", take(v, 60));
-    }
-    if let Some(v) = s("description") {
-        return take(v, 60);
-    }
-    take(&serde_json::to_string(obj).unwrap_or_default(), 60)
+fn get_optional_string(data: &serde_json::Value, key: &str) -> Option<String> {
+    data.get(key)
+        .and_then(|value| value.as_str())
+        .map(String::from)
 }
 
 /// A tool_result block's `content` is a string, an array of `{text}` blocks,
@@ -441,7 +423,15 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> 
             }
             "tool_use" => {
                 let name = get("name");
-                let args = summarize_tool_input(b.data.get("input"));
+                let tool_kind = get_optional_string(&b.data, "tool_kind");
+                let tool_summary = get_optional_string(&b.data, "tool_summary");
+                let tool_detail = get_optional_string(&b.data, "tool_detail");
+                let tool_edits = b.data.get("tool_edits").cloned();
+                let tool_error = match b.data.get("tool_status").and_then(|v| v.as_str()) {
+                    Some("success") => Some(false),
+                    Some("error") => Some(true),
+                    _ => None,
+                };
                 let tool_id = b.data.get("id").and_then(|v| v.as_str());
                 let interactive = rich
                     .interactive
@@ -455,11 +445,16 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> 
                 ChatMsg {
                     id,
                     kind: "tool_call".into(),
-                    content: format!("{name}({args})"),
+                    content: tool_summary.clone().unwrap_or_default(),
+                    tool_kind,
+                    tool_summary,
+                    tool_detail: tool_detail.clone(),
+                    tool_edits,
                     tool_name: Some(name),
-                    tool_args: Some(args),
+                    tool_args: tool_detail,
                     tool_input: b.data.get("input").cloned(),
                     tool_id: tool_id.map(String::from),
+                    tool_error,
                     collapsed: true,
                     interactive,
                     ..Default::default()
@@ -833,7 +828,7 @@ mod chat_snapshot_tests {
                 },
                 MessageBlock {
                     kind: "tool_use".into(),
-                    data: json!({"name": "Bash", "input": {"command": "codeterm pane list"}}),
+                    data: json!({"name": "Bash", "input": {"command": "codeterm tab list"}}),
                 },
             ],
             ..Default::default()
@@ -846,8 +841,70 @@ mod chat_snapshot_tests {
         assert_eq!(msgs[1].tool_name.as_deref(), Some("Bash"));
         assert_eq!(
             msgs[1].tool_input.as_ref().unwrap()["command"],
-            "codeterm pane list"
+            "codeterm tab list"
         );
+    }
+
+    #[test]
+    fn canonical_tool_fields_passthrough_without_input_summary() {
+        let rich = RichMessage {
+            role: "assistant".into(),
+            blocks: vec![
+                MessageBlock {
+                    kind: "tool_use".into(),
+                    data: json!({
+                        "name": "provider_specific_name",
+                        "input": {"command": "must not become a summary"},
+                        "tool_kind": "command",
+                        "tool_summary": "Run command",
+                        "tool_detail": "cargo check",
+                        "tool_edits": [{"path": "src/lib.rs"}]
+                    }),
+                },
+                MessageBlock {
+                    kind: "tool_use".into(),
+                    data: json!({
+                        "name": "another_provider_name",
+                        "input": {"command": "must not become JSON"}
+                    }),
+                },
+            ],
+            ..Default::default()
+        };
+
+        let msgs = rich_to_chat_msgs(&rich, 0);
+        assert_eq!(msgs[0].tool_kind.as_deref(), Some("command"));
+        assert_eq!(msgs[0].tool_summary.as_deref(), Some("Run command"));
+        assert_eq!(msgs[0].tool_detail.as_deref(), Some("cargo check"));
+        assert_eq!(
+            msgs[0].tool_edits.as_ref().unwrap()[0]["path"],
+            "src/lib.rs"
+        );
+        assert_eq!(msgs[0].content, "Run command");
+        assert_eq!(msgs[1].tool_summary, None);
+        assert_eq!(msgs[1].tool_detail, None);
+        assert_eq!(msgs[1].tool_args, None);
+        assert_eq!(msgs[1].content, "");
+    }
+
+    #[test]
+    fn completed_tool_use_preserves_explicit_lifecycle() {
+        let rich = RichMessage {
+            role: "assistant".into(),
+            blocks: vec![MessageBlock {
+                kind: "tool_use".into(),
+                data: json!({
+                    "name": "Read",
+                    "tool_kind": "read",
+                    "tool_summary": "src/main.rs",
+                    "tool_status": "success"
+                }),
+            }],
+            ..Default::default()
+        };
+        let msgs = rich_to_chat_msgs(&rich, 0);
+        assert_eq!(msgs[0].tool_error, Some(false));
+        assert_eq!(msgs[0].tool_result, None);
     }
 
     #[test]

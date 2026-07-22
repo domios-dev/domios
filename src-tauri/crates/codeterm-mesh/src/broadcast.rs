@@ -299,8 +299,17 @@ pub fn refresh_local_addresses(mesh: &MeshState) -> bool {
 
     discovery::detect_tailscale(mesh);
     discovery::detect_local_ip(mesh);
-    let api_port = mesh.lock().api_port;
-    let https = super::serve_setup::tailscale_serve_https_url(api_port);
+    let (api_port, build_hash) = {
+        let m = mesh.lock();
+        (m.api_port, m.build_hash.clone())
+    };
+    let snapshot = super::serve_setup::reconcile_web_serve(api_port, None, Some(build_hash));
+    let https = matches!(
+        snapshot.state,
+        super::serve_setup::ServeReconcileState::Ready
+    )
+    .then_some(snapshot.url)
+    .flatten();
     mesh.lock().local_https_url = https.clone();
 
     let new_ts = mesh.lock().tailscale_ip.clone();

@@ -1,7 +1,9 @@
-# Playwright — live dev console
+# Playwright — isolated dev console
 
-Drives the **real** CodeTerm dev console (Tauri, port 7686), not a browser
-mock of it.
+Drives a **real, dedicated** CodeTerm dev console (Tauri, named instance
+`playwright`, port 7786 by default), not a browser mock. The interactive dev
+instance on port 7686 and its `~/.codeterm-dev` store are never adopted,
+restarted, or mutated by this suite.
 
 For the canonical layer taxonomy and the "which layer do I write?" decision tree,
 see [`docs/TESTING.md`](../../docs/TESTING.md).
@@ -9,18 +11,17 @@ see [`docs/TESTING.md`](../../docs/TESTING.md).
 ## Tooling decision (spike result, 2026-06-06)
 
 - On Windows the Tauri window is **WebView2**, which speaks the Chrome
-  DevTools Protocol when the app is launched with
-  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9223`.
+  DevTools Protocol when the dev Tauri config launches it with
+  `additionalBrowserArgs` containing the named instance's CDP port.
   Playwright attaches via `chromium.connectOverCDP` — full control of the
-  actual app UI, real Tauri IPC, no shimming. Verified live: the dev
-  console answers `/json/version` on 9223.
+  actual app UI, real Tauri IPC, no shimming.
 - Pure browser-side Playwright against the Vite server is **not viable**:
   the frontend calls `@tauri-apps/api` `invoke()` directly with no HTTP
   fallback, so outside a Tauri WebView the UI is non-functional.
 - The old Tauri WebDriver/WDIO harness was removed. Desktop UI automation
   uses this Playwright/CDP path only.
-- Backend coverage uses plain `fetch` against `/api/*` with the dev token
-  from `~/.codeterm-dev/config.toml`.
+- Backend coverage uses plain `fetch` against `/api/*` with the token from
+  `~/.codeterm-dev-playwright/config.toml`.
 
 ## Run
 
@@ -28,15 +29,72 @@ see [`docs/TESTING.md`](../../docs/TESTING.md).
 pnpm test:pw:lint    # fail if any Playwright test has no tier tag
 pnpm test:pw:smoke   # @smoke project
 pnpm test:pw:golden  # @golden project, one retry and 5min timeout
+pnpm test:pw:perf    # @perf stub-provider latency budget project
 pnpm test:pw:full    # all non-quarantined tests
+pnpm test:pw:live-pair # bounded real-Claude orchestration launch gate
 pnpm test:pw:report  # open the last HTML report
 pnpm test:pw:trace -- tests/playwright/artifacts/test-results/<trace.zip>
 pnpm test:pw:debug   # run the suite with Playwright Inspector
 ```
 
+### Fast isolated check against an existing test console
+
+When the named Playwright instance is already healthy, use the adopt-only runner
+to run one exact spec and title without rebuilding, restarting, or tearing it down:
+
+```bash
+pnpm test:pw:one -- --file tests/playwright/suites/01-smoke/smoke.spec.ts \
+  --grep "real UI renders" --project smoke
+```
+
+It verifies the named instance identity, API health, and CDP/WebView readiness
+before launching Playwright. It always applies a 30-second per-test cap and a
+10-minute global cap. If preflight fails, it exits nonzero and leaves every
+instance untouched; use the normal harness when a clean start is actually needed.
+
+Parallel execution is opt-in. `CT_E2E_WORKERS=N` starts `pw1..pwN` with
+separate API, Vite, CDP, identifier, token, and `.codeterm-dev-pwN` state.
+Playwright's stable `parallelIndex` pins each worker process to one instance.
+Startup is serialized through the build gateway, which is released after each
+named instance passes readiness; Windows instances use separate Cargo targets.
+The harness stops every named instance and fails the run if any owned port
+remains open. The golden scripts do not set this flag and remain serial.
+
+```bash
+CT_E2E_WORKERS=2 npx playwright test --config=tests/playwright/playwright.config.ts \
+  --project=full --workers=2 --timeout=30000 --global-timeout=600000 \
+  tests/playwright/suites/06-mem tests/playwright/suites/11-api \
+  tests/playwright/suites/13-canvas/plan-view-mode.spec.ts
+```
+
+### @perf capped run
+
+Run the perf gate with the required authoring caps via the DIRECT npx form:
+
+```bash
+npx playwright test --config=tests/playwright/playwright.config.ts \
+  --project=perf --timeout=30000 --global-timeout=600000
+```
+
+Do NOT use `pnpm test:pw:perf -- --timeout=30000 ...`: pnpm forwards the
+post-`--` flags to the script as positional test-file filters, so Playwright
+treats `--timeout=30000` as a path and reports "No tests found". Only the
+direct `npx playwright test ...` invocation applies the caps as flags.
+
+The harness normalizes the `CODETERM_STUB_AGENT_CMD` replay path to absolute
+against the repo root (`CT_E2E_DEV_ROOT` or the checkout root) before the daemon
+env handoff, so a repo-root-relative value like
+`node tests/playwright/fixtures/stub-agent/replay.mjs` resolves correctly even
+though the agent PTY runs with cwd `src-tauri`.
+
 On Windows PowerShell, start/restart dev with `.\build.ps1 dev --wait`.
 Do not call plain `bash ./build.sh ...` from PowerShell; it can resolve to
 WSL. Use `build.ps1` or Git Bash directly.
+
+The harness owns its dev lifecycle. Do not start the interactive 7686 instance
+for Playwright. To select another isolated lane, set `CT_E2E_INSTANCE` and
+`CT_E2E_PORT`; ports 7685 and 7686 are rejected. Global teardown stops only the
+named Playwright instance.
 
 **There is no CI for this suite — by decision, not omission** (hosted
 runners lack the claude CLI auth and a verified WebView2 desktop; a
@@ -77,26 +135,62 @@ path after the script separator:
 pnpm test:pw:trace -- tests/playwright/artifacts/test-results/<test-output>/trace.zip
 ```
 
-Global setup (`helpers/global-setup.ts`) reuses a running dev console when
-both `/api/health` and CDP answer; otherwise it runs
-`./build.sh kill && ./build.sh dev --wait` with the CDP env var. A console
-started *without* the env var cannot be adopted — the debugging port is
-fixed at WebView2 creation — so the harness restarts it.
+Global setup (`helpers/global-setup.ts`) reuses only a dev console whose health
+identity matches the named Playwright instance, API port, and derived CDP port.
+Otherwise it runs `./build.sh kill && ./build.sh dev --wait` with that identity.
+The shared interactive dev console cannot satisfy this check. In parallel mode,
+global setup clean-starts each named instance before workers launch and owns
+their teardown after the last test.
 
 ## Layout
 
 ```
 tests/playwright/
-├── playwright.config.ts    one worker — one live app, parallel workers would fight over focus
+├── playwright.config.ts    serial default; CT_E2E_WORKERS opts into isolated workers
 ├── helpers/
+│   ├── dev-instance.ts     worker slot → named instance/ports/data dir
 │   ├── dev-console.ts      start/kill/health/CDP attach (build.sh only, never raw cargo)
-│   ├── api-client.ts       typed /api/* wrapper, token from ~/.codeterm-dev/config.toml
+│   ├── instance.ts         named-instance identity and shared-port refusal
+│   ├── api-client.ts       typed /api/* wrapper, token from the named data dir
 │   ├── reset.ts            apiReset (fast, per-test) + wipeDevState (suite-level)
 │   └── global-setup.ts
 └── suites/
     ├── 01-smoke/           harness proof: health, real UI renders, providers, workspace
     └── 02-multiplexer/     ws/pane lifecycle, #132 focus determinism (50x), kill/restart persistence
 ```
+
+## Real pair-launch release gate
+
+The golden agent tests deliberately use `fixtures/stub-agent/replay.mjs` and
+do not launch a provider process. They cannot detect a real Claude launch that
+falls back to a bare shell, or a Planner follow-up lost during provider startup.
+
+Before release, run this bounded gate on a host with Claude CLI authentication:
+
+```bash
+pnpm test:pw:live-pair
+```
+
+It calls the real `/api/orchestration/new` path, requires pane-local session ids
+for both the Orchestrator and Planner, verifies the Planner's real pane id in
+the Orchestrator follow-up buffer, and fails if the replay banner appears. The
+command has a 10-minute global cap; the test itself has a 5-minute cap. It does
+not depend on the model obeying an injected plan-creation instruction. The pair
+POST has a 90-second client cap, leaving bounded headroom above the backend's
+75-second shared launch deadline while still catching the old 120-second stall.
+
+For a failing ROG rerun, preserve the line-reporter output and collect:
+
+```powershell
+Get-Content "$HOME\.codeterm-dev-playwright\logs\codeterm.log" |
+  Select-String 'orchestration-pair|agent-launch|readiness|claude' |
+  Select-Object -Last 300
+Get-ChildItem tests\playwright\artifacts\test-results -Recurse
+```
+
+The API failure must include either the backend's degraded-pair recovery command
+or `POST /api/orchestration/new timed out after 90000ms`; a bare `fetch failed`
+is insufficient evidence.
 
 ## Real-LLM strategy (Andrey's ruling, supersedes testplan §4.1)
 
@@ -139,6 +233,8 @@ checks this before a test can land unnoticed.
 - `@smoke`: every commit; fast and deterministic.
 - `@golden`: PR gate for real-agent paths; real LLM allowed, parsimonious per
   test, run with `pnpm test:pw:golden`.
+- `@perf`: deterministic stub-provider latency budgets, run with the dedicated
+  `perf` project.
 - `@quarantine`: excluded from `pnpm test:pw:full`; document entries in
   [`QUARANTINE.md`](QUARANTINE.md).
 
@@ -184,18 +280,19 @@ suites' CDP attach to the Tauri WebView. Key facts:
 
 ### Driving attention state (`pending_prompt`) deterministically
 
-`suites/12-web/tab-status-rail.spec.ts` (RAIL-3/4/11) needs a pane in the
-`attention` (yellow rail) state with no LLM and no timing luck. Use the real
-Claude-hook endpoint with an explicit body, which builds a genuine
-`PendingPrompt` through the production hook path
-(`hook_routes.rs::hook_permission`) instead of poking client state:
+Tests that need a pane in the waiting/prompt state (e.g. the RPL-4/GATE-4
+prompt-pill test in `suites/19-web-stability/web-stability.spec.ts`) must get
+there with no LLM and no timing luck. Use the real Claude-hook endpoint with
+an explicit body, which builds a genuine `PendingPrompt` through the
+production hook path (`hook_routes.rs::hook_permission`) instead of poking
+client state:
 
 ```ts
 await api.post(`/panes/${paneId}/hook/permission`, {
   question: "Allow this action?",
   options: [{ label: "Yes", value: "1" }, { label: "No", value: "2" }],
 });
-// ... assert on GET /api/mux/state panes[id].pending_prompt or the rail ...
+// ... assert on GET /api/mux/state panes[id].pending_prompt or the prompt pill ...
 await api.post(`/panes/${paneId}/prompt/clear`, {});
 ```
 
@@ -226,4 +323,4 @@ server-spawned panes do). Each throws a clear
 - Suites assert **UI DOM state**, not just API JSON, wherever the action
   has a user-visible effect.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::provider::{
-    ModelInfo, ReadinessStrategy, SessionIdInjection, TaskDelivery, VerifySubmitStrategy,
+    BusySubmitStrategy, ModelInfo, ReadinessStrategy, ReasoningEffortInfo, SessionIdInjection,
+    SystemPromptDelivery, TaskDelivery, VerifySubmitStrategy,
 };
 
 /// Hosts/origins a plugin may reach via `host.fetch`.
@@ -26,8 +27,12 @@ pub struct SpawnConfig {
     pub readiness_strategy: SerdeReadinessStrategy,
     pub task_delivery: SerdeTaskDelivery,
     #[serde(default)]
+    pub system_prompt_delivery: SerdeSystemPromptDelivery,
+    #[serde(default)]
     pub task_input_warmup_ms: u64,
     pub verify_submit: SerdeVerifySubmit,
+    #[serde(default)]
+    pub busy_submit: SerdeBusySubmit,
     #[serde(default)]
     pub session_id_injection: SerdeSessionIdInjection,
     #[serde(default)]
@@ -59,6 +64,27 @@ pub struct SpawnConfig {
     /// usage poller skips providers without both.
     #[serde(default)]
     pub usage_probe_command: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SerdeSystemPromptDelivery {
+    #[default]
+    External,
+    CliFlag {
+        flag: String,
+    },
+    SessionConfig,
+}
+
+impl From<&SerdeSystemPromptDelivery> for SystemPromptDelivery {
+    fn from(value: &SerdeSystemPromptDelivery) -> Self {
+        match value {
+            SerdeSystemPromptDelivery::External => Self::External,
+            SerdeSystemPromptDelivery::CliFlag { flag } => Self::CliFlag(flag.clone()),
+            SerdeSystemPromptDelivery::SessionConfig => Self::SessionConfig,
+        }
+    }
 }
 
 /// Mirror of `crate::provider::ReadinessStrategy` with snake_case
@@ -124,13 +150,8 @@ impl From<SerdeTaskDelivery> for TaskDelivery {
 )]
 #[allow(clippy::enum_variant_names)]
 pub enum SerdeVerifySubmit {
-    ShellPrompt {
-        timeout_secs: u64,
-    },
-    TuiInputDrained {
-        timeout_secs: u64,
-        idle_after_drain_ms: u64,
-    },
+    ShellPrompt { timeout_secs: u64 },
+    TuiInputDrained,
     None,
 }
 
@@ -146,14 +167,27 @@ impl From<&SerdeVerifySubmit> for VerifySubmitStrategy {
             SerdeVerifySubmit::ShellPrompt { timeout_secs } => Self::ShellPrompt {
                 timeout: std::time::Duration::from_secs(*timeout_secs),
             },
-            SerdeVerifySubmit::TuiInputDrained {
-                timeout_secs,
-                idle_after_drain_ms,
-            } => Self::TuiInputDrained {
-                timeout: std::time::Duration::from_secs(*timeout_secs),
-                idle_after_drain: std::time::Duration::from_millis(*idle_after_drain_ms),
-            },
+            SerdeVerifySubmit::TuiInputDrained => Self::TuiInputDrained,
             SerdeVerifySubmit::None => Self::None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SerdeBusySubmit {
+    #[default]
+    SubmitNormally,
+    Key {
+        key: String,
+    },
+}
+
+impl From<&SerdeBusySubmit> for BusySubmitStrategy {
+    fn from(value: &SerdeBusySubmit) -> Self {
+        match value {
+            SerdeBusySubmit::SubmitNormally => Self::SubmitNormally,
+            SerdeBusySubmit::Key { key } => Self::Key(key.clone()),
         }
     }
 }
@@ -273,6 +307,10 @@ pub struct CommandsConfig {
     /// Each element may contain `{model}` placeholder.
     #[serde(default)]
     pub model_launch_args_format: Vec<String>,
+    /// Each element may contain `{effort}` placeholder. Absent ⇒ provider has no
+    /// scriptable reasoning-effort launch flag even if it lists effort levels.
+    #[serde(default)]
+    pub reasoning_effort_launch_args_format: Vec<String>,
 }
 
 /// CamelCase-friendly mirror of `ModelInfo` for plugin.json authors.
@@ -296,6 +334,26 @@ impl From<&SerdeModelInfo> for ModelInfo {
             display_name: s.display_name.clone(),
             description: s.description.clone(),
             available: s.available,
+        }
+    }
+}
+
+/// CamelCase-friendly mirror of `ReasoningEffortInfo` for plugin.json authors.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct SerdeReasoningEffortInfo {
+    pub id: String,
+    pub display_name: String,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+impl From<&SerdeReasoningEffortInfo> for ReasoningEffortInfo {
+    fn from(s: &SerdeReasoningEffortInfo) -> Self {
+        Self {
+            id: s.id.clone(),
+            display_name: s.display_name.clone(),
+            description: s.description.clone(),
         }
     }
 }

@@ -1,6 +1,16 @@
 use rusqlite::Connection;
 
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
+pub const SERVICE_HEALTH_RETENTION: i64 = 10_000;
+
+pub(super) const COMPACT_SERVICE_HEALTH_SQL: &str = r#"
+    DELETE FROM service_health
+    WHERE rowid IN (
+        SELECT rowid FROM service_health
+        ORDER BY probed_at DESC, rowid DESC
+        LIMIT -1 OFFSET ?1
+    )
+"#;
 
 pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
@@ -42,6 +52,8 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_health_service_time
             ON service_health(service_id, probed_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_health_time
+            ON service_health(probed_at DESC);
 
         CREATE TABLE IF NOT EXISTS activity (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -80,8 +92,17 @@ pub fn migrate_schema(conn: &Connection) -> rusqlite::Result<()> {
         let _ = conn.execute(sql, []); // silently ignore "duplicate column" on re-run
     }
     conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_health_time ON service_health(probed_at DESC)",
+        [],
+    )?;
+    compact_service_health(conn)?;
+    conn.execute(
         "INSERT OR REPLACE INTO schema_version (id, version) VALUES (1, ?1)",
         [SCHEMA_VERSION],
     )?;
     Ok(())
+}
+
+pub fn compact_service_health(conn: &Connection) -> rusqlite::Result<usize> {
+    conn.execute(COMPACT_SERVICE_HEALTH_SQL, [SERVICE_HEALTH_RETENTION])
 }

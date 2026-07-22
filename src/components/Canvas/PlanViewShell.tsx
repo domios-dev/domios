@@ -60,9 +60,9 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
 
   const renderCompanionChat = useCallback(
     ({ paneId, chatBackend }: { paneId: string; chatBackend: boolean }) => (
-      <PaneSessionChat paneId={paneId} chatBackend={chatBackend} isVisible />
+      <PaneSessionChat paneId={paneId} api={props.api} chatBackend={chatBackend} isVisible />
     ),
-    [],
+    [props.api],
   );
 
   return (

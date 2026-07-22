@@ -15,7 +15,9 @@ import { useGraphWorkers } from "./useGraphWorkers";
 import { MemorySpawnWorkerDialog } from "./MemorySpawnWorkerDialog";
 import { AgentRunLogPopup } from "../AgentRun/AgentRunLogPopup";
 import { RunChatPopup } from "../AgentRun/RunChatPopup";
+import { AgentIcon } from "../AgentIcon";
 import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
+import { isTerminalWorkerStatus } from "../AgentRun/workerEmptyState";
 
 interface Props {
   api: ApiConfig;
@@ -132,8 +134,8 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
     }
   }, [autoScroll]);
 
-  const live = useMemo(() => workers.filter((w) => w.status !== "done" && w.status !== "error" && w.status !== "orphaned"), [workers]);
-  const recent = useMemo(() => workers.filter((w) => w.status === "done" || w.status === "error" || w.status === "orphaned").slice(0, 20), [workers]);
+  const live = useMemo(() => workers.filter((w) => !isTerminalWorkerStatus(w.status)), [workers]);
+  const recent = useMemo(() => workers.filter((w) => isTerminalWorkerStatus(w.status)).slice(0, 20), [workers]);
 
   const handleKill = useCallback(
     async (workerId: string) => {
@@ -385,7 +387,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
             provider={logWorker.agent_provider ?? defaultSpawnProviderId()}
             cwd={logWorker.cwd ?? ""}
             sessionId={logWorker.session_id}
-            live={!["done", "error", "orphaned"].includes(logWorker.status)}
+            live={!isTerminalWorkerStatus(logWorker.status)}
             onClose={() => setLogWorker(null)}
           />
         ) : (
@@ -401,9 +403,8 @@ interface WorkerCardProps {
   onKill: (() => void) | null;
 }
 
-function WorkerCard({ worker, onOpen, onKill }: WorkerCardProps) {
-  const isDone =
-    worker.status === "done" || worker.status === "error" || worker.status === "orphaned";
+export function WorkerCard({ worker, onOpen, onKill }: WorkerCardProps) {
+  const isDone = isTerminalWorkerStatus(worker.status);
   const elapsed = (() => {
     const end = isDone && worker.done_at ? worker.done_at : Date.now();
     const diff = end - worker.spawned_at;
@@ -423,6 +424,13 @@ function WorkerCard({ worker, onOpen, onKill }: WorkerCardProps) {
       title={isDone ? "View log" : "View live output"}
     >
       <span className="flex-1 text-[11px] truncate text-[var(--ct-fg)]">{intent}</span>
+      {worker.agent_provider && (
+        <AgentIcon
+          providerId={worker.agent_provider}
+          className="text-[12px] shrink-0"
+          title={`Executed by ${worker.agent_provider}`}
+        />
+      )}
       {worker.model && (
         <span className="text-[9px] text-[var(--ct-muted-fg)] shrink-0 truncate max-w-[80px]">
           {worker.model}

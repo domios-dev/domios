@@ -57,13 +57,13 @@ for _ in $(seq 1 30); do
 done
 sleep 3
 # A BARE agent strands the cycle — prime it to run the exact command each injection names.
-dc pane send --pane "$PANE" "You are a test orchestrator. Stay idle at your prompt. When you receive an injected message naming an exact shell command (e.g. codeterm orchestrator handoff --plan ..., or codeterm plan state ...), run THAT exact command verbatim, using the plan id written in the message. Do nothing else." >/dev/null 2>&1
+dc send --tab "$PANE" "You are a test orchestrator. Stay idle at your prompt. When you receive an injected message naming an exact shell command (e.g. codeterm orchestrator handoff --plan ..., or codeterm plan state ...), run THAT exact command verbatim, using the plan id written in the message. Do nothing else." >/dev/null 2>&1
 sleep 2
 
 OFF=$(log_offset)
 
 echo "== [3/6] trigger refresh"
-dc orchestrator refresh --plan "$PLAN" --pane "$PANE" || {
+dc orchestrator refresh --plan "$PLAN" --tab "$PANE" || {
   echo "FAIL: refresh trigger returned non-zero" >&2; exit 1; }
 
 echo "== [4/6] wait for the terminal marker (resumed or alert)"

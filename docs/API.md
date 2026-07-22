@@ -139,9 +139,9 @@ Closed panes and workspaces are recorded in a persistent ring. Every close actio
 | POST | `/api/panes/{id}/agent-type` | `{agent_type}` | Mark a pane as running a specific agent provider |
 | POST | `/api/panes/{id}/prompt/respond` | `{response}` | Respond to a pending permission prompt |
 | POST | `/api/panes/{id}/prompt/clear` | — | Clear a pending permission prompt |
-| GET | `/api/agents/providers` | — | List registered agent providers **and open agent shells**. Each entry carries `id`, `display_name`, `available_models`, `default_model`, `settings_schema`, etc. plus a **`kind`** field: `"agent"` (PTY providers — claude/codex/opencode) or `"shell"` (installed `chatBackend` plugins, e.g. lmstudio). Shell entries also carry `presets` and `supports_chat_ui: true`. Single source of truth for "what agents and shells does this CodeTerm instance know about" — frontend dropdowns, CLI `agent providers/models`, and cron/mem job dialogs all read from here. |
+| GET | `/api/agents/providers` | — | List registered agent providers **and open agent shells**. Each entry carries `id`, `display_name`, `available_models`, `default_model`, `reasoning_efforts` (declared launch-time effort levels — empty ⇒ no effort selector), `default_reasoning_effort`, `settings_schema`, etc. plus a **`kind`** field: `"agent"` (PTY providers — claude/codex/opencode) or `"shell"` (installed `chatBackend` plugins, e.g. lmstudio). Shell entries also carry `presets` and `supports_chat_ui: true`. Single source of truth for "what agents and shells does this CodeTerm instance know about" — frontend dropdowns, CLI `agent providers/models`, and cron/mem job dialogs all read from here. |
 | GET | `/api/providers` | — | Public provider list alias for agent/provider selectors |
-| POST | `/api/agents/spawn` | `{agent?, agent_name?, title?, description?, cwd?, role?, role_profile?, parent_pane_id?, can_spawn?, task?, args?, workspace_id?, model?, system_prompt? (alias `system`), preset?, charter?, tick_interval_secs?, nudge_cooldown_secs?, max_actions_per_tick?, report_to?, origin_peer?}` | One-call agent spawn (see below). `description` follows the same trim/empty-clear/200-char validation as pane describe. Routing is **by capability, not identity**: if `agent` matches a `chatBackend` shell id, the request opens an open agent shell (threading `system_prompt`/`preset`/`model` and watcher `mode`/`engine` fields into the shell's `openSession` ctx); otherwise the PTY agent path. `role` accepts `Orchestrator`, `Manager`, `Worker`, plus `Planner`/`Watcher` sugar that maps to `Manager` with `role_profile`. Watcher spawns require a watcher-capable `chatBackend` shell and `charter`; policy fields are clamped by the host. An unknown id errors with the available agent **and** shell ids. `report_to` sets where the worker's `agent report` lands (pane id or `main`/`general` alias). `origin_peer` is **never client-supplied** — the mesh relay stamps it from the authenticated sender so a worker spawned via `agent spawn --mesh PEER` reports back across the mesh; see *Remote mesh workers*. |
+| POST | `/api/agents/spawn` | `{agent?, agent_name?, title?, description?, cwd?, role?, role_profile?, parent_pane_id?, can_spawn?, task?, args?, workspace_id?, model?, reasoning_effort? (alias `reasoning-effort`), system_prompt? (alias `system`), preset?, charter?, tick_interval_secs?, nudge_cooldown_secs?, max_actions_per_tick?, report_to?, origin_peer?}` | One-call agent spawn (see below). `description` follows the same trim/empty-clear/200-char validation as pane describe. `reasoning_effort` is capability-validated against the provider's `reasoning_efforts`: an unsupported value is rejected with a structured error and **no agent launch** (never silently downgraded); the resolved effort and its `{planned,requested,resolved,actual}` provenance ride back on the spawn result. Routing is **by capability, not identity**: if `agent` matches a `chatBackend` shell id, the request opens an open agent shell (threading `system_prompt`/`preset`/`model` and watcher `mode`/`engine` fields into the shell's `openSession` ctx); otherwise the PTY agent path. `role` accepts `Orchestrator`, `Manager`, `Worker`, plus `Planner`/`Watcher` sugar that maps to `Manager` with `role_profile`. Watcher spawns require a watcher-capable `chatBackend` shell and `charter`; policy fields are clamped by the host. An unknown id errors with the available agent **and** shell ids. `report_to` sets where the worker's `agent report` lands (pane id or `main`/`general` alias). `origin_peer` is **never client-supplied** — the mesh relay stamps it from the authenticated sender so a worker spawned via `agent spawn --mesh PEER` reports back across the mesh; see *Remote mesh workers*. |
 | GET | `/api/remote-workers` | `?pane=<id>` | Orchestrator-side view of remote (cross-mesh) workers, populated from inbound mesh reports. With `?pane=` returns that orchestrator's workers; otherwise the full `{ pane_id: RemoteWorker[] }` map. `RemoteWorker = {peer, remote_pane, title, model, status, last_message, last_seen_ms}`. Live updates via the `remote-workers-changed` event. |
 
 #### Interactive chat prompts (#162)
@@ -289,7 +289,7 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 | POST | `/api/mesh/approve` | `{request_id}` | Accept an incoming pairing request |
 | POST | `/api/mesh/reject` | `{request_id}` | Reject and block an incoming pairing request |
 | POST | `/api/mesh/disconnect` | `{instance_id}` | Unpair from a paired peer (notifies remote side) |
-| POST | `/api/mesh/pair/request` | `PairingRequest` | Inbound pairing request from a peer |
+| POST | `/api/mesh/pair/request` | `PairingRequest` | Inbound pairing request; returns `{ok, instance_id}` so a manual target is promoted before acceptance |
 | POST | `/api/mesh/pair/accept` | `PairingAccept` | Inbound acceptance for a pairing request |
 | POST | `/api/mesh/pair/confirm` | `PairingConfirm` | Inbound pairing confirmation |
 | POST | `/api/mesh/pair/reject` | `{request_id}` | Inbound pairing rejection |
@@ -298,6 +298,7 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 | POST | `/api/mesh/broadcast/start` | — | Start local discovery broadcast |
 | POST | `/api/mesh/broadcast/stop` | — | Stop local discovery broadcast |
 | POST | `/api/mesh/relay` | `{method, path, body}` | Relay an API call to a remote peer |
+| POST | `/api/mesh/rpc` | `{method, params, request_id}` | Execute allowlisted plan/spec/task/team JSON-RPC through the peer's in-process dispatcher. Requires full peer access and deduplicates by request ID. |
 | GET | `/api/mesh/relay-stream` | `?peer=<id>&path=<streamable>&since=<cursor>` | Browser→local byte-pipe of a peer's own `/api/events/stream` or `/api/output/stream`, cursor-resumed and un-timed. Peer unreachable → `504` `peer-unreachable`. |
 | GET | `/api/mesh/relay-asset/{peer}/{*path}` | `?token=<LOCAL>` | Read-only, `plugins/{id}/ui/*`-scoped byte proxy for a peer's plugin-UI iframe. |
 | DELETE | `/api/mesh/peers/{id}` | — | Remove a peer (used internally by disconnect broadcast) |
@@ -838,11 +839,25 @@ Restart the agent in a pane. Default behaviour is graceful: send the provider-sp
 - `429` — rate-limited (returns `Retry-After` header + `{"retry_after_secs": N}` body); restart is throttled per-pane to avoid restart loops
 - `500` — internal restart failure (PTY spawn error, etc.)
 
-This is the same flow `codeterm agent restart --pane PANE_ID [--force] [--grace-secs N]` invokes from the CLI.
+This is the same flow `codeterm agent restart --tab PANE_ID [--force] [--grace-secs N]` invokes from the CLI.
 
 ### Plan Task Attempts
 
 Task execution attempts are append-only history on `Task.execution_attempts`. The CLI/API uses the canonical stable `TaskExecutionAttempt.id` as `attempt_id`; `executor_pane_id` remains the executor identity and is not the primary key. Respawning creates a new Worker pane and a new live attempt; it never reactivates the selected historical attempt.
+
+### Team-bound plan creation
+
+An orchestrator's first plan creation is atomic: its response includes `plan.team_id`, top-level `team_id`, and `team_minted`. When `team_minted` is true, `_hints` includes `codeterm team rename <team_id> <name>` and `codeterm docs ORCHESTRATION`. The `mux-state-changed` snapshot includes the Team registry in `teams` and each pane's `team_id`; committed plan mutations also emit `plan-changed`. A Team with an active plan refuses a second plan with the unchanged `team_already_has_active_plan` error.
+
+### Team-bound plan activation and transfer
+
+Every active plan must reference exactly one live Team, and a live Team may have only one active plan. `POST /api/plans/{id}/unarchive` and `POST /api/plans/{id}/resume` reject a missing or stale Team binding; unarchive also rejects a Team that already owns another active plan. `team.adopt_plan` activates an archived/teamless plan atomically, replaces its retired owner with the target Team's sole live Orchestrator, records owner history, clears the stale planner binding, and relinks live task hierarchy to that Orchestrator. A Team with zero or multiple live Orchestrators cannot adopt implicitly; use an explicit transfer destination when applicable.
+
+`POST /api/plans/{id}/transfer` accepts `{to: OrchestratorRef, reason?}` and requires `X-CodeTerm-Pane-Id` to identify the source Team's Orchestrator or planner-profile Manager. Missing callers, Workers, and foreign-Team panes receive `403` without mutation. The destination must be a live Orchestrator belonging to a live Team. Owner, owner history, Team binding, and stale planner retirement are one storage mutation, followed by hierarchy relinking under the Team lock.
+
+### Close Team (POST /api/teams/{team_id}/close)
+
+Explicitly closes every Team member through the Team cascade path, removes the Team registry entry, archives and detaches every bound plan, retires each plan owner into owner history, clears its owner/planner routing authority, and emits one committed `mux-state-changed`. This is the only user operation that removes a Team; ordinary pane and tab closes always retain the Team record. The `X-CodeTerm-Pane-Id` header is required and must identify the Team's Orchestrator or planner-profile Manager. Missing header returns `400`, unauthorized or foreign callers return `403`, and an unknown or already closed Team returns structured `404`.
 
 | Method | Path | Body / Query | Description |
 |--------|------|--------------|-------------|
@@ -945,7 +960,7 @@ All fields are optional. `agent` defaults to `"claude"`. For Claude, `--dangerou
 
 A worker spawned on another peer with `codeterm agent spawn <agent> --mesh PEER [--report-to <pane|main|general>]` gets a **durable cross-mesh report target**: the CLI relays the spawn to `PEER`, whose relay ingress stamps an authenticated `origin_peer` onto the body, and the spawned pane persists `report_target_mesh_peer = <caller's peer>` + `report_target_pane_id = <report_to>` (defaults to the caller's pane).
 
-The worker then just runs `codeterm agent report "..."` — no `--mesh`, no `--pane`. Its daemon resolves the remote target and relays the report over the same signed `/send` path (with `kind: "report"`), so it surfaces on the origin peer as `[Report from <worker>@<peer>]`, identical to a local report. If no target resolves, `agent report` fails with an actionable hint instead of silently dropping.
+The worker then just runs `codeterm agent report "..."` — no `--mesh`, no `--tab`. Its daemon resolves the remote target and relays the report over the same signed `/send` path (with `kind: "report"`), so it surfaces on the origin peer as `[Report from <worker>@<peer>]`, identical to a local report. If no target resolves, `agent report` fails with an actionable hint instead of silently dropping.
 
 Report routing precedence: **remote mesh target → `parent_pane_id` → `report_target_pane_id` → `spawned_by_pane_id`**; never self.
 
@@ -1111,12 +1126,68 @@ Newline-delimited JSON:
 | `workspace.reopen_closed` | `{workspace_id, index?}` | Reopen the nth recently-closed pane in a workspace (`index` 0 = most recent). Returns `TabInfo`. |
 | `workspace.reopen_closed_group` | `{group_id}` | Reopen a closed group by `group_id`. Returns `{workspace_id, tab_id, pane_id}`. |
 | `workspace.move_tab` | `{tab_id, from_workspace_id, to_workspace_id}` | Move tab |
+| `team.list` | — | Return `{teams: Team[]}` from the live Team registry. |
+| `team.show` | `{team_id}` | Return `{team: Team}` or reject an unknown Team. |
+| `team.rename` | `{team_id, name, caller_pane_id?}` | Rename a Team and emit `mux-state-changed`. |
+| `team.close` | `{team_id, caller_pane_id?}` | Explicitly cascade-close Team members, remove the registry entry, archive/detach bound plans, retire owner/planner routing, and emit `mux-state-changed`. |
+| `team.adopt_plan` | `{team_id, plan_id, caller_pane_id}` | Atomically activate an existing plan 1:1 under the Team's sole live Orchestrator, replace owner/history, clear stale planner routing, relink hierarchy, and emit both `plan-changed` and `mux-state-changed`. The caller is required and must manage the destination Team. |
+| `plan.transfer` | `{plan_id, to: OrchestratorRef, reason?, caller_pane_id}` | Transfer atomically to the destination Orchestrator's live Team. The caller is required and must manage the source Team. |
 | `pane.list` | — | List panes |
 | `pane.focus` | `{pane_id}` | Focus pane |
 | `pane.close` | `{pane_id}` | Close pane |
 | `pane.send_text` | `{pane_id, text, enter?}` | Send text to PTY (`enter` defaults to `true`, appends `\r`) |
 | `pane.get_output` | `{pane_id, max_bytes?}` | Read terminal output |
 | `pane.rename` | `{pane_id, title}` | Rename pane (pinned) |
+| `mem.stats` | — | Return memory item, vector, entity, and relation counts over the daemon socket. |
+| `mem.search` | `{q, kind?, area?, scope?, project?, limit?, rerank?}` | Search memory and the optional project plan index over the daemon socket. |
+| `mem.get` | `{id}` | Fetch one mem item by id. |
+| `mem.save` | `{kind, title, body, scope?, summary?, area?, tags?, importance?, source_path?, replace?, skip_extract?, pinned?}` | Create a mem item; may spawn an auto-extraction worker. |
+| `mem.delete` | `{id}` | Delete a mem item by id. |
+| `mem.forget` | `{area}` | Batch-delete every item in an area. |
+| `mem.update` | `{id, title?, summary?, area?, tags?, body?, importance?, pinned?, changed_by?}` | Partial update; also used for pin/unpin (`pinned: true/false`). |
+| `mem.pinned` | `{limit?}` | List pinned items. |
+| `mem.append` | `{id, text, changed_by?}` | Append text to an item's body (non-destructive). |
+| `mem.restore` | `{id, version?, changed_by?}` | Restore a prior body from the audit history. |
+| `mem.wake_up` | `{budget?, l0_only?, no_l0?, explain?, workspace?}` | L0+L1 wake-up context text. |
+| `mem.learn` | `{text, kind?, tags?}` | Capture a quick learning. |
+| `mem.learn_promote` | `{id}` | Promote a learning to a fact. |
+| `mem.flush` | `{pane, title?}` | Flush a tab's PTY scrollback as a `conversation` mem item. |
+| `mem.sync` | `{path?}` | Trigger file sync for source-tracked items (Librarian). |
+| `mem.reembed` | `{scope?}` | Re-embed mem items and/or graph entities. |
+| `mem.extract_pending` | `{limit?}` | Re-queue extraction workers for un-extracted items. |
+| `mem.history` | `{id}` | Full audit trail for one item. |
+| `mem.taxonomy` | `{workspace?}` | `{area -> {kind -> count}}` breakdown. |
+| `mem.tail` | `{since?, limit?}` | Recent mem writes, newest first. |
+| `mem.calibration.log` | `{since?, limit?, count?}` | Calibration audit log (importance/archive changes). |
+| `mem.calibration.sweep` | `{force?}` | Trigger the dreamer's importance/archive sweep. |
+| `mem.worker.spawn` | `{intent, task, agent?, parent?}` | Spawn a hidden graph worker. |
+| `mem.worker.list` | — | List all graph workers. |
+| `mem.worker.get` | `{id}` | Fetch one graph worker by id. |
+| `mem.worker.progress` | `{id, text, status?}` | Report worker progress (called by the worker itself). |
+| `mem.worker.report` | `{id, summary}` | Submit a worker's final report and mark it done. |
+| `mem.worker.kill` | `{id}` | Kill a graph worker. |
+| `mem.graph.create` | `{id, type, scope?, properties?}` | Create a graph entity. |
+| `mem.graph.relate` | `{from, rel, to, valid_from?, valid_to?, confidence?, scope?, reason?}` | Create a relation. |
+| `mem.graph.related` | `{id, rel?, as_of?, include_invalidated?}` | List outgoing relations from an id. |
+| `mem.graph.invalidate` | `{from, rel, to, ended?}` | Invalidate a relation (preserves history). |
+| `mem.graph.timeline` | `{entity, include_invalidated?}` | Full temporal timeline for an entity. |
+| `mem.graph.traverse` | `{from, hops?, max_nodes?, as_of?, include_invalidated?}` | BFS traversal from an entity. |
+| `mem.graph.path` | `{from, to, max_hops?, include_invalidated?}` | Shortest path between two entities. |
+| `mem.graph.tunnels` | `{include_invalidated?}` | List entities bridging 2+ areas. |
+| `mem.graph.alias` | `{alias, canonical}` | Merge one entity into another. |
+| `mem.graph.repair.find_relations` | `{group_by, limit?}` | Find duplicate relations (read-only). |
+| `mem.graph.repair.delete_relations` | `{rowids, actor?}` | Delete relations by rowid (audited). |
+| `mem.graph.repair.merge_relations` | `{keep, merge, actor?}` | Merge relations into `keep`. |
+| `mem.graph.repair.find_entities` | `{strategy, limit?}` | Find duplicate entities. |
+| `mem.graph.repair.augment_entity` | `{id, patch, actor?}` | Patch properties on an entity (audited). |
+| `mem.graph.repair.delete_entity` | `{id, force?, purge_history?, actor?}` | Delete an entity (audited). |
+| `mem.graph.repair.orphan_vectors` | `{dry_run?, actor?}` | Find/delete orphan `mem_vectors` rows. |
+| `mem.graph.repair.prune_thin_vectors` | `{dry_run?, actor?}` | Find/delete bodyless-embedding vectors. |
+| `mem.graph.repair.collapse_synonym_edges` | `{dry_run?, actor?}` | Collapse parallel membership-synonym edges. |
+| `mem.graph.repair.prune_dream_hub_edges` | `{dry_run?, actor?}` | Invalidate dream-diary backlinks into hubs. |
+| `mem.graph.repair.orphan_blobs` | `{dry_run?, actor?}` | Find/delete unreferenced blob files. |
+
+`codeterm mem` routes its full item/history/taxonomy/tail/learn/wake-up/sync/skill/worker/calibration/graph surface over these socket methods — HTTP is no longer attempted for any of it, so a live socket with a dead HTTP API no longer breaks `mem`. A handful of `mem graph` subcommands (route, purge-invalidated, revive-broken, introduce-topic, hubs, islands, orphans, get) are local-only by design — the CLI opens `knowledge.db` directly and never touches either transport. `mem secret` is the one deliberate holdout: `mem.secret.*` gets an explicit `-32004` rejection over the socket (see `secret_socket_rejection` in `socket/server/mem/mod.rs`) because it's the only mem surface that can return plaintext credentials and the socket has no auth gate, so it stays on the bearer-token-gated `/api/secrets/*` HTTP API by design, not because it's unmigrated.
 | `notification.create` | `{title, body?, level?, pane_id?}` | Create notification |
 | `notification.list` | `{unread_only?}` | List notifications |
 | `notification.clear` | `{id?}` | Clear notifications |
@@ -1154,6 +1225,8 @@ Newline-delimited JSON:
 | `activity.list` | `{source?, since?, limit?}` | Read recent activity events (push / health / peer / cron). Defaults: `limit=500`. |
 | `bridge.send` | `{text, chat_id?, service?, append?, type?, file?, caption?, filename?}` | Send message or media to external service (Telegram). `type`: `text`/`photo`/`document`/`voice`/`animation`/`video`/`sticker`. `file`: absolute path for media. `append`: concatenate to previous message. |
 
+For `team.rename` and `team.close`, omitted `caller_pane_id` is the trusted direct-user path on the local socket. `team.adopt_plan` requires a non-empty caller belonging to the destination Team as its Orchestrator or planner-profile Manager; missing callers, Workers, and foreign panes are rejected before mutation. Adoption preserves the structured `team_already_has_active_plan` conflict when the Team already owns another active plan. Events are emitted only after persistence succeeds.
+
 ## CLI
 
 The complete CLI reference is auto-generated from the clap command tree:
@@ -1162,13 +1235,13 @@ machine-readable tree lives in `docs/cli-manifest.json`.
 
 ### CLI JSON ID Contract
 
-For create/add/spawn-style commands, `--json` output exposes the newly created
-entity id as top-level `id`. Existing typed id fields remain present for context
-and compatibility, such as `plan_id`, `task_id`, `spec_id`, `section_id`,
-`pane_id`, and `workspace_id`. For compound responses, `id` names the primary
-entity created by the command: for example `plan create --json` returns
-`id == plan_id`, `plan task add --json` returns `id == task_id`, and
-`agent spawn --json` returns `id == pane_id`.
+Planner mutation commands emit one JSON envelope:
+`{ok, kind, id, data, hints?, error?}`. `id` is the primary created or mutated
+entity id, and `data` contains the raw daemon payload with typed fields such as
+`plan_id`, `task_id`, `spec_id`, and `section_id`. For example,
+`spec create --json` returns `kind == "spec"` and `id == spec_id`,
+`plan create --json` returns `kind == "plan"` and `id == plan_id`, and
+`plan task add --json` returns `kind == "task"` and `id == task_id`.
 
 ### Internal Tauri Commands
 
@@ -1279,4 +1352,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 74 -->
+<!-- revision: 85 -->

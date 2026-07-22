@@ -1,0 +1,194 @@
+.rand-concepts *,
+.rand-concepts *::before,
+.rand-concepts *::after {
+  box-sizing: border-box;
+}
+
+.rand-motion {
+  display: grid;
+  width: 24px;
+  height: 14px;
+  place-items: center;
+}
+
+.rand-stage {
+  position: relative;
+  width: 24px;
+  height: 14px;
+  color: var(--lab-accent);
+}
+
+.rand-anchor,
+.rand-active {
+  position: absolute;
+  display: block;
+  color: var(--lab-accent);
+}
+
+.rand-anchor {
+  opacity: 0.32;
+}
+
+.accepted-tier .rand-anchor { opacity: 0.48; }
+
+.rand-active {
+  opacity: 0.9;
+  animation-duration: var(--motion-period-ambient);
+  animation-timing-function: var(--motion-ease-standard);
+  animation-iteration-count: infinite;
+}
+
+.rand-quiet-press .rand-anchor {
+  top: 1px;
+  left: 2px;
+  width: 20px;
+  height: 13px;
+  border-top: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  border-left: 2px solid currentColor;
+  border-radius: 2px 0 0 2px;
+}
+
+.rand-quiet-press .rand-anchor::after {
+  position: absolute;
+  top: 0;
+  right: 2px;
+  width: 8px;
+  height: 5px;
+  border-right: 2px solid currentColor;
+  border-left: 2px solid currentColor;
+  content: "";
+}
+
+.rand-quiet-press .rand-active {
+  top: 4px;
+  left: 14px;
+  width: 4px;
+  height: 4px;
+  border-radius: 0 0 1px 1px;
+  background: currentColor;
+  transform-origin: center top;
+  animation-name: rand-press-working;
+  animation-duration: calc(var(--motion-period-ambient) * .96);
+  animation-delay: .2s;
+}
+
+.rand-bench-clamp .rand-anchor {
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 11px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  border-radius: 0 0 2px;
+}
+
+.rand-bench-clamp .rand-active {
+  top: 3px;
+  left: 8px;
+  width: 7px;
+  height: 8px;
+  border-bottom: 2px solid currentColor;
+  border-left: 3px solid currentColor;
+  border-radius: 1px 0 0;
+  animation-name: rand-clamp-working;
+}
+
+.rand-torque-driver .rand-anchor {
+  top: 4px;
+  left: 15px;
+  width: 7px;
+  height: 7px;
+  border: 2px solid currentColor;
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+
+.rand-torque-driver .rand-active {
+  top: 6px;
+  left: 2px;
+  width: 13px;
+  height: 3px;
+  border-radius: 2px;
+  background: currentColor;
+  transform-origin: 13px 1.5px;
+  animation-name: rand-driver-working;
+  animation-duration: calc(var(--motion-period-ambient) * 1.14);
+  animation-delay: .95s;
+}
+
+.rand-torque-driver .rand-anchor::before,
+.rand-torque-driver .rand-anchor::after {
+  position: absolute;
+  width: 3px;
+  height: 1px;
+  border-radius: 1px;
+  background: currentColor;
+  content: "";
+  opacity: 0;
+  animation: rand-driver-spark calc(var(--motion-period-ambient) * 1.14) var(--motion-ease-exit) .95s infinite;
+}
+
+.rand-torque-driver .rand-anchor::before { top: -3px; right: -3px; transform: rotate(-32deg); }
+.rand-torque-driver .rand-anchor::after { right: -4px; bottom: -2px; transform: rotate(28deg); animation-delay: 1.02s; }
+
+@keyframes rand-press-working {
+  0%, 9% { transform: translateY(0); }
+  15% { transform: translateY(-1px); animation-timing-function: var(--motion-ease-exit); }
+  26% { transform: translateY(4px); animation-timing-function: var(--motion-ease-standard); }
+  32% { transform: translateY(4px); animation-timing-function: var(--motion-ease-enter); }
+  40% { transform: translateY(.75px); animation-timing-function: var(--motion-ease-standard); }
+  48%, 100% { transform: translateY(0); }
+}
+
+@keyframes rand-clamp-working {
+  0%, 4%, 30%, 100% {
+    transform: translateX(0);
+  }
+
+  4% {
+    animation-timing-function: var(--motion-ease-standard);
+  }
+
+  10% {
+    transform: translateX(-1px);
+    animation-timing-function: var(--motion-ease-exit);
+  }
+
+  15% {
+    transform: translateX(5px);
+    animation-timing-function: var(--motion-ease-standard);
+  }
+
+  25% {
+    transform: translateX(1px);
+    animation-timing-function: var(--motion-ease-standard);
+  }
+}
+
+@keyframes rand-driver-working {
+  0%, 10% { transform: translateX(0) rotate(0deg); }
+  18% { transform: translateX(-.75px) rotate(-2deg); animation-timing-function: var(--motion-ease-exit); }
+  28% { transform: translateX(3px) rotate(0deg); animation-timing-function: var(--motion-ease-standard); }
+  34% { transform: translateX(3px) rotate(12deg); animation-timing-function: var(--motion-ease-enter); }
+  40% { transform: translateX(3px) rotate(5deg); animation-timing-function: var(--motion-ease-standard); }
+  48% { transform: translateX(.75px) rotate(0deg); animation-timing-function: var(--motion-ease-standard); }
+  56%, 100% { transform: translateX(0) rotate(0deg); }
+}
+
+@keyframes rand-driver-spark {
+  0%, 32% { opacity: 0; }
+  35% { opacity: .95; }
+  42% { opacity: .35; }
+  47%, 100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rand-active {
+    animation: none !important;
+    transform: none !important;
+  }
+
+  .rand-torque-driver .rand-anchor::before,
+  .rand-torque-driver .rand-anchor::after { animation: none !important; }
+}

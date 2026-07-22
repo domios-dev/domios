@@ -15,14 +15,19 @@
 pub mod activity;
 pub mod agent_restart;
 pub mod boot_stage;
+mod boot_wait;
 mod command_port_impl;
 pub mod cron;
+pub mod delivery_error;
 pub mod general_agent;
 pub mod health;
 mod hierarchy;
 mod inject_safety;
 pub mod inject_verify;
 pub mod input_parser;
+pub(crate) mod launch_delivery;
+pub(crate) mod launch_diagnostics;
+pub mod message_gateway;
 pub mod messenger;
 pub mod notification;
 mod orchestration_pair;
@@ -36,19 +41,24 @@ pub mod pane_budget;
 pub mod pane_chat;
 pub mod pane_transport;
 pub mod pane_transport_chat;
+pub(crate) mod pending_delivery_payloads;
 pub mod plan;
 mod plan_reconcile;
 pub mod plugin_host;
+pub(crate) mod pty_activation;
 pub mod pty_io;
 pub mod pty_lifecycle;
+pub(crate) mod pty_ownership;
 pub mod push;
 pub mod remote_workers;
+mod role_identity;
 mod role_profile;
 pub mod session_persist;
 pub mod smart_add;
 pub mod spawn;
 mod spawn_chatbackend;
 mod spawn_cli;
+mod spawn_factory;
 mod spawn_guard;
 mod spawn_params;
 mod spawn_plan_task;
@@ -56,14 +66,27 @@ pub(crate) mod spawn_title;
 pub mod store;
 pub mod structured_prompt;
 pub mod sync_watcher;
+mod team;
+#[cfg(test)]
+pub(crate) use team::close_team_with_state_change;
+#[cfg(test)]
+pub(crate) use team::rename_team_core;
+#[cfg(test)]
+pub(crate) use team::rename_team_with_state_change;
 #[cfg(test)]
 mod tests;
 pub mod tokens;
 pub mod transport;
 pub mod watcher;
+mod worker_identity;
+mod worker_lane;
+#[cfg(test)]
+pub(crate) use worker_lane::provision_lane_for_test;
+pub(crate) use worker_lane::ProvisionedWorkerLane;
+mod worker_persona;
 mod workspace;
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use serde::Serialize;
@@ -79,18 +102,30 @@ use crate::{
 };
 
 // Re-export public types used by callers.
+pub(crate) use hierarchy::FirstPlanTeamError;
 pub use hierarchy::PaneStatusInfo;
 pub use inject_verify::{
-    screen_contains_echo, snapshot_prompt_line, wait_for_echo, wait_for_submit_shell,
-    wait_for_submit_tui_drained, InjectionError, InjectionResult, VerifyOpts,
+    screen_contains_echo, snapshot_prompt_line, wait_for_submit_shell, InjectionError,
+    InjectionResult, VerifyOpts,
 };
 pub use orchestration_pair::{OrchestrationPairParams, OrchestrationPairResult};
+#[cfg(test)]
+pub(crate) use orchestrator::{arm_provider_session_for_test, LaunchGeneration};
+pub(crate) use orchestrator::{record_provider_session, ProviderSessionBinding};
 pub use orchestrator::{
     BatchOp, RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning, SpawnAgentParams,
-    SpawnResult,
+    SpawnIdentityProvenance, SpawnResult,
 };
 pub use pane::{normalize_pane_description, MAX_PANE_DESCRIPTION_CHARS};
 pub use pane_budget::{evaluate_pane_budget, PaneBudgetLevel, PaneBudgetNotice};
+pub(crate) use team::TeamMutationCaller;
+pub(crate) use team::TeamPlanError;
+pub(crate) use team::{AddTeamMemberParams, AddTeamMemberResult};
+pub(crate) use worker_identity::{
+    persist_attempt_executor_identity, persist_attempt_executor_identity_for_mux,
+    respawn_title_provenance,
+};
+pub(crate) use worker_persona::WorkerPersonaReservations;
 
 /// Shared service context — all state needed for multiplexer operations.
 /// Both API routes, Tauri commands, and Socket server hold a clone of this.
@@ -116,6 +151,7 @@ pub struct ServiceContext {
     pub plugin_activity: Arc<crate::plugin::activity::PluginActivityRegistry>,
     pub worker_pool: Arc<crate::mem::worker_pool::WorkerPool>,
     pub prompt_detector: PromptDetectorState,
+    pub(crate) pty_ownership: pty_ownership::PtyOwnership,
     // Stable pane→pty map for hidden agent runs; survives close_pane so the unified AgentRun log endpoints can read closed-worker output.
     pub agent_run_pty_map: Arc<parking_lot::Mutex<std::collections::HashMap<String, String>>>,
     // codeterm cron complete / mem worker report itself.
@@ -174,6 +210,8 @@ pub struct ServiceContext {
     pub agent_command_registry: crate::agent_commands::AgentCommandRegistryHandle,
     /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.
     pub mux_emit_pending: Arc<AtomicBool>,
+    /// Evidence counters for the daemon→desktop event path (event-freeze probe).
+    pub mux_emit_stats: Arc<MuxEmitStats>,
     /// Coalesces debounced session snapshots — see `schedule_session_persist_debounced`.
     pub session_persist_pending: Arc<AtomicBool>,
     pub services_store: Arc<crate::service::store::ServicesStore>,
@@ -188,7 +226,7 @@ pub struct ServiceContext {
     pub usage_activity: crate::usage::PaneActivity,
     pub user_last_activity: Arc<crate::user_last_activity::UserLastActivity>,
     pub usage_poller: Arc<parking_lot::Mutex<Option<crate::usage::UsagePoller>>>,
-    /// Canvas plan store — per-project JSON plans + in-memory index. Sole writer.
+    /// Global plan store with project-scoped queries. Sole writer.
     pub plan_store: Arc<crate::service::plan::PlanStore>,
     pub plan_watchers: Arc<
         parking_lot::Mutex<
@@ -202,15 +240,150 @@ pub struct ServiceContext {
         Arc<parking_lot::Mutex<std::collections::HashSet<std::path::PathBuf>>>,
     pub plan_startup_loaded: Arc<AtomicBool>,
     pub plan_turn_counter: Arc<crate::service::plan::reminders::TurnCounter>,
+    pub(crate) pending_delivery_payloads:
+        Arc<pending_delivery_payloads::PendingDeliveryPayloadStore>,
+    pub(crate) worker_identity_allocator:
+        Arc<parking_lot::Mutex<worker_persona::WorkerPersonaReservations>>,
+    /// The single optimistic outbound-delivery seam with idempotency.
+    /// Callers migrate onto `gateway.submit(...)` incrementally (task_1iiwnc).
+    pub(crate) gateway: Arc<crate::service::message_gateway::MessageGateway>,
 }
 
 pub type ServiceState = Arc<ServiceContext>;
+
+/// Instrumentation for the desktop `mux-state-changed` emit path. `requests` =
+/// `emit_state_changed` calls; `fires` = actual `app.emit` calls; `suppressed`
+/// = coalesced early-returns; `pending_since_ms` = epoch ms of the last
+/// false→true `mux_emit_pending` transition (0 once reset). A latched emit
+/// shows requests climbing, fires flat, pending stuck true with a growing age.
+#[derive(Default)]
+pub struct MuxEmitStats {
+    pub requests: AtomicU64,
+    pub fires: AtomicU64,
+    pub suppressed: AtomicU64,
+    pub pending_since_ms: AtomicU64,
+    /// Debug-only deterministic freeze (fault injection): when set, every
+    /// `emit_state_changed` early-returns, reproducing the latched-emit symptom
+    /// without a race against draining coalesce threads.
+    pub frozen: AtomicBool,
+}
+
+fn wall_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
 
 pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
     hierarchy::start_plan_reminder_scheduler(svc);
 }
 
 impl ServiceContext {
+    pub(crate) fn create_pending_delivery(
+        &self,
+        pane_id: &str,
+        channel: crate::multiplexer::types::PendingDeliveryChannel,
+        payload: &str,
+    ) -> Result<String, pending_delivery_payloads::PayloadStoreError> {
+        use sha2::Digest;
+        let digest = format!("{:x}", sha2::Sha256::digest(payload.as_bytes()));
+        let previous_digest = self
+            .mux
+            .read()
+            .get_pane(pane_id)
+            .and_then(|pane| pane.pending_delivery.as_ref())
+            .map(|record| record.content_digest.clone());
+        self.pending_delivery_payloads
+            .replace(previous_digest.as_deref(), &digest, payload)?;
+        let mut mux = self.mux.write();
+        let pane = mux.get_pane_mut(pane_id).ok_or_else(|| {
+            pending_delivery_payloads::PayloadStoreError::Io {
+                digest: digest.clone(),
+                message: format!("pane {pane_id} vanished while creating pending delivery"),
+            }
+        })?;
+        pane.pending_delivery = Some(crate::multiplexer::types::PendingDeliveryRecord::new(
+            digest.clone(),
+            channel,
+        ));
+        drop(mux);
+        crate::service::session_persist::persist_session_after_mutation(
+            self,
+            crate::service::session_persist::SessionPersistUrgency::Prompt,
+        )
+        .map_err(|message| pending_delivery_payloads::PayloadStoreError::Io {
+            digest: digest.clone(),
+            message,
+        })?;
+        Ok(digest)
+    }
+
+    pub(crate) fn resolve_pending_delivery(
+        &self,
+        pane_id: &str,
+    ) -> Result<Option<String>, pending_delivery_payloads::PayloadStoreError> {
+        use crate::multiplexer::types::{PendingDeliveryChannel, PendingDeliveryState};
+        let pending = self
+            .mux
+            .read()
+            .get_pane(pane_id)
+            .and_then(|pane| pane.pending_delivery.clone());
+        match pending {
+            Some(record)
+                if record.state() == PendingDeliveryState::Pending
+                    && record.channel == PendingDeliveryChannel::InteractiveInput =>
+            {
+                self.pending_delivery_payloads
+                    .resolve(&record.content_digest)
+                    .map(Some)
+            }
+            _ => Ok(None),
+        }
+    }
+
+    pub(crate) fn confirm_pending_delivery(
+        &self,
+        pane_id: &str,
+    ) -> Result<(), pending_delivery_payloads::PayloadStoreError> {
+        use crate::multiplexer::types::{PendingDeliveryChannel, PendingDeliveryState};
+        let digest = self
+            .mux
+            .read()
+            .get_pane(pane_id)
+            .and_then(|pane| pane.pending_delivery.as_ref())
+            .filter(|record| record.channel == PendingDeliveryChannel::InteractiveInput)
+            .map(|record| record.content_digest.clone());
+        let Some(digest) = digest else { return Ok(()) };
+        let mut mux = self.mux.write();
+        let pane = mux.get_pane_mut(pane_id).ok_or_else(|| {
+            pending_delivery_payloads::PayloadStoreError::Io {
+                digest: digest.clone(),
+                message: "pane vanished while confirming pending delivery".into(),
+            }
+        })?;
+        if let Some(record) = pane.pending_delivery.as_mut() {
+            if record.state() == PendingDeliveryState::Pending {
+                record.confirm().map_err(|error| {
+                    pending_delivery_payloads::PayloadStoreError::Io {
+                        digest: record.content_digest.clone(),
+                        message: format!("{error:?}"),
+                    }
+                })?;
+            }
+        }
+        drop(mux);
+        crate::service::session_persist::persist_session_after_mutation(
+            self,
+            crate::service::session_persist::SessionPersistUrgency::Prompt,
+        )
+        .map_err(|message| pending_delivery_payloads::PayloadStoreError::Io {
+            digest: digest.clone(),
+            message,
+        })?;
+        self.pending_delivery_payloads.delete(&digest)?;
+        Ok(())
+    }
     // ── Event helpers (used by all sub-modules) ─────────────────────
 
     /// Notify the UI that an orchestrator's remote (cross-mesh) workers changed.
@@ -229,24 +402,73 @@ impl ServiceContext {
     }
 
     pub(crate) fn emit_state_changed(&self) {
-        self.events
-            .publish(crate::api::events::SystemEvent::MuxStateChanged);
-        // Coalesce frontend emits to ≤1/50ms — output.rs fires this 4× per PTY chunk.
-        if self.mux_emit_pending.swap(true, Ordering::AcqRel) {
+        publish_mux_state_changed(&self.events);
+        self.emit_state_changed_after_bus_publish();
+    }
+
+    pub(crate) fn emit_state_changed_after_bus_publish(&self) {
+        self.mux_emit_stats.requests.fetch_add(1, Ordering::Relaxed);
+        #[cfg(debug_assertions)]
+        if self.mux_emit_stats.frozen.load(Ordering::Acquire) {
+            self.mux_emit_stats
+                .suppressed
+                .fetch_add(1, Ordering::Relaxed);
             return;
         }
+        // Coalesce frontend emits to ≤1/50ms — output.rs fires this 4× per PTY chunk.
+        if self.mux_emit_pending.swap(true, Ordering::AcqRel) {
+            self.mux_emit_stats
+                .suppressed
+                .fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+        self.mux_emit_stats
+            .pending_since_ms
+            .store(wall_now_ms(), Ordering::Relaxed);
         let handle = self.app_handle.clone();
         let pending = self.mux_emit_pending.clone();
         let mux = self.mux.clone();
         let agent_tracker = self.agent_tracker.clone();
+        let stats = self.mux_emit_stats.clone();
+        let spawned = std::thread::Builder::new()
+            .name("mux-emit".into())
+            .spawn(move || {
+                let snapshot = Self::coalesce_snapshot(
+                    &mux,
+                    &agent_tracker,
+                    &pending,
+                    std::time::Duration::from_millis(50),
+                );
+                stats.pending_since_ms.store(0, Ordering::Relaxed);
+                if !stats.frozen.load(Ordering::Acquire) {
+                    stats.fires.fetch_add(1, Ordering::Relaxed);
+                    let _ = handle.emit("mux-state-changed", &snapshot);
+                }
+            });
+        // Evidence build: surface a spawn failure instead of silently latching.
+        // The latch (pending stuck true) is intentionally left in place to observe.
+        if let Err(e) = spawned {
+            log::error!("[events] mux coalesce thread spawn FAILED: {e} — emit latch STUCK");
+        }
+    }
+
+    /// Emit an empty-payload `mux-state-changed` (frontend does a full refetch).
+    /// The socket handlers use this so fault injection (`frozen`) covers EVERY
+    /// desktop mux-state-changed path, not just the coalesced `emit_state_changed`.
+    pub(crate) fn emit_mux_state_changed_empty(&self) {
+        self.mux_emit_stats.requests.fetch_add(1, Ordering::Relaxed);
+        #[cfg(debug_assertions)]
+        if self.mux_emit_stats.frozen.load(Ordering::Acquire) {
+            self.mux_emit_stats
+                .suppressed
+                .fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+        let handle = self.app_handle.clone();
+        let stats = self.mux_emit_stats.clone();
         std::thread::spawn(move || {
-            let snapshot = Self::coalesce_snapshot(
-                &mux,
-                &agent_tracker,
-                &pending,
-                std::time::Duration::from_millis(50),
-            );
-            let _ = handle.emit("mux-state-changed", &snapshot);
+            stats.fires.fetch_add(1, Ordering::Relaxed);
+            let _ = handle.emit("mux-state-changed", ());
         });
     }
 
@@ -304,6 +526,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn kill_ptys(&self, pty_ids: &[String]) {
+        self.pty_ownership.release_ptys(pty_ids);
         let mut manager = self.pty.lock();
         for id in pty_ids {
             let _ = manager.kill(id);
@@ -324,9 +547,16 @@ impl ServiceContext {
             self.loaded_plan_projects
                 .lock()
                 .insert(project_root.clone());
+            self.reconcile_dangling_team_plan_bindings(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64,
+            )?;
         }
+        let legacy_plans_dir = project_root.join(".codeterm").join("plans");
         let mut watchers = self.plan_watchers.lock();
-        if !watchers.contains_key(&project_root) {
+        if legacy_plans_dir.is_dir() && !watchers.contains_key(&project_root) {
             match crate::service::plan::watcher::PlanWatcher::watch_project(
                 &project_root,
                 self.plan_store.clone(),
@@ -372,6 +602,10 @@ impl ServiceContext {
             )),
         }
     }
+}
+
+pub(crate) fn publish_mux_state_changed(events: &crate::api::events::EventBroadcaster) {
+    events.publish(crate::api::events::SystemEvent::MuxStateChanged);
 }
 
 // ── Shared data types ───────────────────────────────────────────────

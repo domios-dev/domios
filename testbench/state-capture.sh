@@ -121,7 +121,7 @@ pane_status() {
 }
 
 pane_text() {
-  dc_retry pane get-text --pane "$1" 2>/dev/null || true
+  dc_retry tab get-text --tab "$1" 2>/dev/null || true
 }
 
 spawn_agent() {
@@ -132,12 +132,12 @@ spawn_agent() {
 
 send_text() {
   local pane="$1" text="$2"
-  dc_retry send --pane "$pane" "$text" --actions enter >/dev/null
+  dc_retry send --tab "$pane" "$text" --actions enter >/dev/null
 }
 
 send_actions() {
   local pane="$1" actions="$2"
-  dc_retry send --pane "$pane" --actions "$actions" >/dev/null
+  dc_retry send --tab "$pane" --actions "$actions" >/dev/null
 }
 
 rel_ms() {
@@ -408,7 +408,7 @@ EOF
   sleep 5
   wait_idle "$pane" || true
 
-  dc_retry pane capture start --pane "$pane" --out "$out_dir/session.cast" >/dev/null
+  dc_retry tab capture start --tab "$pane" --out "$out_dir/session.cast" >/dev/null
   started_at="$(now_ms)"
   steps='[]'
   segments='[]'
@@ -534,7 +534,7 @@ EOF
   esac
 
   sleep 2
-  dc_retry pane capture stop --pane "$pane" >/dev/null || true
+  dc_retry tab capture stop --tab "$pane" >/dev/null || true
   [ -f "$out_dir/session.screen.txt" ] && mv "$out_dir/session.screen.txt" "$out_dir/screen.txt"
   [ -f "$out_dir/screen.txt" ] || pane_text "$pane" > "$out_dir/screen.txt"
 

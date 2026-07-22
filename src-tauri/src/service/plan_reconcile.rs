@@ -3,6 +3,28 @@ use std::collections::HashMap;
 use serde::Serialize;
 
 use super::ServiceContext;
+
+pub(crate) fn pane_has_live_agent(pane: &crate::multiplexer::types::Pane) -> bool {
+    let accepting_work = match pane.agent_state.as_ref() {
+        Some(state) => matches!(
+            state.state,
+            crate::agent::offline_state_classifier::TimelineState::Working
+                | crate::agent::offline_state_classifier::TimelineState::Idle
+        ),
+        None => pane.boot_stage == Some(codeterm_types::pty::BootStage::AgentReady),
+    };
+    let delivery_target = pane.chat_view
+        && match &pane.backing {
+            crate::multiplexer::types::PaneBacking::ChatBackend { .. } => true,
+            crate::multiplexer::types::PaneBacking::Pty => pane.pty_id.is_some(),
+        };
+    pane.agent_type.is_some()
+        && pane.agent_session_id.is_some()
+        && pane.session_binding_nonce.is_some()
+        && pane.session_binding_nonce == pane.reported_session_binding_nonce
+        && delivery_target
+        && accepting_work
+}
 use crate::multiplexer::types::AgentRole;
 use crate::plan::cleanup_debt::CleanupDebtTask;
 use crate::plan::lane_liveness::LaneThresholds;
@@ -156,42 +178,64 @@ impl ServiceContext {
     }
 
     pub(crate) fn pane_probe(&self, pane_id: &str) -> PaneProbe {
-        let (exists, role, parent_pane_id, agent_type, pty_id) = {
+        let (
+            exists,
+            role,
+            parent_pane_id,
+            session_id,
+            nonce,
+            reported_nonce,
+            state,
+            boot_stage,
+            chat_delivery_target,
+        ) = {
             let mux = self.mux.read();
             match mux.get_pane(pane_id) {
                 Some(pane) => (
                     true,
                     pane.role.map(map_role),
                     pane.parent_pane_id.clone(),
-                    pane.agent_type.clone(),
-                    pane.pty_id.clone(),
+                    pane.agent_session_id.clone(),
+                    pane.session_binding_nonce.clone(),
+                    pane.reported_session_binding_nonce.clone(),
+                    pane.agent_state.clone(),
+                    pane.boot_stage,
+                    pane.chat_view
+                        && match &pane.backing {
+                            crate::multiplexer::types::PaneBacking::ChatBackend { .. } => true,
+                            crate::multiplexer::types::PaneBacking::Pty => pane.pty_id.is_some(),
+                        },
                 ),
-                None => (false, None, None, None, None),
+                None => (false, None, None, None, None, None, None, None, false),
             }
         };
-        let live_agent = agent_type.is_some()
-            && pty_id
-                .as_deref()
-                .is_some_and(|pty| self.pty_has_live_agent_tui(pty));
+        let agent_accepting_work = chat_delivery_target
+            && match state.as_ref() {
+                Some(state) => matches!(
+                    state.state,
+                    crate::agent::offline_state_classifier::TimelineState::Working
+                        | crate::agent::offline_state_classifier::TimelineState::Idle
+                ),
+                None => boot_stage == Some(codeterm_types::pty::BootStage::AgentReady),
+            };
+        let session_binding_valid = nonce.is_some() && nonce == reported_nonce;
+        let live_agent = {
+            let mux = self.mux.read();
+            mux.get_pane(pane_id).is_some_and(pane_has_live_agent)
+        };
         PaneProbe {
             exists,
             live_agent,
+            agent_session_id: session_id,
+            session_binding_valid,
+            chat_delivery_target,
+            agent_accepting_work,
             role,
             parent_pane_id,
         }
     }
 
-    fn pty_has_live_agent_tui(&self, pty_id: &str) -> bool {
-        let screen = self
-            .screen_state
-            .lock()
-            .get_screen_text(pty_id)
-            .unwrap_or_default();
-        crate::pty::screen_state::screen_has_agent_tui(&screen)
-            || self.agent_registry.any_provider_screen_has_tui(&screen)
-    }
-
-    fn emit_plan_changed(&self, plan_id: &str) {
+    pub(super) fn emit_plan_changed(&self, plan_id: &str) {
         crate::api::events::emit_everywhere(
             &self.app_handle,
             "plan-changed",
@@ -229,4 +273,34 @@ fn drift_counts(items: &[DriftItem]) -> HashMap<DriftKind, usize> {
         *counts.entry(item.kind.clone()).or_insert(0) += 1;
     }
     counts
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::multiplexer::types::PaneBacking;
+
+    #[test]
+    fn pane_has_live_agent_requires_verified_session_and_supports_both_backings() {
+        let (mut mux, pane_id) = MultiplexerState::new();
+        assert!(!pane_has_live_agent(mux.get_pane(&pane_id).unwrap()));
+
+        let pane = mux.get_pane_mut(&pane_id).unwrap();
+        pane.agent_type = Some("provider-neutral".into());
+        pane.agent_session_id = Some("session-1".into());
+        pane.session_binding_nonce = Some("nonce-1".into());
+        pane.reported_session_binding_nonce = Some("nonce-1".into());
+        pane.chat_view = true;
+        pane.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
+        pane.pty_id = Some("pty-1".into());
+        assert!(pane_has_live_agent(pane));
+
+        pane.pty_id = None;
+        pane.backing = PaneBacking::ChatBackend {
+            plugin_id: "plugin".into(),
+            session_id: "session-1".into(),
+        };
+        assert!(pane_has_live_agent(pane));
+    }
 }

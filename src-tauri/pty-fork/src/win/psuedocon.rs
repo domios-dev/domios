@@ -10,23 +10,29 @@ use std::io::Error as IoError;
 use std::os::windows::ffi::OsStringExt;
 use std::os::windows::io::{AsRawHandle, FromRawHandle};
 use std::path::Path;
-use std::sync::Mutex;
 use std::{mem, ptr};
 use winapi::shared::minwindef::DWORD;
 use winapi::shared::winerror::{HRESULT, S_OK};
 use winapi::um::handleapi::*;
+use winapi::um::jobapi2::{AssignProcessToJobObject, CreateJobObjectW, SetInformationJobObject};
 use winapi::um::processthreadsapi::*;
 use winapi::um::winbase::{
-    CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT, STARTF_USESHOWWINDOW, STARTUPINFOEXW,
+    CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT,
+    STARTF_USESHOWWINDOW, STARTF_USESTDHANDLES, STARTUPINFOEXW,
 };
 use winapi::um::wincon::COORD;
-use winapi::um::winnt::HANDLE;
+use winapi::um::winnt::{
+    JobObjectExtendedLimitInformation, HANDLE, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+};
 use winapi::um::winuser::SW_HIDE;
 
 pub type HPCON = HANDLE;
 
+#[allow(dead_code)]
 pub const PSUEDOCONSOLE_INHERIT_CURSOR: DWORD = 0x1;
 pub const PSEUDOCONSOLE_RESIZE_QUIRK: DWORD = 0x2;
+#[allow(dead_code)]
 pub const PSEUDOCONSOLE_WIN32_INPUT_MODE: DWORD = 0x4;
 #[allow(dead_code)]
 pub const PSEUDOCONSOLE_PASSTHROUGH_MODE: DWORD = 0x8;
@@ -101,45 +107,21 @@ impl Drop for PsuedoCon {
 impl PsuedoCon {
     pub fn new(size: COORD, input: FileDescriptor, output: FileDescriptor) -> Result<Self, Error> {
         let mut con: HPCON = INVALID_HANDLE_VALUE;
-        // Pass-through VT preserves child rendering; ConPTY repaint mode can reorder cursor and strip colors.
-        // Retry without the flag on older Windows builds where it returns E_INVALIDARG.
-        let base_flags = PSUEDOCONSOLE_INHERIT_CURSOR
-            | PSEUDOCONSOLE_RESIZE_QUIRK
-            | PSEUDOCONSOLE_WIN32_INPUT_MODE;
+        let base_flags = PSEUDOCONSOLE_RESIZE_QUIRK;
         let input_handle = input.as_raw_handle();
         let output_handle = output.as_raw_handle();
-        let mut result = unsafe {
+        let result = unsafe {
             (CONPTY.CreatePseudoConsole)(
                 size,
                 input_handle as _,
                 output_handle as _,
-                base_flags | PSEUDOCONSOLE_PASSTHROUGH_MODE,
+                base_flags,
                 &mut con,
             )
         };
-        let passthrough_engaged = result == S_OK;
-        if result != S_OK {
-            // Retry without passthrough flag (Windows 10 / pre-22H2).
-            result = unsafe {
-                (CONPTY.CreatePseudoConsole)(
-                    size,
-                    input_handle as _,
-                    output_handle as _,
-                    base_flags,
-                    &mut con,
-                )
-            };
-        }
-        // One-line diag so the daemon log shows whether VT passthrough is in effect for ratatui TUIs.
         eprintln!(
             "[conpty] CreatePseudoConsole flags=0x{:x} HRESULT=0x{:08x}",
-            base_flags
-                | if passthrough_engaged {
-                    PSEUDOCONSOLE_PASSTHROUGH_MODE
-                } else {
-                    0
-                },
-            result as u32,
+            base_flags, result as u32,
         );
         ensure!(
             result == S_OK,
@@ -162,12 +144,8 @@ impl PsuedoCon {
     }
 
     pub fn spawn_command(&self, cmd: CommandBuilder) -> anyhow::Result<WinChild> {
-        let mut si: STARTUPINFOEXW = unsafe { mem::zeroed() };
-        si.StartupInfo.cb = mem::size_of::<STARTUPINFOEXW>() as u32;
-        // The pseudoconsole attribute owns stdio. Passing INVALID std handles here makes
-        // console children allocate a legacy conhost.exe beside the real headless ConPTY host.
-        si.StartupInfo.dwFlags = STARTF_USESHOWWINDOW;
-        si.StartupInfo.wShowWindow = SW_HIDE as u16;
+        let job = create_pane_job()?;
+        let mut si = conpty_startup_info();
 
         let mut attrs = ProcThreadAttributeList::with_capacity(1)?;
         attrs.set_pty(self.con)?;
@@ -187,7 +165,8 @@ impl PsuedoCon {
                 ptr::null_mut(),
                 ptr::null_mut(),
                 0,
-                EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT,
+                // Suspension closes the race where a provider descendant escapes its pane job.
+                EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED,
                 cmd.environment_block().as_mut_slice().as_mut_ptr() as *mut _,
                 cwd.as_ref()
                     .map(|c| c.as_slice().as_ptr())
@@ -212,8 +191,72 @@ impl PsuedoCon {
         let _main_thread = unsafe { OwnedHandle::from_raw_handle(pi.hThread as _) };
         let proc = unsafe { OwnedHandle::from_raw_handle(pi.hProcess as _) };
 
-        Ok(WinChild {
-            proc: Mutex::new(proc),
-        })
+        if unsafe { AssignProcessToJobObject(job.as_raw_handle() as _, proc.as_raw_handle() as _) }
+            == 0
+        {
+            let err = IoError::last_os_error();
+            unsafe { TerminateProcess(proc.as_raw_handle() as _, 1) };
+            bail!(
+                "AssignProcessToJobObject failed for `{:?}`: {}",
+                cmd_os,
+                err
+            );
+        }
+        if unsafe { ResumeThread(_main_thread.as_raw_handle() as _) } == u32::MAX {
+            let err = IoError::last_os_error();
+            unsafe { TerminateProcess(proc.as_raw_handle() as _, 1) };
+            bail!("ResumeThread failed for `{:?}`: {}", cmd_os, err);
+        }
+
+        Ok(WinChild::new(proc, job))
     }
+}
+
+fn conpty_startup_info() -> STARTUPINFOEXW {
+    let mut si: STARTUPINFOEXW = unsafe { mem::zeroed() };
+    si.StartupInfo.cb = mem::size_of::<STARTUPINFOEXW>() as u32;
+    si.StartupInfo.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    si.StartupInfo.wShowWindow = SW_HIDE as u16;
+    si.StartupInfo.hStdInput = INVALID_HANDLE_VALUE;
+    si.StartupInfo.hStdOutput = INVALID_HANDLE_VALUE;
+    si.StartupInfo.hStdError = INVALID_HANDLE_VALUE;
+    si
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn conpty_child_does_not_inherit_daemon_stdio() {
+        let startup = conpty_startup_info();
+        assert_ne!(startup.StartupInfo.dwFlags & STARTF_USESTDHANDLES, 0);
+        assert_eq!(startup.StartupInfo.hStdInput, INVALID_HANDLE_VALUE);
+        assert_eq!(startup.StartupInfo.hStdOutput, INVALID_HANDLE_VALUE);
+        assert_eq!(startup.StartupInfo.hStdError, INVALID_HANDLE_VALUE);
+    }
+}
+
+fn create_pane_job() -> anyhow::Result<OwnedHandle> {
+    let raw = unsafe { CreateJobObjectW(ptr::null_mut(), ptr::null()) };
+    if raw.is_null() {
+        bail!("CreateJobObjectW failed: {}", IoError::last_os_error());
+    }
+    let job = unsafe { OwnedHandle::from_raw_handle(raw as _) };
+    let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { mem::zeroed() };
+    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    let configured = unsafe {
+        SetInformationJobObject(
+            job.as_raw_handle() as _,
+            JobObjectExtendedLimitInformation,
+            &mut limits as *mut _ as *mut _,
+            mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        )
+    };
+    if configured == 0 {
+        bail!(
+            "SetInformationJobObject failed: {}",
+            IoError::last_os_error()
+        );
+    }
+    Ok(job)
 }

@@ -176,7 +176,7 @@ CHURN_N=$(( ${#CLAUDE_PANES[@]} / 2 ))
 for i in $(seq 0 $((CHURN_N-1))); do
   p="${CLAUDE_PANES[$i]}"
   [ -z "$p" ] && continue
-  dc send-text "/clear" --pane "$p" >/dev/null 2>&1
+  dc send "/clear" --tab "$p" >/dev/null 2>&1
   echo "  /clear -> $p"
 done
 sleep 20
@@ -206,7 +206,7 @@ for i in $(seq 0 $((CLOSE_N-1))); do
   line="${ALL_PANES[$i]}"; [ -z "$line" ] && continue
   pid=$(echo "$line" | awk '{print $1}'); prov=$(echo "$line" | awk '{print $2}')
   ws=$(echo "$line" | awk '{print $3}'); cwd=$(echo "$line" | awk '{print $4}')
-  dc pane close "$pid" >/dev/null 2>&1
+  dc tab close "$pid" >/dev/null 2>&1
   echo "  closed $pid ($prov), respawning in same cwd"
   # remove from track, spawn replacement
   grep -v "^$pid " "$TRACK" > "$TRACK.tmp" && mv "$TRACK.tmp" "$TRACK"

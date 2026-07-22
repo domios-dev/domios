@@ -27,9 +27,9 @@ pub use broadcast::{
 pub use manager::MeshManager;
 pub use ports::{LastActivityProvider, MeshEventSink};
 pub use serve_setup::{
-    disable_web_serve, enable_web_serve, probe_serve_status, tailscale_serve_https_url,
-    ServeResult, ServeStatus,
+    disable_web_serve, enable_web_serve, probe_serve_status, reconcile_web_serve,
+    tailscale_serve_https_url, ServeReconcileSnapshot, ServeResult, ServeStatus,
 };
-pub use toggle::apply_mesh_enabled;
+pub use toggle::{announce_enabled_mesh, apply_mesh_enabled};
 
 pub type MeshState = Arc<Mutex<MeshManager>>;

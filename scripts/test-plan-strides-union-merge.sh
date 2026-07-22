@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel)"
 TMPDIR="${TMPDIR:-/tmp}"
 WORKDIR="$(mktemp -d "$TMPDIR/codeterm-plan-union-merge.XXXXXX")"
+PYTHON_BIN="$(command -v python3 || command -v python)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
 cd "$WORKDIR"
@@ -62,8 +63,8 @@ if [ "$line_count" -ne 3 ]; then
   exit 1
 fi
 
-folded="$(
-  python3 - "$LOG" <<'PY'
+fold_log() {
+  "$PYTHON_BIN" - "$1" <<'PY'
 import json
 import sys
 
@@ -76,13 +77,41 @@ with open(sys.argv[1], encoding="utf-8") as handle:
 for event in sorted(events.values(), key=lambda item: (item["ts"], item["id"])):
     print(event["id"])
 PY
-)"
+}
+
+raw_folded="$(fold_log "$LOG")"
+folded="${raw_folded//$'\r'/}"
 expected_fold=$'evt_000\nevt_left\nevt_right'
 if [ "$folded" != "$expected_fold" ]; then
   echo "expected deterministic fold order:" >&2
   printf '%s\n' "$expected_fold" | sed 's/^/  /' >&2
   echo "got:" >&2
   printf '%s\n' "$folded" | sed 's/^/  /' >&2
+  exit 1
+fi
+
+MUTATED_LOG="$WORKDIR/mutated-strides.jsonl"
+"$PYTHON_BIN" - "$LOG" "$MUTATED_LOG" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source, open(
+    sys.argv[2], "w", encoding="utf-8", newline="\n"
+) as target:
+    for line in source:
+        event = json.loads(line)
+        if event["id"] == "evt_right":
+            event["ts"] = "2026-06-25T23:59:59Z"
+        target.write(json.dumps(event, separators=(",", ":")) + "\n")
+PY
+
+mutated_raw_fold="$(fold_log "$MUTATED_LOG")"
+mutated_fold="${mutated_raw_fold//$'\r'/}"
+expected_mutated_fold=$'evt_right\nevt_000\nevt_left'
+if [ "$mutated_fold" = "$expected_fold" ] || [ "$mutated_fold" != "$expected_mutated_fold" ]; then
+  echo "expected timestamp mutation to be detected by the real JSONL fold" >&2
+  echo "got:" >&2
+  printf '%s\n' "$mutated_fold" | sed 's/^/  /' >&2
   exit 1
 fi
 

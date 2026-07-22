@@ -5,6 +5,8 @@ use crate::plan::{LoopSpec, LoopStatus, Plan, PlanMode, PlanStatus, TaskStatus};
 #[derive(Debug, Clone)]
 struct WorkerAssignmentContext {
     task_id: String,
+    task_name: String,
+    personality: Option<String>,
     role_guidance: Option<String>,
     strides: Option<String>,
     loop_spec: Option<LoopSpec>,
@@ -75,18 +77,24 @@ fn render_competitive_context(live_attempt_count: usize) -> String {
 /// orchestrator-heartbeat reinjection so worker role survives context drift.
 pub fn render_worker_charter(
     task_id: &str,
+    identity: Option<&str>,
     loop_spec: Option<&LoopSpec>,
     live_attempt_count: usize,
     skill_count: usize,
 ) -> String {
-    let mut out = format!(
-        "<codeterm-worker-charter task=\"{task_id}\">\n\
-You are a Worker on task {task_id}. Three rules:\n\
+    let mut out = format!("<codeterm-worker-charter task=\"{task_id}\">\n");
+    if let Some(identity) = identity {
+        out.push_str(identity);
+        out.push('\n');
+        out.push('\n');
+    }
+    out.push_str(&format!(
+        "You are a Worker on task {task_id}. Three rules:\n\
 - Do this ONE task, then run `codeterm agent report` and exit.\n\
 - NEVER spawn agents.\n\
 - Decomposition needed \u{2192} report blocked; the Orchestrator splits it.\n\
-",
-    );
+"
+    ));
     if skill_count >= 1 {
         out.push_str(prompts_plan::PLAN_SKILLS_WORKER_LINE);
     } else {
@@ -136,6 +144,8 @@ impl PlanStore {
             }) {
                 return Some(WorkerAssignmentContext {
                     task_id: task.id.clone(),
+                    task_name: task.name.clone(),
+                    personality: task.personality.clone(),
                     role_guidance: task.role_guidance.clone(),
                     strides: super::stride_context::render_worker_strides(&task.milestones),
                     loop_spec: loop_for_task(&plan, &task.id),
@@ -160,19 +170,18 @@ impl PlanStore {
         let Some(context) = self.open_task_for_pane(pane_id) else {
             return text.to_string();
         };
+        let identity = super::worker_identity::compose_worker_identity(
+            context.personality.as_deref(),
+            context.role_guidance.as_deref(),
+            Some(context.task_name.as_str()),
+        );
         let mut charter = render_worker_charter(
             &context.task_id,
+            identity.as_deref(),
             context.loop_spec.as_ref(),
             context.live_attempt_count,
             context.skill_count,
         );
-        if let Some(guidance) = context
-            .role_guidance
-            .as_deref()
-            .filter(|guidance| !guidance.trim().is_empty())
-        {
-            charter = format!("Role guidance:\n{}\n\n{charter}", guidance.trim());
-        }
         if let Some(strides) = context.strides.as_deref() {
             charter = format!("{charter}\n\n{strides}");
         }
@@ -207,6 +216,8 @@ mod tests {
                 NewTask {
                     name: "Do the thing".into(),
                     kind: "task".into(),
+                    acceptance_criteria: vec!["it works".into()],
+                    test_plan: Some("run focused test".into()),
                     assigned_pane_id: Some("worker-pane".into()),
                     competition: None,
                     ..Default::default()

@@ -373,27 +373,90 @@ function gitPush(cwd) {
   if (!ok(r)) return fail(r, "git push failed");
   return { pushed: true, stdout: r.stdout || "", stderr: r.stderr || "" };
 }
-function listChildDirs(cwd) {
+function isWindowsPlatform() {
   const plat = typeof host.platform === "function" ? host.platform() : host.platform;
-  const cmd = String(plat || "").toLowerCase().indexOf("win") !== -1 ? { bin: "cmd", args: ["/c", "dir", "/b", "/ad", cwd] } : { bin: "ls", args: ["-1", cwd] };
+  return String(plat || "").toLowerCase().indexOf("win") !== -1;
+}
+function listChildDirs(cwd) {
+  const cmd = isWindowsPlatform() ? { bin: "cmd", args: ["/c", "dir", "/b", "/ad", cwd] } : { bin: "find", args: [cwd, "-mindepth", "1", "-maxdepth", "1", "-type", "d", "-print"] };
   const r = exec(cmd);
   if (!ok(r)) return [];
-  return (r.stdout || "").split(/\r?\n/).filter((l) => l.length > 0);
+  if (isWindowsPlatform()) return (r.stdout || "").split(/\r?\n/).filter((l) => l.length > 0);
+  return (r.stdout || "").split(/\r?\n/).map((line) => normalizeRepoPath(line)).filter((line) => line.length > 0).map((line) => baseName(line));
+}
+var REPO_DISCOVERY_MAX_DEPTH = 3;
+var REPO_DISCOVERY_MAX_VISITED = 512;
+var REPO_DISCOVERY_MAX_EMITTED = 64;
+var REPO_DISCOVERY_SKIP_NAMES = [".git", "node_modules", "target", "dist", "build", "out", ".next", ".cache", "vendor"];
+function normalizeRepoPath(p) {
+  const raw = String(p || "").replace(/\\/g, "/");
+  if (!raw) return "";
+  if (/^[A-Za-z]:\/$/.test(raw)) return raw;
+  return raw.replace(/\/+$/, "");
+}
+function joinRepoPath(parent, child) {
+  const base = normalizeRepoPath(parent);
+  const leaf = String(child || "").replace(/^[/\\]+|[/\\]+$/g, "");
+  return base ? `${base}/${leaf}` : leaf;
+}
+function isSafeChildName(name) {
+  if (!name || name === "." || name === "..") return false;
+  if (name.indexOf("/") !== -1 || name.indexOf("\\") !== -1) return false;
+  if (/^[A-Za-z]:/.test(name)) return false;
+  if (name.indexOf("..") !== -1) return false;
+  return true;
+}
+function shouldSkipRepoChild(name) {
+  const probe = isWindowsPlatform() ? name.toLowerCase() : name;
+  for (let i = 0; i < REPO_DISCOVERY_SKIP_NAMES.length; i++) {
+    const skip = isWindowsPlatform() ? REPO_DISCOVERY_SKIP_NAMES[i].toLowerCase() : REPO_DISCOVERY_SKIP_NAMES[i];
+    if (probe === skip) return true;
+  }
+  return false;
+}
+function sortedChildDirs(cwd) {
+  const out = listChildDirs(cwd).filter((name) => isSafeChildName(name) && !shouldSkipRepoChild(name)).slice();
+  out.sort();
+  return out;
+}
+function isGitRepoDir(cwd) {
+  return host.fileExists(`${cwd}/.git`);
+}
+function discoverGitRepos(cwd) {
+  const start = normalizeRepoPath(cwd);
+  if (!start) return [];
+  const top = git(start, ["rev-parse", "--show-toplevel"]);
+  const scanRoot = ok(top) && (top.stdout || "").trim() ? normalizeRepoPath((top.stdout || "").trim()) : start;
+  const queue = [{ path: scanRoot, depth: 0 }];
+  const visited = /* @__PURE__ */ new Set();
+  const emitted = /* @__PURE__ */ new Set();
+  const repos = [];
+  for (let i = 0; i < queue.length; i++) {
+    if (visited.size >= REPO_DISCOVERY_MAX_VISITED || repos.length >= REPO_DISCOVERY_MAX_EMITTED) break;
+    const item = queue[i];
+    const dir = normalizeRepoPath(item.path);
+    if (!dir || visited.has(dir)) continue;
+    visited.add(dir);
+    if (isGitRepoDir(dir) || dir === scanRoot && ok(top)) {
+      const repoPath = dir === scanRoot && ok(top) && (top.stdout || "").trim() ? normalizeRepoPath((top.stdout || "").trim()) : dir;
+      if (!emitted.has(repoPath)) {
+        emitted.add(repoPath);
+        repos.push({ path: repoPath, name: baseName(repoPath), branch: branchOf(repoPath) });
+        if (repos.length >= REPO_DISCOVERY_MAX_EMITTED) break;
+      }
+    }
+    if (item.depth >= REPO_DISCOVERY_MAX_DEPTH || visited.size >= REPO_DISCOVERY_MAX_VISITED) continue;
+    const children = sortedChildDirs(dir);
+    for (let j = 0; j < children.length; j++) {
+      if (visited.size + queue.length - i - 1 >= REPO_DISCOVERY_MAX_VISITED) break;
+      queue.push({ path: joinRepoPath(dir, children[j]), depth: item.depth + 1 });
+    }
+  }
+  repos.sort((a, b) => a.path.localeCompare(b.path));
+  return repos;
 }
 function gitRepos(cwd) {
-  const top = git(cwd, ["rev-parse", "--show-toplevel"]);
-  if (ok(top) && (top.stdout || "").trim()) {
-    const root = (top.stdout || "").trim();
-    return [{ path: root, name: baseName(root), branch: branchOf(root) }];
-  }
-  const sep = cwd.replace(/[/\\]$/, "");
-  const out = [];
-  const names = listChildDirs(cwd);
-  for (let i = 0; i < names.length && out.length < 20; i++) {
-    const p = `${sep}/${names[i]}`;
-    if (host.fileExists(`${p}/.git`)) out.push({ path: p, name: names[i], branch: branchOf(p) });
-  }
-  return out;
+  return discoverGitRepos(cwd);
 }
 function viewCall(method, args) {
   args = args || {};
@@ -444,6 +507,13 @@ var plugin = {
   __test_parseStatusPorcelain: parseStatusPorcelain,
   __test_parseNumstatCounts: parseNumstatCounts,
   __test_mergeWorkdirFiles: mergeWorkdirFiles,
-  __test_classifyPorcelain: classifyPorcelain
+  __test_classifyPorcelain: classifyPorcelain,
+  __test_discoverGitRepos: discoverGitRepos,
+  __test_gitRepoConstants: {
+    maxDepth: REPO_DISCOVERY_MAX_DEPTH,
+    maxVisited: REPO_DISCOVERY_MAX_VISITED,
+    maxEmitted: REPO_DISCOVERY_MAX_EMITTED
+  },
+  __test_isSafeChildName: isSafeChildName
 };
 var plugin_default = plugin;

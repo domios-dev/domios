@@ -1,0 +1,400 @@
+/**
+ * WHAT: Composer latency under a 25-tab agent/output fixture.
+ * WHY: Controlled input must paint independently of transcript, task, IPC, and output churn.
+ * ORACLE: p95 <= 32ms, max <= 100ms, no dropped/reordered input, transcript ordering preserved.
+ */
+import { recordPerfMetric } from "../../helpers/perf-metrics";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { API_BASE, expect, readDevToken, test, type Browser, type PaneCleanup, type Page } from "../../helpers/fixtures";
+import { type ApiClient } from "../../helpers/api-client";
+
+const PANE_COUNT = 25;
+// Cold web mount is out-of-band setup, not the measured composer window; bound
+// it so a stuck mount fails fast under the default per-test timeout instead of
+// consuming a 90s escalated budget.
+const WEB_MOUNT_CAP_MS = 20_000;
+const INITIAL_MESSAGES = 260;
+const LIVE_BATCH_SIZE = 24;
+const LIVE_INTERVAL_MS = 35;
+const TYPED_TEXT = "abcdefghijklmnopqrstuvwxyz0123456789";
+const PASTED_TEXT = " pasted-text";
+
+type ChatMessageKind = "user" | "assistant" | "system" | "tool_call" | "tool_result";
+
+interface TestChatMessage {
+  id: string;
+  type: ChatMessageKind;
+  content: string;
+  timestamp: string;
+  provider?: string;
+}
+
+interface PerfSummary {
+  variant: string;
+  mode: "webview2" | "web";
+  p50: number;
+  p95: number;
+  max: number;
+  samples: number;
+  composerRenders: number;
+  paneRenders: number;
+  longTasks: number;
+  longTaskMax: number;
+  longTaskTotalMs: number;
+  ipcInvokes: number;
+  ipcEvents: number;
+  ipcInvokeRate: number;
+  ipcEventRate: number;
+  outputFrames: number;
+  outputBytes: number;
+  outputBatches: number;
+  outputFrameRate: number;
+  transcriptMessages: number;
+  transcriptFirst: string;
+  transcriptLast: string;
+  openTabs: number;
+  scenarioWallMs: number;
+  cpuMainThreadBusyRatio: number;
+  backendEvidence: BackendEvidence;
+}
+
+interface BackendEvidence {
+  lockHoldLines: string[];
+  slowIpcLines: string[];
+  queueWaitLines: string[];
+}
+
+declare global {
+  interface Window {
+    __codetermTestChat?: {
+      pushMessages: (paneId: string, messages: TestChatMessage[]) => void;
+    };
+    __composerPerf?: {
+      inputMarks: Array<{ id: number; at: number; inputType: string }>;
+      paintLatencies: number[];
+      renderCounts: Record<string, number>;
+      compositionEvents: string[];
+      ignoredKeys: string[];
+    };
+    __renderCounts?: Record<string, number>;
+    __outputStreamPerf?: {
+      frames: number;
+      bytes: number;
+      batches: number;
+      lastFrameAt: number;
+    };
+    __ipcPerf?: {
+      invokes: number;
+      invokeMs: number;
+      events: number;
+      byCommand: Record<string, number>;
+      byEvent: Record<string, number>;
+    };
+    __perfLongTasks?: number[];
+    __perfChurnStop?: () => void;
+    __muxPerfChurnPane?: (paneId: string) => void;
+  }
+}
+
+async function createFixture(api: ApiClient, paneCleanup: PaneCleanup): Promise<{ paneIds: string[]; tabIds: string[] }> {
+  const paneIds: string[] = [];
+  const tabIds: string[] = [];
+  for (let i = 0; i < PANE_COUNT; i += 1) {
+    const pane = await paneCleanup.createPane<{ id: string; tab_id?: string }>({
+      title: `pw-composer-perf-${String(i).padStart(2, "0")}`,
+    });
+    paneIds.push(pane.id);
+    if (pane.tab_id) tabIds.push(pane.tab_id);
+    await api.post(`/panes/${pane.id}/agent-type`, { agent_type: "claude" });
+    await api.post(`/panes/${pane.id}/chat-view`, { enabled: true });
+    if (i === 0) {
+      await api.post(`/panes/${pane.id}/role`, { role: "Orchestrator" }).catch(() => {});
+    } else {
+      await api.post(`/panes/${pane.id}/role`, { role: "Worker", parent_pane_id: paneIds[0] }).catch(() => {});
+    }
+  }
+  await api.focusPane(paneIds[0]);
+  return { paneIds, tabIds };
+}
+
+async function openWebPage(browser: Browser): Promise<Page> {
+  const token = readDevToken();
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 800 },
+    permissions: ["clipboard-read", "clipboard-write"],
+  });
+  const page = await context.newPage();
+  await page.addInitScript((devToken) => {
+    localStorage.setItem(`codeterm-web-token:${window.location.origin}`, devToken);
+    localStorage.removeItem("codeterm-chat-ui-default-enabled");
+  }, token);
+  await page.goto(`${API_BASE}/?e2e=1#token=${encodeURIComponent(token)}`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("#root > *", { state: "attached", timeout: WEB_MOUNT_CAP_MS });
+  return page;
+}
+
+async function openFixturePage(page: Page, paneIds: string[], tabIds: string[]): Promise<void> {
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForSelector("#root > *", { state: "attached", timeout: WEB_MOUNT_CAP_MS });
+  if (tabIds[0]) {
+    await page.locator(`[data-testid="tab-item"][data-tab-id="${tabIds[0]}"]`).first().click({ timeout: 30_000 });
+  }
+  const chat = page.locator(`[data-testid="pane-session-chat"][data-pane-id="${paneIds[0]}"]`);
+  await expect(chat).toBeVisible({ timeout: 30_000 });
+  await expect(chat.locator('[data-testid="chat-composer"]')).toBeVisible({ timeout: 30_000 });
+}
+
+async function installPerfCollectors(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    window.__composerPerf = { inputMarks: [], paintLatencies: [], renderCounts: {}, compositionEvents: [], ignoredKeys: [] };
+    window.__renderCounts = {};
+    window.__outputStreamPerf = { frames: 0, bytes: 0, batches: 0, lastFrameAt: 0 };
+    window.__ipcPerf = { invokes: 0, invokeMs: 0, events: 0, byCommand: {}, byEvent: {} };
+    window.__perfLongTasks = [];
+    try {
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) window.__perfLongTasks?.push(entry.duration);
+      }).observe({ entryTypes: ["longtask"] });
+    } catch {
+      /* longtask is not available in every browser engine. */
+    }
+  });
+}
+
+async function seedTranscript(page: Page, paneIds: string[]): Promise<void> {
+  await page.evaluate(
+    ({ ids, initialCount }) => {
+      for (let i = 0; i < ids.length; i += 1) {
+        const messages = Array.from({ length: initialCount }, (_, n) => ({
+          id: `seed-${i}-${n}`,
+          type: n % 11 === 0 ? "tool_call" : n % 5 === 0 ? "user" : "assistant",
+          content: `build pane ${String(i).padStart(2, "0")} chunk ${n}\n\n\`\`\`text\nCompiling crate_${n % 37}\nwarning: generated output ${n}\n\`\`\``,
+          timestamp: String(1_700_003_000_000 + i * 100_000 + n),
+          provider: "perf",
+        }));
+        window.__codetermTestChat?.pushMessages(ids[i], messages as TestChatMessage[]);
+        if (window.__outputStreamPerf) {
+          window.__outputStreamPerf.frames += messages.length;
+          window.__outputStreamPerf.batches += 1;
+          window.__outputStreamPerf.bytes += messages.reduce((sum, message) => sum + message.content.length, 0);
+          window.__outputStreamPerf.lastFrameAt = performance.now();
+        }
+      }
+    },
+    { ids: paneIds, initialCount: INITIAL_MESSAGES },
+  );
+}
+
+async function startSustainedLoad(page: Page, paneIds: string[]): Promise<void> {
+  await page.evaluate(
+    ({ ids, batchSize, intervalMs }) => {
+      let batch = 0;
+      const push = () => {
+        for (let paneIndex = 0; paneIndex < ids.length; paneIndex += 1) {
+          const messages = Array.from({ length: batchSize }, (_, i) => {
+            const n = batch * batchSize + i;
+            return {
+              id: `live-${paneIndex}-${n}`,
+              type: n % 11 === 0 ? "tool_result" : n % 5 === 0 ? "user" : "assistant",
+              content: `live build output pane=${paneIndex} n=${n}\n\n\`\`\`text\n${"warning: output ".repeat(20)}${n}\n\`\`\``,
+              timestamp: String(1_700_004_000_000 + paneIndex * 100_000 + n),
+              provider: "perf",
+            };
+          });
+          window.__codetermTestChat?.pushMessages(ids[paneIndex], messages as TestChatMessage[]);
+          if (window.__outputStreamPerf) {
+            window.__outputStreamPerf.frames += messages.length;
+            window.__outputStreamPerf.batches += 1;
+            window.__outputStreamPerf.bytes += messages.reduce((sum, message) => sum + message.content.length, 0);
+            window.__outputStreamPerf.lastFrameAt = performance.now();
+          }
+          window.__muxPerfChurnPane?.(ids[paneIndex]);
+        }
+        batch += 1;
+      };
+      push();
+      const id = window.setInterval(push, intervalMs);
+      window.__perfChurnStop = () => window.clearInterval(id);
+    },
+    { ids: paneIds, batchSize: LIVE_BATCH_SIZE, intervalMs: LIVE_INTERVAL_MS },
+  );
+}
+
+function backendEvidence(): BackendEvidence {
+  const logPath = path.join(os.homedir(), ".codeterm-dev", "logs", "codeterm.log");
+  const text = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf8").slice(-500_000) : "";
+  const lines = text.split(/\r?\n/);
+  return {
+    lockHoldLines: lines.filter((line) => line.includes("[LOCK-HOLD]")).slice(-20),
+    slowIpcLines: lines.filter((line) => line.includes("[SLOW-IPC]") || line.includes("[LONGTASK]")).slice(-20),
+    queueWaitLines: lines.filter((line) => /queue|wait|blocked|semaphore/i.test(line)).slice(-20),
+  };
+}
+
+async function exerciseInput(page: Page, paneId: string): Promise<{ cpuStart: number; cpuEnd: number }> {
+  const composer = page.locator(`[data-testid="pane-session-chat"][data-pane-id="${paneId}"] [data-testid="chat-composer"]`);
+  await composer.focus();
+  await composer.press("ArrowLeft");
+  await composer.press("ArrowRight");
+  await composer.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
+  await composer.press("Enter");
+  await expect(composer).toHaveValue("");
+  const nonInputMarks = await page.evaluate(() => window.__composerPerf?.inputMarks.length ?? 0);
+  expect(nonInputMarks, "arrows/shortcuts/Enter must not create stale latency marks").toBe(0);
+  const cpuStart = await page.evaluate(() => performance.now());
+  await composer.pressSequentially(TYPED_TEXT, { delay: 8 });
+  await expect(composer).toHaveValue(TYPED_TEXT);
+
+  await composer.press(process.platform === "darwin" ? "Meta+A" : "Control+A");
+  await composer.pressSequentially("ime-safe");
+  await composer.evaluate((el) => {
+    // Real IME composition events bubble; React's root-delegated handlers
+    // never see a non-bubbling synthetic dispatch.
+    el.dispatchEvent(new CompositionEvent("compositionstart", { data: "", bubbles: true }));
+    (el as HTMLTextAreaElement).value = "ime-safeかな";
+    el.dispatchEvent(new InputEvent("input", { data: "かな", inputType: "insertCompositionText", bubbles: true }));
+    el.dispatchEvent(new CompositionEvent("compositionend", { data: "かな", bubbles: true }));
+  });
+  await expect(composer).toHaveValue("ime-safeかな");
+  const compositionEvents = await page.evaluate(() => window.__composerPerf?.compositionEvents.join(",") ?? "");
+  expect(compositionEvents).toContain("start,end");
+
+  await composer.evaluate((el) => {
+    const textarea = el as HTMLTextAreaElement;
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+  });
+  await page.evaluate((text) => navigator.clipboard.writeText(text), PASTED_TEXT);
+  await composer.press(process.platform === "darwin" ? "Meta+V" : "Control+V");
+  await expect(composer).toHaveValue(`ime-safeかな${PASTED_TEXT}`);
+
+  const input = page.locator(`[data-testid="pane-session-chat"][data-pane-id="${paneId}"] [data-testid="composer-attach-input"]`);
+  await input.setInputFiles({
+    name: "composer-perf-attachment.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("attachment fixture"),
+  });
+  await expect(page.locator('[data-testid="attachment-chip"]').first()).toBeVisible({ timeout: 10_000 });
+  await composer.focus();
+  await composer.press("End");
+  await composer.pressSequentially(" history-safe", { delay: 8 });
+  await expect(composer).toHaveValue(`ime-safeかな${PASTED_TEXT} history-safe`);
+  const cpuEnd = await page.evaluate(() => performance.now());
+  return { cpuStart, cpuEnd };
+}
+
+async function summarize(page: Page, mode: PerfSummary["mode"], paneIds: string[], cpuStart: number, cpuEnd: number): Promise<PerfSummary> {
+  const variant = process.env.CT_PERF_VARIANT ?? "after";
+  const summary = await page.evaluate(
+    ({ targetPaneId, openPaneCount, start, end, runMode, runVariant }) => {
+      const latencies = window.__composerPerf?.paintLatencies ?? [];
+      const sorted = [...latencies].sort((a, b) => a - b);
+      const pick = (p: number) => sorted[Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * p))] ?? 0;
+      const longTasks = window.__perfLongTasks ?? [];
+      const ipc = window.__ipcPerf ?? { invokes: 0, events: 0, invokeMs: 0 };
+      const output = window.__outputStreamPerf ?? { frames: 0, bytes: 0, batches: 0 };
+      const wallSeconds = Math.max(0.001, (end - start) / 1000);
+      const messages = Array.from(document.querySelectorAll(`[data-testid="pane-session-chat"][data-pane-id="${targetPaneId}"] [data-testid="chat-message"]`));
+      return {
+        variant: runVariant,
+        mode: runMode,
+        p50: pick(0.5),
+        p95: pick(0.95),
+        max: sorted[sorted.length - 1] ?? 0,
+        samples: latencies.length,
+        composerRenders: window.__composerPerf?.renderCounts[targetPaneId] ?? 0,
+        paneRenders: window.__renderCounts?.[targetPaneId] ?? 0,
+        longTasks: longTasks.length,
+        longTaskMax: Math.max(0, ...longTasks),
+        longTaskTotalMs: longTasks.reduce((sum, value) => sum + value, 0),
+        ipcInvokes: ipc.invokes,
+        ipcEvents: ipc.events,
+        ipcInvokeRate: ipc.invokes / wallSeconds,
+        ipcEventRate: ipc.events / wallSeconds,
+        outputFrames: output.frames,
+        outputBytes: output.bytes,
+        outputBatches: output.batches,
+        outputFrameRate: output.frames / wallSeconds,
+        transcriptMessages: messages.length,
+        transcriptFirst: (messages[0] as HTMLElement | undefined)?.innerText?.slice(0, 80) ?? "",
+        transcriptLast: (messages[messages.length - 1] as HTMLElement | undefined)?.innerText?.slice(0, 80) ?? "",
+        openTabs: document.querySelectorAll('[data-testid="tab-item"]').length || openPaneCount,
+        scenarioWallMs: end - start,
+        cpuMainThreadBusyRatio: longTasks.reduce((sum, value) => sum + value, 0) / Math.max(1, end - start),
+        backendEvidence: { lockHoldLines: [], slowIpcLines: [], queueWaitLines: [] },
+      } satisfies PerfSummary;
+    },
+    { targetPaneId: paneIds[0], openPaneCount: paneIds.length, start: cpuStart, end: cpuEnd, runMode: mode, runVariant: variant },
+  );
+  summary.backendEvidence = backendEvidence();
+  return summary;
+}
+
+async function writeArtifact(testInfo: { outputPath: (...pathSegments: string[]) => string }, summary: PerfSummary): Promise<void> {
+  const target = testInfo.outputPath(`composer-output-performance-${summary.variant}-${summary.mode}.json`);
+  fs.writeFileSync(target, `${JSON.stringify(summary, null, 2)}\n`);
+  console.log(`COMPOSER_PERF_${summary.mode.toUpperCase()} ${JSON.stringify(summary)}`);
+}
+
+async function runScenario(page: Page, mode: PerfSummary["mode"], paneIds: string[], tabIds: string[], testInfo: { outputPath: (...pathSegments: string[]) => string }): Promise<void> {
+  await openFixturePage(page, paneIds, tabIds);
+  const hasTestHook = await page.evaluate(() => typeof window.__codetermTestChat !== "undefined");
+  test.skip(!hasTestHook, "VITE_CODETERM_TEST hooks are required for deterministic transcript churn");
+  await installPerfCollectors(page);
+  await seedTranscript(page, paneIds);
+  await startSustainedLoad(page, paneIds);
+  const { cpuStart, cpuEnd } = await exerciseInput(page, paneIds[0]);
+  await page.evaluate(() => window.__perfChurnStop?.());
+  const summary = await summarize(page, mode, paneIds, cpuStart, cpuEnd);
+  await writeArtifact(testInfo, summary);
+  recordPerfMetric({
+    name: "composer-keystroke",
+    unit: "ms",
+    mode,
+    n: summary.samples,
+    p95: summary.p95,
+    max: summary.max,
+    budget: 32,
+  });
+  expect(summary.openTabs).toBeGreaterThanOrEqual(PANE_COUNT);
+  expect(summary.samples).toBeGreaterThanOrEqual(30);
+  expect(summary.transcriptMessages).toBeGreaterThan(200);
+  // Capped/virtualized history rotates the absolute first message out under
+  // sustained churn; assert the window still holds the seeded/churn family.
+  expect(summary.transcriptFirst).toMatch(/build pane|live build output/);
+  expect(summary.transcriptLast).toMatch(/live build output|warning: output|build pane/);
+  expect(summary.p95).toBeLessThanOrEqual(32);
+  expect(summary.max).toBeLessThanOrEqual(100);
+}
+
+test("@perf composer stays next-frame under 25-tab WebView2 load", async ({
+  api,
+  ui,
+  paneCleanup,
+}, testInfo) => {
+  await ui.reconnect();
+  await ui.page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: new URL(API_BASE).origin,
+  });
+  const { paneIds, tabIds } = await createFixture(api, paneCleanup);
+  expect(paneIds).toHaveLength(PANE_COUNT);
+  expect(tabIds).toHaveLength(PANE_COUNT);
+  await runScenario(ui.page, "webview2", paneIds, tabIds, testInfo);
+});
+
+test("@perf composer stays next-frame under 25-tab web-mode load", async ({
+  api,
+  webBrowser,
+  paneCleanup,
+}, testInfo) => {
+  const { paneIds, tabIds } = await createFixture(api, paneCleanup);
+  expect(paneIds).toHaveLength(PANE_COUNT);
+  expect(tabIds).toHaveLength(PANE_COUNT);
+  const page = await openWebPage(webBrowser);
+  try {
+    await runScenario(page, "web", paneIds, tabIds, testInfo);
+  } finally {
+    await page.context().close();
+  }
+});

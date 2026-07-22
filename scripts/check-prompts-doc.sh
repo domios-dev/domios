@@ -13,6 +13,10 @@ root = Path(sys.argv[1])
 docs = root / "docs/PROMPTS.md"
 prompts_dir = root / "src-tauri/prompts"
 prompts_rs = root / "src-tauri/src/prompts.rs"
+plan_prompts_rs = root / "src-tauri/crates/codeterm-plan/src/service_plan/prompts_plan.rs"
+mem_prompts_rs = root / "src-tauri/crates/codeterm-mem/src/prompt_text.rs"
+seed_rs = root / "src-tauri/crates/codeterm-mem/src/seed.rs"
+plugin_prompts_rs = root / "src-tauri/crates/codeterm-plugin/src/prompts.rs"
 
 doc_pairs = {}
 for line in docs.read_text(encoding="utf-8").splitlines():
@@ -20,15 +24,22 @@ for line in docs.read_text(encoding="utf-8").splitlines():
     if m:
         doc_pairs[m.group(1)] = m.group(2)
 
-files = {p.name for p in prompts_dir.glob("*.md")}
-const_pairs = {
-    file: const
-    for const, file in re.findall(
-        r"pub\s+const\s+([A-Z0-9_]+)\s*:[^=]+?=\s*include_str!\(\"../prompts/([^\"]+\.md)\"\)",
-        prompts_rs.read_text(encoding="utf-8"),
-        re.S,
-    )
-}
+files = {p.relative_to(prompts_dir).as_posix() for p in prompts_dir.rglob("*.md")}
+loader_sources = [
+    prompts_rs,
+    plan_prompts_rs,
+    mem_prompts_rs,
+    seed_rs,
+    plugin_prompts_rs,
+]
+loaders = {}
+pattern = re.compile(
+    r'(pub\s+)?const\s+([A-Z0-9_]+)\s*:[^=]+?=\s*include_str!\("(?:\.\./)+prompts/([^\"]+\.md)"\)',
+    re.S,
+)
+for source in loader_sources:
+    for visibility, const, file in pattern.findall(source.read_text(encoding="utf-8")):
+        loaders.setdefault(file, []).append((source.relative_to(root).as_posix(), const, bool(visibility)))
 
 errors = []
 
@@ -42,25 +53,41 @@ if stale_doc:
     errors.append("docs/PROMPTS.md rows without prompt files:")
     errors.extend(f"  {name}" for name in stale_doc)
 
-missing_const = sorted(files - const_pairs.keys())
+missing_const = sorted(files - loaders.keys())
 if missing_const:
-    errors.append("Prompt files missing from src-tauri/src/prompts.rs:")
+    errors.append("Prompt files missing from authoritative loader modules:")
     errors.extend(f"  {name}" for name in missing_const)
 
-stale_const = sorted(const_pairs.keys() - files)
+stale_const = sorted(loaders.keys() - files)
 if stale_const:
-    errors.append("prompts.rs consts without prompt files:")
+    errors.append("Authoritative loader consts without prompt files:")
     errors.extend(f"  {name}" for name in stale_const)
 
-for name in sorted(files & doc_pairs.keys() & const_pairs.keys()):
-    if doc_pairs[name] != const_pairs[name]:
+for name in sorted(files & doc_pairs.keys() & loaders.keys()):
+    loader_consts = {const for _, const, _ in loaders[name]}
+    if loader_consts != {doc_pairs[name]}:
         errors.append(
-            f"Const mismatch for {name}: docs={doc_pairs[name]} prompts.rs={const_pairs[name]}"
+            f"Const mismatch for {name}: docs={doc_pairs[name]} loaders={sorted(loader_consts)}"
         )
+
+codeterm_rule_owners = {source for source, _, _ in loaders.get("codeterm_rule.md", [])}
+expected_rule_owners = {
+    "src-tauri/src/prompts.rs",
+    "src-tauri/crates/codeterm-plugin/src/prompts.rs",
+}
+if codeterm_rule_owners != expected_rule_owners:
+    errors.append(f"codeterm_rule.md split ownership drifted: {sorted(codeterm_rule_owners)}")
+
+seed_owner = "src-tauri/crates/codeterm-mem/src/seed.rs"
+for name in sorted(file for file in files if file.startswith("seed/")):
+    entries = loaders.get(name, [])
+    if len(entries) != 1 or entries[0][0] != seed_owner or entries[0][2]:
+        errors.append(f"Seed loader must be one private const in {seed_owner}: {name}")
 
 if errors:
     print("\n".join(errors), file=sys.stderr)
     sys.exit(1)
 
-print(f"Prompt docs in sync: {len(files)} files, {len(doc_pairs)} doc rows, {len(const_pairs)} consts")
+loader_count = sum(len(entries) for entries in loaders.values())
+print(f"Prompt docs in sync: {len(files)} files, {len(doc_pairs)} doc rows, {loader_count} loaders")
 PY

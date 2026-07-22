@@ -26,6 +26,8 @@ export interface PeerStatus {
   services_error?: string | null;
   services_fetched_at?: number | null;
   services_loaded?: boolean;
+  /** Verified peer web UI URL (present only when that peer is Ready). */
+  https_url?: string | null;
 }
 
 export interface MeshData {
@@ -112,6 +114,7 @@ export function useMeshData(refreshKey: number): MeshDataResult {
           online: p.online,
           access_level: p.access_level,
           last_seen: p.last_seen,
+          https_url: p.https_url ?? null,
         }),
       );
 

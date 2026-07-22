@@ -82,6 +82,22 @@ test("worker-only group omits the managers clause", async () => {
   await act(async () => root.unmount());
 });
 
+test("Team mode names the Team action and counts only Team tabs", async () => {
+  const { root } = await render(
+    <GroupCloseConfirmDialog
+      mode="team"
+      orchestratorTitle="QA fixtures"
+      members={[member("manager", "Orchestrator", null), member("worker", "Worker", null)]}
+      onConfirm={() => {}}
+      onCancel={() => {}}
+    />,
+  );
+  assert(document.body.textContent?.includes("Close Team?"), "Team confirmation has Team title");
+  assert(document.body.textContent?.includes("all 2 Team tabs"), "Team count excludes synthetic root");
+  assert(document.querySelector('[data-testid="group-close-confirm-button"]')?.textContent?.includes("Close Team"), "Team confirm action is explicit");
+  await act(async () => root.unmount());
+});
+
 async function main() {
   let failed = 0;
   for (const [name, fn] of tests) {

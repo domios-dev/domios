@@ -4,6 +4,7 @@ use tauri::State;
 use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::state::{MultiplexerSnapshot, WorkspaceInfo};
 use crate::service::{BatchOp, ServiceState};
+use codeterm_types::team::Team;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TabInfo {
@@ -65,6 +66,219 @@ pub fn mux_rename_workspace(
     name: String,
 ) -> Result<(), String> {
     svc.rename_workspace(&workspace_id, &name)
+}
+
+#[cfg(test)]
+pub fn mux_rename_team_core(
+    mux: &mut crate::multiplexer::state::MultiplexerState,
+    team_id: String,
+    name: String,
+    caller_pane_id: Option<String>,
+) -> Result<Team, String> {
+    let caller_pane_id = require_team_rename_caller(caller_pane_id)?;
+    crate::service::rename_team_core(mux, &team_id, name, Some(&caller_pane_id))
+}
+
+pub(crate) fn mux_rename_team_service_core(
+    svc: &ServiceState,
+    team_id: String,
+    name: String,
+    caller_pane_id: Option<String>,
+) -> Result<Team, String> {
+    let caller_pane_id = require_team_rename_caller(caller_pane_id)?;
+    svc.rename_team(&team_id, name, Some(&caller_pane_id))
+}
+
+fn require_team_rename_caller(caller_pane_id: Option<String>) -> Result<String, String> {
+    caller_pane_id.ok_or_else(|| "callerTabId is required to rename a Team".into())
+}
+
+/// Rename a Team through the service boundary so authorization and the state
+/// change event remain identical for desktop and web callers.
+#[tauri::command]
+pub fn mux_rename_team(
+    svc: State<'_, ServiceState>,
+    team_id: String,
+    name: String,
+    caller_tab_id: String,
+) -> Result<Team, String> {
+    mux_rename_team_service_core(svc.inner(), team_id, name, Some(caller_tab_id))
+}
+
+pub(crate) fn mux_close_team_service_core(
+    svc: &ServiceState,
+    team_id: String,
+    caller_pane_id: Option<String>,
+) -> Result<Team, String> {
+    let caller_pane_id =
+        caller_pane_id.ok_or_else(|| "callerTabId is required to close a Team".to_string())?;
+    svc.close_team(&team_id, Some(&caller_pane_id))
+}
+
+#[tauri::command]
+pub fn mux_close_team(
+    svc: State<'_, ServiceState>,
+    team_id: String,
+    caller_tab_id: String,
+) -> Result<Team, String> {
+    mux_close_team_service_core(svc.inner(), team_id, Some(caller_tab_id))
+}
+
+pub(crate) async fn mux_add_team_member_service_core(
+    svc: &ServiceState,
+    team_id: String,
+    provider: String,
+    role: String,
+    caller_pane_id: Option<String>,
+    title: Option<String>,
+    task: Option<String>,
+    model: Option<String>,
+) -> Result<crate::service::AddTeamMemberResult, String> {
+    let caller_pane_id =
+        caller_pane_id.ok_or_else(|| "callerTabId is required to add a Team member".to_string())?;
+    svc.add_team_member(
+        &team_id,
+        &caller_pane_id,
+        crate::service::AddTeamMemberParams {
+            provider,
+            role,
+            title,
+            task,
+            model,
+        },
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn mux_add_team_member(
+    svc: State<'_, ServiceState>,
+    team_id: String,
+    provider: String,
+    role: String,
+    caller_tab_id: String,
+    title: Option<String>,
+    task: Option<String>,
+    model: Option<String>,
+) -> Result<crate::service::AddTeamMemberResult, String> {
+    mux_add_team_member_service_core(
+        svc.inner(),
+        team_id,
+        provider,
+        role,
+        Some(caller_tab_id),
+        title,
+        task,
+        model,
+    )
+    .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::api::events::SystemEvent;
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::multiplexer::types::AgentRole;
+
+    fn team_members() -> (MultiplexerState, String, String, String, String) {
+        let (mut mux, orchestrator) = MultiplexerState::new();
+        let team_id = mux
+            .resolve_or_mint_team_for_parent(&orchestrator)
+            .unwrap()
+            .team_id;
+        let planner = mux.create_pane();
+        mux.set_pane_role(&planner, AgentRole::Manager, Some(&orchestrator))
+            .unwrap();
+        mux.get_pane_mut(&planner).unwrap().role_profile = Some("planner".into());
+        let worker = mux.create_pane();
+        mux.set_pane_role(&worker, AgentRole::Worker, Some(&orchestrator))
+            .unwrap();
+        (mux, team_id, orchestrator, planner, worker)
+    }
+
+    #[test]
+    fn mux_rename_team_rejects_missing_caller() {
+        assert_eq!(
+            require_team_rename_caller(None).unwrap_err(),
+            "callerTabId is required to rename a Team"
+        );
+    }
+
+    #[test]
+    fn mux_rename_team_core_allows_orchestrator_and_planner() {
+        let (mut mux, team_id, orchestrator, planner, _) = team_members();
+
+        let by_orchestrator = mux_rename_team_core(
+            &mut mux,
+            team_id.clone(),
+            "Orchestrated".into(),
+            Some(orchestrator),
+        )
+        .unwrap();
+        assert_eq!(by_orchestrator.name.as_deref(), Some("Orchestrated"));
+
+        let by_planner =
+            mux_rename_team_core(&mut mux, team_id.clone(), "Planned".into(), Some(planner))
+                .unwrap();
+        assert_eq!(by_planner.name.as_deref(), Some("Planned"));
+        assert_eq!(
+            mux.get_team(&team_id).unwrap().name.as_deref(),
+            Some("Planned")
+        );
+    }
+
+    #[test]
+    fn mux_rename_team_core_rejects_worker_and_foreign_pane() {
+        let (mut mux, team_id, _, _, worker) = team_members();
+        let foreign = mux.create_pane();
+
+        assert!(mux_rename_team_core(
+            &mut mux,
+            team_id.clone(),
+            "Denied worker".into(),
+            Some(worker),
+        )
+        .is_err());
+        assert!(mux_rename_team_core(
+            &mut mux,
+            team_id.clone(),
+            "Denied foreign".into(),
+            Some(foreign),
+        )
+        .is_err());
+        assert_eq!(mux.get_team(&team_id).unwrap().name, None);
+    }
+
+    #[test]
+    fn team_rename_emits_exactly_one_mux_state_changed() {
+        let (mut mux, team_id, orchestrator, _, _) = team_members();
+        let events = crate::api::events::EventBroadcaster::new();
+        let mut receiver = events.subscribe();
+
+        crate::service::rename_team_with_state_change(
+            &mut mux,
+            &events,
+            &team_id,
+            "Renamed".into(),
+            Some(&orchestrator),
+        )
+        .unwrap();
+        assert_eq!(
+            mux.get_team(&team_id).unwrap().name.as_deref(),
+            Some("Renamed")
+        );
+
+        assert!(matches!(
+            receiver.try_recv().unwrap().event,
+            SystemEvent::MuxStateChanged
+        ));
+        assert!(matches!(
+            receiver.try_recv(),
+            Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+        ));
+    }
 }
 
 /// Move a tab from one workspace to another.
@@ -229,9 +443,8 @@ pub fn mux_link_pty(
     svc: State<'_, ServiceState>,
     pane_id: String,
     pty_id: String,
-) -> Result<(), String> {
-    svc.link_pty(&pane_id, pty_id);
-    Ok(())
+) -> Result<String, String> {
+    Ok(svc.link_pty(&pane_id, pty_id))
 }
 
 /// Rename a pane (User-level — highest priority, blocks auto-rename).
@@ -364,6 +577,7 @@ pub fn build_agent_launch_command(
     let params = crate::agent::provider::AgentLaunchParams {
         agent_name: None,
         task: None,
+        starter_prompt: Default::default(),
         args: if model_args.is_empty() {
             None
         } else {
@@ -374,7 +588,9 @@ pub fn build_agent_launch_command(
         structured_prompt_server: None,
     };
     svc.agent_registry
-        .with_provider(&agent_id, |p| p.build_launch_command(&params))
+        .with_provider(&agent_id, |p| {
+            crate::agent::stub_launch::apply(&agent_id, p.build_launch_command(&params))
+        })
         .ok_or_else(|| format!("Unknown agent provider: {}", agent_id))
 }
 

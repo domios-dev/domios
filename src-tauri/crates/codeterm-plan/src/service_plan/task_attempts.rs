@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::plan::{
-    AgentRef, Task, TaskExecutionAttempt, TaskExecutionReportSnapshot, TaskLaneMetadata, TaskStatus,
+    AgentRef, Milestone, Task, TaskExecutionAttempt, TaskExecutionReportSnapshot, TaskLaneMetadata,
+    TaskStatus,
 };
 use codeterm_types::agent::ReportStatus;
 
@@ -49,10 +50,12 @@ pub struct TaskRespawnDraft {
     pub task_id: String,
     pub source_attempt: TaskExecutionAttempt,
     pub provider: String,
+    pub planned_model: Option<String>,
     pub model: Option<String>,
     pub parent_pane_id: Option<String>,
     pub workspace_id: Option<String>,
-    pub title: String,
+    pub title: Option<String>,
+    pub explicit_title: bool,
     pub cwd: String,
     pub task_prompt: String,
     pub report_command: String,
@@ -65,10 +68,11 @@ pub struct TaskCompeteDraft {
     pub competition_group_id: String,
     pub lane: u32,
     pub provider: String,
+    pub planned_model: Option<String>,
     pub model: Option<String>,
     pub parent_pane_id: Option<String>,
     pub workspace_id: Option<String>,
-    pub title: String,
+    pub title: Option<String>,
     pub cwd: String,
     pub task_prompt: String,
     pub report_command: String,
@@ -79,6 +83,18 @@ pub struct TaskAttemptCreated {
     pub plan_id: String,
     pub task_id: String,
     pub attempt: TaskExecutionAttempt,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct BoundWorkerReport {
+    pub message: String,
+    pub status: Option<ReportStatus>,
+    pub branch: Option<String>,
+    pub sha: Option<String>,
+    pub changed_files: Vec<String>,
+    pub test_cmd: Option<String>,
+    pub test_result: Option<String>,
+    pub skipped: Option<String>,
 }
 
 fn gen_attempt_id() -> String {
@@ -102,7 +118,9 @@ fn split_provider_model(value: Option<&str>) -> (Option<String>, Option<String>)
 }
 
 pub fn task_report_command(plan_id: &str, task_id: &str) -> String {
-    format!("codeterm agent report --plan {plan_id} --task {task_id} --status in_review \"STATUS: in_review\\nCHANGES: ...\\nBUILD/TYPECHECK/TESTS: ...\\nFOLLOWUP: ...\"")
+    format!(
+        "codeterm agent report --plan {plan_id} --task {task_id} --status in_review \"STATUS: in_review\\nCHANGES: ...\\nBUILD/TYPECHECK/TESTS: ...\\nFOLLOWUP: ...\""
+    )
 }
 
 fn latest_milestone_report(task: &Task, pane_id: &str) -> Option<(String, Option<String>, u64)> {
@@ -186,6 +204,14 @@ fn build_prompt(
 ) -> String {
     let (last_report, last_status, _) = last_report_for_attempt(task, source);
     let mut out = String::new();
+    if let Some(identity) = super::worker_identity::compose_worker_identity(
+        task.personality.as_deref(),
+        task.role_guidance.as_deref(),
+        Some(task.name.as_str()),
+    ) {
+        out.push_str(&identity);
+        out.push_str("\n\n");
+    }
     out.push_str("You are a CodeTerm Worker respawned from a prior task attempt.\n");
     out.push_str(
         "Work only on this one task. Do not reactivate or reuse the old historical attempt.\n\n",
@@ -196,15 +222,7 @@ fn build_prompt(
     if let Some(model) = model {
         out.push_str(&format!("/{model}"));
     }
-    if let Some(guidance) = task
-        .role_guidance
-        .as_deref()
-        .filter(|s| !s.trim().is_empty())
-    {
-        out.push_str("\n\nRole guidance:\n");
-        out.push_str(guidance.trim());
-        out.push('\n');
-    }
+    out.push('\n');
     if let Some(strides) = super::stride_context::render_worker_strides(&task.milestones) {
         out.push('\n');
         out.push_str(&strides);
@@ -257,6 +275,14 @@ fn build_compete_prompt(
     report_command: &str,
 ) -> String {
     let mut out = String::new();
+    if let Some(identity) = super::worker_identity::compose_worker_identity(
+        task.personality.as_deref(),
+        task.role_guidance.as_deref(),
+        Some(task.name.as_str()),
+    ) {
+        out.push_str(&identity);
+        out.push_str("\n\n");
+    }
     out.push_str(crate::service_plan::competition::COMPETITION_WORKER_ISOLATION_PROMPT);
     out.push_str("\n\n");
     out.push_str(&format!("Plan: {plan_id}\nTask: {}\n", task.id));
@@ -265,15 +291,6 @@ fn build_compete_prompt(
     ));
     out.push_str(&format!("Model: {model_label}\n"));
     out.push_str(&format!("Task name: {}\n", task.name));
-    if let Some(guidance) = task
-        .role_guidance
-        .as_deref()
-        .filter(|s| !s.trim().is_empty())
-    {
-        out.push_str("\nRole guidance:\n");
-        out.push_str(guidance.trim());
-        out.push('\n');
-    }
     if let Some(hint) = task
         .competition
         .as_ref()
@@ -400,6 +417,76 @@ fn attempt_view(
 }
 
 impl PlanStore {
+    pub fn recent_worker_attempt_titles(
+        &self,
+        workspace_id: &str,
+        session_id: Option<&str>,
+        limit: usize,
+    ) -> Vec<String> {
+        let workspace_id = workspace_id.trim();
+        if workspace_id.is_empty() || limit == 0 {
+            return Vec::new();
+        }
+        let target_session = session_id.map(str::trim).filter(|value| !value.is_empty());
+        let mut entries: Vec<(u64, String)> = self
+            .list_full()
+            .into_iter()
+            .filter(|plan| plan.status == crate::plan::PlanStatus::Active)
+            .flat_map(|plan| plan.tasks.into_iter())
+            .filter(|task| task.lane.workspace_id.as_deref() == Some(workspace_id))
+            .flat_map(|task| task.execution_attempts.into_iter())
+            .filter(|attempt| attempt.role.as_deref() == Some("worker"))
+            .filter_map(|attempt| {
+                let title = attempt.executor_title?.trim().to_string();
+                if title.is_empty() {
+                    return None;
+                }
+                if let Some(target_session) = target_session {
+                    if attempt.session_id.as_deref() != Some(target_session) {
+                        return None;
+                    }
+                }
+                Some((
+                    attempt.assigned_at.or(attempt.reported_at).unwrap_or(0),
+                    title,
+                ))
+            })
+            .collect();
+        entries.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+        entries.truncate(limit);
+        entries.into_iter().map(|(_, title)| title).collect()
+    }
+
+    pub fn update_attempt_executor_identity(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        pane_id: &str,
+        title: Option<&str>,
+        session_id: Option<&str>,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        let title = title.map(str::trim).filter(|value| !value.is_empty());
+        let session_id = session_id.map(str::trim).filter(|value| !value.is_empty());
+        self.with_plan(plan_id, now_ms, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+                .ok_or(PlanError::TaskNotFound)?;
+            let attempt = task
+                .execution_attempts
+                .iter_mut()
+                .rev()
+                .find(|attempt| attempt.executor_pane_id == pane_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            attempt.executor_title = title.map(str::to_string);
+            attempt.session_id = session_id.map(str::to_string);
+            task.updated_at = now_ms;
+            Ok(())
+        })
+    }
+
     pub fn build_task_compete_drafts(
         &self,
         plan_id: &str,
@@ -470,6 +557,7 @@ impl PlanStore {
                 competition_group_id: group_id.clone(),
                 lane,
                 provider,
+                planned_model: task.model.clone(),
                 model,
                 parent_pane_id: request
                     .parent_pane_id
@@ -479,7 +567,7 @@ impl PlanStore {
                     .workspace_id
                     .clone()
                     .or(task.lane.workspace_id.clone()),
-                title: format!("{} attempt {}", task.name, lane),
+                title: None,
                 cwd: cwd.clone(),
                 task_prompt,
                 report_command: report_command.clone(),
@@ -564,9 +652,7 @@ impl PlanStore {
             .unwrap_or_else(|| "claude".into());
         let model = request.model.or(source.model.clone()).or(task_model);
         let report_command = task_report_command(plan_id, &task.id);
-        let title = request
-            .title
-            .unwrap_or_else(|| format!("{} retry", task.name));
+        let explicit_title = request.title.is_some();
         let cwd = source
             .worktree_path
             .clone()
@@ -585,13 +671,15 @@ impl PlanStore {
             task_id: task.id.clone(),
             source_attempt: source.clone(),
             provider,
+            planned_model: task.model.clone(),
             model,
             parent_pane_id: request
                 .parent_pane_id
                 .or(source.parent_pane_id.clone())
                 .or(plan.owner.pane_id),
             workspace_id: request.workspace_id.or(task.lane.workspace_id.clone()),
-            title,
+            title: request.title,
+            explicit_title,
             cwd,
             task_prompt,
             report_command,
@@ -623,7 +711,7 @@ impl PlanStore {
             attempt.provider = Some(draft.provider.clone());
             attempt.agent_type = Some(draft.provider.clone());
             attempt.model = draft.model.clone();
-            attempt.executor_title = Some(draft.title.clone());
+            attempt.executor_title = draft.title.clone();
             attempt.parent_pane_id = draft.parent_pane_id.clone();
             task.execution_attempts.push(attempt.clone());
             created = Some(attempt);
@@ -662,7 +750,7 @@ impl PlanStore {
             attempt.provider = Some(draft.provider.clone());
             attempt.agent_type = Some(draft.provider.clone());
             attempt.model = draft.model.clone();
-            attempt.executor_title = Some(draft.title.clone());
+            attempt.executor_title = draft.title.clone();
             attempt.parent_pane_id = draft.parent_pane_id.clone();
             attempt.competition_group_id = Some(draft.competition_group_id.clone());
             attempt.competition_lane = Some(draft.lane);
@@ -727,7 +815,7 @@ impl PlanStore {
         status: Option<ReportStatus>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        let Some(pane_id) = from.pane_id.as_deref() else {
+        let Some(reporter_pane) = from.pane_id.as_deref() else {
             return Ok(());
         };
         self.with_plan(plan_id, now_ms, |plan| {
@@ -736,21 +824,146 @@ impl PlanStore {
                 .iter_mut()
                 .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
-            if let Some(attempt) = task
-                .execution_attempts
-                .iter_mut()
-                .rev()
-                .find(|attempt| attempt.executor_pane_id == pane_id)
-            {
+            // Reports attach to the assigned executor's live attempt.
+            // They never create or rebind an attempt.
+            let executor_pane = task.assigned_pane_id.clone();
+            let target_idx = executor_pane
+                .as_deref()
+                .and_then(|executor| {
+                    task.execution_attempts.iter().rposition(|attempt| {
+                        attempt.executor_pane_id == executor && attempt.closed_at.is_none()
+                    })
+                })
+                .or_else(|| {
+                    task.execution_attempts
+                        .iter()
+                        .rposition(|attempt| attempt.executor_pane_id == reporter_pane)
+                });
+            if let Some(attempt) = target_idx.map(|idx| &mut task.execution_attempts[idx]) {
+                let reporter_pane_id =
+                    (attempt.executor_pane_id != reporter_pane).then(|| reporter_pane.to_string());
                 attempt.report = Some(TaskExecutionReportSnapshot {
                     id: format!("report_{now_ms}"),
                     message: Some(message.into()),
                     status: status.map(report_status_key),
+                    reporter_pane_id,
                     ..Default::default()
                 });
                 attempt.reported_at = Some(now_ms);
             }
             Ok(())
+        })
+    }
+
+    /// Ingest a worker report for its currently assigned task in one plan write.
+    /// Only a committed `in_review` report may advance the task; every other
+    /// accepted report remains a handoff milestone without changing task state.
+    pub fn ingest_bound_worker_report(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        from: &AgentRef,
+        report: BoundWorkerReport,
+        now_ms: u64,
+    ) -> Result<bool, PlanError> {
+        let Some(reporter_pane) = from.pane_id.as_deref() else {
+            return Ok(false);
+        };
+        let committed_review = report.status == Some(ReportStatus::InReview)
+            && report
+                .sha
+                .as_deref()
+                .is_some_and(|sha| !sha.trim().is_empty());
+        self.with_plan(plan_id, now_ms, |plan| {
+            let task_index = plan
+                .tasks
+                .iter()
+                .position(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+                .ok_or(PlanError::TaskNotFound)?;
+            if plan.tasks[task_index].assigned_pane_id.as_deref() != Some(reporter_pane) {
+                return Ok(false);
+            }
+            if plan.tasks[task_index]
+                .execution_attempts
+                .iter()
+                .filter(|attempt| attempt.executor_pane_id == reporter_pane)
+                .filter_map(|attempt| attempt.reported_at)
+                .any(|reported_at| reported_at >= now_ms)
+            {
+                return Ok(false);
+            }
+            let current = plan.tasks[task_index].status.clone();
+            if matches!(current, TaskStatus::Done | TaskStatus::Cancelled) {
+                return Ok(false);
+            }
+            if committed_review && current != TaskStatus::InReview {
+                super::mutations::validate_task_status_transition(
+                    plan,
+                    &plan.tasks[task_index].id,
+                    &current,
+                    &TaskStatus::InReview,
+                    None,
+                )?;
+            }
+            let task = &mut plan.tasks[task_index];
+            if task.lane.branch.as_deref().unwrap_or("").is_empty() {
+                task.lane.branch = report
+                    .branch
+                    .clone()
+                    .filter(|branch| !branch.trim().is_empty());
+            }
+            task.milestones.push(Milestone {
+                id: crate::plan::ids::short_id("ms"),
+                from: from.clone(),
+                kind: "worker_report".into(),
+                text: match report.status {
+                    Some(ReportStatus::InReview) if !committed_review => {
+                        format!("HANDOFF (uncommitted): {}", report.message)
+                    }
+                    Some(status) => format!("{}: {}", status.label(), report.message),
+                    None => report.message.clone(),
+                },
+                ts: now_ms,
+                links: vec![],
+                loop_id: None,
+                iteration: None,
+                canvas: Default::default(),
+                attachments: vec![],
+            });
+            if let Some(attempt) = task
+                .execution_attempts
+                .iter_mut()
+                .rposition(|attempt| {
+                    attempt.executor_pane_id == reporter_pane && attempt.closed_at.is_none()
+                })
+                .map(|index| &mut task.execution_attempts[index])
+            {
+                attempt.report = Some(TaskExecutionReportSnapshot {
+                    id: format!("report_{now_ms}"),
+                    message: Some(report.message),
+                    status: report.status.map(report_status_key),
+                    sha: report.sha,
+                    reporter_pane_id: None,
+                    changed_files: report.changed_files,
+                    test_cmd: report.test_cmd,
+                    test_result: report.test_result,
+                    skipped: report.skipped,
+                    attachments: vec![],
+                });
+                attempt.reported_at = Some(now_ms);
+            }
+            let entering_review = committed_review && task.status != TaskStatus::InReview;
+            if entering_review {
+                task.status = TaskStatus::InReview;
+                task.status_changed_at = now_ms;
+                super::qa::normalize_task_review_fields(task);
+                crate::service_plan::review_gate::fix_oracle_and_consume_override(task, now_ms);
+            }
+            task.updated_at = now_ms;
+            if entering_review {
+                crate::service_plan::review_gate::spend_review_credit(&mut plan.review_policy);
+            }
+            Ok(committed_review)
         })
     }
 }

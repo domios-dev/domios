@@ -32,7 +32,7 @@ pub use loops::{loop_create, loop_record, loop_set, loop_status, loop_stop};
 pub use milestones::{milestone_add, milestone_rm, milestone_update};
 pub use plans::{
     archive, claim, create, delete_plan, disown, get, kinds_set, list, mode_set, next, pause,
-    reconcile, resume, state, tag_facets_set, transfer, unarchive, update,
+    reconcile, resolve_refs, resume, state, tag_facets_set, transfer, unarchive, update,
 };
 pub use sections::{ingest, section_add, section_rm, section_update};
 pub use skills::{retrospective_write, skills_list, skills_show};

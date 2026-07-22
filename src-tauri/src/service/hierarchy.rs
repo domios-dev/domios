@@ -1,13 +1,20 @@
 //! Agent hierarchy: roles, reports, status queries.
 
+mod first_plan;
 mod plan_reminder_nudge;
+mod planner_delivery;
+mod status;
 
-use serde::Serialize;
+pub(crate) use first_plan::FirstPlanTeamError;
+pub use status::PaneStatusInfo;
+
+use planner_delivery::{
+    epoch_ms, planner_rehydrate_payload, planner_request_payload, planner_specs_for_plan,
+};
 
 use super::{ReportResult, ServiceContext, ServiceState};
 use crate::agent::ledger::LedgerRow;
-use crate::agent::reports::{ReportDetails, ReportStatus};
-use crate::multiplexer::types::AgentRole;
+use crate::agent::reports::{ReportDetails, ReportModelIdentity, ReportStatus};
 use crate::plan::AgentRef;
 use tauri::Manager;
 
@@ -16,6 +23,303 @@ pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
 }
 
 impl ServiceContext {
+    pub(crate) fn schedule_planner_replay(&self, pane_id: &str) {
+        let svc = self.clone();
+        let pane_id = pane_id.to_string();
+        std::thread::spawn(move || svc.replay_planner_requests_if_routable(&pane_id));
+    }
+
+    pub(crate) fn clear_dead_planner_binding(&self, pane_id: &str) {
+        let now_ms = epoch_ms();
+        for plan in self.plan_store.list_full() {
+            let Some(crate::plan::PlannerRef::Pane {
+                pane_id: bound,
+                title,
+                ..
+            }) = &plan.planner
+            else {
+                continue;
+            };
+            if bound == pane_id {
+                let _ = self.plan_store.set_planner_ref(
+                    &plan.id,
+                    Some(crate::plan::PlannerRef::Pane {
+                        pane_id: pane_id.to_string(),
+                        session_id: None,
+                        title: title.clone(),
+                    }),
+                    now_ms,
+                );
+            }
+        }
+    }
+
+    pub(crate) fn replay_planner_requests_if_routable(&self, pane_id: &str) {
+        let now_ms = epoch_ms();
+        for plan in self.plan_store.list_full() {
+            let Some(crate::plan::PlannerRef::Pane {
+                pane_id: bound,
+                session_id: Some(session_id),
+                ..
+            }) = &plan.planner
+            else {
+                continue;
+            };
+            if bound != pane_id {
+                continue;
+            }
+            let resolution =
+                crate::plan::peer::resolve_planner_ref(&plan.planner, &plan.owner, |id| {
+                    self.pane_probe(id)
+                });
+            if !matches!(
+                resolution,
+                crate::plan::peer::PeerResolution::Planner { .. }
+            ) {
+                continue;
+            }
+            let Some(binding_nonce) = self
+                .mux
+                .read()
+                .get_pane(pane_id)
+                .and_then(|pane| pane.reported_session_binding_nonce.clone())
+            else {
+                continue;
+            };
+            if plan
+                .planner_requests
+                .iter()
+                .all(|request| matches!(request.state, crate::plan::PlannerRequestState::Completed))
+            {
+                continue;
+            }
+            let Ok(requests) = self.plan_store.claim_planner_requests(
+                &plan.id,
+                pane_id,
+                session_id,
+                &binding_nonce,
+                now_ms,
+            ) else {
+                continue;
+            };
+            if requests.is_empty() {
+                continue;
+            }
+            let binding = match self.prepare_planner_delivery_binding(pane_id) {
+                Ok(binding) => binding,
+                Err(_) => {
+                    let (observed_session_id, observed_binding_nonce) =
+                        self.observed_planner_identity(pane_id);
+                    for request in &requests {
+                        let _ = self.plan_store.release_planner_request(
+                            &plan.id,
+                            &request.request_id,
+                            session_id,
+                            &binding_nonce,
+                            epoch_ms(),
+                        );
+                        if let (Some(session_id), Some(observed_nonce)) =
+                            (&observed_session_id, &observed_binding_nonce)
+                        {
+                            let _ = self.plan_store.release_planner_request(
+                                &plan.id,
+                                &request.request_id,
+                                session_id,
+                                observed_nonce,
+                                epoch_ms(),
+                            );
+                        }
+                    }
+                    self.clear_dead_planner_binding(pane_id);
+                    continue;
+                }
+            };
+            let Some(rebound_plan) = self.plan_store.get(&plan.id) else {
+                continue;
+            };
+            let rehydrate = planner_rehydrate_payload(
+                &rebound_plan,
+                planner_specs_for_plan(&self.plan_store, &rebound_plan),
+            );
+            let rehydrate_id = format!("planner-rehydrate-{}-{}", plan.id, binding.session_id);
+            if self
+                .deliver_to_routable_planner(
+                    &plan.id,
+                    pane_id,
+                    &binding.session_id,
+                    &binding.binding_nonce,
+                    "planner-recovery",
+                    &rehydrate,
+                    rehydrate_id,
+                )
+                .is_err()
+            {
+                let (observed_session_id, observed_binding_nonce) =
+                    self.observed_planner_identity(pane_id);
+                for request in &requests {
+                    let _ = self.plan_store.release_planner_request(
+                        &plan.id,
+                        &request.request_id,
+                        &binding.session_id,
+                        &binding.binding_nonce,
+                        epoch_ms(),
+                    );
+                    if let (Some(session_id), Some(binding_nonce)) =
+                        (&observed_session_id, &observed_binding_nonce)
+                    {
+                        let _ = self.plan_store.release_planner_request(
+                            &plan.id,
+                            &request.request_id,
+                            session_id,
+                            binding_nonce,
+                            epoch_ms(),
+                        );
+                    }
+                }
+                self.clear_dead_planner_binding(pane_id);
+                continue;
+            }
+            for request in requests {
+                if self
+                    .plan_store
+                    .start_planner_request_delivery(
+                        &plan.id,
+                        &request.request_id,
+                        &binding.session_id,
+                        &binding.binding_nonce,
+                        binding.transport,
+                        epoch_ms(),
+                    )
+                    .is_err()
+                {
+                    continue;
+                }
+                let body = planner_request_payload(&plan.id, &request);
+                let message_id = format!("planner-request-{}", request.request_id);
+                match self.deliver_to_routable_planner(
+                    &plan.id,
+                    pane_id,
+                    &binding.session_id,
+                    &binding.binding_nonce,
+                    "planner-request",
+                    &body,
+                    message_id,
+                ) {
+                    Ok(_) => {
+                        let _ = self.plan_store.accept_planner_request(
+                            &plan.id,
+                            &request.request_id,
+                            &binding.session_id,
+                            &binding.binding_nonce,
+                            epoch_ms(),
+                        );
+                    }
+                    Err(error) => {
+                        let (observed_session_id, observed_binding_nonce) =
+                            self.observed_planner_identity(pane_id);
+                        let _ = self.plan_store.mark_planner_delivery_uncertain(
+                            &plan.id,
+                            &request.request_id,
+                            &error,
+                            observed_session_id.as_deref(),
+                            observed_binding_nonce.as_deref(),
+                            epoch_ms(),
+                        );
+                        self.clear_dead_planner_binding(pane_id);
+                    }
+                }
+            }
+        }
+    }
+
+    fn deliver_to_routable_planner(
+        &self,
+        plan_id: &str,
+        pane_id: &str,
+        expected_session_id: &str,
+        expected_binding_nonce: &str,
+        context: &str,
+        body: &str,
+        message_id: String,
+    ) -> Result<(), String> {
+        let plan = self.plan_store.get(plan_id).ok_or("plan not found")?;
+        let matches_binding = matches!(
+            &plan.planner,
+            Some(crate::plan::PlannerRef::Pane { pane_id: bound, session_id: Some(session), .. })
+                if bound == pane_id && session == expected_session_id
+        );
+        if !matches_binding
+            || !self
+                .pane_probe(pane_id)
+                .planner_routable_for(Some(expected_session_id))
+        {
+            return Err("agent_unavailable".into());
+        }
+        let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder(context);
+        crate::service::messenger::Messenger::deliver_planner_session(
+            self,
+            pane_id,
+            expected_session_id,
+            expected_binding_nonce,
+            envelope,
+            body,
+            message_id,
+        )
+        .map(|_| ())
+    }
+
+    pub(crate) fn acknowledge_planner_request(
+        &self,
+        plan_id: &str,
+        request_id: &str,
+        pane_id: &str,
+    ) -> Result<crate::plan::PlannerRequest, String> {
+        let plan = self.plan_store.get(plan_id).ok_or("plan not found")?;
+        let request = plan
+            .planner_requests
+            .iter()
+            .find(|request| request.request_id == request_id)
+            .cloned()
+            .ok_or("planner request not found")?;
+        if request.state == crate::plan::PlannerRequestState::Completed {
+            return Ok(request);
+        }
+        let (session_id, binding_nonce) = {
+            let mux = self.mux.read();
+            let pane = mux.get_pane(pane_id).ok_or("agent_unavailable")?;
+            (
+                pane.agent_session_id.clone().ok_or("agent_unavailable")?,
+                pane.reported_session_binding_nonce
+                    .clone()
+                    .ok_or("agent_unavailable")?,
+            )
+        };
+        let delivered_here = request.delivered_to_pane_id.as_deref() == Some(pane_id)
+            && request.delivered_to_session_id.as_deref() == Some(session_id.as_str())
+            && request.delivered_with_binding_nonce.as_deref() == Some(binding_nonce.as_str());
+        if !matches!(
+            request.state,
+            crate::plan::PlannerRequestState::InProgress
+                | crate::plan::PlannerRequestState::Accepted
+        ) || !delivered_here
+            || !self
+                .pane_probe(pane_id)
+                .planner_routable_for(Some(&session_id))
+        {
+            return Err("agent_unavailable".into());
+        }
+        self.plan_store
+            .complete_planner_request(plan_id, request_id, epoch_ms())
+            .map_err(|error| error.to_string())?;
+        self.plan_store
+            .get(plan_id)
+            .and_then(|plan| {
+                plan.planner_requests
+                    .into_iter()
+                    .find(|request| request.request_id == request_id)
+            })
+            .ok_or_else(|| "planner request not found".into())
+    }
     pub fn set_pane_role(
         &self,
         pane_id: &str,
@@ -44,7 +348,7 @@ impl ServiceContext {
             }
             Err(e) if e.contains("not found") => {
                 // Cross-mesh workers live only in RemoteWorkerRegistry — their
-                // foreign pane id is what `agent unlink --pane` passes.
+                // The foreign tab id is what `agent unlink --tab` passes.
                 let touched = self
                     .remote_workers
                     .forget_by_remote_pane(pane_id, None, None);
@@ -114,7 +418,7 @@ impl ServiceContext {
         let (eff_plan_id, eff_task_id) =
             resolve_plan_ctx(&self.plan_store, pane_id, plan_id, task_id, &mut notices)?;
 
-        let (from_title, default_target_opt, model, from_ref, role) = {
+        let (from_title, default_target_opt, model_identity, from_ref, role) = {
             let mux = self.mux.read();
             let (from_title, target_opt) = match resolve_report_target(&mux, pane_id) {
                 Ok(resolved) => resolved,
@@ -122,7 +426,14 @@ impl ServiceContext {
                 Err(e) => return Err(e),
             };
             let pane = mux.get_pane(pane_id);
-            let model = pane.and_then(|p| p.agent_session_model.clone());
+            let model_identity = pane.map(|p| ReportModelIdentity {
+                actual_model: p.agent_session_model.clone(),
+                planned_model: p.agent_planned_model.clone(),
+                requested_model: p.agent_requested_model.clone(),
+                provider_resolved_model: p.agent_provider_resolved_model.clone(),
+                fallback: p.model_fallback.clone(),
+                mismatch: p.model_identity_mismatch.clone(),
+            });
             let from_ref = pane.map_or_else(
                 || AgentRef::from_pane(pane_id),
                 |p| AgentRef {
@@ -132,8 +443,11 @@ impl ServiceContext {
                 },
             );
             let role = pane.and_then(|p| p.role);
-            (from_title, target_opt, model, from_ref, role)
+            (from_title, target_opt, model_identity, from_ref, role)
         };
+        let model = model_identity
+            .as_ref()
+            .and_then(|identity| identity.actual_model.clone());
         // Capture mesh peer before default_target_opt is consumed by .or().
         let default_mesh_peer = match &default_target_opt {
             Some(ReportTarget::Mesh { peer, .. }) => Some(peer.clone()),
@@ -196,84 +510,39 @@ impl ServiceContext {
         };
 
         if let Some(ref plan_id) = eff_plan_id {
-            // homing succeeded) — avoids a milestone landing on the wrong local plan.
+            // A worker report is authoritative only for the task actually bound
+            // to its pane. Explicit ids are useful routing hints, never authority.
             if !homed_to_remote && !foreign {
-                let task_id = eff_task_id
-                    .clone()
-                    .or_else(|| {
-                        self.plan_store.task_binding_for_pane(pane_id).and_then(
-                            |(bound_plan, bound_task)| {
-                                if &bound_plan == plan_id {
-                                    Some(bound_task)
-                                } else {
-                                    None
-                                }
-                            },
-                        )
+                let bound_task = self.plan_store.task_binding_for_pane(pane_id);
+                let task_id = eff_task_id.clone().or_else(|| {
+                    bound_task.as_ref().and_then(|(bound_plan, bound_task)| {
+                        (bound_plan == plan_id).then(|| bound_task.clone())
                     })
-                    .ok_or_else(|| "task_id required for plan report".to_string())?;
-                let mut ops = Vec::new();
-                if let Some(status) = task_status {
-                    ops.push(crate::service::plan::batch::BatchOp::SetTaskStatus {
-                        client_id: None,
-                        task: task_id.clone(),
-                        status: status.into(),
-                    });
-                }
-                ops.push(crate::service::plan::batch::BatchOp::AddMilestone {
-                    client_id: Some("report".into()),
-                    task: task_id.clone(),
-                    kind: milestone_kind.unwrap_or("status_update").into(),
-                    text: milestone_text(message, details.status),
-                    from: Some(from_ref.clone()),
-                    key: None,
-                    links: vec![],
                 });
-                let batch_result = self
-                    .plan_store
-                    .apply_batch(
-                        plan_id,
-                        crate::service::plan::batch::BatchRequest { key: None, ops },
-                        epoch_ms(),
-                    )
-                    .map_err(|e| e.to_string())?;
-                if !details.attachments.is_empty() {
-                    let milestone_id = batch_result
-                        .milestone_ids
-                        .first()
-                        .ok_or_else(|| "report milestone missing for attachments".to_string())?
-                        .clone();
-                    for path in &details.attachments {
+                if let (Some(task_id), Some((bound_plan, bound_task))) = (task_id, bound_task) {
+                    if &bound_plan == plan_id && bound_task == task_id {
+                        let evidence = crate::service::plan::task_attempts::BoundWorkerReport {
+                            message: message.to_string(),
+                            status: details.status,
+                            branch: details.branch.clone(),
+                            sha: details.sha.clone(),
+                            changed_files: details.changed_files.clone().unwrap_or_default(),
+                            test_cmd: details.test_cmd.clone(),
+                            test_result: details.test_result.clone(),
+                            skipped: details.skipped.clone(),
+                        };
                         self.plan_store
-                            .attach_to_milestone(
+                            .ingest_bound_worker_report(
                                 plan_id,
                                 &task_id,
-                                &milestone_id,
-                                std::path::Path::new(path),
+                                &from_ref,
+                                evidence,
                                 epoch_ms(),
                             )
                             .map_err(|e| e.to_string())?;
                     }
                 }
-                let _ = self.plan_store.record_task_attempt_report(
-                    plan_id,
-                    &task_id,
-                    &from_ref,
-                    message,
-                    details.status,
-                    epoch_ms(),
-                );
-                // Recording discipline: capture lane truth from the report into
-                // empty fields (never overwrite an explicit prior value).
-                let _ = self.plan_store.fill_task_lane_if_empty(
-                    plan_id,
-                    &task_id,
-                    Some(pane_id),
-                    details.branch.as_deref(),
-                    None,
-                    epoch_ms(),
-                );
-                self.plan_turn_counter.reset(pane_id);
+                self.plan_turn_counter.reset_activity(pane_id);
                 crate::api::events::emit_everywhere(
                     &self.app_handle,
                     "plan-changed",
@@ -283,23 +552,23 @@ impl ServiceContext {
         }
 
         let target = target_opt.ok_or_else(|| {
-            "No report target for this pane. You are not attached to an orchestrator, report target, or spawning pane. Ask for the target pane id, then use `codeterm send [--mesh <peer>] --pane <pane-or-alias> \"...\"`, or spawn with a report target.".to_string()
+            "No report target for this tab. You are not attached to an orchestrator, report target, or spawning tab. Ask for the target tab id, then use `codeterm send [--mesh <peer>] --tab <tab-or-alias> \"...\"`, or spawn with a report target.".to_string()
         })?;
         let storage_key = target.storage_key();
-        let report = self.report_store.lock().add_detailed(
+        let report = self.report_store.lock().add_detailed_with_model_identity(
             &storage_key,
             pane_id,
             &from_title,
             message,
             details,
-            model.as_deref(),
+            model_identity,
         );
 
         self.events.broadcast(
             "agent.report",
             serde_json::json!({
                 "target_pane_id": storage_key,
-                "report": report,
+                "report": report.clone(),
             }),
         );
         crate::api::events::emit_everywhere(
@@ -310,6 +579,7 @@ impl ServiceContext {
                 "from_pane_id": pane_id,
                 "from_title": from_title,
                 "message": message,
+                "report": report.clone(),
             }),
         );
 
@@ -328,13 +598,22 @@ impl ServiceContext {
                 let envelope =
                     crate::service::messenger::MessageEnvelope::report(&from_title, pane_id)
                         .model(model.clone());
-                let delivery = crate::service::messenger::Messenger::deliver(
-                    self,
+                // The target is a TUI that owns its screen: it reflows, collapses
+                // long input to a paste placeholder, and queues while busy. Echo
+                // scraping cannot decide delivery there, and its false negatives
+                // failed reports that had already landed. The report is stored and
+                // broadcast above; the write is the guarantee.
+                match self.gateway_deliver(
                     &target_id,
                     envelope,
                     &report.inject_body(),
-                )?;
-                log::info!("[report] target={} delivered via {:?}", target_id, delivery);
+                    crate::service::message_gateway::DeliveryClass::AgentTraffic,
+                ) {
+                    Ok(delivery) => {
+                        log::info!("[report] target={} delivered via {:?}", target_id, delivery)
+                    }
+                    Err(error) => log::warn!("[report] target={} deliver: {}", target_id, error),
+                }
             }
         }
 
@@ -390,49 +669,12 @@ impl ServiceContext {
             &text,
         );
         let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("plan");
-        let _ = crate::service::messenger::Messenger::deliver(self, owner, envelope, &text);
-    }
-
-    /// Deliver a decision gate question to the resolved planner/orchestrator pane.
-    /// Uses plan's `planner` field via `resolve_planner_ref`; falls back to owner.
-    /// Returns the pane_id that was delivered to (if any).
-    pub fn deliver_gate_question(
-        &self,
-        plan_id: &str,
-        gate_id: &str,
-        question: &str,
-        asked_by_pane: Option<&str>,
-    ) -> Option<String> {
-        let plan = self.plan_store.get(plan_id)?;
-        let resolution =
-            crate::plan::peer::resolve_planner_ref(&plan.planner, &plan.owner, |pane_id| {
-                self.pane_probe(pane_id)
-            });
-        let pane_id = match &resolution {
-            crate::plan::peer::PeerResolution::Planner { pane_id } => pane_id.clone(),
-            crate::plan::peer::PeerResolution::OrchestratorFallback { .. } => {
-                plan.owner.pane_id.clone()?
-            }
-            crate::plan::peer::PeerResolution::Waived { .. } => return None,
-            crate::plan::peer::PeerResolution::Unbound => plan.owner.pane_id.clone()?,
-        };
-        if Some(pane_id.as_str()) == asked_by_pane {
-            return None; // no self-deliver
-        }
-        let who = asked_by_pane.unwrap_or("orchestrator");
-        let text = format!(
-            "[decision gate {gate_id}] '{question}'\nAsked by {who}. Answer with: \
-             codeterm plan decision answer {plan_id} {gate_id} --answer \"<your answer>\""
-        );
-        let text = crate::service::orchestrator_digests::prepend_orchestrator_heartbeat(
-            self,
-            plan_id,
-            Some(&pane_id),
+        let _ = self.gateway_deliver(
+            owner,
+            envelope,
             &text,
+            crate::service::message_gateway::DeliveryClass::SystemNotice,
         );
-        let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("plan");
-        let _ = crate::service::messenger::Messenger::deliver(self, &pane_id, envelope, &text);
-        Some(pane_id)
     }
 
     /// Nudge the gate asker pane when a gate is answered.
@@ -468,7 +710,12 @@ impl ServiceContext {
             &text,
         );
         let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("plan");
-        let _ = crate::service::messenger::Messenger::deliver(self, asker, envelope, &text);
+        let _ = self.gateway_deliver(
+            asker,
+            envelope,
+            &text,
+            crate::service::message_gateway::DeliveryClass::SystemNotice,
+        );
     }
 
     /// Relay plan batch ops (status update + milestone) to the peer that owns the
@@ -521,6 +768,7 @@ impl ServiceContext {
             method: "POST".into(),
             path: format!("/api/plans/{}/batch", plan_id),
             body,
+            delivery_id: None,
         };
         tauri::async_runtime::spawn(async move {
             match client.send_relay(&cmd).await {
@@ -581,6 +829,9 @@ impl ServiceContext {
             method: "POST".into(),
             path: format!("/api/panes/{}/send", target_pane),
             body: send_body,
+            // At-most-once: a report is one logical send; dedupe by this id so a
+            // relay retry can never double-post it into the target pane.
+            delivery_id: Some(uuid::Uuid::new_v4().to_string()),
         };
         tauri::async_runtime::spawn(async move {
             match client.send_relay(&cmd).await {
@@ -621,35 +872,6 @@ impl ServiceContext {
         let mux = self.mux.read();
         ledger_with_live_children(&mux, orchestrator_pane_id, rows, epoch_seconds())
     }
-
-    pub fn get_pane_status(&self, pane_id: &str) -> Result<PaneStatusInfo, String> {
-        let mux = self.mux.write();
-        let pane = mux
-            .get_pane(pane_id)
-            .ok_or(format!("Pane not found: {}", pane_id))?;
-
-        let status = if let Some(ref pty_id) = pane.pty_id {
-            let tracker = self.agent_tracker.lock();
-            format!("{:?}", tracker.get_status(pty_id))
-        } else {
-            "Idle".to_string()
-        };
-
-        let children = mux.get_children_ids(pane_id);
-
-        Ok(PaneStatusInfo {
-            pane_id: pane.id.clone(),
-            status,
-            agent_type: pane.agent_type.clone(),
-            role: pane.role,
-            parent_pane_id: pane.parent_pane_id.clone(),
-            can_spawn: pane.can_spawn,
-            depth: pane.depth,
-            children,
-            cwd: pane.cwd.clone(),
-            title: pane.title.clone(),
-        })
-    }
 }
 
 fn report_task_status_transition(
@@ -673,13 +895,6 @@ fn milestone_text(message: &str, status: Option<ReportStatus>) -> String {
         Some(ReportStatus::Blocked) => format!("BLOCKED: {message}"),
         None => message.to_string(),
     }
-}
-
-fn epoch_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
 }
 
 fn epoch_seconds() -> u64 {
@@ -738,7 +953,7 @@ pub enum ReportTarget {
 
 impl ReportTarget {
     /// Stable key the report store and worker-death dedup index by. Local targets
-    /// key on the pane id (so `agent reports --pane <id>` finds them); mesh targets
+    /// key on the tab id (so `agent reports --tab <id>` finds them); mesh targets
     /// key on a synthetic `mesh:<peer>/<pane>` so they neither collide with local
     /// panes nor each other.
     pub fn storage_key(&self) -> String {
@@ -914,20 +1129,6 @@ pub fn worker_death_report(
         storage_key,
         format!("{role_label} {} EXITED without reporting (dead)", pane_id),
     ))
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct PaneStatusInfo {
-    pub pane_id: String,
-    pub status: String,
-    pub agent_type: Option<String>,
-    pub role: Option<AgentRole>,
-    pub parent_pane_id: Option<String>,
-    pub can_spawn: bool,
-    pub depth: u8,
-    pub children: Vec<String>,
-    pub cwd: Option<String>,
-    pub title: String,
 }
 
 #[cfg(test)]

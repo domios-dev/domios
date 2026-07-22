@@ -43,6 +43,7 @@ struct FireSpec {
     workspace_id: String,
     creator_pane_id: Option<String>,
     timeout_seconds: Option<u64>,
+    skill: Option<String>,
 }
 
 /// One scheduler tick: fire any overdue jobs, return ms until next fire.
@@ -75,6 +76,7 @@ fn tick(cron_state: &CronState, service: &ServiceState) -> u64 {
                         workspace_id: job.workspace_id.clone(),
                         creator_pane_id: job.creator_pane_id.clone(),
                         timeout_seconds: job.timeout_seconds,
+                        skill: job.skill.clone(),
                     });
                 } else {
                     next_fire = Some(match next_fire {
@@ -151,26 +153,26 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
     // Spawn agent via the unified spawn_pane surface.
     use crate::service::spawn::{AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec};
 
-    let mut task_text = task.to_string();
-    if creator_pane_id.is_some() {
-        task_text.push_str(crate::prompts::CRON_REPORT_HINT);
-    }
-    task_text.push_str(&crate::prompts::CRON_COMPLETE_SUFFIX.replace("{}", &run_id));
+    let skill_block = spec.skill.as_deref().map(crate::commands::cron_skill_block);
+    let task_text = crate::cron::task_text::build_cron_task_text(
+        task,
+        skill_block.as_deref(),
+        creator_pane_id,
+        &run_id,
+    );
 
-    // (shared default). Short labels (haiku|sonnet|opus) resolve at runtime via agent::models.
-    let model = model
-        .map(|s| s.to_string())
-        .or_else(|| {
-            let mem_cfg = crate::config::memory_config();
-            if !mem_cfg.dreaming_model.is_empty() {
-                Some(mem_cfg.dreaming_model.clone())
-            } else if !mem_cfg.worker_model.is_empty() {
-                Some(mem_cfg.worker_model.clone())
-            } else {
-                None
-            }
-        })
-        .map(|s| crate::agent::models::canonicalize_short(&s).to_string());
+    // (shared default). Resolved against `agent`'s own catalog so a cron job
+    // fired without a stored model still gets a model that provider accepts.
+    let model = model.map(|s| s.to_string()).or_else(|| {
+        let mem_cfg = crate::config::memory_config();
+        let (resolved, _fell_back) = codeterm_mem::worker_agent::resolve_worker_model(
+            &mem_cfg.dreaming_model,
+            &mem_cfg.worker_model,
+            agent,
+            &crate::service::spawn::CatalogBackgroundModelPort,
+        );
+        (!resolved.is_empty()).then_some(resolved)
+    });
 
     // Include cron job name in the pane title so reports show `cron:<job>` instead of plain `Terminal`.
     let job_name = cron_state
@@ -195,6 +197,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
         eager: false,
         command: PaneCommand::Agent(AgentSpawnSpec {
             provider: agent.to_string(),
+            planned_model: None,
             model,
             task: Some(task_text),
             role: role.map(|s| s.to_string()),
@@ -276,12 +279,17 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
         Err(e) => {
             log::error!("Cron agent spawn failed: job={}, error={}", job_id, e);
 
-            {
+            let fresh_transition = {
                 let mut store = cron_state.lock();
-                let _ = store.update_run_status(job_id, &run_id, CronRunStatus::Failed);
-            }
+                store
+                    .update_run_status(job_id, &run_id, CronRunStatus::Failed)
+                    .unwrap_or(false)
+            };
 
             service.create_notification(format!("Cron failed: {}", job_id), Some(e), Some("error"));
+            if fresh_transition {
+                crate::cron::notify::notify_on_consecutive_failure(service, cron_state, job_id);
+            }
         }
     }
 }
@@ -319,6 +327,7 @@ mod tests {
                 model: None,
                 cwd: None,
                 role: None,
+                skill: None,
                 creator_pane_id: None,
                 enabled: Some(true),
                 max_history: None,
@@ -340,6 +349,7 @@ mod tests {
                 model: None,
                 cwd: None,
                 role: None,
+                skill: None,
                 creator_pane_id: None,
                 enabled: Some(false),
                 max_history: None,

@@ -106,6 +106,13 @@ pub(crate) fn parse_duration_secs(value: &str, flag: &str) -> Result<u64, String
 
 pub(crate) const MAX_PANE_DESCRIPTION_CHARS: usize = 200;
 
+pub(crate) fn join_cli_words(value: Option<Vec<String>>) -> Option<String> {
+    value
+        .map(|words| words.join(" "))
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 fn refusal_next_commands() -> Vec<&'static str> {
     vec![
         "git status --short",
@@ -260,6 +267,32 @@ fn format_agent_models(target: &serde_json::Value, provider: &str) -> String {
                 id, name, marker, description
             ));
         }
+    }
+    out.push_str(&format_reasoning_efforts(target));
+    out
+}
+
+fn format_reasoning_efforts(target: &serde_json::Value) -> String {
+    let efforts = target
+        .get("reasoning_efforts")
+        .and_then(|v| v.as_array())
+        .filter(|a| !a.is_empty());
+    let Some(efforts) = efforts else {
+        return String::new();
+    };
+    let default = target
+        .get("default_reasoning_effort")
+        .and_then(|v| v.as_str());
+    let mut out = String::from("\nReasoning effort:\n");
+    for e in efforts {
+        let id = e.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+        let name = e.get("display_name").and_then(|v| v.as_str()).unwrap_or(id);
+        let marker = if default == Some(id) {
+            " (default)"
+        } else {
+            ""
+        };
+        out.push_str(&format!("{:<10} {}{}\n", id, name, marker));
     }
     out
 }
@@ -460,6 +493,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             status,
             branch,
             sha,
+            base,
             changed_files,
             test_cmd,
             test_result,
@@ -475,9 +509,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         && !explicit.starts_with(own.as_str());
                     if differs {
                         eprintln!(
-                            "Error: `agent report --pane {explicit}` reports AS that pane, not TO it.\n\
-                             Reports route to your parent automatically — drop --pane to report up the hierarchy.\n\
-                             To send a message to a specific pane, use `codeterm send --pane {explicit}`."
+                            "Error: `agent report --tab {explicit}` reports AS that tab, not TO it.\n\
+                             Reports route to your parent automatically — drop --tab to report up the hierarchy.\n\
+                             To send a message to a specific tab, use `codeterm send --tab {explicit}`."
                         );
                         std::process::exit(1);
                     }
@@ -524,6 +558,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 status,
                 branch,
                 sha,
+                base,
                 changed_files,
                 acknowledge_dirty,
             ) {
@@ -600,24 +635,6 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
             handle_result(json, result);
         }
-        AgentAction::Message {
-            text,
-            pane,
-            from_file,
-            stdin,
-        } => {
-            crate::cmd::send_text::handle_send_text(
-                client,
-                json,
-                Some(pane),
-                text,
-                from_file,
-                stdin,
-                None,
-                None,
-                None,
-            );
-        }
         AgentAction::Reports { pane, clear, limit } => {
             let pane_id = resolve_pane(client, pane);
             match client.call(
@@ -663,6 +680,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             args,
             workspace,
             model,
+            reasoning_effort,
             system_prompt,
             preset,
             charter,
@@ -728,10 +746,10 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             let mut body = serde_json::json!({
                 "agent": agent,
             });
-            if let Some(t) = title {
+            if let Some(t) = join_cli_words(title) {
                 body["title"] = serde_json::json!(t);
             }
-            if let Some(d) = description {
+            if let Some(d) = join_cli_words(description) {
                 match normalize_pane_description(&d) {
                     Ok(Some(d)) => body["description"] = serde_json::json!(d),
                     Ok(None) => body["description"] = serde_json::json!(""),
@@ -773,6 +791,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
             if let Some(m) = model {
                 body["model"] = serde_json::json!(m);
+            }
+            if let Some(effort) = reasoning_effort {
+                body["reasoning_effort"] = serde_json::json!(effort);
             }
             if let Some(system_prompt) = system_prompt {
                 body["system_prompt"] = serde_json::json!(system_prompt);
@@ -981,7 +1002,8 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 std::process::exit(1);
             }
             // raw: bypass bracket paste so the TUI parses /model as a slash command, not chat input.
-            let cmd = format!("/model {}", name);
+            // Trailing \r submits it — raw mode is byte-for-byte, so we include it.
+            let cmd = format!("/model {}\r", name);
             match http
                 .post(format!("{}/api/panes/{}/send", base, pane_id))
                 .json(&serde_json::json!({"text": cmd, "raw": true}))

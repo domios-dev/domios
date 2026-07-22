@@ -344,7 +344,7 @@ fn planning_kind_tasks_do_not_trip_approval_gate() {
         "tasks": [{
             "id": "task_1",
             "name": "Improve task graph",
-            "kind": "planning",
+            "type": "planning",
             "status": "pending",
             "section_ids": ["sec_1"]
         }]
@@ -369,7 +369,7 @@ fn execution_kind_task_in_planning_mode_trips_approval_gate() {
         "tasks": [{
             "id": "task_1",
             "name": "Build feature",
-            "kind": "implement",
+            "type": "implement",
             "status": "pending",
             "section_ids": ["sec_1"]
         }]
@@ -378,6 +378,58 @@ fn execution_kind_task_in_planning_mode_trips_approval_gate() {
     assert!(
         findings.iter().any(|f| f.kind == "tasks_before_approval"),
         "execution-kind tasks in planning mode must trip the approval gate"
+    );
+}
+
+#[test]
+fn structure_ready_plan_with_only_planning_task_passes_approval_gate() {
+    // Issue #231 finding 3: a structure_ready plan whose only task is
+    // planning-kind (stored as "type": "planning") must not trip the gate.
+    let plan = json!({
+        "id": "pl_b5g9vg",
+        "title": "SCRATCH-owner-plan",
+        "status": "active",
+        "mode": "planning",
+        "planning_state": "structure_ready",
+        "goal": {"vector": "ship"},
+        "primary_spec_id": "sp_qtj969",
+        "sections": [{"id": "sec_1", "title": "Spec", "body": "WHAT/WHY"}],
+        "tasks": [{
+            "id": "task_2maz43",
+            "name": "scratch planning task",
+            "type": "planning",
+            "status": "pending",
+            "section_ids": ["sec_1"]
+        }]
+    });
+    let findings = inspect_plan(Path::new("pl_b5g9vg.json"), &plan, "quality");
+    assert!(
+        !findings.iter().any(|f| f.kind == "tasks_before_approval"),
+        "structure_ready plan with only a planning-kind task must not trip the approval gate: {findings:?}"
+    );
+}
+
+#[test]
+fn from_spec_owned_plan_not_flagged_missing_spec_source() {
+    // Issue #231 finding 2: a plan created --from-spec owns its spec via
+    // primary_spec_id/spec_refs even when the spec has no sections (no
+    // coverage edges yet). Ownership must satisfy the spec-source check.
+    let plan = json!({
+        "id": "pl_b5g9vg",
+        "title": "SCRATCH-owner-plan",
+        "status": "active",
+        "mode": "planning",
+        "goal": {"vector": "ship"},
+        "primary_spec_id": "sp_qtj969",
+        "spec_refs": ["sp_qtj969"],
+        "spec_links": [],
+        "sections": [],
+        "tasks": []
+    });
+    let findings = inspect_plan(Path::new("pl_b5g9vg.json"), &plan, "quality");
+    assert!(
+        !findings.iter().any(|f| f.kind == "missing_spec_source"),
+        "a --from-spec-owned plan must not be flagged missing_spec_source: {findings:?}"
     );
 }
 
@@ -476,7 +528,7 @@ fn quality_errors_for_underspecified_tasks() {
 }
 
 #[test]
-fn quality_errors_for_parked_without_reason() {
+fn quality_errors_for_paused_without_reason() {
     let plan = json!({
         "id": "pl_1",
         "title": "Plan",
@@ -488,7 +540,7 @@ fn quality_errors_for_parked_without_reason() {
         "tasks": [{
             "id": "task_1",
             "name": "Do work",
-            "status": "parked",
+            "status": "paused",
             "section_ids": ["sec_1"],
             "body": "b",
             "acceptance_criteria": ["c"],
@@ -498,7 +550,7 @@ fn quality_errors_for_parked_without_reason() {
         }]
     });
     let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
-    assert!(findings.iter().any(|f| f.kind == "parked_without_reason"
+    assert!(findings.iter().any(|f| f.kind == "paused_without_reason"
         && f.task_id.as_deref() == Some("task_1")
         && f.severity == "error"));
 }
@@ -845,6 +897,10 @@ fn planner_unpaired_warns_when_orchestrator_bound_without_planner() {
         .find(|f| f.kind == "planner_unpaired")
         .expect("expected planner_unpaired finding");
     assert_eq!(finding.severity, "warning");
+    assert!(finding.fix.contains("agent spawn <provider>"));
+    assert!(finding.fix.contains("[--model <model>]"));
+    assert!(!finding.fix.contains("agent spawn claude"));
+    assert!(!finding.fix.contains("fable"));
 }
 
 #[test]
@@ -944,6 +1000,39 @@ confirming that every relevant surface looks correct across the whole flow befor
     let plan = task_with_test_plan("implement", wordy);
     let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
     assert!(findings.iter().any(|f| f.kind == "test_plan_vague"));
+}
+
+#[test]
+fn test_plan_vague_finding_names_failed_criterion_and_tokens() {
+    let plan = task_with_test_plan("implement", "`cargo test`");
+    let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
+    let finding = findings
+        .iter()
+        .find(|f| f.kind == "test_plan_vague")
+        .expect("vague finding present");
+    assert!(finding.detail.contains("too short"), "{}", finding.detail);
+    assert!(
+        !finding.detail.contains("no runnable command"),
+        "{}",
+        finding.detail
+    );
+
+    let wordy = "We will carefully verify the resulting behavior by inspecting the output and \
+confirming that every relevant surface looks correct across the whole flow before sign-off.";
+    let plan = task_with_test_plan("implement", wordy);
+    let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
+    let finding = findings
+        .iter()
+        .find(|f| f.kind == "test_plan_vague")
+        .expect("vague finding present");
+    assert!(
+        finding.detail.contains("names no runnable command"),
+        "{}",
+        finding.detail
+    );
+    for token in crate::cmd::test_plan::TEST_PLAN_COMMAND_TOKENS {
+        assert!(finding.detail.contains(token), "{}", finding.detail);
+    }
 }
 
 #[test]
@@ -1053,5 +1142,58 @@ fn quality_errors_for_missing_body_without_sidecar() {
             && f.task_id.as_deref() == Some("task_1")
             && f.detail.contains("body")),
         "expected task_quality_gap for missing body: {findings:?}"
+    );
+}
+
+// Add-time (`plan task add`) and doctor (`plan doctor --kind quality`) must fire
+// the identical field-missing verdict for the identical task state — both route
+// through `crate::cmd::hints::missing_task_quality_fields`.
+#[test]
+fn add_time_missing_body_hint_matches_doctor_verdict() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan_path = dir.path().join("plan.json");
+    let plan = json!({
+        "id": "pl_1",
+        "title": "Plan",
+        "status": "active",
+        "mode": "approved",
+        "goal": {"vector": "ship"},
+        "primary_spec_id": "sp_1",
+        "sections": [{"id": "sec_1", "title": "Execution", "body": "section body"}],
+        "tasks": [{
+            "id": "task_1",
+            "name": "Do work",
+            "status": "pending",
+            "handle": "do-work",
+            "section_ids": ["sec_1"],
+            "body": "",
+            "acceptance_criteria": ["criterion"],
+            "test_plan": "run focused test",
+            "correctness": "matches spec"
+        }]
+    });
+    let findings = inspect_plan(&plan_path, &plan, "quality");
+    let doctor_detail = findings
+        .iter()
+        .find(|f| f.kind == "task_quality_gap" && f.task_id.as_deref() == Some("task_1"))
+        .map(|f| f.detail.clone())
+        .expect("doctor flags the missing body");
+    assert!(doctor_detail.contains("body"), "{doctor_detail}");
+    assert!(
+        !doctor_detail.contains("acceptance criteria")
+            && !doctor_detail.contains("test plan")
+            && !doctor_detail.contains("correctness vector"),
+        "doctor should only flag body: {doctor_detail}"
+    );
+
+    let add_time_hint =
+        crate::cmd::hints::task_quality_guard_hint("pl_1", "task_1", false, true, true, true)
+            .expect("add-time hint fires for the same missing body");
+    assert!(add_time_hint.contains("body"), "{add_time_hint}");
+    assert!(
+        !add_time_hint.contains("acceptance criteria")
+            && !add_time_hint.contains("test plan")
+            && !add_time_hint.contains("correctness vector"),
+        "add-time hint should only flag body: {add_time_hint}"
     );
 }

@@ -142,7 +142,7 @@ Eval sets live in `evals/<name>/evals.json`. The shape is:
       "prompt": "User input the agent will receive (with prefixes like [Telegram: ID] if relevant)",
       "expected_output": "One-sentence summary of correct behavior — used in reports",
       "expectations": [
-        "Uses send --pane general --mesh PEER",
+        "Uses send --tab general --mesh PEER",
         "Does NOT use workspace create",
         "Includes 'report back' phrase"
       ]
@@ -165,7 +165,9 @@ Tips for writing good evals:
 - `evals/cli-agent/` — real-daemon LLM benchmark: drives Claude/Codex/Opencode through every CLI command; model-judged (replaces old general-agent and mem-protocol evals).
 - `evals/mem-recall/` — mem search engine quality (Recall@K / MRR / latency).
 - `evals/dreaming/` — REM-phase prompt — Stage A.1 hub decomposition with RED ZONE rule + Stage A.2 island bridging.
-- `evals/session-restore/` — kill+restart preserves workspace/pane/agent_type/titles.
+- `evals/session-restore/` — kill+restart preserves workspace/tab/agent_type/titles.
+- `evals/manager-bootstrap/` — single-turn team bootstrap reads host role context and does not invent work.
+- `evals/orchestrator-control-loop/` — responsive long-operation ownership and proportional verification.
 
 Experimental/historical: `evals/dreamer-repair/`, `evals/seeds/`, `evals/v1_1_23_e2e/`.
 
@@ -173,7 +175,7 @@ When you write a new eval set, drop a one-line entry in the live list above.
 
 ## Limitations
 
-1. **Sandbox mode means the agent can't actually call CodeTerm.** It describes what it would do in plain text; the judge reads that description. If a prompt's behavior depends on the agent reading actual files or pane state, this harness can't test it. For those cases, write an integration test in `tests/e2e/` instead.
+1. **Sandbox mode means the agent can't actually call CodeTerm.** It describes what it would do in plain text; the judge reads that description. If a prompt's behavior depends on the agent reading actual files or tab state, this harness can't test it. For those cases, write an integration test in `tests/e2e/` instead.
 2. **LLM-as-judge is not perfectly deterministic.** Even the same expectation+response pair can flip verdicts run-to-run (~5% based on Anthropic eval research). Use `--thorough` (3 runs) when you need higher confidence. The default 1 run is fast for routine "did I just break something" checks where one verdict is enough.
 3. **Uses your Claude Code auth.** Runs through whatever `claude login` is currently active — OAuth subscription or API key, whichever you have. Use `--dry-run` first to see the call count if you want to budget against subscription quota. Typical default `A/B quick` run is ~100 calls (Haiku-mostly), `--thorough` triples it.
 4. **The prompt under test is *appended* to Claude Code's default system prompt, not replacing it.** This matches real usage (CodeTerm prompts always run on top of Claude's base behavior), but it means you can't test prompts that contradict Claude defaults. If you need a clean slate, hack `runner.py` to use `--system-prompt` instead of `--append-system-prompt`.

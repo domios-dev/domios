@@ -1,0 +1,1 @@
+.ds-agent-status-row{display:flex;align-items:baseline;gap:var(--ct-space-2);padding:var(--ct-space-1) 0;font:500 var(--ct-font-size-sm)/1.4 var(--ct-font-mono)}.ds-agent-status-row__message{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ds-agent-status-row__detail{color:var(--ct-muted-fg)}

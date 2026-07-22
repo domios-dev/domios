@@ -28,6 +28,8 @@ pub mod mem_host;
 pub mod mesh;
 pub mod message_markers;
 pub mod multiplexer;
+#[cfg(windows)]
+mod native_resize;
 mod notification;
 pub mod pasteboard;
 pub mod paths;
@@ -93,6 +95,19 @@ pub fn run() {
     startup::setup_logging();
 
     log::info!("CodeTerm starting...");
+    let startup_recovery = crash::record_startup();
+    if let Some(record) = &startup_recovery.last_crash {
+        log::warn!(
+            "[recovery] previous process classified as {:?}; old_pid={} old_epoch={} new_epoch={} last_healthy_at={} backoff_ms={} loop_protected={}",
+            record.classification,
+            record.previous.pid,
+            record.previous.epoch,
+            record.new_epoch,
+            record.previous.last_healthy_at,
+            record.supervisor_action.backoff_ms,
+            record.supervisor_action.loop_protected
+        );
+    }
 
     // Lift the open-file soft limit before anything opens fds (#186).
     fdlimit::raise_fd_limit();
@@ -174,8 +189,12 @@ pub fn run() {
             commands::kill_pty,
             commands::suggest_install_pwsh,
             commands::get_shell_diagnostics,
+            commands::frontend_ready,
+            commands::frontend_readiness_generation,
             commands::restart_app,
             commands::restart_general_agent,
+            commands::restart_general_agent_pane,
+            commands::restart_agent_pane,
             commands::complete_general_agent_first_run,
             commands::get_network_info,
             commands::get_serve_status,
@@ -202,6 +221,9 @@ pub fn run() {
             commands::mux_commands::mux_set_active_workspace,
             commands::mux_commands::mux_close_workspace,
             commands::mux_commands::mux_rename_workspace,
+            commands::mux_commands::mux_rename_team,
+            commands::mux_commands::mux_close_team,
+            commands::mux_commands::mux_add_team_member,
             commands::mux_commands::mux_move_tab,
             commands::mux_commands::mux_reorder_tab,
             commands::mux_commands::mux_reorder_child,
@@ -321,10 +343,13 @@ pub fn run() {
             commands::usage_daily_rollup,
             commands::usage_projection,
             commands::usage_refresh,
+            crash::get_recovery_state,
         ])
         .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {
                 startup::setup_window_styling(&window);
+                #[cfg(windows)]
+                native_resize::install(&window)?;
                 webview_watchdog::spawn(window);
             }
 
@@ -468,15 +493,17 @@ pub fn run() {
             {
                 use crate::agent::provider::AgentProvider;
                 use std::collections::HashSet;
+                #[cfg(debug_assertions)]
                 use std::path::PathBuf;
                 agent_registry.begin_startup_provider_loading(
                     crate::plugin::system_plugins::SYSTEM_PLUGIN_HASHES
                         .iter()
                         .map(|(id, _)| *id),
                 );
-                let workspace_root: Option<PathBuf> = Some(PathBuf::from(
-                    concat!(env!("CARGO_MANIFEST_DIR"), "/..")
-                ));
+                #[cfg(debug_assertions)]
+                let workspace_root = Some(PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/..")));
+                #[cfg(not(debug_assertions))]
+                let workspace_root: Option<std::path::PathBuf> = None;
                 let roots = plugin::js_runtime::default_roots(workspace_root.as_deref());
                 let (providers, report) = plugin::js_runtime::scan_roots(&roots);
                 for outcome in &report {
@@ -632,6 +659,23 @@ pub fn run() {
             let plan_turn_counter =
                 Arc::new(crate::service::plan::reminders::TurnCounter::new());
             plan_store.bind_turn_counter(plan_turn_counter.clone());
+            let live_pending_delivery_digests = states
+                .mux
+                .read()
+                .snapshot()
+                .panes
+                .values()
+                .filter_map(|pane| pane.pending_delivery.as_ref())
+                .filter(|record| record.state() == crate::multiplexer::types::PendingDeliveryState::Pending)
+                .map(|record| record.content_digest.clone())
+                .collect();
+            let pending_delivery_payloads = Arc::new(
+                crate::service::pending_delivery_payloads::PendingDeliveryPayloadStore::open(
+                    &crate::paths::data_dir(),
+                    &live_pending_delivery_digests,
+                )
+                .expect("pending delivery payload store init"),
+            );
 
             let user_last_activity = crate::user_last_activity::UserLastActivity::new();
             states.mesh.lock().build_hash = env!("BUILD_HASH").to_string();
@@ -652,6 +696,7 @@ pub fn run() {
                 report_store: states.report_store.clone(),
                 plan_store,
                 plan_turn_counter,
+                pending_delivery_payloads,
                 agent_registry,
                 mem,
                 mem_supervisor,
@@ -664,6 +709,7 @@ pub fn run() {
                     crate::config::memory_config().workers_per_provider,
                 )),
                 prompt_detector,
+                pty_ownership: Default::default(),
                 agent_run_pty_map: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
                 run_watcher: Arc::new(crate::agent::run_watcher::RunWatcherRegistry::new()),
                 remote_workers: Arc::new(
@@ -697,6 +743,7 @@ pub fn run() {
                 chat_preprocessor_registry: chat_preprocessor_registry.clone(),
                 agent_command_registry: agent_command_registry.clone(),
                 mux_emit_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                mux_emit_stats: Arc::new(crate::service::MuxEmitStats::default()),
                 session_persist_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 services_store: Arc::new(
                     crate::service::store::ServicesStore::open(
@@ -717,6 +764,10 @@ pub fn run() {
                     std::collections::HashSet::new(),
                 )),
                 plan_startup_loaded: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                worker_identity_allocator: Arc::new(parking_lot::Mutex::new(
+                    crate::service::WorkerPersonaReservations::default(),
+                )),
+                gateway: Arc::new(crate::service::message_gateway::MessageGateway::new()),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             {
@@ -759,6 +810,14 @@ pub fn run() {
                 {
                     log::warn!("[plan] startup scan failed for {}: {}", cwd, e);
                 }
+            }
+            if let Err(e) = service_state.reconcile_dangling_team_plan_bindings(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64,
+            ) {
+                log::warn!("[plan] dangling team-binding reconciliation failed: {e}");
             }
             service_state.mark_plans_startup_loaded();
 
@@ -850,6 +909,14 @@ pub fn run() {
                     states.config.lock().api.port,
                 );
             }
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                    if let Err(error) = tokio::task::spawn_blocking(crate::crash::lifecycle::heartbeat).await {
+                        log::warn!("[recovery] heartbeat task failed: {error}");
+                    }
+                }
+            });
             startup::build_system_tray(app)?;
 
             // Catch SIGTERM/SIGINT: run the same graceful cleanup as a Tauri Exit, then exit cleanly. (Windows is covered above.)
@@ -886,6 +953,7 @@ pub fn run() {
                             serde_json::json!({
                                 "dir": dir.to_string_lossy(),
                                 "files": files,
+                                "recovery": crate::crash::lifecycle::recovery_state(),
                             }),
                         );
                     }

@@ -4,6 +4,7 @@
 //! and point the plugin at it via `XDG_DATA_HOME` (serialized through `EnvGuard`).
 
 use super::*;
+use crate::provider::SystemPromptDelivery;
 
 const SES_ID: &str = "ses_abc";
 const TC_SESSION: i64 = 1_700_000_000_000;
@@ -64,6 +65,17 @@ fn supports_structured_prompts_from_manifest() {
     let j = opencode();
     assert!(j.supports_structured_prompts());
     assert!(j.describe().supports_structured_prompts);
+}
+
+#[test]
+fn task_instructions_use_isolated_session_config() {
+    if require_plugins().is_none() {
+        return;
+    }
+    assert_eq!(
+        opencode().system_prompt_delivery(),
+        SystemPromptDelivery::SessionConfig
+    );
 }
 
 #[test]
