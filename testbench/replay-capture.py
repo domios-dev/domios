@@ -125,7 +125,7 @@ def ensure_dev() -> None:
     except Exception as exc:
         raise SystemExit(
             "dev daemon is not healthy on port 7686; start it in a visible CodeTerm pane: "
-            "codeterm pane new --cmd \"cd <repo> && ./build.sh dev\""
+            "codeterm tab new --cmd \"cd <repo> && ./build.sh dev\""
         ) from exc
 
 
@@ -158,7 +158,7 @@ def pane_status(pane_id: str) -> str:
 
 def pane_text(pane_id: str) -> str:
     try:
-        return run_codeterm("pane", "get-text", "--pane", pane_id)
+        return run_codeterm("tab", "get-text", "--tab", pane_id)
     except Exception:
         return ""
 
@@ -280,7 +280,7 @@ def settle_startup_prompts(pane_id: str, log: list[dict[str, Any]], rel_ms) -> N
             args.append(action.text)
         if action.actions is not None:
             args.extend(["--actions", action.actions])
-        args.extend(["--pane", pane_id])
+        args.extend(["--tab", pane_id])
         run_codeterm(*args)
         log.append(
             {
@@ -298,7 +298,7 @@ def recover_agent_after_startup(pane_id: str, provider: str, log: list[dict[str,
     text = pane_text(pane_id)
     if provider != "cursor" or composer_visible(text) or not shell_prompt_visible(text):
         return
-    run_codeterm("agent", "restart", "--pane", pane_id, "--force")
+    run_codeterm("agent", "restart", "--tab", pane_id, "--force")
     log.append({"t_ms": rel_ms(), "event": "startup_agent_restart", "provider": provider})
     time.sleep(8.0)
     settle_startup_prompts(pane_id, log, rel_ms)
@@ -463,7 +463,7 @@ def capture(args: argparse.Namespace) -> Path:
     for turn in scenario["turns"]:
         before = rel_ms()
         text = turn["user"]
-        run_codeterm("send", "--pane", pane_id, text, "--actions", "enter")
+        run_codeterm("send", "--tab", pane_id, text, "--actions", "enter")
         events.append({"t_ms": before, "kind": "input", "turn": turn["n"], "text": text})
         log.append({"t_ms": before, "event": "send_turn", "turn": turn["n"]})
         flush_progress()

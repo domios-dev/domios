@@ -14,7 +14,8 @@ pub use send::send_text;
 
 #[cfg(test)]
 pub(crate) use send::{
-    default_true, send_action_bytes, should_prepend_source, BatchCommand, SendAction, SendTextBody,
+    default_true, send_action_bytes, should_prepend_source, BatchCommand, PaneInputTransport,
+    SendAction, SendTextBody,
 };
 
 pub async fn list_panes(
@@ -363,7 +364,16 @@ pub async fn exec_in_pane(
 
     let (raw_output, offset, timed_out) = result;
     let output = if body.strip_ansi.unwrap_or(false) {
-        crate::pty::ansi::clean_terminal_output(&raw_output)
+        // Re-emulate at the pty's REAL width: shell partial-line redraws
+        // (zsh's % padding) erase the last output line at any other width.
+        let cols = state
+            .svc
+            .pty
+            .lock()
+            .size(&pty_id)
+            .map(|(c, _)| c)
+            .unwrap_or(200);
+        crate::pty::ansi::clean_terminal_output_sized(&raw_output, 500, cols)
     } else {
         raw_output
     };
@@ -381,16 +391,19 @@ pub async fn close_pane(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let pane_id = resolve_pane(&state, &raw_pane_id).map_err(|(s, m)| (s, m.to_string()))?;
-    let caller_pane_id = caller_pane_header(&headers);
-    let result = crate::dispatch::dispatch(
-        &crate::dispatch::Command::PaneClose {
-            pane_id,
-            caller_pane_id,
-        },
-        state.svc.as_ref(),
-    )
-    .map_err(map_close_error)?;
-    Ok(Json(result.into_json()))
+    if let Some(caller_pane_id) = caller_pane_header(&headers) {
+        let result = crate::dispatch::dispatch(
+            &crate::dispatch::Command::PaneClose {
+                pane_id,
+                caller_pane_id: Some(caller_pane_id),
+            },
+            state.svc.as_ref(),
+        )
+        .map_err(map_close_error)?;
+        return Ok(Json(result.into_json()));
+    }
+    state.svc.close_pane(&pane_id).map_err(map_close_error)?;
+    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 pub(crate) fn caller_pane_header(headers: &HeaderMap) -> Option<String> {
@@ -818,8 +831,10 @@ pub async fn link_pty(
     Json(body): Json<LinkPtyBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    state.svc.link_pty(&pane_id, body.pty_id);
-    Ok(Json(serde_json::json!({"ok": true})))
+    let selected_pty_id = state.svc.link_pty(&pane_id, body.pty_id);
+    Ok(Json(
+        serde_json::json!({"ok": true, "pty_id": selected_pty_id}),
+    ))
 }
 
 #[cfg(test)]

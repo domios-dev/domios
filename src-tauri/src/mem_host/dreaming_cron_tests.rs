@@ -12,7 +12,12 @@ mod tests {
     }
 
     fn ensure_dreaming(store: &mut CronStore) -> Result<bool, String> {
-        ensure_dreaming_cron(&mut CronSchedulerPort(store), &test_mem_cfg(), "claude")
+        ensure_dreaming_cron(
+            &mut CronSchedulerPort(store),
+            &test_mem_cfg(),
+            "claude",
+            &crate::service::spawn::CatalogBackgroundModelPort,
+        )
     }
 
     #[test]

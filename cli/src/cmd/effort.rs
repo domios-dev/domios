@@ -1,12 +1,12 @@
 use crate::args::effort::EffortAction;
-use crate::client::SocketClient;
+use crate::client::RpcClient;
 use serde_json::{json, Value};
 
-fn call(client: &mut SocketClient, method: &str, params: Value) -> Result<Value, String> {
+fn call(client: &mut dyn RpcClient, method: &str, params: Value) -> Result<Value, String> {
     crate::cmd::plan::call_plan_rpc(client, method, params)
 }
 
-pub fn handle_effort(client: &mut SocketClient, json_output: bool, action: EffortAction) {
+pub fn handle_effort(client: &mut dyn RpcClient, json_output: bool, action: EffortAction) {
     match run_effort(client, json_output, action) {
         Ok(None) => {}
         Ok(Some(val)) if json_output => {
@@ -21,7 +21,7 @@ pub fn handle_effort(client: &mut SocketClient, json_output: bool, action: Effor
 }
 
 fn run_effort(
-    client: &mut SocketClient,
+    client: &mut dyn RpcClient,
     json_output: bool,
     action: EffortAction,
 ) -> Result<Option<Value>, String> {

@@ -32,9 +32,12 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | `worker_suffix.md` | `WORKER_SUFFIX` | Role suffix | — | `service/orchestrator.rs` and `service/spawn.rs` — appended when spawned with `--role Worker` |
 | `testing_discipline.md` | `TESTING_DISCIPLINE` | Role suffix fragment | — | `service_plan/prompts_plan.rs` — prepended to Worker tasks before `worker_suffix.md` |
 | `qa_pipeline_discipline.md` | `QA_PIPELINE_DISCIPLINE` | Role suffix fragment | — | `service_plan/prompts_plan.rs` — prepended to Worker tasks before `worker_suffix.md` |
-| `bounce_unwinding_contract.md` | `BOUNCE_UNWINDING_CONTRACT` | Shared role fragment | — | `src/prompts.rs` — interpolated once into each rendered Planner and Orchestrator suffix |
-| `planner_suffix.md` | `PLANNER_SUFFIX` | Role suffix | `{planner_testing_methodology}` `{test_author_guidance}` `{bounce_unwinding_contract}` `{plan_skills_principles}` | `service/orchestrator/launch.rs` — rendered and appended for Planner-profile workers |
-| `orchestrator_suffix.md` | `ORCHESTRATOR_SUFFIX` | Role suffix | `{bounce_unwinding_contract}` `{plan_skills_principles}` | `service/orchestrator/launch.rs` — rendered and appended for `--role Orchestrator` |
+| `bounce_unwinding_contract.md` | `BOUNCE_UNWINDING_CONTRACT` | Shared protocol + embedded `BOUNCE` doc | — | `cli/src/cmd/docs.rs` exposes the detailed record on demand to both planning roles; deterministic fixtures use the same source |
+| `planner_suffix.md` | `PLANNER_SUFFIX` | Compact role suffix | `{test_author_guidance}` | `service/orchestrator/launch.rs` — rendered and appended for Planner-profile workers; deep mechanics stay in embedded docs |
+| `orchestrator_suffix.md` | `ORCHESTRATOR_SUFFIX` | Compact role suffix | — | `service/orchestrator/launch.rs` — appended for `--role Orchestrator`; deep mechanics stay in embedded docs |
+| `orchestrator_onboarding.md` | `ORCHESTRATOR_ONBOARDING` | Promotion onboarding | `{planner_spawn_cmd}` `{orchestrator_suffix}` | `service/orchestrator_onboard.rs` — delivered when an existing agent tab becomes Orchestrator |
+| `manager_bootstrap.md` | `MANAGER_BOOTSTRAP_TEMPLATE` | Team manager bootstrap | role/team/plan/project placeholders | `service/role_identity.rs` — shared manager identity rendered before launch delivery |
+| `team_bootstrap_starter.md` | `TEAM_BOOTSTRAP_STARTER` | Provider-visible team wake-up turn | — | `codeterm-plugin` host injects one shared starter into every provider launch |
 | `cron_report_hint.md` | `CRON_REPORT_HINT` | Cron suffix | — | `service/cron.rs` — appended when a cron job has a `creator_pane_id` |
 | `cron_complete_suffix.md` | `CRON_COMPLETE_SUFFIX` | Cron suffix | `{}` (run_id) | `service/cron.rs`, `cron/scheduler.rs` — always appended |
 | `codeterm_rule.md` | `CODETERM_RULE` | Framework rule | — | App loader: `service/general_agent/instructions.rs`; plugin loader: `codeterm-plugin/src/agent_claude/provider/integration.rs` writes `~/.claude/rules/codeterm.md` |
@@ -157,4 +160,4 @@ Behavioral prompt changes are gated by `evals/cli-agent` (baseline vs after)
 with sandboxes OUTSIDE the repo — in-repo sandboxes feed agents the repo's
 checked-in AGENTS.md instead of the generated one and invalidate the run.
 
-<!-- revision: 14 -->
+<!-- revision: 17 -->

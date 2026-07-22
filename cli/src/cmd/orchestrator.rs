@@ -79,7 +79,7 @@ fn refresh(
         )
         .map_err(|err| {
             format!(
-                "cannot start orchestrator refresh for pane {pane_id}.\nfix: run `codeterm pane list --agents` and pass an agent pane with `--pane <pane_id>`.\ncause: {}",
+                "cannot start orchestrator refresh for tab {pane_id}.\nfix: run `codeterm tab list --agents` and pass an agent tab with `--tab <tab-id>`.\ncause: {}",
                 concise_socket_error(err)
             )
         })?;
@@ -161,6 +161,7 @@ fn status(
         },
         "drift": state.get("drift").cloned().unwrap_or_else(|| json!({})),
         "next_actions": state.get("next_actions").cloned().unwrap_or_else(|| json!([])),
+        "reminder": state.get("reminder").cloned().unwrap_or_else(|| json!({})),
     });
     if json_output {
         return Ok(Some(out));
@@ -214,6 +215,14 @@ fn render_status(value: &Value) -> String {
         "live_lanes: open={open} blocked={blocked} agents={live_agents}\n"
     ));
     out.push_str(&format!("drift: {drift}\n"));
+    let reminder = value.get("reminder").cloned().unwrap_or_default();
+    out.push_str(&format!(
+        "reminder: last_tick={:?} last_due={:?} last_delivery={:?} retry_reason={:?}\n",
+        reminder.get("last_tick"),
+        reminder.get("last_due"),
+        reminder.get("last_delivery"),
+        reminder.get("delivery_failure_retry_reason"),
+    ));
     if actions.is_empty() {
         out.push_str("next_actions: none\n");
     } else {
@@ -479,21 +488,21 @@ fn pane_session_id(client: &mut SocketClient, pane_id: &str) -> Result<String, S
 
 fn render_reports_error(pane_id: &str, err: SocketCallError) -> String {
     format!(
-        "cannot read orchestrator reports for pane {pane_id}.\nfix: run `codeterm pane list`\ncause: {}",
+        "cannot read orchestrator reports for tab {pane_id}.\nfix: run `codeterm tab list`\ncause: {}",
         concise_socket_error(err)
     )
 }
 
 fn render_reseed_pane_lookup_error(pane_id: &str, err: SocketCallError) -> String {
     format!(
-        "cannot inspect pane {pane_id} for handoff reseed.\nfix: run `codeterm pane list --agents` and pass an agent pane with `--pane <pane_id>`.\ncause: {}",
+        "cannot inspect tab {pane_id} for handoff reseed.\nfix: run `codeterm tab list --agents` and pass an agent tab with `--tab <tab-id>`.\ncause: {}",
         concise_socket_error(err)
     )
 }
 
 fn render_reseed_pane_session_error(pane_id: &str) -> String {
     format!(
-        "cannot reseed because pane {pane_id} is not an agent or has no session.\nfix: run `codeterm pane list --agents` and pass an agent pane with `--pane <pane_id>`."
+        "cannot reseed because tab {pane_id} is not an agent or has no session.\nfix: run `codeterm tab list --agents` and pass an agent tab with `--tab <tab-id>`."
     )
 }
 
@@ -565,8 +574,8 @@ mod tests {
             }),
         );
 
-        assert!(msg.contains("cannot read orchestrator reports for pane pane1"));
-        assert!(msg.contains("codeterm pane list"));
+        assert!(msg.contains("cannot read orchestrator reports for tab pane1"));
+        assert!(msg.contains("codeterm tab list"));
         assert!(!msg.contains("RPC error"));
         assert!(!msg.contains("-32603"));
     }
@@ -582,9 +591,9 @@ mod tests {
             }),
         );
 
-        assert!(msg.contains("cannot inspect pane pane1 for handoff reseed"));
-        assert!(msg.contains("codeterm pane list --agents"));
-        assert!(msg.contains("--pane <pane_id>"));
+        assert!(msg.contains("cannot inspect tab pane1 for handoff reseed"));
+        assert!(msg.contains("codeterm tab list --agents"));
+        assert!(msg.contains("--tab <tab-id>"));
         assert!(!msg.contains("RPC error"));
         assert!(!msg.contains("-32603"));
     }
@@ -593,8 +602,8 @@ mod tests {
     fn reseed_session_error_includes_agent_recovery_command() {
         let msg = render_reseed_pane_session_error("pane1");
 
-        assert!(msg.contains("cannot reseed because pane pane1 is not an agent or has no session"));
-        assert!(msg.contains("codeterm pane list --agents"));
-        assert!(msg.contains("--pane <pane_id>"));
+        assert!(msg.contains("cannot reseed because tab pane1 is not an agent or has no session"));
+        assert!(msg.contains("codeterm tab list --agents"));
+        assert!(msg.contains("--tab <tab-id>"));
     }
 }

@@ -153,6 +153,9 @@ test("guarded mux writes stay blocked until first reconcile, then open", async (
     if (cmd === "mux_get_state") {
       return reconcilePending as Promise<T>;
     }
+    if (cmd === "list_notifications") {
+      return [] as T;
+    }
     calls.push({ cmd, args });
     return {} as T;
   });
@@ -178,8 +181,9 @@ test("guarded mux writes stay blocked until first reconcile, then open", async (
     await reconcilePending;
   });
 
-  setActiveWorkspaceAfterMount("ws-live");
-  await act(async () => {});
+  await act(async () => {
+    setActiveWorkspaceAfterMount("ws-live");
+  });
 
   const afterReconcile = calls.filter((c) => c.cmd === "mux_set_active_workspace");
   assert(

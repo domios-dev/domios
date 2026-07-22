@@ -22,7 +22,7 @@ const snapshot: PluginSnapshot = {
   plugins: [
     { id: "claude", display_name: "Claude", system: true, removable: false, version: "1.4.6", capabilities: { agent_provider: true } },
     { id: "git", display_name: "Git", system: false, removable: true, version: "0.1.0", capabilities: { status_bubble: true }, description: "Shows branch status." },
-    { id: "bitwarden", display_name: "Bitwarden", system: false, removable: true, version: "0.1.0", capabilities: { secret_backend: true } },
+    { id: "bitwarden", display_name: "Bitwarden", system: false, removable: true, version: "0.1.0", capabilities: { secret_backend: true }, config_help: "Choose a vault server." },
   ],
   channels: [],
   diff: [],
@@ -58,6 +58,8 @@ test("installed-only plugin (bitwarden) survives even without a channel entry", 
   const cat = buildCatalog(snapshot);
   const bw = cat.find((e) => e.id === "bitwarden");
   assert(bw?.installed === true && bw.inMarketplace === false, "bitwarden must be installed, not in marketplace");
+  assert(bw.configHelp === "Choose a vault server.", "explicit configHelp must propagate");
+  assert(buildCatalog(snapshot).find((e) => e.id === "git")?.configHelp == null, "description-only plugins must not become AI-configurable");
 });
 
 test("installed plugin in channel marks update + keeps installed metadata", () => {

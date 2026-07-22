@@ -89,7 +89,11 @@
 /* ---------- popover ---------- */
 .ct-usage-popover {
   position: absolute;
-  width: 320px;
+  width: min(320px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  box-sizing: border-box;
   z-index: 10;
   pointer-events: auto;
   background: color-mix(in srgb, var(--u-bg-elev) 94%, transparent);
@@ -620,7 +624,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 32px;
+  padding: clamp(8px, 4vw, 32px);
 }
 .ct-usage-modal {
   width: min(820px, 100%);
@@ -786,7 +790,9 @@
   z-index: 10000;
   pointer-events: none;
   min-width: 180px;
-  max-width: 260px;
+  width: max-content;
+  max-width: min(260px, calc(100vw - 16px));
+  box-sizing: border-box;
   white-space: normal;
   padding: 8px 10px;
   border-radius: 8px;

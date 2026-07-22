@@ -58,7 +58,7 @@ for i in "${!PANE_IDS[@]}"; do
   pid="${PANE_IDS[$i]}"
   label="${PANE_LABELS[$i]}"
   marker="${PANE_MARKERS[$i]}"
-  out=$(dc get-output --pane "$pid" --lines 50 2>&1 || echo "")
+  out=$(dc tab get-text --tab "$pid" 2>&1 || echo "")
   if [ -z "$marker" ] || echo "$out" | grep -q "$marker"; then
     echo "  OK pre-$label"
   else
@@ -104,7 +104,7 @@ for i in "${!PANE_IDS[@]}"; do
   label="${PANE_LABELS[$i]}"
   marker="${PANE_MARKERS[$i]}"
   pre_sid="${PRE_SIDS[$i]}"
-  out=$(dc get-output --pane "$pid" --lines 80 2>&1 || echo "")
+  out=$(dc tab get-text --tab "$pid" 2>&1 || echo "")
   post_sid=$(get_sid $pid)
   errors=""
   if echo "$out" | grep -q '\[Process exited\]'; then
@@ -132,7 +132,7 @@ WS_TYPED=$(new_workspace WS-typed-codex "$CWD_BASE/typed-codex")
 P_TYPED=$(new_shell_pane $WS_TYPED "$CWD_BASE/typed-codex" typed-codex)
 echo "  pane: $P_TYPED in ws $WS_TYPED"
 sleep 4
-dc send-text --pane "$P_TYPED" "codex --help" >/dev/null 2>&1 || true
+dc send "codex --help" --tab "$P_TYPED" >/dev/null 2>&1 || true
 sleep 2
 TYPED_AT=$(dc --json pane list 2>/dev/null | python3 -c "
 import sys,json

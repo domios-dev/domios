@@ -222,7 +222,7 @@ impl Messenger {
         body: &str,
     ) -> Result<Delivery, String> {
         // A real inbound message/report landing here means the reader no longer
-        // needs to poll — clear its polling-nudge streak (skip system reminders).
+        // needs a reminder — clear its reminder-nudge streak (skip system reminders).
         if matches!(envelope.kind, MessageKind::Message | MessageKind::Report) {
             let resolved = svc
                 .mux
@@ -236,13 +236,19 @@ impl Messenger {
             let (plugin_id, session_id) = svc
                 .pane_chat_backing(to_pane)
                 .ok_or_else(|| "chatBackend pane lost its backing".to_string())?;
-            return Self::deliver_chatbackend(
-                svc,
-                to_pane,
-                &plugin_id,
-                &session_id,
-                envelope,
-                body,
+            return dispatch_delivery(
+                DeliveryTransport::ChatBackend,
+                || {
+                    Self::deliver_chatbackend(
+                        svc,
+                        to_pane,
+                        &plugin_id,
+                        &session_id,
+                        envelope.clone(),
+                        body,
+                    )
+                },
+                || unreachable!(),
             );
         }
 
@@ -262,15 +268,27 @@ impl Messenger {
                 &resolved_target,
             )
         };
+        let entry = if envelope.kind == MessageKind::Report {
+            crate::service::pty_io::submit_transaction::PtySubmitEntry::Report
+        } else {
+            crate::service::pty_io::submit_transaction::PtySubmitEntry::Messenger
+        };
         let text = if should_prefix {
             Self::from(envelope).wrap(body)
         } else {
             body.to_string()
         };
-        svc.send_text(to_pane, &text, true)?;
-        // Backstop a swallowed submit Enter: idempotent, only nudges a parked pane.
-        svc.confirm_wake_async(to_pane, &text);
-        Ok(Delivery::Pty { text })
+        dispatch_delivery(
+            DeliveryTransport::Pty,
+            || unreachable!(),
+            || {
+                crate::service::pty_io::submit_transaction::submit_entry(entry, &text, |text| {
+                    svc.send_text_detached(to_pane, text, true);
+                    Ok::<(), String>(())
+                })?;
+                Ok(Delivery::Pty { text })
+            },
+        )
     }
 
     pub fn deliver_planner_session(
@@ -313,11 +331,17 @@ impl Messenger {
         };
         if matches!(backing, crate::multiplexer::types::PaneBacking::Pty) {
             let text = Self::from(envelope).wrap(body);
-            svc.send_to_authenticated_agent_session(
-                to_pane,
-                expected_session_id,
-                expected_binding_nonce,
+            crate::service::pty_io::submit_transaction::submit_entry(
+                crate::service::pty_io::submit_transaction::PtySubmitEntry::Planner,
                 &text,
+                |text| {
+                    svc.send_to_authenticated_agent_session(
+                        to_pane,
+                        expected_session_id,
+                        expected_binding_nonce,
+                        text,
+                    )
+                },
             )?;
             return Ok(Delivery::Pty { text });
         }
@@ -405,11 +429,24 @@ impl Messenger {
         .lock()
         .upsert(std::slice::from_ref(&msg));
         if inserted {
+            let (source_session_id, session_binding_nonce) = svc
+                .mux
+                .read()
+                .get_pane(to_pane)
+                .map(|pane| {
+                    (
+                        pane.agent_session_id.clone(),
+                        pane.session_binding_nonce.clone(),
+                    )
+                })
+                .unwrap_or((None, None));
             crate::service::pane_chat::structured_sink::emit_chat_msgs(
                 &svc.app_handle,
                 to_pane,
                 std::slice::from_ref(&msg),
                 None,
+                source_session_id.as_deref(),
+                session_binding_nonce.as_deref(),
             );
         }
 
@@ -475,7 +512,25 @@ impl Messenger {
 
     /// Prefix marker + the message body.
     pub fn wrap(&self, body: &str) -> String {
-        format!("{}{}", self.build(), body)
+        let Some(reply_hint) = self.reply_hint() else {
+            return format!("{}{}", self.build(), body);
+        };
+        format!("{}{}\n{}", self.build(), body, reply_hint)
+    }
+
+    fn reply_hint(&self) -> Option<String> {
+        if self.envelope.kind != MessageKind::Message
+            || self.envelope.from_pane.is_empty()
+            || self.envelope.from_pane == MessageEnvelope::CODETERM_PANE
+        {
+            return None;
+        }
+        Some(
+            crate::message_markers::Marker::new("reply")
+                .attr("tab", short_id(&self.envelope.from_pane))
+                .attr_opt("mesh", self.envelope.from_mesh.as_deref().map(str::trim))
+                .build(),
+        )
     }
 }
 
@@ -484,6 +539,23 @@ fn submit_chatbackend_provider_input<T>(
     submit: impl FnOnce(&str) -> Result<T, String>,
 ) -> Result<T, String> {
     submit(marked)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DeliveryTransport {
+    ChatBackend,
+    Pty,
+}
+
+fn dispatch_delivery<T, E>(
+    transport: DeliveryTransport,
+    chat: impl FnOnce() -> Result<T, E>,
+    pty: impl FnOnce() -> Result<T, E>,
+) -> Result<T, E> {
+    match transport {
+        DeliveryTransport::ChatBackend => chat(),
+        DeliveryTransport::Pty => pty(),
+    }
 }
 
 fn planner_chatbackend_binding_matches(
@@ -643,8 +715,27 @@ mod tests {
         let p = Messenger::message("Edison", "e8a0ac20");
         assert_eq!(
             p.wrap("hello"),
-            "-=-codeterm:pane label=Edison pane=e8a0ac20-=-hello"
+            "-=-codeterm:pane label=Edison pane=e8a0ac20-=-hello\n-=-codeterm:reply tab=e8a0ac20-=-"
         );
+    }
+
+    #[test]
+    fn mesh_reply_hint_carries_the_return_peer() {
+        let p = Messenger::message("Edison", "e8a0ac20").mesh(Some("BLACKSTAR".into()));
+        assert_eq!(
+            p.wrap("hello"),
+            "-=-codeterm:pane label=Edison pane=e8a0ac20 mesh=BLACKSTAR-=-hello\n-=-codeterm:reply tab=e8a0ac20 mesh=BLACKSTAR-=-"
+        );
+    }
+
+    #[test]
+    fn codeterm_and_reports_do_not_request_a_reply() {
+        assert!(!Messenger::from(MessageEnvelope::from_codeterm())
+            .wrap("hello")
+            .contains("codeterm:reply"));
+        assert!(!Messenger::report("Worker", "abc12345")
+            .wrap("done")
+            .contains("codeterm:reply"));
     }
 
     #[test]
@@ -896,6 +987,28 @@ mod tests {
         .unwrap();
         assert_eq!(provider_input.len(), 1);
         assert!(provider_input[0].contains(payload));
+    }
+
+    #[test]
+    fn chat_backend_delivery_bypasses_pty_submit() {
+        let mut provider_inputs = Vec::new();
+        let mut pty_submits = 0;
+        dispatch_delivery(
+            DeliveryTransport::ChatBackend,
+            || {
+                submit_chatbackend_provider_input("hello", |input| {
+                    provider_inputs.push(input.to_string());
+                    Ok::<_, String>(())
+                })
+            },
+            || {
+                pty_submits += 1;
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(provider_inputs, ["hello"]);
+        assert_eq!(pty_submits, 0);
     }
 
     #[test]

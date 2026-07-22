@@ -36,7 +36,7 @@ import {
   type PaneUiMode,
 } from "../../lib/chatUiMode";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
-import type { PaneStatus, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
+import type { ApiConfig, PaneStatus, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 import { claimResizeOwner, getResizeClientId } from "../../lib/resizeOwner";
 import { shouldShowDropOverlay } from "./dropOverlay";
 import { terminalOwnsLivePty, terminalRenderEnabled } from "./terminalOwnership";
@@ -54,6 +54,7 @@ interface TerminalPaneProps {
   fontConfig?: FontConfig;
   terminalConfig?: TerminalConfigSettings;
   uiFontScale?: number;
+  api?: ApiConfig;
 }
 
 export const TerminalPane = memo(function TerminalPane({
@@ -68,6 +69,7 @@ export const TerminalPane = memo(function TerminalPane({
   fontConfig,
   terminalConfig,
   uiFontScale,
+  api,
 }: TerminalPaneProps) {
   const paneRootRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -114,10 +116,11 @@ export const TerminalPane = memo(function TerminalPane({
   }, [paneId, chatCapable, pane?.chat_view, mobileWebDefaultChat]);
   const [uiMode, setUiMode] = useState<PaneUiMode>(computeMode);
   const [terminalFallbackOpen, setTerminalFallbackOpen] = useState(false);
+  const [historyReplaying, setHistoryReplaying] = useState(false);
+  const [terminalIoReady, setTerminalIoReady] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const terminalVisible = uiMode === "terminal" || terminalFallbackOpen;
-  const wasTerminalVisibleRef = useRef(terminalVisible);
   const ownsLivePty = terminalOwnsLivePty({
     terminalVisible,
     paneVisible: isVisible,
@@ -133,31 +136,27 @@ export const TerminalPane = memo(function TerminalPane({
     renderEnabled: renderTerminal,
   });
   const resizeClientId = useMemo(() => getResizeClientId(), []);
-  const claimTerminalOwnership = useCallback((force = false) => {
-    if (!ownsLivePty && !force) return;
-    const term = termRef.current;
-    const ptyIdNow = connectedPtyRef.current ?? ptyId ?? null;
-    if (!term || !ptyIdNow || term.cols <= 0 || term.rows <= 0) return;
-    void claimResizeOwner(paneId, ptyIdNow, resizeClientId, term.cols, term.rows, force)
-      .then(() => invoke("resize_pty", {
-        ptyId: ptyIdNow,
-        cols: term.cols,
-        rows: term.rows,
-        clientId: resizeClientId,
-      }))
-      .catch(() => {});
-  }, [paneId, ptyId, resizeClientId, ownsLivePty, termRef, connectedPtyRef]);
-
-  const { jiggleResize } = useTerminalResize({
+  const { commitResize } = useTerminalResize({
     containerRef,
     termRef,
     fitAddonRef,
     connectedPtyRef,
+    ptyId,
     termReady,
     isFocused,
     resizeEnabled: terminalVisible,
     resizeClientId,
   });
+  const claimTerminalOwnership = useCallback((force = false) => {
+    if (!ownsLivePty && !force) return;
+    const term = termRef.current;
+    const ptyIdNow = connectedPtyRef.current ?? ptyId ?? null;
+    if (!term || !ptyIdNow) return;
+    if (term.cols <= 0 || term.rows <= 0) return;
+    void claimResizeOwner(paneId, ptyIdNow, resizeClientId, term.cols, term.rows, force)
+      .then(commitResize)
+      .catch(() => {});
+  }, [paneId, ptyId, resizeClientId, ownsLivePty, termRef, connectedPtyRef, commitResize]);
 
   const shell = useShellIntegration({
     termRef, connectedPtyRef, paneId, ptyId, termReady,
@@ -175,11 +174,12 @@ export const TerminalPane = memo(function TerminalPane({
       shell.feedOutput(text);
       completion.feedOutput(text);
     },
-    jiggleResize,
     localFitEnabled: terminalVisible,
     ioEnabled: ownsLivePty,
     renderEnabled: renderTerminal,
     resizeClientId,
+    onHistoryReplayStateChange: setHistoryReplaying,
+    onConnectionStateChange: setTerminalIoReady,
   });
 
   useAgentDetection({ termRef, paneId, termReady });
@@ -292,36 +292,19 @@ export const TerminalPane = memo(function TerminalPane({
 
   // Refit xterm when the terminal layout changes so rows match the actual terminal box.
   useEffect(() => {
-    const openingTerminal = terminalVisible && !wasTerminalVisibleRef.current;
-    if (!terminalVisible || !termReady) {
-      if (!terminalVisible) wasTerminalVisibleRef.current = false;
-      return;
-    }
+    if (!terminalVisible || !isVisible || !termReady || historyReplaying) return;
     const raf = requestAnimationFrame(() => {
       const term = termRef.current;
-      const fit = fitAddonRef.current;
-      if (!term || !fit) return;
+      if (!term) return;
       try {
-        fit.fit();
-        if (openingTerminal) term.scrollToBottom();
+        fitAddonRef.current?.fit();
+        commitResize();
         term.refresh(0, term.rows - 1);
-        const ptyId = connectedPtyRef.current;
-        if (ptyId && term.cols > 0 && term.rows > 0) {
-          void claimResizeOwner(paneId, ptyId, resizeClientId, term.cols, term.rows)
-            .then(() => invoke("resize_pty", {
-              ptyId,
-              cols: term.cols,
-              rows: term.rows,
-              clientId: resizeClientId,
-            }))
-            .catch(() => {});
-        }
       } catch { /* ignore */ }
       termRef.current?.focus();
-      wasTerminalVisibleRef.current = terminalVisible;
     });
     return () => cancelAnimationFrame(raf);
-  }, [terminalVisible, showTerminalKeyBar, termReady, paneId, resizeClientId, termRef, fitAddonRef, connectedPtyRef]);
+  }, [terminalVisible, isVisible, showTerminalKeyBar, termReady, historyReplaying, termRef, fitAddonRef, commitResize]);
 
   useEffect(() => {
     if (!terminalFallbackOpen || uiMode !== "chat") return;
@@ -384,6 +367,14 @@ export const TerminalPane = memo(function TerminalPane({
     setContextMenu({ x: e.clientX, y: e.clientY });
   }, []);
 
+  const openTerminalFallback = useCallback(() => {
+    setTerminalFallbackOpen(true);
+    requestAnimationFrame(() => {
+      claimTerminalOwnership(true);
+      termRef.current?.focus();
+    });
+  }, [claimTerminalOwnership, termRef]);
+
   const contextMenuActions: ContextMenuAction[] = [
     { label: "Copy", shortcut: "Ctrl+Shift+C", onClick: copySelection },
     { label: "Paste", shortcut: "Ctrl+Shift+V", onClick: pasteFromClipboard },
@@ -397,9 +388,9 @@ export const TerminalPane = memo(function TerminalPane({
   const terminalBackground = theme.background;
   const terminalKeyBar = <TerminalKeyBar onSendKey={writePty} className="w-full" />;
   const bootOverlay = paneBootOverlayView(pane);
-  const retryGeneralAgent = useCallback(() => {
-    invoke("restart_general_agent_pane", { paneId }).catch((e) =>
-      console.warn("restart_general_agent_pane failed:", e),
+  const retryAgent = useCallback(() => {
+    invoke("restart_agent_pane", { paneId }).catch((e) =>
+      console.warn("restart_agent_pane failed:", e),
     );
   }, [paneId]);
 
@@ -460,6 +451,7 @@ export const TerminalPane = memo(function TerminalPane({
         }
         data-testid="terminal-frame"
         data-terminal-visible={terminalVisible ? "true" : "false"}
+        aria-busy={!terminalIoReady}
         style={{
           top: showTerminalKeyBar
             ? undefined
@@ -484,7 +476,7 @@ export const TerminalPane = memo(function TerminalPane({
           borderBottom: mobileSheet ? "none" : undefined,
           boxShadow: fallbackChat && !mobileSheet ? FB_SHADOW : undefined,
           background: terminalBackground,
-          visibility: terminalVisible ? "visible" : "hidden",
+          visibility: terminalVisible && !historyReplaying ? "visible" : "hidden",
           pointerEvents: terminalVisible ? "auto" : "none",
           zIndex: terminalFallbackOpen ? 4 : uiMode === "terminal" ? 1 : 0,
           animation: mobileSheet
@@ -550,19 +542,10 @@ export const TerminalPane = memo(function TerminalPane({
         <div className="absolute inset-0" style={{ zIndex: 2 }}>
           <PaneSessionChat
             paneId={paneId}
+            api={api}
             uiFontScale={uiFontScale}
             isVisible={isVisible}
-            onError={() => {
-              // client-mode store here or the pane gets pinned to terminal.
-              setUiMode("terminal");
-            }}
-            onOpenTerminalFallback={() => {
-              setTerminalFallbackOpen(true);
-              requestAnimationFrame(() => {
-                claimTerminalOwnership(true);
-                termRef.current?.focus();
-              });
-            }}
+            onOpenTerminalFallback={openTerminalFallback}
           />
         </div>
       )}
@@ -705,7 +688,7 @@ export const TerminalPane = memo(function TerminalPane({
         view={bootOverlay}
         shellReady={shell.shellReady}
         overlayVisible={shell.overlayVisible}
-        onRetry={retryGeneralAgent}
+        onRetry={retryAgent}
       />
 
       {/* Context menu */}

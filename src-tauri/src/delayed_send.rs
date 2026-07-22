@@ -418,7 +418,12 @@ async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), 
         .plan_store
         .prepend_worker_charter_for_pane(&pane_id, &body);
     let result = tokio::task::spawn_blocking(move || {
-        crate::service::messenger::Messenger::deliver(&svc_for_deliver, &pane_id, envelope, &body)
+        svc_for_deliver.gateway_deliver(
+            &pane_id,
+            envelope,
+            &body,
+            crate::service::message_gateway::DeliveryClass::AgentTraffic,
+        )
     })
     .await
     .map_err(|e| format!("delayed delivery task failed: {e}"))

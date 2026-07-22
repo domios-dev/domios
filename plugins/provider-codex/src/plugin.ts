@@ -3,8 +3,11 @@ import { discoverCodexModels } from "./models";
 import { parseCodexPrompt, parseMenuOptions, responseKeysForIndex, type MenuOption } from "./prompt";
 import { readSessionMeta } from "./sessionMeta";
 import { parseCodexUsage } from "./usage";
+import { unwrapShellCommand } from "./execWrapper";
+import { patchEdits } from "./patchEdits";
 
 const CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
+const CODETERM_CODEX_PROFILE_CLEANUP_MARKER = "codeterm-profile-cleanup-v1";
 const TITLE_RE = /codex/i;
 const OUTPUT_FINGERPRINTS = [
   "OpenAI Codex",
@@ -17,8 +20,31 @@ const OUTPUT_FINGERPRINTS = [
   "codex>",
 ];
 const TUI_FRAGMENTS = ["openai codex", "ctrl+c to cancel"];
+const ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the provided developer instructions.";
+const IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
+
+function starterPrompt(params: LaunchParams): string {
+  if (params.starterPrompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
+  if (params.starterPrompt === "team_bootstrap") {
+    if (!params.starterPromptText) throw new Error("team_bootstrap requires host starterPromptText");
+    return params.starterPromptText;
+  }
+  return ASSIGNED_TASK_START_PROMPT;
+}
+
+function hasPromptAndStatusFooter(screen: string): boolean {
+  if (screen.indexOf("›") === -1) return false;
+  return screen.split(/\r?\n/).some((line) => {
+    const separator = line.indexOf(" · ");
+    if (separator === -1) return false;
+    return /(?:[a-z]:\\|\/)/i.test(line.slice(separator + 3));
+  });
+}
 
 const plugin: PluginModule = {
+  starterPromptText(prompt: "assigned_task" | "idle_wakeup" | "team_bootstrap"): string | undefined {
+    return prompt === "team_bootstrap" ? undefined : starterPrompt({ starterPrompt: prompt });
+  },
   detectFromTitle(title: string): boolean {
     return TITLE_RE.test(String(title || ""));
   },
@@ -32,11 +58,12 @@ const plugin: PluginModule = {
   },
 
   screenHasTui(screen: string): boolean {
-    const lower = String(screen || "").toLowerCase();
+    const text = String(screen || "");
+    const lower = text.toLowerCase();
     for (let i = 0; i < TUI_FRAGMENTS.length; i++) {
       if (lower.indexOf(TUI_FRAGMENTS[i]) !== -1) return true;
     }
-    return false;
+    return hasPromptAndStatusFooter(text);
   },
 
   isOutputNoise(text: string): boolean {
@@ -94,6 +121,16 @@ const plugin: PluginModule = {
     return responseKeysForIndex(optionIndex, String(screen || ""));
   },
 
+  directoryTrustPromptResponse(prompt: ParsedPrompt, screen?: string): string[] | null {
+    const question = String(prompt.question || "").toLowerCase();
+    const first = prompt.options[0];
+    const firstLabel = Array.isArray(first) ? first[1] : (first as unknown as { label?: string }).label;
+    if (!question.includes("trust the contents of this directory") || !firstLabel || !/^yes\b/i.test(firstLabel)) {
+      return null;
+    }
+    return responseKeysForIndex(0, String(screen || ""));
+  },
+
   // Codex CLI has no model-list subcommand; its local cache is the only sync account-scoped source. Missing => seed.
   discoverModels(): ModelInfo[] {
     return discoverCodexModels();
@@ -102,6 +139,7 @@ const plugin: PluginModule = {
   buildLaunchCommand(params: LaunchParams): string {
     const p = params || {};
     const parts: string[] = [];
+    let prefix = "";
     parts.push("codex");
     if (p.skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
@@ -110,7 +148,32 @@ const plugin: PluginModule = {
       // Quote each caller-supplied arg to prevent shell injection.
       for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }
-    return parts.join(" ");
+    if (p.task) {
+      const taskPath = host.fs.writeTempFile(p.task, ".ct-task.md");
+      if (!taskPath) throw new Error("failed to write Codex task instructions");
+      const quotedPath = host.shell.quoteFor(taskPath, host.platform());
+      if (host.platform() === "windows") {
+        prefix = "Add-Type -AssemblyName System.Web.Extensions; "
+          + `$ctTaskInstructions = Get-Content -Raw -Encoding UTF8 ${quotedPath}; `
+          + "$ctTaskJson = (New-Object System.Web.Script.Serialization.JavaScriptSerializer).Serialize($ctTaskInstructions); "
+          + "$ctProfileSuffix = if ($env:CODETERM_PANE_ID) { $env:CODETERM_PANE_ID -replace '[^A-Za-z0-9_-]', '-' } else { [guid]::NewGuid().ToString('N') }; "
+          + "$ctProfileName = 'codeterm-' + $ctProfileSuffix; "
+          + "$ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); "
+          + "Set-Content -LiteralPath $ctProfilePath -Encoding UTF8 -Value ('developer_instructions = ' + $ctTaskJson); "
+          + `Remove-Item -LiteralPath ${quotedPath} -Force -ErrorAction SilentlyContinue; try { `;
+        parts.push("--profile");
+        parts.push("$ctProfileName");
+      } else {
+        parts.push("-c");
+        parts.push(`"developer_instructions=$(cat ${quotedPath})"`);
+      }
+      parts.push("--");
+      parts.push(host.shell.quoteFor(starterPrompt(p), host.platform()));
+      if (host.platform() === "windows") {
+        return prefix + parts.join(" ") + " } finally { Remove-Item -LiteralPath $ctProfilePath -Force -ErrorAction SilentlyContinue }";
+      }
+    }
+    return prefix + parts.join(" ");
   },
 
   buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
@@ -220,25 +283,27 @@ const plugin: PluginModule = {
         try { input = JSON.parse(p.arguments || "{}"); } catch (_) { input = { raw: p.arguments }; }
         if (input && input.cmd && !input.command) input.command = input.cmd; // surface for generic readers
         const name = typeof p.name === "string" ? p.name.trim() : "";
-        if (!hasUsefulFunctionCall(name, input, p.arguments)) continue;
+        if (isInternalOrchestrationCall(name) || !hasUsefulFunctionCall(name, input, p.arguments)) continue;
+        const callId = typeof p.call_id === "string" ? p.call_id : "";
+        const canonical = canonicalToolFields(name, input);
         out.push({
           role: "assistant",
-          blocks: [{ kind: "tool_use", data: { name: name || "tool", input: input } }],
+          blocks: [{ kind: "tool_use", data: { name: name || "tool", id: callId, input: input, ...canonical } }],
           ts: ts,
           timestamp: tsIso,
         });
-      } else if (p.type === "function_call_output") {
-        let content: unknown = p.output;
-        if (content && typeof content === "object") content = JSON.stringify(content);
+      } else if (p.type === "function_call_output" || p.type === "custom_tool_call_output") {
+        const callId = typeof p.call_id === "string" ? p.call_id : "";
         out.push({
           role: "assistant",
-          blocks: [{ kind: "tool_result", data: { content: String(content == null ? "" : content) } }],
+          blocks: [{ kind: "tool_result", data: { content: codexToolOutputText(p.output), tool_use_id: callId } }],
           ts: ts,
           timestamp: tsIso,
         });
       } else if (p.type === "custom_tool_call") {
-        const name = typeof p.name === "string" ? p.name.trim() : "";
+        let name = typeof p.name === "string" ? p.name.trim() : "";
         if (!name) continue;
+        if (isInternalOrchestrationCall(name)) continue;
         let input: Record<string, unknown> = {};
         if (name === "apply_patch" && typeof p.input === "string") {
           input = { patch: p.input };
@@ -247,10 +312,18 @@ const plugin: PluginModule = {
         } else if (p.input && typeof p.input === "object" && !Array.isArray(p.input)) {
           input = p.input as Record<string, unknown>;
         }
+        const nestedPatch = name === "exec" && typeof input.raw === "string"
+          ? nestedApplyPatch(input.raw)
+          : null;
+        if (nestedPatch) {
+          name = "apply_patch";
+          input = { patch: nestedPatch };
+        }
         const callId = typeof p.call_id === "string" ? p.call_id : "";
+        const canonical = canonicalToolFields(name, input);
         out.push({
           role: "assistant",
-          blocks: [{ kind: "tool_use", data: { name: name, id: callId, input: input } }],
+          blocks: [{ kind: "tool_use", data: { name: name, id: callId, input: input, ...canonical } }],
           ts: ts,
           timestamp: tsIso,
         });
@@ -295,16 +368,18 @@ const plugin: PluginModule = {
     const arr = json.hooks && json.hooks.SessionStart;
     const installed = Array.isArray(arr) && arr.some(isCodetermCodexHook);
     const winScript = codexWindowsHookScriptPath();
+    const winScriptText = winScript && host.fs.fileExists(winScript)
+      ? String(host.fs.readFile(winScript) || "")
+      : "";
     const windowsReady = host.platform() !== "windows" || (
       !!winScript &&
-      host.fs.fileExists(winScript) &&
+      winScriptText.indexOf(CODETERM_CODEX_PROFILE_CLEANUP_MARKER) !== -1 &&
       Array.isArray(arr) &&
       arr.some(hasCodetermCodexWindowsCommand)
     );
     // A hook lacking the binding-nonce header is pre-nonce → not current, so startup reinstalls it.
     const nonceOk = host.platform() === "windows"
-      ? (!!winScript && host.fs.fileExists(winScript) &&
-         String(host.fs.readFile(winScript) || "").indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1)
+      ? winScriptText.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1
       : (Array.isArray(arr) && arr.some((entry) => {
           const hk = entry && entry.hooks;
           return Array.isArray(hk) && hk.some((h) => {
@@ -428,7 +503,7 @@ const plugin: PluginModule = {
     return out;
   },
 
-  // Read tail-most `turn_context.payload.model` and map to short model labels.
+  // Read the exact model identity from this session's latest turn context.
   detectSessionModel(cwd: string, sessionId: string): string | null {
     const path = this.sessionFilePath!(cwd, sessionId);
     if (!path) return null;
@@ -442,7 +517,7 @@ const plugin: PluginModule = {
       try { v = JSON.parse(line); } catch (_) { continue; }
       if (!v || v.type !== "turn_context") continue;
       const m = v.payload && v.payload.model;
-      if (typeof m === "string" && m) return codexShortLabel(m);
+      if (typeof m === "string" && m.trim()) return m.trim();
     }
     return null;
   },
@@ -767,8 +842,41 @@ interface CodexPayload {
 }
 interface CodexEntry { type?: string; payload?: CodexPayload; timestamp?: string }
 interface CodexHookCmd { type?: string; command?: string; commandWindows?: string; timeout?: number; _source?: string }
+
+function nestedApplyPatch(raw: string): string | null {
+  const call = /\btools\.apply_patch\(\s*([A-Za-z_$][\w$]*|"(?:\\.|[^"\\])*")\s*\)/.exec(raw);
+  if (!call) return null;
+  let literal = call[1];
+  if (literal.charAt(0) !== '"') {
+    const escaped = literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const declaration = new RegExp(`\\b(?:const|let)\\s+${escaped}\\s*=\\s*("(?:\\\\.|[^"\\\\])*")\\s*;`).exec(raw);
+    if (!declaration) return null;
+    literal = declaration[1];
+  }
+  try {
+    const patch = JSON.parse(literal);
+    return typeof patch === "string" && patch.includes("*** Begin Patch") && patch.includes("*** End Patch")
+      ? patch
+      : null;
+  } catch (_) {
+    return null;
+  }
+}
 interface CodexHookEntry { matcher?: string; hooks?: CodexHookCmd[] }
 interface CodexHooks { hooks?: { SessionStart?: CodexHookEntry[] } }
+
+function canonicalToolFields(name: string, input: Record<string, unknown>): Record<string, unknown> {
+  const raw = typeof input.raw === "string" ? input.raw : "";
+  const command = typeof input.command === "string" ? input.command : typeof input.cmd === "string" ? input.cmd : "";
+  const shell = raw ? unwrapShellCommand(raw) : null;
+  const patch = typeof input.patch === "string" ? input.patch : name === "apply_patch" && typeof input.input === "string" ? input.input : "";
+  const edits = patch ? patchEdits(patch) : [];
+  if (shell) return { tool_kind: "command", tool_summary: shell.command, tool_detail: shell.command };
+  if (command.trim()) return { tool_kind: "command", tool_summary: command.trim(), tool_detail: command.trim() };
+  if (edits.length > 0) return { tool_kind: "edit", tool_summary: edits[0].path, tool_detail: patch, tool_edits: edits };
+  if (patch.indexOf("*** Begin Patch") >= 0) return { tool_kind: "edit", tool_summary: "Apply patch", tool_detail: patch, tool_edits: [] };
+  return { tool_kind: "generic", tool_summary: name || "Tool call", tool_detail: name || "Tool call" };
+}
 
 // Use function declarations for QuickJS strict-mode compatibility with bundler rewrites.
 function endsWith(s: string, suffix: string): boolean {
@@ -808,6 +916,7 @@ function codexWindowsHookScriptPath(): string | null {
 function codexWindowsHookScript(apiPort: number): string {
   return [
     "# " + CODETERM_CODEX_HOOK_MARKER,
+    "# " + CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
     '$ErrorActionPreference = "SilentlyContinue"',
     "$pane = $env:CODETERM_PANE_ID",
     "if ([string]::IsNullOrWhiteSpace($pane)) { exit 0 }",
@@ -825,6 +934,9 @@ function codexWindowsHookScript(apiPort: number): string {
     "}",
     "$body = [Console]::In.ReadToEnd()",
     'Invoke-RestMethod -Method Post -Uri "$base/api/panes/$pane/hook/session_start" -Headers $headers -Body $body -TimeoutSec 5 | Out-Null',
+    "$profileSuffix = $pane -replace '[^A-Za-z0-9_-]', '-'",
+    '$profilePath = Join-Path $env:USERPROFILE (".codex\\codeterm-$profileSuffix.config.toml")',
+    "Remove-Item -LiteralPath $profilePath -Force -ErrorAction SilentlyContinue",
     "exit 0",
     "",
   ].join("\n");
@@ -932,24 +1044,6 @@ function extractSessionUuid(stem: string): string | null {
   return rest.substring(20);
 }
 
-// Shorten common model ids for tab badges (Codex / GPT / Sonnet etc.).
-function codexShortLabel(modelId: string): string {
-  const m = String(modelId || "").toLowerCase();
-  if (m.indexOf("codex") !== -1) return "Codex";
-  const fams = ["opus", "sonnet", "haiku", "gemini"];
-  for (let i = 0; i < fams.length; i++) {
-    if (m.indexOf(fams[i]) !== -1) {
-      return fams[i].charAt(0).toUpperCase() + fams[i].substring(1);
-    }
-  }
-  if (m.indexOf("gpt") === 0) {
-    const head = m.split("-").slice(0, 2).join("-");
-    return "GPT" + head.substring(3);
-  }
-  const first = m.split("-")[0] || m;
-  return first.charAt(0).toUpperCase() + first.substring(1);
-}
-
 function isValidCodexSessionDelta(v: CodexEntry): boolean {
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;
   if (v.type === "event_msg") {
@@ -963,11 +1057,28 @@ function isValidCodexSessionDelta(v: CodexEntry): boolean {
     kind !== "message" &&
     kind !== "function_call" &&
     kind !== "function_call_output" &&
-    kind !== "custom_tool_call"
+    kind !== "custom_tool_call" &&
+    kind !== "custom_tool_call_output"
   ) {
     return false;
   }
   return true;
+}
+
+function codexToolOutputText(output: unknown): string {
+  if (typeof output === "string") return output;
+  if (Array.isArray(output)) {
+    const text: string[] = [];
+    for (let i = 0; i < output.length; i++) {
+      const item = output[i];
+      if (item && typeof item === "object" && typeof (item as { text?: unknown }).text === "string") {
+        text.push((item as { text: string }).text);
+      }
+    }
+    if (text.length > 0) return text.join("");
+  }
+  if (output == null) return "";
+  return typeof output === "object" ? JSON.stringify(output) : String(output);
 }
 
 function validateEntry(v: CodexEntry): boolean {
@@ -978,6 +1089,15 @@ function hasUsefulFunctionCall(name: string, input: Record<string, unknown>, arg
   if (name) return true;
   if (typeof args === "string" && args.trim() && args.trim() !== "{}") return true;
   return Object.keys(input || {}).length > 0;
+}
+
+function isInternalOrchestrationCall(name: string): boolean {
+  return name === "send_message"
+    || name === "spawn_agent"
+    || name === "followup_task"
+    || name === "interrupt_agent"
+    || name === "list_agents"
+    || name === "wait_agent";
 }
 
 function classifyCodexSystemText(text: string): string | null {
@@ -994,6 +1114,11 @@ function classifyCodexSystemText(text: string): string | null {
     trimmed.indexOf("<INSTRUCTIONS>") !== -1
   ) {
     return "agent_instructions";
+  }
+  if (
+    /^<environment_context(?:\s[^>]*)?>[\s\S]*<\/environment_context>$/.test(trimmed)
+  ) {
+    return "environment_context";
   }
   return null;
 }

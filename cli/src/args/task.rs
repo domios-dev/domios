@@ -22,7 +22,7 @@ pub enum TaskAction {
         plan: Option<String>,
         #[arg(
             long,
-            help = "Task status: pending | in_progress | in_review | blocked | done | cancelled"
+            help = "Task status: pending | in_progress | in_review | blocked | paused | done | cancelled"
         )]
         status: Option<String>,
     },
@@ -34,7 +34,7 @@ pub enum TaskAction {
         #[arg(long, help = "With --siblings, include done/cancelled tasks")]
         all: bool,
     },
-    /// Assign the task to the caller's pane
+    /// Assign the task to the caller's tab
     Take { task_id: String },
     /// Release the task assignment
     Drop { task_id: String },
@@ -64,20 +64,20 @@ pub enum TaskAction {
         intent: Option<String>,
         #[arg(long, value_name = "PATH")]
         intent_file: Option<String>,
-        #[arg(long)]
+        #[arg(long = "assign-tab", value_name = "TAB")]
         assign_pane: Option<String>,
     },
 }
 
 #[derive(Subcommand)]
 pub enum CanvasAction {
-    /// Focus the open canvas on a task, pane, or plan
+    /// Focus the open canvas on a task, tab, or plan
     Focus {
-        #[arg(long, conflicts_with_all = ["pane", "plan"])]
+        #[arg(long, conflicts_with_all = ["tab", "plan"])]
         task: Option<String>,
-        #[arg(long, conflicts_with_all = ["task", "plan"])]
+        #[arg(long = "tab", value_name = "TAB", conflicts_with_all = ["task", "plan"])]
         pane: Option<String>,
-        #[arg(long, conflicts_with_all = ["task", "pane"])]
+        #[arg(long, conflicts_with_all = ["task", "tab"])]
         plan: Option<String>,
     },
     /// Dim the canvas to a facet value such as area:layout

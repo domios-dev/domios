@@ -256,15 +256,29 @@ fn is_official_system_channel_install(id: &str, bundle_dir: &Path) -> bool {
         && source.get("path").and_then(|v| v.as_str()) == Some(expected_path.as_str())
 }
 
-/// Standard discovery roots for a running CodeTerm instance. Order
-/// matters — later roots override earlier ones, so user plugins shadow
-/// workspace defaults.
 pub fn default_roots(workspace_root: Option<&Path>) -> Vec<PathBuf> {
+    ordered_roots(
+        workspace_root,
+        codeterm_paths::data_dir().join("plugins"),
+        std::env::var("CODETERM_DEV").as_deref() == Ok("1"),
+    )
+}
+
+fn ordered_roots(
+    workspace_root: Option<&Path>,
+    user_plugins: PathBuf,
+    workspace_authoritative: bool,
+) -> Vec<PathBuf> {
+    let workspace_plugins = workspace_root.map(|ws| ws.join("plugins"));
     let mut out = Vec::new();
-    if let Some(ws) = workspace_root {
-        out.push(ws.join("plugins"));
+    if workspace_authoritative {
+        out.push(user_plugins);
+        if let Some(path) = workspace_plugins {
+            out.push(path);
+        }
+    } else {
+        out.push(user_plugins);
     }
-    out.push(codeterm_paths::data_dir().join("plugins"));
     out
 }
 
@@ -602,6 +616,28 @@ mod tests {
         assert!(roots
             .iter()
             .any(|p| p == &codeterm_paths::data_dir().join("plugins")));
+    }
+
+    #[test]
+    fn dev_root_order_keeps_workspace_plugins_authoritative() {
+        let user = PathBuf::from("/data/plugins");
+        let roots = ordered_roots(Some(Path::new("/repo")), user.clone(), true);
+        assert_eq!(roots, vec![user, PathBuf::from("/repo/plugins")]);
+    }
+
+    #[test]
+    fn production_root_order_excludes_workspace_plugins() {
+        let user = PathBuf::from("/data/plugins");
+        let roots = ordered_roots(Some(Path::new("/repo")), user.clone(), false);
+        assert_eq!(roots, vec![user]);
+    }
+
+    #[test]
+    fn root_order_without_workspace_root_uses_user_plugins() {
+        let user = PathBuf::from("/data/plugins");
+
+        assert_eq!(ordered_roots(None, user.clone(), true), vec![user.clone()]);
+        assert_eq!(ordered_roots(None, user.clone(), false), vec![user]);
     }
 
     #[test]

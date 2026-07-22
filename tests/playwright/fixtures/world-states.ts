@@ -48,9 +48,12 @@ export async function seedWorldStateAndOpenInlineCanvas(
   api: ApiClient,
   worldState: CanvasWorldState = worldStates.planWithKnownTasks,
 ): Promise<SeededCanvasWorld> {
-  const canvas = await seedPerfFixtureAndOpenInlineCanvas(browser, api, 1);
-  await seedCanvasWorldState(canvas.page, worldState);
-  await canvas.page.reload({ waitUntil: "domcontentloaded" });
+  const canvas = await seedPerfFixtureAndOpenInlineCanvas(browser, api, 1, worldState);
+  await canvas.page.waitForFunction(
+    ([profileKey, expected]) => window.localStorage.getItem(String(profileKey)) === expected,
+    [WORLD_STATE_PROFILE_KEY, worldState],
+    { timeout: 30_000 },
+  );
   await canvas.page.waitForSelector('[data-testid="plan-view-shell"]', { state: "visible", timeout: 30_000 });
   return { ...canvas, worldState };
 }

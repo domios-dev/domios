@@ -47,8 +47,9 @@ const PLUGIN_PREAMBLE: &str = r#"
     },
   };
   host.shell = {
-    quote:    host.shellQuote,
-    quoteFor: host.shellQuoteFor,
+    quote:     host.shellQuote,
+    quoteFor:  host.shellQuoteFor,
+    envPrefix: host.shellEnvPrefix,
   };
   host.toolcall = {
     parse: host.toolcallParse,

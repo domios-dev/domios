@@ -40,6 +40,8 @@ mod_rs_violations=()    # mod.rs files over MOD_RS_LIMIT (advisory, always warn)
 # Count all files in ONE batched `wc -l` pass — per-file wc+tr subprocess spawns
 # over 1000+ source files dominated the runtime. `wc -l <many>` prints
 # "<count> <path>" per line plus a trailing "total"; read count+path directly.
+# Prune excluded dirs by name DURING traversal (don't walk target/ — it can be
+# tens of GB), then a single batched wc -l over the survivors.
 while read -r lines file; do
     [ "$file" = "total" ] && continue
     [ -z "${file:-}" ] && continue
@@ -56,10 +58,7 @@ while read -r lines file; do
     if [ "$lines" -gt "$LIMIT" ]; then
         violations+=("${rel}|${lines}")
     fi
-done < <(
-    # Prune excluded dirs by name DURING traversal (don't walk target/ — it can
-    # be tens of GB), then a single batched wc -l over the survivors.
-    find "$ROOT" \( -type d \( \
+done < <(find "$ROOT" \( -type d \( \
         -name target -o -name node_modules -o -name dist -o -name build -o \
         -name gen -o -name references -o -name vendor -o -name pty-fork -o \
         -name .git -o -name .claude \

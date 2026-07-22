@@ -245,6 +245,7 @@ fn build_relaunch_command_with_registry(
                 p.build_launch_command(&AgentLaunchParams {
                     agent_name: None,
                     task: None,
+                    starter_prompt: Default::default(),
                     args: None,
                     skip_permissions: auto_approve,
                     session_id: Some(sid.to_string()),
@@ -267,6 +268,7 @@ fn build_relaunch_command_with_registry(
         p.build_launch_command(&AgentLaunchParams {
             agent_name: None,
             task: None,
+            starter_prompt: Default::default(),
             args: None,
             skip_permissions: auto_approve,
             session_id: None,
@@ -341,7 +343,9 @@ async fn drive_restart(
         return;
     }
 
-    let Some(launch_cmd) = build_relaunch_command(&svc, &snap, session_present) else {
+    let Some(launch_cmd) = build_relaunch_command(&svc, &snap, session_present)
+        .map(|cmd| crate::agent::stub_launch::apply(&snap.provider, cmd))
+    else {
         log::error!(
             "[agent_restart] pane={} provider={} returned no launch command — restart aborted",
             snap.pane_id,

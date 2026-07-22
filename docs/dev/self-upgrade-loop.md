@@ -105,7 +105,7 @@ env -u CODETERM_API_PORT -u CODETERM_INSTANCE ./build.sh build
 # 2. install it in place and resume THIS pane afterwards
 codeterm update install \
   --from-file src-tauri/target/release/bundle/dmg/CodeTerm_<ver>_aarch64.dmg \
-  --continue-pane "$CODETERM_PANE_ID" \
+  --continue-tab "$CODETERM_PANE_ID" \
   --continue-prompt "you're back on the new build — continue <the task>"
 ```
 
@@ -116,9 +116,9 @@ that outlives the daemon, then returns. The helper:
    including panes spawned since the last 30s autosave — are on disk.
 2. quits + hard-kills the app, `rm -rf`s the old bundle, `ditto`s the new one
    into `/Applications`, relaunches, waits for `/api/health`, then delivers the
-   continue-prompt to `--continue-pane` via `codeterm send`.
+   continue-prompt to `--continue-tab` via `codeterm send`.
 
-Restore reuses saved pane ids, so the continue-pane target resolves and the
+Restore reuses saved tab ids, so the continue-tab target resolves and the
 agent resumes mid-task.
 
 ### macOS gotchas (learned the hard way — do not regress)
@@ -150,4 +150,4 @@ The `dev self-upgrade` glue (per-tab flag + resume hook + hidden `dev`
 subcommand) is still design. Build it behind the dev gate; keep it out of every
 agent-facing surface.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

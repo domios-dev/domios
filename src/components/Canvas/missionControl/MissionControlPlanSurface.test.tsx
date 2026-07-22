@@ -3,6 +3,7 @@
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
+import type { Workspace } from "../../../lib/types";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "../cards/fixtures.testdata";
 import { TaskStatus, type Plan, type Task, type TaskGroup } from "../types";
 import { MissionControlPlanSurface } from "./MissionControlPlanSurface";
@@ -66,6 +67,12 @@ const GROUPS: TaskGroup[] = [
   { key: "wave-27", label: "Wave 27", color: null },
 ];
 
+// FIXTURE_PLAN owner is orch-1 → bind it to the current workspace for scoping.
+const WS_ID = "ws-test";
+const WORKSPACES: Workspace[] = [
+  { id: WS_ID, name: "Test", tabs: [{ id: "tab-orch", pane_id: "orch-1" }], active_tab_id: null, cwd: null },
+];
+
 function mkTask(id: string, status: TaskStatus, group: string): Task {
   return { ...FIXTURE_TASK, id, name: id, status, group, section_ids: [], milestones: [] };
 }
@@ -88,7 +95,7 @@ function mkPlan(): Plan {
 
 test("renders the flow river with milestone derived from task groups", async () => {
   const { host, unmount } = await render(
-    <MissionControlPlanSurface mode="workspace" plans={[mkPlan()]} onAllPlansChange={() => {}} allPlans={false} />,
+    <MissionControlPlanSurface mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[mkPlan()]} />,
   );
   assert(host.querySelector('[data-testid="plan-river-pl_flow"]'), "plan river rendered");
   assert(host.textContent?.includes("Wave 26"), "milestone label from task group");
@@ -96,32 +103,14 @@ test("renders the flow river with milestone derived from task groups", async () 
   await unmount();
 });
 
-test("all-plans toggle is present and fires onAllPlansChange", async () => {
-  let scope: boolean | null = null;
+test("workspace surface has no all-plans escape hatch", async () => {
   const { host, unmount } = await render(
     <MissionControlPlanSurface
-      mode="workspace"
+      mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES}
       plans={[mkPlan()]}
-      allPlans={false}
-      onAllPlansChange={(v) => (scope = v)}
     />,
   );
-  const wsBtn = host.querySelector('[data-testid="mc-scope-workspace"]') as HTMLElement | null;
-  const allBtn = host.querySelector('[data-testid="mc-scope-all-plans"]') as HTMLElement | null;
-  assert(wsBtn, "workspace scope button");
-  assert(allBtn, "all-plans scope button");
-  assert(wsBtn!.getAttribute("data-active") === "true", "workspace active by default");
-  await act(async () => allBtn!.click());
-  assert(scope === true, `all-plans click lifts filter, got ${scope}`);
-  await unmount();
-});
-
-test("all-plans active state reflects the prop", async () => {
-  const { host, unmount } = await render(
-    <MissionControlPlanSurface mode="workspace" plans={[mkPlan()]} allPlans onAllPlansChange={() => {}} />,
-  );
-  const allBtn = host.querySelector('[data-testid="mc-scope-all-plans"]');
-  assert(allBtn?.getAttribute("data-active") === "true", "all-plans reflects active prop");
+  assert(!host.querySelector('[data-testid="mc-scope-all-plans"]'), "all-plans control is absent");
   await unmount();
 });
 

@@ -42,6 +42,14 @@ impl PlanStore {
     pub fn resume_plan(&self, plan_id: &str, now_ms: u64) -> Result<PlanMode, PlanError> {
         let mut mode = PlanMode::Planning;
         self.with_plan(plan_id, now_ms, |p| {
+            if p.team_id
+                .as_ref()
+                .is_none_or(|team_id| team_id.trim().is_empty())
+            {
+                return Err(PlanError::ActivePlanRequiresTeam {
+                    plan_id: plan_id.into(),
+                });
+            }
             mode = p.paused_from_mode.take().unwrap_or(PlanMode::Execution);
             if p.mode == PlanMode::Paused {
                 p.mode = mode.clone();
@@ -53,7 +61,7 @@ impl PlanStore {
         Ok(mode)
     }
 
-    pub fn park_task(
+    pub fn pause_task(
         &self,
         plan_id: &str,
         task_id: &str,
@@ -63,7 +71,7 @@ impl PlanStore {
     ) -> Result<String, PlanError> {
         let reason = reason.trim();
         if reason.is_empty() {
-            return Err(PlanError::ParkRequiresReason);
+            return Err(PlanError::TaskPauseRequiresReason);
         }
         let mut mid = String::new();
         self.with_plan(plan_id, now_ms, |p| {
@@ -75,16 +83,16 @@ impl PlanStore {
             if p.tasks[idx].status.is_terminal() {
                 return Err(PlanError::TransitionDenied {
                     from: p.tasks[idx].status.clone(),
-                    to: TaskStatus::Parked,
+                    to: TaskStatus::Paused,
                 });
             }
             mid = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));
             let task = &mut p.tasks[idx];
-            if task.status != TaskStatus::Parked {
+            if task.status != TaskStatus::Paused {
                 task.status_changed_at = now_ms;
             }
-            task.status = TaskStatus::Parked;
-            task.park_reason = Some(reason.to_string());
+            task.status = TaskStatus::Paused;
+            task.pause_reason = Some(reason.to_string());
             let assigned = task.assigned_pane_id.clone();
             super::task_attempts::mark_task_assignment_closed(task, assigned.as_deref(), now_ms);
             task.assigned_pane_id = None;
@@ -93,7 +101,7 @@ impl PlanStore {
                 id: mid.clone(),
                 from,
                 kind: "decision".into(),
-                text: format!("parked: {reason}"),
+                text: format!("paused: {reason}"),
                 ts: now_ms,
                 links: vec![],
                 loop_id: None,
@@ -107,7 +115,7 @@ impl PlanStore {
         Ok(mid)
     }
 
-    pub fn unpark_task(
+    pub fn resume_task(
         &self,
         plan_id: &str,
         task_id: &str,
@@ -121,7 +129,7 @@ impl PlanStore {
                 .iter()
                 .position(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
-            if p.tasks[idx].status != TaskStatus::Parked {
+            if p.tasks[idx].status != TaskStatus::Paused {
                 return Err(PlanError::TransitionDenied {
                     from: p.tasks[idx].status.clone(),
                     to: TaskStatus::Pending,
@@ -131,12 +139,12 @@ impl PlanStore {
             let task = &mut p.tasks[idx];
             task.status = TaskStatus::Pending;
             task.status_changed_at = now_ms;
-            task.park_reason = None;
+            task.pause_reason = None;
             task.milestones.push(Milestone {
                 id: mid.clone(),
                 from,
                 kind: "decision".into(),
-                text: "unparked: returned to pending".into(),
+                text: "resumed: returned to pending".into(),
                 ts: now_ms,
                 links: vec![],
                 loop_id: None,

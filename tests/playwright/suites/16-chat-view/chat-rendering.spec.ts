@@ -6,7 +6,7 @@
 import { expect, test, type PaneCleanup } from "../../helpers/fixtures";
 import { type ApiClient } from "../../helpers/api-client";
 
-type ChatMessageKind = "user" | "assistant" | "system" | "image";
+type ChatMessageKind = "user" | "assistant" | "system" | "image" | "tool_call" | "tool_result";
 
 interface TestChatAttachment {
   id: string;
@@ -21,6 +21,11 @@ interface TestChatMessage {
   timestamp: string;
   provider?: string;
   attachments?: TestChatAttachment[];
+  toolName?: string;
+  toolInput?: unknown;
+  toolResult?: string;
+  toolCallId?: string;
+  toolError?: boolean;
 }
 
 declare global {
@@ -56,8 +61,48 @@ async function openMockChatPane(
 
   const chat = page.locator(`[data-testid="pane-session-chat"][data-pane-id="${pane.id}"]`);
   await expect(chat).toBeVisible({ timeout: 30_000 });
-  await expect(chat.locator('[data-testid="chat-empty-state"]')).toBeVisible({ timeout: 30_000 });
+  await expect(chat.locator('[data-testid="chat-empty-state"], [data-testid="chat-recovering-state"]')).toBeVisible({ timeout: 30_000 });
   return pane.id;
+}
+
+async function scrollChatAwayFromBottom(
+  page: import("../../helpers/fixtures").Page,
+  paneId: string,
+  scrollContainer: ReturnType<import("../../helpers/fixtures").Page["locator"]>,
+) {
+  const overflow = await scrollContainer.evaluate((el) => el.scrollHeight - el.clientHeight);
+  if (overflow <= 320) {
+    await page.evaluate(
+      ({ paneId: targetPaneId }) => {
+        window.__codetermTestChat?.pushMessages(targetPaneId, Array.from({ length: 80 }, (_, i) => ({
+          id: `scroll-overflow-primer-${i + 1}`,
+          type: "assistant",
+          content: `scroll primer ${i + 1}`,
+          timestamp: String(1700003000006 + i),
+          provider: "test",
+        })));
+      },
+      { paneId },
+    );
+    await expect(
+      scrollContainer.locator('[data-testid="chat-message"]').filter({ hasText: "scroll primer 80" }),
+    ).toBeVisible({ timeout: 10_000 });
+  }
+
+  await expect.poll(
+    () => scrollContainer.evaluate((el) => el.scrollHeight - el.clientHeight),
+    { timeout: 10_000 },
+  ).toBeGreaterThan(320);
+
+  await scrollContainer.evaluate((el) => {
+    el.scrollTop = 0;
+    el.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+
+  await expect.poll(
+    () => scrollContainer.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight),
+    { timeout: 10_000 },
+  ).toBeGreaterThan(240);
 }
 
 test("@smoke ChatView PTY provider pane shows no inline option card without a pending_prompt", async ({
@@ -87,11 +132,10 @@ test("@golden ChatView message DOM order matches chronological push order", asyn
   ui,
   paneCleanup,
 }) => {
-  const hasTestHook = await ui.page.evaluate(() => typeof window.__codetermTestChat !== "undefined");
-  test.skip(!hasTestHook, "window.__codetermTestChat not available in this build (macOS web mirror without VITE_CODETERM_TEST=1 build)");
-
   await ui.reconnect();
   const paneId = await openMockChatPane(api, paneCleanup, ui.page);
+  const hasTestHook = await ui.page.evaluate(() => typeof window.__codetermTestChat !== "undefined");
+  test.skip(!hasTestHook, "window.__codetermTestChat not available in this build (macOS web mirror without VITE_CODETERM_TEST=1 build)");
   const messages: TestChatMessage[] = [
     { id: "pw-order-1", type: "user", content: "pw-order-first", timestamp: "1700002000001", provider: "test" },
     { id: "pw-order-2", type: "assistant", content: "pw-order-second", timestamp: "1700002000002", provider: "test" },
@@ -118,6 +162,106 @@ test("@golden ChatView message DOM order matches chronological push order", asyn
   expect(texts[0]).toContain("pw-order-first");
   expect(texts[1]).toContain("pw-order-second");
   expect(texts[2]).toContain("pw-order-third");
+  await expect(ui.page.locator(`[data-testid="pane-session-chat"][data-pane-id="${paneId}"] [data-testid="chat-empty-state"]`)).toHaveCount(0);
+});
+
+test("@golden ChatView transcript remains correct across tool results, focus, and scroll state", async ({
+  api,
+  ui,
+  paneCleanup,
+}) => {
+  const hasTestHook = await ui.page.evaluate(() => typeof window.__codetermTestChat !== "undefined");
+  test.skip(!hasTestHook, "window.__codetermTestChat not available in this build (macOS web mirror without VITE_CODETERM_TEST=1 build)");
+
+  await ui.reconnect();
+  const paneId = await openMockChatPane(api, paneCleanup, ui.page);
+  const chat = ui.page.locator(`[data-testid="pane-session-chat"][data-pane-id="${paneId}"]`);
+  const composer = chat.locator('[data-testid="chat-composer"]');
+  await composer.focus();
+
+  const messages: TestChatMessage[] = [
+    { id: "tool-user-1", type: "user", content: "run a command", timestamp: "1700003000001", provider: "test" },
+    {
+      id: "tool-call-1",
+      type: "tool_call",
+      content: "exec",
+      timestamp: "1700003000002",
+      provider: "test",
+      toolName: "shell",
+      toolInput: { command: "echo ok" },
+      toolCallId: "call-1",
+    },
+    {
+      id: "tool-result-1",
+      type: "tool_result",
+      content: "ok",
+      timestamp: "1700003000003",
+      provider: "test",
+      toolCallId: "call-1",
+      toolResult: "ok",
+    },
+    {
+      id: "tool-call-failed-old",
+      type: "tool_call",
+      content: "old failure",
+      timestamp: "1700003000004",
+      provider: "test",
+      toolName: "shell",
+      toolInput: { command: "exit 1" },
+      toolCallId: "call-old",
+      toolError: true,
+    },
+    {
+      id: "tool-call-failed-latest",
+      type: "tool_call",
+      content: "latest failure",
+      timestamp: "1700003000005",
+      provider: "test",
+      toolName: "shell",
+      toolInput: { command: "exit 2" },
+      toolCallId: "call-latest",
+      toolError: true,
+    },
+  ];
+
+  await ui.page.evaluate(
+    ({ paneId: targetPaneId, messages: targetMessages }) => {
+      const testChat = window.__codetermTestChat;
+      if (!testChat) throw new Error("window.__codetermTestChat is not installed");
+      testChat.pushMessages(targetPaneId, targetMessages);
+    },
+    { paneId, messages },
+  );
+
+  await expect(composer).toBeFocused();
+  await expect(chat.locator('[data-testid="chat-empty-state"]')).toHaveCount(0);
+
+  const chatMessages = chat.locator('[data-testid="pane-session-chat-messages"] [data-testid="chat-message"]');
+  await expect(chatMessages).toHaveCount(4, { timeout: 10_000 });
+  const texts = await chatMessages.evaluateAll((els) => els.map((el) => (el as HTMLElement).innerText));
+  expect(texts.join("\n")).toContain("run a command");
+  expect(texts.join("\n")).toContain("ok");
+  expect(texts.join("\n")).toContain("latest failure");
+
+  await expect(chat.locator('[data-testid="chat-tool-call"]')).toHaveCount(3);
+  await expect(chat.locator('[data-testid="chat-message"][data-message-role="tool_result"]')).toHaveCount(0);
+
+  const scrollContainer = chat.locator('[data-testid="pane-session-chat-messages"]');
+  await scrollChatAwayFromBottom(ui.page, paneId, scrollContainer);
+  await ui.page.evaluate(
+    ({ paneId: targetPaneId }) => {
+      window.__codetermTestChat?.pushMessages(targetPaneId, [{
+        id: "scroll-preserve-1",
+        type: "assistant",
+        content: "new message after manual scroll",
+        timestamp: "1700003000087",
+        provider: "test",
+      }]);
+    },
+    { paneId },
+  );
+  await expect(chat.locator('[data-testid="chat-scroll-bottom"]')).toBeVisible({ timeout: 10_000 });
+  await expect(composer).toBeFocused();
 });
 
 test("@golden ChatView renders message blocks, code blocks, and image attachments from mock replies", async ({

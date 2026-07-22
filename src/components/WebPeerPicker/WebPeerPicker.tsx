@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { resetWebEvents } from "../../lib/webEvents";
 import {
   formatLastActiveBadge,
@@ -13,7 +14,10 @@ import {
   resumePromptDismissed,
   setRelayTarget,
   selfHost,
+  invalidateWebRequestContext,
 } from "../../lib/webApi";
+
+let nextPeerSwitchId = 0;
 
 interface PeerAddress {
   ip: string;
@@ -41,10 +45,13 @@ interface MeshPeers {
  * daemon — no re-point, no peer-scoped token). Selecting "this host" clears
  * the target. In-place switch reattaches events and refreshes mux state.
  */
-export function WebPeerPicker() {
+export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   const [peers, setPeers] = useState<PairedPeer[]>([]);
   const [open, setOpen] = useState(false);
   const [resumePeer, setResumePeer] = useState<PairedPeer | null>(null);
+  const [displayTarget, setDisplayTarget] = useState(relayTarget);
+  const [switchingTo, setSwitchingTo] = useState<string | null>(null);
+  const [switchFailed, setSwitchFailed] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   const refresh = useCallback(async () => {
@@ -78,21 +85,42 @@ export function WebPeerPicker() {
     return () => window.removeEventListener("mousedown", close);
   }, [open]);
 
-  const target = relayTarget();
+  useEffect(() => {
+    const ready = (event: Event) => {
+      const detail = (event as CustomEvent<{ switchId: number; success: boolean }>).detail;
+      if (detail.switchId !== nextPeerSwitchId) return;
+      setDisplayTarget(relayTarget());
+      setSwitchingTo(null);
+      setSwitchFailed(!detail.success);
+    };
+    window.addEventListener("codeterm-peer-switch-ready", ready);
+    return () => window.removeEventListener("codeterm-peer-switch-ready", ready);
+  }, []);
+
+  const target = displayTarget;
   const onSelf = !target;
-  const label = onSelf ? "this host" : target.name;
+  const label = switchingTo ? `Connecting to ${switchingTo}` : onSelf ? "this host" : target.name;
 
   const switchTo = useCallback(
     (peer: PairedPeer | null) => {
+      const switchId = ++nextPeerSwitchId;
+      const nextName = peer?.instance_name ?? "this host";
+      setSwitchingTo(nextName);
+      setSwitchFailed(false);
+      invalidateWebRequestContext();
+      flushSync(() => {
+        window.dispatchEvent(new CustomEvent("codeterm-peer-switch-reset", { detail: { switchId } }));
+      });
       if (peer) {
         setRelayTarget(peer.instance_id, peer.instance_name);
       } else {
         clearRelayTarget();
       }
+      invalidateWebRequestContext();
       setOpen(false);
       setResumePeer(null);
       resetWebEvents();
-      window.dispatchEvent(new Event("codeterm-refresh-mux-state"));
+      window.dispatchEvent(new CustomEvent("codeterm-peer-switch-rebind", { detail: { switchId } }));
     },
     [],
   );
@@ -137,19 +165,22 @@ export function WebPeerPicker() {
         </div>
       )}
       <button
+        type="button"
         data-testid="peer-picker-button"
+        aria-label={`Switch CodeTerm host, current host ${label}`}
+        aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 min-h-[44px] sm:min-h-0 sm:h-7 px-2.5 rounded text-xs text-[var(--ct-fg)] bg-[var(--ct-hover)] hover:bg-[var(--ct-active)] border border-[var(--ct-border)]"
+        className={`flex items-center gap-1.5 rounded text-xs text-[var(--ct-fg)] bg-[var(--ct-hover)] hover:bg-[var(--ct-active)] border border-[var(--ct-border)] ${compact ? "h-7 min-w-0 max-w-[126px] px-2" : "min-h-[44px] sm:min-h-0 sm:h-7 px-2.5"}`}
         title="Switch CodeTerm host"
       >
-        <span className="w-2 h-2 rounded-full bg-[var(--ct-green,#3fb950)]" />
-        <span className="max-w-[120px] truncate">{label}</span>
+        <span className={`w-2 h-2 shrink-0 rounded-full ${switchingTo ? "animate-pulse bg-[var(--ct-muted,#8b949e)]" : switchFailed ? "bg-[var(--ct-red,#f85149)]" : "bg-[var(--ct-green,#3fb950)]"}`} />
+        <span className="max-w-[104px] truncate sm:max-w-[120px]">{label}</span>
         <span className="opacity-60 text-[9px]">▾</span>
       </button>
       {open && (
         <div
           data-testid="peer-picker-menu"
-          className="absolute left-0 top-full mt-1 z-50 min-w-[220px] rounded border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] shadow-lg py-1"
+          className={`absolute top-full mt-1 z-50 min-w-[min(220px,calc(100vw-0.75rem))] max-w-[calc(100vw-0.75rem)] rounded border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] shadow-lg py-1 ${compact ? "right-0" : "left-0"}`}
         >
           <button
             data-testid="peer-picker-self"

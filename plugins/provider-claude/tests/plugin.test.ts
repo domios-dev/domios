@@ -134,6 +134,25 @@ assert(plugin.detect({ bytes: "", title: "claude" }), "plugin.detect delegates t
 
 const hostPlugin = loadHostPlugin();
 
+eq(
+  hostPlugin.describeSession(
+    "/tmp/session.jsonl",
+    [
+      JSON.stringify({ type: "mode", mode: "normal" }),
+      JSON.stringify({ type: "file-history-snapshot", snapshot: {} }),
+      JSON.stringify({ type: "attachment", cwd: "D:\\Developer\\codeterm" }),
+    ].join("\n"),
+  ),
+  { projectPath: "D:\\Developer\\codeterm" },
+  "describeSession finds cwd after metadata-only rows",
+);
+
+eq(
+  hostPlugin.describeSession("/tmp/session.jsonl", "not-json\n{}"),
+  null,
+  "describeSession stays honest when cwd is absent",
+);
+
 console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
 
 {
@@ -174,6 +193,20 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
   eq(parsed?.multiSelect, true, "checkbox section is multi-select");
   eq(parsed?.selectedValues, ["2"], "checkbox parser extracts selected values");
   eq(hostPlugin.buildPromptResponse(10004, multi), ["IA==", "ag==", "IA==", "ag==", "IA==", "CQ=="], "multi-select confirm toggles desired mask then advances");
+}
+
+{
+  const trust = [
+    "Accessing workspace:",
+    "C:\\work\\new-project",
+    "Quick safety check: Is this a project you created or one you trust?",
+    "❯ 1. Yes, I trust this folder",
+    "  2. No, exit",
+    "Enter to confirm · Esc to cancel",
+  ].join("\n");
+  const parsed = hostPlugin.parsePrompt(trust);
+  eq(parsed?.question, "Quick safety check: Is this a project you created or one you trust?", "directory trust gate parses as a provider prompt");
+  eq(hostPlugin.directoryTrustPromptResponse(parsed, trust), ["DQ=="], "auto-approved directory trust selects the highlighted affirmative option");
 }
 
 console.log("\n--- imageSend strategy ---\n");
@@ -322,6 +355,28 @@ console.log("\n--- parseSessionDelta task notification ---\n");
   );
 }
 
+console.log("\n--- canonical tool fields ---\n");
+{
+  const parsed = hostPlugin.parseSessionDelta(JSON.stringify({ type: "assistant", message: { content: [
+    { type: "tool_use", name: "Bash", input: { command: "git status" } },
+    { type: "tool_use", name: "Edit", input: { file_path: "src/demo.ts", old_string: "old", new_string: "new" } },
+    { type: "tool_use", name: "MultiEdit", input: { file_path: "src/multi.ts", edits: [{ old_string: "one", new_string: "two" }, { old_string: "three", new_string: "four" }] } },
+    { type: "tool_use", name: "Mystery", input: { value: "opaque" } },
+  ] } })) as { messages: Array<{ blocks: Array<{ data: Record<string, unknown> }> }> };
+  const data = parsed.messages[0].blocks.map((block) => block.data);
+  eq(data[0].tool_kind, "command", "Claude Bash gets canonical command kind");
+  eq(data[0].tool_summary, "git status", "Claude Bash gets clean command summary");
+  eq(data[1].tool_kind, "edit", "Claude Edit gets canonical edit kind");
+  assert(typeof data[1].tool_detail === "string", "Claude tool_detail stays a string");
+  eq(data[1].tool_edits, [{ path: "src/demo.ts", old: "old", new: "new" }], "Claude Edit emits canonical path and edit pair");
+  eq(data[2].tool_edits, [
+    { path: "src/multi.ts", old: "one", new: "two" },
+    { path: "src/multi.ts", old: "three", new: "four" },
+  ], "Claude MultiEdit propagates parent snake_case path");
+  eq(data[3].tool_kind, "generic", "unknown Claude tool degrades to generic");
+  assert(typeof data[3].tool_summary === "string" && !(data[3].tool_summary as string).includes("{"), "unknown Claude summary is not JSON");
+}
+
 console.log("\n--- discoverModels ---\n");
 
 {
@@ -354,6 +409,62 @@ console.log("\n--- discoverModels ---\n");
   eq(p.discoverModels(), manifestSeed.models, "discoverModels falls back to manifest seed when no Anthropic key exists");
 }
 
+console.log("\n--- Windows task launch shape ---\n");
+{
+  const p = loadClaudeWithHost(baseHost({
+    platform: () => "windows",
+    fs: {
+      fileExists: () => false,
+      readFile: () => null,
+      readJson: () => null,
+      writeTempFile: () => "C:\\Temp\\ct-task",
+      writeJson: () => true,
+    },
+    shell: {
+      quoteFor: (value: unknown) => `'${String(value).replace(/'/g, "''")}'`,
+      quote: (value: unknown) => `'${String(value).replace(/'/g, "''")}'`,
+    },
+  }));
+  const hostileTask = "line one\n<location>D:\\repo</location>\n'quotes' \"double\" $HOME `whoami` --flag\nюникод";
+  const cmd = p.buildLaunchCommand({
+    skipPermissions: true,
+    args: ["--model", "sonnet"],
+    task: hostileTask,
+  });
+  assert(cmd.includes("--append-system-prompt-file 'C:\\Temp\\ct-task'"), "Windows task launch passes a task file path");
+  assert(!cmd.includes("Get-Content"), "Windows task launch does not expand task through PowerShell");
+  assert(!cmd.includes("<location>") && !cmd.includes("whoami") && !cmd.includes("юникод"), "Windows task body is not embedded in the command");
+}
+
+console.log("\n--- POSIX task launch shape ---\n");
+{
+  const p = loadClaudeWithHost(baseHost({
+    platform: () => "linux",
+    fs: {
+      fileExists: () => false,
+      readFile: () => null,
+      readJson: () => null,
+      writeTempFile: () => "/tmp/ct-task",
+      writeJson: () => true,
+    },
+    shell: {
+      quoteFor: (value: unknown) => `'${String(value).replace(/'/g, "'\\''")}'`,
+      quote: (value: unknown) => `'${String(value).replace(/'/g, "'\\''")}'`,
+    },
+  }));
+  const cmd = p.buildLaunchCommand({ task: "line one\n<location>/repo</location>\n$HOME `whoami` --flag\nюникод" });
+  assert(cmd.includes("--append-system-prompt-file '/tmp/ct-task'"), "POSIX task launch passes a task file path");
+  assert(!cmd.includes("$(cat "), "POSIX task launch does not expand task into argv");
+  assert(!cmd.includes("<location>") && !cmd.includes("whoami") && !cmd.includes("юникод"), "POSIX task body is absent from the command");
+  const idle = p.buildLaunchCommand({ task: "identity", starterPrompt: "idle_wakeup" });
+  assert(idle.includes("You are a newly started agent. Wait for instructions from the user or your orchestration parent."), "Claude JS renders idle starter");
+  assert(!idle.includes("Execute the CodeTerm task provided"), "Claude JS idle starter is not task action");
+  const teamText = "host-owned team bootstrap";
+  const team = p.buildLaunchCommand({ task: "identity", starterPrompt: "team_bootstrap", starterPromptText: teamText });
+  assert(team.includes(teamText), "Claude JS team launch uses the host-owned starter text");
+  eq(p.starterPromptText?.("team_bootstrap"), undefined, "Claude JS does not duplicate the team starter");
+}
+
 console.log("\n--- parseUsage reset formats ---\n");
 
 const now = new Date(2026, 5, 14, 15, 0, 0, 0).getTime();
@@ -384,6 +495,27 @@ const claudeCurrentUsage = hostPlugin.parseUsage(
   now,
 );
 assert(claudeCurrentUsage?.weekly_resets_at_ms === new Date(2026, 5, 14, 19, 59, 0, 0).getTime(), "parseUsage accepts month-day comma time");
+
+const incompleteSessionUsage = hostPlugin.parseUsage(
+  [
+    "Current session 100% usedResets 8:10p (Europe/Kiev)",
+    "Current week (all models) 55% usedResets Jun 14, 8pm (Europe/Kiev)",
+  ].join("\n"),
+  now,
+);
+assert(incompleteSessionUsage === null, "parseUsage rejects an incomplete current-session reset frame");
+
+const completeSessionUsage = hostPlugin.parseUsage(
+  [
+    "Current session 100% usedResets 8:10pm (Europe/Kiev)",
+    "Current week (all models) 55% usedResets Jun 14, 8pm (Europe/Kiev)",
+  ].join("\n"),
+  now,
+);
+assert(
+  completeSessionUsage?.session_resets_at_ms === new Date(2026, 5, 14, 20, 10, 0, 0).getTime(),
+  "parseUsage accepts the completed current-session reset frame",
+);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

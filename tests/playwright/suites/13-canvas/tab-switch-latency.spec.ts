@@ -3,12 +3,14 @@
  * WHY: This spec protects the live CodeTerm workflow from regressions in 13-canvas.
  * ORACLE: The test asserts backend state and/or stable UI hooks instead of relying on smoke-only visibility.
  */
+import { recordPerfMetric } from "../../helpers/perf-metrics";
 import path from "node:path";
 import { expect, test } from "../../helpers/fixtures";
 import type { Page } from "@playwright/test";
 import { REPO_ROOT } from "../../helpers/dev-console";
 
 const PANE_COUNT = 20; // 10+ per the audit's warm-session requirement, with headroom
+// Fixed waits here are measurement pacing windows of this latency harness.
 const SWITCH_BUDGET_MS = 150;
 
 interface InpSample {
@@ -62,8 +64,7 @@ function fmt(label: string, s: Stats): string {
   return `${label.padEnd(14)} n=${String(s.n).padStart(3)}  p50=${String(s.p50).padStart(5)}ms  p95=${String(s.p95).padStart(5)}ms  max=${String(s.max).padStart(5)}ms`;
 }
 
-test("@tab-switch-latency sidebar tab switch reaches paint under budget", async ({ ui, api, paneCleanup }) => {
-  test.setTimeout(180_000);
+test("@perf @tab-switch-latency sidebar tab switch reaches paint under budget", async ({ ui, api, paneCleanup }) => {
   const { page } = ui;
 
   const cwd = path.resolve(REPO_ROOT);
@@ -74,18 +75,24 @@ test("@tab-switch-latency sidebar tab switch reaches paint under budget", async 
   });
   const wsId = ws.id;
 
-  const plan = await api.post<{ plan_id: string }>("/plans", {
-    title: "tab-switch-perf plan",
-    project_path: cwd,
-  });
-
   const tabs: { tab_id: string; pane_id: string }[] = [];
+  let plan: { plan_id: string } | undefined;
   try {
     for (let i = 0; i < PANE_COUNT; i++) {
       const t = await api.post<{ tab_id: string; pane_id: string }>(`/workspaces/${wsId}/tabs`, { eager: true });
       tabs.push(t);
       paneCleanup.track(t.pane_id);
     }
+    await api.post(`/panes/${tabs[0].pane_id}/role`, { role: "Orchestrator" });
+    plan = await api.post<{ plan_id: string }>("/plans", {
+      title: "tab-switch-perf plan",
+      project_path: cwd,
+      owner: {
+        pane_id: tabs[0].pane_id,
+        session_id: null,
+        title: "tab-switch-perf owner",
+      },
+    });
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForSelector("#root > *", { state: "attached", timeout: 60_000 });
@@ -147,10 +154,19 @@ test("@tab-switch-latency sidebar tab switch reaches paint under budget", async 
     );
 
     expect(tabStats.n, "captured tab-switch interaction samples").toBeGreaterThan(5);
+    recordPerfMetric({
+      name: "tab-switch-paint",
+      unit: "ms",
+      n: tabStats.n,
+      p50: tabStats.p50,
+      p95: tabStats.p95,
+      max: tabStats.max,
+      budget: SWITCH_BUDGET_MS,
+    });
     expect(tabStats.p95, `tab-switch p95 ${tabStats.p95}ms over budget ${SWITCH_BUDGET_MS}ms`).toBeLessThanOrEqual(
       SWITCH_BUDGET_MS,
     );
   } finally {
-    await api.request("DELETE", `/plans/${plan.plan_id}`).catch(() => {});
+    if (plan) await api.request("DELETE", `/plans/${plan.plan_id}`).catch(() => {});
   }
 });

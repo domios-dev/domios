@@ -50,7 +50,7 @@ codeterm agent spawn claude --title "Scout" --role Worker --parent $CODETERM_PAN
 
 You spawn Workers directly, collect reports, decide what's next.
 
-- Become orchestrator if you aren't already: `codeterm agent set-conductor --pane $CODETERM_PANE_ID`
+- Orchestrator mode is assigned at spawn with `codeterm agent spawn ... --role Orchestrator` or through the tab menu's **Make Orchestrator** action.
 - Spawn one Worker per concrete leaf task. Workers run in parallel — fan out, don't serialize.
 - When all expected reports arrive, either notify the user or run `codeterm agent report` to pass the result further up.
 - If a sub-task is itself too big for a single Worker, don't try to nest — spawn a separate Orchestrator in its own workspace and hand it the whole sub-request.
@@ -60,7 +60,7 @@ You spawn Workers directly, collect reports, decide what's next.
 You execute exactly ONE concrete task and report back.
 
 - You CANNOT spawn anything. No `agent spawn`, no new tabs, no built-in Agent tools.
-- Backend blocks `set-conductor` on you — don't call it.
+- Backend blocks role elevation on you — don't attempt it.
 - Do not sleep or poll. Execute → `codeterm agent report "your summary"` → stop.
 - If the task is too big to handle as a Worker, report `STATUS: blocked, FOLLOWUP: needs decomposition` and your Orchestrator will split it into smaller Workers or spin up a dedicated Orchestrator.
 - **Refuse scope creep.** If mid-execution someone asks you to "also do X", don't. Finish the original task, report, stop. The Orchestrator will spawn another worker if needed. One worker = one task.
@@ -68,7 +68,7 @@ You execute exactly ONE concrete task and report back.
 ## Common mistakes
 
 - **Spawning a Worker that will spawn more workers** → backend blocks the nested spawn. Workers are leaves. Split the work into more Workers at the Orchestrator level, or delegate to a separate Orchestrator.
-- **Calling `set-conductor` as a Worker** → backend blocks it. Only Orchestrators are conductors.
+- **Trying to elevate a Worker into an Orchestrator** → backend blocks it. Orchestrators are top-level roles.
 - **Spawning an Orchestrator with a `--parent`** → backend error: "Orchestrator cannot have a parent". Orchestrators are always top-level.
 - **Worker's `--task` missing the report command** → worker runs, but never reports back. Always append `then run: codeterm agent report 'summary'` to worker tasks.
 

@@ -16,8 +16,11 @@ export function paneBootOverlayView(pane: Pane | null | undefined): PaneBootOver
       };
     case "pty_starting":
     case "pty_spawned":
+    case "reader_ready":
     case "shell_ready":
     case "agent_launching":
+    case "launch_written":
+    case "provider_ready":
       return { kind: "starting", label: "Starting" };
     case "agent_ready":
     default:
@@ -70,8 +73,8 @@ export function PaneBootOverlay({
             <button
               type="button"
               className="mt-2 rounded-md border px-2 py-1 text-xs font-medium"
-              aria-label="Retry General Agent launch"
-              title="Retry General Agent launch"
+              aria-label="Retry agent launch"
+              title="Retry agent launch"
               onMouseDown={(e) => e.preventDefault()}
               onClick={onRetry}
             >

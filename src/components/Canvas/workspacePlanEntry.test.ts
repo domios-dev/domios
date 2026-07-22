@@ -6,6 +6,7 @@ import type { PlanIndexEntry } from "./plansApi";
 import { canvasFocusStore } from "./canvasFocusStore";
 import {
   deriveWorkspacePlanEntries,
+  openTeamPlanCanvas,
   openPanePlanFocus,
   openWorkspacePlanCanvas,
   resolvePanePlanFocusTarget,
@@ -97,6 +98,16 @@ test("deriveWorkspacePlanEntries matches project-local plans", () => {
   const entries = deriveWorkspacePlanEntries([indexEntry()], workspace, panes);
   assert(entries.length === 1, "one relevant plan");
   assert(entries[0].plan_id === FIXTURE_PLAN.id, "fixture plan id");
+});
+
+test("deriveWorkspacePlanEntries matches Windows verbatim plan paths", () => {
+  const windowsWorkspace = { ...workspace, cwd: "D:\\Developer\\codeterm" };
+  const entries = deriveWorkspacePlanEntries(
+    [indexEntry({ file_path: "\\\\?\\D:\\Developer\\codeterm\\.codeterm\\plans\\active\\pl_as7ty5\\plan.yaml" })],
+    windowsWorkspace,
+    panes,
+  );
+  assert(entries.length === 1, "verbatim Windows path belongs to workspace");
 });
 
 test("deriveWorkspacePlanEntries ignores archived plans", () => {
@@ -222,15 +233,15 @@ test("workspacePlanEntryHint prefers tasks then sections then items", () => {
   );
 });
 
-test("open_task_count reflects counts_as_open_work semantics: excludes done, cancelled, parked", () => {
+test("open_task_count reflects counts_as_open_work semantics: excludes done, cancelled, paused", () => {
   // open_task_count from backend = 3 (only counts_as_open_work tasks)
   assert(
     workspacePlanEntryHint([indexEntry({ task_count: 10, open_task_count: 3 })]) === "3 tasks",
-    "hint shows only the open-work count (done+cancelled+parked excluded)",
+    "hint shows only the open-work count (done+cancelled+paused excluded)",
   );
   assert(
     workspacePlanEntryHint([indexEntry({ task_count: 5, open_task_count: 0, section_count: 2 })]) === "2 sections",
-    "zero open tasks (all terminal/parked) falls through to sections",
+    "zero open tasks (all terminal/paused) falls through to sections",
   );
   assert(
     workspacePlanEntryHint([indexEntry({ task_count: 8, open_task_count: 1 })]) === "1 task",
@@ -263,6 +274,17 @@ test("openWorkspacePlanCanvas opens workspace target on the focus store", () => 
   openWorkspacePlanCanvas({ focusPaneId: "orch-1", planId: FIXTURE_PLAN.id });
   assert(canvasFocusStore.isWorkspaceOpen(), "workspace canvas open");
   assert(canvasFocusStore.getWorkspaceTarget()?.planId === FIXTURE_PLAN.id, "plan id stored");
+  canvasFocusStore.closeWorkspace();
+});
+
+test("openTeamPlanCanvas keeps the team and manager target explicit", () => {
+  canvasFocusStore.closeWorkspace();
+  openTeamPlanCanvas({ teamId: "team-1", managerPaneId: "manager-1" });
+  const target = canvasFocusStore.getWorkspaceTarget();
+  assert(target?.teamId === "team-1", "team target survives the focus store");
+  assert(target?.managerPaneId === "manager-1", "manager target survives the focus store");
+  assert(target?.focusPaneId === "manager-1", "manager target stored");
+  assert(target?.planId === undefined, "create flow does not fabricate a plan id");
   canvasFocusStore.closeWorkspace();
 });
 
@@ -349,6 +371,77 @@ test("canvasFitContextKey encodes workspace target fields", () => {
     nodeIds: ["t1"],
   });
   assert(key.includes("pane-a") && key.includes("pane-b") && key.includes("pl-1") && key.includes("t1"), key);
+});
+
+test("deriveWorkspacePlanEntries cumulatively includes root and nested-root plans, excludes siblings and outside roots", () => {
+  const ws = { ...workspace, cwd: "/repo/hub", tabs: [] };
+  const mk = (planId: string, filePath: string, updatedAt: number) =>
+    indexEntry({ plan_id: planId, file_path: filePath, updated_at: updatedAt });
+  const index = [
+    mk("A1", "/repo/hub/.codeterm/plans/active/A1/plan.json", 40),
+    mk("A2", "/repo/hub/.codeterm/plans/active/A2/plan.json", 30),
+    mk("p1", "/repo/hub/packages/p1/.codeterm/plans/active/p1/plan.json", 20),
+    mk("p2", "/repo/hub/tools/p2/.codeterm/plans/active/p2/plan.json", 10),
+    mk("B1", "/repo/hub-worktree/.codeterm/plans/active/B1/plan.json", 99),
+    mk("C1", "/other/root/.codeterm/plans/active/C1/plan.json", 99),
+  ];
+  const ids = deriveWorkspacePlanEntries(index, ws, {}).map((e) => e.plan_id);
+  assert(ids.join(",") === "A1,A2,p1,p2", `root + nested only, sibling/outside excluded (got ${ids.join(",")})`);
+});
+
+test("deriveWorkspacePlanEntries deduplicates a plan surfaced through root and nested index aliases", () => {
+  const ws = { ...workspace, cwd: "/repo/hub", tabs: [] };
+  const rootAlias = indexEntry({
+    plan_id: "dup",
+    file_path: "/repo/hub/.codeterm/plans/active/dup/plan.json",
+    updated_at: 50,
+  });
+  const nestedAlias = indexEntry({
+    plan_id: "dup",
+    file_path: "/repo/hub/nested/.codeterm/plans/active/dup/plan.json",
+    updated_at: 70,
+  });
+  const entries = deriveWorkspacePlanEntries([rootAlias, nestedAlias], ws, {});
+  assert(entries.length === 1, `one canonical entry per plan id (got ${entries.length})`);
+  assert(entries[0].updated_at === 70, "keeps the freshest alias of the duplicated plan");
+});
+
+test("deriveWorkspacePlanEntries orders stably and deterministically across reloads", () => {
+  const ws = { ...workspace, cwd: "/repo/hub", tabs: [] };
+  const mk = (planId: string, updatedAt: number) =>
+    indexEntry({
+      plan_id: planId,
+      file_path: `/repo/hub/.codeterm/plans/active/${planId}/plan.json`,
+      updated_at: updatedAt,
+    });
+  // Equal updated_at must break ties deterministically by plan id, regardless of input order.
+  const a = [mk("beta", 10), mk("alpha", 10), mk("gamma", 20)];
+  const b = [mk("alpha", 10), mk("gamma", 20), mk("beta", 10)];
+  const orderA = deriveWorkspacePlanEntries(a, ws, {}).map((e) => e.plan_id).join(",");
+  const orderB = deriveWorkspacePlanEntries(b, ws, {}).map((e) => e.plan_id).join(",");
+  assert(orderA === "gamma,alpha,beta", `freshest first, id tie-break (got ${orderA})`);
+  assert(orderA === orderB, "identical order across reloads with shuffled input");
+});
+
+test("deriveWorkspacePlanEntries updates the same surface in place on a nested plan-changed event", () => {
+  const ws = { ...workspace, cwd: "/repo/hub", tabs: [] };
+  const root = indexEntry({
+    plan_id: "A1",
+    file_path: "/repo/hub/.codeterm/plans/active/A1/plan.json",
+    updated_at: 10,
+  });
+  const nested = indexEntry({
+    plan_id: "p1",
+    file_path: "/repo/hub/packages/p1/.codeterm/plans/active/p1/plan.json",
+    updated_at: 5,
+  });
+  const before = deriveWorkspacePlanEntries([root, nested], ws, {}).map((e) => e.plan_id);
+  assert(before.join(",") === "A1,p1", `initial cumulative set (got ${before.join(",")})`);
+  // Nested plan bumped fresher — same set, reordered in place, no duplicate row.
+  const bumped = { ...nested, updated_at: 20 };
+  const after = deriveWorkspacePlanEntries([root, bumped], ws, {});
+  assert(after.length === 2, "no duplicate rows after live update");
+  assert(after.map((e) => e.plan_id).join(",") === "p1,A1", "live update reorders the same surface");
 });
 
 async function main() {

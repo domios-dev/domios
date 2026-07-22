@@ -11,33 +11,43 @@ export function workspacePaneIds(workspace: Workspace, panes: Record<string, Pan
   return ids;
 }
 
+// Cumulative workspace view: the root's own plans plus nested project roots.
+// Deduped by canonical plan id and ordered deterministically across reloads.
 export function deriveWorkspacePlanEntries(
   index: PlanIndexEntry[],
   workspace: Workspace,
   _panes: Record<string, Pane>,
 ): PlanIndexEntry[] {
-  const active = index.filter((e) => e.status === "active");
-  const seen = new Set<string>();
-  const out: PlanIndexEntry[] = [];
-  for (const entry of active) {
+  const canonical = new Map<string, PlanIndexEntry>();
+  for (const entry of index) {
+    if (entry.status !== "active") continue;
     if (!planBelongsToWorkspacePath(entry, workspace) || !hasWorkspacePlanContent(entry)) continue;
-    seen.add(entry.plan_id);
-    out.push(entry);
+    const prev = canonical.get(entry.plan_id);
+    if (!prev || isFresherEntry(entry, prev)) canonical.set(entry.plan_id, entry);
   }
-  return out.sort((a, b) => b.updated_at - a.updated_at);
+  return [...canonical.values()].sort(compareWorkspacePlanEntries);
+}
+
+function isFresherEntry(a: PlanIndexEntry, b: PlanIndexEntry): boolean {
+  if (a.updated_at !== b.updated_at) return a.updated_at > b.updated_at;
+  return normalizePath(a.file_path) < normalizePath(b.file_path);
+}
+
+function compareWorkspacePlanEntries(a: PlanIndexEntry, b: PlanIndexEntry): number {
+  if (a.updated_at !== b.updated_at) return b.updated_at - a.updated_at;
+  return a.plan_id < b.plan_id ? -1 : a.plan_id > b.plan_id ? 1 : 0;
 }
 
 function planBelongsToWorkspacePath(entry: PlanIndexEntry, workspace: Workspace): boolean {
   if (!workspace.cwd) return false;
   const root = normalizePath(workspace.cwd);
   const file = normalizePath(entry.file_path);
-  return file === `${root}/.codeterm/plans/active/${entry.plan_id}/plan.json`
-    || file === `${root}/.codeterm/plans/archive/${entry.plan_id}/plan.json`
-    || file.startsWith(`${root}/.codeterm/plans/`);
+  const underRoot = file === root || file.startsWith(`${root}/`);
+  return underRoot && file.includes("/.codeterm/plans/");
 }
 
 function normalizePath(path: string): string {
-  return path.replace(/\\/g, "/").replace(/\/+$/, "");
+  return path.replace(/\\/g, "/").replace(/^\/\/\?\//, "").replace(/\/+$/, "");
 }
 
 function hasWorkspacePlanContent(entry: PlanIndexEntry): boolean {
@@ -105,6 +115,21 @@ export function openWorkspacePlanCanvas(target?: CanvasWorkspaceTarget): void {
   canvasFocusStore.openWorkspace(target ?? undefined);
 }
 
+export interface TeamPlanCanvasTarget {
+  teamId: string;
+  managerPaneId: string | null;
+  planId?: string;
+}
+
+export function openTeamPlanCanvas(target: TeamPlanCanvasTarget): void {
+  openWorkspacePlanCanvas({
+    teamId: target.teamId,
+    managerPaneId: target.managerPaneId,
+    focusPaneId: target.managerPaneId ?? undefined,
+    planId: target.planId,
+  });
+}
+
 export function openWorkspacePlanForEntries(entries: readonly PlanIndexEntry[]): void {
   openWorkspacePlanCanvas({
     planId: entries.length === 1 ? entries[0].plan_id : undefined,
@@ -119,10 +144,17 @@ export function findPlanOwnerWorkspace(
 ): { workspace: Workspace; entry: PlanIndexEntry } | null {
   const entry = index.find((e) => e.plan_id === planId);
   if (!entry) return null;
+  let best: { workspace: Workspace; entry: PlanIndexEntry } | null = null;
+  let bestLen = -1;
   for (const workspace of workspaces) {
-    if (planBelongsToWorkspacePath(entry, workspace)) return { workspace, entry };
+    if (!planBelongsToWorkspacePath(entry, workspace)) continue;
+    const len = workspace.cwd ? normalizePath(workspace.cwd).length : 0;
+    if (len > bestLen) {
+      best = { workspace, entry };
+      bestLen = len;
+    }
   }
-  return null;
+  return best;
 }
 
 export interface OpenPlanDeepLinkCtx {

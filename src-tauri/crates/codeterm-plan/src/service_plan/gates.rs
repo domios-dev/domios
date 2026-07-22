@@ -22,7 +22,7 @@ fn create_gate(
     now_ms: u64,
 ) -> DecisionGate {
     let gid = mint_id("gate", |candidate| gate_id_taken(plan, candidate));
-    let park_reason = format!(
+    let pause_reason = format!(
         "gate:{gid}: {}",
         question.chars().take(80).collect::<String>()
     );
@@ -34,15 +34,15 @@ fn create_gate(
             .find(|task| &task.id == task_id || task.handle.as_deref() == Some(task_id))
         {
             if !task.status.is_terminal() {
-                task.status = TaskStatus::Parked;
-                task.park_reason = Some(park_reason.clone());
+                task.status = TaskStatus::Paused;
+                task.pause_reason = Some(pause_reason.clone());
                 task.status_changed_at = now_ms;
                 task.updated_at = now_ms;
                 task.milestones.push(Milestone {
                     id: milestone_id,
                     from: AgentRef::from_pane(asked_by_pane_id.unwrap_or("orchestrator")),
                     kind: "decision".into(),
-                    text: format!("parked: {park_reason}"),
+                    text: format!("paused: {pause_reason}"),
                     ts: now_ms,
                     links: vec![],
                     loop_id: None,
@@ -71,7 +71,7 @@ fn create_gate(
     gate
 }
 
-/// Create a decision gate, park all `blocking_task_ids`, and return the gate.
+/// Create a decision gate, pause all `blocking_task_ids`, and return the gate.
 /// `routed_to_pane_id` is resolved by the caller via `resolve_planner_ref` before this call.
 /// Delivery to that pane is handled by `ServiceContext` after this returns.
 impl PlanStore {
@@ -162,7 +162,7 @@ impl PlanStore {
         })
     }
 
-    /// Record an answer, unpark blocking tasks, return the updated gate.
+    /// Record an answer, resume blocking tasks, return the updated gate.
     /// Nudging the asker pane is handled by `ServiceContext`.
     pub fn answer_gate(
         &self,
@@ -197,7 +197,7 @@ impl PlanStore {
             let gate_snapshot = gate.clone();
             out = Some(gate_snapshot);
 
-            // Unpark blocked tasks.
+            // Resume blocked tasks.
             for tid in &blocking {
                 let mid = mint_id("ms", |c| plan_contains_id(plan, c));
                 if let Some(task) = plan
@@ -205,16 +205,16 @@ impl PlanStore {
                     .iter_mut()
                     .find(|t| &t.id == tid || t.handle.as_deref() == Some(tid))
                 {
-                    if task.status == TaskStatus::Parked {
+                    if task.status == TaskStatus::Paused {
                         task.status = TaskStatus::Pending;
                         task.status_changed_at = now_ms;
-                        task.park_reason = None;
+                        task.pause_reason = None;
                         task.updated_at = now_ms;
                         task.milestones.push(Milestone {
                             id: mid,
                             from: AgentRef::from_pane(answered_by_pane_id.unwrap_or("planner")),
                             kind: "decision".into(),
-                            text: format!("unparked: gate {gid} answered"),
+                            text: format!("resumed: gate {gid} answered"),
                             ts: now_ms,
                             links: vec![gid.clone()],
                             loop_id: None,
@@ -300,21 +300,21 @@ pub struct GateFinding {
 pub fn gate_doctor_findings(plan: &crate::plan::Plan, now_ms: u64) -> Vec<GateFinding> {
     let mut findings = Vec::new();
 
-    // Blocked/parked task without gate ref or park_reason → error.
+    // Blocked/paused task without a gate reference or pause_reason → error.
     for task in &plan.tasks {
-        if !matches!(task.status, TaskStatus::Blocked | TaskStatus::Parked) {
+        if !matches!(task.status, TaskStatus::Blocked | TaskStatus::Paused) {
             continue;
         }
-        if task.park_reason.as_deref().is_some_and(|r| !r.is_empty()) {
+        if task.pause_reason.as_deref().is_some_and(|r| !r.is_empty()) {
             continue;
         }
         findings.push(GateFinding {
             severity: "error",
-            kind: "parked_task_missing_reason",
+            kind: "paused_task_missing_reason",
             gate_id: None,
             task_id: Some(task.id.clone()),
             detail: format!(
-                "task {} ({}) is {} but has no park_reason or gate reference",
+                "task {} ({}) is {} but has no pause_reason or gate reference",
                 task.id,
                 task.name,
                 serde_json::to_value(&task.status)
@@ -386,7 +386,7 @@ mod tests {
     }
 
     #[test]
-    fn ask_gate_parks_blocking_tasks_only() {
+    fn ask_gate_pauses_blocking_tasks_only() {
         let (_dir, store, pid, tids) = store_with_tasks(&["task-one", "task-two", "task-three"]);
         let (t1, t2, t3) = (tids[0].clone(), tids[1].clone(), tids[2].clone());
 
@@ -406,9 +406,9 @@ mod tests {
 
         let plan = store.get(&pid).unwrap();
         let task1 = plan.tasks.iter().find(|t| t.id == t1).unwrap();
-        assert_eq!(task1.status, TaskStatus::Parked);
+        assert_eq!(task1.status, TaskStatus::Paused);
         assert!(task1
-            .park_reason
+            .pause_reason
             .as_deref()
             .unwrap()
             .starts_with("gate:gate_"));
@@ -445,11 +445,11 @@ mod tests {
         assert_eq!(plan.planner_requests[0], request);
         assert_eq!(plan.planner_inbox[0].request_id, request.request_id);
         assert!(request.payload.contains("- preserve `ticks`"));
-        assert_eq!(plan.tasks[0].status, TaskStatus::Parked);
+        assert_eq!(plan.tasks[0].status, TaskStatus::Paused);
     }
 
     #[test]
-    fn answer_gate_unparks_tasks_and_is_immutable() {
+    fn answer_gate_resumes_tasks_and_is_immutable() {
         let (_dir, store, pid, tids) = store_with_tasks(&["blocked-task"]);
         let t1 = tids[0].clone();
 
@@ -469,7 +469,7 @@ mod tests {
         assert_eq!(
             task1.status,
             TaskStatus::Pending,
-            "task must be unparked after answer"
+            "task must be resumed after answer"
         );
 
         // Second answer must fail (immutable audit record)
@@ -502,15 +502,16 @@ mod tests {
     }
 
     #[test]
-    fn gate_doctor_flags_parked_task_without_reason() {
+    fn gate_doctor_flags_paused_task_without_reason() {
         let mut plan = Plan::new("T".into(), "/p".into(), OrchestratorRef::from_pane("p"));
         plan.tasks.push(crate::plan::Task {
             id: "task_x".into(),
             name: "x".into(),
             kind: "implement".into(),
-            status: TaskStatus::Parked,
-            park_reason: None,
+            status: TaskStatus::Paused,
+            pause_reason: None,
             personality: None,
+            personality_provenance: None,
             model: None,
             model_rationale: None,
             acceptance_criteria: vec![],
@@ -518,6 +519,11 @@ mod tests {
             correctness: None,
             review_stage: Default::default(),
             qa_state: None,
+            review_round: 0,
+            review_oracle: None,
+            review_evidence: vec![],
+            review_override: None,
+            review_audit: vec![],
             status_label: None,
             priority: Default::default(),
             created_at: 0,
@@ -546,7 +552,7 @@ mod tests {
         let findings = gate_doctor_findings(&plan, 1_000);
         assert!(findings
             .iter()
-            .any(|f| f.kind == "parked_task_missing_reason" && f.severity == "error"));
+            .any(|f| f.kind == "paused_task_missing_reason" && f.severity == "error"));
     }
 
     #[test]

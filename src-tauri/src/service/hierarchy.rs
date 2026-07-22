@@ -1,18 +1,20 @@
 //! Agent hierarchy: roles, reports, status queries.
 
+mod first_plan;
 mod plan_reminder_nudge;
 mod planner_delivery;
+mod status;
+
+pub(crate) use first_plan::FirstPlanTeamError;
+pub use status::PaneStatusInfo;
 
 use planner_delivery::{
     epoch_ms, planner_rehydrate_payload, planner_request_payload, planner_specs_for_plan,
 };
 
-use serde::Serialize;
-
 use super::{ReportResult, ServiceContext, ServiceState};
 use crate::agent::ledger::LedgerRow;
-use crate::agent::reports::{ReportDetails, ReportStatus};
-use crate::multiplexer::types::AgentRole;
+use crate::agent::reports::{ReportDetails, ReportModelIdentity, ReportStatus};
 use crate::plan::AgentRef;
 use tauri::Manager;
 
@@ -346,7 +348,7 @@ impl ServiceContext {
             }
             Err(e) if e.contains("not found") => {
                 // Cross-mesh workers live only in RemoteWorkerRegistry — their
-                // foreign pane id is what `agent unlink --pane` passes.
+                // The foreign tab id is what `agent unlink --tab` passes.
                 let touched = self
                     .remote_workers
                     .forget_by_remote_pane(pane_id, None, None);
@@ -416,7 +418,7 @@ impl ServiceContext {
         let (eff_plan_id, eff_task_id) =
             resolve_plan_ctx(&self.plan_store, pane_id, plan_id, task_id, &mut notices)?;
 
-        let (from_title, default_target_opt, model, from_ref, role) = {
+        let (from_title, default_target_opt, model_identity, from_ref, role) = {
             let mux = self.mux.read();
             let (from_title, target_opt) = match resolve_report_target(&mux, pane_id) {
                 Ok(resolved) => resolved,
@@ -424,7 +426,14 @@ impl ServiceContext {
                 Err(e) => return Err(e),
             };
             let pane = mux.get_pane(pane_id);
-            let model = pane.and_then(|p| p.agent_session_model.clone());
+            let model_identity = pane.map(|p| ReportModelIdentity {
+                actual_model: p.agent_session_model.clone(),
+                planned_model: p.agent_planned_model.clone(),
+                requested_model: p.agent_requested_model.clone(),
+                provider_resolved_model: p.agent_provider_resolved_model.clone(),
+                fallback: p.model_fallback.clone(),
+                mismatch: p.model_identity_mismatch.clone(),
+            });
             let from_ref = pane.map_or_else(
                 || AgentRef::from_pane(pane_id),
                 |p| AgentRef {
@@ -434,8 +443,11 @@ impl ServiceContext {
                 },
             );
             let role = pane.and_then(|p| p.role);
-            (from_title, target_opt, model, from_ref, role)
+            (from_title, target_opt, model_identity, from_ref, role)
         };
+        let model = model_identity
+            .as_ref()
+            .and_then(|identity| identity.actual_model.clone());
         // Capture mesh peer before default_target_opt is consumed by .or().
         let default_mesh_peer = match &default_target_opt {
             Some(ReportTarget::Mesh { peer, .. }) => Some(peer.clone()),
@@ -498,84 +510,39 @@ impl ServiceContext {
         };
 
         if let Some(ref plan_id) = eff_plan_id {
-            // homing succeeded) — avoids a milestone landing on the wrong local plan.
+            // A worker report is authoritative only for the task actually bound
+            // to its pane. Explicit ids are useful routing hints, never authority.
             if !homed_to_remote && !foreign {
-                let task_id = eff_task_id
-                    .clone()
-                    .or_else(|| {
-                        self.plan_store.task_binding_for_pane(pane_id).and_then(
-                            |(bound_plan, bound_task)| {
-                                if &bound_plan == plan_id {
-                                    Some(bound_task)
-                                } else {
-                                    None
-                                }
-                            },
-                        )
+                let bound_task = self.plan_store.task_binding_for_pane(pane_id);
+                let task_id = eff_task_id.clone().or_else(|| {
+                    bound_task.as_ref().and_then(|(bound_plan, bound_task)| {
+                        (bound_plan == plan_id).then(|| bound_task.clone())
                     })
-                    .ok_or_else(|| "task_id required for plan report".to_string())?;
-                let mut ops = Vec::new();
-                if let Some(status) = task_status {
-                    ops.push(crate::service::plan::batch::BatchOp::SetTaskStatus {
-                        client_id: None,
-                        task: task_id.clone(),
-                        status: status.into(),
-                    });
-                }
-                ops.push(crate::service::plan::batch::BatchOp::AddMilestone {
-                    client_id: Some("report".into()),
-                    task: task_id.clone(),
-                    kind: milestone_kind.unwrap_or("status_update").into(),
-                    text: milestone_text(message, details.status),
-                    from: Some(from_ref.clone()),
-                    key: None,
-                    links: vec![],
                 });
-                let batch_result = self
-                    .plan_store
-                    .apply_batch(
-                        plan_id,
-                        crate::service::plan::batch::BatchRequest { key: None, ops },
-                        epoch_ms(),
-                    )
-                    .map_err(|e| e.to_string())?;
-                if !details.attachments.is_empty() {
-                    let milestone_id = batch_result
-                        .milestone_ids
-                        .first()
-                        .ok_or_else(|| "report milestone missing for attachments".to_string())?
-                        .clone();
-                    for path in &details.attachments {
+                if let (Some(task_id), Some((bound_plan, bound_task))) = (task_id, bound_task) {
+                    if &bound_plan == plan_id && bound_task == task_id {
+                        let evidence = crate::service::plan::task_attempts::BoundWorkerReport {
+                            message: message.to_string(),
+                            status: details.status,
+                            branch: details.branch.clone(),
+                            sha: details.sha.clone(),
+                            changed_files: details.changed_files.clone().unwrap_or_default(),
+                            test_cmd: details.test_cmd.clone(),
+                            test_result: details.test_result.clone(),
+                            skipped: details.skipped.clone(),
+                        };
                         self.plan_store
-                            .attach_to_milestone(
+                            .ingest_bound_worker_report(
                                 plan_id,
                                 &task_id,
-                                &milestone_id,
-                                std::path::Path::new(path),
+                                &from_ref,
+                                evidence,
                                 epoch_ms(),
                             )
                             .map_err(|e| e.to_string())?;
                     }
                 }
-                let _ = self.plan_store.record_task_attempt_report(
-                    plan_id,
-                    &task_id,
-                    &from_ref,
-                    message,
-                    details.status,
-                    epoch_ms(),
-                );
-                // Recording discipline: capture lane truth from the report into
-                // empty fields (never overwrite an explicit prior value).
-                let _ = self.plan_store.fill_task_lane_if_empty(
-                    plan_id,
-                    &task_id,
-                    Some(pane_id),
-                    details.branch.as_deref(),
-                    None,
-                    epoch_ms(),
-                );
-                self.plan_turn_counter.reset(pane_id);
+                self.plan_turn_counter.reset_activity(pane_id);
                 crate::api::events::emit_everywhere(
                     &self.app_handle,
                     "plan-changed",
@@ -585,23 +552,23 @@ impl ServiceContext {
         }
 
         let target = target_opt.ok_or_else(|| {
-            "No report target for this pane. You are not attached to an orchestrator, report target, or spawning pane. Ask for the target pane id, then use `codeterm send [--mesh <peer>] --pane <pane-or-alias> \"...\"`, or spawn with a report target.".to_string()
+            "No report target for this tab. You are not attached to an orchestrator, report target, or spawning tab. Ask for the target tab id, then use `codeterm send [--mesh <peer>] --tab <tab-or-alias> \"...\"`, or spawn with a report target.".to_string()
         })?;
         let storage_key = target.storage_key();
-        let report = self.report_store.lock().add_detailed(
+        let report = self.report_store.lock().add_detailed_with_model_identity(
             &storage_key,
             pane_id,
             &from_title,
             message,
             details,
-            model.as_deref(),
+            model_identity,
         );
 
         self.events.broadcast(
             "agent.report",
             serde_json::json!({
                 "target_pane_id": storage_key,
-                "report": report,
+                "report": report.clone(),
             }),
         );
         crate::api::events::emit_everywhere(
@@ -612,6 +579,7 @@ impl ServiceContext {
                 "from_pane_id": pane_id,
                 "from_title": from_title,
                 "message": message,
+                "report": report.clone(),
             }),
         );
 
@@ -630,13 +598,22 @@ impl ServiceContext {
                 let envelope =
                     crate::service::messenger::MessageEnvelope::report(&from_title, pane_id)
                         .model(model.clone());
-                let delivery = crate::service::messenger::Messenger::deliver(
-                    self,
+                // The target is a TUI that owns its screen: it reflows, collapses
+                // long input to a paste placeholder, and queues while busy. Echo
+                // scraping cannot decide delivery there, and its false negatives
+                // failed reports that had already landed. The report is stored and
+                // broadcast above; the write is the guarantee.
+                match self.gateway_deliver(
                     &target_id,
                     envelope,
                     &report.inject_body(),
-                )?;
-                log::info!("[report] target={} delivered via {:?}", target_id, delivery);
+                    crate::service::message_gateway::DeliveryClass::AgentTraffic,
+                ) {
+                    Ok(delivery) => {
+                        log::info!("[report] target={} delivered via {:?}", target_id, delivery)
+                    }
+                    Err(error) => log::warn!("[report] target={} deliver: {}", target_id, error),
+                }
             }
         }
 
@@ -692,7 +669,12 @@ impl ServiceContext {
             &text,
         );
         let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("plan");
-        let _ = crate::service::messenger::Messenger::deliver(self, owner, envelope, &text);
+        let _ = self.gateway_deliver(
+            owner,
+            envelope,
+            &text,
+            crate::service::message_gateway::DeliveryClass::SystemNotice,
+        );
     }
 
     /// Nudge the gate asker pane when a gate is answered.
@@ -728,7 +710,12 @@ impl ServiceContext {
             &text,
         );
         let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("plan");
-        let _ = crate::service::messenger::Messenger::deliver(self, asker, envelope, &text);
+        let _ = self.gateway_deliver(
+            asker,
+            envelope,
+            &text,
+            crate::service::message_gateway::DeliveryClass::SystemNotice,
+        );
     }
 
     /// Relay plan batch ops (status update + milestone) to the peer that owns the
@@ -781,6 +768,7 @@ impl ServiceContext {
             method: "POST".into(),
             path: format!("/api/plans/{}/batch", plan_id),
             body,
+            delivery_id: None,
         };
         tauri::async_runtime::spawn(async move {
             match client.send_relay(&cmd).await {
@@ -841,6 +829,9 @@ impl ServiceContext {
             method: "POST".into(),
             path: format!("/api/panes/{}/send", target_pane),
             body: send_body,
+            // At-most-once: a report is one logical send; dedupe by this id so a
+            // relay retry can never double-post it into the target pane.
+            delivery_id: Some(uuid::Uuid::new_v4().to_string()),
         };
         tauri::async_runtime::spawn(async move {
             match client.send_relay(&cmd).await {
@@ -880,35 +871,6 @@ impl ServiceContext {
         let rows = self.report_store.lock().ledger_rows(orchestrator_pane_id);
         let mux = self.mux.read();
         ledger_with_live_children(&mux, orchestrator_pane_id, rows, epoch_seconds())
-    }
-
-    pub fn get_pane_status(&self, pane_id: &str) -> Result<PaneStatusInfo, String> {
-        let mux = self.mux.write();
-        let pane = mux
-            .get_pane(pane_id)
-            .ok_or(format!("Pane not found: {}", pane_id))?;
-
-        let status = if let Some(ref pty_id) = pane.pty_id {
-            let tracker = self.agent_tracker.lock();
-            format!("{:?}", tracker.get_status(pty_id))
-        } else {
-            "Idle".to_string()
-        };
-
-        let children = mux.get_children_ids(pane_id);
-
-        Ok(PaneStatusInfo {
-            pane_id: pane.id.clone(),
-            status,
-            agent_type: pane.agent_type.clone(),
-            role: pane.role,
-            parent_pane_id: pane.parent_pane_id.clone(),
-            can_spawn: pane.can_spawn,
-            depth: pane.depth,
-            children,
-            cwd: pane.cwd.clone(),
-            title: pane.title.clone(),
-        })
     }
 }
 
@@ -991,7 +953,7 @@ pub enum ReportTarget {
 
 impl ReportTarget {
     /// Stable key the report store and worker-death dedup index by. Local targets
-    /// key on the pane id (so `agent reports --pane <id>` finds them); mesh targets
+    /// key on the tab id (so `agent reports --tab <id>` finds them); mesh targets
     /// key on a synthetic `mesh:<peer>/<pane>` so they neither collide with local
     /// panes nor each other.
     pub fn storage_key(&self) -> String {
@@ -1167,20 +1129,6 @@ pub fn worker_death_report(
         storage_key,
         format!("{role_label} {} EXITED without reporting (dead)", pane_id),
     ))
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct PaneStatusInfo {
-    pub pane_id: String,
-    pub status: String,
-    pub agent_type: Option<String>,
-    pub role: Option<AgentRole>,
-    pub parent_pane_id: Option<String>,
-    pub can_spawn: bool,
-    pub depth: u8,
-    pub children: Vec<String>,
-    pub cwd: Option<String>,
-    pub title: String,
 }
 
 #[cfg(test)]

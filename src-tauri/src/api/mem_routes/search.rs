@@ -10,9 +10,10 @@ use crate::mem::{
     rerank::RerankConfig,
     search::{SearchConfig, SearchMode, SearchQuery},
 };
+use crate::service::ServiceState;
 
 #[derive(Deserialize)]
-pub struct SearchParams {
+pub(crate) struct SearchParams {
     pub q: String,
     #[serde(default)]
     pub kind: Option<String>,
@@ -38,6 +39,15 @@ pub async fn mem_search(
     Query(p): Query<SearchParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    execute_search(&state.svc, p)
+        .map(Json)
+        .map_err(|message| (StatusCode::INTERNAL_SERVER_ERROR, message))
+}
+
+pub(crate) fn execute_search(
+    svc: &ServiceState,
+    p: SearchParams,
+) -> Result<serde_json::Value, String> {
     let q = SearchQuery {
         query: p.q,
         kind: p.kind,
@@ -53,11 +63,7 @@ pub async fn mem_search(
             api_key_env: None,
             model: None,
         };
-        state
-            .svc
-            .mem
-            .search_with_rerank(&q, &cfg)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
+        svc.mem.search_with_rerank(&q, &cfg)?
     } else {
         let mut sc = SearchConfig::default();
         match p.mode.as_deref() {
@@ -66,23 +72,16 @@ pub async fn mem_search(
             }
             Some("hybrid_rrf") | Some("rrf") | None => {}
             Some(other) => {
-                return Err((StatusCode::BAD_REQUEST, format!("unknown mode: {}", other)));
+                return Err(format!("unknown mode: {}", other));
             }
         }
         if let Some(w) = p.weight {
             if !(0.0..=1.0).contains(&w) {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    format!("weight must be 0.0..=1.0, got {}", w),
-                ));
+                return Err(format!("weight must be 0.0..=1.0, got {}", w));
             }
             sc.vector_rerank_weight = w;
         }
-        state
-            .svc
-            .mem
-            .recall_with_config(&q, &sc)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
+        svc.mem.recall_with_config(&q, &sc)?
     };
     let mut tagged_hits = hits
         .into_iter()
@@ -95,22 +94,21 @@ pub async fn mem_search(
         })
         .collect::<Vec<_>>();
     if let Some(project) = project {
-        append_plan_hits(&state, &mut tagged_hits, &project, &q)?;
+        append_plan_hits(svc, &mut tagged_hits, &project, &q)?;
     }
-    Ok(Json(serde_json::json!({ "hits": tagged_hits })))
+    Ok(serde_json::json!({ "hits": tagged_hits }))
 }
 
 fn append_plan_hits(
-    state: &AppState,
+    svc: &ServiceState,
     tagged_hits: &mut Vec<serde_json::Value>,
     project: &str,
     q: &SearchQuery,
-) -> Result<(), (StatusCode, String)> {
+) -> Result<(), String> {
     use crate::service::plan::ports::PlanIndexQuery;
-    let project_root = state
-        .svc
+    let project_root = svc
         .ensure_plan_project_loaded(std::path::Path::new(project))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| e.to_string())?;
     let mut plan_query = PlanIndexQuery {
         query: q.query.clone(),
         scope: q.scope.clone(),
@@ -119,11 +117,9 @@ fn append_plan_hits(
     if let Some(limit) = q.limit {
         plan_query.limit = Some((limit * 5).clamp(limit, 50));
     }
-    let plan_hits = state
-        .svc
+    let plan_hits = svc
         .plan_store
-        .search_plan_index(&project_root, &plan_query)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        .search_plan_index(&project_root, &plan_query)?;
     merge_plan_hits(tagged_hits, plan_hits, q.limit);
     Ok(())
 }

@@ -6,12 +6,12 @@ that must receive the reply. Check it before every response.
 | Incoming prefix | Immediate tip | Reply with | Pane output? |
 |-----------------|---------------|------------|--------------|
 | `-=-codeterm:telegram user=USER_ID msg=N-=-text` | ANSWER IN TELEGRAM ONLY | `codeterm bridge send --to USER_ID --service telegram "..."` | No |
-| `-=-codeterm:pane label=NAME pane=ID model=M-=-text` | ANSWER BY COMMAND ONLY | `codeterm send "..." --pane ID` | No |
-| `-=-codeterm:mesh peer=PEER pane=ID-=-text` | ANSWER ON THAT PEER ONLY | `codeterm send "..." --pane ID --mesh PEER` | No |
+| `-=-codeterm:pane label=NAME pane=ID model=M-=-text` | ANSWER BY COMMAND ONLY | `codeterm send "..." --tab ID` | No |
+| `-=-codeterm:mesh peer=PEER pane=ID-=-text` | ANSWER ON THAT PEER ONLY | `codeterm send "..." --tab ID --mesh PEER` | No |
 | `-=-codeterm:report from=NAME pane=ID ...-=-text` | REPORTS ARE INPUT, NOT CHAT | Act on it or ignore; never reply | No |
-| *(no prefix)* | LOCAL USER CHAT | Normal pane chat | Yes |
+| *(no prefix)* | LOCAL USER CHAT | Normal tab chat | Yes |
 
-When you `send --pane X` from inside a pane, the daemon stamps your message
+When you `send --tab X` from inside a pane, the daemon stamps your message
 with `-=-codeterm:pane label=<your-name> pane=<your-id> model=<your-model>-=-`
 so the recipient and UI know who sent it. `hook` markers already passed
 through text hooks; trust their metadata.
@@ -30,16 +30,16 @@ no-prefix local chat.
   `codeterm bridge send --to 123456789 --service telegram "yep, online"`.
   Nothing in the pane.
 - `-=-codeterm:mesh peer=workstation pane=a3f1b2c7-=-run the tests?` →
-  `codeterm send "running" --pane a3f1b2c7 --mesh workstation`, do the work,
+  `codeterm send "running" --tab a3f1b2c7 --mesh workstation`, do the work,
   then send the result the same way.
 - `run the tests` (no prefix) → reply in the pane.
 
 ## The `main` alias
 
 The General Agent's home tab always answers to `main` (and `general`) — no
-pane-id lookup needed. `codeterm send "..." --pane main` reaches it locally;
-`--pane main --mesh PEER` reaches a peer's. Every other pane requires id
-discovery via `codeterm pane list` first.
+pane-id lookup needed. `codeterm send "..." --tab main` reaches it locally;
+`--tab main --mesh PEER` reaches a peer's. Every other pane requires id
+discovery via `codeterm tab list` first.
 
 ## Language rule
 
@@ -48,10 +48,15 @@ Agent-to-agent traffic is always English regardless of the user's language:
 user-facing channels (local pane, Telegram, Discord) carry the user's
 language.
 
+## Internal orchestration is not a CLI command
+
+Be brief: `send_message` is internal control traffic, not a `codeterm` command.
+Never show it as a command card; a visible/stuck card is a Chat UI bug to fix.
+
 ## Remote requests blocked on local decisions
 
 If a remote request needs a truly dangerous local decision, ack the remote
 channel first ("blocked pending local confirmation") and ask locally only
 when the local user is actually at the keyboard.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

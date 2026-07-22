@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Clock3, Paperclip, X } from "lucide-react";
 import { ComposerActions } from "./ComposerActions";
 import { invoke, listen } from "../../lib/bridge";
@@ -39,6 +39,18 @@ const CLI_FALLBACK_COMMANDS = new Set([
   "/permissions",
   "/help",
 ]);
+
+declare global {
+  interface Window {
+    __composerPerf?: {
+      inputMarks: Array<{ id: number; at: number; inputType: string }>;
+      paintLatencies: number[];
+      renderCounts: Record<string, number>;
+      compositionEvents: string[];
+      ignoredKeys: string[];
+    };
+  }
+}
 
 function composerHeight(el: HTMLTextAreaElement): number {
   const measured = el.scrollHeight;
@@ -202,7 +214,42 @@ export function delayedPollIntervalMs(isActive: boolean): number | null {
   return isActive ? 10_000 : null;
 }
 
-export function ChatComposer({
+function recordComposerRender(paneId: string): void {
+  if (typeof window === "undefined") return;
+  const perf = window.__composerPerf;
+  if (!perf) return;
+  perf.renderCounts[paneId] = (perf.renderCounts[paneId] ?? 0) + 1;
+}
+
+let composerInputMarkId = 0;
+
+function recordComposerBeforeInput(inputType: string): void {
+  if (typeof window === "undefined") return;
+  const perf = window.__composerPerf;
+  if (!perf) return;
+  perf.inputMarks.push({
+    id: composerInputMarkId += 1,
+    at: performance.now(),
+    inputType,
+  });
+}
+
+function recordComposerPaint(): void {
+  if (typeof window === "undefined") return;
+  const perf = window.__composerPerf;
+  const mark = perf?.inputMarks.shift();
+  if (!perf || !mark) return;
+  requestAnimationFrame(() => {
+    perf.paintLatencies.push(performance.now() - mark.at);
+  });
+}
+
+function recordComposerIgnoredKey(key: string): void {
+  if (typeof window === "undefined") return;
+  window.__composerPerf?.ignoredKeys.push(key);
+}
+
+function ChatComposerImpl({
   paneId,
   paneProvider,
   currentPtyId,
@@ -212,6 +259,7 @@ export function ChatComposer({
   removeAttachment,
   clearAttachments,
   handlePasteEvent,
+  onWillSendMessage,
   addOptimistic,
   updateOptimistic,
   showComposerError,
@@ -236,12 +284,14 @@ export function ChatComposer({
   removeAttachment: (path: string) => void;
   clearAttachments: () => void;
   handlePasteEvent: (event: ClipboardEvent) => void | Promise<void>;
+  onWillSendMessage: () => void;
   addOptimistic: (content: string) => string;
   updateOptimistic: (id: string, content: string) => void;
   showComposerError: (message: string) => void;
   onOpenTerminalFallback?: () => void;
   modelBubble?: ReactNode;
 }) {
+  recordComposerRender(paneId);
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
 
@@ -312,6 +362,7 @@ export function ChatComposer({
     el.style.height = `${COMPOSER_MIN_HEIGHT}px`;
     const next = composerHeight(el);
     el.style.height = `${next}px`;
+    recordComposerPaint();
   }, [input]);
 
   useEffect(() => {
@@ -533,6 +584,7 @@ export function ChatComposer({
     if (placeholderId) {
       updateOptimistic(placeholderId, composed);
     } else {
+      onWillSendMessage();
       addOptimistic(composed);
     }
     setInput("");
@@ -541,7 +593,7 @@ export function ChatComposer({
     try {
       if (chatBackend) {
         // plugin's sendMessage (chat_send_text → send_text_when_ready).
-        await invoke("chat_send_text", { paneId, text: composed, enter: true });
+        await invoke("chat_send_text", { paneId, text: composed });
       } else {
         const fallbackCommand = allAttachments.length === 0 ? cliFallbackCommandPayload(composed) : null;
         if (fallbackCommand) {
@@ -550,7 +602,7 @@ export function ChatComposer({
           onOpenTerminalFallback?.();
           await invoke("write_pty_string", { ptyId: currentPtyId, data: fallbackCommand, raw: false });
         } else {
-          await invoke("chat_send_text", { paneId, text: composed, enter: true });
+          await invoke("chat_send_text", { paneId, text: composed });
         }
       }
     } catch (e) {
@@ -751,10 +803,16 @@ export function ChatComposer({
           />
           <textarea
             data-testid="chat-composer"
+            data-pane-id={paneId}
+            aria-label="Message composer"
             ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onBeforeInput={(e) => {
+              recordComposerBeforeInput(e.nativeEvent.inputType || "beforeinput");
+            }}
             onKeyDown={(e) => {
+              recordComposerIgnoredKey(e.key);
               if (touchMode && e.key === "Enter" && !e.shiftKey) {
                 setPickerOpen(false);
                 setModelPickerOpen(false);
@@ -844,6 +902,12 @@ export function ChatComposer({
                 void send();
               }
             }}
+            onCompositionStart={() => {
+              if (typeof window !== "undefined") window.__composerPerf?.compositionEvents.push("start");
+            }}
+            onCompositionEnd={() => {
+              if (typeof window !== "undefined") window.__composerPerf?.compositionEvents.push("end");
+            }}
             onPaste={(e) => void handlePasteEvent(e.nativeEvent)}
             placeholder={pendingPrompt
               ? "Agent may be waiting in the terminal."
@@ -869,3 +933,23 @@ export function ChatComposer({
     </div>
   );
 }
+
+export const ChatComposer = memo(ChatComposerImpl, (a, b) =>
+  a.paneId === b.paneId
+  && a.paneProvider === b.paneProvider
+  && a.currentPtyId === b.currentPtyId
+  && a.pendingPrompt === b.pendingPrompt
+  && a.attachments === b.attachments
+  && a.addAttachments === b.addAttachments
+  && a.removeAttachment === b.removeAttachment
+  && a.clearAttachments === b.clearAttachments
+  && a.handlePasteEvent === b.handlePasteEvent
+  && a.onWillSendMessage === b.onWillSendMessage
+  && a.addOptimistic === b.addOptimistic
+  && a.updateOptimistic === b.updateOptimistic
+  && a.showComposerError === b.showComposerError
+  && a.onOpenTerminalFallback === b.onOpenTerminalFallback
+  && a.modelBubble === b.modelBubble
+  && a.chatBackend === b.chatBackend
+  && a.isActive === b.isActive
+);

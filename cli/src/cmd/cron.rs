@@ -51,6 +51,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
             agent,
             model,
             cwd,
+            skill,
             description,
             creator_pane,
             once,
@@ -86,6 +87,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
                 jitter_max_ms,
                 tz.as_deref(),
                 timeout_secs,
+                skill.as_deref(),
             );
             match client.call("cron.create", Some(params)) {
                 Ok(val) => {
@@ -111,6 +113,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
             schedule,
             task,
             cwd,
+            skill,
             description,
             agent,
             model,
@@ -130,6 +133,9 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
             }
             if let Some(c) = cwd {
                 params["cwd"] = serde_json::json!(c);
+            }
+            if let Some(sk) = skill {
+                params["skill"] = serde_json::json!(sk);
             }
             if let Some(d) = description {
                 params["description"] = serde_json::json!(d);

@@ -9,6 +9,7 @@ mod api_map;
 mod auth;
 mod parse;
 mod relay;
+mod rpc;
 mod update;
 
 #[cfg(test)]
@@ -24,8 +25,8 @@ pub enum MeshAction {
     Status,
     /// List all peers (paired + discovered)
     Peers,
-    /// List panes on a remote mesh peer
-    Panes {
+    /// List tabs on a remote mesh peer
+    Tabs {
         /// Target peer name or instance ID
         target: String,
     },
@@ -98,7 +99,42 @@ pub enum MeshPeerAction {
 
 /// Execute a CLI command on a remote mesh peer via relay.
 /// Reconstructs the command as an API call and sends through relay proxy.
-pub fn run_via_mesh(cli: &super::Cli, target: &str) {
+pub fn run_via_mesh(cli: super::Cli, target: &str) {
+    if matches!(
+        &cli.command,
+        Commands::Plan { .. }
+            | Commands::Team { .. }
+            | Commands::Spec { .. }
+            | Commands::Effort { .. }
+            | Commands::Task { .. }
+    ) {
+        let (base, token) = super::read_api_config();
+        let mut client = match rpc::MeshRpcClient::connect(&base, &token, target) {
+            Ok(client) => client,
+            Err(error) => {
+                eprintln!("Error: {error}");
+                std::process::exit(1);
+            }
+        };
+        match cli.command {
+            Commands::Plan { action } => {
+                crate::cmd::plan::handle_plan(&mut client, cli.json, action)
+            }
+            Commands::Team { action } => crate::cmd::team::handle(&mut client, cli.json, action),
+            Commands::Spec { action } => {
+                crate::cmd::spec::handle_spec(&mut client, cli.json, action)
+            }
+            Commands::Effort { action } => {
+                crate::cmd::effort::handle_effort(&mut client, cli.json, action)
+            }
+            Commands::Task { action } => {
+                crate::cmd::task::handle_task(&mut client, cli.json, action)
+            }
+            _ => unreachable!(),
+        }
+        return;
+    }
+
     // Mesh management commands are local-only — cannot be relayed.
     if let super::Commands::Mesh {
         action:
@@ -146,7 +182,7 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
             manifest_url,
             from_file: None,
             continue_prompt: None,
-            continue_pane: None,
+            continue_tab: None,
             after_update,
         } = &resolved
         {
@@ -163,9 +199,9 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
         }
     }
 
-    // pane search needs local fuzzy ranking; relay-only output has no relevance ordering.
+    // tab search needs local fuzzy ranking; relay-only output has no relevance ordering.
     // Fetch raw list then rank locally for predictable results.
-    if let Commands::Pane {
+    if let Commands::Tab {
         action: super::PaneAction::Search { pattern },
     } = &cli.command
     {
@@ -176,9 +212,9 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
         return;
     }
 
-    // `pane list` reuses local formatter: relay raw list, then format locally.
+    // `tab list` reuses local formatter: relay raw list, then format locally.
     if !cli.json {
-        if let Commands::Pane {
+        if let Commands::Tab {
             action: super::PaneAction::List { agents },
         } = &cli.command
         {
@@ -223,7 +259,7 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
         relay::mesh_spawn_and_register(&http, &base, &token, target, body.as_deref(), cli.json);
         return;
     }
-    if let Commands::Pane {
+    if let Commands::Tab {
         action: super::PaneAction::Close { id },
     } = &cli.command
     {

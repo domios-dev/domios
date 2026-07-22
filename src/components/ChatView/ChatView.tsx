@@ -7,7 +7,7 @@ import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { extractFilePathsFromClipboard } from "../../lib/clipboardPaste";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
 import { MessageBubble } from "@codeterm/chat-ui";
-import { attachToolResults, type NormalizedChatMessage } from "@codeterm/chat-core";
+import { reduceToolEvents, type NormalizedChatMessage } from "@codeterm/chat-core";
 import { AlertTriangle, File } from "lucide-react";
 import { SendIcon, ChevronUpIcon } from "../Icons";
 import { BusyState } from "../shared/BusyState";
@@ -70,7 +70,6 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
   const touchMode = useTouchOptimizedUi();
   const [allMessages, setAllMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = usePersistentDraft(`chat-view:${paneId}`);
-  const [isLoading, _setIsLoading] = useState(false);
   const [visibleCount, setVisibleCount] = useState(50);
   const [waitingForReply, setWaitingForReply] = useState(false);
   const [inputExpanded, setInputExpanded] = useState(false);
@@ -115,20 +114,20 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
     }
   }, [allMessages, waitingForReply]);
 
-  const messages = allMessages.length > visibleCount
-    ? allMessages.slice(allMessages.length - visibleCount)
-    : allMessages;
-  const renderedMessages = useMemo(() => attachToolResults(messages), [messages]);
+  const allTimelineItems = useMemo(() => reduceToolEvents(allMessages), [allMessages]);
+  const timelineItems = allTimelineItems.length > visibleCount
+    ? allTimelineItems.slice(allTimelineItems.length - visibleCount)
+    : allTimelineItems;
   const latestFailedToolCallId = useMemo(() => {
-    for (let i = renderedMessages.length - 1; i >= 0; i -= 1) {
-      const msg = renderedMessages[i];
-      if (msg.type === "tool_call" && msg.toolError === true) {
-        return msg.id;
+    for (let i = timelineItems.length - 1; i >= 0; i -= 1) {
+      const item = timelineItems[i];
+      if (item.kind === "tool" && item.event.error === true) {
+        return item.event.id;
       }
     }
     return null;
-  }, [renderedMessages]);
-  const hasMore = allMessages.length > visibleCount;
+  }, [timelineItems]);
+  const hasMore = allTimelineItems.length > visibleCount;
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -384,7 +383,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
   return (
     <div
       ref={rootRef}
-      className="flex flex-col w-full h-full select-text"
+      className="relative flex flex-col w-full h-full select-text"
       data-testid="direct-chat-view"
       data-pane-id={paneId}
       style={{
@@ -403,18 +402,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
         className="flex-1 overflow-y-auto py-4 px-4 select-text cursor-text"
         data-testid="direct-chat-messages"
       >
-        {isLoading ? (
-          <div className="flex flex-col items-center justify-center h-full gap-3" data-testid="direct-chat-loading">
-            <div className="flex gap-1">
-              <div className="w-2 h-2 rounded-full bg-[var(--ct-blue)] animate-bounce" style={{ animationDelay: '0ms' }} />
-              <div className="w-2 h-2 rounded-full bg-[var(--ct-blue)] animate-bounce" style={{ animationDelay: '150ms' }} />
-              <div className="w-2 h-2 rounded-full bg-[var(--ct-blue)] animate-bounce" style={{ animationDelay: '300ms' }} />
-            </div>
-            <span className="text-xs" style={{ color: "var(--ct-muted, #8b949e)" }}>
-              Loading conversation...
-            </span>
-          </div>
-        ) : messages.length === 0 && !pendingPrompt ? (
+        {allTimelineItems.length === 0 && !pendingPrompt ? (
           <div className="flex items-center justify-center h-full" data-testid="direct-chat-empty">
             <span
               className="text-xs"
@@ -433,15 +421,18 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
                   className="text-[10px] px-3 py-1 rounded-md transition-colors"
                   style={{ color: "var(--ct-blue)", background: "var(--ct-bg-hover, rgba(255,255,255,0.04))" }}
                 >
-                  Load {Math.min(50, allMessages.length - visibleCount)} more...
+                  Load {Math.min(50, allTimelineItems.length - visibleCount)} more...
                 </button>
               </div>
             )}
-            {renderedMessages.map((msg) => (
+            {timelineItems.map((item) => {
+              const msg = item.kind === "message" ? item.message : item.event.message;
+              return (
               <div key={msg.id} data-testid="direct-chat-message" data-message-role={msg.type}>
-                <MessageBubble message={msg} isLatestFailedToolCall={msg.id === latestFailedToolCallId} />
+                <MessageBubble message={msg} item={item.kind === "tool" ? item : undefined} isLatestFailedToolCall={msg.id === latestFailedToolCallId} />
               </div>
-            ))}
+              );
+            })}
             {/* Thinking indicator — shown after sending message, before Claude responds */}
             {waitingForReply && !pendingPrompt && (
               <div className="mb-3 max-w-4xl mx-auto" data-testid="direct-chat-waiting-reply">

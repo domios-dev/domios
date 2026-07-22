@@ -8,6 +8,8 @@ export interface CanvasFocusTarget {
 }
 
 export interface CanvasWorkspaceTarget {
+  teamId?: string;
+  managerPaneId?: string | null;
   planId?: string;
   focusPaneId?: string;
   nodeIds?: string[];

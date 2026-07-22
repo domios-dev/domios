@@ -1,4 +1,4 @@
-use crate::client::SocketClient;
+use crate::client::RpcClient;
 use crate::cmd::plan::{call_plan_rpc, maybe_inject_caller_pane, resolve_text};
 use serde_json::{json, Value};
 
@@ -130,7 +130,7 @@ fn build_params(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run(
-    client: &mut SocketClient,
+    client: &mut dyn RpcClient,
     plan_id: Option<String>,
     task_id: String,
     name: Option<String>,
@@ -342,5 +342,47 @@ mod tests {
             None,
         );
         assert_eq!(params.get("depends_on").cloned(), Some(json!([])));
+    }
+
+    #[test]
+    fn status_and_pane_share_one_update_rpc_payload() {
+        let params = build_params(
+            Some("pl_1".into()),
+            "task_1".into(),
+            None,
+            None,
+            None,
+            None,
+            Some("in_progress".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            None,
+            vec![],
+            false,
+            Some("worker-pane".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            vec![],
+            None,
+            None,
+            vec![],
+            None,
+            None,
+        );
+        assert_eq!(params.get("status"), Some(&json!("in_progress")));
+        assert_eq!(params.pointer("/lane/pane_id"), Some(&json!("worker-pane")));
     }
 }

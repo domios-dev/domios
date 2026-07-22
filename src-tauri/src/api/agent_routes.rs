@@ -1,12 +1,42 @@
 use axum::{
     extract::{Path, Query, State as AxumState},
     http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
     Json,
 };
 use serde::Deserialize;
 
 use crate::api::routes::{check_auth, resolve_pane, AppState};
 use crate::multiplexer::types::AgentRole;
+
+/// JSON error surface for `/api/agents/spawn`, so the mesh relay can parse it
+/// instead of collapsing a bare `(StatusCode, String)` body to "HTTP 500".
+pub(crate) struct SpawnRejection {
+    status: StatusCode,
+    body: serde_json::Value,
+}
+
+impl IntoResponse for SpawnRejection {
+    fn into_response(self) -> Response {
+        (self.status, Json(self.body)).into_response()
+    }
+}
+
+impl From<String> for SpawnRejection {
+    fn from(message: String) -> Self {
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            body: serde_json::json!({
+                "ok": false,
+                "error": {
+                    "code": "spawn_failed",
+                    "message": message,
+                    "retry_hint": "transient — retry once; if it persists, fix the spawn request (--role/--plan-task/--cwd) or check the target's health with `codeterm mesh peers`",
+                },
+            }),
+        }
+    }
+}
 
 pub(crate) fn list_agent_provider_values(
     registry: &crate::provider::ProviderRegistry,
@@ -57,6 +87,10 @@ pub(crate) struct SpawnAgentBody {
     /// Model selector — provider decides flag syntax via
     /// AgentProvider::model_launch_args.
     model: Option<String>,
+    /// Reasoning-effort selector — capability-validated against the provider,
+    /// rejected structurally if unsupported (no silent downgrade).
+    #[serde(alias = "reasoning-effort")]
+    reasoning_effort: Option<String>,
     #[serde(alias = "system")]
     system_prompt: Option<String>,
     preset: Option<String>,
@@ -185,15 +219,25 @@ pub async fn spawn_agent(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Json(body): Json<SpawnAgentBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let role_probe = validate_spawn_role(body.role.clone(), body.role_profile.clone())?;
+) -> Result<Json<serde_json::Value>, SpawnRejection> {
+    check_auth(&state, &headers).map_err(|(s, m)| SpawnRejection {
+        status: s,
+        body: serde_json::json!({"ok": false, "error": {"code": "unauthorized", "message": m.to_string()}}),
+    })?;
+    let role_probe = validate_spawn_role(body.role.clone(), body.role_profile.clone()).map_err(
+        |(s, m)| SpawnRejection {
+            status: s,
+            body: serde_json::json!({"ok": false, "error": {"code": "bad_request", "message": m}}),
+        },
+    )?;
     let params = crate::service::SpawnAgentParams {
         agent: body.agent,
         agent_name: body.agent_name,
         args: body.args,
         cwd: body.cwd,
+        provisioned_cwd: None,
         title: body.title,
+        title_provenance: Some(crate::service::SpawnIdentityProvenance::UserSupplied),
         description: body.description,
         role: role_probe.role,
         role_profile: role_probe.role_profile,
@@ -201,6 +245,7 @@ pub async fn spawn_agent(
         plan_id: body.plan_id,
         can_spawn: body.can_spawn,
         task: body.task,
+        starter_prompt: Default::default(),
         task_id: body.task_id,
         plan_task: body.plan_task,
         allow_shared_checkout: body.allow_shared_checkout,
@@ -213,6 +258,8 @@ pub async fn spawn_agent(
         skip_permissions: body.skip_permissions,
         spawned_by_pane_id: body.spawned_by_pane_id,
         model: body.model,
+        planned_model: None,
+        reasoning_effort: body.reasoning_effort,
         system_prompt: body.system_prompt,
         preset: body.preset,
         resume_session_id: None,
@@ -221,13 +268,14 @@ pub async fn spawn_agent(
         nudge_cooldown_secs: body.nudge_cooldown_secs,
         max_actions_per_tick: body.max_actions_per_tick,
         activate: body.activate,
+        manager_bootstrap: None,
         structured_prompt_server: None,
     };
     let result = state
         .svc
         .spawn_agent(params, None)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        .map_err(SpawnRejection::from)?;
 
     let mut resp = serde_json::json!({
         "id": result.pane_id,
@@ -236,6 +284,10 @@ pub async fn spawn_agent(
         "pty_id": result.pty_id,
         "agent": result.agent,
         "model": result.model,
+        "planned_model": result.planned_model,
+        "requested_model": result.requested_model,
+        "provider_resolved_model": result.provider_resolved_model,
+        "actual_model": result.actual_model,
         "title": result.title,
         "description": result.description,
         "role": result.role,
@@ -243,6 +295,9 @@ pub async fn spawn_agent(
     });
     if let Some(ref warning) = result.warning {
         resp["warning"] = serde_json::json!(warning);
+    }
+    if let Some(ref fallback) = result.model_fallback {
+        resp["model_fallback"] = serde_json::json!(fallback);
     }
     if let Some(ref notice) = result.budget_notice {
         resp["budget_notice"] = serde_json::to_value(notice).unwrap_or_default();
@@ -759,6 +814,34 @@ mod tests {
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(body.contains("Invalid role: Lead"));
         assert!(!body.is_empty());
+    }
+
+    // A plain-text (StatusCode, String) body used to render as bare "HTTP 500"
+    // once relayed; this proves the structured shape now survives that hop.
+    #[test]
+    fn spawn_rejection_serializes_a_structured_error_not_bare_text() {
+        let rejection = SpawnRejection::from("checkout guard rejected: dirty worktree".to_string());
+        assert_eq!(rejection.status, StatusCode::INTERNAL_SERVER_ERROR);
+        let error = rejection.body.get("error").expect("error object present");
+        assert_eq!(
+            error.get("code").and_then(|v| v.as_str()),
+            Some("spawn_failed")
+        );
+        assert_eq!(
+            error.get("message").and_then(|v| v.as_str()),
+            Some("checkout guard rejected: dirty worktree")
+        );
+        assert!(
+            error
+                .get("retry_hint")
+                .and_then(|v| v.as_str())
+                .is_some_and(|hint| !hint.is_empty()),
+            "a caller must get a next-step, not just a message"
+        );
+        assert_eq!(
+            rejection.body.get("ok").and_then(|v| v.as_bool()),
+            Some(false)
+        );
     }
 
     struct ListingShell;

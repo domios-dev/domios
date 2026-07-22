@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import type { NormalizedChatMessage as ChatMessage, SlashCommand } from "@codeterm/chat-core";
+import type { SlashCommand, EditPair } from "@codeterm/chat-core";
 import { parseMarker } from "@codeterm/chat-core";
 import { File, Image, Info, Mic, Settings } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -10,15 +10,19 @@ import { looksLikeMermaidSource } from "./MermaidBlock";
 import { themeAwarePrismStyle, SYNTAX_HIGHLIGHT_ROOT_CLASS } from "./syntaxTheme";
 import { inferCodeLanguage } from "./codeLanguage";
 import { pickUiFontScaleValue } from "./uiFontScale";
-import { parseCodexPatch, patchTextFromToolInput } from "./parseCodexPatch";
+export { extractCommand, extractEdits, extractFilePath } from "./toolcard/toolParsing";
 import { AttachedDiscussionDocView } from "./AttachedDiscussionDoc";
 import { parseAttachedDiscussionDoc } from "./discussionDoc";
+import { decodeCliMessageText } from "./codeterm/messageText";
 
 export const TEXT_WRAP_CLASS = "break-words [overflow-wrap:anywhere]";
 
 /** Above this many diff lines we skip per-token Prism highlighting and render
  *  plain (still colored +/- rows) — tokenizing a huge hunk is wasteful. */
 export const DIFF_HIGHLIGHT_MAX_LINES = 400;
+export const LONG_ARTIFACT_PREVIEW_LINES = 36;
+export const LONG_ARTIFACT_PREVIEW_MAX_HEIGHT = 320;
+export const LONG_ARTIFACT_FULL_MAX_HEIGHT = 700;
 
 function extractCodeText(children: unknown): string {
   if (Array.isArray(children)) {
@@ -53,7 +57,7 @@ export function RichMarkdown({ text, fontScale }: { text: string; fontScale?: nu
         h3: ({ node: _node, ...props }) => (
           <h3 className={`${h3Text} font-medium mt-1.5 mb-0.5`} style={{ color: "var(--ct-fg)" }} {...props} />
         ),
-        p: ({ node: _node, ...props }) => <p className={`my-1 ${TEXT_WRAP_CLASS}`} {...props} />,
+        p: ({ node: _node, ...props }) => <p className={`my-1 whitespace-pre-wrap ${TEXT_WRAP_CLASS}`} {...props} />,
         ul: ({ node: _node, ...props }) => <ul className="list-disc ml-5 my-1" {...props} />,
         ol: ({ node: _node, ...props }) => <ol className="list-decimal ml-5 my-1" {...props} />,
         li: ({ node: _node, children, ...props }) => (
@@ -144,75 +148,6 @@ export function RichMarkdown({ text, fontScale }: { text: string; fontScale?: nu
       {text}
     </ReactMarkdown>
   );
-}
-
-export function extractFilePath(message: ChatMessage): string | null {
-  const patch = patchTextFromToolInput(
-    (message.toolInput as Record<string, unknown> | undefined) ?? null,
-    message.toolArgs,
-  );
-  if (patch) {
-    const files = parseCodexPatch(patch);
-    if (files.length > 0) return files[0].path;
-  }
-  if (message.toolInput) {
-    const input = message.toolInput;
-    const fp = (input.file_path ?? input.filePath ?? input.path) as string | undefined;
-    if (typeof fp === "string" && fp.trim()) return fp;
-  }
-  if (message.toolArgs) {
-    try {
-      const parsed = JSON.parse(message.toolArgs) as Record<string, unknown>;
-      for (const key of ["file_path", "filePath", "path"] as const) {
-        const value = parsed[key];
-        if (typeof value === "string" && value.trim()) return value;
-      }
-    } catch {
-      const match = message.toolArgs.match(/(?:file_path|filePath|path)['":\s]+([^\s'"}\],]+)/);
-      if (match) return match[1];
-    }
-  }
-  return null;
-}
-
-export interface EditPair {
-  old: string;
-  new: string;
-}
-
-/** Extract Edit/MultiEdit before→after pairs from a tool call so the chat can
- *  render a real diff instead of just "file updated". Handles single
- *  old_string/new_string and the MultiEdit `edits` array, from either
- *  `toolInput` or a JSON `toolArgs` fallback. Provider-agnostic. */
-export function extractEdits(message: ChatMessage): EditPair[] {
-  let input: Record<string, unknown> | null =
-    (message.toolInput as Record<string, unknown> | undefined) ?? null;
-  if (!input && message.toolArgs) {
-    try {
-      input = JSON.parse(message.toolArgs) as Record<string, unknown>;
-    } catch {
-      input = null;
-    }
-  }
-  const patch = patchTextFromToolInput(input, message.toolArgs);
-  if (patch) {
-    return parseCodexPatch(patch).flatMap((file) => file.edits);
-  }
-  if (!input) return [];
-  const toPair = (e: Record<string, unknown>): EditPair | null => {
-    // Accept snake_case (claude) and camelCase (opencode et al).
-    const oldS = (e.old_string ?? e.oldString) as unknown;
-    const newS = (e.new_string ?? e.newString) as unknown;
-    if (typeof oldS !== "string" && typeof newS !== "string") return null;
-    return { old: String(oldS ?? ""), new: String(newS ?? "") };
-  };
-  if (Array.isArray(input.edits)) {
-    return input.edits
-      .map((e) => toPair(e as Record<string, unknown>))
-      .filter((e): e is EditPair => e !== null);
-  }
-  const single = toPair(input);
-  return single ? [single] : [];
 }
 
 type DiffLineKind = "del" | "add";
@@ -334,41 +269,7 @@ export function shortPath(fullPath: string): string {
   return ".../" + parts.slice(-2).join("/");
 }
 
-export function isShellToolName(name: string | undefined): boolean {
-  const n = (name ?? "").toLowerCase();
-  return n === "bash"
-    || n === "shell"
-    || n === "shell_command"
-    || n === "exec_command"
-    || n === "exec"
-    || n === "powershell"
-    || n.includes("shell")
-    || n.includes("bash");
-}
-
 /** Extract shell command text across Claude/Codex provider shapes. */
-export function extractCommand(message: ChatMessage): string | null {
-  if (message.toolInput) {
-    const cmd = (message.toolInput.command ?? message.toolInput.cmd) as string | undefined;
-    if (cmd) return cmd;
-  }
-  if (message.toolArgs) {
-    try {
-      const parsed = JSON.parse(message.toolArgs);
-      if (parsed && typeof parsed === "object") {
-        const cmd = (parsed.command ?? parsed.cmd) as unknown;
-        if (typeof cmd === "string") return cmd;
-      }
-    } catch {
-      if (isShellToolName(message.toolName)) {
-        const args = message.toolArgs.trim();
-        return args ? args : null;
-      }
-    }
-  }
-  return null;
-}
-
 export function PlainOutput({ text, maxHeight = "12rem" }: { text: string; maxHeight?: string }) {
   return (
     <pre
@@ -394,6 +295,10 @@ function artifactPreview(text: string): string {
   return lines.slice(0, 2).join(" · ").slice(0, 220) || "output";
 }
 
+export function longArtifactContentPreview(text: string): string {
+  return text.replace(/\r/g, "").split("\n").slice(0, LONG_ARTIFACT_PREVIEW_LINES).join("\n").slice(0, 6_000);
+}
+
 export function LongArtifact({
   label,
   text,
@@ -408,6 +313,10 @@ export function LongArtifact({
   markdown?: boolean;
 }) {
   const lines = lineCount(text);
+  const hasFullView = isLargeArtifact(text);
+  const [showAll, setShowAll] = React.useState(false);
+  React.useEffect(() => setShowAll(false), [expanded, text]);
+  const visibleText = hasFullView && !showAll ? longArtifactContentPreview(text) : text;
   return (
     <div className="mb-2 w-full max-w-4xl min-w-0 mx-auto">
       <div
@@ -436,19 +345,40 @@ export function LongArtifact({
           <ChevronIcon expanded={expanded} className="shrink-0 opacity-50" />
         </button>
         {expanded && (
-          <div
-            className="max-h-[28rem] overflow-auto border-t px-3 py-2 text-xs"
-            style={{
-              borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 16%, transparent)",
-              color: "var(--ct-fg)",
-            }}
-          >
-            {markdown ? (
-              <div className="text-sm leading-relaxed">
-                <RichMarkdown text={text} />
+          <div className="border-t" style={{ borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 16%, transparent)" }}>
+            <div
+              data-testid="long-artifact-content"
+              role={showAll ? "region" : undefined}
+              aria-label={showAll ? `${label} full content` : undefined}
+              tabIndex={showAll ? 0 : undefined}
+              className="px-3 py-2 text-xs"
+              style={{
+                color: "var(--ct-fg)",
+                maxHeight: `${showAll ? LONG_ARTIFACT_FULL_MAX_HEIGHT : LONG_ARTIFACT_PREVIEW_MAX_HEIGHT}px`,
+                overflowY: showAll ? "auto" : "hidden",
+                overflowX: "auto",
+              }}
+            >
+              {markdown ? (
+                <div className="text-sm leading-relaxed">
+                  <RichMarkdown text={visibleText} />
+                </div>
+              ) : (
+                <pre className={`${PRE_WRAP_CLASS} m-0 font-mono`}>{visibleText}</pre>
+              )}
+            </div>
+            {hasFullView && (
+              <div className="flex justify-center border-t px-3 py-1.5" style={{ borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 12%, transparent)" }}>
+                <button
+                  type="button"
+                  data-testid="long-artifact-show-all"
+                  className="rounded px-2 py-1 text-[11px]"
+                  style={{ color: "var(--ct-accent)", background: "var(--ct-hover)" }}
+                  onClick={() => setShowAll((current) => !current)}
+                >
+                  {showAll ? "Show preview" : "Show all"}
+                </button>
               </div>
-            ) : (
-              <pre className={`${PRE_WRAP_CLASS} m-0 font-mono`}>{text}</pre>
             )}
           </div>
         )}
@@ -567,7 +497,8 @@ export function PluginConfigCard({ c }: { c: ParsedPluginConfig }) {
   );
 }
 
-export function renderUserContent(content: string): React.ReactNode {
+export function renderUserContent(rawContent: string): React.ReactNode {
+  const content = decodeCliMessageText(rawContent);
   const discussion = parseAttachedDiscussionDoc(content);
   if (discussion) return <AttachedDiscussionDocView doc={discussion} />;
   const voice = parseVoiceMessage(content);

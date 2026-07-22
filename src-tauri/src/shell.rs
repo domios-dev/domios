@@ -46,6 +46,11 @@ impl ShellSyntax {
         (prefix, path)
     }
 
+    pub fn task_file_path(task: &str) -> String {
+        let (path, _) = Self::write_task_temp(task);
+        path
+    }
+
     fn write_task_temp(task: &str) -> (String, String) {
         let short_id = uuid::Uuid::new_v4().to_string()[..8].to_string();
         let path = Self::temp_path(&format!(".ct-task-{}", short_id));
@@ -71,13 +76,14 @@ impl ShellSyntax {
 
     /// Platform temp file path (no trailing separator issues).
     fn temp_path(name: &str) -> String {
+        let tmp = std::env::temp_dir();
+        let base = tmp.to_string_lossy();
         if Self::IS_WINDOWS {
-            let tmp = std::env::temp_dir();
-            let base = tmp.to_string_lossy();
             let base = base.trim_end_matches('\\');
             format!("{}\\{}", base, name)
         } else {
-            format!("/tmp/{}", name)
+            let base = base.trim_end_matches('/');
+            format!("{}/{}", base, name)
         }
     }
 }
@@ -199,5 +205,20 @@ mod tests {
             "path should be single-quoted: {:?}",
             prefix
         );
+    }
+
+    #[test]
+    fn task_file_path_writes_content_without_shell_expansion() {
+        let body = "large task body\n--flag $env:VALUE `quoted`";
+        let path = ShellSyntax::task_file_path(body);
+        let bytes = std::fs::read(&path).expect("temp task file written");
+        let written = if ShellSyntax::IS_WINDOWS {
+            assert!(bytes.starts_with(&[0xEF, 0xBB, 0xBF]));
+            String::from_utf8(bytes[3..].to_vec()).unwrap()
+        } else {
+            String::from_utf8(bytes).unwrap()
+        };
+        assert_eq!(written, body);
+        let _ = std::fs::remove_file(&path);
     }
 }

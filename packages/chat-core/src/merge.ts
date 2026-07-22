@@ -1,6 +1,13 @@
 import { timestampMs } from "./time";
 import type { NormalizedChatMessage } from "./types";
 
+function mergeIdentity(message: NormalizedChatMessage): string {
+  if (message.type === "user" && message.seq != null) {
+    return `user-seq:${message.sourceSessionId ?? "unbound"}:${message.seq}`;
+  }
+  return `id:${message.id}`;
+}
+
 /** Merge a freshly-arrived batch into the existing transcript: dedupe by stable
  *  `id` (incoming wins, so a re-emitted message updates in place) then order by
  *  `(timestamp, seq, arrival)`.
@@ -16,8 +23,8 @@ import type { NormalizedChatMessage } from "./types";
  *      timestamps, falling back to arrival order when a provider supplies none. */
 export function mergeById<T extends NormalizedChatMessage>(prev: T[], incoming: T[]): T[] {
   const map = new Map<string, T>();
-  for (const m of prev) map.set(m.id, m);
-  for (const m of incoming) map.set(m.id, m);
+  for (const m of prev) map.set(mergeIdentity(m), m);
+  for (const m of incoming) map.set(mergeIdentity(m), m);
   return Array.from(map.values())
     .map((message, arrival) => ({ message, arrival }))
     .sort((a, b) => {

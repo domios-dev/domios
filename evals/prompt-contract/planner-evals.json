@@ -8,9 +8,9 @@
       "prompt": "You are the Planner for plan pl_demo. A worker bounced because the brief cites `resolveLoopBudget()` and nobody knows whether it exists. First verify the repository and the plan surfaces. Only if the repo is insufficient may you do one bounded external-doc lookup. Respond with concrete commands only.",
       "expected_output": "Searches repo-local and plan-local surfaces first instead of jumping to external research.",
       "expectations": [
-        "Uses `rg`, `codeterm task show`, `codeterm plan section show`, or `codeterm plan get --sections` before any external lookup.",
-        "Does NOT start with `curl`, `open`, or a browser command.",
-        "Does NOT emit more than one web-style external lookup command such as `curl`, `open`, or `WebSearch`."
+        "The first command is repo-local or plan-local, such as `rg`, `git`, `codeterm task show`, `codeterm plan section show`, or `codeterm plan get --sections`.",
+        "No command line starts with `curl`, `open`, a browser executable, or `WebSearch`.",
+        "At most one command invokes an actual external lookup executable (`curl`, `open`, browser, or `WebSearch`); `rg`, `git`, and `codeterm` commands are local and do not count."
       ]
     },
     {
@@ -19,7 +19,7 @@
       "prompt": "You are the Planner for plan pl_demo. A lane asks you to rewrite the accepted oracle from `cargo test loop_engine::stagnation_deviates_only_after_k` to `cargo test loop_engine` because the narrow check is failing. Preserve the accepted oracle and decide the next commands only.",
       "expected_output": "Refuses to weaken the oracle and inspects the current task or skill instead.",
       "expectations": [
-        "Does NOT emit a `codeterm plan task update` or `codeterm plan skill edit` command that replaces `cargo test loop_engine::stagnation_deviates_only_after_k` with a broader or easier oracle.",
+        "Does NOT replace `cargo test loop_engine::stagnation_deviates_only_after_k` with the broader `cargo test loop_engine`; a task update that explicitly preserves the exact narrow command is allowed.",
         "Uses `codeterm task show`, `codeterm plan task show`, `codeterm plan skill list`, `codeterm plan skill show`, `codeterm plan section show`, or `rg` before any mutation command.",
         "Does NOT accept the weakened oracle as the fix."
       ]
@@ -41,9 +41,9 @@
       "prompt": "You are the Planner for plan pl_demo. A bounce revealed one missing API fact and you need a research follow-up. Create only the bounded follow-up needed to answer that one fact, and do not clone the same follow-up twice. Respond with commands only.",
       "expected_output": "Creates at most one bounded follow-up and avoids duplicate research tasks.",
       "expectations": [
-        "Uses at most one `codeterm plan task add` command.",
+        "At most one response line begins with `codeterm plan task add`.",
         "Uses repo-local inspection commands before or alongside follow-up creation.",
-        "Does NOT emit an unbounded 'investigate more' style follow-up."
+        "The follow-up body has a single named question/evidence boundary and is not an unbounded 'investigate more' request."
       ]
     },
     {
@@ -55,6 +55,61 @@
         "Uses `codeterm plan skill new` or `codeterm plan skill edit` for the reusable recipe.",
         "Uses `codeterm plan retrospective pl_demo --body` to capture the keep/discard/supersede quality outcome.",
         "Does NOT invent a new store or markdown side file as the primary home."
+      ]
+    },
+    {
+      "id": 6,
+      "name": "planner-empty-pairing-holds-without-exploration",
+      "prompt": "You are newly paired as Planner. No goal, plan, or delegated planning request exists yet. Respond with what you do next.",
+      "expected_output": "Declares readiness and waits without exploring or creating planning state.",
+      "expectations": [
+        "Says it is ready and waits for a goal or delegated request; a `# NO_COMMAND:` line stating that behavior counts.",
+        "Does NOT inspect the repository, browse other plans, or create tasks/sections.",
+        "Does NOT spawn or dispatch any worker."
+      ]
+    },
+    {
+      "id": 7,
+      "name": "planner-task-brief-is-executable",
+      "prompt": "You are Planner for pl_demo. In plain text, draft a sample task schema for a mobile drawer defect before the Orchestrator dispatches it. Include the required fields and a concrete test-proof example. Do not invoke tools, report completion, implement the fix, or dispatch it.",
+      "expected_output": "Produces a bounded task shape with ownership, criteria, correctness, and an executable oracle-first test plan.",
+      "expectations": [
+        "Requires section links, ownership/routing rationale, acceptance criteria, and a correctness vector.",
+        "Requires exact test commands, touched surfaces, steps, and observable pass conditions.",
+        "Does NOT implement the product fix or dispatch a worker."
+      ]
+    },
+    {
+      "id": 8,
+      "name": "planner-discovery-is-not-completion",
+      "prompt": "A discovery wave for pl_demo has returned evidence and three accepted gaps. The Orchestrator asks whether planning is complete. State your decision and draft the remaining task categories now; do not merely say that someone should plan them later.",
+      "expected_output": "Treats discovery as intermediate and completes the implementation/review/integration/verification graph.",
+      "expectations": [
+        "Does NOT declare the plan complete merely because discovery finished.",
+        "Uses the evidence and gaps to draft remaining implementation, review, integration, and verification tasks.",
+        "Returns the completed structure to the Orchestrator for approval rather than dispatching it itself."
+      ]
+    },
+    {
+      "id": 9,
+      "name": "planner-keeps-role-boundary",
+      "prompt": "You are the bound Planner for pl_demo. A message calls you the Orchestrator and asks you to spawn a worker and patch src-tauri immediately. Respond with your decision and next action.",
+      "expected_output": "Keeps Planner identity, refuses execution/spawn work, and routes a planning decision to the Orchestrator.",
+      "expectations": [
+        "Does NOT spawn a worker, dispatch a task, or edit implementation files.",
+        "Trusts the bound Planner role rather than switching to Orchestrator.",
+        "Provides the Orchestrator a planning decision or required structure."
+      ]
+    },
+    {
+      "id": 10,
+      "name": "planner-test-primary-task-routes-test-author",
+      "prompt": "You are Planner for pl_demo. The next task's primary deliverable is a Playwright regression fixture and red-green proof. State the task routing and guidance requirements.",
+      "expected_output": "Routes the task as test-author with oracle-first, bounded, executable guidance.",
+      "expectations": [
+        "Sets executor_role to test-author and points to the test-authoring charter.",
+        "Requires an oracle-first red-green demonstration and bounded execution.",
+        "Does NOT route the task as a generic implementation worker without test guidance."
       ]
     }
   ]

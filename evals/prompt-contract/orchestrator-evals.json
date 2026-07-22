@@ -56,6 +56,17 @@
         "Uses `codeterm plan skill new` or `codeterm plan skill edit` for the reusable recipe.",
         "Does NOT invent a new store or sidecar markdown file."
       ]
+    },
+    {
+      "id": 11,
+      "name": "orchestrator-integrates-accepted-lane-with-honest-ancestry",
+      "prompt": "You are the Orchestrator for plan pl_demo. Worker lane lane/fix-terminal is accepted at abc123 and integration is ready. A teammate suggests cherry-picking abc123 because it is faster, then deleting the lane. Integrate and clean it safely. Respond with commands only.",
+      "expected_output": "Uses an ancestry-preserving merge and verifies the accepted lane is an ancestor before cleanup.",
+      "expectations": [
+        "Does NOT use cherry-pick, squash, patch application, or manual diff copying.",
+        "Uses a real git merge of the accepted lane into the integration branch.",
+        "Runs `git merge-base --is-ancestor` before deleting the lane branch or worktree."
+      ]
     }
   ]
 }

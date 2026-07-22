@@ -50,7 +50,7 @@ const claudeMessages: NormalizedChatMessage[] = [
       "",
       "| Command | Status |",
       "| --- | --- |",
-      "| `codeterm pane list` | documented |",
+      "| `codeterm tab list` | documented |",
       "| `codeterm send` | documented |",
       "",
       "See [CodeTerm docs](https://example.test/claude-docs).",
@@ -84,6 +84,9 @@ const claudeMessages: NormalizedChatMessage[] = [
     },
     toolArgs: "rg \"codeterm send\" docs",
     content: "rg \"codeterm send\" docs",
+    toolKind: "command",
+    toolSummary: "rg \"codeterm send\" docs",
+    toolDetail: "rg \"codeterm send\" docs",
   },
   {
     id: "claude-tool-result-1",
@@ -104,6 +107,10 @@ const claudeMessages: NormalizedChatMessage[] = [
       content: "## CLI\n\nReport with codeterm send.\n",
     },
     toolArgs: '{"file_path":"docs/API.md"}',
+    toolKind: "edit",
+    toolSummary: "docs/API.md",
+    toolDetail: "docs/API.md",
+    toolEdits: [{ path: "docs/API.md", old: "", new: "## CLI\n\nReport with codeterm send.\n" }],
   },
 ];
 
@@ -196,6 +203,9 @@ const codexMessages: NormalizedChatMessage[] = [
     },
     toolArgs: "pnpm exec tsx packages/chat-ui/src/MessageBubble.providers.test.tsx",
     content: "pnpm exec tsx packages/chat-ui/src/MessageBubble.providers.test.tsx",
+    toolKind: "command",
+    toolSummary: "pnpm exec tsx packages/chat-ui/src/MessageBubble.providers.test.tsx",
+    toolDetail: "pnpm exec tsx packages/chat-ui/src/MessageBubble.providers.test.tsx",
   },
   {
     id: "codex-tool-result-1",
@@ -215,6 +225,14 @@ const codexMessages: NormalizedChatMessage[] = [
       patch: codexMemModPatch,
     },
     toolArgs: '{"patch":"*** Begin Patch"}',
+    toolKind: "edit",
+    toolSummary: "cli/src/cmd/mem/mod.rs",
+    toolDetail: "cli/src/cmd/mem/mod.rs",
+    toolEdits: [{
+      path: "cli/src/cmd/mem/mod.rs",
+      old: "return Err(if text.is_empty() {\nval.to_string()\ntext",
+      new: "let body = text.trim();\nreturn Err(if body.is_empty() {\nstatus.to_string()\nformat!(\"{} {}\", status, body)",
+    }],
   },
   {
     id: "codex-tool-result-2",
@@ -236,6 +254,9 @@ export const codexStructuredEditMessages: NormalizedChatMessage[] = [
     toolInput: { cmd: 'rg -n "mem_post_request" cli/src' },
     toolArgs: '{"cmd":"rg -n \\"mem_post_request\\" cli/src"}',
     content: 'rg -n "mem_post_request" cli/src',
+    toolKind: "command",
+    toolSummary: 'rg -n "mem_post_request" cli/src',
+    toolDetail: 'rg -n "mem_post_request" cli/src',
   },
   {
     id: "codex-structured-apply-patch",
@@ -245,6 +266,14 @@ export const codexStructuredEditMessages: NormalizedChatMessage[] = [
     toolId: "call_zegiw0ZHuMspcZ1NRWT7WcWQ",
     toolInput: { patch: codexMemModPatch },
     toolArgs: '{"patch":"*** Begin Patch"}',
+    toolKind: "edit",
+    toolSummary: "cli/src/cmd/mem/mod.rs",
+    toolDetail: "cli/src/cmd/mem/mod.rs",
+    toolEdits: [{
+      path: "cli/src/cmd/mem/mod.rs",
+      old: "return Err(if text.is_empty() {\nval.to_string()\ntext",
+      new: "let body = text.trim();\nreturn Err(if body.is_empty() {\nstatus.to_string()\nformat!(\"{} {}\", status, body)",
+    }],
   },
   {
     id: "codex-structured-patch-result",
@@ -296,6 +325,9 @@ const opencodeMessages: NormalizedChatMessage[] = [
     toolArgs: "cat packages/chat-ui/src/MessageBubble.tsx",
     content: "cat packages/chat-ui/src/MessageBubble.tsx",
     toolResult: "export function MessageBubble() { /* trimmed */ }",
+    toolKind: "command",
+    toolSummary: "cat packages/chat-ui/src/MessageBubble.tsx",
+    toolDetail: "cat packages/chat-ui/src/MessageBubble.tsx",
   },
   {
     id: "opencode-tool-result-1",
@@ -340,6 +372,9 @@ const opencodeMessages: NormalizedChatMessage[] = [
       content: "export function MessageBubble() {\n  return null;\n}\n",
     },
     toolArgs: '{"file_path":"packages/chat-ui/src/MessageBubble.tsx"}',
+    toolKind: "read",
+    toolSummary: "packages/chat-ui/src/MessageBubble.tsx",
+    toolDetail: "packages/chat-ui/src/MessageBubble.tsx",
   },
 ];
 
@@ -354,7 +389,7 @@ export const providerTranscriptFixtures: ProviderTranscriptFixture[] = [
       mermaidNeedle: "claudeStart",
       systemLabel: "skill context",
       thinkingNeedle: "Claude reasoning block",
-      toolLabels: ["shell", "write file"],
+      toolLabels: ["command", "edit"],
       resultNeedle: "report per protocol",
     },
   },
@@ -368,7 +403,7 @@ export const providerTranscriptFixtures: ProviderTranscriptFixture[] = [
       mermaidNeedle: "sequenceDiagram",
       systemLabel: "meta",
       thinkingNeedle: "Codex reasoning summary",
-      toolLabels: ["shell", "apply_patch"],
+      toolLabels: ["command", "edit"],
       resultNeedle: "Exit code: 0",
       diffNeedle: "let body = text.trim()",
       diffRemovedNeedle: "val.to_string()",
@@ -384,8 +419,16 @@ export const providerTranscriptFixtures: ProviderTranscriptFixture[] = [
       mermaidNeedle: "openCodeTool",
       systemLabel: "meta",
       thinkingNeedle: "OpenCode reasoning part",
-      toolLabels: ["shell", "read file"],
+      toolLabels: ["command", "read"],
       resultNeedle: "export function MessageBubble",
     },
   },
 ];
+
+/** Normalized provider casing reaches the shared wait predicate without parser-specific UI logic. */
+export const waitProviderMessages: Record<"claude" | "codex" | "cursor" | "opencode", NormalizedChatMessage[]> = {
+  claude: [{ id: "claude-wait", provider: "claude", type: "tool_call", content: "", toolName: "wait", toolId: "claude-wait", toolInput: { wait_for: "result" }, toolKind: "generic", toolSummary: "Claude wait", timestamp: "1000" }],
+  codex: [{ id: "codex-wait", provider: "codex", type: "tool_call", content: "", toolName: "wait_for_result", toolId: "codex-wait", toolInput: { wait_for_result: "result" }, toolKind: "generic", toolSummary: "Codex wait", timestamp: "1000" }],
+  cursor: [{ id: "cursor-wait", provider: "cursor", type: "tool_call", content: "", toolName: "tool_wait", toolId: "cursor-wait", toolInput: { tool_wait: "result" }, toolKind: "generic", toolSummary: "Cursor wait", timestamp: "1000" }],
+  opencode: [{ id: "opencode-wait", provider: "opencode", type: "tool_call", content: "", toolName: "WAIT_FOR", toolId: "opencode-wait", toolInput: { waitFor: "result" }, toolKind: "generic", toolSummary: "OpenCode wait", timestamp: "1000" }],
+};

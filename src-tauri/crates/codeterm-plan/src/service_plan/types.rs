@@ -28,13 +28,28 @@ pub enum PlanError {
     BadPriority,
     TaskCreationRequiresApproval,
     HeartbeatRequiresExecution,
-    ParkRequiresReason,
+    TaskPauseRequiresReason,
     PauseRequiresReason,
     InProgressRequiresPane,
     BlockedRequiresLabel,
     QaNoteRequired,
     QaSlotUnavailable,
     QaNotRunning,
+    OverrideReasonRequired,
+    OverrideNotAuthorized,
+    ReviewWipExceeded {
+        wip_count: usize,
+        wip_limit: u32,
+        credit: i64,
+    },
+    ReviewEvidenceRequired,
+    ReviewRoundExceeded {
+        round: u32,
+        max_rounds: u32,
+    },
+    ReviewOracleScopeExpansion,
+    ReviewOverrideIncomplete,
+    ReviewNotInReview,
     GateNotFound,
     GateAlreadyAnswered,
     GateRequiresQuestion,
@@ -58,6 +73,21 @@ pub enum PlanError {
     ReadbackMismatch {
         operation: String,
         message: String,
+    },
+    TeamAlreadyHasActivePlan {
+        team_id: String,
+        existing_plan_id: String,
+        existing_title: String,
+    },
+    PlanAlreadyBoundToTeam {
+        plan_id: String,
+        team_id: String,
+    },
+    ActivePlanRequiresTeam {
+        plan_id: String,
+    },
+    PlanActivationRequiresUnarchive {
+        plan_id: String,
     },
     Io(String),
 }
@@ -120,15 +150,15 @@ impl fmt::Display for PlanError {
             ),
             PlanError::InProgressRequiresPane => write!(
                 f,
-                "in_progress requires an executor pane; set both in one command: codeterm plan task update <plan> <task> --status in_progress --pane <pane-id> (CODETERM_STATE_INVARIANTS=off for emergencies)"
+                "in_progress requires an executor tab; set both in one command: codeterm plan task update <plan> <task> --status in_progress --tab <tab-id> (CODETERM_STATE_INVARIANTS=off for emergencies)"
             ),
             PlanError::BlockedRequiresLabel => write!(
                 f,
-                "blocked is a claim, not a parking spot: pass --status-label \"<what unblocks it>\" or open a decision gate"
+                "blocked is a claim, not a holding state: pass --status-label \"<what unblocks it>\" or open a decision gate"
             ),
-            PlanError::ParkRequiresReason => write!(
+            PlanError::TaskPauseRequiresReason => write!(
                 f,
-                "parking a task requires a reason; run `codeterm plan task park <plan> <task> --reason \"<why>\"`"
+                "pausing a task requires a reason; run `codeterm plan task pause <plan> <task> --reason \"<why>\"`"
             ),
             PlanError::PauseRequiresReason => write!(
                 f,
@@ -140,8 +170,43 @@ impl fmt::Display for PlanError {
             ),
             PlanError::QaSlotUnavailable => write!(f, "QA queue has no available running slot"),
             PlanError::QaNotRunning => write!(f, "task is not running in QA; claim it first"),
+            PlanError::OverrideReasonRequired => write!(
+                f,
+                "overriding a regression gate requires an explicit reason; pass --reason \"<why the frontier may advance past the gate>\""
+            ),
+            PlanError::OverrideNotAuthorized => write!(
+                f,
+                "only the plan Orchestrator (owner) may override a regression gate"
+            ),
+            PlanError::ReviewWipExceeded {
+                wip_count,
+                wip_limit,
+                credit,
+            } => write!(
+                f,
+                "review WIP exceeded: {wip_count}/{wip_limit} in_review (credit={credit}); close a review before dispatching more implementation work"
+            ),
+            PlanError::ReviewEvidenceRequired => write!(
+                f,
+                "in_review requires evidence: pass an executable exact QA plan (test_plan + acceptance_criteria) or attach independent review evidence first"
+            ),
+            PlanError::ReviewRoundExceeded { round, max_rounds } => write!(
+                f,
+                "review round {round} exceeds the default max of {max_rounds}; record a P0 exception first with `codeterm plan review override <plan> <task> --owner <o> --reason <r> --reproduction <repro>`"
+            ),
+            PlanError::ReviewOracleScopeExpansion => write!(
+                f,
+                "correction review cannot expand the fixed acceptance oracle without new reproducible release-impact evidence; record a P0 override to proceed"
+            ),
+            PlanError::ReviewOverrideIncomplete => write!(
+                f,
+                "review override requires non-empty owner, reason, and reproduction"
+            ),
+            PlanError::ReviewNotInReview => write!(f, "task is not in_review"),
             PlanError::GateNotFound => write!(f, "decision gate not found"),
-            PlanError::GateAlreadyAnswered => write!(f, "gate is already answered; answers are immutable"),
+            PlanError::GateAlreadyAnswered => {
+                write!(f, "gate is already answered; answers are immutable")
+            }
             PlanError::GateRequiresQuestion => write!(f, "gate requires a non-empty question"),
             PlanError::GroupNotFound => write!(
                 f,
@@ -185,6 +250,26 @@ impl fmt::Display for PlanError {
             PlanError::ReadbackMismatch { operation, message } => {
                 write!(f, "{operation} readback mismatch: {message}")
             }
+            PlanError::TeamAlreadyHasActivePlan {
+                team_id,
+                existing_plan_id,
+                existing_title,
+            } => write!(
+                f,
+                "team {team_id} already owns active plan {existing_plan_id} «{existing_title}»; a team binds 1:1 to a plan. Create or use another Team for this effort (spawn a new team-bound orchestrator), or archive/complete {existing_plan_id} first."
+            ),
+            PlanError::PlanAlreadyBoundToTeam { plan_id, team_id } => write!(
+                f,
+                "plan {plan_id} is already bound to team {team_id}; a plan binds 1:1 to a team"
+            ),
+            PlanError::ActivePlanRequiresTeam { plan_id } => write!(
+                f,
+                "active plan {plan_id} requires a live Team; adopt it with `codeterm team adopt-plan <team-id> {plan_id}`"
+            ),
+            PlanError::PlanActivationRequiresUnarchive { plan_id } => write!(
+                f,
+                "plan {plan_id} is archived; restore it with `codeterm plan unarchive {plan_id}` so its live Team binding is validated"
+            ),
             PlanError::Io(e) => write!(f, "io error: {e}"),
         }
     }
@@ -225,8 +310,8 @@ impl PlanError {
             PlanError::BlockedRequiresLabel => {
                 serde_json::json!({ "type": "blocked_requires_label" })
             }
-            PlanError::ParkRequiresReason => {
-                serde_json::json!({ "type": "park_requires_reason" })
+            PlanError::TaskPauseRequiresReason => {
+                serde_json::json!({ "type": "task_pause_requires_reason" })
             }
             PlanError::PauseRequiresReason => {
                 serde_json::json!({ "type": "pause_requires_reason" })
@@ -234,6 +319,37 @@ impl PlanError {
             PlanError::QaNoteRequired => serde_json::json!({ "type": "qa_note_required" }),
             PlanError::QaSlotUnavailable => serde_json::json!({ "type": "qa_slot_unavailable" }),
             PlanError::QaNotRunning => serde_json::json!({ "type": "qa_not_running" }),
+            PlanError::OverrideReasonRequired => {
+                serde_json::json!({ "type": "override_reason_required" })
+            }
+            PlanError::OverrideNotAuthorized => {
+                serde_json::json!({ "type": "override_not_authorized" })
+            }
+            PlanError::ReviewWipExceeded {
+                wip_count,
+                wip_limit,
+                credit,
+            } => serde_json::json!({
+                "type": "review_wip_exceeded",
+                "wip_count": wip_count,
+                "wip_limit": wip_limit,
+                "credit": credit
+            }),
+            PlanError::ReviewEvidenceRequired => {
+                serde_json::json!({ "type": "review_evidence_required" })
+            }
+            PlanError::ReviewRoundExceeded { round, max_rounds } => serde_json::json!({
+                "type": "review_round_exceeded",
+                "round": round,
+                "max_rounds": max_rounds
+            }),
+            PlanError::ReviewOracleScopeExpansion => {
+                serde_json::json!({ "type": "review_oracle_scope_expansion" })
+            }
+            PlanError::ReviewOverrideIncomplete => {
+                serde_json::json!({ "type": "review_override_incomplete" })
+            }
+            PlanError::ReviewNotInReview => serde_json::json!({ "type": "review_not_in_review" }),
             PlanError::GateNotFound => serde_json::json!({ "type": "gate_not_found" }),
             PlanError::GateAlreadyAnswered => {
                 serde_json::json!({ "type": "gate_already_answered" })
@@ -285,6 +401,29 @@ impl PlanError {
                     "message": message
                 })
             }
+            PlanError::TeamAlreadyHasActivePlan {
+                team_id,
+                existing_plan_id,
+                existing_title,
+            } => serde_json::json!({
+                "type": "team_already_has_active_plan",
+                "team_id": team_id,
+                "existing_plan_id": existing_plan_id,
+                "existing_title": existing_title
+            }),
+            PlanError::PlanAlreadyBoundToTeam { plan_id, team_id } => serde_json::json!({
+                "type": "plan_already_bound_to_team",
+                "plan_id": plan_id,
+                "team_id": team_id
+            }),
+            PlanError::ActivePlanRequiresTeam { plan_id } => serde_json::json!({
+                "type": "active_plan_requires_team",
+                "plan_id": plan_id
+            }),
+            PlanError::PlanActivationRequiresUnarchive { plan_id } => serde_json::json!({
+                "type": "plan_activation_requires_unarchive",
+                "plan_id": plan_id
+            }),
             PlanError::Io(message) => serde_json::json!({ "type": "io", "message": message }),
         }
     }
@@ -298,6 +437,7 @@ pub struct NewTask {
     pub model: Option<String>,
     pub model_rationale: Option<String>,
     pub personality: Option<String>,
+    pub personality_provenance: Option<crate::plan::IdentityProvenance>,
     pub acceptance_criteria: Vec<String>,
     pub test_plan: Option<String>,
     pub correctness: Option<String>,
@@ -348,6 +488,8 @@ pub struct IndexEntry {
     pub plan_id: String,
     pub file_path: PathBuf,
     pub owner: OrchestratorRef,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub team_id: Option<String>,
     pub title: String,
     pub status: PlanStatus,
     pub updated_at: u64,

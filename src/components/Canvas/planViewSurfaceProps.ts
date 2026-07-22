@@ -1,4 +1,4 @@
-import type { ApiConfig, Pane, Workspace } from "../../lib/types";
+import type { ApiConfig, Pane, Team, Workspace } from "../../lib/types";
 import type { CanvasWorkspaceTarget } from "./canvasFocusStore";
 import type { Plan } from "./types";
 
@@ -11,17 +11,17 @@ export interface PlanViewSurfaceProps {
   error?: string | null;
   onRetry?: () => void;
   planId?: string;
+  teamId?: string;
   orchestratorPaneId?: string;
   focusPaneId?: string | null;
   panes?: Record<string, Pane>;
   workspaces?: Workspace[];
-  focusedPaneId?: string | null;
+  /** Current workspace; workspace mode scopes plans to those bound here. */
+  workspaceId?: string;
+  teams?: Team[];
   projectPath?: string | null;
   workspaceTarget?: CanvasWorkspaceTarget | null;
   onClose?: () => void;
   onOpenPane?: (paneId: string) => void;
   api?: ApiConfig;
-  /** All-plans mode lifts the workspace filter (canvas flow surface). */
-  allPlans?: boolean;
-  onAllPlansChange?: (allPlans: boolean) => void;
 }

@@ -92,7 +92,7 @@ Until native support lands, dictation is an external driver you run. Recipe:
    `/transcribe`; read `text`. Collapse whisper's internal line breaks to spaces
    (`re.sub(r"\s+", " ", text)`) so auto-submit works.
 4. **Inject into a pane** — two ways:
-   - CLI: `codeterm send "<text>" --pane <id>` (auto-submits)
+   - CLI: `codeterm send "<text>" --tab <id>` (auto-submits)
    - HTTP: `POST /api/panes/<pane_id>/send` with `Authorization: Bearer
      <service_token>` (register via `codeterm service add`, token is scoped to
      that endpoint). Good for a daemon with no shell.
@@ -100,7 +100,7 @@ Until native support lands, dictation is an external driver you run. Recipe:
 ### The focus caveat
 
 Targeting "the pane the user is looking at" is **not reliable today**:
-`codeterm pane current` is stale and `pane focus` doesn't update it (issue #123).
+`codeterm tab current` is stale and `tab focus` doesn't update it (issue #123).
 Workarounds for an external driver:
 - Inject into a **fixed pane id** (`MIC_PANE`) — reliable now.
 - Or skip pane targeting entirely and type into the **focused OS window** via
@@ -143,7 +143,7 @@ natural **Process-tier plugin** — the plugin process owns mic capture + the
 - **Trigger** via `capabilities.hooks`: subscribe to a dictation-request event
   the native button/hotkey publishes (typed `SystemEvent` or the `Generic`
   escape hatch). `dispatch_event` already does the filtered routing.
-- **Focus** without the stale `pane current` CLI: subscribe to
+- **Focus** without the stale `tab current` CLI: subscribe to
   `SystemEvent::PaneFocused { pane_id }` — the host already emits it, so the
   plugin always knows the focused pane (relevant to issue #123).
 - **Settings** via `capabilities.settings`, **CLI** via `capabilities.commands`.

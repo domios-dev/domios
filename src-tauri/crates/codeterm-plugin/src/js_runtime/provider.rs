@@ -1,3 +1,4 @@
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -25,6 +26,21 @@ struct SerdeSessionMetadata {
     created_ts: Option<i64>,
     #[serde(default)]
     modified_ts: Option<i64>,
+}
+
+fn session_description_head(path: &Path) -> String {
+    let Ok(file) = std::fs::File::open(path) else {
+        return String::new();
+    };
+    let mut head = String::new();
+    for line in BufReader::new(file).lines().map_while(Result::ok).take(64) {
+        if head.len() + line.len() > 64 * 1024 {
+            break;
+        }
+        head.push_str(&line);
+        head.push('\n');
+    }
+    head
 }
 
 impl SerdeSessionMetadata {
@@ -69,9 +85,9 @@ impl From<SerdeSessionMessage> for SessionMessage {
 }
 
 use crate::provider::{
-    self, AgentLaunchParams, AgentProvider, ModelInfo, ProviderTrust, ReadinessStrategy,
-    SessionIdInjection, SessionMessage, SessionMetadata, SettingField, TaskDelivery,
-    VerifySubmitStrategy,
+    self, AgentLaunchParams, AgentProvider, BusySubmitStrategy, ModelInfo, ProviderTrust,
+    ReadinessStrategy, ReasoningEffortInfo, SessionIdInjection, SessionMessage, SessionMetadata,
+    SettingField, SystemPromptDelivery, TaskDelivery, VerifySubmitStrategy,
 };
 
 use super::{
@@ -248,6 +264,8 @@ fn launch_params_to_json(p: &AgentLaunchParams) -> Value {
     json!({
         "agentName": p.agent_name,
         "task": p.task,
+        "starterPrompt": p.starter_prompt,
+        "starterPromptText": p.starter_prompt.host_text(),
         "args": p.args,
         "skipPermissions": p.skip_permissions,
         "sessionId": p.session_id,
@@ -277,6 +295,13 @@ impl AgentProvider for JsProvider {
             .unwrap_or_default()
     }
 
+    fn starter_prompt_text(&self, prompt: crate::provider::StarterPrompt) -> Option<String> {
+        prompt
+            .host_text()
+            .map(str::to_owned)
+            .or_else(|| self.try_call::<String>("starterPromptText", &[json!(prompt)]))
+    }
+
     fn readiness_strategy(&self) -> ReadinessStrategy {
         (&self.manifest.spawn.readiness_strategy).into()
     }
@@ -285,12 +310,20 @@ impl AgentProvider for JsProvider {
         self.manifest.spawn.task_delivery.into()
     }
 
+    fn system_prompt_delivery(&self) -> SystemPromptDelivery {
+        (&self.manifest.spawn.system_prompt_delivery).into()
+    }
+
     fn task_input_warmup(&self) -> Duration {
         Duration::from_millis(self.manifest.spawn.task_input_warmup_ms)
     }
 
     fn verify_submit_strategy(&self) -> VerifySubmitStrategy {
         (&self.manifest.spawn.verify_submit).into()
+    }
+
+    fn busy_submit_strategy(&self) -> BusySubmitStrategy {
+        (&self.manifest.spawn.busy_submit).into()
     }
 
     fn detect_from_title(&self, title: &str) -> bool {
@@ -398,6 +431,25 @@ impl AgentProvider for JsProvider {
         steps
     }
 
+    fn directory_trust_prompt_response(
+        &self,
+        prompt: &PendingPrompt,
+        screen: &str,
+    ) -> Option<crate::provider::DirectoryTrustPromptResponse> {
+        let value = serde_json::to_value(prompt).ok()?;
+        let steps = self.try_call::<Option<Vec<String>>>(
+            "directoryTrustPromptResponse",
+            &[value, json!(screen)],
+        )??;
+        use base64::Engine;
+        let engine = base64::engine::general_purpose::STANDARD;
+        let steps = steps
+            .into_iter()
+            .map(|step| engine.decode(step.as_bytes()).ok())
+            .collect::<Option<Vec<_>>>()?;
+        (!steps.is_empty()).then_some(crate::provider::DirectoryTrustPromptResponse { steps })
+    }
+
     fn session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf> {
         if let Some(p) =
             self.try_call::<Option<String>>("sessionFilePath", &[json!(cwd), json!(session_id)])
@@ -421,7 +473,14 @@ impl AgentProvider for JsProvider {
     fn detect_session_model(&self, cwd: &str, session_id: &str) -> Option<String> {
         self.try_call::<Option<String>>("detectSessionModel", &[json!(cwd), json!(session_id)])
             .flatten()
-            .map(|model| crate::model_catalog::resolve_model(self.id(), Some(&model)).id)
+            .map(|model| {
+                let resolved = crate::model_catalog::resolve_model(self.id(), Some(&model));
+                if resolved.fell_back {
+                    model
+                } else {
+                    resolved.id
+                }
+            })
     }
 
     fn session_created_at(&self, cwd: &str, session_id: &str) -> Option<std::time::SystemTime> {
@@ -543,8 +602,13 @@ impl AgentProvider for JsProvider {
                     .and_then(|m| provider::fs_time_to_unix(m.modified().ok()));
                 // Ask the plugin to dig title/summary/project_path out of the session file. We pass the path string — the plugin may choose to ignore (e.g.
                 // plain JSONL provider that only cares about per-line cwd via parse_session_messages).
-                let extra: Option<Value> =
-                    self.try_call("describeSession", &[json!(file_path_buf.to_string_lossy())]);
+                let extra: Option<Value> = self.try_call(
+                    "describeSession",
+                    &[
+                        json!(file_path_buf.to_string_lossy()),
+                        json!(session_description_head(&file_path_buf)),
+                    ],
+                );
                 let title = extra
                     .as_ref()
                     .and_then(|v| v.get("title"))
@@ -601,11 +665,13 @@ impl AgentProvider for JsProvider {
             Some(super::CwdEncoding::DashEncoded) => codeterm_paths::canonical_cwd(cwd),
             _ => cwd.to_string(),
         };
-        let s: Option<String> = self.try_call(
+        self.try_call::<Option<String>>(
             "sessionJsonlPath",
             &[serde_json::json!(resolved), serde_json::json!(session_id)],
-        );
-        s.filter(|p| !p.is_empty()).map(std::path::PathBuf::from)
+        )
+        .flatten()
+        .filter(|path| !path.is_empty())
+        .map(std::path::PathBuf::from)
     }
 
     fn uses_structured_chat(&self) -> bool {
@@ -771,6 +837,30 @@ impl AgentProvider for JsProvider {
             return vec!["--model".into(), model.into()];
         }
         tmpl.iter().map(|t| t.replace("{model}", model)).collect()
+    }
+
+    fn reasoning_efforts(&self) -> Vec<ReasoningEffortInfo> {
+        self.manifest
+            .reasoning_efforts
+            .iter()
+            .map(ReasoningEffortInfo::from)
+            .collect()
+    }
+
+    fn default_reasoning_effort(&self) -> Option<String> {
+        self.manifest.default_reasoning_effort.clone()
+    }
+
+    fn reasoning_effort_launch_args(&self, effort: &str) -> Vec<String> {
+        if effort.is_empty() {
+            return Vec::new();
+        }
+        self.manifest
+            .commands
+            .reasoning_effort_launch_args_format
+            .iter()
+            .map(|t| t.replace("{effort}", effort))
+            .collect()
     }
 
     fn compact_command(&self) -> Option<&str> {

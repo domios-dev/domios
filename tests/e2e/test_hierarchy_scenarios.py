@@ -349,7 +349,7 @@ def test_scenario_self_rename(api: CodeTermAPI):
         worker = api.post("/api/agents/spawn", json={
             "agent": "claude", "title": "Renamer", "role": "Worker",
             "parent_pane_id": orch,
-            "task": f'Rename your tab: codeterm pane rename "{marker}_TAB". Then report done.',
+            "task": f'Rename your tab: codeterm tab rename "{marker}_TAB". Then report done.',
         })
         worker_id = worker["pane_id"]
         # Wait for report

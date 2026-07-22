@@ -1,6 +1,6 @@
 [package]
 name = "codeterm-cli"
-version = "1.7.1"
+version = "1.7.2"
 edition = "2021"
 
 [[bin]]
@@ -20,6 +20,7 @@ base64 = "0.22"
 uuid = { version = "1", features = ["v4"] }
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 urlencoding = "2"
+regex = "1"
 # Direct SQLite access for `mem run-worker` subprocess. Subprocess opens the
 # shared knowledge.db (multi-process WAL) without going through the daemon.
 rusqlite = { version = "0.32", features = ["bundled"] }

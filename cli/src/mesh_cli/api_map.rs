@@ -28,6 +28,9 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::Plan { .. } => {
             unsupported("plan management is local-only — run it on the target machine")
         }
+        Commands::Team { .. } => {
+            unsupported("team management is local-only — run it on the target machine")
+        }
         Commands::Spec { .. } => {
             unsupported("spec management is local-only — run it on the target machine")
         }
@@ -200,7 +203,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             }
             _ => ("GET".into(), "/api/workspaces".into(), None),
         },
-        Commands::Pane { action } => match action {
+        Commands::Tab { action } => match action {
             crate::PaneAction::List { .. } => ("GET".into(), "/api/panes".into(), None),
             crate::PaneAction::Current { .. } => ("GET".into(), "/api/panes".into(), None),
             crate::PaneAction::New {
@@ -414,6 +417,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 cwd,
                 args,
                 model,
+                reasoning_effort,
                 system_prompt,
                 preset,
                 charter,
@@ -444,13 +448,14 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     }
                 };
                 let agent_name = agent.as_str();
+                let title = crate::cmd::agent::join_cli_words(title.clone());
                 let mut body = serde_json::json!({
                     "agent": agent_name,
                     "title": title,
                     "task": task,
                 });
-                if let Some(d) = description {
-                    match crate::cmd::agent::normalize_pane_description(d) {
+                if let Some(d) = crate::cmd::agent::join_cli_words(description.clone()) {
+                    match crate::cmd::agent::normalize_pane_description(&d) {
                         Ok(Some(d)) => body["description"] = serde_json::json!(d),
                         Ok(None) => body["description"] = serde_json::json!(""),
                         Err(e) => return unsupported(&e),
@@ -492,6 +497,9 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 if let Some(m) = model {
                     body["model"] = serde_json::json!(m);
+                }
+                if let Some(effort) = reasoning_effort {
+                    body["reasoning_effort"] = serde_json::json!(effort);
                 }
                 if let Some(system_prompt) = system_prompt {
                     body["system_prompt"] = serde_json::json!(system_prompt);
@@ -541,19 +549,6 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             crate::AgentAction::Providers | crate::AgentAction::Models { .. } => {
                 ("GET".into(), "/api/agents/providers".into(), None)
             }
-            crate::AgentAction::Message {
-                text,
-                pane,
-                from_file,
-                stdin,
-            } => send_text_to_api(
-                text,
-                &Some(pane.clone()),
-                from_file,
-                *stdin,
-                &None,
-                &mut std::io::stdin(),
-            ),
             _ => ("GET".into(), "/api/panes".into(), None),
         },
         Commands::Notifications { unread, .. } => {
@@ -570,6 +565,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 agent,
                 model,
                 cwd,
+                skill,
                 description,
                 creator_pane,
                 once,
@@ -591,6 +587,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     *jitter_max_ms,
                     tz.as_deref(),
                     *timeout_secs,
+                    skill.as_deref(),
                 );
                 ("POST".into(), "/api/crons".into(), Some(body.to_string()))
             }
@@ -649,11 +646,11 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     manifest_url,
                     from_file,
                     continue_prompt,
-                    continue_pane,
+                    continue_tab,
                     after_update,
                 } => {
-                    if from_file.is_some() || continue_prompt.is_some() || continue_pane.is_some() {
-                        return unsupported("update install --from-file/--continue-prompt/--continue-pane are local-only; run on the target machine");
+                    if from_file.is_some() || continue_prompt.is_some() || continue_tab.is_some() {
+                        return unsupported("update install --from-file/--continue-prompt/--continue-tab are local-only; run on the target machine");
                     }
                     let mut qs = String::new();
                     if auto {
@@ -744,13 +741,19 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 ),
             ),
             crate::BridgeAction::Send {
-                text, to, append, ..
+                text,
+                raw_text,
+                to,
+                append,
+                ..
             } => (
                 "POST".into(),
                 "/api/bridge/send".into(),
                 Some(
                     serde_json::json!({
-                        "text": text,
+                        "text": text
+                            .as_ref()
+                            .map(|text| crate::cmd::bridge::bridge_text(text.clone(), *raw_text)),
                         "chat_id": to,
                         "append": append,
                     })

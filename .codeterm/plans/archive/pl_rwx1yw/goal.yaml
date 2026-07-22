@@ -1,8 +1,0 @@
-vector: 'Dogfooding the planner produces structurally-correct efforts BY CONSTRUCTION: an agent is guided GOAL→Spec→Plan→Tasks and never conflates WHAT with HOW, because the CLI hints and docs make the spec-first (goal-first) path the path of least resistance.'
-vision: |
-  You define the GOAL vector first; the Spec (WHAT) hangs off it; the Plan (HOW) is built FROM the spec with M:N section links. No shortcut can cram everything into plan.sections.
-constraints:
-- No CLI path may silently produce a malformed/empty entity (goal POST stored null on a wrong-shape body — must validate)
-postulates:
-- Goal defined first, then Spec, then Plan
-- Goal is mutable and its changes are recorded (working-points), not silently overwritten

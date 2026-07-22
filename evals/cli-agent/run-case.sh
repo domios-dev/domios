@@ -40,7 +40,7 @@ if [ -z "$PANE" ]; then
 fi
 
 sleep 8   # let the agent boot its REPL before typing
-dc send "$PROMPT" --pane "$PANE" >/dev/null 2>&1 || true
+dc send "$PROMPT" --tab "$PANE" >/dev/null 2>&1 || true
 wait_idle "$PANE" 180 15 90   # timeout=180s, quiet=15s, warmup(first-msg)=90s
 
 read_chat "$PANE" > "$RUNS_DIR/$CASE_ID-$PROVIDER.json"

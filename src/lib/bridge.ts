@@ -16,7 +16,7 @@ import {
   listen as tauriListen,
   type UnlistenFn as TauriUnlistenFn,
 } from "@tauri-apps/api/event";
-import { IS_WEB, WebApiError, webJson } from "./webApi";
+import { IS_WEB, WebApiError, webFetch, webJson } from "./webApi";
 import { webListen } from "./webEvents";
 import { WEB_SPECIAL, WEB_UNSUPPORTED } from "./bridgeWebUnsupported";
 import { setClientPaneUiMode } from "./clientPaneUiMode";
@@ -72,6 +72,24 @@ export function isPtyDeadError(err: unknown): boolean {
 const enc = encodeURIComponent;
 const s = (args: Args, key: string): string => String(args[key] ?? "");
 
+async function webJsonWithCallerPane<T>(
+  method: string,
+  path: string,
+  body: unknown,
+  callerTabId: unknown,
+): Promise<T> {
+  const headers = new Headers();
+  if (callerTabId) headers.set("X-CodeTerm-Pane-Id", String(callerTabId));
+  const response = await webFetch(path, {
+    method,
+    headers,
+    body: JSON.stringify(body),
+  });
+  const text = await response.text();
+  if (!response.ok) throw new WebApiError(response.status, path, text);
+  return JSON.parse(text) as T;
+}
+
 /** Commands with a meaningful HTTP equivalent. */
 const HTTP_MAP: Record<string, Mapper> = {
   plugin_manager_snapshot: () => webJson("GET", "/api/plugins/snapshot"),
@@ -106,6 +124,13 @@ const HTTP_MAP: Record<string, Mapper> = {
       model: a.model,
     }),
   get_config: () => webJson("GET", "/api/config"),
+  list_notifications: () => webJson("GET", "/api/notifications"),
+  mark_notification_read: (a) =>
+    webJson("POST", `/api/notifications/${enc(s(a, "id"))}/read`),
+  clear_notifications: (a) =>
+    a.id
+      ? webJson("DELETE", `/api/notifications/${enc(s(a, "id"))}`)
+      : webJson("POST", "/api/notifications/clear"),
   // PATCH: the route has no POST; the handler merges top-level keys, so the full config object works as a partial.
   update_config: (a) => webJson("PATCH", "/api/config", a.config),
   get_network_info: () => webJson("GET", "/api/network"),
@@ -129,6 +154,33 @@ const HTTP_MAP: Record<string, Mapper> = {
     webJson("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/rename`, {
       name: a.name,
     }),
+  mux_rename_team: (a) =>
+    webJsonWithCallerPane(
+      "POST",
+      `/api/teams/${enc(s(a, "teamId"))}/rename`,
+      { name: a.name },
+      a.callerTabId,
+    ),
+  mux_close_team: (a) =>
+    webJsonWithCallerPane(
+      "POST",
+      `/api/teams/${enc(s(a, "teamId"))}/close`,
+      {},
+      a.callerTabId,
+    ),
+  mux_add_team_member: (a) =>
+    webJsonWithCallerPane(
+      "POST",
+      `/api/teams/${enc(s(a, "teamId"))}/members`,
+      {
+        provider: a.provider,
+        role: a.role,
+        title: a.title,
+        task: a.task,
+        model: a.model,
+      },
+      a.callerTabId,
+    ),
   mux_create_tab: (a) =>
     webJson("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs`, {
       eager: a.eager === true,
@@ -219,9 +271,13 @@ const HTTP_MAP: Record<string, Mapper> = {
     webJson("GET", `/api/panes/${enc(s(a, "paneId"))}/shell-commands`),
 
   chat_start: (a) =>
-    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/chat-raw/start`),
+    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/chat-raw/start`, {
+      subscriptionId: s(a, "subscriptionId"),
+    }),
   chat_stop: (a) =>
-    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/chat-raw/stop`),
+    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/chat-raw/stop`, {
+      subscriptionId: s(a, "subscriptionId"),
+    }),
   chat_backfill: (a) =>
     webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/chat-raw/backfill`, {
       before_offset: a.beforeOffset,
@@ -235,7 +291,6 @@ const HTTP_MAP: Record<string, Mapper> = {
   chat_send_text: (a) =>
     webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/send`, {
       text: a.text,
-      enter: true,
     }),
   delayed_send_list: (a) =>
     webJson("GET", `/api/panes/${enc(s(a, "paneId"))}/delayed-messages`),
@@ -398,6 +453,8 @@ const HTTP_MAP: Record<string, Mapper> = {
   restart_general_agent: () => webJson("POST", "/api/agents/general/restart"),
   restart_general_agent_pane: (a) =>
     webJson("POST", `/api/agents/general/${enc(s(a, "paneId") ?? s(a, "pane_id"))}/restart`),
+  restart_agent_pane: (a) =>
+    webJson("POST", `/api/panes/${enc(s(a, "paneId") ?? s(a, "pane_id"))}/agent/restart`),
   complete_general_agent_first_run: (a) =>
     webJson("POST", "/api/agents/general/complete-first-run", {
       provider_id: s(a, "providerId") ?? s(a, "provider_id"),
@@ -541,6 +598,19 @@ async function invokeRaw<T>(cmd: string, args?: Args): Promise<T> {
 
 const IPC_SLOW_MS = 300;
 type IpcSample = { cmd: string; ms: number; at: number };
+type IpcPerf = {
+  invokes: number;
+  invokeMs: number;
+  events: number;
+  byCommand: Record<string, number>;
+  byEvent: Record<string, number>;
+};
+
+declare global {
+  interface Window {
+    __ipcPerf?: IpcPerf;
+  }
+}
 
 // Diagnostic: report any main-thread block (render / term.write / sync JS) >300ms.
 if (typeof PerformanceObserver !== "undefined") {
@@ -570,7 +640,13 @@ export async function invoke<T>(cmd: string, args?: Args): Promise<T> {
     }
     throw err;
   } finally {
-    if (!invokeForTest) {
+    const perf = typeof window !== "undefined" ? window.__ipcPerf : undefined;
+    if (perf) {
+      perf.invokes += 1;
+      perf.invokeMs += performance.now() - t0;
+      perf.byCommand[cmd] = (perf.byCommand[cmd] ?? 0) + 1;
+    }
+    if (!invokeForTest && typeof window !== "undefined") {
       const ms = performance.now() - t0;
       if (ms >= IPC_SLOW_MS) {
         // eslint-disable-next-line no-console
@@ -611,9 +687,17 @@ export async function listen<T>(
   event: string,
   handler: (e: { payload: T }) => void,
 ): Promise<UnlistenFn> {
-  if (listenForTest) return listenForTest(event, handler);
+  const counted = (e: { payload: T }) => {
+    const perf = window.__ipcPerf;
+    if (perf) {
+      perf.events += 1;
+      perf.byEvent[event] = (perf.byEvent[event] ?? 0) + 1;
+    }
+    handler(e);
+  };
+  if (listenForTest) return listenForTest(event, counted);
   if (!IS_WEB) {
-    return tauriListen<T>(event, handler);
+    return tauriListen<T>(event, counted);
   }
-  return webListen(event, handler as (e: { payload: unknown }) => void);
+  return webListen(event, counted as (e: { payload: unknown }) => void);
 }

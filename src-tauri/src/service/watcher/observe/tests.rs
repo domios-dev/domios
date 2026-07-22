@@ -228,6 +228,13 @@ fn reports_included_when_configured() {
         test_result: None,
         skipped: None,
         attachments: vec![],
+        model: None,
+        planned_model: None,
+        requested_model: None,
+        provider_resolved_model: None,
+        actual_model: None,
+        model_fallback: None,
+        model_identity_mismatch: None,
     }];
     let chat_tail = |_: &str, _: usize| Vec::new();
     let sources = ObservationSources {

@@ -1,5 +1,0 @@
-vector: 'Replace the DOM+CSS-transform canvas with a camera-matrix renderer: a card object NEVER changes size, only the camera zooms, text stays crisp at any zoom with zero reflow.'
-vision: ''
-constraints: []
-postulates:
-- Object size is the camera matrix, never a per-card re-rasterization hack

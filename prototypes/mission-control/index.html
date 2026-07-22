@@ -114,7 +114,7 @@
       qaQueue: ["Prototype gallery route", "Fixture unit tests", "Static HTML artifact"],
       gate: ["User gate: pick layout variant", "Motion spec review"],
       done: 18,
-      parked: ["Live canvas wiring", "Mesh presence avatars"],
+      paused: ["Live canvas wiring", "Mesh presence avatars"],
       blocked: ["Production screenshot pipeline", "Windows WebView2 particle perf"],
     };
 
@@ -178,16 +178,16 @@
 
     document.getElementById("body-a").innerHTML = dispatchPanel() + lanesPanel(2) +
       `<div style="display:flex;flex-direction:column;gap:8px">${qaPanel()}${gatePanel()}</div>` +
-      `<div style="display:flex;flex-direction:column;gap:8px">${donePanel()}${sidePanel("Parked", FIXTURE.parked)}${sidePanel("Blocked", FIXTURE.blocked, true)}</div>`;
+      `<div style="display:flex;flex-direction:column;gap:8px">${donePanel()}${sidePanel("Paused", FIXTURE.paused)}${sidePanel("Blocked", FIXTURE.blocked, true)}</div>`;
 
     document.getElementById("body-b").innerHTML =
       `<div style="grid-row:2">${dispatchPanel()}</div>` +
       `<section class="panel ring"><div class="panel-title" style="text-align:center">Ops ring · work floor</div><div class="queue">${FIXTURE.lanes.map(l => `<div class="bay"><div style="display:flex;justify-content:space-between"><strong style="font-size:10px">${l.name}</strong><div class="avatar">${l.agent}</div></div>${l.task ? card(l.task,"progress","") : ""}</div>`).join("")}${qaPanel()}</section>` +
       `<div style="grid-row:2;display:flex;flex-direction:column;gap:8px">${gatePanel()}${donePanel()}</div>` +
-      `<div style="grid-column:1;grid-row:3;display:grid;grid-template-columns:1fr 1fr;gap:8px">${sidePanel("Parked", FIXTURE.parked)}${sidePanel("Blocked", FIXTURE.blocked, true)}</div>`;
+      `<div style="grid-column:1;grid-row:3;display:grid;grid-template-columns:1fr 1fr;gap:8px">${sidePanel("Paused", FIXTURE.paused)}${sidePanel("Blocked", FIXTURE.blocked, true)}</div>`;
 
     document.getElementById("body-c").innerHTML = dispatchPanel() + lanesPanel(4) + qaPanel() + gatePanel() +
-      `<div style="display:flex;flex-direction:column;gap:6px">${donePanel()}${sidePanel("Parked", FIXTURE.parked)}${sidePanel("Blocked", FIXTURE.blocked, true)}</div>`;
+      `<div style="display:flex;flex-direction:column;gap:6px">${donePanel()}${sidePanel("Paused", FIXTURE.paused)}${sidePanel("Blocked", FIXTURE.blocked, true)}</div>`;
 
     const stage = document.getElementById("stage");
     document.getElementById("variant-pills").addEventListener("click", (e) => {

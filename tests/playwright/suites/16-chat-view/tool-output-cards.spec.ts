@@ -8,18 +8,21 @@ import { expect, test, type Page } from "../../helpers/fixtures";
 const DESKTOP = { width: 959, height: 279 };
 const MOBILE = { width: 320, height: 568 };
 const LONG_JSON = JSON.stringify({ envelope: "x".repeat(4_096), status: "complete" });
+const mountedPages = new Set<Page>();
 
 declare global {
   interface Window {
     __toolOutputCardTest?: { copied: string; root?: { unmount: () => void } };
+    __codetermToolOutputCardHarness?: {
+      mount: (host: HTMLElement, payload: string) => { unmount: () => void };
+    };
   }
 }
 
 async function mountCards(page: Page): Promise<void> {
   await page.evaluate(async (payload) => {
-    const React = await import("react");
-    const { createRoot } = await import("react-dom/client");
-    const { ToolOutputCard } = await import("/src/components/AgentRun/ToolOutputCard.tsx");
+    const harness = window.__codetermToolOutputCardHarness;
+    if (!harness) throw new Error("tool output card harness is not installed");
     const host = document.createElement("main");
     host.style.cssText = "box-sizing:border-box;max-width:100vw;overflow:hidden;padding:8px";
     document.body.replaceChildren(host);
@@ -28,24 +31,16 @@ async function mountCards(page: Page): Promise<void> {
       value: { writeText: async (value: string) => { window.__toolOutputCardTest!.copied = value; } },
     });
     window.__toolOutputCardTest = { copied: "" };
-    const root = createRoot(host);
+    const root = harness.mount(host, payload);
     window.__toolOutputCardTest.root = root;
-    root.render(
-      React.createElement(
-        "div",
-        { style: { minWidth: 0, maxWidth: "100%" } },
-        React.createElement(ToolOutputCard, { kind: "call", toolName: "exec", payload }),
-        React.createElement(ToolOutputCard, { kind: "call", toolName: "wait", payload: "one line" }),
-        React.createElement(ToolOutputCard, { kind: "call", toolName: "ssh", payload: "ssh success" }),
-        React.createElement(ToolOutputCard, { kind: "call", toolName: "mesh", payload: "mesh timeout" }),
-        React.createElement(ToolOutputCard, { kind: "call", toolName: "plugin", payload: "plugin result" }),
-        React.createElement(ToolOutputCard, { kind: "result", payload: "success", isError: false }),
-        React.createElement(ToolOutputCard, { kind: "result", payload: "failure", isError: true }),
-        React.createElement(ToolOutputCard, { kind: "result", payload: "timeout", isError: true }),
-      ),
-    );
   }, LONG_JSON);
+  mountedPages.add(page);
   await expect(page.locator('[data-testid="tool-output-card"]').first()).toBeVisible();
+}
+
+async function cleanupMountedCards(page: Page): Promise<void> {
+  if (page.isClosed()) return;
+  await page.evaluate(() => window.__toolOutputCardTest?.root?.unmount());
 }
 
 async function expectBoundedPreview(page: Page): Promise<void> {
@@ -56,17 +51,24 @@ async function expectBoundedPreview(page: Page): Promise<void> {
   await expect(preview).toHaveCSS("overflow-wrap", "anywhere");
   await expect(preview).toHaveCSS("-webkit-line-clamp", "2");
   await expect(card).toContainText("…");
-  await expect(page.locator("body")).toEvaluate((body) => body.scrollWidth <= body.clientWidth);
-  await expect(card).toEvaluate((element) => element.scrollWidth <= element.clientWidth);
+  await expect
+    .poll(() => page.locator("body").evaluate((body) => body.scrollWidth <= body.clientWidth))
+    .toBe(true);
+  await expect
+    .poll(() => card.evaluate((element) => element.scrollWidth <= element.clientWidth))
+    .toBe(true);
 }
 
-test.afterEach(async ({ ui }) => {
-  await ui.page.evaluate(() => window.__toolOutputCardTest?.root?.unmount());
+test.afterEach(async () => {
+  const pages = Array.from(mountedPages);
+  mountedPages.clear();
+  await Promise.all(pages.map((page) => cleanupMountedCards(page)));
 });
 
 test("@golden shared tool cards bound long exec output at 959x279 and mobile", async ({ ui }) => {
   await ui.page.setViewportSize(DESKTOP);
   await mountCards(ui.page);
+  await expect(ui.page.locator('[data-testid="tool-output-card"][data-tool-name="exec"]')).toBeVisible();
   await expectBoundedPreview(ui.page);
   await ui.page.screenshot({ path: test.info().outputPath("tool-output-cards-959x279.png") });
 
@@ -85,7 +87,9 @@ test("@golden shared tool cards expand by pointer and keyboard, then copy the co
   const full = card.locator('[data-testid="tool-output-full"]');
   await expect(full).toHaveText(LONG_JSON);
   await expect(full).toHaveCSS("overflow", "auto");
-  await expect(full).toEvaluate((element) => element.scrollHeight >= element.clientHeight);
+  await expect
+    .poll(() => full.evaluate((element) => element.scrollHeight >= element.clientHeight))
+    .toBe(true);
   await card.getByRole("button", { name: /collapse exec call/i }).click();
 
   await expand.focus();

@@ -15,11 +15,20 @@ test.beforeAll(async () => {
 type NetShape = Record<string, unknown>;
 
 async function openWebUiWithNetwork(browser: Browser, net: NetShape): Promise<{ page: Page; close: () => Promise<void> }> {
-  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const ctx = await browser.newContext({
+    viewport: { width: 1280, height: 800 },
+    serviceWorkers: "block",
+  });
   const page = await ctx.newPage();
   // Every get_network_info (bridge → GET /api/network) returns this scenario.
-  await page.route("**/api/network", (route) =>
+  await ctx.route("**/api/network", (route) =>
     route.fulfill({ contentType: "application/json", body: JSON.stringify(net) }),
+  );
+  await ctx.route("**/api/mesh/peers", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ paired: [], discovered: [], incoming_requests: [] }),
+    }),
   );
 
   await page.goto(WEB_URL, { waitUntil: "domcontentloaded" });
@@ -32,7 +41,7 @@ async function openWebUiWithNetwork(browser: Browser, net: NetShape): Promise<{ 
     .waitFor({ timeout: 20_000 });
 
   await page.click('[data-testid="nav-mesh"]');
-  await page.click('[data-testid="web-ui-trigger"]');
+  await page.click('[data-testid="mesh-web-ui-surface"]');
   await page.waitForSelector('[data-testid="web-ui-modal"]', { timeout: 10_000 });
   return { page, close: () => ctx.close() };
 }
@@ -43,7 +52,7 @@ const scenarios = [
     name: "serve HTTPS on 443 → FQDN root is primary, no hint",
     net: {
       tailscale_https_url: "https://blackstar.test.ts.net",
-      tailscale_ip: "100.64.0.9",
+      tailscale_ip: "127.0.0.1",
       local_ip: "192.168.1.20",
       api_port: PORT,
     },
@@ -57,9 +66,9 @@ const scenarios = [
     fallback: false,
   },
   {
-    name: "no serve, tailscale IP → IP+port primary, hint shown",
-    net: { tailscale_ip: "100.64.0.9", local_ip: "192.168.1.20", api_port: PORT },
-    expectLink: `http://100.64.0.9:${PORT}/`,
+    name: "no serve, stub peer address → IP+port primary, hint shown",
+    net: { tailscale_ip: "127.0.0.1", local_ip: "192.168.1.20", api_port: PORT },
+    expectLink: `http://127.0.0.1:${PORT}/`,
     fallback: true,
   },
   {

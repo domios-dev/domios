@@ -43,8 +43,17 @@ impl UsageParser for ClaudeTuiUsageParser {
         if !snap.has_any_field() {
             return Err(UsageParseError::NothingFound);
         }
+        if reset_is_incomplete(snap.session_pct, snap.session_resets_at_ms)
+            || reset_is_incomplete(snap.weekly_pct, snap.weekly_resets_at_ms)
+        {
+            return Err(UsageParseError::NothingFound);
+        }
         Ok(snap)
     }
+}
+
+fn reset_is_incomplete(pct: Option<f32>, resets_at_ms: Option<i64>) -> bool {
+    pct.is_some() && resets_at_ms.is_none()
 }
 
 fn normalize(raw: &str) -> String {

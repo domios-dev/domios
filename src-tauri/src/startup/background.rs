@@ -470,7 +470,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                                 if let Some(service) =
                                     app_handle.try_state::<crate::service::ServiceState>()
                                 {
-                                    service.plan_turn_counter.reset(&pane_id);
+                                    service.plan_turn_counter.reset_activity(&pane_id);
                                 }
                             }
                         }
@@ -514,16 +514,13 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
     // Runaway test-binary sweeper — kills orphan */target/*/deps/* processes.
     {
         let cfg = states.config.clone();
-        let app_handle = app_handle.clone();
         std::thread::spawn(move || {
             // Initial delay: give the daemon a moment to settle before first sweep.
             std::thread::sleep(std::time::Duration::from_secs(60));
             loop {
                 let runaway_cfg = cfg.lock().runaway.clone();
                 if runaway_cfg.enabled {
-                    if let Some(svc) = app_handle.try_state::<crate::service::ServiceState>() {
-                        crate::runaway_sweeper::sweep_once(&runaway_cfg, &svc);
-                    }
+                    crate::runaway_sweeper::sweep_once(&runaway_cfg);
                 }
                 std::thread::sleep(std::time::Duration::from_secs(60));
             }

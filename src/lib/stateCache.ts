@@ -2,13 +2,13 @@
  * Client-side cache of the last authoritative `mux_get_state` snapshot, used
  * to paint the sidebar/workspaces/tabs instantly on boot before the daemon
  * round-trip resolves (web-only — native Tauri always has the daemon local).
- * Keyed by daemon host + auth token so a cache can never leak across
- * daemons/accounts; dropped (never migrated) on any schema or build
+ * Keyed by daemon host + auth token + relay peer so a cache can never leak
+ * across daemons, accounts, or peer contexts; dropped on any schema or build
  * mismatch, and degrades to no-op if storage is unavailable (private
  * browsing).
  */
 import type { MultiplexerState } from "./types";
-import { IS_WEB, apiHost, currentToken } from "./webApi";
+import { IS_WEB, apiHost, currentToken, relayTarget } from "./webApi";
 
 const SCHEMA_VERSION = 1;
 const LOCAL_STORAGE_SIZE_LIMIT = 200 * 1024;
@@ -42,7 +42,7 @@ function hashKey(input: string): string {
 function cacheKey(): string | null {
   if (!IS_WEB) return null;
   try {
-    return `codeterm:state-cache:${hashKey(`${apiHost()}:${currentToken() ?? ""}`)}`;
+    return `codeterm:state-cache:${hashKey(`${apiHost()}:${currentToken() ?? ""}:${relayTarget()?.id ?? "self"}`)}`;
   } catch {
     return null;
   }

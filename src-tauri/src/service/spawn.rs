@@ -16,10 +16,11 @@ pub(crate) use super::spawn_params::{
 
 #[path = "spawn_model.rs"]
 mod spawn_model;
-#[cfg(test)]
-pub(crate) use spawn_model::ModelFallbackNotice;
+pub use spawn_model::ModelFallbackNotice;
 pub(crate) use spawn_model::{
-    model_fallback_notice_title, resolve_fresh_agent_model, resolve_fresh_agent_model_with_notice,
+    attach_planned_model, compatible_background_model, model_fallback_notice_title,
+    persist_model_launch_identity, resolve_fresh_agent_model,
+    resolve_fresh_agent_model_with_notice, CatalogBackgroundModelPort,
 };
 
 #[path = "spawn_hidden_delivery.rs"]
@@ -80,13 +81,19 @@ pub enum PaneCommand {
 pub struct AgentSpawnSpec {
     pub provider: String,
     #[serde(default)]
+    pub planned_model: Option<String>,
+    #[serde(default)]
     pub model: Option<String>,
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
     #[serde(default)]
     pub task: Option<String>,
     #[serde(default)]
     pub agent_name: Option<String>,
     #[serde(default)]
     pub extra_args: Vec<String>,
+    #[serde(default, skip_deserializing)]
+    pub provisioned_cwd: Option<String>,
     #[serde(default)]
     pub role: Option<String>,
     #[serde(default)]
@@ -161,6 +168,8 @@ pub struct PaneHandle {
     pub worker_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_fallback: Option<ModelFallbackNotice>,
     /// Advisory workspace pane-budget nudge (task_4d649dfd). Set once the
     /// post-create workspace pane count crosses the soft budget. Never blocks.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -177,6 +186,15 @@ impl ServiceContext {
         spec: SpawnPaneSpec,
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> Result<PaneHandle, String> {
+        self.spawn_pane_with_ready_and_state_change(spec, ready_tx, true)
+    }
+
+    pub(crate) fn spawn_pane_with_ready_and_state_change(
+        &self,
+        spec: SpawnPaneSpec,
+        ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+        emit_state_change: bool,
+    ) -> Result<PaneHandle, String> {
         match (&spec.visibility, &spec.command) {
             (PaneVisibility::Visible, PaneCommand::Agent(_)) => {
                 self.spawn_visible_agent_impl(spec, ready_tx)
@@ -185,10 +203,10 @@ impl ServiceContext {
             (PaneVisibility::Visible, PaneCommand::Shell) => self.spawn_visible_shell_impl(spec),
             (PaneVisibility::Hidden, PaneCommand::Shell) => self.spawn_hidden_shell_impl(spec),
             (PaneVisibility::Visible, PaneCommand::ChatBackend { .. }) => {
-                self.spawn_chatbackend_impl(spec)
+                self.spawn_chatbackend_impl_with_state_change(spec, emit_state_change)
             }
             (PaneVisibility::Hidden, PaneCommand::ChatBackend { .. }) => {
-                self.spawn_chatbackend_impl(spec)
+                self.spawn_chatbackend_impl_with_state_change(spec, emit_state_change)
             }
         }
     }
@@ -204,6 +222,28 @@ pub(crate) fn validate_agent_model(
         let _ = crate::agent::model_catalog::resolve_model(provider_id, model);
     }
     Ok(())
+}
+
+/// Structurally validate a requested reasoning effort against the provider's
+/// declared capability. Empty/absent is always valid (no selection). An
+/// unsupported value returns the provider's structured rejection message and the
+/// caller aborts the spawn — never a silent downgrade. An unknown provider is an
+/// error too: we cannot honestly claim support we can't verify.
+pub(crate) fn validate_agent_reasoning_effort(
+    registry: &AgentRegistry,
+    provider_id: &str,
+    effort: Option<&str>,
+) -> Result<(), String> {
+    let Some(effort) = effort.map(str::trim).filter(|e| !e.is_empty()) else {
+        return Ok(());
+    };
+    match registry.with_provider(provider_id, |p| p.validate_reasoning_effort(Some(effort))) {
+        Some(Ok(())) => Ok(()),
+        Some(Err(rejection)) => Err(rejection.to_string()),
+        None => Err(format!(
+            "unknown provider '{provider_id}': cannot validate reasoning effort '{effort}'"
+        )),
+    }
 }
 
 impl ServiceContext {
@@ -233,14 +273,20 @@ impl ServiceContext {
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn] {}", warning);
         }
-        let model_resolution = resolve_fresh_agent_model_with_notice(
+        let mut model_resolution = resolve_fresh_agent_model_with_notice(
             &self.agent_registry,
             &agent_cmd,
             agent.model.clone(),
             agent.resume_session_id.as_deref(),
         );
-        let launch_model = model_resolution.model;
+        attach_planned_model(&mut model_resolution, agent.planned_model.as_deref());
+        let launch_model = model_resolution.model.clone();
         validate_agent_model(&self.agent_registry, &agent_cmd, launch_model.as_deref())?;
+        validate_agent_reasoning_effort(
+            &self.agent_registry,
+            &agent_cmd,
+            agent.reasoning_effort.as_deref(),
+        )?;
         if let Some(ref notice) = model_resolution.fallback_notice {
             self.create_notification(model_fallback_notice_title(notice), None, Some("warning"));
         }
@@ -290,6 +336,11 @@ impl ServiceContext {
             if let Some(ref dir) = resolved_cwd {
                 if let Some(pane) = mux.get_pane_mut(&result.1) {
                     pane.cwd = Some(dir.clone());
+                }
+            }
+            if let Some(ref provisioned_cwd) = agent.provisioned_cwd {
+                if let Some(pane) = mux.get_pane_mut(&result.1) {
+                    pane.provisioned_cwd = Some(provisioned_cwd.clone());
                 }
             }
             if let Some(pane) = mux.get_pane_mut(&result.1) {
@@ -365,14 +416,6 @@ impl ServiceContext {
         // Pin agent_type before launch so detect_from_output has a durable session-id source.
         // Missing this tag leaves Codex/OpenCode panes unresumable after restart.
         self.set_and_lock_pane_agent_type(&pane_id, agent_cmd.clone());
-        if agent
-            .role
-            .as_deref()
-            .and_then(|role| Self::parse_role(role).ok())
-            == Some(crate::multiplexer::types::AgentRole::Orchestrator)
-        {
-            self.maybe_deliver_orchestrator_promotion_onboarding(&pane_id, false);
-        }
         let launch_session_id = if agent.resume_session_id.is_none() {
             self.agent_registry
                 .with_provider(&agent_cmd, |p| p.session_id_injection())
@@ -386,10 +429,8 @@ impl ServiceContext {
         } else if let Some(ref sid) = launch_session_id {
             self.set_agent_session_id(&pane_id, Some(sid.clone()));
         }
-        if let Some(ref model) = launch_model {
-            if let Some(pane) = self.mux.write().get_pane_mut(&pane_id) {
-                pane.agent_session_model = Some(model.clone());
-            }
+        if let Some(pane) = self.mux.write().get_pane_mut(&pane_id) {
+            persist_model_launch_identity(pane, agent.planned_model.as_deref(), &model_resolution);
         }
         self.emit_state_changed();
 
@@ -421,6 +462,28 @@ impl ServiceContext {
                 &pane_id,
                 &resolved_cwd.clone().unwrap_or_default(),
             );
+        if let Some(task) = role_suffixed_task.as_deref().filter(|_| {
+            self.agent_registry
+                .with_provider(&agent_cmd, |provider| {
+                    matches!(
+                        crate::service::launch_delivery::mode_for_descriptor(
+                            &provider.system_prompt_delivery(),
+                        ),
+                        crate::service::launch_delivery::LaunchDeliveryMode::ConfirmedFallback
+                    )
+                })
+                .unwrap_or(true)
+        }) {
+            if let Err(error) = self.create_pending_delivery(
+                &pane_id,
+                crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
+                task,
+            ) {
+                let _ = self.mux.write().close_tab(&ws_id, &tab_id);
+                self.emit_state_changed();
+                return Err(error.to_string());
+            }
+        }
         let launch_cmd = build_agent_command(
             &agent_cmd,
             &legacy_params,
@@ -436,6 +499,7 @@ impl ServiceContext {
             launch_cmd,
             agent_cmd.clone(),
             role_suffixed_task,
+            None,
             ready_tx,
         );
 
@@ -448,6 +512,7 @@ impl ServiceContext {
             description: spec.description,
             worker_id: agent.worker_id.clone(),
             warning,
+            model_fallback: model_resolution.fallback_notice,
             budget_notice,
         })
     }
@@ -509,6 +574,7 @@ impl ServiceContext {
             description: spec.description,
             worker_id: None,
             warning,
+            model_fallback: None,
             budget_notice,
         })
     }
@@ -557,15 +623,9 @@ impl ServiceContext {
             crate::socket::server::socket_display_path(),
         );
         let api_cfg = crate::config::load_config().api;
-        let host = if api_cfg.host == "0.0.0.0" {
-            "127.0.0.1".to_string()
-        } else {
-            api_cfg.host.clone()
-        };
-        env_vars.insert(
-            "CODETERM_API_URL".into(),
-            format!("http://{}:{}", host, api_cfg.port),
-        );
+        let (api_url, api_port) = crate::config::api_callback_url(&api_cfg);
+        env_vars.insert("CODETERM_API_URL".into(), api_url);
+        env_vars.insert("CODETERM_API_PORT".into(), api_port);
         if let Some(ref tok) = api_cfg.token {
             env_vars.insert("CODETERM_API_TOKEN".into(), tok.clone());
         }
@@ -578,6 +638,7 @@ impl ServiceContext {
         if let Some(orphan) = self.mux.write().link_pty(&pane_id, pty_id.clone()) {
             self.kill_ptys(&[orphan]);
         }
+        crate::service::orchestrator::pane_relink_signal::notify_pane_relinked();
         self.emit_state_changed();
 
         let svc_reader = std::sync::Arc::new(self.clone());
@@ -610,6 +671,7 @@ impl ServiceContext {
             description: spec.description,
             worker_id: None,
             warning: None,
+            model_fallback: None,
             budget_notice,
         })
     }
@@ -633,13 +695,14 @@ impl ServiceContext {
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn.hidden] {}", warning);
         }
-        let model_resolution = resolve_fresh_agent_model_with_notice(
+        let mut model_resolution = resolve_fresh_agent_model_with_notice(
             &self.agent_registry,
             &agent.provider,
             agent.model.clone(),
             agent.resume_session_id.as_deref(),
         );
-        let launch_model = model_resolution.model;
+        attach_planned_model(&mut model_resolution, agent.planned_model.as_deref());
+        let launch_model = model_resolution.model.clone();
         validate_agent_model(
             &self.agent_registry,
             &agent.provider,
@@ -679,9 +742,11 @@ impl ServiceContext {
                 if let Some(ref dir) = resolved_cwd {
                     pane.cwd = Some(dir.clone());
                 }
-                if let Some(ref model) = launch_model {
-                    pane.agent_session_model = Some(model.clone());
-                }
+                persist_model_launch_identity(
+                    pane,
+                    agent.planned_model.as_deref(),
+                    &model_resolution,
+                );
                 if let Some(ref rtid) = agent.report_target_pane_id {
                     pane.report_target_pane_id = Some(rtid.clone());
                 }
@@ -723,17 +788,24 @@ impl ServiceContext {
             crate::socket::server::socket_display_path(),
         );
         let api_cfg = crate::config::load_config().api;
-        let host = if api_cfg.host == "0.0.0.0" {
-            "127.0.0.1".to_string()
-        } else {
-            api_cfg.host.clone()
-        };
-        env_vars.insert(
-            "CODETERM_API_URL".into(),
-            format!("http://{}:{}", host, api_cfg.port),
-        );
-        if let Some(ref tok) = api_cfg.token {
-            env_vars.insert("CODETERM_API_TOKEN".into(), tok.clone());
+        let (api_url, api_port) = crate::config::api_callback_url(&api_cfg);
+        env_vars.insert("CODETERM_API_URL".into(), api_url);
+        env_vars.insert("CODETERM_API_PORT".into(), api_port);
+        match api_cfg.token {
+            Some(ref tok) if !tok.is_empty() => {
+                log::debug!(
+                    "[spawn-token] pane={} injecting CODETERM_API_TOKEN {}",
+                    pane_id,
+                    crate::api::auth::token_fp(tok)
+                );
+                env_vars.insert("CODETERM_API_TOKEN".into(), tok.clone());
+            }
+            _ => {
+                log::warn!(
+                    "[spawn-token] pane={} NO api token from load_config — CODETERM_API_TOKEN unset",
+                    pane_id
+                );
+            }
         }
         for (k, v) in &agent.extra_env {
             env_vars.insert(k.clone(), v.clone());
@@ -749,6 +821,7 @@ impl ServiceContext {
         if let Some(orphan) = self.mux.write().link_pty(&pane_id, pty_id.clone()) {
             self.kill_ptys(&[orphan]);
         }
+        crate::service::orchestrator::pane_relink_signal::notify_pane_relinked();
         self.agent_run_pty_map
             .lock()
             .insert(pane_id.clone(), pty_id.clone());
@@ -855,7 +928,8 @@ impl ServiceContext {
                 .unwrap_or_default();
             let launch_params = crate::agent::provider::AgentLaunchParams {
                 agent_name: None,
-                task: task_for_thread,
+                task: task_for_thread.clone(),
+                starter_prompt: Default::default(),
                 args: if model_args.is_empty() {
                     None
                 } else {
@@ -872,21 +946,48 @@ impl ServiceContext {
             };
             let launch_cmd = svc_outer
                 .agent_registry
-                .with_provider(&provider, |p| p.build_launch_command(&launch_params))
+                .with_provider(&provider, |p| {
+                    crate::agent::stub_launch::apply(
+                        &provider,
+                        p.build_launch_command(&launch_params),
+                    )
+                })
                 .unwrap_or_else(|| format!("{} --dangerously-skip-permissions", provider));
+            crate::service::launch_diagnostics::log_launch(
+                "hidden_agent",
+                &pane_id_outer,
+                &provider,
+                &launch_cmd,
+                task_for_thread.as_deref(),
+            );
 
             match svc_outer.resolve_pty_id(&pane_id_outer) {
                 Ok(pty_id) => {
                     if let Err(e) = svc_outer.send_shell_spawn(&pty_id, &launch_cmd) {
                         log::error!("[spawn.hidden] shell spawn failed: {}", e);
                     } else if let Some(ref task_text) = pty_input_task {
-                        deliver_hidden_pty_task(
+                        if let Err(e) = deliver_hidden_pty_task(
                             &svc_outer,
                             &pty_id,
                             &pane_id_outer,
                             &provider,
                             task_text,
-                        );
+                        ) {
+                            log::error!(
+                                "[spawn.hidden] task delivery failed for pane {}: {}",
+                                pane_id_outer,
+                                e
+                            );
+                            svc_outer.run_watcher.fail_now(
+                                &svc_outer,
+                                &pty_id,
+                                format!("task delivery failed: {e}"),
+                            );
+                        } else {
+                            svc_outer.run_watcher.arm(&pty_id);
+                        }
+                    } else {
+                        svc_outer.run_watcher.arm(&pty_id);
                     }
                 }
                 Err(e) => log::error!("[spawn.hidden] no pty for pane {}: {}", pane_id_outer, e),
@@ -907,6 +1008,7 @@ impl ServiceContext {
             description: spec.description,
             worker_id: agent.worker_id.clone(),
             warning: cli_warning,
+            model_fallback: model_resolution.fallback_notice,
             budget_notice,
         })
     }

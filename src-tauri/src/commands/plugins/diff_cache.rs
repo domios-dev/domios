@@ -1,6 +1,6 @@
 use serde_json::Value;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 const DIFF_REFRESH_AFTER: Duration = Duration::from_secs(300);
@@ -133,8 +133,8 @@ pub(super) fn refresh_diff_now(produce: fn() -> Result<Value, String>) -> Value 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
+    use std::sync::Arc;
 
     // fully isolated and run the refresh inline (deterministic, no leaked threads).
     fn producer(calls: Arc<AtomicUsize>) -> impl Fn() -> Result<Value, String> + Send + 'static {

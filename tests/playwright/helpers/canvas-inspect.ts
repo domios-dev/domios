@@ -166,6 +166,7 @@ export async function seedPerfFixtureAndOpenInlineCanvas(
   browser: Browser,
   api: ApiClient,
   taskCount = 24,
+  fixtureProfile?: string,
 ): Promise<{ page: Page; workspaceId: string; close: () => Promise<void> }> {
   const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), "codeterm-canvas-perf-"));
   await api.createWorkspace("canvas perf gate", projectPath);
@@ -173,7 +174,7 @@ export async function seedPerfFixtureAndOpenInlineCanvas(
   if (!workspace) throw new Error("perf workspace was not listed");
   await api.focusWorkspace(workspace.id);
   await closeWorkspaceTabs(api, workspace.id);
-  const session = await openCanvasWebPage(browser, { perfFixtureN: taskCount });
+  const session = await openCanvasWebPage(browser, { perfFixtureN: taskCount, perfFixtureProfile: fixtureProfile });
   await focusWorkspaceForCanvas(api, session.page, workspace.id);
   await openInlineWorkspaceCanvas(session.page, workspace.id);
   return {
@@ -187,7 +188,7 @@ async function waitForBoardSurface(page: Page): Promise<void> {
   await page.locator(PLAN_SURFACE_OR_EMPTY_SEL).first().waitFor({ state: "visible", timeout: 30_000 });
   await waitForVisiblePlanCanvas(page).catch(() => {});
   await page.locator(CANVAS_BOARD_OR_EMPTY_SEL).first().waitFor({ state: "visible", timeout: 30_000 });
-  await page.waitForTimeout(450);
+  await waitForCanvasSettled(page);
 }
 
 async function switchPlanSurfaceToCanvas(page: Page): Promise<void> {
@@ -195,6 +196,47 @@ async function switchPlanSurfaceToCanvas(page: Page): Promise<void> {
   if (!(await shell.isVisible().catch(() => false))) return;
   const canvasTab = shell.locator('[data-testid="plan-view-mode-switch"]').getByRole("tab", { name: /canvas/i });
   if (await canvasTab.isVisible().catch(() => false)) await canvasTab.click();
+}
+
+// Settled = projected geometry stops changing across consecutive rAF frames.
+export async function waitForCanvasSettled(page: Page, timeoutMs = 1_500, stableFrames = 3): Promise<void> {
+  await page.evaluate(() => {
+    delete (window as unknown as { __ctCanvasSettle?: unknown }).__ctCanvasSettle;
+  });
+  await page
+    .waitForFunction(
+      (needed) => {
+        const w = window as unknown as {
+          __codetermCanvasScene?: {
+            list: () => string[];
+            get: (slot: string) => {
+              projectedBoxes: () => Array<{
+                screenBox: { x?: number; y?: number; left?: number; top?: number; width: number; height: number };
+              }>;
+            } | null;
+          };
+          __ctCanvasSettle?: { prev: string; stable: number };
+        };
+        const reg = w.__codetermCanvasScene;
+        const parts: string[] = [];
+        for (const slot of reg?.list() ?? []) {
+          for (const b of reg?.get(slot)?.projectedBoxes() ?? []) {
+            const sb = b.screenBox;
+            parts.push(
+              `${Math.round(sb.left ?? sb.x ?? 0)},${Math.round(sb.top ?? sb.y ?? 0)},${Math.round(sb.width)},${Math.round(sb.height)}`,
+            );
+          }
+        }
+        const snap = parts.join(";");
+        const st = (w.__ctCanvasSettle ??= { prev: "", stable: 0 });
+        st.stable = snap === st.prev ? st.stable + 1 : 0;
+        st.prev = snap;
+        return st.stable >= needed;
+      },
+      stableFrames,
+      { timeout: timeoutMs, polling: "raf" },
+    )
+    .catch(() => {}); // matches old fixed-sleep semantics: settle is best-effort, assertions decide
 }
 
 export async function readbackRenderNodes(page: Page): Promise<RenderReadbackNode[]> {
@@ -268,7 +310,7 @@ export async function openPanePlanCanvas(page: Page, paneId?: string): Promise<v
   await expect(page.locator('[data-testid="pane-plan-overlay"]')).toHaveCount(0);
   await waitForVisiblePlanCanvas(page);
   await page.locator(CANVAS_BOARD_OR_EMPTY_SEL).first().waitFor({ state: "visible", timeout: 30_000 });
-  await page.waitForTimeout(450);
+  await waitForCanvasSettled(page);
 }
 
 export async function closePanePlanCanvas(page: Page, _paneId?: string): Promise<void> {
@@ -276,7 +318,7 @@ export async function closePanePlanCanvas(page: Page, _paneId?: string): Promise
   if ((await btn.count()) > 0 && (await btn.getAttribute("aria-pressed")) === "true") {
     await btn.click({ force: true }).catch(() => {});
   }
-  await page.waitForTimeout(150);
+  await waitForCanvasSettled(page, 1_000);
   await expect(page.locator('[data-testid="pane-plan-overlay"]')).toHaveCount(0);
 }
 
@@ -312,6 +354,8 @@ export async function openWorkspaceCanvasOverlay(page: Page): Promise<void> {
   const btn = page.locator('[data-testid="canvas-toolbar-button"]');
   await btn.waitFor({ state: "visible", timeout: 10_000 });
   if ((await btn.getAttribute("aria-pressed")) !== "true") await btn.click();
+  await page.locator(PLAN_SURFACE_OR_EMPTY_SEL).first().waitFor({ state: "visible", timeout: 30_000 });
+  await switchPlanSurfaceToCanvas(page);
   await waitForVisiblePlanCanvas(page);
   await waitForBoardSurface(page);
 }
@@ -339,6 +383,8 @@ export async function ensureCanvasBoard(page: Page): Promise<void> {
       }
     }
   }
+  await page.locator(PLAN_SURFACE_OR_EMPTY_SEL).first().waitFor({ state: "visible", timeout: 30_000 });
+  await switchPlanSurfaceToCanvas(page);
   await waitForVisiblePlanCanvas(page);
   await waitForBoardSurface(page);
 }
@@ -367,7 +413,7 @@ export async function panBy(page: Page, dx: number, dy: number): Promise<void> {
   if (!box) return;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.wheel(dx, dy);
-  await page.waitForTimeout(140);
+  await waitForCanvasSettled(page, 1_000);
 }
 
 // modifiers, so dispatch a real WheelEvent with ctrlKey on the pan container.
@@ -389,7 +435,7 @@ export async function zoomBy(page: Page, deltaY: number): Promise<void> {
       }),
     );
   }, deltaY);
-  await page.waitForTimeout(140);
+  await waitForCanvasSettled(page, 1_000);
 }
 
 async function dispatchZoom(page: Page, anchorSel: string | null, deltaY: number): Promise<void> {
@@ -411,7 +457,7 @@ async function dispatchZoom(page: Page, anchorSel: string | null, deltaY: number
       }),
     );
   }, { anchorSel, deltaY });
-  await page.waitForTimeout(150);
+  await waitForCanvasSettled(page, 1_000);
 }
 
 export async function zoomTowardTask(page: Page, taskId: string, deltaY: number): Promise<void> {
@@ -425,7 +471,6 @@ export async function setCanvasScaleOn(page: Page, anchorSel: string, targetScal
     if (Math.abs(current - targetScale) < 0.02) return;
     const deltaY = -Math.log(targetScale / current) / ZOOM_INTENSITY;
     await dispatchZoom(page, anchorSel, deltaY);
-    await page.waitForTimeout(30);
   }
 }
 
@@ -442,7 +487,7 @@ export async function focusTaskById(page: Page, taskId: string, scale?: number):
       body: JSON.stringify(scale != null ? { task_id: id, scale } : { task_id: id }),
     });
   }, { id: taskId, scale });
-  await page.waitForTimeout(700);
+  await waitForCanvasSettled(page, 2_000);
 }
 
 // (else the first) — a stable probe without needing a card already on-screen.
@@ -484,7 +529,7 @@ export async function fitToView(page: Page): Promise<void> {
   await closePanePlanCanvas(page);
   await strip.click({ force: true });
   await waitForVisiblePlanCanvas(page, 15_000);
-  await page.waitForTimeout(400);
+  await waitForCanvasSettled(page);
 }
 
 export async function focusFirstNode(page: Page, testid = "canvas-task-card"): Promise<void> {
@@ -492,7 +537,7 @@ export async function focusFirstNode(page: Page, testid = "canvas-task-card"): P
   if ((await node.count()) === 0) return;
   await node.scrollIntoViewIfNeeded().catch(() => {});
   await node.hover().catch(() => {});
-  await page.waitForTimeout(120);
+  await waitForCanvasSettled(page, 800);
 }
 
 export async function collectBoxes(page: Page, testid: string): Promise<NodeBox[]> {
@@ -662,7 +707,7 @@ export async function setCanvasScale(page: Page, targetScale: number): Promise<v
         }),
       );
     }, { currentScale: current, nextScale: targetScale, intensity: ZOOM_INTENSITY });
-    await page.waitForTimeout(180);
+    await waitForCanvasSettled(page, 1_000);
   }
 }
 

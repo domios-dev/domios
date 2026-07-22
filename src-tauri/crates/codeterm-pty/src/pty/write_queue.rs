@@ -1,9 +1,11 @@
 use std::io::Write;
 use std::sync::mpsc;
 use std::sync::Mutex;
+use std::time::Duration;
 
 pub struct WriteRequest {
     pub data: Vec<u8>,
+    completed: Option<mpsc::SyncSender<Result<(), String>>>,
 }
 
 pub struct WriteQueue {
@@ -16,12 +18,15 @@ impl WriteQueue {
 
         std::thread::spawn(move || {
             while let Ok(req) = receiver.recv() {
-                if let Err(e) = writer.write_all(&req.data) {
-                    log::warn!("PTY write failed: {}", e);
-                    break;
+                let result = writer
+                    .write_all(&req.data)
+                    .and_then(|()| writer.flush())
+                    .map_err(|error| error.to_string());
+                if let Some(completed) = req.completed {
+                    let _ = completed.send(result.clone());
                 }
-                if let Err(e) = writer.flush() {
-                    log::warn!("PTY flush failed: {}", e);
+                if let Err(error) = result {
+                    log::warn!("PTY write failed: {error}");
                     break;
                 }
             }
@@ -37,8 +42,27 @@ impl WriteQueue {
         sender
             .as_ref()
             .ok_or_else(|| "PTY write channel closed".to_string())?
-            .send(WriteRequest { data })
+            .send(WriteRequest {
+                data,
+                completed: None,
+            })
             .map_err(|_| "PTY write channel closed".to_string())
+    }
+
+    pub fn send_and_wait(&self, data: Vec<u8>, timeout: Duration) -> Result<(), String> {
+        let (completed, receiver) = mpsc::sync_channel(0);
+        let sender = self.sender.lock().map_err(|error| error.to_string())?;
+        sender
+            .as_ref()
+            .ok_or_else(|| "PTY write channel closed".to_string())?
+            .send(WriteRequest {
+                data,
+                completed: Some(completed),
+            })
+            .map_err(|_| "PTY write channel closed".to_string())?;
+        receiver
+            .recv_timeout(timeout)
+            .map_err(|_| "PTY write acknowledgement timed out".to_string())?
     }
 
     pub fn close(&self) {

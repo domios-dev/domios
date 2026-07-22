@@ -12,6 +12,7 @@ export function CanvasButton({ active }: CanvasButtonProps) {
       type="button"
       data-testid="canvas-toolbar-button"
       onClick={() => canvasFocusStore.toggleWorkspace(active)}
+      aria-label={active ? "Close workspace canvas" : "Open workspace canvas"}
       title={active ? "Close workspace canvas" : "Open workspace canvas"}
       className={`${UI_TRAY_BTN} ${active ? "text-[var(--ct-accent)]" : ""}`}
       aria-pressed={active}

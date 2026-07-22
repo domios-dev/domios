@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { ComposerPlanActivityStrip } from "./ComposerPlanActivityStrip";
 import type { PaneComposerActivity } from "../Canvas/paneComposerActivity";
+import type { PlanAttachment } from "../Canvas/types";
 
 let passed = 0;
 let failed = 0;
@@ -43,7 +44,7 @@ const ORCH: PaneComposerActivity = {
   extraPlans: 1,
 };
 
-const WORK: PaneComposerActivity = {
+const WORK: Extract<PaneComposerActivity, { kind: "working" }> = {
   kind: "working",
   planId: "pl_hidden",
   planTitle: "Canvas v2 — the full build (dogfood)",
@@ -57,6 +58,11 @@ const PLAN: PaneComposerActivity = {
   planId: "pl_hidden",
   planTitle: "Canvas v2 — the full build (dogfood)",
 };
+
+const ATTACHMENTS: PlanAttachment[] = [
+  { id: "a1", name: "acceptance-notes.md", path: "acceptance-notes.md", media_type: "text/markdown", size_bytes: 42, created_at: 1 },
+  { id: "a2", name: "blocked-screenshot.png", path: "blocked-screenshot.png", media_type: "image/png", size_bytes: 42, created_at: 1 },
+];
 
 async function run() {
   setupDom();
@@ -108,6 +114,31 @@ async function run() {
     ok("no raw plan id in visible text", !strip?.textContent?.includes("pl_hidden"));
     await act(async () => { strip?.click(); });
     ok("planning click fires onOpen (opens plan)", clicks === 1);
+    await act(async () => root.unmount());
+  }
+
+  {
+    const { host, root } = await render(
+      <ComposerPlanActivityStrip
+        activity={WORK}
+        taskStatus="blocked"
+        nextAction="Resolve blocker"
+        attachments={ATTACHMENTS}
+        detailText="The worker is blocked on the review decision."
+      />,
+    );
+    const strip = host.querySelector('[data-testid="composer-plan-activity-strip"]');
+    ok("blocked state remains visible", host.querySelector('[data-testid="composer-current-task"]')?.textContent === "blocked");
+    ok("next action remains visible", host.querySelector('[data-testid="composer-next-action"]')?.textContent === "Next: Resolve blocker");
+    ok("attachment capsules render", host.querySelectorAll('[data-testid="composer-plan-attachment"]').length === 2);
+    const expand = host.querySelector('[data-testid="composer-plan-expand"]') as HTMLButtonElement | null;
+    ok("expand control is accessible", expand?.getAttribute("aria-label") === "Expand full plan reminder");
+    await act(async () => { expand?.click(); });
+    ok("expanded details render", host.querySelector('[data-testid="composer-plan-details"]')?.textContent?.includes("blocked-screenshot.png") === true);
+    ok("expanded details preserve task identity", host.querySelector('[data-testid="composer-plan-details"]')?.textContent?.includes(WORK.taskTitle) === true);
+    ok("expanded details preserve blocker text", host.querySelector('[data-testid="composer-plan-details"]')?.textContent?.includes("blocked on the review decision") === true);
+    ok("collapse state is announced", host.querySelector('[data-testid="composer-plan-expand"]')?.getAttribute("aria-label") === "Collapse full plan reminder");
+    ok("compact summary has full accessible label", strip?.getAttribute("aria-label")?.includes(WORK.taskTitle) === true);
     await act(async () => root.unmount());
   }
 

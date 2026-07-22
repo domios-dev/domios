@@ -5,7 +5,7 @@
 #
 # -Installer  Absolute path to CodeTerm_X.Y.Z_x64-setup.exe.
 # -Resume     If set, launches codeterm again after install completes.
-#             (Auto-resume of pane sessions is a separate concern handled by
+#             (Auto-resume of tab sessions is a separate concern handled by
 #             codeterm's own SessionStart hook; see learning_auto_resume_*.)
 
 param(

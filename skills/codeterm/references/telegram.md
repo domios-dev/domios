@@ -19,8 +19,8 @@ Connect a Telegram bot to the General Agent. CodeTerm handles inbound routing; t
 
 ## How it works
 
-- **Inbound** (Telegram → Agent): messages arrive as `[Telegram: user_id] text` in the GA pane. Messages within 300ms are debounced into one delivery. Typing indicator is sent automatically.
-- **Outbound** (Agent → Telegram): `codeterm bridge send` from any pane, not just GA.
+- **Inbound** (Telegram → Agent): messages arrive as `[Telegram: user_id] text` in the GA tab. Messages within 300ms are debounced into one delivery. Typing indicator is sent automatically.
+- **Outbound** (Agent → Telegram): `codeterm bridge send` from any tab, not just GA.
 - UTF-8 safe: chunks Cyrillic/emoji/multi-byte correctly.
 - Resilient: auto-restarts polling after 5 seconds on failure.
 

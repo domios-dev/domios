@@ -1,6 +1,7 @@
 mod client;
 mod cmd;
 mod mesh_cli;
+mod stdout;
 
 use cmd::print::{handle_result, print_human, print_object};
 
@@ -210,6 +211,7 @@ pub use args::sessions::SessionsAction;
 pub use args::spec::SpecAction;
 pub use args::system::SystemAction;
 pub use args::task::{CanvasAction, TaskAction};
+pub use args::team::TeamAction;
 pub use args::update::UpdateAction;
 pub use args::usage::UsageAction;
 
@@ -219,7 +221,11 @@ pub use args::usage::UsageAction;
 /// This ensures commands like `pane split` always target the caller's pane,
 /// not whatever pane the user happens to have focused.
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
+    stdout::run(main_impl);
+}
+
+fn main_impl() {
+    let args: Vec<String> = normalize_agent_spawn_label_args(std::env::args().collect());
     let cli = Cli::try_parse_from(&args).unwrap_or_else(|e| {
         if is_plan_dash_leading_text_error(&args, &e) {
             println!(
@@ -249,7 +255,7 @@ fn main() {
         return;
     }
 
-    if let Some(ref mesh_target) = cli.mesh {
+    if let Some(mesh_target) = cli.mesh.clone() {
         // Secrets are local-only — refuse to proxy them across the mesh. Cross-mesh secret access needs a trust model we haven't designed yet.
         if matches!(
             cli.command,
@@ -274,7 +280,7 @@ fn main() {
             );
             std::process::exit(6);
         }
-        mesh_cli::run_via_mesh(&cli, mesh_target);
+        mesh_cli::run_via_mesh(cli, &mesh_target);
         return;
     }
 
@@ -440,6 +446,11 @@ fn main() {
             }
         }
 
+        Commands::Team { action } => {
+            cmd::team::handle(&mut client, cli.json, action);
+            return;
+        }
+
         Commands::Orchestrator { action } => {
             match cmd::orchestrator::handle(&mut client, cli.json, action) {
                 Ok(Some(value)) => Ok(value),
@@ -456,7 +467,7 @@ fn main() {
             }
         }
 
-        Commands::Pane { action } => {
+        Commands::Tab { action } => {
             cmd::pane::handle_pane(&mut client, cli.json, action);
             return;
         }
@@ -747,7 +758,7 @@ fn main() {
                 return;
             }
             let json_mode = cli.json;
-            cmd::mem::handle_mem(json_mode, action);
+            cmd::mem::handle_mem(&mut client, json_mode, action);
             return;
         }
         Commands::Sessions { action } => {
@@ -807,6 +818,75 @@ fn main() {
     handle_result(cli.json, result);
 }
 
+fn normalize_agent_spawn_label_args(args: Vec<String>) -> Vec<String> {
+    let Some(spawn_idx) = args
+        .windows(2)
+        .position(|pair| pair[0] == "agent" && pair[1] == "spawn")
+    else {
+        return args;
+    };
+
+    let mut out = Vec::with_capacity(args.len());
+    out.extend_from_slice(&args[..spawn_idx + 2]);
+    let mut i = spawn_idx + 2;
+    while i < args.len() {
+        let arg = &args[i];
+        if arg == "--title" || arg == "--description" {
+            let flag = arg.clone();
+            i += 1;
+            let start = i;
+            let mut words = Vec::new();
+            while i < args.len() && !is_agent_spawn_flag(&args[i]) {
+                words.push(args[i].clone());
+                i += 1;
+            }
+            if words.is_empty() {
+                out.push(flag);
+            } else {
+                out.push(format!("{flag}={}", words.join(" ")));
+            }
+            if i == start {
+                continue;
+            }
+        } else {
+            out.push(arg.clone());
+            i += 1;
+        }
+    }
+    out
+}
+
+fn is_agent_spawn_flag(arg: &str) -> bool {
+    matches!(
+        arg,
+        "--title"
+            | "--description"
+            | "--cwd"
+            | "--role"
+            | "--parent-tab"
+            | "--plan"
+            | "--report-to"
+            | "--can-spawn"
+            | "--task"
+            | "--task-file"
+            | "--args"
+            | "--workspace"
+            | "--model"
+            | "--system"
+            | "--preset"
+            | "--charter"
+            | "--charter-file"
+            | "--interval"
+            | "--nudge-cooldown"
+            | "--max-actions"
+            | "--allow-shared-checkout"
+            | "--task-id"
+            | "--plan-task"
+            | "--"
+    ) || arg.starts_with("--title=")
+        || arg.starts_with("--description=")
+}
+
 fn is_plan_dash_leading_text_error(args: &[String], _err: &clap::Error) -> bool {
     args.iter().any(|arg| arg == "plan")
         && args.iter().skip(1).any(|arg| {
@@ -843,6 +923,113 @@ mod plan_cli_error_tests {
             Err(err) => err,
         };
         assert!(is_plan_dash_leading_text_error(&args, &err));
+    }
+
+    #[test]
+    fn normalizes_agent_spawn_unquoted_label_words() {
+        let args = normalize_agent_spawn_label_args(
+            [
+                "codeterm",
+                "agent",
+                "spawn",
+                "claude",
+                "--title",
+                "perf",
+                "brainstorm",
+                "opus",
+                "--task",
+                "review",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        );
+        assert!(args.contains(&"--title=perf brainstorm opus".to_string()));
+        let cli = Cli::try_parse_from(args).expect("normalized spawn parses");
+        match cli.command {
+            Commands::Agent {
+                action:
+                    AgentAction::Spawn {
+                        title, task, agent, ..
+                    },
+            } => {
+                assert_eq!(agent, "claude");
+                assert_eq!(
+                    title.map(|parts| parts.join(" ")).as_deref(),
+                    Some("perf brainstorm opus")
+                );
+                assert_eq!(task.as_deref(), Some("review"));
+            }
+            _ => panic!("expected agent spawn"),
+        }
+    }
+
+    #[test]
+    fn normalizes_agent_spawn_dash_leading_label_without_eating_known_flags() {
+        let args = normalize_agent_spawn_label_args(
+            [
+                "codeterm",
+                "agent",
+                "spawn",
+                "claude",
+                "--title",
+                "--literal",
+                "flag",
+                "--task",
+                "echo",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        );
+        assert!(args.contains(&"--title=--literal flag".to_string()));
+        let cli = Cli::try_parse_from(args).expect("normalized dash-leading title parses");
+        match cli.command {
+            Commands::Agent {
+                action: AgentAction::Spawn { title, task, .. },
+            } => {
+                assert_eq!(
+                    title.map(|parts| parts.join(" ")).as_deref(),
+                    Some("--literal flag")
+                );
+                assert_eq!(task.as_deref(), Some("echo"));
+            }
+            _ => panic!("expected agent spawn"),
+        }
+    }
+
+    #[test]
+    fn normalizes_agent_spawn_marker_label_without_treating_it_as_a_flag() {
+        let args = normalize_agent_spawn_label_args(
+            [
+                "codeterm",
+                "agent",
+                "spawn",
+                "claude",
+                "--title",
+                "-=-codeterm:pane",
+                "label=main-=-",
+                "--task",
+                "echo",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        );
+        assert!(args.contains(&"--title=-=-codeterm:pane label=main-=-".to_string()));
+        let cli = Cli::try_parse_from(args).expect("normalized marker title parses");
+        match cli.command {
+            Commands::Agent {
+                action: AgentAction::Spawn { title, task, .. },
+            } => {
+                assert_eq!(
+                    title.map(|parts| parts.join(" ")).as_deref(),
+                    Some("-=-codeterm:pane label=main-=-")
+                );
+                assert_eq!(task.as_deref(), Some("echo"));
+            }
+            _ => panic!("expected agent spawn"),
+        }
     }
 }
 

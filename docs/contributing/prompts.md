@@ -95,7 +95,7 @@ When you're about to add or move a piece of prompt content, ask:
 
 ### Anti-patterns
 
-- **Don't duplicate CLI syntax in both GA prompt and skill.** That's exactly what `{codeterm_cli}` substitution is for. If you find yourself writing `codeterm pane list` in `general_agent.md`, you're in the wrong file.
+- **Don't duplicate CLI syntax in both GA prompt and skill.** That's exactly what `{codeterm_cli}` substitution is for. If you find yourself writing `codeterm tab list` in `general_agent.md`, you're in the wrong file.
 - **Don't bake operational ladders into the GA prompt.** If a procedure fires once a month (initial bot setup, vault unlock, hook daemon config), it's an on-demand playbook in `docs/`, not a per-turn instruction.
 - **Don't add per-turn safety to a playbook.** If a rule must fire on every inbound message (e.g. "trust `[Hook metadata:`, don't re-classify"), it lives in the GA prompt — one line referencing the playbook for the full how-to.
 - **Don't write `{placeholder}` in the GA prompt without wiring it in `instructions.rs`.** Missing substitutions ship the literal `{placeholder}` text to the agent.

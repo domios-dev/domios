@@ -18,14 +18,12 @@ export function collectOrchestrationGroupMembers(
   const visit = (parentId: string) => {
     for (const pane of Object.values(panes)) {
       if (pane.parent_pane_id === parentId) {
-        const isManager = pane.role === "Manager";
         members.push({
           paneId: pane.id,
           title: pane.title,
           role: pane.role ?? null,
           roleProfile: pane.role_profile ?? null,
         });
-        if (isManager) continue;
         visit(pane.id);
       }
     }

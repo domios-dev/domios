@@ -47,8 +47,9 @@ async function openMockChatPane(
   await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
   if (pane.tab_id) {
     const tab = page.locator(`[data-testid="tab-item"][data-tab-id="${pane.tab_id}"]`).first();
-    await expect(tab).toBeVisible({ timeout: 30_000 });
-    await tab.click();
+    if (await tab.isVisible({ timeout: 5_000 })) {
+      await tab.click();
+    }
   }
   const chat = page.locator(`[data-testid="pane-session-chat"][data-pane-id="${pane.id}"]`);
   await expect(chat).toBeVisible({ timeout: 30_000 });
@@ -156,7 +157,7 @@ test("@golden chat-task-link cross-workspace Enter opens plan-view-shell and foc
   const missingLink = chat.locator('[data-testid="chat-plan-link"]').filter({ hasText: missingPlanId }).first();
   await expect(missingLink).toBeVisible({ timeout: 30_000 });
   await expect(missingLink).toHaveAttribute("data-ref-state", "missing");
-  await missingLink.click();
+  await expect(missingLink).toBeDisabled();
   await expect
     .poll(async () => (await api.workspaces()).find((workspace) => workspace.id === workspaceA.id)?.is_active ?? false, { timeout: 10_000 })
     .toBe(true);

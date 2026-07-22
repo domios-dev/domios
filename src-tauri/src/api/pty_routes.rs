@@ -151,8 +151,14 @@ pub async fn pty_resize(
             return Ok(Json(serde_json::json!({"ok": true, "ignored": true})));
         }
     }
-    crate::commands::resize_pty_core(&state.svc.pty, pty_id, body.cols, body.rows)
-        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+    crate::commands::resize_pty_core(
+        &state.svc.pty,
+        &state.svc.screen_state,
+        pty_id,
+        body.cols,
+        body.rows,
+    )
+    .map_err(|e| (StatusCode::NOT_FOUND, e))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 

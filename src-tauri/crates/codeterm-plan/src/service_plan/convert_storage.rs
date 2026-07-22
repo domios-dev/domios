@@ -7,7 +7,7 @@ use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use super::{body_files, paths, store_v2, tag_model};
+use super::{body_files, migration_backup, paths, store_v2, tag_model};
 
 #[derive(Debug)]
 pub struct ConvertError {
@@ -34,12 +34,14 @@ pub struct Args {
     pub project: PathBuf,
     pub dry_run: bool,
     pub plan_id: Option<String>,
+    pub restore_plan_id: Option<String>,
 }
 
 pub fn parse_args() -> Result<Args, String> {
     let mut project = std::env::current_dir().map_err(|e| e.to_string())?;
     let mut dry_run = false;
     let mut plan_id = None;
+    let mut restore_plan_id = None;
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -49,6 +51,9 @@ pub fn parse_args() -> Result<Args, String> {
             "--dry-run" => dry_run = true,
             "--plan-id" => {
                 plan_id = Some(it.next().ok_or("--plan-id needs value")?);
+            }
+            "--restore-plan-id" => {
+                restore_plan_id = Some(it.next().ok_or("--restore-plan-id needs value")?);
             }
             "--help" | "-h" => {
                 print_usage();
@@ -61,6 +66,7 @@ pub fn parse_args() -> Result<Args, String> {
         project,
         dry_run,
         plan_id,
+        restore_plan_id,
     })
 }
 
@@ -74,6 +80,7 @@ fn print_usage() {
          Options:\n\
            --project <path>   project root (default: cwd)\n\
            --plan-id <id>     convert one plan only\n\
+           --restore-plan-id <id>  restore a pre-v2 snapshot after plan loss\n\
            --dry-run          write + deep-compare, never delete legacy files\n\
            --help             show this help\n\
          \n\
@@ -83,6 +90,23 @@ fn print_usage() {
 
 pub fn run(args: Args) -> Result<(), ConvertError> {
     let project_root = paths::project_root(&args.project);
+    if let Some(plan_id) = args.restore_plan_id {
+        if args.plan_id.is_some() || args.dry_run {
+            return Err(ConvertError {
+                plan_id,
+                plan_dir: project_root,
+                message: "--restore-plan-id cannot be combined with conversion options".into(),
+            });
+        }
+        let restored =
+            migration_backup::restore(&project_root, &plan_id).map_err(|e| ConvertError {
+                plan_id: plan_id.clone(),
+                plan_dir: migration_backup::backup_dir(&project_root, &plan_id),
+                message: format!("restore failed: {e}"),
+            })?;
+        eprintln!("[convert] restored {plan_id} to {}", restored.display());
+        return Ok(());
+    }
     let plans = discover_legacy_plan_dirs(&project_root, args.plan_id.as_deref()).map_err(|e| {
         ConvertError {
             plan_id: String::new(),
@@ -371,6 +395,14 @@ pub fn convert_plan_dir(
         return Ok(());
     }
 
+    migration_backup::create_backup(project_root, &plan_id, plan_dir).map_err(|e| {
+        ConvertError {
+            plan_id: plan_id.clone(),
+            plan_dir: plan_dir.to_path_buf(),
+            message: format!("recovery snapshot failed: {e}"),
+        }
+    })?;
+
     remove_legacy_artifacts(plan_dir, &legacy).map_err(|e| ConvertError {
         plan_id: plan_id.clone(),
         plan_dir: plan_dir.to_path_buf(),
@@ -439,7 +471,7 @@ pub fn bucket_status(plan_dir: &Path) -> PlanStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plan::{Goal, OrchestratorRef, TaskStatus};
+    use crate::plan::{Goal, OrchestratorRef, PlanStatus};
     use crate::service_plan::{NewTask, PlanStore};
 
     fn legacy_fixture_plan(dir: &Path) -> Plan {
@@ -569,5 +601,30 @@ mod tests {
         assert!(!plan_dir.join("tasks/ship-it.md").exists());
         assert!(stride_path.is_file());
         assert!(plan_dir.join("tasks/ship-it.yaml").is_file());
+    }
+
+    #[test]
+    fn active_plan_can_be_restored_from_its_pre_migration_snapshot() {
+        let dir = tempfile::tempdir().unwrap();
+        let plan = legacy_fixture_plan(dir.path());
+        let plan_dir = dir
+            .path()
+            .join(format!(".codeterm/plans/active/{}", plan.id));
+
+        convert_plan_dir(&plan_dir, dir.path(), false).unwrap();
+        let backup = migration_backup::backup_dir(dir.path(), &plan.id);
+        assert!(backup.join("plan.json").is_file());
+        assert!(!plan_dir.join("plan.json").exists());
+
+        std::fs::remove_dir_all(&plan_dir).unwrap();
+        let restored = migration_backup::restore(dir.path(), &plan.id).unwrap();
+        assert_eq!(restored, plan_dir);
+
+        let store = PlanStore::new_for_test(dir.path());
+        store.scan_project(dir.path()).unwrap();
+        let restored_plan = store.get(&plan.id).expect("restored active plan");
+        assert_eq!(restored_plan.status, PlanStatus::Active);
+        assert_eq!(restored_plan.tasks.len(), plan.tasks.len());
+        assert_eq!(restored_plan.tasks[0].name, "Ship it");
     }
 }

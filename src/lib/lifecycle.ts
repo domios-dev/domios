@@ -1,5 +1,6 @@
 import { IS_WEB } from "./webApi";
 import { resetWebEvents } from "./webEvents";
+import { fireResync } from "./resync";
 
 const DEBOUNCE_MS = 250;
 const MUX_REFRESH = "codeterm-refresh-mux-state";
@@ -11,6 +12,7 @@ let sawHidden = false;
 function defaultWakeResync(): void {
   resetWebEvents();
   window.dispatchEvent(new Event(MUX_REFRESH));
+  fireResync();
 }
 
 let wakeResync: () => void = defaultWakeResync;

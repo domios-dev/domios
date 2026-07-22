@@ -283,7 +283,7 @@ block and the plugin parses it from the completed message:
 
 ````
 ```codeterm-tool
-{"tool": "exec", "args": {"cmd": "codeterm pane list"}}
+{"tool": "exec", "args": {"cmd": "codeterm tab list"}}
 ```
 ````
 

@@ -2,22 +2,7 @@ import type {
   ChatOrigin,
   NormalizedChatMessage as ChatMessage,
 } from "@codeterm/chat-core";
-import { isShellToolName } from "./MarkdownBody";
-
-export type CuratedToolKind =
-  | "exec"
-  | "read_file"
-  | "write_file"
-  | "codeterm"
-  | "mem_search"
-  | "spawn_agent";
-
-export const INLINE_TOOL_KINDS = new Set<CuratedToolKind | "generic">([
-  "read_file",
-  "mem_search",
-  "generic",
-]);
-
+import { shortPaneRef } from "@codeterm/chat-core";
 type StructuredInboundKind = NonNullable<ChatMessage["inboundKind"]>;
 
 export const INBOUND_KIND_LABELS: Record<StructuredInboundKind, string> = {
@@ -35,7 +20,8 @@ export interface StructuredInbound {
 
 export function structuredInboundFromMessage(message: ChatMessage): StructuredInbound | null {
   const fromLabel = message.fromLabel?.trim();
-  if (!fromLabel) return null;
+  const fromPane = shortPaneRef(message.fromPane);
+  if (!fromLabel && !fromPane) return null;
   const kind = message.inboundKind ?? (message.fromMesh ? "mesh" : "pane");
   const title = kind === "mesh" && message.fromMesh
     ? `${fromLabel}@${message.fromMesh}`
@@ -44,112 +30,13 @@ export function structuredInboundFromMessage(message: ChatMessage): StructuredIn
     kind,
     origin: {
       kind: "pane",
-      title,
-      paneIdShort: message.fromPane ?? "",
+      title: title ?? "",
+      paneIdShort: fromPane,
       model: message.fromModel,
       mesh: kind === "mesh" ? undefined : message.fromMesh,
       report: kind === "report",
     },
   };
-}
-
-export function parsedToolInput(message: ChatMessage): Record<string, unknown> {
-  if (message.toolInput) return message.toolInput;
-  if (!message.toolArgs) return {};
-  try {
-    const parsed = JSON.parse(message.toolArgs);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : {};
-  } catch {
-    return {};
-  }
-}
-
-export function textArg(input: Record<string, unknown>, keys: string[]): string | null {
-  for (const key of keys) {
-    const value = input[key];
-    if (typeof value === "string" && value.trim()) return value;
-    if (Array.isArray(value) && value.length > 0) return value.map(String).join(" ");
-  }
-  return null;
-}
-
-export function contentSize(content: string): string {
-  const bytes = new TextEncoder().encode(content).length;
-  if (bytes < 1024) return `${bytes} B`;
-  return `${(bytes / 1024).toFixed(1)} KB`;
-}
-
-export function previewLine(text: string, max = 90): string {
-  const line = text.replace(/\r/g, "").split("\n").find((part) => part.trim())?.trim() ?? "";
-  return line.length > max ? `${line.slice(0, max)}...` : line;
-}
-
-function curatedToolKind(name: string | undefined): CuratedToolKind | null {
-  const normalized = (name ?? "").trim().toLowerCase();
-  switch (normalized) {
-    case "exec":
-    case "read_file":
-    case "write_file":
-    case "codeterm":
-    case "mem_search":
-    case "spawn_agent":
-      return normalized;
-    default:
-      return null;
-  }
-}
-
-export function resolveCuratedToolKind(name: string | undefined): CuratedToolKind | null {
-  const direct = curatedToolKind(name);
-  if (direct) return direct;
-  const normalized = (name ?? "").trim().toLowerCase();
-  if (isShellToolName(name)) return "exec";
-  if (normalized === "read") return "read_file";
-  if (normalized === "write") return "write_file";
-  return null;
-}
-
-export function toolDisplayLabel(toolName: string): string {
-  if (isShellToolName(toolName) || toolName === "shell_command" || toolName === "exec_command") {
-    return "shell";
-  }
-  return toolName;
-}
-
-function normalizedToolName(toolName: string | undefined): string {
-  return (toolName ?? "").trim().toLowerCase();
-}
-
-export function isSearchLikeToolName(toolName: string | undefined): boolean {
-  const normalized = normalizedToolName(toolName);
-  return (
-    normalized.includes("grep")
-    || normalized.includes("glob")
-    || normalized.includes("search")
-    || normalized === "rg"
-    || normalized === "ripgrep"
-  );
-}
-
-export function shouldRenderInlineToolRow(
-  message: ChatMessage,
-  curatedKind: CuratedToolKind | null,
-  hasEdits: boolean,
-): boolean {
-  if (message.type !== "tool_call") return false;
-  if (hasEdits) return false;
-  if (curatedKind === "exec" || curatedKind === "write_file" || curatedKind === "spawn_agent" || curatedKind === "codeterm") {
-    return false;
-  }
-  if (curatedKind === "read_file" || curatedKind === "mem_search") {
-    return true;
-  }
-  if (isSearchLikeToolName(message.toolName)) {
-    return true;
-  }
-  return !message.toolResult;
 }
 
 function hasRenderableValue(value: unknown): boolean {
@@ -170,8 +57,11 @@ export function isRenderableMessage(message: ChatMessage): boolean {
       hasRenderableText(message.content) ||
       hasRenderableText(message.toolName) ||
       hasRenderableText(message.toolArgs) ||
+      hasRenderableText(message.toolSummary) ||
+      hasRenderableText(message.toolDetail) ||
       hasRenderableText(message.toolResult) ||
       hasRenderableValue(message.toolInput) ||
+      hasRenderableValue(message.toolEdits) ||
       Boolean(message.interactive?.length)
     );
   }

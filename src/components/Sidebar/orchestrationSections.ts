@@ -60,6 +60,16 @@ export interface SectionPartition<T> {
   workers: T[];
 }
 
+function managerRank(role: string | null | undefined): number {
+  return role === "Orchestrator" ? 0 : 1;
+}
+
+export function sortTeamManagers<T extends { pane: Pick<Pane, "role" | "role_profile"> }>(
+  members: readonly T[],
+): T[] {
+  return [...members].sort((a, b) => managerRank(a.pane.role) - managerRank(b.pane.role));
+}
+
 /** Split a group's child nodes into Managers/Workers, preserving incoming
  *  (spawn) order within each section. */
 export function partitionBySection<T extends { pane: Pick<Pane, "role" | "role_profile"> }>(
@@ -123,4 +133,8 @@ export function summarizeGroupCounts(counts: GroupSectionCounts): string {
   if (counts.managers > 0) parts.push(plural(counts.managers, "manager"));
   if (counts.workers > 0) parts.push(plural(counts.workers, "worker"));
   return parts.join(" · ");
+}
+
+export function summarizeWorkers(total: number, working: number): string {
+  return `${plural(total, "worker")} · ${working} working`;
 }

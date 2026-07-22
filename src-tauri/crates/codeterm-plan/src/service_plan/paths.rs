@@ -1,20 +1,34 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 
 use codeterm_util::process_util;
+use parking_lot::RwLock;
+
+pub fn global_plan_database_path() -> PathBuf {
+    codeterm_paths::data_dir().join("plans.db")
+}
 
 pub fn project_root(cwd: &Path) -> PathBuf {
     #[cfg(any(test, feature = "test-support"))]
-    if test_project_root_marker(cwd).is_some() {
+    if test_project_root(cwd).is_some() {
         return cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
     }
-    if let Some(root) = main_worktree_root(cwd) {
-        return root;
+    static CACHE: OnceLock<RwLock<HashMap<PathBuf, PathBuf>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| RwLock::new(HashMap::new()));
+    if let Some(root) = cache.read().get(cwd) {
+        return root.clone();
     }
-    if let Some(top) = worktree_top(cwd) {
-        return top;
-    }
-    cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf())
+    let root = if let Some(root) = main_worktree_root(cwd) {
+        root
+    } else if let Some(top) = worktree_top(cwd) {
+        top
+    } else {
+        cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf())
+    };
+    cache.write().insert(cwd.to_path_buf(), root.clone());
+    root
 }
 
 fn worktree_top(cwd: &Path) -> Option<PathBuf> {
@@ -47,7 +61,7 @@ pub fn mark_test_project_root(root: &Path) {
 }
 
 #[cfg(any(test, feature = "test-support"))]
-fn test_project_root_marker(cwd: &Path) -> Option<PathBuf> {
+pub(crate) fn test_project_root(cwd: &Path) -> Option<PathBuf> {
     let mut current = cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
     loop {
         if current.join(TEST_PROJECT_ROOT_MARKER).is_file() {

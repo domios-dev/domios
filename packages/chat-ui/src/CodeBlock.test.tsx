@@ -64,6 +64,7 @@ setupDom();
 
 const { CodeBlock } = await import("./CodeBlock");
 const { RichMarkdown } = await import("./MarkdownBody");
+const { SYNTAX_HIGHLIGHT_ROOT_CLASS } = await import("./syntaxTheme");
 
 test("CodeBlock renders highlighted code structure and copy button", async () => {
   const { host, root } = await render(
@@ -77,6 +78,15 @@ test("CodeBlock renders highlighted code structure and copy button", async () =>
     .find((node) => node.textContent === "const");
   assert(highlightedSpan, "highlighted token span should render");
   assert(host.querySelector("button")?.textContent?.includes("Copy"), "copy action should be a button");
+  const block = host.querySelector<HTMLElement>('[data-testid="chat-code-block"]');
+  assert(block?.classList.contains("min-w-0"), "code block should not expand a flex parent");
+  assert(block?.classList.contains("max-w-full"), "code block should stay within the chat width");
+  const scrollHost = host.querySelector<HTMLElement>(`.${SYNTAX_HIGHLIGHT_ROOT_CLASS}.overflow-x-auto.overflow-y-auto`);
+  assert(scrollHost?.style.maxHeight === "500px", "code block should cap height at 500px");
+  assert(scrollHost?.classList.contains("w-full"), "code lines should scroll inside a width-constrained host");
+  const highlightedCode = scrollHost?.querySelector<HTMLElement>("code");
+  assert(highlightedCode?.style.whiteSpace === "pre", "code should preserve original line width");
+  assert(highlightedCode?.style.wordBreak === "normal", "code should not break long lines");
 
   await act(async () => root.unmount());
 });

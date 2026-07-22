@@ -143,10 +143,16 @@ export function usePlanIndex(): PlanIndexResult {
   };
 }
 
+// Stable fallback: a fresh literal each render would churn every consumer's
+// deps (e.g. resolvePlanRef) and re-render their subtree when no provider is up.
+const EMPTY_PLAN_INDEX_RESULT: PlanIndexResult = {
+  index: [], loading: false, reconnecting: false, error: null, refetch: async () => {},
+};
+
 export function usePlanIndexOptional(): PlanIndexResult {
   const ctx = useContext(PlansContext);
   if (!ctx) {
-    return { index: [], loading: false, reconnecting: false, error: null, refetch: async () => {} };
+    return EMPTY_PLAN_INDEX_RESULT;
   }
   return {
     index: ctx.index,

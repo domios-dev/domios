@@ -184,6 +184,12 @@ pub fn persist_bodies(plan: &Plan) -> std::io::Result<Vec<PathBuf>> {
                 serde_json::Value::String(name.to_string()),
             );
         }
+        if let Some(provenance) = task.personality_provenance {
+            metadata.insert(
+                "personality_provenance".into(),
+                serde_json::to_value(provenance).unwrap_or(serde_json::Value::Null),
+            );
+        }
         write_markdown_atomic(
             &path,
             &body_with_frontmatter(metadata, &task.tags, &task.body),
@@ -761,7 +767,7 @@ fn task_status_str(status: &crate::plan::TaskStatus) -> &'static str {
         crate::plan::TaskStatus::InProgress => "in_progress",
         crate::plan::TaskStatus::InReview => "in_review",
         crate::plan::TaskStatus::Blocked => "blocked",
-        crate::plan::TaskStatus::Parked => "parked",
+        crate::plan::TaskStatus::Paused => "paused",
         crate::plan::TaskStatus::Done => "done",
         crate::plan::TaskStatus::Cancelled => "cancelled",
     }

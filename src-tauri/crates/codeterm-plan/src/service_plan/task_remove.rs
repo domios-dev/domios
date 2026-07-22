@@ -69,7 +69,7 @@ mod tests {
         let plan = store
             .create_plan(
                 "Remove Dependency".into(),
-                "/repo".into(),
+                dir.path().display().to_string(),
                 Default::default(),
                 vec![],
                 1,

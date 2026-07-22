@@ -98,7 +98,7 @@ function taskZone(task: Task): MissionZoneKey {
     case TaskStatus.InReview: return task.review_stage === "qa" ? "qa_bay" : "gate";
     case TaskStatus.Done: return "done_shelf";
     case TaskStatus.Blocked:
-    case TaskStatus.Parked: return "blocked";
+    case TaskStatus.Paused: return "blocked";
     default: return "dispatch";
   }
 }

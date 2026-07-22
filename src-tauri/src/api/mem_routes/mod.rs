@@ -45,7 +45,7 @@ pub use workers::{
     workers_spawn,
 };
 
-pub(super) fn validate_item_fields(
+pub(crate) fn validate_item_fields(
     title: &str,
     body: &str,
     area: &Option<String>,
@@ -112,7 +112,7 @@ pub(super) fn validate_item_fields(
 /// (which would trip the calibration re-entry guard or pollute the audit).
 const RESERVED_CHANGED_BY_PREFIXES: &[&str] = &["worker:", "dreamer-", "dreaming:", "system:"];
 
-pub(super) fn sanitize_actor(actor: &str) -> String {
+pub(crate) fn sanitize_actor(actor: &str) -> String {
     if RESERVED_CHANGED_BY_PREFIXES
         .iter()
         .any(|p| actor.starts_with(p))

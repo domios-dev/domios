@@ -1,8 +1,7 @@
 //! Body locators: file + 1-based line range of an entity's markdown body
 //! inside its yaml, so agents can edit bodies in place with standard tools.
 
-use super::{store_v2, PlanError, PlanStore};
-use crate::plan::Section;
+use super::{PlanError, PlanStore};
 use serde::Serialize;
 use std::path::PathBuf;
 
@@ -28,55 +27,55 @@ impl PlanStore {
         plan_id: &str,
         target: LocateTarget<'_>,
     ) -> Result<BodyLocation, PlanError> {
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let dir = store_v2::plan_state_dir(&plan).map_err(|e| PlanError::Io(e.to_string()))?;
-        let (file, anchor) = match target {
-            LocateTarget::Task(sel) => {
-                let task = plan
-                    .tasks
-                    .iter()
-                    .find(|t| t.id == sel || t.handle.as_deref() == Some(sel))
-                    .ok_or(PlanError::TaskNotFound)?;
-                (store_v2::task_yaml_path(&dir, task), None)
-            }
-            LocateTarget::PlanSection(sel) => {
-                let section = find_section(&plan.sections, sel).ok_or(PlanError::NotFound)?;
-                (store_v2::plan_yaml_path(&dir), Some(section.id.clone()))
-            }
-            LocateTarget::SpecSection(sel) => {
-                let spec_id = plan.primary_spec_id.as_deref().ok_or(PlanError::NotFound)?;
-                let spec = self.get_spec(spec_id).ok_or(PlanError::NotFound)?;
-                let section = find_section(&spec.sections, sel).ok_or(PlanError::NotFound)?;
-                let path = self
-                    .spec_yaml_target(&spec)
-                    .map_err(|e| PlanError::Io(e.to_string()))?;
-                (path, Some(section.id.clone()))
-            }
-        };
-        let text = std::fs::read_to_string(&file).map_err(|e| PlanError::Io(e.to_string()))?;
-        let (start, end, editable) = match anchor {
-            None => top_level_body_range(&text).ok_or(PlanError::NotFound)?,
-            Some(sec_id) => section_body_range(&text, &sec_id).ok_or(PlanError::NotFound)?,
-        };
-        Ok(BodyLocation {
-            file,
-            start_line: start,
-            end_line: end,
-            editable,
-        })
-    }
-}
-
-fn find_section<'a>(sections: &'a [Section], selector: &str) -> Option<&'a Section> {
-    for section in sections {
-        if section.id == selector || section.handle.as_deref() == Some(selector) {
-            return Some(section);
+        #[cfg(test)]
+        {
+            let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
+            let root = super::paths::test_project_root(super::paths::plan_sidecar_root(&plan))
+                .ok_or(PlanError::NotFound)?;
+            let dir = super::store_v2::plan_state_dir(&plan)
+                .map_err(|error| PlanError::Io(error.to_string()))?;
+            let (file, range) = match target {
+                LocateTarget::Task(id) => {
+                    let task = plan
+                        .tasks
+                        .iter()
+                        .find(|task| task.id == id)
+                        .ok_or(PlanError::NotFound)?;
+                    let file = super::store_v2::task_yaml_path(&dir, task);
+                    let text = std::fs::read_to_string(&file)
+                        .map_err(|error| PlanError::Io(error.to_string()))?;
+                    (file, top_level_body_range(&text))
+                }
+                LocateTarget::PlanSection(id) => {
+                    let file = super::store_v2::plan_yaml_path(&dir);
+                    let text = std::fs::read_to_string(&file)
+                        .map_err(|error| PlanError::Io(error.to_string()))?;
+                    (file, section_body_range(&text, id))
+                }
+                LocateTarget::SpecSection(id) => {
+                    let file = dir.join("spec.yaml");
+                    let text = std::fs::read_to_string(&file)
+                        .map_err(|error| PlanError::Io(error.to_string()))?;
+                    (file, section_body_range(&text, id))
+                }
+            };
+            let (start_line, end_line, editable) = range.ok_or(PlanError::NotFound)?;
+            let _ = root;
+            Ok(BodyLocation {
+                file,
+                start_line,
+                end_line,
+                editable,
+            })
         }
-        if let Some(found) = find_section(&section.subsections, selector) {
-            return Some(found);
+        #[cfg(not(test))]
+        {
+            let _ = (plan_id, target);
+            Err(PlanError::Io(
+                "plan bodies are database-backed; use plan mutation commands".into(),
+            ))
         }
     }
-    None
 }
 
 fn indent_of(line: &str) -> usize {

@@ -361,6 +361,12 @@ pub(super) fn install(
             _ => posix_single_quote(&s),
         }
     });
+    bind!("shellEnvPrefix", |name: String,
+                             value: String,
+                             platform: String|
+     -> String {
+        shell_env_prefix(&name, &value, &platform)
+    });
     bind!("writeTempFile", |contents: String,
                             suffix: Option<String>|
      -> Option<String> {
@@ -591,6 +597,17 @@ fn posix_single_quote(s: &str) -> String {
     }
     out.push('\'');
     out
+}
+
+/// Cross-platform "set env var, then run the next command" prefix. POSIX
+/// uses inline assignment (`NAME=value cmd`) so no statement-joiner is
+/// needed at all — Windows PowerShell has no equivalent single-command
+/// scoping, so it sets `$env:` and joins with `;` like the rest of this file.
+fn shell_env_prefix(name: &str, value: &str, platform: &str) -> String {
+    match platform {
+        "windows" => format!("$env:{}={}; ", name, powershell_quote(value)),
+        _ => format!("{}={} ", name, posix_single_quote(value)),
+    }
 }
 
 fn powershell_quote(s: &str) -> String {

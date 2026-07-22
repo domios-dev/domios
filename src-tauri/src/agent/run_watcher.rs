@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -51,6 +51,9 @@ struct RunState {
     started_at: Instant,
     last_byte_at: Mutex<Instant>,
     completed: AtomicBool,
+    armed: AtomicBool,
+    saw_working: AtomicBool,
+    saw_post_session_progress: AtomicBool,
     nudge_count: AtomicU32,
     restart_count: AtomicU32,
     last_restart_at: Mutex<Instant>,
@@ -89,6 +92,9 @@ impl RunWatcherRegistry {
             started_at: Instant::now(),
             last_byte_at: Mutex::new(Instant::now()),
             completed: AtomicBool::new(false),
+            armed: AtomicBool::new(false),
+            saw_working: AtomicBool::new(false),
+            saw_post_session_progress: AtomicBool::new(false),
             nudge_count: AtomicU32::new(0),
             restart_count: AtomicU32::new(0),
             last_restart_at: Mutex::new(Instant::now()),
@@ -110,6 +116,93 @@ impl RunWatcherRegistry {
         runs.remove(pty_id);
     }
 
+    /// Finalize a run as Failed immediately, for a definite failure (e.g. a
+    /// genuine PTY write failure during task delivery) rather than waiting on
+    /// the idle / hard-timeout backstop. No-op if the run isn't registered yet
+    /// (delivery raced ahead of registration) or already completed.
+    pub fn fail_now(&self, svc: &ServiceContext, pty_id: &str, reason: String) {
+        let state = self.runs.lock().get(pty_id).cloned();
+        let Some(state) = state else {
+            return;
+        };
+        if state.completed.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        log::warn!(
+            "[run-watcher] failing run now: pane={} reason={}",
+            state.pane_id,
+            reason
+        );
+        finish_run(svc, &state, false, reason);
+        self.runs.lock().remove(pty_id);
+    }
+
+    pub fn arm(&self, pty_id: &str) {
+        if let Some(state) = self.runs.lock().get(pty_id) {
+            state.armed.store(true, Ordering::Release);
+        }
+    }
+
+    pub fn observe_output_status(&self, pty_id: &str, status: crate::agent::status::PaneStatus) {
+        if status != crate::agent::status::PaneStatus::Working {
+            return;
+        }
+        if let Some(state) = self.runs.lock().get(pty_id) {
+            let armed = state.armed.load(Ordering::Acquire);
+            if armed {
+                state.saw_working.store(true, Ordering::Release);
+            }
+        }
+    }
+
+    pub fn observe_durable_transcript(&self, svc: &ServiceContext, pane_id: &str, observed: bool) {
+        if !observed {
+            return;
+        }
+        let pty_id = self
+            .runs
+            .lock()
+            .values()
+            .find(|state| state.pane_id == pane_id)
+            .and_then(|state| {
+                if state.armed.load(Ordering::Acquire) {
+                    state
+                        .saw_post_session_progress
+                        .store(true, Ordering::Release);
+                    Some(state.pty_id.clone())
+                } else {
+                    None
+                }
+            });
+        if let Some(pty_id) = pty_id {
+            self.complete_via_semantic_idle(svc, &pty_id);
+        }
+    }
+
+    pub fn complete_via_semantic_idle(&self, svc: &ServiceContext, pty_id: &str) {
+        let state = self.runs.lock().get(pty_id).cloned();
+        let Some(state) = state else {
+            return;
+        };
+        let (idle, session_bound) = pane_completion_state(svc, &state.pane_id);
+        if !can_complete_on_semantic_idle(
+            state.armed.load(Ordering::Acquire),
+            state.saw_working.load(Ordering::Acquire),
+            state.saw_post_session_progress.load(Ordering::Acquire),
+            idle,
+            session_bound,
+        ) || state.completed.swap(true, Ordering::AcqRel)
+        {
+            return;
+        }
+        log::info!(
+            "[run-watcher] semantic-idle complete: pane={}",
+            state.pane_id
+        );
+        finish_run(svc, &state, true, "(agent returned to idle)".to_string());
+        self.runs.lock().remove(pty_id);
+    }
+
     /// Stop hook fired = the agent finished its turn. For a hidden worker/cron
     /// run that didn't explicitly report, treat this as success completion —
     /// faster and cleaner than the 30s idle backstop. No-op for visible panes
@@ -124,9 +217,6 @@ impl RunWatcherRegistry {
         let Some(state) = state else {
             return;
         };
-        if state.scanner.lock().in_flight() {
-            return;
-        }
         if state.completed.swap(true, Ordering::AcqRel) {
             return;
         }
@@ -184,6 +274,19 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
                 if state.completed.swap(true, Ordering::AcqRel) {
                     return;
                 }
+                let raw = svc
+                    .output_buf
+                    .lock()
+                    .get_full_text(&state.pty_id)
+                    .unwrap_or_default();
+                crate::service::launch_diagnostics::log_shell_drop(
+                    &state.pane_id,
+                    &state.pty_id,
+                    &raw,
+                    "restarts_exhausted",
+                    restarts,
+                    MAX_RESTARTS,
+                );
                 log::warn!(
                     "[run-watcher] agent died (shell) and exhausted {} restarts: pane={}",
                     MAX_RESTARTS,
@@ -202,6 +305,19 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
             *state.last_restart_at.lock() = Instant::now();
             *state.last_byte_at.lock() = Instant::now();
             state.nudge_count.store(0, Ordering::Release);
+            let raw = svc
+                .output_buf
+                .lock()
+                .get_full_text(&state.pty_id)
+                .unwrap_or_default();
+            crate::service::launch_diagnostics::log_shell_drop(
+                &state.pane_id,
+                &state.pty_id,
+                &raw,
+                "restart",
+                restarts + 1,
+                MAX_RESTARTS,
+            );
             log::warn!(
                 "[run-watcher] agent dropped to shell — resuming ({}/{}): pane={}",
                 restarts + 1,
@@ -215,7 +331,6 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
         // Nudge: when idle past the threshold, send Enter to clear any prompt auto_approve didn't recognize. Bounded so a finished run still reaches idle-complete. Never nudge an agent that's visibly working.
         if idle_secs >= NUDGE_AFTER_IDLE_SECS
             && state.nudge_count.load(Ordering::Acquire) < MAX_NUDGES
-            && !state.scanner.lock().in_flight()
             && !agent_screen_busy(&svc, &state.pty_id)
         {
             state.nudge_count.fetch_add(1, Ordering::AcqRel);
@@ -228,10 +343,18 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
         }
 
         if idle_secs >= IDLE_COMPLETE_SECS {
-            let busy = state.scanner.lock().in_flight() || agent_screen_busy(&svc, &state.pty_id);
+            let session_bound = pane_completion_state(&svc, &state.pane_id).1;
+            let ready_for_success = can_complete_on_semantic_idle(
+                state.armed.load(Ordering::Acquire),
+                state.saw_working.load(Ordering::Acquire),
+                state.saw_post_session_progress.load(Ordering::Acquire),
+                idle_status_is_terminal_success(&svc, &state.pty_id),
+                session_bound,
+            );
+            let busy = !ready_for_success || agent_screen_busy(&svc, &state.pty_id);
             if busy {
                 log::debug!(
-                    "[run-watcher] idle {}s but tool in-flight — deferring reap: pane={}",
+                    "[run-watcher] idle {}s but agent remains active — deferring reap: pane={}",
                     idle_secs,
                     state.pane_id
                 );
@@ -247,11 +370,8 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
                 finish_run(
                     &svc,
                     &state,
-                    false,
-                    format!(
-                        "idle for {}s — agent exited without result event",
-                        idle_secs
-                    ),
+                    ready_for_success,
+                    format!("idle for {}s without an explicit completion", idle_secs),
                 );
                 svc.run_watcher.runs.lock().remove(&state.pty_id);
                 return;
@@ -288,14 +408,58 @@ fn agent_dropped_to_shell(svc: &ServiceContext, pty_id: &str) -> bool {
     screen_is_bare_shell(&text)
 }
 
-/// True when the pane's screen shows the agent actively generating / running a
-/// tool (so a silent PTY is NOT an exit — defer idle reaping). Replaces the
-/// stream-json `in_flight()` signal that interactive launches no longer emit.
+/// A semantic Idle verdict is terminal; otherwise a live TUI remains active
+/// unless its screen is a bare shell.
 fn agent_screen_busy(svc: &ServiceContext, pty_id: &str) -> bool {
+    if idle_status_is_terminal_success(svc, pty_id) {
+        return false;
+    }
     let Some(text) = svc.screen_state.lock().get_screen_text(pty_id) else {
         return false;
     };
-    screen_shows_working(&text)
+    screen_shows_working(&text) || !screen_is_bare_shell(&text)
+}
+
+fn idle_status_is_terminal_success(svc: &ServiceContext, pty_id: &str) -> bool {
+    status_is_idle(svc.agent_tracker.lock().get_status(pty_id))
+}
+
+fn status_is_idle(status: crate::agent::status::PaneStatus) -> bool {
+    status == crate::agent::status::PaneStatus::Idle
+}
+
+fn pane_completion_state(svc: &ServiceContext, pane_id: &str) -> (bool, bool) {
+    let mux = svc.mux.read();
+    let Some(pane) = mux.get_pane(pane_id) else {
+        return (false, false);
+    };
+    let idle = pane
+        .agent_state
+        .as_ref()
+        .is_some_and(|state| state.state == codeterm_types::pty::TimelineState::Idle);
+    (idle, pane.agent_session_id.is_some())
+}
+
+fn can_complete_on_semantic_idle(
+    armed: bool,
+    saw_working: bool,
+    saw_post_session_progress: bool,
+    idle: bool,
+    session_bound: bool,
+) -> bool {
+    armed && saw_working && saw_post_session_progress && idle && session_bound
+}
+
+pub(crate) fn has_nonempty_assistant_transcript(
+    transcript: &crate::agent::chat_types::StructuredChat,
+) -> bool {
+    transcript.messages.iter().any(|message| {
+        message.kind != "user"
+            && (!message.content.trim().is_empty()
+                || message.tool_name.is_some()
+                || message.tool_detail.is_some()
+                || message.tool_input.is_some())
+    })
 }
 
 fn screen_shows_working(text: &str) -> bool {
@@ -389,7 +553,7 @@ fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: St
                     "--- SUMMARY ---\n{}\n\n--- RAW OUTPUT ---\n{}",
                     summary, clean
                 );
-                {
+                let (is_oneshot, fresh_transition) = {
                     let mut store = cron_state.lock();
                     let _ = store.save_log(job_id, run_id, &log_text);
                     if let Some(ref sid) = session_id {
@@ -400,10 +564,29 @@ fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: St
                     } else {
                         crate::cron::store::CronRunStatus::Failed
                     };
-                    let _ = store.update_run_status(job_id, run_id, status);
+                    let fresh = store
+                        .update_run_status(job_id, run_id, status)
+                        .unwrap_or(false);
                     store.unregister_pane(&state.pane_id);
+                    (
+                        store.get(job_id).map(|job| job.oneshot).unwrap_or(false),
+                        fresh,
+                    )
+                };
+                if fresh_transition {
+                    crate::cron::notify::notify_on_consecutive_failure(svc, &cron_state, job_id);
                 }
                 let _ = svc.close_pane(&state.pane_id);
+                if is_oneshot {
+                    if let Some(cron_wake) = svc.app_handle.try_state::<crate::CronWake>() {
+                        log::info!("Oneshot cron auto-deleting: job={}", job_id);
+                        if let Err(error) = svc.cron_delete(&cron_state, &cron_wake, job_id) {
+                            log::error!("Failed to auto-delete oneshot cron: {}", error);
+                        }
+                    } else {
+                        log::error!("Failed to auto-delete oneshot cron: CronWake unavailable");
+                    }
+                }
                 crate::api::events::emit_everywhere(&svc.app_handle, "cron-run-finished", ());
             }
         }
@@ -411,52 +594,25 @@ fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: St
 }
 
 // Track only top-level run completion events (`{"type":"result"}`), not nested `message_stop`.
-// Tool lifecycle is in-flight tracked by `tool_use`/`tool_result`, so we skip idle reaping while tools run.
 struct ResultEventScanner {
     buffer: String,
-    tool_scan_pos: usize,
-    in_flight_tools: HashSet<String>,
 }
 
 const RESULT_NEEDLE: &str = "{\"type\":\"result\"";
-const TOOL_USE_NEEDLE: &str = "{\"type\":\"tool_use\"";
-const TOOL_RESULT_NEEDLE: &str = "{\"type\":\"tool_result\"";
-
-#[derive(Debug, Deserialize, Default)]
-struct ToolUseHeader {
-    #[serde(default)]
-    id: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-struct ToolResultHeader {
-    #[serde(default)]
-    tool_use_id: Option<String>,
-}
 
 impl ResultEventScanner {
     fn new() -> Self {
         Self {
             buffer: String::new(),
-            tool_scan_pos: 0,
-            in_flight_tools: HashSet::new(),
         }
-    }
-
-    fn in_flight(&self) -> bool {
-        !self.in_flight_tools.is_empty()
     }
 
     fn feed(&mut self, chunk: &str) -> Option<CompletionSignal> {
         let cleaned = crate::pty::ansi::strip_ansi_codes(chunk);
         self.buffer.push_str(&cleaned);
 
-        // Pass 1: tool-use / tool-result lifecycle. Done first so a buffer drain after the result-event pass below cannot lose unscanned tool events.
-        self.scan_tool_events();
-
         let mut search_from = 0;
         let mut found: Option<CompletionSignal> = None;
-        // dropping bytes past that cursor would lose the partial tool_use we're tracking.
         let mut consumed = 0usize;
 
         loop {
@@ -485,13 +641,12 @@ impl ResultEventScanner {
             }
         }
 
-        let mut safe_consume = consumed.min(self.tool_scan_pos);
-        if safe_consume > 0 {
+        if consumed > 0 {
+            let mut safe_consume = consumed;
             while safe_consume > 0 && !self.buffer.is_char_boundary(safe_consume) {
                 safe_consume -= 1;
             }
             self.buffer.drain(..safe_consume);
-            self.tool_scan_pos = self.tool_scan_pos.saturating_sub(safe_consume);
         }
         if self.buffer.len() > SCANNER_BUFFER_CAP {
             let mut cut = self.buffer.len() - SCANNER_BUFFER_CAP / 2;
@@ -499,53 +654,8 @@ impl ResultEventScanner {
                 cut += 1;
             }
             self.buffer = self.buffer.split_off(cut);
-            self.tool_scan_pos = self.tool_scan_pos.saturating_sub(cut);
         }
         found
-    }
-
-    fn scan_tool_events(&mut self) {
-        let mut pos = self.tool_scan_pos;
-        let mut max_consumed = pos;
-        loop {
-            let next_use = self.buffer[pos..].find(TOOL_USE_NEEDLE).map(|r| pos + r);
-            let next_result = self.buffer[pos..].find(TOOL_RESULT_NEEDLE).map(|r| pos + r);
-
-            // Pick whichever needle comes first.
-            let (start, is_use) = match (next_use, next_result) {
-                (Some(u), Some(r)) if u < r => (u, true),
-                (Some(_), Some(r)) => (r, false),
-                (Some(u), None) => (u, true),
-                (None, Some(r)) => (r, false),
-                (None, None) => break,
-            };
-
-            match find_balanced_end(&self.buffer, start) {
-                Some(end) => {
-                    let candidate = &self.buffer[start..=end];
-                    if is_use {
-                        if let Ok(parsed) = serde_json::from_str::<ToolUseHeader>(candidate) {
-                            if let Some(id) = parsed.id {
-                                self.in_flight_tools.insert(id);
-                            }
-                        }
-                    } else {
-                        if let Ok(parsed) = serde_json::from_str::<ToolResultHeader>(candidate) {
-                            if let Some(id) = parsed.tool_use_id {
-                                self.in_flight_tools.remove(&id);
-                            }
-                        }
-                    }
-                    pos = end + 1;
-                    max_consumed = pos;
-                }
-                None => {
-                    // Object incomplete — leave tool_scan_pos here so the next chunk re-attempts from the same start.
-                    break;
-                }
-            }
-        }
-        self.tool_scan_pos = max_consumed;
     }
 }
 
@@ -712,74 +822,51 @@ mod tests {
     }
 
     #[test]
-    fn scanner_in_flight_starts_false() {
-        let s = ResultEventScanner::new();
-        assert!(!s.in_flight());
+    fn idle_status_is_terminal_for_any_provider() {
+        assert!(status_is_idle(crate::agent::status::PaneStatus::Idle));
+        assert!(!status_is_idle(crate::agent::status::PaneStatus::Working));
+        assert!(!status_is_idle(crate::agent::status::PaneStatus::Waiting));
     }
 
     #[test]
-    fn scanner_marks_tool_use_in_flight() {
-        let mut s = ResultEventScanner::new();
-        let chunk = r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_ABC","name":"Bash","input":{}}]}}"#;
-        let _ = s.feed(chunk);
-        assert!(s.in_flight(), "tool_use should mark scanner busy");
+    fn semantic_idle_requires_post_session_progress() {
+        assert!(!can_complete_on_semantic_idle(
+            false, false, false, true, true
+        ));
+        assert!(!can_complete_on_semantic_idle(
+            true, false, false, true, true
+        ));
+        assert!(!can_complete_on_semantic_idle(
+            true, true, false, true, true
+        ));
+        assert!(!can_complete_on_semantic_idle(
+            true, true, true, false, true
+        ));
+        assert!(!can_complete_on_semantic_idle(
+            true, true, true, true, false
+        ));
+        assert!(can_complete_on_semantic_idle(true, true, true, true, true));
     }
 
     #[test]
-    fn scanner_clears_on_tool_result() {
-        let mut s = ResultEventScanner::new();
-        let _ = s.feed(r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_X","name":"Bash","input":{}}]}}"#);
-        assert!(s.in_flight());
-        let _ = s.feed(r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_X","content":"done"}]}}"#);
-        assert!(
-            !s.in_flight(),
-            "matching tool_result should clear in-flight"
-        );
-    }
+    fn empty_assistant_metadata_is_not_durable_progress() {
+        let empty = crate::agent::chat_types::StructuredChat {
+            messages: vec![crate::agent::chat_types::ChatMsg {
+                kind: "assistant".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(!has_nonempty_assistant_transcript(&empty));
 
-    #[test]
-    fn scanner_tracks_parallel_tools() {
-        let mut s = ResultEventScanner::new();
-        let _ = s.feed(r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_A","name":"Bash","input":{}},{"type":"tool_use","id":"toolu_B","name":"Read","input":{}}]}}"#);
-        assert!(s.in_flight());
-        let _ = s.feed(r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_A","content":"ok"}]}}"#);
-        assert!(s.in_flight(), "second tool still pending");
-        let _ = s.feed(r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_B","content":"ok"}]}}"#);
-        assert!(!s.in_flight(), "all tools resolved");
-    }
-
-    #[test]
-    fn scanner_handles_split_tool_use_across_chunks() {
-        let mut s = ResultEventScanner::new();
-        let _ =
-            s.feed(r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_"#);
-        assert!(!s.in_flight(), "incomplete object — id not yet visible");
-        let _ = s.feed(r#"SPLIT","name":"Bash","input":{}}]}}"#);
-        assert!(s.in_flight(), "completes once the closing brace arrives");
-    }
-
-    #[test]
-    fn scanner_picks_up_partial_message_content_block() {
-        // --include-partial-messages emits content_block_start with the tool_use shape nested inside. We must catch that form too.
-        let mut s = ResultEventScanner::new();
-        let chunk = r#"{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_PM","name":"Bash","input":{}}}}"#;
-        let _ = s.feed(chunk);
-        assert!(
-            s.in_flight(),
-            "partial-message tool_use must register in-flight"
-        );
-    }
-
-    #[test]
-    fn scanner_result_event_still_works_with_tool_tracking() {
-        // Sanity: extending the scanner must not break the existing top-level result detection.
-        let mut s = ResultEventScanner::new();
-        let _ = s.feed(r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_F","name":"Bash","input":{}}]}}"#);
-        let _ = s.feed(r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_F","content":"ok"}]}}"#);
-        let r = s
-            .feed(r#"{"type":"result","subtype":"success","is_error":false,"result":"done"}"#)
-            .expect("completion");
-        assert_eq!(r.subtype.as_deref(), Some("success"));
-        assert!(!s.in_flight());
+        let completed = crate::agent::chat_types::StructuredChat {
+            messages: vec![crate::agent::chat_types::ChatMsg {
+                kind: "assistant".into(),
+                content: "done".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(has_nonempty_assistant_transcript(&completed));
     }
 }

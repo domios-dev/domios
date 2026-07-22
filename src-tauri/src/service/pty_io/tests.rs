@@ -1,7 +1,12 @@
+use super::send;
 use super::*;
 use crate::plan::{OrchestratorRef, Plan, TaskLaneMetadata};
 use crate::service::plan::{NewTask, PlanStore, TaskLaneUpdate};
 use crate::service::pty_io::lifecycle::{active_pane_lane_base, pane_task_env};
+use crate::service::pty_io::lifecycle::{
+    claim_restored_launch, claim_restored_pty_boot, restore_and_schedule_launch,
+    restore_materialization_core,
+};
 
 fn apply_enter(text: &str, enter: bool) -> String {
     if enter && !text.ends_with('\r') && !text.ends_with('\n') {
@@ -20,7 +25,7 @@ fn send_created_agent_pty_uses_bounded_width() {
 #[test]
 fn restored_agent_with_valid_session_needs_resume_materialization() {
     assert_eq!(
-        restored_agent_materialization(true, false, Some("codex"), Some("session-1"), true),
+        restored_agent_materialization(true, false, false, Some("codex"), Some("session-1"), true),
         Some(RestoredAgentMaterialization::Resume)
     );
 }
@@ -28,11 +33,11 @@ fn restored_agent_with_valid_session_needs_resume_materialization() {
 #[test]
 fn restored_agent_without_valid_session_needs_fresh_materialization() {
     assert_eq!(
-        restored_agent_materialization(true, false, Some("codex"), Some("missing"), false),
+        restored_agent_materialization(true, false, false, Some("codex"), Some("missing"), false),
         Some(RestoredAgentMaterialization::Fresh)
     );
     assert_eq!(
-        restored_agent_materialization(true, false, Some("codex"), None, false),
+        restored_agent_materialization(true, false, false, Some("codex"), None, false),
         Some(RestoredAgentMaterialization::Fresh)
     );
 }
@@ -40,7 +45,15 @@ fn restored_agent_without_valid_session_needs_fresh_materialization() {
 #[test]
 fn live_agent_send_skips_materialization() {
     assert_eq!(
-        restored_agent_materialization(false, false, Some("codex"), Some("session-1"), true),
+        restored_agent_materialization(false, false, false, Some("codex"), Some("session-1"), true),
+        None
+    );
+}
+
+#[test]
+fn send_during_snapshot_resume_joins_existing_boot() {
+    assert_eq!(
+        restored_agent_materialization(true, true, false, Some("codex"), Some("session-1"), true),
         None
     );
 }
@@ -48,7 +61,7 @@ fn live_agent_send_skips_materialization() {
 #[test]
 fn plain_shell_send_skips_materialization() {
     assert_eq!(
-        restored_agent_materialization(true, false, None, None, false),
+        restored_agent_materialization(true, false, false, None, None, false),
         None
     );
 }
@@ -56,9 +69,258 @@ fn plain_shell_send_skips_materialization() {
 #[test]
 fn protected_agent_send_skips_materialization() {
     assert_eq!(
-        restored_agent_materialization(true, true, Some("codex"), Some("session-1"), true),
+        restored_agent_materialization(true, false, true, Some("codex"), Some("session-1"), true),
         None
     );
+}
+
+#[test]
+fn concurrent_restore_single_winner_cas() {
+    use crate::multiplexer::commands::MuxState;
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::multiplexer::types::AgentRole;
+    use codeterm_util::lock_hold::TimedRwLock;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Barrier};
+
+    let (mut state, parent_id) = MultiplexerState::new();
+    let workspace_id = state.list_workspaces()[0].id.clone();
+    state
+        .set_pane_role(&parent_id, AgentRole::Orchestrator, None)
+        .unwrap();
+    let team_id = state
+        .resolve_or_mint_team_for_parent(&parent_id)
+        .unwrap()
+        .team_id;
+    let pane_id = state.create_tab(&workspace_id).unwrap().1;
+    state
+        .set_pane_role(&pane_id, AgentRole::Worker, Some(&parent_id))
+        .unwrap();
+    let pane = state.get_pane_mut(&pane_id).unwrap();
+    pane.agent_type = Some("fixture-provider".into());
+    pane.agent_session_id = Some("fixture-session".into());
+    pane.cwd = Some("fixture-cwd".into());
+    pane.restored_from_snapshot = true;
+    let mux: MuxState = Arc::new(TimedRwLock::new("restore-test", state));
+    let barrier = Arc::new(Barrier::new(3));
+    let schedules = Arc::new(AtomicUsize::new(0));
+    let results = (0..2)
+        .map(|_| {
+            let mux = mux.clone();
+            let pane_id = pane_id.clone();
+            let barrier = barrier.clone();
+            let schedules = schedules.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                restore_and_schedule_launch(
+                    &mux,
+                    &pane_id,
+                    "fixture-provider",
+                    Some("fixture-session"),
+                    Some("fixture-cwd"),
+                    true,
+                    None,
+                    |_, _| {
+                        schedules.fetch_add(1, Ordering::SeqCst);
+                    },
+                )
+                .unwrap()
+                .is_some()
+            })
+        })
+        .collect::<Vec<_>>();
+    barrier.wait();
+    assert_eq!(
+        results
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .filter(|won| *won)
+            .count(),
+        1
+    );
+    assert_eq!(schedules.load(Ordering::SeqCst), 1);
+    let pane = mux.read().get_pane(&pane_id).unwrap().clone();
+    assert_eq!(pane.parent_pane_id.as_deref(), Some(parent_id.as_str()));
+    assert_eq!(pane.team_id.as_deref(), Some(team_id.as_str()));
+    assert_eq!(pane.agent_session_id.as_deref(), Some("fixture-session"));
+}
+
+#[test]
+fn restore_resolves_payload_into_launch_option() {
+    use crate::multiplexer::commands::MuxState;
+    use crate::multiplexer::state::MultiplexerState;
+    use codeterm_util::lock_hold::TimedRwLock;
+    use sha2::Digest;
+    use std::sync::Arc;
+
+    let payload = "byte-identical restored fallback brief";
+    let digest = format!("{:x}", sha2::Sha256::digest(payload.as_bytes()));
+    let temp = tempfile::tempdir().unwrap();
+    let store = crate::service::pending_delivery_payloads::PendingDeliveryPayloadStore::open(
+        temp.path(),
+        &std::collections::HashSet::new(),
+    )
+    .unwrap();
+    store.write(&digest, payload).unwrap();
+    let (mut state, pane_id) = MultiplexerState::new();
+    let pane = state.get_pane_mut(&pane_id).unwrap();
+    pane.agent_type = Some("fixture-provider".into());
+    pane.cwd = Some("fixture-cwd".into());
+    pane.restored_from_snapshot = true;
+    pane.pending_delivery = Some(crate::multiplexer::types::PendingDeliveryRecord::new(
+        digest.clone(),
+        crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
+    ));
+    let mux: MuxState = Arc::new(TimedRwLock::new("restore-payload-test", state));
+    let resolved = store.resolve(&digest).unwrap();
+    let observed = std::sync::Arc::new(parking_lot::Mutex::new(None));
+    let sink = observed.clone();
+
+    restore_and_schedule_launch(
+        &mux,
+        &pane_id,
+        "fixture-provider",
+        None,
+        Some("fixture-cwd"),
+        false,
+        Some(resolved),
+        move |_, task| *sink.lock() = task,
+    )
+    .unwrap();
+
+    assert_eq!(observed.lock().as_deref(), Some(payload));
+}
+
+#[test]
+fn restore_missing_payload_spawnfailed_zero_launch_pending() {
+    use crate::multiplexer::commands::MuxState;
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::multiplexer::types::{
+        PendingDeliveryChannel, PendingDeliveryRecord, PendingDeliveryState,
+    };
+    use crate::service::boot_stage::BootStage;
+    use codeterm_util::lock_hold::TimedRwLock;
+    use sha2::Digest;
+    use std::sync::Arc;
+
+    let payload = "missing restored fallback brief";
+    let digest = format!("{:x}", sha2::Sha256::digest(payload.as_bytes()));
+    let temp = tempfile::tempdir().unwrap();
+    let store = crate::service::pending_delivery_payloads::PendingDeliveryPayloadStore::open(
+        temp.path(),
+        &std::collections::HashSet::new(),
+    )
+    .unwrap();
+    let (mut state, pane_id) = MultiplexerState::new();
+    let pane = state.get_pane_mut(&pane_id).unwrap();
+    pane.agent_type = Some("fixture-provider".into());
+    pane.cwd = Some("fixture-cwd".into());
+    pane.restored_from_snapshot = true;
+    pane.pending_delivery = Some(PendingDeliveryRecord::new(
+        digest.clone(),
+        PendingDeliveryChannel::InteractiveInput,
+    ));
+    let mux: MuxState = Arc::new(TimedRwLock::new("restore-missing-payload-test", state));
+    let launch_request = parking_lot::Mutex::new(None);
+    let boot_failure = parking_lot::Mutex::new(None);
+
+    let result = restore_materialization_core(
+        &mux,
+        &pane_id,
+        "fixture-provider",
+        None,
+        Some("fixture-cwd"),
+        false,
+        false,
+        || {
+            store
+                .resolve(&digest)
+                .map(Some)
+                .map_err(|error| error.to_string())
+        },
+        |stage, reason| *boot_failure.lock() = Some((stage, reason.to_string())),
+        |launch, payload| *launch_request.lock() = Some((launch, payload)),
+    );
+    let error = match result {
+        Err(error) => error,
+        Ok(_) => panic!("missing payload must prevent restored-agent launch"),
+    };
+
+    assert_eq!(error, format!("RestorePayloadMissing: {digest}"));
+    assert_eq!(
+        *boot_failure.lock(),
+        Some((BootStage::SpawnFailed, error.clone()))
+    );
+    assert!(launch_request.lock().is_none());
+    assert_eq!(
+        mux.read()
+            .get_pane(&pane_id)
+            .unwrap()
+            .pending_delivery
+            .as_ref()
+            .unwrap()
+            .state(),
+        PendingDeliveryState::Pending
+    );
+}
+
+#[test]
+fn stale_session_validity_cannot_claim_changed_pane() {
+    use crate::multiplexer::commands::MuxState;
+    use crate::multiplexer::state::MultiplexerState;
+    use codeterm_util::lock_hold::TimedRwLock;
+    use std::sync::Arc;
+    let (mut state, pane_id) = MultiplexerState::new();
+    let pane = state.get_pane_mut(&pane_id).unwrap();
+    pane.agent_type = Some("fixture-provider".into());
+    pane.agent_session_id = Some("new".into());
+    pane.cwd = Some("cwd".into());
+    pane.restored_from_snapshot = true;
+    let mux: MuxState = Arc::new(TimedRwLock::new("restore-test", state));
+    assert!(claim_restored_launch(
+        &mux,
+        &pane_id,
+        "fixture-provider",
+        Some("old"),
+        Some("cwd"),
+        true
+    )
+    .unwrap()
+    .is_none());
+    assert!(
+        mux.read()
+            .get_pane(&pane_id)
+            .unwrap()
+            .restored_from_snapshot
+    );
+}
+
+#[test]
+fn restored_pty_boot_claim_excludes_lazy_materialization() {
+    use crate::multiplexer::commands::MuxState;
+    use crate::multiplexer::state::MultiplexerState;
+    use codeterm_util::lock_hold::TimedRwLock;
+    use std::sync::Arc;
+    let (mut state, pane_id) = MultiplexerState::new();
+    let pane = state.get_pane_mut(&pane_id).unwrap();
+    pane.agent_type = Some("fixture-provider".into());
+    pane.agent_session_id = Some("session".into());
+    pane.cwd = Some("cwd".into());
+    pane.restored_from_snapshot = true;
+    let mux: MuxState = Arc::new(TimedRwLock::new("restore-boot-claim-test", state));
+
+    let claim = claim_restored_pty_boot(&mux, &pane_id).unwrap().unwrap();
+    assert_eq!(claim.session_id.as_deref(), Some("session"));
+    assert!(claim_restored_launch(
+        &mux,
+        &pane_id,
+        "fixture-provider",
+        Some("session"),
+        Some("cwd"),
+        true,
+    )
+    .unwrap()
+    .is_none());
 }
 
 #[test]
@@ -89,6 +351,24 @@ fn empty_text_enter_true_sends_just_cr() {
 #[test]
 fn empty_text_enter_false_sends_nothing() {
     assert_eq!(apply_enter("", false), "");
+}
+
+#[test]
+fn agent_prompt_sanitizer_strips_escaped_ansi_and_controls() {
+    let leaked = "\x1b]10;rgb:c9c9/d1d1/d9d9\x1b\\ok\x1b[?1;2c\x00!";
+    assert_eq!(send::sanitize_agent_prompt_input(leaked), "ok!");
+}
+
+#[test]
+fn agent_prompt_sanitizer_preserves_literal_reply_text() {
+    let text = "]10;rgb:c9c9/d1d1/d9d9\\ [?1;2c";
+    assert_eq!(send::sanitize_agent_prompt_input(text), text);
+}
+
+#[test]
+fn agent_prompt_sanitizer_preserves_codeterm_prefix_text() {
+    let message = "-=-codeterm:pane label=worker pane=abc123 model=codex-=-run tests";
+    assert_eq!(send::sanitize_agent_prompt_input(message), message);
 }
 
 #[test]
@@ -142,10 +422,10 @@ fn unix_spawn_dispatch_contains_bash_script_path() {
 
 #[cfg(windows)]
 #[test]
-fn windows_spawn_dispatch_prepends_sacrificial_space() {
+fn windows_spawn_dispatch_prepends_sacrificial_space_without_glued_enter() {
     let bytes = build_spawn_dispatch("Remove-Item Env:CLAUDECODE; claude").unwrap();
     let s = String::from_utf8(bytes).unwrap();
-    assert_eq!(s, "\x1b[200~ Remove-Item Env:CLAUDECODE; claude\x1b[201~\r");
+    assert_eq!(s, "\x1b[200~ Remove-Item Env:CLAUDECODE; claude\x1b[201~");
     let after_opener = &s["\x1b[200~".len()..];
     assert!(after_opener.starts_with(' '));
     assert!(after_opener[1..].starts_with("Remove-Item"));

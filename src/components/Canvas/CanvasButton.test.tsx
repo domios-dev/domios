@@ -36,7 +36,9 @@ async function renderButton(active: boolean): Promise<{ host: HTMLDivElement; ro
 
 test("CanvasButton renders in toolbar", async () => {
   const { host, root } = await renderButton(false);
-  assert(host.querySelector('[data-testid="canvas-toolbar-button"]'), "button present");
+  const button = host.querySelector('[data-testid="canvas-toolbar-button"]');
+  assert(button, "button present");
+  assert(button.getAttribute("aria-label") === "Open workspace canvas", "button has an accessible action name");
   await act(async () => root.unmount());
 });
 

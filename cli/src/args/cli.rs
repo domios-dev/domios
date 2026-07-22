@@ -28,6 +28,7 @@ use super::sessions::SessionsAction;
 use super::spec::SpecAction;
 use super::system::SystemAction;
 use super::task::{CanvasAction, TaskAction};
+use super::team::TeamAction;
 use super::update::UpdateAction;
 use super::usage::UsageAction;
 
@@ -85,6 +86,12 @@ pub enum Commands {
         action: WorkspaceAction,
     },
 
+    /// Team registry and 1:1 plan binding
+    Team {
+        #[command(subcommand)]
+        action: TeamAction,
+    },
+
     /// Orchestrator helpers
     Orchestrator {
         #[command(subcommand)]
@@ -97,17 +104,18 @@ pub enum Commands {
         action: OrchestrationAction,
     },
 
-    /// Pane management
-    Pane {
+    /// Tab management
+    #[command(name = "tab")]
+    Tab {
         #[command(subcommand)]
         action: PaneAction,
     },
 
-    /// Send text to a pane (default: current pane).
+    /// Send text to a tab (default: current tab).
     ///
-    /// Sending to a SHELL pane delivers raw text/keys verbatim — no agent
+    /// Sending to a SHELL tab delivers raw text/keys verbatim — no agent
     /// return-address marker is injected, so the shell runs exactly what you
-    /// send. Sending to an AGENT pane prepends the sender marker so the agent
+    /// send. Sending to an AGENT tab prepends the sender marker so the agent
     /// knows who to reply to. Key/sequence examples (use --actions):
     ///   --actions "up,up,enter"   replay last commands
     ///   --actions "ctrl-c"        interrupt
@@ -120,8 +128,8 @@ pub enum Commands {
         #[arg(allow_hyphen_values = true)]
         text: Option<String>,
 
-        /// Target pane ID (default: $CODETERM_PANE_ID or focused pane)
-        #[arg(long, alias = "id")]
+        /// Target tab ID (default: $CODETERM_PANE_ID or focused tab)
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
 
         /// Read text from a file instead of the positional arg. Lets you
@@ -131,7 +139,7 @@ pub enum Commands {
 
         /// Read text from stdin. Pair with a single-quoted heredoc to bypass
         /// the shell entirely:
-        ///   codeterm send --pane X --stdin <<'EOF'
+        ///   codeterm send --tab X --stdin <<'EOF'
         ///   any `backticks`, $vars, etc — zero interpolation
         ///   EOF
         ///
@@ -246,7 +254,7 @@ pub enum Commands {
         /// Backend must be built with `dev-updater-allowlocal` for non-https URLs.
         #[arg(long)]
         manifest_url: Option<String>,
-        /// Message to inject into the General Agent pane after the new daemon
+        /// Message to inject into the General Agent tab after the new daemon
         /// boots. Useful for remote-triggered updates ("run the update and
         /// then verify health") — GA reads it as user input post-restart.
         #[arg(long, value_name = "TEXT")]
@@ -331,14 +339,14 @@ pub enum Commands {
     /// Read embedded CodeTerm documentation. Docs are bundled into the
     /// CLI binary at compile time so agents can request them on demand
     /// without bloating the system prompt. `codeterm docs` lists, `codeterm
-    /// docs <name>` prints a bounded preview inside CodeTerm panes; pass
+    /// docs <name>` prints a bounded preview inside CodeTerm tabs; pass
     /// --full for the complete doc. Names are case-insensitive and match the
     /// .md stem (CONFIG, API, MESH, MEMORY, BUILD, PROMPTS, SKILLS, TESTING, TEST-AUTHORING).
     Docs {
         /// Doc name (e.g. CONFIG, API, MESH). Omit to list all available docs.
         name: Option<String>,
 
-        /// Print the complete document even inside a CodeTerm pane.
+        /// Print the complete document even inside a CodeTerm tab.
         #[arg(long, conflicts_with = "head")]
         full: bool,
 

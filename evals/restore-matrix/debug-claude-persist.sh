@@ -35,7 +35,7 @@ jsonl_hit=""
 for i in $(seq 1 24); do
   t=$((SECONDS - START))
   if [ -z "$screen_hit" ]; then
-    out=$(dc get-output --pane "$PANE" --lines 60 2>/dev/null || true)
+    out=$(dc tab get-text --tab "$PANE" 2>/dev/null || true)
     case "$out" in *"$MARKER"*) screen_hit="$t"; echo "[t=${t}s] SCREEN has marker";; esac
   fi
   if [ -z "$jsonl_hit" ]; then

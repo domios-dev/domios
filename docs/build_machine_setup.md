@@ -62,6 +62,9 @@ via Keychain Access → export `.p12`.)
 `.app.tar.gz` updater bundle, minisign-signs it, echoes the signature for `latest.json`.
 x86_64 goes through `scripts/release-macos-x86_64.sh` (ONNX Runtime 1.23.2 Intel dylib + `CARGO_BUILD_TARGET`
 plumbing — see the `macos-x86_64-release` skill).
+The x86_64 embedder also bundles LLVM `libc++.1.dylib` from
+`CODETERM_MONTEREY_LIBCXX_DIR` so ONNX Runtime does not depend on the newer
+system libc++ float `std::to_chars` symbols missing on macOS 12 Monterey.
 
 ---
 

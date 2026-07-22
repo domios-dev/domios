@@ -107,6 +107,9 @@ export interface HostFs {
 export interface HostShell {
   quote(s: string): string;
   quoteFor(s: string, platform: string): string;
+  // Cross-platform "set env var for the next command" prefix — POSIX uses
+  // inline assignment (no `&&`/`;` chaining needed), Windows uses `$env:`.
+  envPrefix(name: string, value: string, platform: string): string;
 }
 
 export interface HostPath {
@@ -202,6 +205,7 @@ export interface Host {
 
   shellQuote(s: string): string;
   shellQuoteFor(s: string, platform: string): string;
+  shellEnvPrefix(name: string, value: string, platform: string): string;
 
   log(level: "trace" | "debug" | "info" | "warn" | "error", msg: string): void;
 

@@ -23,14 +23,14 @@ pub enum UpdateAction {
         /// Bypasses network — useful for local-build testing.
         #[arg(long, value_name = "PATH")]
         from_file: Option<String>,
-        /// Optional prompt to send to the calling pane once the new daemon
+        /// Optional prompt to send to the calling tab once the new daemon
         /// is up — lets a session continue work post-restart.
         #[arg(long, value_name = "TEXT")]
         continue_prompt: Option<String>,
-        /// Pane to deliver `--continue-prompt` to. Defaults to `$CODETERM_PANE_ID`.
-        #[arg(long, value_name = "ID")]
-        continue_pane: Option<String>,
-        /// Message to inject into the General Agent pane after the new
+        /// Tab to deliver `--continue-prompt` to. Defaults to `$CODETERM_PANE_ID`.
+        #[arg(long = "continue-tab", value_name = "ID")]
+        continue_tab: Option<String>,
+        /// Message to inject into the General Agent tab after the new
         /// daemon boots. Lets the GA continue work post-update — e.g.
         /// "verify the new build and report version via Telegram".
         #[arg(long, value_name = "TEXT")]

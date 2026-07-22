@@ -76,4 +76,35 @@ function toolCall(id: string, patch: Partial<NormalizedChatMessage> = {}): Norma
   eq(messages[0].toolError, true, "tool error propagates to attached tool_call");
 }
 
+{
+  const messages = attachToolResults([
+    toolCall("patch", {
+      toolName: "apply_patch",
+      toolId: "call-patch",
+      toolInput: { patch: "*** Begin Patch" },
+    }),
+    {
+      id: "patch-end",
+      type: "tool_result",
+      content: "Success. Updated the following files:\nA probe.txt\n",
+      provider: "codex",
+      toolId: "call-patch",
+    },
+    {
+      id: "custom-output",
+      type: "tool_result",
+      content: "Exit code: 0\nOutput:\nSuccess. Updated the following files:\nA probe.txt\n",
+      provider: "codex",
+      toolId: "call-patch",
+    },
+  ]);
+
+  eq(messages.length, 1, "duplicate lifecycle results stay on one tool row");
+  eq(
+    messages[0].toolResult,
+    "Exit code: 0\nOutput:\nSuccess. Updated the following files:\nA probe.txt\n",
+    "richer duplicate result replaces its shorter subset",
+  );
+}
+
 console.log("ok - toolResults ghost-row filtering");

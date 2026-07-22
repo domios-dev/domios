@@ -1,13 +1,17 @@
 import { useEffect, useState } from "react";
 import { IS_WEB } from "../lib/webApi";
 
+export function shouldUseTouchOptimizedUi(isWeb: boolean, pointerCoarse: boolean, hoverNone: boolean): boolean {
+  return isWeb && (pointerCoarse || hoverNone);
+}
+
 function detectTouchOptimizedUi(): boolean {
-  // us through the web mirror. maxTouchPoints is deliberately NOT used:
+  // Touch controls follow input capabilities, not viewport width.
   if (!IS_WEB || typeof window === "undefined") return false;
-  return (
-    window.matchMedia("(pointer: coarse)").matches ||
-    window.matchMedia("(hover: none)").matches ||
-    window.matchMedia("(max-width: 800px)").matches
+  return shouldUseTouchOptimizedUi(
+    IS_WEB,
+    window.matchMedia("(pointer: coarse)").matches,
+    window.matchMedia("(hover: none)").matches,
   );
 }
 
@@ -19,7 +23,6 @@ export function useTouchOptimizedUi(): boolean {
     const queries = [
       window.matchMedia("(pointer: coarse)"),
       window.matchMedia("(hover: none)"),
-      window.matchMedia("(max-width: 800px)"),
     ];
     const update = () => setEnabled(detectTouchOptimizedUi());
     update();

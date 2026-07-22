@@ -1,6 +1,6 @@
 // Run: npx tsx src/components/Canvas/planPaneMatch.test.ts
 
-import type { Pane } from "../../lib/types";
+import type { Pane, Team, Workspace } from "../../lib/types";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "./cards/fixtures.testdata";
 import {
   collectPaneChain,
@@ -69,8 +69,104 @@ test("findPlansForPane ignores archived plans", () => {
 
 test("filterPlansForCanvas focus by planId", () => {
   const other = { ...FIXTURE_PLAN, id: "plan-beta", title: "Beta" };
-  const out = filterPlansForCanvas([FIXTURE_PLAN, other], "focus", { planId: FIXTURE_PLAN.id });
+  const out = filterPlansForCanvas([FIXTURE_PLAN, other], "focus", { planId: FIXTURE_PLAN.id, workspaceId: undefined });
   assert(out.length === 1 && out[0].id === FIXTURE_PLAN.id, "single plan focus");
+});
+
+function workspace(id: string, paneIds: string[]): Workspace {
+  return {
+    id,
+    name: id,
+    tabs: paneIds.map((pane_id, i) => ({ id: `${id}-tab-${i}`, pane_id })),
+    active_tab_id: null,
+    cwd: null,
+  };
+}
+
+const WS_CURRENT = "ws-current";
+const WS_OTHER = "ws-other";
+// FIXTURE_PLAN.owner.pane_id is orch-1 → lives in the current workspace.
+const scopeWorkspaces: Workspace[] = [
+  workspace(WS_CURRENT, ["orch-1"]),
+  workspace(WS_OTHER, ["orch-2"]),
+];
+const scopeTeams: Team[] = [
+  { id: "team-other", lifecycle: "active", created_at: 0, workspace_id: WS_OTHER },
+  { id: "team-current", lifecycle: "active", created_at: 0, workspace_id: WS_CURRENT },
+];
+
+test("workspace mode excludes an unbound active plan (no team, owner pane not in workspace)", () => {
+  const unbound: Plan = {
+    ...FIXTURE_PLAN,
+    id: "plan-unbound",
+    title: "Soak load plan",
+    owner: { pane_id: "ghost-pane", session_id: null, title: "Ghost" },
+    tasks: [],
+  };
+  const out = filterPlansForCanvas([unbound], "workspace", {
+    workspaceId: WS_CURRENT,
+    workspaces: scopeWorkspaces,
+    teams: scopeTeams,
+  });
+  assert(out.length === 0, `unbound draft must not leak into workspace board (got ${out.length})`);
+});
+
+test("workspace mode excludes a team-bound plan of another workspace", () => {
+  const foreign: Plan = {
+    ...FIXTURE_PLAN,
+    id: "plan-foreign",
+    team_id: "team-other",
+    owner: { pane_id: "ghost-pane", session_id: null, title: "Ghost" },
+    tasks: [],
+  };
+  const out = filterPlansForCanvas([foreign], "workspace", {
+    workspaceId: WS_CURRENT,
+    workspaces: scopeWorkspaces,
+    teams: scopeTeams,
+  });
+  assert(out.length === 0, `another workspace's team plan must not appear (got ${out.length})`);
+});
+
+test("workspace mode with a missing workspaceId returns [] (never every plan)", () => {
+  const out = filterPlansForCanvas([{ ...FIXTURE_PLAN }], "workspace", {
+    workspaceId: undefined,
+    workspaces: scopeWorkspaces,
+    teams: scopeTeams,
+  });
+  assert(out.length === 0, `unscoped workspace mode must not leak plans (got ${out.length})`);
+});
+
+test("workspace mode keeps plans bound via owner pane or team", () => {
+  const ownerBound = { ...FIXTURE_PLAN, id: "plan-owner" }; // owner orch-1 ∈ current ws
+  const teamBound: Plan = {
+    ...FIXTURE_PLAN,
+    id: "plan-team",
+    team_id: "team-current",
+    owner: { pane_id: "ghost-pane", session_id: null, title: "Ghost" },
+  };
+  const out = filterPlansForCanvas([ownerBound, teamBound], "workspace", {
+    workspaceId: WS_CURRENT,
+    workspaces: scopeWorkspaces,
+    teams: scopeTeams,
+  });
+  assert(out.length === 2, `both workspace-bound plans kept (got ${out.length})`);
+});
+
+test("Team canvas cannot escape to another plan", () => {
+  const teamPlan: Plan = {
+    ...FIXTURE_PLAN,
+    id: "plan-team-current",
+    team_id: "team-current",
+    owner: { pane_id: "ghost-pane", session_id: null, title: "Ghost" },
+  };
+  const foreignPlan: Plan = { ...FIXTURE_PLAN, id: "plan-foreign", team_id: "team-other" };
+  const out = filterPlansForCanvas([teamPlan, foreignPlan], "workspace", {
+    workspaceId: WS_CURRENT,
+    teamId: "team-current",
+    workspaces: scopeWorkspaces,
+    teams: scopeTeams,
+  });
+  assert(out.length === 1 && out[0].id === teamPlan.id, "Team canvas stays on its Team plan");
 });
 
 test("collectPaneChain walks parent_pane_id", () => {
