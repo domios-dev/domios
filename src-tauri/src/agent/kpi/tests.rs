@@ -261,8 +261,11 @@ fn disabled_recorder_writes_nothing_and_creates_no_ledger_file() {
 ///
 /// The denominator (`spawn + payload`) excludes the mux locks, poll-streak reset, submit
 /// transaction and PTY write that a real delivery also performs, so the reported enabled
-/// ratio is an over-estimate. This profile is also unoptimized, which inflates the
-/// pure-Rust hook far more than the kernel-bound spawn.
+/// ratio is an over-estimate of the daemon's.
+///
+/// The 2% bound is asserted only for the optimized profile, which is what ships; a debug
+/// run reports the same numbers but asserts the absolute per-event ceiling alone, because
+/// an unoptimized build inflates the pure-Rust hook far more than the kernel-bound spawn.
 ///
 /// Note what the enabled ratio is a share *of*: `record_kpi_delivery` runs after
 /// `deliver_inner` has already handed the payload to the detached thread, so it delays
@@ -325,10 +328,21 @@ fn kpi_hook_cost_on_the_send_path_is_bounded() {
     let send_path_ns = spawn_ns + payload_ns;
     let pct_on = hook_on_ns / send_path_ns * 100.0;
     let pct_off = hook_off_ns / send_path_ns * 100.0;
+    let optimized = !cfg!(debug_assertions);
     println!(
-        "[kpi-perf] send-path floor={:.0}ns (spawn={:.0}ns + payload={:.0}ns)          hook_off={:.0}ns ({:.3}%) hook_on={:.0}ns ({:.3}%)          over {} iterations x {} rounds, test profile (unoptimized)",
-        send_path_ns, spawn_ns, payload_ns, hook_off_ns, pct_off, hook_on_ns, pct_on,
-        ITERATIONS, ROUNDS
+        "[kpi-perf] send-path floor={:.0}ns (spawn={:.0}ns + payload={:.0}ns) \
+         hook_off={:.0}ns ({:.3}%) hook_on={:.0}ns ({:.3}%) \
+         over {} iterations x {} rounds, {} profile",
+        send_path_ns,
+        spawn_ns,
+        payload_ns,
+        hook_off_ns,
+        pct_off,
+        hook_on_ns,
+        pct_on,
+        ITERATIONS,
+        ROUNDS,
+        if optimized { "optimized" } else { "debug" }
     );
 
     assert!(
@@ -338,8 +352,14 @@ fn kpi_hook_cost_on_the_send_path_is_bounded() {
         hook_off_ns
     );
     assert!(
+        !optimized || pct_on < 2.0,
+        "enabled hook must stay under 2% of the send path in the shipped profile: {:.3}% ({:.0}ns)",
+        pct_on,
+        hook_on_ns
+    );
+    assert!(
         hook_on_ns < 1_000.0,
-        "enabled hook must stay under 1us/event in the test profile: {:.0}ns",
+        "enabled hook must stay under 1us/event: {:.0}ns",
         hook_on_ns
     );
     assert_eq!(
