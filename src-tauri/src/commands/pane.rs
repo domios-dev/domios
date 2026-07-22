@@ -198,10 +198,10 @@ pub fn read_session_jsonl(
 
 #[derive(serde::Serialize)]
 pub struct ChatStartResult {
-    /// Raw JSONL text from the recent window — frontend parses via the
-    /// claude TS plugin's `parseJsonlSession`. The window is anchored to
-    /// a `\n` boundary so the parser never sees a partial first line.
+    /// Vestigial raw-text channel; chat_start returns parsed `messages` today.
     pub text: String,
+    /// Byte offset where the parsed snapshot window begins. >0 means older
+    /// history exists below it — the client's `chat_backfill` paging cursor.
     pub start_offset: u64,
     pub offset: u64,
     /// Agent provisioning is in flight; the pane boot state supplies its visible
@@ -732,17 +732,33 @@ pub fn chat_backfill_core(
         .ok_or("no JSONL")?;
 
     let max_bytes = max_bytes.unwrap_or(128 * 1024).min(BACKFILL_MAX_BYTES_CAP);
-    let start = before_offset.saturating_sub(max_bytes);
-
-    // Windowed read: multi-hundred-MiB session files must never be fully loaded.
-    let total = std::fs::metadata(&path)
-        .map(|m| m.len())
-        .map_err(|e| format!("stat jsonl: {e}"))?;
-    let clamped_end = before_offset.min(total);
-    let clamped_start = start.min(clamped_end);
-    let window = read_file_window(&path, clamped_start, (clamped_end - clamped_start) as usize)
+    let (text, aligned_start, clamped_end) = backfill_window_slice(&path, before_offset, max_bytes)
         .map_err(|e| format!("read jsonl: {e}"))?;
-    // Align to the first \n so the parser doesn't see a partial first line.
+    let messages = parse_backfill_window(&svc.agent_registry, &provider_id, &text);
+
+    Ok(ChatBackfillResult {
+        text,
+        start_offset: aligned_start,
+        end_offset: clamped_end,
+        messages,
+        source_session_id: Some(session_id),
+        session_binding_nonce,
+    })
+}
+
+/// Windowed read: multi-hundred-MiB session files must never be fully loaded.
+/// Returns `(text, aligned_start, clamped_end)`; the window is aligned to the
+/// first `\n` so the parser never sees a partial first line, which makes
+/// consecutive pages exactly contiguous (each page ends on a line start).
+fn backfill_window_slice(
+    path: &std::path::Path,
+    before_offset: u64,
+    max_bytes: u64,
+) -> std::io::Result<(String, u64, u64)> {
+    let total = std::fs::metadata(path)?.len();
+    let clamped_end = before_offset.min(total);
+    let clamped_start = before_offset.saturating_sub(max_bytes).min(clamped_end);
+    let window = read_file_window(path, clamped_start, (clamped_end - clamped_start) as usize)?;
     let aligned_offset = if clamped_start == 0 {
         0usize
     } else {
@@ -753,16 +769,7 @@ pub fn chat_backfill_core(
             .unwrap_or(0)
     };
     let text = String::from_utf8_lossy(&window[aligned_offset..]).to_string();
-    let messages = parse_backfill_window(&svc.agent_registry, &provider_id, &text);
-
-    Ok(ChatBackfillResult {
-        text,
-        start_offset: clamped_start + aligned_offset as u64,
-        end_offset: clamped_end,
-        messages,
-        source_session_id: Some(session_id),
-        session_binding_nonce,
-    })
+    Ok((text, clamped_start + aligned_offset as u64, clamped_end))
 }
 
 fn read_file_window(path: &std::path::Path, start: u64, len: usize) -> std::io::Result<Vec<u8>> {
@@ -984,5 +991,110 @@ mod tests {
         assert_eq!(msgs[1].system_subtype.as_deref(), Some("task_notification"));
         assert_eq!(msgs[2].kind, "user");
         assert_eq!(msgs[2].content, "real user message");
+    }
+
+    #[test]
+    fn backfill_paging_is_lossless_and_line_aligned() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("session.jsonl");
+        let lines: Vec<String> = (0..200)
+            .map(|i| format!("{{\"type\":\"user\",\"uuid\":\"u{i}\",\"message\":{{\"role\":\"user\",\"content\":\"line {i} {}\"}}}}", "x".repeat(40)))
+            .collect();
+        let body = format!("{}\n", lines.join("\n"));
+        std::fs::write(&path, &body).unwrap();
+        let total = std::fs::metadata(&path).unwrap().len();
+
+        // Page backward in small windows; every page must start on a line start
+        // and end exactly where the previous page began.
+        let mut cursor = total;
+        let mut pages_reversed: Vec<String> = Vec::new();
+        while cursor > 0 {
+            let (text, aligned_start, clamped_end) =
+                backfill_window_slice(&path, cursor, 4096).unwrap();
+            assert_eq!(clamped_end, cursor, "window ends at the requested cursor");
+            assert!(aligned_start < cursor, "every page makes progress");
+            if aligned_start > 0 {
+                assert_eq!(
+                    body.as_bytes()[aligned_start as usize - 1],
+                    b'\n',
+                    "aligned start sits on a line start",
+                );
+            }
+            pages_reversed.push(text);
+            cursor = aligned_start;
+        }
+        let reassembled: String = pages_reversed
+            .iter()
+            .rev()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("");
+        assert_eq!(
+            reassembled, body,
+            "concatenated pages reproduce the file losslessly"
+        );
+        assert!(
+            pages_reversed.len() > 10,
+            "fixture actually exercised many pages"
+        );
+    }
+
+    #[test]
+    fn backfill_window_clamps_and_caps() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("tiny.jsonl");
+        std::fs::write(&path, "{\"a\":1}\n{\"b\":2}\n").unwrap();
+        let total = std::fs::metadata(&path).unwrap().len();
+
+        // Requesting far past EOF clamps to the file.
+        let (text, start, end) = backfill_window_slice(&path, total + 10_000, 1 << 20).unwrap();
+        assert_eq!(start, 0);
+        assert_eq!(end, total);
+        assert_eq!(text.as_bytes(), std::fs::read(&path).unwrap().as_slice());
+
+        // A zero-progress request (before_offset 0) yields an empty window.
+        let (text, start, end) = backfill_window_slice(&path, 0, 4096).unwrap();
+        assert!(text.is_empty());
+        assert_eq!((start, end), (0, 0));
+    }
+
+    #[test]
+    fn backfill_parse_uses_provider_parser_and_cleans_temp_files() {
+        if !workspace_plugins_root().join("provider-claude").exists() {
+            return;
+        }
+        let registry = claude_registry();
+        let count_tmp = || {
+            std::fs::read_dir(std::env::temp_dir())
+                .map(|entries| {
+                    entries
+                        .filter_map(|e| e.ok())
+                        .filter(|e| {
+                            e.file_name()
+                                .to_string_lossy()
+                                .starts_with("codeterm-backfill-")
+                        })
+                        .count()
+                })
+                .unwrap_or(0)
+        };
+        let before = count_tmp();
+        let text = concat!(
+            "{\"type\":\"user\",\"uuid\":\"bf-1\",\"message\":{\"role\":\"user\",\"content\":\"older question\"}}\n",
+            "{\"type\":\"assistant\",\"uuid\":\"bf-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"older answer\"}]}}\n",
+        );
+        let msgs = parse_backfill_window(&registry, "claude", text);
+        assert_eq!(msgs.len(), 2, "provider parser normalizes the raw window");
+        assert_eq!(msgs[0].kind, "user");
+        assert_eq!(msgs[0].content, "older question");
+        assert_eq!(msgs[1].kind, "assistant");
+        assert_eq!(msgs[1].content, "older answer");
+        assert!(count_tmp() <= before, "no backfill temp files escape");
+
+        let empty = parse_backfill_window(&registry, "claude", "  \n");
+        assert!(
+            empty.is_empty(),
+            "blank window parses to nothing without touching disk"
+        );
     }
 }
