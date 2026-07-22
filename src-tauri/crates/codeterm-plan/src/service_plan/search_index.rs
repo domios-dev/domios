@@ -396,16 +396,22 @@ pub fn delete_plan_units(plan: &Plan) -> Result<(), String> {
     delete_units(plan_project_root(plan), &format!("planunit_{}_%", plan.id))
 }
 
-// `journal_mode=WAL` in init_schema ignores busy_timeout and BUSY-fails under contention; run it once per path so the mode switch never contends (reads/writes stay unserialized).
+// `journal_mode=WAL` in init_schema ignores busy_timeout and BUSY-fails under contention; run it once per path.
+// Lock is per-path: distinct dbs bootstrap in parallel and cached-path opens never block on another path's init (a single process-wide lock serialized every worker's open).
 fn ensure_schema_once(db_path: &Path, conn: &Connection) -> Result<(), String> {
-    static INITIALIZED: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
-    let set = INITIALIZED.get_or_init(|| Mutex::new(HashSet::new()));
-    let mut guard = set.lock();
-    if guard.contains(db_path) {
+    static INITIALIZED: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<bool>>>>> = OnceLock::new();
+    let registry = INITIALIZED.get_or_init(|| Mutex::new(HashMap::new()));
+    let path_lock = registry
+        .lock()
+        .entry(db_path.to_path_buf())
+        .or_default()
+        .clone();
+    let mut initialized = path_lock.lock();
+    if *initialized {
         return Ok(());
     }
     port().init_schema(conn)?;
-    guard.insert(db_path.to_path_buf());
+    *initialized = true;
     Ok(())
 }
 
