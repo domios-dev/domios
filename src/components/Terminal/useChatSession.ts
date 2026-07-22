@@ -1,4 +1,4 @@
-import { startTransition, type Dispatch, type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, type Dispatch, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
 import {
   reduceToolEvents,
@@ -16,9 +16,9 @@ import {
 import { enrichTimelineItems, type EnrichmentCache } from "./chatEnrichment";
 import { onResync } from "../../lib/resync";
 import { CHAT_REATTACHED_EVENT } from "./chatReattach";
+import { chatWindowRange, slideChatWindowOlder } from "./chatWindow";
 
-const INITIAL_VISIBLE_MESSAGES = 220;
-const VISIBLE_MESSAGE_STEP = 160;
+const BACKFILL_PAGE_MAX_BYTES = 256 * 1024;
 export const TEST_CHAT_REPLY_EVENT = "codeterm:test-chat-reply";
 const TEST_CHAT_BASE_TIME_MS = 1_700_000_000_000;
 
@@ -37,6 +37,15 @@ interface ChatStartResult {
   source_session_id: string | null;
   session_binding_nonce: string | null;
   subscription_id?: string | null;
+}
+
+interface ChatBackfillResult {
+  text: string;
+  start_offset: number;
+  end_offset: number;
+  messages?: ChatMessage[];
+  source_session_id: string | null;
+  session_binding_nonce: string | null;
 }
 
 interface ChatMsgEvent {
@@ -296,7 +305,9 @@ export function useChatSession({
   active?: boolean;
 }) {
   const [structured, setStructured] = useState<ChatMessage[] | null>(null);
-  const [visibleMessageCount, setVisibleMessageCount] = useState(INITIAL_VISIBLE_MESSAGES);
+  const [windowAnchorKey, setWindowAnchorKey] = useState<string | null>(null);
+  const [backfillCursor, setBackfillCursor] = useState<number | null>(null);
+  const [backfillLoading, setBackfillLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [recovering, setRecovering] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -317,6 +328,11 @@ export function useChatSession({
   const activeSubscriptionIdRef = useRef<string | null>(null);
   const requestedSubscriptionIdRef = useRef<string | null>(null);
   const rotationQueuedRef = useRef(false);
+  const backfillInFlightRef = useRef(false);
+  /** Backfilled pages get negative descending seq so equal-second boundary
+   *  timestamps still sort before the snapshot (snapshot seq is 0-based). */
+  const backfillSeqBaseRef = useRef(0);
+  const pendingRevealRef = useRef(false);
   const nextClientOrder = useCallback(() => {
     const value = nextClientOrderRef.current;
     nextClientOrderRef.current += 1;
@@ -375,8 +391,10 @@ export function useChatSession({
     if (knownPaneIdRef.current !== paneId) {
       knownPaneIdRef.current = paneId;
       nextClientOrderRef.current = 0;
+      backfillSeqBaseRef.current = 0;
       setStructured(null);
-      setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
+      setWindowAnchorKey(null);
+      setBackfillCursor(null);
       setLoading(true);
     }
     (async () => {
@@ -458,6 +476,7 @@ export function useChatSession({
           return;
         }
         markAttached();
+        setBackfillCursor(res.start_offset != null && res.start_offset > 0 ? res.start_offset : null);
         setStructured((prev) => mergeById(
           prev ?? [],
           withPreservedClientOrder(res.messages ?? [], prev ?? [], nextClientOrder, res.source_session_id),
@@ -549,21 +568,80 @@ export function useChatSession({
     return stabilized;
   }, [allMessages]);
 
+  const windowRange = useMemo(
+    () => chatWindowRange(allTimelineItems, windowAnchorKey),
+    [allTimelineItems, windowAnchorKey],
+  );
+
   const enrichmentCacheRef = useRef<EnrichmentCache>(new WeakMap());
   const enrichedMessages = useMemo(() => {
-    const visible = allTimelineItems.length > visibleMessageCount
-      ? allTimelineItems.slice(-visibleMessageCount)
-      : allTimelineItems;
+    const visible = allTimelineItems.slice(windowRange.start, windowRange.end);
     return enrichTimelineItems(visible, enrichmentCacheRef.current);
-  }, [allTimelineItems, visibleMessageCount]);
+  }, [allTimelineItems, windowRange]);
 
-  const hiddenMessageCount = Math.max(0, allTimelineItems.length - enrichedMessages.length);
+  const hiddenMessageCount = windowRange.start;
+  const hiddenNewerCount = Math.max(0, allTimelineItems.length - windowRange.end);
+  const canBackfillOlder = backfillCursor != null && backfillCursor > 0;
 
-  const loadOlder = useCallback(() => {
+  const loadOlder = useCallback(async () => {
     if (hiddenMessageCount > 0) {
-      setVisibleMessageCount((count) => count + VISIBLE_MESSAGE_STEP);
+      setWindowAnchorKey((prev) => slideChatWindowOlder(allTimelineItems, prev));
+      return;
     }
-  }, [hiddenMessageCount]);
+    const cursor = backfillCursor;
+    if (cursor == null || cursor <= 0 || backfillInFlightRef.current) return;
+    backfillInFlightRef.current = true;
+    setBackfillLoading(true);
+    try {
+      const res = await invoke<ChatBackfillResult>("chat_backfill", {
+        paneId,
+        beforeOffset: cursor,
+        maxBytes: BACKFILL_PAGE_MAX_BYTES,
+      });
+      if (
+        !canAdoptTranscriptAuthority(
+          { source_session_id: res.source_session_id },
+          attachmentSourceSessionIdRef.current,
+          agentSessionIdRef.current,
+        )
+      ) {
+        return;
+      }
+      // Progress guard: a page that cannot move the cursor toward 0 ends paging.
+      const nextCursor = res.start_offset > 0 && res.start_offset < cursor ? res.start_offset : null;
+      setBackfillCursor(nextCursor);
+      const parsed = res.messages ?? [];
+      if (parsed.length === 0) return;
+      const seqBase = backfillSeqBaseRef.current - parsed.length;
+      backfillSeqBaseRef.current = seqBase;
+      const stamped = parsed.map((m, index) => ({
+        ...m,
+        seq: seqBase + index,
+        sourceSessionId: m.sourceSessionId ?? res.source_session_id ?? undefined,
+      }));
+      pendingRevealRef.current = true;
+      // Backfill goes on the prev side: existing ids win the dedupe and
+      // equal-timestamp boundary ties keep the older page first.
+      setStructured((prev) => mergeById(stamped, prev ?? []));
+    } catch (e) {
+      onErrorRef.current?.(e instanceof Error ? e.message : String(e));
+    } finally {
+      backfillInFlightRef.current = false;
+      setBackfillLoading(false);
+    }
+  }, [hiddenMessageCount, allTimelineItems, backfillCursor, paneId]);
+
+  // Reveal a merged backfill page as soon as it lands in the timeline —
+  // state-change driven, never timer driven.
+  useLayoutEffect(() => {
+    if (!pendingRevealRef.current) return;
+    pendingRevealRef.current = false;
+    setWindowAnchorKey((prev) => slideChatWindowOlder(allTimelineItems, prev));
+  }, [allTimelineItems]);
+
+  const showLatest = useCallback(() => {
+    setWindowAnchorKey(null);
+  }, []);
 
   const addOptimistic = useCallback((content: string) => {
     const id = `opt-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
@@ -615,7 +693,11 @@ export function useChatSession({
     allMessages,
     enrichedMessages,
     hiddenMessageCount,
+    hiddenNewerCount,
+    canBackfillOlder,
+    backfillLoading,
     loadOlder,
+    showLatest,
     addOptimistic,
     updateOptimistic,
   };
