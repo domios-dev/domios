@@ -13,6 +13,7 @@ pub mod embedded;
 pub mod glance;
 pub mod host_traits;
 pub mod js_runtime;
+pub mod jsonl_window;
 pub mod model_catalog;
 pub mod pane_state;
 pub mod plugin_manager;
