@@ -219,6 +219,9 @@ pub struct RawTailConfig {
     pub poll_interval: Duration,
 }
 
+/// Bytes one raw-tailer poll forwards; the rest lands on the next poll.
+const RAW_TAIL_CHUNK_BYTES: u64 = 8 * 1024 * 1024;
+
 pub fn spawn_raw_tailer(cfg: RawTailConfig, sink: Arc<dyn RawTextSink>) -> TailerHandle {
     let stop_flag = Arc::new(AtomicBool::new(false));
     let offset = Arc::new(AtomicU64::new(cfg.start_offset));
@@ -235,16 +238,23 @@ pub fn spawn_raw_tailer(cfg: RawTailConfig, sink: Arc<dyn RawTextSink>) -> Taile
                 continue;
             }
             let from = off.load(Ordering::Acquire);
-            let bytes = match std::fs::read(&cfg.path) {
-                Ok(b) => b,
+            let total = match std::fs::metadata(&cfg.path) {
+                Ok(m) => m.len(),
                 Err(_) => {
                     thread::sleep(cfg.poll_interval);
                     continue;
                 }
             };
-            let total = bytes.len() as u64;
             if total > from {
-                let slice = &bytes[from as usize..];
+                // Bounded seek read: the file behind this offset can be hundreds of MB.
+                let window_end = total.min(from.saturating_add(RAW_TAIL_CHUNK_BYTES));
+                let Ok((slice, _)) =
+                    codeterm_plugin::jsonl_window::read_range(&cfg.path, from, window_end)
+                else {
+                    thread::sleep(cfg.poll_interval);
+                    continue;
+                };
+                let slice = slice.as_slice();
                 // Bytes through the last newline are unambiguously complete lines.
                 let nl_consumed = slice
                     .iter()
@@ -253,9 +263,11 @@ pub fn spawn_raw_tailer(cfg: RawTailConfig, sink: Arc<dyn RawTextSink>) -> Taile
                     .unwrap_or(0);
                 let tail = &slice[nl_consumed..];
                 let tail_end = tail.iter().rposition(|&b| !b.is_ascii_whitespace());
-                let tail_complete = tail_end
-                    .map(|e| serde_json::from_slice::<serde_json::Value>(&tail[..=e]).is_ok())
-                    .unwrap_or(false);
+                // Only trust an unterminated tail as a whole record at EOF.
+                let tail_complete = window_end == total
+                    && tail_end
+                        .map(|e| serde_json::from_slice::<serde_json::Value>(&tail[..=e]).is_ok())
+                        .unwrap_or(false);
                 let consumed = if tail_complete {
                     slice.len()
                 } else {

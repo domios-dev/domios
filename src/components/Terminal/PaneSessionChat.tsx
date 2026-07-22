@@ -137,14 +137,19 @@ export function PaneSessionChat({
   const isActive = isVisible;
 
   const showComposerError = useCallback((message: string) => {
+    const duplicate = message.startsWith("Duplicate message ignored");
     addNotification({
       pane_id: paneId,
       workspace_id: null,
-      title: isMicrophonePermissionError(message) ? "Microphone unavailable" : "Chat error",
+      title: isMicrophonePermissionError(message)
+        ? "Microphone unavailable"
+        : duplicate
+          ? "Message not sent"
+          : "Chat error",
       body: isMicrophonePermissionError(message)
         ? `${message} Open microphone permissions in Settings if needed.`
         : message,
-      level: "Error",
+      level: duplicate ? "Warning" : "Error",
     });
   }, [addNotification, paneId]);
 
@@ -156,7 +161,11 @@ export function PaneSessionChat({
     retry,
     enrichedMessages,
     hiddenMessageCount,
+    hiddenNewerCount,
+    canBackfillOlder,
+    backfillLoading,
     loadOlder,
+    showLatest,
     addOptimistic,
     updateOptimistic,
   } = useChatSession({
@@ -173,7 +182,7 @@ export function PaneSessionChat({
     contentRef: scrollContentRef,
     showScrollDown,
     scrollToBottom,
-    followSend: followSentMessage,
+    followSend: rawFollowSentMessage,
     handleWheel,
     handlePointerDown,
     handlePointerMove,
@@ -187,6 +196,13 @@ export function PaneSessionChat({
     loading,
     messageCount: enrichedMessages.length,
   });
+
+  // Sending or jumping to latest must leave history-browsing mode first, or the
+  // bounded window would keep the new tail out of the DOM.
+  const followSentMessage = useCallback(() => {
+    showLatest();
+    rawFollowSentMessage();
+  }, [showLatest, rawFollowSentMessage]);
 
   const [answeredInteractiveIds, setAnsweredInteractiveIds] = useState<Set<string>>(new Set());
   // clears pane.pending_prompt shortly after on the next state poll.
@@ -486,12 +502,13 @@ export function PaneSessionChat({
             style={{ height: "calc(1.25rem + var(--ct-safe-top, 0px))" }}
           />
         )}
-        {hiddenMessageCount > 0 && (
+        {(hiddenMessageCount > 0 || canBackfillOlder) && (
           <div className="flex justify-center pb-2 pt-1">
             <button
               type="button"
               data-testid="chat-load-older"
               onClick={() => void loadOlder()}
+              disabled={backfillLoading}
               className="rounded px-2.5 py-1 text-xs font-mono hover:brightness-125 disabled:opacity-50"
               style={{
                 background: "color-mix(in srgb, var(--ct-bg, #0d1117) 92%, black 8%)",
@@ -499,7 +516,11 @@ export function PaneSessionChat({
                 border: "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 25%, transparent)",
               }}
             >
-              {`Show older (${hiddenMessageCount})`}
+              {hiddenMessageCount > 0
+                ? `Show older (${hiddenMessageCount})`
+                : backfillLoading
+                  ? "Loading older…"
+                  : "Show older"}
             </button>
           </div>
         )}
@@ -602,16 +623,24 @@ export function PaneSessionChat({
         <PendingPromptCard pendingPrompt={inlinePrompt} onRespond={handleRespondPrompt} />
         </div>
       </div>
-      {showScrollDown && (
+      {(showScrollDown || hiddenNewerCount > 0) && (
         <button
           type="button"
           data-testid="chat-scroll-bottom"
-          onClick={() => scrollToBottom()}
+          onClick={() => {
+            showLatest();
+            scrollToBottom();
+          }}
           title="Scroll to latest"
-          aria-label="Scroll to latest"
-          className="absolute right-4 bottom-4 z-10 flex h-8 w-8 items-center justify-center rounded-full text-[var(--ct-muted-fg)] transition-colors hover:text-[var(--ct-fg)]"
+          aria-label={hiddenNewerCount > 0 ? `Show latest (${hiddenNewerCount} newer)` : "Scroll to latest"}
+          className="absolute right-4 bottom-4 z-10 flex h-8 items-center justify-center gap-1 rounded-full px-2 text-[var(--ct-muted-fg)] transition-colors hover:text-[var(--ct-fg)]"
           style={{ background: "var(--ct-surface)", border: "1px solid var(--ct-border)" }}
         >
+          {hiddenNewerCount > 0 && (
+            <span className="text-[10px] font-mono" data-testid="chat-hidden-newer-count">
+              {hiddenNewerCount}
+            </span>
+          )}
           <ChevronDown size={16} strokeWidth={2.2} />
         </button>
       )}

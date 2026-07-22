@@ -41,6 +41,8 @@ function loadPlugin(relativePluginPath: string) {
       fs: {
         fileExists: () => false,
         readFile: () => null,
+        readFileHead: () => null,
+        readFileTail: () => null,
         readJson: () => null,
         walkDir: () => [],
         writeJson: () => true,

@@ -36,6 +36,12 @@ function setupDom() {
   }
   Object.defineProperty(globalThis, "requestAnimationFrame", { configurable: true, value: (cb: FrameRequestCallback) => { cb(0); return 0; } });
   Object.defineProperty(globalThis, "cancelAnimationFrame", { configurable: true, value: () => {} });
+  class StubResizeObserver {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  }
+  Object.defineProperty(globalThis, "ResizeObserver", { configurable: true, value: StubResizeObserver });
 }
 
 function paneBase(id: string): Pane {

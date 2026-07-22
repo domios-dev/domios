@@ -107,6 +107,12 @@ impl ShellReadySignal {
         self.state.lock().ready
     }
 
+    /// A closed signal can never become ready — its PTY generation went away.
+    /// Callers log this distinctly so a torn-down wait is not read as a timeout.
+    pub fn is_closed(&self) -> bool {
+        self.state.lock().closed
+    }
+
     fn mark_ready(&self) {
         let mut state = self.state.lock();
         if !state.ready && !state.closed {
@@ -188,8 +194,7 @@ impl ScreenState {
 
         let screen = parser.screen().contents();
 
-        #[cfg(windows)]
-        if screen_has_windows_shell_prompt(&screen) {
+        if screen_has_shell_readiness_prompt(&screen) {
             self.mark_shell_ready_observed(pty_id);
         }
 
@@ -385,17 +390,42 @@ impl ScreenState {
         signal
     }
 
+    /// Arm (or re-hand-out) the shell-ready signal. Readiness that already
+    /// happened is not lost: a matching observation for this generation, or a
+    /// prompt still rendered on screen, fires the signal at arm time.
     pub fn arm_shell_ready_signal(&mut self, pty_id: &str) -> Arc<ShellReadySignal> {
+        if self
+            .shell_ready_signals
+            .get(pty_id)
+            .is_some_and(|signal| signal.is_closed())
+        {
+            self.shell_ready_signals.remove(pty_id);
+        }
         let signal = self
             .shell_ready_signals
             .entry(pty_id.to_string())
             .or_insert_with(ShellReadySignal::new)
             .clone();
         let current_generation = self.pty_generations.get(pty_id).copied();
-        if self.shell_ready_generations.get(pty_id).copied() == Some(current_generation) {
+        let observed =
+            self.shell_ready_generations.get(pty_id).copied() == Some(current_generation);
+        let on_screen = self
+            .parsers
+            .get(pty_id)
+            .is_some_and(|parser| screen_has_shell_readiness_prompt(&parser.screen().contents()));
+        if on_screen {
+            self.mark_shell_ready_observed(pty_id);
+        } else if observed {
             signal.mark_ready();
         }
         signal
+    }
+
+    /// Whether this PTY's output stream is already bound to a generation.
+    /// Arming a readiness wait before the reader binds is the ordering that
+    /// used to drop the wait entirely.
+    pub fn has_pty_generation(&self, pty_id: &str) -> bool {
+        self.pty_generations.contains_key(pty_id)
     }
 
     pub fn disarm_bare_prompt_signal(&mut self, pty_id: &str, signal: &Arc<PromptSignal>) {
@@ -445,12 +475,23 @@ impl ScreenState {
             .clone()
     }
 
+    /// Bind this PTY's output stream to a generation. Replacing a generation
+    /// tears down the previous one's state; the FIRST bind must not, or it
+    /// closes waits armed by the launch thread before the reader started.
     pub fn bind_pty_generation(&mut self, pty_id: &str, generation: u64) -> bool {
         match self.pty_generations.get(pty_id).copied() {
             Some(current) if current > generation => false,
             Some(current) if current == generation => true,
-            _ => {
+            Some(_) => {
                 self.remove(pty_id);
+                self.pty_generations.insert(pty_id.to_string(), generation);
+                true
+            }
+            None => {
+                if self.shell_ready_generations.get(pty_id).copied() == Some(None) {
+                    self.shell_ready_generations
+                        .insert(pty_id.to_string(), Some(generation));
+                }
                 self.pty_generations.insert(pty_id.to_string(), generation);
                 true
             }
@@ -589,485 +630,33 @@ pub fn screen_has_shell_prompt(screen_text: &str) -> bool {
     }
 }
 
-#[cfg(windows)]
-fn screen_has_windows_shell_prompt(screen_text: &str) -> bool {
-    screen_text
+/// Stricter than `screen_has_bare_shell_prompt`: proof the SHELL itself is
+/// accepting input, used to gate writing a launch command. Agent composer
+/// cursors (`❯` / `›`) and generic `word >` output are rejected — only real
+/// POSIX (`$`/`%`), PowerShell (`PS …>`) and cmd (`C:\…>`) prompts count.
+///
+/// Reached through the last non-empty line, so a shell that prints a startup
+/// banner first (macOS bash's zsh-migration notice) is still recognized.
+pub fn screen_has_shell_readiness_prompt(screen_text: &str) -> bool {
+    if screen_has_agent_tui(screen_text) {
+        return false;
+    }
+    let Some(line) = screen_text
         .lines()
         .rev()
         .find(|line| !line.trim().is_empty())
         .map(str::trim_end)
-        .is_some_and(|line| line.starts_with("PS ") && line.ends_with('>'))
+    else {
+        return false;
+    };
+    if line.contains('\u{276F}') || line.contains('\u{203A}') {
+        return false;
+    }
+    line.ends_with('$')
+        || line.ends_with('%')
+        || (line.starts_with("PS ") && line.ends_with('>'))
+        || (line.ends_with('>') && (line.contains(":\\") || line.contains(":/")))
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn powershell_continuation_is_not_a_ready_prompt() {
-        // launch_cmd would just become more input on the broken line.
-        assert!(!screen_has_shell_prompt(">>"));
-        assert!(!screen_has_shell_prompt(">> "));
-        assert!(!screen_has_shell_prompt(">>>"));
-        assert!(!screen_has_shell_prompt(">"));
-        assert!(!screen_has_shell_prompt("> "));
-    }
-
-    #[test]
-    fn powershell_ready_prompt_is_recognized() {
-        assert!(screen_has_shell_prompt("PS C:\\Users\\User>"));
-        assert!(screen_has_shell_prompt("PS C:\\Developer\\codeterm> "));
-    }
-
-    #[test]
-    fn cmd_and_unix_prompts_are_recognized() {
-        assert!(screen_has_shell_prompt("C:\\Users\\User>"));
-        assert!(screen_has_shell_prompt("user@host:~$ "));
-        assert!(screen_has_shell_prompt("user@host:~%"));
-    }
-
-    #[test]
-    fn claude_tui_input_cursor_is_recognized() {
-        // matcher only knew POSIX/Windows shell markers.
-        assert!(screen_has_shell_prompt("❯ "));
-        assert!(screen_has_shell_prompt("❯"));
-        // Cursor inside a box border (typical Claude TUI layout).
-        assert!(screen_has_shell_prompt(
-            "│ ❯                                        │"
-        ));
-        // Some agent TUIs use the lighter single-arrow glyph.
-        assert!(screen_has_shell_prompt("› hello"));
-        // Mid-action TUI screens must still report not-ready.
-        assert!(!screen_has_shell_prompt("working..."));
-        assert!(!screen_has_shell_prompt("Esc to interrupt"));
-    }
-
-    #[test]
-    fn bare_shell_prompt_rejects_active_tui() {
-        // restart code would think the shell is back and pipe the launch command into Claude's input box.
-        let claude_tui = "╭──────────────────────────╮\n│ ❯                        │";
-        assert!(
-            screen_has_shell_prompt(claude_tui),
-            "❯ still looks shell-ish"
-        );
-        assert!(
-            !screen_has_bare_shell_prompt(claude_tui),
-            "TUI border must veto"
-        );
-    }
-
-    #[test]
-    fn bare_shell_prompt_accepts_real_shell() {
-        // Starship-style prompt — `❯` but no box-drawing or TUI footer.
-        assert!(screen_has_bare_shell_prompt(
-            "~/code/codeterm on  master\n❯ "
-        ));
-        assert!(screen_has_bare_shell_prompt("user@host:~$ "));
-        assert!(screen_has_bare_shell_prompt("PS C:\\Users\\User> "));
-    }
-
-    #[test]
-    fn agent_tui_detected_by_universal_glyphs() {
-        // Universal glyph check (box-drawing, block chars) — no text patterns here. Text patterns live in each provider's screen_has_tui()
-        // implementation.
-        assert!(screen_has_agent_tui("╭─ foo ─╮"));
-        assert!(screen_has_agent_tui("▀▀▀▀▀▀ opencode logo"));
-        assert!(!screen_has_agent_tui("some content\n? for shortcuts")); // text → provider
-        assert!(!screen_has_agent_tui("working\nEsc to interrupt")); // text → provider
-        assert!(!screen_has_agent_tui("just a plain shell output"));
-        assert!(!screen_has_agent_tui("❯ "));
-    }
-
-    #[test]
-    fn test_empty_state_returns_none() {
-        let ss = ScreenState::new();
-        assert!(ss.get_screen_text("nonexistent").is_none());
-        assert!(ss.get_screen_formatted("nonexistent").is_none());
-        assert!(ss.get_content_hash("nonexistent", 0).is_none());
-    }
-
-    #[test]
-    fn test_process_and_get_text() {
-        let mut ss = ScreenState::new();
-        ss.process("pty1", b"Hello, world!");
-        let text = ss.get_screen_text("pty1").unwrap();
-        assert!(text.contains("Hello, world!"));
-    }
-
-    #[test]
-    fn test_process_overwrites_at_cursor() {
-        let mut ss = ScreenState::new();
-        ss.process("pty1", b"ABCDE\rXY");
-        let text = ss.get_screen_text("pty1").unwrap();
-        assert!(text.contains("XYCDE"));
-    }
-
-    #[test]
-    fn test_formatted_preserves_cursor_hide() {
-        let mut ss = ScreenState::new();
-        ss.process("pty1", b"Hello\x1b[?25l");
-        let formatted = ss.get_screen_formatted("pty1").unwrap();
-        let s = String::from_utf8_lossy(&formatted);
-        assert!(
-            s.contains("\x1b[?25l"),
-            "formatted should preserve DECTCEM hide: {:?}",
-            s
-        );
-    }
-
-    #[test]
-    fn test_formatted_preserves_colors() {
-        let mut ss = ScreenState::new();
-        ss.process("pty1", b"\x1b[31mRed text\x1b[0m");
-        let formatted = ss.get_screen_formatted("pty1").unwrap();
-        assert!(!formatted.is_empty());
-        let s = String::from_utf8_lossy(&formatted);
-        assert!(s.contains("\x1b["), "formatted should contain escape codes");
-        assert!(s.contains("Red text"));
-    }
-
-    #[test]
-    fn test_content_hash_changes_with_content() {
-        let mut ss = ScreenState::new();
-        ss.process("pty1", b"Content A");
-        let hash1 = ss.get_content_hash("pty1", 0).unwrap();
-
-        ss.process("pty1", b"\x1b[2J\x1b[HContent B");
-        let hash2 = ss.get_content_hash("pty1", 0).unwrap();
-
-        assert_ne!(hash1, hash2);
-    }
-
-    #[test]
-    fn test_content_hash_excludes_bottom_rows() {
-        let mut ss = ScreenState::new();
-        ss.process("pty1", b"Top line\x1b[50;1HBottom line");
-        let hash_all = ss.get_content_hash("pty1", 0).unwrap();
-        let hash_no_bottom = ss.get_content_hash("pty1", 3).unwrap();
-        assert_ne!(hash_all, hash_no_bottom);
-    }
-
-    #[test]
-    fn cursor_input_state_clamps_a_composer_to_the_bottom_row() {
-        let mut ss = ScreenState::new();
-        ss.process("pty1", b"\x1b[999;1H\x1b[2m\xe2\x96\x8c\x1b[0m ");
-
-        let (_alternate, visible, row, rows) = ss.cursor_input_state("pty1").unwrap();
-        assert!(visible);
-        assert!(
-            row + 4 >= rows,
-            "cursor row {row} must be near bottom {rows}"
-        );
-    }
-
-    #[test]
-    fn resize_keeps_cursor_geometry_in_sync_with_the_pty() {
-        let mut ss = ScreenState::new();
-        ss.process("pty1", b"\x1b[40;1H\x1b[2m\xe2\x96\x8c\x1b[0m ");
-        ss.resize("pty1", 120, 40);
-
-        let (_alternate, visible, row, rows) = ss.cursor_input_state("pty1").unwrap();
-        assert!(visible);
-        assert_eq!(rows, 40);
-        assert!(
-            row + 4 >= rows,
-            "cursor row {row} must be near bottom {rows}"
-        );
-    }
-
-    #[test]
-    fn test_remove_cleans_up() {
-        let mut ss = ScreenState::new();
-        ss.process("pty1", b"data");
-        assert!(ss.get_screen_text("pty1").is_some());
-        ss.remove("pty1");
-        assert!(ss.get_screen_text("pty1").is_none());
-    }
-
-    #[test]
-    fn test_multiple_ptys_isolated() {
-        let mut ss = ScreenState::new();
-        ss.process("pty1", b"First");
-        ss.process("pty2", b"Second");
-        assert!(ss.get_screen_text("pty1").unwrap().contains("First"));
-        assert!(ss.get_screen_text("pty2").unwrap().contains("Second"));
-        assert!(!ss.get_screen_text("pty1").unwrap().contains("Second"));
-    }
-
-    #[test]
-    fn test_prompt_signal_fires_on_bash_prompt() {
-        let mut ss = ScreenState::new();
-        let sig = ss.arm_prompt_signal("pty1");
-        assert!(!sig.is_ready());
-        ss.process("pty1", b"user@host:~$ ");
-        assert!(sig.is_ready());
-    }
-
-    #[test]
-    fn test_prompt_signal_fires_on_powershell_prompt() {
-        let mut ss = ScreenState::new();
-        let sig = ss.arm_prompt_signal("pty1");
-        ss.process("pty1", b"PS C:\\Developer> ");
-        assert!(sig.is_ready());
-    }
-
-    #[test]
-    fn test_prompt_signal_fires_immediately_if_prompt_already_present() {
-        let mut ss = ScreenState::new();
-        ss.process("pty1", b"user@host:~$ ");
-        let sig = ss.arm_prompt_signal("pty1");
-        assert!(sig.is_ready());
-    }
-
-    #[test]
-    fn test_prompt_signal_not_fired_on_plain_output() {
-        let mut ss = ScreenState::new();
-        let sig = ss.arm_prompt_signal("pty1");
-        ss.process("pty1", b"some regular line without prompt marker");
-        assert!(!sig.is_ready());
-    }
-
-    #[test]
-    fn bare_prompt_signal_rejects_agent_tui_prompt() {
-        let mut ss = ScreenState::new();
-        ss.process(
-            "pty1",
-            "╭──────────────────────────╮\n│ ❯                        │".as_bytes(),
-        );
-        let prompt = ss.arm_prompt_signal("pty1");
-        let bare = ss.arm_bare_prompt_signal("pty1");
-        assert!(
-            prompt.is_ready(),
-            "regular prompt signal accepts TUI composer"
-        );
-        assert!(
-            !bare.is_ready(),
-            "restore launch must not treat an agent composer as a bare shell"
-        );
-
-        ss.process("pty1", b"\x1b[2J\x1b[Huser@host:~$ ");
-        assert!(
-            bare.is_ready(),
-            "bare prompt signal fires on real shell prompt"
-        );
-    }
-
-    #[test]
-    fn bare_prompt_signal_does_not_reuse_stale_ready_state() {
-        let mut ss = ScreenState::new();
-        ss.process("pty1", b"user@host:~$ ");
-        let first = ss.arm_bare_prompt_signal("pty1");
-        assert!(first.is_ready());
-
-        ss.process(
-            "pty1",
-            "\x1b[2J\x1b[H╭──────────────────────────╮\n│ ❯                        │".as_bytes(),
-        );
-        let second = ss.arm_bare_prompt_signal("pty1");
-        assert!(
-            !second.is_ready(),
-            "a previous bare shell prompt must not make a later TUI screen ready"
-        );
-    }
-
-    #[test]
-    fn shell_ready_requires_a_shell_integration_event() {
-        let mut ss = ScreenState::new();
-        let signal = ss.arm_shell_ready_signal("pty1");
-
-        ss.process("pty1", b"ordinary output");
-        assert!(!signal.is_ready());
-        ss.process("pty1", b"\x1b]133;A\x07");
-        assert!(signal.is_ready());
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn windows_shell_prompt_is_a_shell_ready_event() {
-        let mut ss = ScreenState::new();
-        assert!(ss.bind_pty_generation("pty1", 1));
-
-        assert!(ss.process_if_generation("pty1", 1, b"PS C:\\Developer\\codeterm> "));
-
-        assert!(ss.arm_shell_ready_signal("pty1").is_ready());
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn windows_continuation_prompt_does_not_mark_shell_ready() {
-        let mut ss = ScreenState::new();
-        assert!(ss.bind_pty_generation("pty1", 1));
-        let signal = ss.arm_shell_ready_signal("pty1");
-
-        assert!(ss.process_if_generation("pty1", 1, b">> "));
-
-        assert!(!signal.is_ready());
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn windows_agent_composers_and_generic_output_are_not_shell_ready() {
-        for output in [
-            "╭──────────────────╮\n│ ❯                │",
-            "› ask the agent",
-            "download progress >",
-        ] {
-            let mut ss = ScreenState::new();
-            assert!(ss.bind_pty_generation("pty1", 1));
-            let signal = ss.arm_shell_ready_signal("pty1");
-
-            assert!(ss.process_if_generation("pty1", 1, output.as_bytes()));
-
-            assert!(!signal.is_ready(), "unexpected readiness for {output:?}");
-        }
-    }
-
-    #[test]
-    fn shell_ready_event_before_arm_is_remembered_for_current_generation() {
-        let mut ss = ScreenState::new();
-        assert!(ss.bind_pty_generation("pty1", 1));
-
-        assert!(ss.process_if_generation("pty1", 1, b"\x1b]633;A\x07"));
-
-        assert!(ss.arm_shell_ready_signal("pty1").is_ready());
-    }
-
-    #[test]
-    fn raw_reader_generation_must_bind_before_output_is_accepted() {
-        let mut ss = ScreenState::new();
-
-        assert!(!ss.process_if_generation("pty1", 1, b"\x1b]133;A\x07"));
-        assert!(ss.bind_pty_generation("pty1", 1));
-        assert!(ss.process_if_generation("pty1", 1, b"\x1b]133;A\x07"));
-        assert!(ss.arm_shell_ready_signal("pty1").is_ready());
-    }
-
-    #[test]
-    fn late_shell_ready_event_from_old_generation_is_rejected() {
-        let mut ss = ScreenState::new();
-        assert!(ss.bind_pty_generation("pty1", 1));
-        assert!(ss.bind_pty_generation("pty1", 2));
-
-        assert!(!ss.process_if_generation("pty1", 1, b"\x1b]133;A\x07"));
-        let signal = ss.arm_shell_ready_signal("pty1");
-
-        assert!(!signal.is_ready());
-        ss.process("pty1", b"ordinary output");
-        assert!(!signal.is_ready());
-        assert!(ss.process_if_generation("pty1", 2, b"\x1b]133;A\x07"));
-        assert!(signal.is_ready());
-    }
-
-    #[test]
-    fn replacing_pty_generation_cancels_armed_shell_ready_waiter() {
-        let mut ss = ScreenState::new();
-        assert!(ss.bind_pty_generation("pty1", 1));
-        let signal = ss.arm_shell_ready_signal("pty1");
-
-        assert!(ss.bind_pty_generation("pty1", 2));
-
-        assert!(!signal.wait(Duration::ZERO));
-    }
-
-    #[test]
-    fn shell_event_wakes_all_waiters_and_prunes_them() {
-        let mut ss = ScreenState::new();
-        let first = ss.arm_bare_prompt_signal("pty1");
-        let second = ss.arm_bare_prompt_signal("pty1");
-
-        ss.process("pty1", b"user@host:~$ ");
-
-        assert!(first.is_ready());
-        assert!(second.is_ready());
-        assert_eq!(ss.bare_prompt_waiter_count("pty1"), 0);
-    }
-
-    #[test]
-    fn disarmed_bare_prompt_waiter_does_not_accumulate_after_timeout() {
-        let mut ss = ScreenState::new();
-        let signal = ss.arm_bare_prompt_signal("pty1");
-
-        ss.disarm_bare_prompt_signal("pty1", &signal);
-
-        assert_eq!(ss.bare_prompt_waiter_count("pty1"), 0);
-    }
-
-    #[test]
-    fn test_prompt_signal_wait_returns_true_on_ready() {
-        let mut ss = ScreenState::new();
-        let sig = ss.arm_prompt_signal("pty1");
-        let sig2 = sig.clone();
-        let handle = std::thread::spawn(move || {
-            sig2.mark_ready();
-        });
-        let got = sig.wait(Duration::from_secs(1));
-        handle.join().unwrap();
-        assert!(got);
-    }
-
-    #[test]
-    fn test_prompt_signal_wait_returns_false_on_timeout() {
-        let sig = PromptSignal::new();
-        let got = sig.wait(Duration::from_millis(30));
-        assert!(!got);
-    }
-
-    #[test]
-    fn screen_change_signal_wakes_on_process_without_polling() {
-        let mut state = ScreenState::new();
-        let signal = state.arm_screen_change_signal("pty1");
-        let generation = signal.generation();
-        let (tx, rx) = std::sync::mpsc::channel();
-        let waiter = signal.clone();
-        let handle = std::thread::spawn(move || {
-            tx.send(waiter.wait_after(generation, Duration::from_secs(1)))
-                .unwrap();
-        });
-
-        state.process("pty1", b"agent frame");
-
-        assert!(rx.recv_timeout(Duration::from_secs(1)).unwrap());
-        handle.join().unwrap();
-    }
-
-    #[test]
-    fn unsubscribed_screen_change_signal_fails_waiters() {
-        let mut state = ScreenState::new();
-        let signal = state.subscribe_screen_changes("pty1");
-        let generation = signal.generation();
-
-        state.unsubscribe_screen_changes("pty1", &signal);
-
-        assert!(!signal.wait_after(generation, Duration::ZERO));
-        assert_eq!(state.screen_change_subscriber_count(), 0);
-    }
-
-    #[test]
-    fn pty_teardown_closes_all_screen_change_subscribers() {
-        let mut state = ScreenState::new();
-        let first = state.subscribe_screen_changes("pty1");
-        let second = state.subscribe_screen_changes("pty1");
-        let first_generation = first.generation();
-        let second_generation = second.generation();
-
-        state.remove("pty1");
-
-        assert!(!first.wait_after(first_generation, Duration::ZERO));
-        assert!(!second.wait_after(second_generation, Duration::ZERO));
-        assert_eq!(state.screen_change_subscriber_count(), 0);
-    }
-
-    #[test]
-    fn old_generation_cannot_remove_replacement_screen() {
-        let mut state = ScreenState::new();
-        assert!(state.bind_pty_generation("pty1", 1));
-        state.process("pty1", b"old frame");
-        assert!(state.bind_pty_generation("pty1", 2));
-        state.process("pty1", b"replacement frame");
-
-        assert!(!state.remove_if_generation("pty1", 1));
-        assert!(state.get_screen_text("pty1").is_some());
-        assert!(state.remove_if_generation("pty1", 2));
-        assert!(state.get_screen_text("pty1").is_none());
-    }
-}
+mod tests;
