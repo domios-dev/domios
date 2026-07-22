@@ -1,13 +1,5 @@
-//! Orchestration-economics KPI event ledger (spec `sp_tqeuiy`, plan `pl_dwojf1`).
-//!
-//! Append-only sqlite ledger — one row per coordination event, attributed per the
-//! spec's Attribution contract (plan/task/pane/role/provider+model/timestamp), plus
-//! `kind` and `bytes` from the choke-point inventory
-//! (`docs/specs/2026-07-22-kpi-instrumentation-choke-points.md`). No pre-aggregation:
-//! callers aggregate at query time via [`KpiLedger::aggregate_by_kind`] /
-//! [`KpiLedger::aggregate_by_plan`]. Gated by [`crate::config::schema::KpiConfig::enabled`]
-//! (off by default) — this module only builds the storage; phase 3 wires writers at the
-//! choke points and consults [`kpi_ledger_enabled`] before calling [`KpiLedger::insert`].
+//! `insert` does not check the feature flag itself; callers must consult
+//! [`kpi_ledger_enabled`] first.
 
 use parking_lot::Mutex;
 use rusqlite::{params, Connection};
@@ -15,7 +7,6 @@ use serde::{Deserialize, Serialize};
 
 const CURRENT_KPI_SCHEMA_VERSION: u32 = 1;
 
-/// Coordination-event kind, per the choke-point inventory's event row fields.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum KpiEventKind {
@@ -63,8 +54,7 @@ impl KpiEventKind {
         }
     }
 
-    /// All variants, in the choke-point inventory's declared order — used to drive
-    /// per-kind aggregation without needing a `SELECT DISTINCT kind` round trip.
+    /// Drives per-kind aggregation without a `SELECT DISTINCT kind` round trip.
     pub const ALL: [KpiEventKind; 10] = [
         KpiEventKind::Send,
         KpiEventKind::Report,
@@ -79,8 +69,7 @@ impl KpiEventKind {
     ];
 }
 
-/// A coordination event as submitted by a choke-point writer. The ledger stamps
-/// `schema_version` and an autoincrement `id` at insert time — callers never supply them.
+/// The ledger stamps `schema_version` and `id` at insert time; callers never supply them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct KpiEventInput {
     pub plan_id: Option<String>,
@@ -94,7 +83,6 @@ pub struct KpiEventInput {
     pub bytes: u64,
 }
 
-/// A coordination event as read back from the ledger.
 #[derive(Debug, Clone, PartialEq)]
 pub struct KpiEventRecord {
     pub id: i64,
@@ -110,7 +98,6 @@ pub struct KpiEventRecord {
     pub bytes: u64,
 }
 
-/// Per-kind aggregate over the queried scope: count, total bytes, and size percentiles.
 #[derive(Debug, Clone, PartialEq)]
 pub struct KindAggregate {
     pub kind: KpiEventKind,
@@ -120,8 +107,7 @@ pub struct KindAggregate {
     pub p95_bytes: u64,
 }
 
-/// Per-plan aggregate. `plan_id: None` is the unattributable/workspace-scope bucket
-/// (spec Attribution: "Unattributable events... roll up to workspace scope").
+/// `plan_id: None` is the unattributable/workspace-scope bucket.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlanAggregate {
     pub plan_id: Option<String>,
@@ -129,21 +115,17 @@ pub struct PlanAggregate {
     pub total_bytes: u64,
 }
 
-/// sqlite-backed, append-only KPI event ledger. Cheap to clone-share behind an `Arc`.
 pub struct KpiLedger {
     conn: Mutex<Connection>,
 }
 
 impl KpiLedger {
-    /// Open (or create) the ledger db under `data_dir/kpi_ledger.db` (idempotent).
-    /// Kept in its own db file (not `orchestration.db`) so its schema can migrate
-    /// independently of the report ledger's (see choke-point doc §7 "Ledger location").
+    /// Own db file, not `orchestration.db` — schema migrates independently of the report ledger's.
     pub fn open(data_dir: &std::path::Path) -> Result<Self, String> {
         std::fs::create_dir_all(data_dir).map_err(|e| format!("create data dir: {}", e))?;
         Self::open_at(&data_dir.join("kpi_ledger.db"))
     }
 
-    /// Open a file-backed ledger at an explicit path (durability tests + callers that own the path).
     pub fn open_at(db_path: &std::path::Path) -> Result<Self, String> {
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("create dir: {}", e))?;
@@ -219,7 +201,7 @@ impl KpiLedger {
         })
     }
 
-    /// Append one event. Never updates or deletes — the ledger is write-once per row.
+    /// Write-once: always appends, unlike OrchestrationLedger's UPSERT-on-report.
     pub fn insert(&self, event: &KpiEventInput) -> Result<(), String> {
         let conn = self.conn.lock();
         conn.execute(
@@ -246,12 +228,11 @@ impl KpiLedger {
         Ok(())
     }
 
-    /// All events, oldest first. For tests and small-scale inspection — no pagination.
+    /// No pagination — small-scale inspection and tests only.
     pub fn list_all(&self) -> Result<Vec<KpiEventRecord>, String> {
         self.list_where("1 = 1", params![])
     }
 
-    /// All events attributed to one plan, oldest first.
     pub fn list_for_plan(&self, plan_id: &str) -> Result<Vec<KpiEventRecord>, String> {
         self.list_where("plan_id = ?1", params![plan_id])
     }
@@ -301,9 +282,7 @@ impl KpiLedger {
         })
     }
 
-    /// Per-kind aggregation at query time: count, total bytes, p50/p95 byte-size
-    /// percentiles. Scoped to `plan_id` when given, otherwise across all events.
-    /// Kinds with zero matching events are omitted.
+    /// Kinds with zero matching events are omitted, not zero-filled.
     pub fn aggregate_by_kind(&self, plan_id: Option<&str>) -> Result<Vec<KindAggregate>, String> {
         let conn = self.conn.lock();
         let mut out = Vec::new();
@@ -354,8 +333,6 @@ impl KpiLedger {
         Ok(rows)
     }
 
-    /// Per-plan aggregation at query time: event count + total bytes, grouped by
-    /// `plan_id` (`None` = unattributable / workspace scope).
     pub fn aggregate_by_plan(&self) -> Result<Vec<PlanAggregate>, String> {
         let conn = self.conn.lock();
         let mut stmt = conn
@@ -376,7 +353,7 @@ impl KpiLedger {
     }
 }
 
-/// Nearest-rank percentile over an ascending-sorted slice. Empty input returns 0.
+/// Nearest-rank percentile; caller must pre-sort ascending. Empty input returns 0.
 fn percentile(sorted_ascending: &[u64], p: f64) -> u64 {
     if sorted_ascending.is_empty() {
         return 0;
@@ -387,8 +364,6 @@ fn percentile(sorted_ascending: &[u64], p: f64) -> u64 {
     sorted_ascending[idx]
 }
 
-/// Whether the KPI ledger is active per config (off by default). Choke-point writers
-/// (phase 3) must check this before calling [`KpiLedger::insert`].
 pub fn kpi_ledger_enabled(config: &crate::config::schema::AppConfig) -> bool {
     config.kpi.enabled
 }
