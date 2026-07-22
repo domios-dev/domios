@@ -214,7 +214,7 @@ Prefer cached SCIP indexes for definitions, references, and implementation graph
 
 ## GitHub and release
 
-Issue and commit titles use `<scope>: description` (`fix`, `feat`, `mem`, `mesh`, `research`, `docs`, `build`), never bracket tags. Release work must load `.agents/skills/github-release/SKILL.md`; build-farm details live in `.codeterm/build-machine/README.md`. Never direct-push `master`, move published tags, or release from an unverified head.
+Issue and commit titles use `<scope>: description` (`fix`, `feat`, `mem`, `mesh`, `research`, `docs`, `build`), never bracket tags. Release work must load `.agents/skills/github-release/SKILL.md`; build-farm details live in `.codeterm/build-machine/README.md`; the human-readable runbook (preflight, trigger tag, artifact matrix, troubleshooting) is `docs/RELEASE.md`. Never direct-push `master`, move published tags, or release from an unverified head.
 
 ## Documentation
 
@@ -225,6 +225,7 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/CONFIG.md` — config options, themes, keybindings
 - `docs/SKILLS.md` — Claude Code skill for CodeTerm control
 - `docs/BUILD.md` — build instructions
+- `docs/RELEASE.md` — release runbook: preflight, trigger-tag flow, artifact matrix, troubleshooting
 - `docs/MESH.md` — mesh networking (flat peer model) + bridge migration + Mesh tab (service registry, health probes, activity log, push tokens)
 - `docs/MEMORY.md` — memory subsystem
 - `docs/PROMPTS.md` — prompt templates: where they live, how they compile
@@ -232,4 +233,4 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

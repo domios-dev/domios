@@ -135,56 +135,16 @@ npx tsx src/components/ChatView/parser.test.ts             # TS parser tests
 
 ## Release Process
 
-No CI — all builds are local, coordinated via CodeTerm mesh between two machines.
+Releases are cut by pushing a single `release-X.Y.Z` tag on `master`, which fires three
+self-hosted CI runners (macOS + Linux arm64 on the Mac, Windows on the ROG, Linux x86_64 on the
+ROG's WSL2) in parallel — not the local/mesh-coordinated flow this section used to describe.
 
-### Workflow
+Full runbook (preflight, exact trigger-tag commands, artifact matrix per platform, public-mirror
+verification, safe reruns without retagging, troubleshooting, cleanup): **`docs/RELEASE.md`**.
+Executable step-by-step procedure with every command and secret: `.agents/skills/github-release/SKILL.md`.
+Build-farm/runner internals: `.codeterm/build-machine/README.md`.
 
-The release is driven by one machine (Primary), the other builds in parallel (Support). Both machines are connected via CodeTerm mesh. The Primary handles version bump, tagging, draft creation, and publish. The Support machine pulls, builds, and uploads its platform installer.
-
-Typical setup: a macOS machine (Primary, ARM) + a Windows machine (Support, x64). Either machine can be Primary — just coordinate via mesh `send`.
-
-### Steps
-
-1. **Primary: bump version** in 3 files: `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`
-2. **Primary: commit + push + tag:**
-   ```bash
-   git add -A && git commit -m "release: vX.Y.Z — summary"
-   git tag vX.Y.Z && git push origin master --tags
-   ```
-3. **Primary: create draft release** (before building — so both machines can upload in parallel):
-   ```bash
-   gh release create vX.Y.Z --draft --title "vX.Y.Z" --notes "changelog here"
-   ```
-4. **Primary: tell Support to build** (via mesh):
-   ```bash
-   codeterm send "git pull && ./build.sh build && gh release upload vX.Y.Z <installer-path> --clobber" --tab general --mesh <support-peer>
-   ```
-5. **Both machines build in parallel:**
-   - **Primary** runs `./build.sh build` locally → uploads its installer
-   - **Support** pulls, builds, uploads its installer
-   ```bash
-   gh release upload vX.Y.Z path/to/installer --clobber
-   ```
-6. **Primary: publish** when all machines have uploaded their artifacts:
-   ```bash
-   gh release edit vX.Y.Z --draft=false
-   ```
-
-### Build artifacts
-
-| Platform | Installer | Path |
-|----------|-----------|------|
-| Windows x64 | NSIS `.exe` | `src-tauri/target/release/bundle/nsis/CodeTerm_X.Y.Z_x64-setup.exe` |
-| macOS ARM | `.dmg` | `src-tauri/target/release/bundle/dmg/CodeTerm_X.Y.Z_aarch64.dmg` |
-| macOS Intel | `.dmg` | `src-tauri/target/release/bundle/dmg/CodeTerm_X.Y.Z_x64.dmg` |
-
-### Machines
-
-One machine per target platform, all paired on the same mesh:
-
-- a Windows machine — Windows builds
-- a macOS ARM machine — macOS ARM builds
-- a macOS Intel machine — macOS Intel builds if needed
+Local-only builds (no release) still use `./build.sh build` as documented above under Build Output.
 
 ## Icons
 
@@ -264,4 +224,4 @@ codeterm/
 └── docs/               # Documentation
 ```
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->
