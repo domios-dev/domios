@@ -1,6 +1,6 @@
 //! Start / restart / readiness-poll for the General Agent PTY+launch flow.
 
-use super::{binding_wait, general_dir, instructions, state, GENERAL_ALIAS};
+use super::{binding_wait, general_dir, instructions, launch_lock, state, GENERAL_ALIAS};
 use codeterm_types::pty::BootStage;
 
 /// Start the General Agent — called from start_servers on a background thread.
@@ -18,6 +18,10 @@ pub fn start_general_agent(
     config: &crate::config::ConfigState,
     _app: &tauri::AppHandle,
 ) {
+    let Some(_launch_guard) = launch_lock::LaunchGuard::acquire() else {
+        log::info!("[general-agent] Start skipped; another launch owns the agent");
+        return;
+    };
     let general_config = config.lock().general_agent.clone();
     let provider_name = &general_config.agent_provider;
 
@@ -260,17 +264,25 @@ pub fn start_general_agent(
         pty_id
     );
 
+    let shell_wait_started = std::time::Instant::now();
     let ready = crate::service::pty_io::await_shell_prompt(
         screen_state,
         &pty_id,
         std::time::Duration::from_secs(60),
     );
     if !ready {
+        let waited_ms = shell_wait_started.elapsed().as_millis();
         log::warn!(
-            "[general-agent] Shell did not report ready before deadline for PTY {}",
-            pty_id
+            "[general-agent] Shell did not report ready for PTY {} after {}ms",
+            pty_id,
+            waited_ms
         );
-        fail_general_agent_start(svc, mux, &pane_id, "shell readiness deadline elapsed");
+        fail_general_agent_start(
+            svc,
+            mux,
+            &pane_id,
+            &format!("shell readiness gave up after {}ms", waited_ms),
+        );
         return;
     }
     log::info!("[general-agent] Shell ready, building launch command...");
@@ -539,12 +551,30 @@ fn validate_general_agent_pane_retry_inner(
             general_pane_id
         ));
     }
-    if pane.agent_booting || pane.boot_stage.is_some_and(is_launch_stage) {
+    // `agent_booting` is the claim marker — one owner, always.
+    if pane.agent_booting {
         log::info!(
-            "[general-agent] Retry for pane {} ignored; launch already in progress",
+            "[general-agent] Retry for pane {} ignored; launch already claimed",
             general_pane_id
         );
         return Ok(false);
+    }
+    // A launch stage alone only blocks while a launch actually owns the agent.
+    // Without an owner it is stale state, and refusing recovery on it is what
+    // left a `shell_ready` pane unrecoverable.
+    if pane.boot_stage.is_some_and(is_launch_stage) {
+        if launch_lock::launch_in_progress() {
+            log::info!(
+                "[general-agent] Retry for pane {} ignored; launch already in progress",
+                general_pane_id
+            );
+            return Ok(false);
+        }
+        log::info!(
+            "[general-agent] Pane {} latched at {:?} with no live launch; treating as stale",
+            general_pane_id,
+            pane.boot_stage
+        );
     }
     if claim {
         let _ = pane;
@@ -810,11 +840,29 @@ mod tests {
 
     #[test]
     fn pane_scoped_retry_noops_while_launch_is_in_progress() {
+        let _serial = super::launch_lock::TEST_SERIAL.lock();
         let (mux, general_id) = mux_with_general_pane(Some(BootStage::PtyStarting));
+        let _guard = super::launch_lock::LaunchGuard::acquire().expect("launch guard");
 
         let should_restart = super::validate_general_agent_pane_retry(&general_id, &mux).unwrap();
 
         assert!(!should_restart);
+    }
+
+    /// The stuck protected `Main`: latched at a launch stage with no launch
+    /// alive. Refusing recovery on the stage alone left it unrecoverable through
+    /// every CLI route.
+    #[test]
+    fn pane_scoped_retry_recovers_a_stale_launch_stage() {
+        let _serial = super::launch_lock::TEST_SERIAL.lock();
+        for stage in [BootStage::ShellReady, BootStage::AgentLaunching] {
+            let (mux, general_id) = mux_with_general_pane(Some(stage));
+
+            let should_restart =
+                super::validate_general_agent_pane_retry(&general_id, &mux).unwrap();
+
+            assert!(should_restart, "stale {stage:?} must be recoverable");
+        }
     }
 
     #[test]

@@ -33,31 +33,82 @@ pub(crate) fn build_spawn_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
     Ok(format!("\x1b[200~ {}\x1b[201~", cmd).into_bytes())
 }
 
+/// Re-arms allowed after the armed signal is torn down by a generation rebind.
+/// Each one needs a real teardown event, so this only bounds a pathological loop.
+const SHELL_READY_REARM_LIMIT: u32 = 4;
+
 /// Wait (event-driven, via a condvar armed under `screen_state`) for a shell
 /// prompt to appear on a PTY. Returns `true` if ready, `false` on timeout.
+///
+/// A signal closed by the reader binding its generation is NOT a deadline: the
+/// wait re-arms and keeps the original deadline, instead of reporting a false
+/// immediate timeout and leaving the relaunch to a watchdog tick.
 pub fn await_shell_prompt(
     screen_state: &crate::ScreenStateHandle,
     pty_id: &str,
     timeout: std::time::Duration,
 ) -> bool {
-    let signal = screen_state.lock().arm_shell_ready_signal(pty_id);
+    await_shell_prompt_armed(screen_state, pty_id, timeout, |_| {})
+}
+
+/// `on_armed` fires with the re-arm count each time the wait is armed, before
+/// it blocks — the ordering hook the arm-vs-bind regression test needs.
+fn await_shell_prompt_armed(
+    screen_state: &crate::ScreenStateHandle,
+    pty_id: &str,
+    timeout: std::time::Duration,
+    mut on_armed: impl FnMut(u32),
+) -> bool {
     let short_id = &pty_id[..pty_id.len().min(8)];
     let t0 = std::time::Instant::now();
-    let ready = signal.wait(timeout);
-    if ready {
+    let mut rearms = 0u32;
+
+    loop {
+        let (signal, bound) = {
+            let mut ss = screen_state.lock();
+            (
+                ss.arm_shell_ready_signal(pty_id),
+                ss.has_pty_generation(pty_id),
+            )
+        };
+        if !bound {
+            log::debug!(
+                "[await_shell_prompt] armed pty {} before its reader bound a generation",
+                short_id
+            );
+        }
+        let Some(remaining) = timeout.checked_sub(t0.elapsed()) else {
+            break;
+        };
+        on_armed(rearms);
+        if signal.wait(remaining) {
+            log::info!(
+                "[await_shell_prompt] shell ready for pty {} after {}ms",
+                short_id,
+                t0.elapsed().as_millis()
+            );
+            return true;
+        }
+        if !signal.is_closed() || rearms >= SHELL_READY_REARM_LIMIT {
+            break;
+        }
+        rearms += 1;
         log::info!(
-            "[await_shell_prompt] shell ready for pty {} after {}ms",
+            "[await_shell_prompt] pty {} readiness signal closed after {}ms (rebind {}); re-arming",
             short_id,
-            t0.elapsed().as_millis()
-        );
-    } else {
-        log::warn!(
-            "[await_shell_prompt] timeout after {}ms for pty {}",
-            timeout.as_millis(),
-            short_id
+            t0.elapsed().as_millis(),
+            rearms
         );
     }
-    ready
+
+    log::warn!(
+        "[await_shell_prompt] pty {} not ready after {}ms (deadline {}ms, {} re-arms)",
+        short_id,
+        t0.elapsed().as_millis(),
+        timeout.as_millis(),
+        rearms
+    );
+    false
 }
 
 /// Wait for a real shell prompt, rejecting agent TUI composers that also use
@@ -82,9 +133,10 @@ pub fn await_bare_shell_prompt(
         );
     } else {
         log::warn!(
-            "[await_bare_shell_prompt] timeout after {}ms for pty {}",
-            timeout.as_millis(),
-            short_id
+            "[await_bare_shell_prompt] pty {} not ready after {}ms (deadline {}ms)",
+            short_id,
+            t0.elapsed().as_millis(),
+            timeout.as_millis()
         );
     }
     ready
@@ -274,6 +326,8 @@ impl ServiceContext {
         } else {
             b"\r".to_vec()
         };
+        let strategy_verifies =
+            !matches!(strategy, crate::agent::provider::VerifySubmitStrategy::None);
         super::submit_transaction::submit_text_with_key(
             self,
             pty_id,
@@ -288,7 +342,27 @@ impl ServiceContext {
                 ..Default::default()
             },
         )
-        .map(|_| ())
+        .map(|result| {
+            if submit_needs_unconfirmed_warning(enter, strategy_verifies, result.submit_observed) {
+                let target = pane_id.as_deref().unwrap_or(pty_id);
+                log::warn!("[send-unconfirmed] pane {target}: submit not acknowledged");
+                let title = pane_id
+                    .as_deref()
+                    .and_then(|id| self.mux.read().get_pane(id).map(|p| p.title.clone()));
+                let display = title
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|t| !t.is_empty())
+                    .unwrap_or(target);
+                self.create_notification(
+                    "Message delivery unconfirmed".to_string(),
+                    Some(format!(
+                        "{display}: the agent UI did not acknowledge the submit — check the tab."
+                    )),
+                    Some("warning"),
+                );
+            }
+        })
         .map_err(|error| error.to_string())
     }
 
@@ -584,6 +658,8 @@ impl ServiceContext {
     }
 
     /// PTY work runs off-thread so CodeTerm-originated senders return immediately.
+    /// Failures MUST surface to the user: this detached seam is the only place
+    /// composer/messenger sends can die, and a log line alone loses messages.
     pub fn send_text_detached(&self, pane_id: &str, text: &str, enter: bool) {
         let svc = self.clone();
         let pane = pane_id.to_string();
@@ -591,6 +667,10 @@ impl ServiceContext {
         std::thread::spawn(move || {
             if let Err(error) = svc.send_text(&pane, &text, enter) {
                 log::warn!("[send-async] delivery to pane {pane} failed: {error}");
+                let title = svc.mux.read().get_pane(&pane).map(|p| p.title.clone());
+                let (notice_title, notice_body) =
+                    send_failure_notice(title.as_deref(), &pane, &error);
+                svc.create_notification(notice_title, Some(notice_body), Some("error"));
             }
         });
     }
@@ -643,6 +723,174 @@ fn provider_frame_ready(
     let structural_tui_ready = tui_ready || (alternate_screen && composer_ready);
     (structural_tui_ready && (!require_composer || composer_ready))
         || (!require_composer && prompt_ready)
+}
+
+/// User-facing notice for a failed detached send: `(title, body)`.
+pub(crate) fn send_failure_notice(
+    pane_title: Option<&str>,
+    pane_id: &str,
+    error: &str,
+) -> (String, String) {
+    let target = pane_title
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .unwrap_or(pane_id);
+    (
+        "Message not delivered".to_string(),
+        format!("{target}: {error}"),
+    )
+}
+
+/// An Enter-submitted send that a verifying provider never acknowledged must
+/// warn the user; silent optimistic success is how follow-ups get lost.
+pub(crate) fn submit_needs_unconfirmed_warning(
+    enter: bool,
+    strategy_verifies: bool,
+    submit_observed: bool,
+) -> bool {
+    enter && strategy_verifies && !submit_observed
+}
+
+#[cfg(test)]
+mod send_notice_tests {
+    use super::{send_failure_notice, submit_needs_unconfirmed_warning};
+
+    #[test]
+    fn failed_detached_send_names_the_pane_and_reason() {
+        let (title, body) = send_failure_notice(Some("Fermat"), "38cf30e1", "PTY did not start");
+        assert_eq!(title, "Message not delivered");
+        assert_eq!(body, "Fermat: PTY did not start");
+    }
+
+    #[test]
+    fn missing_or_blank_pane_title_falls_back_to_the_pane_id() {
+        let (_, body) = send_failure_notice(None, "38cf30e1", "boot timeout");
+        assert_eq!(body, "38cf30e1: boot timeout");
+        let (_, body) = send_failure_notice(Some("   "), "38cf30e1", "boot timeout");
+        assert_eq!(body, "38cf30e1: boot timeout");
+    }
+
+    #[test]
+    fn unconfirmed_submit_warns_only_for_verifying_enter_sends() {
+        // The reported field failure: Enter send, verifying TUI provider, no ack.
+        assert!(submit_needs_unconfirmed_warning(true, true, false));
+        // Acknowledged submits stay quiet.
+        assert!(!submit_needs_unconfirmed_warning(true, true, true));
+        // Non-verifying providers (bare shell) never observe submits — no spam.
+        assert!(!submit_needs_unconfirmed_warning(true, false, false));
+        // Text without Enter cannot be an unconfirmed submission.
+        assert!(!submit_needs_unconfirmed_warning(false, true, false));
+    }
+}
+
+#[cfg(test)]
+mod shell_ready_wait_tests {
+    use super::{await_shell_prompt, await_shell_prompt_armed};
+    use codeterm_pty::pty::screen_state::ScreenState;
+    use codeterm_util::lock_hold::TimedMutex;
+    use std::sync::mpsc;
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    const MACOS_BASH_BANNER_PROMPT: &[u8] = b"The default interactive shell is now zsh.\r\n\
+To update your account to use zsh, please run `chsh -s /bin/zsh`.\r\n\
+For more details, please visit https://support.apple.com/kb/HT208050.\r\n\
+rollacode-bot:general dev$ ";
+
+    fn handle() -> crate::ScreenStateHandle {
+        Arc::new(TimedMutex::new("screen_state", ScreenState::new()))
+    }
+
+    /// The 1.7.2 macOS `Main` regression: the readiness signal was torn down
+    /// under a blocked waiter, which reported the CONFIGURED deadline as if it
+    /// had elapsed — at the spawn timestamp — and left the relaunch to a
+    /// watchdog tick ~99s later. A lost signal must re-arm within the same
+    /// deadline instead of ending the wait.
+    #[test]
+    fn a_torn_down_readiness_signal_re_arms_instead_of_reporting_a_deadline() {
+        let screen_state = handle();
+        assert!(screen_state.lock().bind_pty_generation("pty-1", 1));
+
+        let (armed_tx, armed_rx) = mpsc::channel();
+        let (done_tx, done_rx) = mpsc::channel();
+        let waiter_screen = screen_state.clone();
+        let waiter = std::thread::spawn(move || {
+            let started = Instant::now();
+            let ready = await_shell_prompt_armed(
+                &waiter_screen,
+                "pty-1",
+                Duration::from_secs(60),
+                |rearms| armed_tx.send(rearms).unwrap(),
+            );
+            done_tx.send((ready, started.elapsed())).unwrap();
+        });
+
+        assert_eq!(armed_rx.recv_timeout(Duration::from_secs(5)).unwrap(), 0);
+        // The reader rebinding its generation is what closed the armed signal.
+        assert!(screen_state.lock().bind_pty_generation("pty-1", 2));
+        assert!(screen_state
+            .lock()
+            .process_if_generation("pty-1", 2, MACOS_BASH_BANNER_PROMPT));
+
+        let (ready, elapsed) = done_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        waiter.join().unwrap();
+        assert!(ready, "readiness must survive a signal teardown");
+        assert!(
+            elapsed < Duration::from_secs(10),
+            "wait must not run to the deadline: {elapsed:?}"
+        );
+    }
+
+    /// Arming before the backend reader binds is the real launch ordering; the
+    /// bind must not discard the wait.
+    #[test]
+    fn readiness_armed_before_the_reader_binds_still_completes() {
+        let screen_state = handle();
+        let (armed_tx, armed_rx) = mpsc::channel();
+        let (done_tx, done_rx) = mpsc::channel();
+        let waiter_screen = screen_state.clone();
+        let waiter = std::thread::spawn(move || {
+            let ready = await_shell_prompt_armed(
+                &waiter_screen,
+                "pty-1",
+                Duration::from_secs(60),
+                |rearms| armed_tx.send(rearms).unwrap(),
+            );
+            done_tx.send(ready).unwrap();
+        });
+
+        assert_eq!(armed_rx.recv_timeout(Duration::from_secs(5)).unwrap(), 0);
+        assert!(screen_state.lock().bind_pty_generation("pty-1", 1));
+        assert!(screen_state
+            .lock()
+            .process_if_generation("pty-1", 1, MACOS_BASH_BANNER_PROMPT));
+
+        assert!(done_rx.recv_timeout(Duration::from_secs(10)).unwrap());
+        waiter.join().unwrap();
+    }
+
+    #[test]
+    fn a_prompt_already_on_screen_returns_without_waiting() {
+        let screen_state = handle();
+        assert!(screen_state.lock().bind_pty_generation("pty-1", 1));
+        assert!(screen_state
+            .lock()
+            .process_if_generation("pty-1", 1, MACOS_BASH_BANNER_PROMPT));
+
+        assert!(await_shell_prompt(
+            &screen_state,
+            "pty-1",
+            Duration::from_secs(60)
+        ));
+    }
+
+    #[test]
+    fn an_expired_deadline_reports_not_ready() {
+        let screen_state = handle();
+        assert!(screen_state.lock().bind_pty_generation("pty-1", 1));
+
+        assert!(!await_shell_prompt(&screen_state, "pty-1", Duration::ZERO));
+    }
 }
 
 #[cfg(test)]

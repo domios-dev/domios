@@ -49,6 +49,8 @@ source build.sh env         # load MSVC env into shell (Windows, manual cargo)
 
 `dev --wait` is automation-only; interactive verification uses one visible foreground dev tab. Run Rust tests only through `scripts/test-capped.sh`, one focused test at a time. The canonical checkout owns heavy builds and broad gates.
 
+Run shared dev, broad gates, and release checks from the canonical checkout as a team operating rule. Build scripts must not enforce ownership by branch name: lanes may run focused checks or isolated dev when needed, while the machine build gateway serializes heavy work.
+
 ## Build speed (worktrees, tests, profiles)
 
 - Keep machine-level `sccache`; never share `CARGO_TARGET_DIR` across worktrees.
@@ -233,4 +235,4 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

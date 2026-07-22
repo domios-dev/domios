@@ -57,9 +57,9 @@ Keep that pane open and require all of the following before reporting ready:
 - exactly one Cargo process remains, the foreground `tauri dev` watcher owned
   by the visible pane. Any second Cargo/build owner must be stopped and traced.
 
-For the 1.7.2 release line, the canonical root checkout on
-`feat/1.7.2-stability` owns all heavy build, test, and dev commands. The build
-gateway prefers it over any older `release/*-integration` worktree.
+The canonical checkout owns shared dev, broad gates, and release checks. This is
+a team operating rule, not a branch-name restriction in the build script; the
+machine-wide gateway only serializes heavy app work.
 
 `./build.sh cli` is intentionally independent from the app/dev build gateway:
 Cargo serializes its separate `cli/target` itself. The command also regenerates
@@ -224,4 +224,4 @@ codeterm/
 └── docs/               # Documentation
 ```
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

@@ -28,13 +28,6 @@ if CT_BUILD_GATEWAY_SCOPE=fixture ./build.sh gateway-fake spoof 0 success \
 fi
 grep -q "internal to fake gateway commands" "$TEST_ROOT/forged-fixture-scope.log"
 
-if CODETERM_INTEGRATION_WORKTREE="$ROOT" ./build.sh gateway-policy-probe integration-owner \
-    > "$TEST_ROOT/self-designated-integration.log" 2>&1; then
-  echo "self-designated integration worktree unexpectedly passed" >&2
-  exit 1
-fi
-grep -q "cannot designate build ownership" "$TEST_ROOT/self-designated-integration.log"
-
 if scripts/qa-prep.sh > "$TEST_ROOT/direct-qa-prep.log" 2>&1; then
   echo "direct qa-prep unexpectedly bypassed the gateway" >&2
   exit 1
@@ -85,7 +78,6 @@ grep -q "/targets/exceptional/" "$TEST_ROOT/worktree-policy.log"
 grep -q "wrapper=sccache" "$TEST_ROOT/worktree-policy.log"
 
 cli_flow="$(sed -n '/^  cli)/,/^    ;;/p' build.sh)"
-grep -q 'require_integration_owner' <<< "$cli_flow"
 grep -q 'cargo build --release --manifest-path cli/Cargo.toml' <<< "$cli_flow"
 grep -q 'write_cli_docs' <<< "$cli_flow"
 if grep -q 'enter_build_gateway' <<< "$cli_flow"; then
@@ -111,4 +103,4 @@ for (const id of ["qa-child", "release-policy", "worktree-policy"]) {
 }
 JS
 
-echo "PASS build gateway ownership, restart ordering, CLI independence, cache, release freshness, and SHA policy"
+echo "PASS build gateway serialization, restart ordering, CLI independence, cache, release freshness, and SHA policy"

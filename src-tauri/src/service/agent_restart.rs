@@ -88,6 +88,9 @@ impl ServiceContext {
         force: bool,
         grace_secs: u64,
     ) -> Result<RestartOutcome, AgentRestartError> {
+        if let Some(outcome) = self.recover_general_agent_pane(pane_id, force)? {
+            return Ok(outcome);
+        }
         let snap = self.snapshot_pane_for_restart(pane_id)?;
 
         self.check_and_record_restart(&snap.pane_id)?;
@@ -129,6 +132,91 @@ impl ServiceContext {
         }
 
         Ok(outcome)
+    }
+
+    /// The protected General `Main` pane below `AgentReady` has no live agent to
+    /// `/exit`, so the generic restart path can only report "no agent in this
+    /// pane". Route it to the guarded General Agent relaunch instead — the one
+    /// recovery that rebuilds the PTY. Rate limiting still applies, and the
+    /// relaunch claim is what prevents a second launch, so this cannot storm.
+    fn recover_general_agent_pane(
+        &self,
+        pane_id: &str,
+        force: bool,
+    ) -> Result<Option<RestartOutcome>, AgentRestartError> {
+        let Some(target) = self.general_pane_awaiting_agent(pane_id) else {
+            return Ok(None);
+        };
+        self.check_and_record_restart(&target)?;
+
+        let mux = self.mux.clone();
+        let claimed = crate::service::general_agent::claim_general_agent_pane_retry(&target, &mux)
+            .map_err(AgentRestartError::BadRequest)?;
+        if !claimed {
+            return Err(AgentRestartError::BadRequest(
+                "General Agent launch already in progress".to_string(),
+            ));
+        }
+
+        let (provider, session_id) = {
+            let m = self.mux.read();
+            let pane = m.get_pane(&target);
+            (
+                pane.and_then(|p| p.agent_type.clone()),
+                pane.and_then(|p| p.agent_session_id.clone()),
+            )
+        };
+
+        let svc = Arc::new(self.clone());
+        let pty = self.pty.clone();
+        let screen_state = self.screen_state.clone();
+        let app = self.app_handle.clone();
+        let config = {
+            use tauri::Manager;
+            self.app_handle
+                .state::<crate::config::ConfigState>()
+                .inner()
+                .clone()
+        };
+        let provider =
+            provider.unwrap_or_else(|| config.lock().general_agent.agent_provider.clone());
+        std::thread::spawn(move || {
+            crate::service::general_agent::restart_general_agent(
+                &svc,
+                &mux,
+                &pty,
+                &screen_state,
+                &config,
+                &app,
+            );
+        });
+
+        log::info!(
+            "[agent_restart] pane {} recovered via General Agent relaunch",
+            target
+        );
+        Ok(Some(RestartOutcome {
+            pane_id: target,
+            provider,
+            session_id,
+            session_was_stale: false,
+            force,
+            auto_approve: true,
+        }))
+    }
+
+    /// `Some(pane_id)` when this request targets the protected General pane and
+    /// that pane has not reached `AgentReady` — the stuck state a plain restart
+    /// cannot address.
+    fn general_pane_awaiting_agent(&self, pane_id: &str) -> Option<String> {
+        use codeterm_types::pty::BootStage;
+        let m = self.mux.read();
+        let general = m.resolve_pane_id(crate::service::general_agent::GENERAL_ALIAS)?;
+        if m.resolve_pane_id(pane_id)? != general {
+            return None;
+        }
+        let pane = m.get_pane(&general)?;
+        (pane.protected && pane.boot_stage != Some(BootStage::AgentReady)).then_some(general)
     }
 
     fn snapshot_pane_for_restart(

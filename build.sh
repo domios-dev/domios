@@ -273,59 +273,6 @@ enter_build_gateway() {
   exec > >(tee -a "$gateway_log") 2>&1
 }
 
-integration_worktree() {
-  local canonical
-  if [ -n "${CODETERM_INTEGRATION_WORKTREE:-}" ]; then
-    echo "ERROR: CODETERM_INTEGRATION_WORKTREE cannot designate build ownership" >&2
-    return 2
-  fi
-  canonical="$(git worktree list --porcelain 2>/dev/null | awk '
-    /^worktree / { path=substr($0,10) }
-    /^branch refs\/heads\/feat\/1[.]7[.]2-stability$/ { print path }
-  ')"
-  if [ -n "$canonical" ]; then
-    printf '%s\n' "$canonical"
-    return
-  fi
-  git worktree list --porcelain 2>/dev/null | awk '
-    /^worktree / { path=substr($0,10) }
-    /^branch refs\/heads\/release\/.*-integration$/ { print path }
-  '
-}
-
-require_integration_owner() {
-  local integration current current_branch count target_abs
-  integration="$(integration_worktree)" || exit $?
-  current="$(pwd -P)"
-  count="$(printf '%s\n' "$integration" | sed '/^$/d' | wc -l | tr -d ' ')"
-  if [ "$count" -gt 1 ]; then
-    echo "ERROR: multiple registered release/*-integration worktrees; build ownership is ambiguous." >&2
-    printf '%s\n' "$integration" >&2
-    exit 2
-  fi
-  if [ -z "$integration" ]; then
-    echo "ERROR: no release/*-integration worktree is registered for $CMD." >&2
-    exit 2
-  fi
-  integration="$(cd "$integration" && pwd -P)"
-  current_branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
-  if [ "$integration" != "$current" ] || { [[ "$current_branch" != "feat/1.7.2-stability" ]] && [[ ! "$current_branch" =~ ^release/.+-integration$ ]]; }; then
-    echo "ERROR: $CMD is restricted to the canonical stability/integration checkout." >&2
-    echo "Current worktree: $current" >&2
-    echo "Integration checkout: $integration" >&2
-    echo "Worker worktrees should submit diffs; the gateway builds once from integration." >&2
-    exit 2
-  fi
-  if [ -n "${CARGO_TARGET_DIR:-}" ]; then
-    target_abs="$(node -e 'const path=require("node:path");process.stdout.write(path.resolve(process.argv[1]))' "$CARGO_TARGET_DIR")"
-    if ! ct_path_under "$target_abs" "$current"; then
-      echo "ERROR: integration mutable target must live inside the registered warm checkout: $target_abs" >&2
-      exit 2
-    fi
-  fi
-  unset CODETERM_ALLOW_EXTERNAL_TARGET
-}
-
 prepare_exceptional_worktree_target() {
   local dir identity
   dir="$(ct_gateway_dir)"
@@ -828,7 +775,6 @@ case "$CMD" in
     ;;
   gateway-policy-probe)
     case "${2:-}" in
-      integration-owner) require_integration_owner ;;
       release-source) require_release_source ;;
       release-target)
         enter_build_gateway "$CMD ${*:2}"
@@ -852,7 +798,6 @@ case "$CMD" in
     esac
     ;;
   check)
-    require_integration_owner
     enter_build_gateway "$CMD ${*:2}"
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
@@ -860,7 +805,6 @@ case "$CMD" in
     cargo check --manifest-path src-tauri/Cargo.toml
     ;;
   test)
-    require_integration_owner
     enter_build_gateway "$CMD ${*:2}"
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
@@ -874,7 +818,6 @@ case "$CMD" in
     cargo check --manifest-path src-tauri/Cargo.toml "${@:2}"
     ;;
   build)
-    require_integration_owner
     enter_build_gateway "$CMD ${*:2}"
     require_release_source
     ct_load_release_signing_key
@@ -897,12 +840,10 @@ case "$CMD" in
     echo "✅ web bundle present (dist/index.html) — packaged into installer via bundle.resources"
     ;;
   qa-prep)
-    require_integration_owner
     enter_build_gateway "$CMD ${*:2}"
     bash scripts/qa-prep.sh --gateway-context "$CT_BUILD_JOB_ID" "$$" "$CT_GATEWAY_PROCESS_START" "$CMD ${*:2}" -- "${@:2}"
     ;;
   bootstrap)
-    require_integration_owner
     enter_build_gateway "$CMD ${*:2}"
     ensure_deps
     prepare_bundle_stubs
@@ -915,7 +856,6 @@ case "$CMD" in
     echo "Bootstrap complete: bundled CLI and codeterm-embed are present."
     ;;
   embed)
-    require_integration_owner
     enter_build_gateway "$CMD ${*:2}"
     # Force-rebuild the codeterm-embed binary. Skipped on every dev cycle
     # by default — use this when you change embed sources or pull new
@@ -927,7 +867,6 @@ case "$CMD" in
     echo "codeterm-embed rebuilt"
     ;;
   cli)
-    require_integration_owner
     echo "[build] CLI uses Cargo's cli/target lock; app/dev gateway is independent."
     ct_configure_sccache
     touch cli/src/main.rs
@@ -937,7 +876,6 @@ case "$CMD" in
     install_cli_to "$HOME/.codeterm-dev/bin"
     ;;
   clean)
-    require_integration_owner
     enter_build_gateway "$CMD ${*:2}"
     cargo clean --manifest-path src-tauri/Cargo.toml
     ;;
@@ -946,7 +884,6 @@ case "$CMD" in
     echo "Done."
     ;;
   dev)
-    require_integration_owner
     if named_dev_wait_isolated; then
       prepare_named_dev_target
       echo "[isolated-dev] named --wait startup bypasses the canonical dev gateway"
@@ -1065,7 +1002,6 @@ case "$CMD" in
     python3 -m pytest -m llm -v --tb=short "${@:2}"
     ;;
   test:all)
-    require_integration_owner
     enter_build_gateway "$CMD ${*:2}"
     # Aggregate runner for every enabled NON-LLM test layer. Unit layers always run;
     # dev-dependent API integration tests run only
