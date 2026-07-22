@@ -590,7 +590,7 @@ impl ServiceContext {
                     pane,
                     from_title,
                     pane_id.to_string(),
-                    model,
+                    model.clone(),
                     report.inject_body(),
                 );
             }
@@ -620,6 +620,14 @@ impl ServiceContext {
         if eff_plan_id.is_none() {
             self.maybe_send_plan_reminder(pane_id, role);
         }
+
+        self.record_kpi_report(
+            pane_id,
+            eff_plan_id.as_deref(),
+            eff_task_id.as_deref(),
+            model.as_deref(),
+            message.len(),
+        );
 
         Ok(ReportResult {
             report_id: report.id,

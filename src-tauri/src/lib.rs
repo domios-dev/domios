@@ -694,6 +694,10 @@ pub fn run() {
                 agent_tracker: states.agent_tracker.clone(),
                 shell_caps: Arc::new(parking_lot::Mutex::new(Default::default())),
                 report_store: states.report_store.clone(),
+                kpi: crate::agent::kpi::KpiRecorder::from_config(
+                    &states.config.lock().clone(),
+                    &crate::paths::data_dir(),
+                ),
                 plan_store,
                 plan_turn_counter,
                 pending_delivery_payloads,

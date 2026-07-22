@@ -19,8 +19,20 @@ pub fn prepend_orchestrator_heartbeat(
         return text.to_string();
     }
     let digest_lines = collect_digest_lines(svc, &plan, pane_id);
-    svc.plan_store
-        .prepend_heartbeat_for_plan_with_digests(plan_id, text, &digest_lines)
+    let injected =
+        svc.plan_store
+            .prepend_heartbeat_for_plan_with_digests(plan_id, text, &digest_lines);
+    if let Some(pane_id) = pane_id {
+        let heartbeat_bytes = injected.len().saturating_sub(text.len());
+        if heartbeat_bytes > 0 {
+            svc.record_kpi_event(
+                pane_id,
+                crate::agent::kpi_ledger::KpiEventKind::Heartbeat,
+                heartbeat_bytes,
+            );
+        }
+    }
+    injected
 }
 
 fn collect_digest_lines(svc: &ServiceContext, plan: &Plan, pane_id: Option<&str>) -> Vec<String> {

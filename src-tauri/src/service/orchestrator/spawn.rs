@@ -135,6 +135,11 @@ impl ServiceContext {
             self.record_shared_checkout_exception(&exc, &handle.pane_id);
         }
         self.bind_planner_spawn(plan_id.as_deref(), role_profile.as_deref(), &handle.pane_id);
+        self.record_kpi_spawn(
+            &handle.pane_id,
+            model_identity.2.as_deref(),
+            bind_params.task.as_deref().unwrap_or_default().len(),
+        );
         Ok(SpawnResult {
             pane_id: handle.pane_id,
             tab_id: handle.tab_id,
@@ -228,6 +233,11 @@ impl ServiceContext {
                 .filter(|value| !value.is_empty())
                 .map(str::to_string);
             self.bind_worker_plan_task_or_rollback_pane(&bind_params, &handle.pane_id)?;
+            self.record_kpi_spawn(
+                &handle.pane_id,
+                requested_model.as_deref(),
+                bind_params.task.as_deref().unwrap_or_default().len(),
+            );
             return Ok(SpawnResult {
                 pane_id: handle.pane_id,
                 tab_id: handle.tab_id,
@@ -595,6 +605,11 @@ impl ServiceContext {
 
         let budget_notice = self.workspace_pane_budget_notice(&ws_id);
         let reasoning_effort = params.reasoning_effort.clone();
+        self.record_kpi_spawn(
+            &pane_id,
+            model_resolution.model.as_deref(),
+            params.task.as_deref().unwrap_or_default().len(),
+        );
         Ok(SpawnResult {
             pane_id,
             tab_id,
