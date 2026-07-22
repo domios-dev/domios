@@ -23,6 +23,8 @@ const PLUGIN_PREAMBLE: &str = r#"
   }
   host.fs = {
     readFile:      host.readFile,
+    readFileHead:  host.readFileHead,
+    readFileTail:  host.readFileTail,
     writeFile:     host.writeFile,
     removeFile:    host.removeFile,
     makeDirs:      host.makeDirs,

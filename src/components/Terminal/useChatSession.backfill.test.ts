@@ -93,6 +93,10 @@ async function main(): Promise<void> {
   );
 
   let view: HookView | null = null;
+  const v = (): HookView => {
+    if (!view) throw new Error("hook view not rendered");
+    return view;
+  };
   function Harness() {
     const session = useChatSession({
       paneId: "pane",
@@ -142,46 +146,46 @@ async function main(): Promise<void> {
   });
   await flush();
 
-  assert(view != null && !view!.loading, "session attached");
-  assert(view!.hiddenOlder === 0, "small snapshot hides nothing locally");
-  assert(view!.canBackfillOlder, "positive start_offset exposes the backfill control");
+  assert(!v().loading, "session attached");
+  assert(v().hiddenOlder === 0, "small snapshot hides nothing locally");
+  assert(v().canBackfillOlder, "positive start_offset exposes the backfill control");
 
   // --- page 1: fetch, merge before snapshot, boundary tie kept in page order ---
   await act(async () => {
-    void view!.loadOlder();
+    void v().loadOlder();
   });
   await flush();
-  assert(state.backfillCalls.length === 1, "one bounded backfill request per click");
+  assert((state.backfillCalls.length as number) === 1, "one bounded backfill request per click");
   assert(state.backfillCalls[0].beforeOffset === 5000, "backfill pages from the snapshot window start");
   assert(state.backfillCalls[0].maxBytes === 256 * 1024, "page size is bounded");
   {
-    const contents = view!.allMessages.map((m) => m.content);
+    const contents = v().allMessages.map((m) => m.content);
     assert(contents[0] === "page1-0", `older page sorts first (got ${contents[0]})`);
     const boundary = contents.indexOf("page1-19");
     const snapFirst = contents.indexOf("snap-0");
     assert(boundary >= 0 && snapFirst >= 0 && boundary < snapFirst,
       "equal-timestamp boundary keeps the backfilled message before the snapshot");
-    assert(view!.canBackfillOlder, "cursor advanced to the next older window");
+    assert(v().canBackfillOlder, "cursor advanced to the next older window");
   }
 
   // --- page 2: exhausts the file, control disappears ---
   await act(async () => {
-    void view!.loadOlder();
+    void v().loadOlder();
   });
   await flush();
-  assert(state.backfillCalls.length === 2, "second click pages once more");
+  assert((state.backfillCalls.length as number) === 2, "second click pages once more");
   assert(state.backfillCalls[1].beforeOffset === 3000, "second page uses the advanced cursor");
-  assert(!view!.canBackfillOlder, "reaching offset 0 ends paging");
-  assert(view!.allMessages.some((m) => m.content === "page2-0"), "second page merged");
+  assert(!v().canBackfillOlder, "reaching offset 0 ends paging");
+  assert(v().allMessages.some((m) => m.content === "page2-0"), "second page merged");
   assert(
-    view!.allMessages.map((m) => m.content).indexOf("page2-9") <
-      view!.allMessages.map((m) => m.content).indexOf("page1-0"),
+    v().allMessages.map((m) => m.content).indexOf("page2-9") <
+      v().allMessages.map((m) => m.content).indexOf("page1-0"),
     "pages keep chronological order across fetches",
   );
 
   // --- authority: a foreign-session response is discarded ---
   {
-    const before = view!.allMessages.length;
+    const before = v().allMessages.length;
     state.pages.set(9999, {
       start_offset: 100,
       end_offset: 9999,
@@ -191,11 +195,11 @@ async function main(): Promise<void> {
     // Force the cursor by simulating a fresh session state? Not needed: cursor is
     // null now, so loadOlder with local hidden items only slides. Assert no call.
     await act(async () => {
-      void view!.loadOlder();
+      void v().loadOlder();
     });
     await flush();
-    assert(state.backfillCalls.length === 2, "no backfill without a cursor");
-    assert(view!.allMessages.length === before, "no foreign messages merged");
+    assert((state.backfillCalls.length as number) === 2, "no backfill without a cursor");
+    assert(v().allMessages.length === before, "no foreign messages merged");
   }
 
   await act(async () => root.unmount());
@@ -214,25 +218,25 @@ async function main(): Promise<void> {
     });
     await flush();
 
-    assert(view!.enrichedCount <= CHAT_WINDOW_SIZE, `DOM window stays bounded (${view!.enrichedCount})`);
-    assert(view!.hiddenOlder === 300 - CHAT_WINDOW_SIZE, "older items beyond the window are hidden, not rendered");
-    assert(view!.hiddenNewer === 0, "follow mode hides nothing newer");
+    assert(v().enrichedCount <= CHAT_WINDOW_SIZE, `DOM window stays bounded (${v().enrichedCount})`);
+    assert(v().hiddenOlder === 300 - CHAT_WINDOW_SIZE, "older items beyond the window are hidden, not rendered");
+    assert(v().hiddenNewer === 0, "follow mode hides nothing newer");
 
     await act(async () => {
-      void view!.loadOlder();
+      void v().loadOlder();
     });
     await flush();
-    assert(state.backfillCalls.length === 0, "local hidden items slide without a backfill request");
-    assert(view!.hiddenNewer > 0, "sliding back leaves newer items outside the window");
-    assert(view!.enrichedCount <= CHAT_WINDOW_SIZE, "window size holds after sliding");
-    assert(view!.allMessages.length === 300, "sliding never drops data, only DOM");
+    assert((state.backfillCalls.length as number) === 0, "local hidden items slide without a backfill request");
+    assert(v().hiddenNewer > 0, "sliding back leaves newer items outside the window");
+    assert(v().enrichedCount <= CHAT_WINDOW_SIZE, "window size holds after sliding");
+    assert(v().allMessages.length === 300, "sliding never drops data, only DOM");
 
     await act(async () => {
-      view!.showLatest();
+      v().showLatest();
     });
     await flush();
-    assert(view!.hiddenNewer === 0, "show-latest returns to the tail");
-    assert(view!.hiddenOlder === 300 - CHAT_WINDOW_SIZE, "tail window hides older items again");
+    assert(v().hiddenNewer === 0, "show-latest returns to the tail");
+    assert(v().hiddenOlder === 300 - CHAT_WINDOW_SIZE, "tail window hides older items again");
 
     await act(async () => root2.unmount());
     host2.remove();

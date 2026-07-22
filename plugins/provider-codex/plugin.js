@@ -317,8 +317,10 @@ function base64(value) {
 }
 
 // plugins/provider-codex/src/sessionMeta.ts
+var SESSION_META_HEAD_BYTES = 64 * 1024;
+var SESSION_MODEL_TAIL_BYTES = 1024 * 1024;
 function readSessionMeta(path) {
-  const contents = host.fs.readFile(path);
+  const contents = host.fs.readFileHead(path, SESSION_META_HEAD_BYTES);
   if (!contents) return null;
   const firstNl = contents.indexOf("\n");
   const line = firstNl === -1 ? contents : contents.substring(0, firstNl);
@@ -1026,7 +1028,7 @@ var plugin = {
   detectSessionModel(cwd, sessionId) {
     const path = this.sessionFilePath(cwd, sessionId);
     if (!path) return null;
-    const contents = host.fs.readFile(path);
+    const contents = host.fs.readFileTail(path, SESSION_MODEL_TAIL_BYTES);
     if (!contents) return null;
     const lines = contents.split("\n");
     for (let i = lines.length - 1; i >= 0; i--) {

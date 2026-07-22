@@ -297,6 +297,100 @@ fn host_write_then_read_file_round_trip() {
 }
 
 #[test]
+fn read_file_bounded_head_and_tail_windows() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("big.jsonl");
+    let body: String = (0..1000).map(|i| format!("line-{i:04}\n")).collect();
+    std::fs::write(&p, &body).unwrap();
+    let path = p.to_string_lossy().into_owned();
+
+    let head = read_file_bounded(&path, 32, false).unwrap();
+    assert_eq!(head.len(), 32, "head is bounded to max_bytes");
+    assert!(body.starts_with(&head), "head is the file prefix");
+
+    let tail = read_file_bounded(&path, 40, true).unwrap();
+    assert_eq!(tail.len(), 40, "tail is bounded to max_bytes");
+    assert!(body.ends_with(&tail), "tail is the file suffix");
+
+    // Asking for more than the file has returns the whole file, not padding.
+    let whole = read_file_bounded(&path, (body.len() as u64) + 4096, true).unwrap();
+    assert_eq!(whole, body);
+}
+
+#[test]
+fn read_file_bounded_trims_partial_utf8_at_cut() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("utf8.txt");
+    // Each snowman "☃" is 3 bytes (E2 98 83); pad so cuts land mid-codepoint.
+    let body = "☃☃☃☃☃☃☃☃".to_string();
+    std::fs::write(&p, &body).unwrap();
+    let path = p.to_string_lossy().into_owned();
+
+    // 4 bytes = one full snowman (3) + one dangling lead byte → trailing partial dropped.
+    let head = read_file_bounded(&path, 4, false).unwrap();
+    assert_eq!(head, "☃", "head drops a partial trailing codepoint");
+    assert!(std::str::from_utf8(head.as_bytes()).is_ok());
+
+    // 4 bytes from the end = two dangling continuation bytes + one full snowman.
+    let tail = read_file_bounded(&path, 4, true).unwrap();
+    assert_eq!(tail, "☃", "tail drops a partial leading codepoint");
+    assert!(std::str::from_utf8(tail.as_bytes()).is_ok());
+}
+
+#[test]
+fn read_file_bounded_never_writes_or_creates() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("session.jsonl");
+    let body = "first\nsecond\nthird\n".to_string();
+    std::fs::write(&p, &body).unwrap();
+    let path = p.to_string_lossy().into_owned();
+    let before = std::fs::metadata(&p).unwrap().len();
+
+    let _ = read_file_bounded(&path, 4, false);
+    let _ = read_file_bounded(&path, 4, true);
+
+    assert_eq!(
+        std::fs::read_to_string(&p).unwrap(),
+        body,
+        "content untouched"
+    );
+    assert_eq!(
+        std::fs::metadata(&p).unwrap().len(),
+        before,
+        "length untouched"
+    );
+
+    // A missing path returns None and must not create the file.
+    let missing = dir.path().join("does-not-exist.jsonl");
+    let mpath = missing.to_string_lossy().into_owned();
+    assert!(read_file_bounded(&mpath, 16, false).is_none());
+    assert!(read_file_bounded(&mpath, 16, true).is_none());
+    assert!(!missing.exists(), "bounded read never creates the target");
+}
+
+#[test]
+fn host_bounded_reads_exposed_through_preamble() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("s.jsonl");
+    std::fs::write(&p, "META\nMIDDLE\nTAIL").unwrap();
+    let path = p.to_string_lossy().into_owned();
+    let vm = vm_with(
+        r#"
+            module.exports.default = {
+                head(p, n) { return host.fs.readFileHead(p, n); },
+                tail(p, n) { return host.fs.readFileTail(p, n); },
+            };
+        "#,
+    );
+    let head: Option<String> =
+        crate::js_runtime::vm::call_json(&vm, "head", &[json!(path), json!(4)]).unwrap();
+    assert_eq!(head.as_deref(), Some("META"));
+    let tail: Option<String> =
+        crate::js_runtime::vm::call_json(&vm, "tail", &[json!(path), json!(4)]).unwrap();
+    assert_eq!(tail.as_deref(), Some("TAIL"));
+}
+
+#[test]
 fn host_write_file_creates_parent_dirs() {
     let dir = tempfile::tempdir().unwrap();
     let nested = dir

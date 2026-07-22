@@ -87,6 +87,9 @@ export interface DirEntry {
 // Convenience layer the VM preamble adds on top of the raw JSON bridges.
 export interface HostFs {
   readFile(path: string): string | null;
+  // Bounded reads — up to maxBytes from the head/tail, trimmed to a valid UTF-8 boundary. Read-only.
+  readFileHead(path: string, maxBytes: number): string | null;
+  readFileTail(path: string, maxBytes: number): string | null;
   writeFile(path: string, contents: string): boolean;
   removeFile(path: string): boolean;
   makeDirs(path: string): boolean;
@@ -195,6 +198,8 @@ export interface Host {
 
   fileExists(path: string): boolean;
   readFile(path: string): string | null;
+  readFileHead(path: string, maxBytes: number): string | null;
+  readFileTail(path: string, maxBytes: number): string | null;
   writeFile(path: string, contents: string): boolean;
   removeFile(path: string): boolean;
   makeDirs(path: string): boolean;
