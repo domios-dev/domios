@@ -650,8 +650,13 @@ pub async fn chat_raw_start(
     Json(body): Json<ChatSubscriptionBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let result = crate::commands::chat_start_core(&state.svc, pane_id, body.subscription_id)
-        .map_err(|e| (StatusCode::CONFLICT, e))?;
+    let svc = state.svc.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        crate::commands::chat_start_core(&svc, pane_id, body.subscription_id)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map_err(|e| (StatusCode::CONFLICT, e))?;
     Ok(Json(serde_json::to_value(result).unwrap_or_default()))
 }
 
@@ -917,13 +922,18 @@ pub async fn session_transcript(
     Query(q): Query<SessionTranscriptQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let (messages, total) = crate::service::pane_chat::session_chat_snapshot(
-        &state.svc,
-        &q.provider,
-        &q.cwd,
-        &q.session_id,
-        0,
-    )
+    let svc = state.svc.clone();
+    let (messages, total) = tokio::task::spawn_blocking(move || {
+        crate::service::pane_chat::session_chat_snapshot(
+            &svc,
+            &q.provider,
+            &q.cwd,
+            &q.session_id,
+            0,
+        )
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     .map_err(|e| (StatusCode::NOT_FOUND, e))?;
     Ok(Json(
         serde_json::json!({ "messages": messages, "total": total }),
@@ -958,12 +968,12 @@ pub async fn chat_raw_backfill(
     Json(body): Json<ChatBackfillBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let result = crate::commands::chat_backfill_core(
-        &state.svc,
-        pane_id,
-        body.before_offset,
-        body.max_bytes,
-    )
+    let svc = state.svc.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        crate::commands::chat_backfill_core(&svc, pane_id, body.before_offset, body.max_bytes)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     .map_err(|e| (StatusCode::CONFLICT, e))?;
     Ok(Json(serde_json::to_value(result).unwrap_or_default()))
 }

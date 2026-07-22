@@ -1350,6 +1350,7 @@ dependencies = [
  "codeterm-paths",
  "codeterm-types",
  "codeterm-util",
+ "libc",
  "log",
  "parking_lot",
  "portable-pty",

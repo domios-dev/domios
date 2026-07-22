@@ -716,8 +716,14 @@ impl AgentProvider for JsProvider {
         from_offset: u64,
     ) -> codeterm_types::agent::chat_types::SessionDelta {
         use codeterm_types::agent::chat_types::SessionDelta;
-        let bytes = match std::fs::read(path) {
-            Ok(b) => b,
+        // Seek-based and capped: session files reach hundreds of MB, and this runs on every tailer poll.
+        let read = crate::jsonl_window::read_records_from(
+            path,
+            from_offset,
+            crate::jsonl_window::DELTA_CHUNK_BYTES,
+        );
+        let window = match read {
+            Ok(w) => w,
             Err(_) => {
                 return SessionDelta {
                     new_offset: from_offset,
@@ -725,28 +731,16 @@ impl AgentProvider for JsProvider {
                 }
             }
         };
-        let total = bytes.len() as u64;
-        if from_offset >= total {
+        // The reader holds back a partial trailing line, so the plugin never sees it and byte/code-unit mismatches in JS string indexing can't corrupt the offset.
+        if window.bytes.is_empty() {
             return SessionDelta {
-                new_offset: from_offset,
+                new_offset: window.new_offset,
                 messages: vec![],
             };
         }
-        let slice = &bytes[from_offset as usize..];
-        // line we hold back for the next poll. The plugin never sees the partial part, so byte/code-unit mismatches in JS string indexing can't corrupt the offset.
-        let last_nl = match slice.iter().rposition(|&b| b == b'\n') {
-            Some(idx) => idx,
-            None => {
-                return SessionDelta {
-                    new_offset: from_offset,
-                    messages: vec![],
-                }
-            }
-        };
-        let consumed_bytes = (last_nl + 1) as u64;
-        let complete_slice = &slice[..consumed_bytes as usize];
+        let consumed_bytes = window.new_offset - from_offset;
         // land inside line bodies, which the plugin's per-line JSON.parse will reject. Byte-count is no longer trusted from JS; we computed it above.
-        let chunk = String::from_utf8_lossy(complete_slice).to_string();
+        let chunk = String::from_utf8_lossy(&window.bytes).to_string();
         #[derive(serde::Deserialize)]
         struct JsDelta {
             messages: Vec<codeterm_types::agent::chat_types::RichMessage>,

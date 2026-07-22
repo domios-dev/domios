@@ -124,9 +124,24 @@ pub async fn wait_shell_ready(
 }
 
 #[tauri::command]
-pub fn read_session_jsonl(
+pub async fn read_session_jsonl(
     mux: tauri::State<'_, MuxState>,
     svc: tauri::State<'_, ServiceState>,
+    pane_id: String,
+    offset: Option<u64>,
+    tail_bytes: Option<u64>,
+) -> Result<String, String> {
+    let (mux_owned, svc_owned) = (mux.inner().clone(), svc.inner().clone());
+    tokio::task::spawn_blocking(move || {
+        read_session_jsonl_core(&mux_owned, &svc_owned, pane_id, offset, tail_bytes)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn read_session_jsonl_core(
+    mux: &MuxState,
+    svc: &ServiceState,
     pane_id: String,
     offset: Option<u64>,
     tail_bytes: Option<u64>,
@@ -501,23 +516,21 @@ pub fn chat_start_core(
             subscription_id: Some(subscription_id),
         });
     };
-    let total = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
     let path_ms = path_started.elapsed().as_millis();
 
-    const JSONL_SNAPSHOT_CAP: u64 = 10 * 1024 * 1024;
-    const JSONL_SNAPSHOT_WINDOW: u64 = 4 * 1024 * 1024;
     let read_started = std::time::Instant::now();
-    let (messages, msg_count, tailer_start_offset, snapshot_start) = if total > JSONL_SNAPSHOT_CAP {
-        let start = jsonl_tail_window_start(&path, total, JSONL_SNAPSHOT_WINDOW);
-        let msgs = jsonl_snapshot_from_offset(&svc.agent_registry, &provider_id, &path, start);
-        let count = msgs.len();
-        (msgs, count, total, start)
-    } else {
-        let (msgs, count) =
-            crate::service::pane_chat::pane_chat_snapshot(svc, &pane_id, 0).unwrap_or_default();
-        (msgs, count, total, 0)
-    };
+    let snap = crate::service::pane_chat::session_window::snapshot(
+        &svc.agent_registry,
+        &provider_id,
+        &path,
+    );
+    crate::service::pane_chat::session_window::log_bounded_snapshot(&pane_id, &provider_id, &snap);
     let read_ms = read_started.elapsed().as_millis();
+    let (total, tailer_start_offset, bytes_read) = (snap.total, snap.total, snap.bytes_read);
+    // Backfill cursor: >0 means the bounded snapshot truncated older history.
+    let snapshot_start = snap.start_offset;
+    let messages = snap.messages;
+    let msg_count = messages.len();
 
     // is already running so one client's stop() cannot kill another's stream.
     let tailer_started = std::time::Instant::now();
@@ -554,7 +567,7 @@ pub fn chat_start_core(
     let total_ms = started.elapsed().as_millis();
     if total_ms > 250 {
         log::warn!(
-            "[chat_start.slow] pane={} provider={} total_ms={} mux={} detect={} path={} read={} tailer={} total_bytes={} messages={}",
+            "[chat_start.slow] pane={} provider={} total_ms={} mux={} detect={} path={} read={} tailer={} total_bytes={} read_bytes={} messages={}",
             pane_id,
             provider_id,
             total_ms,
@@ -564,6 +577,7 @@ pub fn chat_start_core(
             read_ms,
             tailer_ms,
             total,
+            bytes_read,
             msg_count
         );
     }
@@ -583,60 +597,29 @@ pub fn chat_start_core(
     })
 }
 
-fn jsonl_tail_window_start(path: &std::path::Path, total: u64, window: u64) -> u64 {
-    let rough = total.saturating_sub(window);
-    if rough == 0 {
-        return 0;
-    }
-    use std::io::{Read, Seek, SeekFrom};
-    let Ok(mut file) = std::fs::File::open(path) else {
-        return rough;
-    };
-    if file.seek(SeekFrom::Start(rough)).is_err() {
-        return rough;
-    }
-    let mut buf = [0u8; 8192];
-    let Ok(n) = file.read(&mut buf) else {
-        return rough;
-    };
-    buf[..n]
-        .iter()
-        .position(|b| *b == b'\n')
-        .map(|idx| rough + idx as u64 + 1)
-        .unwrap_or(rough)
-}
-
-fn jsonl_snapshot_from_offset(
-    registry: &std::sync::Arc<crate::agent::registry::AgentRegistry>,
-    provider_id: &str,
-    path: &std::path::Path,
-    offset: u64,
-) -> Vec<crate::agent::chat_types::ChatMsg> {
-    registry
-        .with_provider(provider_id, |p| {
-            let mut delta = p.parse_session_delta(path, offset);
-            for m in &mut delta.messages {
-                crate::service::pane_chat::enrich_interactive(m, p);
-            }
-            delta
-                .messages
-                .iter()
-                .enumerate()
-                .flat_map(|(i, r)| crate::service::pane_chat::rich_to_chat_msgs(r, i))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
 #[tauri::command]
-pub fn session_transcript(
+pub async fn session_transcript(
     svc: tauri::State<'_, ServiceState>,
     provider: String,
     cwd: String,
     session_id: String,
 ) -> Result<ChatStartResult, String> {
+    let svc_owned = svc.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        session_transcript_core(&svc_owned, provider, cwd, session_id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+pub fn session_transcript_core(
+    svc: &ServiceState,
+    provider: String,
+    cwd: String,
+    session_id: String,
+) -> Result<ChatStartResult, String> {
     let (messages, _total) =
-        crate::service::pane_chat::session_chat_snapshot(&svc, &provider, &cwd, &session_id, 0)?;
+        crate::service::pane_chat::session_chat_snapshot(svc, &provider, &cwd, &session_id, 0)?;
     Ok(ChatStartResult {
         text: String::new(),
         start_offset: 0,
@@ -694,6 +677,10 @@ pub struct ChatBackfillResult {
     pub session_binding_nonce: Option<String>,
 }
 
+const BACKFILL_DEFAULT_BYTES: u64 = 128 * 1024;
+/// A client-supplied `max_bytes` is untrusted input against a multi-GB file.
+const BACKFILL_MAX_BYTES: u64 = 8 * 1024 * 1024;
+
 #[tauri::command]
 pub async fn chat_backfill(
     svc: tauri::State<'_, ServiceState>,
@@ -701,14 +688,16 @@ pub async fn chat_backfill(
     before_offset: u64,
     max_bytes: Option<u64>,
 ) -> Result<ChatBackfillResult, String> {
-    chat_backfill_core(&svc, pane_id, before_offset, max_bytes)
+    let svc_owned = svc.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        chat_backfill_core(&svc_owned, pane_id, before_offset, max_bytes)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Shared by the Tauri command and the web mirror's
 /// POST /api/panes/{id}/chat-raw/backfill.
-/// Hard ceiling per page: a client cannot request an unbounded window.
-const BACKFILL_MAX_BYTES_CAP: u64 = 1024 * 1024;
-
 pub fn chat_backfill_core(
     svc: &ServiceState,
     pane_id: String,
@@ -731,34 +720,50 @@ pub fn chat_backfill_core(
         .flatten()
         .ok_or("no JSONL")?;
 
-    let max_bytes = max_bytes.unwrap_or(128 * 1024).min(BACKFILL_MAX_BYTES_CAP);
-    let (text, aligned_start, clamped_end) = backfill_window_slice(&path, before_offset, max_bytes)
+    let max_bytes = max_bytes
+        .unwrap_or(BACKFILL_DEFAULT_BYTES)
+        .min(BACKFILL_MAX_BYTES);
+    let (text, aligned_start) = backfill_window_slice(&path, before_offset, max_bytes)
         .map_err(|e| format!("read jsonl: {e}"))?;
-    let messages = parse_backfill_window(&svc.agent_registry, &provider_id, &text);
+    // Parse the same span with the pane's own provider parser, bounded by
+    // `until`; client id-dedupe absorbs any trailing delta-chunk overshoot.
+    let rich = crate::service::pane_chat::session_window::parse_window(
+        &svc.agent_registry,
+        &provider_id,
+        &path,
+        aligned_start,
+        before_offset,
+    )
+    .0;
+    let messages = rich
+        .iter()
+        .enumerate()
+        .flat_map(|(i, r)| crate::service::pane_chat::rich_to_chat_msgs(r, i))
+        .collect();
 
     Ok(ChatBackfillResult {
         text,
         start_offset: aligned_start,
-        end_offset: clamped_end,
+        end_offset: before_offset,
         messages,
         source_session_id: Some(session_id),
         session_binding_nonce,
     })
 }
 
-/// Windowed read: multi-hundred-MiB session files must never be fully loaded.
-/// Returns `(text, aligned_start, clamped_end)`; the window is aligned to the
-/// first `\n` so the parser never sees a partial first line, which makes
-/// consecutive pages exactly contiguous (each page ends on a line start).
+/// Seek+align one backfill page: `[before_offset - max_bytes, before_offset)`
+/// aligned forward to a line start, so consecutive pages stay exactly
+/// contiguous and the parser never sees a partial first line.
 fn backfill_window_slice(
     path: &std::path::Path,
     before_offset: u64,
     max_bytes: u64,
-) -> std::io::Result<(String, u64, u64)> {
-    let total = std::fs::metadata(path)?.len();
-    let clamped_end = before_offset.min(total);
-    let clamped_start = before_offset.saturating_sub(max_bytes).min(clamped_end);
-    let window = read_file_window(path, clamped_start, (clamped_end - clamped_start) as usize)?;
+) -> Result<(String, u64), String> {
+    let start = before_offset.saturating_sub(max_bytes);
+    // Seek the requested range only — the file behind it can be hundreds of MB.
+    let (window, clamped_start) =
+        codeterm_plugin::jsonl_window::read_range(path, start, before_offset)
+            .map_err(|e| e.to_string())?;
     let aligned_offset = if clamped_start == 0 {
         0usize
     } else {
@@ -768,37 +773,8 @@ fn backfill_window_slice(
             .map(|i| i + 1)
             .unwrap_or(0)
     };
-    let text = String::from_utf8_lossy(&window[aligned_offset..]).to_string();
-    Ok((text, clamped_start + aligned_offset as u64, clamped_end))
-}
-
-fn read_file_window(path: &std::path::Path, start: u64, len: usize) -> std::io::Result<Vec<u8>> {
-    use std::io::{Read, Seek, SeekFrom};
-    let mut file = std::fs::File::open(path)?;
-    file.seek(SeekFrom::Start(start))?;
-    let mut window = Vec::with_capacity(len);
-    file.take(len as u64).read_to_end(&mut window)?;
-    Ok(window)
-}
-
-/// The provider parsers are path-based (native and JS drop-ins alike), so the
-/// window is parsed from a private temp copy — no new trait surface.
-fn parse_backfill_window(
-    registry: &std::sync::Arc<crate::agent::registry::AgentRegistry>,
-    provider_id: &str,
-    text: &str,
-) -> Vec<crate::agent::chat_types::ChatMsg> {
-    if text.trim().is_empty() {
-        return Vec::new();
-    }
-    let tmp =
-        std::env::temp_dir().join(format!("codeterm-backfill-{}.jsonl", uuid::Uuid::new_v4()));
-    if std::fs::write(&tmp, text).is_err() {
-        return Vec::new();
-    }
-    let messages = jsonl_snapshot_from_offset(registry, provider_id, &tmp, 0);
-    let _ = std::fs::remove_file(&tmp);
-    messages
+    let text = String::from_utf8_lossy(&window[aligned_offset.min(window.len())..]).to_string();
+    Ok((text, clamped_start + aligned_offset as u64))
 }
 
 #[tauri::command]
@@ -902,7 +878,9 @@ pub async fn chatbackend_switch_model(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::service::pane_chat::session_window::{
+        self, SNAPSHOT_CAP_BYTES, SNAPSHOT_WINDOW_BYTES,
+    };
     use std::sync::Arc;
 
     fn workspace_plugins_root() -> std::path::PathBuf {
@@ -978,9 +956,9 @@ mod tests {
         });
         std::fs::write(&path, format!("{}\n{}\n{}\n", compact, task, normal)).unwrap();
 
-        let total = std::fs::metadata(&path).unwrap().len();
-        let start = jsonl_tail_window_start(&path, total, 1024 * 1024);
-        let msgs = jsonl_snapshot_from_offset(&claude_registry(), "claude", &path, start);
+        let snap = session_window::snapshot(&claude_registry(), "claude", &path);
+        assert!(!snap.truncated());
+        let msgs = snap.messages;
 
         assert_eq!(msgs.len(), 3);
         assert_eq!(msgs[0].kind, "system");
@@ -1009,9 +987,7 @@ mod tests {
         let mut cursor = total;
         let mut pages_reversed: Vec<String> = Vec::new();
         while cursor > 0 {
-            let (text, aligned_start, clamped_end) =
-                backfill_window_slice(&path, cursor, 4096).unwrap();
-            assert_eq!(clamped_end, cursor, "window ends at the requested cursor");
+            let (text, aligned_start) = backfill_window_slice(&path, cursor, 4096).unwrap();
             assert!(aligned_start < cursor, "every page makes progress");
             if aligned_start > 0 {
                 assert_eq!(
@@ -1040,61 +1016,112 @@ mod tests {
     }
 
     #[test]
-    fn backfill_window_clamps_and_caps() {
+    fn backfill_window_clamps_at_eof() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("tiny.jsonl");
         std::fs::write(&path, "{\"a\":1}\n{\"b\":2}\n").unwrap();
         let total = std::fs::metadata(&path).unwrap().len();
 
         // Requesting far past EOF clamps to the file.
-        let (text, start, end) = backfill_window_slice(&path, total + 10_000, 1 << 20).unwrap();
+        let (text, start) = backfill_window_slice(&path, total + 10_000, 1 << 20).unwrap();
         assert_eq!(start, 0);
-        assert_eq!(end, total);
         assert_eq!(text.as_bytes(), std::fs::read(&path).unwrap().as_slice());
 
         // A zero-progress request (before_offset 0) yields an empty window.
-        let (text, start, end) = backfill_window_slice(&path, 0, 4096).unwrap();
+        let (text, start) = backfill_window_slice(&path, 0, 4096).unwrap();
         assert!(text.is_empty());
-        assert_eq!((start, end), (0, 0));
+        assert_eq!(start, 0);
     }
 
+    /// Backfill pages parse through the pane's own provider parser via the
+    /// bounded session_window range — the same normalized shape as chat_start.
     #[test]
-    fn backfill_parse_uses_provider_parser_and_cleans_temp_files() {
+    fn backfill_range_parses_with_provider_parser() {
         if !workspace_plugins_root().join("provider-claude").exists() {
             return;
         }
-        let registry = claude_registry();
-        let count_tmp = || {
-            std::fs::read_dir(std::env::temp_dir())
-                .map(|entries| {
-                    entries
-                        .filter_map(|e| e.ok())
-                        .filter(|e| {
-                            e.file_name()
-                                .to_string_lossy()
-                                .starts_with("codeterm-backfill-")
-                        })
-                        .count()
-                })
-                .unwrap_or(0)
-        };
-        let before = count_tmp();
-        let text = concat!(
-            "{\"type\":\"user\",\"uuid\":\"bf-1\",\"message\":{\"role\":\"user\",\"content\":\"older question\"}}\n",
-            "{\"type\":\"assistant\",\"uuid\":\"bf-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"older answer\"}]}}\n",
-        );
-        let msgs = parse_backfill_window(&registry, "claude", text);
-        assert_eq!(msgs.len(), 2, "provider parser normalizes the raw window");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bf.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"user\",\"uuid\":\"bf-1\",\"message\":{\"role\":\"user\",\"content\":\"older question\"}}\n",
+                "{\"type\":\"assistant\",\"uuid\":\"bf-2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"older answer\"}]}}\n",
+            ),
+        )
+        .unwrap();
+        let total = std::fs::metadata(&path).unwrap().len();
+
+        let (rich, _end) =
+            session_window::parse_window(&claude_registry(), "claude", &path, 0, total);
+        let msgs: Vec<crate::agent::chat_types::ChatMsg> = rich
+            .iter()
+            .enumerate()
+            .flat_map(|(i, r)| crate::service::pane_chat::rich_to_chat_msgs(r, i))
+            .collect();
+        assert_eq!(msgs.len(), 2, "provider parser normalizes the page");
         assert_eq!(msgs[0].kind, "user");
         assert_eq!(msgs[0].content, "older question");
         assert_eq!(msgs[1].kind, "assistant");
         assert_eq!(msgs[1].content, "older answer");
-        assert!(count_tmp() <= before, "no backfill temp files escape");
+    }
 
-        let empty = parse_backfill_window(&registry, "claude", "  \n");
+    /// The production regression, against the real claude plugin: a session file
+    /// past the snapshot cap must be read as a bounded tail, not whole.
+    #[test]
+    fn oversized_claude_session_snapshots_a_bounded_tail() {
+        if !workspace_plugins_root().join("provider-claude").exists() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("huge.jsonl");
+        let filler = serde_json::json!({
+            "type": "user",
+            "uuid": "filler",
+            "message": {"role": "user", "content": "f".repeat(4096)}
+        })
+        .to_string();
+        let tail_marker = serde_json::json!({
+            "type": "user",
+            "uuid": "tail-user",
+            "message": {"role": "user", "content": "the last message"}
+        })
+        .to_string();
+
+        {
+            use std::io::Write;
+            let mut f = std::io::BufWriter::new(std::fs::File::create(&path).unwrap());
+            let mut written = 0u64;
+            while written <= SNAPSHOT_CAP_BYTES + SNAPSHOT_WINDOW_BYTES {
+                writeln!(f, "{filler}").unwrap();
+                written += filler.len() as u64 + 1;
+            }
+            writeln!(f, "{tail_marker}").unwrap();
+            f.flush().unwrap();
+        }
+        let total = std::fs::metadata(&path).unwrap().len();
+        assert!(total > SNAPSHOT_CAP_BYTES);
+
+        let snap = session_window::snapshot(&claude_registry(), "claude", &path);
         assert!(
-            empty.is_empty(),
-            "blank window parses to nothing without touching disk"
+            snap.truncated(),
+            "oversized session must use the tail window"
         );
+        assert!(
+            snap.bytes_read <= SNAPSHOT_WINDOW_BYTES,
+            "read {} bytes",
+            snap.bytes_read
+        );
+        assert_eq!(snap.total, total, "tailer must resume at file length");
+        assert_eq!(
+            snap.start_offset + snap.bytes_read,
+            total,
+            "window must end exactly at EOF"
+        );
+        let last = snap.messages.last().expect("tail window has messages");
+        assert_eq!(last.kind, "user");
+        assert_eq!(last.content, "the last message");
+        // Every record in the window parsed — no partial leading line survived.
+        assert!(snap.messages.iter().all(|m| m.kind == "user"));
     }
 }

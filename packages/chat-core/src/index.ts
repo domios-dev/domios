@@ -38,6 +38,7 @@ export {
   type TimelineItem,
   type ToolEvent,
 } from "./toolEvents";
+export { stabilizeTimelineItems } from "./timelineStability";
 export { buildToolPreview, type ToolPreview } from "./toolPreview";
 export { lastSessionResetIndex, trimAfterSessionReset } from "./sessionReset";
 export {
