@@ -1054,6 +1054,14 @@
               "aliases": []
             },
             {
+              "name": "skill",
+              "positional": false,
+              "value_name": "SKILL",
+              "default": null,
+              "help": "Mem skill slug (`codeterm mem skill new <slug>`) to resolve and inject into the task brief at fire time as an explicit, Read-able path",
+              "aliases": []
+            },
+            {
               "name": "tab",
               "positional": false,
               "value_name": "TAB",
@@ -1195,6 +1203,14 @@
               "value_name": "SCHEDULE",
               "default": null,
               "help": null,
+              "aliases": []
+            },
+            {
+              "name": "skill",
+              "positional": false,
+              "value_name": "SKILL",
+              "default": null,
+              "help": "Mem skill slug to resolve and inject into the task brief at fire time. Pass an empty string to clear",
               "aliases": []
             },
             {
