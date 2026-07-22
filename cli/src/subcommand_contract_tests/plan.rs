@@ -115,7 +115,7 @@ fn plan_delete_confirmation_flags_parse() {
 }
 
 #[test]
-fn plan_park_alias_parses_as_pause() {
+fn plan_pause_parses_without_park_alias() {
     #[derive(clap::Parser)]
     struct PlanOnly {
         #[command(subcommand)]
@@ -123,8 +123,8 @@ fn plan_park_alias_parses_as_pause() {
     }
 
     let parsed =
-        PlanOnly::try_parse_from(["plan", "park", "pl_1", "--reason", "waiting for quota"])
-            .expect("plan park alias parses");
+        PlanOnly::try_parse_from(["plan", "pause", "pl_1", "--reason", "waiting for quota"])
+            .expect("plan pause parses");
     match parsed.action {
         PlanAction::Pause { plan_id, reason } => {
             assert_eq!(plan_id, "pl_1");

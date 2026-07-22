@@ -1,4 +1,4 @@
-import { matchedOptimisticEchoes, type OptimisticEcho } from "./dedupe";
+import { matchedOptimisticEchoes, collapseDuplicateUserMessages, type OptimisticEcho } from "./dedupe";
 import { markPane, markVoice } from "./markers";
 import type { NormalizedChatMessage } from "./types";
 
@@ -30,7 +30,45 @@ function echo(id: string, content: string, sentAtMs: number): OptimisticEcho {
   return { id, content, sentAtMs };
 }
 
+function orderedEcho(id: string, content: string, sentAtMs: number, clientOrder: number): OptimisticEcho {
+  return { id, content, sentAtMs, clientOrder };
+}
+
 const T0 = 1_700_000_000_000;
+
+{
+  const staleProviderTimestamp = T0 - 30_000;
+  const parsed = user("curie-echo", "круто", staleProviderTimestamp);
+  parsed.clientOrder = 12;
+  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
+    [orderedEcho("opt-curie", "круто", T0, 11)],
+    [parsed],
+  );
+  eq(matchedIds, ["opt-curie"], "newer client order reconciles a stale-timestamp echo after chat reattach");
+  eq(pendingIds, [], "reattached short echo leaves no duplicate optimistic bubble");
+}
+
+{
+  const text = "как то знаешь не нравятся мне они что то с ними не так везде есть свои имперфекционы";
+  const parsed = user("long-echo", text.replaceAll(" ", "\n"), T0 - 45_000);
+  parsed.clientOrder = 22;
+  const { matchedIds } = matchedOptimisticEchoes(
+    [orderedEcho("opt-long", text, T0, 21)],
+    [parsed],
+  );
+  eq(matchedIds, ["opt-long"], "newer client order reconciles a reflowed long echo after chat reattach");
+}
+
+{
+  const old = user("old", "круто", T0 - 60_000);
+  old.clientOrder = 10;
+  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
+    [orderedEcho("opt-new", "круто", T0, 11)],
+    [old],
+  );
+  eq(matchedIds, [], "older client order cannot consume a newly repeated message");
+  eq(pendingIds, ["opt-new"], "intentional repeat stays visible until its own echo arrives");
+}
 
 //    the provider transcript proves the message landed.
 {
@@ -277,6 +315,60 @@ const T0 = 1_700_000_000_000;
   // but exact: "/clear" vs "clear" — no match, so pill stays pending (expected — content diverged)
   eq(pendingIds, ["opt-clear"], "bare-name local_command /clear stays pending (content mismatch)");
   void matchedIds; // suppress unused warning
+}
+
+// collapseDuplicateUserMessages: a re-recorded send never paints twice, but
+// genuine repeats (around a reply, or minutes apart) survive.
+{
+  const um = (
+    id: string,
+    content: string,
+    tsMs: number | null,
+    type: NormalizedChatMessage["type"] = "user",
+  ): NormalizedChatMessage => ({
+    id,
+    type,
+    content,
+    ...(tsMs != null ? { timestamp: new Date(tsMs).toISOString() } : {}),
+  });
+
+  eq(
+    collapseDuplicateUserMessages([
+      um("a", "look at the plan", 1000),
+      um("b", "look at the plan", 1000),
+      um("c", "look at the plan", 1500),
+    ]).map((m) => m.id),
+    ["a"],
+    "3 identical adjacent user messages collapse to the first",
+  );
+
+  eq(
+    collapseDuplicateUserMessages([
+      um("a", "yes", 1000),
+      um("r", "ok", 1200, "assistant"),
+      um("b", "yes", 1400),
+    ]).map((m) => m.id),
+    ["a", "r", "b"],
+    "identical user messages around an assistant reply both survive",
+  );
+
+  eq(
+    collapseDuplicateUserMessages([
+      um("a", "continue", 1000),
+      um("b", "continue", 1000 + 120_000),
+    ]).map((m) => m.id),
+    ["a", "b"],
+    "identical user messages more than the window apart both survive",
+  );
+
+  eq(
+    collapseDuplicateUserMessages([
+      um("a", "run it", null),
+      um("b", "run it", null),
+    ]).map((m) => m.id),
+    ["a"],
+    "identical adjacent user messages with no timestamps collapse",
+  );
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

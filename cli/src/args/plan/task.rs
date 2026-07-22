@@ -7,7 +7,7 @@ pub enum PlanTaskAction {
         plan_id: Option<String>,
         #[arg(
             long,
-            help = "Task status: pending | in_progress | in_review | blocked | done | cancelled"
+            help = "Task status: pending | in_progress | in_review | blocked | paused | done | cancelled"
         )]
         status: Option<String>,
     },
@@ -62,9 +62,13 @@ pub enum PlanTaskAction {
         intent_file: Option<String>,
         #[arg(long)]
         parent: Option<String>,
-        #[arg(long = "depends-on")]
+        #[arg(
+            long = "depends-on",
+            value_name = "TASK_ID_OR_HANDLE",
+            help = "Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle (see --handle)"
+        )]
         depends_on: Vec<String>,
-        #[arg(long)]
+        #[arg(long = "assign-tab", value_name = "TAB")]
         assign_pane: Option<String>,
         #[arg(long)]
         workspace_id: Option<String>,
@@ -113,7 +117,7 @@ pub enum PlanTaskAction {
         why_file: Option<String>,
         #[arg(
             long,
-            help = "Task status: pending | in_progress | in_review | blocked | done | cancelled"
+            help = "Task status: pending | in_progress | in_review | blocked | paused | done | cancelled"
         )]
         status: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
@@ -156,11 +160,16 @@ pub enum PlanTaskAction {
         correctness: Option<String>,
         #[arg(long)]
         parent: Option<String>,
-        #[arg(long = "depends-on", conflicts_with = "clear_dependencies")]
+        #[arg(
+            long = "depends-on",
+            value_name = "TASK_ID_OR_HANDLE",
+            conflicts_with = "clear_dependencies",
+            help = "Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle (see --handle)"
+        )]
         depends_on: Vec<String>,
         #[arg(long = "clear-dependencies")]
         clear_dependencies: bool,
-        #[arg(long)]
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
         #[arg(long)]
         workspace_id: Option<String>,
@@ -209,23 +218,23 @@ pub enum PlanTaskAction {
         #[arg(long)]
         mesh: Option<String>,
     },
-    /// Park a task (defers it out of the heartbeat open-work set; requires --reason)
-    Park {
+    /// Pause a task (explicit operator hold outside the heartbeat open-work set; requires --reason)
+    Pause {
         plan_id: String,
         task_id: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         reason: String,
     },
-    /// Unpark a task (returns it to pending)
-    Unpark {
+    /// Resume a paused task (returns it to dependency-waiting pending)
+    Resume {
         plan_id: String,
         task_id: Option<String>,
     },
-    /// Assign a task to a pane (exports CODETERM_TASK_ID to that pane)
+    /// Assign a task to a tab (exports CODETERM_TASK_ID to that tab)
     Assign {
         plan_id: String,
         task_id: Option<String>,
-        #[arg(long)]
+        #[arg(long = "tab", value_name = "TAB")]
         pane: String,
         #[arg(long, alias = "peer")]
         mesh: Option<String>,
@@ -238,7 +247,15 @@ pub enum PlanTaskAction {
         agent: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         model: Option<String>,
-        #[arg(long, help = "Parent pane override (defaults to the caller pane)")]
+        #[arg(
+            long = "reasoning-effort",
+            help = "Provider-supported reasoning effort (rejected if unsupported)"
+        )]
+        reasoning_effort: Option<String>,
+        #[arg(
+            long = "parent-tab",
+            help = "Parent tab override (defaults to the caller tab)"
+        )]
         parent: Option<String>,
         #[arg(long)]
         workspace: Option<String>,
@@ -299,4 +316,38 @@ pub enum PlanTaskAction {
         #[arg(long)]
         yes: bool,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::Cli;
+    use clap::CommandFactory;
+
+    fn depends_on_help(subcommand: &str) -> String {
+        Cli::command()
+            .find_subcommand_mut("plan")
+            .unwrap()
+            .find_subcommand_mut("task")
+            .unwrap()
+            .find_subcommand_mut(subcommand)
+            .unwrap()
+            .render_long_help()
+            .to_string()
+    }
+
+    #[test]
+    fn task_add_help_documents_depends_on_value_types() {
+        let help = depends_on_help("add");
+        assert!(help.contains("--depends-on"), "{help}");
+        assert!(help.contains("full task id"), "{help}");
+        assert!(help.contains("handle"), "{help}");
+    }
+
+    #[test]
+    fn task_update_help_documents_depends_on_value_types() {
+        let help = depends_on_help("update");
+        assert!(help.contains("--depends-on"), "{help}");
+        assert!(help.contains("full task id"), "{help}");
+        assert!(help.contains("handle"), "{help}");
+    }
 }

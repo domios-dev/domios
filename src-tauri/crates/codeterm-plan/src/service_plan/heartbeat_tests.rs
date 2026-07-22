@@ -291,12 +291,12 @@ fn heartbeat_resolves_for_owner_pane_at_send_time() {
     assert!(before.starts_with("<codeterm-role-identity"));
     assert!(before.contains(&format!("You are the Orchestrator for plan {plan_id}")));
     assert!(before.contains("STATE-RECONCILIATION"));
-    assert!(before.contains("First run `codeterm agent reports --pane orch-a`"));
+    assert!(before.contains("First run `codeterm agent reports --tab orch-a`"));
     assert!(before.contains("codeterm orchestrator status --plan"));
-    assert!(before.contains("--pane orch-a --json"));
+    assert!(before.contains("--tab orch-a --json"));
     assert!(before.contains("codeterm plan reconcile"));
     assert!(before.contains("codeterm plan task close"));
-    assert!(before.contains("codeterm send \"<next concrete instruction>\" --pane"));
+    assert!(before.contains("codeterm send \"<next concrete instruction>\" --tab"));
     assert!(before.contains("Keep the plan-owned heartbeat current"));
     assert!(before.contains("codeterm docs ORCHESTRATION"));
     assert!(!before.contains("Re-arm exactly one heartbeat"));
@@ -396,12 +396,12 @@ fn owner_plan_nudge_prepends_heartbeat_and_exact_recovery_commands() {
 
     assert!(text.starts_with("<codeterm-role-identity"));
     assert!(text.contains(&format!("You are the Orchestrator for plan {plan_id}")));
-    assert!(text.contains("codeterm agent reports --pane orch-a"));
+    assert!(text.contains("codeterm agent reports --tab orch-a"));
     assert!(text.contains(&format!(
-        "codeterm orchestrator status --plan {plan_id} --pane orch-a --json"
+        "codeterm orchestrator status --plan {plan_id} --tab orch-a --json"
     )));
     assert!(text.contains(&format!("codeterm plan task close {plan_id} <task_id>")));
-    assert!(text.contains("codeterm send \"<next concrete instruction>\" --pane <worker_pane_id>"));
+    assert!(text.contains("codeterm send \"<next concrete instruction>\" --tab <worker_tab_id>"));
     assert!(text.contains(&format!(
         "codeterm orchestrator heartbeat set --plan {plan_id}"
     )));
@@ -558,7 +558,7 @@ fn is_plan_complete_predicate_covers_execution_all_done_and_explicit_complete() 
 }
 
 #[test]
-fn is_plan_complete_rejects_parked_and_blocked_tasks() {
+fn is_plan_complete_rejects_paused_and_blocked_tasks() {
     use super::heartbeat::is_plan_complete;
 
     let dir = tempfile::tempdir().unwrap();
@@ -573,11 +573,11 @@ fn is_plan_complete_rejects_parked_and_blocked_tasks() {
         )
         .unwrap();
     store.set_mode(&plan.id, PlanMode::Execution, 2).unwrap();
-    let parked_id = store
+    let paused_id = store
         .add_task(
             &plan.id,
             NewTask {
-                name: "parked".into(),
+                name: "paused".into(),
                 kind: "impl".into(),
                 ..Default::default()
             },
@@ -585,19 +585,19 @@ fn is_plan_complete_rejects_parked_and_blocked_tasks() {
         )
         .unwrap();
     store
-        .park_task(
+        .pause_task(
             &plan.id,
-            &parked_id,
+            &paused_id,
             "waiting for quota reset",
             AgentRef::from_pane("orch"),
             4,
         )
         .unwrap();
 
-    let parked_plan = store.get(&plan.id).unwrap();
+    let paused_plan = store.get(&plan.id).unwrap();
     assert!(
-        !is_plan_complete(&parked_plan),
-        "parked work is deferred, not complete"
+        !is_plan_complete(&paused_plan),
+        "paused work is deferred, not complete"
     );
 
     let blocked_id = store

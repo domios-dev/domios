@@ -90,10 +90,11 @@ mod tests {
     ) -> (PlanStore, String) {
         let store = PlanStore::new_for_test(dir);
         let plan = store
-            .create_plan(
+            .create_plan_for_team(
                 title.into(),
                 dir.display().to_string(),
                 OrchestratorRef::from_pane(owner),
+                format!("team-{owner}"),
                 vec![],
                 1,
             )
@@ -128,10 +129,11 @@ mod tests {
             PlanMode::Execution,
         );
         let bound_id = store
-            .create_plan(
+            .create_plan_for_team(
                 "Bound".into(),
                 dir.path().display().to_string(),
                 OrchestratorRef::from_pane("owner_bound"),
+                "team-owner-bound".into(),
                 vec![],
                 1,
             )

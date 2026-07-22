@@ -178,22 +178,8 @@ fn kill_process(_pid: u32) -> bool {
 /// Extract the project root from a test-binary path.
 ///
 /// `/path/to/project/target/debug/deps/foo` → `/path/to/project`
-fn project_root_from_exe(exe: &str) -> Option<String> {
-    let normalized = exe.replace('\\', "/");
-    let idx = normalized.find("/target/")?;
-    Some(normalized[..idx].to_string())
-}
-
-/// Find an agent pane whose CWD is under the given project root.
-fn resolve_lane_pane(
-    mux: &crate::multiplexer::state::MultiplexerState,
-    project_root: &str,
-) -> Option<String> {
-    mux.find_agent_pane_for_project(project_root)
-}
-
-/// One sweep pass: find, kill, warn, and nudge.
-pub fn sweep_once(cfg: &RunawayConfig, svc: &crate::service::ServiceContext) {
+/// One sweep pass: find, kill, and warn to the daemon log.
+pub fn sweep_once(cfg: &RunawayConfig) {
     let candidates = scan_runaway_processes(cfg.test_binary_max_secs);
     if candidates.is_empty() {
         return;
@@ -215,23 +201,6 @@ pub fn sweep_once(cfg: &RunawayConfig, svc: &crate::service::ServiceContext) {
                 "failed (already gone?)"
             }
         );
-
-        // Nudge the owning lane pane when resolvable.
-        if let Some(root) = project_root_from_exe(&proc.exe) {
-            let pane_id = {
-                let mux = svc.mux.read();
-                resolve_lane_pane(&mux, &root)
-            };
-            if let Some(pane_id) = pane_id {
-                let msg = format!(
-                    "\n[runaway-sweeper] killed orphan test binary (elapsed {}s): {}\nIf cargo test was running, it exited without cleaning up its test process. Read the deadlock banner if present.\n",
-                    proc.elapsed_secs, proc.exe
-                );
-                if let Err(e) = svc.send_text(&pane_id, &msg, false) {
-                    log::warn!("[runaway-sweeper] nudge failed for pane {}: {}", pane_id, e);
-                }
-            }
-        }
     }
 }
 
@@ -284,21 +253,6 @@ mod tests {
         assert_eq!(parse_etime("  05:00  "), Some(300));
         assert_eq!(parse_etime("bogus"), None);
         assert_eq!(parse_etime(""), None);
-    }
-
-    #[test]
-    fn runaway_sweeper_project_root_extraction() {
-        assert_eq!(
-            project_root_from_exe("/home/u/repo/target/debug/deps/foo-abc"),
-            Some("/home/u/repo".into())
-        );
-        assert_eq!(
-            project_root_from_exe(
-                "/Users/r/Developer/codeterm/cli/target/debug/deps/codeterm-b2534ae"
-            ),
-            Some("/Users/r/Developer/codeterm/cli".into())
-        );
-        assert_eq!(project_root_from_exe("/usr/bin/cargo"), None);
     }
 
     // ── Scenario 5: prompt constant wiring test ───────────────────────

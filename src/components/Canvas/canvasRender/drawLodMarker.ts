@@ -30,7 +30,7 @@ function countLine(counts: StatusCounts): string {
   if (counts.in_progress) parts.push(`${counts.in_progress} active`);
   if (counts.in_review) parts.push(`${counts.in_review} review`);
   if (counts.blocked) parts.push(`${counts.blocked} blocked`);
-  if (counts.parked) parts.push(`${counts.parked} parked`);
+  if (counts.paused) parts.push(`${counts.paused} paused`);
   if (counts.pending) parts.push(`${counts.pending} pending`);
   const done = counts.done + counts.cancelled;
   if (done) parts.push(`${done} done`);

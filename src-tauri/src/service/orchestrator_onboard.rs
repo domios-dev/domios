@@ -3,7 +3,7 @@
 use super::ServiceContext;
 use crate::mem::{SearchHit, SearchQuery};
 use crate::multiplexer::types::{AgentRole, Pane};
-use crate::service::messenger::{MessageEnvelope, Messenger};
+use crate::service::messenger::MessageEnvelope;
 
 const PREF_QUERY: &str = "CodeTerm orchestration and planning preferences";
 const PREF_LIMIT: usize = 5;
@@ -94,53 +94,26 @@ pub fn should_deliver_orchestrator_onboarding(pane: Option<&Pane>, was_orchestra
 pub fn orchestrator_onboarding_body(pane_id: &str) -> String {
     let spawn_cmd =
         crate::service::plan::peer_mandate::planner_spawn_cmd_hint(Some(pane_id), "PLAN_ID");
-    let mandate = crate::prompts::peer_pairing_mandate_full(&spawn_cmd);
-    format!(
-        "You are now the Orchestrator for this tab (role=Orchestrator, can_spawn=true).\n\
-Do not rename your own tab — CodeTerm manages tab labels.\n\
-\n\
-First load the orchestration rules:\n\
-  codeterm docs ORCHESTRATION\n\
-Machine-local orchestration preferences are pulled from mem and injected automatically — no manual search needed.\n\
-\n\
-Planning rule: CodeTerm planner is the source of truth. The EFFORT model is GOAL ⟶ Spec (WHAT/WHY) ⊥ Plan (HOW, in sections) ⟶ Tasks ⟶ Strides. Set GOAL first; Spec and Plan are separate surfaces (WHAT/WHY never goes in Plan sections). Group Tasks into milestones and run FULL REGRESSION at each milestone boundary, not just per-task CI. Reflection is a rhythm, not a one-off: `codeterm plan retrospective` at plan close, `codeterm plan loop` for self-improving loops. Do not create markdown implementation plans as the primary plan unless the user explicitly asks for an export.\n\
-\n\
-{mandate}\n\
-\n\
-Full orchestration toolset reference:\n\
-  codeterm doc orchestration\n\
-  (alias: codeterm docs ORCHESTRATION)\n\
-\n\
-After you own a plan — status, lanes, drift, next actions:\n\
-  codeterm orchestrator status --plan PLAN_ID\n\
-\n\
-Keep heartbeat current (auto-reinjected on nudges):\n\
-  codeterm orchestrator heartbeat set --plan PLAN_ID --focus \"...\"\n\
-\n\
-Your Planner cuts the structure and the tasks — delegate that, then review\n\
-(see codeterm docs PLANNER). You OWN execution: dispatch each task to a lane\n\
-and accept or bounce the report:\n\
-  codeterm plan task dispatch PLAN_ID TASK_ID --agent claude --cwd <lane-worktree>\n\
-(Solo/waived-planner only: you may cut tasks yourself with codeterm plan task add.)\n\
-\n\
-Spawn workers (2-level hierarchy — Workers report back here):\n\
-  codeterm agent spawn --parent {pane_id} --role Worker --title \"...\" --task \"...\""
-    )
+    crate::prompts::orchestrator_onboarding(&spawn_cmd)
 }
 
 impl ServiceContext {
     pub fn deliver_orchestrator_onboarding(&self, pane_id: &str) {
         let body = orchestrator_onboarding_body(pane_id);
-        // Display greeting is a short user-facing hint (no commands); the full
-        // onboarding rides the real delivery below, attributed to CodeTerm.
+        // Raw chat startup must see the full onboarding even before delivery lands.
         if let Some(pane) = self.mux.write().get_pane_mut(pane_id) {
-            pane.pending_greeting = Some(crate::prompts::orchestrator_display_hint());
+            pane.pending_greeting = Some(body.clone());
         }
         self.emit_state_changed();
         // Deliver as a message FROM CodeTerm (same marker the Planner gets), not a
         // reminder — the onboarding should read as CodeTerm introducing the role.
         let envelope = MessageEnvelope::from_codeterm();
-        if let Err(e) = Messenger::deliver(self, pane_id, envelope, &body) {
+        if let Err(e) = self.gateway_deliver(
+            pane_id,
+            envelope,
+            &body,
+            crate::service::message_gateway::DeliveryClass::SystemNotice,
+        ) {
             log::warn!("[orchestrator-onboard] deliver to {pane_id} failed: {e}");
         }
         self.deliver_orchestration_preferences(pane_id);
@@ -164,7 +137,12 @@ impl ServiceContext {
                 return;
             };
             let envelope = MessageEnvelope::codeterm_reminder("orchestration-prefs");
-            if let Err(e) = Messenger::deliver(&svc, &pane_id, envelope, &body) {
+            if let Err(e) = svc.gateway_deliver(
+                &pane_id,
+                envelope,
+                &body,
+                crate::service::message_gateway::DeliveryClass::SystemNotice,
+            ) {
                 log::warn!("[orchestration-prefs] deliver to {pane_id} failed: {e}");
             }
         };
@@ -230,9 +208,11 @@ mod tests {
             pty_id: None,
             backing: PaneBacking::default(),
             pane_type: PaneType::Terminal,
+            pending_delivery: None,
             title: "Terminal".to_string(),
             description: None,
             cwd: None,
+            provisioned_cwd: None,
             url: None,
             agent_type: None,
             agent_type_locked: false,
@@ -242,11 +222,17 @@ mod tests {
             agent_session_id: None,
             agent_session_name: None,
             agent_session_model: None,
+            agent_planned_model: None,
+            agent_requested_model: None,
+            agent_provider_resolved_model: None,
+            model_fallback: None,
+            model_identity_mismatch: None,
             session_binding_nonce: None,
             reported_session_binding_nonce: None,
             shell_integration_nonce: None,
             role: None,
             role_profile: None,
+            team_id: None,
             watcher: None,
             parent_pane_id: None,
             pending_paired_planner_pane_id: None,
@@ -274,29 +260,12 @@ mod tests {
     }
 
     #[test]
-    fn onboarding_body_lists_canonical_commands() {
+    fn onboarding_body_is_bounded_and_fully_rendered() {
         let msg = orchestrator_onboarding_body("pane-abc");
-        assert!(msg.contains("You are now the Orchestrator"));
-        assert!(msg.contains("CodeTerm planner is the source of truth"));
-        assert!(msg.contains("injected automatically"));
-        assert!(!msg.contains("codeterm mem search"));
-        assert!(msg.contains("codeterm doc orchestration"));
-        assert!(msg.contains("codeterm docs ORCHESTRATION"));
-        assert!(msg.contains("codeterm orchestrator status --plan PLAN_ID"));
-        assert!(msg.contains("codeterm orchestrator heartbeat set"));
-        // The Planner cuts tasks; the Orchestrator dispatches them.
-        assert!(msg.contains("Your Planner cuts the structure and the tasks"));
-        assert!(msg.contains("codeterm plan task dispatch PLAN_ID TASK_ID"));
-        assert!(msg.contains("codeterm agent spawn --parent pane-abc --role Worker"));
-    }
-
-    #[test]
-    fn onboarding_body_carries_peer_pairing_mandate_with_real_pane_id() {
-        let msg = orchestrator_onboarding_body("pane-abc");
-        assert!(msg.contains(crate::prompts::PEER_PLANNER_CHARTER_LINE));
-        assert!(msg.contains(crate::prompts::PEER_ORCH_DEFERENCE_LINE));
-        assert!(msg.contains("attached Planner specialist"));
+        assert!(msg.split_whitespace().count() < 800);
         assert!(msg.contains("--parent pane-abc --role Planner --plan PLAN_ID"));
+        assert!(!msg.contains("{planner_spawn_cmd}"));
+        assert!(!msg.contains("{orchestrator_suffix}"));
     }
 
     #[test]

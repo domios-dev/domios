@@ -112,6 +112,13 @@ async function waitMuxTabTitle(api: ApiClient, tabId: string, title: string): Pr
   }, 20_000, 500, `mux tab title ${title}`);
 }
 
+async function waitMuxPendingPrompt(api: ApiClient, paneId: string, question: string): Promise<void> {
+  await pollUntil(async () => {
+    const mux = await api.get<MuxState>("/mux/state");
+    return mux.panes[paneId]?.pending_prompt?.question === question || undefined;
+  }, 20_000, 500, `mux pending prompt ${paneId}`);
+}
+
 async function waitMuxWorkspaceName(api: ApiClient, workspaceId: string, name: string): Promise<void> {
   await pollUntil(async () => {
     const mux = await api.get<MuxState>("/mux/state");
@@ -587,7 +594,7 @@ test.describe("@golden web stability verification", () => {
     }
   });
 
-  test("@golden RPL-4/GATE-4 attention rail uses hook driver and clears exactly", async ({
+  test("@golden RPL-4/GATE-4 prompt pill uses hook driver and clears exactly", async ({
     api,
     webBrowser,
     paneCleanup,
@@ -604,16 +611,15 @@ test.describe("@golden web stability verification", () => {
           { label: "No", value: "no" },
         ],
       });
-      await expect(tab(page, pane.tab_id).locator('[data-testid="tab-status-rail"]')).toHaveAttribute(
-        "data-rail-variant",
-        "attention",
-        { timeout: 20_000 },
-      );
+      await waitMuxPendingPrompt(api, pane.id, question);
+      await focusTab(page, pane.tab_id);
       await expect(tab(page, pane.tab_id).locator(`span.rounded-full[title="${question}"]`)).toHaveCount(1, {
         timeout: 20_000,
       });
+      // Status rail removed by owner decision — the prompt pill is the only tab-row indicator.
+      await expect(tab(page, pane.tab_id).locator('[data-testid="tab-status-rail"]')).toHaveCount(0);
       await api.post(`/panes/${pane.id}/prompt/clear`, {});
-      await expect(tab(page, pane.tab_id).locator('[data-testid="tab-status-rail"]')).toHaveCount(0, {
+      await expect(tab(page, pane.tab_id).locator(`span.rounded-full[title="${question}"]`)).toHaveCount(0, {
         timeout: 10_000,
       });
     } finally {
@@ -626,7 +632,7 @@ test.describe("@golden web stability verification", () => {
     webBrowser,
   }) => {
     test.setTimeout(180_000);
-    const stub = new MeshStub({ services: 1, webToken: "pw-stability-stub-token" });
+    const stub = new MeshStub({ services: 1, webToken: "pw-stability-stub-token", daemonBase: API_BASE });
     let peerId: string | undefined;
     const page = await newWebPage(webBrowser);
     try {
@@ -645,6 +651,7 @@ test.describe("@golden web stability verification", () => {
       peerId = added.instance_id;
       stub.instanceId = peerId;
       await api.post("/mesh/connect", { instance_id: peerId });
+      await stub.waitForPairAccept();
       await pollUntil(async () => {
         const peers = await api.get<{ paired: { instance_id: string }[] }>("/mesh/peers");
         return peers.paired.some((p) => p.instance_id === peerId) || undefined;

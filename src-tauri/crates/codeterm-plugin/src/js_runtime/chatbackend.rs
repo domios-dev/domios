@@ -27,6 +27,7 @@ pub struct JsChatBackend {
     /// `{ spawnable: true }` ⇒ user-openable from the picker; bare `chatBackend: true` ⇒ false (backend-only).
     spawnable: bool,
     watcher_capable: bool,
+    session_config: bool,
     session_exec_env: parking_lot::Mutex<HashMap<String, HashMap<String, String>>>,
 }
 
@@ -42,6 +43,7 @@ impl JsChatBackend {
             icon_color: None,
             spawnable: false,
             watcher_capable: false,
+            session_config: false,
             session_exec_env: parking_lot::Mutex::new(HashMap::new()),
         }
     }
@@ -56,6 +58,7 @@ impl JsChatBackend {
             icon_color: manifest.icon_color.clone(),
             spawnable: manifest.capabilities.chat_backend_spawnable(),
             watcher_capable: manifest.capabilities.chat_backend_watcher_capable(),
+            session_config: manifest.capabilities.chat_backend.session_config(),
             session_exec_env: parking_lot::Mutex::new(HashMap::new()),
         }
     }
@@ -168,6 +171,10 @@ impl ChatBackendProvider for JsChatBackend {
 
     fn watcher_capable(&self) -> bool {
         self.watcher_capable
+    }
+
+    fn supports_session_config(&self) -> bool {
+        self.session_config
     }
 
     fn icon_hint(&self) -> Option<&str> {

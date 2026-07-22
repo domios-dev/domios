@@ -72,6 +72,60 @@ pub enum PlanQaAction {
         #[arg(long, allow_hyphen_values = true)]
         note: String,
     },
+    /// Authorized Orchestrator waiver of pending regression gates (owner-only, audited)
+    Override {
+        plan_id: Option<String>,
+        /// Gate keys to waive; defaults to every currently blocking gate
+        #[arg(long, value_delimiter = ',')]
+        gate: Vec<String>,
+        /// Why the frontier may advance past the gate — required
+        #[arg(long, allow_hyphen_values = true)]
+        reason: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum PlanReviewAction {
+    /// Show review-backpressure status: WIP count/limit, credit, blocked reason
+    Status { plan_id: Option<String> },
+    /// Show batch-compatible QA waves (grouped by task group)
+    Waves { plan_id: Option<String> },
+    /// Record a P0 exception authorizing the next over-round-limit review entry
+    Override {
+        plan_id: Option<String>,
+        task_id: String,
+        #[arg(long)]
+        owner: String,
+        #[arg(long, allow_hyphen_values = true)]
+        reason: String,
+        #[arg(long, allow_hyphen_values = true)]
+        reproduction: String,
+    },
+    /// ACCEPT: attaches the verdict and closes the task (in_review -> done)
+    Accept {
+        plan_id: Option<String>,
+        task_id: String,
+        #[arg(long, allow_hyphen_values = true)]
+        note: String,
+        #[arg(long)]
+        changed_executable_surfaces: bool,
+        #[arg(long)]
+        distinct_oracle: bool,
+        /// Past the default round bound, routes residual risk to a follow-up task
+        #[arg(long, allow_hyphen_values = true)]
+        residual_risk: Option<String>,
+    },
+    /// BOUNCE: atomically exits in_review back to in_progress
+    Bounce {
+        plan_id: Option<String>,
+        task_id: String,
+        #[arg(long, allow_hyphen_values = true)]
+        note: String,
+        #[arg(long)]
+        changed_executable_surfaces: bool,
+        #[arg(long)]
+        distinct_oracle: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -193,26 +247,26 @@ pub enum PlanHandoffAction {
 
 #[derive(Subcommand)]
 pub enum PlanDecisionAction {
-    /// Create a decision gate, park blocking tasks, and route the question to the planner
+    /// Create a decision gate, pause blocking tasks, and route the question to the planner
     Ask {
         plan_id: String,
         #[arg(long, allow_hyphen_values = true)]
         question: String,
         #[arg(long, allow_hyphen_values = true, default_value = "")]
         context: String,
-        /// Task ids (or handles) to park until this gate is answered
+        /// Task ids (or handles) to pause until this gate is answered
         #[arg(long = "block")]
         blocking_task_ids: Vec<String>,
-        #[arg(long)]
+        #[arg(long = "asked-by-tab")]
         asked_by_pane: Option<String>,
     },
-    /// Answer an open gate (immutable audit record, unparks blocked tasks)
+    /// Answer an open gate (immutable audit record, resumes paused tasks)
     Answer {
         plan_id: String,
         gate_id: String,
         #[arg(long, allow_hyphen_values = true)]
         answer: String,
-        #[arg(long)]
+        #[arg(long = "answered-by-tab")]
         answered_by_pane: Option<String>,
     },
     /// Acknowledge one durably delivered Planner request

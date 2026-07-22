@@ -205,7 +205,7 @@ test.afterEach(() => {
   rmSync(CHANNEL_ROOT, { recursive: true, force: true });
 });
 
-test("@smoke list and detail panel render channel extension metadata", async ({ ui }) => {
+test("@smoke list and detail panel render channel extension metadata @restart", async ({ ui }) => {
   await openExtensions(ui);
   await addChannel(ui.page, `${fileUrl(WORKTREE)}#main:plugins`);
   await expect(pluginRow(ui.page)).toBeVisible({ timeout: 30_000 });
@@ -219,7 +219,7 @@ test("@smoke list and detail panel render channel extension metadata", async ({ 
   await expect(detail.locator('[data-testid="extensions-capabilities"]')).toContainText("view");
 });
 
-test("@golden installed extension exposes Configure with AI and plugin activity toast", async ({ api, ui }) => {
+test("@golden installed extension exposes Configure with AI and plugin activity toast @restart", async ({ api, ui }) => {
   await openExtensions(ui);
   await addChannel(ui.page, `${fileUrl(WORKTREE)}#main:plugins`);
   await installPlugin(ui.page, api);
@@ -229,17 +229,25 @@ test("@golden installed extension exposes Configure with AI and plugin activity 
   ).toBeVisible();
 
   await expect.poll(async () => {
-    await api.post("/plugins/view-call", {
-      pluginId: PLUGIN_ID,
-      method: "progress",
-      args: { label: "Downloading fixture payload", percent: 42 },
-    });
-    return true;
-  }).toBe(true);
+    try {
+      await api.post("/plugins/view-call", {
+        pluginId: PLUGIN_ID,
+        method: "progress",
+        args: { label: "Downloading fixture payload", percent: 42 },
+      });
+      return true;
+    } catch (error) {
+      if (String(error).includes("no view provider")) return false;
+      throw error;
+    }
+  }, { timeout: 30_000, intervals: [250, 500, 1_000] }).toBe(true);
 
-  const activity = ui.page.locator('[data-testid="extensions-plugin-activity"]').filter({
-    hasText: "Downloading fixture payload",
-  });
+  const activity = ui.page
+    .locator(`[data-testid="extensions-plugin-detail"][data-plugin-id="${PLUGIN_ID}"]`)
+    .locator('[data-testid="extensions-plugin-activity"]')
+    .filter({
+      hasText: "Downloading fixture payload",
+    });
   await expect(activity).toBeVisible({ timeout: 20_000 });
   await expect(activity.locator('[data-testid="extensions-plugin-activity-progress"]')).toHaveAttribute(
     "aria-label",
@@ -259,7 +267,7 @@ test("@golden installed extension exposes Configure with AI and plugin activity 
   await expect(toast).toHaveCount(0);
 });
 
-test("@smoke uninstall confirmation includes remove-data checkbox", async ({ api, ui }) => {
+test("@smoke uninstall confirmation includes remove-data checkbox @restart", async ({ api, ui }) => {
   await openExtensions(ui);
   await addChannel(ui.page, `${fileUrl(WORKTREE)}#main:plugins`);
   await installPlugin(ui.page, api);
@@ -282,7 +290,7 @@ test("@smoke uninstall confirmation includes remove-data checkbox", async ({ api
   }).toBe(false);
 });
 
-test("@golden channel bump renders update badge; update installs the new version", async ({ api, ui }) => {
+test("@golden channel bump renders update badge; update installs the new version @restart", async ({ api, ui }) => {
   await openExtensions(ui);
   await addChannel(ui.page, `${fileUrl(WORKTREE)}#main:plugins`);
   await installPlugin(ui.page, api);
@@ -310,7 +318,7 @@ test("@golden channel bump renders update badge; update installs the new version
   await expect(row).toHaveAttribute("data-plugin-update-available", "false", { timeout: 30_000 });
 });
 
-test("@golden system channel update renders bundled providers as verified", async ({ ui }) => {
+test("@golden system channel update renders bundled providers as verified @restart", async ({ ui }) => {
   cli("plugin update-system --json");
   await openExtensions(ui);
   const section = ui.page.locator(
@@ -334,7 +342,7 @@ test("@golden system channel update renders bundled providers as verified", asyn
   }
 });
 
-test("@smoke broken channel add surfaces the error banner", async ({ ui }) => {
+test("@smoke broken channel add surfaces the error banner @restart", async ({ ui }) => {
   await openExtensions(ui);
   await ui.page.locator('[data-testid="extensions-filter"][data-extension-filter="channels"]').click();
   await ui.page.locator('[data-testid="extensions-channel-add-open"]').click();
@@ -346,4 +354,7 @@ test("@smoke broken channel add surfaces the error banner", async ({ ui }) => {
   const error = ui.page.locator('[data-testid="extensions-error"]');
   await expect(error).toBeVisible({ timeout: 30_000 });
   await expect(error).toContainText(/missing|error|failed|not found/i);
+  // Leave the live dev window clean: the deliberately-broken add is asserted, drop its banner.
+  await ui.page.reload({ waitUntil: "domcontentloaded" });
+  await ui.page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
 });

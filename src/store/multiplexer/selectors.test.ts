@@ -1,12 +1,14 @@
 // Run: npx tsx src/store/multiplexer/selectors.test.ts
 
 import { strict as assert } from "node:assert";
-import type { Pane } from "../../lib/types";
+import type { Pane, Team } from "../../lib/types";
 import {
   paneFieldsEqual,
   paneTitleMapEqual,
   panesRecordEqual,
   selectPaneTitleMap,
+  selectTeams,
+  teamsEqual,
 } from "./selectors";
 import type { ExtendedState } from "./tree";
 
@@ -24,7 +26,7 @@ function samplePane(id: string, elapsed?: number): Pane {
   };
 }
 
-function sampleState(panes: Record<string, Pane>): ExtendedState {
+function sampleState(panes: Record<string, Pane>, teams: Team[] = []): ExtendedState {
   const paneIds = Object.keys(panes);
   return {
     workspaces: [{
@@ -35,6 +37,7 @@ function sampleState(panes: Record<string, Pane>): ExtendedState {
       cwd: null,
     }],
     panes,
+    teams,
     active_workspace_id: "ws",
     focused_pane_id: paneIds[0] ?? null,
     notifications: [],
@@ -42,7 +45,6 @@ function sampleState(panes: Record<string, Pane>): ExtendedState {
     toasts: [],
     activeTabIds: {},
     generation: 1,
-    virtualTabs: {},
   };
 }
 
@@ -74,5 +76,19 @@ assert.equal(
 const titleMap1 = selectPaneTitleMap(sampleState({ x: { ...samplePane("x"), title: "✻ Worker" } }));
 const titleMap2 = selectPaneTitleMap(sampleState({ x: { ...samplePane("x"), title: "✻ Worker" } }));
 assert.equal(paneTitleMapEqual(titleMap1, titleMap2), true, "title map stable when titles match");
+
+const formingTeam: Team = {
+  id: "team-1",
+  name: "Launch",
+  lifecycle: "forming",
+  created_at: 1,
+  workspace_id: "ws",
+};
+const activeTeam = { ...formingTeam, name: "Launch renamed", lifecycle: "active" as const };
+const teamsBefore = selectTeams(sampleState({}, [formingTeam]));
+const teamsAfter = selectTeams(sampleState({}, [activeTeam]));
+assert.equal(teamsBefore[0].name, "Launch", "teams selector exposes the snapshot name");
+assert.equal(teamsAfter[0].lifecycle, "active", "teams selector exposes lifecycle changes");
+assert.equal(teamsEqual(teamsBefore, teamsAfter), false, "teams equality does not mask a renamed lifecycle change");
 
 console.log("selectors.test.ts: all passed");

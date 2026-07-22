@@ -8,8 +8,10 @@ import {
   roleShieldLabel,
   roleBadgeTestId,
   SECTION_LABEL,
+  sortTeamManagers,
   sectionForRole,
   summarizeGroupClose,
+  summarizeWorkers,
 } from "./orchestrationSections";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -72,6 +74,16 @@ const nodes = [
 const part = partitionBySection(nodes);
 assert(part.managers.map((n) => n.pane.id).join(",") === "planner", "managers = planner only");
 assert(part.workers.map((n) => n.pane.id).join(",") === "w1,w2", "workers keep spawn order");
+const sortedManagers = sortTeamManagers([
+  { pane: pane({ id: "planner-1", role: "Manager", role_profile: "planner" }) },
+  { pane: pane({ id: "orch-1", role: "Orchestrator" }) },
+  { pane: pane({ id: "planner-2", role: "Manager", role_profile: "planner" }) },
+  { pane: pane({ id: "orch-2", role: "Orchestrator" }) },
+]);
+assert(
+  sortedManagers.map((node) => node.pane.id).join(",") === "orch-1,orch-2,planner-1,planner-2",
+  "team managers sort orchestrators first and preserve manual order within role",
+);
 
 assert(SECTION_LABEL.manager === "Managers" && SECTION_LABEL.worker === "Workers", "section labels");
 const counts = countBySection([
@@ -85,5 +97,6 @@ assert(summarizeGroupClose(counts) === "1 manager, 3 workers", "singular manager
 assert(summarizeGroupClose({ managers: 0, workers: 2 }) === "2 workers", "omits zero managers");
 assert(summarizeGroupClose({ managers: 2, workers: 0 }) === "2 managers", "omits zero workers");
 assert(summarizeGroupClose({ managers: 1, workers: 1 }) === "1 manager, 1 worker", "both singular");
+assert(summarizeWorkers(3, 2) === "3 workers · 2 working", "worker collapse summary");
 
 console.log("✓ orchestrationSections: role→section matrix, badges, partition, group-close summary");

@@ -1,12 +1,12 @@
 use serde_json::{json, Value};
 
 use crate::args::plan::PlanHandoffAction;
-use crate::client::SocketClient;
+use crate::client::RpcClient;
 
 use super::plan::{call_plan_rpc, owner_from_env, resolve_text};
 
 pub fn handle(
-    client: &mut SocketClient,
+    client: &mut dyn RpcClient,
     json_output: bool,
     action: PlanHandoffAction,
 ) -> Result<Option<Value>, String> {

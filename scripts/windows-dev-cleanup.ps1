@@ -1,6 +1,7 @@
 param(
   [Parameter(Mandatory = $true)][string] $Root,
   [Parameter(Mandatory = $true)][string] $TargetDebug,
+  [Parameter(Mandatory = $true)][string] $DataDir,
   [Parameter(Mandatory = $true)][string] $Identifier,
   [Parameter(Mandatory = $false)][string] $Instance = "",
   [Parameter(Mandatory = $true)][int] $VitePort,
@@ -13,6 +14,7 @@ param(
 $ErrorActionPreference = "Stop"
 $rootPath = [IO.Path]::GetFullPath($Root)
 $targetDebugPath = [IO.Path]::GetFullPath($TargetDebug)
+$dataDirPath = [IO.Path]::GetFullPath($DataDir)
 $nodeModules = Join-Path $rootPath "node_modules"
 
 if ($FixturePath) {
@@ -32,6 +34,7 @@ if ($FixturePath) {
 }
 
 $childrenByParent = @{}
+$parentByPid = @{}
 $portsByPid = @{}
 foreach ($listener in $listeners) {
   $procId = [int]$listener.process_id
@@ -42,16 +45,26 @@ foreach ($listener in $listeners) {
 }
 foreach ($proc in $all) {
   $parent = [int]$proc.ParentProcessId
+  $parentByPid[[int]$proc.ProcessId] = $parent
   if (-not $childrenByParent.ContainsKey($parent)) {
     $childrenByParent[$parent] = New-Object System.Collections.Generic.List[object]
   }
   $childrenByParent[$parent].Add($proc)
 }
 
+$selfAncestry = New-Object System.Collections.Generic.HashSet[int]
+$cursorPid = $selfPid
+while ($cursorPid -gt 0 -and $selfAncestry.Add($cursorPid)) {
+  if (-not $parentByPid.ContainsKey($cursorPid)) {
+    break
+  }
+  $cursorPid = [int]$parentByPid[$cursorPid]
+}
+
 $victimRoots = New-Object System.Collections.Generic.HashSet[int]
 foreach ($proc in $all) {
   $procId = [int]$proc.ProcessId
-  if ($procId -eq $selfPid) {
+  if ($selfAncestry.Contains($procId)) {
     continue
   }
   $cmd = [string]$proc.CommandLine
@@ -60,6 +73,10 @@ foreach ($proc in $all) {
   $procPorts = if ($portsByPid.ContainsKey($procId)) { @($portsByPid[$procId]) } else { @() }
   $rawTarget = ($exe -and $exe.StartsWith($targetDebugPath, [StringComparison]::OrdinalIgnoreCase)) -or
     ($cmd -and $cmd.IndexOf($targetDebugPath, [StringComparison]::OrdinalIgnoreCase) -ge 0)
+  $instanceConptyRoot = Join-Path $dataDirPath "target\debug\conpty"
+  $matchesInstanceConpty = $name.Equals("OpenConsole.exe", [StringComparison]::OrdinalIgnoreCase) -and
+    (($exe -and $exe.StartsWith($instanceConptyRoot, [StringComparison]::OrdinalIgnoreCase)) -or
+      ($cmd -and $cmd.IndexOf($instanceConptyRoot, [StringComparison]::OrdinalIgnoreCase) -ge 0))
   $ownsApi = $procPorts -contains $ApiPort
   $matchesTarget = $rawTarget -and ($ownsApi -or ($Instance -eq "" -and $procPorts.Count -eq 0))
   $matchesWebView = $cmd -and
@@ -70,11 +87,13 @@ foreach ($proc in $all) {
     ($cmd -match 'vite\\bin\\vite\.js|@tauri-apps\\cli\\tauri\.js') -and
     ($cmd.IndexOf(":$VitePort", [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
       $cmd.IndexOf("--port $VitePort", [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
-      $cmd.IndexOf("CODETERM_VITE_PORT=$VitePort", [StringComparison]::OrdinalIgnoreCase) -ge 0)
+      $cmd.IndexOf("CODETERM_VITE_PORT=$VitePort", [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+      ($cmd.IndexOf("build", [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
+        $cmd.IndexOf("--watch", [StringComparison]::OrdinalIgnoreCase) -ge 0))
   $matchesCdp = $cmd -and
     $cmd.IndexOf("--remote-debugging-port=$CdpPort", [StringComparison]::OrdinalIgnoreCase) -ge 0
 
-  if ($matchesTarget -or $matchesWebView -or $matchesVite -or $matchesCdp) {
+  if ($matchesTarget -or $matchesInstanceConpty -or $matchesWebView -or $matchesVite -or $matchesCdp) {
     [void]$victimRoots.Add($procId)
   }
 }

@@ -10,7 +10,7 @@ use super::{get_string_param, JsonRpcError};
 pub(super) fn handles(method: &str) -> bool {
     matches!(
         method,
-        "plan.task.park" | "plan.task.unpark" | "plan.task.close"
+        "plan.task.pause" | "plan.task.resume" | "plan.task.close"
     )
 }
 
@@ -24,20 +24,22 @@ pub(super) fn dispatch(
     let p = params.as_ref();
     let now = epoch_ms();
     match method {
-        "plan.task.park" => {
+        "plan.task.pause" => {
             let (id, tid) = super::plan_refs::resolve_task(store, params)?;
             let reason = get_string_param(params, "reason")?;
             let milestone_id = store
-                .park_task(&id, &tid, &reason, from_param(p), now)
+                .pause_task(&id, &tid, &reason, from_param(p), now)
                 .map_err(plan_rpc_err)?;
+            svc.reconcile_time_reminder_eligibility();
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true, "plan_id": id, "task_id": tid, "milestone_id": milestone_id }))
         }
-        "plan.task.unpark" => {
+        "plan.task.resume" => {
             let (id, tid) = super::plan_refs::resolve_task(store, params)?;
             let milestone_id = store
-                .unpark_task(&id, &tid, from_param(p), now)
+                .resume_task(&id, &tid, from_param(p), now)
                 .map_err(plan_rpc_err)?;
+            svc.reconcile_time_reminder_eligibility();
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true, "plan_id": id, "task_id": tid, "milestone_id": milestone_id }))
         }
@@ -52,6 +54,7 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
+            svc.reconcile_time_reminder_eligibility();
             emit_plan_changed(app, &id);
             let mut resp = json!({ "ok": true });
             if let Some(plan) = store.get(&id) {

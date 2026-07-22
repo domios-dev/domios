@@ -5,7 +5,8 @@ function sortByOrder<T extends { sort_order?: number }>(items: T[]): T[] {
 }
 
 export function isSidebarTabVisible(tab: Tab, panes: Record<string, Pane>): boolean {
-  return panes[tab.pane_id]?.hidden !== true;
+  const pane = panes[tab.pane_id];
+  return Boolean(pane) && pane.hidden !== true;
 }
 
 export function collectPaneIds(tab: Tab, panes?: Record<string, Pane>): string[] {

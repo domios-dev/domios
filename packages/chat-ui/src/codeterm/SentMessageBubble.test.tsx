@@ -52,7 +52,7 @@ const SECTION = "sec_vecy77";
 await (async () => {
   const host = await render(
     <SentMessageBubble
-      inv={inv(`codeterm send --pane 915fae8e "## Update\n- done"`)}
+      inv={inv(`codeterm send --tab 915fae8e "## Update\n- done"`)}
       resolvePaneName={(r) => (r === "915fae8e" ? "Puccini" : undefined)}
     />,
   );
@@ -69,7 +69,7 @@ await (async () => {
   assert(text.includes("Update") && text.includes("done"), "renders markdown body content");
 })();
 
-// section-id mention in normal chat renders a deep-link card with section focus
+// section-id mention in normal chat renders a deep-link card with the shared selector contract.
 await (async () => {
   let opened: [string, string | undefined, string | undefined] | null = null;
   const host = await render(
@@ -83,10 +83,19 @@ await (async () => {
       onOpenPlan={(p, focus, kind) => {
         opened = [p, focus, kind];
       }}
+      resolvePlanRef={(planId, focusId, focusKind) => ({
+        title: focusKind === "section" ? "Cross workspace section" : "Owner workspace plan",
+        planTitle: "Owner workspace plan",
+        sectionTitle: focusKind === "section" ? "Cross workspace section" : undefined,
+        state: "resolved",
+        rawLabel: focusId ?? planId,
+        fullRef: focusId ? `${planId}/${focusId}` : planId,
+      })}
     />,
   );
-  const card = host.querySelector('[data-testid="chat-plan-ref-card"][data-ref-kind="section"]') as HTMLButtonElement | null;
-  assert(card != null, "assistant section ref renders rich card");
+  const card = host.querySelector('[data-testid="chat-section-link"][data-ref-kind="section"]') as HTMLButtonElement | null;
+  assert(card != null, "assistant section ref renders shared link selector");
+  assert(card?.textContent?.includes("Cross workspace section"), "assistant ref card uses resolved title");
   await act(async () => {
     card!.click();
   });
@@ -96,10 +105,10 @@ await (async () => {
   );
 })();
 
-// outbound bubble class matches inbound cross-pane bubble
+// Outbound messages stay compact while inbound messages use an activity card.
 await (async () => {
   const outboundHost = await render(
-    <SentMessageBubble inv={inv(`codeterm send --pane bda "hello outbound"`)} />,
+    <SentMessageBubble inv={inv(`codeterm send --tab bda "hello outbound"`)} />,
   );
   const inboundHost = await render(
     <MessageBubble
@@ -116,25 +125,63 @@ await (async () => {
     />,
   );
   const outboundBubble = outboundHost.querySelector('[data-testid="chat-sent-message"]') as HTMLElement;
-  const inboundBubble = inboundHost.querySelector('[data-testid="chat-cross-pane-bubble"]') as HTMLElement;
-  assert(outboundBubble.className === inboundBubble.className, "outbound and inbound share bubble wrapper class");
+  const inboundCard = inboundHost.querySelector('[data-testid="chat-inbound-message"]') as HTMLElement | null;
+  assert(outboundBubble != null, "outbound message renders its compact bubble");
+  assert(inboundCard != null, "inbound message renders its activity card");
   assert(
-    outboundHost.querySelector(`[data-testid="${CROSS_PANE_SHELL_TESTID}"]`)!.className
-      === inboundHost.querySelector(`[data-testid="${CROSS_PANE_SHELL_TESTID}"]`)!.className,
-    "outbound and inbound share left-aligned shell class",
+    inboundHost.querySelector('[data-testid="chat-cross-pane-bubble"]') == null,
+    "inbound activity does not regress to the legacy cross-pane bubble",
   );
+})();
+
+// inbound current-pane marker resolves placeholder labels from pane id
+await (async () => {
+  const host = await render(
+    <MessageBubble
+      message={{
+        id: "inbound-current-pane",
+        provider: "codex",
+        type: "user",
+        content: "hello self",
+      }}
+      origin={{ kind: "pane", title: "CURRENT PANE", paneIdShort: "915fae8e", model: "codex" }}
+      resolvePaneName={(r) => (r === "915fae8e" ? "Puccini" : undefined)}
+    />,
+  );
+  const header = host.querySelector('[data-testid="chat-inbound-message"]') as HTMLElement | null;
+  const text = header?.textContent ?? "";
+  assert(text.includes("Puccini"), "current-pane marker renders resolved recipient name");
+  assert(!text.includes("CURRENT PANE"), "current-pane marker placeholder is replaced");
+})();
+
+// inbound current-pane structured metadata falls back to pane id when label is blank
+await (async () => {
+  const host = await render(
+    <MessageBubble
+      message={{
+        id: "inbound-current-pane-blank",
+        provider: "codex",
+        type: "user",
+        content: "hello self",
+        fromLabel: "",
+        fromPane: "915fae8e",
+        inboundKind: "pane",
+      }}
+    />,
+  );
+  assert((host.textContent ?? "").includes("915fae8e"), "blank current-pane label falls back to short pane id");
 })();
 
 // pane-name fallback when unresolvable
 await (async () => {
-  const host = await render(<SentMessageBubble inv={inv(`codeterm send --pane 915fae8e "hi"`)} />);
-  assert((host.textContent ?? "").includes("pane 915fae8e"), "falls back to 'pane <ref>'");
+  const host = await render(<SentMessageBubble inv={inv(`codeterm send --tab 915fae8e "hi"`)} />);
+  assert((host.textContent ?? "").includes("tab 915fae8e"), "falls back to 'tab <ref>'");
 })();
 
 // long body collapses past 8 lines, expands on click
 await (async () => {
   const body = Array.from({ length: 20 }, (_, i) => `line ${i}`).join("\n");
-  const host = await render(<SentMessageBubble inv={inv(`codeterm send --pane bda "${body}"`)} />);
+  const host = await render(<SentMessageBubble inv={inv(`codeterm send --tab bda "${body}"`)} />);
   const expand = host.querySelector('[data-testid="chat-sent-expand"]') as HTMLButtonElement | null;
   assert(expand != null, "shows expand affordance past threshold");
   assert(!(host.textContent ?? "").includes("line 15"), "collapsed body hides later lines");
@@ -147,14 +194,14 @@ await (async () => {
 // failed send shows failure glyph
 await (async () => {
   const host = await render(
-    <SentMessageBubble inv={inv(`codeterm send --pane bda "x"`)} result="error: pane not found" />,
+    <SentMessageBubble inv={inv(`codeterm send --tab bda "x"`)} result="error: pane not found" />,
   );
   assert((host.textContent ?? "").includes("✗"), "failed send shows failure glyph");
 })();
 
 // mesh send shows peer
 await (async () => {
-  const host = await render(<SentMessageBubble inv={inv(`codeterm send --pane bda --mesh mini "hi"`)} />);
+  const host = await render(<SentMessageBubble inv={inv(`codeterm send --tab bda --mesh mini "hi"`)} />);
   assert((host.textContent ?? "").includes("mini"), "mesh send renders peer");
 })();
 
@@ -163,7 +210,7 @@ await (async () => {
   let opened: [string, string | undefined] | null = null;
   const host = await render(
     <SentMessageBubble
-      inv={inv(`codeterm send --pane bda "see ${TASK} in ${PLAN}"`)}
+      inv={inv(`codeterm send --tab bda "see ${TASK} in ${PLAN}"`)}
       onOpenPlan={(p, t) => {
         opened = [p, t];
       }}

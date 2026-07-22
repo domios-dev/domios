@@ -78,6 +78,30 @@ async function openBoardWithFixture(api: ApiClient, webBrowser: import("@playwri
   return { canvas, ready: true as const, page };
 }
 
+async function expectCardsContained(page: Page): Promise<void> {
+  const violations = await page.locator('[data-testid="plan-board-column"]').evaluateAll((columns) =>
+    columns.flatMap((column) => {
+      const cards = Array.from(column.querySelectorAll<HTMLElement>('[data-testid="plan-board-task-card"]'));
+      const issues: string[] = [];
+      cards.forEach((card, index) => {
+        const cardRect = card.getBoundingClientRect();
+        for (const meta of card.querySelectorAll<HTMLElement>('[data-testid^="plan-board-task-"]')) {
+          const rect = meta.getBoundingClientRect();
+          if (rect.top < cardRect.top - 0.5 || rect.bottom > cardRect.bottom + 0.5) {
+            issues.push(`${card.dataset.taskId}: metadata escapes card bounds`);
+          }
+        }
+        const next = cards[index + 1];
+        if (next && next.getBoundingClientRect().top < cardRect.bottom - 0.5) {
+          issues.push(`${card.dataset.taskId}: overlaps ${next.dataset.taskId}`);
+        }
+      });
+      return issues;
+    }),
+  );
+  expect(violations).toEqual([]);
+}
+
 test(
   "@golden @plan-card-metadata desktop board and list metadata album with per-status cards",
   async ({ api, webBrowser }) => {
@@ -90,6 +114,7 @@ test(
       }
       const { page } = opened;
       await page.setViewportSize(DESKTOP);
+      await expect(page.locator('[data-testid="plan-board-task-card"]').first()).toBeVisible();
 
       await shot(page, "plan-card-metadata-board-desktop");
       await shotCard(page, CARD_METADATA_TASK_IDS.pending, "plan-card-metadata-pending");
@@ -99,7 +124,7 @@ test(
 
       await switchPlanMode(page, "list");
       await expect(page.locator('[data-testid="plan-list-view"]:visible')).toBeVisible();
-      await expect(page.locator('[data-testid="plan-list-row"]').first()).toBeVisible();
+      await expect(page.locator('[data-testid="plan-list-task"]').first()).toBeVisible();
       await shot(page, "plan-card-metadata-list-desktop");
     } finally {
       await opened.canvas.close();
@@ -119,6 +144,7 @@ test(
       }
       const { page } = opened;
       await page.setViewportSize(PHONE);
+      await expect(page.locator('[data-testid="plan-board-task-card"]').first()).toBeVisible();
       if (!(await page.locator('[data-testid="web-sidebar-open"]').isVisible().catch(() => false))) {
         await page.mouse.click(PHONE.width - 8, Math.floor(PHONE.height / 2));
       }
@@ -180,3 +206,29 @@ test(
     }
   },
 );
+
+for (const viewport of [DESKTOP, PHONE]) {
+  test(
+    `@golden @plan-card-metadata stacked cards stay contained at ${viewport.width}px`,
+    async ({ api, webBrowser }) => {
+      const opened = await openBoardWithFixture(api as unknown as ApiClient, webBrowser);
+      try {
+        if (!opened.ready) {
+          test.skip(true, "canvas empty — card-metadata fixture did not inject");
+          return;
+        }
+        const { page } = opened;
+        await page.setViewportSize(viewport);
+        await expectCardsContained(page);
+        const branchValue = page
+          .locator('[data-testid="plan-board-task-lane"] .plan-board-task-meta-value')
+          .first();
+        await expect(branchValue).toHaveCSS("text-overflow", "ellipsis");
+        await expect(branchValue).toHaveCSS("overflow-x", "hidden");
+        await expect(branchValue).toHaveCSS("white-space", "nowrap");
+      } finally {
+        await opened.canvas.close();
+      }
+    },
+  );
+}

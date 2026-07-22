@@ -132,9 +132,15 @@ export interface PaneAgentState {
 export type BootStage =
   | "pty_starting"
   | "pty_spawned"
+  | "reader_ready"
   | "shell_ready"
   | "agent_launching"
+  | "launch_written"
+  | "provider_ready"
+  | "preparing_role_instructions"
+  | "delivering_instructions"
   | "agent_ready"
+  | "pty_reattached"
   | "spawn_failed";
 
 /** Payload of the `pane-boot-stage` event. */
@@ -163,6 +169,8 @@ export interface Pane {
   title_pending_local?: boolean;
   agent_type?: string | null;
   agent_session_id?: string | null;
+  /** Launch-scoped proof used to reject chat events emitted by a prior pane binding. */
+  session_binding_nonce?: string | null;
   agent_session_name?: string | null;
   agent_session_model?: string | null;
   role?: AgentRole | null;
@@ -180,15 +188,11 @@ export interface Pane {
   hidden?: boolean;
   show_in_tabbar?: boolean;
   worker_id?: string | null;
+  agent_booting?: boolean;
   /** Current agent-boot stage for late attachers reading the live snapshot.
    *  Absent once boot completes or before it begins. */
   boot_stage?: BootStage | null;
   boot_failure_reason?: string | null;
-  /** Frontend-only: a UI-only "New session" picker pane that has NO backend
-   *  pane/PTY behind it. Never sent to the backend, never persisted, and never
-   *  present in a session snapshot — it exists purely so the picker can render
-   *  as a tab until the user confirms and a real pane is materialized. */
-  virtual?: boolean;
   /** Machine+watcher chatBackend session — read-only pane with tick-driven inputs. */
   watcher?: WatcherSpec | null;
 }
@@ -196,6 +200,7 @@ export interface Pane {
 export interface MultiplexerState {
   workspaces: Workspace[];
   panes: Record<string, Pane>;
+  teams?: Team[];
   active_workspace_id: string | null;
   focused_pane_id: string | null;
   /** Monotonic snapshot generation stamped by the backend. The reducer ignores
@@ -210,6 +215,16 @@ export interface MultiplexerState {
    *  backend's live status tracker so the tab rail hydrates correctly on
    *  reload instead of staying blank until the next status event. */
   pane_statuses?: Record<string, PaneStatus>;
+}
+
+export type TeamLifecycle = "forming" | "active" | "paused" | "complete" | "archived";
+
+export interface Team {
+  id: string;
+  name?: string | null;
+  lifecycle: TeamLifecycle;
+  created_at: number;
+  workspace_id: string;
 }
 
 /** Result of the one atomic spawn command (`mux_spawn_pane`). */
@@ -295,17 +310,23 @@ export type RemoteWorkersByOrchestrator = Record<string, RemoteWorker[]>;
 // Graph worker (Phase E memory visualization)
 
 export type GraphWorkerStatus =
+  | "queued"
   | "starting"
   | "reading"
   | "analyzing"
   | "writing"
   | "done"
   | "error"
+  | "failed"
+  | "cancelled"
+  | "hard_timeout"
+  | "timeout"
+  | "timed_out"
   | "orphaned";
 
 export interface GraphWorkerInfo {
   worker_id: string;
-  pane_id: string;
+  pane_id: string | null;
   intent: string;
   spawned_by: string;
   spawned_at: number;
@@ -536,6 +557,9 @@ export interface PairedPeer {
   is_primary: boolean;
   access_level: string;
   version: string | null;
+  /** Verified HTTPS web UI URL — announced only while the peer's own web
+   * access is Ready, so its presence is proof the link resolves. */
+  https_url?: string | null;
 }
 
 export interface DiscoveredPeer {
@@ -576,7 +600,7 @@ export interface ProviderConfig {
   /// When false, the provider is hidden from the per-workspace
   /// "New <Provider> Session" menu. Defaults to true (visible).
   visible_in_menu?: boolean;
-  /// Periodic /usage probing for this provider. Off by default; auto-rendered
+  /// Periodic /usage probing for this provider. On by default; auto-rendered
   /// by `<SchemaRenderer />` from the plugin's `settings_schema()` when the
   /// provider declares a `usage_parser()`.
   usage_tracking_enabled?: boolean;
@@ -635,6 +659,12 @@ export interface ModelInfo {
   display_name: string;
   description?: string;
   available?: boolean | null;
+}
+
+export interface ReasoningEffortInfo {
+  id: string;
+  display_name: string;
+  description?: string;
 }
 
 export interface PresetInfo {
@@ -733,6 +763,10 @@ export interface ProviderDescriptor {
   icon_color?: string;
   available_models: ModelInfo[];
   default_model?: string;
+  /// Reasoning-effort levels the provider supports at launch. Empty ⇒ the
+  /// provider exposes no effort selector and the UI must not render one.
+  reasoning_efforts?: ReasoningEffortInfo[];
+  default_reasoning_effort?: string;
   settings_schema: SettingField[];
   /// Schema rendered into Settings → Notifications. Optional / may be empty
   /// (e.g. Codex contributes none today). Notifications tab iterates providers

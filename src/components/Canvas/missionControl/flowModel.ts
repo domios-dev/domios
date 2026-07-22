@@ -23,7 +23,7 @@ export interface MilestoneStation {
   chips: FlowChip[];
 }
 
-/** An open decision gate — a question parking blocking tasks until answered. */
+/** An open decision gate whose answer is required before blocked tasks can proceed. */
 export interface GateView {
   id: string;
   question: string;

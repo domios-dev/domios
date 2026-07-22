@@ -82,6 +82,7 @@ impl ServiceContext {
         if changed {
             self.emit_state_changed();
             self.schedule_planner_replay(&pane_id);
+            self.heal_recovery_state_if_ready();
         }
     }
 
@@ -115,6 +116,7 @@ impl ServiceContext {
             pane_cwd,
             agent_session_id,
             is_planner,
+            observed_boot_stage,
         ) = {
             let mux = self.mux.read();
             let pid = mux.pane_id_for_pty(pty_id);
@@ -131,6 +133,7 @@ impl ServiceContext {
             let cwd = pane.and_then(|p| p.cwd.clone());
             let sid = pane.and_then(|p| p.agent_session_id.clone());
             let planner = pane.is_some_and(|p| p.role_profile.as_deref() == Some("planner"));
+            let boot_stage = pane.and_then(|p| p.boot_stage);
             (
                 pid,
                 at,
@@ -142,6 +145,7 @@ impl ServiceContext {
                 cwd,
                 sid,
                 planner,
+                boot_stage,
             )
         };
 
@@ -191,6 +195,11 @@ impl ServiceContext {
                 // Keep a short grace after session-tagging so early prompt snapshots don't trigger false exits.
                 // Locked panes skip output-based clearing because slow startup can leave stale prompt text visible.
                 if in_grace_cached || (locked_cached && !is_planner) {
+                    agent_type
+                } else if !super::boot_stage::allows_shell_prompt_exit(observed_boot_stage) {
+                    if let Some(pane) = self.mux.write().get_pane_mut(pid) {
+                        pane.exit_suspected_at = None;
+                    }
                     agent_type
                 } else {
                     let screen = self
@@ -311,11 +320,15 @@ impl ServiceContext {
             }
         }
 
+        let current_status = self.agent_tracker.lock().get_status(pty_id);
         if agent_type.is_some() {
+            self.run_watcher
+                .observe_output_status(pty_id, current_status);
             self.recompute_agent_state(pty_id);
+            self.run_watcher.complete_via_semantic_idle(self, pty_id);
         }
 
-        (prev_status, self.agent_tracker.lock().get_status(pty_id))
+        (prev_status, current_status)
     }
 
     /// Build a pending prompt from the provider's STRUCTURED handle, if it has
@@ -503,11 +516,8 @@ impl ServiceContext {
     /// `chat_start` stays "pending" forever and the chat view renders empty even
     /// though the TUI works.
     ///
-    /// Also handles session re-detection after /new: when a pinned session is stale
-    /// (a newer session for this cwd appeared, e.g. cursor created a fresh session
-    /// after the user ran /new), the pinned id is evicted and the new one is bound.
-    /// Only runs for hookless providers (cursor); hook-based providers update via
-    /// the hook endpoint, never by polling. Throttled to 1/s.
+    /// Once bound, ownership stays pinned to this pane. Session replacement must
+    /// arrive through an explicit provider event, never a cwd-wide disk heuristic.
     fn maybe_detect_agent_session(&self, pane_id: &str, agent_type: &str) {
         let (cwd, set_at_elapsed, current_session) = {
             let mux = self.mux.read();
@@ -522,6 +532,9 @@ impl ServiceContext {
             let sid = pane.agent_session_id.clone();
             (cwd, elapsed, sid)
         };
+        if !should_detect_unbound_session(current_session.as_deref()) {
+            return;
+        }
         if cwd.is_empty() {
             return;
         }
@@ -548,33 +561,6 @@ impl ServiceContext {
                 }
             }
             cd.insert(pane_id.to_string(), now);
-        }
-
-        if let Some(old_sid) = current_session {
-            let mut stale_exclude = self.mux.read().other_session_ids(pane_id);
-            stale_exclude.push(old_sid.clone());
-            let new_sid = self
-                .agent_registry
-                .with_provider(agent_type, |p| {
-                    p.detect_session_id(
-                        &cwd,
-                        &stale_exclude,
-                        Some(std::time::Duration::from_secs(30)),
-                    )
-                })
-                .flatten();
-            if let Some(sid) = new_sid {
-                log::info!(
-                    "[output] stale session evicted {} → {} for pane {} ({})",
-                    old_sid,
-                    sid,
-                    pane_id,
-                    agent_type
-                );
-                self.set_agent_session_id(pane_id, Some(sid));
-                self.emit_state_changed();
-            }
-            return;
         }
 
         let exclude = self.mux.read().other_session_ids(pane_id);
@@ -653,6 +639,38 @@ impl ServiceContext {
                 };
 
                 if auto_approve {
+                    let directory_trust = agent_type.as_deref().and_then(|provider| {
+                        self.agent_registry
+                            .with_provider(provider, |provider| {
+                                provider.directory_trust_prompt_response(
+                                    prompt,
+                                    screen_text.unwrap_or(""),
+                                )
+                            })
+                            .flatten()
+                    });
+                    if let Some(response) = directory_trust {
+                        let exact_provenance = {
+                            let mux = self.mux.read();
+                            mux.get_pane(pane_id).is_some_and(|pane| {
+                                pane.provisioned_cwd.as_deref().is_some_and(|provisioned| {
+                                    pane.cwd.as_deref().is_some_and(|cwd| {
+                                        crate::service::ServiceContext::paths_equal(
+                                            cwd,
+                                            provisioned,
+                                        )
+                                    })
+                                })
+                            })
+                        };
+                        if exact_provenance {
+                            self.prompt_detector.lock().mark_responded(pane_id);
+                            if let Some(pty_id) = pty_id {
+                                write_prompt_steps(self.pty.clone(), pty_id, response.steps);
+                            }
+                        }
+                        return;
+                    }
                     if is_general_pane {
                         if let Some(ack) = crate::service::general_agent::blocker::classify(
                             prompt,
@@ -794,6 +812,10 @@ impl ServiceContext {
     }
 }
 
+fn should_detect_unbound_session(current_session: Option<&str>) -> bool {
+    current_session.is_none()
+}
+
 struct LegacyAutoApproveResponse {
     kind: &'static str,
     bytes: Vec<u8>,
@@ -880,7 +902,8 @@ fn exit_debounce(
 
 #[cfg(test)]
 mod exit_detection_tests {
-    use super::{exit_debounce, screen_ends_in_shell_prompt};
+    use super::{exit_debounce, screen_ends_in_shell_prompt, should_detect_unbound_session};
+    use crate::service::boot_stage::{allows_shell_prompt_exit, BootStage};
     use std::time::{Duration, Instant};
 
     #[test]
@@ -923,5 +946,45 @@ mod exit_detection_tests {
             "shell prompt persisted past debounce — real exit, clear"
         );
         assert_eq!(next, None, "suspicion reset after clearing");
+    }
+
+    #[test]
+    fn session_detection_never_replaces_a_bound_session() {
+        assert!(should_detect_unbound_session(None));
+        assert!(!should_detect_unbound_session(Some(
+            "session-owned-by-pane"
+        )));
+    }
+
+    #[test]
+    fn reconnect_prompt_during_launch_keeps_identity() {
+        for stage in [
+            BootStage::PtyStarting,
+            BootStage::PtySpawned,
+            BootStage::ReaderReady,
+            BootStage::ShellReady,
+            BootStage::AgentLaunching,
+            BootStage::LaunchWritten,
+            BootStage::ProviderReady,
+        ] {
+            assert!(
+                !allows_shell_prompt_exit(Some(stage)),
+                "prompt observed during {stage:?} must not clear identity"
+            );
+        }
+    }
+
+    #[test]
+    fn prompt_observation_uses_captured_stage_when_agent_ready_is_imminent() {
+        let observed_stage = BootStage::AgentLaunching;
+        let current_stage = BootStage::AgentReady;
+
+        assert_eq!(current_stage, BootStage::AgentReady);
+        assert!(!allows_shell_prompt_exit(Some(observed_stage)));
+    }
+
+    #[test]
+    fn post_agent_ready_shell_prompt_still_clears() {
+        assert!(allows_shell_prompt_exit(Some(BootStage::AgentReady)));
     }
 }

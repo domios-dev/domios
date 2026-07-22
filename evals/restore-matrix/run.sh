@@ -253,7 +253,7 @@ PY
 
 detect_booted_model_evidence() {
   local provider="$1" pane_id="$2"
-  dc get-output --pane "$pane_id" --lines 120 2>/dev/null | PYTHONIOENCODING=utf-8 python - "$provider" <<'PY'
+  dc tab get-text --tab "$pane_id" 2>/dev/null | PYTHONIOENCODING=utf-8 python - "$provider" <<'PY'
 import re, sys
 provider = sys.argv[1]
 text = sys.stdin.read().lower()
@@ -399,7 +399,7 @@ PY
         echo "PASS pre-marker-store provider=$provider slot=$idx pane=$pane_id marker=$marker evidence=$evidence"
         return 0
       fi
-      out=$(dc get-output --pane "$pane_id" --lines 120 2>&1 || true)
+      out=$(dc tab get-text --tab "$pane_id" 2>&1 || true)
       if printf '%s' "$out" | marker_in_text "$marker"; then
         echo "INFO pre-marker-terminal-visible provider=$provider slot=$idx pane=$pane_id marker=$marker waiting_for_provider_store"
       fi

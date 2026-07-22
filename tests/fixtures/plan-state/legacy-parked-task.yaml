@@ -1,0 +1,49 @@
+# preserve this comment
+id: task_legacy_parked
+name: Legacy parked task
+type: implement
+model: null
+model_rationale: null
+status: parked # legacy state requiring explicit conversion
+park_reason: Legacy operator hold
+priority: p2
+section_ids: []
+body: |
+  Original formatting stays intact.
+assigned_pane_id: pane_legacy
+lane:
+  pane_id: pane_legacy
+milestones:
+- id: ms_existing
+  text: Existing milestone
+execution_attempts:
+  - id: attempt_legacy
+    executor_pane_id: pane_legacy
+    assigned_at: 100
+    trace: # nested structures must remain byte-for-byte stable
+      phases:
+        - name: discovery
+          commands:
+            - rg
+            - cargo
+        - name: implementation
+          evidence:
+            files:
+              - src/state.rs
+              - src/api.rs
+    closed_at: null
+  - id: attempt_already_closed
+    executor_pane_id: pane_old
+    assigned_at: 50
+    closed_at: 75 # preserve existing closure
+canvas:
+  x: null
+  y: null
+  collapsed: false
+unknown_field:
+  preserve: true
+  nested:
+    lists:
+      - one
+      - map:
+          deeper: [two, three]

@@ -10,7 +10,7 @@ pub async fn mesh_pair_request(
     AxumState(state): AxumState<AppState>,
     Json(request): Json<crate::mesh::types::PairingRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let (request_id, from_id, is_vouched) = {
+    let (request_id, from_id, is_vouched, our_id) = {
         let mut mesh = state.mesh.lock();
         let request_id = request.request_id.clone();
         let from_id = request.from_instance_id.clone();
@@ -21,7 +21,8 @@ pub async fn mesh_pair_request(
             .get(&from_id)
             .map(|p| !p.vouched_by.is_empty())
             .unwrap_or(false);
-        (request_id, from_id, is_vouched)
+        let our_id = mesh.ident.identity.instance_id.clone();
+        (request_id, from_id, is_vouched, our_id)
     };
     crate::api::events::emit_everywhere(
         &state.svc.app_handle,
@@ -42,7 +43,7 @@ pub async fn mesh_pair_request(
             }
         });
     }
-    Ok(Json(serde_json::json!({"ok": true})))
+    Ok(Json(serde_json::json!({"ok": true, "instance_id": our_id})))
 }
 
 #[derive(Debug)]
@@ -223,6 +224,8 @@ pub async fn mesh_pair_accept(
 
     {
         let mut mesh = state.mesh.lock();
+        mesh.validate_pairing_accept_identity(&accept.request_id, &accept.from_instance_id)
+            .map_err(|error| (StatusCode::CONFLICT, error))?;
         let discovered_name = mesh
             .discovered_peers
             .get(&b_instance_id)

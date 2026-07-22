@@ -1,0 +1,24 @@
+.ds-chat-round-button { --round-size:40px; display:grid; width:var(--round-size); height:var(--round-size); flex:none; place-items:center; padding:0; border:1px solid var(--ct-border); border-radius:50%; background:var(--ct-sidebar-bg); color:var(--ct-fg); cursor:pointer; transform-origin:center; transition:transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell),background var(--ct-duration-fast) var(--ct-ease-decel),border-color var(--ct-duration-fast) var(--ct-ease-decel),color var(--ct-duration-fast) var(--ct-ease-decel),opacity var(--ct-duration-fast) var(--ct-ease-decel); }
+.ds-chat-round-button svg { width:var(--ct-space-5); height:var(--ct-space-5); fill:none; stroke:currentColor; stroke-width:2.1; stroke-linecap:square; stroke-linejoin:miter; }
+.ds-chat-round-button:hover,.ds-chat-round-button--hover { transform:scale(1.02); border-color:var(--ct-muted); }
+.ds-chat-round-button:active,.ds-chat-round-button--active { transform:scale(.955); transition-duration:var(--ct-duration-instant); }
+.ds-chat-round-button.is-releasing { animation:ds-chat-round-release var(--ct-duration-liquid-press) var(--ct-ease-squash-jump); }
+.ds-chat-round-button:disabled { cursor:default; opacity:.4; }
+.ds-chat-round-button--send,.ds-chat-round-button--active { background:color-mix(in srgb,var(--ct-accent) 78%,var(--ct-bg)); border-color:color-mix(in srgb,var(--ct-on-accent) 22%,var(--ct-accent)); color:var(--ct-on-accent); }
+.ds-chat-round-button--schedule { --round-size:20px; margin-left:var(--ct-space-1); color:var(--ct-muted-fg); background:var(--ct-sidebar-bg); border-color:color-mix(in srgb,var(--ct-muted-fg) 18%,transparent); }
+.ds-chat-round-button--schedule svg { width:13px; height:13px; }
+.ds-chat-round-button--discard { --round-size:32px; color:var(--ct-red); border-color:transparent; background:transparent; }
+.ds-chat-round-button--play { --round-size:36px; color:var(--ct-on-accent); background:linear-gradient(145deg,var(--ct-bright-blue),var(--ct-accent)); border-color:transparent; }
+.ds-chat-round-button--recording,.ds-chat-round-button--locked,.ds-chat-round-button--cancel { --round-size:88px; z-index:1; background:var(--ct-accent); border-color:color-mix(in srgb,var(--ct-on-accent) 22%,var(--ct-accent)); }
+.ds-chat-round-button--recording { color:var(--ct-red); }
+.ds-chat-round-button--locked { color:var(--ct-bg); box-shadow:0 0 0 var(--ct-space-1) color-mix(in srgb,var(--ct-accent) 25%,transparent); }
+.ds-chat-round-button--cancel { color:var(--ct-red); }
+.ds-chat-round-button--recording svg,.ds-chat-round-button--cancel svg { width:30px; height:30px; }
+@keyframes ds-chat-round-release { 0% { transform:scale(.955) } 55% { transform:scale(1.04) } 100% { transform:scale(1) } }
+.ds-chat-composer { display:flex; width:min(100%,520px); align-items:end; gap:var(--ct-space-1-5); color:var(--ct-fg); font:var(--ct-font-size-sm) var(--ct-font-mono); }
+.ds-chat-composer__shell { display:flex; min-width:0; min-height:40px; flex:1; align-items:center; padding:var(--ct-space-2) var(--ct-space-2-5) var(--ct-space-2) 14px; border:1px solid color-mix(in srgb,var(--ct-muted-fg) 30%,transparent); border-radius:21px; background:var(--ct-sidebar-bg); }
+.ds-chat-composer__placeholder { min-width:0; flex:1; color:var(--ct-muted-fg); }
+.ds-chat-composer__shell.is-recording { gap:9px; padding-right:14px; }
+.ds-chat-composer__dot { width:var(--ct-space-2-5); height:var(--ct-space-2-5); flex:none; border-radius:50%; background:var(--ct-red); }
+.ds-chat-composer__wave { min-width:0; flex:1; overflow:hidden; color:var(--ct-accent); letter-spacing:2px; white-space:nowrap; }
+@media (prefers-reduced-motion:reduce) { .ds-chat-round-button { transition:none; } .ds-chat-round-button.is-releasing { animation:none; } }

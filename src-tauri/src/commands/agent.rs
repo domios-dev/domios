@@ -148,6 +148,24 @@ pub fn restart_general_agent_pane(
     Ok(())
 }
 
+#[tauri::command]
+pub fn restart_agent_pane(svc: State<'_, ServiceState>, pane_id: String) -> Result<(), String> {
+    svc.agent_restart(
+        &pane_id,
+        false,
+        crate::service::agent_restart::DEFAULT_GRACE_SECS,
+    )
+    .map(|_| ())
+    .map_err(|error| match error {
+        crate::service::agent_restart::AgentRestartError::NotFound(message)
+        | crate::service::agent_restart::AgentRestartError::BadRequest(message)
+        | crate::service::agent_restart::AgentRestartError::Internal(message) => message,
+        crate::service::agent_restart::AgentRestartError::RateLimited { retry_after_secs } => {
+            format!("Retry is available in {retry_after_secs} seconds")
+        }
+    })
+}
+
 /// Probe for a CLI binary. Used by the per-provider Installation card in
 /// Settings → Agents to render the install/missing badge. Checks the process
 /// PATH plus platform fallback dirs because GUI apps often inherit a minimal

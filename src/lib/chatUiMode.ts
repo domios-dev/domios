@@ -119,6 +119,11 @@ export function emitPaneUiMode(paneId: string, mode: PaneUiMode): void {
   window.dispatchEvent(new CustomEvent("codeterm-pane-ui-mode", {
     detail: { paneId, mode },
   }));
+  if (mode === "terminal") {
+    requestAnimationFrame(() => {
+      window.dispatchEvent(new CustomEvent("codeterm-pane-resize", { detail: { paneId, force: true } }));
+    });
+  }
 }
 
 export function isPaneUiModeEvent(event: Event): event is CustomEvent<{ paneId: string; mode: PaneUiMode }> {

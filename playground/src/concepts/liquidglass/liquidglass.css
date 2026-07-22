@@ -1,0 +1,398 @@
+/* Liquid Glass × Squash-Jump — Living Controls lab.
+   Tailwind utilities without preflight, so reused real Tailwind classes work
+   here without resetting the neighbouring Motion Lab. */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@source ".";
+
+/* Faithful CodeTerm design tokens (github-dark defaults + timing), scoped so
+   nothing leaks into the sibling playground. See src/styles/tokens.css and
+   src/lib/themeCss.ts for the source of truth. */
+.lg-lab {
+  --ct-bg: #0d1117;
+  --ct-fg: #c9d1d9;
+  --ct-accent: #58a6ff;
+  --ct-on-accent: #f0f6fc;
+  --ct-muted: #484f58;
+  --ct-muted-fg: #8b949e;
+  --ct-hover: #1b222c;
+  --ct-border: #262c36;
+  --ct-surface: #161b22;
+  --ct-red: #ff7b72;
+
+  --ct-radius-sm: 4px;
+  --ct-radius-md: 8px;
+  --ct-radius-lg: 12px;
+
+  --ct-control-height: 2.125rem;
+  --ct-control-height-small: 1.875rem;
+  --ct-control-height-micro: 1.625rem;
+
+  --ct-font-size-sm: 0.8125rem;
+  --ct-font-size-md: 0.875rem;
+
+  --ct-duration-fast: 120ms;
+  --ct-ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --ct-font-ui: "Inter", "Segoe UI", "Avenir Next", "Helvetica Neue", sans-serif;
+  --ct-font-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+
+  /* Motion language: one liquid gesture — stretch in flight, splat on the
+     wall, relax. The jump curve is lifted verbatim from ct-dots-squash-jump. */
+  --lg-jump: cubic-bezier(0.22, 0.9, 0.25, 1);
+
+  font-family: var(--ct-font-ui);
+  color: var(--ct-fg);
+}
+
+/* ── Button: faithful ct-btn reproduction ────────────────────────────────────
+   Mirrors src/styles/globals.css .ct-btn*. Do not restyle the core look here —
+   only the .lg-btn layers below add motion + material on top. */
+.lg-lab .ct-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--ct-control-height-small);
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+  border-radius: var(--ct-radius-sm);
+  font-family: var(--ct-font-ui);
+  font-size: var(--ct-font-size-sm);
+  cursor: pointer;
+  transition: all var(--ct-duration-fast) var(--ct-ease-out-expo);
+}
+.lg-lab .ct-btn-compact {
+  min-height: var(--ct-control-height-micro);
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+  font-size: var(--ct-font-size-sm);
+}
+.lg-lab .ct-btn-sm {
+  min-height: var(--ct-control-height-small);
+  padding-left: 0.65rem;
+  padding-right: 0.65rem;
+}
+.lg-lab .ct-btn-lg {
+  min-height: var(--ct-control-height);
+  padding-left: 0.9rem;
+  padding-right: 0.9rem;
+  font-size: var(--ct-font-size-md);
+}
+.lg-lab .ct-btn-icon {
+  width: var(--ct-control-height);
+  height: var(--ct-control-height);
+  padding: 0;
+  border-radius: var(--ct-radius-sm);
+}
+.lg-lab .ct-btn-primary {
+  background: var(--ct-accent);
+  color: var(--ct-bg);
+  border: 1px solid transparent;
+}
+.lg-lab .ct-btn-primary:hover {
+  filter: brightness(1.05);
+}
+.lg-lab .ct-btn-ghost {
+  background: transparent;
+  color: var(--ct-muted-fg);
+  border: 1px solid transparent;
+}
+.lg-lab .ct-btn-ghost:hover {
+  color: var(--ct-fg);
+  background: var(--ct-hover);
+}
+.lg-lab .ct-btn-accent {
+  background: color-mix(in srgb, var(--ct-accent) 14%, transparent);
+  color: var(--ct-accent);
+  border: 1px solid transparent;
+}
+.lg-lab .ct-btn-accent:hover {
+  background: color-mix(in srgb, var(--ct-accent) 24%, transparent);
+}
+.lg-lab .ct-btn-danger {
+  background: transparent;
+  color: var(--ct-red);
+  border: 1px solid transparent;
+}
+.lg-lab .ct-btn-danger:hover {
+  background: color-mix(in srgb, var(--ct-red) 16%, transparent);
+}
+
+/* ── Liquid layer over the real button ───────────────────────────────────────
+   Nothing here changes the button's identity. All motion is center-origin
+   scale: hover is a smooth transition (no keyframes → nothing to restart, no
+   jerk), press squashes, release pops once. */
+.lg-lab .lg-btn {
+  position: relative;
+  isolation: isolate;
+  transform-origin: 50% 50%;
+  /* Springy curve overshoots once on the way to 1.02 — a soft liquid poke.
+     Pure transition: nothing restarts on pointer micro-moves, so no jerk. */
+  transition:
+    transform 0.38s cubic-bezier(0.3, 1.6, 0.4, 1),
+    background var(--ct-duration-fast) var(--ct-ease-out-expo),
+    color var(--ct-duration-fast) var(--ct-ease-out-expo),
+    box-shadow 0.25s var(--ct-ease-out-expo),
+    filter 0.2s ease;
+  will-change: transform;
+}
+
+/* Hover: the material swells from its center with one soft wobble. */
+.lg-lab .lg-btn:hover {
+  transform: scale(1.02);
+}
+
+.lg-lab .lg-btn__label {
+  position: relative;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  /* The content rides the swell a beat behind — a lens lifting the label. */
+  transition: transform 0.42s cubic-bezier(0.3, 1.6, 0.4, 1) 40ms;
+}
+.lg-lab .lg-btn:hover .lg-btn__label {
+  transform: translateY(-0.5px);
+}
+.lg-lab .lg-btn:active .lg-btn__label {
+  transform: translateY(0.25px);
+  transition-duration: 70ms;
+  transition-delay: 0ms;
+}
+
+/* Press: center squash. */
+.lg-lab .lg-btn:active {
+  transform: scale(0.955);
+  transition-duration: 70ms;
+}
+/* Release: one centered pop — up through the rest size, back to hover. */
+.lg-lab .lg-btn.lg-btn--release {
+  animation: lg-press-pop 0.28s var(--lg-jump);
+}
+@keyframes lg-press-pop {
+  0% { transform: scale(0.955); }
+  55% { transform: scale(1.045); }
+  100% { transform: scale(1.02); }
+}
+
+/* Focus ring: crisp inner edge + soft accent bloom. No spring — it just lands. */
+.lg-lab .lg-btn:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--ct-bg),
+    0 0 0 3.5px color-mix(in srgb, var(--ct-accent) 72%, transparent),
+    0 4px 18px color-mix(in srgb, var(--ct-accent) 42%, transparent);
+}
+
+/* ── Liquid segmented control ────────────────────────────────────────────────
+   A translucent glass thumb that slides + stretches between equal-width
+   segments; it stretches toward the travel direction, then squashes to settle
+   — the liquid-morph read. */
+.lg-lab .lg-seg {
+  position: relative;
+  display: inline-flex;
+  overflow: hidden; /* the thumb never escapes the track */
+  padding: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ct-surface) 80%, transparent);
+  border: 1px solid var(--ct-border);
+  backdrop-filter: blur(6px);
+  --seg-count: 3;
+  --seg-index: 0;
+}
+.lg-lab .lg-seg__thumb {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc((100% - 6px) / var(--seg-count));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ct-accent) 22%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ct-accent) 45%, transparent);
+  transform: translateX(calc(var(--seg-index) * 100%));
+  pointer-events: none;
+  z-index: 0;
+}
+/* Liquid travel: ONE gesture — the body stretches while it moves, splats
+   against the destination wall, relaxes round. translate + scale live in the
+   same keyframes so shape is always coupled to motion. --sx-from/--sx-to are
+   set inline per change (percentages of the thumb's own width). */
+.lg-lab .lg-seg__thumb--travel {
+  animation: lg-liquid-x 0.42s both;
+}
+@keyframes lg-liquid-x {
+  0% {
+    transform: translateX(var(--sx-from)) scale(1, 1);
+    animation-timing-function: cubic-bezier(0.5, 0, 0.6, 0.6);
+  }
+  38% {
+    transform: translateX(calc(var(--sx-from) + (var(--sx-to) - var(--sx-from)) * 0.55)) scale(1.3, 0.82);
+    animation-timing-function: cubic-bezier(0.3, 0.3, 0.3, 1);
+  }
+  60% {
+    transform: translateX(var(--sx-to)) scale(0.86, 1.09);
+    animation-timing-function: cubic-bezier(0.2, 0, 0.4, 1);
+  }
+  78% {
+    transform: translateX(var(--sx-to)) scale(1.05, 0.97);
+    animation-timing-function: cubic-bezier(0.2, 0, 0.4, 1);
+  }
+  100% {
+    transform: translateX(var(--sx-to)) scale(1, 1);
+  }
+}
+.lg-lab .lg-seg__opt {
+  position: relative;
+  z-index: 1;
+  flex: 1 0 0;
+  min-width: 5.5rem;
+  padding: 0.4rem 0.9rem;
+  border: 0;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  font: inherit;
+  font-size: var(--ct-font-size-sm);
+  cursor: pointer;
+  border-radius: 999px;
+  transition: color 0.3s var(--ct-ease-out-expo);
+}
+.lg-lab .lg-seg__opt[aria-selected="true"] { color: var(--ct-fg); }
+.lg-lab .lg-seg__opt:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ct-accent) 65%, transparent);
+}
+
+/* ── Liquid on/off toggle ────────────────────────────────────────────────────
+   The knob squashes as it travels and pops on arrival; the track tints to
+   accent when on. */
+.lg-lab .lg-toggle {
+  position: relative;
+  width: 3.4rem;
+  height: 1.85rem;
+  border-radius: 999px;
+  border: 1px solid var(--ct-border);
+  background: color-mix(in srgb, var(--ct-surface) 85%, transparent);
+  cursor: pointer;
+  padding: 0;
+  transition:
+    background 0.4s var(--ct-ease-out-expo),
+    border-color 0.4s var(--ct-ease-out-expo),
+    box-shadow 0.4s var(--ct-ease-out-expo);
+  backdrop-filter: blur(6px);
+}
+.lg-lab .lg-toggle[aria-checked="true"] {
+  background: color-mix(in srgb, var(--ct-accent) 32%, transparent);
+  border-color: color-mix(in srgb, var(--ct-accent) 55%, transparent);
+}
+.lg-lab .lg-toggle__knob {
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 1.45rem;
+  height: 1.45rem;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 34% 28%, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0) 46%),
+    linear-gradient(180deg, #fbfdff, #cdd6e3);
+  box-shadow:
+    inset 0 -2px 3px rgba(0, 0, 0, 0.25),
+    0 2px 6px rgba(0, 0, 0, 0.35);
+  transform: translate(0, -50%);
+}
+.lg-lab .lg-toggle[aria-checked="true"] .lg-toggle__knob {
+  transform: translate(1.55rem, -50%);
+}
+/* Same liquid gesture as the segmented thumb, in rem (droplet crossing the
+   track). --kx-from/--kx-to set inline per flip. */
+.lg-lab .lg-toggle__knob--travel {
+  animation: lg-liquid-knob 0.38s both;
+}
+@keyframes lg-liquid-knob {
+  0% {
+    transform: translate(var(--kx-from), -50%) scale(1, 1);
+    animation-timing-function: cubic-bezier(0.5, 0, 0.6, 0.6);
+  }
+  38% {
+    transform: translate(calc(var(--kx-from) + (var(--kx-to) - var(--kx-from)) * 0.55), -50%) scale(1.32, 0.8);
+    animation-timing-function: cubic-bezier(0.3, 0.3, 0.3, 1);
+  }
+  60% {
+    transform: translate(var(--kx-to), -50%) scale(0.85, 1.1);
+    animation-timing-function: cubic-bezier(0.2, 0, 0.4, 1);
+  }
+  78% {
+    transform: translate(var(--kx-to), -50%) scale(1.06, 0.96);
+    animation-timing-function: cubic-bezier(0.2, 0, 0.4, 1);
+  }
+  100% {
+    transform: translate(var(--kx-to), -50%) scale(1, 1);
+  }
+}
+.lg-lab .lg-toggle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ct-bg), 0 0 0 4px color-mix(in srgb, var(--ct-accent) 60%, transparent);
+}
+
+/* ── Labelled flip toggle (off | on) ─────────────────────────────────────────
+   A compact word-pill: the active word sits on a raised chip that slides
+   between the two labels and bumps the pill wall on arrival. */
+.lg-lab .lg-flip {
+  position: relative;
+  display: inline-flex;
+  overflow: hidden;
+  padding: 3px;
+  border-radius: 8px;
+  border: 1px solid var(--ct-border);
+  background: color-mix(in srgb, var(--ct-bg) 72%, black);
+  cursor: pointer;
+  font-family: var(--ct-font-mono);
+  font-size: 0.72rem;
+}
+.lg-lab .lg-flip__chip {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc((100% - 6px) / 2);
+  border-radius: 5px;
+  background: var(--ct-surface);
+  border: 1px solid color-mix(in srgb, var(--ct-border) 80%, var(--ct-accent));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 1px 4px rgba(0, 0, 0, 0.4);
+  transform: translateX(0);
+  pointer-events: none;
+}
+.lg-lab .lg-flip[aria-checked="true"] .lg-flip__chip { transform: translateX(100%); }
+/* Reuses the segmented thumb's liquid gesture (percent-based). */
+.lg-lab .lg-flip__chip--travel {
+  animation: lg-liquid-x 0.36s both;
+}
+.lg-lab .lg-flip__word {
+  position: relative;
+  z-index: 1;
+  padding: 0.24rem 0.72rem;
+  color: var(--ct-muted);
+  transition: color 0.25s var(--ct-ease-out-expo);
+}
+.lg-lab .lg-flip__word[data-active="true"] { color: var(--ct-fg); }
+.lg-lab .lg-flip:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ct-bg), 0 0 0 4px color-mix(in srgb, var(--ct-accent) 60%, transparent);
+}
+
+/* ── Reduced motion: static, legible, no bounce / squash / wall-hit ──────────*/
+@media (prefers-reduced-motion: reduce) {
+  .lg-lab .lg-btn,
+  .lg-lab .lg-seg__thumb,
+  .lg-lab .lg-toggle,
+  .lg-lab .lg-toggle__knob,
+  .lg-lab .lg-flip__chip,
+  .lg-lab .lg-flip__word {
+    transition: none !important;
+    animation: none !important;
+  }
+  .lg-lab .lg-btn:active { transform: none; }
+  .lg-lab .lg-btn:focus-visible {
+    box-shadow: 0 0 0 2px var(--ct-bg), 0 0 0 3.5px var(--ct-accent);
+  }
+}

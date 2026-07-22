@@ -67,6 +67,17 @@ interface RelayTarget {
   name: string;
 }
 
+let requestContextGeneration = 0;
+const requestControllers = new Set<AbortController>();
+
+/** Cancel every request bound to the current peer before changing relay target. */
+export function invalidateWebRequestContext(): number {
+  requestContextGeneration += 1;
+  for (const controller of requestControllers) controller.abort();
+  requestControllers.clear();
+  return requestContextGeneration;
+}
+
 /** Active mesh peer the browser is viewing through the relay, or null (self). */
 export function relayTarget(): RelayTarget | null {
   const id = localStorage.getItem(relayKey(RELAY_PEER_KEY));
@@ -175,33 +186,49 @@ export async function webFetch(
   path: string,
   init: RequestInit = {},
 ): Promise<Response> {
+  const generation = requestContextGeneration;
   const target = relayTarget();
-  if (!target) return localFetch(path, init);
+  const controller = new AbortController();
+  requestControllers.add(controller);
+  const externalSignal = init.signal;
+  const abortFromExternal = () => controller.abort(externalSignal?.reason);
+  if (externalSignal?.aborted) abortFromExternal();
+  else externalSignal?.addEventListener("abort", abortFromExternal, { once: true });
 
-  const method = (init.method ?? "GET").toUpperCase();
-  const body =
-    typeof init.body === "string" && init.body.length > 0
-      ? JSON.parse(init.body)
-      : null;
-  const local = await localFetch("/api/mesh/relay-to", {
-    method: "POST",
-    body: JSON.stringify({ target_peer_id: target.id, method, path, body }),
-  });
-  // Framing-level failure (peer unpaired, daemon error): surface verbatim.
-  if (!local.ok) return local;
-  const relay = (await local.json()) as RelayResponse;
-  const inner = relay.data == null ? "" : JSON.stringify(relay.data);
-  return new Response(inner, {
-    status: relay.status || (relay.ok ? 200 : 502),
-    headers: { "Content-Type": "application/json" },
-  });
+  try {
+    const requestInit = { ...init, signal: controller.signal };
+    if (!target) {
+      const response = await localFetch(path, requestInit);
+      if (generation !== requestContextGeneration) throw new DOMException("Peer context changed", "AbortError");
+      return response;
+    }
+
+    const method = (init.method ?? "GET").toUpperCase();
+    const body =
+      typeof init.body === "string" && init.body.length > 0
+        ? JSON.parse(init.body)
+        : null;
+    const local = await localFetch("/api/mesh/relay-to", {
+      method: "POST",
+      body: JSON.stringify({ target_peer_id: target.id, method, path, body }),
+      signal: controller.signal,
+    });
+    if (generation !== requestContextGeneration) throw new DOMException("Peer context changed", "AbortError");
+    if (!local.ok) return local;
+    const relay = (await local.json()) as RelayResponse;
+    if (generation !== requestContextGeneration) throw new DOMException("Peer context changed", "AbortError");
+    const inner = relay.data == null ? "" : JSON.stringify(relay.data);
+    return new Response(inner, {
+      status: relay.status || (relay.ok ? 200 : 502),
+      headers: { "Content-Type": "application/json" },
+    });
+  } finally {
+    requestControllers.delete(controller);
+    externalSignal?.removeEventListener("abort", abortFromExternal);
+  }
 }
 
-/**
- * Upload a browser file/blob to the daemon host; returns the server-side
- * path the agent CLI can read. Content-Type stays unset so the browser
- * writes the multipart boundary itself.
- */
+/** Upload a browser blob to a daemon path the agent CLI can read. */
 export async function webUpload(
   file: Blob,
   filename: string,

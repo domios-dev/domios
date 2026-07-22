@@ -1,11 +1,11 @@
 /**
- * Typed wrapper over the dev console's REST API (port 7686).
- * Token comes from ~/.codeterm-dev/config.toml — same source the CLI uses.
+ * Typed wrapper over the isolated Playwright instance's REST API.
+ * Token comes from its named dev data directory.
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { API_BASE } from "./dev-console";
+import { currentDevInstance, type DevInstance } from "./dev-instance";
 
 export interface Pane {
   id: string;
@@ -39,6 +39,10 @@ export interface PlanSummary {
   status?: string;
 }
 
+export type ApiRequestOptions = {
+  timeoutMs?: number;
+};
+
 function configPort(configPath: string): string | null {
   const m = readFileSync(configPath, "utf8").match(/^port\s*=\s*(\d+)/m);
   return m?.[1] ?? null;
@@ -55,16 +59,17 @@ function datadirForPort(port: string): string | null {
   return null;
 }
 
-export function devDataDirName(): string {
+export function devDataDirName(instance = currentDevInstance()): string {
   if (process.env.CT_E2E_DATADIR) return process.env.CT_E2E_DATADIR;
-  const port = process.env.CT_E2E_PORT;
+  if (instance.name) return instance.dataDirName;
+  const port = String(instance.apiPort);
   if (port && port !== "7686") return datadirForPort(port) ?? ".codeterm-dev";
   return ".codeterm-dev";
 }
 
 // CT_E2E_DATADIR, or CT_E2E_PORT when its config.toml records that port.
-export function readDevToken(): string {
-  const dir = devDataDirName();
+export function readDevToken(instance = currentDevInstance()): string {
+  const dir = devDataDirName(instance);
   const p = path.join(os.homedir(), dir, "config.toml");
   const m = readFileSync(p, "utf8").match(/^token\s*=\s*"([^"]+)"/m);
   if (!m) throw new Error(`no api token in ${p}`);
@@ -73,21 +78,40 @@ export function readDevToken(): string {
 
 export class ApiClient {
   private token: string;
+  private apiBase: string;
 
-  constructor(token = readDevToken()) {
-    this.token = token;
+  constructor(token?: string, instance = currentDevInstance()) {
+    this.apiBase = instance.apiBase;
+    this.token = token ?? readDevToken(instance);
   }
 
-  async request<T>(method: string, apiPath: string, body?: unknown): Promise<T> {
-    const r = await fetch(`${API_BASE}/api${apiPath}`, {
-      method,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.token}`,
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(15_000),
-    });
+  async request<T>(
+    method: string,
+    apiPath: string,
+    body?: unknown,
+    options: ApiRequestOptions = {},
+  ): Promise<T> {
+    const timeoutMs = options.timeoutMs ?? 15_000;
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1) {
+      throw new Error(`invalid API request timeout: ${timeoutMs}`);
+    }
+    let r: Response;
+    try {
+      r = await fetch(`${this.apiBase}/api${apiPath}`, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.token}`,
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (error) {
+      if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+        throw new Error(`${method} /api${apiPath} timed out after ${timeoutMs}ms`);
+      }
+      throw error;
+    }
     const text = await r.text();
     if (!r.ok) {
       throw new Error(`${method} /api${apiPath} → HTTP ${r.status}: ${text.slice(0, 300)}`);
@@ -99,11 +123,11 @@ export class ApiClient {
     }
   }
 
-  get<T>(p: string): Promise<T> {
-    return this.request<T>("GET", p);
+  get<T>(p: string, options?: ApiRequestOptions): Promise<T> {
+    return this.request<T>("GET", p, undefined, options);
   }
-  post<T>(p: string, body?: unknown): Promise<T> {
-    return this.request<T>("POST", p, body);
+  post<T>(p: string, body?: unknown, options?: ApiRequestOptions): Promise<T> {
+    return this.request<T>("POST", p, body, options);
   }
 
   health(): Promise<{ status: string; build: string; version: string }> {

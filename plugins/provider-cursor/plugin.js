@@ -37,6 +37,11 @@ var TUI_FRAGMENTS = [
   "run everything"
 ];
 var plugin = {
+  starterPromptText(prompt) {
+    if (prompt === "idle_wakeup") return "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
+    if (prompt === "team_bootstrap") return void 0;
+    return "Execute the assigned task.";
+  },
   detectFromTitle(title) {
     return TITLE_RE.test(String(title || ""));
   },
@@ -49,6 +54,7 @@ var plugin = {
   },
   screenHasTui(screen) {
     const lower = String(screen || "").toLowerCase();
+    if (lower.indexOf("workspace trust required") !== -1) return false;
     for (let i = 0; i < TUI_FRAGMENTS.length; i++) {
       if (lower.indexOf(TUI_FRAGMENTS[i]) !== -1) return true;
     }
@@ -103,7 +109,7 @@ var plugin = {
         parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
       }
     }
-    return (p.skipPermissions ? trustPrefix() : "") + parts.join(" ");
+    return disableClaudeHookImportPrefix() + (p.skipPermissions ? trustPrefix() : "") + parts.join(" ");
   },
   buildResumeCommand(sessionId, skipPermissions) {
     const parts = [
@@ -112,7 +118,7 @@ var plugin = {
       host.shell.quoteFor(String(sessionId || ""), host.platform())
     ];
     if (skipPermissions) parts.push("--force");
-    return (skipPermissions ? trustPrefix() : "") + parts.join(" ");
+    return disableClaudeHookImportPrefix() + (skipPermissions ? trustPrefix() : "") + parts.join(" ");
   },
   // ── Session discovery (sqlite metadata under ~/.cursor/chats/<md5(cwd)>) ──
   sessionExists(cwd, sessionId) {
@@ -190,7 +196,7 @@ var plugin = {
       out.push({
         sessionId: stem,
         provider: "cursor",
-        projectPath: null,
+        projectPath: projectPathFromTranscript(root, f.path),
         title: null,
         summary: null,
         filePath: f.path,
@@ -348,15 +354,19 @@ function manifestModels() {
     return [];
   }
 }
+function disableClaudeHookImportPrefix() {
+  return host.shell.envPrefix("CLAUDE_CODE_DISABLE_HOOKS", "1", host.platform());
+}
 function trustPrefix() {
   if (host.platform() === "windows") {
     return [
       "$d=(Get-Location).Path;",
-      "$s=($d -replace '[^a-zA-Z0-9]','-');",
+      "$s=($d -replace '[^a-zA-Z0-9]+','-');",
       "$p=Join-Path $HOME (Join-Path '.cursor\\projects' $s);",
       "New-Item -ItemType Directory -Force -Path $p | Out-Null;",
       "$tf=Join-Path $p '.workspace-trusted';",
-      `if(-not (Test-Path $tf)){('{"trustedAt":"'+(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.000Z')+'","workspacePath":"'+($d -replace '\\\\','\\\\\\\\')+'"}') | Set-Content -NoNewline $tf};`,
+      "$j=@{trustedAt=(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.000Z');workspacePath=$d}|ConvertTo-Json -Compress;",
+      "[IO.File]::WriteAllText($tf,$j);",
       ""
     ].join(" ");
   }
@@ -377,6 +387,19 @@ function chatsRoot() {
 function projectsRoot() {
   const r = cursorRoot();
   return r ? r + pathSep() + "projects" : null;
+}
+function projectPathFromTranscript(root, transcript) {
+  const sep = pathSep();
+  const prefix = root + sep;
+  if (transcript.indexOf(prefix) !== 0) return null;
+  const slug = transcript.substring(prefix.length).split(sep)[0] || "";
+  let candidate;
+  if (host.platform() === "windows" && /^[a-zA-Z]-/.test(slug)) {
+    candidate = slug.charAt(0).toUpperCase() + ":\\" + slug.substring(2).replace(/-/g, "\\");
+  } else {
+    candidate = "/" + slug.replace(/-/g, "/");
+  }
+  return host.fs.fileExists(candidate) ? candidate : null;
 }
 function toNativeCwd(cwd) {
   const s = String(cwd || "");
@@ -435,9 +458,18 @@ function blocksFromContent(content, role) {
       const txt = cleanText(c.text, role);
       if (txt) blocks.push({ kind: "text", data: { text: txt } });
     } else if (c.type === "tool_use") {
+      const canonical = canonicalToolFields(c.name || "", c.input);
       blocks.push({
         kind: "tool_use",
-        data: { name: c.name || "tool", input: c.input == null ? {} : c.input }
+        data: {
+          name: c.name || "tool",
+          input: c.input == null ? {} : c.input,
+          tool_kind: canonical.kind,
+          tool_summary: canonical.summary,
+          tool_detail: canonical.detail,
+          tool_edits: canonical.edits,
+          tool_status: "success"
+        }
       });
     }
   }
@@ -454,10 +486,53 @@ function textFromContent(content, role) {
   }
   return chunks.join(" ");
 }
+function canonicalToolFields(name, input) {
+  const tool = name.trim();
+  const value = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  const text = (key) => typeof value[key] === "string" ? value[key] : "";
+  const command = text("command");
+  const path = text("file_path") || text("filePath") || text("path");
+  const pattern = text("pattern");
+  const edits = extractCanonicalEdits(value);
+  const lower = tool.toLowerCase();
+  if (lower === "bash" || lower === "shell" || lower === "exec") {
+    return { kind: "command", summary: cleanToolText(command, "Command"), detail: command, edits: [] };
+  }
+  if (lower === "edit" || lower === "multiedit" || lower === "write") {
+    return { kind: "edit", summary: path || "File edit", detail: path, edits };
+  }
+  if (lower === "read") {
+    return { kind: "read", summary: path || "Read file", detail: path, edits: [] };
+  }
+  if (lower === "glob" || lower === "grep" || lower === "search") {
+    return { kind: "search", summary: cleanToolText(pattern || path, "Search"), detail: pattern || path, edits: [] };
+  }
+  return { kind: "generic", summary: cleanToolText(tool, "Tool"), detail: tool, edits };
+}
+function extractCanonicalEdits(input) {
+  const parentPath = typeof input.file_path === "string" ? input.file_path : typeof input.filePath === "string" ? input.filePath : typeof input.path === "string" ? input.path : "";
+  const pair = (value, fallbackPath) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const item = value;
+    const oldValue = typeof item.old_string === "string" ? item.old_string : item.oldString;
+    const newValue = typeof item.new_string === "string" ? item.new_string : item.newString;
+    if (typeof oldValue !== "string" && typeof newValue !== "string") return null;
+    const path = typeof item.file_path === "string" ? item.file_path : typeof item.filePath === "string" ? item.filePath : typeof item.path === "string" ? item.path : fallbackPath;
+    return { path, old: typeof oldValue === "string" ? oldValue : "", new: typeof newValue === "string" ? newValue : "" };
+  };
+  if (Array.isArray(input.edits)) return input.edits.map((edit) => pair(edit, parentPath)).filter((e) => e !== null);
+  const single = pair(input, parentPath);
+  return single ? [single] : [];
+}
+function cleanToolText(value, fallback) {
+  const text = String(value || "").replace(/[\r\n\t]+/g, " ").trim();
+  if (!text) return fallback;
+  return text.length > 120 ? text.slice(0, 117) + "..." : text;
+}
 function cleanText(raw, role) {
   let t = String(raw || "");
   if (role === "user") {
-    const m = /^<user_query>\n?([\s\S]*?)\n?<\/user_query>\s*$/.exec(t.trim());
+    const m = /^(?:<timestamp>[\s\S]*?<\/timestamp>\s*)?<user_query>\s*([\s\S]*?)\s*<\/user_query>\s*$/.exec(t.trim());
     if (m) t = m[1];
   }
   t = t.split("[REDACTED]").join("");

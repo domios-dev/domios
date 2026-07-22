@@ -11,6 +11,7 @@ import { PluginIcon } from "./PluginIcon";
 import { PluginView } from "./PluginView";
 import { apiBaseOf, GroupLabel, iconOf, readApiError, type AppConfigShape } from "./shared";
 import type { CatalogEntry } from "./pluginCatalog";
+import { ConfigureWithAiButton } from "./ConfigureWithAiButton";
 
 interface SecretStatus {
   backend: string;
@@ -153,12 +154,13 @@ export function SecretBackendDetail({
         <div style={{ width: 40, height: 40, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,0.04)" }}>
           <PluginIcon plugin={iconOf(entry)} size={18} />
         </div>
-        <div>
+        <div className="min-w-0 flex-1">
           <div style={{ fontSize: 16, fontWeight: 620 }}>{entry.displayName}</div>
           <div style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 10.5, color: "var(--ct-muted)" }}>
             secret backend{entry.version ? ` · v${entry.version}` : ""}
           </div>
         </div>
+        <ConfigureWithAiButton entry={entry} />
       </div>
 
       <label

@@ -12,6 +12,7 @@ import type { MuxStateStore } from "./selectorStore";
 export interface SpawnedPane {
   workspaceId: string;
   paneId: string;
+  tabId?: string;
 }
 
 export interface MultiplexerActionsContextType {
@@ -27,12 +28,6 @@ export interface MultiplexerActionsContextType {
   /** Reorder the workspace list to the given order. */
   reorderWorkspaces: (orderedWorkspaceIds: string[]) => void;
   createTab: (workspaceId: string, cwd?: string) => Promise<{ id: string; pane_id: string } | void>;
-  /** Open the New-session picker as a virtual (backend-less) tab. No pane/PTY
-   *  is created until the user confirms. */
-  openSessionPicker: (workspaceId: string, cwd?: string) => void;
-  /** Remove an open virtual picker tab (cancel, or after confirm materializes
-   *  the real pane). */
-  closeSessionPicker: (workspaceId: string, tabId: string) => void;
   closeTab: (workspaceId: string, tabId: string) => void;
   /** Reopen a recently-closed pane (index 0 = most recent). */
   reopenClosed: (workspaceId: string, index?: number) => void;
@@ -52,6 +47,7 @@ export interface MultiplexerActionsContextType {
   upsertToast: (toast: Omit<Notification, "timestamp" | "read">) => void;
   markRead: (id: string) => void;
   markAllRead: () => void;
+  deleteNotification: (id: string) => void;
   clearNotifications: () => void;
   dismissToast: (id: string) => void;
   setPaneTitle: (paneId: string, title: string, level?: TitleLevel) => void;

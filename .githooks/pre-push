@@ -7,26 +7,27 @@ set -euo pipefail
 # Lane branches get LIGHT checks only (shell guards + fmt): worker worktrees
 # are cold — cargo check+clippy there is a multi-minute full build, and heavy
 # verification is centralized at the integration/QA gate anyway.
-# Full gate: integration branches, or PREPUSH_FULL=1. Light: PREPUSH_LIGHT=1.
+# Full gate: protected integration branches, or PREPUSH_FULL=1.
+# Light: lane/release-candidate branches, or PREPUSH_LIGHT=1.
 PUSH_REFS="$(cat || true)"
-lanes_only=1
+light_refs_only=1
 if [ -n "$PUSH_REFS" ]; then
-    while read -r local_ref _local_sha _remote_ref _remote_sha; do
+    while read -r local_ref _local_sha remote_ref _remote_sha; do
         [ -z "$local_ref" ] && continue
-        case "$local_ref" in
-            refs/heads/lane/*) ;;
-            *) lanes_only=0 ;;
+        case "$local_ref:$remote_ref" in
+            refs/heads/lane/*:*|refs/heads/release/*-candidate:*|*:refs/heads/lane/*|*:refs/heads/release/*-candidate) ;;
+            *) light_refs_only=0 ;;
         esac
     done <<< "$PUSH_REFS"
 else
     case "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)" in
-        lane/*) ;;
-        *) lanes_only=0 ;;
+        lane/*|release/*-candidate) ;;
+        *) light_refs_only=0 ;;
     esac
 fi
 LIGHT=0
 if [ "${PREPUSH_LIGHT:-0}" = "1" ]; then LIGHT=1; fi
-if [ "$lanes_only" = "1" ] && [ "${PREPUSH_FULL:-0}" != "1" ]; then LIGHT=1; fi
+if [ "$light_refs_only" = "1" ] && [ "${PREPUSH_FULL:-0}" != "1" ]; then LIGHT=1; fi
 
 case "$(uname -s 2>/dev/null || echo unknown)" in
     MINGW*|MSYS*|CYGWIN*)
@@ -57,7 +58,7 @@ echo "Pre-push: checking file sizes..."
 bash scripts/check-file-sizes.sh --fail
 
 if [ "$LIGHT" = "1" ]; then
-    echo "Pre-push: lane branch — light checks only (fmt); heavy gates run at the integration/QA gate."
+    echo "Pre-push: light branch — shell guards, file sizes, and fmt only; heavy gates run at the integration/QA gate."
     if ! cargo fmt --manifest-path src-tauri/Cargo.toml --all --check; then
         echo "❌ src-tauri cargo fmt --check failed — push aborted"
         exit 1

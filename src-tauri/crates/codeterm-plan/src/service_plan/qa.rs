@@ -2,7 +2,9 @@ use serde::Serialize;
 
 use super::mutations::{clear_task_assignment, plan_contains_id, reject_done_with_open_subtasks};
 use super::{PlanError, PlanStore};
-use crate::plan::{AgentRef, Milestone, QaState, ReviewStage, Task, TaskStatus};
+use crate::plan::{
+    AgentRef, Milestone, QaState, ReviewEvidence, ReviewStage, ReviewVerdict, Task, TaskStatus,
+};
 
 pub const QA_MILESTONE_KIND: &str = "qa";
 
@@ -257,12 +259,22 @@ impl PlanStore {
             super::task_attempts::mark_task_assignment_closed(task, assigned.as_deref(), now_ms);
             clear_task_assignment(task);
             task.updated_at = now_ms;
+            task.review_evidence.push(ReviewEvidence {
+                id: crate::plan::ids::short_id("rev"),
+                from: from.clone(),
+                verdict: ReviewVerdict::Accept,
+                note: note.into(),
+                at: now_ms,
+                changed_executable_surfaces: false,
+                distinct_oracle: false,
+            });
             task.milestones.push(qa_milestone(
                 mid.clone(),
                 from,
                 &format!("pass: {note}"),
                 now_ms,
             ));
+            super::review_gate::earn_review_credit(&mut p.review_policy);
             result = Some(QaTransitionResult {
                 plan_id: p.id.clone(),
                 task_id: task.id.clone(),
@@ -313,12 +325,23 @@ impl PlanStore {
             task.assigned_pane_id = implementer.clone();
             task.lane.pane_id = implementer.clone();
             task.updated_at = now_ms;
+            task.review_round += 1;
+            task.review_evidence.push(ReviewEvidence {
+                id: crate::plan::ids::short_id("rev"),
+                from: from.clone(),
+                verdict: ReviewVerdict::Bounce,
+                note: note.into(),
+                at: now_ms,
+                changed_executable_surfaces: false,
+                distinct_oracle: false,
+            });
             task.milestones.push(qa_milestone(
                 mid.clone(),
                 from,
                 &format!("fail: {note}"),
                 now_ms,
             ));
+            super::review_gate::earn_review_credit(&mut p.review_policy);
             result = Some(QaTransitionResult {
                 plan_id: p.id.clone(),
                 task_id: task.id.clone(),

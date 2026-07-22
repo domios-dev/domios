@@ -4,6 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
 import { readFileSync } from "fs";
 import { execSync } from "child_process";
+import { isDevelopmentFrontendBuild } from "./src/components/Titlebar/buildIdentity";
 
 const tauriConf = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf-8"));
 
@@ -15,12 +16,13 @@ function gitShortHash(): string {
   }
 }
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   // AND from the daemon's /web mount (web mirror) without path rewrites.
   base: "./",
   define: {
     __APP_VERSION__: JSON.stringify(tauriConf.version),
     __BUILD_HASH__: JSON.stringify(gitShortHash()),
+    __CODETERM_DEV__: JSON.stringify(isDevelopmentFrontendBuild(command, process.env)),
   },
   plugins: [
     react(),
@@ -49,4 +51,4 @@ export default defineConfig({
     strictPort: true,
   },
   envPrefix: ["VITE_", "TAURI_"],
-});
+}));

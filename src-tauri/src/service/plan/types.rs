@@ -28,7 +28,7 @@ pub enum PlanError {
     BadPriority,
     TaskCreationRequiresApproval,
     HeartbeatRequiresExecution,
-    ParkRequiresReason,
+    TaskPauseRequiresReason,
     PauseRequiresReason,
     InProgressRequiresPane,
     BlockedRequiresLabel,
@@ -116,15 +116,15 @@ impl fmt::Display for PlanError {
             ),
             PlanError::InProgressRequiresPane => write!(
                 f,
-                "in_progress requires an executor pane; set both in one command: codeterm plan task update <plan> <task> --status in_progress --pane <pane-id> (CODETERM_STATE_INVARIANTS=off for emergencies)"
+                "in_progress requires an executor tab; set both in one command: codeterm plan task update <plan> <task> --status in_progress --tab <tab-id> (CODETERM_STATE_INVARIANTS=off for emergencies)"
             ),
             PlanError::BlockedRequiresLabel => write!(
                 f,
-                "blocked is a claim, not a parking spot: pass --status-label \"<what unblocks it>\" or open a decision gate"
+                "blocked is a claim, not a holding state: pass --status-label \"<what unblocks it>\" or open a decision gate"
             ),
-            PlanError::ParkRequiresReason => write!(
+            PlanError::TaskPauseRequiresReason => write!(
                 f,
-                "parking a task requires a reason; run `codeterm plan task park <plan> <task> --reason \"<why>\"`"
+                "pausing a task requires a reason; run `codeterm plan task pause <plan> <task> --reason \"<why>\"`"
             ),
             PlanError::PauseRequiresReason => write!(f, "pausing a plan requires a reason"),
             PlanError::QaNoteRequired => write!(
@@ -208,8 +208,8 @@ impl PlanError {
             PlanError::BlockedRequiresLabel => {
                 serde_json::json!({ "type": "blocked_requires_label" })
             }
-            PlanError::ParkRequiresReason => {
-                serde_json::json!({ "type": "park_requires_reason" })
+            PlanError::TaskPauseRequiresReason => {
+                serde_json::json!({ "type": "task_pause_requires_reason" })
             }
             PlanError::PauseRequiresReason => {
                 serde_json::json!({ "type": "pause_requires_reason" })
@@ -271,6 +271,7 @@ pub struct NewTask {
     pub model: Option<String>,
     pub model_rationale: Option<String>,
     pub personality: Option<String>,
+    pub personality_provenance: Option<crate::plan::IdentityProvenance>,
     pub acceptance_criteria: Vec<String>,
     pub test_plan: Option<String>,
     pub correctness: Option<String>,

@@ -13,7 +13,9 @@ impl CommandPort for ServiceContext {
     }
 
     fn send_text(&self, pane_id: &str, text: &str, enter: bool) -> Result<(), String> {
-        ServiceContext::send_text(self, pane_id, text, enter)
+        // Fire-and-forget so interactive sends never wait for terminal evidence.
+        self.send_text_detached(pane_id, text, enter);
+        Ok(())
     }
 
     fn read_pane_output(

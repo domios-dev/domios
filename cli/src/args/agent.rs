@@ -70,8 +70,8 @@ pub struct ReportArgs {
     /// Markdown document to append to the report milestone
     #[arg(long, value_name = "PATH")]
     pub doc: Option<String>,
-    /// Pane ID (default: $CODETERM_PANE_ID or focused pane)
-    #[arg(long)]
+    /// Tab ID (default: $CODETERM_PANE_ID or focused tab)
+    #[arg(long = "tab", value_name = "TAB")]
     pub pane: Option<String>,
     /// Plan id to append this report to (if available)
     #[arg(long, env = "CODETERM_PLAN_ID")]
@@ -114,32 +114,32 @@ pub struct ReportArgs {
 
 #[derive(Subcommand)]
 pub enum AgentAction {
-    /// Mark a pane as orchestrator (top-level, can spawn workers)
+    /// Mark a tab as orchestrator (top-level, can spawn workers)
     SetOrchestrator {
-        /// Pane ID (default: current focused pane)
-        #[arg(long)]
+        /// Tab ID (default: current focused tab)
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
     },
 
-    /// Link a pane as worker under a parent
+    /// Link a tab as worker under a parent
     Link {
-        /// Parent pane ID (orchestrator)
-        #[arg(long)]
+        /// Parent tab ID (orchestrator)
+        #[arg(long = "parent-tab")]
         parent: String,
-        /// Pane ID to link (default: current focused pane)
-        #[arg(long)]
+        /// Tab ID to link (default: current focused tab)
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
     },
-    /// Remove a pane's role (also orphans children)
+    /// Remove a tab's role (also orphans children)
     Unlink {
-        /// Pane ID (default: current focused pane)
-        #[arg(long)]
+        /// Tab ID (default: current focused tab)
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
     },
-    /// Toggle whether a pane can spawn children
+    /// Toggle whether a tab can spawn children
     AllowSpawn {
-        /// Pane ID (default: current focused pane)
-        #[arg(long)]
+        /// Tab ID (default: current focused tab)
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
         /// Enable or disable spawning
         #[arg(long, default_value = "true")]
@@ -147,25 +147,10 @@ pub enum AgentAction {
     },
     /// Send a report to your parent in the hierarchy
     Report(ReportArgs),
-    /// Send an immediate message to a running agent pane
-    Message {
-        /// Message text (positional, or omit and use --from-file/--stdin)
-        #[arg(allow_hyphen_values = true)]
-        text: Option<String>,
-        /// Target agent pane ID
-        #[arg(long, alias = "id")]
-        pane: String,
-        /// Read message text from a file instead of the positional arg
-        #[arg(long, value_name = "PATH")]
-        from_file: Option<String>,
-        /// Read message text from stdin
-        #[arg(long, visible_alias = "from-stdin", conflicts_with = "text")]
-        stdin: bool,
-    },
-    /// Read reports (for orchestrator panes)
+    /// Read reports (for orchestrator tabs)
     Reports {
-        /// Pane ID (default: current focused pane)
-        #[arg(long)]
+        /// Tab ID (default: current focused tab)
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
         /// Clear reports after reading
         #[arg(long)]
@@ -177,20 +162,20 @@ pub enum AgentAction {
     /// List an orchestrator's workers from the durable ledger (survives daemon
     /// restart): branch / model / status / last-seen, one row per worker.
     Ledger {
-        /// Orchestrator pane ID (default: current focused pane)
-        #[arg(long)]
+        /// Orchestrator tab ID (default: current focused tab)
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
     },
     /// Compact agent context (sends /compact to Claude)
     Compact {
-        /// Pane ID (default: $CODETERM_PANE_ID or focused pane)
-        #[arg(long)]
+        /// Tab ID (default: $CODETERM_PANE_ID or focused tab)
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
     },
-    /// Restart agent (graceful exit; resumes only when the pane has a valid session)
+    /// Restart agent (graceful exit; resumes only when the tab has a valid provider session)
     Restart {
-        /// Pane ID (default: $CODETERM_PANE_ID or focused pane)
-        #[arg(long)]
+        /// Tab ID (default: $CODETERM_PANE_ID or focused tab)
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
         /// Skip the graceful exit and force-kill instead. Use only when the agent is hung.
         #[arg(long)]
@@ -203,8 +188,8 @@ pub enum AgentAction {
     Model {
         /// Model name (Claude: sonnet, haiku, opus). Run `agent models claude` to list.
         name: String,
-        /// Pane ID (default: $CODETERM_PANE_ID or focused pane)
-        #[arg(long)]
+        /// Tab ID (default: $CODETERM_PANE_ID or focused tab)
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
     },
     /// List available agent providers (claude, codex, ...) with their
@@ -232,28 +217,28 @@ pub enum AgentAction {
         #[arg(default_value = "claude")]
         agent: String,
         /// Tab title
-        #[arg(long)]
-        title: Option<String>,
-        /// Short pane description (max 200 chars)
-        #[arg(long)]
-        description: Option<String>,
+        #[arg(long, num_args = 1..)]
+        title: Option<Vec<String>>,
+        /// Short tab description (max 200 chars)
+        #[arg(long, num_args = 1..)]
+        description: Option<Vec<String>>,
         /// Working directory
         #[arg(long)]
         cwd: Option<String>,
         /// Role: Worker, Manager, Orchestrator, or Planner/Watcher profile sugar.
         #[arg(long)]
         role: Option<SpawnRole>,
-        /// Parent pane ID (for Workers)
-        #[arg(long)]
+        /// Parent tab ID (for Workers)
+        #[arg(long = "parent-tab")]
         parent: Option<String>,
         /// Plan id to bind — required for `--role Planner` to auto-bind
         /// Plan.planner and deliver the peer prompt naming the Orchestrator.
         #[arg(long, env = "CODETERM_PLAN_ID")]
         plan: Option<String>,
-        /// Where this worker's `agent report` should land. A pane id or
+        /// Where this worker's `agent report` should land. A tab id or
         /// `main`/`general` alias. With `--mesh PEER` it resolves on that peer,
         /// so a remote worker reports back to the spawning orchestrator. Defaults
-        /// to the caller's own pane.
+        /// to the caller's own tab.
         #[arg(long)]
         report_to: Option<String>,
         /// Override whether an explicit Orchestrator may spawn children
@@ -279,6 +264,11 @@ pub enum AgentAction {
         /// see what's available.
         #[arg(long)]
         model: Option<String>,
+        /// Reasoning-effort level (provider-specific, e.g. codex low/medium/high).
+        /// Capability-validated: an unsupported value is rejected, never silently
+        /// downgraded. Run `codeterm agent models <provider>` to see supported levels.
+        #[arg(long = "reasoning-effort")]
+        reasoning_effort: Option<String>,
         /// Override the shell system prompt when spawning a chatBackend shell.
         #[arg(long = "system", allow_hyphen_values = true)]
         system_prompt: Option<String>,
@@ -336,43 +326,6 @@ mod tests {
         match cli.command {
             crate::Commands::Report(args) => Ok(args),
             _ => panic!("expected report command"),
-        }
-    }
-
-    fn parse_message(args: &[&str]) -> Result<AgentAction, clap::Error> {
-        let mut full = vec!["codeterm", "agent", "message"];
-        full.extend_from_slice(args);
-        let cli = Cli::try_parse_from(full)?;
-        match cli.command {
-            crate::Commands::Agent { action } => Ok(action),
-            _ => panic!("expected agent subcommand"),
-        }
-    }
-
-    #[test]
-    fn message_requires_target_pane() {
-        match parse_message(&["hello"]) {
-            Err(e) => assert_eq!(e.kind(), clap::error::ErrorKind::MissingRequiredArgument),
-            Ok(_) => panic!("message without --pane must be rejected"),
-        }
-    }
-
-    #[test]
-    fn message_parses_text_and_target_pane() {
-        let action = parse_message(&["hello", "--pane", "abc123"]).expect("message parses");
-        match action {
-            AgentAction::Message {
-                text,
-                pane,
-                from_file,
-                stdin,
-            } => {
-                assert_eq!(text.as_deref(), Some("hello"));
-                assert_eq!(pane, "abc123");
-                assert!(from_file.is_none());
-                assert!(!stdin);
-            }
-            _ => panic!("expected message action"),
         }
     }
 
@@ -455,9 +408,8 @@ mod tests {
 
     #[test]
     fn ledger_parses_pane_and_global_json() {
-        let cli =
-            Cli::try_parse_from(["codeterm", "--json", "agent", "ledger", "--pane", "orch-1"])
-                .expect("ledger should parse");
+        let cli = Cli::try_parse_from(["codeterm", "--json", "agent", "ledger", "--tab", "orch-1"])
+            .expect("ledger should parse");
         assert!(cli.json, "global --json applies to ledger output");
         match cli.command {
             crate::Commands::Agent {
@@ -469,7 +421,7 @@ mod tests {
 
     #[test]
     fn ledger_pane_is_optional() {
-        let cli = Cli::try_parse_from(["codeterm", "agent", "ledger"]).expect("ledger w/o pane");
+        let cli = Cli::try_parse_from(["codeterm", "agent", "ledger"]).expect("ledger w/o tab");
         match cli.command {
             crate::Commands::Agent {
                 action: AgentAction::Ledger { pane },
@@ -541,6 +493,35 @@ mod tests {
                 assert!(matches!(role, Some(SpawnRole::Worker)));
                 assert_eq!(plan.as_deref(), Some("pl_test"));
                 assert_eq!(plan_task.as_deref(), Some("my-task"));
+            }
+            _ => panic!("expected agent spawn"),
+        }
+    }
+
+    #[test]
+    fn spawn_title_accepts_unquoted_words_until_next_flag() {
+        let cli = Cli::try_parse_from([
+            "codeterm",
+            "agent",
+            "spawn",
+            "claude",
+            "--title",
+            "perf",
+            "brainstorm",
+            "opus",
+            "--task",
+            "review startup",
+        ])
+        .expect("unquoted title words should parse");
+        match cli.command {
+            crate::Commands::Agent {
+                action: AgentAction::Spawn { title, task, .. },
+            } => {
+                assert_eq!(
+                    title.map(|words| words.join(" ")).as_deref(),
+                    Some("perf brainstorm opus")
+                );
+                assert_eq!(task.as_deref(), Some("review startup"));
             }
             _ => panic!("expected agent spawn"),
         }

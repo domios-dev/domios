@@ -12,18 +12,18 @@
 # --wiring to only verify endpoints answer on an idle pane (no agent disruption).
 #
 # Usage:
-#   testbench/cancel-oracle.sh --pane <id> --mode stop|esc|cancel [--prompt TEXT] [--timeout-ms 8000]
-#   testbench/cancel-oracle.sh --wiring --pane <id>      # endpoint smoke only, no drive
+#   testbench/cancel-oracle.sh --tab <id> --mode stop|esc|cancel [--prompt TEXT] [--timeout-ms 8000]
+#   testbench/cancel-oracle.sh --wiring --tab <id>      # endpoint smoke only, no drive
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; cd "$ROOT"
 source evals/_lib/lib.sh 2>/dev/null
 
 PANE=""; MODE="stop"; PROMPT="count slowly from 1 to 40, one number per line, pausing between each"; TIMEOUT_MS=8000; WIRING=0
 while [ "$#" -gt 0 ]; do case "$1" in
-  --pane) PANE="$2"; shift 2;; --mode) MODE="$2"; shift 2;;
+  --tab) PANE="$2"; shift 2;; --mode) MODE="$2"; shift 2;;
   --prompt) PROMPT="$2"; shift 2;; --timeout-ms) TIMEOUT_MS="$2"; shift 2;;
   --wiring) WIRING=1; shift;; *) echo "unknown $1"; exit 2;; esac; done
-[ -n "$PANE" ] || { echo "need --pane <id>"; exit 2; }
+[ -n "$PANE" ] || { echo "need --tab <id>"; exit 2; }
 
 state() { dev_get /api/panes 2>/dev/null | python3 -c "
 import sys,json

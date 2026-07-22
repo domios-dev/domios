@@ -3,14 +3,66 @@ use crate::agent::status::PaneStatus;
 
 impl ServiceContext {
     pub(crate) fn feed_pty_output(&self, pty_id: &str, data: &[u8]) -> (PaneStatus, PaneStatus) {
+        self.feed_pty_output_inner(pty_id, None, data)
+    }
+
+    pub(crate) fn feed_pty_output_for_generation(
+        &self,
+        pty_id: &str,
+        generation: u64,
+        data: &[u8],
+    ) -> (PaneStatus, PaneStatus) {
+        self.feed_pty_output_inner(pty_id, Some(generation), data)
+    }
+
+    fn feed_pty_output_inner(
+        &self,
+        pty_id: &str,
+        generation: Option<u64>,
+        data: &[u8],
+    ) -> (PaneStatus, PaneStatus) {
         if data.is_empty() {
             let status = self.agent_tracker.lock().get_status(pty_id);
             return (status, status);
         }
+        let trace = std::env::var("CODETERM_RD_TRACE").is_ok();
+        let stage = std::time::Instant::now();
         self.output_buf.lock().append(pty_id, data);
-        self.screen_state.lock().process(pty_id, data);
+        let output_us = stage.elapsed().as_micros();
+        let stage = std::time::Instant::now();
+        let accepted = match generation {
+            Some(generation) => self
+                .screen_state
+                .lock()
+                .process_if_generation(pty_id, generation, data),
+            None => {
+                self.screen_state.lock().process(pty_id, data);
+                true
+            }
+        };
+        let screen_us = stage.elapsed().as_micros();
+        if !accepted {
+            let status = self.agent_tracker.lock().get_status(pty_id);
+            return (status, status);
+        }
+        let stage = std::time::Instant::now();
         self.run_watcher.feed(self, pty_id, data);
-        self.process_pty_output(pty_id, data)
+        let watcher_us = stage.elapsed().as_micros();
+        let stage = std::time::Instant::now();
+        let statuses = self.process_pty_output(pty_id, data);
+        let status_us = stage.elapsed().as_micros();
+        if trace && data.len() > 16 {
+            log::info!(
+                "[feed-trace] pty={} n={} output={}us screen={}us watcher={}us status={}us",
+                &pty_id[..pty_id.len().min(8)],
+                data.len(),
+                output_us,
+                screen_us,
+                watcher_us,
+                status_us,
+            );
+        }
+        statuses
     }
 
     pub(crate) fn emit_pane_status_if_changed(

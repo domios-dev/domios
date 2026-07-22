@@ -1,10 +1,11 @@
 use std::collections::HashMap;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::Serialize;
 use uuid::Uuid;
 
 use super::types::{AgentRole, Pane, PaneBacking, PaneType, Tab, TitleLevel, Workspace};
+use codeterm_types::team::Team;
 
 mod alias;
 mod closed;
@@ -59,6 +60,10 @@ pub struct MultiplexerState {
     pty_to_pane: HashMap<String, String>,
     /// Alias registry: human-readable name -> pane_id.
     pane_aliases: HashMap<String, String>,
+    /// Team registry: team_id -> Team. Membership itself lives on each pane's
+    /// `team_id`; this holds the team's own metadata (name, lifecycle). Persisted
+    /// in the session snapshot.
+    teams: HashMap<String, Team>,
     /// Monotonic snapshot generation. Every `snapshot()` stamps a strictly
     /// increasing value so the frontend reducer can ignore a stale snapshot
     /// (older generation) that resolves after a newer one — kills the
@@ -71,11 +76,46 @@ pub struct MultiplexerState {
     pub(super) closed_store: ClosedPanesStore,
 }
 
+pub struct TeamCloseTransaction {
+    staged: MultiplexerState,
+}
+
+impl TeamCloseTransaction {
+    pub fn state_mut(&mut self) -> &mut MultiplexerState {
+        &mut self.staged
+    }
+
+    pub fn commit(self, target: &mut MultiplexerState, closed_roots: &[String]) {
+        for pane_id in closed_roots {
+            target.record_cascade_close(pane_id);
+        }
+        target.workspaces = self.staged.workspaces;
+        target.panes = self.staged.panes;
+        target.active_workspace_id = self.staged.active_workspace_id;
+        target.focused_pane_id = self.staged.focused_pane_id;
+        target.pty_to_pane = self.staged.pty_to_pane;
+        target.pane_aliases = self.staged.pane_aliases;
+        target.teams = self.staged.teams;
+        target.generation.store(
+            self.staged.generation.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TeamResolution {
+    pub team_id: String,
+    pub minted: bool,
+}
+
 /// Full state snapshot for frontend hydration.
 #[derive(Debug, Clone, Serialize)]
 pub struct MultiplexerSnapshot {
     pub workspaces: Vec<Workspace>,
     pub panes: HashMap<String, Pane>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub teams: Vec<Team>,
     pub active_workspace_id: Option<String>,
     pub focused_pane_id: Option<String>,
     /// Monotonic generation; the reducer drops any snapshot whose value is
@@ -96,6 +136,21 @@ pub struct MultiplexerSnapshot {
 }
 
 impl MultiplexerState {
+    pub fn begin_team_close_transaction(&self) -> TeamCloseTransaction {
+        TeamCloseTransaction {
+            staged: Self {
+                workspaces: self.workspaces.clone(),
+                panes: self.panes.clone(),
+                active_workspace_id: self.active_workspace_id.clone(),
+                focused_pane_id: self.focused_pane_id.clone(),
+                pty_to_pane: self.pty_to_pane.clone(),
+                pane_aliases: self.pane_aliases.clone(),
+                teams: self.teams.clone(),
+                generation: AtomicU64::new(self.generation.load(Ordering::Relaxed)),
+                closed_store: ClosedPanesStore::in_memory(),
+            },
+        }
+    }
     /// Create an empty state with no workspaces.
     /// Used when General Agent will create its own workspace.
     pub fn empty() -> Self {
@@ -106,9 +161,46 @@ impl MultiplexerState {
             focused_pane_id: None,
             pty_to_pane: HashMap::new(),
             pane_aliases: HashMap::new(),
+            teams: HashMap::new(),
             generation: AtomicU64::new(0),
             closed_store: ClosedPanesStore::in_memory(),
         }
+    }
+
+    /// Register or replace a team by its id.
+    pub fn upsert_team(&mut self, team: Team) {
+        self.teams.insert(team.id.clone(), team);
+    }
+
+    /// Look up a team by id.
+    pub fn get_team(&self, id: &str) -> Option<&Team> {
+        self.teams.get(id)
+    }
+
+    /// Remove a team by id, returning it if present.
+    pub fn remove_team(&mut self, id: &str) -> Option<Team> {
+        self.teams.remove(id)
+    }
+
+    /// All registered teams (unordered).
+    pub fn list_teams(&self) -> Vec<Team> {
+        let mut teams: Vec<_> = self.teams.values().cloned().collect();
+        teams.sort_by(|a, b| a.id.cmp(&b.id));
+        teams
+    }
+
+    pub fn rename_team(&mut self, id: &str, name: String) -> Result<Team, String> {
+        let team = self
+            .teams
+            .get_mut(id)
+            .ok_or_else(|| format!("Team {id} not found"))?;
+        team.name = Some(name);
+        Ok(team.clone())
+    }
+
+    /// Number of registered teams.
+    pub fn team_count(&self) -> usize {
+        self.teams.len()
     }
 
     /// Swap the in-memory closed-history store for a durable file-backed one.
@@ -129,20 +221,28 @@ impl MultiplexerState {
             pty_id: None,
             backing: PaneBacking::default(),
             pane_type: PaneType::Terminal,
+            pending_delivery: None,
             title: names::generate_tab_name(),
             description: None,
             cwd: None,
+            provisioned_cwd: None,
             url: None,
             agent_type: None,
             agent_type_locked: false,
             agent_session_id: None,
             agent_session_name: None,
             agent_session_model: None,
+            agent_planned_model: None,
+            agent_requested_model: None,
+            agent_provider_resolved_model: None,
+            model_fallback: None,
+            model_identity_mismatch: None,
             session_binding_nonce: None,
             reported_session_binding_nonce: None,
             shell_integration_nonce: None,
             role: Some(AgentRole::Orchestrator),
             role_profile: None,
+            team_id: None,
             watcher: None,
             parent_pane_id: None,
             pending_paired_planner_pane_id: None,
@@ -198,6 +298,7 @@ impl MultiplexerState {
             focused_pane_id: Some(pane_id.clone()),
             pty_to_pane: HashMap::new(),
             pane_aliases: HashMap::new(),
+            teams: HashMap::new(),
             generation: AtomicU64::new(0),
             closed_store: ClosedPanesStore::in_memory(),
         };

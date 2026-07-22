@@ -74,7 +74,7 @@ test("@smoke @regression #132: exactly one focused pane across 50 focus switches
   }
 });
 
-test("@golden workspace + pane survive a daemon kill/restart", async ({ api, ui, paneCleanup }) => {
+test("@golden @restart workspace + pane survive a daemon kill/restart", async ({ api, ui, paneCleanup }) => {
   test.setTimeout(300_000);
   const name = `pw-persist-${Date.now()}`;
   await api.createWorkspace(name);

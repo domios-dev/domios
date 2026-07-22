@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { MessageBubble } from "@codeterm/chat-ui";
@@ -31,7 +31,12 @@ import { useChatSession, isCodeTermFrontendTestMode } from "./useChatSession";
 import { ChatModelBubble } from "../Extensions/ChatModelBubble";
 import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
 import { WatcherReadOnlyBar } from "./WatcherReadOnlyBar";
+import { ChatSetupState, ChatSetupStatusLine, chatSetupView } from "./ChatSetupState";
 import { usePlanRefResolver } from "./usePlanRefResolver";
+import { reattachPaneChat } from "./chatReattach";
+import { planRefViewState } from "./planRefViewState";
+import { useChatScroll } from "./useChatScroll";
+import { resolveTabNavigationTarget } from "./tabNavigation";
 
 interface Props {
   paneId: string;
@@ -45,6 +50,8 @@ interface Props {
    *  are suppressed. */
   chatBackend?: boolean;
 }
+
+const DISABLED_PLAN_API: ApiConfig = { enabled: false, host: "127.0.0.1", port: 0, token: null, cors: false };
 
 function isMicrophonePermissionError(message: string): boolean {
   const normalized = message.toLowerCase();
@@ -93,25 +100,23 @@ export function PaneSessionChat({
   }
 
   const touchMode = useTouchOptimizedUi();
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const atBottomRef = useRef(true);
   const lastStopAtRef = useRef(0);
   const chatRootRef = useRef<HTMLDivElement>(null);
   const [longIdle, setLongIdle] = useState(false);
-  // bottom-pinned agent indicator/composer, so it never overlaps streaming output.
-  const [showScrollDown, setShowScrollDown] = useState(false);
 
-  const scrollToBottom = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-    atBottomRef.current = true;
-    setShowScrollDown(false);
-  }, []);
-
-  const { setFocusedPane, addNotification, setActiveWorkspace } = useMultiplexer();
+  const { setFocusedPane, selectTabByPane, addNotification, setActiveWorkspace } = useMultiplexer();
   const paneSelector = useCallback((s: Parameters<typeof selectPane>[0]) => selectPane(s, paneId), [paneId]);
   const pane = useMuxSelector(paneSelector, paneFieldsEqual);
+  const teamNameSelector = useCallback((state: Parameters<typeof selectPane>[0]) => {
+    const teamId = (state.panes[paneId] as (typeof state.panes)[string] & { team_id?: string | null } | undefined)?.team_id;
+    return teamId ? state.teams.find((team) => team.id === teamId)?.name ?? null : null;
+  }, [paneId]);
+  const teamName = useMuxSelector(teamNameSelector);
+  const projectNameSelector = useCallback((state: Parameters<typeof selectPane>[0]) => {
+    const workspace = state.workspaces.find((candidate) => candidate.tabs.some((tab) => tab.pane_id === paneId));
+    return workspace?.name ?? null;
+  }, [paneId]);
+  const projectName = useMuxSelector(projectNameSelector);
   const paneTitleMap = useMuxSelector(selectPaneTitleMap, paneTitleMapEqual);
   const planNav = useMuxSelector(selectPlanNavContext, planNavContextEqual);
   const paneAgentTypes = useMuxSelector(selectPaneAgentTypes, paneAgentTypesEqual);
@@ -145,14 +150,43 @@ export function PaneSessionChat({
 
   const {
     loading,
+    recovering,
     error,
-    allMessages,
+    attachmentState,
+    retry,
     enrichedMessages,
     hiddenMessageCount,
     loadOlder,
     addOptimistic,
     updateOptimistic,
-  } = useChatSession({ paneId, agentSessionId, onError, active: isActive });
+  } = useChatSession({
+    paneId,
+    agentSessionId,
+    sessionBindingNonce: pane?.session_binding_nonce,
+    onError,
+    active: isActive,
+  });
+  const bootSetupView = chatSetupView(pane, loading || attachmentState === "attached");
+
+  const {
+    scrollRef,
+    contentRef: scrollContentRef,
+    showScrollDown,
+    scrollToBottom,
+    followSend: followSentMessage,
+    handleWheel,
+    handlePointerDown,
+    handlePointerMove,
+    handlePointerUp,
+    handlePointerCancel,
+    handleKeyDown,
+    handleScroll,
+  } = useChatScroll({
+    sessionKey: `${paneId}:${agentSessionId ?? ""}`,
+    active: isActive,
+    loading,
+    messageCount: enrichedMessages.length,
+  });
 
   const [answeredInteractiveIds, setAnsweredInteractiveIds] = useState<Set<string>>(new Set());
   // clears pane.pending_prompt shortly after on the next state poll.
@@ -189,6 +223,16 @@ export function PaneSessionChat({
     onOpenTerminalFallback?.();
   }, [onOpenTerminalFallback]);
 
+  const handleLaunchRetry = useCallback(() => {
+    void invoke("restart_agent_pane", { paneId }).catch((error) =>
+      showComposerError(error instanceof Error ? error.message : String(error)),
+    );
+  }, [paneId, showComposerError]);
+
+  const focusComposer = useCallback(() => {
+    chatRootRef.current?.querySelector<HTMLTextAreaElement>("textarea")?.focus();
+  }, []);
+
   const handleStopAgent = useCallback(() => {
     if (!currentPtyId) {
       showComposerError("Pane has no PTY");
@@ -213,6 +257,7 @@ export function PaneSessionChat({
         throw new Error("Pane has no PTY");
       }
       setAnsweredInteractiveIds((prev) => new Set(prev).add(element.id));
+      followSentMessage();
       addOptimistic(answer);
       try {
         await invoke("write_pty_string", { ptyId: currentPtyId, data: answer + "\r", raw: false });
@@ -226,7 +271,7 @@ export function PaneSessionChat({
         throw e;
       }
     },
-    [currentPtyId, addOptimistic, showComposerError],
+    [currentPtyId, addOptimistic, followSentMessage, showComposerError],
   );
 
   const {
@@ -248,19 +293,27 @@ export function PaneSessionChat({
     [paneTitleMap],
   );
 
+  const deferredEnrichedMessages = useDeferredValue(enrichedMessages);
   const latestFailedToolCallId = useMemo(() => {
-    for (let i = enrichedMessages.length - 1; i >= 0; i -= 1) {
-      const msg = enrichedMessages[i]?.msg;
+    for (let i = deferredEnrichedMessages.length - 1; i >= 0; i -= 1) {
+      const msg = deferredEnrichedMessages[i]?.msg;
       if (msg?.type === "tool_call" && msg.toolError === true) {
         return msg.id;
       }
     }
     return null;
-  }, [enrichedMessages]);
+  }, [deferredEnrichedMessages]);
 
+  // Reuse the previous array when the deduped ref-set is unchanged: a fresh
+  // identity every streamed chunk would churn resolvePlanRef and re-render the
+  // whole MessageBubble list (each re-parsing markdown) → composer input stall.
+  const visiblePlanRefsRef = useRef<{
+    key: string;
+    value: Array<{ planId: string; targetId?: string; targetKind: "plan" | "task" | "section" }>;
+  }>({ key: "", value: [] });
   const visiblePlanRefs = useMemo(() => {
     const refs: Array<{ planId: string; targetId?: string; targetKind: "plan" | "task" | "section" }> = [];
-    for (const { msg } of enrichedMessages) {
+    for (const { msg } of deferredEnrichedMessages) {
       if (msg.type === "tool_result" || msg.type === "system" || msg.type === "local_command") continue;
       for (const ref of extractPlanRefs(msg.content ?? "")) {
         refs.push({
@@ -270,10 +323,14 @@ export function PaneSessionChat({
         });
       }
     }
+    const key = refs.map((r) => `${r.targetKind}:${r.planId}:${r.targetId ?? ""}`).join("|");
+    const prev = visiblePlanRefsRef.current;
+    if (key === prev.key) return prev.value;
+    visiblePlanRefsRef.current = { key, value: refs };
     return refs;
-  }, [enrichedMessages]);
+  }, [deferredEnrichedMessages]);
   const resolvedPlanRefs = usePlanRefResolver(
-    api ?? { enabled: false, host: "127.0.0.1", port: 0, token: null, cors: false },
+    api ?? DISABLED_PLAN_API,
     visiblePlanRefs,
   );
   const resolvePlanRef = useCallback(
@@ -283,9 +340,7 @@ export function PaneSessionChat({
       const found = resolvedPlanRefs.refs.get(key);
       if (found) {
         const ownerWorkspace = findPlanOwnerWorkspace(planId, planIndex, planNav.workspaces);
-        const state = resolvedPlanRefs.unreachable
-          ? "unreachable" as const
-          : (ownerWorkspace ? found.state : "unowned");
+        const state = planRefViewState(found.state, ownerWorkspace != null, resolvedPlanRefs.unreachable);
         return {
           title: found.title,
           planTitle: found.plan_title,
@@ -320,6 +375,11 @@ export function PaneSessionChat({
     [planIndex, planNav.workspaces, planNav.activeWorkspaceId, setActiveWorkspace],
   );
 
+  const resolveFocusTab = useCallback((ref: string) => {
+    const target = resolveTabNavigationTarget(ref, Object.keys(paneAgentTypes), planNav.workspaces);
+    if (target) void selectTabByPane(target.workspaceId, target.paneId);
+  }, [paneAgentTypes, planNav.workspaces, selectTabByPane]);
+
   useEffect(() => {
     if (backendState?.state === "working" || pendingPrompt) {
       setLongIdle(false);
@@ -328,20 +388,6 @@ export function PaneSessionChat({
     const id = window.setTimeout(() => setLongIdle(true), 90_000);
     return () => window.clearTimeout(id);
   }, [backendState?.state, pendingPrompt]);
-
-  // rAF-batched: coalesce streamed-chunk bursts into one scroll write per frame, no per-message reflow.
-  const autoScrollRafRef = useRef(0);
-  useEffect(() => {
-    if (!atBottomRef.current || autoScrollRafRef.current) return;
-    autoScrollRafRef.current = requestAnimationFrame(() => {
-      autoScrollRafRef.current = 0;
-      const el = scrollRef.current;
-      if (el && atBottomRef.current) el.scrollTop = el.scrollHeight;
-    });
-  }, [allMessages, inlinePrompt?.question, backendState?.state]);
-  useEffect(() => () => {
-    if (autoScrollRafRef.current) cancelAnimationFrame(autoScrollRafRef.current);
-  }, []);
 
   // subtype); it arrives via the mux snapshot and events, no local polling needed.
   const liveAgentState: AgentState = useMemo(() => {
@@ -365,19 +411,25 @@ export function PaneSessionChat({
     longIdle,
   ]);
 
-  if (error) {
+  const composerModelBubble = useMemo(() => {
+    if (!effectiveChatBackend || !chatBacking) return undefined;
     return (
-      <div
-        className="w-full h-full flex items-center justify-center p-4 text-sm"
-        style={{ color: "var(--ct-muted-fg, #8b949e)" }}
-      >
-        <div className="text-center">
-          <div className="mb-2">UI mode unavailable for this pane.</div>
-          <div className="text-xs opacity-60">{error}</div>
-        </div>
-      </div>
+      <>
+        <ChatModelBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} />
+        <ChatPresetBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} />
+      </>
     );
-  }
+  }, [chatBacking, effectiveChatBackend]);
+
+  const watcherModelBubble = useMemo(() => {
+    if (!effectiveChatBackend || !chatBacking) return undefined;
+    return (
+      <>
+        <ChatModelBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} readOnly />
+        <ChatPresetBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} readOnly />
+      </>
+    );
+  }, [chatBacking, effectiveChatBackend]);
 
   if (loading) {
     return <div className="p-4 text-sm opacity-60">Loading chat…</div>;
@@ -389,6 +441,9 @@ export function PaneSessionChat({
       className="w-full h-full flex flex-col relative"
       data-testid="pane-session-chat"
       data-pane-id={paneId}
+      role="region"
+      aria-label={`Pane chat: ${pane?.title ?? paneId}`}
+      aria-busy={loading || recovering}
       style={{
         background: "var(--ct-bg, #0d1117)",
         color: "var(--ct-fg, #c9d1d9)",
@@ -410,15 +465,20 @@ export function PaneSessionChat({
       <div className="relative flex-1 min-h-0">
       <div
         ref={scrollRef}
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          const dist = el.scrollHeight - (el.scrollTop + el.clientHeight);
-          atBottomRef.current = dist < 50;
-          setShowScrollDown(dist > 240);
-        }}
+        onWheel={handleWheel}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
+        onKeyDown={handleKeyDown}
+        onScroll={handleScroll}
         className="absolute inset-0 overflow-y-auto overscroll-contain p-3"
         data-testid="pane-session-chat-messages"
+        role="log"
+        aria-label="Conversation"
+        aria-live="polite"
       >
+        <div ref={scrollContentRef}>
         {touchMode && (
           <div
             aria-hidden="true"
@@ -443,12 +503,33 @@ export function PaneSessionChat({
             </button>
           </div>
         )}
-        {enrichedMessages.length === 0 && !inlinePrompt && liveAgentState.state !== "question" && (
-          <div className="opacity-50 text-center py-8 text-sm" data-testid="chat-empty-state">
-            No messages yet.
+        {error && (
+          <div className="py-8 text-center text-sm" data-testid="chat-recovery-error">
+            <div className="mb-2">Chat history could not be loaded.</div>
+            <div className="text-xs opacity-60">{error}</div>
+            <button
+              type="button"
+              data-testid="chat-retry"
+              onClick={() => void reattachPaneChat(paneId).catch(() => retry())}
+              className="mt-3 rounded px-3 py-1.5 text-xs hover:brightness-125"
+              style={{ border: "1px solid var(--ct-border)", color: "var(--ct-fg)" }}
+            >
+              Reconnect
+            </button>
           </div>
         )}
-        {enrichedMessages.map(({ msg, origin }) => {
+        {deferredEnrichedMessages.length === 0 && !inlinePrompt && liveAgentState.state !== "question" && (
+          error ? null : recovering ? (
+            <div className="opacity-50 text-center py-8 text-sm" data-testid="chat-recovering-state">
+              Recovering chat history…
+            </div>
+          ) : bootSetupView.kind === "none" ? (
+            <div className="opacity-50 text-center py-8 text-sm" data-testid="chat-empty-state">
+              No messages yet.
+            </div>
+          ) : null
+        )}
+        {deferredEnrichedMessages.map(({ msg, item, origin }) => {
           let onOriginClick: (() => void) | undefined;
           let originProviderId: string | null | undefined;
           if (origin?.kind === "pane") {
@@ -464,9 +545,13 @@ export function PaneSessionChat({
               key={msg.id}
               data-testid="chat-message"
               data-message-role={msg.type}
+              data-message-id={msg.id}
+              role="article"
+              aria-label={`${msg.type} message`}
             >
               <MessageBubble
                 message={msg}
+                item={item.kind === "tool" ? item : undefined}
                 isLatestFailedToolCall={msg.id === latestFailedToolCallId}
                 origin={origin}
                 resolvePaneName={resolvePaneName}
@@ -483,11 +568,25 @@ export function PaneSessionChat({
                     : undefined
                 }
                 onOriginClick={onOriginClick}
+                onFocusPane={resolveFocusTab}
               />
             </div>
           );
         })}
-        {!inlinePrompt && (enrichedMessages.length > 0 || liveAgentState.state === "question") && (
+        <ChatSetupState
+          pane={pane}
+          view={bootSetupView}
+          providerName={provider?.displayName ?? "the agent"}
+          providerIconSvg={provider?.iconSvg}
+          providerIconColor={provider?.iconColor}
+          providerIconHint={provider?.iconHint}
+          teamName={teamName}
+          projectName={projectName}
+          onRetry={handleLaunchRetry}
+          onOpenTerminal={onOpenTerminalFallback}
+          onEscape={focusComposer}
+        />
+        {!inlinePrompt && (deferredEnrichedMessages.length > 0 || liveAgentState.state === "question") && (
           // with the message text instead of the far-left container edge.
           <div className="w-full max-w-4xl min-w-0 mx-auto">
             <AgentStateIndicator
@@ -501,13 +600,15 @@ export function PaneSessionChat({
           </div>
         )}
         <PendingPromptCard pendingPrompt={inlinePrompt} onRespond={handleRespondPrompt} />
+        </div>
       </div>
       {showScrollDown && (
         <button
           type="button"
           data-testid="chat-scroll-bottom"
-          onClick={scrollToBottom}
+          onClick={() => scrollToBottom()}
           title="Scroll to latest"
+          aria-label="Scroll to latest"
           className="absolute right-4 bottom-4 z-10 flex h-8 w-8 items-center justify-center rounded-full text-[var(--ct-muted-fg)] transition-colors hover:text-[var(--ct-fg)]"
           style={{ background: "var(--ct-surface)", border: "1px solid var(--ct-border)" }}
         >
@@ -518,14 +619,16 @@ export function PaneSessionChat({
       {isWatcherPane && watcherSpec ? (
         <WatcherReadOnlyBar
           watcher={watcherSpec}
-          modelBubble={effectiveChatBackend && chatBacking ? (
-            <>
-              <ChatModelBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} readOnly />
-              <ChatPresetBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} readOnly />
-            </>
-          ) : undefined}
+          modelBubble={watcherModelBubble}
         />
       ) : (
+      <>
+      {deferredEnrichedMessages.length > 0 && (
+        <ChatSetupStatusLine
+          pane={pane}
+          providerName={provider?.displayName ?? "the agent"}
+        />
+      )}
       <ChatComposer
         paneId={paneId}
         paneProvider={paneProvider}
@@ -538,17 +641,14 @@ export function PaneSessionChat({
         removeAttachment={removeAttachment}
         clearAttachments={clearAttachments}
         handlePasteEvent={handlePasteEvent}
+        onWillSendMessage={followSentMessage}
         addOptimistic={addOptimistic}
         updateOptimistic={updateOptimistic}
         showComposerError={showComposerError}
         onOpenTerminalFallback={effectiveChatBackend ? undefined : onOpenTerminalFallback}
-        modelBubble={effectiveChatBackend && chatBacking ? (
-          <>
-            <ChatModelBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} />
-            <ChatPresetBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} />
-          </>
-        ) : undefined}
+        modelBubble={composerModelBubble}
       />
+      </>
       )}
     </div>
   );

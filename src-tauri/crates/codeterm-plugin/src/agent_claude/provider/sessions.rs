@@ -127,10 +127,11 @@ fn read_rich_tail(
             .iter()
             .filter_map(|b| {
                 let kind = b.get("type").and_then(|t| t.as_str())?.to_string();
-                Some(MessageBlock {
-                    kind,
-                    data: b.clone(),
-                })
+                let mut data = b.clone();
+                if kind == "tool_use" {
+                    add_canonical_tool_fields(&mut data);
+                }
+                Some(MessageBlock { kind, data })
             })
             .collect();
         let mut msg = RichMessage {
@@ -142,6 +143,147 @@ fn read_rich_tail(
         out.push(msg);
     }
     out
+}
+
+fn add_canonical_tool_fields(data: &mut serde_json::Value) {
+    let name = data.get("name").and_then(|v| v.as_str()).unwrap_or("");
+    let input = data
+        .get("input")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let (kind, summary, detail, edits) = canonical_tool_fields(name, &input);
+    if let Some(object) = data.as_object_mut() {
+        object.insert("tool_kind".into(), serde_json::Value::String(kind));
+        object.insert("tool_summary".into(), serde_json::Value::String(summary));
+        object.insert("tool_detail".into(), serde_json::Value::String(detail));
+        object.insert("tool_edits".into(), edits);
+    }
+}
+
+fn canonical_tool_fields(
+    name: &str,
+    input: &serde_json::Value,
+) -> (String, String, String, serde_json::Value) {
+    let tool = name.trim();
+    let object = input.as_object();
+    let text = |key: &str| {
+        object
+            .and_then(|value| value.get(key))
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+    };
+    let command = text("command");
+    let path = [text("file_path"), text("filePath"), text("path")]
+        .into_iter()
+        .find(|value| !value.is_empty())
+        .unwrap_or("");
+    let pattern = text("pattern");
+    let edits = extract_canonical_edits(object);
+    let lower = tool.to_ascii_lowercase();
+    if matches!(lower.as_str(), "bash" | "shell" | "exec") {
+        return (
+            "command".into(),
+            clean_tool_text(command, "Command"),
+            command.into(),
+            serde_json::Value::Array(Vec::new()),
+        );
+    }
+    if matches!(lower.as_str(), "edit" | "multiedit" | "write") {
+        return (
+            "edit".into(),
+            if path.is_empty() { "File edit" } else { path }.into(),
+            path.into(),
+            edits,
+        );
+    }
+    if lower == "read" {
+        return (
+            "read".into(),
+            if path.is_empty() { "Read file" } else { path }.into(),
+            path.into(),
+            serde_json::Value::Array(Vec::new()),
+        );
+    }
+    if matches!(lower.as_str(), "glob" | "grep" | "search") {
+        let detail = if !pattern.is_empty() { pattern } else { path };
+        return (
+            "search".into(),
+            clean_tool_text(detail, "Search"),
+            detail.into(),
+            serde_json::Value::Array(Vec::new()),
+        );
+    }
+    (
+        "generic".into(),
+        clean_tool_text(tool, "Tool"),
+        tool.into(),
+        edits,
+    )
+}
+
+fn extract_canonical_edits(
+    object: Option<&serde_json::Map<String, serde_json::Value>>,
+) -> serde_json::Value {
+    let Some(object) = object else {
+        return serde_json::Value::Array(Vec::new());
+    };
+    let parent_path = ["file_path", "filePath", "path"]
+        .into_iter()
+        .filter_map(|key| object.get(key).and_then(|value| value.as_str()))
+        .find(|value| !value.is_empty())
+        .unwrap_or("");
+    let pair = |value: &serde_json::Value| {
+        let item = value.as_object()?;
+        let old = item
+            .get("old_string")
+            .or_else(|| item.get("oldString"))
+            .and_then(|value| value.as_str());
+        let new = item
+            .get("new_string")
+            .or_else(|| item.get("newString"))
+            .and_then(|value| value.as_str());
+        if old.is_none() && new.is_none() {
+            return None;
+        }
+        let path = ["file_path", "filePath", "path"]
+            .into_iter()
+            .filter_map(|key| item.get(key).and_then(|value| value.as_str()))
+            .find(|value| !value.is_empty())
+            .unwrap_or(parent_path);
+        Some(serde_json::json!({
+            "path": path,
+            "old": old.unwrap_or(""),
+            "new": new.unwrap_or(""),
+        }))
+    };
+    if let Some(edits) = object.get("edits").and_then(|value| value.as_array()) {
+        return serde_json::Value::Array(edits.iter().filter_map(pair).collect());
+    }
+    pair(&serde_json::Value::Object(object.clone()))
+        .map(|edit| serde_json::Value::Array(vec![edit]))
+        .unwrap_or_else(|| serde_json::Value::Array(Vec::new()))
+}
+
+fn clean_tool_text(value: &str, fallback: &str) -> String {
+    let text = value
+        .chars()
+        .map(|c| {
+            if matches!(c, '\r' | '\n' | '\t') {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect::<String>()
+        .trim()
+        .to_string();
+    if text.is_empty() {
+        fallback.into()
+    } else if text.chars().count() > 120 {
+        format!("{}...", text.chars().take(117).collect::<String>())
+    } else {
+        text
+    }
 }
 
 pub(super) fn detect_session_model(cwd: &str, session_id: &str) -> Option<String> {
@@ -311,6 +453,44 @@ mod model_label_tests {
         writeln!(f, r#"{{"type":"user","message":{{"content":"<local-command-stdout>Set model to \u001b[1mOpus 4.7\u001b[22m</local-command-stdout>"}}}}"#).unwrap();
         drop(f);
         assert_eq!(scan_tail(&path, 64 * 1024).as_deref(), Some("Opus"));
+    }
+
+    #[test]
+    fn rich_tail_emits_canonical_tool_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("session.jsonl");
+        let jsonl = concat!(
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"cargo check"}},{"type":"tool_use","name":"Edit","input":{"file_path":"src/lib.rs","old_string":"old","new_string":"new"}}]}}"#,
+            "\n",
+        );
+        std::fs::write(&path, jsonl).unwrap();
+
+        let messages = read_rich_tail(&path, 4096);
+        assert_eq!(messages.len(), 1);
+        let bash = &messages[0].blocks[0].data;
+        assert_eq!(bash["tool_kind"], "command");
+        assert_eq!(bash["tool_summary"], "cargo check");
+        assert_eq!(bash["tool_detail"], "cargo check");
+        assert_eq!(bash["tool_edits"], serde_json::json!([]));
+        assert!(bash["tool_summary"].is_string());
+
+        let edit = &messages[0].blocks[1].data;
+        assert_eq!(edit["tool_kind"], "edit");
+        assert_eq!(edit["tool_summary"], "src/lib.rs");
+        assert_eq!(edit["tool_detail"], "src/lib.rs");
+        assert_eq!(
+            edit["tool_edits"],
+            serde_json::json!([{"path":"src/lib.rs","old":"old","new":"new"}])
+        );
+        assert!(edit["tool_summary"].is_string());
+
+        let mut unknown = serde_json::json!({
+            "name": "MysteryTool",
+            "input": {"raw": "should not become a summary"}
+        });
+        add_canonical_tool_fields(&mut unknown);
+        assert_eq!(unknown["tool_kind"], "generic");
+        assert!(!unknown["tool_summary"].as_str().unwrap().contains('{'));
     }
 }
 

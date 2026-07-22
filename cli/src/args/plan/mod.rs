@@ -5,7 +5,7 @@ mod task;
 
 pub use canvas::{
     PlanDecisionAction, PlanElementAction, PlanHandoffAction, PlanLayoutAction,
-    PlanMilestoneAction, PlanNoteAction, PlanQaAction,
+    PlanMilestoneAction, PlanNoteAction, PlanQaAction, PlanReviewAction,
 };
 pub use task::PlanTaskAction;
 
@@ -80,10 +80,10 @@ pub enum PlanAction {
     Tags { plan_id: String },
     /// One read-only state snapshot (counts, coverage, drift, loops, lanes, strides)
     State { plan_id: Option<String> },
-    /// Lane hygiene table: one row per open lane (task/status/pane/branch/worktree/cleanup)
+    /// Lane hygiene table: one row per open lane (task/status/tab/branch/worktree/cleanup)
     Lanes {
         plan_id: Option<String>,
-        /// Only show stale lanes (dead pane / report-overdue / uncleaned)
+        /// Only show stale lanes (dead tab / report-overdue / uncleaned)
         #[arg(long)]
         stale: bool,
     },
@@ -221,8 +221,8 @@ pub enum PlanAction {
         plan_id: String,
         #[arg(long)]
         set: String,
-        /// Planner pane id advancing the state (records author as planner; omit = user).
-        #[arg(long)]
+        /// Planner tab id advancing the state (records author as planner; omit = user).
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         note: Option<String>,
@@ -246,7 +246,9 @@ pub enum PlanAction {
     Archive { plan_id: String },
     /// Restore an archived plan to active
     Unarchive { plan_id: String },
-    /// Delete a plan
+    /// Delete a plan. Cascades: the plan's owned spec (1:1, co-located
+    /// spec.yaml) is deleted with it; specs merely linked/referenced from
+    /// other plans are untouched and only lose their reference to this plan.
     Delete {
         plan_id: String,
         /// Confirm permanent deletion.
@@ -280,7 +282,7 @@ pub enum PlanAction {
         sections: Option<String>,
         #[arg(
             long,
-            help = "Task status: pending | in_progress | in_review | blocked | done | cancelled"
+            help = "Task status: pending | in_progress | in_review | blocked | paused | done | cancelled"
         )]
         status: Option<String>,
         #[arg(long, value_name = "PATH")]
@@ -340,6 +342,11 @@ pub enum PlanAction {
     Qa {
         #[command(subcommand)]
         action: PlanQaAction,
+    },
+    /// Review-backpressure: WIP/credit status, waves, overrides, accept/bounce
+    Review {
+        #[command(subcommand)]
+        action: PlanReviewAction,
     },
     /// Canvas layout overrides
     Layout {
@@ -548,4 +555,23 @@ pub enum PlanLoopAction {
         #[arg(long, hide = true, env = "CODETERM_TASK_ID")]
         task: Option<String>,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::Cli;
+    use clap::CommandFactory;
+
+    #[test]
+    fn plan_delete_help_documents_owned_spec_cascade() {
+        let help = Cli::command()
+            .find_subcommand_mut("plan")
+            .unwrap()
+            .find_subcommand_mut("delete")
+            .unwrap()
+            .render_long_help()
+            .to_string();
+        assert!(help.contains("Cascades"), "{help}");
+        assert!(help.contains("owned spec"), "{help}");
+    }
 }

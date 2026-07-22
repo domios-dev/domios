@@ -22,6 +22,11 @@ fn lane_task(id: &str, status: TaskStatus, lane: TaskLaneMetadata, changed: u64)
         status,
         review_stage: Default::default(),
         qa_state: None,
+        review_round: 0,
+        review_oracle: None,
+        review_evidence: vec![],
+        review_override: None,
+        review_audit: vec![],
         status_label: None,
         priority: Default::default(),
         created_at: 0,
@@ -45,8 +50,9 @@ fn lane_task(id: &str, status: TaskStatus, lane: TaskLaneMetadata, changed: u64)
         canvas: Default::default(),
         milestones: vec![],
         execution_attempts: vec![],
-        park_reason: None,
+        pause_reason: None,
         personality: None,
+        personality_provenance: None,
         attachments: vec![],
     }
 }

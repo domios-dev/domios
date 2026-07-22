@@ -1,6 +1,6 @@
 import type { Pane } from "../../../lib/types";
 import { flattenSections } from "../sectionRows";
-import { filterPlansForCanvas } from "../planPaneMatch";
+import { filterPlansForCanvas, planBelongsToWorkspace, type PlanFilterOpts } from "../planPaneMatch";
 import { resolvePlanExclusivePaneTasks } from "../paneCurrentTask";
 import { buildTaskPresence } from "../taskPresence";
 import { historicalExecutorForTask } from "../taskExecutorHistory";
@@ -21,7 +21,7 @@ import type { LoopForTaskResult } from "./loopForTask";
 import type { WorkingOnRowModel } from "./workingOnRow";
 
 export const BOARD_COLUMN_DEFS = [
-  { key: "pending", label: "Pending", statuses: [TaskStatus.Pending, TaskStatus.Parked] as TaskStatusType[] },
+  { key: "pending", label: "Pending", statuses: [TaskStatus.Pending, TaskStatus.Paused] as TaskStatusType[] },
   { key: "in_progress", label: "In progress", statuses: [TaskStatus.InProgress] as TaskStatusType[] },
   { key: "in_review", label: "In review", statuses: [TaskStatus.InReview] as TaskStatusType[] },
   { key: "blocked", label: "Blocked", statuses: [TaskStatus.Blocked] as TaskStatusType[] },
@@ -60,6 +60,15 @@ export interface BoardPlanSummary {
   goalVector: string | null;
 }
 
+/** Where a task lives in the plan: its group (what kind of work) and its
+ * lead section (which milestone/phase) — the card's "what and where" locator. */
+export interface TaskLocator {
+  groupKey: string | null;
+  groupLabel: string | null;
+  groupColor: string | null;
+  section: string | null;
+}
+
 export interface BoardTaskCardModel {
   task: Task;
   presenceLabel: string | null;
@@ -71,6 +80,7 @@ export interface BoardTaskCardModel {
   loopBadge: LoopForTaskResult | null;
   competeBadge: CompetitionForTaskResult | null;
   focusMatch: boolean;
+  locator: TaskLocator | null;
 }
 
 export interface BoardColumnModel {
@@ -135,10 +145,6 @@ export function planExecutionUnlocked(plan: Plan): boolean {
   return plan.planning_state === "approved" || plan.mode === "approved" || plan.mode === "execution";
 }
 
-function taskFreshness(task: Task): number {
-  return task.status_changed_at ?? task.updated_at ?? task.created_at ?? 0;
-}
-
 function laneBranch(task: Task): string | null {
   return clean(task.lane?.branch);
 }
@@ -167,6 +173,24 @@ function focusMatches(plan: Plan, task: Task, paneId: string | null): boolean {
   return needles.some((n) => haystack.includes(n));
 }
 
+function buildTaskLocator(plan: Plan, task: Task): TaskLocator | null {
+  const groupKey = clean(task.group);
+  const group = groupKey ? plan.task_groups?.find((g) => g.key === groupKey) ?? null : null;
+  const sectionId = task.section_ids?.[0];
+  let section: string | null = null;
+  if (sectionId) {
+    const flat = flattenSections(plan.sections);
+    section = flat.find((s) => s.id === sectionId)?.title?.trim() || null;
+  }
+  if (!groupKey && !section) return null;
+  return {
+    groupKey,
+    groupLabel: group?.label?.trim() || groupKey,
+    groupColor: clean(group?.color),
+    section,
+  };
+}
+
 function buildTaskCard(
   plan: Plan,
   task: Task,
@@ -188,6 +212,7 @@ function buildTaskCard(
     loopBadge: loopForTask(plan, task.id),
     competeBadge: competitionForTask(task, panes),
     focusMatch: focusMatches(plan, task, paneId),
+    locator: buildTaskLocator(plan, task),
   };
 }
 
@@ -239,20 +264,21 @@ export function groupTasksIntoColumns(
   now: number = Date.now(),
 ): { columns: BoardColumnModel[]; cancelledCount: number } {
   const exclusivePaneTasks = resolvePlanExclusivePaneTasks(plan);
-  const byStatus = new Map<TaskStatusType, Task[]>();
+  const planPosition = new Map(plan.tasks.map((task, index) => [task.id, index]));
   let cancelledCount = 0;
   for (const task of plan.tasks) {
     if (task.status === TaskStatus.Cancelled) {
       cancelledCount += 1;
-      continue;
     }
-    const bucket = byStatus.get(task.status) ?? [];
-    bucket.push(task);
-    byStatus.set(task.status, bucket);
   }
   const columns: BoardColumnModel[] = BOARD_COLUMN_DEFS.map((def) => {
-    const tasks = def.statuses.flatMap((s) => byStatus.get(s) ?? []);
-    tasks.sort((a, b) => taskFreshness(b) - taskFreshness(a));
+    const statuses = new Set<TaskStatusType>(def.statuses);
+    const tasks = plan.tasks.filter((task) => statuses.has(task.status));
+    tasks.sort((a, b) => {
+      const createdA = a.created_at ?? Number.POSITIVE_INFINITY;
+      const createdB = b.created_at ?? Number.POSITIVE_INFINITY;
+      return createdA - createdB || planPosition.get(a.id)! - planPosition.get(b.id)!;
+    });
     return {
       key: def.key,
       label: def.label,
@@ -300,10 +326,12 @@ export function orderPlansByActivity(plans: readonly Plan[]): Plan[] {
   });
 }
 
-/** Default board plan: explicit planId → orchestrator-owned freshest → freshest overall. */
+/** Default board plan: explicit planId → orchestrator-owned freshest → freshest
+ *  workspace-bound. No workspace-bound plan means no default (empty state), never
+ *  a plan from another workspace. */
 export function selectDefaultPlanId(
   orderedPlans: readonly Plan[],
-  opts: { planId?: string; orchestratorPaneId?: string; panes?: Record<string, Pane> },
+  opts: PlanFilterOpts,
 ): string | null {
   if (!orderedPlans.length) return null;
   if (opts.planId && orderedPlans.some((p) => p.id === opts.planId)) return opts.planId;
@@ -311,17 +339,24 @@ export function selectDefaultPlanId(
     const owned = filterPlansForCanvas([...orderedPlans], "focus", {
       orchestratorPaneId: opts.orchestratorPaneId,
       panes: opts.panes,
+      workspaceId: undefined,
     });
     const ownedIds = new Set(owned.map((p) => p.id));
     const first = orderedPlans.find((p) => ownedIds.has(p.id));
     if (first) return first.id;
   }
-  // Prefer the workspace's real bound plan over a stale/empty shell: a plan with
-  // actionable (non-terminal) work first, then any non-empty plan, then freshest.
+  // workspaceId undefined = unscoped focus/companion context. Workspace mode scopes upstream in filterPlansForCanvas
+  // (empty when unscoped), so no plan from another workspace can reach this fallback.
+  const scoped = opts.workspaceId
+    ? orderedPlans.filter((p) => planBelongsToWorkspace(p, opts.workspaceId!, opts))
+    : orderedPlans;
+  if (!scoped.length) return null;
+  // Prefer a plan with actionable (non-terminal) work, then any non-empty plan,
+  // then the freshest within the workspace scope.
   const hasActionable = (p: Plan) =>
     p.tasks.some((t) => t.status !== TaskStatus.Done && t.status !== TaskStatus.Cancelled);
   const hasWork = (p: Plan) => p.tasks.some((t) => t.status !== TaskStatus.Cancelled);
-  return (orderedPlans.find(hasActionable) ?? orderedPlans.find(hasWork) ?? orderedPlans[0]).id;
+  return (scoped.find(hasActionable) ?? scoped.find(hasWork) ?? scoped[0]).id;
 }
 
 export function buildBoardModels(
@@ -350,7 +385,7 @@ export function boundDoneColumnCards(
 export function filterPlansForBoard(
   plans: readonly Plan[],
   mode: "workspace" | "focus",
-  opts: { planId?: string; orchestratorPaneId?: string; panes?: Record<string, Pane> },
+  opts: PlanFilterOpts,
 ): Plan[] {
   return filterPlansForCanvas([...plans], mode, opts);
 }

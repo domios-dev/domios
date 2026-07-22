@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::{MultiplexerSnapshot, MultiplexerState};
 use crate::multiplexer::types::{Pane, PaneBacking, PaneType, Tab, TitleLevel, Workspace};
@@ -28,6 +28,38 @@ fn should_seed_from_legacy_tab_title(
 }
 
 impl MultiplexerState {
+    fn live_workspace_tabs(&self) -> Vec<Workspace> {
+        let mut claimed_tab_ids = HashSet::new();
+        let mut claimed_pane_ids = HashSet::new();
+
+        self.workspaces
+            .iter()
+            .map(|workspace| {
+                let tabs: Vec<Tab> = workspace
+                    .tabs
+                    .iter()
+                    .filter(|tab| {
+                        self.panes.contains_key(&tab.pane_id)
+                            && claimed_tab_ids.insert(tab.id.clone())
+                            && claimed_pane_ids.insert(tab.pane_id.clone())
+                    })
+                    .cloned()
+                    .collect();
+                let active_tab_id = workspace
+                    .active_tab_id
+                    .as_ref()
+                    .filter(|active| tabs.iter().any(|tab| &tab.id == *active))
+                    .cloned()
+                    .or_else(|| tabs.first().map(|tab| tab.id.clone()));
+                Workspace {
+                    tabs,
+                    active_tab_id,
+                    ..workspace.clone()
+                }
+            })
+            .collect()
+    }
+
     /// Return all data for frontend hydration. Each call stamps a strictly
     /// increasing `generation`; the stamp happens while the caller holds the
     /// (read) lock, so it is serialized against writers and a snapshot with
@@ -38,8 +70,9 @@ impl MultiplexerState {
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
             .wrapping_add(1);
         MultiplexerSnapshot {
-            workspaces: self.workspaces.clone(),
+            workspaces: self.live_workspace_tabs(),
             panes: self.panes.clone(),
+            teams: self.list_teams(),
             active_workspace_id: self.active_workspace_id.clone(),
             focused_pane_id: self.focused_pane_id.clone(),
             generation,
@@ -113,6 +146,7 @@ impl MultiplexerState {
                 claude_session_id: pane.and_then(|p| p.agent_session_id.clone()),
                 role: pane.and_then(|p| p.role.map(|r| format!("{:?}", r))),
                 role_profile: pane.and_then(|p| p.role_profile.clone()),
+                team_id: pane.and_then(|p| p.team_id.clone()),
                 parent_pane_id: pane.and_then(|p| p.parent_pane_id.clone()),
                 spawned_by_pane_id: pane.and_then(|p| p.spawned_by_pane_id.clone()),
                 report_target_pane_id: pane.and_then(|p| p.report_target_pane_id.clone()),
@@ -122,14 +156,21 @@ impl MultiplexerState {
                 chat_view: pane.map(|p| p.chat_view),
                 auto_approve: pane.map(|p| p.auto_approve).unwrap_or(false),
                 agent_session_model: pane.and_then(|p| p.agent_session_model.clone()),
+                agent_planned_model: pane.and_then(|p| p.agent_planned_model.clone()),
+                agent_requested_model: pane.and_then(|p| p.agent_requested_model.clone()),
+                agent_provider_resolved_model: pane
+                    .and_then(|p| p.agent_provider_resolved_model.clone()),
+                model_fallback: pane.and_then(|p| p.model_fallback.clone()),
+                model_identity_mismatch: pane.and_then(|p| p.model_identity_mismatch.clone()),
                 chatbackend_plugin_id,
                 chatbackend_session_id,
                 watcher: pane.and_then(|p| p.watcher.clone()),
+                pending_delivery: pane.and_then(|p| p.pending_delivery.clone()),
             }
         }
 
         let workspaces = self
-            .workspaces
+            .live_workspace_tabs()
             .iter()
             .map(|ws| {
                 WorkspaceSnapshot {
@@ -172,6 +213,7 @@ impl MultiplexerState {
             timestamp,
             workspaces,
             active_workspace_id: self.active_workspace_id.clone(),
+            teams: self.teams.values().cloned().collect(),
         }
     }
 
@@ -209,6 +251,7 @@ impl MultiplexerState {
                 claude_session_id,
                 role,
                 role_profile,
+                team_id,
                 parent_pane_id,
                 spawned_by_pane_id,
                 report_target_pane_id,
@@ -218,9 +261,15 @@ impl MultiplexerState {
                 chat_view,
                 auto_approve,
                 agent_session_model,
+                agent_planned_model,
+                agent_requested_model,
+                agent_provider_resolved_model,
+                model_fallback,
+                model_identity_mismatch,
                 chatbackend_plugin_id,
                 chatbackend_session_id,
                 watcher,
+                pending_delivery,
             } = leaf
             else {
                 return None;
@@ -287,20 +336,28 @@ impl MultiplexerState {
                     pty_id: None,
                     backing: restored_backing,
                     pane_type: PaneType::Terminal,
+                    pending_delivery: pending_delivery.clone(),
                     title: restored_title,
                     description: description.clone(),
                     cwd: cwd.clone(),
+                    provisioned_cwd: None,
                     url: None,
                     agent_type: restored_agent_type,
                     agent_type_locked: restored_locked,
                     agent_session_id: restored_session_id,
                     agent_session_name: None,
                     agent_session_model: agent_session_model.clone(),
+                    agent_planned_model: agent_planned_model.clone(),
+                    agent_requested_model: agent_requested_model.clone(),
+                    agent_provider_resolved_model: agent_provider_resolved_model.clone(),
+                    model_fallback: model_fallback.clone(),
+                    model_identity_mismatch: model_identity_mismatch.clone(),
                     session_binding_nonce: None,
                     reported_session_binding_nonce: None,
                     shell_integration_nonce: None,
                     role: parsed_role,
                     role_profile: role_profile.clone(),
+                    team_id: team_id.clone(),
                     watcher: watcher.clone(),
                     parent_pane_id: parent_pane_id.clone(),
                     pending_paired_planner_pane_id: None,
@@ -332,6 +389,12 @@ impl MultiplexerState {
             );
             Some(pane_id.clone())
         }
+
+        let teams: HashMap<String, codeterm_types::team::Team> = snapshot
+            .teams
+            .iter()
+            .map(|t| (t.id.clone(), t.clone()))
+            .collect();
 
         let mut panes = HashMap::new();
         let workspaces: Vec<Workspace> = snapshot.workspaces.iter().map(|ws| {
@@ -370,6 +433,7 @@ impl MultiplexerState {
             focused_pane_id: None,
             pty_to_pane: HashMap::new(),
             pane_aliases: HashMap::new(),
+            teams,
             generation: std::sync::atomic::AtomicU64::new(0),
             // startup), not the session snapshot.
             closed_store: super::ClosedPanesStore::in_memory(),

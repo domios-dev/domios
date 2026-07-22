@@ -1,11 +1,9 @@
 use crate::args::spec::{SpecAction, SpecLinkAction, SpecSectionAction};
-use crate::client::SocketClient;
-use crate::cmd::hints::{
-    print_hints, push_hints, spec_create_next_plan_hint, spec_section_add_link_hint,
-};
+use crate::client::RpcClient;
+use crate::cmd::hints::{push_hints, spec_create_next_plan_hint, spec_section_add_link_hint};
 use serde_json::{json, Value};
 
-fn call(client: &mut SocketClient, method: &str, params: Value) -> Result<Value, String> {
+fn call(client: &mut dyn RpcClient, method: &str, params: Value) -> Result<Value, String> {
     crate::cmd::plan::call_plan_rpc(client, method, params)
 }
 
@@ -39,25 +37,11 @@ fn render_section(section: &Value, depth: usize, out: &mut String) {
     }
 }
 
-pub fn handle_spec(client: &mut SocketClient, json_output: bool, action: SpecAction) {
+pub fn handle_spec(client: &mut dyn RpcClient, json_output: bool, action: SpecAction) {
     match run_spec(client, json_output, action) {
         Ok(None) => {}
-        Ok(Some(val)) if json_output => {
-            crate::cmd::print::print_json(&val);
-        }
         Ok(Some(val)) => {
-            crate::cmd::print::print_object(&val);
-            let hints: Vec<String> = val
-                .get("_hints")
-                .and_then(|v| v.as_array())
-                .map(|items| {
-                    items
-                        .iter()
-                        .filter_map(|v| v.as_str().map(str::to_string))
-                        .collect()
-                })
-                .unwrap_or_default();
-            print_hints(&hints);
+            crate::cmd::plan_output::print_plan_result(json_output, &val);
         }
         Err(e) => {
             crate::cmd::plan_output::print_plan_error(json_output, &e);
@@ -67,7 +51,7 @@ pub fn handle_spec(client: &mut SocketClient, json_output: bool, action: SpecAct
 }
 
 fn run_spec(
-    client: &mut SocketClient,
+    client: &mut dyn RpcClient,
     json_output: bool,
     action: SpecAction,
 ) -> Result<Option<Value>, String> {
@@ -76,9 +60,11 @@ fn run_spec(
             // Default to the caller's cwd — the daemon's own cwd is meaningless
             // (often / when launched via `open -a`, which is read-only).
             let project = project.or_else(|| {
-                std::env::current_dir()
-                    .ok()
-                    .map(|d| d.display().to_string())
+                (!client.is_remote()).then(|| {
+                    std::env::current_dir()
+                        .ok()
+                        .map(|d| d.display().to_string())
+                })?
             });
             let mut params = json!({ "title": title });
             if let Some(project) = project {
@@ -272,7 +258,7 @@ fn run_spec(
     if json_output {
         Ok(Some(result))
     } else {
-        crate::cmd::print::print_object(&result);
+        crate::cmd::plan_output::print_plan_result(false, &result);
         Ok(None)
     }
 }

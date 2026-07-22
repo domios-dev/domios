@@ -22,6 +22,16 @@ if grep -q "7685" <<< "$filtered_prod_output"; then
   exit 1
 fi
 
+kill_dev_body="$(sed -n '/^kill_dev() {/,/^}/p' build.sh)"
+mapfile -t request_lines < <(grep -n 'request_dev_clean_restart' <<< "$kill_dev_body" | cut -d: -f1)
+mapfile -t watcher_lines < <(grep -n 'kill_web_watch' <<< "$kill_dev_body" | cut -d: -f1)
+if [ "${#request_lines[@]}" -ne 3 ] || [ "${#watcher_lines[@]}" -ne 2 ] \
+  || [ "${request_lines[1]}" -ge "${watcher_lines[0]}" ] \
+  || [ "${request_lines[2]}" -ge "${watcher_lines[1]}" ]; then
+  echo "dev kill must request clean daemon shutdown before stopping the web watcher" >&2
+  exit 1
+fi
+
 set +e
 named_prod_output="$(CODETERM_INSTANCE=prod CODETERM_API_PORT=7685 ./build.sh kill 2>&1)"
 named_prod_status=$?
@@ -60,6 +70,48 @@ if grep -q "CARGO_TARGET_DIR=.*codeterm-worktrees" <<< "$named_policy"; then
   echo "$named_policy" >&2
   exit 1
 fi
+
+named_gateway_policy="$(CODETERM_INSTANCE=pw1 CODETERM_API_PORT=7786 CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY=1 ./build.sh dev --wait)"
+canonical_gateway_policy="$(CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY=1 ./build.sh dev --wait)"
+grep -q "shared_gateway_handoff=skipped" <<< "$named_gateway_policy" || {
+  echo "named dev --wait must structurally skip the shared build-gateway handoff" >&2
+  exit 1
+}
+grep -q "shared_gateway_handoff=required" <<< "$canonical_gateway_policy" || {
+  echo "canonical dev --wait must retain the shared build-gateway handoff" >&2
+  exit 1
+}
+if CODETERM_INSTANCE=pw1 CODETERM_API_PORT=7786 CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY=1 ./build.sh dev --wait --release-gateway-after-ready >/dev/null 2>&1; then
+  echo "obsolete caller-controlled gateway handoff flag must be rejected" >&2
+  exit 1
+fi
+
+marker_fixture="$(mktemp -d)"
+trap 'rm -rf "$marker_fixture"' EXIT
+mkdir -p "$marker_fixture/home/.codeterm-dev-marker-test" "$marker_fixture/bin"
+printf '[api]\ntoken = "matching-instance-token"\n' > "$marker_fixture/home/.codeterm-dev-marker-test/config.toml"
+cat > "$marker_fixture/bin/curl" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" > "$CODETERM_TEST_CURL_LOG"
+EOF
+chmod +x "$marker_fixture/bin/curl"
+
+HOME="$marker_fixture/home" \
+PATH="$marker_fixture/bin:$PATH" \
+CODETERM_INSTANCE=marker-test \
+CODETERM_API_PORT=7799 \
+CODETERM_TEST_KILL_CLEAN_REQUEST_ONLY=1 \
+CODETERM_TEST_CURL_LOG="$marker_fixture/curl.log" \
+  ./build.sh kill >/dev/null
+
+grep -q 'Authorization: Bearer matching-instance-token' "$marker_fixture/curl.log" || {
+  echo "dev kill must authenticate with the matching instance token" >&2
+  exit 1
+}
+grep -q 'POST http://127.0.0.1:7799/api/debug/shutdown/clean-restart' "$marker_fixture/curl.log" || {
+  echo "dev kill must request a clean restart from the matching dev instance" >&2
+  exit 1
+}
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/check-windows-dev-cleanup-selection.ps1
 

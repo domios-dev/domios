@@ -53,6 +53,14 @@ Every paired peer has an Ed25519 keypair. Requests between peers are signed with
 - Public keys exchanged during pairing, verified on every request
 - Unpair = remove pubkey = auth fails
 
+## Remote plan commands
+
+`plan`, `spec`, `task`, `effort`, and `team` accept `--mesh PEER`. The CLI resolves
+files and stdin locally, then sends the resulting content through the signed mesh
+RPC endpoint to the peer's in-process plan dispatcher. Implicit local pane identity
+and working-directory defaults are not forwarded; explicit project paths refer to
+the target machine. Mutations require `Full` peer access and carry an idempotency ID.
+
 ## Bridge migration
 
 External-service bridges (Telegram today; Discord/Slack/etc. later) hold an exclusive long-poll lock against their upstream API — only one poller per bot token can be active at a time. `codeterm bridge migrate --to PEER` hot-relocates that poller from the source machine to a paired mesh peer **without restarting either daemon**. This is the recovery story for "I'm shutting this machine down for the night, please move the Telegram bot to another peer until I'm back."
@@ -220,4 +228,4 @@ services/
   smart_add.rs      — heuristic field-mapping suggestions for AddServiceWizard
 ```
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

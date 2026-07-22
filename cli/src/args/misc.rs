@@ -44,24 +44,24 @@ pub enum WorkspaceAction {
 
 #[derive(Subcommand)]
 pub enum PaneAction {
-    /// List all panes as a workspace-grouped tree. `--agents` filters to
-    /// agent panes only.
+    /// List all tabs as a workspace-grouped tree. `--agents` filters to
+    /// agent tabs only.
     ///
-    /// Each pane carries a `backing.kind`: `pty` panes (terminal agents,
+    /// Each tab carries a `backing.kind`: `pty` tabs (terminal agents,
     /// shells) have a real shell — `send` injects text you can execute.
-    /// `chat_backend` panes (LLM chat via plugin) have NO shell: `send`
+    /// `chat_backend` tabs (LLM chat via plugin) have NO shell: `send`
     /// delivers a chat message; never instruct them to run shell commands.
     List {
-        /// Show only panes running an agent (have an agent_type).
+        /// Show only tabs running an agent (have an agent_type).
         #[arg(long)]
         agents: bool,
     },
-    /// Plain shell pane. For an AI pane use `codeterm agent spawn` instead.
+    /// Plain shell tab. For an AI tab use `codeterm agent spawn` instead.
     New {
         /// Target workspace id (default: current focused)
         #[arg(long)]
         workspace: Option<String>,
-        /// Working directory for the new pane
+        /// Working directory for the new tab
         #[arg(long)]
         cwd: Option<String>,
         /// Tab title
@@ -69,15 +69,15 @@ pub enum PaneAction {
         title: Option<String>,
         /// Spawn a shell that runs this command on start (e.g.
         /// `"cd /repo && ./build.sh dev"`). Delivery waits for the PTY to be
-        /// ready, so the command runs reliably even on a freshly-created pane.
+        /// ready, so the command runs reliably even on a freshly-created tab.
         #[arg(long, allow_hyphen_values = true)]
         cmd: Option<String>,
         /// Spawn the shell PTY immediately on the daemon for headless/API use.
         #[arg(long)]
         eager: bool,
-        /// Open a non-PTY chat-backend pane driven by the given plugin id
+        /// Open a non-PTY chat-backend tab driven by the given plugin id
         /// (a plugin declaring the `chatBackend` capability).
-        /// `codeterm send`/`pane get-text` then route to the plugin, not a shell.
+        /// `codeterm send`/`tab get-text` then route to the plugin, not a shell.
         #[arg(long, value_name = "PLUGIN_ID")]
         chat_backend: Option<String>,
         /// JSON config object passed to the chat-backend plugin's `openSession`
@@ -85,66 +85,66 @@ pub enum PaneAction {
         #[arg(long, value_name = "JSON")]
         config: Option<String>,
     },
-    /// Print the current (focused) pane ID — no JSON parsing needed
+    /// Print the current focused tab ID — no JSON parsing needed
     Current {
-        /// Return the last pane instead of the focused one
+        /// Return the last tab instead of the focused one
         #[arg(long)]
         last: bool,
     },
-    /// Focus a pane by ID
+    /// Focus a tab by ID
     Focus {
-        /// Pane ID
+        /// Tab ID
         id: String,
     },
-    /// Close a pane by ID
+    /// Close a tab by ID
     Close {
-        /// Pane ID
+        /// Tab ID
         id: String,
     },
-    /// Rename a pane tab (default: current pane)
+    /// Rename a tab (default: current tab)
     Rename {
         /// New title
         title: String,
-        /// Pane ID to rename (default: current focused pane)
-        #[arg(long, alias = "id")]
+        /// Tab ID to rename (default: current focused tab)
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
     },
-    /// Set a short pane description (empty clears it)
+    /// Set a short tab description (empty clears it)
     Describe {
         /// Short summary, max 200 chars
         summary: String,
-        /// Pane ID to describe (default: current focused pane)
-        #[arg(long, alias = "id")]
+        /// Tab ID to describe (default: current focused tab)
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
     },
-    /// Get visible terminal text of a pane (what the user sees)
+    /// Get visible terminal text of a tab (what the user sees)
     #[command(alias = "get_text", alias = "screen")]
     GetText {
-        /// Pane ID (default: current focused pane)
-        #[arg(long, alias = "id")]
+        /// Tab ID (default: current focused tab)
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
         /// Include raw ANSI escape codes (colors, cursor state) instead of plain text
         #[arg(long)]
         formatted: bool,
     },
-    /// Execute a command in a pane and return output
+    /// Execute a command in a tab and return output
     Exec {
         /// Command to execute
         command: String,
-        /// Pane ID (default: current focused pane)
-        #[arg(long, alias = "id")]
+        /// Tab ID (default: current focused tab)
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
         /// Timeout in milliseconds
         #[arg(long, default_value = "10000")]
         timeout: u64,
     },
-    /// Show agent status for a pane (type, session, prompt)
+    /// Show agent status for a tab (type, provider session, prompt)
     Status {
-        /// Pane ID (default: current focused pane)
-        #[arg(long, alias = "id")]
+        /// Tab ID (default: current focused tab)
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
     },
-    /// Fuzzy search panes by id-prefix, tab title, friendly session name, pane title,
+    /// Fuzzy search tabs by id-prefix, tab title, friendly session name,
     /// agent type, or current model. Cross-script — "Далтон" matches "Dalton". Add
     /// `--mesh PEER` to search a paired peer (#99). `find` kept as alias.
     #[command(alias = "find")]
@@ -158,22 +158,22 @@ pub enum PaneAction {
     /// Designed for mesh/CLI/bot drivers — type `/stop` in a Telegram bridge
     /// and have it map straight here.
     Stop {
-        /// Pane ID (default: current focused pane)
-        #[arg(long, alias = "id")]
+        /// Tab ID (default: current focused tab)
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
     },
 
-    /// Read a pane's parsed chat transcript (text/thinking/tool calls/results)
+    /// Read a tab's parsed chat transcript (text/thinking/tool calls/results)
     Chat {
-        /// Target pane ID (default: $CODETERM_PANE_ID or focused pane)
-        #[arg(long, alias = "id")]
+        /// Target tab ID (default: $CODETERM_PANE_ID or focused tab)
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
         /// Only return messages from this index onward
         #[arg(long, default_value = "0")]
         since: usize,
     },
 
-    /// Dev-only: tee a pane's raw PTY output into an asciicast v2 `.cast` file.
+    /// Dev-only: tee a tab's raw PTY output into an asciicast v2 `.cast` file.
     Capture {
         #[command(subcommand)]
         action: PaneCaptureAction,
@@ -185,8 +185,8 @@ pub enum PaneAction {
 pub enum PaneCaptureAction {
     /// Arm capture: tee raw PTY output (ANSI intact) + timestamps to `--out`.
     Start {
-        /// Target pane ID (default: $CODETERM_PANE_ID or focused pane)
-        #[arg(long, alias = "id")]
+        /// Target tab ID (default: $CODETERM_PANE_ID or focused tab)
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
         /// Path of the `.cast` file to write.
         #[arg(long)]
@@ -194,8 +194,8 @@ pub enum PaneCaptureAction {
     },
     /// Disarm capture: flush/close the `.cast` and write a sibling `screen.txt`.
     Stop {
-        /// Target pane ID (default: $CODETERM_PANE_ID or focused pane)
-        #[arg(long, alias = "id")]
+        /// Target tab ID (default: $CODETERM_PANE_ID or focused tab)
+        #[arg(long = "tab", value_name = "TAB")]
         pane: Option<String>,
     },
 }
@@ -313,6 +313,9 @@ pub enum BridgeAction {
         /// Message text (also used as caption for media types)
         #[arg(allow_hyphen_values = true)]
         text: Option<String>,
+        /// Preserve literal escape sequences instead of decoding \n into a newline
+        #[arg(long)]
+        raw_text: bool,
         /// Target service
         #[arg(long, default_value = "telegram")]
         service: String,

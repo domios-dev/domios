@@ -293,6 +293,11 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         status: TaskStatus::Pending,
         review_stage: Default::default(),
         qa_state: None,
+        review_round: 0,
+        review_oracle: None,
+        review_evidence: vec![],
+        review_override: None,
+        review_audit: vec![],
         status_label: None,
         priority: Default::default(),
         created_at: 0,
@@ -316,8 +321,9 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         canvas: Default::default(),
         milestones: vec![],
         execution_attempts: vec![],
-        park_reason: None,
+        pause_reason: None,
         personality: None,
+        personality_provenance: None,
         attachments: vec![],
     });
     let json_path = paths::plan_json_path(&project, &plan.status, &plan.id).unwrap();
@@ -647,6 +653,63 @@ fn pane_gone_cleanup_clears_lane_pane() {
 }
 
 #[test]
+fn lane_demotion_preserves_in_progress_status_and_marks_needs_reassign() {
+    let (store, id, tid) = store_with_task(&["status_update"]);
+    store.assign_task(&id, &tid, "pane-live", None, 20).unwrap();
+    store
+        .update_task(
+            &id,
+            &tid,
+            None,
+            None,
+            None,
+            None,
+            Some("in_progress"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &[],
+            None,
+            None,
+            21,
+        )
+        .unwrap();
+
+    let fixes = store
+        .apply_lane_demotions(
+            &id,
+            &[crate::plan::reconcile::LaneDemotion {
+                task_id: tid.clone(),
+                plan_id: id.clone(),
+                reason: "pane missing after restart".into(),
+            }],
+            30,
+        )
+        .unwrap();
+
+    assert_eq!(fixes.len(), 1);
+    assert_eq!(fixes[0].action, "cleared_assignment_set_needs_reassign");
+    let p = store.get(&id).unwrap();
+    let t = p.tasks.iter().find(|t| t.id == tid).unwrap();
+    assert_eq!(t.status, TaskStatus::InProgress);
+    assert_eq!(
+        t.status_label.as_deref(),
+        Some(crate::plan::reconcile::NEEDS_REASSIGN_LABEL)
+    );
+    assert!(t.assigned_pane_id.is_none());
+    assert!(t.lane.pane_id.is_none());
+    assert!(t
+        .milestones
+        .iter()
+        .any(|milestone| milestone.text == "pane missing after restart"));
+}
+
+#[test]
 fn close_task_unknown_task_errors() {
     let (store, id, _) = store_with_task(&["status_update"]);
     let err = store
@@ -912,7 +975,7 @@ fn list_tasks_is_strictly_project_scoped() {
 }
 
 #[test]
-fn inbox_plan_is_lazy_and_idempotent() {
+fn public_inbox_mutation_cannot_create_active_teamless_plan() {
     let root = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(root.path());
     let first = store
@@ -932,16 +995,18 @@ fn inbox_plan_is_lazy_and_idempotent() {
 
     assert_eq!(first.id, crate::plan::INBOX_PLAN_ID);
     assert_eq!(first.title, crate::plan::INBOX_PLAN_TITLE);
+    assert_eq!(first.status, crate::plan::PlanStatus::Archived);
+    assert_eq!(first.team_id, None);
     assert!(first.sections.is_empty());
     assert_eq!(second.created_at, first.created_at);
     assert!(root
         .path()
-        .join(".codeterm/plans/active/_inbox/plan.yaml")
+        .join(".codeterm/plans/archive/_inbox/plan.yaml")
         .exists());
 }
 
 #[test]
-fn add_inbox_task_lands_in_reserved_plan() {
+fn public_task_add_lands_in_archived_inbox_artifact() {
     let root = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(root.path());
     let (plan_id, task_id) = store
@@ -960,6 +1025,8 @@ fn add_inbox_task_lands_in_reserved_plan() {
 
     assert_eq!(plan_id, crate::plan::INBOX_PLAN_ID);
     let plan = store.get(&plan_id).unwrap();
+    assert_eq!(plan.status, crate::plan::PlanStatus::Archived);
+    assert_eq!(plan.team_id, None);
     assert_eq!(plan.tasks.len(), 1);
     assert_eq!(plan.tasks[0].id, task_id);
     assert_eq!(plan.tasks[0].name, "standalone");

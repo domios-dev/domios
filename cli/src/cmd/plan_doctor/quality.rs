@@ -57,10 +57,7 @@ pub(super) fn inspect_quality(path: &Path, plan: &Value) -> Vec<Finding> {
         ));
     }
     // so they never trip the approval gate; only non-planning tasks do.
-    let non_planning_tasks = tasks
-        .iter()
-        .filter(|t| t.get("kind").and_then(Value::as_str) != Some("planning"))
-        .count();
+    let non_planning_tasks = tasks.iter().filter(|t| !task_kind_is_planning(t)).count();
     if !unlocked && non_planning_tasks > 0 {
         findings.push(plan_quality_error(
             path,
@@ -112,20 +109,20 @@ pub(super) fn inspect_task_lifecycle(
 ) {
     let task_id = task.get("id").and_then(Value::as_str).map(str::to_string);
     let status = task.get("status").and_then(Value::as_str).unwrap_or("");
-    if status == "parked" {
+    if status == "paused" {
         let has_reason = task
-            .get("park_reason")
+            .get("pause_reason")
             .and_then(Value::as_str)
             .is_some_and(|s| !s.trim().is_empty());
         if !has_reason {
             findings.push(Finding {
                 severity: "error",
-                kind: "parked_without_reason",
+                kind: "paused_without_reason",
                 plan_id: plan_id(plan, path),
                 path: path.display().to_string(),
                 task_id: task_id.clone(),
-                detail: "task is parked but has no park_reason".into(),
-                fix: "unpark and re-park with a reason: `codeterm plan task park <plan> <task> --reason \"<why>\"`".into(),
+                detail: "task is paused but has no pause_reason".into(),
+                fix: "resume and pause with a reason: `codeterm plan task pause <plan> <task> --reason \"<why>\"`".into(),
             });
         }
     }
@@ -150,7 +147,7 @@ pub(super) fn inspect_task_lifecycle(
             task_id,
             "aged_unstaffed_task",
             "pending task has been unstaffed for over 4h",
-            "dispatch it, park it with a reason, or send it to replanning",
+            "dispatch it, pause it with a reason, or send it to replanning",
         ));
     }
     findings.extend(cleanup::cleanup_debt_findings(path, plan, task));
@@ -242,43 +239,40 @@ fn inspect_task_quality(path: &Path, plan: &Value, task: &Value, findings: &mut 
         .and_then(Value::as_str)
         .unwrap_or("?")
         .to_string();
-    let mut missing = Vec::new();
-    if task
+    let has_section_link = !task
         .get("section_ids")
         .and_then(Value::as_array)
-        .is_none_or(|items| items.is_empty())
-    {
-        missing.push("section link");
-    }
-    if task
+        .is_none_or(|items| items.is_empty());
+    let has_body = !(task
         .get("body")
         .and_then(Value::as_str)
         .is_none_or(|s| s.trim().is_empty())
-        && !task_has_body_sidecar(path, task)
-    {
-        missing.push("body");
-    }
-    if task
+        && !task_has_body_sidecar(path, task));
+    let has_criteria = !task
         .get("acceptance_criteria")
         .and_then(Value::as_array)
-        .is_none_or(|items| items.is_empty())
-    {
-        missing.push("acceptance criteria");
-    }
-    if task
+        .is_none_or(|items| items.is_empty());
+    let has_test_plan = !task
         .get("test_plan")
         .and_then(Value::as_str)
-        .is_none_or(|s| s.trim().is_empty())
-    {
-        missing.push("test plan");
-    }
-    if task
+        .is_none_or(|s| s.trim().is_empty());
+    let has_correctness = !task
         .get("correctness")
         .and_then(Value::as_str)
-        .is_none_or(|s| s.trim().is_empty())
-    {
-        missing.push("correctness vector");
+        .is_none_or(|s| s.trim().is_empty());
+
+    // Same field list `plan task add` warns on at creation (crate::cmd::hints);
+    // section link is doctor-only, tracked separately from that shared set.
+    let mut missing: Vec<&str> = Vec::new();
+    if !has_section_link {
+        missing.push("section link");
     }
+    missing.extend(crate::cmd::hints::missing_task_quality_fields(
+        has_body,
+        has_criteria,
+        has_test_plan,
+        has_correctness,
+    ));
     if !missing.is_empty() {
         findings.push(Finding {
             severity: "error",
@@ -296,14 +290,16 @@ fn inspect_task_quality(path: &Path, plan: &Value, task: &Value, findings: &mut 
             .and_then(Value::as_str)
             .filter(|s| !s.trim().is_empty())
         {
-            if crate::cmd::test_plan::test_plan_is_vague(test_plan) {
+            if let Some(reason) = crate::cmd::test_plan::test_plan_vague_reason(test_plan) {
                 findings.push(Finding {
                     severity: "warning",
                     kind: "test_plan_vague",
                     plan_id: plan_id(plan, path),
                     path: path.display().to_string(),
                     task_id: Some(task_id.clone()),
-                    detail: "test plan is vague — too short or names no runnable command; workers will fill the gaps with guesses".into(),
+                    detail: format!(
+                        "test plan is vague — {reason}; workers will fill the gaps with guesses"
+                    ),
                     fix: "write an executable plan: exact command(s), exact surfaces (testids/selectors/files/endpoints), numbered steps with observable pass conditions".into(),
                 });
             }
@@ -434,7 +430,7 @@ fn inspect_planner_pairing(path: &Path, plan: &Value) -> Option<Finding> {
         "planner_unpaired",
         "orchestrator has no attached Planner",
         &format!(
-            "spawn a planner: codeterm agent spawn claude --model fable --parent <orch-pane> --role Planner --plan {plan_id_str}; or waive: codeterm plan update {plan_id_str} --planner none --note \"<why>\""
+            "choose an available provider and model for planning, then spawn: codeterm agent spawn <provider> [--model <model>] --parent <orch-pane> --role Planner --plan {plan_id_str}; or waive: codeterm plan update {plan_id_str} --planner none --note \"<why>\""
         ),
     ))
 }

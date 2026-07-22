@@ -1,5 +1,5 @@
 import type { KeyboardEvent } from "react";
-import { GitBranch, Hash, History, User } from "lucide-react";
+import { ChevronRight, GitBranch, Hash, History, Layers, User } from "lucide-react";
 import { TASK_STATUS_COLORS } from "../settings";
 import type { BoardTaskCardModel } from "./boardModel";
 import { canonicalTaskStatusLabel } from "./taskStatusLabel";
@@ -33,10 +33,10 @@ function metaTestId(kind: TaskCardMetaRow["kind"]): string {
 export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
   const { task } = card;
   const statusColor = TASK_STATUS_COLORS[task.status];
-  const isParked = task.status === TaskStatus.Parked;
-  const parkReason = task.park_reason?.trim() || null;
-  const parkedTitle = isParked
-    ? `Parked${parkReason ? `: ${parkReason}` : ""}`
+  const isPaused = task.status === TaskStatus.Paused;
+  const pauseReason = task.pause_reason?.trim() || null;
+  const pausedTitle = isPaused
+    ? `Paused${pauseReason ? `: ${pauseReason}` : ""}`
     : undefined;
   const interactive = Boolean(onOpen);
   const metadata = deriveTaskCardMetadata(card);
@@ -55,10 +55,11 @@ export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
       data-testid="plan-board-task-card"
       data-task-id={task.id}
       data-task-status={task.status}
-      className={`plan-board-task-card plan-task-selectable${interactive ? " plan-board-task-card-interactive" : ""}${isParked ? " plan-board-task-card-parked" : ""}`}
+      className={`plan-board-task-card plan-task-selectable${interactive ? " plan-board-task-card-interactive" : ""}${isPaused ? " plan-board-task-card-paused" : ""}`}
       role={interactive ? "button" : undefined}
+      aria-label={interactive ? `Open task ${task.name}` : undefined}
       tabIndex={interactive ? 0 : undefined}
-      title={parkedTitle}
+      title={pausedTitle}
       onPointerDown={interactive ? onPointerDown : undefined}
       onPointerMove={interactive ? onPointerMove : undefined}
       onClick={interactive ? onClick : undefined}
@@ -72,12 +73,47 @@ export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
       <h4 data-testid="plan-board-task-title" className="plan-board-task-title">
         {task.name}
       </h4>
+      {card.locator && (
+        <div data-testid="plan-board-task-locator" className="plan-board-task-locator">
+          {card.locator.groupLabel && (
+            <span
+              className="plan-board-task-locator-group"
+              data-testid="plan-board-task-locator-group"
+              title={`Group: ${card.locator.groupLabel}`}
+            >
+              <span
+                className="plan-board-task-locator-dot"
+                style={{ background: card.locator.groupColor ?? "var(--ct-accent, #58a6ff)" }}
+                aria-hidden
+              />
+              <span className="plan-board-task-locator-group-label">{card.locator.groupLabel}</span>
+            </span>
+          )}
+          {card.locator.groupLabel && card.locator.section && (
+            <ChevronRight
+              size={9}
+              className="plan-board-task-locator-sep"
+              aria-hidden
+            />
+          )}
+          {card.locator.section && (
+            <span
+              className="plan-board-task-locator-section"
+              data-testid="plan-board-task-locator-section"
+              title={`Stage: ${card.locator.section}`}
+            >
+              <Layers size={9} className="plan-board-task-locator-section-icon" aria-hidden />
+              <span className="min-w-0 truncate">{card.locator.section}</span>
+            </span>
+          )}
+        </div>
+      )}
       <TaskExecutionBadges loop={card.loopBadge} competition={card.competeBadge} />
       <span
         data-testid="status-chip"
-        className={`plan-board-task-status${isParked ? " plan-board-task-status-parked" : ""}`}
+        className={`plan-board-task-status${isPaused ? " plan-board-task-status-paused" : ""}`}
         style={{ background: statusColor }}
-        title={parkedTitle}
+        title={pausedTitle}
       >
         {canonicalTaskStatusLabel(task)}
       </span>

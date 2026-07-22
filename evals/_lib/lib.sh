@@ -80,6 +80,14 @@ dev_post() {
     "http://127.0.0.1:7686$path"
 }
 
+dev_post_as_pane() {
+  local pane_id="$1" path="$2" body="${3:-{}}"
+  [ -n "$pane_id" ] || { echo "dev_post_as_pane requires pane id" >&2; return 7; }
+  curl -s --fail --max-time 30 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
+    -H "X-CodeTerm-Pane-Id: $pane_id" -H "Content-Type: application/json" \
+    --data "$body" "http://127.0.0.1:7686$path"
+}
+
 # Run the codeterm CLI against the dev daemon, regardless of what
 # CODETERM_* vars the parent shell inherited. This is the ONLY way
 # bench scripts should invoke the CLI — `codeterm <cmd>` directly
@@ -407,7 +415,7 @@ new_workspace() {
 # Spawn a plain shell pane in the given workspace. Echoes pane_id.
 new_shell_pane() {
   local ws="$1" cwd="$2" title="${3:-shell}"
-  dc pane new --workspace "$ws" --cwd "$cwd" --title "$title" --json 2>/dev/null \
+  dc tab new --workspace "$ws" --cwd "$cwd" --title "$title" --json 2>/dev/null \
     | python -c "import json,sys; print(json.load(sys.stdin).get('pane_id',''))"
 }
 

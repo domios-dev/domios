@@ -34,7 +34,7 @@ wait_pty() {
   local pane="$1" deadline=$((SECONDS + 60))
   while [ "$SECONDS" -lt "$deadline" ]; do
     local pty
-    pty="$(dc pane list --json | python3 -c 'import json,sys
+    pty="$(dc tab list --json | python3 -c 'import json,sys
 pane=sys.argv[1]
 for p in json.load(sys.stdin):
     if p.get("id")==pane:
@@ -73,22 +73,22 @@ capture_case() {
 
   echo "[snapshot-testbench] $situation pane=$pane"
   wait_pty "$pane" || { echo "pane $pane did not attach a PTY" >&2; return 1; }
-  dc pane capture start --pane "$pane" --out "$dir/raw.cast" >/dev/null
+  dc tab capture start --tab "$pane" --out "$dir/raw.cast" >/dev/null
   chat_send "$pane" "$prompt"
 
   local deadline=$((SECONDS + TIMEOUT))
   while [ "$SECONDS" -lt "$deadline" ]; do
     local screen
-    screen="$(dc pane get-text --pane "$pane" || true)"
+    screen="$(dc tab get-text --tab "$pane" || true)"
     if [ "$(printf '%s' "$screen" | text_has_options)" = "yes" ]; then
       break
     fi
     sleep 3
   done
-  dc pane capture stop --pane "$pane" >/dev/null
+  dc tab capture stop --tab "$pane" >/dev/null
   [ -f "$dir/raw.cast" ] || { echo "capture did not write $dir/raw.cast" >&2; return 1; }
   [ -f "$dir/raw.screen.txt" ] && mv "$dir/raw.screen.txt" "$dir/screen.txt"
-  [ -f "$dir/screen.txt" ] || dc pane get-text --pane "$pane" > "$dir/screen.txt"
+  [ -f "$dir/screen.txt" ] || dc tab get-text --tab "$pane" > "$dir/screen.txt"
 
   cat > "$dir/meta.json" <<JSON
 {

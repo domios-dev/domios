@@ -1,11 +1,19 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { clampFloatingPosition } from "./floatingPosition";
+
+const DROPDOWN_OPEN_EVENT = "codeterm:dropdown-open";
 
 export interface DropdownMenuItem {
   label: string;
   icon?: ReactNode;
-  onClick: () => void;
+  onClick?: () => void;
+  submenu?: {
+    label: string;
+    description?: string;
+    items: DropdownMenuItem[];
+  };
   danger?: boolean;
   /** Renders inert (no click, no hover state) with reduced opacity — e.g. a
    *  group child's close action, replaced by an explanation via `title`. */
@@ -20,6 +28,9 @@ interface DropdownMenuProps {
   trigger: ReactNode;
   /** Extra class on the trigger wrapper */
   className?: string;
+  header?: ReactNode;
+  contextMenuTargetRef?: RefObject<HTMLElement | null>;
+  menuLabel?: string;
 }
 
 /**
@@ -27,39 +38,68 @@ interface DropdownMenuProps {
  * Renders via portal to escape overflow/transform containers.
  * Closes on click outside, Escape, or item click.
  */
-export function DropdownMenu({ items, trigger, className }: DropdownMenuProps) {
+export function DropdownMenu({
+  items,
+  trigger,
+  className,
+  header,
+  contextMenuTargetRef,
+  menuLabel = "Actions",
+}: DropdownMenuProps) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const [activeSubmenu, setActiveSubmenu] = useState<DropdownMenuItem["submenu"]>(undefined);
+  const ownerRef = useRef(Symbol("dropdown"));
+  const openSourceRef = useRef<"trigger" | "context">("trigger");
+  const contextPointRef = useRef({ x: 0, y: 0 });
+  const visibleItems = activeSubmenu?.items ?? items;
 
   const calcPos = useCallback(() => {
     if (!triggerRef.current) return null;
     const rect = triggerRef.current.getBoundingClientRect();
-    const menuHeight = items.length * 28 + 8;
+    const menuHeight = Math.min(visibleItems.length * 28 + 8 + (activeSubmenu ? 54 : header ? 42 : 0), window.innerHeight - 8);
+    const menuWidth = Math.min(menuRef.current?.offsetWidth || 160, window.innerWidth - 8);
     const spaceBelow = window.innerHeight - rect.bottom;
-    const top = spaceBelow < menuHeight ? rect.top - menuHeight : rect.bottom + 2;
-    const menuWidth = menuRef.current?.offsetWidth || 160;
-    const left = Math.max(4, Math.min(rect.left, window.innerWidth - menuWidth - 8));
-    return { top, left };
-  }, [items.length]);
+    const preferredTop = spaceBelow < menuHeight ? rect.top - menuHeight : rect.bottom + 2;
+    return clampFloatingPosition(rect.left, preferredTop, menuWidth, menuHeight, window.innerWidth, window.innerHeight);
+  }, [activeSubmenu, header, visibleItems.length]);
 
-  const toggle = useCallback((e: React.MouseEvent | React.PointerEvent) => {
+  const contextPos = useCallback((x: number, y: number) => {
+    const menuHeight = Math.min(visibleItems.length * 28 + 8 + (activeSubmenu ? 54 : header ? 42 : 0), window.innerHeight - 8);
+    const menuWidth = Math.min(menuRef.current?.offsetWidth || 176, window.innerWidth - 8);
+    return clampFloatingPosition(x, y, menuWidth, menuHeight, window.innerWidth, window.innerHeight);
+  }, [activeSubmenu, header, visibleItems.length]);
+
+  const announceOpen = useCallback(() => {
+    document.dispatchEvent(new window.CustomEvent(DROPDOWN_OPEN_EVENT, { detail: ownerRef.current }));
+  }, []);
+
+  const toggle = useCallback((e: React.MouseEvent | React.PointerEvent | React.KeyboardEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    setOpen((v) => {
-      if (!v) setPos(calcPos());
-      return !v;
-    });
-  }, [calcPos]);
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    announceOpen();
+    openSourceRef.current = "trigger";
+    setActiveSubmenu(undefined);
+    setPos(calcPos());
+    setOpen(true);
+  }, [announceOpen, calcPos, open]);
 
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; maxHeight: number } | null>(null);
 
-  // Reposition after render (menu width now known)
   useEffect(() => {
     if (!open) return;
-    const id = requestAnimationFrame(() => setPos(calcPos()));
+    const id = requestAnimationFrame(() => {
+      setPos(openSourceRef.current === "context"
+        ? contextPos(contextPointRef.current.x, contextPointRef.current.y)
+        : calcPos());
+    });
     return () => cancelAnimationFrame(id);
-  }, [open, calcPos]);
+  }, [open, calcPos, contextPos]);
 
   useEffect(() => {
     if (!open) return;
@@ -74,13 +114,47 @@ export function DropdownMenu({ items, trigger, className }: DropdownMenuProps) {
   }, [open]);
 
   useEffect(() => {
+    const handleOtherDropdown = (event: Event) => {
+      if ((event as CustomEvent<symbol>).detail === ownerRef.current) return;
+      setOpen(false);
+      setActiveSubmenu(undefined);
+    };
+    document.addEventListener(DROPDOWN_OPEN_EVENT, handleOtherDropdown);
+    return () => document.removeEventListener(DROPDOWN_OPEN_EVENT, handleOtherDropdown);
+  }, []);
+
+  useEffect(() => {
+    const target = contextMenuTargetRef?.current;
+    if (!target) return;
+    const handleContextMenu = (event: MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      announceOpen();
+      openSourceRef.current = "context";
+      contextPointRef.current = { x: event.clientX, y: event.clientY };
+      setActiveSubmenu(undefined);
+      setPos(contextPos(event.clientX, event.clientY));
+      setOpen(true);
+    };
+    target.addEventListener("contextmenu", handleContextMenu);
+    return () => target.removeEventListener("contextmenu", handleContextMenu);
+  }, [announceOpen, contextMenuTargetRef, contextPos]);
+
+  useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (activeSubmenu) {
+        setActiveSubmenu(undefined);
+        return;
+      }
+      setOpen(false);
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [open]);
+  }, [activeSubmenu, open]);
 
   return (
     <>
@@ -88,33 +162,65 @@ export function DropdownMenu({ items, trigger, className }: DropdownMenuProps) {
         ref={triggerRef}
         onPointerDown={toggle}
         onPointerUp={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(event) => {
+          if ((event.key === "Enter" || event.key === " ") && !event.repeat) toggle(event);
+        }}
         className={className}
       >
         {trigger}
       </div>
       {open && pos && createPortal(
         <>
-          {/* Invisible backdrop to catch clicks */}
-          {/* Backdrop — pointer-events:none so it doesn't block hover on menu items.
-              Closing is handled by the mousedown document listener above. */}
           <div
             ref={menuRef}
-            className="fixed z-50 w-max min-w-[140px] border border-[rgba(255,255,255,0.12)] rounded-md shadow-lg py-1 ct-float backdrop-blur-xl"
-            style={{ top: pos.top, left: pos.left, background: "var(--ct-surface, #1e1e2e)" }}
+            role="menu"
+            aria-label={menuLabel}
+            className="ct-portal-menu fixed w-max min-w-[140px] max-w-[calc(100vw-0.5rem)] border border-[rgba(255,255,255,0.12)] rounded-md shadow-lg py-1 ct-float backdrop-blur-xl"
+            style={{
+              top: pos.top,
+              left: pos.left,
+              maxHeight: pos.maxHeight,
+              overflowY: "auto",
+              background: "var(--ct-surface, #1e1e2e)",
+            }}
           >
-            {items.map((item, i) => (
+            {activeSubmenu ? (
+              <div className="border-b border-[var(--ct-border)] px-1 pb-1 pt-0.5">
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="flex w-full items-center gap-1.5 rounded-sm px-2 py-1 text-left text-[11px] text-[var(--ct-fg)] hover:bg-[rgba(255,255,255,0.08)]"
+                  onClick={() => setActiveSubmenu(undefined)}
+                >
+                  <ChevronLeft aria-hidden size={11} />
+                  {activeSubmenu.label}
+                </button>
+                {activeSubmenu.description && (
+                  <div className="px-2 pb-1 text-[10px] text-[var(--ct-muted-fg)]">{activeSubmenu.description}</div>
+                )}
+              </div>
+            ) : header}
+            {visibleItems.map((item, i) => (
               <button
-                key={i}
+                key={`${item.label}:${i}`}
+                role="menuitem"
+                aria-haspopup={item.submenu ? "menu" : undefined}
+                aria-expanded={item.submenu ? activeSubmenu === item.submenu : undefined}
                 data-testid={item["data-testid"]}
                 title={item.title}
                 disabled={item.disabled}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (item.disabled) return;
+                  if (item.submenu) {
+                    setActiveSubmenu(item.submenu);
+                    return;
+                  }
                   setOpen(false);
-                  item.onClick();
+                  item.onClick?.();
                 }}
-                className={`flex items-center gap-2 w-full px-3 py-1.5 text-[11px] whitespace-nowrap transition-colors rounded-sm mx-0.5 ${
+                className={`flex items-center gap-2 w-[calc(100%-0.25rem)] px-3 py-1.5 text-[11px] whitespace-nowrap overflow-hidden text-ellipsis transition-colors rounded-sm mx-0.5 ${
                   item.disabled
                     ? "text-[var(--ct-muted-fg)] opacity-50 cursor-not-allowed"
                     : item.danger
@@ -123,7 +229,8 @@ export function DropdownMenu({ items, trigger, className }: DropdownMenuProps) {
                 }`}
               >
                 {item.icon && <span className="shrink-0 w-3 h-3 flex items-center justify-center">{item.icon}</span>}
-                {item.label}
+                <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
+                {item.submenu && <ChevronRight aria-hidden size={11} className="shrink-0 text-[var(--ct-muted-fg)]" />}
               </button>
             ))}
           </div>

@@ -70,6 +70,8 @@ fn in_review_status_persists_and_reloads() {
             NewTask {
                 name: "worker lane".into(),
                 kind: "implement".into(),
+                acceptance_criteria: vec!["it works".into()],
+                test_plan: Some("run focused test".into()),
                 competition: None,
                 ..Default::default()
             },

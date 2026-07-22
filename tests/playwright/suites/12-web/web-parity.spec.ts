@@ -3,16 +3,34 @@
  * WHY: The mirror shares React logic with desktop but runs through a different browser entrypoint and auth path.
  * ORACLE: Stable data-testid surfaces, settings state, titlebar controls, and workspace state agree with backend snapshots.
  */
-import { expect, test, type Browser, type Page, API_BASE, readDevToken } from "../../helpers/fixtures";
+import {
+  expect,
+  test,
+  type Browser,
+  type Page,
+  API_BASE,
+  readDevToken,
+} from "../../helpers/fixtures";
 import { pollUntil } from "../../helpers/poll";
 
 const WEB_URL = `${API_BASE}/`;
-const RAW_PROVIDER_IDS = new Set(["claude", "codex", "cursor", "opencode", "aider", "goose"]);
+const RAW_PROVIDER_IDS = new Set([
+  "claude",
+  "codex",
+  "cursor",
+  "opencode",
+  "aider",
+  "goose",
+]);
 
 type ProviderDescriptor = {
   id: string;
   display_name: string;
   transport?: string;
+};
+
+type ProviderMenuConfig = {
+  agents?: Record<string, { visible_in_menu?: boolean }>;
 };
 
 type MuxState = {
@@ -22,7 +40,10 @@ type MuxState = {
     name: string;
     tabs: { id: string; pane_id?: string | null }[];
   }[];
-  panes: Record<string, { id: string; title?: string | null; agent_type?: string | null }>;
+  panes: Record<
+    string,
+    { id: string; title?: string | null; agent_type?: string | null }
+  >;
 };
 
 type SpawnResult = {
@@ -37,15 +58,36 @@ type KeepAwakeStatus = {
   expires_at: number | null;
 };
 
-async function newWebPage(browser: Browser, viewport?: { width: number; height: number }): Promise<Page> {
-  const ctx = await browser.newContext({ viewport: viewport ?? { width: 1280, height: 800 } });
-  return ctx.newPage();
+async function newWebPage(
+  browser: Browser,
+  viewport?: { width: number; height: number },
+): Promise<Page> {
+  const ctx = await browser.newContext({
+    viewport: viewport ?? { width: 1280, height: 800 },
+    serviceWorkers: "block",
+  });
+  const page = await ctx.newPage();
+  await ctx.route("**/api/mesh/peers", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        paired: [],
+        discovered: [],
+        incoming_requests: [],
+      }),
+    }),
+  );
+  return page;
 }
 
 async function openWeb(page: Page): Promise<void> {
-  await page.goto(`${WEB_URL}#token=${encodeURIComponent(readDevToken())}`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${WEB_URL}#token=${encodeURIComponent(readDevToken())}`, {
+    waitUntil: "domcontentloaded",
+  });
   await page
-    .locator('[data-testid="peer-picker-button"], [data-testid="web-sidebar-open"]')
+    .locator(
+      '[data-testid="peer-picker-button"], [data-testid="web-sidebar-open"]',
+    )
     .first()
     .waitFor({ state: "visible", timeout: 30_000 });
 }
@@ -63,26 +105,90 @@ async function expandWorkspaceSidebar(page: Page): Promise<void> {
 }
 
 function titleTokens(provider: ProviderDescriptor): string[] {
-  return [provider.id, provider.display_name, ...RAW_PROVIDER_IDS].map((s) => s.trim().toLowerCase()).filter(Boolean);
+  return [provider.id, provider.display_name, ...RAW_PROVIDER_IDS]
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
 }
 
-function assertGeneratedSessionTitle(title: string, provider: ProviderDescriptor, seen: Set<string>): void {
+function assertGeneratedSessionTitle(
+  title: string,
+  provider: ProviderDescriptor,
+  seen: Set<string>,
+): void {
   const normalized = title.trim();
-  expect(normalized, `generated title for ${provider.id}`).toMatch(/^[A-Z][a-z]+(?:\d+)?$/);
-  expect(normalized, `generated title should be unique for ${provider.id}`).not.toHaveLength(0);
-  expect(seen.has(normalized), `duplicate generated title: ${normalized}`).toBe(false);
+  expect(normalized, `generated title for ${provider.id}`).toMatch(
+    /^[A-Z][a-z]+(?:\d+)?$/,
+  );
+  expect(
+    normalized,
+    `generated title should be unique for ${provider.id}`,
+  ).not.toHaveLength(0);
+  expect(seen.has(normalized), `duplicate generated title: ${normalized}`).toBe(
+    false,
+  );
   for (const raw of titleTokens(provider)) {
-    expect(normalized.toLowerCase(), `title must not be raw provider/display name ${raw}`).not.toBe(raw);
+    expect(
+      normalized.toLowerCase(),
+      `title must not be raw provider/display name ${raw}`,
+    ).not.toBe(raw);
   }
-  expect(normalized.toLowerCase(), "title must not be an agent command").not.toContain(" ");
+  expect(
+    normalized.toLowerCase(),
+    "title must not be an agent command",
+  ).not.toContain(" ");
   seen.add(normalized);
 }
 
-function visiblePtyProviders(providers: ProviderDescriptor[]): ProviderDescriptor[] {
+function ptyProviders(providers: ProviderDescriptor[]): ProviderDescriptor[] {
   return providers.filter((provider) => provider.transport !== "chat_backend");
 }
 
-async function currentMux(api: { get<T>(path: string): Promise<T> }): Promise<MuxState> {
+function menuVisibleProviders(
+  providers: ProviderDescriptor[],
+  config: ProviderMenuConfig,
+): ProviderDescriptor[] {
+  return providers.filter(
+    (provider) => config.agents?.[provider.id]?.visible_in_menu !== false,
+  );
+}
+
+async function expectProviderMenuContract(
+  page: Page,
+  providers: ProviderDescriptor[],
+  config: ProviderMenuConfig,
+): Promise<void> {
+  await openSidebarIfNeeded(page);
+  const workspace = page.locator('[data-testid="workspace-item"]').first();
+  await expect(workspace).toBeVisible({ timeout: 15_000 });
+  await expandWorkspaceSidebar(page);
+  await page
+    .getByRole("button", { name: /^New session$/ })
+    .first()
+    .click();
+
+  for (const provider of providers) {
+    const item = page.getByRole("button", {
+      name: `New ${provider.display_name} Session`,
+      exact: true,
+    });
+    if (config.agents?.[provider.id]?.visible_in_menu === false) {
+      await expect(
+        item,
+        `${provider.id} is explicitly hidden by agents config`,
+      ).toHaveCount(0);
+    } else {
+      await expect(
+        item,
+        `${provider.id} is a menu-visible PTY provider`,
+      ).toBeVisible();
+    }
+  }
+  await page.keyboard.press("Escape");
+}
+
+async function currentMux(api: {
+  get<T>(path: string): Promise<T>;
+}): Promise<MuxState> {
   return api.get<MuxState>("/mux/state");
 }
 
@@ -91,7 +197,9 @@ function allPaneIds(mux: MuxState): Set<string> {
 }
 
 function activeWorkspaceId(mux: MuxState): string {
-  const active = mux.active_workspace_id ?? mux.workspaces.find((w) => w.tabs.some((t) => t.pane_id))?.id;
+  const active =
+    mux.active_workspace_id ??
+    mux.workspaces.find((w) => w.tabs.some((t) => t.pane_id))?.id;
   if (!active) throw new Error("no active workspace found for web parity test");
   return active;
 }
@@ -110,24 +218,35 @@ async function waitForSpawnedPane(
   beforePaneIds: Set<string>,
   providerId: string,
 ): Promise<{ paneId: string; tabId: string; title: string }> {
-  return pollUntil(async () => {
-    const mux = await currentMux(api);
-    for (const [paneId, pane] of Object.entries(mux.panes)) {
-      if (beforePaneIds.has(paneId) || pane.agent_type !== providerId) continue;
-      const tabId = paneTabId(mux, paneId);
-      const title = pane.title?.trim();
-      if (tabId && title) return { paneId, tabId, title };
-    }
-    return undefined;
-  }, 30_000, 500, `spawned ${providerId} pane`);
+  return pollUntil(
+    async () => {
+      const mux = await currentMux(api);
+      for (const [paneId, pane] of Object.entries(mux.panes)) {
+        if (beforePaneIds.has(paneId) || pane.agent_type !== providerId)
+          continue;
+        const tabId = paneTabId(mux, paneId);
+        const title = pane.title?.trim();
+        if (tabId && title) return { paneId, tabId, title };
+      }
+      return undefined;
+    },
+    30_000,
+    500,
+    `spawned ${providerId} pane`,
+  );
 }
 
-async function clickNewSession(page: Page, provider: ProviderDescriptor): Promise<void> {
+async function clickNewSession(
+  page: Page,
+  provider: ProviderDescriptor,
+): Promise<void> {
   await openSidebarIfNeeded(page);
   const workspace = page.locator('[data-testid="workspace-item"]').first();
   await expect(workspace).toBeVisible({ timeout: 15_000 });
   await expandWorkspaceSidebar(page);
-  const newSession = page.getByRole("button", { name: /^New session$/ }).first();
+  const newSession = page
+    .getByRole("button", { name: /^New session$/ })
+    .first();
   await expect(newSession).toBeVisible({ timeout: 10_000 });
   await newSession.click();
   const item = page.getByRole("button", {
@@ -141,59 +260,108 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-async function expectSettingsDeepLink(page: Page, section: string): Promise<void> {
+async function expectSettingsDeepLink(
+  page: Page,
+  section: string,
+): Promise<void> {
   await page.locator('[data-testid="titlebar-settings"]').click();
-  await expect(page.locator('[data-testid="settings-menu"]')).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('[data-testid="settings-menu"]')).toBeVisible({
+    timeout: 10_000,
+  });
   await page.locator(`[data-testid="settings-menu-${section}"]`).click();
-  await expect(page.locator('[data-testid="settings-panel"]')).toBeVisible({ timeout: 10_000 });
-  await expect(page.locator('[data-testid="settings-header-title"]')).toContainText(
-    section === "general" ? "General" : "Agents",
-  );
-  await expect(page.locator('[data-testid="settings-menu"]')).not.toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('[data-testid="settings-panel"]')).toBeVisible({
+    timeout: 10_000,
+  });
+  await expect(
+    page.locator('[data-testid="settings-header-title"]'),
+  ).toContainText(section === "general" ? "General" : "Agents");
+  await expect(page.locator('[data-testid="settings-menu"]')).not.toBeVisible({
+    timeout: 10_000,
+  });
   await page.locator('[data-testid="settings-close"]').click();
-  await expect(page.locator('[data-testid="settings-panel"]')).not.toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('[data-testid="settings-panel"]')).not.toBeVisible({
+    timeout: 10_000,
+  });
 }
 
 async function expectKeepAwakeRoundTrip(
   page: Page,
-  api: { get<T>(path: string): Promise<T>; post<T>(path: string, body?: unknown): Promise<T> },
+  api: {
+    get<T>(path: string): Promise<T>;
+    post<T>(path: string, body?: unknown): Promise<T>;
+  },
 ): Promise<void> {
   await api.post("/keepawake/stop").catch(() => undefined);
-  await pollUntil(async () => {
-    const status = await api.get<KeepAwakeStatus>("/keepawake");
-    return status.active ? undefined : status;
-  }, 10_000, 250, "keepawake stopped before web round-trip");
+  await pollUntil(
+    async () => {
+      const status = await api.get<KeepAwakeStatus>("/keepawake");
+      return status.active ? undefined : status;
+    },
+    10_000,
+    250,
+    "keepawake stopped before web round-trip",
+  );
 
   await page.locator('[data-testid="keepawake-tray"]').click();
   await page.getByTitle("1 hour").click();
-  await pollUntil(async () => {
-    const status = await api.get<KeepAwakeStatus>("/keepawake");
-    return status.active && status.expires_at !== null ? status : undefined;
-  }, 10_000, 250, "keepawake starts from web titlebar");
+  await pollUntil(
+    async () => {
+      const status = await api.get<KeepAwakeStatus>("/keepawake");
+      return status.active && status.expires_at !== null ? status : undefined;
+    },
+    10_000,
+    250,
+    "keepawake starts from web titlebar",
+  );
 
   await page.locator('[data-testid="keepawake-tray"]').click();
   await page.getByRole("button", { name: "End" }).click();
-  await pollUntil(async () => {
-    const status = await api.get<KeepAwakeStatus>("/keepawake");
-    return status.active ? undefined : status;
-  }, 10_000, 250, "keepawake stops from web titlebar");
+  await pollUntil(
+    async () => {
+      const status = await api.get<KeepAwakeStatus>("/keepawake");
+      return status.active ? undefined : status;
+    },
+    10_000,
+    250,
+    "keepawake stops from web titlebar",
+  );
 }
 
-async function expectTitlebarLayout(page: Page, viewport: { width: number; height: number }): Promise<void> {
+async function expectTitlebarLayout(
+  page: Page,
+  viewport: { width: number; height: number },
+): Promise<void> {
   const titlebar = page.locator('[data-testid="titlebar"]');
   await expect(titlebar).toBeVisible({ timeout: 20_000 });
-  await expect(titlebar.locator('[data-testid="peer-picker-button"]')).toBeVisible();
-  await expect(titlebar.locator('[data-testid="canvas-toolbar-button"]')).toBeVisible();
-  await expect(titlebar.locator('[data-testid="titlebar-extensions"]')).toBeVisible();
-  await expect(titlebar.locator('[data-testid="keepawake-tray"]')).toBeVisible();
-  await expect(titlebar.locator('[data-testid="titlebar-settings"]')).toBeVisible();
+  await expect(
+    titlebar.locator('[data-testid="peer-picker-button"]'),
+  ).toBeVisible();
+  await expect(
+    titlebar.locator('[data-testid="canvas-toolbar-button"]'),
+  ).toBeVisible();
+  await expect(
+    titlebar.locator('[data-testid="titlebar-extensions"]'),
+  ).toBeVisible();
+  await expect(
+    titlebar.locator('[data-testid="keepawake-tray"]'),
+  ).toBeVisible();
+  await expect(
+    titlebar.locator('[data-testid="titlebar-settings"]'),
+  ).toBeVisible();
 
   const metrics = await page.evaluate(() => {
     const rectOf = (selector: string) => {
       const el = document.querySelector(selector);
       if (!el) return null;
       const r = el.getBoundingClientRect();
-      return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
+      return {
+        left: r.left,
+        top: r.top,
+        right: r.right,
+        bottom: r.bottom,
+        width: r.width,
+        height: r.height,
+      };
     };
     return {
       titlebar: rectOf('[data-testid="titlebar"]'),
@@ -205,14 +373,34 @@ async function expectTitlebarLayout(page: Page, viewport: { width: number; heigh
   });
 
   expect(metrics.titlebar, "titlebar box").not.toBeNull();
-  expect(metrics.picker, "WebPeerPicker must sit inside the titlebar left slot").not.toBeNull();
-  expect(metrics.scrollWidth, "web titlebar should not create horizontal scroll").toBeLessThanOrEqual(viewport.width);
-  expect(metrics.titlebar!.top, "titlebar respects top safe-area inset").toBeGreaterThanOrEqual(0);
-  expect(metrics.titlebar!.right, "titlebar fits viewport").toBeLessThanOrEqual(metrics.viewportWidth + 1);
-  expect(metrics.picker!.left, "peer picker occupies traffic-lights corner").toBeLessThanOrEqual(16);
+  expect(
+    metrics.picker,
+    "WebPeerPicker must sit inside the titlebar left slot",
+  ).not.toBeNull();
+  expect(
+    metrics.scrollWidth,
+    "web titlebar should not create horizontal scroll",
+  ).toBeLessThanOrEqual(viewport.width);
+  expect(
+    metrics.titlebar!.top,
+    "titlebar respects top safe-area inset",
+  ).toBeGreaterThanOrEqual(0);
+  expect(metrics.titlebar!.right, "titlebar fits viewport").toBeLessThanOrEqual(
+    metrics.viewportWidth + 1,
+  );
+  expect(
+    metrics.picker!.left,
+    "peer picker occupies traffic-lights corner",
+  ).toBeLessThanOrEqual(16);
   if (metrics.burger) {
-    expect(metrics.burger.top, "mobile burger stays below titlebar").toBeGreaterThanOrEqual(metrics.titlebar!.bottom - 1);
-    expect(metrics.burger.bottom, "mobile burger fits viewport").toBeLessThanOrEqual(viewport.height);
+    expect(
+      metrics.burger.top,
+      "mobile burger stays below titlebar",
+    ).toBeGreaterThanOrEqual(metrics.titlebar!.bottom - 1);
+    expect(
+      metrics.burger.bottom,
+      "mobile burger fits viewport",
+    ).toBeLessThanOrEqual(viewport.height);
   }
 }
 
@@ -225,13 +413,19 @@ test.describe("@golden web-native parity", () => {
     paneCleanup,
   }) => {
     test.setTimeout(300_000);
-    const providers = visiblePtyProviders(await api.providers() as ProviderDescriptor[]);
-    expect(providers.length, "at least one PTY provider is required for the naming gate").toBeGreaterThan(0);
+    const pty = ptyProviders((await api.providers()) as ProviderDescriptor[]);
+    const providerConfig = await api.get<ProviderMenuConfig>("/config");
+    const providers = menuVisibleProviders(pty, providerConfig);
+    expect(
+      providers.length,
+      "at least one PTY provider is required for the naming gate",
+    ).toBeGreaterThan(0);
 
     const page = await newWebPage(webBrowser);
     const seenTitles = new Set<string>();
     try {
       await openWeb(page);
+      await expectProviderMenuContract(page, pty, providerConfig);
       const workspaceId = activeWorkspaceId(await currentMux(api));
 
       for (const provider of providers) {
@@ -239,10 +433,11 @@ test.describe("@golden web-native parity", () => {
         await clickNewSession(page, provider);
         const spawned = await waitForSpawnedPane(api, before, provider.id);
         paneCleanup.track(spawned.paneId);
-        await expect(page.locator(`[data-testid="tab-item"][data-tab-id="${spawned.tabId}"]`)).toContainText(
-          spawned.title,
-          { timeout: 20_000 },
-        );
+        await expect(
+          page.locator(
+            `[data-testid="tab-item"][data-tab-id="${spawned.tabId}"]`,
+          ),
+        ).toContainText(spawned.title, { timeout: 20_000 });
         assertGeneratedSessionTitle(spawned.title, provider, seenTitles);
       }
 
@@ -254,16 +449,24 @@ test.describe("@golden web-native parity", () => {
         activate: true,
       });
       paneCleanup.track(restSpawn.pane_id);
-      const restPane = await pollUntil(async () => {
-        const mux = await currentMux(api);
-        const pane = mux.panes[restSpawn.pane_id];
-        const tabId = paneTabId(mux, restSpawn.pane_id);
-        return pane?.title && tabId ? { title: pane.title, tabId } : undefined;
-      }, 30_000, 500, "REST no-title spawn title");
-      await expect(page.locator(`[data-testid="tab-item"][data-tab-id="${restPane.tabId}"]`)).toContainText(
-        restPane.title,
-        { timeout: 20_000 },
+      const restPane = await pollUntil(
+        async () => {
+          const mux = await currentMux(api);
+          const pane = mux.panes[restSpawn.pane_id];
+          const tabId = paneTabId(mux, restSpawn.pane_id);
+          return pane?.title && tabId
+            ? { title: pane.title, tabId }
+            : undefined;
+        },
+        30_000,
+        500,
+        "REST no-title spawn title",
       );
+      await expect(
+        page.locator(
+          `[data-testid="tab-item"][data-tab-id="${restPane.tabId}"]`,
+        ),
+      ).toContainText(restPane.title, { timeout: 20_000 });
       assertGeneratedSessionTitle(restPane.title, restProvider, seenTitles);
     } finally {
       await page.context().close();
@@ -274,7 +477,10 @@ test.describe("@golden web-native parity", () => {
     api,
     webBrowser,
   }) => {
-    test.skip(true, "over-scoped/slow strip gate — split into focused tests (parity covered by naming + mobile + web.spec titlebar gates)");
+    test.skip(
+      true,
+      "over-scoped/slow strip gate — split into focused tests (parity covered by naming + mobile + web.spec titlebar gates)",
+    );
     test.setTimeout(180_000);
     const page = await newWebPage(webBrowser);
     try {
@@ -283,12 +489,24 @@ test.describe("@golden web-native parity", () => {
       await expectTitlebarLayout(page, { width: 1280, height: 800 });
 
       const titlebar = page.locator('[data-testid="titlebar"]');
-      await expect(titlebar.locator('[data-testid="peer-picker-button"]')).toContainText("this host");
-      await expect(page.locator('[data-testid="keepawake-tray"]').locator("xpath=ancestor::*[@data-testid='titlebar']")).toBeVisible();
+      await expect(
+        titlebar.locator('[data-testid="peer-picker-button"]'),
+      ).toContainText("this host");
+      await expect(
+        page
+          .locator('[data-testid="keepawake-tray"]')
+          .locator("xpath=ancestor::*[@data-testid='titlebar']"),
+      ).toBeVisible();
       await expect(page.locator('[data-testid="nav-settings"]')).toHaveCount(0);
-      await expect(page.locator('[data-testid="web-sidebar-keepawake"], [data-testid="web-sidebar-peer-picker"]')).toHaveCount(0);
+      await expect(
+        page.locator(
+          '[data-testid="web-sidebar-keepawake"], [data-testid="web-sidebar-peer-picker"]',
+        ),
+      ).toHaveCount(0);
 
-      await expect(page.locator('[data-testid="canvas-toolbar-button"]')).toBeVisible();
+      await expect(
+        page.locator('[data-testid="canvas-toolbar-button"]'),
+      ).toBeVisible();
 
       // and keep-awake round-trips — both strip controls.
       await expectSettingsDeepLink(page, "general");
@@ -300,7 +518,9 @@ test.describe("@golden web-native parity", () => {
     }
   });
 
-  test("@golden T3 titlebar strip gate: mobile safe-area layout stays reachable", async ({ webBrowser }) => {
+  test("@golden T3 titlebar strip gate: mobile safe-area layout stays reachable", async ({
+    webBrowser,
+  }) => {
     const page = await newWebPage(webBrowser, { width: 375, height: 812 });
     try {
       await openWeb(page);
@@ -310,8 +530,12 @@ test.describe("@golden web-native parity", () => {
       if (await burger.isVisible().catch(() => false)) {
         await burger.click();
       }
-      await expect(page.locator('[data-testid="workspace-item"]').first()).toBeVisible({ timeout: 10_000 });
-      await expect(page.locator('[data-testid="workspace-item"]')).not.toHaveCount(0);
+      await expect(
+        page.locator('[data-testid="workspace-item"]').first(),
+      ).toBeVisible({ timeout: 10_000 });
+      await expect(
+        page.locator('[data-testid="workspace-item"]'),
+      ).not.toHaveCount(0);
     } finally {
       await page.context().close();
     }

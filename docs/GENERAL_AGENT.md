@@ -94,15 +94,15 @@ Shutdown and app restart rely on normal session persistence. Manual GA restart u
 | Permissions | Skip-permissions launch where the provider supports it |
 | Role | Orchestrator |
 
-`codeterm send "..." --pane general` and `codeterm send "..." --pane main` resolve to the protected pane.
+`codeterm send "..." --tab general` and `codeterm send "..." --tab main` resolve to the protected pane.
 
 ## Bridge And Mesh Routing
 
 The GA prompt keeps only a short routing reminder. The authoritative command table lives in the injected CLI reference. The prefix is the return address:
 
 - `-=-codeterm:telegram user=USER_ID ...-=-text` replies via `codeterm bridge send --to USER_ID --service telegram`.
-- `-=-codeterm:pane label=NAME pane=ID ...-=-text` replies via `codeterm send --pane ID`.
-- `-=-codeterm:mesh peer=PEER pane=ID-=-text` replies via `codeterm send --pane ID --mesh PEER`.
+- `-=-codeterm:pane label=NAME pane=ID ...-=-text` replies via `codeterm send --tab ID`.
+- `-=-codeterm:mesh peer=PEER pane=ID-=-text` replies via `codeterm send --tab ID --mesh PEER`.
 - `-=-codeterm:report from=NAME pane=ID ...-=-text` is a child report; act on it or forward the summary to the original user channel.
 - `-=-codeterm:hook ...-=-metadata` is already routed by a text hook; trust the metadata and follow the inbound language.
 

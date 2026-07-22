@@ -86,6 +86,21 @@ fn spawn_agent_params_for_registered_chatbackend_routes_to_chatbackend_config() 
 }
 
 #[test]
+fn chatbackend_session_config_carries_composed_manager_bootstrap() {
+    let content = crate::service::role_identity::ManagerBootstrapInputs {
+        role: "Planner".into(),
+        team_id: "team_alpha".into(),
+        team_name: "Alpha".into(),
+        plan_id: "pl_alpha".into(),
+        project: "CodeTerm".into(),
+        coordination: None,
+    }
+    .compose();
+    let config = chatbackend_spawn_config(Some(&content), None, None, None, None, None);
+    assert_eq!(config["systemPrompt"], content);
+}
+
+#[test]
 fn watcher_spawn_params_route_to_machine_watcher_config_and_spec() {
     let registry = crate::chatbackend::ChatBackendRegistry::new();
     registry.register(

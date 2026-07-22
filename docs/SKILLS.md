@@ -19,26 +19,26 @@ ln -s /path/to/codeterm/skills/codeterm ~/.claude/skills/codeterm
 
 ### `codeterm` — Core terminal control
 - Create tabs, manage workspaces
-- Send commands to other panes
-- List sessions and panes
+- Send commands to other tabs
+- List tabs
 
 ## How it works
 
 Skills are markdown files that Claude Code loads automatically when relevant. When Claude detects it's running in CodeTerm (via `$CODETERM=1` env var and `$CODETERM_PANE_ID` for self-identification), it can use the `codeterm` CLI to:
 
-1. **Send commands**: `codeterm send "npm test"` (sends immediately to current pane, newline appended automatically). Sending to a **shell** pane delivers the raw text/keys verbatim — no `-=-codeterm:pane...-=-` return-address marker is injected, so the shell runs exactly what you send; the marker is added only when the target is an **agent** pane (so it knows who to reply to). For quote-heavy or multiline text, use `codeterm send --stdin --pane ID` and pipe/heredoc the payload. For terminal keys, use `codeterm send --actions "esc,delay:200ms,up,enter" --pane ID` (`enter`, arrows, `tab`, `backspace`, `ctrl-c`, `key*3`, and `delay:250ms` are supported) — these deliver as raw key bytes to a shell, with no wrapping. To spawn a bare terminal that runs a command on start, use `codeterm pane new --cmd "cd /repo && ./build.sh dev"` (waits for the PTY to be ready before delivering, so it runs reliably). To schedule a future pane message without blocking yourself, use `codeterm send --delay 10m --pane ID "text"`, `--delay 4h`, `--delay 1d`, or `--at 2026-06-15T09:00`; manage queued items with `codeterm delayed list|edit|send-now|delete`.
+1. **Send commands**: `codeterm send "npm test"` (sends immediately to the current tab, newline appended automatically). Sending to a **shell** tab delivers the raw text/keys verbatim — no `-=-codeterm:pane...-=-` return-address marker is injected, so the shell runs exactly what you send; the marker is added only when the target is an **agent** tab (so it knows who to reply to). For quote-heavy or multiline text, use `codeterm send --stdin --tab ID` and pipe/heredoc the payload. For terminal keys, use `codeterm send --actions "esc,delay:200ms,up,enter" --tab ID` (`enter`, arrows, `tab`, `backspace`, `ctrl-c`, `key*3`, and `delay:250ms` are supported) — these deliver as raw key bytes to a shell, with no wrapping. To spawn a bare terminal that runs a command on start, use `codeterm tab new --cmd "cd /repo && ./build.sh dev"` (waits for the PTY to be ready before delivering, so it runs reliably). To schedule a future tab message without blocking yourself, use `codeterm send --delay 10m --tab ID "text"`, `--delay 4h`, `--delay 1d`, or `--at 2026-06-15T09:00`; manage queued items with `codeterm delayed list|edit|send-now|delete`.
 2. **Send notifications**: `codeterm notify "Done" --level info`
 3. **Create workspaces**: `codeterm workspace create "Feature X"`
-4. **Read visible terminal text**: `codeterm pane get-text` (reads what the user sees)
-5. **Rename tab**: `codeterm pane rename "my task"` or `codeterm pane rename "my task" --pane ID`
+4. **Read visible terminal text**: `codeterm tab get-text` (reads what the user sees)
+5. **Rename tab**: `codeterm tab rename "my task"` or `codeterm tab rename "my task" --tab ID`
 6. **Create theme**: `codeterm theme save my-theme /tmp/theme.toml --apply`
 7. **Agent hierarchy**: `codeterm agent set-orchestrator` (mark self as orchestrator)
-8. **Compact context**: `codeterm agent compact [--pane ID]` (sends /compact to Claude)
+8. **Compact context**: `codeterm agent compact [--tab ID]` (sends /compact to Claude)
 9. **Choose model**: use `codeterm agent models <provider>` to list valid ids and `codeterm agent spawn <provider> --model MODEL --task "..."` to select one. Do not treat `codeterm agent model` as a universal live switch.
 10. **Send report**: `codeterm agent report "task done"` (report to direct parent, auto-injected into parent's PTY)
-11. **Message a running agent**: `codeterm agent message --pane ID "status?"` (immediate agent-directed message via the normal send transport)
-12. **List panes / hierarchy**: `codeterm pane list` (workspace tree, sub-agents nested; `--agents` filters to agent panes)
-13. **Spawn agent**: `codeterm agent spawn claude --title "Worker" --role Worker --parent ID --task "do work"` (creates new tab, non-blocking, does NOT switch active tab; task delivery is provider-owned and is not an inter-pane `-=-codeterm:pane...-=-` message)
+11. **Message a running agent**: `codeterm send --tab ID "status?"` (immediate agent-directed message via the normal send transport)
+12. **List tabs / hierarchy**: `codeterm tab list` (workspace tree, sub-agents nested; `--agents` filters to agent tabs)
+13. **Spawn agent**: `codeterm agent spawn claude --title "Worker" --role Worker --parent-tab ID --task "do work"` (creates new tab, non-blocking, does NOT switch active tab; task delivery is provider-owned and is not an inter-tab `-=-codeterm:pane...-=-` message)
 14. **Spawn with agent definition**: via REST API `POST /api/agents/spawn` with `agent_name` field (loads `.claude/agents/<name>.md`; not available in CLI)
 15. **Cross-workspace spawn**: `codeterm agent spawn claude --workspace WS_ID --title "Remote" --role Worker --parent ID --task "work"`
 16. **Create cron job**: `codeterm cron create "name" --schedule "0 9 * * * *" --task "Review TODOs"` (uses `$CODETERM_WORKSPACE_ID` by default; add `--once` for oneshot: `--schedule "in 30m" --once`)
@@ -51,11 +51,11 @@ Skills are markdown files that Claude Code loads automatically when relevant. Wh
 23. **Keep system awake**: `codeterm keepawake start --duration-secs 3600 [--display]` (cross-platform: caffeinate on macOS, SetThreadExecutionState on Windows). Stop: `codeterm keepawake stop`. Status: `codeterm keepawake status`. Use this instead of calling `caffeinate` / `powercfg` / `systemd-inhibit` directly.
 24. **Search past agent sessions**: `codeterm sessions search "QUERY" [--provider claude|codex|all] [--project /path] [--limit N]` — content search across every registered provider's on-disk sessions. Each hit carries its `provider` and `session_id`.
 25. **Inspect a past session**: `codeterm sessions get SESSION_ID` — provider, recorded cwd, file path, timestamps. Use before `resume` to verify the JSONL is still on disk.
-26. **Resume a past session atomically**: `codeterm sessions resume SESSION_ID [--title T] [--workspace-id ID] [--workspace-name N]` — locates the session, opens the right workspace at the recorded cwd, spawns the agent pane, and hands the resume id to the provider with the correct CLI shape. Use this instead of the brittle "create workspace at guessed cwd → `agent spawn --args=--resume=UUID`" dance.
-27. **Manage local services (daemon registry)**: `codeterm service list [--kind cron|daemon]`, `codeterm service add NAME --health-mode http|tcp|process|script [...] [--push]` (registers a daemon for the Mesh tab; `--push` returns a per-service Bearer token printed ONCE for `POST /api/panes/<id>/send`), `codeterm service show ID`, `codeterm service edit ID --enabled true|false`, `codeterm service delete ID`, `codeterm service token ID --rotate` (old token invalidated immediately, also auto-enables push).
+26. **Resume a past session atomically**: `codeterm sessions resume SESSION_ID [--title T] [--workspace-id ID] [--workspace-name N]` — locates the session, opens the right workspace at the recorded cwd, spawns the agent tab, and hands the resume id to the provider with the correct CLI shape. Use this instead of the brittle "create workspace at guessed cwd → `agent spawn --args=--resume=UUID`" dance.
+27. **Manage local services (daemon registry)**: `codeterm service list [--kind cron|daemon]`, `codeterm service add NAME --health-mode http|tcp|process|script [...] [--push]` (registers a daemon for the Mesh tab; `--push` returns a per-service Bearer token printed ONCE for the tab send endpoint), `codeterm service show ID`, `codeterm service edit ID --enabled true|false`, `codeterm service delete ID`, `codeterm service token ID --rotate` (old token invalidated immediately, also auto-enables push).
 28. **Memory pin / unpin**: `codeterm mem pin <id>` and `codeterm mem unpin <id>` toggle `is_pinned_wakeup` so the item is always loaded into the L1 wake-up payload (subject to budget). `codeterm mem pinned [--limit N]` lists every pinned item.
 29. **Atomic pinned save**: `codeterm mem save --kind fact --title "T" --pin --workspace $CODETERM_WORKSPACE_ID "<body>"` creates a pinned, workspace-scoped item in a single round-trip — no follow-up PATCH.
-30. **Workspace-aware wake-up**: `codeterm mem wake-up --workspace $CODETERM_WORKSPACE_ID` boosts items scoped to that workspace by `+0.5` in the L1 score and admits them alongside global rows. Add `--explain` to append a per-item score breakdown for debugging selection.
+30. **Workspace-aware wake-up**: `codeterm mem wake-up` inherits the calling tab's workspace, boosts items scoped there by `+0.5` in the L1 score, and admits them alongside global rows. Use `--workspace <id>` only to override the caller. Add `--explain` to append a per-item score breakdown for debugging selection.
 31. **Calibration audit / manual run**: `codeterm mem calibration log [--since ISO] [--limit N] [--count]` shows the dreamer's importance / archive sweep history. `codeterm mem calibration sweep [--force]` runs it manually — server-gated to Sunday unless `--force`, hard-capped at 30 mutations per session.
 32. **Audit-trail actor**: `codeterm mem update <id> --changed-by <actor> ...` sets the `X-CodeTerm-Actor` header so `mem_item_history.changed_by` carries the actor label (e.g. `dreamer-calibration:promote`). Default is `"user"` when the flag is omitted.
 
@@ -63,7 +63,7 @@ Skills are markdown files that Claude Code loads automatically when relevant. Wh
 
 All CLI commands support the `--json` flag for machine-readable output:
 ```bash
-codeterm pane list --json
+codeterm tab list --json
 codeterm workspace list --json
 ```
 
@@ -96,7 +96,7 @@ codeterm bridge send --to 123456789 --service telegram "Hello from CodeTerm"
 codeterm bridge send --to 123456789 --service telegram --append "...continued"
 ```
 
-Connected panes show service icons in the sidebar (`connected_services` field).
+Connected tabs show service icons in the sidebar (`connected_services` field).
 
 #### Hot-relocating the poller (`bridge migrate`)
 
@@ -153,7 +153,7 @@ curl -X POST http://localhost:7685/api/workspaces \
 # Create tab
 curl -X POST http://localhost:7685/api/workspaces/$WS_ID/tabs
 
-# Send command (enter: true is default, appends \r automatically)
+# Send command to a tab (enter: true is default, appends \r automatically)
 curl -X POST http://localhost:7685/api/panes/$PANE_ID/send \
   -H "Content-Type: application/json" \
   -d '{"text":"npm run build"}'
@@ -163,7 +163,7 @@ curl -X POST http://localhost:7685/api/panes/$PANE_ID/send \
   -H "Content-Type: application/json" \
   -d '{"actions":[{"type":"key","key":"esc"},{"type":"delay","ms":200},{"type":"key","key":"enter"}]}'
 
-# Read output
+# Read tab output
 curl http://localhost:7685/api/panes/$PANE_ID/output
 
 # Notify
@@ -185,17 +185,17 @@ Backward-compat alias: `Conductor` -> `Orchestrator`.
 **Push-based reports:** Reports go to the spawning Orchestrator, auto-injected into its PTY as `[Report from Name] message\r`, so Claude sees them as user input -- no polling needed.
 
 ```bash
-# Mark current pane as orchestrator
-codeterm agent set-orchestrator --pane $CODETERM_PANE_ID
+# Mark current tab as orchestrator
+codeterm agent set-orchestrator --tab $CODETERM_PANE_ID
 
-# View panes as a workspace tree (sub-agents nested); --agents = agent panes only
-codeterm pane list
+# View tabs as a workspace tree (sub-agents nested); --agents = agent tabs only
+codeterm tab list
 
-# Get one pane's agent state (type, session, prompt)
-codeterm pane status --pane $WORKER
+# Get one tab's agent state (type, session, prompt)
+codeterm tab status --tab $WORKER
 
 # Clear role: detach a Worker from its Orchestrator (or orphan an Orchestrator's Workers)
-codeterm agent unlink --pane $CODETERM_PANE_ID
+codeterm agent unlink --tab $CODETERM_PANE_ID
 ```
 
 The `agent.report` webhook event fires when any agent sends a report, enabling async orchestration patterns.
@@ -245,11 +245,11 @@ Available batch methods: `spawn`, `send`, `rename`, `close`, `role`, `notify`, `
 
 CodeTerm tracks and restores terminal state across sessions:
 
-- **CWD tracking**: Working directory is tracked via OSC 7 escape sequences and saved/restored per pane on restart.
+- **CWD tracking**: Working directory is tracked via OSC 7 escape sequences and saved/restored per tab on restart.
 - **Claude Code auto-resume**: Claude Code sessions are detected and automatically resumed with `--resume`. Before injecting the resume flag, CodeTerm validates the session file exists on disk via `AgentProvider::session_exists` — missing JSONLs (cleared cache, machine-synced config without sessions) launch fresh instead of looping on `No conversation found with session ID`.
-- **Pre-generated session ids**: For providers reporting `SessionIdInjection != None` (Claude today), CodeTerm pre-generates a UUID and passes it via `--session-id` at launch. Each pane gets a unique id even when several panes share the same cwd.
+- **Pre-generated session ids**: For providers reporting `SessionIdInjection != None` (Claude today), CodeTerm pre-generates a UUID and passes it via `--session-id` at launch. Each tab gets a unique id even when several tabs share the same cwd.
 - **SessionStart hook**: Claude's `SessionStart` matcher POSTs back to `/api/panes/{id}/hook/session_start`, so `/new` and `/clear` inside the TUI rotate the persisted `agent_session_id` immediately.
-- **Cross-provider session search**: `codeterm sessions search` walks every registered provider's on-disk sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`). `codeterm sessions resume` opens the pane in the correct cwd and hands the resume id to the right provider.
+- **Cross-provider session search**: `codeterm sessions search` walks every registered provider's on-disk sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`). `codeterm sessions resume` opens the tab in the correct cwd and hands the resume id to the right provider.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
 <!-- revision: 35 -->

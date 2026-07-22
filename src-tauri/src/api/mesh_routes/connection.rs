@@ -100,8 +100,25 @@ pub async fn mesh_connect_peer(
             format!("Pair request rejected: {}", body),
         ));
     }
+    let receipt = resp.json::<serde_json::Value>().await.map_err(|e| {
+        (
+            StatusCode::BAD_GATEWAY,
+            format!("Invalid pair response: {}", e),
+        )
+    })?;
+    let remote_instance_id = receipt["instance_id"].as_str().ok_or_else(|| {
+        (
+            StatusCode::BAD_GATEWAY,
+            "Pair response omitted the peer identity".to_string(),
+        )
+    })?;
+    state
+        .mesh
+        .lock()
+        .confirm_pairing_target_identity(&request.request_id, remote_instance_id)
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
 
-    log::info!("[mesh/api] Pairing request sent to {}", instance_id);
+    log::info!("[mesh/api] Pairing request sent to {}", remote_instance_id);
     crate::api::events::emit_everywhere(
         &state.svc.app_handle,
         "mesh-state-changed",

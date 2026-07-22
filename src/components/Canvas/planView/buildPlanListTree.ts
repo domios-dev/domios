@@ -29,7 +29,7 @@ export interface PlanListRow {
   paneLabel?: string;
   historicalExecutorSummary?: string;
   focus?: string;
-  parkReason?: string;
+  pauseReason?: string;
   milestoneKind?: string;
   milestoneAuthor?: string;
   activityTs?: number;
@@ -99,7 +99,7 @@ function buildTaskRow(
     paneLabel: presence?.label ?? undefined,
     historicalExecutorSummary: historical?.summary,
     focus: presence?.focus ?? undefined,
-    parkReason: task.park_reason?.trim() || undefined,
+    pauseReason: task.pause_reason?.trim() || undefined,
     milestoneKind: presence?.latest?.kindLabel ?? latest?.kind.replace(/[_-]+/g, " "),
     milestoneAuthor: presence?.latest?.authorLabel,
     activityTs: latest?.ts ?? task.status_changed_at ?? task.updated_at ?? task.created_at,
@@ -123,7 +123,7 @@ export function buildPlanListRows(
   const groups: Array<{ id: string; title: string; statuses: TaskStatus[] }> = [
     { id: "active", title: "In progress + review", statuses: ["in_progress", "in_review"] },
     { id: "blocked", title: "Blocked", statuses: ["blocked"] },
-    { id: "pending", title: "Pending", statuses: ["pending", "parked"] },
+    { id: "pending", title: "Pending", statuses: ["pending", "paused"] },
     { id: "done", title: "Done", statuses: ["done"] },
     { id: "cancelled", title: "Cancelled", statuses: ["cancelled"] },
   ];

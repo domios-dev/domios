@@ -1,6 +1,6 @@
 ---
 name: dev-testing
-description: Test CodeTerm dev instance via API. Use when testing memory, GA interactions, skills, bootstrap, recall quality. Covers pane send, mem check, worker status, file verification.
+description: Test CodeTerm dev instance via API. Use when testing memory, GA interactions, skills, bootstrap, recall quality. Covers tab send, mem check, worker status, file verification.
 ---
 
 # Dev Testing
@@ -32,9 +32,9 @@ API="http://127.0.0.1:7686"
 H="Authorization: Bearer $TOKEN"
 ```
 
-## Find GA pane
+## Find GA tab
 
-GA pane is protected. Find by protected flag:
+The GA tab is protected. Find it by the protected flag:
 ```bash
 GA=$(curl -s "$API/api/panes" -H "$H" | python3 -c "
 import json,sys
@@ -252,13 +252,13 @@ curl -s -X DELETE "$API/api/crons/$JOB" -H "$H"
 
 ### What "success" looks like for the shell-fix smoke
 
-The pane's PTY should show the **new** launch line:
+The tab's PTY should show the **new** launch line:
 ```
 PS …> Remove-Item Env:CLAUDECODE …; Get-Content 'C:\…\.ct-task-XXXX' -Raw -Encoding UTF8 | claude --dangerously-skip-permissions -p --model claude-haiku-4-5-20251001
 ```
-NOT the legacy inline `claude --dangerously-skip-permissions (Get-Content '…' -Raw -Encoding UTF8) --model …` form. If you see the legacy form on a hidden cron pane, the daemon is running stale code (build didn't pick up `shell.rs` / `provider.rs` changes — verify `target/debug/codeterm.exe` mtime is newer than the source files you edited).
+NOT the legacy inline `claude --dangerously-skip-permissions (Get-Content '…' -Raw -Encoding UTF8) --model …` form. If you see the legacy form on a hidden cron tab, the daemon is running stale code (build didn't pick up `shell.rs` / `provider.rs` changes — verify `target/debug/codeterm.exe` mtime is newer than the source files you edited).
 
-Do NOT use `codeterm mem worker report` as the test payload of a **cron** task — cron panes don't have `CODETERM_WORKER_ID` and the call exits 1 with `not in a worker pane`. Use a tool that doesn't depend on worker context (e.g. `codeterm mem save --kind note --title smoke …`) or have the task simply call `codeterm mem stats` and exit.
+Do NOT use `codeterm mem worker report` as the test payload of a **cron** task — cron tabs don't have `CODETERM_WORKER_ID` and the call exits 1 with `not in a worker tab`. Use a tool that doesn't depend on worker context (e.g. `codeterm mem save --kind note --title smoke …`) or have the task simply call `codeterm mem stats` and exit.
 
 ### Dreaming smoke
 
@@ -281,7 +281,7 @@ Note: `bash build.sh build` runs the production frontend bundle and currently fa
 
 ## Tips
 
-- GA pane ID stays the same across restarts (5a6a64dc in dev)
+- GA tab ID stays the same across restarts (5a6a64dc in dev)
 - Token is in `~/.codeterm-dev/config.toml` under `[api] token = "..."`
 - After sending message to GA, wait 20-60s for claude to process + extraction workers
 - After spawning agent, wait 30-60s for it to start + execute task

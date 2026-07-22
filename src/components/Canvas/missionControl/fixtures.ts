@@ -87,9 +87,9 @@ export const MISSION_CONTROL_FIXTURE: MissionControlSnapshot = {
     task("task_done2", "Canvas worlds v3 spec", TaskStatus.Done),
     task("task_done3", "Section zones prototype", TaskStatus.Done),
   ],
-  parked: [
-    task("task_p1", "Live canvas wiring", TaskStatus.Parked, { section: "Deferred" }),
-    task("task_p2", "Mesh presence avatars", TaskStatus.Parked, { section: "Future" }),
+  paused: [
+    task("task_p1", "Live canvas wiring", TaskStatus.Paused, { section: "Deferred" }),
+    task("task_p2", "Mesh presence avatars", TaskStatus.Paused, { section: "Future" }),
   ],
   blocked: [
     task("task_b1", "Production screenshot pipeline", TaskStatus.Blocked, { section: "CI" }),
@@ -111,6 +111,6 @@ export function activeLaneCount(snapshot: MissionControlSnapshot): number {
   return snapshot.lanes.filter((l) => l.activeTask?.status === TaskStatus.InProgress).length;
 }
 
-export function totalBlockedParked(snapshot: MissionControlSnapshot): number {
-  return snapshot.blocked.length + snapshot.parked.length;
+export function totalBlockedPaused(snapshot: MissionControlSnapshot): number {
+  return snapshot.blocked.length + snapshot.paused.length;
 }

@@ -3,16 +3,16 @@
 //! these), plus the SSE event stream that replaces Tauri event emits.
 
 use axum::{
-    Json,
     extract::{Path, Query, State as AxumState},
     http::{HeaderMap, StatusCode},
     response::sse::{Event, KeepAlive, Sse},
+    Json,
 };
 use futures_core::Stream;
 use serde::Deserialize;
 use std::time::{Duration, SystemTime};
 
-use crate::api::routes::{AppState, check_auth};
+use crate::api::routes::{check_auth, AppState};
 
 pub use crate::api::web_plugin_routes::plugin_ui;
 
@@ -36,10 +36,26 @@ pub async fn tab_focus(
     Path((workspace_id, tab_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let pane_id = state
+        .svc
+        .mux
+        .read()
+        .snapshot()
+        .workspaces
+        .into_iter()
+        .find(|ws| ws.id == workspace_id)
+        .and_then(|ws| ws.tabs.into_iter().find(|tab| tab.id == tab_id))
+        .map(|tab| tab.pane_id);
     state
         .svc
         .set_active_tab(&workspace_id, &tab_id)
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+    if let Some(pane_id) = pane_id {
+        state
+            .svc
+            .focus_pane(&pane_id)
+            .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+    }
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -543,6 +559,49 @@ pub async fn copy_image_to_clipboard(
 #[cfg(test)]
 mod tests {
     use crate::api::routes::WEB_TOKEN_TTL;
+    use axum::{
+        body::{to_bytes, Body},
+        http::{Request, StatusCode},
+        routing::post,
+        Router,
+    };
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn multipart_upload_contract_accepts_browser_boundary() {
+        async fn inspect(mut multipart: axum::extract::Multipart) -> Result<String, StatusCode> {
+            let field = multipart
+                .next_field()
+                .await
+                .map_err(|_| StatusCode::BAD_REQUEST)?
+                .ok_or(StatusCode::BAD_REQUEST)?;
+            let filename = field.file_name().unwrap_or_default().to_string();
+            let data = field.bytes().await.map_err(|_| StatusCode::BAD_REQUEST)?;
+            Ok(format!("{filename}:{}", data.len()))
+        }
+
+        let boundary = "codeterm-browser-boundary";
+        let body = format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"phone photo.png\"\r\nContent-Type: image/png\r\n\r\nimage-bytes\r\n--{boundary}--\r\n"
+        );
+        let response = Router::new()
+            .route("/upload", post(inspect))
+            .oneshot(
+                Request::post("/upload")
+                    .header(
+                        "content-type",
+                        format!("multipart/form-data; boundary={boundary}"),
+                    )
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let response = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(&response[..], b"phone photo.png:11");
+    }
 
     #[test]
     fn cookie_max_age_uses_web_token_ttl() {
@@ -577,14 +636,21 @@ mod tests {
 
 /// Same semantics and result shape as the Tauri `chat_start`: returns the
 /// recent raw-JSONL window and installs the per-pane tailer whose deltas
-/// arrive as `pane-chat-raw-{id}` over the SSE stream.
+/// arrive as `pane-chat-msg-{id}` over the SSE stream.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatSubscriptionBody {
+    subscription_id: String,
+}
+
 pub async fn chat_raw_start(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(pane_id): Path<String>,
+    Json(body): Json<ChatSubscriptionBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let result = crate::commands::chat_start_core(&state.svc, pane_id)
+    let result = crate::commands::chat_start_core(&state.svc, pane_id, body.subscription_id)
         .map_err(|e| (StatusCode::CONFLICT, e))?;
     Ok(Json(serde_json::to_value(result).unwrap_or_default()))
 }
@@ -868,9 +934,13 @@ pub async fn chat_raw_stop(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(pane_id): Path<String>,
+    Json(body): Json<ChatSubscriptionBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    state.svc.chat_registry.stop(&pane_id);
+    state
+        .svc
+        .chat_registry
+        .stop(&pane_id, &body.subscription_id);
     Ok(Json(serde_json::json!({"ok": true})))
 }
 

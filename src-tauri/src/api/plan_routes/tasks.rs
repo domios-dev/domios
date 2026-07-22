@@ -7,9 +7,13 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::api::routes::{check_auth, AppState};
-use crate::plan::{AgentRef, OrchestratorRef, TaskCompetitionMetadata, TaskLaneMetadata};
+use crate::multiplexer::commands::MuxState;
+use crate::plan::{
+    AgentRef, IdentityProvenance, OrchestratorRef, TaskCompetitionMetadata, TaskLaneMetadata,
+};
 use crate::service::plan::task_attempts::TaskRespawnRequest;
 use crate::service::plan::{NewTask, TaskLaneUpdate};
+use crate::service::{persist_attempt_executor_identity_for_mux, respawn_title_provenance};
 
 use super::{
     emit_plan_changed, epoch_ms, optional_string_field, plan_err, text_err, PlanRouteResult,
@@ -21,6 +25,55 @@ fn planner_role_for_pane(state: &AppState, pane_id: &str) -> Option<&'static str
             && pane.role_profile.as_deref() == Some("planner"))
         .then_some("planner")
     })
+}
+
+fn record_respawn_attempt_and_persist_identity(
+    state: &AppState,
+    plan_id: &str,
+    task_id: &str,
+    pane_id: &str,
+    draft: &crate::service::plan::task_attempts::TaskRespawnDraft,
+    title: &str,
+    now_ms: u64,
+) -> Result<crate::service::plan::task_attempts::TaskAttemptCreated, crate::service::plan::PlanError>
+{
+    record_respawn_attempt_and_persist_identity_for(
+        &state.svc.plan_store,
+        &state.svc.mux,
+        planner_role_for_pane(state, pane_id).or(Some("worker")),
+        plan_id,
+        task_id,
+        pane_id,
+        draft,
+        title,
+        now_ms,
+    )
+}
+
+fn record_respawn_attempt_and_persist_identity_for(
+    store: &crate::service::plan::PlanStore,
+    mux: &MuxState,
+    executor_role: Option<&str>,
+    plan_id: &str,
+    task_id: &str,
+    pane_id: &str,
+    draft: &crate::service::plan::task_attempts::TaskRespawnDraft,
+    title: &str,
+    now_ms: u64,
+) -> Result<crate::service::plan::task_attempts::TaskAttemptCreated, crate::service::plan::PlanError>
+{
+    let created = store.record_task_respawn_attempt(
+        plan_id,
+        task_id,
+        pane_id,
+        draft,
+        executor_role,
+        now_ms,
+    )?;
+    persist_attempt_executor_identity_for_mux(
+        store, mux, plan_id, task_id, pane_id, title, now_ms,
+    )?;
+    Ok(created)
 }
 
 fn lane_update_field(body: &Value) -> Result<Option<TaskLaneUpdate>, String> {
@@ -145,6 +198,8 @@ pub(crate) struct TaskAddBody {
     #[serde(default)]
     personality: Option<String>,
     #[serde(default)]
+    personality_provenance: Option<IdentityProvenance>,
+    #[serde(default)]
     competition: Option<TaskCompetitionMetadata>,
     #[serde(default)]
     intent: Option<String>,
@@ -234,6 +289,7 @@ pub async fn task_add(
                 role_guidance: body.role_guidance,
                 executor_role: body.executor_role,
                 personality: body.personality,
+                personality_provenance: body.personality_provenance,
                 competition: body.competition,
                 intent: body.intent,
                 parent_task_id: body.parent,
@@ -304,7 +360,7 @@ pub async fn task_update(
     state
         .svc
         .plan_store
-        .update_task(
+        .update_task_with_lane(
             &id,
             &tid,
             body.get("name").and_then(|v| v.as_str()),
@@ -323,6 +379,7 @@ pub async fn task_update(
             &tags,
             body.get("primary").and_then(|v| v.as_str()),
             body.get("handle").and_then(|v| v.as_str()),
+            lane,
             epoch_ms(),
         )
         .map_err(plan_err)?;
@@ -345,7 +402,16 @@ pub async fn task_update(
             )
             .map_err(plan_err)?;
     }
-    if body.get("personality").is_some() {
+    if body.get("personality").is_some() || body.get("personality_provenance").is_some() {
+        let provenance = body
+            .get("personality_provenance")
+            .cloned()
+            .map(|value| {
+                serde_json::from_value(value)
+                    .map_err(|e| format!("invalid personality_provenance: {e}"))
+            })
+            .transpose()
+            .map_err(|message| text_err(axum::http::StatusCode::BAD_REQUEST, message))?;
         state
             .svc
             .plan_store
@@ -353,15 +419,9 @@ pub async fn task_update(
                 &id,
                 &tid,
                 optional_string_field(&body, "personality"),
+                provenance,
                 epoch_ms(),
             )
-            .map_err(plan_err)?;
-    }
-    if let Some(lane) = lane {
-        state
-            .svc
-            .plan_store
-            .update_task_lane(&id, &tid, lane, epoch_ms())
             .map_err(plan_err)?;
     }
     if let Some(value) = body.get("competition") {
@@ -512,31 +572,31 @@ pub async fn task_respawn(
             crate::service::SpawnAgentParams {
                 agent: Some(draft.provider.clone()),
                 cwd: Some(draft.cwd.clone()),
-                title: Some(draft.title.clone()),
+                title: draft.title.clone(),
+                title_provenance: Some(respawn_title_provenance(draft.explicit_title)),
                 role: Some("Worker".into()),
                 parent_pane_id: draft.parent_pane_id.clone(),
                 task: Some(draft.task_prompt.clone()),
                 workspace_id: draft.workspace_id.clone(),
                 spawned_by_pane_id: draft.parent_pane_id.clone(),
                 model: draft.model.clone(),
+                planned_model: draft.planned_model.clone(),
                 ..Default::default()
             },
             None,
         )
         .await
         .map_err(|e| text_err(axum::http::StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    let created = state
-        .svc
-        .plan_store
-        .record_task_respawn_attempt(
-            &id,
-            &tid,
-            &spawn.pane_id,
-            &draft,
-            planner_role_for_pane(&state, &spawn.pane_id).or(Some("worker")),
-            epoch_ms(),
-        )
-        .map_err(plan_err)?;
+    let created = record_respawn_attempt_and_persist_identity(
+        &state,
+        &id,
+        &tid,
+        &spawn.pane_id,
+        &draft,
+        &spawn.title,
+        epoch_ms(),
+    )
+    .map_err(plan_err)?;
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({
         "ok": true,
@@ -562,4 +622,108 @@ pub async fn task_rm(
         .map_err(plan_err)?;
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lock_hold::TimedRwLock;
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::plan::{OrchestratorRef, Plan, TaskLaneMetadata};
+    use crate::service::plan::NewTask;
+    use std::sync::Arc;
+    #[test]
+    fn rest_respawn_persists_spawned_attempt_title_and_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::service::plan::PlanStore::new_for_test(dir.path());
+        let (mux_state, _) = MultiplexerState::new();
+        let mux = Arc::new(TimedRwLock::new("mux", mux_state));
+        let mut plan = Plan::new(
+            "Respawn".into(),
+            dir.path().display().to_string(),
+            OrchestratorRef::from_pane("orch"),
+        );
+        store.save(&mut plan, 1).unwrap();
+        let task_id = store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "task".into(),
+                    kind: "code".into(),
+                    lane: TaskLaneMetadata {
+                        workspace_id: Some("ws-rest".into()),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                2,
+            )
+            .unwrap();
+        let source_draft = crate::service::plan::task_attempts::TaskRespawnDraft {
+            plan_id: plan.id.clone(),
+            task_id: task_id.clone(),
+            source_attempt: Default::default(),
+            provider: "test-provider".into(),
+            planned_model: None,
+            model: None,
+            parent_pane_id: None,
+            workspace_id: Some("ws-rest".into()),
+            title: None,
+            explicit_title: false,
+            cwd: dir.path().display().to_string(),
+            task_prompt: "prompt".into(),
+            report_command: "report".into(),
+        };
+        let created = store
+            .record_task_respawn_attempt(
+                &plan.id,
+                &task_id,
+                "source-pane",
+                &source_draft,
+                Some("worker"),
+                3,
+            )
+            .unwrap();
+        let ws = mux
+            .write()
+            .create_workspace("REST".into(), Some(dir.path().display().to_string()))
+            .id;
+        let (_tab_id, pane_id) = mux.write().create_tab(&ws).unwrap();
+        mux.write().get_pane_mut(&pane_id).unwrap().agent_session_id = Some("rest-session".into());
+        let draft = store
+            .build_task_respawn_draft(
+                &plan.id,
+                &task_id,
+                crate::service::plan::task_attempts::TaskRespawnRequest {
+                    attempt_id: created.attempt.id.clone(),
+                    provider: None,
+                    model: None,
+                    parent_pane_id: None,
+                    workspace_id: Some("ws-rest".into()),
+                    title: Some("Exact User Title".into()),
+                },
+            )
+            .unwrap();
+        let persisted = record_respawn_attempt_and_persist_identity_for(
+            &store,
+            &mux,
+            Some("worker"),
+            &plan.id,
+            &task_id,
+            &pane_id,
+            &draft,
+            "Exact User Title",
+            4,
+        )
+        .unwrap();
+        let task = store.show_task(&task_id).unwrap();
+        let attempt = task
+            .task
+            .execution_attempts
+            .iter()
+            .find(|attempt| attempt.id == persisted.attempt.id)
+            .unwrap();
+        assert_eq!(attempt.executor_title.as_deref(), Some("Exact User Title"));
+        assert_eq!(attempt.session_id.as_deref(), Some("rest-session"));
+    }
 }

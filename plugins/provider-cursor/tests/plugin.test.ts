@@ -54,7 +54,12 @@ const baseHost = (over: Record<string, unknown>) => ({
   md5: (s: string) => crypto.createHash("md5").update(s).digest("hex"),
   exec: () => JSON.stringify({ code: 127, error: "not found" }),
   log: () => {},
-  shell: { quoteFor: (v: unknown) => String(v), quote: (v: unknown) => String(v) },
+  shell: {
+    quoteFor: (v: unknown) => String(v),
+    quote: (v: unknown) => String(v),
+    envPrefix: (n: unknown, v: unknown, platform: unknown) =>
+      platform === "windows" ? `$env:${n}='${v}'; ` : `${n}='${v}' `,
+  },
   fs: {
     fileExists: () => false,
     readFile: () => null,
@@ -127,6 +132,7 @@ console.log("\n--- runtime detect (plugin.js, structural) ---\n");
   assert(p.detectFromOutput(cursorFixture) === true, "detectFromOutput banner positive (two-signal)");
   assert(p.detectFromOutput("OpenAI Codex\ncodex>") === false, "detectFromOutput codex negative");
   assert(p.screenHasTui("foo\n  Run Everything\nbar") === true, "screenHasTui positive");
+  assert(p.screenHasTui(cursorTrustFixture) === false, "workspace trust gate is not a ready agent TUI");
   assert(p.screenHasTui("$ ls") === false, "screenHasTui negative");
   assert(p.isOutputNoise("╭──────────╮") === true, "box-drawing line is noise");
   assert(p.isOutputNoise("hello") === false, "text line is not noise");
@@ -138,7 +144,11 @@ console.log("\n--- buildLaunchCommand (workspace-trust pre-write + invocation) -
   // gate. Pre-writing it unconditionally would silently bypass that gate.
   const bare = p.buildLaunchCommand({});
   assert(bare.indexOf(".workspace-trusted") === -1, "bare launch does NOT pre-write the trust marker (gate honored)");
-  eq(bare, "cursor-agent", "bare launch is just the invocation, no trust prefix");
+  eq(
+    bare,
+    "CLAUDE_CODE_DISABLE_HOOKS='1' cursor-agent",
+    "bare launch is the hook-disable prefix + invocation, no trust prefix",
+  );
   // With skipPermissions (--force, the user's intentional 'trust everything'
   // flow): pre-write the marker so the TUI doesn't block on it.
   const forced = p.buildLaunchCommand({ skipPermissions: true });
@@ -147,6 +157,9 @@ console.log("\n--- buildLaunchCommand (workspace-trust pre-write + invocation) -
   const withModel = p.buildLaunchCommand({ skipPermissions: true, args: ["--model", "auto"] });
   assert(withModel.endsWith("cursor-agent --force --model auto"), "force + model args applied");
   assert(withModel.indexOf("pwd -P") !== -1, "POSIX trust prefix resolves symlinks via pwd -P");
+  const hostileTask = "line one\n<location>D:\\repo</location>\n'quotes' \"double\" $HOME `whoami` --flag\nюникод";
+  const withTask = p.buildLaunchCommand({ skipPermissions: true, task: hostileTask });
+  assert(!withTask.includes("<location>") && !withTask.includes("whoami") && !withTask.includes("юникод"), "PTY-delivered Cursor task never enters the shell command");
 }
 
 console.log("\n--- POSIX trustPrefix: JSON-escaped workspacePath ---\n");
@@ -170,10 +183,42 @@ console.log("\n--- buildResumeCommand (trust pre-write GATED behind skipPermissi
   const p = loadCursorWithHost(baseHost({}));
   const r = p.buildResumeCommand("1a7e8655-f97a-0000-0000-000000000000");
   assert(r.indexOf(".workspace-trusted") === -1, "resume without skipPermissions does NOT pre-write the trust marker");
-  assert(r === "cursor-agent --resume 1a7e8655-f97a-0000-0000-000000000000", "resume by session uuid, no trust prefix");
+  assert(
+    r === "CLAUDE_CODE_DISABLE_HOOKS='1' cursor-agent --resume 1a7e8655-f97a-0000-0000-000000000000",
+    "resume by session uuid carries the hook-disable prefix, no trust prefix",
+  );
   const forced = p.buildResumeCommand("abc", true);
   assert(forced.indexOf(".workspace-trusted") !== -1, "resume with skipPermissions pre-writes the trust marker");
   assert(forced.endsWith("cursor-agent --resume abc --force"), "resume carries --force when skipPermissions");
+}
+
+console.log("\n--- Claude PreToolUse hook import is disabled for every Cursor launch (sec_hook_ampersand) ---\n");
+{
+  // Regression: cursor-agent's Bash tool picks up ~/.claude/settings.json's
+  // PreToolUse hooks. A hook authored for Claude's shell dialect (e.g.
+  // PowerShell body) crashes Cursor's POSIX bash runner with a bare `&`
+  // parse error. CLAUDE_CODE_DISABLE_HOOKS=1 must be set on every launch,
+  // on both platforms, without ever touching the user's settings file.
+  const posix = loadCursorWithHost(baseHost({ platform: () => "linux" }));
+  for (const cmd of [
+    posix.buildLaunchCommand({}),
+    posix.buildLaunchCommand({ skipPermissions: true }),
+    posix.buildResumeCommand("abc"),
+    posix.buildResumeCommand("abc", true),
+  ]) {
+    assert(cmd.indexOf("CLAUDE_CODE_DISABLE_HOOKS='1'") === 0, "POSIX: hook-disable is the leading prefix", cmd);
+    assert(!cmd.includes("&&"), "POSIX: hook-disable prefix needs no `&&` chaining", cmd);
+  }
+
+  const win = loadCursorWithHost(baseHost({ platform: () => "windows" }));
+  for (const cmd of [
+    win.buildLaunchCommand({}),
+    win.buildLaunchCommand({ skipPermissions: true }),
+    win.buildResumeCommand("abc"),
+    win.buildResumeCommand("abc", true),
+  ]) {
+    assert(cmd.indexOf("$env:CLAUDE_CODE_DISABLE_HOOKS='1'; ") === 0, "windows: hook-disable is the leading prefix", cmd);
+  }
 }
 
 console.log("\n--- buildLaunchCommand (windows trust prefix, gated) ---\n");
@@ -181,9 +226,17 @@ console.log("\n--- buildLaunchCommand (windows trust prefix, gated) ---\n");
   const p = loadCursorWithHost(baseHost({ platform: () => "windows" }));
   const bare = p.buildLaunchCommand({});
   assert(bare.indexOf(".workspace-trusted") === -1, "windows bare launch does NOT pre-write the trust marker");
+  assert(
+    bare === "$env:CLAUDE_CODE_DISABLE_HOOKS='1'; cursor-agent",
+    "windows bare launch is the hook-disable prefix + invocation",
+  );
   const cmd = p.buildLaunchCommand({ skipPermissions: true });
   assert(cmd.indexOf(".workspace-trusted") !== -1, "windows launch with skipPermissions pre-writes the trust marker");
   assert(cmd.indexOf("Get-Location") !== -1, "windows trust prefix uses PowerShell Get-Location");
+  assert(cmd.indexOf("[^a-zA-Z0-9]+") !== -1, "windows trust slug collapses adjacent drive separators");
+  assert(cmd.indexOf("ConvertTo-Json -Compress") !== -1, "windows trust marker uses JSON serialization");
+  assert(cmd.indexOf("[IO.File]::WriteAllText") !== -1, "windows trust marker is replaced atomically before launch");
+  assert(cmd.indexOf("workspacePath\\\":\\\"'+($d -replace") === -1, "windows trust path is not escaped twice");
   assert(cmd.endsWith("cursor-agent --force"), "windows launch ends with the invocation");
 }
 
@@ -352,6 +405,21 @@ console.log("\n--- parseSessionDelta (real JSONL transcript fixture) ---\n");
   eq(delta.messages[0].role, "user", "row 0 is user");
   eq(delta.messages[0].blocks[0].kind, "text", "user block is text");
   eq(delta.messages[0].blocks[0].data.text, "Run the shell command 'echo hello123' and tell me what it printed.", "user_query framing stripped");
+
+  const timestamped = p.parseSessionDelta(JSON.stringify({
+    role: "user",
+    message: {
+      content: [{
+        type: "text",
+        text: "<timestamp>Monday, Jul 20, 2026, 1:21 PM (UTC+3)</timestamp>\n<user_query>\nCompute 5096 + 3837. Reply with the decimal digits only.\n</user_query>",
+      }],
+    },
+  })) as { messages: any[] };
+  eq(
+    timestamped.messages[0].blocks[0].data.text,
+    "Compute 5096 + 3837. Reply with the decimal digits only.",
+    "timestamp and user_query framing stripped together",
+  );
   // 2) assistant turn with a redacted-thinking text block + a tool_use block:
   //    the bare [REDACTED] text block is dropped, tool_use survives.
   eq(delta.messages[1].role, "assistant", "row 1 is assistant");
@@ -359,6 +427,11 @@ console.log("\n--- parseSessionDelta (real JSONL transcript fixture) ---\n");
   eq(delta.messages[1].blocks[0].kind, "tool_use", "tool_use block preserved");
   eq(delta.messages[1].blocks[0].data.name, "Shell", "tool name preserved");
   eq(delta.messages[1].blocks[0].data.input.command, "echo hello123", "tool input preserved");
+  eq(delta.messages[1].blocks[0].data.tool_kind, "command", "Shell gets canonical command kind");
+  eq(delta.messages[1].blocks[0].data.tool_summary, "echo hello123", "Shell gets clean command summary");
+  eq(delta.messages[1].blocks[0].data.tool_detail, "echo hello123", "Shell gets command detail");
+  eq(delta.messages[1].blocks[0].data.tool_edits, [], "Shell has no edit payload");
+  eq(delta.messages[1].blocks[0].data.tool_status, "success", "persisted Cursor tool use is complete");
   // 3) assistant final text: trailing [REDACTED] trimmed, body kept.
   eq(delta.messages[2].blocks[0].kind, "text", "final assistant block is text");
   eq(delta.messages[2].blocks[0].data.text, "The command printed:\n\n```\nhello123\n```", "trailing [REDACTED] stripped");
@@ -368,6 +441,20 @@ console.log("\n--- parseSessionDelta (real JSONL transcript fixture) ---\n");
   eq(msgs.length, 2, "content search yields the 2 text-bearing turns");
   eq(msgs[0].text, "Run the shell command 'echo hello123' and tell me what it printed.", "search text matches user turn");
   assert(msgs[1].text.indexOf("hello123") !== -1, "search text matches assistant turn");
+}
+
+console.log("\n--- canonical tool fields ---\n");
+{
+  const p = loadCursorWithHost(baseHost({}));
+  const parsed = p.parseSessionDelta(JSON.stringify({ role: "assistant", message: { content: [
+    { type: "tool_use", name: "Edit", input: { file_path: "src/demo.ts", old_string: "old", new_string: "new" } },
+    { type: "tool_use", name: "Mystery", input: { value: "opaque" } },
+  ] } })) as { messages: Array<{ blocks: Array<{ data: Record<string, unknown> }> }> };
+  const data = parsed.messages[0].blocks.map((block) => block.data);
+  eq(data[0].tool_kind, "edit", "Edit gets canonical edit kind");
+  eq(data[0].tool_edits, [{ path: "src/demo.ts", old: "old", new: "new" }], "Edit emits canonical edit pair");
+  eq(data[1].tool_kind, "generic", "unknown tool degrades to generic");
+  assert(typeof data[1].tool_summary === "string" && !(data[1].tool_summary as string).includes("{"), "unknown summary is not JSON");
 }
 
 console.log("\n--- detectSessionModel (store.db JSON blob scan) ---\n");
@@ -390,15 +477,16 @@ console.log("\n--- detectSessionModel (store.db JSON blob scan) ---\n");
 console.log("\n--- enumerateSessions (walk ~/.cursor/projects agent-transcripts) ---\n");
 {
   const sid = "cbf7919a-ce25-423d-8e18-1aaae2d82701";
-  const base = `/home/u/.cursor/projects/private-tmp-ct-cw2-probe/agent-transcripts/${sid}`;
+  const base = `C:\\Users\\u\\.cursor\\projects\\D-Developer-codeterm\\agent-transcripts\\${sid}`;
   const p = loadCursorWithHost(baseHost({
-    homeDir: () => "/home/u",
+    homeDir: () => "C:\\Users\\u",
+    platform: () => "windows",
     fs: {
       ...baseHost({}).fs,
-      fileExists: () => true,
+      fileExists: (value: string) => value === "D:\\Developer\\codeterm" || value.indexOf(".cursor") !== -1,
       walkDir: () => [
-        { name: `${sid}.jsonl`, path: `${base}/${sid}.jsonl`, isFile: true, isDir: false, size: 523, createdMs: 1781885008048, modifiedMs: 1781885033657 },
-        { name: "repo.json", path: "/home/u/.cursor/projects/private-tmp-ct-cw2-probe/repo.json", isFile: true, isDir: false, size: 50, createdMs: null, modifiedMs: null },
+        { name: `${sid}.jsonl`, path: `${base}\\${sid}.jsonl`, isFile: true, isDir: false, size: 523, createdMs: 1781885008048, modifiedMs: 1781885033657 },
+        { name: "repo.json", path: "C:\\Users\\u\\.cursor\\projects\\D-Developer-codeterm\\repo.json", isFile: true, isDir: false, size: 50, createdMs: null, modifiedMs: null },
       ],
     },
   }));
@@ -406,6 +494,7 @@ console.log("\n--- enumerateSessions (walk ~/.cursor/projects agent-transcripts)
   eq(sessions.length, 1, "only the agent-transcript jsonl enumerated (repo.json ignored)");
   eq(sessions[0].sessionId, sid, "session id is the transcript uuid");
   eq(sessions[0].provider, "cursor", "provider tagged cursor");
+  eq(sessions[0].projectPath, "D:\\Developer\\codeterm", "projectPath decoded and verified against the filesystem");
   eq(sessions[0].createdTs, Math.floor(1781885008048 / 1000), "createdTs from file stat (unix seconds)");
 }
 
@@ -568,12 +657,13 @@ console.log("\n--- buildPromptResponse (vertical ↓ nav + Enter) ---\n");
       shell: {
         quoteFor: (v: unknown, platform?: unknown) => `Q(${platform}:${String(v)})`,
         quote: (v: unknown) => `BAD(${String(v)})`,
+        envPrefix: (n: unknown, v: unknown) => `ENV(${n}=${v}) `,
       },
     }),
   );
   eq(
     p.buildResumeCommand("sess 1"),
-    "cursor-agent --resume Q(windows:sess 1)",
+    "ENV(CLAUDE_CODE_DISABLE_HOOKS=1) cursor-agent --resume Q(windows:sess 1)",
     "buildResumeCommand quotes session id with quoteFor(platform)",
   );
 }

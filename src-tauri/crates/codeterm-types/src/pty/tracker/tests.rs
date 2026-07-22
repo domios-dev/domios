@@ -120,3 +120,29 @@ fn test_waiting_not_affected_by_idle_check() {
     tracker.check_idle("pty-1", Duration::from_millis(0));
     assert_eq!(tracker.get_status("pty-1"), PaneStatus::Waiting);
 }
+
+#[test]
+fn status_signal_advances_only_on_status_transition() {
+    let mut tracker = PaneStatusTracker::new();
+    tracker.update_output("pty-1", [1u8; 32]);
+    let signal = tracker.arm_status_change_signal("pty-1");
+    let working = signal.generation();
+
+    tracker.update_output("pty-1", [1u8; 32]);
+    assert_eq!(signal.generation(), working);
+
+    tracker.check_idle("pty-1", Duration::ZERO);
+    assert_ne!(signal.generation(), working);
+    assert_eq!(tracker.get_status("pty-1"), PaneStatus::Idle);
+}
+
+#[test]
+fn removing_pty_closes_status_signal() {
+    let mut tracker = PaneStatusTracker::new();
+    tracker.update_output("pty-1", [1u8; 32]);
+    let signal = tracker.arm_status_change_signal("pty-1");
+    let generation = signal.generation();
+
+    tracker.remove("pty-1");
+    assert!(!signal.wait_after(generation, Duration::ZERO));
+}

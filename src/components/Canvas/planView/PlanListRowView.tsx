@@ -99,7 +99,7 @@ export function PlanListRowView({
 
   const isTask = TASK_KINDS.has(row.kind);
   const isDoneTask = isTask && row.status === "done";
-  const isParkedTask = isTask && row.status === TaskStatus.Parked;
+  const isPausedTask = isTask && row.status === TaskStatus.Paused;
   const dotColor = row.status ? TASK_STATUS_COLORS[row.status] ?? "var(--ct-muted-fg)" : "var(--ct-muted-fg)";
   const executor = row.paneLabel ?? row.historicalExecutorSummary ?? "";
   const age = formatRelativeAge(row.activityTs, now ?? 0);
@@ -107,8 +107,8 @@ export function PlanListRowView({
   const chipTitle = onOpenBelonging
     ? `Open plan document for ${row.sectionTitle ?? "Unsectioned"}`
     : `Belongs to ${row.sectionTitle ?? "Unsectioned"}`;
-  const rowTitle = isParkedTask && row.parkReason
-    ? `Parked: ${row.parkReason}`
+  const rowTitle = isPausedTask && row.pauseReason
+    ? `Paused: ${row.pauseReason}`
     : row.focus || row.title;
 
   const activate = () => onOpenRow?.(row);
@@ -134,7 +134,7 @@ export function PlanListRowView({
       data-row-kind={row.kind}
       data-plan-id={row.planId}
       data-task-id={row.taskId}
-      className={`plan-list-row plan-task-selectable${isDoneTask ? " plan-list-row-done" : ""}${isParkedTask ? " plan-list-row-parked" : ""}`}
+      className={`plan-list-row plan-task-selectable${isDoneTask ? " plan-list-row-done" : ""}${isPausedTask ? " plan-list-row-paused" : ""}`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onClick={onClick}
@@ -152,13 +152,13 @@ export function PlanListRowView({
           {row.title}
         </span>
         <TaskExecutionBadges loop={row.loopBadge} competition={row.competeBadge} />
-        {isParkedTask && (
+        {isPausedTask && (
           <span
-            data-testid="plan-list-parked-chip"
-            className="plan-list-parked-chip"
+            data-testid="plan-list-paused-chip"
+            className="plan-list-paused-chip"
             title={rowTitle}
           >
-            parked
+            paused
           </span>
         )}
         <button

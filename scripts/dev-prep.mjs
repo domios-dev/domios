@@ -9,6 +9,7 @@ const isWin = process.platform === "win32";
 const pnpm = isWin ? "pnpm.cmd" : "pnpm";
 const cargo = isWin ? "cargo.exe" : "cargo";
 const node = process.execPath;
+const startServer = !process.argv.includes("--no-server");
 
 function run(cmd, args, opts = {}) {
   const res = spawnSync(cmd, args, {
@@ -73,4 +74,6 @@ if (process.env.REBUILD_EMBED === "1" || embedSize < 1_048_576) {
   console.log(`[dev-prep] skipping codeterm-embed rebuild (bundle exists, ${embedSize} bytes; set REBUILD_EMBED=1 to force)`);
 }
 
-run(pnpm, ["dev"]);
+if (startServer) {
+  run(node, ["scripts/dev-static-server.mjs"]);
+}

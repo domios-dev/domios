@@ -10,7 +10,7 @@ use super::{get_string_param, JsonRpcError};
 use crate::plan::TaskStatus;
 use crate::service::plan::task_queries::TaskListFilter;
 use crate::service::plan::{hints, NewTask, PlanError};
-use crate::service::ServiceState;
+use crate::service::{persist_attempt_executor_identity, respawn_title_provenance, ServiceState};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
@@ -298,6 +298,16 @@ pub(super) fn dispatch(
                             .and_then(|x| x.get("personality"))
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string()),
+                        personality_provenance: p
+                            .and_then(|x| x.get("personality_provenance"))
+                            .cloned()
+                            .map(serde_json::from_value)
+                            .transpose()
+                            .map_err(|e| JsonRpcError {
+                                code: -32602,
+                                message: format!("invalid personality_provenance: {e}"),
+                                data: None,
+                            })?,
                         acceptance_criteria,
                         test_plan,
                         correctness,
@@ -407,20 +417,13 @@ pub(super) fn dispatch(
             let test_plan = optional_string_field(p, "test_plan");
             let correctness = optional_string_field(p, "correctness");
             let lane = lane_update_field(p)?;
-            // Lane binds BEFORE the status write so `--status in_progress --pane X`
-            // satisfies pane-requiring transition invariants in one command.
-            if let Some(lane) = lane.clone() {
-                store
-                    .update_task_lane(&id, &tid, lane, now)
-                    .map_err(plan_rpc_err)?;
-            }
             if let Some(depends_on) = dependency_vec_field(p)? {
                 store
                     .update_task_dependencies(&id, &tid, depends_on, now)
                     .map_err(plan_rpc_err)?;
             }
             store
-                .update_task(
+                .update_task_with_lane(
                     &id,
                     &tid,
                     p.and_then(|x| x.get("name")).and_then(|v| v.as_str()),
@@ -442,6 +445,7 @@ pub(super) fn dispatch(
                     &tags_field(p),
                     p.and_then(|x| x.get("primary")).and_then(|v| v.as_str()),
                     p.and_then(|x| x.get("handle")).and_then(|v| v.as_str()),
+                    lane,
                     now,
                 )
                 .map_err(plan_rpc_err)?;
@@ -557,12 +561,14 @@ pub(super) fn dispatch(
             let spawn_params = crate::service::SpawnAgentParams {
                 agent: Some(draft.provider.clone()),
                 cwd: Some(draft.cwd.clone()),
-                title: Some(draft.title.clone()),
+                title: draft.title.clone(),
+                title_provenance: Some(respawn_title_provenance(draft.explicit_title)),
                 role: Some("Worker".into()),
                 parent_pane_id: draft.parent_pane_id.clone(),
                 task: Some(draft.task_prompt.clone()),
                 workspace_id: draft.workspace_id.clone(),
                 model: draft.model.clone(),
+                planned_model: draft.planned_model.clone(),
                 spawned_by_pane_id: draft.parent_pane_id.clone(),
                 ..Default::default()
             };
@@ -583,6 +589,16 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
+            persist_attempt_executor_identity(
+                store,
+                svc,
+                &id,
+                &tid,
+                &spawn.pane_id,
+                &spawn.title,
+                now,
+            )
+            .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
             Ok(json!({
                 "ok": true,

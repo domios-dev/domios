@@ -1,3 +1,4 @@
+import { COMMAND_PATHS, type CommandPathNode } from "./commandPaths";
 import { recognize } from "./recognize";
 
 let passed = 0,
@@ -19,14 +20,20 @@ function ok(c: boolean, name: string) {
 
 console.log("\n--- recognize ---\n");
 
-const inv = recognize('codeterm send --pane bda0e267 "Понял, буду"');
+const inv = recognize('codeterm send --tab bda0e267 "Понял, буду"');
 eq(inv?.path, ["send"], "send path");
-eq(inv?.flags.pane, "bda0e267", "send --pane flag");
+eq(inv?.flags.tab, "bda0e267", "send --tab flag");
 eq(inv?.positionals, ["Понял, буду"], "send positional payload");
 
 eq(recognize('codeterm agent spawn claude --task "go"')?.path, ["agent", "spawn"], "agent spawn path");
-eq(recognize("CODETERM_API_PORT=7686 codeterm pane list")?.path, ["pane", "list"], "env-prefix stripped");
+eq(recognize("CODETERM_API_PORT=7686 codeterm tab list")?.path, ["tab", "list"], "env-prefix stripped");
 eq(recognize("cd frontend && codeterm agent reports")?.path, ["agent", "reports"], "cd-prefix chain strips to codeterm segment");
+eq(
+  recognize('cd /d/Developer/codeterm\ncodeterm agent report --status in_review --sha abc123 "done" 2>&1 | tail -3')?.path,
+  ["agent", "report"],
+  "Claude multiline report with output pipe",
+);
+eq(recognize("Set-Location 'D:\\Developer\\codeterm'; codeterm docs ORCHESTRATION")?.path, ["docs"], "PowerShell statement chain");
 eq(
   recognize("env -u CODETERM_API_TOKEN CODETERM_API_PORT=7686 codeterm plan state pl_1")?.path,
   ["plan", "state"],
@@ -35,27 +42,32 @@ eq(
 ok(recognize("~/.codeterm/bin/codeterm mem search foo") !== null, "abs path binary recognized");
 ok(recognize("ls -la") === null, "non-codeterm → null");
 ok(recognize('echo hi | codeterm send "x"') === null, "buried after pipe → null");
-ok(recognize("codeterm-dev pane list") !== null, "codeterm-dev recognized");
+ok(recognize("codeterm-dev tab list") !== null, "codeterm-dev recognized");
+ok(recognize("codeterm tabs") === null, "legacy tabs command stays unknown");
+ok(recognize("codeterm tabs list") === null, "legacy tabs list stays unknown");
 eq(recognize("codeterm cron list --json")?.path, ["cron", "list"], "known depth-2 subcommand");
 eq(recognize("codeterm agent spawn claude")?.positionals, ["claude"], "trailing word stays positional");
+eq(recognize("codeterm tab get-text --tab abc")?.path, ["tab", "get-text"], "tab get-text path");
+eq(recognize("codeterm plan task update task_1 --status done")?.path, ["plan", "task", "update"], "depth-3 plan path");
+eq(recognize("codeterm spec link add pl_1 --spec sp_1")?.path, ["spec", "link", "add"], "depth-3 spec path");
 
 console.log("\n--- templates ---\n");
 import { renderTemplate } from "./templates";
 
-const sent = recognize('codeterm send --pane bda0e267 "hi there"')!;
-eq(renderTemplate(sent).title, "Sent to pane bda0e267", "send title");
+const sent = recognize('codeterm send --tab bda0e267 "hi there"')!;
+eq(renderTemplate(sent).title, "Sent to tab bda0e267", "send title");
 eq(renderTemplate(sent, "OK (sent)").status, { ok: true, label: "delivered" }, "send status from result");
 
-const sendAlias = recognize('codeterm send --pane keats "Привет от send"')!;
-eq(renderTemplate(sendAlias).title, "Sent to pane keats", "send title from renamed command");
+const sendAlias = recognize('codeterm send --tab keats "Привет от send"')!;
+eq(renderTemplate(sendAlias).title, "Sent to tab keats", "send title from renamed command");
 eq(renderTemplate(sendAlias, "OK").status, { ok: true, label: "delivered" }, "send status from result");
 
 const resolveName = (ref: string) => (ref.slice(0, 8) === "45509574" ? "qa-lat" : undefined);
-const sentResolvable = recognize('codeterm send --pane 45509574 "yo"')!;
+const sentResolvable = recognize('codeterm send --tab 45509574 "yo"')!;
 eq(renderTemplate(sentResolvable, undefined, resolveName).title, "Sent to qa-lat", "send title resolves pane id to tab name");
-eq(renderTemplate(sentResolvable).title, "Sent to pane 45509574", "send title keeps id when no resolver");
-const sentUnknown = recognize('codeterm send --pane deadbeef "yo"')!;
-eq(renderTemplate(sentUnknown, undefined, resolveName).title, "Sent to pane deadbeef", "send title falls back to id when unresolved");
+eq(renderTemplate(sentResolvable).title, "Sent to tab 45509574", "send title keeps id when no resolver");
+const sentUnknown = recognize('codeterm send --tab deadbeef "yo"')!;
+eq(renderTemplate(sentUnknown, undefined, resolveName).title, "Sent to tab deadbeef", "send title falls back to id when unresolved");
 
 const spawn = recognize('codeterm agent spawn claude --task "do x" --workspace ws1')!;
 eq(renderTemplate(spawn).title, "Spawned claude", "agent spawn title");
@@ -80,6 +92,15 @@ function resolve(node: any, path: string[]): boolean {
   }
   return true;
 }
+
+function manifestTree(node: any): CommandPathNode {
+  return Object.fromEntries((node.subcommands ?? []).flatMap((child: any) => {
+    const branch = manifestTree(child);
+    return [[child.name, branch], ...(child.aliases ?? []).map((alias: string) => [alias, branch])];
+  }));
+}
+
+eq(COMMAND_PATHS, manifestTree(manifest), "recognizer command tree matches manifest");
 
 for (const path of TEMPLATE_PATHS) {
   ok(resolve(manifest, path), `template path exists in manifest: ${path.join(" ")}`);

@@ -34,12 +34,14 @@ test(
       await tab.click();
     }
 
-    const chat = ui.page.locator(
-      `[data-testid="pane-session-chat"][data-pane-id="${pane.id}"]`,
-    );
+    const chat = ui.page
+      .locator(`[data-pane-id="${pane.id}"]`)
+      .getByRole("region", { name: `Pane chat: ${pane.title}` });
     await expect(chat).toBeVisible({ timeout: 30_000 });
 
-    const composer = chat.locator('[data-testid="chat-composer"]');
+    const conversation = chat.getByRole("log", { name: "Conversation" });
+    const composer = chat.getByRole("textbox", { name: "Message composer" });
+    await expect(conversation).toBeVisible({ timeout: 10_000 });
     await expect(composer).toBeVisible({ timeout: 10_000 });
 
     // still be null, which would have triggered "Pane has no PTY" before the fix.
@@ -57,8 +59,8 @@ test(
       .filter({ hasText: "Pane has no PTY" });
     await expect(paneHasNoPtyToast).toHaveCount(0);
 
-    const userMsg = chat
-      .locator('[data-testid="chat-message"][data-message-role="user"]')
+    const userMsg = conversation
+      .getByRole("article", { name: "user message" })
       .filter({ hasText: marker });
     await expect(userMsg).toBeVisible({ timeout: 10_000 });
   },

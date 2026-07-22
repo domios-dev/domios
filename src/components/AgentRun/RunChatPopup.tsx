@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { MessageBubble } from "@codeterm/chat-ui";
-import { attachToolResults, type NormalizedChatMessage as ChatMessage } from "@codeterm/chat-core";
+import { reduceToolEvents, type NormalizedChatMessage as ChatMessage } from "@codeterm/chat-core";
 import { invoke } from "../../lib/bridge";
 
 interface Props {
@@ -123,14 +123,15 @@ export function RunChatPopup({
           </button>
         </div>
 
-        <div ref={scrollRef} className="flex-1 overflow-auto px-4 py-3">
+        <div ref={scrollRef} className="relative flex-1 overflow-auto px-4 py-3">
           {error && <div className="text-[var(--ct-red)] mb-2 text-[11px]">{error}</div>}
           {loaded && !error && messages.length === 0 && (
             <div className="text-[var(--ct-muted-fg)] text-[11px]">No transcript for this run.</div>
           )}
-          {attachToolResults(messages).map((m) => (
-            <MessageBubble key={m.id} message={m} />
-          ))}
+          {reduceToolEvents(messages).map((item) => {
+            const m = item.kind === "message" ? item.message : item.event.message;
+            return <MessageBubble key={m.id} message={m} item={item.kind === "tool" ? item : undefined} />;
+          })}
         </div>
 
         {report && (

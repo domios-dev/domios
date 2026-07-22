@@ -6,7 +6,7 @@ pub enum OrchestratorAction {
     Status {
         #[arg(long, env = "CODETERM_PLAN_ID")]
         plan: Option<String>,
-        #[arg(long, env = "CODETERM_PANE_ID")]
+        #[arg(long = "tab", value_name = "TAB", env = "CODETERM_PANE_ID")]
         pane: Option<String>,
     },
     /// Append a persistent learning to this orchestrator's heartbeat
@@ -27,16 +27,16 @@ pub enum OrchestratorAction {
     Refresh {
         #[arg(long, env = "CODETERM_PLAN_ID")]
         plan: Option<String>,
-        #[arg(long, env = "CODETERM_PANE_ID")]
+        #[arg(long = "tab", value_name = "TAB", env = "CODETERM_PANE_ID")]
         pane: Option<String>,
     },
-    /// Create an orchestrator handoff and optionally reseed this pane
+    /// Create an orchestrator handoff and optionally reseed this tab
     Handoff {
         #[arg(long, env = "CODETERM_PLAN_ID")]
         plan: Option<String>,
         #[arg(long, env = "CODETERM_TASK_ID")]
         task: Option<String>,
-        #[arg(long, env = "CODETERM_PANE_ID")]
+        #[arg(long = "tab", value_name = "TAB", env = "CODETERM_PANE_ID")]
         pane: Option<String>,
         #[arg(long)]
         reseed: bool,
@@ -95,7 +95,7 @@ mod tests {
             "status",
             "--plan",
             "pl_1",
-            "--pane",
+            "--tab",
             "pane1",
         ])
         .expect("orchestrator status parses");
@@ -118,7 +118,7 @@ mod tests {
             "refresh",
             "--plan",
             "pl_1",
-            "--pane",
+            "--tab",
             "pane1",
         ])
         .expect("orchestrator refresh parses");

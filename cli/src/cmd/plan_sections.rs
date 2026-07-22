@@ -1,10 +1,10 @@
 use crate::args::plan::PlanSectionAction;
-use crate::client::SocketClient;
+use crate::client::RpcClient;
 use crate::cmd::plan::{call_plan_rpc, maybe_inject_caller_pane, resolve_text};
 use serde_json::{json, Value};
 
 pub fn handle(
-    client: &mut SocketClient,
+    client: &mut dyn RpcClient,
     json_output: bool,
     action: PlanSectionAction,
 ) -> Result<Option<Value>, String> {
@@ -68,7 +68,10 @@ pub(crate) fn render_section_show(val: &Value) -> String {
     out
 }
 
-fn section_mutation(client: &mut SocketClient, action: PlanSectionAction) -> Result<Value, String> {
+fn section_mutation(
+    client: &mut dyn RpcClient,
+    action: PlanSectionAction,
+) -> Result<Value, String> {
     match action {
         PlanSectionAction::Show { .. } => unreachable!("Show handled before mutation dispatch"),
         PlanSectionAction::Attach {

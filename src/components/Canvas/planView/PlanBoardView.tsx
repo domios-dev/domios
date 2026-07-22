@@ -208,8 +208,12 @@ export function PlanBoardView({
   error = null,
   onRetry,
   planId,
+  teamId,
   orchestratorPaneId,
   panes = {},
+  workspaceId,
+  workspaces,
+  teams,
   onOpenPane,
   api,
 }: PlanViewSurfaceProps) {
@@ -227,20 +231,20 @@ export function PlanBoardView({
 
   const filteredPlans = useMemo(
     () => {
-      const active = filterPlansForBoard(effectivePlans, mode, { planId, orchestratorPaneId, panes });
+      const active = filterPlansForBoard(effectivePlans, mode, { planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams });
       if (!manualPlanId || active.some((p) => p.id === manualPlanId)) return active;
       const archivedPlan = plans.find((p) => p.id === manualPlanId && p.status === "archived");
       if (!archivedPlan || (mode === "focus" && planId && planId !== archivedPlan.id)) return active;
       return [...active, archivedPlan];
     },
-    [effectivePlans, manualPlanId, mode, planId, orchestratorPaneId, panes, plans],
+    [effectivePlans, manualPlanId, mode, planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams, plans],
   );
 
   const orderedPlans = useMemo(() => orderPlansByActivity(filteredPlans), [filteredPlans]);
 
   const defaultPlanId = useMemo(
-    () => selectDefaultPlanId(orderedPlans, { planId, orchestratorPaneId, panes }),
-    [orderedPlans, planId, orchestratorPaneId, panes],
+    () => selectDefaultPlanId(orderedPlans, { planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams }),
+    [orderedPlans, planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams],
   );
 
   const selectedPlanId = useMemo(() => {
@@ -369,12 +373,14 @@ export function PlanBoardView({
       )}
       {showsData && selectedPlan && boardModel && (
         <div data-testid="plan-board-single" className="plan-board-single">
-          <PlanSwitcher
-            plans={switcherWithInflight}
-            selectedId={selectedPlan.id}
-            onSelect={selectPlan}
-            onAction={handleAction}
-          />
+          {!teamId && (
+            <PlanSwitcher
+              plans={switcherWithInflight}
+              selectedId={selectedPlan.id}
+              onSelect={selectPlan}
+              onAction={handleAction}
+            />
+          )}
           <BoardPlanBoard
             model={boardModel}
             plan={selectedPlan}

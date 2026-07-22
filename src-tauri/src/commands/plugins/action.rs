@@ -533,11 +533,9 @@ mod tests {
             force: false,
             remove_data: false,
         };
-        assert!(
-            plugin_action_args(&action)
-                .unwrap_err()
-                .contains("pluginId")
-        );
+        assert!(plugin_action_args(&action)
+            .unwrap_err()
+            .contains("pluginId"));
     }
 
     #[test]

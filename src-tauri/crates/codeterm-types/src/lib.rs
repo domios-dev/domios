@@ -4,5 +4,6 @@ pub mod mesh;
 pub mod message_markers;
 pub mod plan;
 pub mod pty;
+pub mod team;
 pub mod update;
 pub mod usage;

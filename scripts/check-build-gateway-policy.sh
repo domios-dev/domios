@@ -67,6 +67,9 @@ if CODETERM_EXPECTED_BUILD_SHA=definitely-wrong ./build.sh gateway-policy-probe 
 fi
 grep -q "release source mismatch" "$TEST_ROOT/release-mismatch.log"
 
+bash scripts/check-release-source-clean.sh
+bash scripts/check-release-signing.sh
+
 CT_BUILD_JOB_ID=release-policy ./build.sh gateway-policy-probe release-target > "$TEST_ROOT/release-policy.log"
 grep -q "incremental=0" "$TEST_ROOT/release-policy.log"
 grep -q "/targets/release/release-policy" "$TEST_ROOT/release-policy.log"
@@ -81,6 +84,23 @@ grep -q "incremental=0" "$TEST_ROOT/worktree-policy.log"
 grep -q "/targets/exceptional/" "$TEST_ROOT/worktree-policy.log"
 grep -q "wrapper=sccache" "$TEST_ROOT/worktree-policy.log"
 
+cli_flow="$(sed -n '/^  cli)/,/^    ;;/p' build.sh)"
+grep -q 'require_integration_owner' <<< "$cli_flow"
+grep -q 'cargo build --release --manifest-path cli/Cargo.toml' <<< "$cli_flow"
+grep -q 'write_cli_docs' <<< "$cli_flow"
+if grep -q 'enter_build_gateway' <<< "$cli_flow"; then
+  echo "CLI build must not wait behind the independent app/dev gateway" >&2
+  exit 1
+fi
+
+dev_flow="$(sed -n '/^  dev)/,/^    ;;/p' build.sh)"
+dev_kill_line="$(grep -n 'kill_dev' <<< "$dev_flow" | head -1 | cut -d: -f1)"
+dev_gateway_line="$(grep -n 'enter_build_gateway' <<< "$dev_flow" | head -1 | cut -d: -f1)"
+[ -n "$dev_kill_line" ] && [ -n "$dev_gateway_line" ] && [ "$dev_kill_line" -lt "$dev_gateway_line" ] || {
+  echo "canonical dev restart must release the running dev owner before gateway acquisition" >&2
+  exit 1
+}
+
 ./build.sh gateway-status > "$TEST_ROOT/status.json"
 node - <<'JS' "$TEST_ROOT/status.json"
 const status = require(process.argv[2]);
@@ -91,4 +111,4 @@ for (const id of ["qa-child", "release-policy", "worktree-policy"]) {
 }
 JS
 
-echo "PASS build gateway ownership, exceptional cache, release freshness, and SHA policy"
+echo "PASS build gateway ownership, restart ordering, CLI independence, cache, release freshness, and SHA policy"

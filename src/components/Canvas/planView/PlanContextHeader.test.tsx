@@ -7,7 +7,6 @@ import type { BoardPlanSummary } from "./boardModel";
 import { deriveBoardPlanSummary } from "./boardModel";
 import { FIXTURE_PLAN } from "../cards/fixtures.testdata";
 import type { Plan } from "../types";
-import type { ApiConfig } from "../../../lib/types";
 import {
   PlanContextCompactHeader,
   PlanContextHeader,
@@ -117,14 +116,6 @@ function makeWideHeader(plan?: Plan): ReactElement {
   );
 }
 
-const API: ApiConfig = {
-  enabled: true,
-  host: "127.0.0.1",
-  port: 7686,
-  token: "test-token",
-  cors: false,
-};
-
 test("narrow viewport renders compact wrapper even without coarse pointer", async () => {
   window.localStorage.clear();
   setMatchMedia({
@@ -186,6 +177,29 @@ test("chevron has an aria-label", async () => {
   assert(/expand|collapse/i.test(label), `chevron aria-label meaningful, got: ${label}`);
 });
 
+test("header chevron precedes plan label in compact, wide-collapsed, and wide-expanded variants", async () => {
+  window.localStorage.clear();
+  const compact = await render(makeHeader());
+  const compactChevron = compact.host.querySelector(".plan-context-compact-chevron");
+  const compactTitle = compact.host.querySelector('[data-testid="plan-context-compact-title"]');
+  assert(compactChevron && compactTitle, "compact chevron and title render");
+  assert((compactChevron.compareDocumentPosition(compactTitle) & 4) !== 0, "compact chevron precedes title");
+
+  const wide = await render(makeWideHeader());
+  const wideChevron = wide.host.querySelector('[data-testid="plan-context-wide-chevron"]');
+  const wideTitle = wide.host.querySelector('[data-testid="plan-board-plan-title"]');
+  assert(wideChevron && wideTitle, "wide-expanded chevron and title render");
+  assert((wideChevron.compareDocumentPosition(wideTitle) & 4) !== 0, "wide-expanded chevron precedes title");
+  await act(async () => {
+    (wideChevron as HTMLButtonElement).click();
+    await Promise.resolve();
+  });
+  const collapsedChevron = wide.host.querySelector(".plan-context-compact-chevron");
+  const collapsedTitle = wide.host.querySelector('[data-testid="plan-context-compact-title"]');
+  assert(collapsedChevron && collapsedTitle, "wide-collapsed chevron and title render");
+  assert((collapsedChevron.compareDocumentPosition(collapsedTitle) & 4) !== 0, "wide-collapsed chevron precedes title");
+});
+
 test("choice persists per width class in UI prefs (localStorage)", async () => {
   window.localStorage.clear();
   // narrow default is collapsed (true)
@@ -203,7 +217,7 @@ test("choice persists per width class in UI prefs (localStorage)", async () => {
   assert(readHeaderCollapsed("narrow", true) === false, "narrow unchanged by wide write");
 });
 
-test("wide desktop header defaults expanded with right-side collapse chevron", async () => {
+test("wide desktop header defaults expanded with leading collapse chevron", async () => {
   window.localStorage.clear();
   setMatchMedia({
     "(pointer: coarse)": false,
@@ -248,7 +262,7 @@ test("remote planner binding renders short id label instead of No planner", asyn
   assert(!planner?.textContent?.includes("No planner"), "must not claim no planner");
 });
 
-test("parked plan shows Parked state, resume control, and hides heartbeat focus", async () => {
+test("park button is absent from header while parked state remains passive", async () => {
   window.localStorage.clear();
   const plan: Plan = {
     ...FIXTURE_PLAN,
@@ -257,74 +271,59 @@ test("parked plan shows Parked state, resume control, and hides heartbeat focus"
   };
   const { host } = await render(makeWideHeader(plan));
   assert(host.querySelector('[data-testid="plan-parked-chip"]')?.textContent === "Parked", "parked chip");
-  assert(host.querySelector('[data-testid="plan-resume-button"]'), "resume button");
+  assert(!host.querySelector('[data-testid="plan-resume-button"]'), "resume button absent from header");
   assert(!host.querySelector('[data-testid="plan-park-button"]'), "park button hidden while parked");
   assert(!host.querySelector('[data-testid="plan-board-plan-focus"]'), "heartbeat focus hidden while parked");
   assert(host.querySelector('[data-testid="plan-board-plan-meta"]')?.textContent?.includes("parked"), "meta says parked");
 });
 
-test("park button requires a reason and posts pause request", async () => {
+test("no red skills state is reachable in the header for empty or rejected skills fetches", async () => {
   window.localStorage.clear();
-  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  let fetchCalls = 0;
   Object.defineProperty(globalThis, "fetch", {
-    value: async (url: string, init?: RequestInit) => {
-      calls.push({ url, init });
-      return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+    value: async () => {
+      fetchCalls += 1;
+      throw new Error("skills unavailable");
     },
     configurable: true,
   });
-  const originalPrompt = window.prompt;
-  window.prompt = () => "waiting for quota";
-  const summary = deriveBoardPlanSummary(FIXTURE_PLAN, {});
+  const { host } = await render(makeWideHeader(FIXTURE_PLAN));
+  await act(async () => {
+    await Promise.resolve();
+  });
+  assert(fetchCalls === 0, "header does not fetch skills");
+  assert(!host.querySelector('[data-testid="plan-skills-section"]'), "empty skills section absent from header");
+  assert(!host.querySelector('[data-testid="plan-skills-error"]'), "rejected skills error absent from header");
+});
+
+test("body priority is status, goal, then compact plan/spec actions", async () => {
+  window.localStorage.clear();
+  const spec = {
+    specId: "spec-release-stability",
+    title: "Release stability spec with a long title",
+    sectionCount: 4,
+    leadSection: "Header polish",
+  };
+  const summary = { ...deriveBoardPlanSummary(FIXTURE_PLAN, {}), goalVector: "Keep plan context prioritized." };
   const { host } = await render(
     <PlanContextWideHeader
       summary={summary}
-      spec={null}
+      spec={spec}
       onOpenPlan={() => {}}
+      onOpenSpec={() => {}}
       planId={FIXTURE_PLAN.id}
       plan={FIXTURE_PLAN}
-      api={API}
     />,
   );
-  const button = host.querySelector('[data-testid="plan-park-button"]') as HTMLButtonElement;
-  await act(async () => {
-    button.click();
-    await Promise.resolve();
-  });
-  window.prompt = originalPrompt;
-  const pauseCalls = calls.filter((call) => call.url.endsWith(`/api/plans/${FIXTURE_PLAN.id}/pause`));
-  assert(pauseCalls.length === 1, `expected one pause request, got ${pauseCalls.length}: ${calls.map((c) => c.url).join(", ")}`);
-  assert(JSON.parse(String(pauseCalls[0].init?.body)).reason === "waiting for quota", "reason posted");
-});
-
-test("resume button posts resume request", async () => {
-  window.localStorage.clear();
-  const calls: Array<{ url: string; init?: RequestInit }> = [];
-  Object.defineProperty(globalThis, "fetch", {
-    value: async (url: string, init?: RequestInit) => {
-      calls.push({ url, init });
-      return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
-    },
-    configurable: true,
-  });
-  const plan: Plan = { ...FIXTURE_PLAN, mode: "paused" };
-  const { host } = await render(
-    <PlanContextWideHeader
-      summary={deriveBoardPlanSummary(plan, {})}
-      spec={null}
-      onOpenPlan={() => {}}
-      planId={plan.id}
-      plan={plan}
-      api={API}
-    />,
-  );
-  const button = host.querySelector('[data-testid="plan-resume-button"]') as HTMLButtonElement;
-  await act(async () => {
-    button.click();
-    await Promise.resolve();
-  });
-  const resumeCalls = calls.filter((call) => call.url.endsWith(`/api/plans/${plan.id}/resume`));
-  assert(resumeCalls.length === 1, `expected one resume request, got ${resumeCalls.length}: ${calls.map((c) => c.url).join(", ")}`);
+  const status = host.querySelector('[data-testid="plan-context-header-chips"]');
+  const goal = host.querySelector('[data-testid="plan-board-plan-goal"]');
+  const main = host.querySelector('[data-testid="plan-context-header-main"]');
+  assert(status && goal && main, "status, goal, and actions render");
+  assert((status.compareDocumentPosition(goal) & 4) !== 0, "status precedes goal");
+  assert((goal.compareDocumentPosition(main) & 4) !== 0, "goal precedes actions");
+  assert(main.querySelector('[data-testid="plan-board-plan-title"]'), "plan title in main row");
+  assert(main.querySelector('[data-testid="plan-board-plan-meta"]'), "plan meta in main row");
+  assert(main.querySelector('[data-testid="plan-board-spec-title"]'), "spec trigger in main row");
 });
 
 (async () => {

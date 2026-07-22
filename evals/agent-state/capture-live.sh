@@ -137,14 +137,14 @@ echo "[rt3] arming capture"
 # header was written (start creates the file immediately) before proceeding.
 rm -f "$CAST"
 for _ in 1 2 3 4 5; do
-  dc pane capture start --pane "$PANE" --out "$CAST" >/dev/null 2>&1
+  dc tab capture start --tab "$PANE" --out "$CAST" >/dev/null 2>&1
   [ -f "$CAST" ] && break
   sleep 2
 done
-[ -f "$CAST" ] || { echo "ERROR: capture never armed (no $CAST)" >&2; dc pane close "$PANE" >/dev/null 2>&1; exit 1; }
+[ -f "$CAST" ] || { echo "ERROR: capture never armed (no $CAST)" >&2; dc tab close "$PANE" >/dev/null 2>&1; exit 1; }
 
 echo "[rt3] firing trigger: $TRIGGER"
-dc send --pane "$PANE" "$TRIGGER" --actions enter >/dev/null 2>&1
+dc send --tab "$PANE" "$TRIGGER" --actions enter >/dev/null 2>&1
 
 # Poll the turn lifecycle: wait until Working is seen, then until the pane
 # settles back to a non-Working state for a few consecutive polls (turn done).
@@ -164,7 +164,7 @@ done
 echo "[rt3] settled after ${SECONDS}s (saw_working=$saw_working last=$st)"
 
 echo "[rt3] stopping capture"
-dc pane capture stop --pane "$PANE" >/dev/null 2>&1
+  dc tab capture stop --tab "$PANE" >/dev/null 2>&1
 
 # Starter expected.json — hand-label `final_state` after replaying. Real
 # captures are NON-GATING (gating:false): they MEASURE the baseline, they don't
@@ -193,7 +193,7 @@ else
 fi
 
 echo "[rt3] closing pane $PANE"
-dc pane close "$PANE" >/dev/null 2>&1
+dc tab close "$PANE" >/dev/null 2>&1
 
 echo "[rt3] done: $CAST"
 ls -la "$OUT_DIR"

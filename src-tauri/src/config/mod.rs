@@ -81,6 +81,23 @@ pub fn memory_config() -> schema::MemoryConfig {
     load_config().memory.clone()
 }
 
+/// Loopback callback URL + port string for the running API, with a `0.0.0.0`
+/// bind normalized to `127.0.0.1` so in-process hooks/reports reach the local
+/// listener. Single source so pane-env, the frontend PTY path, hidden spawns,
+/// and the startup env scrub cannot derive divergent targets — a pane built
+/// with a prod-inherited URL (7685) 401s this instance's token against prod.
+pub fn api_callback_url(api: &schema::ApiConfig) -> (String, String) {
+    let host = if api.host == "0.0.0.0" {
+        "127.0.0.1"
+    } else {
+        api.host.as_str()
+    };
+    (
+        format!("http://{}:{}", host, api.port),
+        api.port.to_string(),
+    )
+}
+
 /// Resolve effective per-provider config for the given agent id.
 ///
 /// Lookup order:
@@ -141,37 +158,57 @@ fn cleanup_removed_plugin_config_in_memory(config: &mut AppConfig, plugin_id: &s
 /// handlers, bridge/secrets/voice) — a disk read + full TOML parse per call was
 /// a measurable CPU sink (profiled). `config set` rewrites the file so the mtime
 /// bumps and readers see the new value on the next call.
+type ConfigCache = Mutex<Option<(Option<std::time::SystemTime>, AppConfig)>>;
+
 pub fn load_config() -> AppConfig {
     use std::sync::OnceLock;
-    use std::time::SystemTime;
-    static CACHE: OnceLock<Mutex<Option<(Option<SystemTime>, AppConfig)>>> = OnceLock::new();
-
-    let mtime = config_path()
-        .ok()
-        .and_then(|p| std::fs::metadata(&p).ok())
-        .and_then(|m| m.modified().ok());
+    static CACHE: OnceLock<ConfigCache> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(None));
-    if let Some((cached_mtime, cfg)) = cache.lock().as_ref() {
+    match config_path() {
+        Ok(path) => load_config_cached(&path, cache),
+        Err(e) => {
+            log::warn!("Cannot determine config path: {}. Using defaults.", e);
+            ensure_api_token(AppConfig::default(), None)
+        }
+    }
+}
+
+/// Cache the parsed config, keyed by file mtime. The cache lock is held across
+/// the uncached fill so a token auto-generated for a tokenless config is
+/// produced EXACTLY once: concurrent callers can no longer each generate a
+/// different token (the auth-token divergence that 401'd one pane while another
+/// pane with a sibling-generated token succeeded). The mtime is re-read AFTER
+/// the fill because `ensure_api_token` may rewrite the file — caching the
+/// post-write mtime keeps the next call a hit instead of a perpetual miss.
+fn load_config_cached(path: &std::path::Path, cache: &ConfigCache) -> AppConfig {
+    let mut guard = cache.lock();
+    let mtime = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
+    if let Some((cached_mtime, cfg)) = guard.as_ref() {
         if *cached_mtime == mtime {
             return cfg.clone();
         }
     }
-    let cfg = load_config_uncached();
-    *cache.lock() = Some((mtime, cfg.clone()));
-    cfg
+    match load_config_uncached_at(path) {
+        Ok(cfg) => {
+            let post_mtime = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
+            *guard = Some((post_mtime, cfg.clone()));
+            cfg
+        }
+        // Transient read/parse failure: keep the last-known good config instead
+        // of caching a token-less default that would 401 every pane.
+        Err(()) => match guard.as_ref() {
+            Some((_, cfg)) => cfg.clone(),
+            None => ensure_api_token(AppConfig::default(), None),
+        },
+    }
 }
 
-fn load_config_uncached() -> AppConfig {
-    let path = match config_path() {
-        Ok(p) => p,
-        Err(e) => {
-            log::warn!("Cannot determine config path: {}. Using defaults.", e);
-            return ensure_api_token(AppConfig::default(), None);
-        }
-    };
-
+/// `Err` means a TRANSIENT failure (unreadable/unparseable file) — the caller
+/// must keep any previously cached config rather than fall back to a token-less
+/// default, since a token-less config reaching the auth layer 401s every pane.
+fn load_config_uncached_at(path: &std::path::Path) -> Result<AppConfig, ()> {
     if path.exists() {
-        match std::fs::read_to_string(&path) {
+        match std::fs::read_to_string(path) {
             Ok(contents) => match toml::from_str::<AppConfig>(&contents) {
                 Ok(mut config) => {
                     resolve_theme(&mut config);
@@ -181,42 +218,60 @@ fn load_config_uncached() -> AppConfig {
                         config.mesh.enabled = false;
                     }
                     log::info!("Config loaded from {}", path.display());
-                    ensure_api_token(config, Some(&path))
+                    Ok(ensure_api_token(config, Some(path)))
                 }
                 Err(e) => {
                     log::error!(
-                        "Failed to parse config at {}: {}. Using defaults.",
+                        "Failed to parse config at {}: {} — keeping last-known config",
                         path.display(),
                         e
                     );
-                    AppConfig::default()
+                    Err(())
                 }
             },
             Err(e) => {
                 log::error!(
-                    "Failed to read config at {}: {}. Using defaults.",
+                    "Failed to read config at {}: {} — keeping last-known config",
                     path.display(),
                     e
                 );
-                AppConfig::default()
+                Err(())
             }
         }
     } else {
         if let Some(parent) = path.parent() {
             if let Err(e) = std::fs::create_dir_all(parent) {
                 log::warn!("Failed to create config directory: {}", e);
-                return ensure_api_token(AppConfig::default(), None);
+                return Ok(ensure_api_token(AppConfig::default(), None));
             }
         }
         let config = ensure_api_token(AppConfig::default(), None);
         let toml_str = toml::to_string_pretty(&config).unwrap_or_else(|_| default_config_toml());
-        if let Err(e) = std::fs::write(&path, &toml_str) {
+        if let Err(e) = write_config_atomic(path, &toml_str) {
             log::warn!("Failed to write default config: {}", e);
         } else {
             log::info!("Default config created at {}", path.display());
         }
-        config
+        Ok(config)
     }
+}
+
+/// Crash-safe config write: serialize to a sibling temp file, then rename over
+/// the target. A concurrent reader sees either the old or the new file whole,
+/// never a truncated `fs::write` in progress (a torn read parses as a token-less
+/// config and 401s the pane that read it). `rename` replaces the destination
+/// atomically on both Unix and Windows.
+fn write_config_atomic(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    let tmp = path.with_extension(format!("toml.tmp.{}.{}", std::process::id(), seq));
+    std::fs::write(&tmp, contents)?;
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    Ok(())
 }
 
 fn ensure_api_token(mut config: AppConfig, path: Option<&std::path::Path>) -> AppConfig {
@@ -227,7 +282,7 @@ fn ensure_api_token(mut config: AppConfig, path: Option<&std::path::Path>) -> Ap
         config.api.token = Some(token);
         if let Some(p) = path {
             let toml_str = toml::to_string_pretty(&config).unwrap_or_default();
-            let _ = std::fs::write(p, toml_str);
+            let _ = write_config_atomic(p, &toml_str);
         }
     }
     config
@@ -311,6 +366,67 @@ fn apply_theme_with_overrides(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn concurrent_load_on_tokenless_config_yields_one_stable_token() {
+        // Repro for the intermittent multi-agent-boot 401: a tokenless config
+        // hit by N concurrent load_config() callers must auto-generate EXACTLY
+        // one token that every caller (and the persisted file) agrees on. The
+        // racy version generated a different token per caller, so a pane spawned
+        // with a sibling-generated token 401'd against the auth-held token.
+        const N: usize = 16;
+        let tmp = tempfile::tempdir().unwrap();
+        let path = std::sync::Arc::new(tmp.path().join("config.toml"));
+        std::fs::write(&*path, "[api]\nenabled = true\n").unwrap();
+
+        let cache: std::sync::Arc<ConfigCache> = std::sync::Arc::new(Mutex::new(None));
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(N));
+        let handles: Vec<_> = (0..N)
+            .map(|_| {
+                let c = cache.clone();
+                let p = path.clone();
+                let b = barrier.clone();
+                std::thread::spawn(move || {
+                    b.wait();
+                    load_config_cached(&p, &c).api.token
+                })
+            })
+            .collect();
+        let tokens: Vec<Option<String>> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+
+        let first = tokens[0].clone();
+        assert!(
+            first.as_ref().map_or(false, |t| !t.is_empty()),
+            "a token must be auto-generated for a tokenless config"
+        );
+        for t in &tokens {
+            assert_eq!(
+                t, &first,
+                "every concurrent caller must observe the SAME auto-generated token"
+            );
+        }
+        let on_disk: AppConfig = toml::from_str(&std::fs::read_to_string(&*path).unwrap()).unwrap();
+        assert_eq!(
+            on_disk.api.token, first,
+            "persisted token must match the token handed to callers"
+        );
+    }
+
+    #[test]
+    fn api_callback_url_normalizes_wildcard_host_to_loopback() {
+        let mut api = schema::ApiConfig::default();
+        api.host = "0.0.0.0".to_string();
+        api.port = 7686;
+        let (url, port) = api_callback_url(&api);
+        assert_eq!(url, "http://127.0.0.1:7686");
+        assert_eq!(port, "7686");
+
+        api.host = "192.168.1.5".to_string();
+        api.port = 7691;
+        let (url, port) = api_callback_url(&api);
+        assert_eq!(url, "http://192.168.1.5:7691");
+        assert_eq!(port, "7691");
+    }
 
     #[test]
     fn test_default_config_parses() {
@@ -435,7 +551,7 @@ fn save_config(config: &AppConfig) -> Result<(), String> {
     }
     let toml_str =
         toml::to_string_pretty(config).map_err(|e| format!("Failed to serialize config: {}", e))?;
-    std::fs::write(&path, toml_str).map_err(|e| format!("Failed to write config: {}", e))?;
+    write_config_atomic(&path, &toml_str).map_err(|e| format!("Failed to write config: {}", e))?;
     log::info!("Config saved to {}", path.display());
     Ok(())
 }

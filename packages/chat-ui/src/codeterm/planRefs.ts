@@ -118,6 +118,27 @@ function nearestPlanIdOnLine(safeText: string, masked: boolean[], matchStart: nu
   return found;
 }
 
+function nextPlanIdOnLine(safeText: string, masked: boolean[], matchEnd: number): string | undefined {
+  const lineEnd = safeText.indexOf("\n", matchEnd);
+  const absoluteLineEnd = lineEnd === -1 ? safeText.length : lineEnd;
+  const line = safeText.slice(matchEnd, absoluteLineEnd);
+  for (const match of line.matchAll(new RegExp(PLAN_RE.source, "g"))) {
+    const absoluteStart = matchEnd + (match.index ?? 0);
+    const absoluteEnd = absoluteStart + match[0].length;
+    const bridge = safeText.slice(matchEnd, absoluteStart);
+    if (!/\b(?:in|under|inside|within|for|of)\s*$/i.test(bridge)) continue;
+    let blocked = false;
+    for (let i = absoluteStart; i < absoluteEnd; i += 1) {
+      if (masked[i]) {
+        blocked = true;
+        break;
+      }
+    }
+    if (!blocked) return match[0];
+  }
+  return undefined;
+}
+
 /** Split text into plain + linkable plan/task/section reference segments. */
 export function linkifyPlanRefs(text: string): PlanRefSegment[] {
   if (!text) return [{ kind: "text", value: text ?? "" }];
@@ -136,9 +157,12 @@ export function linkifyPlanRefs(text: string): PlanRefSegment[] {
     const value = match[0];
     const kind = targetKind(value);
     const start = match.index ?? 0;
-    const planId = kind === "plan" ? value : nearestPlanIdOnLine(safeText, masked, start);
+    const end = start + value.length;
+    const planId = kind === "plan"
+      ? value
+      : nearestPlanIdOnLine(safeText, masked, start) ?? nextPlanIdOnLine(safeText, masked, end);
     if (!planId) {
-      from = (match.index ?? 0) + value.length;
+      from = end;
       continue;
     }
     if (start > last) segments.push({ kind: "text", value: text.slice(last, start) });

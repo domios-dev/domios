@@ -167,7 +167,7 @@ Stored in Bitwarden vault (retrieve via `codeterm mem secret get --name <slug>` 
 
 When delegating this skill to an agent (release coordinator or ROG worker), **spawn with `--model haiku`**. The pipeline is mostly orchestration + bash + git/gh — Haiku is fast and cheap enough; Sonnet/Opus is overkill and doubles wall time on thinking phases.
 
-Spawn with `codeterm agent spawn claude --task "..." --model haiku`. Parent is inferred from `$CODETERM_PANE_ID`; reports route back to you automatically (Orchestrator + sub-pane model, no `--role` flag needed).
+Spawn with `codeterm agent spawn claude --task "..." --model haiku`. Parent is inferred from `$CODETERM_PANE_ID`; reports route back to you automatically (Orchestrator + child-tab model, no `--role` flag needed).
 
 ### 0. Kill any running dev
 
@@ -217,12 +217,17 @@ Then start dev from the main checkout and visually confirm the app:
 
 ```bash
 ./build.sh kill
-codeterm pane new --cmd "cd $(pwd) && ./build.sh dev"
+codeterm tab new --cmd "cd $(pwd) && ./build.sh dev"
 curl -s http://127.0.0.1:7686/api/health
 ```
 
 Clean old orchestration state before the PR: close finished worker panes, remove merged lane
 worktrees under `../codeterm-worktrees/`, and leave only documented stashes/lane directories.
+Run `scripts/merge-stack-audit.sh --target <release-head> <accepted-lane-ref>...`
+before final QA; stale patch-landed refs or unlanded accepted lanes must be
+merged, explicitly recorded as superseded, or deferred before the master PR.
+Patch-equivalent stale refs are not ancestry proof and must not be silently
+deleted without that superseded record.
 
 ### 2. Merge to master by PR + push the release trigger tag
 
@@ -484,8 +489,8 @@ ROG-specific gotchas (still relevant if you fall back to ROG):
 - gh authed as `rollacode (keyring)` should be valid; `r0llac0de (work)` is the work fallback and has push access too.
 
 Alternative paths (debugging tactics, not normal flow):
-- Send to an existing General Agent pane via `codeterm --mesh BLACKSTAR send --pane <general> --from-file <msg.txt>` to bypass `agent spawn` argv-split bugs.
-- Open a parallel shell pane on the builder with `pane new --workspace` for tactical interventions while the agent runs the long compile.
+- Send to an existing General Agent tab via `codeterm --mesh BLACKSTAR send --tab <general> --from-file <msg.txt>` to bypass `agent spawn` argv-split bugs.
+- Open a parallel shell tab on the builder with `codeterm tab new --workspace` for tactical interventions while the agent runs the long compile.
 
 ### 9. Publish release + verify
 
@@ -595,7 +600,7 @@ Force-retag pre-publish is unilaterally allowed per `rule_blackstar_mac_release_
 | Windows: `sqlite-sys` cc-rs → "malloc.h not found" | `build.sh`'s `SDK_VER` (10.0.22621.0) ≠ installed Windows Kit | check `ls "/c/Program Files (x86)/Windows Kits/10/Include"` then `export SDK_VER=<found-version>` (e.g. 10.0.26100.0 on ROG) |
 | `gh release upload ...` → "no matches found" on Windows | MSYS git-bash + stale cd + relative paths | `cd` back to repo root before upload, or use absolute paths |
 | `git rev-parse v$VER` returns a SHA that doesn't appear in `git log` | annotated tag (`-a`) creates a tag object that points to the commit (one level of indirection) | use `git rev-parse v$VER^{commit}` for the commit SHA, or `gh release view v$VER --json targetCommitish` |
-| `codeterm send --mesh PEER --pane ID "..."` does not get a reply | target pane is busy or the receiving agent has not processed the input yet | send is fire-and-forget by design; check output later with `codeterm get-output --mesh PEER --pane ID` |
+| `codeterm send --mesh PEER --tab ID "..."` does not get a reply | target tab is busy or the receiving agent has not processed the input yet | send is fire-and-forget by design; check output later with `codeterm tab get-text --mesh PEER --tab ID` |
 | SSH to BLACKSTAR: `cd /c/…` fails | `bash -lc` runs a login shell that re-homes | use `bash -c` (non-login) |
 | `scp User@blackstar:/c/…` fails | remote shell is cmd.exe, doesn't grok the path | stage the file to `C:\Users\User\` on BLACKSTAR first, then `scp User@blackstar:filename` |
 | Public `curl` of release asset → 404 | repo private, CDN rejects unauthenticated | use `gh release download`, or make repo public |
@@ -702,12 +707,12 @@ codeterm update install \
   --continue-prompt "after restart, verify tab performance"
 ```
 
-`--continue-pane` defaults to `$CODETERM_PANE_ID`. The helper:
+`--continue-tab` defaults to `$CODETERM_PANE_ID`. The helper:
 1. Sleeps 2s, lets the calling CLI return.
 2. `taskkill /F /IM codeterm.exe codeterm-embed.exe`.
 3. Runs the NSIS installer with `/S` (silent — no UAC since `installMode=currentUser`).
 4. Launches the freshly installed `codeterm.exe`.
-5. If `--continue-prompt`: polls `/api/health` until 200, then `codeterm send --pane <id>` resumes the calling agent.
+5. If `--continue-prompt`: polls `/api/health` until 200, then `codeterm send --tab <id>` resumes the calling agent.
 6. Logs to `%LocalAppData%\codeterm\self-install.log`.
 
 Fallback when CLI itself is broken or version-mismatched — use the standalone PowerShell script:
@@ -722,7 +727,7 @@ The script lives in this skill's folder at `<repo>/.agents/skills/github-release
 
 Gotchas:
 - Don't pass `-Verb RunAs` to the installer. `installMode=currentUser` doesn't need elevation; RunAs triggers UAC and hangs on headless.
-- Helper survives the daemon, not your terminal pane — if invoked from a CodeTerm-managed pane, the pane dies with the daemon. Tail progress from outside: `Get-Content -Wait "$env:LocalAppData\codeterm\self-install.log"`.
+- Helper survives the daemon, not your terminal tab — if invoked from a CodeTerm-managed tab, the tab dies with the daemon. Tail progress from outside: `Get-Content -Wait "$env:LocalAppData\codeterm\self-install.log"`.
 - Auto-resume of agent panes is best-effort — `~/.codeterm/sessions/last.json` may be slightly behind if the daemon was killed abruptly.
 
 ### Path 3 — full release publish

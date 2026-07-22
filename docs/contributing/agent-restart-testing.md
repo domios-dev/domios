@@ -40,7 +40,7 @@ echo "Target pane: $PANE"
 ## 1. Graceful restart
 
 ```bash
-~/.codeterm-dev/bin/codeterm agent restart --pane $PANE
+~/.codeterm-dev/bin/codeterm agent restart --tab $PANE
 ```
 
 Expected:
@@ -62,7 +62,7 @@ SIGSTOP to the PTY's child process (Windows: use Process Explorer to
 suspend the process). Then:
 
 ```bash
-~/.codeterm-dev/bin/codeterm agent restart --pane $PANE --force --grace-secs 3
+~/.codeterm-dev/bin/codeterm agent restart --tab $PANE --force --grace-secs 3
 ```
 
 Expected:
@@ -102,7 +102,7 @@ A common pattern: an Orchestrator notices a Worker is stuck and asks
 the system to restart it.
 
 ```bash
-codeterm agent restart --pane $WORKER_PANE_ID --grace-secs 30
+codeterm agent restart --tab $WORKER_PANE_ID --grace-secs 30
 ```
 
 The Orchestrator's pane keeps running; only the Worker's PTY cycles.

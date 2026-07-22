@@ -8,6 +8,7 @@ import type { SectionNavArgs } from "../nodeRegistry";
 import { competitionForTask } from "./competitionForTask";
 import { loopForTask } from "./loopForTask";
 import { TaskExecutionBadges } from "./TaskExecutionBadges";
+import { PlanModeControls } from "./PlanModeControls";
 
 export type PlanDetailKind = "task" | "plan" | "spec";
 
@@ -232,6 +233,7 @@ export function PlanDetailOverlay({
           {isTask && (
             <TaskExecutionBadges loop={loopBadge} competition={competeBadge} className="plan-detail-header-badges" />
           )}
+          {kind === "plan" && plan && <PlanModeControls plan={plan} api={api} />}
           <span data-testid={tid("kind")} style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "color-mix(in srgb, var(--ct-fg) 55%, transparent)", flexShrink: 0 }}>
             {kind}
           </span>

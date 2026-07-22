@@ -6,7 +6,7 @@ mod tests;
 mod types;
 
 pub use cron_view::list_local;
-pub use schema::{init_schema, migrate_schema, SCHEMA_VERSION};
+pub use schema::{compact_service_health, init_schema, migrate_schema, SCHEMA_VERSION};
 pub use types::*;
 
 use parking_lot::Mutex;

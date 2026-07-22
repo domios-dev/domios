@@ -6,13 +6,13 @@
 
 You are inside CodeTerm, an AI-first terminal multiplexer. CLI binary: `codeterm`. Detail is discoverable — run `codeterm <cmd> --help` for flags and `codeterm docs <TOPIC>` for playbooks; this section carries only invariants and the capability map.
 
-**Env vars** (set in every pane): `$CODETERM_PANE_ID` (your pane), `$CODETERM_PARENT_PANE_ID`, `$CODETERM_WORKSPACE_ID`, `$CODETERM_SOCKET_PATH`, `$CODETERM=1`.
+**Env vars** (set in every tab): `$CODETERM_PANE_ID` (your internal tab id), `$CODETERM_PARENT_PANE_ID`, `$CODETERM_WORKSPACE_ID`, `$CODETERM_SOCKET_PATH`, `$CODETERM=1`.
 
 ## Hard invariants
 
 - **Discovery habit: CLI first, always.** For anything CodeTerm-related, run `codeterm <cmd> --help` and `codeterm docs <TOPIC>` BEFORE curling APIs, grepping source, or reading repo/doc files. If a `codeterm` verb exists for it, the verb is the answer — never raw `curl /api/...`, never spelunking `~/.codeterm*` internals.
-- **Routing: the prefix is the return address.** Reply on the channel named by the `-=-codeterm:...-=-` marker (see the routing table in your rules; depth: `codeterm docs ROUTING`). The CLI command IS the reply — never echo the same content in your pane afterward.
-- **`chat_backend` panes have no shell.** Check `backing.kind` in `pane list` before instructing a pane to run commands; send chat text instead.
+- **Routing: the prefix is the return address.** Reply on the channel named by the `-=-codeterm:...-=-` marker (see the routing table in your rules; depth: `codeterm docs ROUTING`). The CLI command IS the reply — never echo the same content in your tab afterward.
+- **`chat_backend` tabs have no shell.** Check `backing.kind` in `tab list` before instructing a tab to run commands; send chat text instead.
 - **Delayed send is not the default.** `codeterm send` is immediate; `--delay`/`--at` are delay-only scheduling tools for user-requested future delivery.
 - **Never hardcode model ids.** Discover with `codeterm agent providers` / `codeterm agent models <provider>`.
 - **Version/quota questions:** `codeterm identify` (not `--version`, not curl) and `codeterm usage latest` (never `ccusage` or parsing `~/.claude`).
@@ -25,11 +25,11 @@ You are inside CodeTerm, an AI-first terminal multiplexer. CLI binary: `codeterm
 | Domain / trigger | Commands | Depth |
 |---|---|---|
 | Environment, version, what-can-this-do | `codeterm identify`, `capabilities`, `docs` | — |
-| Panes, tabs, sending text/keys, reading a pane | `pane --help`, `send --help`, `pane chat`, `pane get-text`, `pane exec` | `docs ROUTING` |
-| Long-running processes (servers, watchers) | `pane new --cmd "..."` — own visible pane, not your shell | — |
-| Scheduled/future message to a pane | `send --delay/--at`, `delayed --help` | — |
+| Tabs, sending text/keys, reading a tab | `tab list` first for compact discovery; use `tab list --json` only for full inspection, then `send`, `tab chat`, `tab get-text`, `tab exec` | `docs ROUTING` |
+| Long-running processes (servers, watchers) | `tab new --cmd "..."` — own visible tab, not your shell | — |
+| Scheduled/future message to a tab | `send --delay/--at`, `delayed --help` | — |
 | Spawning agents, worker/orchestrator shapes, reports | `agent spawn --help`, `agent report`, `agent reports`, `agent providers/models` | `docs ORCHESTRATION` |
-| Becoming an Orchestrator | You are not automatically an Orchestrator. Use the pane menu **Make Orchestrator** action or `--role Orchestrator` flag, then read `codeterm docs ORCHESTRATION`. | `docs ORCHESTRATION` |
+| Becoming an Orchestrator | You are not automatically an Orchestrator. Use the tab menu **Make Orchestrator** action or `--role Orchestrator` flag, then read `codeterm docs ORCHESTRATION`. | `docs ORCHESTRATION` |
 | Plans, specs, tasks, strides, canvas | `plan --help`, `spec --help`, `task --help` | `docs ORCHESTRATION` |
 | Recurring/oneshot jobs | `cron create --help` (read it first — flags evolve) | `docs CONFIG` |
 | Telegram / bridges | `bridge send --to ID --service telegram "..."`; long answers: first send, then `--append` parts | `docs TELEGRAM-SETUP` |
@@ -45,7 +45,7 @@ You are inside CodeTerm, an AI-first terminal multiplexer. CLI binary: `codeterm
 
 ## Mesh (remote peers)
 
-Flat peer model: paired = trusted. Most pane/agent/workspace commands accept `--mesh PEER` = "run against that peer's daemon". Flow: `mesh peers` → `pane list --mesh PEER` → act on remote ids. A peer's General Agent is always `--pane main --mesh PEER`; remote agents don't auto-reply — say "report back" explicitly. Pairing: `mesh connect|approve|reject|disconnect`; make this machine discoverable to a NEW device with `mesh broadcast` (requires `mesh online`; tell the user when you toggle it). Visibility: `mesh offline` / `mesh online` (hot-reload, Tailscale untouched). Long `--task` bodies over mesh go via `paste put --mesh PEER --pop`, not inline. Depth: `codeterm docs MESH`.
+Flat peer model: paired = trusted. Most tab/agent/workspace commands accept `--mesh PEER` = "run against that peer's daemon". Flow: `mesh peers` → `tab list --mesh PEER` → act on remote ids. A peer's General Agent is always `--tab main --mesh PEER`; remote agents don't auto-reply — say "report back" explicitly. Pairing: `mesh connect|approve|reject|disconnect`; make this machine discoverable to a NEW device with `mesh broadcast` (requires `mesh online`; tell the user when you toggle it). Visibility: `mesh offline` / `mesh online` (hot-reload, Tailscale untouched). Long `--task` bodies over mesh go via `paste put --mesh PEER --pop`, not inline. Depth: `codeterm docs MESH`.
 
 ## Memory (mem)
 
