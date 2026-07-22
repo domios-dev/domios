@@ -878,6 +878,7 @@ pub async fn chatbackend_switch_model(
 
 #[cfg(test)]
 mod tests {
+    use super::backfill_window_slice;
     use crate::service::pane_chat::session_window::{
         self, SNAPSHOT_CAP_BYTES, SNAPSHOT_WINDOW_BYTES,
     };
@@ -975,7 +976,7 @@ mod tests {
     fn backfill_paging_is_lossless_and_line_aligned() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("session.jsonl");
-        let lines: Vec<String> = (0..200)
+        let lines: Vec<String> = (0..600)
             .map(|i| format!("{{\"type\":\"user\",\"uuid\":\"u{i}\",\"message\":{{\"role\":\"user\",\"content\":\"line {i} {}\"}}}}", "x".repeat(40)))
             .collect();
         let body = format!("{}\n", lines.join("\n"));
