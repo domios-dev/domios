@@ -270,7 +270,13 @@ impl ServiceContext {
                 pane.agent_session_id = None;
                 pane.agent_state = None;
                 pane.pending_prompt = None;
-                pane.boot_stage = Some(codeterm_types::pty::BootStage::ShellReady);
+                // apply_boot_stage, not a raw assignment: a failure reason latched
+                // by an earlier spawn must not outlive the stage that recorded it.
+                crate::service::boot_stage::apply_boot_stage(
+                    pane,
+                    codeterm_types::pty::BootStage::ShellReady,
+                    None,
+                );
             } else if lock {
                 pane.agent_type_locked = true;
             }
