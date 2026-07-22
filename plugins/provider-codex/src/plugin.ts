@@ -1,7 +1,7 @@
 import type { LaunchParams, ModelInfo, ParsedPrompt, PluginModule } from "@codeterm/plugin-sdk";
 import { discoverCodexModels } from "./models";
 import { parseCodexPrompt, parseMenuOptions, responseKeysForIndex, type MenuOption } from "./prompt";
-import { readSessionMeta } from "./sessionMeta";
+import { readSessionMeta, SESSION_MODEL_TAIL_BYTES } from "./sessionMeta";
 import { parseCodexUsage } from "./usage";
 import { unwrapShellCommand } from "./execWrapper";
 import { patchEdits } from "./patchEdits";
@@ -507,7 +507,8 @@ const plugin: PluginModule = {
   detectSessionModel(cwd: string, sessionId: string): string | null {
     const path = this.sessionFilePath!(cwd, sessionId);
     if (!path) return null;
-    const contents = host.fs.readFile(path);
+    // Bounded tail read: a partial leading line just fails JSON.parse below and is skipped.
+    const contents = host.fs.readFileTail(path, SESSION_MODEL_TAIL_BYTES);
     if (!contents) return null;
     const lines = contents.split("\n");
     for (let i = lines.length - 1; i >= 0; i--) {
