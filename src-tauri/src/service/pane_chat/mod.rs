@@ -13,6 +13,7 @@
 pub mod chatbackend_history;
 pub mod raw_text_sink;
 pub mod registry;
+pub mod session_window;
 pub mod store_watch;
 pub mod structured_poller;
 pub mod structured_sink;
@@ -608,22 +609,9 @@ pub fn session_chat_snapshot(
             .with_provider(provider_id, |p| p.session_file_path(cwd, session_id))
             .flatten()
             .ok_or("provider has no JSONL and no structured chat")?;
-        let delta = svc
-            .agent_registry
-            .with_provider(provider_id, |p| {
-                let mut delta = p.parse_session_delta(&path, 0);
-                for m in &mut delta.messages {
-                    enrich_interactive(m, p);
-                }
-                delta
-            })
-            .ok_or("provider missing")?;
-        delta
-            .messages
-            .iter()
-            .enumerate()
-            .flat_map(|(i, r)| rich_to_chat_msgs(r, i))
-            .collect()
+        let snap = session_window::snapshot(&svc.agent_registry, provider_id, &path);
+        session_window::log_bounded_snapshot(session_id, provider_id, &snap);
+        snap.messages
     };
 
     let total = all.len();
