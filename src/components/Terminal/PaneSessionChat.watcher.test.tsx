@@ -43,6 +43,12 @@ function setupDom() {
     configurable: true,
     value: () => {},
   });
+  class StubResizeObserver {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  }
+  Object.defineProperty(globalThis, "ResizeObserver", { configurable: true, value: StubResizeObserver });
 }
 
 function paneBase(id: string, overrides: Partial<Pane> = {}): Pane {
