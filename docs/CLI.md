@@ -261,6 +261,7 @@ Create a cron job
 - `<name>` — Cron job name
 - `--once` — Oneshot: fire once at scheduled time, then auto-delete
 - `--schedule` — Cron schedule (5-field: "*/30 * * * *") or oneshot time ("in 5m", ISO8601)
+- `--skill` — Mem skill slug (`codeterm mem skill new <slug>`) to resolve and inject into the task brief at fire time as an explicit, Read-able path
 - `--tab` — Tab ID to receive reports from cron agent (default: $CODETERM_PANE_ID)
 - `--task` — Task prompt for the agent
 - `--timeout-secs` — Per-cron run timeout (seconds). Overrides global memory.worker_timeout_seconds. Set high (e.g. 1800) for long-running tasks like memory dreaming
@@ -291,6 +292,7 @@ Edit a cron job
 - `--model` — Model within the agent provider. Pass empty string to clear
 - `--name`
 - `--schedule`
+- `--skill` — Mem skill slug to resolve and inject into the task brief at fire time. Pass an empty string to clear
 - `--task`
 - `--timeout-secs` — Per-cron run timeout (seconds). 0 clears the override (back to global default)
 - `--tz` — IANA timezone (e.g. "Europe/Riga"). Pass empty string to clear back to UTC
