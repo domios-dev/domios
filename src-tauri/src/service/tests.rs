@@ -267,14 +267,17 @@ fn coalesce_snapshot_reflects_latest_mutation_in_window() {
     let agent_tracker: AgentTrackerState =
         Arc::new(TimedMutex::new("agent_tracker", PaneStatusTracker::new()));
     let pending = Arc::new(AtomicBool::new(true));
+    let agent_registry = Arc::new(crate::agent::registry::AgentRegistry::new());
 
     let mux_clone = mux.clone();
     let agent_tracker_clone = agent_tracker.clone();
+    let agent_registry_clone = agent_registry.clone();
     let pending_clone = pending.clone();
     let handle = std::thread::spawn(move || {
         ServiceContext::coalesce_snapshot(
             &mux_clone,
             &agent_tracker_clone,
+            &agent_registry_clone,
             &pending_clone,
             Duration::from_millis(80),
         )

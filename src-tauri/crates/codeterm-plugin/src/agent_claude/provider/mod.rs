@@ -212,6 +212,10 @@ impl AgentProvider for ClaudeProvider {
         3
     }
 
+    fn supports_agent_state_status_reconciliation(&self) -> bool {
+        true
+    }
+
     fn is_output_noise(&self, text: &str) -> bool {
         detection::is_output_noise(text)
     }
