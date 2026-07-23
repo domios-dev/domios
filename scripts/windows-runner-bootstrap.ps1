@@ -99,6 +99,20 @@ function Install-Rust {
     return $cargoBin
 }
 
+function Install-RustProxies([string]$CargoBin) {
+    $proxyDir = Join-Path $ToolsRoot "rustup-proxies"
+    $rustup = Join-Path $CargoBin "rustup.exe"
+    if (-not (Test-Path -LiteralPath $rustup)) { throw "rustup.exe was not installed in $CargoBin" }
+    New-Item -ItemType Directory -Force -Path $proxyDir | Out-Null
+    Get-ChildItem -LiteralPath $CargoBin -Filter "*.exe" | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $proxyDir $_.Name) -Force
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $proxyDir "rustup.exe"))) {
+        throw "Failed to create durable rustup proxies in $proxyDir"
+    }
+    return $proxyDir
+}
+
 function Install-Pnpm([string]$NodeDir) {
     $prefix = Join-Path $ToolsRoot "pnpm-$PnpmVersion"
     New-Item -ItemType Directory -Force -Path $prefix | Out-Null
@@ -266,12 +280,13 @@ if (-not $VerifyOnly) {
     $pwshDir = Install-PowerShell
     $nodeDir = Install-NodeLts
     $cargoBin = Install-Rust
+    $rustProxyDir = Install-RustProxies -CargoBin $cargoBin
     $pnpmPrefix = Install-Pnpm -NodeDir $nodeDir
     $shimDir = Write-RunnerShims -NodeDir $nodeDir -PnpmPrefix $pnpmPrefix
     $msvcInventory = Install-VisualStudioBuildTools
     $msvcEnv = Get-MsvcEnvironmentPaths
     Install-Runner
-    $prepend = @($shimDir, $nodeDir, $pwshDir, $cargoBin)
+    $prepend = @($shimDir, $nodeDir, $pwshDir, $rustProxyDir, $cargoBin)
     if ($msvcEnv) { $prepend += @($msvcEnv.Bin, $msvcEnv.SdkBin, $msvcEnv.SdkUcrtBin) }
     Update-RunnerEnv -Prepend $prepend
     if ($msvcEnv) {
