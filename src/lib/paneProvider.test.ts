@@ -28,7 +28,6 @@ const claudeDescriptor: ProviderDescriptor = {
   notifications_schema: [],
   supports_lazy_skills: false,
   has_hooks: false,
-  preserves_context_on_resume: false,
 };
 
 function seed() {

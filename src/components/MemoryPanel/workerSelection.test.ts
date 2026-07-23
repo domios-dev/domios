@@ -14,7 +14,6 @@ function provider(id: string, display_name: string, default_model: string, model
     notifications_schema: [],
     supports_lazy_skills: false,
     has_hooks: false,
-    preserves_context_on_resume: false,
   };
 }
 

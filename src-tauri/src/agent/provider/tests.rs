@@ -97,7 +97,6 @@ fn provider_descriptor_round_trip() {
             }],
             supports_lazy_skills: true,
             has_hooks: true,
-            preserves_context_on_resume: true,
             cli_binary: Some("testcli".into()),
             install_command: Some("npm i -g testcli".into()),
             model_switch_format: Some("/model {model}".into()),
@@ -135,7 +134,6 @@ fn provider_descriptor_rejects_unknown_fields() {
             "notifications_schema": [],
             "supports_lazy_skills": false,
             "has_hooks": false,
-            "preserves_context_on_resume": true,
             "model_switch_format": "/model {model}",
             "extra_unknown_field": "boom"
         }"#;
@@ -191,7 +189,6 @@ fn default_describe_assembles_from_methods() {
     assert_eq!(desc.display_name, "Stub");
     assert!(desc.available_models.is_empty());
     assert!(desc.settings_schema.is_empty());
-    assert!(desc.preserves_context_on_resume); // default true
     assert!(!desc.supports_lazy_skills); // default false
     assert!(!desc.has_hooks); // default false
     assert!(!desc.supports_structured_prompts); // default false

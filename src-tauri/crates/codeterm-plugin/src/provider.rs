@@ -317,7 +317,6 @@ pub struct ProviderDescriptor {
     pub notifications_schema: Vec<SettingField>,
     pub supports_lazy_skills: bool,
     pub has_hooks: bool,
-    pub preserves_context_on_resume: bool,
     /// CLI binary name the provider expects on PATH (e.g. `claude`, `codex`,
     /// `opencode`). When present, the frontend renders an "Installation"
     /// section that polls `which <binary>` and offers an Install button.
@@ -929,13 +928,6 @@ pub trait AgentProvider: Send + Sync {
         Vec::new()
     }
 
-    /// Whether resuming a session preserves the agent's prior context.
-    /// Claude=true (JSONL replay), Codex=false. Replaces the
-    /// `provider_name == "claude"` literal in `service/general_agent.rs`.
-    fn preserves_context_on_resume(&self) -> bool {
-        true
-    }
-
     /// Build the wire descriptor reported to the frontend.
     ///
     /// **Contract:** this method MUST be pure, cheap, and free of I/O.
@@ -966,7 +958,6 @@ pub trait AgentProvider: Send + Sync {
             notifications_schema: self.notifications_schema(),
             supports_lazy_skills: self.supports_lazy_skills(),
             has_hooks: self.has_hooks(),
-            preserves_context_on_resume: self.preserves_context_on_resume(),
             cli_binary: self.cli_binary().map(|s| s.to_string()),
             install_command: self.install_command(platform),
             model_switch_format: self.model_switch_format().map(|s| s.to_string()),

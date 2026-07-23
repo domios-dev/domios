@@ -39,7 +39,6 @@ function provider(id: string, displayName: string): ProviderDescriptor {
     notifications_schema: [],
     supports_lazy_skills: false,
     has_hooks: false,
-    preserves_context_on_resume: false,
     icon_hint: "◆",
   };
 }
