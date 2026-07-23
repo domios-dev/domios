@@ -470,12 +470,18 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       const ws = stateRef.current.workspaces.find((w) => w.id === id);
       const paneIds = ws ? ws.tabs.map((t) => t.pane_id) : [];
       for (const pid of paneIds) pendingCloseRef.current.add(pid);
-      guardedInvoke("mux_close_workspace", { workspaceId: id }).catch(() => {
-        for (const pid of paneIds) pendingCloseRef.current.delete(pid);
-      });
       dispatch({ type: "CLOSE_WORKSPACE", id });
+      // Refresh only after the close is acknowledged; if the backend rejects it
+      // the workspace still lives — drop the tombstones and let the
+      // authoritative snapshot restore the optimistically-removed tabs.
+      guardedInvoke("mux_close_workspace", { workspaceId: id })
+        .then(() => refreshFromBackend())
+        .catch(() => {
+          for (const pid of paneIds) pendingCloseRef.current.delete(pid);
+          refreshFromBackend();
+        });
     },
-    [guardedInvoke],
+    [guardedInvoke, refreshFromBackend],
   );
 
   const renameWorkspace = useCallback((id: string, name: string) => {
@@ -672,23 +678,35 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       if (!ctx) return;
       const { workspaces } = stateRef.current;
       pendingCloseRef.current.add(paneId);
-      guardedInvoke("mux_close_pane", { paneId }).catch(() => {
+      // On a failed backend close the pane still lives — drop the tombstone and
+      // let the authoritative snapshot restore the optimistically-removed item.
+      const restore = () => {
         pendingCloseRef.current.delete(paneId);
-      });
+        refreshFromBackend();
+      };
       const ws = workspaces.find((w) => w.id === ctx.workspaceId);
       const tab = ws?.tabs.find((t) => t.id === ctx.tabId);
-      if (tab) {
-        const allPanes = [tab.pane_id];
-        if (allPanes.length <= 1) {
-          guardedInvoke("mux_close_tab", { workspaceId: ctx.workspaceId, tabId: ctx.tabId }).catch(() => {});
-          dispatch({
-            type: "CLOSE_TAB",
-            workspaceId: ctx.workspaceId,
-            tabId: ctx.tabId,
-            removedPaneIds: [paneId],
-          });
-          return;
-        }
+      const closesTab = Boolean(tab) && [tab!.pane_id].length <= 1;
+      // Drive refresh/restore off the op that authoritatively removes this pane:
+      // the tab close when it's the tab's last pane, else the pane close.
+      guardedInvoke("mux_close_pane", { paneId })
+        .then(() => {
+          if (!closesTab) refreshFromBackend();
+        })
+        .catch(() => {
+          if (!closesTab) restore();
+        });
+      if (closesTab) {
+        guardedInvoke("mux_close_tab", { workspaceId: ctx.workspaceId, tabId: ctx.tabId })
+          .then(() => refreshFromBackend())
+          .catch(restore);
+        dispatch({
+          type: "CLOSE_TAB",
+          workspaceId: ctx.workspaceId,
+          tabId: ctx.tabId,
+          removedPaneIds: [paneId],
+        });
+        return;
       }
       dispatch({
         type: "CLOSE_PANE",
@@ -700,7 +718,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         window.dispatchEvent(new CustomEvent("codeterm-pane-resize"));
       });
     },
-    [findContext, guardedInvoke],
+    [findContext, guardedInvoke, refreshFromBackend],
   );
 
   const setFocusedPane = useCallback((paneId: string) => {
