@@ -39,14 +39,20 @@ pub async fn graceful_shutdown(app: &tauri::AppHandle) -> Result<(), String> {
         .clone();
 
     let agent_panes = collect_agent_panes(&svc);
+    let pty_ids = collect_pty_ids(&svc);
     log::info!(
-        "[updater] graceful_shutdown: {} agent pane(s) need /exit",
-        agent_panes.len()
+        "[updater] graceful_shutdown: {} agent pane(s) need /exit; {} PTY session(s) will be reaped",
+        agent_panes.len(),
+        pty_ids.len()
     );
 
     send_exit_to_agents(&svc, &agent_panes);
 
     wait_or_kill_panes(svc.pty.clone(), agent_panes).await;
+
+    // The NSIS updater exits this process immediately after launch on Windows.
+    // Reap every owned PTY first so ConPTY's OpenConsole.exe cannot lock installed files.
+    svc.kill_ptys(&pty_ids);
 
     persist_session(app, &svc)?;
 
@@ -87,6 +93,15 @@ fn collect_agent_panes(svc: &ServiceState) -> Vec<AgentPaneInfo> {
         });
     }
     out
+}
+
+fn collect_pty_ids(svc: &ServiceState) -> Vec<String> {
+    let snapshot = svc.mux.read().snapshot();
+    collect_pty_ids_from(snapshot.panes.values().map(|pane| pane.pty_id.as_ref()))
+}
+
+fn collect_pty_ids_from<'a>(pty_ids: impl Iterator<Item = Option<&'a String>>) -> Vec<String> {
+    pty_ids.flatten().cloned().collect()
 }
 
 fn send_exit_to_agents(svc: &ServiceState, agents: &[AgentPaneInfo]) {
@@ -230,6 +245,19 @@ mod tests {
         assert_eq!(provider_exit_command("aider"), None);
         assert_eq!(provider_exit_command(""), None);
         assert_eq!(provider_exit_command("Claude"), None);
+    }
+
+    #[test]
+    fn pty_ids_include_plain_terminal_sessions() {
+        let ids = [Some("agent-pty"), None, Some("terminal-pty")]
+            .into_iter()
+            .map(|id| id.map(str::to_string))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            collect_pty_ids_from(ids.iter().map(Option::as_ref)),
+            ["agent-pty", "terminal-pty"]
+        );
     }
 
     #[test]
