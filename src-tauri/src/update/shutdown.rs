@@ -6,8 +6,9 @@ use tokio::task::JoinSet;
 use crate::service::ServiceState;
 
 const PER_PANE_GRACE: Duration = Duration::from_secs(10);
-const SIGTERM_GRACE: Duration = Duration::from_secs(5);
-const POLL_INTERVAL: Duration = Duration::from_millis(250);
+const FORCED_EXIT_GRACE: Duration = Duration::from_secs(5);
+const SPAWN_QUIESCE_TIMEOUT: Duration = Duration::from_secs(10);
+const PTY_REAP_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Stable fallback exit-command per known provider id.
 /// Used only when the registered provider's `exit_command()` returns None
@@ -38,21 +39,18 @@ pub async fn graceful_shutdown(app: &tauri::AppHandle) -> Result<(), String> {
         .inner()
         .clone();
 
+    quiesce_pty_spawns(&svc).await?;
+
     let agent_panes = collect_agent_panes(&svc);
-    let pty_ids = collect_pty_ids(&svc);
     log::info!(
-        "[updater] graceful_shutdown: {} agent pane(s) need /exit; {} PTY session(s) will be reaped",
-        agent_panes.len(),
-        pty_ids.len()
+        "[updater] graceful_shutdown: {} agent pane(s) need /exit",
+        agent_panes.len()
     );
 
     send_exit_to_agents(&svc, &agent_panes);
 
-    wait_or_kill_panes(svc.pty.clone(), agent_panes).await;
-
-    // The NSIS updater exits this process immediately after launch on Windows.
-    // Reap every owned PTY first so ConPTY's OpenConsole.exe cannot lock installed files.
-    svc.kill_ptys(&pty_ids);
+    wait_or_kill_panes(svc.pty.clone(), agent_panes).await?;
+    let reaped = reap_owned_ptys(&svc).await?;
 
     persist_session(app, &svc)?;
 
@@ -60,7 +58,10 @@ pub async fn graceful_shutdown(app: &tauri::AppHandle) -> Result<(), String> {
         log::warn!("[updater] mem WAL checkpoint failed: {}", e);
     }
 
-    log::info!("[updater] graceful_shutdown: complete");
+    log::info!(
+        "[updater] graceful_shutdown: complete; {} PTY session(s) reaped",
+        reaped
+    );
     Ok(())
 }
 
@@ -95,15 +96,6 @@ fn collect_agent_panes(svc: &ServiceState) -> Vec<AgentPaneInfo> {
     out
 }
 
-fn collect_pty_ids(svc: &ServiceState) -> Vec<String> {
-    let snapshot = svc.mux.read().snapshot();
-    collect_pty_ids_from(snapshot.panes.values().map(|pane| pane.pty_id.as_ref()))
-}
-
-fn collect_pty_ids_from<'a>(pty_ids: impl Iterator<Item = Option<&'a String>>) -> Vec<String> {
-    pty_ids.flatten().cloned().collect()
-}
-
 fn send_exit_to_agents(svc: &ServiceState, agents: &[AgentPaneInfo]) {
     for agent in agents {
         let Some(cmd) = agent.exit_command.as_deref() else {
@@ -131,91 +123,140 @@ fn send_exit_to_agents(svc: &ServiceState, agents: &[AgentPaneInfo]) {
     }
 }
 
-async fn wait_or_kill_panes(pty: crate::PtyState, agents: Vec<AgentPaneInfo>) {
+async fn quiesce_pty_spawns(svc: &ServiceState) -> Result<(), String> {
+    let spawn_gate = svc.pty.lock().spawn_gate();
+    spawn_gate.quiesce();
+    tokio::task::spawn_blocking(move || {
+        spawn_gate.wait_for_idle(std::time::Instant::now() + SPAWN_QUIESCE_TIMEOUT)
+    })
+    .await
+    .map_err(|error| format!("PTY spawn quiesce task failed: {error}"))?
+}
+
+async fn wait_or_kill_panes(
+    pty: crate::PtyState,
+    agents: Vec<AgentPaneInfo>,
+) -> Result<(), String> {
     if agents.is_empty() {
-        return;
+        return Ok(());
     }
-    let mut set: JoinSet<()> = JoinSet::new();
+    let mut set: JoinSet<Result<(), String>> = JoinSet::new();
     for agent in agents {
         let pty = pty.clone();
         set.spawn(async move { wait_or_kill_one(pty, agent).await });
     }
-    while set.join_next().await.is_some() {}
+    let mut failures = Vec::new();
+    while let Some(result) = set.join_next().await {
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => failures.push(error),
+            Err(error) => failures.push(format!("agent shutdown task failed: {error}")),
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("; "))
+    }
 }
 
-async fn wait_or_kill_one(pty: crate::PtyState, agent: AgentPaneInfo) {
-    if poll_until_exit(&pty, &agent.pty_id, PER_PANE_GRACE).await {
+async fn wait_or_kill_one(pty: crate::PtyState, agent: AgentPaneInfo) -> Result<(), String> {
+    let session = {
+        let manager = pty.lock();
+        manager.get_session(&agent.pty_id)
+    };
+    let Some(session) = session else {
+        return Ok(());
+    };
+    let mut killer = session
+        .child
+        .lock()
+        .map_err(|error| format!("pane {} child lock poisoned: {error}", agent.pane_id))?
+        .clone_killer();
+    let waiting_session = session.clone();
+    let mut waiter = tokio::task::spawn_blocking(move || {
+        waiting_session
+            .child
+            .lock()
+            .map_err(|error| format!("child lock poisoned: {error}"))?
+            .wait()
+            .map_err(|error| error.to_string())
+    });
+
+    if wait_for_child(&mut waiter, PER_PANE_GRACE).await? {
         log::info!(
             "[updater] pane {} exited gracefully (provider={})",
             agent.pane_id,
             agent.provider_id
         );
-        let _ = pty.lock().kill(&agent.pty_id);
-        return;
+        return Ok(());
     }
 
     log::warn!(
-        "[updater] pane {} did not exit within {:?}; sending SIGTERM via Child::kill()",
+        "[updater] pane {} did not exit within {:?}; terminating its owned process tree",
         agent.pane_id,
         PER_PANE_GRACE
     );
-    if let Err(e) = soft_kill(&pty, &agent.pty_id) {
+    if let Err(error) = killer.kill() {
         log::warn!(
-            "[updater] soft_kill failed for pane {}: {}",
+            "[updater] process-tree termination failed for pane {}: {}",
             agent.pane_id,
-            e
+            error
         );
     }
 
-    if poll_until_exit(&pty, &agent.pty_id, SIGTERM_GRACE).await {
-        log::info!("[updater] pane {} exited after SIGTERM", agent.pane_id);
-        let _ = pty.lock().kill(&agent.pty_id);
-        return;
+    if wait_for_child(&mut waiter, FORCED_EXIT_GRACE).await? {
+        log::info!(
+            "[updater] pane {} exited after forced termination",
+            agent.pane_id
+        );
+        return Ok(());
     }
 
-    log::warn!(
-        "[updater] pane {} still alive after SIGTERM; dropping PTY (forces SIGKILL)",
+    Err(format!(
+        "pane {} process tree did not exit before shutdown deadline",
         agent.pane_id
-    );
-    let _ = pty.lock().kill(&agent.pty_id);
+    ))
 }
 
-async fn poll_until_exit(pty: &crate::PtyState, pty_id: &str, budget: Duration) -> bool {
-    let deadline = std::time::Instant::now() + budget;
-    loop {
-        if !is_alive(pty, pty_id) {
-            return true;
-        }
-        if std::time::Instant::now() >= deadline {
-            return false;
-        }
-        tokio::time::sleep(POLL_INTERVAL).await;
+async fn wait_for_child(
+    waiter: &mut tokio::task::JoinHandle<Result<portable_pty::ExitStatus, String>>,
+    timeout: Duration,
+) -> Result<bool, String> {
+    match tokio::time::timeout(timeout, waiter).await {
+        Ok(result) => result
+            .map_err(|error| format!("child wait task failed: {error}"))?
+            .map(|_| true),
+        Err(_) => Ok(false),
     }
 }
 
-fn is_alive(pty: &crate::PtyState, pty_id: &str) -> bool {
-    let manager = pty.lock();
-    let Some(session) = manager.get_session(pty_id) else {
-        return false;
-    };
-    let mut child = match session.child.lock() {
-        Ok(g) => g,
-        Err(_) => return true,
-    };
-    matches!(child.try_wait(), Ok(None))
-}
+async fn reap_owned_ptys(svc: &ServiceState) -> Result<usize, String> {
+    let reapers = svc.pty.lock().begin_shutdown()?;
+    let pty_ids = reapers
+        .iter()
+        .map(|reaper| reaper.pty_id().to_string())
+        .collect::<Vec<_>>();
+    svc.pty_ownership.release_ptys(&pty_ids);
 
-fn soft_kill(pty: &crate::PtyState, pty_id: &str) -> Result<(), String> {
-    let manager = pty.lock();
-    let session = manager
-        .get_session(pty_id)
-        .ok_or_else(|| format!("PTY {} not found", pty_id))?;
-    drop(manager);
-    let mut child = session
-        .child
-        .lock()
-        .map_err(|e| format!("child lock poisoned: {}", e))?;
-    child.kill().map_err(|e| format!("Child::kill: {}", e))
+    let count = reapers.len();
+    let mut set = JoinSet::new();
+    for reaper in reapers {
+        set.spawn_blocking(move || reaper.wait_bounded(PTY_REAP_TIMEOUT));
+    }
+    let mut failures = Vec::new();
+    while let Some(result) = set.join_next().await {
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => failures.push(error),
+            Err(error) => failures.push(format!("PTY reap task failed: {error}")),
+        }
+    }
+    if failures.is_empty() {
+        Ok(count)
+    } else {
+        Err(failures.join("; "))
+    }
 }
 
 pub(crate) fn persist_session(app: &tauri::AppHandle, svc: &ServiceState) -> Result<(), String> {
@@ -245,19 +286,6 @@ mod tests {
         assert_eq!(provider_exit_command("aider"), None);
         assert_eq!(provider_exit_command(""), None);
         assert_eq!(provider_exit_command("Claude"), None);
-    }
-
-    #[test]
-    fn pty_ids_include_plain_terminal_sessions() {
-        let ids = [Some("agent-pty"), None, Some("terminal-pty")]
-            .into_iter()
-            .map(|id| id.map(str::to_string))
-            .collect::<Vec<_>>();
-
-        assert_eq!(
-            collect_pty_ids_from(ids.iter().map(Option::as_ref)),
-            ["agent-pty", "terminal-pty"]
-        );
     }
 
     #[test]

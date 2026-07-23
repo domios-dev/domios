@@ -149,8 +149,9 @@ pub async fn spawn_pty_core(
     }
 
     let t0 = std::time::Instant::now();
+    let spawn_gate = state.lock().spawn_gate();
     let built = tokio::task::spawn_blocking(move || {
-        crate::pty::manager::build_session(command, cwd, cols, rows, env_vars)
+        crate::pty::manager::build_session(spawn_gate, command, cwd, cols, rows, env_vars)
     })
     .await
     .map_err(|e| format!("spawn_pty join error: {}", e))??;

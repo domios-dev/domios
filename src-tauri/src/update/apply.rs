@@ -155,19 +155,40 @@ async fn check_and_apply_plugin(
     // the new app without waiting on the next cold startup (v1.5.6 stale-shim bug).
     crate::startup::refresh_bundled_cli(app);
 
-    shutdown::graceful_shutdown(app).await.map_err(|e| {
-        format!(
-            "installer launch cancelled because PTY shutdown failed: {}",
-            e
-        )
-    })?;
-
-    log::info!("[updater] starting verified installer after PTY shutdown");
-    update
-        .install(bytes)
-        .map_err(|e| format!("installer launch failed: {}", e))?;
+    install_after_shutdown(
+        bytes,
+        || async {
+            shutdown::graceful_shutdown(app).await.map_err(|e| {
+                format!(
+                    "installer launch cancelled because PTY shutdown failed: {}",
+                    e
+                )
+            })
+        },
+        |verified_bytes| {
+            log::info!("[updater] starting verified installer after PTY shutdown");
+            update
+                .install(verified_bytes)
+                .map_err(|e| format!("installer launch failed: {}", e))
+        },
+    )
+    .await?;
 
     restart_after_plugin_install(app)
+}
+
+async fn install_after_shutdown<S, ShutdownFuture, I>(
+    verified_bytes: Vec<u8>,
+    shutdown: S,
+    install: I,
+) -> Result<(), String>
+where
+    S: FnOnce() -> ShutdownFuture,
+    ShutdownFuture: std::future::Future<Output = Result<(), String>>,
+    I: FnOnce(Vec<u8>) -> Result<(), String>,
+{
+    shutdown().await?;
+    install(verified_bytes)
 }
 
 #[cfg(windows)]
@@ -629,6 +650,56 @@ async fn diagnose_no_update(endpoint: &str, local_version: &str) {
             }
         }
         Err(e) => log::warn!("[updater] manual manifest fetch failed: {}", e),
+    }
+}
+
+#[cfg(test)]
+mod plugin_order_tests {
+    use super::install_after_shutdown;
+    use std::sync::{Arc, Mutex};
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn verified_download_precedes_shutdown_and_installer_launch() {
+        let events = Arc::new(Mutex::new(vec!["download"]));
+        let shutdown_events = events.clone();
+        let install_events = events.clone();
+
+        install_after_shutdown(
+            vec![1, 2, 3],
+            move || async move {
+                shutdown_events.lock().unwrap().push("shutdown");
+                Ok(())
+            },
+            move |bytes| {
+                assert_eq!(bytes, [1, 2, 3]);
+                install_events.lock().unwrap().push("install");
+                Ok(())
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(*events.lock().unwrap(), ["download", "shutdown", "install"]);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn shutdown_failure_prevents_installer_launch() {
+        let installed = Arc::new(Mutex::new(false));
+        let install_flag = installed.clone();
+
+        let error = install_after_shutdown(
+            vec![1],
+            || async { Err("PTY reap failed".to_string()) },
+            move |_| {
+                *install_flag.lock().unwrap() = true;
+                Ok(())
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error, "PTY reap failed");
+        assert!(!*installed.lock().unwrap());
     }
 }
 
