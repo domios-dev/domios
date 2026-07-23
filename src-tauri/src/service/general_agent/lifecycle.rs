@@ -287,12 +287,7 @@ pub fn start_general_agent(
     }
     log::info!("[general-agent] Shell ready, building launch command...");
 
-    // → false). Single-source-of-truth comes from the AgentProvider trait.
-    let preserves_context = svc
-        .agent_registry
-        .with_provider(provider_name, |p| p.preserves_context_on_resume())
-        .unwrap_or(false);
-    let use_resume = session_id.is_some() && preserves_context;
+    let use_resume = session_id.is_some();
     let cmd = if use_resume {
         let sid = session_id.as_ref().unwrap();
         match svc

@@ -28,7 +28,6 @@
     },
     "sessionIdInjection": "none",
     "statusBarRows": 1,
-    "preservesContextOnResume": false,
     "supportsLazySkills": false,
     "hasHooks": true,
     "usageProbeCommand": "/status"

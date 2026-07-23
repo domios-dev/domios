@@ -144,10 +144,6 @@ fn metadata_parity() {
     assert_eq!(n.cli_binary(), j.cli_binary());
     assert_eq!(n.icon_hint(), j.icon_hint());
     assert_eq!(n.icon_color(), j.icon_color());
-    assert_eq!(
-        n.preserves_context_on_resume(),
-        j.preserves_context_on_resume()
-    );
     assert_eq!(n.has_hooks(), j.has_hooks());
     assert_eq!(n.supports_lazy_skills(), j.supports_lazy_skills());
     assert_eq!(n.status_bar_rows(), j.status_bar_rows());
@@ -181,15 +177,15 @@ fn parse_session_messages_parity_on_jsonl_fixture() {
 }
 
 #[test]
-fn resume_command_carries_session_id_and_skip_flag() {
+fn resume_command_matches_native_provider() {
     if require_plugins().is_none() {
         return;
     }
-    let (_n, j) = pair();
-    let cmd = j.build_resume_command("abc-def-123-456", true).unwrap();
-    assert!(cmd.contains("--resume"));
-    assert!(cmd.contains("abc-def-123-456"));
-    assert!(cmd.contains("--dangerously-skip-permissions"));
+    let (n, j) = pair();
+    assert_eq!(
+        n.build_resume_command("abc-def-123-456", true),
+        j.build_resume_command("abc-def-123-456", true)
+    );
 }
 
 #[test]

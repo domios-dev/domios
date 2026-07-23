@@ -38,8 +38,6 @@ pub struct SpawnConfig {
     #[serde(default)]
     pub status_bar_rows: u16,
     #[serde(default)]
-    pub preserves_context_on_resume: bool,
-    #[serde(default)]
     pub supports_lazy_skills: bool,
     #[serde(default)]
     pub has_hooks: bool,

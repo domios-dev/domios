@@ -24,7 +24,6 @@
     },
     "sessionIdInjection": "none",
     "statusBarRows": 2,
-    "preservesContextOnResume": true,
     "supportsLazySkills": false,
     "hasHooks": true,
     "supportsStructuredPrompts": true,
