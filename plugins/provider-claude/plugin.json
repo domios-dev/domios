@@ -1,6 +1,6 @@
 {
   "id": "claude",
-  "version": "1.7.3",
+  "version": "1.7.4",
   "minCodeterm": "1.0.0",
   "hostApi": 2,
   "displayName": "Claude Code",
@@ -25,7 +25,6 @@
     },
     "sessionIdInjection": "none",
     "statusBarRows": 3,
-    "preservesContextOnResume": true,
     "supportsLazySkills": true,
     "hasHooks": true,
     "usageProbeCommand": "/usage"

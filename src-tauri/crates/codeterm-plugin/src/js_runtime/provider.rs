@@ -960,10 +960,6 @@ impl AgentProvider for JsProvider {
             .or_else(|| self.manifest.default_model.clone())
     }
 
-    fn preserves_context_on_resume(&self) -> bool {
-        self.manifest.spawn.preserves_context_on_resume
-    }
-
     fn settings_schema(&self) -> Vec<SettingField> {
         // Cached: describe() polls hit this; the plugin schema is a pure constant.
         self.schema_cache

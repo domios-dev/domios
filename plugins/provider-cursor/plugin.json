@@ -20,7 +20,6 @@
     "verifySubmit": { "kind": "tui_input_drained" },
     "sessionIdInjection": "none",
     "statusBarRows": 1,
-    "preservesContextOnResume": true,
     "supportsLazySkills": false,
     "hasHooks": false
   },

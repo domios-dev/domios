@@ -36,7 +36,6 @@ fn parse_full_manifest() {
                 "verifySubmit": { "kind": "tui_input_drained" },
                 "sessionIdInjection": "fresh_and_fork",
                 "statusBarRows": 3,
-                "preservesContextOnResume": true,
                 "supportsLazySkills": true,
                 "hasHooks": true
             },

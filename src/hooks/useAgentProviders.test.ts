@@ -33,7 +33,6 @@ function provider(id: string): ProviderDescriptor {
     notifications_schema: [],
     supports_lazy_skills: false,
     has_hooks: false,
-    preserves_context_on_resume: false,
     supports_chat_ui: true,
     icon_hint: id.slice(0, 2).toUpperCase(),
   };

@@ -774,7 +774,6 @@ export interface ProviderDescriptor {
   notifications_schema: SettingField[];
   supports_lazy_skills: boolean;
   has_hooks: boolean;
-  preserves_context_on_resume: boolean;
   /// Provider can render a pane as chat (JSONL sessions or structured/DB-backed
   /// chat). Gates the chat/terminal toggle — replaces the old hardcoded set.
   supports_chat_ui?: boolean;
