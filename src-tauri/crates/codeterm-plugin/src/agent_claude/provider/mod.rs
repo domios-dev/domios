@@ -280,11 +280,6 @@ impl AgentProvider for ClaudeProvider {
         crate::model_catalog::resolve_default("claude")
     }
 
-    fn preserves_context_on_resume(&self) -> bool {
-        // Claude replays the JSONL session file on `--resume`, preserving context.
-        true
-    }
-
     fn notifications_schema(&self) -> Vec<SettingField> {
         schemas::notifications_schema()
     }
@@ -476,7 +471,6 @@ mod tests {
         assert_eq!(desc.display_name, "Claude Code");
         assert_eq!(desc.icon_hint.as_deref(), Some("✳"));
         assert_eq!(desc.default_model.as_deref(), Some("opus"));
-        assert!(desc.preserves_context_on_resume);
         assert!(desc.supports_lazy_skills);
         assert!(desc.has_hooks);
         assert!(!desc.settings_schema.is_empty());

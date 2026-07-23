@@ -282,7 +282,6 @@ Declarative config the host reads without running JS. Key fields:
     "taskInputWarmupMs": 3000,
     "verifySubmit": { "kind": "tui_input_drained", "timeoutSecs": 15, "idleAfterDrainMs": 800 },
     "sessionIdInjection": "none",           // none | fresh | fresh_and_fork
-    "preservesContextOnResume": false,       // true → resume replays prior turns
     "hasHooks": false,
     "usageProbeCommand": "/status"          // pairs with parseUsage
   },
