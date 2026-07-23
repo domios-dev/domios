@@ -4,7 +4,6 @@ import type { RemoteWorker } from "../../lib/types";
 
 const STATUS_COLOR: Record<string, string> = {
   working: "var(--ct-green, #7ee787)",
-  done: "var(--ct-green, #7ee787)",
   blocked: "var(--ct-red, #f85149)",
   partial: "var(--ct-yellow, #d29922)",
 };
