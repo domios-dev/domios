@@ -63,6 +63,7 @@ mod spawn_guard;
 mod spawn_params;
 mod spawn_plan_task;
 pub(crate) mod spawn_title;
+mod status_reconciliation;
 pub mod store;
 pub mod structured_prompt;
 pub mod sync_watcher;
@@ -429,6 +430,7 @@ impl ServiceContext {
         let pending = self.mux_emit_pending.clone();
         let mux = self.mux.clone();
         let agent_tracker = self.agent_tracker.clone();
+        let agent_registry = self.agent_registry.clone();
         let stats = self.mux_emit_stats.clone();
         let spawned = std::thread::Builder::new()
             .name("mux-emit".into())
@@ -436,6 +438,7 @@ impl ServiceContext {
                 let snapshot = Self::coalesce_snapshot(
                     &mux,
                     &agent_tracker,
+                    &agent_registry,
                     &pending,
                     std::time::Duration::from_millis(50),
                 );
@@ -486,12 +489,13 @@ impl ServiceContext {
     fn coalesce_snapshot(
         mux: &MuxState,
         agent_tracker: &AgentTrackerState,
+        agent_registry: &AgentRegistry,
         pending: &AtomicBool,
         delay: std::time::Duration,
     ) -> crate::multiplexer::state::MultiplexerSnapshot {
         std::thread::sleep(delay);
         pending.store(false, Ordering::Release);
-        mux.read().snapshot_with_status(&agent_tracker.lock())
+        status_reconciliation::snapshot_with_reconciled_status(mux, agent_tracker, agent_registry)
     }
 
     pub(crate) fn emit_pane_title_pinned(&self, pane_id: &str, title: &str) {

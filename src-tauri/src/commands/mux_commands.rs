@@ -1,7 +1,6 @@
 use serde::Serialize;
 use tauri::State;
 
-use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::state::{MultiplexerSnapshot, WorkspaceInfo};
 use crate::service::{BatchOp, ServiceState};
 use codeterm_types::team::Team;
@@ -22,11 +21,8 @@ pub struct OrphanedRestoreInfo {
 
 /// Returns the full multiplexer state for frontend hydration (read-only).
 #[tauri::command]
-pub fn mux_get_state(
-    state: State<'_, MuxState>,
-    tracker: State<'_, crate::AgentTrackerState>,
-) -> Result<MultiplexerSnapshot, String> {
-    Ok(state.read().snapshot_with_status(&tracker.lock()))
+pub fn mux_get_state(svc: State<'_, ServiceState>) -> Result<MultiplexerSnapshot, String> {
+    Ok(svc.snapshot_with_reconciled_status())
 }
 
 /// Create a new workspace.

@@ -180,6 +180,10 @@ impl ServiceContext {
                 current_status
             );
         }
+        let previous_reconciled_status = pane_id
+            .as_deref()
+            .map(|pid| self.reconciled_pane_status_for_id(pid, prev_status))
+            .unwrap_or(prev_status);
 
         // agent_type is intentional: explicit spawn paths set it directly.
         // Output parsing no longer infers identity except the narrow shell-prompt exit path.
@@ -328,7 +332,11 @@ impl ServiceContext {
             self.run_watcher.complete_via_semantic_idle(self, pty_id);
         }
 
-        (prev_status, current_status)
+        let current_reconciled_status = pane_id
+            .as_deref()
+            .map(|pid| self.reconciled_pane_status_for_id(pid, current_status))
+            .unwrap_or(current_status);
+        (previous_reconciled_status, current_reconciled_status)
     }
 
     /// Build a pending prompt from the provider's STRUCTURED handle, if it has

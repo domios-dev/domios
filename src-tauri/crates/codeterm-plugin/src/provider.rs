@@ -677,6 +677,12 @@ pub trait AgentProvider: Send + Sync {
         0
     }
 
+    /// Whether the shared structural agent-state classifier deterministically
+    /// covers both this provider's ready prompt and active-turn UI.
+    fn supports_agent_state_status_reconciliation(&self) -> bool {
+        false
+    }
+
     /// Quick pre-filter on raw PTY chunks (must be fast).
     /// If true, full detection runs on the VT100 screen content.
     fn has_event_markers(&self, chunk: &str) -> bool {

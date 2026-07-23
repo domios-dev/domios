@@ -422,7 +422,11 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                     .unwrap_or_default()
                     .as_secs();
                 let (changed, status_snapshots): (
-                    Vec<(String, crate::agent::status::PaneStatus)>,
+                    Vec<(
+                        String,
+                        crate::agent::status::PaneStatus,
+                        crate::agent::status::PaneStatus,
+                    )>,
                     Vec<(String, crate::agent::status::PaneStatus)>,
                 ) = {
                     let mut t = tracker.lock();
@@ -434,7 +438,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                         t.check_idle(&pty_id, idle_timeout);
                         let now = t.get_status(&pty_id);
                         if now != prev {
-                            changes.push((pty_id.clone(), now));
+                            changes.push((pty_id.clone(), prev, now));
                         }
                         snapshots.push((pty_id, now));
                     }
@@ -484,23 +488,22 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                 idle_since_by_pty.retain(|pty_id, _| seen_pty_ids.contains(pty_id));
                 was_idle_by_pty.retain(|pty_id| seen_pty_ids.contains(pty_id));
 
-                for (pty_id, status) in changed {
+                for (pty_id, raw_prev, raw_now) in changed {
                     let pane_id = mux.write().pane_id_for_pty(&pty_id);
                     if let Some(pid) = pane_id {
                         log::info!(
                             "[idle-poll] {} {:?} (pane={})",
                             &pty_id[..pty_id.len().min(8)],
-                            status,
+                            raw_now,
                             pid
                         );
-                        crate::api::events::emit_everywhere(
-                            &app_handle,
-                            "pane-status-changed",
-                            serde_json::json!({
-                                "pane_id": pid,
-                                "status": format!("{:?}", status),
-                            }),
-                        );
+                        if let Some(service) =
+                            app_handle.try_state::<crate::service::ServiceState>()
+                        {
+                            let prev = service.reconciled_pane_status_for_id(&pid, raw_prev);
+                            let now = service.reconciled_pane_status_for_id(&pid, raw_now);
+                            service.emit_pane_status_if_changed(&pty_id, prev, now);
+                        }
 
                         // Agent exits are handled in output.rs, not idle poll.
                     }

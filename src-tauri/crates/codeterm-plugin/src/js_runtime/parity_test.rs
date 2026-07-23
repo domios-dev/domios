@@ -576,6 +576,33 @@ fn structured_prompt_server_capability_contract() {
     }
 }
 
+#[test]
+fn agent_state_status_reconciliation_capability_contract() {
+    if require_plugins().is_none() {
+        return;
+    }
+    for (id, expected) in [
+        ("claude", true),
+        ("codex", true),
+        ("opencode", true),
+        ("cursor", false),
+    ] {
+        assert_eq!(
+            load_js(id).supports_agent_state_status_reconciliation(),
+            expected,
+            "{id}: capability must reflect deterministic prompt-ready and active-turn coverage"
+        );
+    }
+
+    let native_default = DiscoverModelsNativeStub;
+    let js_default = load_inline_js("agent-state-status-default", "module.exports.default = {};");
+    assert!(!native_default.supports_agent_state_status_reconciliation());
+    assert_eq!(
+        native_default.supports_agent_state_status_reconciliation(),
+        js_default.supports_agent_state_status_reconciliation()
+    );
+}
+
 /// `model_launch_args` pins each provider's REAL CLI model flag — codex/opencode
 /// take `-m`, claude/cursor take `--model`. A manifest edit that flips the flag
 /// would launch the agent with a flag its CLI rejects; an empty model must add
