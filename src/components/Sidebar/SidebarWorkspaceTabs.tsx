@@ -1,4 +1,4 @@
-import { useCallback, useMemo, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { Plus } from "lucide-react";
 import type {
   Pane,
@@ -146,16 +146,6 @@ export function SidebarWorkspaceTabs({
   );
   const plansByTeam = useMemo(() => newestActivePlansByTeam(plans as TeamPlan[]), [plans]);
 
-  // Stable ref so the row wrappers don't churn a fresh rename closure into every
-  // TabItem on each render (status polls fire this component constantly).
-  const handleRenameTab = useCallback(
-    (tabId: string, title: string) => {
-      onRenameTab(tabId, title);
-      persistTabRename(ws.id, tabId, title);
-    },
-    [onRenameTab, ws.id],
-  );
-
   const sharedRow = {
     workspaceId: ws.id,
     activeTabId: wsActiveTabId,
@@ -168,7 +158,10 @@ export function SidebarWorkspaceTabs({
     uiFontScale,
     onActivateTab,
     onCloseTab,
-    onRenameTab: handleRenameTab,
+    onRenameTab: (tabId: string, title: string) => {
+      onRenameTab(tabId, title);
+      persistTabRename(ws.id, tabId, title);
+    },
   };
 
   const renderMemberRow = (
@@ -196,20 +189,15 @@ export function SidebarWorkspaceTabs({
 
   const renderedTeamIds = new Set<string>();
   const rows: ReactNode[] = [];
-  // Memoize so a pane status change (which reuses sortedTabs/panes) does not hand
-  // SortableContext a fresh items identity and re-render the whole sortable list.
-  const { looseItems, pinnedLooseItems } = useMemo(() => {
-    const loose: string[] = [];
-    const pinned: string[] = [];
-    for (const tab of sortedTabs) {
-      const pane = panes[tab.pane_id] as TeamPane | undefined;
-      if (pane?.team_id) continue;
-      const item = `${TAB_PREFIX}${tab.id}`;
-      loose.push(item);
-      if (pane?.protected) pinned.push(item);
-    }
-    return { looseItems: loose, pinnedLooseItems: pinned };
-  }, [sortedTabs, panes]);
+  const looseItems = sortedTabs
+    .filter((tab) => !(panes[tab.pane_id] as TeamPane | undefined)?.team_id)
+    .map((tab) => `${TAB_PREFIX}${tab.id}`);
+  const pinnedLooseItems = sortedTabs
+    .filter(
+      (tab) =>
+        !(panes[tab.pane_id] as TeamPane | undefined)?.team_id && panes[tab.pane_id]?.protected,
+    )
+    .map((tab) => `${TAB_PREFIX}${tab.id}`);
 
   for (const [index, tab] of sortedTabs.entries()) {
     const pane = panes[tab.pane_id] as TeamPane | undefined;
