@@ -160,7 +160,7 @@ run_stages() {
 
     cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed \
       || fail_stage "sidecars:embed-build"
-    node scripts/bundle-embed.js
+    CODETERM_DEV=1 node scripts/bundle-embed.js
     ct_write_provenance "bundled-embed" "release" "$HOST_TRIPLE" "" "" \
       "src-tauri/bundled-embed/codeterm-embed-${HOST_TRIPLE}${EXE_EXT}" \
       "src-tauri/bundled-embed/codeterm-embed-${HOST_TRIPLE}${EXE_EXT}.provenance.json"
