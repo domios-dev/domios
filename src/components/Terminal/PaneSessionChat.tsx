@@ -403,7 +403,14 @@ export function PaneSessionChat({
   // re-rendering (and re-parsing markdown for) every origin message on every chunk.
   type OriginProps = { key: string; onOriginClick: () => void; originAvatar: ReactNode };
   const originPropsCacheRef = useRef<Map<string, OriginProps>>(new Map());
+  const originFocusRef = useRef<((paneId: string) => void) | null>(null);
   const originPropsById = useMemo(() => {
+    // onOriginClick closes over setFocusedPane, so a new setFocusedPane identity
+    // must rebind every entry — drop the cache instead of reusing stale closures.
+    if (originFocusRef.current !== setFocusedPane) {
+      originFocusRef.current = setFocusedPane;
+      originPropsCacheRef.current = new Map();
+    }
     const cache = originPropsCacheRef.current;
     const next = new Map<string, OriginProps>();
     for (const { msg, origin } of deferredEnrichedMessages) {
