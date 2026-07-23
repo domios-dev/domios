@@ -22,10 +22,8 @@ import {
 import type { ModelInfo, PendingPrompt, ProviderDescriptor } from "../../lib/types";
 import { ModelSuggestionPicker } from "./ModelSuggestionPicker";
 import { PaneTaskStrip } from "./PaneTaskStrip";
+import { COMPOSER_MIN_HEIGHT, applyComposerAutosize } from "./composerAutosize";
 
-const COMPOSER_MIN_HEIGHT = 20;
-const COMPOSER_HEIGHT_EPSILON = 2;
-const COMPOSER_MAX_HEIGHT = 230;
 const AUDIO_ATTACHMENT_RE = /\.(webm|ogg|oga|opus|mp3|wav|m4a|aac|mp4|flac)$/i;
 // several seconds) then morphs this bubble into the transcript, or an error.
 const VOICE_TRANSCRIBING_PLACEHOLDER = "🎙 Transcribing voice note…";
@@ -51,14 +49,6 @@ declare global {
       ignoredKeys: string[];
     };
   }
-}
-
-function composerHeight(el: HTMLTextAreaElement): number {
-  const measured = el.scrollHeight;
-  if (measured <= COMPOSER_MIN_HEIGHT + COMPOSER_HEIGHT_EPSILON) {
-    return COMPOSER_MIN_HEIGHT;
-  }
-  return Math.min(Math.max(measured, COMPOSER_MIN_HEIGHT), COMPOSER_MAX_HEIGHT);
 }
 
 function cliFallbackCommandPayload(text: string): string | null {
@@ -305,6 +295,7 @@ function ChatComposerImpl({
   const [modelHighlight, setModelHighlight] = useState(0);
   const touchMode = useTouchOptimizedUi();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const shellRef = useRef<HTMLDivElement>(null);
   const lastSendRef = useRef<{ text: string; at: number }>({ text: "", at: 0 });
   const [delayedMessages, setDelayedMessages] = useState<DelayedMessage[]>([]);
   const [delayedQueueOpen, setDelayedQueueOpen] = useState(false);
@@ -360,9 +351,7 @@ function ChatComposerImpl({
   useLayoutEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
-    el.style.height = `${COMPOSER_MIN_HEIGHT}px`;
-    const next = composerHeight(el);
-    el.style.height = `${next}px`;
+    applyComposerAutosize(el, shellRef.current);
     recordComposerPaint();
   }, [input]);
 
@@ -669,6 +658,7 @@ function ChatComposerImpl({
 
   return (
     <div
+      ref={shellRef}
       className="relative shrink-0 p-2 border-t"
       data-testid="chat-composer-shell"
       style={{
