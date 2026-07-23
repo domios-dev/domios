@@ -86,7 +86,6 @@ export function useChatScroll({ sessionKey, active, loading, messageCount }: Use
   const pointerScrollRef = useRef(false);
   const lastRestoredKeyRef = useRef("");
   const followRafRef = useRef(0);
-  const contentSyncRafRef = useRef(0);
 
   const [showScrollDown, setShowScrollDown] = useState(false);
 
@@ -164,37 +163,45 @@ export function useChatScroll({ sessionKey, active, loading, messageCount }: Use
     }
   }, []);
 
-  // rAF-batched, single-shot: coalesces bursts (streamed chunks, layout
-  // settling) into one scrollTop write per frame.
-  const scheduleContentSync = useCallback(() => {
-    if (contentSyncRafRef.current) return;
-    contentSyncRafRef.current = requestAnimationFrame(() => {
-      contentSyncRafRef.current = 0;
-      const el = scrollRef.current;
-      const content = contentRef.current;
-      if (!el) return;
-      if (modeRef.current === "pinned") {
-        snapChatViewportToBottom(el);
-        return;
-      }
-      const anchor = anchorRef.current;
-      if (!anchor || !content) return;
-      const resolved = resolveChatScrollTopForAnchor(anchor, findAnchorOffsetTop(content, anchor.elementId));
-      if (resolved == null) return;
-      el.scrollTop = resolved;
-    });
+  // Must run synchronously inside the ResizeObserver callback: RO delivers
+  // after layout but before paint, so the write lands in the same frame.
+  const syncViewportToContent = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (modeRef.current === "pinned") {
+      snapChatViewportToBottom(el);
+      return;
+    }
+    const content = contentRef.current;
+    const anchor = anchorRef.current;
+    if (!anchor || !content) return;
+    const resolved = resolveChatScrollTopForAnchor(anchor, findAnchorOffsetTop(content, anchor.elementId));
+    if (resolved == null) return;
+    el.scrollTop = resolved;
   }, []);
 
+  // Keyed on `loading`: the transcript nodes mount only after the loading gate
+  // opens, so a mount-time-only effect would observe nothing and never re-run.
   useEffect(() => {
+    if (loading) return;
+    const el = scrollRef.current;
     const content = contentRef.current;
-    if (!content) return;
-    const observer = new ResizeObserver(scheduleContentSync);
+    if (!el || !content) return;
+    // Native scroll anchoring fights this authority on net-zero-height window
+    // shifts (top row dropped + bottom row appended) and drags us off bottom.
+    el.style.overflowAnchor = "none";
+    const observer = new ResizeObserver(syncViewportToContent);
     observer.observe(content);
-    return () => {
-      observer.disconnect();
-      if (contentSyncRafRef.current) cancelAnimationFrame(contentSyncRafRef.current);
-    };
-  }, [scheduleContentSync]);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [syncViewportToContent, loading]);
+
+  // Commits can restructure the transcript without changing its total height,
+  // which fires no ResizeObserver; re-sync before paint on every commit.
+  useLayoutEffect(() => {
+    if (loading) return;
+    syncViewportToContent();
+  });
 
   const applyRestoreTarget = useCallback((target: ReturnType<typeof chatActivationRestoreTarget>) => {
     const el = scrollRef.current;
@@ -224,7 +231,6 @@ export function useChatScroll({ sessionKey, active, loading, messageCount }: Use
 
   useEffect(() => () => {
     if (followRafRef.current) cancelAnimationFrame(followRafRef.current);
-    if (contentSyncRafRef.current) cancelAnimationFrame(contentSyncRafRef.current);
   }, []);
 
   return {
