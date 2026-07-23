@@ -41,6 +41,8 @@ function loadHostPlugin() {
       fs: {
         fileExists: () => false,
         readFile: () => null,
+        readFileHead: () => null,
+        readFileTail: () => null,
         readJson: () => null,
       },
       expandHome: (value: string) => value,
@@ -88,6 +90,8 @@ const baseHost = (over: Record<string, unknown>) => ({
   fs: {
     fileExists: () => false,
     readFile: () => null,
+    readFileHead: () => null,
+    readFileTail: () => null,
     readJson: () => null,
     writeJson: () => true,
     writeFile: () => true,
@@ -182,24 +186,42 @@ console.log("\n--- sessions ---\n");
       modifiedMs: 999000,
     },
   ];
+  const contentOf = (p: string): string | null => {
+    if (p === "/sessions/old.jsonl") {
+      return '{"type":"session_meta","payload":{"id":"11111111-1111-1111-1111-111111111111","cwd":"/work/proj"}}\n';
+    }
+    if (p === "/sessions/new.jsonl") {
+      return [
+        '{"type":"session_meta","payload":{"id":"22222222-2222-2222-2222-222222222222","cwd":"/work/proj"}}',
+        '{"type":"turn_context","payload":{"model":"gpt-5.6-sol"}}',
+      ].join("\n");
+    }
+    return null;
+  };
+  const headBytes: string[] = [];
+  const tailBytes: string[] = [];
+  let sessionWrites = 0;
   const host = baseHost({
     fs: {
       fileExists: (p: string) => p === "/sessions",
-      readFile: (p: string) => {
-        if (p === "/sessions/old.jsonl") {
-          return '{"type":"session_meta","payload":{"id":"11111111-1111-1111-1111-111111111111","cwd":"/work/proj"}}\n';
-        }
-        if (p === "/sessions/new.jsonl") {
-          return [
-            '{"type":"session_meta","payload":{"id":"22222222-2222-2222-2222-222222222222","cwd":"/work/proj"}}',
-            '{"type":"turn_context","payload":{"model":"gpt-5.6-sol"}}',
-          ].join("\n");
-        }
-        return null;
+      // The plugin must never call the whole-file readFile on a session path anymore.
+      readFile: (p: string) => { throw new Error(`unbounded readFile on ${p}`); },
+      readFileHead: (p: string, n: number) => {
+        const s = contentOf(p);
+        if (s === null) return null;
+        headBytes.push(`${p}:${n}`);
+        return s.slice(0, n);
+      },
+      readFileTail: (p: string, n: number) => {
+        const s = contentOf(p);
+        if (s === null) return null;
+        tailBytes.push(`${p}:${n}`);
+        return s.slice(-n);
       },
       readJson: () => null,
-      writeJson: () => true,
-      writeFile: () => true,
+      writeJson: (p: string) => { if (String(p).startsWith("/sessions")) sessionWrites++; return true; },
+      writeFile: (p: string) => { if (String(p).startsWith("/sessions")) sessionWrites++; return true; },
+      removeFile: (p: string) => { if (String(p).startsWith("/sessions")) sessionWrites++; return true; },
       walkDir: () => files,
     },
     envGet: (k: string) => k === "CODETERM_CODEX_SESSIONS_ROOT" ? "/sessions" : null,
@@ -216,6 +238,46 @@ console.log("\n--- sessions ---\n");
     "gpt-5.6-sol",
     "detectSessionModel preserves the exact session-scoped model id",
   );
+  assert(headBytes.length > 0, "readSessionMeta reads a bounded head, not the whole file");
+  assert(tailBytes.length > 0, "detectSessionModel reads a bounded tail, not the whole file");
+  eq(sessionWrites, 0, "session enumeration/model detection never writes to user session files");
+}
+
+console.log("\n--- detectSessionModel: bounded tail drops a partial leading line ---\n");
+{
+  // A large rollout whose earliest turn_context names a stale model; the tail
+  // window starts mid-line, so the partial leading record must be skipped and
+  // the last (real) turn_context model returned.
+  const meta = '{"type":"session_meta","payload":{"id":"33333333-3333-3333-3333-333333333333","cwd":"/work/proj"}}';
+  const staleTurn = '{"type":"turn_context","payload":{"model":"gpt-old-stale"}}';
+  const filler = new Array(40).fill('{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"text","text":"ünïcödé padding ☃"}]}}');
+  const liveTurn = '{"type":"turn_context","payload":{"model":"gpt-5.6-sol"}}';
+  const whole = [meta, staleTurn, ...filler, liveTurn].join("\n");
+  // Tail window smaller than the file → cut lands inside the filler, well past the stale turn.
+  const tailWindow = liveTurn.length + 200;
+  let sawWholeRead = false;
+  const sessionFile = {
+    isFile: true,
+    name: "rollout-2026-05-01T10-00-00-33333333-3333-3333-3333-333333333333.jsonl",
+    path: "/sessions/live.jsonl",
+    modifiedMs: 999000,
+  };
+  const p = loadCodexWithHost(baseHost({
+    fs: {
+      ...baseHost({}).fs,
+      fileExists: () => true,
+      readFile: () => { sawWholeRead = true; return whole; },
+      readFileTail: (_p: string, n: number) => whole.slice(-Math.min(n, tailWindow)),
+      walkDir: () => [sessionFile],
+    },
+    envGet: (k: string) => k === "CODETERM_CODEX_SESSIONS_ROOT" ? "/sessions" : null,
+  }));
+  eq(
+    p.detectSessionModel("/work/proj", "33333333-3333-3333-3333-333333333333"),
+    "gpt-5.6-sol",
+    "bounded tail returns the last turn_context model and ignores the stale earlier one",
+  );
+  assert(!sawWholeRead, "detectSessionModel never falls back to a whole-file read");
 }
 
 console.log("\n--- parseUsage (/status screen) ---\n");

@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Clock3, Paperclip, X } from "lucide-react";
 import { ComposerActions } from "./ComposerActions";
+import { DUPLICATE_SEND_NOTICE, isDuplicateSend } from "./chatSendGuard";
 import { invoke, listen } from "../../lib/bridge";
 import { quotePathForPaste } from "../../lib/clipboardPaste";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
@@ -540,7 +541,10 @@ function ChatComposerImpl({
     const { text, allAttachments } = draft;
     const nowTs = Date.now();
     const dupKey = `${text} ${allAttachments.join("|")}`;
-    if (dupKey === lastSendRef.current.text && nowTs - lastSendRef.current.at < 500) return;
+    if (isDuplicateSend(lastSendRef.current, dupKey, nowTs)) {
+      showComposerError(DUPLICATE_SEND_NOTICE);
+      return;
+    }
     lastSendRef.current = { text: dupKey, at: nowTs };
     const hasAudio = allAttachments.some((p) => AUDIO_ATTACHMENT_RE.test(p));
     const placeholderId = hasAudio ? addOptimistic(VOICE_TRANSCRIBING_PLACEHOLDER) : null;

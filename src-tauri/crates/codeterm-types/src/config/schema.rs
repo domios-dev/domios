@@ -43,6 +43,8 @@ pub struct AppConfig {
     pub ui: UiConfig,
     #[serde(default)]
     pub runaway: RunawayConfig,
+    #[serde(default)]
+    pub kpi: KpiConfig,
 }
 
 impl Default for AppConfig {
@@ -67,7 +69,22 @@ impl Default for AppConfig {
             updater: UpdaterConfig::default(),
             ui: UiConfig::default(),
             runaway: RunawayConfig::default(),
+            kpi: KpiConfig::default(),
         }
+    }
+}
+
+/// Orchestration-economics KPI event ledger. Off by default until phase 3 wires the
+/// choke-point counters and phase 4 ships a query surface.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct KpiConfig {
+    pub enabled: bool,
+}
+
+impl Default for KpiConfig {
+    fn default() -> Self {
+        Self { enabled: false }
     }
 }
 

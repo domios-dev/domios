@@ -37,6 +37,14 @@ async function setupHappyDom() {
     };
     (globalThis as { cancelAnimationFrame: (id: number) => void }).cancelAnimationFrame = () => {};
   }
+  if (typeof (globalThis as { ResizeObserver?: unknown }).ResizeObserver !== "function") {
+    class StubResizeObserver {
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+    (globalThis as { ResizeObserver: unknown }).ResizeObserver = StubResizeObserver;
+  }
   return { act, useLayoutEffect, React, createRoot };
 }
 
