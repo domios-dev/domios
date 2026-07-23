@@ -29,7 +29,6 @@ function mkProvider(id: string, cli?: string | null): ProviderDescriptor {
     notifications_schema: [],
     supports_lazy_skills: false,
     has_hooks: false,
-    preserves_context_on_resume: true,
     cli_binary: cli ?? null,
     install_command: cli ? `install-${id}` : null,
   };

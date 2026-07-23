@@ -417,7 +417,7 @@ ensure_real_embed_bundle() {
   if [ "${REBUILD_EMBED:-0}" = "1" ] || [ "$embed_size" -lt 1048576 ]; then
     echo "Building codeterm-embed before dev (size=${embed_size}, REBUILD_EMBED=${REBUILD_EMBED:-0})..."
     cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
-    node scripts/bundle-embed.js
+    CODETERM_DEV=1 node scripts/bundle-embed.js
   fi
 }
 
@@ -852,7 +852,7 @@ case "$CMD" in
     cargo build --release --manifest-path cli/Cargo.toml
     CODETERM_DEV=1 node scripts/bundle-cli.js
     cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
-    node scripts/bundle-embed.js
+    CODETERM_DEV=1 node scripts/bundle-embed.js
     echo "Bootstrap complete: bundled CLI and codeterm-embed are present."
     ;;
   embed)
@@ -863,7 +863,7 @@ case "$CMD" in
     prepare_bundle_stubs
     ct_configure_sccache
     cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
-    node scripts/bundle-embed.js
+    CODETERM_DEV=1 node scripts/bundle-embed.js
     echo "codeterm-embed rebuilt"
     ;;
   cli)

@@ -300,12 +300,7 @@ pub async fn exec_in_pane(
         .unwrap_or(0);
 
     // path; plain shell panes use script-exec so markers never leak literally.
-    let has_agent = {
-        let mux = state.svc.mux.write();
-        mux.get_pane(&pane_id)
-            .and_then(|p| p.agent_type.as_deref())
-            .is_some()
-    };
+    let has_agent = state.svc.pane_has_agent(&pane_id);
     if has_agent {
         state
             .svc

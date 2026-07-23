@@ -93,6 +93,12 @@ dev_gateway_line="$(grep -n 'enter_build_gateway' <<< "$dev_flow" | head -1 | cu
   exit 1
 }
 
+embed_bundle_flow="$(sed -n '/^ensure_real_embed_bundle()/,/^}/p' build.sh)"
+grep -q 'CODETERM_DEV=1 node scripts/bundle-embed.js' <<< "$embed_bundle_flow" || {
+  echo "dev must ad-hoc sign codeterm-embed without a Developer ID identity" >&2
+  exit 1
+}
+
 ./build.sh gateway-status > "$TEST_ROOT/status.json"
 node - <<'JS' "$TEST_ROOT/status.json"
 const status = require(process.argv[2]);

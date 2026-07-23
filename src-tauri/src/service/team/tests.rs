@@ -2,6 +2,13 @@ use super::*;
 
 use crate::api::events::SystemEvent;
 
+fn isolated_plan_store() -> (tempfile::TempDir, crate::service::plan::PlanStore) {
+    let dir = tempfile::tempdir().unwrap();
+    let plan_store = crate::service::plan::PlanStore::new_for_test(dir.path());
+    assert!(dir.path().join(".codeterm").join("plans.db").is_file());
+    (dir, plan_store)
+}
+
 fn team_members() -> (MultiplexerState, String, String, String, String) {
     let (mut mux, orchestrator) = MultiplexerState::new();
     let team_id = mux
@@ -54,7 +61,7 @@ fn team_member_role_accepts_only_worker_or_planner() {
 #[test]
 fn close_team_removes_registry_and_members_with_one_state_change() {
     let (mut mux, team_id, orchestrator, _, _) = team_members();
-    let plan_store = crate::service::plan::PlanStore::new();
+    let (_plan_dir, plan_store) = isolated_plan_store();
     let workspace_id = mux.find_workspace_for_pane(&orchestrator).unwrap();
     let worker_a = spawn_fixture_member(
         &mut mux,
@@ -462,7 +469,7 @@ fn transfer_requires_source_team_manager_before_atomic_owner_change() {
 #[test]
 fn ordinary_close_preserves_team_but_explicit_close_removes_it() {
     let (mut mux, team_id, orchestrator, planner, worker) = team_members();
-    let plan_store = crate::service::plan::PlanStore::new();
+    let (_plan_dir, plan_store) = isolated_plan_store();
     mux.close_pane(&orchestrator).unwrap();
     mux.close_pane(&planner).unwrap();
     mux.close_pane(&worker).unwrap();
@@ -475,7 +482,7 @@ fn ordinary_close_preserves_team_but_explicit_close_removes_it() {
 #[test]
 fn close_team_unknown_and_repeat_are_structured_errors() {
     let (mut mux, team_id, orchestrator, _, _) = team_members();
-    let plan_store = crate::service::plan::PlanStore::new();
+    let (_plan_dir, plan_store) = isolated_plan_store();
     let events = crate::api::events::EventBroadcaster::new();
     assert!(close_team_with_state_change(
         &mut mux,
@@ -511,7 +518,7 @@ fn close_team_unknown_and_repeat_are_structured_errors() {
 #[test]
 fn close_team_removes_chat_backend_member_and_registry() {
     let (mut mux, team_id, orchestrator, _, worker) = team_members();
-    let plan_store = crate::service::plan::PlanStore::new();
+    let (_plan_dir, plan_store) = isolated_plan_store();
     mux.get_pane_mut(&worker).unwrap().backing = PaneBacking::ChatBackend {
         plugin_id: "chat-backend".into(),
         session_id: "session-1".into(),

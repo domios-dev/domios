@@ -28,7 +28,6 @@ function provider(id: string, transport: ProviderDescriptor["transport"]): Provi
     notifications_schema: [],
     supports_lazy_skills: false,
     has_hooks: false,
-    preserves_context_on_resume: false,
   };
 }
 

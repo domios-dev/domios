@@ -64,12 +64,11 @@ pub fn status_from_body(body: &str) -> String {
     "working".to_string()
 }
 
-/// Drop workers silent past `STALE_MS`, then prune now-empty orchestrator
-/// buckets — bounds growth from closed orchestrators / churned panes.
-fn evict_stale(map: &mut HashMap<String, Vec<RemoteWorker>>, now_ms: u64) {
+/// Drop completed or silent workers, then prune empty orchestrator buckets.
+fn evict_inactive(map: &mut HashMap<String, Vec<RemoteWorker>>, now_ms: u64) {
     let cutoff = now_ms.saturating_sub(STALE_MS);
     map.retain(|_, list| {
-        list.retain(|w| w.last_seen_ms >= cutoff);
+        list.retain(|w| w.status != "done" && w.last_seen_ms >= cutoff);
         !list.is_empty()
     });
 }
@@ -94,19 +93,22 @@ impl RemoteWorkerRegistry {
         Self::default()
     }
 
-    /// Construct a registry backed by `path`, rehydrating durable state and
-    /// dropping entries already past `STALE_MS` so a restart restores only
-    /// recent ghosts. Missing/corrupt file → empty (best-effort).
+    /// Construct a registry backed by `path`, keeping only active recent workers.
+    /// Missing/corrupt file → empty (best-effort).
     pub fn load(path: PathBuf) -> Self {
-        let mut map: HashMap<String, Vec<RemoteWorker>> = std::fs::read_to_string(&path)
+        let persisted = std::fs::read_to_string(&path)
             .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
-        evict_stale(&mut map, now_ms_epoch());
-        Self {
+            .and_then(|s| serde_json::from_str::<HashMap<String, Vec<RemoteWorker>>>(&s).ok());
+        let mut map = persisted.clone().unwrap_or_default();
+        evict_inactive(&mut map, now_ms_epoch());
+        let registry = Self {
             by_orchestrator: Mutex::new(map),
             path: Some(path),
+        };
+        if persisted.is_some() {
+            registry.persist();
         }
+        registry
     }
 
     /// Atomically write the current map to the durable path (no-op without
@@ -138,18 +140,23 @@ impl RemoteWorkerRegistry {
         body: &str,
         now_ms: u64,
     ) {
+        let status = status_from_body(body);
+        if status == "done" {
+            self.forget_by_remote_pane(remote_pane, Some(peer), Some(orchestrator_pane));
+            return;
+        }
         let entry = RemoteWorker {
             peer: peer.to_string(),
             remote_pane: remote_pane.to_string(),
             title: title.to_string(),
             model,
-            status: status_from_body(body),
+            status,
             last_message: body.chars().take(280).collect(),
             last_seen_ms: now_ms,
         };
         {
             let mut map = self.by_orchestrator.lock();
-            evict_stale(&mut map, now_ms);
+            evict_inactive(&mut map, now_ms);
             let list = map.entry(orchestrator_pane.to_string()).or_default();
             if let Some(slot) = list
                 .iter_mut()
@@ -180,7 +187,7 @@ impl RemoteWorkerRegistry {
     ) {
         {
             let mut map = self.by_orchestrator.lock();
-            evict_stale(&mut map, now_ms);
+            evict_inactive(&mut map, now_ms);
             let list = map.entry(orchestrator_pane.to_string()).or_default();
             if !list
                 .iter()
@@ -276,14 +283,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn persists_and_rehydrates_across_reload() {
+    fn persists_and_rehydrates_active_workers_across_reload() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("remote_workers.json");
         let now = now_ms_epoch();
         {
             let reg = RemoteWorkerRegistry::load(path.clone());
             reg.record_spawn("orch", "eight", "w1", "Canvas", Some("opus".into()), now);
-            reg.record_report("orch", "eight", "w2", "Renderer", None, "STATUS: done", now);
+            reg.record_report(
+                "orch",
+                "eight",
+                "w2",
+                "Renderer",
+                None,
+                "STATUS: working",
+                now,
+            );
         } // drop — simulates daemon shutdown
         assert!(path.exists(), "registry persisted to disk");
 
@@ -293,14 +308,14 @@ mod tests {
         assert_eq!(
             list.len(),
             2,
-            "both ghosts survive restart without a new report"
+            "active remote workers survive restart without a new report"
         );
         let canvas = list.iter().find(|w| w.remote_pane == "w1").unwrap();
         assert_eq!(canvas.peer, "eight");
         assert_eq!(canvas.status, "working");
         assert_eq!(canvas.model.as_deref(), Some("opus"));
         let renderer = list.iter().find(|w| w.remote_pane == "w2").unwrap();
-        assert_eq!(renderer.status, "done");
+        assert_eq!(renderer.status, "working");
     }
 
     #[test]
@@ -329,6 +344,32 @@ mod tests {
     }
 
     #[test]
+    fn load_removes_completed_entries_from_persisted_snapshot() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("remote_workers.json");
+        let completed = RemoteWorker {
+            peer: "eight".into(),
+            remote_pane: "done".into(),
+            title: "Done".into(),
+            model: None,
+            status: "done".into(),
+            last_message: "STATUS: done".into(),
+            last_seen_ms: now_ms_epoch(),
+        };
+        std::fs::write(
+            &path,
+            serde_json::to_string(&HashMap::from([("orch".to_string(), vec![completed])])).unwrap(),
+        )
+        .unwrap();
+
+        let registry = RemoteWorkerRegistry::load(path.clone());
+        assert!(registry.for_orchestrator("orch").is_empty());
+        let persisted: HashMap<String, Vec<RemoteWorker>> =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert!(persisted.is_empty());
+    }
+
+    #[test]
     fn in_memory_registry_writes_nothing() {
         // new() has no path → pure in-memory, no disk I/O.
         let reg = RemoteWorkerRegistry::new();
@@ -342,6 +383,41 @@ mod tests {
         assert_eq!(status_from_body("status:blocked, need creds"), "blocked");
         assert_eq!(status_from_body("STATUS: partial"), "partial");
         assert_eq!(status_from_body("just working on it"), "working");
+    }
+
+    #[test]
+    fn completed_report_removes_worker_from_active_registry() {
+        let reg = RemoteWorkerRegistry::new();
+        reg.record_spawn("orch", "eight", "w1", "Renderer", None, 100);
+        reg.record_report("orch", "eight", "w1", "Renderer", None, "STATUS: done", 101);
+        assert!(reg.for_orchestrator("orch").is_empty());
+    }
+
+    #[test]
+    fn blocked_and_partial_reports_remain_actionable() {
+        let reg = RemoteWorkerRegistry::new();
+        reg.record_report(
+            "orch",
+            "eight",
+            "blocked",
+            "Blocked",
+            None,
+            "STATUS: blocked",
+            100,
+        );
+        reg.record_report(
+            "orch",
+            "eight",
+            "partial",
+            "Partial",
+            None,
+            "STATUS: partial",
+            101,
+        );
+        let workers = reg.for_orchestrator("orch");
+        assert_eq!(workers.len(), 2);
+        assert!(workers.iter().any(|worker| worker.status == "blocked"));
+        assert!(workers.iter().any(|worker| worker.status == "partial"));
     }
 
     #[test]
@@ -362,7 +438,7 @@ mod tests {
             "w1",
             "Worker-1",
             Some("opus".into()),
-            "STATUS: done",
+            "STATUS: partial",
             20,
         );
         reg.record_report("orch", "eight", "w2", "Worker-2", None, "working", 15);
@@ -372,7 +448,7 @@ mod tests {
         // Newest activity first.
         assert_eq!(list[0].remote_pane, "w1");
         assert_eq!(
-            list[0].status, "done",
+            list[0].status, "partial",
             "same worker upserts, not duplicates"
         );
         assert_eq!(list[0].model.as_deref(), Some("opus"));
@@ -404,7 +480,7 @@ mod tests {
         assert_eq!(list[0].status, "working");
         assert_eq!(list[0].model.as_deref(), Some("opus"));
 
-        // A real report upserts the same (peer, pane) — no duplicate, richer status.
+        // A terminal report removes the completed worker from the active registry.
         reg.record_report(
             "orch",
             "eight",
@@ -415,17 +491,16 @@ mod tests {
             200,
         );
         let list = reg.for_orchestrator("orch");
-        assert_eq!(list.len(), 1, "same worker, no duplicate");
-        assert_eq!(list[0].status, "done");
+        assert!(
+            list.is_empty(),
+            "completed workers leave the active registry"
+        );
 
-        // Re-spawn registration must NOT downgrade the reported `done` status.
+        // A later spawn represents a fresh worker lifecycle for the pane id.
         reg.record_spawn("orch", "eight", "w1", "Canvas", None, 300);
         let list = reg.for_orchestrator("orch");
         assert_eq!(list.len(), 1);
-        assert_eq!(
-            list[0].status, "done",
-            "spawn re-registration must not clobber a real report"
-        );
+        assert_eq!(list[0].status, "working");
     }
 
     #[test]

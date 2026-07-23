@@ -36,7 +36,7 @@ embed_size=0
 if [ "${REBUILD_EMBED:-0}" = "1" ] || [ "$embed_size" -lt 1048576 ]; then
   echo "[dev-prep] building codeterm-embed (size=${embed_size}, REBUILD_EMBED=${REBUILD_EMBED:-0})"
   cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
-  node scripts/bundle-embed.js
+  CODETERM_DEV=1 node scripts/bundle-embed.js
 else
   echo "[dev-prep] skipping codeterm-embed rebuild (bundle exists, ${embed_size} bytes; set REBUILD_EMBED=1 to force)"
 fi
