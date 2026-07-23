@@ -126,11 +126,11 @@ async fn check_and_apply_plugin(
     };
 
     update_state.lock().set_phase(UpdatePhase::Downloading);
-    log::info!("[updater] downloading and installing v{}", update.version);
+    log::info!("[updater] downloading and verifying v{}", update.version);
     let chunk_state = update_state.clone();
     let finish_state = update_state.clone();
-    if let Err(e) = update
-        .download_and_install(
+    let bytes = match update
+        .download(
             move |chunk_len, content_length| {
                 chunk_state
                     .lock()
@@ -142,21 +142,42 @@ async fn check_and_apply_plugin(
         )
         .await
     {
-        let msg = format!("download/install failed: {}", e);
-        log::error!("[updater] {}", msg);
-        return Err(msg);
-    }
+        Ok(bytes) => bytes,
+        Err(e) => {
+            let msg = format!("download/verify failed: {}", e);
+            log::error!("[updater] {}", msg);
+            return Err(msg);
+        }
+    };
 
     update_state.lock().set_phase(UpdatePhase::Applying);
 
     // the new app without waiting on the next cold startup (v1.5.6 stale-shim bug).
     crate::startup::refresh_bundled_cli(app);
 
-    if let Err(e) = shutdown::graceful_shutdown(app).await {
-        log::error!("[updater] graceful shutdown failed: {}", e);
-    }
+    shutdown::graceful_shutdown(app).await.map_err(|e| {
+        format!(
+            "installer launch cancelled because PTY shutdown failed: {}",
+            e
+        )
+    })?;
 
-    log::info!("[updater] restarting application");
+    log::info!("[updater] starting verified installer after PTY shutdown");
+    update
+        .install(bytes)
+        .map_err(|e| format!("installer launch failed: {}", e))?;
+
+    restart_after_plugin_install(app)
+}
+
+#[cfg(windows)]
+fn restart_after_plugin_install(_: &tauri::AppHandle) -> Result<ApplyResult, String> {
+    // tauri-plugin-updater exits this process after launching the NSIS installer.
+    Ok(ApplyResult::Restarting)
+}
+
+#[cfg(not(windows))]
+fn restart_after_plugin_install(app: &tauri::AppHandle) -> Result<ApplyResult, String> {
     app.restart()
 }
 
