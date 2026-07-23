@@ -62,6 +62,47 @@ interface TranscriptAuthority {
 
 type ChatAttachmentState = "idle" | "attaching" | "awaiting_store" | "attached" | "failed";
 
+export type ChatSessionDiagnosticEvent =
+  | {
+      edge: "event_arrival" | "authority_adopt" | "authority_drop" | "state_enqueued";
+      paneId: string;
+      sourceSessionId: string | null;
+      sessionBindingNonce: string | null;
+      messageIds: string[];
+    }
+  | {
+      edge: "snapshot_request";
+      paneId: string;
+      sourceSessionId: string | null;
+      sessionBindingNonce: string | null;
+    }
+  | {
+      edge: "snapshot_arrival";
+      paneId: string;
+      sourceSessionId: string | null;
+      sessionBindingNonce: string | null;
+      messageIds: string[];
+      subscriptionId: string | null;
+    }
+  | {
+      edge: "state_commit";
+      paneId: string;
+      sourceSessionId: string | null;
+      sessionBindingNonce: string | null;
+      messageIds: string[];
+    }
+  | {
+      edge: "listener_owned" | "listener_released";
+      paneId: string;
+    }
+  | {
+      edge: "subscription_owned" | "subscription_released";
+      paneId: string;
+      subscriptionId: string;
+    };
+
+export type ChatSessionDiagnosticSink = (event: ChatSessionDiagnosticEvent) => void;
+
 export interface TestChatReplyDetail {
   paneId: string;
   content?: string;
@@ -294,8 +335,10 @@ function timestampMs(ts: string | undefined): number | null {
 export function useChatSession({
   paneId,
   agentSessionId,
+  sessionBindingNonce,
   onError,
   active = true,
+  diagnosticSink,
 }: {
   paneId: string;
   agentSessionId: string | null;
@@ -303,6 +346,7 @@ export function useChatSession({
   onError?: (msg: string) => void;
   /** Hidden chats must not run the daemon parser: false stops the session, true restarts it. */
   active?: boolean;
+  diagnosticSink?: ChatSessionDiagnosticSink;
 }) {
   const [structured, setStructured] = useState<ChatMessage[] | null>(null);
   const [windowAnchorKey, setWindowAnchorKey] = useState<string | null>(null);
@@ -316,15 +360,24 @@ export function useChatSession({
   const [attachmentState, setAttachmentState] = useState<ChatAttachmentState>("idle");
   const [optimistic, setOptimistic] = useState<ChatMessage[]>([]);
   const onErrorRef = useRef(onError);
+  const diagnosticSinkRef = useRef(diagnosticSink);
   const nextClientOrderRef = useRef(0);
   const activeRef = useRef(active);
   const agentSessionIdRef = useRef(agentSessionId);
+  const sessionBindingNonceRef = useRef(sessionBindingNonce);
   const attachmentSourceSessionIdRef = useRef(agentSessionId);
   const previousSessionIdRef = useRef(agentSessionId);
   const lifecycleRef = useRef(0);
   const knownPaneIdRef = useRef<string | null>(null);
   const attachmentStateRef = useRef(attachmentState);
   const attachGenerationRef = useRef(attachGeneration);
+  const pendingAuthorityRef = useRef<{
+    sourceSessionId: string | null;
+    sessionBindingNonce: string | null;
+  }>({
+    sourceSessionId: agentSessionId,
+    sessionBindingNonce: sessionBindingNonce ?? null,
+  });
   const activeSubscriptionIdRef = useRef<string | null>(null);
   const requestedSubscriptionIdRef = useRef<string | null>(null);
   const rotationQueuedRef = useRef(false);
@@ -343,10 +396,16 @@ export function useChatSession({
     onErrorRef.current = onError;
   }, [onError]);
 
+  diagnosticSinkRef.current = diagnosticSink;
   activeRef.current = active;
   agentSessionIdRef.current = agentSessionId;
+  sessionBindingNonceRef.current = sessionBindingNonce;
   attachmentStateRef.current = attachmentState;
   attachGenerationRef.current = attachGeneration;
+
+  const emitDiagnostic = useCallback((event: ChatSessionDiagnosticEvent) => {
+    diagnosticSinkRef.current?.(event);
+  }, []);
 
   useEffect(() => {
     setOptimistic([]);
@@ -403,13 +462,29 @@ export function useChatSession({
           `pane-chat-msg-${paneId}`,
           (ev) => {
             if (lifecycleRef.current !== lifecycle) return;
+            const diagnosticBase = {
+              paneId,
+              sourceSessionId: ev.payload.source_session_id,
+              sessionBindingNonce: ev.payload.session_binding_nonce,
+              messageIds: ev.payload.messages.map((message) => message.id),
+            };
+            emitDiagnostic({ edge: "event_arrival", ...diagnosticBase });
             const attachedSessionId = attachmentSourceSessionIdRef.current;
             const paneSessionId = agentSessionIdRef.current;
-            if (!canAdoptTranscriptAuthority(ev.payload, attachedSessionId, paneSessionId)) return;
+            if (!canAdoptTranscriptAuthority(ev.payload, attachedSessionId, paneSessionId)) {
+              emitDiagnostic({ edge: "authority_drop", ...diagnosticBase });
+              return;
+            }
+            emitDiagnostic({ edge: "authority_adopt", ...diagnosticBase });
+            pendingAuthorityRef.current = {
+              sourceSessionId: ev.payload.source_session_id,
+              sessionBindingNonce: ev.payload.session_binding_nonce,
+            };
             if (ev.payload.source_session_id != null) {
               attachmentSourceSessionIdRef.current = ev.payload.source_session_id;
             }
             applyChatMsgEvent(ev.payload, paneId, setStructured, nextClientOrder, attachmentSourceSessionIdRef.current);
+            emitDiagnostic({ edge: "state_enqueued", ...diagnosticBase });
             if (attachmentStateRef.current !== "attached") markAttached();
           },
         );
@@ -417,6 +492,7 @@ export function useChatSession({
           unlisten();
           return;
         }
+        emitDiagnostic({ edge: "listener_owned", paneId });
         unlistenTest = listenForTestChatReplies(paneId, setStructured, nextClientOrder);
         setListenerReady(true);
         setAttachmentState("idle");
@@ -432,15 +508,21 @@ export function useChatSession({
     return () => {
       lifecycleRef.current += 1;
       unlisten?.();
+      if (unlisten) emitDiagnostic({ edge: "listener_released", paneId });
       unlistenTest?.();
       setListenerReady(false);
       const activeSubscriptionId = activeSubscriptionIdRef.current;
       if (activeSubscriptionId) {
         activeSubscriptionIdRef.current = null;
+        emitDiagnostic({
+          edge: "subscription_released",
+          paneId,
+          subscriptionId: activeSubscriptionId,
+        });
         void invoke("chat_stop", { paneId, subscriptionId: activeSubscriptionId }).catch(() => {});
       }
     };
-  }, [active, markAttached, nextClientOrder, paneId]);
+  }, [active, emitDiagnostic, markAttached, nextClientOrder, paneId]);
 
   useEffect(() => {
     if (!active || !listenerReady) return;
@@ -449,6 +531,12 @@ export function useChatSession({
     let cancelled = false;
     (async () => {
       try {
+        emitDiagnostic({
+          edge: "snapshot_request",
+          paneId,
+          sourceSessionId: agentSessionIdRef.current,
+          sessionBindingNonce: sessionBindingNonceRef.current ?? null,
+        });
         const res = await invoke<ChatStartResult>("chat_start", {
           paneId,
           agentSessionId: agentSessionIdRef.current,
@@ -463,6 +551,25 @@ export function useChatSession({
         }
         if (cancelled || attachGenerationRef.current !== generation) return;
         activeSubscriptionIdRef.current = res.subscription_id ?? null;
+        pendingAuthorityRef.current = {
+          sourceSessionId: res.source_session_id,
+          sessionBindingNonce: res.session_binding_nonce,
+        };
+        emitDiagnostic({
+          edge: "snapshot_arrival",
+          paneId,
+          sourceSessionId: res.source_session_id,
+          sessionBindingNonce: res.session_binding_nonce,
+          messageIds: (res.messages ?? []).map((message) => message.id),
+          subscriptionId: res.subscription_id ?? null,
+        });
+        if (res.subscription_id) {
+          emitDiagnostic({
+            edge: "subscription_owned",
+            paneId,
+            subscriptionId: res.subscription_id,
+          });
+        }
         attachmentSourceSessionIdRef.current = res.source_session_id ?? agentSessionIdRef.current;
         setError(null);
         setLoading(false);
@@ -494,7 +601,7 @@ export function useChatSession({
     return () => {
       cancelled = true;
     };
-  }, [active, attachGeneration, listenerReady, markAttached, nextClientOrder, paneId]);
+  }, [active, attachGeneration, emitDiagnostic, listenerReady, markAttached, nextClientOrder, paneId]);
 
   useEffect(() => {
     const previous = previousSessionIdRef.current;
@@ -534,6 +641,17 @@ export function useChatSession({
   useEffect(() => {
     if (error?.includes("chat_send_raw")) setError(null);
   }, [error]);
+
+  useLayoutEffect(() => {
+    if (structured == null) return;
+    emitDiagnostic({
+      edge: "state_commit",
+      paneId,
+      sourceSessionId: pendingAuthorityRef.current.sourceSessionId,
+      sessionBindingNonce: pendingAuthorityRef.current.sessionBindingNonce,
+      messageIds: structured.map((message) => message.id),
+    });
+  }, [emitDiagnostic, paneId, structured]);
 
   const parsed = useMemo<ChatMessage[]>(() => structured ?? [], [structured]);
   const resetParsed = useMemo(() => trimAfterSessionReset(parsed), [parsed]);
