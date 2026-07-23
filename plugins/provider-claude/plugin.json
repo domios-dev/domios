@@ -25,7 +25,6 @@
     },
     "sessionIdInjection": "none",
     "statusBarRows": 3,
-    "preservesContextOnResume": true,
     "supportsLazySkills": true,
     "hasHooks": true,
     "usageProbeCommand": "/usage"

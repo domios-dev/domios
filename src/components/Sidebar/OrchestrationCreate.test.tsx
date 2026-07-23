@@ -84,7 +84,6 @@ function provider(id: string, models: Array<{ id: string; display_name: string }
     notifications_schema: [],
     supports_lazy_skills: false,
     has_hooks: false,
-    preserves_context_on_resume: false,
   } as ProviderDescriptor;
 }
 
