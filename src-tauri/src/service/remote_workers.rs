@@ -315,7 +315,7 @@ mod tests {
         assert_eq!(canvas.status, "working");
         assert_eq!(canvas.model.as_deref(), Some("opus"));
         let renderer = list.iter().find(|w| w.remote_pane == "w2").unwrap();
-        assert_eq!(renderer.status, "done");
+        assert_eq!(renderer.status, "working");
     }
 
     #[test]
@@ -438,7 +438,7 @@ mod tests {
             "w1",
             "Worker-1",
             Some("opus".into()),
-            "STATUS: done",
+            "STATUS: partial",
             20,
         );
         reg.record_report("orch", "eight", "w2", "Worker-2", None, "working", 15);
@@ -448,7 +448,7 @@ mod tests {
         // Newest activity first.
         assert_eq!(list[0].remote_pane, "w1");
         assert_eq!(
-            list[0].status, "done",
+            list[0].status, "partial",
             "same worker upserts, not duplicates"
         );
         assert_eq!(list[0].model.as_deref(), Some("opus"));
@@ -480,7 +480,7 @@ mod tests {
         assert_eq!(list[0].status, "working");
         assert_eq!(list[0].model.as_deref(), Some("opus"));
 
-        // A real report upserts the same (peer, pane) — no duplicate, richer status.
+        // A terminal report removes the completed worker from the active registry.
         reg.record_report(
             "orch",
             "eight",
@@ -491,17 +491,16 @@ mod tests {
             200,
         );
         let list = reg.for_orchestrator("orch");
-        assert_eq!(list.len(), 1, "same worker, no duplicate");
-        assert_eq!(list[0].status, "done");
+        assert!(
+            list.is_empty(),
+            "completed workers leave the active registry"
+        );
 
-        // Re-spawn registration must NOT downgrade the reported `done` status.
+        // A later spawn represents a fresh worker lifecycle for the pane id.
         reg.record_spawn("orch", "eight", "w1", "Canvas", None, 300);
         let list = reg.for_orchestrator("orch");
         assert_eq!(list.len(), 1);
-        assert_eq!(
-            list[0].status, "done",
-            "spawn re-registration must not clobber a real report"
-        );
+        assert_eq!(list[0].status, "working");
     }
 
     #[test]
