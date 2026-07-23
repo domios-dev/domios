@@ -33,8 +33,9 @@ User-writable tools:
 
 Runner-local environment:
 
-- `%USERPROFILE%\actions-runner\.env` prepends shims, Node, PowerShell, and Cargo before machine/user PATH.
+- `%USERPROFILE%\actions-runner\.env` prepends shims, Node, PowerShell, durable Rust proxies, and Cargo before machine/user PATH.
 - The `.env` file is runner-local and is the persistent mechanism that makes the Actions shell see `pwsh`, `rustup`, `cargo`, `rustc`, `node`, `npm`, `corepack`, `pnpm`, and `git`.
+- Durable Rust proxies live under `%USERPROFILE%\tools\rustup-proxies`, outside Cargo's cache path.
 
 ## Incident Record
 
@@ -44,6 +45,7 @@ Runner-local environment:
 | Orphaned OpenConsole installer lock appeared during recovery. | Unrelated installer state from Windows/app setup, not a GitHub runner issue. | Bootstrap does not touch OpenConsole; it reports only runner prerequisites. | Clear the installer lock separately if it blocks OS/package maintenance. Do not couple it to runner registration. |
 | `pwsh: command not found` in `Ensure Rust toolchain` and cleanup. | Clean runner PATH had no PowerShell 7. | Install official PowerShell zip and prepend its directory in `actions-runner/.env`. | If PowerShell download is blocked, install PowerShell 7 manually and add its directory to `.env`. |
 | `rustup.exe not found`; no `cargo` or `rustc`. | Clean runner account had no Rust toolchain. | Install rustup stable MSVC, preinstall pinned `1.95.0`, clippy/rustfmt, and Windows MSVC targets; prepend `%USERPROFILE%\.cargo\bin`. | If network blocks rustup, mirror the official rustup installer and toolchain artifacts internally. |
+| ARM64 matrix job loses `rustup.exe` after x64 passes. | `Swatinem/rust-cache` post-job cleanup can remove `%USERPROFILE%\.cargo\bin` between sequential matrix jobs. | Bootstrap copies Rust proxies to `%USERPROFILE%\tools\rustup-proxies` and prepends that path before Cargo in the runner `.env`. | Restore proxies with `rustup-init` only if both the Cargo and durable proxy directories are absent. |
 | `node` missing in `Prepare compile stubs`. | Clean runner PATH had no Node.js. | Install official Node LTS zip, prepend it in `.env`, install `pnpm`, and add shims so PowerShell does not pick blocked `.ps1` launchers. | If Node download is blocked, install supported Node LTS manually and add it to `.env`. |
 | `link.exe` missing in Rust lib tests. | Visual Studio Build Tools and/or Windows SDK were absent. | Bootstrap detects `vswhere`, `vcvarsall.bat`, and Windows SDK inventory; with `-InstallVisualStudioBuildTools` in an elevated shell it installs Build Tools C++ workload, ARM64 tools, and Windows SDK, then writes MSVC `PATH`, `INCLUDE`, and `LIB` into runner `.env`. | If elevation/UAC is unavailable, install Visual Studio Build Tools manually with C++ tools and Windows SDK, then re-run bootstrap. |
 
@@ -58,7 +60,7 @@ Run this after bootstrap:
 The output must prove command resolution from the exact runner `.env` PATH:
 
 - `pwsh -> %USERPROFILE%\tools\PowerShell\<version>\pwsh.exe`
-- `rustup`, `cargo`, `rustc -> %USERPROFILE%\.cargo\bin\*.exe`
+- `rustup`, `cargo`, `rustc -> %USERPROFILE%\tools\rustup-proxies\*.exe`
 - `node -> %USERPROFILE%\tools\Node\<version>\node.exe`
 - `npm`, `corepack`, `pnpm -> %USERPROFILE%\tools\runner-shims\*.cmd`
 - `git ->` installed Git command path
@@ -72,4 +74,4 @@ Then dispatch the non-secret `tests.yml` workflow and confirm `rust (windows)` r
 
 Registration tokens, signing keys, package tokens, and Tauri signing passwords stay outside the repository and outside this script. Pass runner registration through `-RegistrationTokenCommand` so the token can be fetched from an ephemeral external source at runtime. The script never writes the token to `.env`, docs, or logs.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
