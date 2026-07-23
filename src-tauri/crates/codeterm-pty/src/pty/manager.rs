@@ -7,6 +7,7 @@ use std::time::Instant;
 
 use parking_lot::Mutex as PlMutex;
 
+pub use super::spawn_gate::PtySpawnGate;
 pub use super::teardown::{PtyReaper, PtyTeardownSignal};
 use super::write_queue::WriteQueue;
 
@@ -310,6 +311,7 @@ mod output_buffer_tests {
 pub struct BuiltSession {
     pub shell: String,
     pub session: Arc<PtySession>,
+    _spawn_permit: super::spawn_gate::PtySpawnPermit,
 }
 
 /// Build a new PTY + child process without touching any manager state.
@@ -326,12 +328,14 @@ pub const STRIPPED_PTY_ENV: &[&str] = &[
 ];
 
 pub fn build_session(
+    spawn_gate: PtySpawnGate,
     command: Option<String>,
     cwd: Option<String>,
     cols: u16,
     rows: u16,
     env_vars: HashMap<String, String>,
 ) -> Result<BuiltSession, String> {
+    let spawn_permit = spawn_gate.acquire()?;
     let pty_system = native_pty_system();
     let size = PtySize {
         rows,
@@ -419,19 +423,29 @@ pub fn build_session(
         teardown: PtyTeardownSignal::default(),
     });
 
-    Ok(BuiltSession { shell, session })
+    Ok(BuiltSession {
+        shell,
+        session,
+        _spawn_permit: spawn_permit,
+    })
 }
 
 /// Manages PTY sessions. Sessions are stored behind Arc for shared access.
 pub struct PtyManager {
     sessions: HashMap<String, Arc<PtySession>>,
+    spawn_gate: PtySpawnGate,
 }
 
 impl PtyManager {
     pub fn new() -> Self {
         Self {
             sessions: HashMap::new(),
+            spawn_gate: PtySpawnGate::default(),
         }
+    }
+
+    pub fn spawn_gate(&self) -> PtySpawnGate {
+        self.spawn_gate.clone()
     }
 
     pub fn spawn(
@@ -454,7 +468,7 @@ impl PtyManager {
         rows: u16,
         env_vars: HashMap<String, String>,
     ) -> Result<(String, Arc<PtySession>), String> {
-        let built = build_session(command, cwd, cols, rows, env_vars)?;
+        let built = build_session(self.spawn_gate.clone(), command, cwd, cols, rows, env_vars)?;
         Ok(self.register_session(custom_id, built))
     }
 
@@ -466,7 +480,11 @@ impl PtyManager {
         custom_id: Option<String>,
         built: BuiltSession,
     ) -> (String, Arc<PtySession>) {
-        let BuiltSession { shell, session } = built;
+        let BuiltSession {
+            shell,
+            session,
+            _spawn_permit,
+        } = built;
         let pty_id = custom_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let child_pid = session
             .child
@@ -574,6 +592,15 @@ impl PtyManager {
         })
     }
 
+    pub fn begin_shutdown(&mut self) -> Result<Vec<PtyReaper>, String> {
+        self.spawn_gate.quiesce();
+        let pty_ids = self.sessions.keys().cloned().collect::<Vec<_>>();
+        pty_ids
+            .into_iter()
+            .map(|pty_id| self.begin_kill(&pty_id))
+            .collect()
+    }
+
     pub fn remove(&mut self, pty_id: &str) {
         self.sessions.remove(pty_id);
         log::info!("Removed PTY {}", pty_id);
@@ -615,6 +642,11 @@ fn detect_default_shell() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "windows")]
+    use crate::pty::windows_test_support::{
+        conpty_host_children_of_current_process, legacy_conhost_children, new_conpty_hosts,
+        wait_for_processes_gone,
+    };
 
     /// Load-bearing contract for the reader-race guard in read_pty_core: once a
     /// backend channel is claimed, has_backend_reader flips true and the rx side
@@ -902,7 +934,7 @@ mod tests {
             .expect("old child mutex")
             .process_id()
             .expect("old child pid");
-        let old_hosts = wait_for_new_conpty_hosts(&before, std::time::Duration::from_secs(5));
+        let old_hosts = new_conpty_hosts(&before);
         assert_eq!(
             old_hosts.len(),
             1,
@@ -930,7 +962,7 @@ mod tests {
         let (new_pty, new_session) = manager
             .spawn(None, None, 80, 24, HashMap::new())
             .expect("spawn new pty");
-        let new_hosts = wait_for_new_conpty_hosts(&after_old, std::time::Duration::from_secs(5));
+        let new_hosts = new_conpty_hosts(&after_old);
         assert_eq!(
             new_hosts.len(),
             1,
@@ -961,97 +993,57 @@ mod tests {
     }
 
     #[cfg(target_os = "windows")]
-    fn legacy_conhost_children(parent_pid: u32) -> Vec<u32> {
-        let script = format!(
-            "$p={}; Get-CimInstance Win32_Process -Filter \"Name = 'conhost.exe' AND ParentProcessId = $p\" | Where-Object {{ $_.CommandLine -like '*conhost.exe 0x4*' }} | ForEach-Object {{ $_.ProcessId }}",
-            parent_pid
-        );
-        let mut cmd = std::process::Command::new("powershell.exe");
-        cmd.args([
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            &script,
-        ]);
-        codeterm_util::process_util::no_window_std(&mut cmd);
-        let Ok(output) = cmd.output() else {
-            return Vec::new();
-        };
-        String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .filter_map(|line| line.trim().parse::<u32>().ok())
-            .collect()
-    }
-
-    // The ConPTY host is OpenConsole.exe only when a sideloaded conpty.dll sits next to
-    // the exe (packaged app); a bare test binary falls back to the in-box headless
-    // conhost.exe. Match both so host observation is deployment-independent.
-    #[cfg(target_os = "windows")]
-    fn conpty_host_children_of_current_process() -> std::collections::HashSet<u32> {
-        let script = format!(
-            "$p={}; Get-CimInstance Win32_Process -Filter \"ParentProcessId = $p AND (Name = 'OpenConsole.exe' OR Name = 'conhost.exe')\" | Where-Object {{ $_.Name -eq 'OpenConsole.exe' -or $_.CommandLine -like '*--headless*' }} | ForEach-Object {{ $_.ProcessId }}",
-            std::process::id()
-        );
-        let mut cmd = std::process::Command::new("powershell.exe");
-        cmd.args([
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            &script,
-        ]);
-        codeterm_util::process_util::no_window_std(&mut cmd);
-        let Ok(output) = cmd.output() else {
-            return std::collections::HashSet::new();
-        };
-        String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .filter_map(|line| line.trim().parse::<u32>().ok())
-            .collect()
-    }
-
-    #[cfg(target_os = "windows")]
-    // The Windows test API has no process-tree event subscription; this is a bounded OS observation contract.
-    fn wait_for_new_conpty_hosts(
-        before: &std::collections::HashSet<u32>,
-        timeout: std::time::Duration,
-    ) -> Vec<u32> {
-        let deadline = std::time::Instant::now() + timeout;
-        loop {
-            let current = conpty_host_children_of_current_process();
-            let hosts: Vec<u32> = current.difference(before).copied().collect();
-            if !hosts.is_empty() || std::time::Instant::now() >= deadline {
-                return hosts;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(100));
+    #[test]
+    fn shutdown_reaps_every_owned_pty_and_conpty_host() {
+        let mut manager = PtyManager::new();
+        let before = conpty_host_children_of_current_process();
+        let mut child_pids = Vec::new();
+        let mut first_session = None;
+        for _ in 0..2 {
+            let (_, session) = manager
+                .spawn(None, None, 80, 24, HashMap::new())
+                .expect("spawn owned pty");
+            first_session.get_or_insert_with(|| session.clone());
+            child_pids.push(
+                session
+                    .child
+                    .lock()
+                    .expect("child mutex")
+                    .process_id()
+                    .expect("child pid"),
+            );
         }
-    }
+        let hosts = new_conpty_hosts(&before);
+        assert_eq!(hosts.len(), 2, "each owned PTY must have a tracked host");
+        let first_session = first_session.expect("first session");
+        first_session
+            .child
+            .lock()
+            .expect("first child mutex")
+            .kill()
+            .expect("pre-shutdown process-tree termination");
 
-    #[cfg(target_os = "windows")]
-    // The Windows test API has no process-tree event subscription; this is a bounded OS observation contract.
-    fn wait_for_processes_gone(pids: Vec<u32>, timeout: std::time::Duration) -> bool {
-        let deadline = std::time::Instant::now() + timeout;
-        loop {
-            let alive = pids.iter().any(|pid| process_exists(*pid));
-            if !alive {
-                return true;
-            }
-            if std::time::Instant::now() >= deadline {
-                return false;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(100));
+        let reapers = manager.begin_shutdown().expect("begin PTY shutdown");
+        assert_eq!(reapers.len(), 2);
+        assert!(manager.sessions.is_empty());
+        let spawn_error = match manager.spawn(None, None, 80, 24, HashMap::new()) {
+            Ok(_) => panic!("shutdown manager accepted a new PTY"),
+            Err(error) => error,
+        };
+        assert!(spawn_error.contains("quiesced"));
+        for reaper in reapers {
+            reaper
+                .wait_bounded(std::time::Duration::from_secs(5))
+                .expect("owned PTY must reap");
         }
-    }
 
-    #[cfg(target_os = "windows")]
-    fn process_exists(pid: u32) -> bool {
-        let mut cmd = std::process::Command::new("tasklist.exe");
-        cmd.args(["/fi", &format!("PID eq {}", pid), "/fo", "csv", "/nh"]);
-        codeterm_util::process_util::no_window_std(&mut cmd);
-        cmd.output()
-            .map(|output| String::from_utf8_lossy(&output.stdout).contains(&pid.to_string()))
-            .unwrap_or(false)
+        assert!(
+            wait_for_processes_gone(
+                hosts.into_iter().chain(child_pids).collect(),
+                std::time::Duration::from_secs(5),
+            ),
+            "owned PTY children and ConPTY hosts must all exit"
+        );
     }
 
     #[test]
