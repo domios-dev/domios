@@ -24,11 +24,12 @@ pub async fn list_panes(
     Query(query): Query<PaneListQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    let focused_workspace =
+        !query.all_workspaces && (query.focused_workspace || query.workspace_id.is_none());
     let result = crate::dispatch::dispatch(
         &crate::dispatch::Command::PaneSummary {
             workspace_id: query.workspace_id,
-            focused_workspace: !query.all_workspaces
-                && (query.focused_workspace || query.workspace_id.is_none()),
+            focused_workspace,
             agents_only: query.agents,
         },
         state.svc.as_ref(),
