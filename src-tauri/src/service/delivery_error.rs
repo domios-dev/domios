@@ -97,7 +97,9 @@ impl DeliveryError {
         let detail = err.to_string();
         match err {
             // Verification gates that run BEFORE the paste — nothing was written.
-            InjectionError::PromptNeverReady { .. } | InjectionError::AgentTuiPresent { .. } => {
+            InjectionError::PromptNeverReady { .. }
+            | InjectionError::AgentTuiPresent { .. }
+            | InjectionError::AgentInputUnavailable { .. } => {
                 Self::PaneBusyRefused { pane, detail }
             }
             InjectionError::PtyClosed { .. } => Self::PtyUnavailable { pane, detail },
