@@ -45,7 +45,7 @@ pub enum WorkspaceAction {
 #[derive(Subcommand)]
 pub enum PaneAction {
     /// List compact tab summaries in the current workspace. Use
-    /// `tab inspect` for full pane details.
+    /// `tab inspect` for full tab details.
     ///
     /// Each tab carries a `backing.kind`: `pty` tabs (terminal agents,
     /// shells) have a real shell — `send` injects text you can execute.
@@ -62,11 +62,11 @@ pub enum PaneAction {
         #[arg(long)]
         agents: bool,
     },
-    /// Show the full daemon pane payload for one or more explicit tab ids.
+    /// Show the full daemon tab payload for one or more explicit tab ids.
     Inspect {
         /// One or more tab ids to inspect.
         #[arg(required = true, num_args = 1..)]
-        panes: Vec<String>,
+        tabs: Vec<String>,
     },
     /// Plain shell tab. For an AI tab use `codeterm agent spawn` instead.
     New {

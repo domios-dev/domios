@@ -299,38 +299,6 @@
           "subcommands": []
         },
         {
-          "name": "reports",
-          "about": "Read reports (for orchestrator tabs)",
-          "aliases": [],
-          "args": [
-            {
-              "name": "clear",
-              "positional": false,
-              "value_name": "CLEAR",
-              "default": null,
-              "help": "Clear reports after reading",
-              "aliases": []
-            },
-            {
-              "name": "limit",
-              "positional": false,
-              "value_name": "LIMIT",
-              "default": null,
-              "help": "Show only the N most recent reports (default: all)",
-              "aliases": []
-            },
-            {
-              "name": "tab",
-              "positional": false,
-              "value_name": "TAB",
-              "default": null,
-              "help": "Tab ID (default: current focused tab)",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
           "name": "restart",
           "about": "Restart agent (graceful exit; resumes only when the tab has a valid provider session)",
           "aliases": [],
@@ -6732,7 +6700,7 @@
               "positional": true,
               "value_name": "PLAN_ID",
               "default": null,
-              "help": "Plan id (if available from pane binding or env)",
+              "help": "Plan id (if available from tab binding or env)",
               "aliases": []
             },
             {
@@ -8828,7 +8796,7 @@
               "positional": false,
               "value_name": "PLANNER",
               "default": null,
-              "help": "Set attached Planner: <pane_id> to bind, or \"none\" to waive (requires --note)",
+              "help": "Set attached Planner: <tab_id> to bind, or \"none\" to waive (requires --note)",
               "aliases": []
             },
             {
@@ -10449,13 +10417,13 @@
         },
         {
           "name": "inspect",
-          "about": "Show the full daemon pane payload for one or more explicit tab ids",
+          "about": "Show the full daemon tab payload for one or more explicit tab ids",
           "aliases": [],
           "args": [
             {
-              "name": "panes",
+              "name": "tabs",
               "positional": true,
-              "value_name": "PANES",
+              "value_name": "TABS",
               "default": null,
               "help": "One or more tab ids to inspect",
               "aliases": []
@@ -10465,7 +10433,7 @@
         },
         {
           "name": "list",
-          "about": "List compact tab summaries in the current workspace. Use `tab inspect` for full pane details",
+          "about": "List compact tab summaries in the current workspace. Use `tab inspect` for full tab details",
           "aliases": [],
           "args": [
             {
@@ -10913,7 +10881,7 @@
         },
         {
           "name": "close",
-          "about": "Close every member pane and remove the Team registry entry",
+          "about": "Close every member tab and remove the Team registry entry",
           "aliases": [],
           "args": [
             {

@@ -300,11 +300,11 @@ fn tab_list_and_inspect_parse_explicit_scopes() {
             agents: true,
         } if workspace == "ws_1"
     ));
-    let inspected = PaneOnly::try_parse_from(["tab", "inspect", "pane_1", "pane_2"])
-        .expect("tab inspect parses");
+    let inspected =
+        PaneOnly::try_parse_from(["tab", "inspect", "tab_1", "tab_2"]).expect("tab inspect parses");
     assert!(matches!(
         inspected.action,
-        PaneAction::Inspect { panes } if panes == ["pane_1", "pane_2"]
+        PaneAction::Inspect { tabs } if tabs == ["tab_1", "tab_2"]
     ));
     let all = PaneOnly::try_parse_from(["tab", "list", "--all-workspaces"])
         .expect("all-workspaces tab list parses");
@@ -320,6 +320,11 @@ fn tab_list_and_inspect_parse_explicit_scopes() {
         PaneOnly::try_parse_from(["tab", "list", "--workspace", "ws_1", "--all-workspaces"])
             .is_err()
     );
+}
+
+#[test]
+fn pane_command_alias_is_rejected() {
+    assert!(Cli::try_parse_from(["codeterm", "pane", "list"]).is_err());
 }
 
 #[test]
