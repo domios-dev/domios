@@ -1,6 +1,72 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use parking_lot::Mutex;
+
+pub struct PairingDelivery {
+    target_id: String,
+    request_id: String,
+    outcome: Mutex<Option<Result<(), String>>>,
+    ready: tokio::sync::Notify,
+}
+
+impl PairingDelivery {
+    pub fn new(target_id: String, request_id: String) -> Self {
+        Self {
+            target_id,
+            request_id,
+            outcome: Mutex::new(None),
+            ready: tokio::sync::Notify::new(),
+        }
+    }
+
+    pub fn target_id(&self) -> &str {
+        &self.target_id
+    }
+
+    pub fn request_id(&self) -> &str {
+        &self.request_id
+    }
+
+    pub fn claim(&self, outcome: Result<(), String>) -> bool {
+        let mut stored = self.outcome.lock();
+        if stored.is_some() {
+            return false;
+        }
+        *stored = Some(outcome);
+        true
+    }
+
+    pub fn outcome(&self) -> Result<(), String> {
+        self.outcome
+            .lock()
+            .clone()
+            .expect("pairing delivery has a claimed terminal outcome")
+    }
+
+    pub fn publish(&self) {
+        self.ready.notify_waiters();
+    }
+
+    pub fn complete(&self, outcome: Result<(), String>) -> bool {
+        if !self.claim(outcome) {
+            return false;
+        }
+        self.publish();
+        true
+    }
+
+    pub async fn wait(&self) -> Result<(), String> {
+        loop {
+            let notified = self.ready.notified();
+            if let Some(outcome) = self.outcome.lock().clone() {
+                return outcome;
+            }
+            notified.await;
+        }
+    }
+}
+
 use mdns_sd::ServiceDaemon;
 
 use super::ports::{default_last_activity, LastActivityProvider};
@@ -26,6 +92,7 @@ pub struct MeshManager {
     pub api_port: u16,
     pub build_hash: String,
     pub pairing_targets: HashMap<String, (String, u16, String)>,
+    pub pairing_deliveries: HashMap<String, Arc<PairingDelivery>>,
     pub mdns_daemon: Option<ServiceDaemon>,
     pub mdns_service_fullname: Option<String>,
     pub udp_started: bool,
@@ -161,6 +228,7 @@ impl MeshManager {
             api_port,
             build_hash: String::new(),
             pairing_targets: HashMap::new(),
+            pairing_deliveries: HashMap::new(),
             mdns_daemon: None,
             mdns_service_fullname: None,
             udp_started: false,
@@ -424,6 +492,31 @@ impl MeshManager {
                 r.status = types::PairingStatus::Expired;
                 expired += 1;
             }
+        }
+        let expired_request_ids: Vec<String> = self
+            .pending_requests
+            .iter()
+            .filter(|(_, request)| request.status != types::PairingStatus::Pending)
+            .map(|(request_id, _)| request_id.clone())
+            .collect();
+        let expired_deliveries: Vec<(String, Arc<PairingDelivery>)> = self
+            .pairing_deliveries
+            .iter()
+            .filter(|(_, delivery)| {
+                expired_request_ids
+                    .iter()
+                    .any(|id| id == delivery.request_id())
+            })
+            .map(|(target_id, delivery)| (target_id.clone(), delivery.clone()))
+            .collect();
+        for (target_id, delivery) in &expired_deliveries {
+            delivery.claim(Err("Pairing request expired".to_string()));
+            self.pending_requests.remove(delivery.request_id());
+            self.pairing_targets.remove(delivery.request_id());
+            self.pairing_deliveries.remove(target_id);
+        }
+        for (_, delivery) in expired_deliveries {
+            delivery.publish();
         }
         let before = self.pending_requests.len();
         self.pending_requests
@@ -936,6 +1029,53 @@ mod tests {
         m.cleanup_expired_requests_at(1000 + 3601);
         assert!(m.pending_requests.is_empty());
         assert!(m.pairing_targets.is_empty(), "targets must not leak");
+    }
+
+    #[test]
+    fn cleanup_expired_request_completes_its_inflight_delivery() {
+        let mut m = MeshManager::new("test-host".into(), 7685);
+        m.disk_persist = false;
+        m.pending_requests
+            .insert("r1".into(), pending_request("r1", "peer-a", 1000));
+        m.pairing_targets
+            .insert("r1".into(), ("192.168.1.2".into(), 7685, "peer-a".into()));
+        let delivery = Arc::new(PairingDelivery::new("peer-a".into(), "r1".into()));
+        m.pairing_deliveries
+            .insert("peer-a".into(), delivery.clone());
+
+        m.cleanup_expired_requests_at(1000 + 301);
+
+        assert!(m.pairing_deliveries.is_empty());
+        assert!(m.pending_requests.is_empty());
+        assert!(m.pairing_targets.is_empty());
+        assert_eq!(
+            delivery.outcome.lock().clone().unwrap().unwrap_err(),
+            "Pairing request expired"
+        );
+    }
+
+    #[test]
+    fn pairing_delivery_expiry_wins_over_owner_completion() {
+        let delivery = PairingDelivery::new("peer-a".into(), "r1".into());
+
+        assert!(delivery.complete(Err("Pairing request expired".to_string())));
+        assert!(!delivery.complete(Ok(())));
+        assert_eq!(
+            delivery.outcome.lock().clone().unwrap().unwrap_err(),
+            "Pairing request expired"
+        );
+    }
+
+    #[test]
+    fn pairing_delivery_cancellation_wins_over_owner_completion() {
+        let delivery = PairingDelivery::new("peer-a".into(), "r1".into());
+
+        assert!(delivery.complete(Err("Pairing request delivery was cancelled".to_string())));
+        assert!(!delivery.complete(Ok(())));
+        assert_eq!(
+            delivery.outcome.lock().clone().unwrap().unwrap_err(),
+            "Pairing request delivery was cancelled"
+        );
     }
 
     #[test]
