@@ -81,16 +81,6 @@ impl RestApiControl {
         *self.sender.lock() = Some(sender);
     }
 
-    fn clear_sender(&self, sender: &mpsc::UnboundedSender<RestApiCommand>) {
-        let mut current = self.sender.lock();
-        if current
-            .as_ref()
-            .is_some_and(|installed| installed.same_channel(sender))
-        {
-            *current = None;
-        }
-    }
-
     fn set_status(&self, phase: RestApiPhase, message: Option<String>) -> RestApiStatus {
         let generation = self.status_events.borrow().generation + 1;
         let status = RestApiStatus {
@@ -184,9 +174,23 @@ impl RestApiControl {
 
 pub(crate) type RestApiControlState = Arc<RestApiControl>;
 
+async fn wait_for_recovery_command(
+    commands: &mut mpsc::UnboundedReceiver<RestApiCommand>,
+    pending_completion: &mut Option<oneshot::Sender<RestApiStatus>>,
+) -> bool {
+    match commands.recv().await {
+        Some(RestApiCommand::PortReleased) => true,
+        Some(RestApiCommand::Restart { completed }) => {
+            *pending_completion = Some(completed);
+            true
+        }
+        None => false,
+    }
+}
+
 pub(crate) async fn start(control: RestApiControlState, bind_addr: String, router: axum::Router) {
     let (sender, mut commands) = mpsc::unbounded_channel();
-    control.install(sender.clone());
+    control.install(sender);
     #[cfg(test)]
     let test_server_exit = control.take_server_exit();
     #[cfg(test)]
@@ -200,6 +204,10 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
     });
     #[cfg(not(test))]
     let mut test_server_exit = std::pin::pin!(std::future::pending::<()>());
+    #[cfg(test)]
+    let mut test_server_exit_pending = true;
+    #[cfg(not(test))]
+    let test_server_exit_pending = false;
     let mut pending_completion: Option<oneshot::Sender<RestApiStatus>> = None;
     loop {
         match tokio::net::TcpListener::bind(&bind_addr).await {
@@ -223,30 +231,35 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
                                 Ok(()) => "REST API server exited unexpectedly. Restart CodeTerm to restore the listener.".to_string(),
                                 Err(error) => format!("REST API server stopped unexpectedly: {error}. Restart CodeTerm to restore the listener."),
                             };
-                            log::error!("{message}");
-                            control.fail_pending(&mut pending_completion, message);
-                            control.clear_sender(&sender);
-                            return;
+                            break Err(message);
                         }
-                        _ = &mut test_server_exit => {
+                        _ = &mut test_server_exit, if test_server_exit_pending => {
+                            #[cfg(test)]
+                            { test_server_exit_pending = false; }
                             let message = "REST API server exited unexpectedly. Restart CodeTerm to restore the listener.".to_string();
-                            control.fail_pending(&mut pending_completion, message.clone());
-                            control.clear_sender(&sender);
-                            return;
+                            break Err(message);
                         }
                         command = commands.recv() => {
-                            let Some(command) = command else {
-                                control.clear_sender(&sender);
-                                return;
-                            };
+                            let Some(command) = command else { return; };
                             match command {
                                 RestApiCommand::PortReleased => {
                                     #[cfg(test)]
                                     control.wait_for_port_release_barrier().await;
                                 }
-                                RestApiCommand::Restart { completed } => break completed,
+                                RestApiCommand::Restart { completed } => break Ok(completed),
                             }
                         }
+                    }
+                };
+                let command = match command {
+                    Ok(command) => command,
+                    Err(message) => {
+                        log::error!("{message}");
+                        control.fail_pending(&mut pending_completion, message);
+                        if wait_for_recovery_command(&mut commands, &mut pending_completion).await {
+                            continue;
+                        }
+                        return;
                     }
                 };
                 control.set_status(RestApiPhase::Starting, None);
@@ -266,7 +279,9 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
                     let message = format!("REST API server shutdown failed: {error}. Restart CodeTerm to restore the listener.");
                     log::error!("{message}");
                     control.fail_pending(&mut pending_completion, message);
-                    control.clear_sender(&sender);
+                    if wait_for_recovery_command(&mut commands, &mut pending_completion).await {
+                        continue;
+                    }
                     return;
                 }
             }
@@ -274,14 +289,10 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
                 let message = format!("REST API could not bind {bind_addr}: {error}. Release the port, then use Restart REST API.");
                 control.fail_pending(&mut pending_completion, message.clone());
                 log::error!("{message}");
-                match commands.recv().await {
-                    Some(RestApiCommand::PortReleased) => continue,
-                    Some(RestApiCommand::Restart { completed }) => {
-                        pending_completion = Some(completed);
-                        continue;
-                    }
-                    None => return,
+                if wait_for_recovery_command(&mut commands, &mut pending_completion).await {
+                    continue;
                 }
+                return;
             }
         }
     }
@@ -382,7 +393,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unexpected_server_exit_fails_status_and_clears_restart_ownership() {
+    async fn unexpected_server_exit_recovers_on_a_later_restart() {
         let address = std::net::TcpListener::bind("127.0.0.1:0")
             .unwrap()
             .local_addr()
@@ -393,7 +404,7 @@ mod tests {
         let task = tokio::spawn(start(
             control.clone(),
             address.to_string(),
-            axum::Router::new(),
+            axum::Router::new().route("/health", axum::routing::get(|| async { "ok" })),
         ));
         wait_for_status(&mut status, |s| s.phase == RestApiPhase::Listening).await;
 
@@ -403,16 +414,18 @@ mod tests {
             .message
             .as_deref()
             .is_some_and(|message| message.contains("exited unexpectedly")));
-        assert!(control
-            .restart_and_wait()
+        let recovered = control.restart_and_wait().await.unwrap();
+        assert_eq!(recovered.phase, RestApiPhase::Listening);
+        assert!(recovered.generation > failed.generation);
+        let response = reqwest::get(format!("http://{address}/health"))
             .await
-            .unwrap_err()
-            .contains("not configured"));
-        task.await.unwrap();
+            .unwrap();
+        assert_eq!(response.text().await.unwrap(), "ok");
+        task.abort();
     }
 
     #[tokio::test]
-    async fn shutdown_error_fails_its_restart_completion_and_clears_ownership() {
+    async fn shutdown_error_fails_its_restart_completion_then_recovers() {
         let address = std::net::TcpListener::bind("127.0.0.1:0")
             .unwrap()
             .local_addr()
@@ -423,7 +436,7 @@ mod tests {
         let task = tokio::spawn(start(
             control.clone(),
             address.to_string(),
-            axum::Router::new(),
+            axum::Router::new().route("/health", axum::routing::get(|| async { "ok" })),
         ));
         wait_for_status(&mut status, |s| s.phase == RestApiPhase::Listening).await;
 
@@ -437,12 +450,14 @@ mod tests {
             .message
             .as_deref()
             .is_some_and(|message| message.contains("shutdown failed")));
-        assert!(control
-            .restart_and_wait()
+        let recovered = control.restart_and_wait().await.unwrap();
+        assert_eq!(recovered.phase, RestApiPhase::Listening);
+        assert!(recovered.generation > completed.generation);
+        let response = reqwest::get(format!("http://{address}/health"))
             .await
-            .unwrap_err()
-            .contains("not configured"));
-        task.await.unwrap();
+            .unwrap();
+        assert_eq!(response.text().await.unwrap(), "ok");
+        task.abort();
     }
 
     #[tokio::test]
