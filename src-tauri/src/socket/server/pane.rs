@@ -17,7 +17,7 @@ pub(super) fn dispatch(
 ) -> Result<Value, JsonRpcError> {
     match method {
         "pane.list" => {
-            let workspace_id = opt_string_param(params, "workspace_id")?;
+            let workspace_id = opt_string_param(params, "workspace_id");
             let focused_workspace = params
                 .as_ref()
                 .and_then(|value| value.get("focused_workspace"))
