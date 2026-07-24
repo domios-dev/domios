@@ -63,8 +63,9 @@ fn list_slugs(plan_dir: &Path) -> Vec<String> {
     };
     let mut slugs: Vec<String> = entries
         .filter_map(Result::ok)
-        .filter(|entry| entry.path().join("SKILL.md").is_file())
         .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter(|slug| !slug.starts_with('.'))
+        .filter(|slug| root.join(slug).join("SKILL.md").is_file())
         .collect();
     slugs.sort();
     slugs
@@ -441,6 +442,11 @@ mod tests {
             &dir,
             "deploy",
             "---\ntitle: Deploy\ncheck: echo ok\n---\n\nDeploy staging safely.\n",
+        );
+        write_skill(
+            &dir,
+            ".deploy.pending",
+            "---\ntitle: Pending\n---\n\nNot committed yet.\n",
         );
         let listed = list_plan_skills(&store, &plan.id).unwrap();
         assert_eq!(listed.len(), 1);
