@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { MessageBubble } from "@codeterm/chat-ui";
@@ -28,6 +28,7 @@ import { AgentStateIndicator } from "./AgentStateIndicator";
 import type { AgentState } from "./AgentStateIndicator";
 import { useAttachments } from "./useAttachments";
 import { useChatSession, isCodeTermFrontendTestMode } from "./useChatSession";
+import { chatProjectionMonitor } from "./chatProjectionDiagnostics";
 import { ChatModelBubble } from "../Extensions/ChatModelBubble";
 import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
 import { WatcherReadOnlyBar } from "./WatcherReadOnlyBar";
@@ -97,6 +98,7 @@ export function PaneSessionChat({
   if (isCodeTermFrontendTestMode()) {
     const counts = (window.__renderCounts ??= {});
     counts[paneId] = (counts[paneId] ?? 0) + 1;
+    window.__chatProjection ??= chatProjectionMonitor;
   }
 
   const touchMode = useTouchOptimizedUi();
@@ -174,6 +176,7 @@ export function PaneSessionChat({
     sessionBindingNonce: pane?.session_binding_nonce,
     onError,
     active: isActive,
+    diagnosticSink: chatProjectionMonitor.sink,
   });
   const bootSetupView = chatSetupView(pane, loading || attachmentState === "attached");
 
@@ -310,6 +313,14 @@ export function PaneSessionChat({
   );
 
   const deferredEnrichedMessages = useDeferredValue(enrichedMessages);
+  // Passive painted-tail probe for the projection pipeline diagnostics. Records
+  // the visible tail only; it never alters what renders.
+  useLayoutEffect(() => {
+    chatProjectionMonitor.recordPaint(
+      paneId,
+      deferredEnrichedMessages[deferredEnrichedMessages.length - 1]?.msg.id ?? null,
+    );
+  }, [paneId, deferredEnrichedMessages]);
   const latestFailedToolCallId = useMemo(() => {
     for (let i = deferredEnrichedMessages.length - 1; i >= 0; i -= 1) {
       const msg = deferredEnrichedMessages[i]?.msg;
