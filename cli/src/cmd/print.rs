@@ -153,6 +153,8 @@ pub fn print_human(value: &serde_json::Value) {
 }
 
 pub fn print_object(value: &serde_json::Value) {
+    let mut value = value.clone();
+    rename_pane_json_keys(&mut value);
     if let Some(obj) = value.as_object() {
         let max_key_len = obj.keys().map(|k| k.len()).max().unwrap_or(0);
         for (key, val) in obj {
@@ -362,5 +364,20 @@ mod tests {
         assert_eq!(out["id"], "canonical");
         assert!(out.get("createdByPane").is_none());
         assert_eq!(out["createdByTab"], "canonical-creator");
+    }
+
+    #[test]
+    fn human_output_uses_tab_field_names_without_changing_values() {
+        let mut value = serde_json::json!({
+            "pane_type": "pane",
+            "parentPaneId": "parent-pane"
+        });
+
+        rename_pane_json_keys(&mut value);
+
+        assert_eq!(value["tab_type"], "pane");
+        assert_eq!(value["parentTabId"], "parent-pane");
+        assert!(value.get("pane_type").is_none());
+        assert!(value.get("parentPaneId").is_none());
     }
 }
