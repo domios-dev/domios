@@ -12,6 +12,7 @@ pub fn handle(
 ) -> Result<Option<Value>, String> {
     match action {
         OrchestratorAction::Status { plan, pane } => status(client, json_output, plan, pane),
+        OrchestratorAction::Inspect { plan, pane } => inspect(client, json_output, plan, pane),
         OrchestratorAction::Learn { text, plan, tag } => {
             learn(client, json_output, text, plan, tag)
         }
@@ -137,6 +138,37 @@ fn status(
     plan: Option<String>,
     pane: Option<String>,
 ) -> Result<Option<Value>, String> {
+    let out = status_snapshot(client, plan, pane)?;
+    let compact = compact_status(&out);
+    if json_output {
+        return Ok(Some(compact));
+    }
+    print!("{}", render_status(&compact));
+    Ok(None)
+}
+
+fn inspect(
+    client: &mut SocketClient,
+    json_output: bool,
+    plan: Option<String>,
+    pane: Option<String>,
+) -> Result<Option<Value>, String> {
+    let out = status_snapshot(client, plan, pane)?;
+    if json_output {
+        return Ok(Some(out));
+    }
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&out).map_err(|err| err.to_string())?
+    );
+    Ok(None)
+}
+
+fn status_snapshot(
+    client: &mut SocketClient,
+    plan: Option<String>,
+    pane: Option<String>,
+) -> Result<Value, String> {
     let plan_id = plan.ok_or("--plan or CODETERM_PLAN_ID is required")?;
     let pane_id = resolve_pane(client, pane);
     let reports = client
@@ -163,51 +195,81 @@ fn status(
         "next_actions": state.get("next_actions").cloned().unwrap_or_else(|| json!([])),
         "reminder": state.get("reminder").cloned().unwrap_or_else(|| json!({})),
     });
-    if json_output {
-        return Ok(Some(out));
-    }
-    print!("{}", render_status(&out));
-    Ok(None)
+    Ok(out)
+}
+
+fn compact_status(value: &Value) -> Value {
+    let count = |path: &[&str]| {
+        path.iter()
+            .try_fold(value, |current, key| current.get(*key))
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len)
+    };
+    let drift = value
+        .get("drift")
+        .and_then(|v| v.get("total"))
+        .and_then(Value::as_u64)
+        .unwrap_or_else(|| count(&["drift", "items"]) as u64);
+    let actions = value
+        .get("next_actions")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let compact_actions: Vec<Value> = actions
+        .iter()
+        .take(3)
+        .map(|action| {
+            json!({
+                "kind": action.get("kind").cloned().unwrap_or(Value::Null),
+                "task_id": action.get("task_id").cloned().unwrap_or(Value::Null),
+            })
+        })
+        .collect();
+    json!({
+        "plan_id": value.get("plan_id").cloned().unwrap_or(Value::Null),
+        "pane_id": value.get("pane_id").cloned().unwrap_or(Value::Null),
+        "reports": count(&["reports"]),
+        "live_lanes": {
+            "open": count(&["live_lanes", "open"]),
+            "blocked": count(&["live_lanes", "blocked"]),
+            "agents": count(&["live_lanes", "agents"]),
+        },
+        "drift": drift,
+        "next_actions": compact_actions,
+        "next_actions_total": actions.len(),
+        "reminder": value.get("reminder").cloned().unwrap_or_else(|| json!({})),
+    })
 }
 
 fn render_status(value: &Value) -> String {
     let plan_id = value.get("plan_id").and_then(|v| v.as_str()).unwrap_or("?");
     let pane_id = value.get("pane_id").and_then(|v| v.as_str()).unwrap_or("?");
-    let reports = value
-        .get("reports")
-        .and_then(|v| v.as_array())
-        .map_or(0, Vec::len);
-    let drift = value
-        .get("drift")
-        .and_then(|v| v.get("total"))
-        .and_then(|v| v.as_u64())
-        .unwrap_or_else(|| {
-            value
-                .get("drift")
-                .and_then(|v| v.get("items"))
-                .and_then(|v| v.as_array())
-                .map_or(0, |items| items.len() as u64)
-        });
+    let reports = value.get("reports").and_then(Value::as_u64).unwrap_or(0);
+    let drift = value.get("drift").and_then(Value::as_u64).unwrap_or(0);
     let actions = value
         .get("next_actions")
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default();
+    let action_total = value
+        .get("next_actions_total")
+        .and_then(Value::as_u64)
+        .unwrap_or(actions.len() as u64);
     let live_agents = value
         .get("live_lanes")
         .and_then(|v| v.get("agents"))
-        .and_then(|v| v.as_array())
-        .map_or(0, Vec::len);
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
     let open = value
         .get("live_lanes")
         .and_then(|v| v.get("open"))
-        .and_then(|v| v.as_array())
-        .map_or(0, Vec::len);
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
     let blocked = value
         .get("live_lanes")
         .and_then(|v| v.get("blocked"))
-        .and_then(|v| v.as_array())
-        .map_or(0, Vec::len);
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
 
     let mut out = format!("Orchestrator status for {plan_id} (pane {pane_id})\n");
     out.push_str(&format!("reports: {reports}\n"));
@@ -228,12 +290,23 @@ fn render_status(value: &Value) -> String {
     } else {
         out.push_str("next_actions:\n");
         for action in actions {
-            let message = action
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("?");
+            let kind = action
+                .get("kind")
+                .and_then(Value::as_str)
+                .unwrap_or("action");
+            let task = action
+                .get("task_id")
+                .and_then(Value::as_str)
+                .map(|id| format!(" {id}"))
+                .unwrap_or_default();
             let command = action_command(plan_id, &action);
-            out.push_str(&format!("- {message}\n  {command}\n"));
+            out.push_str(&format!("- {kind}{task}\n  {command}\n"));
+        }
+        let hidden = action_total.saturating_sub(3);
+        if hidden > 0 {
+            out.push_str(&format!(
+                "- +{hidden} more; use `codeterm orchestrator inspect --plan {plan_id}`\n"
+            ));
         }
     }
     out
@@ -518,14 +591,14 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        action_command, render_reports_error, render_reseed_pane_lookup_error,
+        action_command, compact_status, render_reports_error, render_reseed_pane_lookup_error,
         render_reseed_pane_session_error, render_status,
     };
     use crate::client::{RpcError, SocketCallError};
 
     #[test]
     fn status_renderer_includes_exact_commands() {
-        let rendered = render_status(&json!({
+        let rendered = render_status(&compact_status(&json!({
             "plan_id": "pl_1",
             "pane_id": "pane1",
             "reports": [{"message": "done"}],
@@ -540,7 +613,7 @@ mod tests {
                 {"kind": "gate", "task_id": "task_a", "message": "gate task_a"},
                 {"kind": "reconcile", "message": "reconcile"}
             ]
-        }));
+        })));
 
         assert!(rendered.contains("reports: 1"));
         assert!(rendered.contains("live_lanes: open=1 blocked=0 agents=1"));
@@ -549,6 +622,34 @@ mod tests {
             rendered.contains("codeterm task show task_a && codeterm plan task close pl_1 task_a")
         );
         assert!(rendered.contains("codeterm plan reconcile pl_1"));
+    }
+
+    #[test]
+    fn compact_status_omits_report_and_lane_bodies() {
+        let compact = compact_status(&json!({
+            "plan_id": "pl_1",
+            "pane_id": "pane1",
+            "reports": [{"message": "large report body"}],
+            "live_lanes": {
+                "open": [{"task_id": "task_a", "large": "payload"}],
+                "blocked": [],
+                "agents": [{"pane_id": "worker1", "transcript": "large"}]
+            },
+            "drift": {"items": [{"reason": "drift body"}]},
+            "next_actions": [{"kind": "dispatch", "task_id": "task_a", "message": "very long action body"}],
+            "reminder": {"last_tick": 1}
+        }));
+
+        assert_eq!(compact["reports"], 1);
+        assert_eq!(compact["live_lanes"]["open"], 1);
+        assert_eq!(compact["live_lanes"]["agents"], 1);
+        assert_eq!(compact["drift"], 1);
+        assert_eq!(compact["next_actions_total"], 1);
+        let encoded = compact.to_string();
+        assert!(!encoded.contains("large report body"));
+        assert!(!encoded.contains("transcript"));
+        assert!(!encoded.contains("drift body"));
+        assert!(!encoded.contains("very long action body"));
     }
 
     #[test]

@@ -1192,6 +1192,13 @@ Show the current heartbeat and learnings
 
 - `--plan`
 
+#### `codeterm orchestrator inspect`
+
+Show the full orchestration snapshot, including report bodies
+
+- `--plan`
+- `--tab`
+
 #### `codeterm orchestrator learn`
 
 Append a persistent learning to this orchestrator's heartbeat
@@ -1209,7 +1216,7 @@ Run the daemon-side refresh cycle (handoff → compact → re-orient → verify 
 
 #### `codeterm orchestrator status`
 
-Show orchestration status as reports, live lanes, drift, and next actions
+Show a compact orchestration summary
 
 - `--plan`
 - `--tab`

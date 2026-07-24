@@ -355,15 +355,16 @@ pub(super) fn reconciliation_prompt(plan_id: &str, pane_id: Option<&str>) -> Str
         |pane| format!("codeterm agent reports --tab {pane}"),
     );
     let status = pane_id.map_or_else(
-        || format!("codeterm orchestrator status --plan {plan_id} --json"),
-        |pane| format!("codeterm orchestrator status --plan {plan_id} --tab {pane} --json"),
+        || format!("codeterm orchestrator status --plan {plan_id}"),
+        |pane| format!("codeterm orchestrator status --plan {plan_id} --tab {pane}"),
     );
     format!(
         "STATE-RECONCILIATION:\n\
          - This pane owns an execution-mode plan with unfinished work; do not pause while open tasks remain.\n\
          - If you forgot how to orchestrate, read `codeterm docs ORCHESTRATION` first.\n\
          - First run `{reports}` and process queued reports before inspecting panes.\n\
-         - Pull the full plan-owned snapshot with `{status}`.\n\
+         - Read the compact plan-owned status with `{status}`.\n\
+         - Use `codeterm orchestrator inspect --plan {plan_id} --json` only when a specific discrepancy requires full report bodies or raw lane state.\n\
          - Reconcile live panes against the plan with `codeterm plan reconcile {plan_id}`.\n\
          - {} \n\
          - Parallelize independent writer lanes, but serialize broad/heavy gates in one warm integration checkout so worker worktrees do not all rebuild/test at once.\n\
