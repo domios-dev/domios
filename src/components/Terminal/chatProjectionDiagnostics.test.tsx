@@ -1,4 +1,4 @@
-// Run: node node_modules/tsx/dist/cli.cjs src/components/Terminal/chatProjectionDiagnostics.test.tsx
+// Run: pnpm exec tsx src/components/Terminal/chatProjectionDiagnostics.test.tsx
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import {
   act,
@@ -311,6 +311,75 @@ function testActivationReconcileOracle(): void {
   }
 }
 
+// ── Unit: adversarial reactivation — empty snapshot + cursor/offset desync ────
+// The signature alone cannot see these: an OBSERVED-empty re-attach, a backend
+// offset that rewound under a caught-up tail, and a cursor that replays a
+// different transcript under the same position marker. None may read as pending
+// or recovered.
+function testActivationAdversarial(): void {
+  // (a) not-observed vs observed-empty are distinct verdicts.
+  {
+    const monitor = new ChatProjectionMonitor();
+    bringToSteadyState(monitor, PANE, [{ id: "m0", content: "hi" }, { id: "a1", content: "grown" }]); // "a1#5"
+    monitor.forget(PANE);
+    assert(monitor.activationRecovery(PANE) === "pending", "torn down, no re-attach snapshot observed → pending");
+
+    // Re-attach returns an EMPTY transcript (backend replayed nothing).
+    monitor.ingest(snapshotArrival(PANE, [], { cursor: "c1", offset: 0 }));
+    const live = monitor.snapshot(PANE)!;
+    assert(live.snapshots === 1, "the empty re-attach counts as an observed snapshot");
+    assert(live.snapshotTail === null, "observed-empty resets the snapshot tail to null, not a stale tail");
+    assert(monitor.activationRecovery(PANE) === "regressed", "observed-empty re-attach after a non-empty prior is regressed, never pending");
+  }
+
+  // (b) backend offset rewound under a tail that otherwise looks caught up.
+  {
+    const monitor = new ChatProjectionMonitor();
+    const loaded: EvMsg[] = [{ id: "m0", content: "hi" }, { id: "a1", content: "abcdefghij" }]; // "a1#10"
+    monitor.ingest(snapshotArrival(PANE, loaded, { cursor: "cA", offset: 9 }));
+    monitor.ingest(commit(PANE, loaded)); // committedTail "a1#10"
+    monitor.forget(PANE);
+    // Tail grew (signature would say recovered) but the backend offset rewound to 3.
+    monitor.ingest(snapshotArrival(PANE, [{ id: "m0", content: "hi" }, { id: "a1", content: "abcdefghijkl" }], { cursor: "cB", offset: 3 })); // "a1#12"
+    assert(classifyRecoveryProbe("a1#12", "a1#10") === "recovered", "precondition: the tail signature alone reads as recovered");
+    assert(monitor.activationRecovery(PANE) === "regressed", "a rewound backend offset overrides a caught-up signature → regressed");
+  }
+
+  // (c) same opaque cursor as the prior attach but a different transcript tail.
+  {
+    const monitor = new ChatProjectionMonitor();
+    const loaded: EvMsg[] = [{ id: "m0", content: "hi" }, { id: "a1", content: "abcdefghij" }]; // "a1#10"
+    monitor.ingest(snapshotArrival(PANE, loaded, { cursor: "cX", offset: 5 }));
+    monitor.ingest(commit(PANE, loaded)); // committedTail "a1#10", prior snapshotTail "a1#10", cursor cX
+    monitor.forget(PANE);
+    // Same cursor + same offset as prior, but the tail is a different (grown) content.
+    monitor.ingest(snapshotArrival(PANE, [{ id: "m0", content: "hi" }, { id: "a1", content: "abcdefghijkl mn" }], { cursor: "cX", offset: 5 }));
+    assert(monitor.activationRecovery(PANE) === "regressed", "identical cursor replaying a different tail is a desync, not a clean recovery");
+  }
+
+  // (d) a genuinely different tail id still diverges (cursor/offset do not mask it).
+  {
+    const monitor = new ChatProjectionMonitor();
+    bringToSteadyState(monitor, PANE, [{ id: "m0", content: "hi" }, { id: "a1", content: "streamed" }]);
+    monitor.forget(PANE);
+    monitor.ingest(snapshotArrival(PANE, [{ id: "m0", content: "hi" }, { id: "b9", content: "other" }], { cursor: "cB", offset: 2 }));
+    assert(monitor.activationRecovery(PANE) === "diverged", "a different tail id is diverged regardless of coordinates");
+  }
+}
+
+// Re-derive the pure signature verdict for a precondition assertion, mirroring the
+// monitor's internal classify so the test proves the coordinate gate — not the
+// signature — is what flips (b) to regressed.
+function classifyRecoveryProbe(recovered: string, target: string): string {
+  if (recovered === target) return "recovered";
+  const rh = recovered.lastIndexOf("#");
+  const th = target.lastIndexOf("#");
+  const rid = recovered.slice(0, rh);
+  const tid = target.slice(0, th);
+  if (rid !== tid) return "diverged";
+  return Number(recovered.slice(rh + 1)) >= Number(target.slice(th + 1)) ? "recovered" : "regressed";
+}
+
 // ── Unit: test-only exposure of the live monitor for E2E/integration probes ───
 function testTestOnlyExposure(): void {
   // Mirrors PaneSessionChat's test-mode wiring: expose the process-wide monitor on
@@ -586,10 +655,11 @@ async function main(): Promise<void> {
   testFrozenTailStableIdStreaming();
   testSnapshotSignatureRecorded();
   testActivationReconcileOracle();
+  testActivationAdversarial();
   testTestOnlyExposure();
   await testFrozenTailSignatureIntegration();
   await testActivationRemountIntegration();
-  console.log("PASS chat projection diagnostics: stage distinction, bounded monotonic counters, lifecycle cleanup, post-paint probe, stable-id frozen-tail read seam, snapshot recovery coords, away→back reconcile oracle, test-only exposure");
+  console.log("PASS chat projection diagnostics: stage distinction, bounded monotonic counters, lifecycle cleanup, post-paint probe, stable-id frozen-tail read seam, snapshot recovery coords, away→back reconcile oracle, empty/cursor/offset adversarial reactivation, test-only exposure");
 }
 
 main().catch((error) => {

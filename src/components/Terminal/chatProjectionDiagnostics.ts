@@ -36,9 +36,15 @@ export interface ProjectionCounters {
   authorityTail: string | null;
   committedTail: string | null;
   paintedTail: string | null;
-  /** Backend recovery coordinates from the last `snapshot_arrival` (re-attach).
-   *  Not a projection stage — kept off `firstStalledEdge`; used to attribute what
-   *  a reactivated snapshot recovered to versus the pane's prior committed tail. */
+  /** Count of `snapshot_arrival` observations on this live record. Distinguishes
+   *  "no reactivation snapshot seen yet" (0) from "observed, and it was empty"
+   *  (>0 with a null `snapshotTail`) — the two must not both read as pending. */
+  snapshots: number;
+  /** Backend recovery coordinates from the LATEST `snapshot_arrival` (re-attach),
+   *  set verbatim — an observed-empty snapshot resets `snapshotTail` to null rather
+   *  than retaining a stale tail. Not a projection stage: kept off
+   *  `firstStalledEdge`; used to attribute what a reactivation recovered to versus
+   *  the pane's prior committed tail and coordinates. */
   snapshotTail: string | null;
   snapshotCursor: string | null;
   snapshotOffset: number | null;
@@ -57,11 +63,12 @@ export interface PriorActivation {
 }
 
 /** How a reactivated snapshot lines up with the forgotten pane's prior committed
- *  tail. `no_prior`: pane was never torn down. `pending`: torn down, no reactivation
- *  snapshot observed yet. `recovered`: same tail id and content length ≥ prior (clean
- *  cursor/signature-gated reconcile). `regressed`: same id but shorter (the re-attach
- *  came back to earlier content — a desync). `diverged`: a different tail id (needs
- *  the archived cursor/offset to attribute further). */
+ *  tail and backend coordinates. `no_prior`: pane was never torn down. `pending`:
+ *  torn down, no reactivation snapshot OBSERVED yet (distinct from observed-empty).
+ *  `recovered`: tail id and length ≥ prior AND cursor/offset do not contradict it.
+ *  `regressed`: observed-empty after a non-empty prior, OR same id but shorter, OR a
+ *  caught-up signature whose backend offset rewound / cursor replays a different
+ *  tail. `diverged`: a different tail id (unorderable by signature alone). */
 export type ActivationRecovery = "no_prior" | "pending" | "recovered" | "regressed" | "diverged";
 
 export interface StalledEdge {
@@ -87,6 +94,7 @@ function freshCounters(): ProjectionCounters {
     authorityTail: null,
     committedTail: null,
     paintedTail: null,
+    snapshots: 0,
     snapshotTail: null,
     snapshotCursor: null,
     snapshotOffset: null,
@@ -111,6 +119,27 @@ function classifyRecovery(recovered: string, target: string): ActivationRecovery
   if (!r || !t) return "diverged";
   if (r.id !== t.id) return "diverged";
   return r.length >= t.length ? "recovered" : "regressed";
+}
+
+/** Backend coordinates that contradict a signature that otherwise looks recovered.
+ *  Offset is orderable: a re-attach reporting a strictly earlier offset than the
+ *  pane's prior attach means the backend rewound. Cursor is opaque, so only its
+ *  equality is meaningful: the SAME cursor as the prior attach paired with a
+ *  DIFFERENT snapshot tail means the backend replays a different transcript under
+ *  an identical position marker. Either is a recovery the tail signature can miss. */
+function coordinatesContradictRecovery(prior: PriorActivation, live: ProjectionCounters): boolean {
+  if (
+    prior.snapshotOffset != null
+    && live.snapshotOffset != null
+    && live.snapshotOffset < prior.snapshotOffset
+  ) return true;
+  if (
+    prior.snapshotCursor != null
+    && live.snapshotCursor != null
+    && prior.snapshotCursor === live.snapshotCursor
+    && prior.snapshotTail !== live.snapshotTail
+  ) return true;
+  return false;
 }
 
 interface StageTail {
@@ -155,9 +184,12 @@ export class ChatProjectionMonitor {
         counters.committedTail = event.tailSignature ?? counters.committedTail;
         break;
       case "snapshot_arrival":
-        counters.snapshotTail = event.tailSignature ?? counters.snapshotTail;
-        counters.snapshotCursor = event.cursor ?? counters.snapshotCursor;
-        counters.snapshotOffset = event.offset ?? counters.snapshotOffset;
+        // Latest snapshot wins verbatim: an observed-empty re-attach must reset the
+        // tail to null (visible as regression), not silently keep a prior tail.
+        counters.snapshots += 1;
+        counters.snapshotTail = event.tailSignature;
+        counters.snapshotCursor = event.cursor;
+        counters.snapshotOffset = event.offset;
         break;
       default:
         break;
@@ -220,11 +252,17 @@ export class ChatProjectionMonitor {
   activationRecovery(paneId: string): ActivationRecovery {
     const prior = this.priors.get(paneId);
     if (!prior) return "no_prior";
-    const recovered = this.panes.get(paneId)?.snapshotTail ?? null;
-    if (recovered == null) return "pending";
+    const live = this.panes.get(paneId);
+    // snapshot NOT observed yet — distinct from an observed-but-empty snapshot.
+    if (!live || live.snapshots === 0) return "pending";
     const target = prior.committedTail;
     if (target == null) return "recovered";
-    return classifyRecovery(recovered, target);
+    // Observed empty re-attach after a non-empty prior: real content loss, never pending.
+    if (live.snapshotTail == null) return "regressed";
+    const bySignature = classifyRecovery(live.snapshotTail, target);
+    if (bySignature !== "recovered") return bySignature;
+    // Signature looks caught up — gate on backend cursor/offset before trusting it.
+    return coordinatesContradictRecovery(prior, live) ? "regressed" : "recovered";
   }
 
   /** First stage boundary where the downstream tail lags the upstream tail, in
