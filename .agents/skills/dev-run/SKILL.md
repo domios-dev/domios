@@ -9,6 +9,10 @@ Run, restart, and diagnose the CodeTerm dev instance inside this repo. Dev is is
 
 **Never touch prod.** Prod listens on 7685, dev on 7686. If you ever kill a process, verify by port first.
 
+This skill owns only development instances. Local production installation is
+`docs/BUILD.md#local-production-build-and-self-install`; public publishing is
+the `github-release` skill. Do not use `dev` output as an installer artifact.
+
 ## The one command
 
 ```bash
@@ -167,6 +171,9 @@ lsof -nP -iTCP:7685 -sTCP:LISTEN -t
 ## Troubleshooting log (grow this as things break)
 
 > When you hit a dev-startup issue on any platform, add a dated entry below with: symptom, root cause, fix. Keep entries short.
+
+If the failure is caused by the dev-run procedure itself, fix the procedure as
+well as the immediate environment before declaring recovery complete.
 
 ### macOS
 

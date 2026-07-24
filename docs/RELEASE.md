@@ -10,6 +10,15 @@ command, every secret, every retry) lives in the `github-release` skill:
 **Golden rule:** every artifact is built from the **tagged commit on `master`** —
 never from `develop`, never from an untagged tree.
 
+This is the public-release operation only. For a local production installer use
+`docs/BUILD.md#local-production-build-and-self-install`; for a dev window use
+the `dev-run` skill. Do not substitute either for this workflow.
+
+When a new release failure is discovered, repair the owning workflow or script
+and add a short symptom/cause/recovery entry to this document or the release
+skill before retrying. A successful rerun without updating the procedure is not
+complete remediation.
+
 ## Two-repo layout
 
 | Repo | Role |
@@ -59,9 +68,10 @@ re-cut from the new merge commit — a full wasted build cycle across all three 
 VER=X.Y.Z
 npm run sync:versions -- "$VER"
 ./build.sh check                      # refreshes Cargo.lock
+./build.sh release-preflight           # refreshes and verifies both Cargo lockfiles
 npm run check:versions
 git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock \
-  src-tauri/tauri.conf.json cli/Cargo.toml plugins packages scripts
+  src-tauri/tauri.conf.json cli/Cargo.toml cli/Cargo.lock plugins packages scripts
 git commit -m "release: v$VER"
 git push origin develop
 ```
@@ -254,4 +264,4 @@ The minisign updater key (`~/.tauri/codeterm.key`, empty password; its public ha
 the `github-release` skill lists the exact ids and restore paths. A builder without the minisign
 key produces artifacts the updater can't verify.
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->

@@ -36,9 +36,12 @@ When splitting a file with inline `#[cfg(test)] mod tests`, keep `mod tests;` in
 
 Use `build.sh` (`build.ps1` from PowerShell). It scopes lifecycle operations to dev and never kills prod.
 
+Choose the operation before running a command: shared development is `docs/BUILD.md#development`; a local production installer for this machine is `docs/BUILD.md#local-production-build-and-self-install`; public publishing is `docs/RELEASE.md`. Do not substitute one for another. For every newly discovered build failure, fix the owning step and add the symptom, cause, and recovery to that operation's troubleshooting section before declaring it complete.
+
 ```bash
 ./build.sh dev              # incremental dev (port 7686, hot reload, auto-builds CLI)
 ./build.sh check            # cargo check (~2s incremental)
+./build.sh release-preflight # refresh and verify both Cargo lockfiles before a production build
 ./build.sh test             # Rust unit tests
 ./build.sh build            # production build
 ./build.sh cli              # rebuild CLI only → ~/.codeterm/bin/ (no dev restart)

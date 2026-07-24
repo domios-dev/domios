@@ -34,6 +34,70 @@ pnpm install
 .\build.ps1 dev
 ```
 
+## Choose one operation
+
+These flows are deliberately separate. Run all shared builds and gates from the
+warm canonical checkout; lanes may only run focused checks or named isolated dev
+instances.
+
+| Goal | Entry point | Touches production? | Read first |
+|---|---|---:|---|
+| Develop and inspect changes | `./build.sh dev` / `.\build.ps1 dev` | No; port 7686 only | `.agents/skills/dev-run/SKILL.md` |
+| Build and test a local production installer | `./build.sh release-preflight`, then `./build.sh build` | Only the explicit self-install step | this section |
+| Publish to all users | PR to `master`, then `release-X.Y.Z` tag | Yes; CI and public updater mirror | `docs/RELEASE.md` and `github-release` skill |
+
+Never use a dev build as a local-install artifact, and never turn a local
+installer build into a public release by uploading it manually.
+
+## Local production build and self-install
+
+Use this only when testing a production-mode build on this Windows machine. It
+does not publish a release or alter GitHub assets.
+
+1. Start from the intended, clean release branch in the canonical checkout.
+2. After a version bump, run the idempotent preflight. It refreshes both Cargo
+   lockfiles and verifies they match `package.json`:
+
+   ```powershell
+   .\build.ps1 release-preflight
+   git add src-tauri/Cargo.lock cli/Cargo.lock
+   git commit -m "release: sync Cargo lock versions"
+   git status --short
+   ```
+
+3. Build one provenance-checked NSIS installer:
+
+   ```powershell
+   .\build.ps1 build
+   ```
+
+   The build gateway prints the exact installer path under
+   `%LOCALAPPDATA%\CodeTerm\build-gateway\targets\release\<job>\release\bundle\nsis\`.
+   Do not guess a path in `src-tauri\target`; release targets are intentionally
+   isolated per build.
+
+4. Only after a successful provenance check, self-install that exact file:
+
+   ```powershell
+   codeterm update install --from-file "<printed-installer-path>"
+   Invoke-RestMethod http://127.0.0.1:7685/api/health
+   ```
+
+   The helper stops only the current-user installed CodeTerm, runs the silent
+   NSIS installer, and restarts it. It must never be used for a dev instance.
+
+### Local production troubleshooting
+
+| Symptom | Cause | Recovery |
+|---|---|---|
+| `Release lock version mismatch` before build | Version manifests and one or both Cargo lockfiles differ | Run `release-preflight`, commit both lockfiles, then retry. |
+| `release source is not clean` | A source or lockfile change has not been reviewed/committed | Inspect `git status --short`; commit the intentional change or stop. Never bypass provenance. |
+| `source SHA/status mismatch` after a bundle was created | A build step changed tracked source inputs after the provenance snapshot | Do not install that artifact. Identify the mutating step, fix it, and rerun from a clean tree. |
+| Self-install returns but the window does not return | The detached helper owns restart | Inspect `%LOCALAPPDATA%\codeterm\self-install.log`, then query port 7685 health. |
+
+When a new failure is found in this flow, fix the owning script or preflight and
+add a short symptom/cause/recovery row here before closing the work.
+
 Do not use `dev --wait` for an interactive Windows session. It is reserved for
 automation that needs a detached health gate and does not prove a visible window.
 
@@ -120,7 +184,7 @@ After `./build.sh build`:
 
 | File | Location |
 |------|----------|
-| **NSIS installer** | `src-tauri/target/release/bundle/nsis/CodeTerm_X.Y.Z_x64-setup.exe` |
+| **NSIS installer** | printed build-gateway release target; see Local production build and self-install |
 | **MSI installer** | `src-tauri/target/release/bundle/msi/CodeTerm_X.Y.Z_x64_en-US.msi` |
 | **Portable exe** | `src-tauri/target/release/codeterm.exe` |
 | **CLI binary** | bundled automatically by `build.sh` into `~/.codeterm/bin/` |
@@ -224,4 +288,4 @@ codeterm/
 └── docs/               # Documentation
 ```
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->
