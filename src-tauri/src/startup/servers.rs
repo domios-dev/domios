@@ -5,10 +5,51 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use tauri::Manager;
 
+use crate::multiplexer::types::PaneBacking;
 use crate::service::ServiceState;
 use crate::{api, cron, mem, mesh, service, socket, update, CronState, CronWake};
 
 use super::states::AppStates;
+
+fn should_materialize_restored_backend(
+    restored_from_snapshot: bool,
+    protected: bool,
+    backing: &PaneBacking,
+    pty_id: Option<&str>,
+) -> bool {
+    restored_from_snapshot && !protected && matches!(backing, PaneBacking::Pty) && pty_id.is_none()
+}
+
+fn start_restored_pty_backends(service_state: ServiceState, frontend_readiness_generation: u64) {
+    std::thread::spawn(move || {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        if !super::wait_for_frontend_ready_until(frontend_readiness_generation, deadline) {
+            log::error!("[startup-pty] frontend readiness deadline elapsed");
+            return;
+        }
+        let pane_ids = service_state
+            .mux
+            .read()
+            .snapshot()
+            .panes
+            .into_values()
+            .filter(|pane| {
+                should_materialize_restored_backend(
+                    pane.restored_from_snapshot,
+                    pane.protected,
+                    &pane.backing,
+                    pane.pty_id.as_deref(),
+                )
+            })
+            .map(|pane| pane.id)
+            .collect::<Vec<_>>();
+        for pane_id in pane_ids {
+            if let Err(error) = service_state.ensure_pane_pty_for_send(&pane_id) {
+                log::error!("[startup-pty] pane={pane_id} materialization failed: {error}");
+            }
+        }
+    });
+}
 
 /// Start socket server, REST API server, and cron scheduler.
 pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state: &ServiceState) {
@@ -203,6 +244,7 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
             );
         }
     }
+    start_restored_pty_backends(service_state.clone(), frontend_readiness_generation);
 
     // Start mesh listeners if enabled (no broadcasting — user triggers that manually)
     {
@@ -254,7 +296,8 @@ fn select_web_dist(
 
 #[cfg(test)]
 mod tests {
-    use super::select_web_dist;
+    use super::{select_web_dist, should_materialize_restored_backend};
+    use crate::multiplexer::types::PaneBacking;
 
     fn web_bundle(parent: &std::path::Path, name: &str) -> std::path::PathBuf {
         let dist = parent.join(name);
@@ -296,5 +339,42 @@ mod tests {
             select_web_dist(false, Some(inherited), [packaged.clone()]),
             Some(packaged),
         );
+    }
+
+    #[test]
+    fn startup_materializes_only_unprotected_restored_pty_backends() {
+        assert!(should_materialize_restored_backend(
+            true,
+            false,
+            &PaneBacking::Pty,
+            None,
+        ));
+        assert!(!should_materialize_restored_backend(
+            false,
+            false,
+            &PaneBacking::Pty,
+            None,
+        ));
+        assert!(!should_materialize_restored_backend(
+            true,
+            true,
+            &PaneBacking::Pty,
+            None,
+        ));
+        assert!(!should_materialize_restored_backend(
+            true,
+            false,
+            &PaneBacking::ChatBackend {
+                plugin_id: "test".into(),
+                session_id: "session".into(),
+            },
+            None,
+        ));
+        assert!(!should_materialize_restored_backend(
+            true,
+            false,
+            &PaneBacking::Pty,
+            Some("live"),
+        ));
     }
 }
