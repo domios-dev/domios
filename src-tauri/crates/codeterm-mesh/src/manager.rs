@@ -1,6 +1,37 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use parking_lot::Mutex;
+
+pub struct PairingDelivery {
+    outcome: Mutex<Option<Result<(), String>>>,
+    ready: tokio::sync::Notify,
+}
+
+impl PairingDelivery {
+    pub fn new() -> Self {
+        Self {
+            outcome: Mutex::new(None),
+            ready: tokio::sync::Notify::new(),
+        }
+    }
+
+    pub fn complete(&self, outcome: Result<(), String>) {
+        *self.outcome.lock() = Some(outcome);
+        self.ready.notify_waiters();
+    }
+
+    pub async fn wait(&self) -> Result<(), String> {
+        loop {
+            let notified = self.ready.notified();
+            if let Some(outcome) = self.outcome.lock().clone() {
+                return outcome;
+            }
+            notified.await;
+        }
+    }
+}
+
 use mdns_sd::ServiceDaemon;
 
 use super::ports::{default_last_activity, LastActivityProvider};
@@ -26,6 +57,7 @@ pub struct MeshManager {
     pub api_port: u16,
     pub build_hash: String,
     pub pairing_targets: HashMap<String, (String, u16, String)>,
+    pub pairing_deliveries: HashMap<String, Arc<PairingDelivery>>,
     pub mdns_daemon: Option<ServiceDaemon>,
     pub mdns_service_fullname: Option<String>,
     pub udp_started: bool,
@@ -151,6 +183,7 @@ impl MeshManager {
             api_port,
             build_hash: String::new(),
             pairing_targets: HashMap::new(),
+            pairing_deliveries: HashMap::new(),
             mdns_daemon: None,
             mdns_service_fullname: None,
             udp_started: false,
