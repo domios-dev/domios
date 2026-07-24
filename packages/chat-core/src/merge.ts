@@ -2,8 +2,8 @@ import { timestampMs } from "./time";
 import type { NormalizedChatMessage } from "./types";
 
 function mergeIdentity(message: NormalizedChatMessage): string {
-  if (message.type === "user" && message.seq != null) {
-    return `user-seq:${message.sourceSessionId ?? "unbound"}:${message.seq}`;
+  if ((message.type === "user" || message.type === "assistant") && message.seq != null) {
+    return `${message.type}-seq:${message.sourceSessionId ?? "unbound"}:${message.seq}`;
   }
   return `id:${message.id}`;
 }
