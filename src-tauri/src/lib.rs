@@ -194,6 +194,7 @@ pub fn run() {
             commands::frontend_readiness_generation,
             commands::restart_app,
             commands::restart_rest_api,
+            commands::get_rest_api_status,
             commands::rest_api_port_released,
             commands::restart_general_agent,
             commands::restart_general_agent_pane,

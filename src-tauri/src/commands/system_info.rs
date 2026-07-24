@@ -114,10 +114,17 @@ pub fn restart_app(app: AppHandle) {
 /// Rebind the REST listener after a reported port collision without restarting
 /// the desktop process.
 #[tauri::command]
-pub fn restart_rest_api(
+pub async fn restart_rest_api(
     control: tauri::State<'_, crate::startup::RestApiControlState>,
-) -> Result<(), String> {
-    control.restart()
+) -> Result<crate::startup::RestApiStatus, String> {
+    control.restart_and_wait().await
+}
+
+#[tauri::command]
+pub fn get_rest_api_status(
+    control: tauri::State<'_, crate::startup::RestApiControlState>,
+) -> crate::startup::RestApiStatus {
+    control.status()
 }
 
 #[tauri::command]

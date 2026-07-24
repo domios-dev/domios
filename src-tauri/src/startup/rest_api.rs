@@ -1,13 +1,22 @@
-use std::sync::Arc;
+use std::{future::IntoFuture, sync::Arc};
 
 use parking_lot::Mutex;
+use serde::Serialize;
 use tokio::sync::{mpsc, oneshot, watch};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum RestApiStatus {
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum RestApiPhase {
     Starting,
     Listening,
-    Failed(String),
+    Failed,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub(crate) struct RestApiStatus {
+    pub(crate) generation: u64,
+    pub(crate) phase: RestApiPhase,
+    pub(crate) message: Option<String>,
 }
 
 #[derive(Clone)]
@@ -24,7 +33,11 @@ enum RestApiCommand {
 
 impl RestApiControl {
     pub(crate) fn new() -> Self {
-        let (status_events, _) = watch::channel(RestApiStatus::Starting);
+        let (status_events, _) = watch::channel(RestApiStatus {
+            generation: 0,
+            phase: RestApiPhase::Starting,
+            message: None,
+        });
         Self {
             sender: Arc::new(Mutex::new(None)),
             status_events,
@@ -52,13 +65,46 @@ impl RestApiControl {
         *self.sender.lock() = Some(sender);
     }
 
-    fn set_status(&self, status: RestApiStatus) {
-        self.status_events.send_replace(status);
+    fn set_status(&self, phase: RestApiPhase, message: Option<String>) {
+        let generation = self.status_events.borrow().generation + 1;
+        self.status_events.send_replace(RestApiStatus {
+            generation,
+            phase,
+            message,
+        });
     }
 
-    #[cfg(test)]
+    pub(crate) fn status(&self) -> RestApiStatus {
+        self.status_events.borrow().clone()
+    }
+
     fn subscribe_status(&self) -> watch::Receiver<RestApiStatus> {
         self.status_events.subscribe()
+    }
+
+    pub(crate) async fn restart_and_wait(&self) -> Result<RestApiStatus, String> {
+        let mut status = self.subscribe_status();
+        let previous = status.borrow().generation;
+        self.restart()?;
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                status
+                    .changed()
+                    .await
+                    .map_err(|_| "REST API listener controller stopped".to_string())?;
+                let current = status.borrow_and_update().clone();
+                if current.generation > previous
+                    && matches!(
+                        current.phase,
+                        RestApiPhase::Listening | RestApiPhase::Failed
+                    )
+                {
+                    return Ok(current);
+                }
+            }
+        })
+        .await
+        .map_err(|_| "REST API restart did not complete before the failure deadline".to_string())?
     }
 }
 
@@ -70,26 +116,37 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
     loop {
         match tokio::net::TcpListener::bind(&bind_addr).await {
             Ok(listener) => {
-                control.set_status(RestApiStatus::Listening);
+                control.set_status(RestApiPhase::Listening, None);
                 log::info!("REST API listening on http://{bind_addr}");
                 let (shutdown_tx, shutdown_rx) = oneshot::channel();
-                tokio::select! {
-                    result = axum::serve(listener, router.clone()).with_graceful_shutdown(async { let _ = shutdown_rx.await; }) => {
+                let server = axum::serve(listener, router.clone())
+                    .with_graceful_shutdown(async {
+                        let _ = shutdown_rx.await;
+                    })
+                    .into_future();
+                tokio::pin!(server);
+                let command = tokio::select! {
+                    result = &mut server => {
                         if let Err(error) = result { log::error!("REST API server error: {error}"); }
                         return;
                     }
                     command = commands.recv() => {
                         let Some(command) = command else { return; };
-                        if matches!(command, RestApiCommand::Restart) {
-                            control.set_status(RestApiStatus::Starting);
-                            let _ = shutdown_tx.send(());
-                        }
+                        command
+                    }
+                };
+                if matches!(command, RestApiCommand::Restart) {
+                    control.set_status(RestApiPhase::Starting, None);
+                    let _ = shutdown_tx.send(());
+                    if let Err(error) = server.await {
+                        log::error!("REST API server shutdown error: {error}");
+                        return;
                     }
                 }
             }
             Err(error) => {
                 let message = format!("REST API could not bind {bind_addr}: {error}. Release the port, then use Restart REST API.");
-                control.set_status(RestApiStatus::Failed(message.clone()));
+                control.set_status(RestApiPhase::Failed, Some(message.clone()));
                 log::error!("{message}");
                 match commands.recv().await {
                     Some(RestApiCommand::PortReleased | RestApiCommand::Restart) => continue,
@@ -104,10 +161,13 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
 mod tests {
     use super::*;
 
-    async fn wait_for_status(
+    async fn wait_for_status<F>(
         status: &mut watch::Receiver<RestApiStatus>,
-        expected: fn(&RestApiStatus) -> bool,
-    ) -> RestApiStatus {
+        expected: F,
+    ) -> RestApiStatus
+    where
+        F: Fn(&RestApiStatus) -> bool,
+    {
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             loop {
                 let current = status.borrow_and_update().clone();
@@ -129,13 +189,14 @@ mod tests {
         let mut status = control.subscribe_status();
         let router = axum::Router::new().route("/health", axum::routing::get(|| async { "ok" }));
         let task = tokio::spawn(start(control.clone(), address.to_string(), router));
-        let failed = wait_for_status(&mut status, |s| matches!(s, RestApiStatus::Failed(_))).await;
-        assert!(
-            matches!(failed, RestApiStatus::Failed(message) if message.contains("Release the port"))
-        );
+        let failed = wait_for_status(&mut status, |s| s.phase == RestApiPhase::Failed).await;
+        assert!(failed
+            .message
+            .as_deref()
+            .is_some_and(|message| message.contains("Release the port")));
         drop(occupied);
         control.port_released().unwrap();
-        wait_for_status(&mut status, |s| matches!(s, RestApiStatus::Listening)).await;
+        wait_for_status(&mut status, |s| s.phase == RestApiPhase::Listening).await;
         let response = reqwest::get(format!("http://{address}/health"))
             .await
             .unwrap();
@@ -156,11 +217,36 @@ mod tests {
             address.to_string(),
             axum::Router::new(),
         ));
-        wait_for_status(&mut status, |s| matches!(s, RestApiStatus::Listening)).await;
-        control.restart().unwrap();
-        wait_for_status(&mut status, |s| matches!(s, RestApiStatus::Listening)).await;
+        let initial = wait_for_status(&mut status, |s| s.phase == RestApiPhase::Listening).await;
+        let recovery_control = control.clone();
+        let recovery = tokio::spawn(async move { recovery_control.restart_and_wait().await });
+        let restarting = wait_for_status(&mut status, |s| {
+            s.phase == RestApiPhase::Starting && s.generation > initial.generation
+        })
+        .await;
+        let restarted = wait_for_status(&mut status, |s| {
+            s.phase == RestApiPhase::Listening && s.generation > restarting.generation
+        })
+        .await;
+        assert!(restarted.generation > restarting.generation);
+        let returned = recovery.await.unwrap().unwrap();
+        assert!(returned.generation >= restarted.generation);
         let stream = tokio::net::TcpStream::connect(address).await.unwrap();
         drop(stream);
         task.abort();
+    }
+
+    #[test]
+    fn status_read_reports_generation_phase_and_failure_message() {
+        let control = RestApiControl::new();
+        control.set_status(RestApiPhase::Failed, Some("port is occupied".into()));
+        assert_eq!(
+            control.status(),
+            RestApiStatus {
+                generation: 1,
+                phase: RestApiPhase::Failed,
+                message: Some("port is occupied".into()),
+            }
+        );
     }
 }
