@@ -370,6 +370,10 @@ impl AgentProvider for JsProvider {
         self.manifest.spawn.status_bar_rows
     }
 
+    fn supports_agent_state_status_reconciliation(&self) -> bool {
+        self.manifest.spawn.agent_state_status_reconciliation
+    }
+
     fn has_event_markers(&self, chunk: &str) -> bool {
         // Default: arrows / proceed / 1./2. heuristic from trait, but let the plugin override when it has its own fingerprints.
         if let Some(v) = self.try_call::<bool>("hasEventMarkers", &[json!(chunk)]) {

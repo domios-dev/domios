@@ -150,6 +150,19 @@ fn metadata_parity() {
 }
 
 #[test]
+fn agent_state_status_reconciliation_capability_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (n, j) = pair();
+    assert!(n.supports_agent_state_status_reconciliation());
+    assert_eq!(
+        n.supports_agent_state_status_reconciliation(),
+        j.supports_agent_state_status_reconciliation()
+    );
+}
+
+#[test]
 fn parse_session_messages_parity_on_jsonl_fixture() {
     if require_plugins().is_none() {
         return;

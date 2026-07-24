@@ -289,19 +289,18 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str, generation: u64) {
     }
     crate::service::orchestrator::record_reader_termination(svc, pty_id);
     let pane_id = svc.mux.read().pane_id_for_pty(pty_id);
-    svc.agent_tracker.lock().set_dead(pty_id);
+    let raw_prev = {
+        let mut tracker = svc.agent_tracker.lock();
+        let prev = tracker.get_status(pty_id);
+        tracker.set_dead(pty_id);
+        prev
+    };
     svc.shell_caps.lock().remove(pty_id);
 
     if let Some(ref pid) = pane_id {
         svc.flag_bound_tasks_for_gone_pane(pid, epoch_ms());
-        crate::api::events::emit_everywhere(
-            &svc.app_handle,
-            "pane-status-changed",
-            serde_json::json!({
-                "pane_id": pid,
-                "status": "Dead",
-            }),
-        );
+        let prev = svc.reconciled_pane_status_for_id(pid, raw_prev);
+        svc.emit_pane_status_if_changed(pty_id, prev, crate::agent::status::PaneStatus::Dead);
 
         // Cron fallback: if agent died without calling cron complete, mark as failed.
         use tauri::Manager;

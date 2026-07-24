@@ -28,6 +28,7 @@
     },
     "sessionIdInjection": "none",
     "statusBarRows": 1,
+    "agentStateStatusReconciliation": true,
     "supportsLazySkills": false,
     "hasHooks": true,
     "usageProbeCommand": "/status"
