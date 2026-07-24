@@ -221,7 +221,7 @@ test("Add channel toggles the inline form", async () => {
   cleanup();
 });
 
-test("shared snapshot cache reuses plugin_manager_snapshot within 15s", async () => {
+test("opening Extensions refreshes a snapshot changed outside the view", async () => {
   __resetPluginSnapshotStoreForTest();
   const calls = installInvokeMock();
   const { root } = await render(
@@ -243,7 +243,7 @@ test("shared snapshot cache reuses plugin_manager_snapshot within 15s", async ()
   await flush();
 
   const newSnapshots = calls.slice(before).filter((c) => c.cmd === "plugin_manager_snapshot");
-  assert(newSnapshots.length === 0, `expected 0 plugin_manager_snapshot calls on re-open within TTL, got ${newSnapshots.length}`);
+  assert(newSnapshots.length === 1, `expected 1 plugin_manager_snapshot call on re-open, got ${newSnapshots.length}`);
 
   await act(async () => root.unmount());
   cleanup();
