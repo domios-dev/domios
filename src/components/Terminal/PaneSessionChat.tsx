@@ -136,7 +136,7 @@ export function PaneSessionChat({
   const watcherSpec = pane?.watcher ?? null;
   const isWatcherPane = watcherSpec != null;
   const pendingPrompt: PendingPrompt | null = pane?.pending_prompt ?? null;
-  const isActive = isVisible;
+  const viewportActive = isVisible;
 
   const showComposerError = useCallback((message: string) => {
     const duplicate = message.startsWith("Duplicate message ignored");
@@ -175,7 +175,7 @@ export function PaneSessionChat({
     agentSessionId,
     sessionBindingNonce: pane?.session_binding_nonce,
     onError,
-    active: isActive,
+    active: true,
     diagnosticSink: chatProjectionMonitor.sink,
   });
   const bootSetupView = chatSetupView(pane, loading || attachmentState === "attached");
@@ -195,7 +195,7 @@ export function PaneSessionChat({
     handleScroll,
   } = useChatScroll({
     sessionKey: `${paneId}:${agentSessionId ?? ""}`,
-    active: isActive,
+    active: viewportActive,
     loading,
     messageCount: enrichedMessages.length,
   });
@@ -694,7 +694,7 @@ export function PaneSessionChat({
         paneProvider={paneProvider}
         currentPtyId={currentPtyId}
         chatBackend={effectiveChatBackend}
-        isActive={isActive}
+        isActive={viewportActive}
         pendingPrompt={pendingPrompt}
         attachments={attachments}
         addAttachments={addAttachments}

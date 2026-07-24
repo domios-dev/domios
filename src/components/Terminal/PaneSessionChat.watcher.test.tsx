@@ -123,6 +123,7 @@ async function renderPaneSessionChat(
   paneId: string,
   state: ExtendedState,
   chatStart: () => unknown = () => ({ text: "", offset: 0, messages: [] }),
+  isVisible = true,
 ): Promise<{
   host: HTMLDivElement;
   root: Root;
@@ -163,7 +164,7 @@ async function renderPaneSessionChat(
     root.render(
       <MuxStateStoreContext.Provider value={store}>
         <MultiplexerActionsContext.Provider value={muxActions()}>
-          <PaneSessionChat paneId={paneId} chatBackend isVisible />
+          <PaneSessionChat paneId={paneId} chatBackend isVisible={isVisible} />
         </MultiplexerActionsContext.Provider>
       </MuxStateStoreContext.Provider>,
     );
@@ -215,6 +216,31 @@ test("normal chat_backend pane keeps composer and hides read-only bar", async ()
   assert(composer?.getAttribute("aria-label") === "Message composer", "composer is named");
   assert(composer?.getAttribute("data-pane-id") === paneId, "composer exposes stable pane scope");
   assert(!host.querySelector('[data-testid="watcher-readonly-bar"]'), "read-only bar absent");
+  await act(async () => root.unmount());
+});
+
+test("hidden mounted chat keeps its subscription attached", async () => {
+  const paneId = "hidden-chat-pane";
+  const state = muxStateFor({
+    [paneId]: paneBase(paneId, { agent_session_id: "bound-session" }),
+  });
+  const { host, root, commands, emitChat } = await renderPaneSessionChat(
+    paneId,
+    state,
+    () => ({ text: "", offset: 0, messages: [] }),
+    false,
+  );
+  assert(commands.filter((command) => command === "chat_start").length === 1, "hidden chat attaches once");
+  await act(async () => {
+    emitChat({
+      pane_id: paneId,
+      source_session_id: "bound-session",
+      session_binding_nonce: null,
+      messages: [{ id: "hidden-live", type: "assistant", content: "arrived while hidden", timestamp: "1" }],
+    });
+  });
+  assert(commands.filter((command) => command === "chat_stop").length === 0, "hidden chat keeps its lease");
+  assert(host.textContent?.includes("arrived while hidden"), "hidden chat ingests live messages");
   await act(async () => root.unmount());
 });
 
