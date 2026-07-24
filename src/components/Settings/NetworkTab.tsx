@@ -20,6 +20,7 @@ interface ServeResult {
 export function NetworkTab() {
   return (
     <div className="space-y-5">
+      <RestApiListenerStatus />
       <WebAccessSection />
       <Collapsible title="API Endpoints Reference">
         <div className="space-y-3">
@@ -50,6 +51,45 @@ export function NetworkTab() {
           ]} />
         </div>
       </Collapsible>
+    </div>
+  );
+}
+
+interface RestApiStatus {
+  generation: number;
+  phase: "starting" | "listening" | "failed";
+  message?: string | null;
+}
+
+function RestApiListenerStatus() {
+  const [status, setStatus] = useState<RestApiStatus | null>(null);
+  const [restarting, setRestarting] = useState(false);
+
+  async function refresh() {
+    setStatus(await invoke<RestApiStatus>("get_rest_api_status"));
+  }
+
+  useEffect(() => { void refresh().catch(() => setStatus(null)); }, []);
+
+  async function restart() {
+    setRestarting(true);
+    try {
+      setStatus(await invoke<RestApiStatus>("restart_rest_api"));
+    } catch (error) {
+      setStatus((current) => current ? { ...current, message: String(error) } : current);
+    } finally {
+      setRestarting(false);
+    }
+  }
+
+  if (!status || status.phase === "listening") return null;
+  return (
+    <div role="alert" className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+      <div className="font-medium">REST API listener {status.phase}</div>
+      {status.message && <div className="mt-1 text-muted-foreground">{status.message}</div>}
+      <button className="mt-2 rounded bg-amber-600 px-3 py-1 text-white disabled:opacity-60" disabled={restarting} onClick={() => void restart()}>
+        {restarting ? "Restarting…" : "Restart REST API"}
+      </button>
     </div>
   );
 }
