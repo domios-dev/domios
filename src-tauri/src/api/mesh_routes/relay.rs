@@ -28,36 +28,23 @@ pub async fn mesh_sync(
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    for peer_info in &payload.peers {
-        mesh.apply_gossip_peer_info(peer_info);
-        if peer_info.instance_id == mesh.ident.identity.instance_id {
-            continue;
+    if let Some(voucher) = sender_id.as_deref() {
+        mesh.apply_gossip_snapshot(voucher, payload.generation, &payload.peers, now);
+        for peer_info in &payload.peers {
+            log::info!(
+                "[mesh/gossip] Learned about peer {} ({})",
+                peer_info.instance_name,
+                peer_info.instance_id
+            );
         }
-        if mesh.paired_peers.contains_key(&peer_info.instance_id) {
-            continue;
+    } else {
+        for peer_info in &payload.peers {
+            mesh.apply_gossip_peer_info(peer_info);
         }
-        mesh.upsert_discovered(
-            crate::mesh::discovered::DiscoverySighting {
-                instance_id: peer_info.instance_id.clone(),
-                instance_name: peer_info.instance_name.clone(),
-                addresses: peer_info.addresses.clone(),
-                api_port: peer_info.api_port,
-                method: crate::mesh::types::DiscoveryMethod::Gossip,
-                dev: peer_info.dev,
-                mesh_id: None,
-                voucher: sender_id.clone(),
-            },
-            now,
-        );
-        log::info!(
-            "[mesh/gossip] Learned about peer {} ({})",
-            peer_info.instance_name,
-            peer_info.instance_id
-        );
     }
     drop(mesh);
 
-    let mesh = state.mesh.lock();
+    let mut mesh = state.mesh.lock();
     let our_payload = mesh.build_sync_payload();
     crate::api::events::emit_everywhere(
         &state.svc.app_handle,
