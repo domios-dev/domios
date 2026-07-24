@@ -229,21 +229,39 @@ fn omitted_cwd_provisions_one_lane_and_persists_matching_attempt_provenance() {
         )
         .unwrap();
     let original = store.show_task(&task_id).unwrap().task;
-    store
-        .commit_task_dispatch(
+    let attempt_id = store
+        .begin_task_dispatch(
             &plan.id,
             &task_id,
             "pane-worker",
             "Ada",
-            "session-worker",
             lane_metadata_for_dispatch(&original.lane, &actual),
             4,
+        )
+        .unwrap();
+    let starting = store.show_task(&task_id).unwrap().task;
+    let starting_attempt = starting.execution_attempts.last().unwrap();
+    assert_eq!(starting.status, TaskStatus::InProgress);
+    assert_eq!(starting.status_label.as_deref(), Some("starting"));
+    assert_eq!(starting_attempt.id, attempt_id);
+    assert_eq!(starting_attempt.session_id, None);
+
+    store
+        .finish_task_dispatch(
+            &plan.id,
+            &task_id,
+            "pane-worker",
+            &attempt_id,
+            "session-worker",
+            lane_metadata_for_dispatch(&original.lane, &actual),
+            5,
         )
         .unwrap();
 
     let task = store.show_task(&task_id).unwrap().task;
     let attempt = task.execution_attempts.last().unwrap();
     assert_eq!(task.status, TaskStatus::InProgress);
+    assert_eq!(task.status_label, None);
     assert_eq!(
         task.lane.worktree_path.as_deref(),
         Some(actual.worktree_path.as_str())
@@ -297,8 +315,8 @@ fn readiness_and_same_pane_binding_precede_commit_and_delivery() {
             "agent_ready",
             "same_pane_session",
             "provenance",
-            "commit",
-            "delivery"
+            "delivery",
+            "commit"
         ]
     );
 }

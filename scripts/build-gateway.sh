@@ -236,7 +236,11 @@ ct_gateway_acquire() {
   mkdir -p "$dir/jobs" "$dir/queue"
   CT_GATEWAY_PROCESS_START="$(ct_gateway_process_start_token "$$")"
   [ -n "$CT_GATEWAY_PROCESS_START" ] || { echo "Cannot determine gateway owner process start identity" >&2; return 2; }
-  CT_BUILD_JOB_ID="${CT_BUILD_JOB_ID:-$(date -u +%Y%m%dT%H%M%S)-$$-${RANDOM:-0}}"
+  if [ "${CT_BUILD_GATEWAY_SCOPE:-production}" = "fixture" ]; then
+    CT_BUILD_JOB_ID="${CT_BUILD_JOB_ID:-$(date -u +%Y%m%dT%H%M%S)-$$-${RANDOM:-0}}"
+  else
+    CT_BUILD_JOB_ID="$(date -u +%Y%m%dT%H%M%S)-$$-${RANDOM:-0}"
+  fi
   CT_BUILD_QUEUE_KEY="$(node -p 'Date.now()')-$(printf '%010d' "$$")-$CT_BUILD_JOB_ID"
   log="$dir/jobs/$CT_BUILD_JOB_ID.log"
   if [ -e "$dir/jobs/$CT_BUILD_JOB_ID.json" ]; then
