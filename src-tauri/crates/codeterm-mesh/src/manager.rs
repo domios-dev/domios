@@ -32,6 +32,10 @@ pub struct MeshManager {
     pub local_http_healthy: bool,
     pub disk_persist: bool,
     pub seen_nonces: HashMap<String, u64>,
+    gossip_generations: HashMap<String, u64>,
+    gossip_tombstones: HashMap<(String, String), u64>,
+    local_gossip_generation: u64,
+    last_gossip_claim_ids: Vec<String>,
     pub peer_services: peer_services::PeerServicesCache,
     pub last_activity: Arc<dyn LastActivityProvider>,
 }
@@ -103,7 +107,13 @@ impl MeshManager {
                 expected_id, remote_instance_id
             ));
         }
-        self.reject_untrusted_pairing_identity(remote_instance_id)
+        if remote_instance_id == self.ident.identity.instance_id {
+            return Err("Cannot pair with this CodeTerm instance".to_string());
+        }
+        if self.paired_peers.contains_key(remote_instance_id) {
+            return Err("Peer is already paired".to_string());
+        }
+        Ok(())
     }
 
     fn reject_untrusted_pairing_identity(&self, remote_instance_id: &str) -> Result<(), String> {
@@ -157,6 +167,10 @@ impl MeshManager {
             local_http_healthy: true,
             disk_persist: true,
             seen_nonces: HashMap::new(),
+            gossip_generations: HashMap::new(),
+            gossip_tombstones: HashMap::new(),
+            local_gossip_generation: 0,
+            last_gossip_claim_ids: Vec::new(),
             peer_services: peer_services::PeerServicesCache::default(),
             last_activity: default_last_activity(),
         }
@@ -267,6 +281,33 @@ impl MeshManager {
         self.revocation_list
             .revoked
             .contains(&instance_id.to_string())
+            || self.revocation_list.tombstones.contains_key(instance_id)
+    }
+
+    fn tombstone_peer(&mut self, instance_id: &str) {
+        self.revocation_list.next_tombstone_generation = self
+            .revocation_list
+            .next_tombstone_generation
+            .saturating_add(1);
+        self.revocation_list.tombstones.insert(
+            instance_id.to_string(),
+            self.revocation_list.next_tombstone_generation,
+        );
+        if !self
+            .revocation_list
+            .revoked
+            .contains(&instance_id.to_string())
+        {
+            self.revocation_list.revoked.push(instance_id.to_string());
+        }
+    }
+
+    pub fn complete_explicit_pairing(&mut self, peer: PairedPeer) {
+        let instance_id = peer.instance_id.clone();
+        self.revocation_list.revoked.retain(|id| id != &instance_id);
+        self.revocation_list.blocked.retain(|id| id != &instance_id);
+        self.revocation_list.tombstones.remove(&instance_id);
+        self.paired_peers.insert(instance_id, peer);
     }
 
     pub fn pending_request_count(&self) -> usize {
@@ -282,7 +323,7 @@ impl MeshManager {
         let removed = self.paired_peers.remove(instance_id);
         if removed.is_some() {
             self.peer_services.prune(instance_id);
-            self.revocation_list.revoked.retain(|id| id != instance_id);
+            self.tombstone_peer(instance_id);
             log::info!("[mesh] Unpaired {}", instance_id);
             let _ = self.save();
         }
@@ -304,9 +345,13 @@ impl MeshManager {
 
     // ── Discovery ingest ────────────────────────────────────────────
 
-    pub fn upsert_discovered(&mut self, sighting: discovered::DiscoverySighting, now: u64) {
+    pub fn upsert_discovered(&mut self, sighting: discovered::DiscoverySighting, now: u64) -> bool {
         if sighting.instance_id == self.ident.identity.instance_id {
-            return;
+            return false;
+        }
+        if self.is_blocked(&sighting.instance_id) || self.is_revoked(&sighting.instance_id) {
+            self.discovered_peers.remove(&sighting.instance_id);
+            return false;
         }
         let merged = discovered::merge_sighting(
             self.discovered_peers.get(&sighting.instance_id),
@@ -315,6 +360,7 @@ impl MeshManager {
         );
         self.discovered_peers
             .insert(merged.instance_id.clone(), merged);
+        true
     }
 
     // ── Pairing ─────────────────────────────────────────────────────
@@ -403,7 +449,82 @@ impl MeshManager {
         }
     }
 
-    pub fn build_sync_payload(&self) -> types::MeshSyncPayload {
+    pub fn apply_gossip_snapshot(
+        &mut self,
+        voucher: &str,
+        generation: u64,
+        peers: &[types::GossipPeerInfo],
+        now: u64,
+    ) {
+        if self
+            .gossip_generations
+            .get(voucher)
+            .is_some_and(|known| generation < *known)
+        {
+            return;
+        }
+
+        let is_new_generation = self
+            .gossip_generations
+            .get(voucher)
+            .is_none_or(|known| generation > *known);
+        if is_new_generation {
+            self.gossip_tombstones
+                .retain(|(tombstone_voucher, _), _| tombstone_voucher != voucher);
+            self.gossip_generations
+                .insert(voucher.to_string(), generation);
+        }
+
+        let claimed: std::collections::HashSet<&str> =
+            peers.iter().map(|peer| peer.instance_id.as_str()).collect();
+        let removed: Vec<String> = self
+            .discovered_peers
+            .iter()
+            .filter(|(_, peer)| peer.vouched_by.iter().any(|id| id == voucher))
+            .filter(|(id, _)| !claimed.contains(id.as_str()))
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in removed {
+            self.gossip_tombstones
+                .insert((voucher.to_string(), id.clone()), generation);
+            let remove_peer = self.discovered_peers.get_mut(&id).is_some_and(|peer| {
+                peer.vouched_by.retain(|known| known != voucher);
+                peer.vouched_by.is_empty()
+                    && peer.discovery_method == types::DiscoveryMethod::Gossip
+            });
+            if remove_peer {
+                self.discovered_peers.remove(&id);
+            }
+        }
+
+        for peer in peers {
+            self.apply_gossip_peer_info(peer);
+            if peer.instance_id == self.ident.identity.instance_id
+                || self.paired_peers.contains_key(&peer.instance_id)
+                || self
+                    .gossip_tombstones
+                    .get(&(voucher.to_string(), peer.instance_id.clone()))
+                    .is_some_and(|tombstone| generation <= *tombstone)
+            {
+                continue;
+            }
+            self.upsert_discovered(
+                discovered::DiscoverySighting {
+                    instance_id: peer.instance_id.clone(),
+                    instance_name: peer.instance_name.clone(),
+                    addresses: peer.addresses.clone(),
+                    api_port: peer.api_port,
+                    method: types::DiscoveryMethod::Gossip,
+                    dev: peer.dev,
+                    mesh_id: None,
+                    voucher: Some(voucher.to_string()),
+                },
+                now,
+            );
+        }
+    }
+
+    pub fn build_sync_payload(&mut self) -> types::MeshSyncPayload {
         let is_dev = codeterm_paths::is_dev_instance();
         let self_last = self.last_activity.read_for_gossip();
         let mut peers: Vec<types::GossipPeerInfo> = self
@@ -426,7 +547,17 @@ impl MeshManager {
             dev: is_dev,
             last_active_ms: self_last,
         });
-        types::MeshSyncPayload { peers }
+        let mut claim_ids: Vec<String> =
+            peers.iter().map(|peer| peer.instance_id.clone()).collect();
+        claim_ids.sort();
+        if claim_ids != self.last_gossip_claim_ids {
+            self.local_gossip_generation = self.local_gossip_generation.saturating_add(1);
+            self.last_gossip_claim_ids = claim_ids;
+        }
+        types::MeshSyncPayload {
+            peers,
+            generation: self.local_gossip_generation,
+        }
     }
 
     pub fn broadcast_clients(&self) -> Vec<transport::PeerClient> {
@@ -465,6 +596,9 @@ impl MeshManager {
     }
 
     pub fn client_for(&self, peer_id: &str) -> Option<transport::PeerClient> {
+        if self.is_blocked(peer_id) || self.is_revoked(peer_id) {
+            return None;
+        }
         let peer = self.paired_peers.get(peer_id)?;
         let addr = peer
             .addresses
@@ -597,6 +731,9 @@ fn prev_addrs_equal(a: &[types::PeerAddress], b: &[types::PeerAddress]) -> bool 
 mod identity_tests;
 
 #[cfg(test)]
+mod gossip_tests;
+
+#[cfg(test)]
 mod liveness_tests {
     use super::*;
 
@@ -622,7 +759,7 @@ mod liveness_tests {
     #[test]
     fn build_sync_payload_includes_self_last_active() {
         let activity = crate::ports::RecordingLastActivity::new(cfg!(debug_assertions));
-        let mesh = MeshManager::with_last_activity("local".into(), 7685, activity.clone());
+        let mut mesh = MeshManager::with_last_activity("local".into(), 7685, activity.clone());
         activity.mark();
         let payload = mesh.build_sync_payload();
         let self_entry = payload
