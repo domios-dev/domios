@@ -58,6 +58,45 @@ pub(super) struct DispatchRouting {
     pub model: Option<String>,
 }
 
+fn qualified_provider_model(model: &str, provider_ids: &[String]) -> Option<(String, String)> {
+    for separator in [':', '/'] {
+        let Some((provider, model)) = model.split_once(separator) else {
+            continue;
+        };
+        if provider_ids
+            .iter()
+            .any(|registered| registered.eq_ignore_ascii_case(provider))
+            && !model.trim().is_empty()
+        {
+            return Some((provider.to_string(), model.to_string()));
+        }
+    }
+    None
+}
+
+fn unqualified_model_error(
+    routing: &DispatchRouting,
+    provider: &str,
+    notice: &crate::service::spawn::ModelFallbackNotice,
+) -> Option<JsonRpcError> {
+    if routing.agent.is_some() {
+        return None;
+    }
+    Some(JsonRpcError {
+        code: -32602,
+        message: format!(
+            "model '{}' is unavailable for the default provider '{}'. Specify an explicit provider/model instead of silently substituting '{}'.",
+            notice.requested_model, provider, notice.provider_resolved_model
+        ),
+        data: Some(json!({
+            "type": "unqualified_model_unavailable",
+            "requested_model": notice.requested_model,
+            "default_provider": provider,
+            "suggestion": "use <provider>:<model> or pass --agent <provider>",
+        })),
+    })
+}
+
 fn dispatch_worker_identity(task: &Task) -> (Option<String>, Option<SpawnIdentityProvenance>) {
     let title = task
         .personality
@@ -80,10 +119,9 @@ fn dispatch_worker_identity(task: &Task) -> (Option<String>, Option<SpawnIdentit
 
 /// Resolve the provider/model a dispatch should spawn. Precedence: an explicit
 /// `agent` provider wins (any model rides along verbatim); otherwise a requested
-/// model (RPC param, else the task's own routing field) that NAMES a registered
-/// provider is treated as that provider at its default model; anything else is a
-/// model name for the default provider. Never guesses a provider from a literal
-/// id list — matches against the live registry.
+/// provider/model prefix is resolved against the live registry. A bare provider
+/// name selects its default model; a bare model remains a request for the default
+/// provider and is rejected if that provider cannot resolve it.
 pub(super) fn resolve_dispatch_routing(
     explicit_agent: Option<String>,
     rpc_model: Option<String>,
@@ -99,6 +137,12 @@ pub(super) fn resolve_dispatch_routing(
         };
     }
     if let Some(model) = requested_model {
+        if let Some((agent, model)) = qualified_provider_model(&model, provider_ids) {
+            return DispatchRouting {
+                agent: Some(agent),
+                model: Some(model),
+            };
+        }
         if provider_ids.iter().any(|p| p.eq_ignore_ascii_case(&model)) {
             return DispatchRouting {
                 agent: Some(model),
@@ -181,6 +225,9 @@ pub(super) fn dispatch(
     )
     .fallback_notice
     {
+        if let Some(error) = unqualified_model_error(&routing, &resolved_provider, &notice) {
+            return Err(error);
+        }
         warnings.push(format!(
             "requested model '{}' is not available for provider '{}'; spawning with '{}' instead",
             notice.requested_model, resolved_provider, notice.provider_resolved_model
