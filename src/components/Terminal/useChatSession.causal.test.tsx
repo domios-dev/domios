@@ -1,5 +1,4 @@
 // Run: CODETERM_INSTANCE=chat-stale-h123 npx tsx src/components/Terminal/useChatSession.causal.test.tsx
-// Failing freshness contract: set CHAT_STALE_EXPECT_FRESH=1 on the same command.
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import {
   act,
@@ -17,7 +16,6 @@ import type {
 } from "./useChatSession";
 
 const INSTANCE = process.env.CODETERM_INSTANCE ?? "chat-stale-h123";
-const EXPECT_FRESH = process.env.CHAT_STALE_EXPECT_FRESH === "1";
 const MAX_TIMELINE = 256;
 
 function assert(condition: unknown, label: string): asserts condition {
@@ -60,10 +58,12 @@ interface TimelineEntry {
 
 class BoundedTimeline {
   readonly entries: TimelineEntry[] = [];
+  private readonly edgeCounts = new Map<Edge, number>();
   private sequence = 0;
 
   push(entry: Omit<TimelineEntry, "seq">): void {
     this.entries.push({ seq: this.sequence, ...entry });
+    this.edgeCounts.set(entry.edge, (this.edgeCounts.get(entry.edge) ?? 0) + 1);
     this.sequence += 1;
     if (this.entries.length > MAX_TIMELINE) this.entries.shift();
   }
@@ -82,7 +82,7 @@ class BoundedTimeline {
   };
 
   count(edge: Edge): number {
-    return this.entries.filter((entry) => entry.edge === edge).length;
+    return this.edgeCounts.get(edge) ?? 0;
   }
 }
 
@@ -294,10 +294,10 @@ async function main(): Promise<void> {
   assert(server.deltaReads === readsAtEof, "EOF performed a provider read");
   assert(Number(server.snapshotReads) === 2, "EOF triggered a snapshot read");
 
-  // T-H1: urgent commits keep winning while every transcript delta is queued
-  // in the transition lane; release produces one state/projection batch.
+  // T-H1: transcript ingestion stays urgent while downstream projection remains deferred.
   const baselineStateCommits = timeline.count("state_commit");
   const baselineVisibleCommits = timeline.count("visible_commit");
+  const baselineStateCount = app.committedStateCount();
   const baselineVisibleCount = app.visibleCount();
   const streamCount = 48;
   let stateCommitsDuringLoad = -1;
@@ -306,15 +306,13 @@ async function main(): Promise<void> {
     for (let index = 0; index < streamCount; index += 1) {
       server.emit([msg(`m${index + 3}`)]);
       flushSync(app.bumpUrgent);
-      if (EXPECT_FRESH) {
-        assert(
-          app.visibleCount() === baselineVisibleCount + index + 1,
-          `T-H1 stale projection after delta ${index + 1}: visible=${app.visibleCount()} expected=${baselineVisibleCount + index + 1}`,
-        );
-      }
+      assert(
+        app.committedStateCount() === baselineStateCount + index + 1,
+        `T-H1 stale ingestion after delta ${index + 1}: committed=${app.committedStateCount()} expected=${baselineStateCount + index + 1}`,
+      );
       assert(
         app.visibleCount() === baselineVisibleCount,
-        "H1 falsifier: projection advanced while urgent work continuously preempted it",
+        "downstream deferred projection advanced while urgent work continuously preempted it",
       );
     }
     stateCommitsDuringLoad = timeline.count("state_commit") - baselineStateCommits;
@@ -330,12 +328,12 @@ async function main(): Promise<void> {
     "H2 falsifier: an own-session stream delta lost authority",
   );
   assert(
-    stateCommitsDuringLoad === 0,
-    "H1 boundary moved past state commit during urgent load",
+    stateCommitsDuringLoad === streamCount,
+    "T-H1 urgent ingestion did not commit each live delta during urgent load",
   );
   assert(
     visibleCommitsDuringLoad === 0,
-    "H1 boundary moved past visible projection during urgent load",
+    `downstream deferred projection committed ${visibleCommitsDuringLoad} times during urgent load`,
   );
 
   assert(
@@ -347,8 +345,8 @@ async function main(): Promise<void> {
     "visible projection did not catch up as one complete batch",
   );
   assert(
-    timeline.count("state_commit") === baselineStateCommits + 1,
-    "stream should collapse into one state commit after urgent load ends",
+    timeline.count("state_commit") === baselineStateCommits + streamCount,
+    "urgent ingestion should commit every stream delta before urgent load ends",
   );
   assert(
     timeline.count("visible_commit") === baselineVisibleCommits + 1,
@@ -372,15 +370,17 @@ async function main(): Promise<void> {
       authorityAdopts: timeline.count("authority_adopt"),
       authorityDrops: timeline.count("authority_drop"),
       stateCommitsDuringLoad,
-      stateCommitsAfterRelease: 1,
+      stateCommitsAfterRelease:
+        timeline.count("state_commit") - baselineStateCommits - stateCommitsDuringLoad,
       visibleCommitsDuringLoad,
-      visibleCommitsAfterRelease: 1,
+      visibleCommitsAfterRelease:
+        timeline.count("visible_commit") - baselineVisibleCommits - visibleCommitsDuringLoad,
       snapshots: server.snapshotReads,
       eofSignals: server.eofSignals,
       peakSubscriptions: server.peakSubscriptions,
     },
     falsifiers: {
-      "T-H1": "visible projection advances during continuous urgent work",
+      "T-H1": "own-session transcript ingestion lags an urgent commit",
       "T-H2": "an own-session delta is rejected after nonce rotation",
       "T-H3": "arrival count diverges or live subscription cardinality differs from one",
     },

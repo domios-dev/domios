@@ -1,4 +1,4 @@
-import { startTransition, type Dispatch, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type Dispatch, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
 import {
   reduceToolEvents,
@@ -265,11 +265,9 @@ function applyChatMsgEvent(
 ): void {
   if (payload.pane_id !== paneId) return;
   if (!payload.messages.length) return;
-  startTransition(() => {
-    setStructured((prev) => {
-      const existing = prev ?? [];
-      return mergeById(existing, withPreservedClientOrder(payload.messages, existing, nextOrder, sourceSessionId));
-    });
+  setStructured((prev) => {
+    const existing = prev ?? [];
+    return mergeById(existing, withPreservedClientOrder(payload.messages, existing, nextOrder, sourceSessionId));
   });
 }
 
