@@ -77,8 +77,13 @@ fn usage_config_defaults_on() {
     assert!(cfg.enabled);
     assert!(cfg.heartbeat);
     assert_eq!(cfg.freshness_secs, 180);
-    assert_eq!(cfg.high_pct_threshold, 90.0);
     assert_eq!(cfg.standalone_cadence_secs, 0);
+}
+
+#[test]
+fn legacy_usage_threshold_is_ignored() {
+    let cfg: UsageConfig = toml::from_str("high_pct_threshold = 75").unwrap();
+    assert!(cfg.enabled);
 }
 
 #[test]
