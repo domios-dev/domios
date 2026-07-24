@@ -7,6 +7,7 @@ use crate::service::{ServiceState, SpawnIdentityProvenance};
 use super::plan::{emit_plan_changed, plan_rpc_err};
 use super::plan_fields::pane_role;
 use super::plan_refs;
+use super::plan_role_helpers::record_spawned_attempt;
 use super::{get_string_param, JsonRpcError};
 
 pub(super) fn metadata_field(
@@ -126,8 +127,8 @@ pub(super) fn compete(
                 message: e,
                 data: None,
             })?;
-        let created = store
-            .record_task_compete_attempt(
+        let created = record_spawned_attempt(svc, &spawn.pane_id, || {
+            store.record_task_compete_attempt(
                 &id,
                 &tid,
                 &spawn.pane_id,
@@ -135,7 +136,7 @@ pub(super) fn compete(
                 pane_role(svc, &spawn.pane_id),
                 now,
             )
-            .map_err(plan_rpc_err)?;
+        })?;
         let session_id = svc
             .mux
             .read()
