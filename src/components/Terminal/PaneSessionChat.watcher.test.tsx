@@ -115,6 +115,7 @@ function muxStateFor(panes: Record<string, Pane>): ExtendedState {
     toasts: [],
     activeTabIds: {},
     generation: 1,
+    pendingCloses: [],
   };
 }
 
