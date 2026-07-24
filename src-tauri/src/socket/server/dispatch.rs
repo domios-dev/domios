@@ -110,6 +110,7 @@ pub(super) fn dispatch(
                 "plan.stride.add",
                 "plan.skills.list",
                 "plan.skills.show",
+                "plan.skills.new",
                 "plan.retrospective",
                 "plan.loop.create",
                 "plan.loop.set",
