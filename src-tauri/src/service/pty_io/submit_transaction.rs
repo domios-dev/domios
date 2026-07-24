@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, Weak};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use parking_lot::Mutex;
 
@@ -254,9 +254,6 @@ fn wait_submission_acknowledged<T: SubmitTransport>(
     }
 }
 
-const PRIMARY_SUBMIT_WINDOW: Duration = Duration::from_millis(1500);
-const RECOVERY_SUBMIT_ATTEMPTS: usize = 5;
-
 fn submission_acknowledged_now<T: SubmitTransport>(
     transport: &T,
     text: &str,
@@ -286,21 +283,21 @@ fn run_with_submit_key<T: SubmitTransport>(
     text: &str,
     enter: bool,
     submit_key: &[u8],
-    strategy: VerifySubmitStrategy,
+    _strategy: VerifySubmitStrategy,
     opts: VerifyOpts,
 ) -> Result<InjectionResult, InjectionError> {
     let started = Instant::now();
     let ingest_deadline = started + opts.echo_timeout;
     let turn_deadline = started + opts.echo_timeout.saturating_add(opts.submit_timeout);
-    // Two-phase acknowledgement only where the provider exposes a live TUI turn.
-    let two_phase = matches!(strategy, VerifySubmitStrategy::TuiInputDrained);
+    // The transaction observes generic draft/turn evidence for every agent
+    // capability. Provider strategy selects the key upstream, never success.
+    let two_phase = enter && opts.verify_submit;
 
     let armed = transport.generation();
     let baseline_evidence = transport.draft_evidence_count(text);
     let bytes_written = transport.write_paste(text, turn_deadline)?;
 
-    // The CR follows the paste-render event; a missed deadline allows one recovery.
-    // The deadline never proves readiness, and success still needs an acknowledgement.
+    // The deadline is an actionable failure: a submit key cannot be safely retried.
     let mut submit_anomaly = false;
     if enter
         && two_phase
@@ -308,10 +305,13 @@ fn run_with_submit_key<T: SubmitTransport>(
         && !wait_paste_ingested(transport, text, armed, baseline_evidence, ingest_deadline)
     {
         submit_anomaly = true;
-        log::warn!(
-            "[submit-anomaly] paste render event not observed within {:?}; issuing one recovery Enter, turn acknowledgement still required",
-            opts.echo_timeout
-        );
+        return Ok(InjectionResult {
+            bytes_written,
+            echo_observed: false,
+            submit_observed: false,
+            submit_anomaly,
+            elapsed: started.elapsed(),
+        });
     }
 
     let echo_observed = transport.draft_evidence_count(text) > baseline_evidence;
@@ -329,54 +329,19 @@ fn run_with_submit_key<T: SubmitTransport>(
     let enter_armed = transport.generation();
     let turn_was_started = transport.turn_started();
     transport.write_submit_key(submit_key, turn_deadline)?;
-    let mut submit_observed = if two_phase {
-        let primary_deadline = turn_deadline.min(Instant::now() + PRIMARY_SUBMIT_WINDOW);
+    let submit_observed = if two_phase {
         wait_submission_acknowledged(
             transport,
             text,
             baseline_evidence,
             turn_was_started,
             enter_armed,
-            primary_deadline,
+            turn_deadline,
         )
     } else {
         true
     };
-    if two_phase && !submit_observed {
-        submit_anomaly = true;
-        log::warn!(
-            "[submit-anomaly] provider turn did not start after Enter; issuing bounded recovery Enter burst"
-        );
-        let recovery_armed = transport.generation();
-        let attempts = if submit_key == b"\r" {
-            RECOVERY_SUBMIT_ATTEMPTS
-        } else {
-            1
-        };
-        for _ in 0..attempts {
-            transport.write_submit_key(submit_key, turn_deadline)?;
-            if submission_acknowledged_now(
-                transport,
-                text,
-                baseline_evidence,
-                turn_was_started,
-                recovery_armed,
-            ) {
-                submit_observed = true;
-                break;
-            }
-        }
-        if !submit_observed {
-            submit_observed = wait_submission_acknowledged(
-                transport,
-                text,
-                baseline_evidence,
-                turn_was_started,
-                recovery_armed,
-                turn_deadline,
-            );
-        }
-    }
+    submit_anomaly |= two_phase && !submit_observed;
 
     Ok(InjectionResult {
         bytes_written,
@@ -483,8 +448,7 @@ mod tests {
             Self::new(1, true, true)
         }
 
-        /// Anomaly that recovers: no observable render event, but the paste did
-        /// land, so the one forced recovery Enter starts a turn.
+        /// The paste may land without exposing a screen event.
         fn recovers_after_unobserved_ingest() -> Self {
             Self::new(0, false, true)
         }
@@ -583,8 +547,6 @@ mod tests {
                 self.swallowed_enters.set(self.swallowed_enters.get() - 1);
                 return Ok(());
             }
-            // Normal ingestion has a render frame; recovery models an unobserved frame.
-            // Either way, Enter starts a turn only after the paste landed.
             let paste_landed = self.draft_visible.get() || !self.deliver_ingest_frame;
             if self.accept_enter && paste_landed {
                 self.turn.set(key == b"\r");
@@ -746,31 +708,21 @@ mod tests {
     }
 
     #[test]
-    fn bounded_deadline_recovers_with_one_forced_enter_flagged_anomalous() {
-        // A missed render event allows one anomalous recovery Enter, never a loop.
-        // Success remains gated on provider acknowledgement rather than elapsed time.
+    fn missing_paste_evidence_fails_without_a_submit_retry() {
         let io = TuiModel::recovers_after_unobserved_ingest();
         let result = run(&io, "unique-marker-42", true, tui(), opts()).unwrap();
 
-        assert!(
-            result.submit_anomaly,
-            "the recovery path must be observably anomalous"
-        );
-        assert!(
-            result.submit_observed,
-            "recovery still requires the turn transition to claim success"
-        );
+        assert!(result.submit_anomaly);
+        assert!(!result.submit_observed);
         assert_eq!(
             &*io.writes.borrow(),
-            &["paste:unique-marker-42", "enter"],
-            "exactly one recovery Enter — no retry loop"
+            &["paste:unique-marker-42"],
+            "a missing ingestion event is actionable failure, never permission to retry"
         );
     }
 
     #[test]
-    fn forced_recovery_without_a_turn_stays_unconfirmed() {
-        // Recovery fired one Enter but the turn never started: no silent success.
-        // The anomaly is recorded and the submit surfaces as unconfirmed.
+    fn missing_paste_evidence_surfaces_actionable_failure() {
         let io = TuiModel::never_ingests();
         let result = run(&io, "marker", true, tui(), opts()).unwrap();
 
@@ -779,16 +731,8 @@ mod tests {
         assert!(!io.turn_started());
         assert_eq!(
             &*io.writes.borrow(),
-            &[
-                "paste:marker",
-                "enter",
-                "enter",
-                "enter",
-                "enter",
-                "enter",
-                "enter"
-            ],
-            "one primary and five recovery Enter writes, then honest failure"
+            &["paste:marker"],
+            "the payload remains singular when delivery fails"
         );
 
         let surfaced = result.require_submission(true, Duration::ZERO, "> marker".into());
@@ -799,27 +743,32 @@ mod tests {
     }
 
     #[test]
-    fn swallowed_primary_enter_recovers_once_and_requires_the_turn() {
+    fn paste_accepted_then_enter_swallowed_fails_without_duplicate_payload() {
         let io = TuiModel::swallows_first_enter();
         let result = run(&io, "team bootstrap", true, tui(), opts()).unwrap();
 
         assert!(result.submit_anomaly);
-        assert!(result.submit_observed);
-        assert!(io.turn_started());
+        assert!(!result.submit_observed);
+        assert!(!io.turn_started());
         assert_eq!(
             &*io.writes.borrow(),
-            &["paste:team bootstrap", "enter", "enter"]
+            &["paste:team bootstrap", "enter"],
+            "a swallowed Enter must surface failure rather than duplicate the submit"
         );
+        assert!(matches!(
+            result.require_submission(true, Duration::ZERO, "> team bootstrap".into()),
+            Err(InjectionError::SubmitNeverConfirmed { .. })
+        ));
     }
 
     #[test]
-    fn repeated_swallowed_enters_still_submit_without_reinserting_the_payload() {
+    fn repeated_swallowed_enters_never_retry_the_transaction() {
         let io = TuiModel::swallows_enters(5);
         let result = run(&io, "delivery-marker", true, tui(), opts()).unwrap();
 
         assert!(result.submit_anomaly);
-        assert!(result.submit_observed);
-        assert!(io.turn_started());
+        assert!(!result.submit_observed);
+        assert!(!io.turn_started());
         assert_eq!(
             io.writes
                 .borrow()
@@ -835,8 +784,8 @@ mod tests {
                 .iter()
                 .filter(|write| write.as_str() == "enter")
                 .count(),
-            6,
-            "one primary plus five recovery Enter writes"
+            1,
+            "a pending transaction has one submit key and no delayed retries"
         );
     }
 
@@ -857,11 +806,8 @@ mod tests {
         let result = run(&io, "team bootstrap", true, tui(), opts()).unwrap();
 
         assert!(result.submit_anomaly);
-        assert!(result.submit_observed);
-        assert_eq!(
-            &*io.writes.borrow(),
-            &["paste:team bootstrap", "enter", "enter"]
-        );
+        assert!(!result.submit_observed);
+        assert_eq!(&*io.writes.borrow(), &["paste:team bootstrap", "enter"]);
     }
 
     #[test]

@@ -10,7 +10,7 @@ use send::wait_for_pty_link as await_pty_link;
 
 mod send;
 
-pub use send::send_text;
+pub use send::{chat_send_status, chat_send_text, send_text};
 
 #[cfg(test)]
 pub(crate) use send::{
