@@ -76,8 +76,19 @@ does not publish a release or alter GitHub assets.
    This route is Windows-only, requires the clean canonical checkout, reuses a
    persistent release target with sccache, rebuilds only changed Cargo units,
    recreates the NSIS bundle, verifies source provenance, and installs that
-   exact artifact. Cargo incremental remains disabled because sccache rejects
-   incremental rustc invocations; persistent completed artifacts provide reuse.
+   exact artifact. When invoked inside CodeTerm, it saves the session and sends
+   a continuation intent to the calling pane after the new daemon is healthy.
+   The default intent verifies the installed SHA and resumes the interrupted
+   work. Override or disable it when needed:
+
+   ```powershell
+   .\build.ps1 install-local --continue-prompt "Verify the installed build, then resume release QA."
+   .\build.ps1 install-local --continue-tab "<pane-id>" --continue-prompt "Continue the interrupted task."
+   .\build.ps1 install-local --no-continue
+   ```
+
+   Cargo incremental remains disabled because sccache rejects incremental rustc
+   invocations; persistent completed artifacts provide reuse.
 
 4. Use the clean-room route when validating a public-release-equivalent
    artifact:
@@ -100,9 +111,11 @@ does not publish a release or alter GitHub assets.
 | `release source is not clean` | A source or lockfile change has not been reviewed/committed | Inspect `git status --short`; commit the intentional change or stop. Never bypass provenance. |
 | `source SHA/status mismatch` after a bundle was created | A build step changed tracked source inputs after the provenance snapshot | Do not install that artifact. Identify the mutating step, fix it, and rerun from a clean tree. |
 | Self-install returns but the window does not return | The detached helper owns restart | Inspect `%LOCALAPPDATA%\codeterm\self-install.log`, then query port 7685 health. |
+| CodeTerm restarts but the initiating tab does not resume | The continuation send failed or the pane id changed before session persistence | Inspect `%LOCALAPPDATA%\codeterm\self-install.log`; the retained `%TEMP%\codeterm-continuation-*.txt` contains the undelivered intent. |
 | Repeated local install recompiles the full release graph | The clean-room `build` route was used instead of the persistent local cache | Use `build.ps1 install-local`; reserve `build` for public-release-equivalent verification. |
 | A focused Rust test spends its deadline linking app binaries | The test omitted `--lib`, so Cargo built unrelated binary test targets | Run the focused filter through `scripts/test-capped.sh ... --lib <filter>`; never raise the deadline. |
 | `sccache: incremental compilation is prohibited` | `CARGO_INCREMENTAL=1` was combined with the shared sccache wrapper | Keep `CARGO_INCREMENTAL=0`; reuse the persistent completed target and sccache entries instead. |
+| Release-signing negative test passes despite a missing fixture key | The shell inherited `TAURI_SIGNING_PRIVATE_KEY` from the canonical `.env` | Run the repository check; its missing-key fixture explicitly removes the inherited key before asserting failure. |
 
 When a new failure is found in this flow, fix the owning script or preflight and
 add a short symptom/cause/recovery row here before closing the work.
@@ -297,4 +310,4 @@ codeterm/
 └── docs/               # Documentation
 ```
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->
