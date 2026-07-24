@@ -95,6 +95,23 @@ function msg(id: string, opts: Partial<M> = {}): M {
   eq(merged.map((m) => m.id), ["live-user-1"], "snapshot/live user seq-1 projects one launch bubble");
 }
 
+{
+  const reply = "I traced the merge path and will fix the source identity.";
+  const merged = mergeById(
+    [msg("snapshot-assistant-7", { type: "assistant", content: reply, seq: 7, sourceSessionId: "c73becde" })],
+    [msg("live-assistant-7", { type: "assistant", content: reply, seq: 7, sourceSessionId: "c73becde" })],
+  );
+  eq(merged.map((m) => m.id), ["live-assistant-7"], "snapshot/live assistant seq-7 projects one reply bubble");
+}
+
+{
+  const merged = mergeById(
+    [msg("tool-a", { type: "tool_call", seq: 7, sourceSessionId: "c73becde", toolId: "a" })],
+    [msg("tool-b", { type: "tool_call", seq: 7, sourceSessionId: "c73becde", toolId: "b" })],
+  );
+  eq(merged.map((m) => m.id), ["tool-a", "tool-b"], "same-source tool blocks retain distinct identities");
+}
+
 // ── text is not identity: distinct parser sequences preserve true repeats.
 {
   const merged = mergeById(
