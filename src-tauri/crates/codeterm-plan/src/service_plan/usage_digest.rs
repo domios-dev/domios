@@ -19,11 +19,6 @@ pub fn usage_digest_lines(
     if !cfg.enabled || !cfg.heartbeat || rows.is_empty() {
         return (Vec::new(), None);
     }
-    let threshold = if cfg.high_pct_threshold > 0.0 {
-        cfg.high_pct_threshold
-    } else {
-        HIGH_PCT_THRESHOLD
-    };
     let mut lines = Vec::new();
     let mut high_count = 0;
     let mut lower_usage_count = 0;
@@ -32,16 +27,16 @@ pub fn usage_digest_lines(
             row,
             now_ms,
             cfg.freshness_secs.saturating_mul(1000) as i64,
-            threshold,
+            HIGH_PCT_THRESHOLD,
         );
-        if row.high_pressure(threshold) {
+        if row.high_pressure(HIGH_PCT_THRESHOLD) {
             high_count += 1;
         } else if row.primary_pct().is_some() {
             lower_usage_count += 1;
         }
         lines.push(line);
     }
-    let guidance = balancing_guidance(high_count, lower_usage_count, threshold);
+    let guidance = balancing_guidance(high_count, lower_usage_count, HIGH_PCT_THRESHOLD);
     (lines, guidance)
 }
 
@@ -203,26 +198,23 @@ mod tests {
     }
 
     #[test]
-    fn custom_threshold_controls_reduce_and_guidance() {
-        let cfg = UsageConfig {
-            high_pct_threshold: 75.0,
-            ..UsageConfig::default()
-        };
+    fn fixed_threshold_does_not_reduce_the_ninety_percent_policy() {
+        let cfg = UsageConfig::default();
         let now = 1_000_000_i64;
         let rows = vec![
             UsageDigestRow {
                 label: "Provider A".into(),
-                row: Some(row("a", 75.0, now)),
+                row: Some(row("a", 89.0, now)),
             },
             UsageDigestRow {
                 label: "Provider B".into(),
-                row: Some(row("b", 74.0, now)),
+                row: Some(row("b", 91.0, now)),
             },
         ];
         let (lines, guidance) = usage_digest_lines(&cfg, now, &rows);
-        assert!(lines[0].contains("REDUCE"));
-        assert!(!lines[1].contains("REDUCE"));
-        assert!(guidance.expect("guidance").contains("75%"));
+        assert!(!lines[0].contains("REDUCE"));
+        assert!(lines[1].contains("REDUCE"));
+        assert!(guidance.expect("guidance").contains("90%"));
     }
 
     #[test]
