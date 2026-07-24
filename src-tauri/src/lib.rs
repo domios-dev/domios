@@ -167,6 +167,7 @@ pub fn run() {
         .manage(states.mesh.clone())
         .manage(states.keepawake.clone())
         .manage(states.resize_owner.clone())
+        .manage(states.rest_api.clone())
         .invoke_handler(tauri::generate_handler![
             commands::get_windows_build_number,
             commands::get_default_cwd,
@@ -192,6 +193,9 @@ pub fn run() {
             commands::frontend_ready,
             commands::frontend_readiness_generation,
             commands::restart_app,
+            commands::restart_rest_api,
+            commands::get_rest_api_status,
+            commands::rest_api_port_released,
             commands::restart_general_agent,
             commands::restart_general_agent_pane,
             commands::restart_agent_pane,
