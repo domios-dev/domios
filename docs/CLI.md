@@ -1824,7 +1824,7 @@ Write the plan completion retrospective (plan-level stride, kind retrospective)
 
 #### `codeterm plan review`
 
-Review-backpressure: WIP/credit status, waves, overrides, accept/bounce
+Review-backpressure: capacity, credit reconciliation, and verdicts
 
 #### `codeterm plan review accept`
 
@@ -1835,6 +1835,14 @@ ACCEPT: attaches the verdict and closes the task (in_review -> done)
 - `--note`
 - `<plan_id>`
 - `--residual-risk` — Past the default round bound, routes residual risk to a follow-up task
+- `<task_id>`
+
+#### `codeterm plan review authorize-capacity`
+
+Grant daemon-owned review-capacity provenance to one task
+
+- `--class`
+- `<plan_id>`
 - `<task_id>`
 
 #### `codeterm plan review bounce`

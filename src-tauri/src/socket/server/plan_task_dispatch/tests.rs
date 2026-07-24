@@ -735,7 +735,7 @@ fn task(value: serde_json::Value) -> Task {
 }
 
 #[test]
-fn socket_dispatch_allows_only_capacity_tagged_work_through_stranded_debt() {
+fn socket_dispatch_requires_daemon_owned_capacity_provenance() {
     let mut plan = Plan::new(
         "review debt".into(),
         "/repo".into(),
@@ -756,6 +756,18 @@ fn socket_dispatch_allows_only_capacity_tagged_work_through_stranded_debt() {
         "status": "pending",
     }));
 
+    assert!(matches!(
+        preflight_review_capacity(&plan, &review),
+        Err(crate::service::plan::PlanError::ReviewWipExceeded { .. })
+    ));
+    plan.review_policy
+        .capacity_grants
+        .push(crate::plan::ReviewCapacityGrant {
+            task_id: review.id.clone(),
+            class: crate::plan::ReviewCapacityClass::Review,
+            granted_by: crate::plan::AgentRef::from_pane("orch"),
+            granted_at: 1,
+        });
     preflight_review_capacity(&plan, &review).unwrap();
     assert!(matches!(
         preflight_review_capacity(&plan, &implementation),
