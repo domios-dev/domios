@@ -21,10 +21,58 @@ pub(crate) use send::{
 pub async fn list_panes(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
+    Query(query): Query<PaneListQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let result = crate::dispatch::dispatch(&crate::dispatch::Command::PaneList, state.svc.as_ref())
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to list panes"))?;
+    let result = crate::dispatch::dispatch(
+        &crate::dispatch::Command::PaneSummary {
+            workspace_id: query.workspace_id,
+            focused_workspace: !query.all_workspaces
+                && (query.focused_workspace || query.workspace_id.is_none()),
+            agents_only: query.agents,
+        },
+        state.svc.as_ref(),
+    )
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to list panes"))?;
+    Ok(Json(result.into_json()))
+}
+
+#[derive(Default, Deserialize)]
+pub struct PaneListQuery {
+    pub workspace_id: Option<String>,
+    #[serde(default)]
+    pub focused_workspace: bool,
+    #[serde(default)]
+    pub all_workspaces: bool,
+    #[serde(default)]
+    pub agents: bool,
+}
+
+#[derive(Deserialize)]
+pub struct PaneInspectQuery {
+    pub pane_ids: String,
+}
+
+pub async fn inspect_panes(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<PaneInspectQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let pane_ids = query
+        .pane_ids
+        .split(',')
+        .filter(|pane_id| !pane_id.is_empty())
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if pane_ids.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "pane_ids is required"));
+    }
+    let result = crate::dispatch::dispatch(
+        &crate::dispatch::Command::PaneInspect { pane_ids },
+        state.svc.as_ref(),
+    )
+    .map_err(|_| (StatusCode::NOT_FOUND, "Requested pane was not found"))?;
     Ok(Json(result.into_json()))
 }
 

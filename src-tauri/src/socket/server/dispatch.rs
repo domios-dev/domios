@@ -34,6 +34,7 @@ pub(super) fn dispatch(
                 "workspace.reopen_closed",
                 "workspace.reopen_closed_group",
                 "pane.list",
+                "pane.inspect",
                 "pane.focus",
                 "pane.close",
                 "pane.send_text",
