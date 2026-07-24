@@ -86,20 +86,40 @@ enum ConnectPreparation {
     Wait(Arc<crate::mesh::PairingDelivery>),
 }
 
+struct ConnectOwner {
+    mesh: crate::MeshStateHandle,
+    target_id: String,
+    request_id: String,
+    delivery: Arc<crate::mesh::PairingDelivery>,
+    completed: bool,
+}
+
+impl ConnectOwner {
+    fn complete(&mut self, outcome: Result<(), String>) {
+        complete_connect(
+            &self.mesh,
+            &self.target_id,
+            &self.request_id,
+            &self.delivery,
+            outcome,
+        );
+        self.completed = true;
+    }
+}
+
+impl Drop for ConnectOwner {
+    fn drop(&mut self) {
+        if !self.completed {
+            self.complete(Err("Pairing request delivery was cancelled".to_string()));
+        }
+    }
+}
+
 fn prepare_connect(
     mesh: &mut crate::mesh::MeshManager,
     instance_id: &str,
 ) -> Result<ConnectPreparation, ConnectPeerError> {
     mesh.cleanup_expired_requests();
-    if mesh.paired_peers.contains_key(instance_id) {
-        return Ok(ConnectPreparation::Existing(ConnectPeerResult::Connected));
-    }
-    if let Some(delivery) = mesh.pairing_deliveries.get(instance_id) {
-        return Ok(ConnectPreparation::Wait(delivery.clone()));
-    }
-    if let Some(result) = existing_connect_result(mesh, instance_id) {
-        return Ok(ConnectPreparation::Existing(result));
-    }
     let peer = crate::mesh::discovered::resolve_discovered(&mesh.discovered_peers, instance_id)
         .map_err(|error| match error {
             crate::mesh::discovered::ResolveError::NotFound => {
@@ -109,6 +129,16 @@ fn prepare_connect(
                 ConnectPeerError::Conflict(error.to_string())
             }
         })?;
+    let target_id = peer.instance_id.clone();
+    if mesh.paired_peers.contains_key(&target_id) {
+        return Ok(ConnectPreparation::Existing(ConnectPeerResult::Connected));
+    }
+    if let Some(delivery) = mesh.pairing_deliveries.get(&target_id) {
+        return Ok(ConnectPreparation::Wait(delivery.clone()));
+    }
+    if let Some(result) = existing_connect_result(mesh, &target_id) {
+        return Ok(ConnectPreparation::Existing(result));
+    }
     let address = peer
         .addresses
         .iter()
@@ -149,8 +179,7 @@ fn prepare_connect(
     mesh.pending_requests
         .insert(request.request_id.clone(), request.clone());
     let delivery = Arc::new(crate::mesh::PairingDelivery::new());
-    mesh.pairing_deliveries
-        .insert(instance_id.to_string(), delivery.clone());
+    mesh.pairing_deliveries.insert(target_id, delivery.clone());
     Ok(ConnectPreparation::Send {
         request,
         address,
@@ -214,7 +243,14 @@ where
         ConnectPreparation::Wait(delivery) => {
             waiter();
             delivery.wait().await.map_err(ConnectPeerError::Delivery)?;
-            return Ok(existing_connect_result(&mesh.lock(), &instance_id)
+            let target_id = crate::mesh::discovered::resolve_discovered(
+                &mesh.lock().discovered_peers,
+                &instance_id,
+            )
+            .expect("a waiting pairing delivery retains its discovered target")
+            .instance_id
+            .clone();
+            return Ok(existing_connect_result(&mesh.lock(), &target_id)
                 .expect("completed pairing delivery keeps its pending request"));
         }
         ConnectPreparation::Send {
@@ -224,16 +260,21 @@ where
             delivery,
         } => (request, address, port, delivery),
     };
+    let target_id = {
+        let manager = mesh.lock();
+        manager.pairing_targets[&request.request_id].2.clone()
+    };
+    let mut owner = ConnectOwner {
+        mesh: mesh.clone(),
+        target_id,
+        request_id: request.request_id.clone(),
+        delivery,
+        completed: false,
+    };
     let remote_instance_id = match sender(request.clone(), address, port).await {
         Ok(id) => id,
         Err(error) => {
-            complete_connect(
-                &mesh,
-                &instance_id,
-                &request.request_id,
-                &delivery,
-                Err(error.to_string()),
-            );
+            owner.complete(Err(error.to_string()));
             return Err(error);
         }
     };
@@ -242,16 +283,10 @@ where
         manager.confirm_pairing_target_identity(&request.request_id, &remote_instance_id)
     };
     if let Err(error) = confirmation {
-        complete_connect(
-            &mesh,
-            &instance_id,
-            &request.request_id,
-            &delivery,
-            Err(error.clone()),
-        );
+        owner.complete(Err(error.clone()));
         return Err(ConnectPeerError::Delivery(error));
     }
-    complete_connect(&mesh, &instance_id, &request.request_id, &delivery, Ok(()));
+    owner.complete(Ok(()));
     Ok(ConnectPeerResult::Pending {
         request_id: request.request_id,
         existing: false,
@@ -337,6 +372,7 @@ mod tests {
     };
 
     const PEER_ID: &str = "31c7cff6-4bd2-43b0-a5cd-b5db9bfbb673";
+    const PEER_NAME: &str = "peer";
 
     fn mesh_state() -> crate::MeshStateHandle {
         let mut manager = crate::mesh::MeshManager::new("test".to_string(), 7685);
@@ -346,7 +382,7 @@ mod tests {
             PEER_ID.to_string(),
             crate::mesh::types::DiscoveredPeer {
                 instance_id: PEER_ID.to_string(),
-                instance_name: "peer".to_string(),
+                instance_name: PEER_NAME.to_string(),
                 addresses: vec![crate::mesh::types::PeerAddress::from_ip("127.0.0.1")],
                 api_port: 7685,
                 discovery_method: crate::mesh::types::DiscoveryMethod::Manual,
@@ -390,6 +426,92 @@ mod tests {
             }
         );
         assert_eq!(mesh.lock().pending_requests.len(), 1);
+    }
+
+    async fn assert_aliases_share_one_delivery(first_target: &str, duplicate_target: &str) {
+        let mesh = mesh_state();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        let first_mesh = mesh.clone();
+        let first_target = first_target.to_string();
+        let first = tokio::spawn(async move {
+            connect_peer_with_sender(first_mesh, first_target, |_, _, _| async move {
+                started_tx.send(()).expect("first delivery starts");
+                release_rx.await.expect("test releases first delivery");
+                Ok(PEER_ID.to_string())
+            })
+            .await
+        });
+        started_rx.await.expect("first delivery starts");
+
+        let duplicate_mesh = mesh.clone();
+        let duplicate_target = duplicate_target.to_string();
+        let (wait_tx, wait_rx) = tokio::sync::oneshot::channel();
+        let duplicate = tokio::spawn(async move {
+            connect_peer_with_sender_and_waiter(
+                duplicate_mesh,
+                duplicate_target,
+                |_, _, _| async { panic!("alias duplicate must not send") },
+                || wait_tx.send(()).expect("alias duplicate waits"),
+            )
+            .await
+        });
+        wait_rx.await.expect("alias duplicate waits");
+        release_tx.send(()).expect("release first delivery");
+
+        let first = first.await.unwrap().unwrap();
+        let duplicate = duplicate.await.unwrap().unwrap();
+        let ConnectPeerResult::Pending {
+            request_id,
+            existing: false,
+        } = first
+        else {
+            panic!("first request creates pending pairing")
+        };
+        assert_eq!(
+            duplicate,
+            ConnectPeerResult::Pending {
+                request_id,
+                existing: true,
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn mesh_connect_peer_name_then_uuid_share_the_same_delivery() {
+        assert_aliases_share_one_delivery(PEER_NAME, PEER_ID).await;
+    }
+
+    #[tokio::test]
+    async fn mesh_connect_peer_uuid_then_name_share_the_same_delivery() {
+        assert_aliases_share_one_delivery(PEER_ID, PEER_NAME).await;
+    }
+
+    #[tokio::test]
+    async fn mesh_connect_peer_same_name_success_returns_existing_pending() {
+        let mesh = mesh_state();
+        let first =
+            connect_peer_with_sender(mesh.clone(), PEER_NAME.to_string(), |_, _, _| async {
+                Ok(PEER_ID.to_string())
+            })
+            .await
+            .unwrap();
+        let duplicate = connect_peer_with_sender(mesh, PEER_NAME.to_string(), |_, _, _| async {
+            panic!("same-name duplicate must not send")
+        })
+        .await
+        .unwrap();
+        assert!(matches!(
+            first,
+            ConnectPeerResult::Pending {
+                existing: false,
+                ..
+            }
+        ));
+        assert!(matches!(
+            duplicate,
+            ConnectPeerResult::Pending { existing: true, .. }
+        ));
     }
 
     #[tokio::test]
@@ -581,6 +703,60 @@ mod tests {
         ));
         assert_eq!(sends.load(Ordering::SeqCst), 1);
         assert_eq!(mesh.lock().pending_requests.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn mesh_connect_peer_owner_cancellation_wakes_waiter_and_allows_one_fresh_retry() {
+        let mesh = mesh_state();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let first_mesh = mesh.clone();
+        let owner = tokio::spawn(async move {
+            connect_peer_with_sender(first_mesh, PEER_NAME.to_string(), |_, _, _| async move {
+                started_tx.send(()).expect("owner delivery starts");
+                std::future::pending::<Result<String, ConnectPeerError>>().await
+            })
+            .await
+        });
+        started_rx.await.expect("owner delivery starts");
+
+        let duplicate_mesh = mesh.clone();
+        let (wait_tx, wait_rx) = tokio::sync::oneshot::channel();
+        let waiter = tokio::spawn(async move {
+            connect_peer_with_sender_and_waiter(
+                duplicate_mesh,
+                PEER_ID.to_string(),
+                |_, _, _| async { panic!("waiter must not send") },
+                || wait_tx.send(()).expect("waiter starts waiting"),
+            )
+            .await
+        });
+        wait_rx.await.expect("waiter starts waiting");
+        owner.abort();
+        assert!(owner.await.expect_err("owner was aborted").is_cancelled());
+        assert_eq!(
+            waiter.await.unwrap().unwrap_err().to_string(),
+            "Pairing request delivery was cancelled"
+        );
+        assert!(mesh.lock().pairing_deliveries.is_empty());
+        assert!(mesh.lock().pending_requests.is_empty());
+        assert!(mesh.lock().pairing_targets.is_empty());
+
+        let sends = Arc::new(AtomicUsize::new(0));
+        let retry_sends = sends.clone();
+        let retry = connect_peer_with_sender(mesh, PEER_NAME.to_string(), move |_, _, _| {
+            retry_sends.fetch_add(1, Ordering::SeqCst);
+            async { Ok(PEER_ID.to_string()) }
+        })
+        .await
+        .unwrap();
+        assert!(matches!(
+            retry,
+            ConnectPeerResult::Pending {
+                existing: false,
+                ..
+            }
+        ));
+        assert_eq!(sends.load(Ordering::SeqCst), 1);
     }
 
     #[test]
