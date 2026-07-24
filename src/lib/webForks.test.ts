@@ -69,13 +69,13 @@ const INVENTORY: ForkSite[] = [
   { file: "src/lib/webEvents.ts", line: 180, cls: "transport-shim", note: "THE seam: web-only SSE bootstrap guard (no-op on native); relay target byte-piped via relay-stream" },
   { file: "src/lib/outputStream.ts", line: 105, cls: "transport-shim", note: "multiplexed PTY output over HTTP (web); relay target byte-piped via relay-stream" },
   { file: "src/store/multiplexer/index.tsx", line: 51, cls: "capability-gate", note: "cache-hydrated-at-boot detection is web-only (native has no cache path)" },
-  { file: "src/store/multiplexer/index.tsx", line: 67, cls: "capability-gate", note: "lazy-init hydration from the boot snapshot cache is web-only" },
-  { file: "src/store/multiplexer/index.tsx", line: 121, cls: "capability-gate", note: "persist boot snapshot cache only where it can ever be read back (web)" },
-  { file: "src/store/multiplexer/index.tsx", line: 147, cls: "capability-gate", note: "cache-hydrated-at-boot detection is web-only (native has no cache path)" },
-  { file: "src/store/multiplexer/index.tsx", line: 151, cls: "capability-gate", note: "IndexedDB fallback hydration for the boot cache is web-only" },
-  { file: "src/store/multiplexer/index.tsx", line: 165, cls: "capability-gate", note: "cache-reconciled signal only fires where the boot cache exists (web)" },
-  { file: "src/store/multiplexer/index.tsx", line: 527, cls: "transport-shim", note: "spawn agent tab via webJson vs Tauri invoke" },
-  { file: "src/store/multiplexer/index.tsx", line: 588, cls: "transport-shim", note: "create orchestration pair via webJson vs Tauri invoke" },
+  { file: "src/store/multiplexer/index.tsx", line: 68, cls: "capability-gate", note: "lazy-init hydration from the boot snapshot cache is web-only" },
+  { file: "src/store/multiplexer/index.tsx", line: 122, cls: "capability-gate", note: "persist boot snapshot cache only where it can ever be read back (web)" },
+  { file: "src/store/multiplexer/index.tsx", line: 148, cls: "capability-gate", note: "cache-hydrated-at-boot detection is web-only (native has no cache path)" },
+  { file: "src/store/multiplexer/index.tsx", line: 152, cls: "capability-gate", note: "IndexedDB fallback hydration for the boot cache is web-only" },
+  { file: "src/store/multiplexer/index.tsx", line: 166, cls: "capability-gate", note: "cache-reconciled signal only fires where the boot cache exists (web)" },
+  { file: "src/store/multiplexer/index.tsx", line: 539, cls: "transport-shim", note: "spawn agent tab via webJson vs Tauri invoke" },
+  { file: "src/store/multiplexer/index.tsx", line: 600, cls: "transport-shim", note: "create orchestration pair via webJson vs Tauri invoke" },
 ];
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
