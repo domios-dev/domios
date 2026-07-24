@@ -538,6 +538,28 @@ test("commands, raw input, failures, and agent reports start collapsed", async (
   }
 });
 
+test("outbound CodeTerm messages start expanded while operational commands stay collapsed", async () => {
+  const { host, root } = await renderMessages([
+    toolCall("expanded-send", "command", {
+      toolDetail: "codeterm send --tab worker-1 \"Please review the change\"",
+      toolSummary: "codeterm send --tab worker-1 \"Please review the change\"",
+    }),
+    toolCall("collapsed-tab-list", "command", {
+      toolDetail: "codeterm tab list --workspace codeterm",
+      toolSummary: "codeterm tab list --workspace codeterm",
+    }),
+  ]);
+  try {
+    const send = toolCardFor(host, "send");
+    const list = toolCardFor(host, "tab list");
+    assert(send?.querySelector('[aria-label="Collapse tool details"]'), "outbound message should start expanded");
+    assert(list?.querySelector('[aria-label="Expand tool details"]'), "ordinary operational command should start collapsed");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
 test("explicit expansion choices persist across rerenders", async () => {
   const message: NormalizedChatMessage = {
     id: "persistent-semantic-edit",
