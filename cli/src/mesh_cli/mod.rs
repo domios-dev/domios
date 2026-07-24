@@ -212,29 +212,16 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
         return;
     }
 
-    // `tab list` reuses local formatter: relay raw list, then format locally.
+    // `tab list` reuses local formatter over the remote compact summary.
     if !cli.json {
         if let Commands::Tab {
-            action: super::PaneAction::List { agents },
+            action: super::PaneAction::List { .. },
         } = &cli.command
         {
-            let panes = relay::mesh_relay_fetch_json(
-                &http,
-                &base,
-                &token,
-                target,
-                "GET",
-                "/api/panes",
-                None,
-            );
-            let mut arr = panes.as_array().cloned().unwrap_or_default();
-            if *agents {
-                arr.retain(|p| {
-                    p.get("agent_type")
-                        .and_then(|v| v.as_str())
-                        .is_some_and(|s| !s.is_empty())
-                });
-            }
+            let (_, path, _) = api_map::cli_command_to_api(&cli.command);
+            let panes =
+                relay::mesh_relay_fetch_json(&http, &base, &token, target, "GET", &path, None);
+            let arr = panes.as_array().cloned().unwrap_or_default();
             if arr.is_empty() {
                 println!("(no panes)");
             } else {

@@ -5,30 +5,46 @@ use crate::{build_http, read_api_config, resolve_pane, PaneAction};
 
 pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
     match action {
-        PaneAction::List { agents } => match client.call("pane.list", None) {
-            Ok(value) => {
-                let Some(arr) = value.as_array() else {
-                    handle_result(json, Ok(value));
-                    return;
-                };
-                let mut list = arr.clone();
-                if agents {
-                    list.retain(|p| {
-                        p.get("agent_type")
-                            .and_then(|v| v.as_str())
-                            .is_some_and(|s| !s.is_empty())
-                    });
+        PaneAction::List {
+            workspace,
+            all_workspaces,
+            agents,
+        } => {
+            let workspace_id = if all_workspaces {
+                None
+            } else {
+                workspace.or_else(|| std::env::var("CODETERM_WORKSPACE_ID").ok())
+            };
+            let params = serde_json::json!({
+                "workspace_id": workspace_id,
+                "focused_workspace": !all_workspaces && workspace_id.is_none(),
+                "agents_only": agents,
+            });
+            match client.call("pane.list", Some(params)) {
+                Ok(value) => {
+                    let Some(arr) = value.as_array() else {
+                        handle_result(json, Ok(value));
+                        return;
+                    };
+                    let list = arr.clone();
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&list).unwrap());
+                    } else if list.is_empty() {
+                        println!("(no panes)");
+                    } else {
+                        print!("{}", render_pane_tree(&list));
+                    }
                 }
-                if json {
-                    println!("{}", serde_json::to_string_pretty(&list).unwrap());
-                } else if list.is_empty() {
-                    println!("(no panes)");
-                } else {
-                    print!("{}", render_pane_tree(&list));
-                }
+                other => handle_result(json, other),
             }
-            other => handle_result(json, other),
-        },
+        }
+        PaneAction::Inspect { panes } => {
+            let result = client.call(
+                "pane.inspect",
+                Some(serde_json::json!({ "pane_ids": panes })),
+            );
+            handle_result(json, result);
+        }
         PaneAction::New {
             workspace,
             cwd,

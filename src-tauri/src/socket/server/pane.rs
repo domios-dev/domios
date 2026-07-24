@@ -16,13 +16,62 @@ pub(super) fn dispatch(
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     match method {
-        "pane.list" => crate::dispatch::dispatch(&crate::dispatch::Command::PaneList, svc.as_ref())
+        "pane.list" => {
+            let workspace_id = opt_string_param(params, "workspace_id")?;
+            let focused_workspace = params
+                .as_ref()
+                .and_then(|value| value.get("focused_workspace"))
+                .and_then(|value| value.as_bool())
+                .unwrap_or(workspace_id.is_none());
+            let agents_only = params
+                .as_ref()
+                .and_then(|value| value.get("agents_only"))
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            crate::dispatch::dispatch(
+                &crate::dispatch::Command::PaneSummary {
+                    workspace_id,
+                    focused_workspace,
+                    agents_only,
+                },
+                svc.as_ref(),
+            )
             .map(|r| r.into_json())
             .map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e,
                 data: None,
-            }),
+            })
+        }
+        "pane.inspect" => {
+            let pane_ids = params
+                .as_ref()
+                .and_then(|value| value.get("pane_ids"))
+                .and_then(|value| value.as_array())
+                .ok_or_else(|| JsonRpcError {
+                    code: -32602,
+                    message: "pane.inspect requires pane_ids".into(),
+                    data: None,
+                })?
+                .iter()
+                .map(|value| value.as_str().map(str::to_owned))
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(|| JsonRpcError {
+                    code: -32602,
+                    message: "pane_ids must contain strings".into(),
+                    data: None,
+                })?;
+            crate::dispatch::dispatch(
+                &crate::dispatch::Command::PaneInspect { pane_ids },
+                svc.as_ref(),
+            )
+            .map(|r| r.into_json())
+            .map_err(|e| JsonRpcError {
+                code: -32603,
+                message: e,
+                data: None,
+            })
+        }
 
         "pane.create" | "pane.new" => {
             let workspace_id = params

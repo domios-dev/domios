@@ -56,6 +56,19 @@ pub enum Command {
     /// List all panes with metadata
     PaneList,
 
+    /// List compact pane summaries scoped to one workspace or the focused workspace.
+    PaneSummary {
+        #[serde(default)]
+        workspace_id: Option<String>,
+        #[serde(default)]
+        focused_workspace: bool,
+        #[serde(default)]
+        agents_only: bool,
+    },
+
+    /// Inspect selected panes with the full pane payload.
+    PaneInspect { pane_ids: Vec<String> },
+
     /// Send text to a pane's PTY
     SendText {
         pane_id: String,
@@ -196,6 +209,17 @@ pub fn dispatch(cmd: &Command, ctx: &dyn CommandPort) -> Result<CommandResult, S
     match cmd {
         Command::Health => cmd_health(),
         Command::PaneList => cmd_pane_list(ctx),
+        Command::PaneSummary {
+            workspace_id,
+            focused_workspace,
+            agents_only,
+        } => cmd_pane_summary(
+            ctx,
+            workspace_id.as_deref(),
+            *focused_workspace,
+            *agents_only,
+        ),
+        Command::PaneInspect { pane_ids } => cmd_pane_inspect(ctx, pane_ids),
         Command::SendText {
             pane_id,
             text,
@@ -288,6 +312,38 @@ fn cmd_pane_list(ctx: &dyn CommandPort) -> Result<CommandResult, String> {
     Ok(CommandResult::Json(serde_json::json!(panes)))
 }
 
+fn cmd_pane_summary(
+    ctx: &dyn CommandPort,
+    workspace_id: Option<&str>,
+    focused_workspace: bool,
+    agents_only: bool,
+) -> Result<CommandResult, String> {
+    let snapshot = ctx.mux_snapshot();
+    Ok(CommandResult::Json(serde_json::json!(
+        build_pane_summary_json(&snapshot, workspace_id, focused_workspace, agents_only,)
+    )))
+}
+
+fn cmd_pane_inspect(ctx: &dyn CommandPort, pane_ids: &[String]) -> Result<CommandResult, String> {
+    if pane_ids.is_empty() {
+        return Err("pane.inspect requires at least one pane id".into());
+    }
+    let snapshot = ctx.mux_snapshot();
+    let requested: std::collections::HashSet<&str> = pane_ids.iter().map(String::as_str).collect();
+    let panes = build_pane_list_json(&snapshot)
+        .into_iter()
+        .filter(|pane| {
+            pane.get("id")
+                .and_then(|value| value.as_str())
+                .is_some_and(|id| requested.contains(id))
+        })
+        .collect::<Vec<_>>();
+    if panes.len() != requested.len() {
+        return Err("one or more requested panes were not found".into());
+    }
+    Ok(CommandResult::Json(serde_json::json!(panes)))
+}
+
 /// Enrich pane JSON with tab + workspace identifiers.
 pub(crate) fn build_pane_list_json(
     snapshot: &crate::multiplexer::state::MultiplexerSnapshot,
@@ -336,6 +392,72 @@ pub(crate) fn build_pane_list_json(
                 }
             }
             v
+        })
+        .collect()
+}
+
+pub(crate) fn build_pane_summary_json(
+    snapshot: &crate::multiplexer::state::MultiplexerSnapshot,
+    workspace_id: Option<&str>,
+    focused_workspace: bool,
+    agents_only: bool,
+) -> Vec<serde_json::Value> {
+    let mut tab_index: std::collections::HashMap<&str, (&str, &str, &str)> =
+        std::collections::HashMap::new();
+    for workspace in &snapshot.workspaces {
+        for tab in &workspace.tabs {
+            tab_index.insert(
+                tab.pane_id.as_str(),
+                (
+                    tab.id.as_str(),
+                    workspace.id.as_str(),
+                    workspace.name.as_str(),
+                ),
+            );
+        }
+    }
+    let focused_workspace_id = snapshot
+        .focused_pane_id
+        .as_deref()
+        .and_then(|pane_id| tab_index.get(pane_id).map(|(_, id, _)| *id));
+    let selected_workspace =
+        workspace_id.or_else(|| focused_workspace.then_some(focused_workspace_id).flatten());
+    let focused_id = snapshot.focused_pane_id.as_deref();
+    snapshot
+        .panes
+        .values()
+        .filter(|pane| !pane.hidden)
+        .filter(|pane| !agents_only || pane.agent_type.is_some())
+        .filter(|pane| {
+            selected_workspace.is_none_or(|selected| {
+                tab_index
+                    .get(pane.id.as_str())
+                    .is_some_and(|(_, workspace, _)| *workspace == selected)
+            })
+        })
+        .filter_map(|pane| {
+            let (tab_id, workspace_id, workspace_name) = tab_index.get(pane.id.as_str())?;
+            let backing_kind = match &pane.backing {
+                crate::multiplexer::types::PaneBacking::Pty => "pty",
+                crate::multiplexer::types::PaneBacking::ChatBackend { .. } => "chat_backend",
+            };
+            Some(serde_json::json!({
+                "id": pane.id,
+                "tab_id": tab_id,
+                "title": pane.title,
+                "description": pane.description,
+                "workspace_id": workspace_id,
+                "workspace_name": workspace_name,
+                "parent_pane_id": pane.parent_pane_id,
+                "agent_type": pane.agent_type,
+                "agent_session_id": pane.agent_session_id,
+                "agent_session_model": pane.agent_session_model,
+                "boot_stage": pane.boot_stage,
+                "status": pane.agent_state.as_ref().map(|state| state.state),
+                "role": pane.role,
+                "backing_kind": backing_kind,
+                "focused": focused_id == Some(pane.id.as_str()),
+            }))
         })
         .collect()
 }
@@ -849,6 +971,39 @@ mod tests {
             pane.get("workspace_name").and_then(|v| v.as_str()).is_some(),
             "workspace_name must be attached so user can disambiguate same-titled tabs across workspaces",
         );
+    }
+
+    #[test]
+    fn pane_summary_is_workspace_scoped_and_excludes_full_payload_fields() {
+        use crate::multiplexer::state::MultiplexerState;
+        let (state, initial_pane) = MultiplexerState::new();
+        let snapshot = state.snapshot();
+        let workspace = snapshot.workspaces.first().expect("default workspace");
+        let summaries = build_pane_summary_json(&snapshot, Some(&workspace.id), false, false);
+        assert_eq!(summaries.len(), 1);
+        let pane = summaries.first().expect("summary pane");
+        assert_eq!(pane["id"].as_str(), Some(initial_pane.as_str()));
+        assert_eq!(pane["workspace_id"].as_str(), Some(workspace.id.as_str()));
+        assert!(pane.get("cwd").is_none());
+        assert!(pane.get("session_binding_nonce").is_none());
+        assert!(pane.get("agent_state").is_none());
+        assert!(pane.get("model_fallback").is_none());
+    }
+
+    #[test]
+    fn pane_summary_command_deserializes_compact_scope_options() {
+        let command: Command = serde_json::from_str(
+            r#"{"cmd":"pane_summary","workspace_id":"ws_1","focused_workspace":false,"agents_only":true}"#,
+        )
+        .expect("pane summary command");
+        assert!(matches!(
+            command,
+            Command::PaneSummary {
+                workspace_id: Some(workspace_id),
+                focused_workspace: false,
+                agents_only: true,
+            } if workspace_id == "ws_1"
+        ));
     }
 
     #[test]

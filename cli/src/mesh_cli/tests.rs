@@ -504,6 +504,32 @@ fn pane_new_relays_cmd_field() {
 }
 
 #[test]
+fn pane_list_and_inspect_relay_compact_scope_and_explicit_detail_ids() {
+    use crate::PaneAction;
+    let list = Commands::Tab {
+        action: PaneAction::List {
+            workspace: Some("ws 1".into()),
+            all_workspaces: false,
+            agents: true,
+        },
+    };
+    let (method, path, body) = cli_command_to_api(&list);
+    assert_eq!(method, "GET");
+    assert_eq!(path, "/api/panes?agents=true&workspace_id=ws%201");
+    assert!(body.is_none());
+
+    let inspect = Commands::Tab {
+        action: PaneAction::Inspect {
+            panes: vec!["pane_1".into(), "pane_2".into()],
+        },
+    };
+    let (method, path, body) = cli_command_to_api(&inspect);
+    assert_eq!(method, "GET");
+    assert_eq!(path, "/api/panes/inspect?pane_ids=pane_1,pane_2");
+    assert!(body.is_none());
+}
+
+#[test]
 fn remote_worker_forget_body_matches_registry_delete_contract() {
     let body = super::relay::remote_worker_forget_body("ROG", "pane_1");
     assert_eq!(body["peer"], "ROG");
