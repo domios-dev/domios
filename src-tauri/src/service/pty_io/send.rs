@@ -159,6 +159,7 @@ fn authenticated_pty_target(
         && pane.session_binding_nonce.as_deref() == Some(expected_binding_nonce)
         && pane.reported_session_binding_nonce.as_deref() == Some(expected_binding_nonce)
         && pane.chat_view
+        && pane.exit_suspected_at.is_none()
         && accepting;
     if !authenticated {
         return Err("agent_unavailable: planner session is stale".into());
@@ -196,12 +197,86 @@ pub(crate) fn sanitize_agent_prompt_input(text: &str) -> String {
 }
 
 impl ServiceContext {
+    pub(crate) fn capture_authenticated_agent_session(
+        &self,
+        pane_id: &str,
+    ) -> Result<(String, String), String> {
+        let mux = self.mux.read();
+        let resolved = mux
+            .resolve_pane_id(pane_id)
+            .ok_or_else(|| "agent_unavailable: recipient pane missing".to_string())?;
+        let pane = mux
+            .get_pane(&resolved)
+            .ok_or_else(|| "agent_unavailable: recipient pane missing".to_string())?;
+        let session_id = pane
+            .agent_session_id
+            .clone()
+            .ok_or_else(|| "agent_unavailable: recipient session missing".to_string())?;
+        let binding_nonce = pane
+            .reported_session_binding_nonce
+            .clone()
+            .ok_or_else(|| "agent_unavailable: recipient binding nonce missing".to_string())?;
+        authenticated_pty_target(pane, &session_id, &binding_nonce)?;
+        Ok((session_id, binding_nonce))
+    }
+
+    pub(crate) fn send_to_authenticated_agent_session_detached(
+        &self,
+        pane_id: &str,
+        expected_session_id: &str,
+        expected_binding_nonce: &str,
+        text: &str,
+    ) {
+        let svc = self.clone();
+        let pane = pane_id.to_string();
+        let session_id = expected_session_id.to_string();
+        let binding_nonce = expected_binding_nonce.to_string();
+        let text = text.to_string();
+        std::thread::spawn(move || {
+            if let Err(error) = svc.send_to_authenticated_agent_session_with_options(
+                &pane,
+                &session_id,
+                &binding_nonce,
+                &text,
+                super::submit_transaction::PtySubmitEntry::Messenger,
+                false,
+            ) {
+                log::warn!("[send-async] authenticated delivery to pane {pane} failed: {error}");
+                let title = svc.mux.read().get_pane(&pane).map(|p| p.title.clone());
+                if let Some((notice_title, notice_body)) =
+                    send_delivery_notice(title.as_deref(), &pane, SendDelivery::Failed(&error))
+                {
+                    svc.create_notification(notice_title, Some(notice_body), Some("error"));
+                }
+            }
+        });
+    }
+
     pub(crate) fn send_to_authenticated_agent_session(
         &self,
         pane_id: &str,
         expected_session_id: &str,
         expected_binding_nonce: &str,
         text: &str,
+    ) -> Result<(), String> {
+        self.send_to_authenticated_agent_session_with_options(
+            pane_id,
+            expected_session_id,
+            expected_binding_nonce,
+            text,
+            super::submit_transaction::PtySubmitEntry::Planner,
+            true,
+        )
+    }
+
+    fn send_to_authenticated_agent_session_with_options(
+        &self,
+        pane_id: &str,
+        expected_session_id: &str,
+        expected_binding_nonce: &str,
+        text: &str,
+        entry: super::submit_transaction::PtySubmitEntry,
+        verify_submit: bool,
     ) -> Result<(), String> {
         let target = || -> Result<(String, String), String> {
             let mux = self.mux.read();
@@ -228,26 +303,22 @@ impl ServiceContext {
         if target()? != (pty_id.clone(), provider_id.clone()) {
             return Err("agent_unavailable: planner transport changed".into());
         }
-        super::submit_transaction::submit_entry(
-            super::submit_transaction::PtySubmitEntry::Planner,
-            text,
-            |text| {
-                self.send_text_verified(
-                    &pty_id,
-                    text,
-                    true,
-                    strategy,
-                    crate::service::inject_verify::VerifyOpts {
-                        require_prompt_first: false,
-                        verify_echo: false,
-                        verify_submit: true,
-                        ..Default::default()
-                    },
-                )
-                .map(|_| ())
-                .map_err(|error| error.to_string())
-            },
-        )
+        super::submit_transaction::submit_entry(entry, text, |text| {
+            self.send_text_verified(
+                &pty_id,
+                text,
+                true,
+                strategy,
+                crate::service::inject_verify::VerifyOpts {
+                    require_prompt_first: false,
+                    verify_echo: false,
+                    verify_submit,
+                    ..Default::default()
+                },
+            )
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+        })
     }
 
     /// Send text to a pane (chatBackend or PTY). Agent PTYs use causal paste
@@ -959,6 +1030,24 @@ mod planner_delivery_tests {
             assert!(result.is_err());
             assert!(shell_write_spy.is_empty(), "{shell} received planner bytes");
         }
+
+        pane.agent_type = Some("codex".into());
+        pane.agent_session_id = Some("session".into());
+        pane.session_binding_nonce = Some("nonce".into());
+        pane.reported_session_binding_nonce = Some("nonce".into());
+        pane.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
+        pane.exit_suspected_at = Some(std::time::Instant::now());
+        let mut shell_write_spy = Vec::new();
+        let result =
+            submit_authenticated_pty_input(pane, "session", "nonce", payload, |_, _, text| {
+                shell_write_spy.push(text.to_string());
+                Ok(())
+            });
+        assert!(result.is_err());
+        assert!(
+            shell_write_spy.is_empty(),
+            "suspected shell fallback received agent bytes"
+        );
     }
 
     #[test]

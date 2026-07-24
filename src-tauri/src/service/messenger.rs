@@ -252,22 +252,30 @@ impl Messenger {
             );
         }
 
-        let should_prefix = {
+        let (should_prefix, pty_agent_target) = {
             let mux = svc.mux.write();
             let resolved_target = mux
                 .resolve_pane_id(to_pane)
                 .unwrap_or_else(|| to_pane.to_string());
-            let target_is_agent = mux
-                .get_pane(&resolved_target)
-                .and_then(|p| p.agent_type.as_ref())
-                .is_some();
-            should_prefix_pty(
-                envelope.kind,
-                target_is_agent,
-                &envelope.from_pane,
-                &resolved_target,
+            let pane = mux.get_pane(&resolved_target);
+            let target_is_agent = pane.and_then(|p| p.agent_type.as_ref()).is_some();
+            (
+                should_prefix_pty(
+                    envelope.kind,
+                    target_is_agent,
+                    &envelope.from_pane,
+                    &resolved_target,
+                ),
+                target_is_agent
+                    && matches!(
+                        pane.map(|p| &p.backing),
+                        Some(crate::multiplexer::types::PaneBacking::Pty)
+                    ),
             )
         };
+        let agent_binding = pty_agent_target
+            .then(|| svc.capture_authenticated_agent_session(to_pane))
+            .transpose()?;
         let entry = if envelope.kind == MessageKind::Report {
             crate::service::pty_io::submit_transaction::PtySubmitEntry::Report
         } else {
@@ -283,7 +291,16 @@ impl Messenger {
             || unreachable!(),
             || {
                 crate::service::pty_io::submit_transaction::submit_entry(entry, &text, |text| {
-                    svc.send_text_detached(to_pane, text, true);
+                    if let Some((session_id, binding_nonce)) = agent_binding.as_ref() {
+                        svc.send_to_authenticated_agent_session_detached(
+                            to_pane,
+                            session_id,
+                            binding_nonce,
+                            text,
+                        );
+                    } else {
+                        svc.send_text_detached(to_pane, text, true);
+                    }
                     Ok::<(), String>(())
                 })?;
                 Ok(Delivery::Pty { text })

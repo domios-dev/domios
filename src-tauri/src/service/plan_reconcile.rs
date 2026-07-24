@@ -22,6 +22,7 @@ pub(crate) fn pane_has_live_agent(pane: &crate::multiplexer::types::Pane) -> boo
         && pane.agent_session_id.is_some()
         && pane.session_binding_nonce.is_some()
         && pane.session_binding_nonce == pane.reported_session_binding_nonce
+        && pane.exit_suspected_at.is_none()
         && delivery_target
         && accepting_work
 }
@@ -295,6 +296,10 @@ mod tests {
         pane.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
         pane.pty_id = Some("pty-1".into());
         assert!(pane_has_live_agent(pane));
+
+        pane.exit_suspected_at = Some(std::time::Instant::now());
+        assert!(!pane_has_live_agent(pane));
+        pane.exit_suspected_at = None;
 
         pane.pty_id = None;
         pane.backing = PaneBacking::ChatBackend {
