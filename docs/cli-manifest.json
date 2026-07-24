@@ -6836,7 +6836,7 @@
         },
         {
           "name": "review",
-          "about": "Review-backpressure: WIP/credit status, waves, overrides, accept/bounce",
+          "about": "Review-backpressure: capacity, credit reconciliation, and verdicts",
           "aliases": [],
           "args": [],
           "subcommands": [
@@ -6883,6 +6883,38 @@
                   "value_name": "RESIDUAL_RISK",
                   "default": null,
                   "help": "Past the default round bound, routes residual risk to a follow-up task",
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "authorize-capacity",
+              "about": "Grant daemon-owned review-capacity provenance to one task",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "class",
+                  "positional": false,
+                  "value_name": "CLASS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
                   "aliases": []
                 },
                 {
@@ -6985,6 +7017,30 @@
                   "name": "task_id",
                   "positional": true,
                   "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "reconcile-credit",
+              "about": "Repair historical review-credit debt from leaked review exits and audit it",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "reason",
+                  "positional": false,
+                  "value_name": "REASON",
                   "default": null,
                   "help": null,
                   "aliases": []

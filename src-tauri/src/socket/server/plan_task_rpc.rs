@@ -5,7 +5,9 @@ use super::plan_fields::{
 use super::plan_lane_fields::{lane_metadata_field, lane_update_field};
 use super::plan_linking::{csv_string_field, owner_from_params, tags_field};
 use super::plan_refs;
-use super::plan_role_helpers::{assign_task_with_profile, RespawnAttemptRoleExt};
+use super::plan_role_helpers::{
+    assign_task_with_profile, record_spawned_attempt, RespawnAttemptRoleExt,
+};
 use super::{get_string_param, JsonRpcError};
 use crate::plan::TaskStatus;
 use crate::service::plan::task_queries::TaskListFilter;
@@ -527,6 +529,18 @@ pub(super) fn dispatch(
 
         "plan.task.respawn" => {
             let (id, tid) = plan_refs::resolve_task(store, params)?;
+            let plan = store
+                .get(&id)
+                .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
+            let task = plan
+                .tasks
+                .iter()
+                .find(|task| task.id == tid)
+                .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
+            if task.status == TaskStatus::Pending {
+                crate::service::plan::review_gate::validate_dispatch_review_capacity(&plan, task)
+                    .map_err(plan_rpc_err)?;
+            }
             let body = p.ok_or(JsonRpcError {
                 code: -32602,
                 message: "params required".to_string(),
@@ -579,8 +593,8 @@ pub(super) fn dispatch(
                     message: e,
                     data: None,
                 })?;
-            let created = store
-                .record_task_respawn_attempt_with_profile(
+            let created = record_spawned_attempt(svc, &spawn.pane_id, || {
+                store.record_task_respawn_attempt_with_profile(
                     &id,
                     &tid,
                     &spawn.pane_id,
@@ -588,7 +602,7 @@ pub(super) fn dispatch(
                     svc,
                     now,
                 )
-                .map_err(plan_rpc_err)?;
+            })?;
             persist_attempt_executor_identity(
                 store,
                 svc,

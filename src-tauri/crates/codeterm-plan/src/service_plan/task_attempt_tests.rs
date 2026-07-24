@@ -1,6 +1,7 @@
 use super::*;
 use crate::plan::{AgentRef, OrchestratorRef, Plan, TaskLaneMetadata, TaskStatus};
 use codeterm_types::agent::ReportStatus;
+use std::sync::{Arc, Barrier};
 
 fn bound_report_store() -> (tempfile::TempDir, PlanStore, String, String) {
     let dir = tempfile::tempdir().unwrap();
@@ -405,6 +406,197 @@ fn competition_keeps_planned_model_separate_from_lane_requests() {
         .all(|draft| draft.planned_model.as_deref() == Some("codex/model-planned")));
     assert_eq!(drafts[0].model.as_deref(), Some("model-a"));
     assert_eq!(drafts[1].model.as_deref(), Some("model-b"));
+}
+
+#[test]
+fn compete_commit_revalidates_debt_after_preflight_interleaving() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(PlanStore::new_for_test(dir.path()));
+    let mut plan = Plan::new(
+        "Compete capacity race".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("orch"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "race target".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let draft = store
+        .build_task_compete_drafts(
+            &plan.id,
+            &task_id,
+            task_attempts::TaskCompeteRequest::default(),
+        )
+        .unwrap()
+        .remove(0);
+    let phase = Arc::new(Barrier::new(2));
+    let worker_store = Arc::clone(&store);
+    let worker_phase = Arc::clone(&phase);
+    let worker_plan_id = plan.id.clone();
+    let worker_task_id = task_id.clone();
+    let commit = std::thread::spawn(move || {
+        let snapshot = worker_store.get(&worker_plan_id).unwrap();
+        let task = snapshot
+            .tasks
+            .iter()
+            .find(|task| task.id == worker_task_id)
+            .unwrap();
+        review_gate::validate_dispatch_review_capacity(&snapshot, task).unwrap();
+        worker_phase.wait();
+        worker_phase.wait();
+        worker_store.record_task_compete_attempt(
+            &worker_plan_id,
+            &worker_task_id,
+            "spawned-tab",
+            &draft,
+            Some("worker"),
+            4,
+        )
+    });
+
+    phase.wait();
+    store
+        .with_plan(&plan.id, 3, |plan| {
+            plan.review_policy.credit = -(plan.review_policy.wip_limit as i64);
+            Ok(())
+        })
+        .unwrap();
+    phase.wait();
+
+    assert!(matches!(
+        commit.join().unwrap(),
+        Err(PlanError::ReviewWipExceeded { .. })
+    ));
+    let task = store
+        .get(&plan.id)
+        .unwrap()
+        .tasks
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    assert_eq!(task.status, TaskStatus::Pending);
+    assert_eq!(task.assigned_pane_id, None);
+    assert_eq!(task.lane.pane_id, None);
+    assert!(task.execution_attempts.is_empty());
+}
+
+#[test]
+fn respawn_commit_revalidates_wip_after_preflight_interleaving() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(PlanStore::new_for_test(dir.path()));
+    let mut plan = Plan::new(
+        "Respawn capacity race".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("orch"),
+    );
+    plan.review_policy.wip_limit = 1;
+    store.save(&mut plan, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "respawn target".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let blocker_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "review blocker".into(),
+                kind: "review".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    store
+        .assign_task(&plan.id, &task_id, "source-tab", None, 2)
+        .unwrap();
+    let source_attempt = store.list_task_attempts(&plan.id, &task_id).unwrap()[0]
+        .attempt_id
+        .clone();
+    let draft = store
+        .build_task_respawn_draft(
+            &plan.id,
+            &task_id,
+            task_attempts::TaskRespawnRequest {
+                attempt_id: source_attempt,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let before = store
+        .get(&plan.id)
+        .unwrap()
+        .tasks
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    let phase = Arc::new(Barrier::new(2));
+    let worker_store = Arc::clone(&store);
+    let worker_phase = Arc::clone(&phase);
+    let worker_plan_id = plan.id.clone();
+    let worker_task_id = task_id.clone();
+    let commit = std::thread::spawn(move || {
+        let snapshot = worker_store.get(&worker_plan_id).unwrap();
+        let task = snapshot
+            .tasks
+            .iter()
+            .find(|task| task.id == worker_task_id)
+            .unwrap();
+        review_gate::validate_dispatch_review_capacity(&snapshot, task).unwrap();
+        worker_phase.wait();
+        worker_phase.wait();
+        worker_store.record_task_respawn_attempt(
+            &worker_plan_id,
+            &worker_task_id,
+            "spawned-tab",
+            &draft,
+            Some("worker"),
+            4,
+        )
+    });
+
+    phase.wait();
+    store
+        .with_plan(&plan.id, 3, |plan| {
+            plan.tasks
+                .iter_mut()
+                .find(|task| task.id == blocker_id)
+                .unwrap()
+                .status = TaskStatus::InReview;
+            Ok(())
+        })
+        .unwrap();
+    phase.wait();
+
+    assert!(matches!(
+        commit.join().unwrap(),
+        Err(PlanError::ReviewWipExceeded { .. })
+    ));
+    let after = store
+        .get(&plan.id)
+        .unwrap()
+        .tasks
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    assert_eq!(after.status, before.status);
+    assert_eq!(after.assigned_pane_id, before.assigned_pane_id);
+    assert_eq!(after.lane.pane_id, before.lane.pane_id);
+    assert_eq!(after.execution_attempts, before.execution_attempts);
 }
 
 #[test]
