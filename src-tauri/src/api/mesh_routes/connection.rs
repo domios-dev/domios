@@ -823,8 +823,10 @@ mod tests {
         assert_eq!(sends.load(Ordering::SeqCst), 1);
     }
 
-    #[tokio::test]
-    async fn mesh_connect_peer_expiry_before_owner_publication_cleans_state_and_fails_everyone() {
+    async fn assert_expiry_before_owner_publication(
+        remote_instance_id: &'static str,
+        expiry_offset: u64,
+    ) {
         let mesh = mesh_state();
         let (send_started_tx, send_started_rx) = tokio::sync::oneshot::channel();
         let (send_release_tx, send_release_rx) = tokio::sync::oneshot::channel();
@@ -838,7 +840,7 @@ mod tests {
                 |_, _, _| async move {
                     send_started_tx.send(()).expect("owner send starts");
                     send_release_rx.await.expect("test releases owner send");
-                    Ok(PEER_ID.to_string())
+                    Ok(remote_instance_id.to_string())
                 },
                 || {},
                 || async move {
@@ -874,7 +876,7 @@ mod tests {
             .next()
             .unwrap()
             .timestamp
-            + 301;
+            + expiry_offset;
         mesh.lock().cleanup_expired_requests_at(expires_at);
 
         assert_eq!(
@@ -892,6 +894,21 @@ mod tests {
             owner.await.unwrap().unwrap_err().to_string(),
             "Pairing request expired"
         );
+    }
+
+    #[tokio::test]
+    async fn mesh_connect_peer_expiry_before_owner_publication_cleans_state_and_fails_everyone() {
+        assert_expiry_before_owner_publication(PEER_ID, 301).await;
+    }
+
+    #[tokio::test]
+    async fn mesh_connect_peer_manual_rekey_expiry_cleans_the_immutable_delivery() {
+        assert_expiry_before_owner_publication("c8ac146a-3e46-4f5f-9c88-a2fa03941a81", 301).await;
+    }
+
+    #[tokio::test]
+    async fn mesh_connect_peer_retention_expiry_cleans_delivery_before_request_eviction() {
+        assert_expiry_before_owner_publication(PEER_ID, 3601).await;
     }
 
     #[test]
