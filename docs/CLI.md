@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 22 -->
+<!-- revision: 23 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -2652,11 +2652,19 @@ Get visible terminal text of a tab (what the user sees)
 - `--formatted` — Include raw ANSI escape codes (colors, cursor state) instead of plain text
 - `--tab` — Tab ID (default: current focused tab)
 
+#### `codeterm tab inspect`
+
+Show the full daemon pane payload for one or more explicit tab ids
+
+- `<panes>` — One or more tab ids to inspect
+
 #### `codeterm tab list`
 
-List all tabs as a workspace-grouped tree. `--agents` filters to agent tabs only
+List compact tab summaries in the current workspace. Use `tab inspect` for full pane details
 
 - `--agents` — Show only tabs running an agent (have an agent_type)
+- `--all-workspaces` — Include every workspace instead of the current one
+- `--workspace` — Workspace id to list. Defaults to this tab's workspace, then the focused workspace
 
 #### `codeterm tab new`
 
