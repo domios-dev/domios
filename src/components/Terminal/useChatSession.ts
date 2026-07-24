@@ -69,6 +69,7 @@ export type ChatSessionDiagnosticEvent =
       sourceSessionId: string | null;
       sessionBindingNonce: string | null;
       messageIds: string[];
+      tailSignature: string | null;
     }
   | {
       edge: "snapshot_request";
@@ -83,6 +84,13 @@ export type ChatSessionDiagnosticEvent =
       sessionBindingNonce: string | null;
       messageIds: string[];
       subscriptionId: string | null;
+      /** Backend-sourced recovery coordinates so a re-attach after deactivation is
+       *  causally attributable: the tailer's cursor/offset plus the transcript tail
+       *  signature the snapshot recovered to. */
+      tailSignature: string | null;
+      cursor: string | null;
+      offset: number | null;
+      startOffset: number | null;
     }
   | {
       edge: "state_commit";
@@ -90,6 +98,7 @@ export type ChatSessionDiagnosticEvent =
       sourceSessionId: string | null;
       sessionBindingNonce: string | null;
       messageIds: string[];
+      tailSignature: string | null;
     }
   | {
       edge: "listener_owned" | "listener_released";
@@ -102,6 +111,22 @@ export type ChatSessionDiagnosticEvent =
     };
 
 export type ChatSessionDiagnosticSink = (event: ChatSessionDiagnosticEvent) => void;
+
+/** Tail signature of a message list for projection diagnostics: last id plus the
+ *  last message's content length. Streaming grows the tail message under a stable
+ *  id, so an id-only tail would make a committed-but-unpainted stream update
+ *  invisible to the stall detector — the content length restores that progress. */
+export function paintTailSignature(
+  last: { id: string; content?: string | null } | undefined | null,
+): string | null {
+  return last ? `${last.id}#${last.content?.length ?? 0}` : null;
+}
+
+export function tailSignatureOf(
+  messages: readonly { id: string; content?: string | null }[],
+): string | null {
+  return paintTailSignature(messages[messages.length - 1]);
+}
 
 export interface TestChatReplyDetail {
   paneId: string;
@@ -465,6 +490,7 @@ export function useChatSession({
               sourceSessionId: ev.payload.source_session_id,
               sessionBindingNonce: ev.payload.session_binding_nonce,
               messageIds: ev.payload.messages.map((message) => message.id),
+              tailSignature: tailSignatureOf(ev.payload.messages),
             };
             emitDiagnostic({ edge: "event_arrival", ...diagnosticBase });
             const attachedSessionId = attachmentSourceSessionIdRef.current;
@@ -560,6 +586,10 @@ export function useChatSession({
           sessionBindingNonce: res.session_binding_nonce,
           messageIds: (res.messages ?? []).map((message) => message.id),
           subscriptionId: res.subscription_id ?? null,
+          tailSignature: tailSignatureOf(res.messages ?? []),
+          cursor: res.cursor ?? null,
+          offset: res.offset ?? null,
+          startOffset: res.start_offset ?? null,
         });
         if (res.subscription_id) {
           emitDiagnostic({
@@ -648,6 +678,7 @@ export function useChatSession({
       sourceSessionId: pendingAuthorityRef.current.sourceSessionId,
       sessionBindingNonce: pendingAuthorityRef.current.sessionBindingNonce,
       messageIds: structured.map((message) => message.id),
+      tailSignature: tailSignatureOf(structured),
     });
   }, [emitDiagnostic, paneId, structured]);
 

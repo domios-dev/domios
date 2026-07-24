@@ -27,7 +27,8 @@ import { PendingPromptCard } from "./PendingPromptCard";
 import { AgentStateIndicator } from "./AgentStateIndicator";
 import type { AgentState } from "./AgentStateIndicator";
 import { useAttachments } from "./useAttachments";
-import { useChatSession, isCodeTermFrontendTestMode } from "./useChatSession";
+import { useChatSession, isCodeTermFrontendTestMode, paintTailSignature } from "./useChatSession";
+import { chatProjectionMonitor, scheduleAfterPaint } from "./chatProjectionDiagnostics";
 import { ChatModelBubble } from "../Extensions/ChatModelBubble";
 import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
 import { WatcherReadOnlyBar } from "./WatcherReadOnlyBar";
@@ -97,6 +98,7 @@ export function PaneSessionChat({
   if (isCodeTermFrontendTestMode()) {
     const counts = (window.__renderCounts ??= {});
     counts[paneId] = (counts[paneId] ?? 0) + 1;
+    window.__chatProjection ??= chatProjectionMonitor;
   }
 
   const touchMode = useTouchOptimizedUi();
@@ -174,6 +176,7 @@ export function PaneSessionChat({
     sessionBindingNonce: pane?.session_binding_nonce,
     onError,
     active: isActive,
+    diagnosticSink: chatProjectionMonitor.sink,
   });
   const bootSetupView = chatSetupView(pane, loading || attachmentState === "attached");
 
@@ -310,6 +313,17 @@ export function PaneSessionChat({
   );
 
   const deferredEnrichedMessages = useDeferredValue(enrichedMessages);
+  // Passive painted-tail probe for the projection pipeline diagnostics. Records
+  // the visible tail signature after the browser paints (double rAF), not at React
+  // commit — a layout effect would fire before paint and overstate progress. Never
+  // alters what renders; a superseded frame is cancelled when renders outrun paints.
+  useEffect(() => {
+    const tail = paintTailSignature(deferredEnrichedMessages[deferredEnrichedMessages.length - 1]?.msg);
+    return scheduleAfterPaint(() => chatProjectionMonitor.recordPaint(paneId, tail));
+  }, [paneId, deferredEnrichedMessages]);
+  // Follow component lifecycle: drop the pane record on unmount / pane change so
+  // torn-down sessions do not persist until the LRU cap evicts them.
+  useEffect(() => () => chatProjectionMonitor.forget(paneId), [paneId]);
   const latestFailedToolCallId = useMemo(() => {
     for (let i = deferredEnrichedMessages.length - 1; i >= 0; i -= 1) {
       const msg = deferredEnrichedMessages[i]?.msg;
