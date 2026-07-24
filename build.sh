@@ -5,6 +5,7 @@
 #   ./build.sh dev --wait — same, but backgrounds and blocks until /api/health
 #                          responds (handy for scripts/agents)
 #   ./build.sh check     — integration-owner cargo check
+#   ./build.sh release-preflight — refresh and verify release Cargo lockfiles
 #   ./build.sh worktree-check — explicit isolated, nonincremental lane check
 #   ./build.sh build     — production build
 #   ./build.sh bootstrap — create/build bundled CLI + embed sidecar for fresh clones
@@ -804,6 +805,15 @@ case "$CMD" in
     ct_configure_sccache
     cargo check --manifest-path src-tauri/Cargo.toml
     ;;
+  release-preflight)
+    enter_build_gateway "$CMD ${*:2}"
+    prepare_dev_frontend_dist "$(pwd -P)"
+    prepare_bundle_stubs
+    ct_configure_sccache
+    cargo check --manifest-path src-tauri/Cargo.toml
+    cargo check --manifest-path cli/Cargo.toml
+    node scripts/check-release-locks.mjs
+    ;;
   test)
     enter_build_gateway "$CMD ${*:2}"
     prepare_dev_frontend_dist "$(pwd -P)"
@@ -819,6 +829,7 @@ case "$CMD" in
     ;;
   build)
     enter_build_gateway "$CMD ${*:2}"
+    node scripts/check-release-locks.mjs
     require_release_source
     ct_load_release_signing_key
     prepare_release_target
