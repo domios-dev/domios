@@ -274,7 +274,7 @@ impl Messenger {
             )
         };
         let agent_binding = pty_agent_target
-            .then(|| svc.capture_authenticated_agent_session(to_pane))
+            .then(|| svc.capture_optimistic_agent_session(to_pane))
             .transpose()?;
         let entry = if envelope.kind == MessageKind::Report {
             crate::service::pty_io::submit_transaction::PtySubmitEntry::Report
