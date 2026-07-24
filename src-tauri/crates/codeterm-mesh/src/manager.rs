@@ -107,7 +107,13 @@ impl MeshManager {
                 expected_id, remote_instance_id
             ));
         }
-        self.reject_untrusted_pairing_identity(remote_instance_id)
+        if remote_instance_id == self.ident.identity.instance_id {
+            return Err("Cannot pair with this CodeTerm instance".to_string());
+        }
+        if self.paired_peers.contains_key(remote_instance_id) {
+            return Err("Peer is already paired".to_string());
+        }
+        Ok(())
     }
 
     fn reject_untrusted_pairing_identity(&self, remote_instance_id: &str) -> Result<(), String> {
@@ -296,6 +302,14 @@ impl MeshManager {
         }
     }
 
+    pub fn complete_explicit_pairing(&mut self, peer: PairedPeer) {
+        let instance_id = peer.instance_id.clone();
+        self.revocation_list.revoked.retain(|id| id != &instance_id);
+        self.revocation_list.blocked.retain(|id| id != &instance_id);
+        self.revocation_list.tombstones.remove(&instance_id);
+        self.paired_peers.insert(instance_id, peer);
+    }
+
     pub fn pending_request_count(&self) -> usize {
         self.pending_requests
             .values()
@@ -450,10 +464,16 @@ impl MeshManager {
             return;
         }
 
-        self.gossip_generations
-            .entry(voucher.to_string())
-            .and_modify(|known| *known = (*known).max(generation))
-            .or_insert(generation);
+        let is_new_generation = self
+            .gossip_generations
+            .get(voucher)
+            .is_none_or(|known| generation > *known);
+        if is_new_generation {
+            self.gossip_tombstones
+                .retain(|(tombstone_voucher, _), _| tombstone_voucher != voucher);
+            self.gossip_generations
+                .insert(voucher.to_string(), generation);
+        }
 
         let claimed: std::collections::HashSet<&str> =
             peers.iter().map(|peer| peer.instance_id.as_str()).collect();
