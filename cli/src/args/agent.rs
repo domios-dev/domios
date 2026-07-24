@@ -147,18 +147,6 @@ pub enum AgentAction {
     },
     /// Send a report to your parent in the hierarchy
     Report(ReportArgs),
-    /// Read reports (for orchestrator tabs)
-    Reports {
-        /// Tab ID (default: current focused tab)
-        #[arg(long = "tab", value_name = "TAB")]
-        pane: Option<String>,
-        /// Clear reports after reading
-        #[arg(long)]
-        clear: bool,
-        /// Show only the N most recent reports (default: all)
-        #[arg(long)]
-        limit: Option<usize>,
-    },
     /// List an orchestrator's workers from the durable ledger (survives daemon
     /// restart): branch / model / status / last-seen, one row per worker.
     Ledger {

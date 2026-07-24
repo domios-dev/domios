@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 23 -->
+<!-- revision: 24 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -84,14 +84,6 @@ Send a report to your parent in the hierarchy
 - `--test-cmd` — Test command that was run
 - `--test-result` — Result of the test command (e.g. "42 passed")
 - `--text` — Report message as a flag, useful when paired with --doc
-
-#### `codeterm agent reports`
-
-Read reports (for orchestrator tabs)
-
-- `--clear` — Clear reports after reading
-- `--limit` — Show only the N most recent reports (default: all)
-- `--tab` — Tab ID (default: current focused tab)
 
 #### `codeterm agent restart`
 

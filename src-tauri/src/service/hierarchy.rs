@@ -26,7 +26,46 @@ impl ServiceContext {
     pub(crate) fn schedule_planner_replay(&self, pane_id: &str) {
         let svc = self.clone();
         let pane_id = pane_id.to_string();
-        std::thread::spawn(move || svc.replay_planner_requests_if_routable(&pane_id));
+        std::thread::spawn(move || {
+            svc.replay_planner_requests_if_routable(&pane_id);
+            svc.replay_pending_reports_if_routable(&pane_id);
+        });
+    }
+
+    fn replay_pending_reports_if_routable(&self, pane_id: &str) {
+        let pending = self.report_store.lock().claim_pending_for(pane_id);
+        for report in pending {
+            let envelope = crate::service::messenger::MessageEnvelope::report(
+                &report.from_title,
+                &report.from_pane_id,
+            )
+            .model(report.model.clone());
+            match self.gateway_deliver(
+                pane_id,
+                envelope,
+                &report.inject_body(),
+                crate::service::message_gateway::DeliveryClass::AgentTraffic,
+            ) {
+                Ok(delivery) => {
+                    self.report_store.lock().mark_delivered(&report.id);
+                    log::info!(
+                        "[report/replay] target={} report={} delivered via {:?}",
+                        pane_id,
+                        report.id,
+                        delivery
+                    );
+                }
+                Err(error) => {
+                    self.report_store.lock().release_delivery(&report.id);
+                    log::warn!(
+                        "[report/replay] target={} report={} deferred: {}",
+                        pane_id,
+                        report.id,
+                        error
+                    );
+                }
+            }
+        }
     }
 
     pub(crate) fn clear_dead_planner_binding(&self, pane_id: &str) {
@@ -461,6 +500,9 @@ impl ServiceContext {
             .filter(|target| !target.is_empty() && target != pane_id)
             .map(ReportTarget::Local)
             .or(default_target_opt);
+        let target = target_opt.ok_or_else(|| {
+            "No report target for this tab. You are not attached to an orchestrator, report target, or spawning tab. Ask for the target tab id, then use `codeterm send [--mesh <peer>] --tab <tab-or-alias> \"...\"`, or spawn with a report target.".to_string()
+        })?;
 
         let foreign = is_explicit_plan_foreign(plan_id, eff_plan_id.as_deref());
         let homed_to_remote = if eff_plan_id.is_none() || foreign {
@@ -551,9 +593,6 @@ impl ServiceContext {
             }
         }
 
-        let target = target_opt.ok_or_else(|| {
-            "No report target for this tab. You are not attached to an orchestrator, report target, or spawning tab. Ask for the target tab id, then use `codeterm send [--mesh <peer>] --tab <tab-or-alias> \"...\"`, or spawn with a report target.".to_string()
-        })?;
         let storage_key = target.storage_key();
         let report = self.report_store.lock().add_detailed_with_model_identity(
             &storage_key,
@@ -563,6 +602,7 @@ impl ServiceContext {
             details,
             model_identity,
         );
+        self.report_store.lock().claim(&report.id);
 
         self.events.broadcast(
             "agent.report",
@@ -585,6 +625,7 @@ impl ServiceContext {
 
         match target {
             ReportTarget::Mesh { peer, pane } => {
+                self.report_store.lock().mark_delivered(&report.id);
                 self.relay_report_to_peer(
                     peer,
                     pane,
@@ -610,9 +651,13 @@ impl ServiceContext {
                     crate::service::message_gateway::DeliveryClass::AgentTraffic,
                 ) {
                     Ok(delivery) => {
+                        self.report_store.lock().mark_delivered(&report.id);
                         log::info!("[report] target={} delivered via {:?}", target_id, delivery)
                     }
-                    Err(error) => log::warn!("[report] target={} deliver: {}", target_id, error),
+                    Err(error) => {
+                        self.report_store.lock().release_delivery(&report.id);
+                        log::warn!("[report] target={} deliver: {}", target_id, error);
+                    }
                 }
             }
         }
@@ -953,7 +998,7 @@ pub enum ReportTarget {
 
 impl ReportTarget {
     /// Stable key the report store and worker-death dedup index by. Local targets
-    /// key on the tab id (so `agent reports --tab <id>` finds them); mesh targets
+    /// key on the tab id; mesh targets
     /// key on a synthetic `mesh:<peer>/<pane>` so they neither collide with local
     /// panes nor each other.
     pub fn storage_key(&self) -> String {

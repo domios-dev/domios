@@ -79,7 +79,7 @@ fn worker_report_keys_match_storage_and_query() {
     let query_key = &orch;
     assert_eq!(
         &storage_key, query_key,
-        "submit_report write key and agent.reports query key must agree"
+        "submit_report write key and report target key must agree"
     );
     assert_eq!(store.get(query_key, false).len(), 1);
 }
@@ -518,7 +518,7 @@ fn orchestrator_falls_back_to_spawned_by_when_no_parent() {
 
 #[test]
 fn never_routes_back_to_self_when_all_targets_unset() {
-    // pane's own id, so reports got injected into the orchestrator's own PTY and `agent reports` against the spawning agent stayed empty.
+    // The reporter's own id would inject the report back into its PTY instead of its parent.
     let (mux, orch) = MultiplexerState::new();
     let (_, target) = resolve_report_target(&mux, &orch).unwrap();
     assert!(

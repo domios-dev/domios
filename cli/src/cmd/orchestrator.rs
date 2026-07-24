@@ -171,20 +171,10 @@ fn status_snapshot(
 ) -> Result<Value, String> {
     let plan_id = plan.ok_or("--plan or CODETERM_PLAN_ID is required")?;
     let pane_id = resolve_pane(client, pane);
-    let reports = client
-        .call_detailed(
-            "agent.reports",
-            Some(json!({
-                "pane_id": pane_id,
-                "clear": false,
-            })),
-        )
-        .map_err(|err| render_reports_error(&pane_id, err))?;
     let state = call_plan_rpc(client, "plan.state", json!({ "plan_id": plan_id }))?;
     let out = json!({
         "plan_id": plan_id,
         "pane_id": pane_id,
-        "reports": reports,
         "live_lanes": {
             "open": state.get("open_lanes").cloned().unwrap_or_else(|| json!([])),
             "blocked": state.get("blocked_lanes").cloned().unwrap_or_else(|| json!([])),
@@ -228,7 +218,6 @@ fn compact_status(value: &Value) -> Value {
     json!({
         "plan_id": value.get("plan_id").cloned().unwrap_or(Value::Null),
         "pane_id": value.get("pane_id").cloned().unwrap_or(Value::Null),
-        "reports": count(&["reports"]),
         "live_lanes": {
             "open": count(&["live_lanes", "open"]),
             "blocked": count(&["live_lanes", "blocked"]),
@@ -244,7 +233,6 @@ fn compact_status(value: &Value) -> Value {
 fn render_status(value: &Value) -> String {
     let plan_id = value.get("plan_id").and_then(|v| v.as_str()).unwrap_or("?");
     let pane_id = value.get("pane_id").and_then(|v| v.as_str()).unwrap_or("?");
-    let reports = value.get("reports").and_then(Value::as_u64).unwrap_or(0);
     let drift = value.get("drift").and_then(Value::as_u64).unwrap_or(0);
     let actions = value
         .get("next_actions")
@@ -272,7 +260,6 @@ fn render_status(value: &Value) -> String {
         .unwrap_or(0);
 
     let mut out = format!("Orchestrator status for {plan_id} (pane {pane_id})\n");
-    out.push_str(&format!("reports: {reports}\n"));
     out.push_str(&format!(
         "live_lanes: open={open} blocked={blocked} agents={live_agents}\n"
     ));
@@ -559,13 +546,6 @@ fn pane_session_id(client: &mut SocketClient, pane_id: &str) -> Result<String, S
         .ok_or_else(|| render_reseed_pane_session_error(pane_id))
 }
 
-fn render_reports_error(pane_id: &str, err: SocketCallError) -> String {
-    format!(
-        "cannot read orchestrator reports for tab {pane_id}.\nfix: run `codeterm tab list`\ncause: {}",
-        concise_socket_error(err)
-    )
-}
-
 fn render_reseed_pane_lookup_error(pane_id: &str, err: SocketCallError) -> String {
     format!(
         "cannot inspect tab {pane_id} for handoff reseed.\nfix: run `codeterm tab list --agents` and pass an agent tab with `--tab <tab-id>`.\ncause: {}",
@@ -591,7 +571,7 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        action_command, compact_status, render_reports_error, render_reseed_pane_lookup_error,
+        action_command, compact_status, render_reseed_pane_lookup_error,
         render_reseed_pane_session_error, render_status,
     };
     use crate::client::{RpcError, SocketCallError};
@@ -601,7 +581,6 @@ mod tests {
         let rendered = render_status(&compact_status(&json!({
             "plan_id": "pl_1",
             "pane_id": "pane1",
-            "reports": [{"message": "done"}],
             "live_lanes": {
                 "open": [{"task_id": "task_a"}],
                 "blocked": [],
@@ -615,7 +594,6 @@ mod tests {
             ]
         })));
 
-        assert!(rendered.contains("reports: 1"));
         assert!(rendered.contains("live_lanes: open=1 blocked=0 agents=1"));
         assert!(rendered.contains("drift: 2"));
         assert!(
@@ -625,11 +603,10 @@ mod tests {
     }
 
     #[test]
-    fn compact_status_omits_report_and_lane_bodies() {
+    fn compact_status_omits_lane_bodies() {
         let compact = compact_status(&json!({
             "plan_id": "pl_1",
             "pane_id": "pane1",
-            "reports": [{"message": "large report body"}],
             "live_lanes": {
                 "open": [{"task_id": "task_a", "large": "payload"}],
                 "blocked": [],
@@ -640,13 +617,11 @@ mod tests {
             "reminder": {"last_tick": 1}
         }));
 
-        assert_eq!(compact["reports"], 1);
         assert_eq!(compact["live_lanes"]["open"], 1);
         assert_eq!(compact["live_lanes"]["agents"], 1);
         assert_eq!(compact["drift"], 1);
         assert_eq!(compact["next_actions_total"], 1);
         let encoded = compact.to_string();
-        assert!(!encoded.contains("large report body"));
         assert!(!encoded.contains("transcript"));
         assert!(!encoded.contains("drift body"));
         assert!(!encoded.contains("very long action body"));
@@ -662,23 +637,6 @@ mod tests {
             action_command("pl_1", &json!({"kind": "reconcile"})),
             "codeterm plan reconcile pl_1"
         );
-    }
-
-    #[test]
-    fn report_fetch_error_is_orchestrator_specific() {
-        let msg = render_reports_error(
-            "pane1",
-            SocketCallError::Rpc(RpcError {
-                code: -32603,
-                message: "Pane not found".into(),
-                data: None,
-            }),
-        );
-
-        assert!(msg.contains("cannot read orchestrator reports for tab pane1"));
-        assert!(msg.contains("codeterm tab list"));
-        assert!(!msg.contains("RPC error"));
-        assert!(!msg.contains("-32603"));
     }
 
     #[test]

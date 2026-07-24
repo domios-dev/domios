@@ -8,7 +8,6 @@ Use command `--help` for syntax instead of loading a command catalogue.
 Start narrow:
 
 ```bash
-codeterm agent reports --tab <orchestrator-tab>
 codeterm orchestrator status --plan <plan> --tab <orchestrator-tab>
 codeterm plan reconcile <plan>
 codeterm task show <task>
@@ -51,7 +50,8 @@ execution, judges reports, integrates accepted lanes, and owns cleanup.
 
 Run this loop after every report, reminder, task close, tab death, or gate:
 
-1. **Reports first.** Accept or bounce every received report.
+1. **Handle pushed reports.** Worker reports arrive automatically as incoming
+   messages. Accept or bounce them without polling an inbox.
 2. **Reconcile.** Run `codeterm plan reconcile <plan>`; fix only owned drift.
 3. **Re-derive the frontier.** Inspect all open tasks, not only the previous
    focus.
@@ -93,7 +93,9 @@ any open state → cancelled
 
 - `in_progress` requires a live bound Worker tab.
 - Dispatch or `task take` atomically binds the tab and starts a pending task.
-- Workers move their task to `in_review` and execute `codeterm agent report`.
+- `codeterm agent report --status in_review` atomically records the handoff,
+  moves the bound task to `in_review`, and pushes the report into the
+  Orchestrator tab. Workers never poll or separately update task status.
 - The Orchestrator alone turns `in_review` into `done` or bounces it.
 - `paused` requires a reason and is excluded from heartbeat open work.
 - Dependencies express sequencing; pause is an operator hold, not a queue.
@@ -237,4 +239,4 @@ An effort is complete only when:
 - stale milestones are pruned;
 - the final handoff or retrospective is recorded;
 - the plan is archived.
-<!-- revision: 35 -->
+<!-- revision: 38 -->

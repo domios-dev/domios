@@ -44,7 +44,7 @@ fn worker_report(status: ReportStatus, sha: Option<&str>) -> task_attempts::Boun
 }
 
 #[test]
-fn committed_bound_in_review_report_advances_with_matching_evidence() {
+fn bound_in_review_report_advances_atomically() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
     assert!(store
         .ingest_bound_worker_report(
@@ -66,26 +66,39 @@ fn committed_bound_in_review_report_advances_with_matching_evidence() {
 }
 
 #[test]
-fn partial_or_uncommitted_report_keeps_bound_task_actionable() {
-    for report in [
-        worker_report(ReportStatus::Partial, Some("abc123")),
-        worker_report(ReportStatus::InReview, None),
-    ] {
-        let (_dir, store, plan_id, task_id) = bound_report_store();
-        assert!(!store
-            .ingest_bound_worker_report(
-                &plan_id,
-                &task_id,
-                &AgentRef::from_pane("worker"),
-                report,
-                4,
-            )
-            .unwrap());
-        let task = store.get(&plan_id).unwrap().tasks.remove(0);
-        assert_eq!(task.status, TaskStatus::Pending);
-        assert!(task.execution_attempts[0].report.is_some());
-        assert_eq!(task.milestones.len(), 1);
-    }
+fn in_review_report_without_sha_still_advances_bound_task() {
+    let (_dir, store, plan_id, task_id) = bound_report_store();
+    assert!(store
+        .ingest_bound_worker_report(
+            &plan_id,
+            &task_id,
+            &AgentRef::from_pane("worker"),
+            worker_report(ReportStatus::InReview, None),
+            4,
+        )
+        .unwrap());
+    let task = store.get(&plan_id).unwrap().tasks.remove(0);
+    assert_eq!(task.status, TaskStatus::InReview);
+    assert!(task.execution_attempts[0].report.is_some());
+    assert_eq!(task.milestones.len(), 1);
+}
+
+#[test]
+fn partial_report_keeps_bound_task_actionable() {
+    let (_dir, store, plan_id, task_id) = bound_report_store();
+    assert!(!store
+        .ingest_bound_worker_report(
+            &plan_id,
+            &task_id,
+            &AgentRef::from_pane("worker"),
+            worker_report(ReportStatus::Partial, Some("abc123")),
+            4,
+        )
+        .unwrap());
+    let task = store.get(&plan_id).unwrap().tasks.remove(0);
+    assert_eq!(task.status, TaskStatus::Pending);
+    assert!(task.execution_attempts[0].report.is_some());
+    assert_eq!(task.milestones.len(), 1);
 }
 
 #[test]

@@ -291,7 +291,8 @@ fn heartbeat_resolves_for_owner_pane_at_send_time() {
     assert!(before.starts_with("<codeterm-role-identity"));
     assert!(before.contains(&format!("You are the Orchestrator for plan {plan_id}")));
     assert!(before.contains("STATE-RECONCILIATION"));
-    assert!(before.contains("First run `codeterm agent reports --tab orch-a`"));
+    assert!(before.contains("Worker reports are pushed into this tab automatically"));
+    assert!(!before.contains("codeterm agent reports"));
     assert!(before.contains("codeterm orchestrator status --plan"));
     assert!(before.contains("--tab orch-a"));
     assert!(!before.contains("--tab orch-a --json"));
@@ -398,7 +399,8 @@ fn owner_plan_nudge_prepends_heartbeat_and_exact_recovery_commands() {
 
     assert!(text.starts_with("<codeterm-role-identity"));
     assert!(text.contains(&format!("You are the Orchestrator for plan {plan_id}")));
-    assert!(text.contains("codeterm agent reports --tab orch-a"));
+    assert!(text.contains("Worker reports are pushed into this tab automatically"));
+    assert!(!text.contains("codeterm agent reports"));
     assert!(text.contains(&format!(
         "codeterm orchestrator status --plan {plan_id} --tab orch-a"
     )));

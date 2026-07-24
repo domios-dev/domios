@@ -55,7 +55,6 @@ pub(super) fn dispatch(
                 "agent.children",
                 "agent.link",
                 "agent.report",
-                "agent.reports",
                 "orchestration.new",
                 "team.list",
                 "team.show",

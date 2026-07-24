@@ -1201,7 +1201,6 @@ Newline-delimited JSON:
 | `agent.children` | `{pane_id}` | List child panes |
 | `agent.link` | `{pane_id, parent_pane_id}` | Link pane under parent |
 | `agent.report` | `{pane_id, message}` | Send report to direct parent |
-| `agent.reports` | `{pane_id, clear?}` | Read reports from children |
 | `agent.restart` | `{pane_id, force?, grace_secs?}` | Restart the agent in a pane; resumes only when the recorded session is valid. |
 | `plan.task.attempts` | `{plan_id, task_id}` | List execution attempts for one plan task |
 | `plan.task.attempt.show` | `{plan_id, task_id, attempt_id}` | Show one historical task attempt |
@@ -1353,4 +1352,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 86 -->
+<!-- revision: 87 -->
