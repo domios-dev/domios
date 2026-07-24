@@ -535,23 +535,20 @@ export const TerminalPane = memo(function TerminalPane({
         />
       )}
 
-      <div
-        className="absolute inset-0"
-        inert={uiMode !== "chat" || !isVisible || undefined}
-        style={{
-          zIndex: 2,
-          visibility: uiMode === "chat" ? "visible" : "hidden",
-          pointerEvents: uiMode === "chat" && isVisible ? "auto" : "none",
-        }}
-      >
-        <PaneSessionChat
-          paneId={paneId}
-          api={api}
-          uiFontScale={uiFontScale}
-          isVisible={uiMode === "chat" && isVisible}
-          onOpenTerminalFallback={openTerminalFallback}
-        />
-      </div>
+      {/* Chat is conditionally mounted so the per-pane tailer thread on
+          the backend only starts when the user actually flipped into
+          chat mode — not for every pane in the workspace. */}
+      {uiMode === "chat" && (
+        <div className="absolute inset-0" style={{ zIndex: 2 }}>
+          <PaneSessionChat
+            paneId={paneId}
+            api={api}
+            uiFontScale={uiFontScale}
+            isVisible={isVisible}
+            onOpenTerminalFallback={openTerminalFallback}
+          />
+        </div>
+      )}
 
       {fallbackChat && !mobileSheet && (
         <div ref={fallbackShellRef} className="absolute inset-0 pointer-events-none" style={{ zIndex: 5 }}>
