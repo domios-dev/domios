@@ -34,9 +34,8 @@ pub struct InjectionResult {
     pub bytes_written: usize,
     pub echo_observed: bool,
     pub submit_observed: bool,
-    /// The submit succeeded only via the bounded recovery path (the paste render
-    /// event was never observed and one forced Enter was issued). Success still
-    /// required the provider turn transition; this flags the transport anomaly.
+    /// The submit needed the bounded recovery path after paste or turn evidence
+    /// was missed. Success still required the provider turn transition.
     pub submit_anomaly: bool,
     pub elapsed: Duration,
 }
