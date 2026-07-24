@@ -495,9 +495,13 @@ pub async fn submit_report(
             body.kind.as_deref(),
         )
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    Ok(Json(
-        serde_json::json!({"ok": true, "report_id": result.report_id}),
-    ))
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "accepted": true,
+        "state": "recorded",
+        "report_id": result.report_id,
+        "target_tab_id": result.orchestrator_pane_id,
+    })))
 }
 
 #[derive(Deserialize)]

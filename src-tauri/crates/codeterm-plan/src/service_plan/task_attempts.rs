@@ -856,7 +856,7 @@ impl PlanStore {
     }
 
     /// Ingest a worker report for its currently assigned task in one plan write.
-    /// Only a committed `in_review` report may advance the task; every other
+    /// An accepted `in_review` report advances the task; every other
     /// accepted report remains a handoff milestone without changing task state.
     pub fn ingest_bound_worker_report(
         &self,
@@ -869,11 +869,7 @@ impl PlanStore {
         let Some(reporter_pane) = from.pane_id.as_deref() else {
             return Ok(false);
         };
-        let committed_review = report.status == Some(ReportStatus::InReview)
-            && report
-                .sha
-                .as_deref()
-                .is_some_and(|sha| !sha.trim().is_empty());
+        let committed_review = report.status == Some(ReportStatus::InReview);
         self.with_plan(plan_id, now_ms, |plan| {
             let task_index = plan
                 .tasks
@@ -917,9 +913,6 @@ impl PlanStore {
                 from: from.clone(),
                 kind: "worker_report".into(),
                 text: match report.status {
-                    Some(ReportStatus::InReview) if !committed_review => {
-                        format!("HANDOFF (uncommitted): {}", report.message)
-                    }
                     Some(status) => format!("{}: {}", status.label(), report.message),
                     None => report.message.clone(),
                 },

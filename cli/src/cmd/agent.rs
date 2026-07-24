@@ -611,13 +611,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             if !attachments.is_empty() {
                 body["attachments"] = serde_json::json!(attachments);
             }
-            // A lost report leaves the orchestrator blind while the worker
-            // idles (live ENOSPC incident) — retry once, then fail UNMISSABLY.
-            let mut result = client.call_detailed("agent.report", Some(body.clone()));
-            if result.is_err() {
-                std::thread::sleep(std::time::Duration::from_secs(2));
-                result = client.call_detailed("agent.report", Some(body.clone()));
-            }
+            let result = client.call_detailed("agent.report", Some(body.clone()));
             let result = result.map_err(|err| {
                 let rendered = if body.get("plan_id").and_then(|v| v.as_str()).is_some() {
                     render_plan_call_error(err, &body)
@@ -625,7 +619,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     err.to_string()
                 };
                 format!(
-                    "!!! REPORT NOT DELIVERED (after retry) — your orchestrator is BLIND to this task.\n\
+                    "!!! REPORT NOT ACCEPTED — no task transition or delivery was recorded.\n\
                      Fix the cause and re-run the exact same `codeterm agent report` command.\n\
                      cause: {rendered}"
                 )
@@ -634,36 +628,6 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 print_report_notices(json, val);
             }
             handle_result(json, result);
-        }
-        AgentAction::Reports { pane, clear, limit } => {
-            let pane_id = resolve_pane(client, pane);
-            match client.call(
-                "agent.reports",
-                Some(serde_json::json!({
-                    "pane_id": pane_id,
-                    "clear": clear,
-                })),
-            ) {
-                Ok(val) => {
-                    if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                    } else if let Some(arr) = val.as_array() {
-                        if arr.is_empty() {
-                            println!("No reports.");
-                        }
-                        let take = limit.unwrap_or(arr.len());
-                        for r in arr.iter().rev().take(take) {
-                            let from = r.get("from_title").and_then(|v| v.as_str()).unwrap_or("?");
-                            let msg = r.get("message").and_then(|v| v.as_str()).unwrap_or("");
-                            println!("[{}] {}", from, msg);
-                        }
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Error: {}", e);
-                    std::process::exit(1);
-                }
-            }
         }
         AgentAction::Spawn {
             agent,
