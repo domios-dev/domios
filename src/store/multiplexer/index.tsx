@@ -34,7 +34,6 @@ import type {
 import type { ExtendedState } from "./tree";
 import { reducer, type Action } from "./reducer";
 import { applyPendingTabGuard, type TabGuards } from "./pendingTabGuard";
-import { applyPendingCloseGuard, type CloseGuards } from "./pendingCloseGuard";
 import { mountMuxPerfTestHook } from "./muxPerfTestHook";
 import { isCodeTermFrontendTestMode } from "../../components/Terminal/useChatSession";
 import { MultiplexerActionsContext, MuxStateStoreContext, type MultiplexerActionsContextType, type SpawnedPane } from "./context";
@@ -64,6 +63,7 @@ function buildInitialState(): ExtendedState {
     toasts: [],
     activeTabIds: {},
     generation: 0,
+    pendingCloses: [],
   };
   if (!IS_WEB) return empty;
   const cached = loadCachedStateSync();
@@ -113,17 +113,12 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   // In-flight user tab selections; masks a stale backend snapshot until the
   // backend confirms the switch or the guard's deadline passes.
   const pendingTabSwitchRef = useRef<TabGuards>({});
-  // Pane ids removed by an optimistic close; masked out of applied snapshots
-  // until the backend confirms removal so a snapshot read that raced ahead of
-  // the close cannot resurrect the just-closed tab.
-  const pendingCloseRef = useRef<CloseGuards>(new Set());
   const peerSwitchRef = useRef(0);
 
   const applyBackendState = useCallback((s: MultiplexerState) => {
     // here silently dropped the closed-history on every reload.
     const guarded = applyPendingTabGuard(s, pendingTabSwitchRef.current, Date.now());
-    const closeGuarded = applyPendingCloseGuard(guarded, pendingCloseRef.current);
-    dispatch({ type: "SET_STATE", state: closeGuarded });
+    dispatch({ type: "SET_STATE", state: guarded });
     if (IS_WEB) saveStateSnapshot(s);
   }, []);
 
@@ -297,7 +292,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       const switchId = (event as CustomEvent<{ switchId: number }>).detail.switchId;
       peerSwitchRef.current = switchId;
       pendingTabSwitchRef.current = {};
-      pendingCloseRef.current.clear();
       writeGateRef.current.lock();
       dispatch({ type: "RESET_PEER_CONTEXT" });
     };
@@ -408,7 +402,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       guardedInvoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
       dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
       const tabInfo = await reopenClosedPane(workspaceId, index);
-      pendingCloseRef.current.delete(tabInfo.pane_id);
+      dispatch({ type: "REMOVE_PENDING_CLOSE", paneIds: [tabInfo.pane_id] });
       await guardedInvoke("mux_set_active_tab", { workspaceId, tabId: tabInfo.id }).catch(() => {});
       dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId: tabInfo.id });
       guardedInvoke("mux_set_focused_pane", { paneId: tabInfo.pane_id }).catch(() => {});
@@ -421,7 +415,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const reopenGroup = useCallback(async (groupId: string) => {
     try {
       const result = await reopenClosedGroup(groupId);
-      pendingCloseRef.current.delete(result.pane_id);
+      dispatch({ type: "REMOVE_PENDING_CLOSE", paneIds: [result.pane_id] });
       guardedInvoke("mux_set_active_workspace", { workspaceId: result.workspace_id }).catch(() => {});
       dispatch({ type: "SET_ACTIVE_WORKSPACE", id: result.workspace_id });
       dispatch({ type: "SET_ACTIVE_TAB", workspaceId: result.workspace_id, tabId: result.tab_id });
@@ -435,8 +429,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const restoreOrphaned = useCallback(async (paneId: string) => {
     try {
       const result = await restoreOrphanedPane(paneId);
-      pendingCloseRef.current.delete(paneId);
-      pendingCloseRef.current.delete(result.pane_id);
+      dispatch({ type: "REMOVE_PENDING_CLOSE", paneIds: [paneId, result.pane_id] });
       guardedInvoke("mux_set_active_workspace", { workspaceId: result.workspace_id }).catch(() => {});
       dispatch({ type: "SET_ACTIVE_WORKSPACE", id: result.workspace_id });
       dispatch({ type: "SET_ACTIVE_TAB", workspaceId: result.workspace_id, tabId: result.tab_id });
@@ -469,15 +462,12 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     (id: string) => {
       const ws = stateRef.current.workspaces.find((w) => w.id === id);
       const paneIds = ws ? ws.tabs.map((t) => t.pane_id) : [];
-      for (const pid of paneIds) pendingCloseRef.current.add(pid);
       dispatch({ type: "CLOSE_WORKSPACE", id });
-      // Refresh only after the close is acknowledged; if the backend rejects it
-      // the workspace still lives — drop the tombstones and let the
-      // authoritative snapshot restore the optimistically-removed tabs.
+      // On rejection the workspace still lives — drop its tombstones and restore.
       guardedInvoke("mux_close_workspace", { workspaceId: id })
         .then(() => refreshFromBackend())
         .catch(() => {
-          for (const pid of paneIds) pendingCloseRef.current.delete(pid);
+          dispatch({ type: "REMOVE_PENDING_CLOSE", paneIds });
           refreshFromBackend();
         });
     },
@@ -623,16 +613,13 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       const tab = ws?.tabs.find((t) => t.id === tabId);
       if (!tab) return;
       const paneId = tab.pane_id;
-      pendingCloseRef.current.add(paneId);
       dispatch({ type: "CLOSE_TAB", workspaceId, tabId, removedPaneIds: [paneId] });
-      // Refresh only AFTER the close is acknowledged so the snapshot reflects
-      // it; a snapshot read before the close lands would otherwise resurrect the
-      // tab. If the backend rejects the close the pane still lives — drop the
-      // tombstone and let the authoritative snapshot restore it.
+      // Refresh only after the close is acknowledged; on rejection the pane
+      // still lives, so drop its tombstone and restore from authoritative state.
       guardedInvoke("mux_close_tab", { workspaceId, tabId })
         .then(() => refreshFromBackend())
         .catch(() => {
-          pendingCloseRef.current.delete(paneId);
+          dispatch({ type: "REMOVE_PENDING_CLOSE", paneIds: [paneId] });
           refreshFromBackend();
         });
     },
@@ -646,9 +633,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId });
   }, [guardedInvoke]);
 
-  // Select + focus a just-spawned pane by resolving its owning tab. A freshly
-  // created pane may not be in local state yet (spawn refresh is async), so
-  // fall back to an authoritative snapshot before giving up.
+  // Select + focus a just-spawned pane by resolving its owning tab; a fresh
+  // pane may lag local state, so fall back to an authoritative snapshot.
   const selectTabByPane = useCallback(async (workspaceId: string, paneId: string) => {
     const findTab = (s: MultiplexerState) =>
       s.workspaces.find((w) => w.id === workspaceId)?.tabs.find((t) => t.pane_id === paneId)?.id ?? null;
@@ -677,29 +663,24 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       const ctx = findContext(paneId);
       if (!ctx) return;
       const { workspaces } = stateRef.current;
-      pendingCloseRef.current.add(paneId);
-      // On a failed backend close the pane still lives — drop the tombstone and
-      // let the authoritative snapshot restore the optimistically-removed item.
-      const restore = () => {
-        pendingCloseRef.current.delete(paneId);
-        refreshFromBackend();
-      };
       const ws = workspaces.find((w) => w.id === ctx.workspaceId);
       const tab = ws?.tabs.find((t) => t.id === ctx.tabId);
       const closesTab = Boolean(tab) && [tab!.pane_id].length <= 1;
-      // Drive refresh/restore off the op that authoritatively removes this pane:
-      // the tab close when it's the tab's last pane, else the pane close.
-      guardedInvoke("mux_close_pane", { paneId })
-        .then(() => {
-          if (!closesTab) refreshFromBackend();
-        })
-        .catch(() => {
-          if (!closesTab) restore();
-        });
+      // Both ops fire; the tab-close fails redundantly once the pane-close
+      // removed it — only a total failure (no op succeeded) drops the tombstone.
+      const ops = closesTab
+        ? [
+            guardedInvoke("mux_close_pane", { paneId }),
+            guardedInvoke("mux_close_tab", { workspaceId: ctx.workspaceId, tabId: ctx.tabId }),
+          ]
+        : [guardedInvoke("mux_close_pane", { paneId })];
+      Promise.allSettled(ops).then((results) => {
+        if (!results.some((r) => r.status === "fulfilled")) {
+          dispatch({ type: "REMOVE_PENDING_CLOSE", paneIds: [paneId] });
+        }
+        refreshFromBackend();
+      });
       if (closesTab) {
-        guardedInvoke("mux_close_tab", { workspaceId: ctx.workspaceId, tabId: ctx.tabId })
-          .then(() => refreshFromBackend())
-          .catch(restore);
         dispatch({
           type: "CLOSE_TAB",
           workspaceId: ctx.workspaceId,
