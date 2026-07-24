@@ -9,11 +9,11 @@ a global flag on every command.
 
 **Planning?** Read the EFFORT workflow first — `docs/ORCHESTRATION.md` (GOAL ⟶ Spec ⊥ Plan ⟶ Tasks ⟶ Strides; author GOAL-first, Spec=WHAT, Plan=HOW built from the spec, M:N section links). Don't cram requirements into plan sections; the Spec holds WHAT.
 
-The Team verbs are `codeterm team list|show|rename|close|adopt-plan`. `codeterm team close <team_id>` is the only operation that removes a Team; it cascade-closes the Team's members, archives/detaches its plans, records owner retirement, and clears owner/planner routing to the destroyed panes. Agent callers may mutate only their own `team_id` when they are the Team's Orchestrator or planner Manager; rename and close retain their authenticated direct-user path. A newly minted Team is returned with `codeterm team rename <team_id> <name>` and `codeterm docs ORCHESTRATION` guidance.
+The Team verbs are `codeterm team list|show|rename|close|adopt-plan`. `codeterm team close <team_id>` is the only operation that removes a Team; it cascade-closes the Team's members, archives/detaches its plans, records owner retirement, and clears owner/planner routing to the destroyed tabs. Agent callers may mutate only their own `team_id` when they are the Team's Orchestrator or planner Manager; rename and close retain their authenticated direct-user path. A newly minted Team is returned with `codeterm team rename <team_id> <name>` and `codeterm docs ORCHESTRATION` guidance.
 
 `codeterm team adopt-plan <team_id> <plan_id>` requires `CODETERM_PANE_ID` for the destination Team's Orchestrator or planner Manager. It activates an archived/teamless plan only when the Team has exactly one live Orchestrator and no other active plan. Adoption atomically binds the Team, replaces the old owner with that Orchestrator, records owner history, clears stale planner routing, and relinks live task hierarchy. `codeterm plan unarchive|resume` require an existing live Team binding; they never recreate a Team.
 
-`codeterm plan transfer <plan_id> --to <orchestrator-pane>` moves the plan to the destination Orchestrator's live Team. The CLI requires `CODETERM_PANE_ID`, supplies that caller identity, and the daemon requires the pane to be the source Team's Orchestrator or planner Manager; missing callers, Workers, and foreign-Team panes cannot transfer. Transfer changes the Team, owner, owner history, and stale planner routing atomically before relinking hierarchy.
+`codeterm plan transfer <plan_id> --to <orchestrator-tab>` moves the plan to the destination Orchestrator's live Team. The CLI requires `CODETERM_PANE_ID`, supplies that caller identity, and the daemon requires the tab to be the source Team's Orchestrator or planner Manager; missing callers, Workers, and foreign-Team tabs cannot transfer. Transfer changes the Team, owner, owner history, and stale planner routing atomically before relinking hierarchy.
 
 <!-- cli:auto-start -->
 #### `codeterm agent`
@@ -1788,7 +1788,7 @@ Record task progress with one atomic plan write
 - `--key`
 - `--link`
 - `--name`
-- `<plan_id>` — Plan id (if available from pane binding or env)
+- `<plan_id>` — Plan id (if available from tab binding or env)
 - `--sections`
 - `--status` — Task status: pending | in_progress | in_review | blocked | paused | done | cancelled
 - `--step`
@@ -2234,7 +2234,7 @@ Update plan metadata
 - `--mode`
 - `--note` — Waiver note (required when --planner none)
 - `<plan_id>`
-- `--planner` — Set attached Planner: <pane_id> to bind, or "none" to waive (requires --note)
+- `--planner` — Set attached Planner: <tab_id> to bind, or "none" to waive (requires --note)
 - `--spec`
 - `--spec-file`
 - `--status`
@@ -2653,13 +2653,13 @@ Get visible terminal text of a tab (what the user sees)
 
 #### `codeterm tab inspect`
 
-Show the full daemon pane payload for one or more explicit tab ids
+Show the full daemon tab payload for one or more explicit tab ids
 
-- `<panes>` — One or more tab ids to inspect
+- `<tabs>` — One or more tab ids to inspect
 
 #### `codeterm tab list`
 
-List compact tab summaries in the current workspace. Use `tab inspect` for full pane details
+List compact tab summaries in the current workspace. Use `tab inspect` for full tab details
 
 - `--agents` — Show only tabs running an agent (have an agent_type)
 - `--all-workspaces` — Include every workspace instead of the current one
@@ -2769,7 +2769,7 @@ Bind an existing plan to a Team
 
 #### `codeterm team close`
 
-Close every member pane and remove the Team registry entry
+Close every member tab and remove the Team registry entry
 
 - `<team_id>` — Team ID
 

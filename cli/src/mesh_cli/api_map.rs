@@ -221,12 +221,11 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     None,
                 )
             }
-            crate::PaneAction::Inspect { panes } => (
+            crate::PaneAction::Inspect { tabs } => (
                 "GET".into(),
                 format!(
                     "/api/panes/inspect?pane_ids={}",
-                    panes
-                        .iter()
+                    tabs.iter()
                         .map(|pane| urlencoding::encode(pane).into_owned())
                         .collect::<Vec<_>>()
                         .join(",")
