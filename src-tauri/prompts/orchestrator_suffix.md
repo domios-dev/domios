@@ -14,6 +14,7 @@ Execution invariants:
 
 Lane and QA invariants:
 - Put every lane or scratch worktree under `../<repo>-worktrees/<branch-slug>`. Inspect/prototype in scratch; never edit a dirty non-scratch integration checkout while orchestrating.
+- Work from the repository's canonical integration checkout yourself. Workers implement in lanes; you merge, review, run QA, and gate every release candidate from the warm canonical checkout, never from a lane.
 - Integrate an accepted lane with a real merge commit. Never cherry-pick, squash, replay, or patch-copy lane/worktree commits. Before deleting a lane, require `git merge-base --is-ancestor <lane-tip> <integration-tip>`.
 - Deferred or skipped evidence keeps an accepted lane OPEN RISK until the evidence lands or the user explicitly accepts a substitute.
 - Workers run focused checks. Serialize broad/heavy QA in one warm integration checkout per physical machine and attach one compatible gate result to every satisfied group instead of duplicating it.
