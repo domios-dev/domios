@@ -1,0 +1,29 @@
+{
+  "skill_name": "worker-handoff-prompt",
+  "description": "Worker turns always end with a structured CodeTerm report.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "unfinished-slice-reports-partial",
+      "prompt": "Dry-run only: tools are unavailable. You completed one rename slice, but the remaining refactor is too large for this turn. Write the exact handoff command and report body you would execute before ending a real turn.",
+      "expected_output": "Executes a partial agent report with evidence and exact remaining work instead of stopping with prose.",
+      "expectations": [
+        "Commits to executing `codeterm agent report --status partial` before ending the turn",
+        "Includes completed changes, narrow test evidence, and exact remaining slices in the report",
+        "Does not treat decomposition alone as a blocked status",
+        "Does not present a plain-text final answer as the handoff"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "ready-work-reports-in-review",
+      "prompt": "Dry-run only: tools are unavailable. The bounded implementation and focused tests are complete. Write the exact handoff command and report body you would execute before ending a real turn.",
+      "expected_output": "Executes an in_review report and leaves final acceptance to the Orchestrator.",
+      "expectations": [
+        "Commits to executing `codeterm agent report --status in_review`",
+        "Does not use `--status done`",
+        "States that the Orchestrator reviews and closes the task"
+      ]
+    }
+  ]
+}

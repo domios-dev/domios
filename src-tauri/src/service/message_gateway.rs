@@ -5,8 +5,7 @@
 //! `send_text_batch`, the ordered key-write path) with zero behavior change.
 //! No caller is migrated yet — the wrapper only adds a typed seam + idempotency.
 
-use std::collections::HashMap;
-use std::collections::VecDeque;
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use parking_lot::Mutex;
 
@@ -194,7 +193,8 @@ impl super::ServiceContext {
         body: &str,
         class: DeliveryClass,
     ) -> Result<Delivery, String> {
-        self.gateway
+        let result = self
+            .gateway
             .submit(
                 self,
                 OutboundMessage {
@@ -214,7 +214,19 @@ impl super::ServiceContext {
                     text: body.to_string(),
                 })
             })
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string());
+        if result.is_ok() && class == DeliveryClass::AgentTraffic {
+            let is_bound_worker = {
+                let mux = self.mux.read();
+                mux.get_pane(target).is_some_and(|pane| {
+                    pane.role == Some(crate::multiplexer::types::AgentRole::Worker)
+                })
+            } && self.plan_store.task_binding_for_pane(target).is_some();
+            if is_bound_worker {
+                self.gateway.require_worker_report(target);
+            }
+        }
+        result
     }
 }
 
@@ -281,10 +293,10 @@ impl IdempotencyStore {
     }
 }
 
-/// The gateway. Holds only the bounded idempotency cache; the delivery seam is
-/// passed per submit so the gateway never owns a `ServiceContext`.
+/// Gateway for bounded delivery coordination state.
 pub struct MessageGateway {
     idempotency: Mutex<IdempotencyStore>,
+    worker_report_required: Mutex<HashSet<String>>,
 }
 
 impl Default for MessageGateway {
@@ -301,7 +313,22 @@ impl MessageGateway {
     pub fn with_capacity(cap: usize) -> Self {
         Self {
             idempotency: Mutex::new(IdempotencyStore::new(cap)),
+            worker_report_required: Mutex::new(HashSet::new()),
         }
+    }
+
+    pub(crate) fn require_worker_report(&self, tab_id: &str) {
+        self.worker_report_required
+            .lock()
+            .insert(tab_id.to_string());
+    }
+
+    pub(crate) fn clear_worker_report_requirement(&self, tab_id: &str) {
+        self.worker_report_required.lock().remove(tab_id);
+    }
+
+    pub(crate) fn take_worker_report_requirement(&self, tab_id: &str) -> bool {
+        self.worker_report_required.lock().remove(tab_id)
     }
 
     pub fn submit<S: DeliverySeam>(

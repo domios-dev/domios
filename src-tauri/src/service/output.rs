@@ -450,6 +450,8 @@ impl ServiceContext {
             },
             previous,
         );
+        let became_idle =
+            previous.state != TimelineState::Idle && verdict.state == TimelineState::Idle;
         let mut new_state: AgentLiveState = verdict.into();
         // Surface the live status/progress line while working (UI shows it verbatim);
         // when idle, surface the completed-turn summary as a muted secondary line.
@@ -483,6 +485,9 @@ impl ServiceContext {
         if changed {
             self.emit_state_changed();
             self.schedule_planner_replay(&pane_id);
+            if became_idle {
+                self.complete_worker_turn_without_report(&pane_id, "idle-transition");
+            }
         }
     }
 
