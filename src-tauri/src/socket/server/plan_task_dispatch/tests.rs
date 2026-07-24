@@ -1,8 +1,8 @@
 use super::{
-    await_agent_ready, build_brief, build_brief_with_claimed_persona, build_brief_with_personality,
-    complete_dispatch_transaction, dispatch_worker_identity, lane_metadata_for_dispatch,
-    regression_blocked_error, resolve_dispatch_lane, resolve_dispatch_routing,
-    rollback_failed_dispatch, unqualified_model_error,
+    await_agent_ready, build_brief, build_brief_with_personality, complete_dispatch_transaction,
+    dispatch_worker_identity, lane_metadata_for_dispatch, regression_blocked_error,
+    resolve_dispatch_lane, resolve_dispatch_routing, rollback_failed_dispatch,
+    unqualified_model_error,
 };
 use crate::plan::{
     IdentityProvenance, OrchestratorRef, PlanMode, Task, TaskLaneMetadata, TaskStatus,
@@ -277,7 +277,7 @@ fn omitted_cwd_provisions_one_lane_and_persists_matching_attempt_provenance() {
 }
 
 #[test]
-fn readiness_and_same_pane_binding_precede_commit_and_delivery() {
+fn launch_delivery_readiness_and_same_pane_binding_precede_commit() {
     let order = RefCell::new(Vec::new());
     let evidence = complete_dispatch_transaction(
         Instant::now() + Duration::from_secs(1),
@@ -299,10 +299,6 @@ fn readiness_and_same_pane_binding_precede_commit_and_delivery() {
             Ok(())
         },
         || {
-            order.borrow_mut().push("delivery");
-            Ok(())
-        },
-        || {
             order.borrow_mut().push("rollback");
             Ok(())
         },
@@ -311,13 +307,7 @@ fn readiness_and_same_pane_binding_precede_commit_and_delivery() {
     assert_eq!(evidence.session_id, "session-worker");
     assert_eq!(
         order.into_inner(),
-        vec![
-            "agent_ready",
-            "same_pane_session",
-            "provenance",
-            "delivery",
-            "commit"
-        ]
+        vec!["agent_ready", "same_pane_session", "provenance", "commit"]
     );
 }
 
@@ -330,7 +320,6 @@ fn every_transaction_stage_failure_runs_compensation() {
         ("wrong_pane_session", "session_binding"),
         ("provenance", "provenance_readback"),
         ("task_commit", "task_commit"),
-        ("brief_delivery", "brief_delivery"),
     ] {
         let rolled_back = Cell::new(false);
         let error = complete_dispatch_transaction(
@@ -362,13 +351,6 @@ fn every_transaction_stage_failure_runs_compensation() {
             |_, _| {
                 if failure == "task_commit" {
                     Err("mutation failed".into())
-                } else {
-                    Ok(())
-                }
-            },
-            || {
-                if failure == "brief_delivery" {
-                    Err("delivery failed".into())
                 } else {
                     Ok(())
                 }
@@ -412,7 +394,7 @@ fn agent_ready_oneshot_error_closed_sender_and_expired_deadline_fail() {
 }
 
 #[test]
-fn post_ready_failure_restores_exact_original_task_and_attempt_state() {
+fn launch_delivery_failure_restores_exact_original_task_and_attempt_state() {
     let (root, project) = git_project();
     let store = PlanStore::new_for_test(root.path());
     let plan = store
@@ -451,7 +433,7 @@ fn post_ready_failure_restores_exact_original_task_and_attempt_state() {
     let closed = Cell::new(false);
     let error = complete_dispatch_transaction(
         Instant::now() + Duration::from_secs(1),
-        |_| Ok(()),
+        |_| Err("TaskDeliveryFailed: rejected".into()),
         |_| Ok("session-worker".into()),
         || Ok(actual.clone()),
         |provenance, session| {
@@ -467,7 +449,6 @@ fn post_ready_failure_restores_exact_original_task_and_attempt_state() {
                 )
                 .map_err(|error| error.to_string())
         },
-        || Err("delivery rejected".into()),
         || {
             rollback_failed_dispatch(
                 Some(lane),
@@ -485,7 +466,7 @@ fn post_ready_failure_restores_exact_original_task_and_attempt_state() {
     )
     .unwrap_err();
 
-    assert_eq!(error.data.unwrap()["stage"], "brief_delivery");
+    assert_eq!(error.data.unwrap()["stage"], "agent_ready");
     assert!(closed.get());
     assert_eq!(store.show_task(&task_id).unwrap().task, original);
     assert_eq!(store.get(&plan.id).unwrap().mode, PlanMode::Approved);
@@ -747,24 +728,6 @@ fn dispatch_treats_batch_personality_without_legacy_provenance_as_provisional() 
     let (title, provenance) = dispatch_worker_identity(&t);
     assert_eq!(title.as_deref(), Some("Lamport"));
     assert_eq!(provenance, Some(SpawnIdentityProvenance::Suggested));
-}
-
-#[test]
-fn dispatch_brief_uses_atomically_claimed_persona_after_reroll() {
-    let t = task(json!({
-        "id": "task_batch_collision",
-        "name": "Dispatch",
-        "type": "code",
-        "status": "pending",
-        "personality": "Lamport",
-        "personality_provenance": IdentityProvenance::Suggested,
-        "role_guidance": "You are a concurrency engineer.",
-    }));
-
-    let brief = build_brief_with_claimed_persona(&t, &[], "Ada");
-
-    assert!(brief.starts_with("You are Ada. You are a concurrency engineer."));
-    assert!(!brief.contains("You are Lamport"));
 }
 
 fn task(value: serde_json::Value) -> Task {
