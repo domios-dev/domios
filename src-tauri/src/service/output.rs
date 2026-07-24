@@ -190,12 +190,7 @@ impl ServiceContext {
         let agent_type = if agent_type.is_none() {
             None
         } else if let Some(ref pid) = pane_id {
-            // Agent already detected — check if it's still running. This is the SOLE agent exit detection point (removed from idle-poll to avoid races).
-            // Only check periodically to avoid overhead on every chunk.
-            static UNDETECT_COUNT: std::sync::atomic::AtomicU64 =
-                std::sync::atomic::AtomicU64::new(0);
-            let count = UNDETECT_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            if is_planner || count % 50 == 0 {
+            if should_check_agent_exit(is_planner, screen_changed) {
                 // Keep a short grace after session-tagging so early prompt snapshots don't trigger false exits.
                 // Locked panes skip output-based clearing because slow startup can leave stale prompt text visible.
                 if in_grace_cached || (locked_cached && !is_planner) {
@@ -891,6 +886,10 @@ fn screen_ends_in_shell_prompt(screen: &str) -> bool {
         .unwrap_or(false)
 }
 
+fn should_check_agent_exit(is_planner: bool, screen_changed: bool) -> bool {
+    is_planner || screen_changed
+}
+
 /// Debounce decision for output-based agent-exit detection. A still-running TUI
 /// can flash ONE marker-less, shell-prompt-looking frame (a WebView reload /
 /// resize redraw); requiring the suspicion to persist past `debounce` stops that
@@ -910,7 +909,10 @@ fn exit_debounce(
 
 #[cfg(test)]
 mod exit_detection_tests {
-    use super::{exit_debounce, screen_ends_in_shell_prompt, should_detect_unbound_session};
+    use super::{
+        exit_debounce, screen_ends_in_shell_prompt, should_check_agent_exit,
+        should_detect_unbound_session,
+    };
     use crate::service::boot_stage::{allows_shell_prompt_exit, BootStage};
     use std::time::{Duration, Instant};
 
@@ -994,5 +996,12 @@ mod exit_detection_tests {
     #[test]
     fn post_agent_ready_shell_prompt_still_clears() {
         assert!(allows_shell_prompt_exit(Some(BootStage::AgentReady)));
+    }
+
+    #[test]
+    fn changed_agent_screen_checks_exit_without_global_sampling() {
+        assert!(should_check_agent_exit(false, true));
+        assert!(should_check_agent_exit(true, false));
+        assert!(!should_check_agent_exit(false, false));
     }
 }
