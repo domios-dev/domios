@@ -74,6 +74,9 @@ pub enum InjectionError {
     PtyClosed {
         pty_id: String,
     },
+    AgentInputUnavailable {
+        pty_id: String,
+    },
     AgentTuiPresent {
         pty_id: String,
     },
@@ -106,6 +109,13 @@ impl std::fmt::Display for InjectionError {
                 )
             }
             Self::PtyClosed { pty_id } => write!(f, "pty {} is closed", pty_id),
+            Self::AgentInputUnavailable { pty_id } => {
+                write!(
+                    f,
+                    "agent_unavailable: input permit is stale for pty {}",
+                    pty_id
+                )
+            }
             Self::AgentTuiPresent { pty_id } => {
                 write!(
                     f,
