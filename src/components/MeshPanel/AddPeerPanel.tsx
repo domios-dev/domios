@@ -7,6 +7,16 @@ import { BusySpinner } from "../shared/BusyState";
 const ACTION_BTN_CLASS = `${UI_BUTTON.ghost} ${UI_BUTTON.compact}`;
 const PRIMARY_BTN_CLASS = `${UI_BUTTON.accent} ${UI_BUTTON.compact}`;
 
+type ConnectResult = {
+  status?: "pending" | "connected";
+  existing?: boolean;
+};
+
+type ConnectStatus = {
+  instanceId: string;
+  message: string;
+};
+
 export default function AddPeerPanel() {
   const [peers, setPeers] = useState<MeshPeersResponse | null>(null);
   const [connecting, setConnecting] = useState<string | null>(null);
@@ -15,6 +25,7 @@ export default function AddPeerPanel() {
   const [manualAddr, setManualAddr] = useState("");
   const [showManual, setShowManual] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [connectStatus, setConnectStatus] = useState<ConnectStatus | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -86,8 +97,18 @@ export default function AddPeerPanel() {
     if (connecting) return;
     setConnecting(instanceId);
     setError(null);
+    setConnectStatus(null);
     try {
-      await invoke("mesh_connect", { instanceId });
+      const result = await invoke<ConnectResult>("mesh_connect", { instanceId });
+      if (result.status === "connected") {
+        setConnectStatus({ instanceId, message: "Already connected." });
+      } else if (result.status === "pending") {
+        setConnectStatus({
+          instanceId,
+          message: result.existing ? "Pairing request is already pending." : "Pairing request pending approval.",
+        });
+      }
+      await fetchPeers();
     } catch (e) {
       setError(String(e));
     } finally {
@@ -157,7 +178,7 @@ export default function AddPeerPanel() {
         </div>
       )}
       {error && (
-        <div className={`text-[var(--ct-red)] bg-[var(--ct-bg)] border border-[var(--ct-red)] rounded p-2 break-all ${UI_TEXT.meta}`}>
+        <div role="alert" data-testid="mesh-connect-error" className={`text-[var(--ct-red)] bg-[var(--ct-bg)] border border-[var(--ct-red)] rounded p-2 break-all ${UI_TEXT.meta}`}>
           {error}
         </div>
       )}
@@ -211,6 +232,7 @@ export default function AddPeerPanel() {
               elapsed={connecting === peer.instance_id ? elapsed : 0}
               onConnect={() => handleConnect(peer.instance_id)}
               connectDisabled={connecting !== null}
+              status={connectStatus?.instanceId === peer.instance_id ? connectStatus.message : null}
             />
           ))
         )}
@@ -316,6 +338,7 @@ function DiscoveredPeerRow({
   elapsed,
   onConnect,
   connectDisabled,
+  status,
 }: {
   peer: DiscoveredPeer;
   paired: PairedPeer[];
@@ -323,6 +346,7 @@ function DiscoveredPeerRow({
   elapsed: number;
   onConnect: () => void;
   connectDisabled: boolean;
+  status: string | null;
 }) {
   const voucherNames = (peer.vouched_by ?? [])
     .map((id) => paired.find((p) => p.instance_id === id)?.instance_name)
@@ -363,6 +387,7 @@ function DiscoveredPeerRow({
           <button
             onClick={onConnect}
             disabled={connectDisabled}
+            data-testid={`mesh-connect-${peer.instance_id}`}
             className={`${UI_BUTTON.accent} ${UI_BUTTON.compact} disabled:opacity-50 flex-shrink-0`}
           >
             {hasVouchers ? "Pair too?" : hasPeers ? "Add to Mesh" : "Connect"}
@@ -377,6 +402,11 @@ function DiscoveredPeerRow({
       {isPending && (
         <div className={`mt-1.5 ${UI_TEXT.metaMuted}`}>
           Accept the pairing request on {peer.instance_name}
+        </div>
+      )}
+      {status && (
+        <div role="status" aria-live="polite" data-testid={`mesh-connect-status-${peer.instance_id}`} className={`mt-1.5 ${UI_TEXT.metaMuted}`}>
+          {status}
         </div>
       )}
     </div>
