@@ -419,6 +419,23 @@ impl MeshManager {
         let pending = &self.pending_requests;
         self.pairing_targets
             .retain(|id, _| pending.contains_key(id));
+        let expired_targets: Vec<String> = self
+            .pairing_targets
+            .iter()
+            .filter(|(request_id, _)| {
+                self.pending_requests
+                    .get(*request_id)
+                    .is_some_and(|request| request.status != types::PairingStatus::Pending)
+            })
+            .map(|(_, (_, _, target_id))| target_id.clone())
+            .collect();
+        let stranded_deliveries: Vec<_> = expired_targets
+            .iter()
+            .filter_map(|target_id| self.pairing_deliveries.remove(target_id))
+            .collect();
+        for delivery in stranded_deliveries {
+            delivery.complete(Err("Pairing request expired".to_string()));
+        }
         if expired > 0 || dropped > 0 {
             log::info!(
                 "[mesh] Pairing requests: {} marked expired, {} dropped",
@@ -832,6 +849,27 @@ mod tests {
         m.cleanup_expired_requests_at(1000 + 3601);
         assert!(m.pending_requests.is_empty());
         assert!(m.pairing_targets.is_empty(), "targets must not leak");
+    }
+
+    #[test]
+    fn cleanup_expired_request_completes_its_inflight_delivery() {
+        let mut m = MeshManager::new("test-host".into(), 7685);
+        m.disk_persist = false;
+        m.pending_requests
+            .insert("r1".into(), pending_request("r1", "peer-a", 1000));
+        m.pairing_targets
+            .insert("r1".into(), ("192.168.1.2".into(), 7685, "peer-a".into()));
+        let delivery = Arc::new(PairingDelivery::new());
+        m.pairing_deliveries
+            .insert("peer-a".into(), delivery.clone());
+
+        m.cleanup_expired_requests_at(1000 + 301);
+
+        assert!(m.pairing_deliveries.is_empty());
+        assert_eq!(
+            delivery.outcome.lock().clone().unwrap().unwrap_err(),
+            "Pairing request expired"
+        );
     }
 
     #[test]
