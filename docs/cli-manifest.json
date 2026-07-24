@@ -10424,8 +10424,24 @@
           "subcommands": []
         },
         {
+          "name": "inspect",
+          "about": "Show the full daemon pane payload for one or more explicit tab ids",
+          "aliases": [],
+          "args": [
+            {
+              "name": "panes",
+              "positional": true,
+              "value_name": "PANES",
+              "default": null,
+              "help": "One or more tab ids to inspect",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "list",
-          "about": "List all tabs as a workspace-grouped tree. `--agents` filters to agent tabs only",
+          "about": "List compact tab summaries in the current workspace. Use `tab inspect` for full pane details",
           "aliases": [],
           "args": [
             {
@@ -10434,6 +10450,22 @@
               "value_name": "AGENTS",
               "default": null,
               "help": "Show only tabs running an agent (have an agent_type)",
+              "aliases": []
+            },
+            {
+              "name": "all-workspaces",
+              "positional": false,
+              "value_name": "ALL_WORKSPACES",
+              "default": null,
+              "help": "Include every workspace instead of the current one",
+              "aliases": []
+            },
+            {
+              "name": "workspace",
+              "positional": false,
+              "value_name": "WORKSPACE_ID",
+              "default": null,
+              "help": "Workspace id to list. Defaults to this tab's workspace, then the focused workspace",
               "aliases": []
             }
           ],

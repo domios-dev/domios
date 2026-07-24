@@ -112,6 +112,7 @@ pub fn create_router(state: AppState) -> Router {
             "/api/panes",
             get(pane_routes::list_panes).post(pane_routes::create_shell_pane),
         )
+        .route("/api/panes/inspect", get(pane_routes::inspect_panes))
         .route(
             "/api/plans",
             get(plan_routes::list).post(plan_routes::create),

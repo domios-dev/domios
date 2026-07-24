@@ -98,7 +98,8 @@ Closed panes and workspaces are recorded in a persistent ring. Every close actio
 #### Panes
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| GET | `/api/panes` | — | List all panes |
+| GET | `/api/panes` | `?workspace_id=<id>&agents=<bool>` or `?all_workspaces=true` | List compact pane summaries. Defaults to the focused workspace; use the explicit inspect endpoint for full payloads. |
+| GET | `/api/panes/inspect` | `?pane_ids=<id>,<id>` | Return the full pane payload for the selected pane IDs only. |
 | POST | `/api/panes` | `{title?, description?, cwd?, workspace_id?, cmd?, eager?, chat_backend?, system_prompt?, preset?, model?}` | Create a shell pane. `description` is trimmed, empty clears it, and values over 200 chars are rejected. When `cmd` is provided, CodeTerm sends it to the fresh pane through the same verified send path used by `/api/panes/{id}/send`, with Enter appended. When `chat_backend` names an installed `chatBackend` plugin id, an **open agent shell** pane is created instead of a PTY: `system_prompt` overrides the resolved preset's prompt, `preset` selects one (omit → the plugin's `defaultPreset`), `model` picks a model. These three are only meaningful with `chat_backend`. |
 | POST | `/api/panes/{id}/send` | `{text?, enter?, raw?, actions?: [{type:"key", key} \| {type:"delay", ms}], batch?: [{text, enter?, delay_ms?}], source_pane?}` | Send text or terminal actions to PTY. Fire-and-forget — returns `{ok:true}` as soon as bytes are written or queued. `actions` supports keys (`enter`, `esc`, arrows, `tab`, `backspace`, `delete`, `home/end`, `pageup/pagedown`, `space`, `ctrl-c`) and millisecond delays. Verification fields were removed in v1.2.3 (#101): TUI agents (Claude/Codex) intercept input and don't echo per-character, so the old `verify` flag couldn't deliver on its name. For agent request/response, a future `codeterm agent send` will hook into provider semantics. |
 | POST | `/api/panes/{id}/stop` | — | Stop the pane's PTY process |
@@ -173,7 +174,7 @@ No disk persistence — restart wipes every paste. Correct semantics for "drop a
 
 ### Pane Fields
 
-Fields returned by `GET /api/panes` for each pane:
+Full fields returned by `GET /api/panes/inspect` for each selected pane:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -1352,4 +1353,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 85 -->
+<!-- revision: 86 -->
