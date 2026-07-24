@@ -697,11 +697,22 @@ impl PlanStore {
     ) -> Result<TaskAttemptCreated, PlanError> {
         let mut created = None;
         self.with_plan(plan_id, now_ms, |plan| {
-            let task = plan
+            let task_index = plan
                 .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+                .iter()
+                .position(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
+            if plan.tasks[task_index].status == TaskStatus::Pending {
+                super::review_gate::validate_dispatch_review_capacity(
+                    plan,
+                    &plan.tasks[task_index],
+                )?;
+            }
+            let task = &mut plan.tasks[task_index];
+            if task.status == TaskStatus::Pending {
+                task.status = TaskStatus::InProgress;
+                task.status_changed_at = now_ms;
+            }
             task.assigned_pane_id = Some(pane_id.into());
             task.lane.pane_id = Some(pane_id.into());
             task.taken_by_role = role.map(str::to_string);
@@ -735,11 +746,18 @@ impl PlanStore {
     ) -> Result<TaskAttemptCreated, PlanError> {
         let mut created = None;
         self.with_plan(plan_id, now_ms, |plan| {
-            let task = plan
+            let task_index = plan
                 .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+                .iter()
+                .position(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
+            if plan.tasks[task_index].status == TaskStatus::Pending {
+                super::review_gate::validate_dispatch_review_capacity(
+                    plan,
+                    &plan.tasks[task_index],
+                )?;
+            }
+            let task = &mut plan.tasks[task_index];
             if task.status == TaskStatus::Pending {
                 task.status = TaskStatus::InProgress;
                 task.status_changed_at = now_ms;
