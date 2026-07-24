@@ -1,19 +1,20 @@
 use serde_json::{json, Value};
+use std::time::{Duration, Instant};
 use tauri::AppHandle;
 
-use crate::plan::Task;
+use crate::plan::{Task, TaskLaneMetadata};
 use crate::service::plan::milestone_gates::{
     regression_dispatch_decision, DispatchExemption, RegressionDispatchDecision, RegressionGate,
 };
 use crate::service::plan::task_queries::TaskSection;
-use crate::service::plan::{PlanError, PlanStore};
+use crate::service::plan::PlanError;
 use crate::service::{
-    ProvisionedWorkerLane, ServiceState, SpawnAgentParams, SpawnIdentityProvenance,
+    verify_worker_lane, ProvisionedWorkerLane, ServiceState, SpawnAgentParams,
+    SpawnIdentityProvenance, WorkerLaneProvenance,
 };
 
 use super::plan::{emit_plan_changed, plan_rpc_err};
 use super::plan_refs;
-use super::plan_role_helpers::assign_task_with_profile;
 use super::JsonRpcError;
 
 fn owned_str(p: Option<&Value>, key: &str) -> Option<String> {
@@ -22,12 +23,188 @@ fn owned_str(p: Option<&Value>, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn spawn_failed(message: String) -> JsonRpcError {
+const DISPATCH_READY_TIMEOUT: Duration = Duration::from_secs(90);
+
+fn dispatch_failed(stage: &str, message: String) -> JsonRpcError {
     JsonRpcError {
         code: -32603,
-        message,
-        data: None,
+        message: format!("dispatch failed at {stage}: {message}"),
+        data: Some(json!({
+            "type": "task_dispatch_failed",
+            "stage": stage,
+            "reason": message,
+        })),
     }
+}
+
+fn invalid_dispatch(reason: impl Into<String>) -> JsonRpcError {
+    let reason = reason.into();
+    JsonRpcError {
+        code: -32602,
+        message: format!("invalid task dispatch: {reason}"),
+        data: Some(json!({
+            "type": "invalid_task_dispatch",
+            "stage": "cwd_validation",
+            "reason": reason,
+        })),
+    }
+}
+
+#[derive(Clone, Debug)]
+struct DispatchLaneResolution {
+    spawn_cwd: String,
+    existing: Option<WorkerLaneProvenance>,
+}
+
+fn resolve_dispatch_lane(
+    explicit_cwd: Option<&str>,
+    canonical_cwd: &str,
+    task_lane: &TaskLaneMetadata,
+) -> Result<DispatchLaneResolution, JsonRpcError> {
+    if let Some(explicit) = explicit_cwd {
+        if crate::service::ServiceContext::paths_equal(explicit, canonical_cwd) {
+            return Err(invalid_dispatch(
+                "an explicit cwd may not be the plan canonical checkout",
+            ));
+        }
+        if task_lane.worktree_path.as_deref().is_some_and(|recorded| {
+            !crate::service::ServiceContext::paths_equal(explicit, recorded)
+        }) {
+            return Err(invalid_dispatch(format!(
+                "explicit cwd '{}' conflicts with recorded lane worktree '{}'",
+                explicit,
+                task_lane.worktree_path.as_deref().unwrap_or_default()
+            )));
+        }
+        let existing = verify_worker_lane(
+            canonical_cwd,
+            explicit,
+            task_lane.branch.as_deref(),
+            task_lane.base.as_deref(),
+        )
+        .map_err(invalid_dispatch)?;
+        return Ok(DispatchLaneResolution {
+            spawn_cwd: existing.worktree_path.clone(),
+            existing: Some(existing),
+        });
+    }
+    if let Some(recorded) = task_lane.worktree_path.as_deref() {
+        let existing = verify_worker_lane(
+            canonical_cwd,
+            recorded,
+            task_lane.branch.as_deref(),
+            task_lane.base.as_deref(),
+        )
+        .map_err(invalid_dispatch)?;
+        return Ok(DispatchLaneResolution {
+            spawn_cwd: existing.worktree_path.clone(),
+            existing: Some(existing),
+        });
+    }
+    Ok(DispatchLaneResolution {
+        spawn_cwd: canonical_cwd.to_string(),
+        existing: None,
+    })
+}
+
+fn lane_metadata_for_dispatch(
+    original: &TaskLaneMetadata,
+    provenance: &WorkerLaneProvenance,
+) -> TaskLaneMetadata {
+    let mut lane = original.clone();
+    lane.worktree_path = Some(provenance.worktree_path.clone());
+    lane.branch = Some(provenance.branch.clone());
+    lane.base = Some(provenance.base.clone());
+    lane.cleanup_status = None;
+    lane
+}
+
+fn await_agent_ready(
+    ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>,
+    deadline: Instant,
+) -> Result<(), String> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        return Err("agent readiness deadline expired".into());
+    }
+    match tauri::async_runtime::block_on(
+        async move { tokio::time::timeout(remaining, ready_rx).await },
+    ) {
+        Ok(Ok(Ok(()))) => Ok(()),
+        Ok(Ok(Err(error))) => Err(error),
+        Ok(Err(_)) => Err("agent readiness channel closed".into()),
+        Err(_) => Err("agent readiness deadline expired".into()),
+    }
+}
+
+fn wait_for_pane_session(
+    svc: &ServiceState,
+    pane_id: &str,
+    deadline: Instant,
+) -> Result<String, String> {
+    crate::service::general_agent::binding_wait::wait_for_session_binding(deadline, || {
+        svc.mux
+            .read()
+            .get_pane(pane_id)
+            .and_then(|pane| pane.agent_session_id.clone())
+            .filter(|session| !session.trim().is_empty())
+    })
+    .ok_or_else(|| {
+        if svc.mux.read().get_pane(pane_id).is_none() {
+            format!("spawned pane '{pane_id}' was removed before session binding")
+        } else {
+            format!("spawned pane '{pane_id}' did not bind a session before the deadline")
+        }
+    })
+}
+
+fn close_pane_if_present(svc: &ServiceState, pane_id: &str) -> Result<(), String> {
+    if svc.mux.read().get_pane(pane_id).is_none() {
+        Ok(())
+    } else {
+        svc.close_pane(pane_id)
+    }
+}
+
+#[derive(Clone, Debug)]
+struct DispatchEvidence {
+    session_id: String,
+    lane: WorkerLaneProvenance,
+}
+
+fn complete_dispatch_transaction<Ready, Binding, Provenance, Commit, Deliver, Rollback>(
+    deadline: Instant,
+    await_ready: Ready,
+    wait_binding: Binding,
+    validate_provenance: Provenance,
+    commit: Commit,
+    deliver: Deliver,
+    rollback: Rollback,
+) -> Result<DispatchEvidence, JsonRpcError>
+where
+    Ready: FnOnce(Instant) -> Result<(), String>,
+    Binding: FnOnce(Instant) -> Result<String, String>,
+    Provenance: FnOnce() -> Result<WorkerLaneProvenance, String>,
+    Commit: FnOnce(&WorkerLaneProvenance, &str) -> Result<(), String>,
+    Deliver: FnOnce() -> Result<(), String>,
+    Rollback: FnOnce() -> Result<(), String>,
+{
+    let outcome = (|| {
+        await_ready(deadline).map_err(|error| dispatch_failed("agent_ready", error))?;
+        let session_id =
+            wait_binding(deadline).map_err(|error| dispatch_failed("session_binding", error))?;
+        let lane =
+            validate_provenance().map_err(|error| dispatch_failed("provenance_readback", error))?;
+        commit(&lane, &session_id).map_err(|error| dispatch_failed("task_commit", error))?;
+        deliver().map_err(|error| dispatch_failed("brief_delivery", error))?;
+        Ok(DispatchEvidence { session_id, lane })
+    })();
+    if outcome.is_err() {
+        if let Err(cleanup) = rollback() {
+            return Err(dispatch_failed("compensation", cleanup));
+        }
+    }
+    outcome
 }
 
 fn gate_keys(gates: &[RegressionGate]) -> String {
@@ -237,9 +414,17 @@ pub(super) fn dispatch(
     // A personality is the executor persona: it names the pane and opens the brief.
     let (explicit_persona, title_provenance) = dispatch_worker_identity(&detail.task);
 
+    let explicit_cwd = owned_str(p, "cwd");
+    let canonical_cwd = if plan.canonical_project_path.trim().is_empty() {
+        plan.project_path.clone()
+    } else {
+        plan.canonical_project_path.clone()
+    };
+    let lane_resolution =
+        resolve_dispatch_lane(explicit_cwd.as_deref(), &canonical_cwd, &detail.task.lane)?;
     let mut spawn_params = SpawnAgentParams {
         agent: routing.agent.clone(),
-        cwd: owned_str(p, "cwd"),
+        cwd: Some(lane_resolution.spawn_cwd.clone()),
         title: explicit_persona,
         title_provenance,
         role: Some("Worker".into()),
@@ -255,63 +440,105 @@ pub(super) fn dispatch(
     };
 
     let lane_label = format!("{plan_id}-{task_id}");
-    let lane = svc
+    let provisioned_lane = svc
         .provision_worker_lane_for_spawn(&mut spawn_params, &lane_label)
-        .map_err(spawn_failed)?;
-    // Spawn first: a spawn failure leaves the task untouched — nothing to undo.
-    let spawn = match svc.spawn_agent_sync(spawn_params) {
+        .map_err(|error| dispatch_failed("lane_provision", error))?;
+    let initial_provenance = match provisioned_lane.as_ref() {
+        Some(lane) => lane.verify(),
+        None => lane_resolution
+            .existing
+            .clone()
+            .ok_or_else(|| "dispatch did not provision or resolve a worker lane".to_string()),
+    };
+    let initial_provenance = match initial_provenance {
+        Ok(provenance) => provenance,
+        Err(error) => {
+            if let Some(lane) = provisioned_lane {
+                if let Err(cleanup) = lane.cleanup() {
+                    return Err(dispatch_failed(
+                        "compensation",
+                        format!("{error}; lane cleanup failed: {cleanup}"),
+                    ));
+                }
+            }
+            return Err(dispatch_failed("provenance_validation", error));
+        }
+    };
+    let ready_deadline = Instant::now() + DISPATCH_READY_TIMEOUT;
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+    let spawn = match svc.spawn_agent_sync_with_ready(spawn_params, Some(ready_tx)) {
         Ok(spawn) => spawn,
         Err(error) => {
-            if let Some(lane) = lane {
-                lane.cleanup();
+            if let Some(lane) = provisioned_lane {
+                if let Err(cleanup) = lane.cleanup() {
+                    return Err(dispatch_failed(
+                        "compensation",
+                        format!("{error}; lane cleanup failed: {cleanup}"),
+                    ));
+                }
             }
-            return Err(spawn_failed(error));
+            return Err(dispatch_failed("agent_spawn", error));
         }
     };
     let pane_id = spawn.pane_id.clone();
-
-    let outcome = (|| -> Result<(), JsonRpcError> {
-        let assign = Some(json!({
-            "plan_id": plan_id,
-            "task_id": task_id,
-            "pane": pane_id,
-        }));
-        assign_task_with_profile(store, svc, &assign, assign.as_ref(), now)?;
-        set_in_progress(store, &plan_id, &task_id, now)?;
-        let session_id = svc
-            .mux
-            .read()
-            .get_pane(&pane_id)
-            .and_then(|pane| pane.agent_session_id.clone());
-        store
-            .update_attempt_executor_identity(
-                &plan_id,
-                &task_id,
-                &pane_id,
-                Some(&spawn.title),
-                session_id.as_deref(),
-                now,
+    let original_task = detail.task.clone();
+    let original_plan_mode = plan.mode.clone();
+    let brief = build_brief_with_claimed_persona(&detail.task, &detail.sections, &spawn.title);
+    let provenance_for_readback = initial_provenance.clone();
+    let lane_for_commit = detail.task.lane.clone();
+    let cleanup_lane = provisioned_lane;
+    let evidence = complete_dispatch_transaction(
+        ready_deadline,
+        |deadline| await_agent_ready(ready_rx, deadline),
+        |deadline| wait_for_pane_session(svc, &pane_id, deadline),
+        || {
+            verify_worker_lane(
+                &provenance_for_readback.canonical_cwd,
+                &provenance_for_readback.worktree_path,
+                Some(&provenance_for_readback.branch),
+                Some(&provenance_for_readback.base),
             )
-            .map_err(plan_rpc_err)?;
-        let brief = build_brief_with_claimed_persona(&detail.task, &detail.sections, &spawn.title);
-        svc.send_text_detached(&pane_id, &brief, true);
-        Ok(())
-    })();
+        },
+        |provenance, session_id| {
+            let lane = lane_metadata_for_dispatch(&lane_for_commit, provenance);
+            store
+                .commit_task_dispatch(
+                    &plan_id,
+                    &task_id,
+                    &pane_id,
+                    &spawn.title,
+                    session_id,
+                    lane,
+                    now,
+                )
+                .map_err(|error| error.to_string())
+        },
+        || svc.send_text(&pane_id, &brief, true),
+        || {
+            rollback_failed_dispatch(
+                cleanup_lane,
+                || {
+                    store
+                        .restore_task_dispatch_snapshot(
+                            &plan_id,
+                            &original_task,
+                            original_plan_mode,
+                            now,
+                        )
+                        .map_err(|error| error.to_string())
+                },
+                || close_pane_if_present(svc, &pane_id),
+            )
+        },
+    );
 
-    if let Err(e) = outcome {
-        rollback_failed_dispatch(
-            lane,
-            || {
-                let _ = store.revert_task_dispatch(&plan_id, &task_id, now);
-            },
-            || {
-                let _ = svc.close_pane(&pane_id);
-            },
-        );
-        emit_plan_changed(app, &plan_id);
-        return Err(e);
-    }
-
+    let evidence = match evidence {
+        Ok(evidence) => evidence,
+        Err(error) => {
+            emit_plan_changed(app, &plan_id);
+            return Err(error);
+        }
+    };
     emit_plan_changed(app, &plan_id);
     let model_fallback = spawn.model_fallback.clone();
     let mut result = json!({
@@ -321,6 +548,20 @@ pub(super) fn dispatch(
         "pane_id": pane_id,
         "agent": resolved_provider,
         "spawn": spawn,
+        "readiness": {
+            "agent_ready": true,
+            "session_bound": true,
+            "session_id": evidence.session_id,
+        },
+        "lane": {
+            "worktree_path": evidence.lane.worktree_path,
+            "branch": evidence.lane.branch,
+            "base": evidence.lane.base,
+            "canonical_project_path": evidence.lane.canonical_cwd,
+            "destination": detail.task.lane.destination,
+            "workspace_id": detail.task.lane.workspace_id,
+            "workspace_name": detail.task.lane.workspace_name,
+        },
     });
     if !warnings.is_empty() {
         result["warnings"] = json!(warnings);
@@ -341,14 +582,27 @@ fn rollback_failed_dispatch<R, C>(
     lane: Option<ProvisionedWorkerLane>,
     revert_task: R,
     close_pane: C,
-) where
-    R: FnOnce(),
-    C: FnOnce(),
+) -> Result<(), String>
+where
+    R: FnOnce() -> Result<(), String>,
+    C: FnOnce() -> Result<(), String>,
 {
-    revert_task();
-    close_pane();
+    let mut errors = Vec::new();
+    if let Err(error) = revert_task() {
+        errors.push(format!("task restore failed: {error}"));
+    }
+    if let Err(error) = close_pane() {
+        errors.push(format!("pane close failed: {error}"));
+    }
     if let Some(lane) = lane {
-        lane.cleanup();
+        if let Err(error) = lane.cleanup() {
+            errors.push(format!("lane cleanup failed: {error}"));
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
     }
 }
 
@@ -360,37 +614,6 @@ fn build_brief_with_claimed_persona(
     let mut claimed_task = task.clone();
     claimed_task.personality = Some(claimed_title.to_string());
     build_brief(&claimed_task, sections)
-}
-
-fn set_in_progress(
-    store: &PlanStore,
-    plan_id: &str,
-    task_id: &str,
-    now: u64,
-) -> Result<(), JsonRpcError> {
-    store
-        .update_task(
-            plan_id,
-            task_id,
-            None,
-            None,
-            None,
-            None,
-            Some("in_progress"),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            &[],
-            None,
-            None,
-            now,
-        )
-        .map_err(plan_rpc_err)
 }
 
 /// Assemble the worker brief: body, acceptance, test plan, section links,
