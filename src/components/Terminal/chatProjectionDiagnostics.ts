@@ -29,6 +29,9 @@ export interface ProjectionCounters {
   committed: number;
   /** Painted/visible tail commits (deferred downstream projection). */
   painted: number;
+  /** Tail signatures (`<lastId>#<contentLength>`), not bare ids: streaming grows
+   *  the tail message under a stable id, so a content-blind tail would hide a
+   *  committed-but-unpainted stream update from `firstStalledEdge`. */
   arrivalTail: string | null;
   authorityTail: string | null;
   committedTail: string | null;
@@ -38,9 +41,9 @@ export interface ProjectionCounters {
 export interface StalledEdge {
   from: ProjectionStage;
   to: ProjectionStage;
-  /** Tail the upstream stage reached. */
+  /** Tail signature the upstream stage reached. */
   expectedTail: string | null;
-  /** Tail the downstream stage has actually caught up to. */
+  /** Tail signature the downstream stage has actually caught up to. */
   observedTail: string | null;
 }
 
@@ -59,10 +62,6 @@ function freshCounters(): ProjectionCounters {
     committedTail: null,
     paintedTail: null,
   };
-}
-
-function tailOf(messageIds: readonly string[], previous: string | null): string | null {
-  return messageIds.length > 0 ? messageIds[messageIds.length - 1]! : previous;
 }
 
 interface StageTail {
@@ -92,30 +91,38 @@ export class ChatProjectionMonitor {
       case "event_arrival":
         counters.arrived += 1;
         counters.producedMessages += event.messageIds.length;
-        counters.arrivalTail = tailOf(event.messageIds, counters.arrivalTail);
+        counters.arrivalTail = event.tailSignature ?? counters.arrivalTail;
         break;
       case "authority_adopt":
         counters.adopted += 1;
-        counters.authorityTail = tailOf(event.messageIds, counters.authorityTail);
+        counters.authorityTail = event.tailSignature ?? counters.authorityTail;
         break;
       case "authority_drop":
         counters.dropped += 1;
         break;
       case "state_commit":
         counters.committed += 1;
-        counters.committedTail = tailOf(event.messageIds, counters.committedTail);
+        counters.committedTail = event.tailSignature ?? counters.committedTail;
         break;
       default:
         break;
     }
   }
 
-  /** Painted tail from the render layer. `tailId` is the last visible message id
-   *  (null when the visible projection is empty). Passive observation only. */
-  recordPaint(paneId: string, tailId: string | null): void {
+  /** Painted tail from the render layer. `tailSignature` is the last visible
+   *  message's signature (`<id>#<contentLength>`; null when the visible
+   *  projection is empty). Passive observation only — records what was painted,
+   *  never influences what renders. */
+  recordPaint(paneId: string, tailSignature: string | null): void {
     const counters = this.touch(paneId);
     counters.painted += 1;
-    counters.paintedTail = tailId;
+    counters.paintedTail = tailSignature;
+  }
+
+  /** Drop a pane's record on unmount so tracking follows component lifecycle and
+   *  torn-down panes do not linger until the LRU cap evicts them. */
+  forget(paneId: string): void {
+    this.panes.delete(paneId);
   }
 
   snapshot(paneId: string): ProjectionCounters | null {
@@ -173,6 +180,29 @@ export class ChatProjectionMonitor {
     }
     return counters;
   }
+}
+
+/** Run `record` after the browser has painted the current commit, not merely
+ *  after React commits the DOM. A layout effect fires before paint, so it would
+ *  mistime the painted-tail probe; a double rAF lands after the frame the commit
+ *  produced is on screen. Returns a canceller (cancels a superseded frame when
+ *  renders outrun paints — exactly the starvation the probe measures). Falls back
+ *  to a synchronous record when no rAF exists (non-browser/test host). */
+export function scheduleAfterPaint(record: () => void): () => void {
+  const raf = typeof requestAnimationFrame === "function" ? requestAnimationFrame : null;
+  const caf = typeof cancelAnimationFrame === "function" ? cancelAnimationFrame : null;
+  if (!raf) {
+    record();
+    return () => {};
+  }
+  let inner = 0;
+  const outer = raf(() => {
+    inner = raf(record);
+  });
+  return () => {
+    caf?.(outer);
+    caf?.(inner);
+  };
 }
 
 /** Process-wide monitor fed by production panes. Tests construct isolated
