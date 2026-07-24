@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::orchestrator::SpawnAgentParams;
@@ -8,16 +8,43 @@ use crate::process_util;
 
 #[derive(Debug)]
 pub(crate) struct ProvisionedWorkerLane {
-    project_cwd: String,
+    canonical_cwd: String,
     pub(crate) cwd: String,
     branch: String,
+    base: String,
 }
 
 impl ProvisionedWorkerLane {
-    pub(crate) fn cleanup(self) {
-        let _ = run_git(&self.project_cwd, ["worktree", "remove", &self.cwd]);
-        let _ = run_git(&self.project_cwd, ["branch", "-D", &self.branch]);
+    pub(crate) fn verify(&self) -> Result<WorkerLaneProvenance, String> {
+        verify_worker_lane(
+            &self.canonical_cwd,
+            &self.cwd,
+            Some(&self.branch),
+            Some(&self.base),
+        )
     }
+
+    pub(crate) fn cleanup(self) -> Result<(), String> {
+        let worktree = run_git(
+            &self.canonical_cwd,
+            ["worktree", "remove", "--force", &self.cwd],
+        );
+        let branch = run_git(&self.canonical_cwd, ["branch", "-D", &self.branch]);
+        match (worktree, branch) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(worktree), Ok(())) => Err(worktree),
+            (Ok(()), Err(branch)) => Err(branch),
+            (Err(worktree), Err(branch)) => Err(format!("{worktree}; {branch}")),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct WorkerLaneProvenance {
+    pub(crate) canonical_cwd: String,
+    pub(crate) worktree_path: String,
+    pub(crate) branch: String,
+    pub(crate) base: String,
 }
 
 impl ServiceContext {
@@ -91,11 +118,78 @@ fn provision_lane(project_cwd: &str, lane_label: &str) -> Result<ProvisionedWork
     })?;
     let lane_path = container.join(&slug);
     let lane_cwd = lane_path.display().to_string();
+    let base = git_value(project_cwd, ["rev-parse", "HEAD"])?;
     run_git(project_cwd, ["worktree", "add", "-b", &branch, &lane_cwd])?;
     Ok(ProvisionedWorkerLane {
-        project_cwd: project_cwd.into(),
+        canonical_cwd: project_cwd.into(),
         cwd: lane_cwd,
         branch,
+        base,
+    })
+}
+
+pub(crate) fn verify_worker_lane(
+    canonical_cwd: &str,
+    worktree_path: &str,
+    expected_branch: Option<&str>,
+    expected_base: Option<&str>,
+) -> Result<WorkerLaneProvenance, String> {
+    let canonical = canonical_path(canonical_cwd)?;
+    let worktree = canonical_path(worktree_path)?;
+    if canonical == worktree {
+        return Err("worker lane must not be the canonical checkout".into());
+    }
+    if !worktree.is_dir() {
+        return Err(format!(
+            "worker lane worktree does not exist: {}",
+            worktree.display()
+        ));
+    }
+    let root = canonical_path(&git_value(worktree_path, ["rev-parse", "--show-toplevel"])?)?;
+    if root != worktree {
+        return Err(format!(
+            "worker lane root '{}' does not match requested worktree '{}'",
+            root.display(),
+            worktree.display()
+        ));
+    }
+    let branch = git_value(worktree_path, ["branch", "--show-current"])?;
+    if branch.is_empty() {
+        return Err("worker lane is on a detached HEAD".into());
+    }
+    if expected_branch.is_some_and(|expected| expected != branch) {
+        return Err(format!(
+            "worker lane branch mismatch: expected '{}', found '{}'",
+            expected_branch.unwrap_or_default(),
+            branch
+        ));
+    }
+    let base = match expected_base
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(expected) => {
+            let commit_ref = format!("{expected}^{{commit}}");
+            let resolved = git_value(canonical_cwd, ["rev-parse", "--verify", &commit_ref])?;
+            run_git(
+                canonical_cwd,
+                ["merge-base", "--is-ancestor", &resolved, &branch],
+            )
+            .map_err(|_| {
+                format!(
+                    "worker lane base '{}' is not an ancestor of branch '{}'",
+                    expected, branch
+                )
+            })?;
+            resolved
+        }
+        None => git_value(canonical_cwd, ["merge-base", "HEAD", &branch])?,
+    };
+    Ok(WorkerLaneProvenance {
+        canonical_cwd: canonical.display().to_string(),
+        worktree_path: worktree.display().to_string(),
+        branch,
+        base,
     })
 }
 
@@ -144,6 +238,32 @@ fn run_git<'a>(project_cwd: &str, args: impl IntoIterator<Item = &'a str>) -> Re
     ))
 }
 
+fn git_value<'a>(
+    project_cwd: &str,
+    args: impl IntoIterator<Item = &'a str>,
+) -> Result<String, String> {
+    let args: Vec<&str> = args.into_iter().collect();
+    let mut command = Command::new("git");
+    process_util::no_window_std(&mut command);
+    let output = command
+        .current_dir(project_cwd)
+        .args(&args)
+        .output()
+        .map_err(|error| format!("failed to inspect worker lane: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "failed to inspect worker lane: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn canonical_path(path: &str) -> Result<PathBuf, String> {
+    std::fs::canonicalize(path)
+        .map_err(|error| format!("cannot resolve worker lane path '{path}': {error}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,6 +304,36 @@ mod tests {
             &lane.cwd,
             Some(project.to_str().unwrap())
         ));
-        lane.cleanup();
+        lane.cleanup().unwrap();
+    }
+
+    #[test]
+    fn worker_lane_verification_reads_back_branch_and_base_commit() {
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        git(&project, &["init", "-q"]);
+        git(&project, &["config", "user.email", "test@example.com"]);
+        git(&project, &["config", "user.name", "Test"]);
+        std::fs::write(project.join("README.md"), "fixture").unwrap();
+        git(&project, &["add", "README.md"]);
+        git(&project, &["commit", "-qm", "fixture"]);
+
+        let lane = provision_lane(project.to_str().unwrap(), "verify").unwrap();
+        let provenance = lane.verify().unwrap();
+        assert_eq!(provenance.branch, lane.branch);
+        assert_eq!(
+            provenance.base,
+            git_value(project.to_str().unwrap(), ["rev-parse", "HEAD"]).unwrap()
+        );
+        let error = verify_worker_lane(
+            project.to_str().unwrap(),
+            &lane.cwd,
+            Some("lane/wrong"),
+            Some(&provenance.base),
+        )
+        .unwrap_err();
+        assert!(error.contains("branch mismatch"));
+        lane.cleanup().unwrap();
     }
 }

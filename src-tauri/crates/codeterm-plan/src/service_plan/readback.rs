@@ -98,7 +98,10 @@ impl PlanStore {
         }
     }
 
-    fn task_readback_error(operation: &str, message: impl Into<String>) -> PlanError {
+    pub(in crate::service_plan) fn task_readback_error(
+        operation: &str,
+        message: impl Into<String>,
+    ) -> PlanError {
         PlanError::ReadbackMismatch {
             operation: operation.into(),
             message: message.into(),
@@ -117,7 +120,7 @@ impl PlanStore {
         COMMITTED_SNAPSHOT.with(|cell| *cell.borrow_mut() = Some(plan.clone()));
     }
 
-    fn committed_plan_for(&self, plan_id: &str) -> Option<Plan> {
+    pub(in crate::service_plan) fn committed_plan_for(&self, plan_id: &str) -> Option<Plan> {
         match COMMITTED_SNAPSHOT.with(|cell| cell.borrow_mut().take()) {
             Some(plan) if plan.id == plan_id => Some(plan),
             _ => self.get(plan_id),
@@ -172,7 +175,11 @@ impl PlanStore {
         Ok(())
     }
 
-    fn read_task_for_verification(&self, plan_id: &str, task_id: &str) -> Result<Task, PlanError> {
+    pub(in crate::service_plan) fn read_task_for_verification(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+    ) -> Result<Task, PlanError> {
         let plan = self
             .committed_plan_for(plan_id)
             .ok_or(PlanError::NotFound)?;
