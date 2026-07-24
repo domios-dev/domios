@@ -71,6 +71,11 @@ The self-termination guard prevents an orchestrator/planner from closing its OWN
 tab — so close children, not yourself. Sweep at every group close too, not only
 at the end, so tabs and worktrees never accumulate.
 
+Heartbeat digests surface cleanup pressure for the current canonical repository
+and orchestrator hierarchy. More than five worktrees or direct workers produces
+a soft reminder; more than ten produces a critical warning to clean merged lanes
+or inactive worker tabs before expanding the wave.
+
 Edit while work runs — `codeterm plan ...`/`spec ...` mutate a running effort safely. Re-orient with `plan get PLAN_ID` / `spec show SPEC_ID` (markdown) at any time.
 
 ## Planning Method — state in CodeTerm, quality from Superpowers
@@ -476,7 +481,7 @@ Allowed checks:
   accurate, leave the worker assigned, and advance another independent task if
   one exists.
 - If a worker appears overdue only because a plan nudge told you so, check
-  `codeterm orchestrator status --plan PLAN_ID --tab ORCH_TAB --json` first.
+  `codeterm orchestrator status --plan PLAN_ID --tab ORCH_TAB` first.
   Inspect a worker tab at most once, then either bounce it with a concrete next
   instruction or record why the lane remains in progress.
 
@@ -536,7 +541,8 @@ codeterm orchestrator heartbeat set \
 codeterm orchestrator heartbeat set --clear-lanes        # wipe lanes when a phase ends
 codeterm orchestrator heartbeat show                     # inspect current heartbeat
 codeterm orchestrator learn "QuickJS lacks console — guard host calls"   # append a learning
-codeterm --json orchestrator status --plan PLAN_ID       # reports + live_lanes + drift + next_actions
+codeterm orchestrator status --plan PLAN_ID              # compact counts + next actions
+codeterm --json orchestrator inspect --plan PLAN_ID       # explicit full snapshot with report bodies
 ```
 
 `set` writes only the fields you pass (omitted fields are left intact); `--clear-lanes` / `--clear-rules` empty those lists and cannot be combined with `--lane` / `--rule` in the same command. Plan is resolved from `--plan`/`CODETERM_PLAN_ID`, else the active plan owned by this tab/session. Keep the plan-owned heartbeat current after each state-reconciliation pass — the focus + lanes are what get reinjected.
@@ -1003,4 +1009,4 @@ Check both providers before heavy spawning: `codeterm usage latest --provider cl
 | Full mem reference | `codeterm docs MEMORY` |
 | REST + socket API | `codeterm docs API` |
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

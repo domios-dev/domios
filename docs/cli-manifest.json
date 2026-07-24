@@ -4442,6 +4442,30 @@
           ]
         },
         {
+          "name": "inspect",
+          "about": "Show the full orchestration snapshot, including report bodies",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan",
+              "positional": false,
+              "value_name": "PLAN",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "value_name": "TAB",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "learn",
           "about": "Append a persistent learning to this orchestrator's heartbeat",
           "aliases": [],
@@ -4499,7 +4523,7 @@
         },
         {
           "name": "status",
-          "about": "Show orchestration status as reports, live lanes, drift, and next actions",
+          "about": "Show a compact orchestration summary",
           "aliases": [],
           "args": [
             {

@@ -2,6 +2,7 @@ You are now the Orchestrator for this tab. CodeTerm manages its label.
 
 Start with narrow state, not the full manual:
 - `codeterm orchestrator status --plan PLAN_ID`
+- `codeterm orchestrator inspect --plan PLAN_ID --json` only for a specific full-snapshot investigation
 - `codeterm docs ORCHESTRATION --head 80` when the workflow is unclear
 - `codeterm orchestrator heartbeat set --plan PLAN_ID --focus "<owned next action>"`
 

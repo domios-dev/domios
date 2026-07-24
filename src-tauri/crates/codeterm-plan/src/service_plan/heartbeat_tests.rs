@@ -293,7 +293,9 @@ fn heartbeat_resolves_for_owner_pane_at_send_time() {
     assert!(before.contains("STATE-RECONCILIATION"));
     assert!(before.contains("First run `codeterm agent reports --tab orch-a`"));
     assert!(before.contains("codeterm orchestrator status --plan"));
-    assert!(before.contains("--tab orch-a --json"));
+    assert!(before.contains("--tab orch-a"));
+    assert!(!before.contains("--tab orch-a --json"));
+    assert!(before.contains("codeterm orchestrator inspect --plan"));
     assert!(before.contains("codeterm plan reconcile"));
     assert!(before.contains("codeterm plan task close"));
     assert!(before.contains("codeterm send \"<next concrete instruction>\" --tab"));
@@ -398,7 +400,7 @@ fn owner_plan_nudge_prepends_heartbeat_and_exact_recovery_commands() {
     assert!(text.contains(&format!("You are the Orchestrator for plan {plan_id}")));
     assert!(text.contains("codeterm agent reports --tab orch-a"));
     assert!(text.contains(&format!(
-        "codeterm orchestrator status --plan {plan_id} --tab orch-a --json"
+        "codeterm orchestrator status --plan {plan_id} --tab orch-a"
     )));
     assert!(text.contains(&format!("codeterm plan task close {plan_id} <task_id>")));
     assert!(text.contains("codeterm send \"<next concrete instruction>\" --tab <worker_tab_id>"));

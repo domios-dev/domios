@@ -2,8 +2,15 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum OrchestratorAction {
-    /// Show orchestration status as reports, live lanes, drift, and next actions
+    /// Show a compact orchestration summary
     Status {
+        #[arg(long, env = "CODETERM_PLAN_ID")]
+        plan: Option<String>,
+        #[arg(long = "tab", value_name = "TAB", env = "CODETERM_PANE_ID")]
+        pane: Option<String>,
+    },
+    /// Show the full orchestration snapshot, including report bodies
+    Inspect {
         #[arg(long, env = "CODETERM_PLAN_ID")]
         plan: Option<String>,
         #[arg(long = "tab", value_name = "TAB", env = "CODETERM_PANE_ID")]
@@ -107,6 +114,29 @@ mod tests {
                 assert_eq!(pane.as_deref(), Some("pane1"));
             }
             _ => panic!("expected orchestrator status"),
+        }
+    }
+
+    #[test]
+    fn inspect_parses_plan_and_pane() {
+        let parsed = Cli::try_parse_from([
+            "codeterm",
+            "orchestrator",
+            "inspect",
+            "--plan",
+            "pl_1",
+            "--tab",
+            "pane1",
+        ])
+        .expect("orchestrator inspect parses");
+        match parsed.command {
+            Commands::Orchestrator {
+                action: OrchestratorAction::Inspect { plan, pane },
+            } => {
+                assert_eq!(plan.as_deref(), Some("pl_1"));
+                assert_eq!(pane.as_deref(), Some("pane1"));
+            }
+            _ => panic!("expected orchestrator inspect"),
         }
     }
 
