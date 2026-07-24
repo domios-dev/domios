@@ -343,13 +343,8 @@ pub(super) fn validate_task_status_transition_with_lane(
             // returning to in_progress after a review bounce already holds its
             // slot and must not get stuck re-queued behind its own review.
             if matches!(current, TaskStatus::Pending) {
-                let gate = super::review_gate::review_gate_status(plan);
-                if gate.blocked {
-                    return Err(PlanError::ReviewWipExceeded {
-                        wip_count: gate.wip_count,
-                        wip_limit: gate.wip_limit,
-                        credit: gate.credit,
-                    });
+                if let Some(task) = task {
+                    super::review_gate::validate_dispatch_review_capacity(plan, task)?;
                 }
             }
         }
@@ -375,14 +370,14 @@ pub(super) fn validate_task_status_transition_with_lane(
     if status_unchanged {
         return Ok(());
     }
-    if matches!(next, TaskStatus::Done) {
-        reject_done_with_open_subtasks(plan, task_id)?;
-    }
-    if matches!((current, next), (TaskStatus::InReview, TaskStatus::Done)) {
+    if matches!(current, TaskStatus::InReview) {
         return Err(PlanError::TransitionDenied {
             from: current.clone(),
             to: next.clone(),
         });
+    }
+    if matches!(next, TaskStatus::Done) {
+        reject_done_with_open_subtasks(plan, task_id)?;
     }
     // Pausing must carry a reason + stride: force `plan task pause`, never a bare status set.
     if matches!(next, TaskStatus::Paused) {

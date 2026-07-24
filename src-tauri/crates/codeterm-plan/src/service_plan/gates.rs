@@ -20,7 +20,18 @@ fn create_gate(
     routed_to_pane_id: Option<String>,
     asked_by_pane_id: Option<&str>,
     now_ms: u64,
-) -> DecisionGate {
+) -> Result<DecisionGate, PlanError> {
+    if blocking_task_ids.iter().any(|task_id| {
+        plan.tasks.iter().any(|task| {
+            (&task.id == task_id || task.handle.as_deref() == Some(task_id))
+                && task.status == TaskStatus::InReview
+        })
+    }) {
+        return Err(PlanError::TransitionDenied {
+            from: TaskStatus::InReview,
+            to: TaskStatus::Paused,
+        });
+    }
     let gid = mint_id("gate", |candidate| gate_id_taken(plan, candidate));
     let pause_reason = format!(
         "gate:{gid}: {}",
@@ -68,7 +79,7 @@ fn create_gate(
         escalation_note: None,
     };
     plan.gates.push(gate.clone());
-    gate
+    Ok(gate)
 }
 
 /// Create a decision gate, pause all `blocking_task_ids`, and return the gate.
@@ -90,7 +101,7 @@ impl PlanStore {
             return Err(PlanError::GateRequiresQuestion);
         }
         self.with_plan(plan_id, now_ms, |plan| {
-            Ok(create_gate(
+            create_gate(
                 plan,
                 question,
                 context,
@@ -98,7 +109,7 @@ impl PlanStore {
                 routed_to_pane_id,
                 asked_by_pane_id,
                 now_ms,
-            ))
+            )
         })
     }
 
@@ -126,7 +137,7 @@ impl PlanStore {
                 routed_to_pane_id,
                 asked_by_pane_id,
                 now_ms,
-            );
+            )?;
             let request = PlannerRequest {
                 request_id: format!("gate:{}", gate.id),
                 payload: format!(
@@ -419,6 +430,32 @@ mod tests {
         assert_eq!(task3.status, TaskStatus::Pending);
 
         assert!(plan.tasks.iter().any(|t| t.status.counts_as_open_work()));
+    }
+
+    #[test]
+    fn ask_gate_cannot_bypass_review_verdict_with_a_pause() {
+        let (_dir, store, plan_id, task_ids) = store_with_tasks(&["reviewed-task"]);
+        let mut plan = store.get(&plan_id).unwrap();
+        plan.tasks[0].status = TaskStatus::InReview;
+        plan.review_policy.credit = -1;
+        store.save(&mut plan, 3).unwrap();
+
+        let error = store
+            .ask_gate(
+                &plan_id,
+                "Pause review?",
+                "",
+                &task_ids,
+                None,
+                Some("orch_pane"),
+                4,
+            )
+            .unwrap_err();
+        assert!(matches!(error, PlanError::TransitionDenied { .. }));
+        let plan = store.get(&plan_id).unwrap();
+        assert_eq!(plan.tasks[0].status, TaskStatus::InReview);
+        assert_eq!(plan.review_policy.credit, -1);
+        assert!(plan.gates.is_empty());
     }
 
     #[test]

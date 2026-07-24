@@ -31,21 +31,16 @@ pub(crate) fn preflight_worker_plan_task_wip_gate(
     let plan = store
         .get(&resolved.plan_id)
         .ok_or_else(|| "plan not found".to_string())?;
-    let pending = plan
+    let task = plan
         .tasks
         .iter()
         .find(|t| t.id == resolved.task_id)
-        .is_some_and(|t| t.status == crate::plan::TaskStatus::Pending);
-    if !pending {
+        .ok_or_else(|| "task not found".to_string())?;
+    if task.status != crate::plan::TaskStatus::Pending {
         return Ok(());
     }
-    let gate = store
-        .review_gate_status(&resolved.plan_id)
-        .map_err(|e| e.to_string())?;
-    if gate.blocked {
-        return Err(gate.reason.unwrap_or_else(|| "review_wip_exceeded".into()));
-    }
-    Ok(())
+    crate::service::plan::review_gate::validate_dispatch_review_capacity(&plan, task)
+        .map_err(|error| error.to_string())
 }
 
 pub(crate) fn bind_worker_task_to_pane(
@@ -285,6 +280,34 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (store, plan_id, _task_id) = store_with_task(dir.path());
         preflight_worker_plan_task_wip_gate(&store, Some(&plan_id), "spawn-bind").unwrap();
+    }
+
+    #[test]
+    fn spawn_preflight_allows_only_capacity_tagged_work_through_stranded_debt() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, plan_id, task_id) = store_with_task(dir.path());
+        let mut plan = store.get(&plan_id).unwrap();
+        plan.review_policy.credit = -(plan.review_policy.wip_limit as i64);
+        plan.tasks
+            .iter_mut()
+            .find(|task| task.id == task_id)
+            .unwrap()
+            .tags
+            .push(crate::service::plan::review_gate::REVIEW_CAPACITY_TAG.into());
+        store.save(&mut plan, 4).unwrap();
+        preflight_worker_plan_task_wip_gate(&store, Some(&plan_id), "spawn-bind").unwrap();
+
+        let mut plan = store.get(&plan_id).unwrap();
+        plan.tasks
+            .iter_mut()
+            .find(|task| task.id == task_id)
+            .unwrap()
+            .tags
+            .clear();
+        store.save(&mut plan, 5).unwrap();
+        let error =
+            preflight_worker_plan_task_wip_gate(&store, Some(&plan_id), "spawn-bind").unwrap_err();
+        assert!(error.contains("review"), "{error}");
     }
 
     // Reproduces the incident: `assign_task_with_role` (step 1) already binds

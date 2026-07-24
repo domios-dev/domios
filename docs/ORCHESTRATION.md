@@ -126,6 +126,21 @@ Every Worker must be visible under the Orchestrator and carry:
 
 Use `codeterm docs LANES` for the complete lane lifecycle.
 
+## Review capacity
+
+Review backpressure blocks ordinary implementation dispatch. A task that exists
+only to clear stranded review debt must be classified durably: use task kind
+`review`, tag `review-capacity`, or tag a canonical QA task `canonical-gate`.
+Names and executor roles never grant capacity.
+
+Generic task updates, pauses, decision gates, and removals cannot move a task
+out of `in_review`; use `plan review accept` or `plan review bounce`. Historical
+credit leaked by older builds is repaired explicitly and auditably with:
+
+```bash
+codeterm plan review reconcile-credit <plan> --reason "<incident evidence>"
+```
+
 ## Event-driven coordination
 
 Never sleep or poll for Worker readiness, reports, gates, or process startup.
@@ -239,4 +254,4 @@ An effort is complete only when:
 - stale milestones are pruned;
 - the final handoff or retrospective is recorded;
 - the plan is archived.
-<!-- revision: 38 -->
+<!-- revision: 39 -->

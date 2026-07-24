@@ -18,9 +18,21 @@ impl PlanStore {
         self.with_plan(plan_id, now_ms, |plan| {
             let mut changed = Vec::new();
             for item in items.iter().filter(|item| !item.not_mine) {
-                let Some(task) = plan.tasks.iter_mut().find(|task| task.id == item.task_id) else {
+                let Some(task_index) = plan.tasks.iter().position(|task| task.id == item.task_id)
+                else {
                     continue;
                 };
+                if matches!(item.kind, DriftKind::AcceptedButNotDone) {
+                    let task_id = plan.tasks[task_index].id.clone();
+                    let was_in_review = plan.tasks[task_index].status == TaskStatus::InReview;
+                    super::mutations::finalize_task_done(plan, task_index, now_ms)?;
+                    if was_in_review {
+                        super::review_gate::earn_review_credit(&mut plan.review_policy);
+                    }
+                    changed.push(fix_result(plan_id, item, &task_id, "set_done"));
+                    continue;
+                }
+                let task = &mut plan.tasks[task_index];
                 match item.kind {
                     DriftKind::InProgressPaneGone => {
                         let assigned = task.assigned_pane_id.clone();
@@ -77,12 +89,7 @@ impl PlanStore {
                             "cleared_dead_assignment",
                         ));
                     }
-                    DriftKind::AcceptedButNotDone => {
-                        task.status = TaskStatus::Done;
-                        task.status_changed_at = now_ms;
-                        task.updated_at = now_ms;
-                        changed.push(fix_result(plan_id, item, &task.id, "set_done"));
-                    }
+                    DriftKind::AcceptedButNotDone => unreachable!(),
                 }
             }
             Ok(changed)

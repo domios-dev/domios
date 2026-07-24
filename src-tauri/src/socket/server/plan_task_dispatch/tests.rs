@@ -1,11 +1,11 @@
 use super::{
     await_agent_ready, build_brief, build_brief_with_personality, complete_dispatch_transaction,
-    dispatch_worker_identity, lane_metadata_for_dispatch, regression_blocked_error,
-    resolve_dispatch_lane, resolve_dispatch_routing, rollback_failed_dispatch,
-    unqualified_model_error,
+    dispatch_worker_identity, lane_metadata_for_dispatch, preflight_review_capacity,
+    regression_blocked_error, resolve_dispatch_lane, resolve_dispatch_routing,
+    rollback_failed_dispatch, unqualified_model_error,
 };
 use crate::plan::{
-    IdentityProvenance, OrchestratorRef, PlanMode, Task, TaskLaneMetadata, TaskStatus,
+    IdentityProvenance, OrchestratorRef, Plan, PlanMode, Task, TaskLaneMetadata, TaskStatus,
 };
 use crate::service::plan::milestone_gates::RegressionGate;
 use crate::service::plan::task_queries::TaskSection;
@@ -732,6 +732,35 @@ fn dispatch_treats_batch_personality_without_legacy_provenance_as_provisional() 
 
 fn task(value: serde_json::Value) -> Task {
     serde_json::from_value(value).expect("task fixture")
+}
+
+#[test]
+fn socket_dispatch_allows_only_capacity_tagged_work_through_stranded_debt() {
+    let mut plan = Plan::new(
+        "review debt".into(),
+        "/repo".into(),
+        OrchestratorRef::from_pane("orch"),
+    );
+    plan.review_policy.credit = -(plan.review_policy.wip_limit as i64);
+    let review = task(json!({
+        "id": "review",
+        "name": "review",
+        "type": "implement",
+        "status": "pending",
+        "tags": ["review-capacity"],
+    }));
+    let implementation = task(json!({
+        "id": "implementation",
+        "name": "implementation",
+        "type": "implement",
+        "status": "pending",
+    }));
+
+    preflight_review_capacity(&plan, &review).unwrap();
+    assert!(matches!(
+        preflight_review_capacity(&plan, &implementation),
+        Err(crate::service::plan::PlanError::ReviewWipExceeded { .. })
+    ));
 }
 
 #[test]
