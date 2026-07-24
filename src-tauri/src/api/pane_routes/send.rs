@@ -27,7 +27,17 @@ pub async fn chat_send_text(
     } else {
         text
     };
-    Ok(Json(state.svc.start_chat_send(&pane_id, text)))
+    state
+        .svc
+        .start_chat_send(&pane_id, text)
+        .map(Json)
+        .map_err(|detail| {
+            DeliveryError::PaneBusyRefused {
+                pane: pane_id,
+                detail,
+            }
+            .into()
+        })
 }
 
 pub async fn chat_send_status(
