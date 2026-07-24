@@ -792,7 +792,7 @@ pub async fn chat_send_text(
     } else {
         text
     };
-    Ok(svc.start_chat_send(&pane_id, text))
+    svc.start_chat_send(&pane_id, text)
 }
 
 #[tauri::command]
