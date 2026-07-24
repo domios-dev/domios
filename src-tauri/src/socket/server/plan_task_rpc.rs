@@ -527,6 +527,18 @@ pub(super) fn dispatch(
 
         "plan.task.respawn" => {
             let (id, tid) = plan_refs::resolve_task(store, params)?;
+            let plan = store
+                .get(&id)
+                .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
+            let task = plan
+                .tasks
+                .iter()
+                .find(|task| task.id == tid)
+                .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
+            if task.status == TaskStatus::Pending {
+                crate::service::plan::review_gate::validate_dispatch_review_capacity(&plan, task)
+                    .map_err(plan_rpc_err)?;
+            }
             let body = p.ok_or(JsonRpcError {
                 code: -32602,
                 message: "params required".to_string(),

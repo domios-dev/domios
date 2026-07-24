@@ -67,6 +67,21 @@ pub(crate) fn maybe_inject_caller_pane(params: &mut Value) {
     }
 }
 
+pub(crate) fn inject_trusted_session(params: &mut Value) {
+    let Some(obj) = params.as_object_mut() else {
+        return;
+    };
+    if let Ok(pane_id) = std::env::var("CODETERM_PANE_ID") {
+        obj.insert("caller_pane_id".into(), json!(pane_id));
+    }
+    if let Ok(session_id) = std::env::var("CODETERM_SESSION_ID") {
+        obj.insert("session_id".into(), json!(session_id));
+    }
+    if let Ok(nonce) = std::env::var("CODETERM_SESSION_BINDING_NONCE") {
+        obj.insert("session_binding_nonce".into(), json!(nonce));
+    }
+}
+
 pub(crate) fn call_plan_rpc(
     client: &mut dyn RpcClient,
     method: &str,

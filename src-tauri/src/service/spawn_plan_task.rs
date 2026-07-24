@@ -283,31 +283,33 @@ mod tests {
     }
 
     #[test]
-    fn spawn_preflight_allows_only_capacity_tagged_work_through_stranded_debt() {
+    fn spawn_preflight_requires_daemon_owned_capacity_provenance() {
         let dir = tempfile::tempdir().unwrap();
         let (store, plan_id, task_id) = store_with_task(dir.path());
         let mut plan = store.get(&plan_id).unwrap();
         plan.review_policy.credit = -(plan.review_policy.wip_limit as i64);
-        plan.tasks
+        let task = plan
+            .tasks
             .iter_mut()
             .find(|task| task.id == task_id)
-            .unwrap()
-            .tags
-            .push(crate::service::plan::review_gate::REVIEW_CAPACITY_TAG.into());
+            .unwrap();
+        task.kind = "review".into();
+        task.tags.push("review-capacity".into());
         store.save(&mut plan, 4).unwrap();
-        preflight_worker_plan_task_wip_gate(&store, Some(&plan_id), "spawn-bind").unwrap();
-
-        let mut plan = store.get(&plan_id).unwrap();
-        plan.tasks
-            .iter_mut()
-            .find(|task| task.id == task_id)
-            .unwrap()
-            .tags
-            .clear();
-        store.save(&mut plan, 5).unwrap();
         let error =
             preflight_worker_plan_task_wip_gate(&store, Some(&plan_id), "spawn-bind").unwrap_err();
         assert!(error.contains("review"), "{error}");
+
+        store
+            .grant_review_capacity(
+                &plan_id,
+                &task_id,
+                crate::plan::ReviewCapacityClass::Review,
+                crate::plan::AgentRef::from_pane("orch"),
+                5,
+            )
+            .unwrap();
+        preflight_worker_plan_task_wip_gate(&store, Some(&plan_id), "spawn-bind").unwrap();
     }
 
     // Reproduces the incident: `assign_task_with_role` (step 1) already binds

@@ -107,6 +107,13 @@ pub enum PlanReviewAction {
         #[arg(long, allow_hyphen_values = true)]
         reason: String,
     },
+    /// Grant daemon-owned review-capacity provenance to one task
+    AuthorizeCapacity {
+        plan_id: Option<String>,
+        task_id: String,
+        #[arg(long, value_parser = ["review", "canonical_gate"])]
+        class: String,
+    },
     /// ACCEPT: attaches the verdict and closes the task (in_review -> done)
     Accept {
         plan_id: Option<String>,

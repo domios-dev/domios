@@ -3,7 +3,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
-use crate::plan::AgentRef;
+use crate::multiplexer::types::AgentRole;
+use crate::plan::{AgentRef, Plan, ReviewCapacityClass};
 use crate::service::plan::PlanError;
 use crate::service::ServiceState;
 
@@ -39,6 +40,76 @@ fn actor(params: Option<&Value>) -> AgentRef {
                 .map(AgentRef::from_pane)
         })
         .unwrap_or_else(|| AgentRef::from_pane("unknown"))
+}
+
+fn unauthorized(message: &str) -> JsonRpcError {
+    JsonRpcError {
+        code: -32003,
+        message: message.into(),
+        data: Some(json!({ "type": "plan_orchestrator_authorization_required" })),
+    }
+}
+
+fn validate_bound_orchestrator_identity(
+    plan: &Plan,
+    pane_id: &str,
+    session_id: &str,
+    claimed_nonce: &str,
+    live_session_id: Option<&str>,
+    configured_nonce: Option<&str>,
+    reported_nonce: Option<&str>,
+    role: Option<AgentRole>,
+) -> Result<(), JsonRpcError> {
+    let owner_matches = plan.owner.pane_id.as_deref() == Some(pane_id)
+        && plan.owner.session_id.as_deref() == Some(session_id);
+    let live_matches = live_session_id == Some(session_id)
+        && configured_nonce == Some(claimed_nonce)
+        && reported_nonce == Some(claimed_nonce)
+        && role == Some(AgentRole::Orchestrator);
+    if pane_id.is_empty()
+        || session_id.is_empty()
+        || claimed_nonce.is_empty()
+        || !owner_matches
+        || !live_matches
+    {
+        return Err(unauthorized(
+            "the live bound Plan Orchestrator session is required",
+        ));
+    }
+    Ok(())
+}
+
+fn authorized_orchestrator_actor(
+    svc: &ServiceState,
+    plan_id: &str,
+    params: Option<&Value>,
+) -> Result<AgentRef, JsonRpcError> {
+    let pane_id = str_field(params, "caller_pane_id");
+    let session_id = str_field(params, "session_id");
+    let nonce = str_field(params, "session_binding_nonce");
+    let plan = svc
+        .plan_store
+        .get(plan_id)
+        .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
+    let mux = svc.mux.read();
+    let pane = mux
+        .get_pane(pane_id)
+        .ok_or_else(|| unauthorized("the claimed Orchestrator tab is not live"))?;
+    validate_bound_orchestrator_identity(
+        &plan,
+        pane_id,
+        session_id,
+        nonce,
+        pane.agent_session_id.as_deref(),
+        pane.session_binding_nonce.as_deref(),
+        pane.reported_session_binding_nonce.as_deref(),
+        pane.role,
+    )?;
+    Ok(AgentRef {
+        pane_id: Some(pane.id.clone()),
+        session_id: pane.agent_session_id.clone(),
+        title: Some(pane.title.clone()),
+    })
 }
 
 fn note(params: Option<&Value>) -> &str {
@@ -99,8 +170,28 @@ pub(super) fn dispatch(
         }
         "plan.review.reconcile-credit" => {
             let plan_id = super::plan_refs::resolve_plan(store, params)?;
+            let from = authorized_orchestrator_actor(svc, &plan_id, p)?;
             let result = store
-                .reconcile_review_credit(&plan_id, str_field(p, "reason"), actor(p), now)
+                .reconcile_review_credit(&plan_id, str_field(p, "reason"), from, now)
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &plan_id);
+            serde_json::to_value(result).map_err(|error| JsonRpcError {
+                code: -32603,
+                message: error.to_string(),
+                data: None,
+            })
+        }
+        "plan.review.authorize-capacity" => {
+            let (plan_id, task_id) = super::plan_refs::resolve_task(store, params)?;
+            let from = authorized_orchestrator_actor(svc, &plan_id, p)?;
+            let class = serde_json::from_value::<ReviewCapacityClass>(json!(str_field(p, "class")))
+                .map_err(|_| JsonRpcError {
+                    code: -32602,
+                    message: "class must be review or canonical_gate".into(),
+                    data: None,
+                })?;
+            let result = store
+                .grant_review_capacity(&plan_id, &task_id, class, from, now)
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &plan_id);
             serde_json::to_value(result).map_err(|error| JsonRpcError {
@@ -158,5 +249,74 @@ pub(super) fn dispatch(
             message: format!("Unknown plan review method: {method}"),
             data: None,
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::plan::OrchestratorRef;
+
+    fn owned_plan() -> Plan {
+        Plan::new(
+            "review auth".into(),
+            "/repo".into(),
+            OrchestratorRef {
+                pane_id: Some("owner".into()),
+                session_id: Some("session".into()),
+                title: Some("Owner".into()),
+            },
+        )
+    }
+
+    #[test]
+    fn review_mutation_auth_accepts_only_the_live_bound_orchestrator_session() {
+        let plan = owned_plan();
+        validate_bound_orchestrator_identity(
+            &plan,
+            "owner",
+            "session",
+            "nonce",
+            Some("session"),
+            Some("nonce"),
+            Some("nonce"),
+            Some(AgentRole::Orchestrator),
+        )
+        .unwrap();
+
+        for rejected in [
+            validate_bound_orchestrator_identity(
+                &plan,
+                "worker",
+                "session",
+                "nonce",
+                Some("session"),
+                Some("nonce"),
+                Some("nonce"),
+                Some(AgentRole::Worker),
+            ),
+            validate_bound_orchestrator_identity(
+                &plan,
+                "owner",
+                "foreign",
+                "nonce",
+                Some("foreign"),
+                Some("nonce"),
+                Some("nonce"),
+                Some(AgentRole::Orchestrator),
+            ),
+            validate_bound_orchestrator_identity(
+                &plan,
+                "owner",
+                "session",
+                "forged",
+                Some("session"),
+                Some("nonce"),
+                Some("nonce"),
+                Some(AgentRole::Orchestrator),
+            ),
+        ] {
+            assert_eq!(rejected.unwrap_err().code, -32003);
+        }
     }
 }

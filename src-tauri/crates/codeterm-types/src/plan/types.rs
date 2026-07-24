@@ -1081,6 +1081,7 @@ mod tests {
         p.review_policy = ReviewPolicy {
             wip_limit: 3,
             credit: -2,
+            capacity_grants: vec![],
         };
         let mut t = Task {
             id: "task_1".into(),

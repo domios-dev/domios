@@ -343,7 +343,7 @@ pub enum PlanAction {
         #[command(subcommand)]
         action: PlanQaAction,
     },
-    /// Review-backpressure: WIP/credit status, waves, overrides, accept/bounce
+    /// Review-backpressure: capacity, credit reconciliation, and verdicts
     Review {
         #[command(subcommand)]
         action: PlanReviewAction,

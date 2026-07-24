@@ -129,9 +129,14 @@ Use `codeterm docs LANES` for the complete lane lifecycle.
 ## Review capacity
 
 Review backpressure blocks ordinary implementation dispatch. A task that exists
-only to clear stranded review debt must be classified durably: use task kind
-`review`, tag `review-capacity`, or tag a canonical QA task `canonical-gate`.
-Names and executor roles never grant capacity.
+only to clear stranded review debt needs daemon-owned provenance. Task names,
+kinds, tags, and executor roles never grant capacity. The live bound
+Orchestrator authorizes the task explicitly:
+
+```bash
+codeterm plan review authorize-capacity <plan> <task> --class review
+codeterm plan review authorize-capacity <plan> <task> --class canonical_gate
+```
 
 Generic task updates, pauses, decision gates, and removals cannot move a task
 out of `in_review`; use `plan review accept` or `plan review bounce`. Historical
@@ -140,6 +145,9 @@ credit leaked by older builds is repaired explicitly and auditably with:
 ```bash
 codeterm plan review reconcile-credit <plan> --reason "<incident evidence>"
 ```
+
+Both mutations require the live bound Orchestrator session and record an
+immutable plan stride.
 
 ## Event-driven coordination
 
@@ -254,4 +262,4 @@ An effort is complete only when:
 - stale milestones are pruned;
 - the final handoff or retrospective is recorded;
 - the plan is archived.
-<!-- revision: 39 -->
+<!-- revision: 40 -->
