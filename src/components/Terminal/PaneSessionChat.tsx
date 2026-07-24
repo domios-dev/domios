@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { MessageBubble } from "@codeterm/chat-ui";
@@ -396,6 +396,44 @@ export function PaneSessionChat({
     if (target) void selectTabByPane(target.workspaceId, target.paneId);
   }, [paneAgentTypes, planNav.workspaces, selectTabByPane]);
 
+  // Precompute per-message origin props ONCE and reuse the entry object while its
+  // (target pane, provider) is unchanged. deferredEnrichedMessages gets a fresh
+  // array identity every streamed chunk, so building closures/avatars inline in
+  // the map body would hand MessageBubble new refs each chunk and defeat its memo,
+  // re-rendering (and re-parsing markdown for) every origin message on every chunk.
+  type OriginProps = { key: string; onOriginClick: () => void; originAvatar: ReactNode };
+  const originPropsCacheRef = useRef<Map<string, OriginProps>>(new Map());
+  const originFocusRef = useRef<((paneId: string) => void) | null>(null);
+  const originPropsById = useMemo(() => {
+    // onOriginClick closes over setFocusedPane, so a new setFocusedPane identity
+    // must rebind every entry — drop the cache instead of reusing stale closures.
+    if (originFocusRef.current !== setFocusedPane) {
+      originFocusRef.current = setFocusedPane;
+      originPropsCacheRef.current = new Map();
+    }
+    const cache = originPropsCacheRef.current;
+    const next = new Map<string, OriginProps>();
+    for (const { msg, origin } of deferredEnrichedMessages) {
+      if (origin?.kind !== "pane") continue;
+      const idShort = origin.paneIdShort;
+      const fullId = Object.keys(paneAgentTypes).find((id) => id.startsWith(idShort));
+      if (!fullId) continue;
+      const providerId = paneAgentTypes[fullId] ?? "";
+      const key = `${fullId}:${providerId}`;
+      const prev = cache.get(msg.id);
+      const entry: OriginProps = prev && prev.key === key
+        ? prev
+        : {
+            key,
+            onOriginClick: () => setFocusedPane(fullId),
+            originAvatar: providerId ? <OriginProviderAvatar providerId={providerId} /> : undefined,
+          };
+      next.set(msg.id, entry);
+    }
+    originPropsCacheRef.current = next;
+    return next;
+  }, [deferredEnrichedMessages, paneAgentTypes, setFocusedPane]);
+
   useEffect(() => {
     if (backendState?.state === "working" || pendingPrompt) {
       setLongIdle(false);
@@ -551,16 +589,7 @@ export function PaneSessionChat({
           ) : null
         )}
         {deferredEnrichedMessages.map(({ msg, item, origin }) => {
-          let onOriginClick: (() => void) | undefined;
-          let originProviderId: string | null | undefined;
-          if (origin?.kind === "pane") {
-            const idShort = origin.paneIdShort;
-            const fullId = Object.keys(paneAgentTypes).find((id) => id.startsWith(idShort));
-            if (fullId) {
-              onOriginClick = () => setFocusedPane(fullId);
-              originProviderId = paneAgentTypes[fullId];
-            }
-          }
+          const originProps = originPropsById.get(msg.id);
           return (
             <div
               key={msg.id}
@@ -583,12 +612,8 @@ export function PaneSessionChat({
                 answeredInteractiveIds={answeredInteractiveIds}
                 onRerunShellCommand={handleRerunShellCommand}
                 onJumpToShellCommand={onOpenTerminalFallback ? handleJumpToShellCommand : undefined}
-                originAvatar={
-                  origin?.kind === "pane" && originProviderId
-                    ? <OriginProviderAvatar providerId={originProviderId} />
-                    : undefined
-                }
-                onOriginClick={onOriginClick}
+                originAvatar={originProps?.originAvatar}
+                onOriginClick={originProps?.onOriginClick}
                 onFocusPane={resolveFocusTab}
               />
             </div>
