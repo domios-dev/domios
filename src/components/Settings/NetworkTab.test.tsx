@@ -1,6 +1,6 @@
 // Run: npx tsx src/components/Settings/NetworkTab.test.tsx
 
-import React, { act } from "react";
+import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { __setInvokeForTest } from "../../lib/bridge";

@@ -45,10 +45,10 @@ function setupDom() {
 }
 
 async function render(connect: () => Promise<unknown>): Promise<{ host: HTMLDivElement; root: Root }> {
-  __setInvokeForTest(async (command) => {
-    if (command === "mesh_list_peers") return peers;
-    if (command === "get_config") return { mesh: { enabled: true } };
-    if (command === "mesh_connect") return connect();
+  __setInvokeForTest(async <T,>(command: string): Promise<T> => {
+    if (command === "mesh_list_peers") return peers as T;
+    if (command === "get_config") return { mesh: { enabled: true } } as T;
+    if (command === "mesh_connect") return (await connect()) as T;
     throw new Error(`unexpected invoke: ${command}`);
   });
   const host = document.createElement("div");
