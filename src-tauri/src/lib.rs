@@ -252,6 +252,7 @@ pub fn run() {
             commands::chat_stop,
             commands::chat_backfill,
             commands::chat_send_text,
+            commands::chat_send_status,
             commands::open_chat_backend_pane,
             commands::chatbackend_session_info,
             commands::chatbackend_switch_model,
@@ -697,6 +698,9 @@ pub fn run() {
                 plan_store,
                 plan_turn_counter,
                 pending_delivery_payloads,
+                chat_send_ledger: Arc::new(
+                    crate::service::chat_send_transaction::ChatSendLedger::default(),
+                ),
                 agent_registry,
                 mem,
                 mem_supervisor,
