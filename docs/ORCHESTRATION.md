@@ -180,11 +180,7 @@ The Orchestrator verifies at the layer where the user experienced the defect:
 Unit-green alone is not acceptance. Deferred critical evidence remains explicit
 open risk.
 
-Testing tiers:
-
-- **Per task:** focused lane oracle.
-- **Per group:** one serialized regression gate in the warm canonical checkout.
-- **Per release:** platform build/test matrix through the release workflow.
+Testing ladder — per-task = focused filters only; per-group (milestone) = one full regression gate (cargo suite + ts-unit, serialized in the warm checkout); per-release = the farm matrix across every platform.
 
 Repository-specific restrictions override generic gate suggestions.
 
@@ -262,4 +258,4 @@ An effort is complete only when:
 - stale milestones are pruned;
 - the final handoff or retrospective is recorded;
 - the plan is archived.
-<!-- revision: 40 -->
+<!-- revision: 41 -->
