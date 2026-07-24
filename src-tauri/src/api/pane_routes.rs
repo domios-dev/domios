@@ -245,6 +245,9 @@ pub async fn stop_pane(
             if let Ok(pty_id) = resolve_pty_id_with_fallback(&state, &raw_pane_id) {
                 state.svc.mark_agent_interrupted(&pty_id);
             }
+            state
+                .svc
+                .complete_worker_turn_without_report(&pane_id, "explicit-stop");
             return Ok(Json(
                 serde_json::json!({"ok": true, "stopped": true, "structured_abort": true}),
             ));
@@ -263,6 +266,9 @@ pub async fn stop_pane(
         .svc
         .write_raw(&pane_id, key.as_bytes())
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+    state
+        .svc
+        .complete_worker_turn_without_report(&pane_id, "explicit-stop");
     Ok(Json(serde_json::json!({"ok": true, "stopped": true})))
 }
 
