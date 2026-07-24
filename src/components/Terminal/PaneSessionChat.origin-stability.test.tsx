@@ -77,6 +77,7 @@ function muxStateFor(panes: Record<string, Pane>): ExtendedState {
     focused_pane_id: Object.keys(panes)[0] ?? null,
     notifications: [], paneStatuses: {}, toasts: [], activeTabIds: {},
     generation: 1,
+    pendingCloses: [],
   };
 }
 
