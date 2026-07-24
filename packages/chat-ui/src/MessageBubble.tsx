@@ -40,6 +40,8 @@ import { ContextRequestCard } from "./ContextRequestCard";
 import { WatcherVerdictCard } from "./WatcherVerdictCard";
 import { LinkedText, PlanRefCards, type ResolvedChatPlanRef } from "./codeterm/LinkedText";
 import { hasPlanRefs } from "./codeterm/planRefs";
+import { recognize } from "./codeterm/recognize";
+import { isSend } from "./codeterm/templates";
 import {
   hasMeaningfulToolResult,
   isRenderableMessage,
@@ -84,6 +86,13 @@ function hasVisibleEdit(item: TimelineItem | undefined): boolean {
     && Boolean(item.event.edits?.length);
 }
 
+function isOutboundMessage(item: TimelineItem | undefined): boolean {
+  if (item?.kind !== "tool") return false;
+  const command = item.event.detail?.trim() || item.event.summary || item.event.result?.trim() || "";
+  const invocation = recognize(command);
+  return invocation != null && isSend(invocation);
+}
+
 function paneOriginTitle(origin: Extract<ChatOrigin, { kind: "pane" }>, resolvePaneName?: PaneNameResolver): string {
   const paneRef = shortPaneRef(origin.paneIdShort);
   const resolved = paneRef ? resolvePaneName?.(paneRef) : undefined;
@@ -103,7 +112,7 @@ function recordBubbleRender(id: string): void {
 export const MessageBubble = React.memo(function MessageBubble({ message, item, origin, onOriginClick, resolvePaneName, onFocusPane, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
   recordBubbleRender(message.id);
   const isInboundCommunication = origin?.kind === "pane" || message.inboundKind === "pane" || message.inboundKind === "report" || message.inboundKind === "mesh";
-  const shouldAutoExpand = hasVisibleEdit(item) || isInboundCommunication;
+  const shouldAutoExpand = hasVisibleEdit(item) || isInboundCommunication || isOutboundMessage(item);
   const [expanded, setExpanded] = useState(() => {
     const persisted = TOOL_EXPANDED_BY_ID.get(message.id);
     return persisted ?? shouldAutoExpand;
