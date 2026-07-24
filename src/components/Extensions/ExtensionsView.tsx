@@ -76,10 +76,10 @@ export function ExtensionsView({
   useEffect(() => {
     if (!visible) return;
     void Promise.all([
-      ensurePluginSnapshot({ background: snapshotState.lastSuccessfulSnapshot !== null }),
+      ensurePluginSnapshot({ force: true }),
       refreshConfig(),
     ]);
-  }, [visible, refreshConfig, snapshotState.lastSuccessfulSnapshot]);
+  }, [visible, refreshConfig]);
 
   useEffect(() => {
     const onSelect = (e: Event) => {
