@@ -1,6 +1,6 @@
 {
   "name": "@codeterm/provider-codex",
-  "version": "1.7.4",
+  "version": "1.7.5",
   "private": true,
   "type": "module",
   "description": "CodeTerm provider plugin for OpenAI Codex CLI.",
