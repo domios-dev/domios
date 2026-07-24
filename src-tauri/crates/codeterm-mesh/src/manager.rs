@@ -28,14 +28,31 @@ impl PairingDelivery {
         &self.request_id
     }
 
-    pub fn complete(&self, outcome: Result<(), String>) -> bool {
+    pub fn claim(&self, outcome: Result<(), String>) -> bool {
         let mut stored = self.outcome.lock();
         if stored.is_some() {
             return false;
         }
         *stored = Some(outcome);
-        drop(stored);
+        true
+    }
+
+    pub fn outcome(&self) -> Result<(), String> {
+        self.outcome
+            .lock()
+            .clone()
+            .expect("pairing delivery has a claimed terminal outcome")
+    }
+
+    pub fn publish(&self) {
         self.ready.notify_waiters();
+    }
+
+    pub fn complete(&self, outcome: Result<(), String>) -> bool {
+        if !self.claim(outcome) {
+            return false;
+        }
+        self.publish();
         true
     }
 
@@ -437,7 +454,7 @@ impl MeshManager {
         let pending = &self.pending_requests;
         self.pairing_targets
             .retain(|id, _| pending.contains_key(id));
-        let expired_targets: Vec<String> = self
+        let expired_deliveries: Vec<(String, String, Arc<PairingDelivery>)> = self
             .pairing_targets
             .iter()
             .filter(|(request_id, _)| {
@@ -445,14 +462,19 @@ impl MeshManager {
                     .get(*request_id)
                     .is_some_and(|request| request.status != types::PairingStatus::Pending)
             })
-            .map(|(_, (_, _, target_id))| target_id.clone())
+            .filter_map(|(request_id, (_, _, target_id))| {
+                self.pairing_deliveries
+                    .remove(target_id)
+                    .map(|delivery| (request_id.clone(), target_id.clone(), delivery))
+            })
             .collect();
-        let stranded_deliveries: Vec<_> = expired_targets
-            .iter()
-            .filter_map(|target_id| self.pairing_deliveries.remove(target_id))
-            .collect();
-        for delivery in stranded_deliveries {
-            delivery.complete(Err("Pairing request expired".to_string()));
+        for (request_id, _, delivery) in &expired_deliveries {
+            delivery.claim(Err("Pairing request expired".to_string()));
+            self.pending_requests.remove(request_id);
+            self.pairing_targets.remove(request_id);
+        }
+        for (_, _, delivery) in expired_deliveries {
+            delivery.publish();
         }
         if expired > 0 || dropped > 0 {
             log::info!(
@@ -884,6 +906,8 @@ mod tests {
         m.cleanup_expired_requests_at(1000 + 301);
 
         assert!(m.pairing_deliveries.is_empty());
+        assert!(m.pending_requests.is_empty());
+        assert!(m.pairing_targets.is_empty());
         assert_eq!(
             delivery.outcome.lock().clone().unwrap().unwrap_err(),
             "Pairing request expired"

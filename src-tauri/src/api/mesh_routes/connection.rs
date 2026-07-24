@@ -95,8 +95,8 @@ struct ConnectOwner {
 }
 
 impl ConnectOwner {
-    fn complete(&mut self, outcome: Result<(), String>) {
-        complete_connect(
+    fn complete(&mut self, outcome: Result<(), String>) -> Result<(), String> {
+        let terminal = complete_connect(
             &self.mesh,
             &self.target_id,
             &self.request_id,
@@ -104,13 +104,14 @@ impl ConnectOwner {
             outcome,
         );
         self.completed = true;
+        terminal
     }
 }
 
 impl Drop for ConnectOwner {
     fn drop(&mut self) {
         if !self.completed {
-            self.complete(Err("Pairing request delivery was cancelled".to_string()));
+            let _ = self.complete(Err("Pairing request delivery was cancelled".to_string()));
         }
     }
 }
@@ -197,11 +198,11 @@ fn complete_connect(
     request_id: &str,
     delivery: &Arc<crate::mesh::PairingDelivery>,
     outcome: Result<(), String>,
-) {
-    if !delivery.complete(outcome.clone()) {
-        return;
-    }
+) -> Result<(), String> {
     let mut manager = mesh.lock();
+    if !delivery.claim(outcome.clone()) {
+        return delivery.outcome();
+    }
     if outcome.is_err() {
         manager.pending_requests.remove(request_id);
         manager.pairing_targets.remove(request_id);
@@ -214,6 +215,8 @@ fn complete_connect(
         manager.pairing_deliveries.remove(instance_id);
     }
     drop(manager);
+    delivery.publish();
+    outcome
 }
 
 pub async fn connect_peer_with_sender<F, Fut>(
@@ -238,6 +241,30 @@ where
     F: FnOnce(crate::mesh::types::PairingRequest, String, u16) -> Fut,
     Fut: Future<Output = Result<String, ConnectPeerError>>,
     W: FnOnce(),
+{
+    connect_peer_with_sender_and_waiter_and_confirmation(
+        mesh,
+        instance_id,
+        sender,
+        waiter,
+        || async {},
+    )
+    .await
+}
+
+async fn connect_peer_with_sender_and_waiter_and_confirmation<F, Fut, W, C, CFut>(
+    mesh: crate::MeshStateHandle,
+    instance_id: String,
+    sender: F,
+    waiter: W,
+    confirmed: C,
+) -> Result<ConnectPeerResult, ConnectPeerError>
+where
+    F: FnOnce(crate::mesh::types::PairingRequest, String, u16) -> Fut,
+    Fut: Future<Output = Result<String, ConnectPeerError>>,
+    W: FnOnce(),
+    C: FnOnce() -> CFut,
+    CFut: Future<Output = ()>,
 {
     let preparation = {
         let mut manager = mesh.lock();
@@ -270,8 +297,11 @@ where
     let remote_instance_id = match sender(request.clone(), address, port).await {
         Ok(id) => id,
         Err(error) => {
-            owner.complete(Err(error.to_string()));
-            return Err(error);
+            let terminal = owner.complete(Err(error.to_string()));
+            return Err(ConnectPeerError::Delivery(match terminal {
+                Ok(()) => error.to_string(),
+                Err(error) => error,
+            }));
         }
     };
     let confirmation = {
@@ -279,10 +309,16 @@ where
         manager.confirm_pairing_target_identity(&request.request_id, &remote_instance_id)
     };
     if let Err(error) = confirmation {
-        owner.complete(Err(error.clone()));
+        let terminal = owner.complete(Err(error.clone()));
+        return Err(ConnectPeerError::Delivery(match terminal {
+            Ok(()) => error,
+            Err(error) => error,
+        }));
+    }
+    confirmed().await;
+    if let Err(error) = owner.complete(Ok(())) {
         return Err(ConnectPeerError::Delivery(error));
     }
-    owner.complete(Ok(()));
     Ok(ConnectPeerResult::Pending {
         request_id: request.request_id,
         existing: false,
@@ -785,6 +821,77 @@ mod tests {
             }
         ));
         assert_eq!(sends.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn mesh_connect_peer_expiry_before_owner_publication_cleans_state_and_fails_everyone() {
+        let mesh = mesh_state();
+        let (send_started_tx, send_started_rx) = tokio::sync::oneshot::channel();
+        let (send_release_tx, send_release_rx) = tokio::sync::oneshot::channel();
+        let (confirmed_tx, confirmed_rx) = tokio::sync::oneshot::channel();
+        let (owner_release_tx, owner_release_rx) = tokio::sync::oneshot::channel();
+        let owner_mesh = mesh.clone();
+        let owner = tokio::spawn(async move {
+            connect_peer_with_sender_and_waiter_and_confirmation(
+                owner_mesh,
+                PEER_ID.to_string(),
+                |_, _, _| async move {
+                    send_started_tx.send(()).expect("owner send starts");
+                    send_release_rx.await.expect("test releases owner send");
+                    Ok(PEER_ID.to_string())
+                },
+                || {},
+                || async move {
+                    confirmed_tx.send(()).expect("identity is confirmed");
+                    owner_release_rx
+                        .await
+                        .expect("test releases owner publication");
+                },
+            )
+            .await
+        });
+        send_started_rx.await.expect("owner send starts");
+
+        let waiter_mesh = mesh.clone();
+        let (wait_started_tx, wait_started_rx) = tokio::sync::oneshot::channel();
+        let waiter = tokio::spawn(async move {
+            connect_peer_with_sender_and_waiter(
+                waiter_mesh,
+                PEER_NAME.to_string(),
+                |_, _, _| async { panic!("waiter must not send") },
+                || wait_started_tx.send(()).expect("waiter joins delivery"),
+            )
+            .await
+        });
+        wait_started_rx.await.expect("waiter joins delivery");
+        send_release_tx.send(()).expect("release owner send");
+        confirmed_rx.await.expect("identity is confirmed");
+
+        let expires_at = mesh
+            .lock()
+            .pending_requests
+            .values()
+            .next()
+            .unwrap()
+            .timestamp
+            + 301;
+        mesh.lock().cleanup_expired_requests_at(expires_at);
+
+        assert_eq!(
+            waiter.await.unwrap().unwrap_err().to_string(),
+            "Pairing request expired"
+        );
+        assert!(mesh.lock().pending_requests.is_empty());
+        assert!(mesh.lock().pairing_targets.is_empty());
+        assert!(mesh.lock().pairing_deliveries.is_empty());
+
+        owner_release_tx
+            .send(())
+            .expect("release owner publication");
+        assert_eq!(
+            owner.await.unwrap().unwrap_err().to_string(),
+            "Pairing request expired"
+        );
     }
 
     #[test]
