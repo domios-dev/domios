@@ -26,6 +26,7 @@ import { PlansProvider } from "./components/Canvas/PlansProvider";
 import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget, useCanvasWorkspaceDismissed, useCanvasWorkspaceOpen } from "./components/Canvas/canvasFocusStore";
 import { useConfig } from "./hooks/useConfig";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
+import { useTabPrewarm } from "./hooks/terminal/useTabPrewarm";
 import { usageTrackingOverrides } from "./components/Terminal/usageTracking";
 import { useAgentProviders } from "./hooks/useAgentProviders";
 import { usePluginProviderMetaSync } from "./hooks/usePluginProviderMeta";
@@ -312,6 +313,34 @@ function AppInner() {
       closePluginView();
     }
   }, [activePluginViewScope, closePluginView, pluginViewId, pluginViewOwner]);
+  const prewarmBackendTab = useCallback(async (tabId: string) => {
+    const current = stateRef.current;
+    const tab = current.workspaces.flatMap((ws) => ws.tabs).find((candidate) => candidate.id === tabId);
+    if (!tab) return;
+    const pane = current.panes[tab.pane_id];
+    if (!pane || pane.backing?.kind === "chat_backend" || !pane.agent_type) return;
+    await invoke("spawn_pty", {
+      paneId: pane.id,
+      cwd: pane.cwd ?? undefined,
+      cols: 120,
+      rows: 30,
+    }).catch((error) => {
+      console.warn(`[prewarm] failed to activate backend for tab ${tabId}:`, error);
+    });
+  }, []);
+  const prewarmTabIds = useTabPrewarm({
+    workspaceId: activeWs?.id ?? null,
+    activeTabId: activeTab?.id ?? null,
+    tabIds:
+      activeWs?.tabs
+        .filter((tab) => {
+          const pane = state.panes[tab.pane_id];
+          return pane && !(activeWs.protected === true && pane.protected === true);
+        })
+        .map((tab) => tab.id) ?? [],
+    liveTabIds: state.workspaces.flatMap((ws) => ws.tabs.map((tab) => tab.id)),
+    prewarmTab: prewarmBackendTab,
+  });
   const showWorkspaceCanvas =
     mainView === "workspace" && !pluginViewId && activeWs != null && !activeTab;
   const workspaceCanvasOpen = useCanvasWorkspaceOpen();
@@ -632,6 +661,11 @@ function AppInner() {
             state.workspaces.flatMap((ws) =>
               ws.tabs.map((tab) => {
                 const isActiveTab = ws.id === state.active_workspace_id && tab.id === state.activeTabIds[ws.id];
+                // lazy — mount it on boot so its chat/SSE state is live.
+                const isMainTab =
+                  ws.protected === true && state.panes[tab.pane_id]?.protected === true;
+                const shouldMountTab = isActiveTab || isMainTab || prewarmTabIds.has(tab.id);
+                if (!shouldMountTab) return null;
                 const isVisible = mainView === "workspace" && !pluginViewId && isActiveTab;
                 return (
               <div
