@@ -343,6 +343,20 @@ function withPreservedClientOrder(
   });
 }
 
+function replaceSnapshotWindow(
+  previous: ChatMessage[],
+  snapshot: ChatMessage[],
+  requestOrder: number,
+  nextOrder: () => number,
+  sourceSessionId: string | null,
+): ChatMessage[] {
+  const liveSinceRequest = previous.filter(
+    (message) => message.clientOrder != null && message.clientOrder >= requestOrder,
+  );
+  const freshSnapshot = withPreservedClientOrder(snapshot, [], nextOrder, sourceSessionId);
+  return mergeById(freshSnapshot, liveSinceRequest);
+}
+
 const MS_EPOCH_FLOOR = 1e12;
 function timestampMs(ts: string | undefined): number | null {
   if (!ts) return null;
@@ -552,6 +566,7 @@ export function useChatSession({
     if (!active || !listenerReady) return;
     const lifecycle = lifecycleRef.current;
     const generation = attachGeneration;
+    const requestOrder = nextClientOrderRef.current;
     let cancelled = false;
     (async () => {
       try {
@@ -612,10 +627,15 @@ export function useChatSession({
         }
         markAttached();
         setBackfillCursor(res.start_offset != null && res.start_offset > 0 ? res.start_offset : null);
-        setStructured((prev) => mergeById(
-          prev ?? [],
-          withPreservedClientOrder(res.messages ?? [], prev ?? [], nextClientOrder, res.source_session_id),
-        ));
+        setStructured((prev) =>
+          replaceSnapshotWindow(
+            prev ?? [],
+            res.messages ?? [],
+            requestOrder,
+            nextClientOrder,
+            res.source_session_id,
+          ),
+        );
       } catch (e) {
         if (cancelled || lifecycleRef.current !== lifecycle || attachGenerationRef.current !== generation) return;
         const msg = e instanceof Error ? e.message : String(e);
