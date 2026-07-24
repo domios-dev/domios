@@ -156,6 +156,7 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
             std::env::set_var("CODETERM_API_PORT", port.to_string());
             // accepts connections. Without this gate, /api/secrets/status would briefly serve a stale "Locked" while init was still running on a parallel task.
             let secrets_for_init = service_state.secrets.clone();
+            let control = states.rest_api.clone();
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Builder::new_multi_thread()
                     .worker_threads(4)
@@ -173,17 +174,7 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
                         );
                     }
                     let bind_addr = format!("{}:{}", host, port);
-                    match tokio::net::TcpListener::bind(&bind_addr).await {
-                        Ok(listener) => {
-                            log::info!("REST API listening on http://{}", bind_addr);
-                            if let Err(e) = axum::serve(listener, router).await {
-                                log::error!("REST API server error: {}", e);
-                            }
-                        }
-                        Err(e) => {
-                            log::error!("Failed to bind REST API on port {}: {}", port, e);
-                        }
-                    }
+                    super::rest_api::start(control, bind_addr, router).await;
                 });
             });
         }

@@ -111,6 +111,22 @@ pub fn restart_app(app: AppHandle) {
     app.restart();
 }
 
+/// Rebind the REST listener after a reported port collision without restarting
+/// the desktop process.
+#[tauri::command]
+pub fn restart_rest_api(
+    control: tauri::State<'_, crate::startup::RestApiControlState>,
+) -> Result<(), String> {
+    control.restart()
+}
+
+#[tauri::command]
+pub fn rest_api_port_released(
+    control: tauri::State<'_, crate::startup::RestApiControlState>,
+) -> Result<(), String> {
+    control.port_released()
+}
+
 /// Diagnostics surfaced in Settings → General on Windows: which shell we would
 /// spawn for a new tab, and whether the faster PowerShell 7 (pwsh) is installed.
 /// The Settings UI shows an install banner only when `pwsh_installed` is false.
