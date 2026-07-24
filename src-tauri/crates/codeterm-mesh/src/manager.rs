@@ -456,7 +456,11 @@ impl MeshManager {
         let expired_deliveries: Vec<(String, Arc<PairingDelivery>)> = self
             .pairing_deliveries
             .iter()
-            .filter(|(_, delivery)| expired_request_ids.iter().any(|id| id == delivery.request_id()))
+            .filter(|(_, delivery)| {
+                expired_request_ids
+                    .iter()
+                    .any(|id| id == delivery.request_id())
+            })
             .map(|(target_id, delivery)| (target_id.clone(), delivery.clone()))
             .collect();
         for (target_id, delivery) in &expired_deliveries {
