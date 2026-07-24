@@ -343,24 +343,9 @@ impl ServiceContext {
             },
         )
         .map(|result| {
-            if submit_needs_unconfirmed_warning(enter, strategy_verifies, result.submit_observed) {
+            if should_log_unconfirmed_submit(enter, strategy_verifies, result.submit_observed) {
                 let target = pane_id.as_deref().unwrap_or(pty_id);
                 log::warn!("[send-unconfirmed] pane {target}: submit not acknowledged");
-                let title = pane_id
-                    .as_deref()
-                    .and_then(|id| self.mux.read().get_pane(id).map(|p| p.title.clone()));
-                let display = title
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|t| !t.is_empty())
-                    .unwrap_or(target);
-                self.create_notification(
-                    "Message delivery unconfirmed".to_string(),
-                    Some(format!(
-                        "{display}: the agent UI did not acknowledge the submit — check the tab."
-                    )),
-                    Some("warning"),
-                );
             }
         })
         .map_err(|error| error.to_string())
@@ -672,9 +657,11 @@ impl ServiceContext {
             if let Err(error) = svc.send_text(&pane, &text, enter) {
                 log::warn!("[send-async] delivery to pane {pane} failed: {error}");
                 let title = svc.mux.read().get_pane(&pane).map(|p| p.title.clone());
-                let (notice_title, notice_body) =
-                    send_failure_notice(title.as_deref(), &pane, &error);
-                svc.create_notification(notice_title, Some(notice_body), Some("error"));
+                if let Some((notice_title, notice_body)) =
+                    send_delivery_notice(title.as_deref(), &pane, SendDelivery::Failed(&error))
+                {
+                    svc.create_notification(notice_title, Some(notice_body), Some("error"));
+                }
             }
         });
     }
@@ -729,25 +716,32 @@ fn provider_frame_ready(
         || (!require_composer && prompt_ready)
 }
 
+pub(crate) enum SendDelivery<'a> {
+    OptimisticallySentUnconfirmed,
+    Failed(&'a str),
+}
+
 /// User-facing notice for a failed detached send: `(title, body)`.
-pub(crate) fn send_failure_notice(
+pub(crate) fn send_delivery_notice(
     pane_title: Option<&str>,
     pane_id: &str,
-    error: &str,
-) -> (String, String) {
+    delivery: SendDelivery<'_>,
+) -> Option<(String, String)> {
+    let SendDelivery::Failed(error) = delivery else {
+        return None;
+    };
     let target = pane_title
         .map(str::trim)
         .filter(|title| !title.is_empty())
         .unwrap_or(pane_id);
-    (
+    Some((
         "Message not delivered".to_string(),
         format!("{target}: {error}"),
-    )
+    ))
 }
 
-/// An Enter-submitted send that a verifying provider never acknowledged must
-/// warn the user; silent optimistic success is how follow-ups get lost.
-pub(crate) fn submit_needs_unconfirmed_warning(
+/// An acknowledgement miss remains diagnostic after the PTY accepted the send.
+pub(crate) fn should_log_unconfirmed_submit(
     enter: bool,
     strategy_verifies: bool,
     submit_observed: bool,
@@ -757,33 +751,56 @@ pub(crate) fn submit_needs_unconfirmed_warning(
 
 #[cfg(test)]
 mod send_notice_tests {
-    use super::{send_failure_notice, submit_needs_unconfirmed_warning};
+    use super::{send_delivery_notice, should_log_unconfirmed_submit, SendDelivery};
+
+    #[test]
+    fn successful_unconfirmed_submit_creates_no_user_notice() {
+        assert_eq!(
+            send_delivery_notice(
+                None,
+                "38cf30e1",
+                SendDelivery::OptimisticallySentUnconfirmed,
+            ),
+            None
+        );
+    }
 
     #[test]
     fn failed_detached_send_names_the_pane_and_reason() {
-        let (title, body) = send_failure_notice(Some("Fermat"), "38cf30e1", "PTY did not start");
+        let (title, body) = send_delivery_notice(
+            Some("Fermat"),
+            "38cf30e1",
+            SendDelivery::Failed("PTY did not start"),
+        )
+        .unwrap();
         assert_eq!(title, "Message not delivered");
         assert_eq!(body, "Fermat: PTY did not start");
     }
 
     #[test]
     fn missing_or_blank_pane_title_falls_back_to_the_pane_id() {
-        let (_, body) = send_failure_notice(None, "38cf30e1", "boot timeout");
+        let (_, body) =
+            send_delivery_notice(None, "38cf30e1", SendDelivery::Failed("boot timeout")).unwrap();
         assert_eq!(body, "38cf30e1: boot timeout");
-        let (_, body) = send_failure_notice(Some("   "), "38cf30e1", "boot timeout");
+        let (_, body) = send_delivery_notice(
+            Some("   "),
+            "38cf30e1",
+            SendDelivery::Failed("boot timeout"),
+        )
+        .unwrap();
         assert_eq!(body, "38cf30e1: boot timeout");
     }
 
     #[test]
-    fn unconfirmed_submit_warns_only_for_verifying_enter_sends() {
+    fn unconfirmed_submit_logs_only_for_verifying_enter_sends() {
         // The reported field failure: Enter send, verifying TUI provider, no ack.
-        assert!(submit_needs_unconfirmed_warning(true, true, false));
+        assert!(should_log_unconfirmed_submit(true, true, false));
         // Acknowledged submits stay quiet.
-        assert!(!submit_needs_unconfirmed_warning(true, true, true));
+        assert!(!should_log_unconfirmed_submit(true, true, true));
         // Non-verifying providers (bare shell) never observe submits — no spam.
-        assert!(!submit_needs_unconfirmed_warning(true, false, false));
+        assert!(!should_log_unconfirmed_submit(true, false, false));
         // Text without Enter cannot be an unconfirmed submission.
-        assert!(!submit_needs_unconfirmed_warning(false, true, false));
+        assert!(!should_log_unconfirmed_submit(false, true, false));
     }
 }
 
