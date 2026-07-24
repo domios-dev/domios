@@ -243,11 +243,8 @@ fn wait_submission_acknowledged<T: SubmitTransport>(
 ) -> bool {
     let mut generation = armed;
     loop {
-        let changed = transport.generation() != armed;
-        let draft_left_composer =
-            changed && transport.draft_evidence_count(text) <= baseline_evidence;
-        let fresh_turn = changed && !turn_was_started && transport.turn_started();
-        if draft_left_composer || fresh_turn {
+        if submission_acknowledged_now(transport, text, baseline_evidence, turn_was_started, armed)
+        {
             return true;
         }
         if !transport.wait_change(generation, deadline) {
@@ -258,6 +255,20 @@ fn wait_submission_acknowledged<T: SubmitTransport>(
 }
 
 const PRIMARY_SUBMIT_WINDOW: Duration = Duration::from_millis(1500);
+const RECOVERY_SUBMIT_ATTEMPTS: usize = 5;
+
+fn submission_acknowledged_now<T: SubmitTransport>(
+    transport: &T,
+    text: &str,
+    baseline_evidence: usize,
+    turn_was_started: bool,
+    armed: u64,
+) -> bool {
+    let changed = transport.generation() != armed;
+    let draft_left_composer = changed && transport.draft_evidence_count(text) <= baseline_evidence;
+    let fresh_turn = changed && !turn_was_started && transport.turn_started();
+    draft_left_composer || fresh_turn
+}
 
 #[cfg(test)]
 fn run<T: SubmitTransport>(
@@ -334,18 +345,37 @@ fn run_with_submit_key<T: SubmitTransport>(
     if two_phase && !submit_observed {
         submit_anomaly = true;
         log::warn!(
-            "[submit-anomaly] provider turn did not start after Enter; issuing one bounded recovery Enter"
+            "[submit-anomaly] provider turn did not start after Enter; issuing bounded recovery Enter burst"
         );
         let recovery_armed = transport.generation();
-        transport.write_submit_key(submit_key, turn_deadline)?;
-        submit_observed = wait_submission_acknowledged(
-            transport,
-            text,
-            baseline_evidence,
-            turn_was_started,
-            recovery_armed,
-            turn_deadline,
-        );
+        let attempts = if submit_key == b"\r" {
+            RECOVERY_SUBMIT_ATTEMPTS
+        } else {
+            1
+        };
+        for _ in 0..attempts {
+            transport.write_submit_key(submit_key, turn_deadline)?;
+            if submission_acknowledged_now(
+                transport,
+                text,
+                baseline_evidence,
+                turn_was_started,
+                recovery_armed,
+            ) {
+                submit_observed = true;
+                break;
+            }
+        }
+        if !submit_observed {
+            submit_observed = wait_submission_acknowledged(
+                transport,
+                text,
+                baseline_evidence,
+                turn_was_started,
+                recovery_armed,
+                turn_deadline,
+            );
+        }
     }
 
     Ok(InjectionResult {
@@ -484,8 +514,12 @@ mod tests {
         }
 
         fn swallows_first_enter() -> Self {
+            Self::swallows_enters(1)
+        }
+
+        fn swallows_enters(count: usize) -> Self {
             let model = Self::new(0, true, true);
-            model.swallowed_enters.set(1);
+            model.swallowed_enters.set(count);
             model
         }
 
@@ -745,8 +779,16 @@ mod tests {
         assert!(!io.turn_started());
         assert_eq!(
             &*io.writes.borrow(),
-            &["paste:marker", "enter", "enter"],
-            "one primary and one recovery Enter, then honest failure"
+            &[
+                "paste:marker",
+                "enter",
+                "enter",
+                "enter",
+                "enter",
+                "enter",
+                "enter"
+            ],
+            "one primary and five recovery Enter writes, then honest failure"
         );
 
         let surfaced = result.require_submission(true, Duration::ZERO, "> marker".into());
@@ -767,6 +809,34 @@ mod tests {
         assert_eq!(
             &*io.writes.borrow(),
             &["paste:team bootstrap", "enter", "enter"]
+        );
+    }
+
+    #[test]
+    fn repeated_swallowed_enters_still_submit_without_reinserting_the_payload() {
+        let io = TuiModel::swallows_enters(5);
+        let result = run(&io, "delivery-marker", true, tui(), opts()).unwrap();
+
+        assert!(result.submit_anomaly);
+        assert!(result.submit_observed);
+        assert!(io.turn_started());
+        assert_eq!(
+            io.writes
+                .borrow()
+                .iter()
+                .filter(|write| write.starts_with("paste:"))
+                .count(),
+            1,
+            "recovery must never paste the message twice"
+        );
+        assert_eq!(
+            io.writes
+                .borrow()
+                .iter()
+                .filter(|write| write.as_str() == "enter")
+                .count(),
+            6,
+            "one primary plus five recovery Enter writes"
         );
     }
 
