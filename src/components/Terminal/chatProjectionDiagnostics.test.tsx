@@ -18,6 +18,15 @@ function assert(condition: unknown, label: string): asserts condition {
   if (!condition) throw new Error(label);
 }
 
+// A callback-driven counter read through a function boundary. Asserting a live
+// `let` counter with `=== 0` then later `=== 1` makes control-flow narrow it to
+// the literal `0`, so the second comparison is a spurious TS2367; a getter is not
+// narrowed by the assert.
+function hitCounter() {
+  let n = 0;
+  return { hit: (): void => { n += 1; }, count: (): number => n };
+}
+
 const PANE = "pane";
 // Default run documents the CURRENT (starved) contract and is green. Setting
 // CHAT_PROJECTION_ASSERT_FIXED=1 flips the streaming assertions to the
@@ -37,6 +46,32 @@ function drop(paneId: string, msgs: EvMsg[]): ChatSessionDiagnosticEvent {
 }
 function commit(paneId: string, msgs: EvMsg[]): ChatSessionDiagnosticEvent {
   return { edge: "state_commit", paneId, sourceSessionId: null, sessionBindingNonce: null, messageIds: msgs.map((m) => m.id), tailSignature: tailSignatureOf(msgs) };
+}
+function snapshotArrival(
+  paneId: string,
+  msgs: EvMsg[],
+  coords: { cursor?: string | null; offset?: number | null; startOffset?: number | null } = {},
+): ChatSessionDiagnosticEvent {
+  return {
+    edge: "snapshot_arrival",
+    paneId,
+    sourceSessionId: null,
+    sessionBindingNonce: null,
+    messageIds: msgs.map((m) => m.id),
+    subscriptionId: null,
+    tailSignature: tailSignatureOf(msgs),
+    cursor: coords.cursor ?? null,
+    offset: coords.offset ?? null,
+    startOffset: coords.startOffset ?? null,
+  };
+}
+// Drive a pane up to a committed+painted steady state at the given tail.
+function bringToSteadyState(monitor: ChatProjectionMonitor, paneId: string, msgs: EvMsg[]): void {
+  monitor.ingest(snapshotArrival(paneId, msgs, { cursor: "c0", offset: msgs.length, startOffset: 0 }));
+  monitor.ingest(arrival(paneId, msgs));
+  monitor.ingest(adopt(paneId, msgs));
+  monitor.ingest(commit(paneId, msgs));
+  monitor.recordPaint(paneId, tailSignatureOf(msgs));
 }
 
 // ── Unit: distinct per-stage counters ──────────────────────────────────────
@@ -131,27 +166,27 @@ function testScheduleAfterPaint(): void {
   };
   try {
     // Happy path: one frame is React commit, the second is post-paint.
-    let painted = 0;
-    scheduleAfterPaint(() => { painted += 1; });
-    assert(painted === 0, "no record before any frame");
+    const painted = hitCounter();
+    scheduleAfterPaint(painted.hit);
+    assert(painted.count() === 0, "no record before any frame");
     runOne();
-    assert(painted === 0, "no record after a single frame (React commit, not paint)");
+    assert(painted.count() === 0, "no record after a single frame (React commit, not paint)");
     runOne();
-    assert(painted === 1, "record fires after the second frame (post-paint)");
+    assert(painted.count() === 1, "record fires after the second frame (post-paint)");
 
     // Cancel before the first frame: nothing pending, nothing recorded.
-    let early = 0;
-    scheduleAfterPaint(() => { early += 1; })();
+    const early = hitCounter();
+    scheduleAfterPaint(early.hit)();
     while (runOne()) { /* drain */ }
-    assert(early === 0, "cancelling before the first frame suppresses the record");
+    assert(early.count() === 0, "cancelling before the first frame suppresses the record");
 
     // Cancel after the outer frame (renders outrun paints): inner frame cancelled.
-    let superseded = 0;
-    const cancel = scheduleAfterPaint(() => { superseded += 1; });
+    const superseded = hitCounter();
+    const cancel = scheduleAfterPaint(superseded.hit);
     runOne(); // outer runs, schedules inner
     cancel(); // cancel the pending inner frame
     while (runOne()) { /* drain */ }
-    assert(superseded === 0, "cancelling a superseded frame before paint suppresses its stale record");
+    assert(superseded.count() === 0, "cancelling a superseded frame before paint suppresses its stale record");
   } finally {
     g.requestAnimationFrame = prevRaf;
     g.cancelAnimationFrame = prevCaf;
@@ -161,9 +196,9 @@ function testScheduleAfterPaint(): void {
   const prevRaf2 = g.requestAnimationFrame;
   g.requestAnimationFrame = undefined;
   try {
-    let sync = 0;
-    scheduleAfterPaint(() => { sync += 1; });
-    assert(sync === 1, "falls back to a synchronous record when no rAF exists");
+    const sync = hitCounter();
+    scheduleAfterPaint(sync.hit);
+    assert(sync.count() === 1, "falls back to a synchronous record when no rAF exists");
   } finally {
     g.requestAnimationFrame = prevRaf2;
   }
@@ -210,6 +245,91 @@ function testFrozenTailStableIdStreaming(): void {
   monitor.recordPaint(PANE, finalTail);
   assert(monitor.firstStalledEdge(PANE) === null, "a single collapsed paint clears the stall (not mistaken for lag)");
   assert(monitor.snapshot(PANE)!.painted === 2, "collapsed catch-up is one paint, not per-delta");
+}
+
+// ── Unit: snapshot_arrival records cursor/offset/signature (recovery coords) ──
+function testSnapshotSignatureRecorded(): void {
+  const monitor = new ChatProjectionMonitor();
+  const msgs: EvMsg[] = [{ id: "m0", content: "hi" }, { id: "m1", content: "there" }];
+  monitor.ingest(snapshotArrival(PANE, msgs, { cursor: "cur-7", offset: 2, startOffset: 0 }));
+  const snap = monitor.snapshot(PANE)!;
+  assert(snap.snapshotTail === "m1#5", "snapshot records the transcript tail signature it recovered to");
+  assert(snap.snapshotCursor === "cur-7", "snapshot records the backend cursor");
+  assert(snap.snapshotOffset === 2, "snapshot records the backend offset");
+  // Recovery coordinates are metadata, not a projection stage: they never invent a stall.
+  assert(monitor.firstStalledEdge(PANE) === null, "snapshot coordinates do not participate in firstStalledEdge");
+}
+
+// ── Unit: away→back / Terminal→Chat activation reconcile oracle ───────────────
+// Terminal↔Chat toggling unmounts/remounts PaneSessionChat, so forget() runs on
+// the way out and a fresh snapshot on the way back. The oracle proves the prior
+// committed tail survives teardown and the reactivated snapshot is attributed by
+// its cursor/signature — a clean recovery, a same-id regression, or a divergence.
+function testActivationReconcileOracle(): void {
+  // Clean recovery: the re-attach snapshot returns the full prior transcript.
+  {
+    const monitor = new ChatProjectionMonitor();
+    const loaded: EvMsg[] = [{ id: "m0", content: "hello" }, { id: "a1", content: "start-xxxxx" }];
+    bringToSteadyState(monitor, PANE, loaded); // committed/painted tail "a1#11"
+    assert(monitor.activationRecovery(PANE) === "no_prior", "a live pane never torn down has no prior activation");
+
+    monitor.forget(PANE); // Terminal switch: unmount
+    assert(monitor.snapshot(PANE) === null, "forget drops the live record");
+    assert(monitor.trackedPaneCount() === 0, "torn-down pane is not counted as live");
+    assert(monitor.firstStalledEdge(PANE) === null, "a forgotten pane reports no live stall");
+    const prior = monitor.priorActivation(PANE)!;
+    assert(prior.committedTail === "a1#11", "prior committed tail is preserved across teardown");
+    assert(prior.snapshotCursor === "c0", "prior recovery cursor is preserved across teardown");
+    assert(monitor.activationRecovery(PANE) === "pending", "torn down but not yet reactivated is pending, not a false desync");
+
+    // Back to Chat: a fresh snapshot recovers to the same committed tail.
+    monitor.ingest(snapshotArrival(PANE, loaded, { cursor: "c1", offset: 2 }));
+    assert(monitor.snapshot(PANE)!.snapshotTail === "a1#11", "reactivated snapshot tail recorded on the fresh live record");
+    assert(monitor.activationRecovery(PANE) === "recovered", "away→back with a full re-attach is a clean signature-gated recovery");
+  }
+
+  // Regression: the re-attach lands on the same tail id but shorter content — the
+  // backend tailer came back with less than the pane had already committed.
+  {
+    const monitor = new ChatProjectionMonitor();
+    bringToSteadyState(monitor, PANE, [{ id: "m0", content: "hi" }, { id: "a1", content: "abcdefghij" }]); // "a1#10"
+    monitor.forget(PANE);
+    monitor.ingest(snapshotArrival(PANE, [{ id: "m0", content: "hi" }, { id: "a1", content: "abc" }], { cursor: "c1" })); // "a1#3"
+    assert(monitor.activationRecovery(PANE) === "regressed", "a shorter same-id re-attach is flagged as a regression, not a clean recovery");
+  }
+
+  // Divergence: the re-attach drops the streamed tail message entirely (lands on a
+  // different id) — unorderable by signature alone; the archived cursor/offset stay
+  // available for deeper attribution.
+  {
+    const monitor = new ChatProjectionMonitor();
+    bringToSteadyState(monitor, PANE, [{ id: "m0", content: "hi" }, { id: "a1", content: "streamed" }]); // "a1#8"
+    monitor.forget(PANE);
+    monitor.ingest(snapshotArrival(PANE, [{ id: "m0", content: "hi" }], { cursor: "c1", offset: 1 })); // "m0#2"
+    assert(monitor.activationRecovery(PANE) === "diverged", "a re-attach on a different tail id is flagged as diverged");
+    assert(monitor.priorActivation(PANE)!.committedTail === "a1#8", "archived prior tail remains readable for cursor/offset attribution");
+  }
+}
+
+// ── Unit: test-only exposure of the live monitor for E2E/integration probes ───
+function testTestOnlyExposure(): void {
+  // Mirrors PaneSessionChat's test-mode wiring: expose the process-wide monitor on
+  // window under a test-only key so harnesses can read live projection state.
+  const monitor = new ChatProjectionMonitor();
+  const w = globalThis as unknown as { __chatProjection?: ChatProjectionMonitor };
+  const prev = w.__chatProjection;
+  try {
+    w.__chatProjection ??= monitor;
+    assert(w.__chatProjection === monitor, "test-only global exposes the live monitor instance");
+    monitor.ingest(arrival(PANE, [{ id: "m0", content: "x" }]));
+    assert(w.__chatProjection.snapshot(PANE)!.arrived === 1, "read seams are reachable through the test-only global");
+    // Idempotent: the ??= exposure does not clobber an already-published monitor.
+    const other = new ChatProjectionMonitor();
+    w.__chatProjection ??= other;
+    assert(w.__chatProjection === monitor, "exposure is idempotent — an existing monitor is not overwritten");
+  } finally {
+    w.__chatProjection = prev;
+  }
 }
 
 // ── Integration: real useChatSession feeds the monitor; frozen tail emerges ──
@@ -356,6 +476,107 @@ async function testFrozenTailSignatureIntegration(): Promise<void> {
   (bridge as never as { __setListenForTest: (fn: unknown) => void }).__setListenForTest(null as never);
 }
 
+// ── Integration: real away→back through useChatSession's snapshot edge ─────────
+// Drives the full Terminal→Chat lifecycle: mount → stream → unmount (forget
+// archives the prior committed tail) → remount (chat_start re-snapshots). Proves
+// the archived tail survives real teardown and the reactivated snapshot is
+// attributed as a clean, cursor/signature-gated recovery — end to end, not just
+// through the monitor's own API.
+async function testActivationRemountIntegration(): Promise<void> {
+  setupHookDom();
+  const bridge = await import("../../lib/bridge");
+  const { useChatSession } = await import("./useChatSession");
+
+  // The backend transcript the tailer would replay on re-attach. It grows as the
+  // stream commits, so a remount recovers the full content (clean recovery).
+  const backend: NormalizedChatMessage[] = [msg("m0")];
+  let cursor = "cur-0";
+  let handler: ChatHandler | null = null;
+  (bridge as never as { __setListenForTest: (fn: unknown) => void }).__setListenForTest(
+    async (_event: string, next: ChatHandler) => {
+      handler = next;
+      return () => { handler = null; };
+    },
+  );
+  (bridge as never as { __setInvokeForTest: (fn: unknown) => void }).__setInvokeForTest(
+    async (command: string, args: Record<string, unknown>) => {
+      if (command === "chat_start") {
+        return {
+          text: "", start_offset: 0, offset: backend.length, cursor, pending: false,
+          messages: [...backend], source_session_id: "session-own",
+          session_binding_nonce: "nonce-a", subscription_id: String(args.subscriptionId ?? ""),
+        };
+      }
+      return {};
+    },
+  );
+
+  const monitor = new ChatProjectionMonitor();
+  function Harness() {
+    const session = useChatSession({
+      paneId: PANE,
+      agentSessionId: "session-own",
+      sessionBindingNonce: "nonce-a",
+      active: true,
+      diagnosticSink: monitor.sink,
+    });
+    const deferred = useDeferredValue(session.enrichedMessages);
+    // Mirror production: post-paint probe AND forget-on-unmount.
+    useEffect(() => {
+      const tail = paintTailSignature(deferred[deferred.length - 1]?.msg);
+      return scheduleAfterPaint(() => monitor.recordPaint(PANE, tail));
+    }, [deferred]);
+    useEffect(() => () => monitor.forget(PANE), []);
+    return createElement("output", null, String(deferred.length));
+  }
+
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+
+  // Mount (Chat view) and settle the initial snapshot.
+  const root1 = createRoot(host);
+  await act(async () => { root1.render(createElement(Harness)); });
+  await flush();
+  assert(monitor.snapshot(PANE)!.snapshotTail === "m0#2", "first snapshot recovers the seed transcript tail");
+
+  // Stream a stable-id assistant turn; the backend transcript grows in lockstep.
+  const streamCount = 24;
+  await act(async () => {
+    for (let i = 0; i < streamCount; i += 1) {
+      const grown = msg("m1", "x".repeat(i + 1));
+      backend[1] = grown;
+      handler?.({
+        payload: {
+          pane_id: PANE, messages: [grown],
+          source_session_id: "session-own", session_binding_nonce: "nonce-a",
+        },
+      });
+    }
+  });
+  await flush();
+  assert(monitor.snapshot(PANE)!.committedTail === `m1#${streamCount}`, "streaming committed the grown tail before teardown");
+
+  // Terminal switch: unmount. forget() archives the prior committed tail.
+  await act(async () => root1.unmount());
+  await flush();
+  assert(monitor.snapshot(PANE) === null, "unmount drops the live record");
+  assert(monitor.priorActivation(PANE)!.committedTail === `m1#${streamCount}`, "prior committed tail survives real unmount teardown");
+
+  // Back to Chat: remount re-runs chat_start, which replays the full transcript.
+  cursor = "cur-1";
+  const root2 = createRoot(host);
+  await act(async () => { root2.render(createElement(Harness)); });
+  await flush();
+  assert(monitor.snapshot(PANE)!.snapshotTail === `m1#${streamCount}`, "reactivated snapshot recovered the full committed tail");
+  assert(monitor.snapshot(PANE)!.snapshotCursor === "cur-1", "reactivated snapshot recorded the fresh backend cursor");
+  assert(monitor.activationRecovery(PANE) === "recovered", "away→back reconcile is a clean signature-gated recovery end to end");
+
+  await act(async () => root2.unmount());
+  await flush();
+  (bridge as never as { __setInvokeForTest: (fn: unknown) => void }).__setInvokeForTest(null as never);
+  (bridge as never as { __setListenForTest: (fn: unknown) => void }).__setListenForTest(null as never);
+}
+
 async function main(): Promise<void> {
   testStageDistinction();
   testAuthorityStall();
@@ -363,8 +584,12 @@ async function main(): Promise<void> {
   testForgetLifecycle();
   testScheduleAfterPaint();
   testFrozenTailStableIdStreaming();
+  testSnapshotSignatureRecorded();
+  testActivationReconcileOracle();
+  testTestOnlyExposure();
   await testFrozenTailSignatureIntegration();
-  console.log("PASS chat projection diagnostics: stage distinction, bounded monotonic counters, lifecycle cleanup, post-paint probe, stable-id frozen-tail read seam");
+  await testActivationRemountIntegration();
+  console.log("PASS chat projection diagnostics: stage distinction, bounded monotonic counters, lifecycle cleanup, post-paint probe, stable-id frozen-tail read seam, snapshot recovery coords, away→back reconcile oracle, test-only exposure");
 }
 
 main().catch((error) => {

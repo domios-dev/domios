@@ -84,6 +84,13 @@ export type ChatSessionDiagnosticEvent =
       sessionBindingNonce: string | null;
       messageIds: string[];
       subscriptionId: string | null;
+      /** Backend-sourced recovery coordinates so a re-attach after deactivation is
+       *  causally attributable: the tailer's cursor/offset plus the transcript tail
+       *  signature the snapshot recovered to. */
+      tailSignature: string | null;
+      cursor: string | null;
+      offset: number | null;
+      startOffset: number | null;
     }
   | {
       edge: "state_commit";
@@ -579,6 +586,10 @@ export function useChatSession({
           sessionBindingNonce: res.session_binding_nonce,
           messageIds: (res.messages ?? []).map((message) => message.id),
           subscriptionId: res.subscription_id ?? null,
+          tailSignature: tailSignatureOf(res.messages ?? []),
+          cursor: res.cursor ?? null,
+          offset: res.offset ?? null,
+          startOffset: res.start_offset ?? null,
         });
         if (res.subscription_id) {
           emitDiagnostic({
