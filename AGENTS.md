@@ -193,6 +193,15 @@ Verify on macOS, Windows, Linux. Never add platform-specific code without handli
 
 Repository-local operational skills live in `.agents/skills/`. Load the matching skill for dev, testing, prompt evaluation, or release work instead of duplicating its procedure here.
 
+## Orchestration failure visibility
+
+Treat failures in CodeTerm's own coordination path as product incidents. A
+false-success dispatch, missing `AgentReady` or session binding, undelivered
+brief, vanished Worker, or lost task assignment requires an immediate,
+standalone user alert before work continues. State the impact, affected tasks,
+cleanup performed, and active fallback; never bury the failure inside a later
+technical status or silently retry it.
+
 ## Code style
 
 SOLID + DRY non-negotiable. **Default: NO comments** — names + types + structure carry meaning. Only comment WHY (non-obvious invariant, OS quirk, deliberate workaround), never WHAT. **Hard limit: 2 lines per comment, strictly.** No multi-line narrative comment blocks — if a WHY needs more than 2 lines, the code needs a better name or a smaller function, not more prose. Giant explanatory comment blocks are forbidden and get removed on sight. (Applies to inline `//` comments; license/file headers and public-API doc comments are exempt but must still stay terse.) Detailed Rust + TypeScript guidance and architecture guardrails: **`docs/contributing/style.md`**.
@@ -238,4 +247,4 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->
