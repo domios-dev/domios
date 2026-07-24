@@ -82,6 +82,7 @@ struct PtySubmitTransport<'a> {
     svc: &'a ServiceContext,
     pty_id: &'a str,
     signal: Arc<ScreenChangeSignal>,
+    permit: Option<crate::pty::GuardedInputPermit>,
 }
 
 fn bracketed_paste(text: &str) -> String {
@@ -135,32 +136,71 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             return Ok(0);
         }
         let paste = bracketed_paste(text);
-        self.svc
+        let session = self
+            .svc
             .pty
             .lock()
-            .write_and_flush(
-                self.pty_id,
-                paste.as_bytes(),
-                deadline.saturating_duration_since(Instant::now()),
-            )
-            .map_err(|_| InjectionError::PtyClosed {
+            .get_session(self.pty_id)
+            .ok_or_else(|| InjectionError::PtyClosed {
                 pty_id: self.pty_id.to_string(),
             })?;
+        let timeout = deadline.saturating_duration_since(Instant::now());
+        let result = match self.permit.as_ref() {
+            Some(permit) => {
+                session.write_and_flush_guarded(paste.as_bytes().to_vec(), permit.clone(), timeout)
+            }
+            None => self
+                .svc
+                .pty
+                .lock()
+                .write_and_flush(self.pty_id, paste.as_bytes(), timeout),
+        };
+        result.map_err(|error| injection_write_error(self.pty_id, error))?;
+        if self.permit.is_some() {
+            crate::pty::capture::CaptureRegistry::global().tap_input(
+                self.pty_id,
+                "pty.write",
+                paste.as_bytes(),
+            );
+        }
         Ok(paste.len())
     }
 
     fn write_submit_key(&self, key: &[u8], deadline: Instant) -> Result<(), InjectionError> {
-        self.svc
+        let session = self
+            .svc
             .pty
             .lock()
-            .write_and_flush(
-                self.pty_id,
-                key,
-                deadline.saturating_duration_since(Instant::now()),
-            )
-            .map_err(|_| InjectionError::PtyClosed {
+            .get_session(self.pty_id)
+            .ok_or_else(|| InjectionError::PtyClosed {
                 pty_id: self.pty_id.to_string(),
-            })
+            })?;
+        let timeout = deadline.saturating_duration_since(Instant::now());
+        let result = match self.permit.as_ref() {
+            Some(permit) => session.write_and_flush_guarded(key.to_vec(), permit.clone(), timeout),
+            None => self
+                .svc
+                .pty
+                .lock()
+                .write_and_flush(self.pty_id, key, timeout),
+        };
+        result.map_err(|error| injection_write_error(self.pty_id, error))?;
+        if self.permit.is_some() {
+            crate::pty::capture::CaptureRegistry::global().tap_input(self.pty_id, "pty.write", key);
+        }
+        Ok(())
+    }
+}
+
+fn injection_write_error(pty_id: &str, error: String) -> InjectionError {
+    if crate::pty::is_stale_agent_input(&error) {
+        InjectionError::AgentInputUnavailable {
+            pty_id: pty_id.to_string(),
+        }
+    } else {
+        InjectionError::PtyClosed {
+            pty_id: pty_id.to_string(),
+        }
     }
 }
 
@@ -325,7 +365,7 @@ pub(crate) fn submit_text(
     strategy: VerifySubmitStrategy,
     opts: VerifyOpts,
 ) -> Result<InjectionResult, InjectionError> {
-    submit_text_with_key(svc, pty_id, text, enter, b"\r", strategy, opts)
+    submit_text_with_key(svc, pty_id, text, enter, b"\r", strategy, opts, None)
 }
 
 pub(crate) fn submit_text_with_key(
@@ -336,6 +376,7 @@ pub(crate) fn submit_text_with_key(
     submit_key: &[u8],
     strategy: VerifySubmitStrategy,
     opts: VerifyOpts,
+    permit: Option<crate::pty::GuardedInputPermit>,
 ) -> Result<InjectionResult, InjectionError> {
     let lock = transaction_lock(pty_id);
     let transaction = lock.lock();
@@ -345,6 +386,7 @@ pub(crate) fn submit_text_with_key(
         svc,
         pty_id,
         signal,
+        permit,
     };
     let required = enter && opts.verify_submit;
     let result = run_with_submit_key(&transport, text, enter, submit_key, strategy, opts).and_then(
@@ -582,6 +624,45 @@ mod tests {
         }
     }
 
+    struct RevokedAfterPaste {
+        generation: Cell<u64>,
+        writes: RefCell<Vec<String>>,
+    }
+
+    impl SubmitTransport for RevokedAfterPaste {
+        fn observe(&self) -> Option<Observation> {
+            Some(Observation { tail: "> ".into() })
+        }
+
+        fn draft_evidence_count(&self, _text: &str) -> usize {
+            usize::from(self.generation.get() > 0)
+        }
+
+        fn generation(&self) -> u64 {
+            self.generation.get()
+        }
+
+        fn wait_change(&self, _generation: u64, _deadline: Instant) -> bool {
+            false
+        }
+
+        fn turn_started(&self) -> bool {
+            false
+        }
+
+        fn write_paste(&self, text: &str, _deadline: Instant) -> Result<usize, InjectionError> {
+            self.generation.set(1);
+            self.writes.borrow_mut().push(format!("paste:{text}"));
+            Ok(text.len())
+        }
+
+        fn write_submit_key(&self, _key: &[u8], _deadline: Instant) -> Result<(), InjectionError> {
+            Err(InjectionError::AgentInputUnavailable {
+                pty_id: "guarded-pty".into(),
+            })
+        }
+    }
+
     fn opts() -> VerifyOpts {
         VerifyOpts {
             require_prompt_first: false,
@@ -735,6 +816,20 @@ mod tests {
                 ]
             );
         }
+    }
+
+    #[test]
+    fn revoked_after_paste_writes_no_enter_or_recovery() {
+        let io = RevokedAfterPaste {
+            generation: Cell::new(0),
+            writes: RefCell::new(Vec::new()),
+        };
+        let error = run(&io, "envelope", true, tui(), opts()).unwrap_err();
+        assert!(matches!(
+            error,
+            InjectionError::AgentInputUnavailable { .. }
+        ));
+        assert_eq!(&*io.writes.borrow(), &["paste:envelope"]);
     }
 
     #[test]
