@@ -57,7 +57,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                     mesh::discovery::cleanup_stale_peers(&mesh);
                     mesh.lock().cleanup_expired_requests();
                     let (peers, sync_payload, signed_token) = {
-                        let m = mesh.lock();
+                        let mut m = mesh.lock();
                         let peers: Vec<_> = m.paired_peers.values().cloned().collect();
                         let token = m.sign_request().ok();
                         let payload = m.build_sync_payload();
@@ -142,27 +142,13 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                             let Some(client) = client else { continue };
                             if let Ok(their_payload) = client.send_sync(&sync_payload).await {
                                 last_sync_secs.insert(peer.instance_id.clone(), now_secs);
-                                let voucher = peer.instance_id.clone();
                                 let mut m = mesh.lock();
-                                for p in their_payload.peers {
-                                    m.apply_gossip_peer_info(&p);
-                                    if m.paired_peers.contains_key(&p.instance_id) {
-                                        continue;
-                                    }
-                                    m.upsert_discovered(
-                                        mesh::discovered::DiscoverySighting {
-                                            instance_id: p.instance_id,
-                                            instance_name: p.instance_name,
-                                            addresses: p.addresses,
-                                            api_port: p.api_port,
-                                            method: mesh::types::DiscoveryMethod::Gossip,
-                                            dev: p.dev,
-                                            mesh_id: None,
-                                            voucher: Some(voucher.clone()),
-                                        },
-                                        now_secs,
-                                    );
-                                }
+                                m.apply_gossip_snapshot(
+                                    &peer.instance_id,
+                                    their_payload.generation,
+                                    &their_payload.peers,
+                                    now_secs,
+                                );
                                 changed = true;
                             }
                         }
