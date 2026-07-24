@@ -13,7 +13,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "test:unit": "bash scripts/ts-unit-tests.sh",
+    "test:unit": "node scripts/run-ts-unit-tests.mjs",
     "test:plugins": "bash scripts/plugin-tests.sh",
     "build:plugin": "node scripts/build-plugin.mjs",
     "build:plugin-ui": "node scripts/build-plugin-ui.mjs",
