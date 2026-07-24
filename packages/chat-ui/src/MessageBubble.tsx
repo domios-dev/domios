@@ -20,8 +20,7 @@ import { ReminderCard } from "./codeterm/ReminderCard";
 import { InboundReportCard } from "./codeterm/InboundReportCard";
 import { InboundMessageCard } from "./codeterm/InboundMessageCard";
 import { messageTimestamp } from "./codeterm/relativeTime";
-import { isSend, type PaneNameResolver } from "./codeterm/templates";
-import { recognize } from "./codeterm/recognize";
+import type { PaneNameResolver } from "./codeterm/templates";
 import { ChevronIcon, PRE_WRAP_CLASS } from "./CodeBlock";
 import {
   CommandBody,
@@ -79,12 +78,10 @@ interface MessageBubbleProps {
 const INTERACTIVE_QUESTIONS_ENABLED = false;
 const TOOL_EXPANDED_BY_ID = new Map<string, boolean>();
 
-function isCommunicationTool(item: TimelineItem | undefined): boolean {
-  if (item?.kind !== "tool") return false;
-  const event = item.event;
-  if (event.kind !== "command" && event.kind !== "codeterm") return false;
-  const invocation = recognize(event.detail?.trim() || event.summary || event.result?.trim() || "");
-  return Boolean(invocation && (isSend(invocation) || invocation.path.join(" ") === "agent report"));
+function hasVisibleEdit(item: TimelineItem | undefined): boolean {
+  return item?.kind === "tool"
+    && item.event.kind === "edit"
+    && Boolean(item.event.edits?.length);
 }
 
 function paneOriginTitle(origin: Extract<ChatOrigin, { kind: "pane" }>, resolvePaneName?: PaneNameResolver): string {
@@ -103,17 +100,10 @@ function recordBubbleRender(id: string): void {
   counts[id] = (counts[id] ?? 0) + 1;
 }
 
-export const MessageBubble = React.memo(function MessageBubble({ message, item, isLatestFailedToolCall = false, origin, onOriginClick, resolvePaneName, onFocusPane, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
+export const MessageBubble = React.memo(function MessageBubble({ message, item, origin, onOriginClick, resolvePaneName, onFocusPane, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
   recordBubbleRender(message.id);
-  const isFailedToolCall = message.type === "tool_call" && message.toolError === true;
   const isInboundCommunication = origin?.kind === "pane" || message.inboundKind === "pane" || message.inboundKind === "report" || message.inboundKind === "mesh";
-  const shouldAutoExpand = message.type === "tool_call"
-    && (message.toolInput?.content != null
-      || Boolean(message.toolEdits?.length)
-      || (item?.kind === "tool" && Boolean(item.event.result) && isImageOnlyToolOutput(item.event.result ?? ""))
-      || (isFailedToolCall && isLatestFailedToolCall)
-      || isCommunicationTool(item))
-    || isInboundCommunication;
+  const shouldAutoExpand = hasVisibleEdit(item) || isInboundCommunication;
   const [expanded, setExpanded] = useState(() => {
     const persisted = TOOL_EXPANDED_BY_ID.get(message.id);
     return persisted ?? shouldAutoExpand;
