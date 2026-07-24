@@ -147,6 +147,19 @@ fn authenticated_pty_target(
     expected_session_id: &str,
     expected_binding_nonce: &str,
 ) -> Result<(String, String), String> {
+    let target = optimistic_agent_pty_target(pane)?;
+    let authenticated = pane.agent_session_id.as_deref() == Some(expected_session_id)
+        && pane.session_binding_nonce.as_deref() == Some(expected_binding_nonce)
+        && pane.reported_session_binding_nonce.as_deref() == Some(expected_binding_nonce);
+    if !authenticated {
+        return Err("agent_unavailable: planner session is stale".into());
+    }
+    Ok(target)
+}
+
+fn optimistic_agent_pty_target(
+    pane: &crate::multiplexer::types::Pane,
+) -> Result<(String, String), String> {
     let accepting = match pane.agent_state.as_ref() {
         Some(state) => matches!(
             state.state,
@@ -154,25 +167,23 @@ fn authenticated_pty_target(
         ),
         None => pane.boot_stage == Some(codeterm_types::pty::BootStage::AgentReady),
     };
-    let authenticated = pane.agent_type.is_some()
-        && pane.agent_session_id.as_deref() == Some(expected_session_id)
-        && pane.session_binding_nonce.as_deref() == Some(expected_binding_nonce)
-        && pane.reported_session_binding_nonce.as_deref() == Some(expected_binding_nonce)
+    let routable = pane.agent_type.is_some()
+        && pane.agent_session_id.is_some()
         && pane.chat_view
         && pane.exit_suspected_at.is_none()
         && accepting;
-    if !authenticated {
-        return Err("agent_unavailable: planner session is stale".into());
+    if !routable {
+        return Err("agent_unavailable: recipient agent is not accepting input".into());
     }
     match &pane.backing {
         crate::multiplexer::types::PaneBacking::Pty => Ok((
             pane.pty_id
                 .clone()
-                .ok_or_else(|| "agent_unavailable: planner PTY missing".to_string())?,
+                .ok_or_else(|| "agent_unavailable: recipient PTY missing".to_string())?,
             pane.agent_type.clone().unwrap_or_default(),
         )),
         crate::multiplexer::types::PaneBacking::ChatBackend { .. } => {
-            Err("agent_unavailable: planner is not PTY-backed".into())
+            Err("agent_unavailable: recipient is not PTY-backed".into())
         }
     }
 }
@@ -229,7 +240,7 @@ impl ServiceContext {
         })
     }
 
-    pub(crate) fn capture_authenticated_agent_session(
+    pub(crate) fn capture_optimistic_agent_session(
         &self,
         pane_id: &str,
     ) -> Result<AuthenticatedPtyDelivery, String> {
@@ -240,17 +251,14 @@ impl ServiceContext {
         let pane = mux
             .get_pane(&resolved)
             .ok_or_else(|| "agent_unavailable: recipient pane missing".to_string())?;
-        let session_id = pane
-            .agent_session_id
-            .clone()
-            .ok_or_else(|| "agent_unavailable: recipient session missing".to_string())?;
-        let binding_nonce = pane
-            .reported_session_binding_nonce
-            .clone()
-            .ok_or_else(|| "agent_unavailable: recipient binding nonce missing".to_string())?;
-        authenticated_pty_target(pane, &session_id, &binding_nonce)?;
+        let (pty_id, provider_id) = optimistic_agent_pty_target(pane)?;
         drop(mux);
-        self.authenticated_pty_delivery(pane_id, &session_id, &binding_nonce)
+        let permit = self.pty.lock().issue_guarded_input_permit(&pty_id)?;
+        Ok(AuthenticatedPtyDelivery {
+            pty_id,
+            provider_id,
+            permit,
+        })
     }
 
     pub(crate) fn send_to_authenticated_agent_session_detached(
@@ -1022,7 +1030,10 @@ rollacode-bot:general ainyiva$ ";
 
 #[cfg(test)]
 mod planner_delivery_tests {
-    use super::{provider_frame_ready, provider_or_generic_tui, submit_authenticated_pty_input};
+    use super::{
+        authenticated_pty_target, optimistic_agent_pty_target, provider_frame_ready,
+        provider_or_generic_tui, submit_authenticated_pty_input,
+    };
     use crate::multiplexer::state::MultiplexerState;
 
     #[test]
@@ -1083,6 +1094,26 @@ mod planner_delivery_tests {
             shell_write_spy.is_empty(),
             "suspected shell fallback received agent bytes"
         );
+    }
+
+    #[test]
+    fn optimistic_send_accepts_a_live_agent_without_a_reported_nonce() {
+        let (mut mux, pane_id) = MultiplexerState::new();
+        let pane = mux.get_pane_mut(&pane_id).unwrap();
+        pane.backing = crate::multiplexer::types::PaneBacking::Pty;
+        pane.pty_id = Some("pty-agent".into());
+        pane.chat_view = true;
+        pane.agent_type = Some("codex".into());
+        pane.agent_session_id = Some("session".into());
+        pane.session_binding_nonce = Some("launch-nonce".into());
+        pane.reported_session_binding_nonce = None;
+        pane.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
+
+        assert_eq!(
+            optimistic_agent_pty_target(pane).unwrap(),
+            ("pty-agent".into(), "codex".into()),
+        );
+        assert!(authenticated_pty_target(pane, "session", "launch-nonce").is_err());
     }
 
     #[test]
