@@ -1,15 +1,21 @@
 use super::{
-    build_brief, build_brief_with_claimed_persona, build_brief_with_personality,
-    dispatch_worker_identity, regression_blocked_error, resolve_dispatch_routing,
+    await_agent_ready, build_brief, build_brief_with_claimed_persona, build_brief_with_personality,
+    complete_dispatch_transaction, dispatch_worker_identity, lane_metadata_for_dispatch,
+    regression_blocked_error, resolve_dispatch_lane, resolve_dispatch_routing,
     rollback_failed_dispatch, unqualified_model_error,
 };
-use crate::plan::{IdentityProvenance, Task};
+use crate::plan::{
+    IdentityProvenance, OrchestratorRef, PlanMode, Task, TaskLaneMetadata, TaskStatus,
+};
 use crate::service::plan::milestone_gates::RegressionGate;
 use crate::service::plan::task_queries::TaskSection;
-use crate::service::{provision_lane_for_test, SpawnIdentityProvenance};
+use crate::service::plan::{NewTask, PlanStore};
+use crate::service::{provision_lane_for_test, SpawnIdentityProvenance, WorkerLaneProvenance};
 use serde_json::json;
+use std::cell::{Cell, RefCell};
 use std::path::Path;
 use std::process::Command;
+use std::time::{Duration, Instant};
 
 #[test]
 fn regression_block_error_names_every_gate_in_message_and_data() {
@@ -55,8 +61,7 @@ fn git(dir: &Path, args: &[&str]) {
     );
 }
 
-#[test]
-fn dispatch_rollback_closes_pane_and_removes_provisioned_lane() {
+fn git_project() -> (tempfile::TempDir, std::path::PathBuf) {
     let root = tempfile::tempdir().unwrap();
     let project = root.path().join("project");
     std::fs::create_dir_all(&project).unwrap();
@@ -66,6 +71,78 @@ fn dispatch_rollback_closes_pane_and_removes_provisioned_lane() {
     std::fs::write(project.join("README.md"), "fixture").unwrap();
     git(&project, &["add", "README.md"]);
     git(&project, &["commit", "-qm", "fixture"]);
+    (root, project)
+}
+
+fn provenance() -> WorkerLaneProvenance {
+    WorkerLaneProvenance {
+        canonical_cwd: "/project".into(),
+        worktree_path: "/project-worktrees/lane".into(),
+        branch: "lane/test".into(),
+        base: "master".into(),
+    }
+}
+
+#[test]
+fn explicit_canonical_cwd_is_rejected_before_provisioning() {
+    let (_root, project) = git_project();
+    let provision_count = Cell::new(0);
+    let error = resolve_dispatch_lane(
+        Some(project.to_str().unwrap()),
+        project.to_str().unwrap(),
+        &TaskLaneMetadata::default(),
+    )
+    .unwrap_err();
+    if error.code == 0 {
+        provision_count.set(provision_count.get() + 1);
+    }
+    assert_eq!(error.code, -32602);
+    assert_eq!(error.data.unwrap()["stage"], "cwd_validation");
+    assert_eq!(provision_count.get(), 0);
+    assert_eq!(git_worktree_count(&project), 1);
+}
+
+#[test]
+fn explicit_cwd_conflicting_with_recorded_lane_is_rejected_before_provisioning() {
+    let (_root, project) = git_project();
+    let lane = provision_lane_for_test(project.to_str().unwrap(), "recorded").unwrap();
+    let recorded = lane.verify().unwrap();
+    let other = project.parent().unwrap().join("other");
+    std::fs::create_dir_all(&other).unwrap();
+    let lane_metadata = TaskLaneMetadata {
+        worktree_path: Some(recorded.worktree_path.clone()),
+        branch: Some(recorded.branch.clone()),
+        base: Some(recorded.base.clone()),
+        ..Default::default()
+    };
+    let error = resolve_dispatch_lane(
+        Some(other.to_str().unwrap()),
+        project.to_str().unwrap(),
+        &lane_metadata,
+    )
+    .unwrap_err();
+    assert_eq!(error.code, -32602);
+    assert_eq!(git_worktree_count(&project), 2);
+    lane.cleanup().unwrap();
+}
+
+fn git_worktree_count(project: &Path) -> usize {
+    let output = Command::new("git")
+        .current_dir(project)
+        .args(["worktree", "list", "--porcelain"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .filter(|line| line.starts_with("worktree "))
+        .count()
+}
+
+#[test]
+fn dispatch_rollback_closes_pane_and_removes_provisioned_lane() {
+    let (_root, project) = git_project();
 
     let lane = provision_lane_for_test(project.to_str().unwrap(), "dispatch_failure").unwrap();
     let lane_path = std::path::PathBuf::from(&lane.cwd);
@@ -78,7 +155,18 @@ fn dispatch_rollback_closes_pane_and_removes_provisioned_lane() {
     let mut task_reverted = false;
     let mut pane_closed = false;
 
-    rollback_failed_dispatch(Some(lane), || task_reverted = true, || pane_closed = true);
+    rollback_failed_dispatch(
+        Some(lane),
+        || {
+            task_reverted = true;
+            Ok(())
+        },
+        || {
+            pane_closed = true;
+            Ok(())
+        },
+    )
+    .unwrap();
 
     assert!(task_reverted);
     assert!(pane_closed);
@@ -89,6 +177,307 @@ fn dispatch_rollback_closes_pane_and_removes_provisioned_lane() {
         .output()
         .unwrap();
     assert!(String::from_utf8(branch_exists.stdout)
+        .unwrap()
+        .trim()
+        .is_empty());
+}
+
+#[test]
+fn omitted_cwd_provisions_one_lane_and_persists_matching_attempt_provenance() {
+    let (root, project) = git_project();
+    let resolved = resolve_dispatch_lane(
+        None,
+        project.to_str().unwrap(),
+        &TaskLaneMetadata::default(),
+    )
+    .unwrap();
+    assert!(resolved.existing.is_none());
+    let provision_count = Cell::new(0);
+    provision_count.set(provision_count.get() + 1);
+    let lane = provision_lane_for_test(&resolved.spawn_cwd, "dispatch_success").unwrap();
+    let actual = lane.verify().unwrap();
+    assert_eq!(provision_count.get(), 1);
+    assert_eq!(git_worktree_count(&project), 2);
+
+    let store = PlanStore::new_for_test(root.path());
+    let plan = store
+        .create_plan_for_team(
+            "Dispatch".into(),
+            project.display().to_string(),
+            OrchestratorRef::from_pane("orch"),
+            "team".into(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let mut approved = store.get(&plan.id).unwrap();
+    approved.mode = PlanMode::Approved;
+    store.save(&mut approved, 2).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "worker".into(),
+                lane: TaskLaneMetadata {
+                    workspace_id: Some("workspace".into()),
+                    destination: Some("master".into()),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap();
+    let original = store.show_task(&task_id).unwrap().task;
+    store
+        .commit_task_dispatch(
+            &plan.id,
+            &task_id,
+            "pane-worker",
+            "Ada",
+            "session-worker",
+            lane_metadata_for_dispatch(&original.lane, &actual),
+            4,
+        )
+        .unwrap();
+
+    let task = store.show_task(&task_id).unwrap().task;
+    let attempt = task.execution_attempts.last().unwrap();
+    assert_eq!(task.status, TaskStatus::InProgress);
+    assert_eq!(
+        task.lane.worktree_path.as_deref(),
+        Some(actual.worktree_path.as_str())
+    );
+    assert_eq!(task.lane.branch.as_deref(), Some(actual.branch.as_str()));
+    assert_eq!(attempt.worktree_path, task.lane.worktree_path);
+    assert_eq!(attempt.branch, task.lane.branch);
+    assert_eq!(attempt.base, task.lane.base);
+    assert_eq!(attempt.destination, task.lane.destination);
+    assert_eq!(attempt.session_id.as_deref(), Some("session-worker"));
+    assert_eq!(task.lane.workspace_id.as_deref(), Some("workspace"));
+    lane.cleanup().unwrap();
+}
+
+#[test]
+fn readiness_and_same_pane_binding_precede_commit_and_delivery() {
+    let order = RefCell::new(Vec::new());
+    let evidence = complete_dispatch_transaction(
+        Instant::now() + Duration::from_secs(1),
+        |_| {
+            order.borrow_mut().push("agent_ready");
+            Ok(())
+        },
+        |_| {
+            order.borrow_mut().push("same_pane_session");
+            Ok("session-worker".into())
+        },
+        || {
+            order.borrow_mut().push("provenance");
+            Ok(provenance())
+        },
+        |_, session| {
+            assert_eq!(session, "session-worker");
+            order.borrow_mut().push("commit");
+            Ok(())
+        },
+        || {
+            order.borrow_mut().push("delivery");
+            Ok(())
+        },
+        || {
+            order.borrow_mut().push("rollback");
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(evidence.session_id, "session-worker");
+    assert_eq!(
+        order.into_inner(),
+        vec![
+            "agent_ready",
+            "same_pane_session",
+            "provenance",
+            "commit",
+            "delivery"
+        ]
+    );
+}
+
+#[test]
+fn every_transaction_stage_failure_runs_compensation() {
+    for (failure, expected_stage) in [
+        ("agent_ready", "agent_ready"),
+        ("pane_removed", "session_binding"),
+        ("missing_session", "session_binding"),
+        ("wrong_pane_session", "session_binding"),
+        ("provenance", "provenance_readback"),
+        ("task_commit", "task_commit"),
+        ("brief_delivery", "brief_delivery"),
+    ] {
+        let rolled_back = Cell::new(false);
+        let error = complete_dispatch_transaction(
+            Instant::now() + Duration::from_secs(1),
+            |_| {
+                if failure == "agent_ready" {
+                    Err("launch failed".into())
+                } else {
+                    Ok(())
+                }
+            },
+            |_| {
+                if matches!(
+                    failure,
+                    "pane_removed" | "missing_session" | "wrong_pane_session"
+                ) {
+                    Err(failure.into())
+                } else {
+                    Ok("session-worker".into())
+                }
+            },
+            || {
+                if failure == "provenance" {
+                    Err("readback mismatch".into())
+                } else {
+                    Ok(provenance())
+                }
+            },
+            |_, _| {
+                if failure == "task_commit" {
+                    Err("mutation failed".into())
+                } else {
+                    Ok(())
+                }
+            },
+            || {
+                if failure == "brief_delivery" {
+                    Err("delivery failed".into())
+                } else {
+                    Ok(())
+                }
+            },
+            || {
+                rolled_back.set(true);
+                Ok(())
+            },
+        )
+        .unwrap_err();
+        assert_eq!(error.data.unwrap()["stage"], expected_stage, "{failure}");
+        assert!(rolled_back.get(), "{failure}");
+    }
+}
+
+#[test]
+fn agent_ready_oneshot_error_closed_sender_and_expired_deadline_fail() {
+    let (error_tx, error_rx) = tokio::sync::oneshot::channel();
+    error_tx
+        .send(Err("provider rejected launch".into()))
+        .unwrap();
+    assert_eq!(
+        await_agent_ready(error_rx, Instant::now() + Duration::from_secs(1)).unwrap_err(),
+        "provider rejected launch"
+    );
+
+    let (closed_tx, closed_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
+    drop(closed_tx);
+    assert!(
+        await_agent_ready(closed_rx, Instant::now() + Duration::from_secs(1))
+            .unwrap_err()
+            .contains("closed")
+    );
+
+    let (_pending_tx, pending_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
+    assert!(
+        await_agent_ready(pending_rx, Instant::now() - Duration::from_secs(1))
+            .unwrap_err()
+            .contains("expired")
+    );
+}
+
+#[test]
+fn post_ready_failure_restores_exact_original_task_and_attempt_state() {
+    let (root, project) = git_project();
+    let store = PlanStore::new_for_test(root.path());
+    let plan = store
+        .create_plan_for_team(
+            "Rollback".into(),
+            project.display().to_string(),
+            OrchestratorRef::from_pane("orch"),
+            "team".into(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let mut approved = store.get(&plan.id).unwrap();
+    approved.mode = PlanMode::Approved;
+    store.save(&mut approved, 2).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "worker".into(),
+                lane: TaskLaneMetadata {
+                    destination: Some("release".into()),
+                    workspace_id: Some("workspace".into()),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap();
+    let original = store.show_task(&task_id).unwrap().task;
+    let lane = provision_lane_for_test(project.to_str().unwrap(), "rollback").unwrap();
+    let actual = lane.verify().unwrap();
+    let worktree_path = actual.worktree_path.clone();
+    let branch = actual.branch.clone();
+    let closed = Cell::new(false);
+    let error = complete_dispatch_transaction(
+        Instant::now() + Duration::from_secs(1),
+        |_| Ok(()),
+        |_| Ok("session-worker".into()),
+        || Ok(actual.clone()),
+        |provenance, session| {
+            store
+                .commit_task_dispatch(
+                    &plan.id,
+                    &task_id,
+                    "pane-worker",
+                    "Ada",
+                    session,
+                    lane_metadata_for_dispatch(&original.lane, provenance),
+                    4,
+                )
+                .map_err(|error| error.to_string())
+        },
+        || Err("delivery rejected".into()),
+        || {
+            rollback_failed_dispatch(
+                Some(lane),
+                || {
+                    store
+                        .restore_task_dispatch_snapshot(&plan.id, &original, PlanMode::Approved, 5)
+                        .map_err(|error| error.to_string())
+                },
+                || {
+                    closed.set(true);
+                    Ok(())
+                },
+            )
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(error.data.unwrap()["stage"], "brief_delivery");
+    assert!(closed.get());
+    assert_eq!(store.show_task(&task_id).unwrap().task, original);
+    assert_eq!(store.get(&plan.id).unwrap().mode, PlanMode::Approved);
+    assert!(!Path::new(&worktree_path).exists());
+    let branches = Command::new("git")
+        .current_dir(&project)
+        .args(["branch", "--list", &branch])
+        .output()
+        .unwrap();
+    assert!(String::from_utf8(branches.stdout)
         .unwrap()
         .trim()
         .is_empty());

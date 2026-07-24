@@ -83,7 +83,7 @@ mod worker_identity;
 mod worker_lane;
 #[cfg(test)]
 pub(crate) use worker_lane::provision_lane_for_test;
-pub(crate) use worker_lane::ProvisionedWorkerLane;
+pub(crate) use worker_lane::{verify_worker_lane, ProvisionedWorkerLane, WorkerLaneProvenance};
 mod worker_persona;
 mod workspace;
 
