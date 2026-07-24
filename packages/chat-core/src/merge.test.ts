@@ -96,6 +96,15 @@ function msg(id: string, opts: Partial<M> = {}): M {
 }
 
 {
+  const stableId = "10c35d49-66da-4a15-ba9c-2fbfa1a8b8a7-0";
+  const merged = mergeById(
+    [msg(stableId, { content: "круто запусти еще раз", seq: 1647, sourceSessionId: "ab7dc0bb" })],
+    [msg(stableId, { content: "круто запусти еще раз", seq: 1648, sourceSessionId: "ab7dc0bb" })],
+  );
+  eq(merged.map((m) => m.id), [stableId], "tab reactivation dedupes one provider UUID across shifted parser seq");
+}
+
+{
   const reply = "I traced the merge path and will fix the source identity.";
   const merged = mergeById(
     [msg("snapshot-assistant-7", { type: "assistant", content: reply, seq: 7, sourceSessionId: "c73becde" })],
