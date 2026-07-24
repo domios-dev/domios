@@ -203,6 +203,9 @@ fn publish_startup_report(
         details,
         None,
     );
+    if !svc.report_store.lock().claim(&report.id) {
+        return;
+    }
     svc.events.broadcast(
         "agent.report",
         json!({
@@ -228,12 +231,15 @@ fn publish_startup_report(
         &report.inject_body(),
         crate::service::message_gateway::DeliveryClass::AgentTraffic,
     ) {
+        svc.report_store.lock().release_delivery(&report.id);
         log::warn!(
             "[dispatch-startup] parent delivery failed task={} pane={}: {}",
             task_id,
             worker_pane_id,
             error
         );
+    } else {
+        svc.report_store.lock().mark_delivered(&report.id);
     }
 }
 
@@ -246,7 +252,6 @@ struct DispatchStartup {
     attempt_id: String,
     parent_pane_id: String,
     worker_title: String,
-    brief: String,
     original_task: Task,
     original_plan_mode: crate::plan::PlanMode,
     lane_for_commit: TaskLaneMetadata,
@@ -269,9 +274,6 @@ impl DispatchStartup {
                 Some(&self.provenance.base),
             )
             .map_err(|error| dispatch_failed("provenance_readback", error))?;
-            self.svc
-                .send_text(&self.pane_id, &self.brief, true)
-                .map_err(|error| dispatch_failed("brief_delivery", error))?;
             let lane_metadata = lane_metadata_for_dispatch(&self.lane_for_commit, &lane);
             self.svc
                 .plan_store
@@ -366,13 +368,12 @@ impl DispatchStartup {
 }
 
 #[cfg(test)]
-fn complete_dispatch_transaction<Ready, Binding, Provenance, Commit, Deliver, Rollback>(
+fn complete_dispatch_transaction<Ready, Binding, Provenance, Commit, Rollback>(
     deadline: Instant,
     await_ready: Ready,
     wait_binding: Binding,
     validate_provenance: Provenance,
     commit: Commit,
-    deliver: Deliver,
     rollback: Rollback,
 ) -> Result<DispatchEvidence, JsonRpcError>
 where
@@ -380,7 +381,6 @@ where
     Binding: FnOnce(Instant) -> Result<String, String>,
     Provenance: FnOnce() -> Result<WorkerLaneProvenance, String>,
     Commit: FnOnce(&WorkerLaneProvenance, &str) -> Result<(), String>,
-    Deliver: FnOnce() -> Result<(), String>,
     Rollback: FnOnce() -> Result<(), String>,
 {
     let outcome = (|| {
@@ -389,7 +389,6 @@ where
             wait_binding(deadline).map_err(|error| dispatch_failed("session_binding", error))?;
         let lane =
             validate_provenance().map_err(|error| dispatch_failed("provenance_readback", error))?;
-        deliver().map_err(|error| dispatch_failed("brief_delivery", error))?;
         commit(&lane, &session_id).map_err(|error| dispatch_failed("task_commit", error))?;
         Ok(DispatchEvidence { session_id, lane })
     })();
@@ -611,6 +610,7 @@ pub(super) fn dispatch(
 
     // A personality is the executor persona: it names the pane and opens the brief.
     let (explicit_persona, title_provenance) = dispatch_worker_identity(&detail.task);
+    let brief = build_brief(&detail.task, &detail.sections);
 
     let explicit_cwd = owned_str(p, "cwd");
     let canonical_cwd = if plan.canonical_project_path.trim().is_empty() {
@@ -634,6 +634,7 @@ pub(super) fn dispatch(
         planned_model: detail.task.model.clone(),
         reasoning_effort: owned_str(p, "reasoning_effort"),
         spawned_by_pane_id: owned_str(p, "caller_pane_id"),
+        task: Some(brief),
         ..Default::default()
     };
 
@@ -680,7 +681,6 @@ pub(super) fn dispatch(
     let pane_id = spawn.pane_id.clone();
     let original_task = detail.task.clone();
     let original_plan_mode = plan.mode.clone();
-    let brief = build_brief_with_claimed_persona(&detail.task, &detail.sections, &spawn.title);
     let lane_for_commit = detail.task.lane.clone();
     let starting_lane = lane_metadata_for_dispatch(&lane_for_commit, &initial_provenance);
     let attempt_id = match store.begin_task_dispatch(
@@ -718,7 +718,6 @@ pub(super) fn dispatch(
         attempt_id: attempt_id.clone(),
         parent_pane_id,
         worker_title: spawn.title.clone(),
-        brief,
         original_task,
         original_plan_mode,
         lane_for_commit,
@@ -790,16 +789,6 @@ where
     } else {
         Err(errors.join("; "))
     }
-}
-
-fn build_brief_with_claimed_persona(
-    task: &Task,
-    sections: &[TaskSection],
-    claimed_title: &str,
-) -> String {
-    let mut claimed_task = task.clone();
-    claimed_task.personality = Some(claimed_title.to_string());
-    build_brief(&claimed_task, sections)
 }
 
 /// Assemble the worker brief: body, acceptance, test plan, section links,
