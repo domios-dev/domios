@@ -60,7 +60,7 @@ function actionsWith(setFocusedPane: (paneId: string) => void): MultiplexerActio
 }
 
 function muxStateFor(panes: Record<string, Pane>): ExtendedState {
-  return { workspaces: [], panes, teams: [], active_workspace_id: null, focused_pane_id: Object.keys(panes)[0] ?? null, notifications: [], paneStatuses: {}, toasts: [], activeTabIds: {}, generation: 1 };
+  return { workspaces: [], panes, teams: [], active_workspace_id: null, focused_pane_id: Object.keys(panes)[0] ?? null, notifications: [], paneStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [] };
 }
 function originReport(id: string, shortId: string, seq: number) {
   return { id, type: "user", content: `-=-codeterm:pane label=Worker pane=${shortId}-=-report body ${seq}`, timestamp: String(1_700_000_000_000 + seq * 1000), seq, provider: "test" };
