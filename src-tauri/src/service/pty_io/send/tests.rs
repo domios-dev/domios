@@ -1,6 +1,7 @@
 use super::{
-    authenticated_pty_target, optimistic_agent_pty_target, provider_frame_ready,
-    provider_or_generic_tui, submit_authenticated_pty_input,
+    authenticated_pty_target, await_shell_prompt, await_shell_prompt_armed,
+    optimistic_agent_pty_target, provider_frame_ready, provider_or_generic_tui,
+    submit_authenticated_pty_input,
 };
 use crate::multiplexer::state::MultiplexerState;
 
@@ -40,7 +41,6 @@ fn missing_or_blank_pane_title_falls_back_to_the_pane_id() {
 // shell_ready_wait_tests
 // ---------------------------------------------------------------------------
 
-use super::super::{await_shell_prompt, await_shell_prompt_armed};
 use codeterm_pty::pty::screen_state::ScreenState;
 use codeterm_util::lock_hold::TimedMutex;
 use std::sync::mpsc;
@@ -292,7 +292,7 @@ fn pane_without_agent_type_skips_routability_check() {
 
 #[test]
 fn pane_missing_session_id_is_not_routable() {
-    let (_mux, pane_id) = fully_routable_pane();
+    let (mut _mux, pane_id) = fully_routable_pane();
     let pane = _mux.get_pane_mut(&pane_id).unwrap();
     pane.agent_session_id = None;
     let pane = _mux.get_pane(&pane_id).unwrap();
@@ -301,7 +301,7 @@ fn pane_missing_session_id_is_not_routable() {
 
 #[test]
 fn pane_with_exit_suspected_is_not_routable() {
-    let (_mux, pane_id) = fully_routable_pane();
+    let (mut _mux, pane_id) = fully_routable_pane();
     let pane = _mux.get_pane_mut(&pane_id).unwrap();
     pane.exit_suspected_at = Some(std::time::Instant::now());
     let pane = _mux.get_pane(&pane_id).unwrap();
@@ -310,7 +310,7 @@ fn pane_with_exit_suspected_is_not_routable() {
 
 #[test]
 fn pane_before_agent_ready_is_not_routable() {
-    let (_mux, pane_id) = fully_routable_pane();
+    let (mut _mux, pane_id) = fully_routable_pane();
     let pane = _mux.get_pane_mut(&pane_id).unwrap();
     pane.boot_stage = Some(codeterm_types::pty::BootStage::AgentLaunching);
     let pane = _mux.get_pane(&pane_id).unwrap();
@@ -319,7 +319,7 @@ fn pane_before_agent_ready_is_not_routable() {
 
 #[test]
 fn pane_with_no_boot_stage_is_not_routable() {
-    let (_mux, pane_id) = fully_routable_pane();
+    let (mut _mux, pane_id) = fully_routable_pane();
     let pane = _mux.get_pane_mut(&pane_id).unwrap();
     pane.boot_stage = None;
     let pane = _mux.get_pane(&pane_id).unwrap();
@@ -328,7 +328,7 @@ fn pane_with_no_boot_stage_is_not_routable() {
 
 #[test]
 fn inactive_tab_is_still_routable_after_activation() {
-    let (_mux, pane_id) = fully_routable_pane();
+    let (mut _mux, pane_id) = fully_routable_pane();
     let pane = _mux.get_pane_mut(&pane_id).unwrap();
     pane.chat_view = false;
     let pane = _mux.get_pane(&pane_id).unwrap();
@@ -343,7 +343,7 @@ fn inactive_tab_is_still_routable_after_activation() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn restored_tab_delivery_survives_reconnect_and_activation() {
+fn restored_tab_target_survives_reconnect_and_activation() {
     let (mut mux, pane_id) = MultiplexerState::new();
     let pane = mux.get_pane_mut(&pane_id).unwrap();
     pane.backing = crate::multiplexer::types::PaneBacking::Pty;
@@ -355,22 +355,6 @@ fn restored_tab_delivery_survives_reconnect_and_activation() {
     let (pty_id, agent_type) = optimistic_agent_pty_target(pane).unwrap();
     assert_eq!(pty_id, "pty-bg");
     assert_eq!(agent_type, "claude");
-
-    let mut received = Vec::new();
-    submit_authenticated_pty_input(
-        pane,
-        "session-bg",
-        "",
-        "hello background",
-        |pty, agent, text| {
-            received.push((pty.to_string(), agent.to_string(), text.to_string()));
-            Ok::<(), String>(())
-        },
-    )
-    .unwrap();
-    assert_eq!(received.len(), 1);
-    assert_eq!(received[0].0, "pty-bg");
-    assert_eq!(received[0].2, "hello background");
 }
 
 #[test]

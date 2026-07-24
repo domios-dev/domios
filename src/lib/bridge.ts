@@ -289,9 +289,11 @@ const HTTP_MAP: Record<string, Mapper> = {
       `/api/sessions/transcript?provider=${enc(s(a, "provider"))}&cwd=${enc(s(a, "cwd"))}&session_id=${enc(s(a, "sessionId"))}`,
     ),
   chat_send_text: (a) =>
-    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/send`, {
+    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/chat-send`, {
       text: a.text,
     }),
+  chat_send_status: (a) =>
+    webJson("GET", `/api/panes/${enc(s(a, "paneId"))}/chat-send`),
   delayed_send_list: (a) =>
     webJson("GET", `/api/panes/${enc(s(a, "paneId"))}/delayed-messages`),
   delayed_send_create: (a) =>
@@ -688,7 +690,7 @@ export async function listen<T>(
   handler: (e: { payload: T }) => void,
 ): Promise<UnlistenFn> {
   const counted = (e: { payload: T }) => {
-    const perf = window.__ipcPerf;
+    const perf = typeof window !== "undefined" ? window.__ipcPerf : undefined;
     if (perf) {
       perf.events += 1;
       perf.byEvent[event] = (perf.byEvent[event] ?? 0) + 1;

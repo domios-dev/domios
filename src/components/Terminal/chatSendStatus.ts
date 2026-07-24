@@ -27,15 +27,19 @@ export function observeChatSendStatus(
       surfaceFailure(event.payload, onFailure);
     }
   }).then((cleanup) => {
-    if (disposed) cleanup();
-    else unlisten = cleanup;
+    if (disposed) {
+      cleanup();
+      return;
+    }
+    unlisten = cleanup;
+    void invoke<ChatSendStatus[]>("chat_send_status", { paneId })
+      .then((statuses) => {
+        if (!disposed) {
+          for (const status of statuses) surfaceFailure(status, onFailure);
+        }
+      })
+      .catch(() => {});
   });
-
-  void invoke<ChatSendStatus | null>("chat_send_status", { paneId })
-    .then((status) => {
-      if (!disposed) surfaceFailure(status, onFailure);
-    })
-    .catch(() => {});
 
   return () => {
     disposed = true;

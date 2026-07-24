@@ -11,6 +11,35 @@ use crate::service::delivery_error::DeliveryError;
 
 use super::AppState;
 
+pub async fn chat_send_text(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<SendTextBody>,
+) -> Result<Json<crate::service::chat_send_transaction::ChatSendStatus>, SendRejection> {
+    check_auth(&state, &headers).map_err(SendRejection::from)?;
+    let pane_id = resolve_pane(&state, &id).map_err(SendRejection::from)?;
+    let text = body.text.unwrap_or_default();
+    let run_stages =
+        crate::chatpipeline::is_user_turn_send(false, false, state.svc.pane_has_agent(&pane_id));
+    let text = if run_stages {
+        state.svc.run_outbound_stages(&pane_id, text)
+    } else {
+        text
+    };
+    Ok(Json(state.svc.start_chat_send(&pane_id, text)))
+}
+
+pub async fn chat_send_status(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<crate::service::chat_send_transaction::ChatSendStatus>>, SendRejection> {
+    check_auth(&state, &headers).map_err(SendRejection::from)?;
+    let pane_id = resolve_pane(&state, &id).map_err(SendRejection::from)?;
+    Ok(Json(state.svc.chat_send_ledger.reconcile(&pane_id)))
+}
+
 /// Classify a failed PTY delivery for the caller (local or mesh relay). The pane
 /// resolved before any write was attempted, so a failure here is never "missing".
 fn classify_delivery_failure(pane: &str, err: &str) -> DeliveryError {
