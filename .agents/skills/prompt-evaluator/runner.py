@@ -46,6 +46,13 @@ from pathlib import Path
 from typing import Any
 
 
+def configure_output_encoding() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="replace")
+
+
 def _force_rmtree(path: str) -> None:
     """
     Best-effort recursive removal that swallows ALL errors. Needed because
@@ -908,4 +915,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    configure_output_encoding()
     sys.exit(main())

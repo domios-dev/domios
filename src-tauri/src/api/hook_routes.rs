@@ -241,6 +241,9 @@ pub async fn hook_stop(
         .svc
         .run_watcher
         .complete_via_stop_hook(&state.svc, &pane_id);
+    state
+        .svc
+        .complete_worker_turn_without_report(&pane_id, "provider-stop");
 
     Ok(Json(serde_json::json!({"ok": true})))
 }

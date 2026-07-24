@@ -4,6 +4,7 @@ mod first_plan;
 mod plan_reminder_nudge;
 mod planner_delivery;
 mod status;
+mod worker_handoff;
 
 pub(crate) use first_plan::FirstPlanTeamError;
 pub use status::PaneStatusInfo;
@@ -666,6 +667,7 @@ impl ServiceContext {
             self.maybe_send_plan_reminder(pane_id, role);
         }
 
+        self.gateway.clear_worker_report_requirement(pane_id);
         Ok(ReportResult {
             report_id: report.id,
             orchestrator_pane_id: storage_key,

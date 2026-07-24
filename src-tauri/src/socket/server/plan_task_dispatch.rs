@@ -292,6 +292,7 @@ impl DispatchStartup {
 
         match outcome {
             Ok(evidence) => {
+                self.svc.gateway.require_worker_report(&self.pane_id);
                 emit_plan_changed(&self.app, &self.plan_id);
                 publish_startup_report(
                     &self.svc,
