@@ -7,6 +7,6 @@ pub mod screen_state;
 pub mod shell_integration;
 mod spawn_gate;
 mod teardown;
-pub mod write_queue;
 #[cfg(all(test, target_os = "windows"))]
 mod windows_test_support;
+pub mod write_queue;
