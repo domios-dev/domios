@@ -520,12 +520,12 @@ fn pane_list_and_inspect_relay_compact_scope_and_explicit_detail_ids() {
 
     let inspect = Commands::Tab {
         action: PaneAction::Inspect {
-            panes: vec!["pane_1".into(), "pane_2".into()],
+            tabs: vec!["tab_1".into(), "tab_2".into()],
         },
     };
     let (method, path, body) = cli_command_to_api(&inspect);
     assert_eq!(method, "GET");
-    assert_eq!(path, "/api/panes/inspect?pane_ids=pane_1,pane_2");
+    assert_eq!(path, "/api/panes/inspect?pane_ids=tab_1,tab_2");
     assert!(body.is_none());
 }
 

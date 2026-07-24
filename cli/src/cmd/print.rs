@@ -20,6 +20,7 @@ const ENTITY_ID_FIELDS: &[&str] = &[
 pub fn uniform_id_value(value: &serde_json::Value) -> serde_json::Value {
     let mut out = value.clone();
     add_uniform_id_alias(&mut out);
+    rename_pane_json_keys(&mut out);
     out
 }
 
@@ -46,6 +47,38 @@ fn add_uniform_id_alias(value: &mut serde_json::Value) {
         return;
     };
     obj.insert("id".into(), serde_json::Value::String(id));
+}
+
+fn rename_pane_json_keys(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Array(items) => {
+            for item in items {
+                rename_pane_json_keys(item);
+            }
+        }
+        serde_json::Value::Object(object) => {
+            for item in object.values_mut() {
+                rename_pane_json_keys(item);
+            }
+            let keys: Vec<String> = object.keys().cloned().collect();
+            for key in keys {
+                let tab_key = key
+                    .replace("pane_ids", "tab_ids")
+                    .replace("pane_id", "tab_id")
+                    .replace("panes", "tabs")
+                    .replace("pane", "tab")
+                    .replace("Pane", "Tab");
+                if tab_key != key {
+                    if let Some(value) = object.remove(&key) {
+                        object.insert(tab_key, value);
+                    }
+                }
+            }
+        }
+        serde_json::Value::String(text) if text == "pane" => *text = "tab".into(),
+        serde_json::Value::String(text) if text == "panes" => *text = "tabs".into(),
+        _ => {}
+    }
 }
 
 pub fn handle_result(json: bool, result: Result<serde_json::Value, String>) {
@@ -247,5 +280,23 @@ mod tests {
     fn uniform_id_alias_adds_top_level_id_for_agent_spawn() {
         let out = uniform_id_value(&json!({ "pane_id": "pane_1", "agent": "codex" }));
         assert_eq!(out.get("id").and_then(|v| v.as_str()), Some("pane_1"));
+    }
+
+    #[test]
+    fn json_output_uses_tab_field_names_recursively() {
+        let out = uniform_id_value(&json!({
+            "pane_id": "tab_1",
+            "parent_pane_id": "tab_0",
+            "panes": [{ "createdByPane": "tab_2" }]
+        }));
+        assert_eq!(out.get("tab_id").and_then(|v| v.as_str()), Some("tab_1"));
+        assert_eq!(
+            out.get("parent_tab_id").and_then(|v| v.as_str()),
+            Some("tab_0")
+        );
+        assert_eq!(
+            out.pointer("/tabs/0/createdByTab").and_then(|v| v.as_str()),
+            Some("tab_2")
+        );
     }
 }
