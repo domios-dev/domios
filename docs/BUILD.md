@@ -65,26 +65,30 @@ does not publish a release or alter GitHub assets.
    git status --short
    ```
 
-3. Build one provenance-checked NSIS installer:
+3. For repeated local production testing, build and self-install through the
+   persistent canonical cache:
 
    ```powershell
-   .\build.ps1 build
-   ```
-
-   The build gateway prints the exact installer path under
-   `%LOCALAPPDATA%\CodeTerm\build-gateway\targets\release\<job>\release\bundle\nsis\`.
-   Do not guess a path in `src-tauri\target`; release targets are intentionally
-   isolated per build.
-
-4. Only after a successful provenance check, self-install that exact file:
-
-   ```powershell
-   codeterm update install --from-file "<printed-installer-path>"
+   .\build.ps1 install-local
    Invoke-RestMethod http://127.0.0.1:7685/api/health
    ```
 
-   The helper stops only the current-user installed CodeTerm, runs the silent
-   NSIS installer, and restarts it. It must never be used for a dev instance.
+   This route is Windows-only, requires the clean canonical checkout, reuses a
+   persistent release target, rebuilds only changed Cargo units, recreates the
+   NSIS bundle, verifies source provenance, and installs that exact artifact.
+
+4. Use the clean-room route when validating a public-release-equivalent
+   artifact:
+
+   ```powershell
+   .\build.ps1 build
+   codeterm update install --from-file "<printed-installer-path>"
+   ```
+
+   `build` always creates a fresh nonincremental target under
+   `%LOCALAPPDATA%\CodeTerm\build-gateway\targets\release\<job>\`. It remains
+   intentionally slower and isolated. The updater helper stops only the
+   current-user installed CodeTerm, runs NSIS, and restarts it.
 
 ### Local production troubleshooting
 
@@ -94,6 +98,8 @@ does not publish a release or alter GitHub assets.
 | `release source is not clean` | A source or lockfile change has not been reviewed/committed | Inspect `git status --short`; commit the intentional change or stop. Never bypass provenance. |
 | `source SHA/status mismatch` after a bundle was created | A build step changed tracked source inputs after the provenance snapshot | Do not install that artifact. Identify the mutating step, fix it, and rerun from a clean tree. |
 | Self-install returns but the window does not return | The detached helper owns restart | Inspect `%LOCALAPPDATA%\codeterm\self-install.log`, then query port 7685 health. |
+| Repeated local install recompiles the full release graph | The clean-room `build` route was used instead of the persistent local cache | Use `build.ps1 install-local`; reserve `build` for public-release-equivalent verification. |
+| A focused Rust test spends its deadline linking app binaries | The test omitted `--lib`, so Cargo built unrelated binary test targets | Run the focused filter through `scripts/test-capped.sh ... --lib <filter>`; never raise the deadline. |
 
 When a new failure is found in this flow, fix the owning script or preflight and
 add a short symptom/cause/recovery row here before closing the work.
@@ -288,4 +294,4 @@ codeterm/
 └── docs/               # Documentation
 ```
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

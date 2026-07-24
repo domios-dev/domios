@@ -8,6 +8,7 @@
 #   ./build.sh release-preflight — refresh and verify release Cargo lockfiles
 #   ./build.sh worktree-check — explicit isolated, nonincremental lane check
 #   ./build.sh build     — production build
+#   ./build.sh install-local — incremental production build + self-install (Windows canonical checkout)
 #   ./build.sh bootstrap — create/build bundled CLI + embed sidecar for fresh clones
 #   ./build.sh qa-prep   — one-shot: dist + sidecars for a fresh isolated worktree (no tsc gate)
 #   ./build.sh cli       — build CLI and install to ~/.codeterm/bin/ + ~/.codeterm-dev/bin/
@@ -300,6 +301,25 @@ prepare_release_target() {
   export CODETERM_ALLOW_EXTERNAL_TARGET=1
   mkdir -p "$CARGO_TARGET_DIR"
   echo "[cache-policy] fresh release target=$CARGO_TARGET_DIR"
+  echo "[cache-policy] CARGO_INCREMENTAL=$CARGO_INCREMENTAL"
+}
+
+prepare_local_install_target() {
+  local dir canonical current identity
+  current="$(git rev-parse --show-toplevel)"
+  canonical="$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')"
+  if [ "$current" != "$canonical" ]; then
+    echo "ERROR: install-local must run from the canonical checkout: $canonical" >&2
+    exit 2
+  fi
+  identity="$(printf '%s' "$canonical" | git hash-object --stdin)"
+  dir="$(ct_gateway_dir)/targets/local-install/$identity"
+  export CARGO_TARGET_DIR="$dir"
+  export CARGO_INCREMENTAL=1
+  export CODETERM_ALLOW_EXTERNAL_TARGET=1
+  mkdir -p "$CARGO_TARGET_DIR"
+  ct_verify_target_dir
+  echo "[cache-policy] persistent local-install target=$CARGO_TARGET_DIR"
   echo "[cache-policy] CARGO_INCREMENTAL=$CARGO_INCREMENTAL"
 }
 
@@ -850,6 +870,37 @@ case "$CMD" in
     fi
     echo "✅ web bundle present (dist/index.html) — packaged into installer via bundle.resources"
     ;;
+  install-local)
+    case "$OSTYPE" in
+      msys*|cygwin*|win32*) ;;
+      *)
+        echo "ERROR: install-local is supported only on Windows" >&2
+        exit 2
+        ;;
+    esac
+    enter_build_gateway "$CMD ${*:2}"
+    node scripts/check-release-locks.mjs
+    require_release_source
+    ct_load_release_signing_key
+    prepare_local_install_target
+    ensure_deps
+    ct_configure_sccache
+    RELEASE_PROVENANCE="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.provenance.json"
+    ct_snapshot_provenance "full-build-input" "local-install" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
+      "$RELEASE_PROVENANCE"
+    rm -rf "$CARGO_TARGET_DIR/release/bundle/nsis"
+    pnpm tauri build
+    ct_check_provenance "full-build-input" "local-install" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
+      "$RELEASE_PROVENANCE"
+    VERSION="$(node -p "require('./package.json').version")"
+    INSTALLER="$CARGO_TARGET_DIR/release/bundle/nsis/CodeTerm_${VERSION}_x64-setup.exe"
+    if [ ! -f "$INSTALLER" ]; then
+      echo "ERROR: local installer missing after build: $INSTALLER" >&2
+      exit 1
+    fi
+    echo "Local installer ready: $INSTALLER"
+    codeterm update install --from-file "$(cygpath -w "$INSTALLER")"
+    ;;
   qa-prep)
     enter_build_gateway "$CMD ${*:2}"
     bash scripts/qa-prep.sh --gateway-context "$CT_BUILD_JOB_ID" "$$" "$CT_GATEWAY_PROCESS_START" "$CMD ${*:2}" -- "${@:2}"
@@ -1055,7 +1106,7 @@ case "$CMD" in
     exit "$ta_rc"
     ;;
   *)
-    echo "Usage: ./build.sh {dev|check|worktree-check|test|test:all|build|qa-prep|cli|clean|kill|e2e|fmt-check|gateway-status|gateway-cancel|gateway-fake|gateway-health-check|env}"
+    echo "Usage: ./build.sh {dev|check|worktree-check|test|test:all|build|install-local|qa-prep|cli|clean|kill|e2e|fmt-check|gateway-status|gateway-cancel|gateway-fake|gateway-health-check|env}"
     exit 1
     ;;
 esac
