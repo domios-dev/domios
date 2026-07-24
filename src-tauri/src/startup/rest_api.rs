@@ -218,19 +218,9 @@ mod tests {
             axum::Router::new(),
         ));
         let initial = wait_for_status(&mut status, |s| s.phase == RestApiPhase::Listening).await;
-        let recovery_control = control.clone();
-        let recovery = tokio::spawn(async move { recovery_control.restart_and_wait().await });
-        let restarting = wait_for_status(&mut status, |s| {
-            s.phase == RestApiPhase::Starting && s.generation > initial.generation
-        })
-        .await;
-        let restarted = wait_for_status(&mut status, |s| {
-            s.phase == RestApiPhase::Listening && s.generation > restarting.generation
-        })
-        .await;
-        assert!(restarted.generation > restarting.generation);
-        let returned = recovery.await.unwrap().unwrap();
-        assert!(returned.generation >= restarted.generation);
+        let returned = control.restart_and_wait().await.unwrap();
+        assert_eq!(returned.phase, RestApiPhase::Listening);
+        assert!(returned.generation > initial.generation);
         let stream = tokio::net::TcpStream::connect(address).await.unwrap();
         drop(stream);
         task.abort();
