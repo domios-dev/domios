@@ -78,7 +78,7 @@ impl ServiceContext {
         text: &str,
         enter: bool,
         submit_strategy: crate::agent::provider::VerifySubmitStrategy,
-        permit: crate::pty::GuardedInputPermit,
+        permit: crate::pty::write_queue::GuardedInputPermit,
         opts: crate::service::inject_verify::VerifyOpts,
     ) -> Result<
         crate::service::inject_verify::InjectionResult,
