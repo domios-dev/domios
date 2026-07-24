@@ -44,6 +44,7 @@ Choose the operation before running a command: shared development is `docs/BUILD
 ./build.sh release-preflight # refresh and verify both Cargo lockfiles before a production build
 ./build.sh test             # Rust unit tests
 ./build.sh build            # production build
+./build.sh install-local    # incremental production build + self-install (Windows canonical)
 ./build.sh cli              # rebuild CLI only → ~/.codeterm/bin/ (no dev restart)
 ./build.sh kill             # safe kill of dev only
 ./build.sh e2e              # API E2E tests against running dev
@@ -247,4 +248,4 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->
