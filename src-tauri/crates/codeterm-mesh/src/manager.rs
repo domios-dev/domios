@@ -4,21 +4,39 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 
 pub struct PairingDelivery {
+    target_id: String,
+    request_id: String,
     outcome: Mutex<Option<Result<(), String>>>,
     ready: tokio::sync::Notify,
 }
 
 impl PairingDelivery {
-    pub fn new() -> Self {
+    pub fn new(target_id: String, request_id: String) -> Self {
         Self {
+            target_id,
+            request_id,
             outcome: Mutex::new(None),
             ready: tokio::sync::Notify::new(),
         }
     }
 
-    pub fn complete(&self, outcome: Result<(), String>) {
-        *self.outcome.lock() = Some(outcome);
+    pub fn target_id(&self) -> &str {
+        &self.target_id
+    }
+
+    pub fn request_id(&self) -> &str {
+        &self.request_id
+    }
+
+    pub fn complete(&self, outcome: Result<(), String>) -> bool {
+        let mut stored = self.outcome.lock();
+        if stored.is_some() {
+            return false;
+        }
+        *stored = Some(outcome);
+        drop(stored);
         self.ready.notify_waiters();
+        true
     }
 
     pub async fn wait(&self) -> Result<(), String> {
@@ -859,7 +877,7 @@ mod tests {
             .insert("r1".into(), pending_request("r1", "peer-a", 1000));
         m.pairing_targets
             .insert("r1".into(), ("192.168.1.2".into(), 7685, "peer-a".into()));
-        let delivery = Arc::new(PairingDelivery::new());
+        let delivery = Arc::new(PairingDelivery::new("peer-a".into(), "r1".into()));
         m.pairing_deliveries
             .insert("peer-a".into(), delivery.clone());
 
@@ -869,6 +887,30 @@ mod tests {
         assert_eq!(
             delivery.outcome.lock().clone().unwrap().unwrap_err(),
             "Pairing request expired"
+        );
+    }
+
+    #[test]
+    fn pairing_delivery_expiry_wins_over_owner_completion() {
+        let delivery = PairingDelivery::new("peer-a".into(), "r1".into());
+
+        assert!(delivery.complete(Err("Pairing request expired".to_string())));
+        assert!(!delivery.complete(Ok(())));
+        assert_eq!(
+            delivery.outcome.lock().clone().unwrap().unwrap_err(),
+            "Pairing request expired"
+        );
+    }
+
+    #[test]
+    fn pairing_delivery_cancellation_wins_over_owner_completion() {
+        let delivery = PairingDelivery::new("peer-a".into(), "r1".into());
+
+        assert!(delivery.complete(Err("Pairing request delivery was cancelled".to_string())));
+        assert!(!delivery.complete(Ok(())));
+        assert_eq!(
+            delivery.outcome.lock().clone().unwrap().unwrap_err(),
+            "Pairing request delivery was cancelled"
         );
     }
 

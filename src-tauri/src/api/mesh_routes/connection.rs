@@ -178,7 +178,10 @@ fn prepare_connect(
     );
     mesh.pending_requests
         .insert(request.request_id.clone(), request.clone());
-    let delivery = Arc::new(crate::mesh::PairingDelivery::new());
+    let delivery = Arc::new(crate::mesh::PairingDelivery::new(
+        target_id.clone(),
+        request.request_id.clone(),
+    ));
     mesh.pairing_deliveries.insert(target_id, delivery.clone());
     Ok(ConnectPreparation::Send {
         request,
@@ -195,6 +198,9 @@ fn complete_connect(
     delivery: &Arc<crate::mesh::PairingDelivery>,
     outcome: Result<(), String>,
 ) {
+    if !delivery.complete(outcome.clone()) {
+        return;
+    }
     let mut manager = mesh.lock();
     if outcome.is_err() {
         manager.pending_requests.remove(request_id);
@@ -208,7 +214,6 @@ fn complete_connect(
         manager.pairing_deliveries.remove(instance_id);
     }
     drop(manager);
-    delivery.complete(outcome);
 }
 
 pub async fn connect_peer_with_sender<F, Fut>(
@@ -243,15 +248,10 @@ where
         ConnectPreparation::Wait(delivery) => {
             waiter();
             delivery.wait().await.map_err(ConnectPeerError::Delivery)?;
-            let target_id = crate::mesh::discovered::resolve_discovered(
-                &mesh.lock().discovered_peers,
-                &instance_id,
-            )
-            .expect("a waiting pairing delivery retains its discovered target")
-            .instance_id
-            .clone();
-            return Ok(existing_connect_result(&mesh.lock(), &target_id)
-                .expect("completed pairing delivery keeps its pending request"));
+            return Ok(ConnectPeerResult::Pending {
+                request_id: delivery.request_id().to_string(),
+                existing: true,
+            });
         }
         ConnectPreparation::Send {
             request,
@@ -260,13 +260,9 @@ where
             delivery,
         } => (request, address, port, delivery),
     };
-    let target_id = {
-        let manager = mesh.lock();
-        manager.pairing_targets[&request.request_id].2.clone()
-    };
     let mut owner = ConnectOwner {
         mesh: mesh.clone(),
-        target_id,
+        target_id: delivery.target_id().to_string(),
         request_id: request.request_id.clone(),
         delivery,
         completed: false,
@@ -428,7 +424,13 @@ mod tests {
         assert_eq!(mesh.lock().pending_requests.len(), 1);
     }
 
-    async fn assert_aliases_share_one_delivery(first_target: &str, duplicate_target: &str) {
+    async fn assert_aliases_share_one_delivery<M>(
+        first_target: &str,
+        duplicate_target: &str,
+        mutate_while_waiting: M,
+    ) where
+        M: FnOnce(&crate::MeshStateHandle),
+    {
         let mesh = mesh_state();
         let (started_tx, started_rx) = tokio::sync::oneshot::channel();
         let (release_tx, release_rx) = tokio::sync::oneshot::channel();
@@ -457,6 +459,7 @@ mod tests {
             .await
         });
         wait_rx.await.expect("alias duplicate waits");
+        mutate_while_waiting(&mesh);
         release_tx.send(()).expect("release first delivery");
 
         let first = first.await.unwrap().unwrap();
@@ -479,12 +482,37 @@ mod tests {
 
     #[tokio::test]
     async fn mesh_connect_peer_name_then_uuid_share_the_same_delivery() {
-        assert_aliases_share_one_delivery(PEER_NAME, PEER_ID).await;
+        assert_aliases_share_one_delivery(PEER_NAME, PEER_ID, |_| {}).await;
     }
 
     #[tokio::test]
     async fn mesh_connect_peer_uuid_then_name_share_the_same_delivery() {
-        assert_aliases_share_one_delivery(PEER_ID, PEER_NAME).await;
+        assert_aliases_share_one_delivery(PEER_ID, PEER_NAME, |_| {}).await;
+    }
+
+    #[tokio::test]
+    async fn mesh_connect_peer_waiter_survives_discovery_removal() {
+        assert_aliases_share_one_delivery(PEER_ID, PEER_NAME, |mesh| {
+            mesh.lock().discovered_peers.remove(PEER_ID);
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn mesh_connect_peer_waiter_survives_discovery_identity_rekey() {
+        assert_aliases_share_one_delivery(PEER_ID, PEER_NAME, |mesh| {
+            let mut manager = mesh.lock();
+            let mut peer = manager
+                .discovered_peers
+                .remove(PEER_ID)
+                .expect("test peer exists");
+            peer.instance_id = "bffac0f8-3d21-4e8a-aa52-c59ef82eb80f".to_string();
+            peer.instance_name = "renamed peer".to_string();
+            manager
+                .discovered_peers
+                .insert(peer.instance_id.clone(), peer);
+        })
+        .await;
     }
 
     #[tokio::test]
