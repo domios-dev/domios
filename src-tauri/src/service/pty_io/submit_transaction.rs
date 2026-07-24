@@ -283,14 +283,15 @@ fn run_with_submit_key<T: SubmitTransport>(
     text: &str,
     enter: bool,
     submit_key: &[u8],
-    strategy: VerifySubmitStrategy,
+    _strategy: VerifySubmitStrategy,
     opts: VerifyOpts,
 ) -> Result<InjectionResult, InjectionError> {
     let started = Instant::now();
     let ingest_deadline = started + opts.echo_timeout;
     let turn_deadline = started + opts.echo_timeout.saturating_add(opts.submit_timeout);
-    // Two-phase acknowledgement only where the provider exposes a live TUI turn.
-    let two_phase = matches!(strategy, VerifySubmitStrategy::TuiInputDrained);
+    // The transaction observes generic draft/turn evidence for every agent
+    // capability. Provider strategy selects the key upstream, never success.
+    let two_phase = enter && opts.verify_submit;
 
     let armed = transport.generation();
     let baseline_evidence = transport.draft_evidence_count(text);

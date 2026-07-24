@@ -792,36 +792,16 @@ pub async fn chat_send_text(
     } else {
         text
     };
-    let pending = svc.chat_send_ledger.start(&pane_id);
-    let response = pending.clone();
-    let svc = svc.inner().clone();
-    std::thread::spawn(move || {
-        let status = crate::service::chat_send_transaction::run_chat_send(
-            &svc.chat_send_ledger,
-            pending,
-            &text,
-            |text| svc.send_text(&pane_id, text, true),
-        );
-        crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", &status);
-        if let Some(error) = status.error.as_deref() {
-            log::warn!(
-                "[chat-send] send_id={} pane={} failed: {}",
-                status.send_id,
-                status.pane_id,
-                error
-            );
-        }
-    });
-    Ok(response)
+    Ok(svc.start_chat_send(&pane_id, text))
 }
 
 #[tauri::command]
 pub fn chat_send_status(
     svc: tauri::State<'_, ServiceState>,
     pane_id: String,
-) -> Option<crate::service::chat_send_transaction::ChatSendStatus> {
+) -> Vec<crate::service::chat_send_transaction::ChatSendStatus> {
     let pane_id = svc.mux.read().resolve_pane_id(&pane_id).unwrap_or(pane_id);
-    svc.chat_send_ledger.latest(&pane_id)
+    svc.chat_send_ledger.reconcile(&pane_id)
 }
 
 /// P1: open a non-PTY chatBackend pane driven by `plugin_id` (a plugin declaring
