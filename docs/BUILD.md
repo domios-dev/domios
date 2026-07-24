@@ -167,10 +167,11 @@ Dev builds (`npx tauri dev`) run with `tauri.dev.conf.json` overrides:
 
 Custom git hooks live in `.githooks/` and are automatically wired via `git config core.hooksPath` by every `./build.sh` invocation. The pre-push hook is intentionally a no-op: pushing never compiles, formats, lints, or prepares resources. Run focused checks before handoff and broad gates in the canonical checkout; CI remains the remote enforcement boundary.
 
-Focused Rust tests use the same Windows rule. `scripts/test-capped.sh` detects a
-healthy dev instance and selects the worktree-local `target-check`
-cache with `sccache` before Cargo starts, avoiding late `os error 32` relink
-failures without recompiling dependencies in every run.
+Focused Rust tests use the same Windows rule. `scripts/test-capped.sh` keeps the
+manifest's warm target normally and selects checkout-local `target-check` with
+`sccache` only while dev owns the app target. It rejects an inherited internal
+build-gateway target because that cache can contain absolute metadata from
+another checkout.
 
 `build.ps1 dev` is also a true restart command: it stops only port 7686 before
 joining the app build gateway. This ordering prevents the old dev monitor from
@@ -273,6 +274,13 @@ taskkill /F /IM explorer.exe && start explorer.exe
 
 If build fails with `link.exe` errors, ensure MSVC is properly configured. The project includes `.cargo/config.toml` with MSVC paths. You may need to update paths if your MSVC version differs.
 
+If a focused test fails while `link.exe` or `mt.exe` reads
+`windows-app-manifest.xml` from a deleted worktree, the shell inherited
+CodeTerm's private local-install `CARGO_TARGET_DIR`. Run the test through
+`scripts/test-capped.sh`; it removes that private override and uses this
+checkout's warm manifest target, or isolated `target-check` while dev is
+running. Do not delete the shared build cache or raise the timeout.
+
 Check your MSVC installation:
 ```powershell
 & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
@@ -312,4 +320,4 @@ codeterm/
 └── docs/               # Documentation
 ```
 
-<!-- revision: 16 -->
+<!-- revision: 17 -->
