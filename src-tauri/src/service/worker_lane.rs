@@ -120,10 +120,7 @@ fn provision_lane(project_cwd: &str, lane_label: &str) -> Result<ProvisionedWork
     let lane_path = container.join(&slug);
     let lane_cwd = lane_path.display().to_string();
     let base = git_value(&project_cwd, ["rev-parse", "HEAD"])?;
-    if let Err(error) = run_git(
-        &project_cwd,
-        ["worktree", "add", "-b", &branch, &lane_cwd],
-    ) {
+    if let Err(error) = run_git(&project_cwd, ["worktree", "add", "-b", &branch, &lane_cwd]) {
         let _ = std::fs::remove_dir_all(&lane_path);
         let _ = run_git(&project_cwd, ["worktree", "prune"]);
         let _ = run_git(&project_cwd, ["branch", "-D", &branch]);
