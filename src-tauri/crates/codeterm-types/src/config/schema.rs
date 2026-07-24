@@ -563,7 +563,7 @@ impl Default for UsageConfig {
             enabled: true,
             heartbeat: true,
             freshness_secs: 180,
-            high_pct_threshold: 80.0,
+            high_pct_threshold: 90.0,
             standalone_cadence_secs: 0,
         }
     }

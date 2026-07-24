@@ -77,6 +77,7 @@ fn usage_config_defaults_on() {
     assert!(cfg.enabled);
     assert!(cfg.heartbeat);
     assert_eq!(cfg.freshness_secs, 180);
+    assert_eq!(cfg.high_pct_threshold, 90.0);
     assert_eq!(cfg.standalone_cadence_secs, 0);
 }
 
