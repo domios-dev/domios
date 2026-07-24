@@ -31,21 +31,16 @@ pub(crate) fn preflight_worker_plan_task_wip_gate(
     let plan = store
         .get(&resolved.plan_id)
         .ok_or_else(|| "plan not found".to_string())?;
-    let pending = plan
+    let task = plan
         .tasks
         .iter()
         .find(|t| t.id == resolved.task_id)
-        .is_some_and(|t| t.status == crate::plan::TaskStatus::Pending);
-    if !pending {
+        .ok_or_else(|| "task not found".to_string())?;
+    if task.status != crate::plan::TaskStatus::Pending {
         return Ok(());
     }
-    let gate = store
-        .review_gate_status(&resolved.plan_id)
-        .map_err(|e| e.to_string())?;
-    if gate.blocked {
-        return Err(gate.reason.unwrap_or_else(|| "review_wip_exceeded".into()));
-    }
-    Ok(())
+    crate::service::plan::review_gate::validate_dispatch_review_capacity(&plan, task)
+        .map_err(|error| error.to_string())
 }
 
 pub(crate) fn bind_worker_task_to_pane(
@@ -284,6 +279,36 @@ mod tests {
     fn preflight_allows_dispatch_when_gate_is_clear() {
         let dir = tempfile::tempdir().unwrap();
         let (store, plan_id, _task_id) = store_with_task(dir.path());
+        preflight_worker_plan_task_wip_gate(&store, Some(&plan_id), "spawn-bind").unwrap();
+    }
+
+    #[test]
+    fn spawn_preflight_requires_daemon_owned_capacity_provenance() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, plan_id, task_id) = store_with_task(dir.path());
+        let mut plan = store.get(&plan_id).unwrap();
+        plan.review_policy.credit = -(plan.review_policy.wip_limit as i64);
+        let task = plan
+            .tasks
+            .iter_mut()
+            .find(|task| task.id == task_id)
+            .unwrap();
+        task.kind = "review".into();
+        task.tags.push("review-capacity".into());
+        store.save(&mut plan, 4).unwrap();
+        let error =
+            preflight_worker_plan_task_wip_gate(&store, Some(&plan_id), "spawn-bind").unwrap_err();
+        assert!(error.contains("review"), "{error}");
+
+        store
+            .grant_review_capacity(
+                &plan_id,
+                &task_id,
+                crate::plan::ReviewCapacityClass::Review,
+                crate::plan::AgentRef::from_pane("orch"),
+                5,
+            )
+            .unwrap();
         preflight_worker_plan_task_wip_gate(&store, Some(&plan_id), "spawn-bind").unwrap();
     }
 

@@ -23,6 +23,34 @@ fn plan_rpc_err(e: PlanError) -> JsonRpcError {
     }
 }
 
+fn compensate_failed_attempt<T>(
+    result: Result<T, PlanError>,
+    close_spawned_tab: impl FnOnce() -> Result<(), String>,
+) -> Result<T, JsonRpcError> {
+    match result {
+        Ok(value) => Ok(value),
+        Err(error) => {
+            let cleanup_error = close_spawned_tab().err();
+            let mut rpc_error = plan_rpc_err(error);
+            if let Some(cleanup_error) = cleanup_error {
+                rpc_error.message = format!(
+                    "{}; spawned tab compensation failed: {cleanup_error}",
+                    rpc_error.message
+                );
+            }
+            Err(rpc_error)
+        }
+    }
+}
+
+pub(super) fn record_spawned_attempt<T>(
+    svc: &ServiceState,
+    tab_id: &str,
+    record: impl FnOnce() -> Result<T, PlanError>,
+) -> Result<T, JsonRpcError> {
+    compensate_failed_attempt(record(), || svc.close_pane(tab_id))
+}
+
 pub(super) fn update_role_guidance_if_present(
     store: &PlanStore,
     plan_id: &str,
@@ -131,5 +159,35 @@ impl RespawnAttemptRoleExt for PlanStore {
             planner_role_for_pane(svc, pane_id).or(Some("worker")),
             now,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    use super::*;
+
+    #[test]
+    fn failed_attempt_commit_closes_spawned_tab_exactly_once() {
+        let open = AtomicBool::new(true);
+        let closes = AtomicUsize::new(0);
+
+        let result = compensate_failed_attempt::<()>(
+            Err(PlanError::ReviewWipExceeded {
+                wip_count: 1,
+                wip_limit: 1,
+                credit: -1,
+            }),
+            || {
+                closes.fetch_add(1, Ordering::SeqCst);
+                open.store(false, Ordering::SeqCst);
+                Ok(())
+            },
+        );
+
+        assert!(matches!(result, Err(JsonRpcError { code: -32603, .. })));
+        assert!(!open.load(Ordering::SeqCst));
+        assert_eq!(closes.load(Ordering::SeqCst), 1);
     }
 }

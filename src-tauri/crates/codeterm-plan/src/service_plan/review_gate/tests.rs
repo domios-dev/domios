@@ -103,6 +103,36 @@ fn exact_qa_evidence_permits_entry_and_fixes_oracle() {
 }
 
 #[test]
+fn accepted_reconcile_fix_repays_review_credit_exactly_once() {
+    let (_dir, store, plan_id) = setup();
+    let task_id = add_ready_task(&store, &plan_id, "accepted", 2);
+    set_status(&store, &plan_id, &task_id, "in_review", 3).unwrap();
+    let drift = [crate::plan::reconcile::DriftItem {
+        plan_id: plan_id.clone(),
+        task_id: task_id.clone(),
+        kind: crate::plan::reconcile::DriftKind::AcceptedButNotDone,
+        detail: "accepted".into(),
+        suggested_fix: "set done".into(),
+        not_mine: false,
+    }];
+
+    store.apply_reconcile_fixes(&plan_id, &drift, 4).unwrap();
+    let plan = store.get(&plan_id).unwrap();
+    assert_eq!(plan.review_policy.credit, 0);
+    assert_eq!(
+        plan.tasks
+            .iter()
+            .find(|task| task.id == task_id)
+            .unwrap()
+            .status,
+        TaskStatus::Done
+    );
+
+    store.apply_reconcile_fixes(&plan_id, &drift, 5).unwrap();
+    assert_eq!(store.get(&plan_id).unwrap().review_policy.credit, 0);
+}
+
+#[test]
 fn wip_limit_blocks_dispatch_and_closing_a_review_restores_capacity() {
     let (_dir, store, plan_id) = setup();
     store
@@ -161,6 +191,301 @@ fn wip_limit_blocks_dispatch_and_closing_a_review_restores_capacity() {
     assert!(!gate.blocked, "accepting one review must free capacity");
 
     dispatch(&store, &plan_id, &c, "pane_c", 7).unwrap();
+}
+
+#[test]
+fn stranded_debt_allows_only_explicit_review_capacity_work() {
+    let (_dir, store, plan_id) = setup();
+    let review = add_ready_task(&store, &plan_id, "review", 2);
+    let implementation = add_ready_task(&store, &plan_id, "implementation", 2);
+    store
+        .with_plan(&plan_id, 3, |plan| {
+            plan.review_policy.credit = -(plan.review_policy.wip_limit as i64);
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == review)
+                .unwrap();
+            task.kind = "review".into();
+            task.tags.push("review-capacity".into());
+            Ok(())
+        })
+        .unwrap();
+
+    let spoofed = dispatch(&store, &plan_id, &review, "spoofed_tab", 4).unwrap_err();
+    assert!(matches!(spoofed, PlanError::ReviewWipExceeded { .. }));
+    store
+        .grant_review_capacity(
+            &plan_id,
+            &review,
+            ReviewCapacityClass::Review,
+            AgentRef::from_pane("orch"),
+            5,
+        )
+        .unwrap();
+    dispatch(&store, &plan_id, &review, "review_tab", 6).unwrap();
+    let error = dispatch(&store, &plan_id, &implementation, "implementation_tab", 7).unwrap_err();
+    assert!(matches!(error, PlanError::ReviewWipExceeded { .. }));
+}
+
+#[test]
+fn capacity_classification_does_not_bypass_actual_review_saturation() {
+    let (_dir, store, plan_id) = setup();
+    let capacity_task = add_ready_task(&store, &plan_id, "capacity", 2);
+    let active_reviews = (0..5)
+        .map(|index| add_ready_task(&store, &plan_id, &format!("review-{index}"), 2))
+        .collect::<Vec<_>>();
+    store
+        .grant_review_capacity(
+            &plan_id,
+            &capacity_task,
+            ReviewCapacityClass::CanonicalGate,
+            AgentRef::from_pane("orch"),
+            3,
+        )
+        .unwrap();
+    store
+        .with_plan(&plan_id, 4, |plan| {
+            for task_id in &active_reviews {
+                plan.tasks
+                    .iter_mut()
+                    .find(|task| task.id == *task_id)
+                    .unwrap()
+                    .status = TaskStatus::InReview;
+            }
+            plan.review_policy.credit = -(active_reviews.len() as i64);
+            Ok(())
+        })
+        .unwrap();
+
+    let error = dispatch(&store, &plan_id, &capacity_task, "review_tab", 5).unwrap_err();
+    assert!(matches!(
+        error,
+        PlanError::ReviewWipExceeded {
+            wip_count: 5,
+            wip_limit: 5,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn assignment_status_transition_uses_the_same_capacity_classification() {
+    let (_dir, store, plan_id) = setup();
+    let review = add_ready_task(&store, &plan_id, "review", 2);
+    let implementation = add_ready_task(&store, &plan_id, "implementation", 2);
+    store
+        .with_plan(&plan_id, 3, |plan| {
+            plan.review_policy.credit = -(plan.review_policy.wip_limit as i64);
+            Ok(())
+        })
+        .unwrap();
+    store
+        .grant_review_capacity(
+            &plan_id,
+            &review,
+            ReviewCapacityClass::Review,
+            AgentRef::from_pane("orch"),
+            4,
+        )
+        .unwrap();
+
+    store
+        .set_task_assignment(&review, Some("review_tab"), Some("worker"), 5)
+        .unwrap();
+    let error = store
+        .set_task_assignment(
+            &implementation,
+            Some("implementation_tab"),
+            Some("worker"),
+            6,
+        )
+        .unwrap_err();
+    assert!(matches!(error, PlanError::ReviewWipExceeded { .. }));
+}
+
+#[test]
+fn generic_status_mutation_cannot_exit_review_or_leak_credit() {
+    let (_dir, store, plan_id) = setup();
+    let task_id = add_ready_task(&store, &plan_id, "reviewed", 2);
+    dispatch(&store, &plan_id, &task_id, "implementation_tab", 3).unwrap();
+    set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
+
+    for status in ["in_progress", "cancelled", "done"] {
+        let error = set_status(&store, &plan_id, &task_id, status, 5).unwrap_err();
+        assert!(
+            matches!(error, PlanError::TransitionDenied { .. }),
+            "{status}: {error}"
+        );
+    }
+    let blocked = store.update_task(
+        &plan_id,
+        &task_id,
+        None,
+        None,
+        None,
+        None,
+        Some("blocked"),
+        Some(Some("reason")),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        &[],
+        None,
+        None,
+        5,
+    );
+    assert!(matches!(blocked, Err(PlanError::TransitionDenied { .. })));
+    assert!(matches!(
+        store.pause_task(
+            &plan_id,
+            &task_id,
+            "operator pause",
+            AgentRef::from_pane("orch"),
+            5,
+        ),
+        Err(PlanError::TransitionDenied { .. })
+    ));
+    assert!(matches!(
+        store.rm_task(&plan_id, &task_id, 5),
+        Err(PlanError::TransitionDenied { .. })
+    ));
+    assert!(matches!(
+        store.rm_all_tasks(&plan_id, 5),
+        Err(PlanError::TransitionDenied { .. })
+    ));
+    let plan = store.get(&plan_id).unwrap();
+    assert_eq!(plan.review_policy.credit, -1);
+    assert_eq!(
+        plan.tasks
+            .iter()
+            .find(|task| task.id == task_id)
+            .unwrap()
+            .status,
+        TaskStatus::InReview
+    );
+}
+
+#[test]
+fn explicit_credit_reconcile_repairs_debt_and_records_a_stride() {
+    let (_dir, store, plan_id) = setup();
+    store
+        .with_plan(&plan_id, 2, |plan| {
+            plan.review_policy.credit = -5;
+            Ok(())
+        })
+        .unwrap();
+
+    let result = store
+        .reconcile_review_credit(
+            &plan_id,
+            "repair historical leaked exits",
+            AgentRef::from_pane("orch"),
+            3,
+        )
+        .unwrap();
+    assert_eq!(result.previous_credit, -5);
+    assert_eq!(result.reconciled_credit, 0);
+    assert_eq!(result.active_reviews, 0);
+    let plan = store.get(&plan_id).unwrap();
+    assert_eq!(plan.review_policy.credit, 0);
+    let stride_id = result.stride_id.as_deref().unwrap();
+    let stride = plan
+        .strides
+        .iter()
+        .find(|stride| stride.id == stride_id)
+        .unwrap();
+    assert_eq!(stride.kind, REVIEW_CREDIT_RECONCILE_MILESTONE_KIND);
+    assert_eq!(stride.from.pane_id.as_deref(), Some("orch"));
+    assert!(stride.text.contains("-5 -> 0"));
+
+    let repeated = store
+        .reconcile_review_credit(&plan_id, "same incident", AgentRef::from_pane("orch"), 4)
+        .unwrap();
+    assert_eq!(repeated.stride_id, None);
+    assert_eq!(store.get(&plan_id).unwrap().strides.len(), 1);
+}
+
+#[test]
+fn credit_reconcile_preserves_active_review_floor_and_is_idempotent() {
+    let (_dir, store, plan_id) = setup();
+    let task_id = add_ready_task(&store, &plan_id, "active review", 2);
+    dispatch(&store, &plan_id, &task_id, "worker", 3).unwrap();
+    set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
+    store
+        .with_plan(&plan_id, 5, |plan| {
+            plan.review_policy.credit = -5;
+            Ok(())
+        })
+        .unwrap();
+
+    let first = store
+        .reconcile_review_credit(
+            &plan_id,
+            "repair leaked exits",
+            AgentRef::from_pane("orch"),
+            6,
+        )
+        .unwrap();
+    assert_eq!(first.reconciled_credit, -1);
+    assert!(first.stride_id.is_some());
+    let second = store
+        .reconcile_review_credit(&plan_id, "same incident", AgentRef::from_pane("orch"), 7)
+        .unwrap();
+    assert_eq!(second.reconciled_credit, -1);
+    assert_eq!(second.stride_id, None);
+    assert_eq!(store.get(&plan_id).unwrap().strides.len(), 1);
+}
+
+#[test]
+fn capacity_grant_is_audited_immutable_and_idempotent() {
+    let (_dir, store, plan_id) = setup();
+    let task_id = add_ready_task(&store, &plan_id, "review", 2);
+    let first = store
+        .grant_review_capacity(
+            &plan_id,
+            &task_id,
+            ReviewCapacityClass::Review,
+            AgentRef::from_pane("orch"),
+            3,
+        )
+        .unwrap();
+    assert!(first.created);
+    assert!(first.stride_id.is_some());
+
+    let repeated = store
+        .grant_review_capacity(
+            &plan_id,
+            &task_id,
+            ReviewCapacityClass::Review,
+            AgentRef::from_pane("orch"),
+            4,
+        )
+        .unwrap();
+    assert!(!repeated.created);
+    assert_eq!(repeated.stride_id, None);
+    let plan = store.get(&plan_id).unwrap();
+    assert_eq!(plan.review_policy.capacity_grants.len(), 1);
+    assert_eq!(
+        plan.strides
+            .iter()
+            .filter(|stride| stride.kind == REVIEW_CAPACITY_GRANT_MILESTONE_KIND)
+            .count(),
+        1
+    );
+    assert!(store
+        .grant_review_capacity(
+            &plan_id,
+            &task_id,
+            ReviewCapacityClass::CanonicalGate,
+            AgentRef::from_pane("orch"),
+            5,
+        )
+        .is_err());
 }
 
 #[test]
