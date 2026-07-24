@@ -228,15 +228,15 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
                     tokio::select! {
                         result = &mut server => {
                             let message = match result {
-                                Ok(()) => "REST API server exited unexpectedly. Restart CodeTerm to restore the listener.".to_string(),
-                                Err(error) => format!("REST API server stopped unexpectedly: {error}. Restart CodeTerm to restore the listener."),
+                                Ok(()) => "REST API server exited unexpectedly. Use Restart REST API to restore the listener.".to_string(),
+                                Err(error) => format!("REST API server stopped unexpectedly: {error}. Use Restart REST API to restore the listener."),
                             };
                             break Err(message);
                         }
                         _ = &mut test_server_exit, if test_server_exit_pending => {
                             #[cfg(test)]
                             { test_server_exit_pending = false; }
-                            let message = "REST API server exited unexpectedly. Restart CodeTerm to restore the listener.".to_string();
+                            let message = "REST API server exited unexpectedly. Use Restart REST API to restore the listener.".to_string();
                             break Err(message);
                         }
                         command = commands.recv() => {
@@ -276,7 +276,7 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
                 #[cfg(not(test))]
                 let shutdown_result = server.await.map_err(|error| error.to_string());
                 if let Err(error) = shutdown_result {
-                    let message = format!("REST API server shutdown failed: {error}. Restart CodeTerm to restore the listener.");
+                    let message = format!("REST API server shutdown failed: {error}. Use Restart REST API to restore the listener.");
                     log::error!("{message}");
                     control.fail_pending(&mut pending_completion, message);
                     if wait_for_recovery_command(&mut commands, &mut pending_completion).await {
@@ -320,6 +320,16 @@ mod tests {
         })
         .await
         .expect("listener lifecycle event deadline elapsed")
+    }
+
+    fn assert_recoverable_failure(status: &RestApiStatus, detail: &str) {
+        let message = status
+            .message
+            .as_deref()
+            .expect("failure must explain recovery");
+        assert!(message.contains(detail));
+        assert!(message.contains("Restart REST API"));
+        assert!(!message.contains("Restart CodeTerm"));
     }
 
     #[tokio::test]
@@ -410,10 +420,7 @@ mod tests {
 
         exit.send(()).unwrap();
         let failed = wait_for_status(&mut status, |s| s.phase == RestApiPhase::Failed).await;
-        assert!(failed
-            .message
-            .as_deref()
-            .is_some_and(|message| message.contains("exited unexpectedly")));
+        assert_recoverable_failure(&failed, "exited unexpectedly");
         let recovered = control.restart_and_wait().await.unwrap();
         assert_eq!(recovered.phase, RestApiPhase::Listening);
         assert!(recovered.generation > failed.generation);
@@ -446,10 +453,7 @@ mod tests {
         let failed = wait_for_status(&mut status, |s| s.phase == RestApiPhase::Failed).await;
         let completed = restart.await.unwrap();
         assert_eq!(completed, failed);
-        assert!(completed
-            .message
-            .as_deref()
-            .is_some_and(|message| message.contains("shutdown failed")));
+        assert_recoverable_failure(&completed, "shutdown failed");
         let recovered = control.restart_and_wait().await.unwrap();
         assert_eq!(recovered.phase, RestApiPhase::Listening);
         assert!(recovered.generation > completed.generation);
