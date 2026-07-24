@@ -177,6 +177,15 @@ fn authenticated_pty_target(
     }
 }
 
+#[derive(Clone)]
+pub(crate) struct AuthenticatedPtyDelivery {
+    pub(crate) session_id: String,
+    pub(crate) binding_nonce: String,
+    pub(crate) pty_id: String,
+    pub(crate) provider_id: String,
+    pub(crate) permit: crate::pty::GuardedInputPermit,
+}
+
 fn submit_authenticated_pty_input<T>(
     pane: &crate::multiplexer::types::Pane,
     expected_session_id: &str,
@@ -197,10 +206,36 @@ pub(crate) fn sanitize_agent_prompt_input(text: &str) -> String {
 }
 
 impl ServiceContext {
+    fn authenticated_pty_delivery(
+        &self,
+        pane_id: &str,
+        expected_session_id: &str,
+        expected_binding_nonce: &str,
+    ) -> Result<AuthenticatedPtyDelivery, String> {
+        let (pty_id, provider_id) = {
+            let mux = self.mux.read();
+            let resolved = mux
+                .resolve_pane_id(pane_id)
+                .ok_or_else(|| "agent_unavailable: planner pane missing".to_string())?;
+            let pane = mux
+                .get_pane(&resolved)
+                .ok_or_else(|| "agent_unavailable: planner pane missing".to_string())?;
+            authenticated_pty_target(pane, expected_session_id, expected_binding_nonce)?
+        };
+        let permit = self.pty.lock().issue_guarded_input_permit(&pty_id)?;
+        Ok(AuthenticatedPtyDelivery {
+            session_id: expected_session_id.to_string(),
+            binding_nonce: expected_binding_nonce.to_string(),
+            pty_id,
+            provider_id,
+            permit,
+        })
+    }
+
     pub(crate) fn capture_authenticated_agent_session(
         &self,
         pane_id: &str,
-    ) -> Result<(String, String), String> {
+    ) -> Result<AuthenticatedPtyDelivery, String> {
         let mux = self.mux.read();
         let resolved = mux
             .resolve_pane_id(pane_id)
@@ -217,26 +252,23 @@ impl ServiceContext {
             .clone()
             .ok_or_else(|| "agent_unavailable: recipient binding nonce missing".to_string())?;
         authenticated_pty_target(pane, &session_id, &binding_nonce)?;
-        Ok((session_id, binding_nonce))
+        drop(mux);
+        self.authenticated_pty_delivery(pane_id, &session_id, &binding_nonce)
     }
 
     pub(crate) fn send_to_authenticated_agent_session_detached(
         &self,
         pane_id: &str,
-        expected_session_id: &str,
-        expected_binding_nonce: &str,
+        delivery: AuthenticatedPtyDelivery,
         text: &str,
     ) {
         let svc = self.clone();
         let pane = pane_id.to_string();
-        let session_id = expected_session_id.to_string();
-        let binding_nonce = expected_binding_nonce.to_string();
         let text = text.to_string();
         std::thread::spawn(move || {
-            if let Err(error) = svc.send_to_authenticated_agent_session_with_options(
+            if let Err(error) = svc.send_authenticated_delivery_with_options(
                 &pane,
-                &session_id,
-                &binding_nonce,
+                delivery,
                 &text,
                 super::submit_transaction::PtySubmitEntry::Messenger,
                 false,
@@ -244,7 +276,7 @@ impl ServiceContext {
                 log::warn!("[send-async] authenticated delivery to pane {pane} failed: {error}");
                 let title = svc.mux.read().get_pane(&pane).map(|p| p.title.clone());
                 if let Some((notice_title, notice_body)) =
-                    send_delivery_notice(title.as_deref(), &pane, SendDelivery::Failed(&error))
+                    detached_delivery_notice(title.as_deref(), &pane, &error)
                 {
                     svc.create_notification(notice_title, Some(notice_body), Some("error"));
                 }
@@ -259,56 +291,38 @@ impl ServiceContext {
         expected_binding_nonce: &str,
         text: &str,
     ) -> Result<(), String> {
-        self.send_to_authenticated_agent_session_with_options(
+        let delivery =
+            self.authenticated_pty_delivery(pane_id, expected_session_id, expected_binding_nonce)?;
+        self.send_authenticated_delivery_with_options(
             pane_id,
-            expected_session_id,
-            expected_binding_nonce,
+            delivery,
             text,
             super::submit_transaction::PtySubmitEntry::Planner,
             true,
         )
     }
 
-    fn send_to_authenticated_agent_session_with_options(
+    fn send_authenticated_delivery_with_options(
         &self,
         pane_id: &str,
-        expected_session_id: &str,
-        expected_binding_nonce: &str,
+        delivery: AuthenticatedPtyDelivery,
         text: &str,
         entry: super::submit_transaction::PtySubmitEntry,
         verify_submit: bool,
     ) -> Result<(), String> {
-        let target = || -> Result<(String, String), String> {
-            let mux = self.mux.read();
-            let resolved = mux
-                .resolve_pane_id(pane_id)
-                .ok_or_else(|| "agent_unavailable: planner pane missing".to_string())?;
-            let pane = mux
-                .get_pane(&resolved)
-                .ok_or_else(|| "agent_unavailable: planner pane missing".to_string())?;
-            submit_authenticated_pty_input(
-                pane,
-                expected_session_id,
-                expected_binding_nonce,
-                text,
-                |pty_id, provider_id, _| Ok((pty_id.to_string(), provider_id.to_string())),
-            )
-        };
-
-        let (pty_id, provider_id) = target()?;
         let strategy = self
             .agent_registry
-            .with_provider(&provider_id, |provider| provider.verify_submit_strategy())
+            .with_provider(&delivery.provider_id, |provider| {
+                provider.verify_submit_strategy()
+            })
             .ok_or_else(|| "agent_unavailable: unknown planner provider".to_string())?;
-        if target()? != (pty_id.clone(), provider_id.clone()) {
-            return Err("agent_unavailable: planner transport changed".into());
-        }
         super::submit_transaction::submit_entry(entry, text, |text| {
-            self.send_text_verified(
-                &pty_id,
+            self.send_text_verified_guarded(
+                &delivery.pty_id,
                 text,
                 true,
                 strategy,
+                delivery.permit.clone(),
                 crate::service::inject_verify::VerifyOpts {
                     require_prompt_first: false,
                     verify_echo: false,
@@ -412,6 +426,7 @@ impl ServiceContext {
                 verify_submit: false,
                 ..Default::default()
             },
+            None,
         )
         .map(|result| {
             if should_log_unconfirmed_submit(enter, strategy_verifies, result.submit_observed) {
@@ -792,6 +807,20 @@ pub(crate) enum SendDelivery<'a> {
     Failed(&'a str),
 }
 
+fn is_expected_agent_drop(error: &str) -> bool {
+    error.starts_with("agent_unavailable:")
+}
+
+fn detached_delivery_notice(
+    pane_title: Option<&str>,
+    pane_id: &str,
+    error: &str,
+) -> Option<(String, String)> {
+    (!is_expected_agent_drop(error))
+        .then(|| send_delivery_notice(pane_title, pane_id, SendDelivery::Failed(error)))
+        .flatten()
+}
+
 /// User-facing notice for a failed detached send: `(title, body)`.
 pub(crate) fn send_delivery_notice(
     pane_title: Option<&str>,
@@ -822,7 +851,9 @@ pub(crate) fn should_log_unconfirmed_submit(
 
 #[cfg(test)]
 mod send_notice_tests {
-    use super::{send_delivery_notice, should_log_unconfirmed_submit, SendDelivery};
+    use super::{
+        detached_delivery_notice, send_delivery_notice, should_log_unconfirmed_submit, SendDelivery,
+    };
 
     #[test]
     fn successful_unconfirmed_submit_creates_no_user_notice() {
@@ -846,6 +877,16 @@ mod send_notice_tests {
         .unwrap();
         assert_eq!(title, "Message not delivered");
         assert_eq!(body, "Fermat: PTY did not start");
+    }
+
+    #[test]
+    fn stale_agent_delivery_drops_without_a_user_notice() {
+        let error = "agent_unavailable: input permit is stale for pty pty-1";
+        assert_eq!(
+            detached_delivery_notice(Some("Codex"), "pane-1", error),
+            None
+        );
+        assert!(detached_delivery_notice(Some("Codex"), "pane-1", "pty pty-1 is closed").is_some());
     }
 
     #[test]

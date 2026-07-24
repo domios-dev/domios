@@ -199,6 +199,7 @@ impl ServiceContext {
                     if let Some(pane) = self.mux.write().get_pane_mut(pid) {
                         pane.exit_suspected_at = None;
                     }
+                    self.rearm_authenticated_agent_input(pid);
                     agent_type
                 } else {
                     let screen = self
@@ -210,6 +211,7 @@ impl ServiceContext {
                         && self.agent_registry.detect_from_output(&screen).is_none()
                         && screen_ends_in_shell_prompt(&screen);
                     if suspected_exit {
+                        self.invalidate_guarded_agent_input(pid);
                         let confirmed = {
                             let mut mux = self.mux.write();
                             match mux.get_pane_mut(pid) {
@@ -253,6 +255,7 @@ impl ServiceContext {
                         if let Some(pane) = self.mux.write().get_pane_mut(pid) {
                             pane.exit_suspected_at = None;
                         }
+                        self.rearm_authenticated_agent_input(pid);
                         agent_type
                     }
                 }

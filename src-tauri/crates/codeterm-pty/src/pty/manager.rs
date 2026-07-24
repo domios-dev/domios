@@ -9,7 +9,7 @@ use parking_lot::Mutex as PlMutex;
 
 pub use super::spawn_gate::PtySpawnGate;
 pub use super::teardown::{PtyReaper, PtyTeardownSignal};
-use super::write_queue::WriteQueue;
+use super::write_queue::{GuardedInputGate, GuardedInputPermit, WriteQueue};
 
 pub struct SpawnMark {
     pub when: Instant,
@@ -47,6 +47,7 @@ pub struct PtySession {
     pub size: StdMutex<(u16, u16)>,
     pub reader: StdMutex<Option<Box<dyn Read + Send>>>,
     pub write_queue: WriteQueue,
+    pub guarded_input: GuardedInputGate,
     pub child: StdMutex<Box<dyn portable_pty::Child + Send + Sync>>,
     /// Backend reader channel (bounded). When Some, a backend reader is active and sending bytes here.
     /// read_pty reads from this instead of the raw PTY reader to avoid competing reads.
@@ -58,6 +59,16 @@ pub struct PtySession {
 }
 
 impl PtySession {
+    pub fn write_and_flush_guarded(
+        &self,
+        data: Vec<u8>,
+        permit: GuardedInputPermit,
+        timeout: std::time::Duration,
+    ) -> Result<(), String> {
+        self.write_queue
+            .send_and_wait_guarded(data, permit, timeout)
+    }
+
     pub fn resize(&self, cols: u16, rows: u16) -> Result<bool, String> {
         let mut size = self.size.lock().map_err(|e| e.to_string())?;
         if *size == (cols, rows) {
@@ -416,6 +427,7 @@ pub fn build_session(
         size: StdMutex::new((cols, rows)),
         reader: StdMutex::new(Some(reader)),
         write_queue,
+        guarded_input: GuardedInputGate::default(),
         child: StdMutex::new(child),
         backend_reader_tx: StdMutex::new(None),
         backend_reader_rx: StdMutex::new(None),
@@ -536,6 +548,50 @@ impl PtyManager {
         session.write_queue.send_and_wait(data.to_vec(), timeout)
     }
 
+    pub fn rearm_guarded_input(&self, pty_id: &str) -> Result<(), String> {
+        let session = self
+            .sessions
+            .get(pty_id)
+            .ok_or_else(|| format!("PTY not found: {pty_id}"))?;
+        session.guarded_input.rearm();
+        Ok(())
+    }
+
+    pub fn invalidate_guarded_input(&self, pty_id: &str) {
+        if let Some(session) = self.sessions.get(pty_id) {
+            session.guarded_input.invalidate();
+        }
+    }
+
+    pub fn issue_guarded_input_permit(&self, pty_id: &str) -> Result<GuardedInputPermit, String> {
+        let session = self
+            .sessions
+            .get(pty_id)
+            .ok_or_else(|| format!("PTY not found: {pty_id}"))?;
+        session
+            .guarded_input
+            .issue()
+            .ok_or_else(|| "agent_unavailable: agent input is not accepting".to_string())
+    }
+
+    pub fn write_and_flush_guarded(
+        &self,
+        pty_id: &str,
+        data: &[u8],
+        permit: GuardedInputPermit,
+        timeout: std::time::Duration,
+    ) -> Result<(), String> {
+        let session = self
+            .sessions
+            .get(pty_id)
+            .ok_or_else(|| format!("PTY not found: {pty_id}"))?;
+        session
+            .write_and_flush_guarded(data.to_vec(), permit, timeout)
+            .map(|()| {
+                crate::pty::capture::CaptureRegistry::global().tap_input(pty_id, "pty.write", data);
+            })
+    }
+
     /// Resize PTY
     pub fn resize(&mut self, pty_id: &str, cols: u16, rows: u16) -> Result<(), String> {
         let session = self
@@ -564,6 +620,7 @@ impl PtyManager {
             .sessions
             .remove(pty_id)
             .ok_or_else(|| format!("PTY {} not found", pty_id))?;
+        session.guarded_input.invalidate();
         let kill_error = match session.child.lock() {
             Ok(mut child) => child.kill().err().map(|error| error.to_string()),
             Err(error) => Some(format!("child mutex poisoned: {error}")),

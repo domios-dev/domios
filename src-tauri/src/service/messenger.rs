@@ -291,13 +291,8 @@ impl Messenger {
             || unreachable!(),
             || {
                 crate::service::pty_io::submit_transaction::submit_entry(entry, &text, |text| {
-                    if let Some((session_id, binding_nonce)) = agent_binding.as_ref() {
-                        svc.send_to_authenticated_agent_session_detached(
-                            to_pane,
-                            session_id,
-                            binding_nonce,
-                            text,
-                        );
+                    if let Some(delivery) = agent_binding.clone() {
+                        svc.send_to_authenticated_agent_session_detached(to_pane, delivery, text);
                     } else {
                         svc.send_text_detached(to_pane, text, true);
                     }
