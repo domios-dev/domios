@@ -46,6 +46,7 @@ export type Action =
   | { type: "SET_AGENT_TYPE"; paneId: string; agentType: string | null }
   | { type: "UPDATE_PANE_STATUS"; paneId: string; status: PaneStatus }
   | { type: "UPDATE_BOOT_STAGE"; paneId: string; stage: BootStage; reason?: string | null }
+  | { type: "REMOVE_PENDING_CLOSE"; paneIds: string[] }
   | { type: "RESET_PEER_CONTEXT" }
   | { type: "RESET_GENERATION" };
 
@@ -79,6 +80,13 @@ function reconcilePaneStatuses(
   return merged;
 }
 
+function addPendingCloses(current: string[], paneIds: string[]): string[] {
+  if (paneIds.length === 0) return current;
+  const next = new Set(current);
+  for (const id of paneIds) next.add(id);
+  return next.size === current.length ? current : [...next];
+}
+
 export function reducer(state: ExtendedState, action: Action): ExtendedState {
   switch (action.type) {
     case "RESET_PEER_CONTEXT":
@@ -92,6 +100,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         paneStatuses: {},
         activeTabIds: {},
         generation: -1,
+        pendingCloses: [],
       };
 
     case "SET_STATE": {
@@ -99,9 +108,33 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       if (typeof incomingGen === "number" && incomingGen <= state.generation) {
         return state;
       }
+      // This snapshot is accepted. Apply optimistic-close tombstones now, so a
+      // tombstone clears only against a snapshot the generation guard accepted.
+      const stillPending: string[] = [];
+      const maskedPaneIds = new Set<string>();
+      for (const paneId of state.pendingCloses) {
+        const present =
+          Boolean(action.state.panes[paneId]) ||
+          action.state.workspaces.some((w) => w.tabs.some((t) => t.pane_id === paneId));
+        if (present) {
+          stillPending.push(paneId);
+          maskedPaneIds.add(paneId);
+        }
+      }
+      const sourcePanes = maskedPaneIds.size
+        ? Object.fromEntries(
+            Object.entries(action.state.panes).filter(([id]) => !maskedPaneIds.has(id)),
+          )
+        : action.state.panes;
+      const sourceWorkspaces = maskedPaneIds.size
+        ? action.state.workspaces.map((w) => ({
+            ...w,
+            tabs: w.tabs.filter((t) => !maskedPaneIds.has(t.pane_id)),
+          }))
+        : action.state.workspaces;
       // Backend is authoritative; one pane per tab means no split ratio.
-      const mergedPanes = { ...action.state.panes };
-      const mergedWorkspaces = reconcileBackendWorkspaceTabs(action.state.workspaces, mergedPanes);
+      const mergedPanes = { ...sourcePanes };
+      const mergedWorkspaces = reconcileBackendWorkspaceTabs(sourceWorkspaces, mergedPanes);
       for (const [id, backendPane] of Object.entries(mergedPanes)) {
         const existing = state.panes[id];
         const agentType = existing?.agent_type || backendPane.agent_type;
@@ -173,6 +206,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         ),
         generation:
           typeof incomingGen === "number" ? incomingGen : state.generation,
+        pendingCloses: stillPending,
       };
     }
 
@@ -207,6 +241,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         panes: newPanes,
         paneStatuses: newStatuses,
         activeTabIds: newActiveTabIds,
+        pendingCloses: addPendingCloses(state.pendingCloses, removedPaneIds),
         active_workspace_id:
           state.active_workspace_id === action.id
             ? (remaining[0]?.id ?? null)
@@ -347,6 +382,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         panes: newPanes,
         paneStatuses: newStatuses,
         activeTabIds: newActiveTabIds,
+        pendingCloses: addPendingCloses(state.pendingCloses, action.removedPaneIds),
       };
     }
 
@@ -373,7 +409,17 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         }),
         panes: newPanes,
         paneStatuses: newStatuses,
+        pendingCloses: addPendingCloses(state.pendingCloses, [action.paneId]),
       };
+    }
+
+    case "REMOVE_PENDING_CLOSE": {
+      if (action.paneIds.length === 0) return state;
+      const remove = new Set(action.paneIds);
+      const next = state.pendingCloses.filter((id) => !remove.has(id));
+      return next.length === state.pendingCloses.length
+        ? state
+        : { ...state, pendingCloses: next };
     }
 
     case "SET_FOCUSED_PANE":

@@ -44,6 +44,7 @@ function base(): ExtendedState {
     toasts: [],
     activeTabIds: {},
     generation: 0,
+    pendingCloses: [],
   };
 }
 

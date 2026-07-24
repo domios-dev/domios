@@ -1,9 +1,5 @@
 // Run: npx tsx src/store/multiplexer/pendingClose.integration.test.tsx
-//
-// Regression: a backend close that FAILS must not leave the optimistically
-// removed tab/workspace invisible. closePane/closeWorkspace must restore it
-// from authoritative state (mirroring closeTab). Waits are condition-based on
-// observed store renders — no timers/sleeps.
+// Regression: failed/redundant closes must neither hide items nor resurrect them.
 
 export {};
 
@@ -120,8 +116,7 @@ async function setupHappyDom() {
 }
 
 // Drain the microtask queue so awaited invoke/dispatch chains settle. Bounded
-// (never open-ended) so a broken path fails fast instead of hanging; no wall
-// clock is consulted — this is queue draining, not a timed settle.
+// so a broken path fails fast instead of hanging; no wall clock is consulted.
 async function drain(n = 40): Promise<void> {
   for (let i = 0; i < n; i++) await Promise.resolve();
 }
@@ -131,6 +126,7 @@ interface Harness {
   act: (cb: () => Promise<void>) => Promise<void>;
   actions: () => import("./context").MultiplexerActionsContextType;
   state: () => MuxLike;
+  emitMux: (snapshot: unknown) => void;
   clear: () => void;
 }
 
@@ -142,7 +138,13 @@ async function renderHarness(
   const { MultiplexerProvider, useMultiplexer, useMuxState } = await import("./index");
 
   __setInvokeForTest(invokeMock as never);
-  __setListenForTest(async () => () => {});
+  const listeners: Record<string, (e: { payload: unknown }) => void> = {};
+  __setListenForTest(async <T,>(event: string, handler: (e: { payload: T }) => void) => {
+    listeners[event] = handler as (e: { payload: unknown }) => void;
+    return () => {
+      delete listeners[event];
+    };
+  });
 
   const stateHolder: { current: MuxLike | null } = { current: null };
 
@@ -175,6 +177,10 @@ async function renderHarness(
     state: () => {
       assert(stateHolder.current, "state not captured");
       return stateHolder.current!;
+    },
+    emitMux: (snapshot: unknown) => {
+      assert(listeners["mux-state-changed"], "mux-state-changed listener not bound");
+      listeners["mux-state-changed"]({ payload: snapshot });
     },
     clear: () => {
       __setInvokeForTest(null);
@@ -264,6 +270,46 @@ test("successful closeWorkspace stays removed (authoritative removal sticks)", a
   // The tombstone must have self-cleared and the workspace must NOT reappear.
   assert(!hasWorkspace(h.state(), "w1"), "successfully closed workspace must not reappear");
   assert(hasWorkspace(h.state(), "w2"), "sibling workspace remains");
+  await h.act(async () => h.root.unmount());
+  h.clear();
+});
+
+test("redundant tab-close failure after pane-close success keeps a delayed pre-close snapshot masked", async () => {
+  const backend: BackendWs[] = [
+    { id: "w1", tabs: [{ id: "A", pane_id: "pane-A" }, { id: "B", pane_id: "pane-B" }] },
+  ];
+  let gen = 10;
+  let hold = false;
+  const invokeMock = async <T,>(cmd: string): Promise<T> => {
+    if (cmd === "mux_get_state") {
+      if (hold) return new Promise<T>(() => {}); // hold the authoritative post-close refresh
+      return makeSnapshot(backend, ++gen) as T;
+    }
+    if (cmd === "list_notifications") return [] as T;
+    if (cmd === "mux_close_pane") return {} as T; // pane close succeeds, backend removes B
+    if (cmd === "mux_close_tab") throw new Error("tab already gone"); // redundant failure
+    return {} as T;
+  };
+
+  const h = await renderHarness(invokeMock as never);
+  assert(hasTab(h.state(), "B"), "tab B present after initial reconcile");
+  hold = true; // from here the authoritative omission never arrives
+
+  await h.act(async () => {
+    h.actions().closePane("pane-B");
+    await drain();
+  });
+
+  // Deliver a delayed PRE-close snapshot: higher generation, still lists B.
+  await h.act(async () => {
+    h.emitMux(makeSnapshot(backend, 999));
+    await drain();
+  });
+
+  assert(
+    !hasTab(h.state(), "B"),
+    "redundant tab-close failure must not clear the tombstone; delayed pre-close snapshot stays masked",
+  );
   await h.act(async () => h.root.unmount());
   h.clear();
 });
