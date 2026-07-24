@@ -312,38 +312,34 @@ export function PaneSessionChat({
     [paneTitleMap],
   );
 
-  const deferredEnrichedMessages = useDeferredValue(enrichedMessages);
-  // Passive painted-tail probe for the projection pipeline diagnostics. Records
-  // the visible tail signature after the browser paints (double rAF), not at React
-  // commit — a layout effect would fire before paint and overstate progress. Never
-  // alters what renders; a superseded frame is cancelled when renders outrun paints.
+  const renderedEnrichedMessages = enrichedMessages;
+  const deferredPlanRefMessages = useDeferredValue(enrichedMessages);
+  // Record the visible tail after paint so diagnostics do not overstate progress
+  // when React commits faster than the browser paints.
   useEffect(() => {
-    const tail = paintTailSignature(deferredEnrichedMessages[deferredEnrichedMessages.length - 1]?.msg);
+    const tail = paintTailSignature(renderedEnrichedMessages[renderedEnrichedMessages.length - 1]?.msg);
     return scheduleAfterPaint(() => chatProjectionMonitor.recordPaint(paneId, tail));
-  }, [paneId, deferredEnrichedMessages]);
-  // Follow component lifecycle: drop the pane record on unmount / pane change so
-  // torn-down sessions do not persist until the LRU cap evicts them.
+  }, [paneId, renderedEnrichedMessages]);
+  // Drop torn-down pane diagnostics immediately instead of waiting for LRU eviction.
   useEffect(() => () => chatProjectionMonitor.forget(paneId), [paneId]);
   const latestFailedToolCallId = useMemo(() => {
-    for (let i = deferredEnrichedMessages.length - 1; i >= 0; i -= 1) {
-      const msg = deferredEnrichedMessages[i]?.msg;
+    for (let i = renderedEnrichedMessages.length - 1; i >= 0; i -= 1) {
+      const msg = renderedEnrichedMessages[i]?.msg;
       if (msg?.type === "tool_call" && msg.toolError === true) {
         return msg.id;
       }
     }
     return null;
-  }, [deferredEnrichedMessages]);
+  }, [renderedEnrichedMessages]);
 
-  // Reuse the previous array when the deduped ref-set is unchanged: a fresh
-  // identity every streamed chunk would churn resolvePlanRef and re-render the
-  // whole MessageBubble list (each re-parsing markdown) → composer input stall.
+  // Keep the ref array stable when streaming changes no plan reference.
   const visiblePlanRefsRef = useRef<{
     key: string;
     value: Array<{ planId: string; targetId?: string; targetKind: "plan" | "task" | "section" }>;
   }>({ key: "", value: [] });
   const visiblePlanRefs = useMemo(() => {
     const refs: Array<{ planId: string; targetId?: string; targetKind: "plan" | "task" | "section" }> = [];
-    for (const { msg } of deferredEnrichedMessages) {
+    for (const { msg } of deferredPlanRefMessages) {
       if (msg.type === "tool_result" || msg.type === "system" || msg.type === "local_command") continue;
       for (const ref of extractPlanRefs(msg.content ?? "")) {
         refs.push({
@@ -358,7 +354,7 @@ export function PaneSessionChat({
     if (key === prev.key) return prev.value;
     visiblePlanRefsRef.current = { key, value: refs };
     return refs;
-  }, [deferredEnrichedMessages]);
+  }, [deferredPlanRefMessages]);
   const resolvedPlanRefs = usePlanRefResolver(
     api ?? DISABLED_PLAN_API,
     visiblePlanRefs,
@@ -410,11 +406,7 @@ export function PaneSessionChat({
     if (target) void selectTabByPane(target.workspaceId, target.paneId);
   }, [paneAgentTypes, planNav.workspaces, selectTabByPane]);
 
-  // Precompute per-message origin props ONCE and reuse the entry object while its
-  // (target pane, provider) is unchanged. deferredEnrichedMessages gets a fresh
-  // array identity every streamed chunk, so building closures/avatars inline in
-  // the map body would hand MessageBubble new refs each chunk and defeat its memo,
-  // re-rendering (and re-parsing markdown for) every origin message on every chunk.
+  // Preserve origin prop identities so streamed chunks do not re-render old bubbles.
   type OriginProps = { key: string; onOriginClick: () => void; originAvatar: ReactNode };
   const originPropsCacheRef = useRef<Map<string, OriginProps>>(new Map());
   const originFocusRef = useRef<((paneId: string) => void) | null>(null);
@@ -427,7 +419,7 @@ export function PaneSessionChat({
     }
     const cache = originPropsCacheRef.current;
     const next = new Map<string, OriginProps>();
-    for (const { msg, origin } of deferredEnrichedMessages) {
+    for (const { msg, origin } of renderedEnrichedMessages) {
       if (origin?.kind !== "pane") continue;
       const idShort = origin.paneIdShort;
       const fullId = Object.keys(paneAgentTypes).find((id) => id.startsWith(idShort));
@@ -446,7 +438,7 @@ export function PaneSessionChat({
     }
     originPropsCacheRef.current = next;
     return next;
-  }, [deferredEnrichedMessages, paneAgentTypes, setFocusedPane]);
+  }, [renderedEnrichedMessages, paneAgentTypes, setFocusedPane]);
 
   useEffect(() => {
     if (backendState?.state === "working" || pendingPrompt) {
@@ -591,7 +583,7 @@ export function PaneSessionChat({
             </button>
           </div>
         )}
-        {deferredEnrichedMessages.length === 0 && !inlinePrompt && liveAgentState.state !== "question" && (
+        {renderedEnrichedMessages.length === 0 && !inlinePrompt && liveAgentState.state !== "question" && (
           error ? null : recovering ? (
             <div className="opacity-50 text-center py-8 text-sm" data-testid="chat-recovering-state">
               Recovering chat history…
@@ -602,7 +594,7 @@ export function PaneSessionChat({
             </div>
           ) : null
         )}
-        {deferredEnrichedMessages.map(({ msg, item, origin }) => {
+        {renderedEnrichedMessages.map(({ msg, item, origin }) => {
           const originProps = originPropsById.get(msg.id);
           return (
             <div
@@ -646,7 +638,7 @@ export function PaneSessionChat({
           onOpenTerminal={onOpenTerminalFallback}
           onEscape={focusComposer}
         />
-        {!inlinePrompt && (deferredEnrichedMessages.length > 0 || liveAgentState.state === "question") && (
+        {!inlinePrompt && (renderedEnrichedMessages.length > 0 || liveAgentState.state === "question") && (
           // with the message text instead of the far-left container edge.
           <div className="w-full max-w-4xl min-w-0 mx-auto">
             <AgentStateIndicator
@@ -691,7 +683,7 @@ export function PaneSessionChat({
         />
       ) : (
       <>
-      {deferredEnrichedMessages.length > 0 && (
+      {renderedEnrichedMessages.length > 0 && (
         <ChatSetupStatusLine
           pane={pane}
           providerName={provider?.displayName ?? "the agent"}
