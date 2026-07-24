@@ -82,7 +82,7 @@ struct PtySubmitTransport<'a> {
     svc: &'a ServiceContext,
     pty_id: &'a str,
     signal: Arc<ScreenChangeSignal>,
-    permit: Option<crate::pty::GuardedInputPermit>,
+    permit: Option<crate::pty::write_queue::GuardedInputPermit>,
 }
 
 fn bracketed_paste(text: &str) -> String {
@@ -193,7 +193,7 @@ impl SubmitTransport for PtySubmitTransport<'_> {
 }
 
 fn injection_write_error(pty_id: &str, error: String) -> InjectionError {
-    if crate::pty::is_stale_agent_input(&error) {
+    if crate::pty::write_queue::is_stale_agent_input(&error) {
         InjectionError::AgentInputUnavailable {
             pty_id: pty_id.to_string(),
         }
@@ -376,7 +376,7 @@ pub(crate) fn submit_text_with_key(
     submit_key: &[u8],
     strategy: VerifySubmitStrategy,
     opts: VerifyOpts,
-    permit: Option<crate::pty::GuardedInputPermit>,
+    permit: Option<crate::pty::write_queue::GuardedInputPermit>,
 ) -> Result<InjectionResult, InjectionError> {
     let lock = transaction_lock(pty_id);
     let transaction = lock.lock();

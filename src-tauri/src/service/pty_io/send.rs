@@ -179,13 +179,12 @@ fn authenticated_pty_target(
 
 #[derive(Clone)]
 pub(crate) struct AuthenticatedPtyDelivery {
-    pub(crate) session_id: String,
-    pub(crate) binding_nonce: String,
     pub(crate) pty_id: String,
     pub(crate) provider_id: String,
-    pub(crate) permit: crate::pty::GuardedInputPermit,
+    pub(crate) permit: crate::pty::write_queue::GuardedInputPermit,
 }
 
+#[cfg(test)]
 fn submit_authenticated_pty_input<T>(
     pane: &crate::multiplexer::types::Pane,
     expected_session_id: &str,
@@ -224,8 +223,6 @@ impl ServiceContext {
         };
         let permit = self.pty.lock().issue_guarded_input_permit(&pty_id)?;
         Ok(AuthenticatedPtyDelivery {
-            session_id: expected_session_id.to_string(),
-            binding_nonce: expected_binding_nonce.to_string(),
             pty_id,
             provider_id,
             permit,
@@ -267,7 +264,6 @@ impl ServiceContext {
         let text = text.to_string();
         std::thread::spawn(move || {
             if let Err(error) = svc.send_authenticated_delivery_with_options(
-                &pane,
                 delivery,
                 &text,
                 super::submit_transaction::PtySubmitEntry::Messenger,
@@ -294,7 +290,6 @@ impl ServiceContext {
         let delivery =
             self.authenticated_pty_delivery(pane_id, expected_session_id, expected_binding_nonce)?;
         self.send_authenticated_delivery_with_options(
-            pane_id,
             delivery,
             text,
             super::submit_transaction::PtySubmitEntry::Planner,
@@ -304,7 +299,6 @@ impl ServiceContext {
 
     fn send_authenticated_delivery_with_options(
         &self,
-        pane_id: &str,
         delivery: AuthenticatedPtyDelivery,
         text: &str,
         entry: super::submit_transaction::PtySubmitEntry,
