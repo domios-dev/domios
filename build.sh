@@ -964,7 +964,17 @@ case "$CMD" in
     else
       echo "Post-install continuation: disabled (no calling CodeTerm pane)"
     fi
-    codeterm "${INSTALL_ARGS[@]}"
+    env \
+      -u CODETERM_INSTANCE \
+      -u CODETERM_VITE_PORT \
+      -u CODETERM_DEV_IDENTIFIER \
+      -u CODETERM_CDP_PORT \
+      -u CODETERM_ALLOW_EXTERNAL_TARGET \
+      -u CARGO_TARGET_DIR \
+      -u CARGO_INCREMENTAL \
+      -u RUSTC_WRAPPER \
+      -u SCCACHE_BASEDIRS \
+      codeterm "${INSTALL_ARGS[@]}"
     ;;
   qa-prep)
     enter_build_gateway "$CMD ${*:2}"

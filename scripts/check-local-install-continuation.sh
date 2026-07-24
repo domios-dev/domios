@@ -39,4 +39,16 @@ if CODETERM_PANE_ID= CODETERM_TEST_PRINT_LOCAL_INSTALL_CONTINUATION=1 \
   exit 1
 fi
 
+for variable in \
+  CODETERM_INSTANCE \
+  CODETERM_VITE_PORT \
+  CODETERM_DEV_IDENTIFIER \
+  CODETERM_CDP_PORT \
+  CARGO_TARGET_DIR \
+  CARGO_INCREMENTAL \
+  RUSTC_WRAPPER \
+  SCCACHE_BASEDIRS; do
+  grep -Fq -- "-u $variable" build.sh
+done
+
 echo "local install continuation checks passed"

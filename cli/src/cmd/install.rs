@@ -35,6 +35,43 @@ fn windows_continue_block(
     )
 }
 
+#[cfg(target_os = "windows")]
+fn windows_runtime_env_scrub_block() -> &'static str {
+    "for /f \"tokens=1 delims==\" %%V in ('set CODETERM 2^>nul') do set \"%%V=\"\r\n\
+    set \"CARGO_TARGET_DIR=\"\r\n\
+    set \"CARGO_INCREMENTAL=\"\r\n\
+    set \"RUSTC_WRAPPER=\"\r\n\
+    set \"SCCACHE_BASEDIRS=\"\r\n"
+}
+
+#[cfg(target_os = "windows")]
+fn windows_install_script(
+    log_path: &std::path::Path,
+    installer_path: &str,
+    target_exe: &std::path::Path,
+    continue_block: &str,
+) -> String {
+    format!(
+        "@echo off\r\n\
+        set \"LOG={log}\"\r\n\
+        echo [self-install] starting at %date% %time% > \"%LOG%\"\r\n\
+        taskkill /F /IM codeterm.exe >> \"%LOG%\" 2>&1\r\n\
+        taskkill /F /IM codeterm-embed.exe >> \"%LOG%\" 2>&1\r\n\
+        echo [self-install] running installer >> \"%LOG%\"\r\n\
+        \"{installer}\" /S >> \"%LOG%\" 2>&1\r\n\
+        echo [self-install] installer exited %errorlevel% >> \"%LOG%\"\r\n\
+        {runtime_env_scrub}\
+        start \"\" \"{target}\"\r\n\
+        echo [self-install] launched {target} >> \"%LOG%\"\r\n\
+        {continue_block}\
+        del \"%~f0\" 2>nul\r\n",
+        log = log_path.display(),
+        installer = installer_path.replace('/', "\\"),
+        target = target_exe.display(),
+        runtime_env_scrub = windows_runtime_env_scrub_block(),
+    )
+}
+
 // If continuation is set, wait for API readiness and forward text to `continue_pane`.
 #[cfg(target_os = "windows")]
 pub fn run_install_from_file(
@@ -79,24 +116,7 @@ pub fn run_install_from_file(
         _ => String::from(":cleanup\r\n"),
     };
 
-    let bat = format!(
-        "@echo off\r\n\
-        set \"LOG={log}\"\r\n\
-        echo [self-install] starting at %date% %time% > \"%LOG%\"\r\n\
-        taskkill /F /IM codeterm.exe >> \"%LOG%\" 2>&1\r\n\
-        taskkill /F /IM codeterm-embed.exe >> \"%LOG%\" 2>&1\r\n\
-        echo [self-install] running installer >> \"%LOG%\"\r\n\
-        \"{installer}\" /S >> \"%LOG%\" 2>&1\r\n\
-        echo [self-install] installer exited %errorlevel% >> \"%LOG%\"\r\n\
-        start \"\" \"{target}\"\r\n\
-        echo [self-install] launched {target} >> \"%LOG%\"\r\n\
-        {continue_block}\
-        del \"%~f0\" 2>nul\r\n",
-        log = log_path.display(),
-        installer = installer_path.replace('/', "\\"),
-        target = target_exe.display(),
-        continue_block = continue_block,
-    );
+    let bat = windows_install_script(&log_path, installer_path, &target_exe, &continue_block);
 
     if let Err(e) = std::fs::write(&bat_path, bat) {
         eprintln!("Failed to write self-install helper: {}", e);
@@ -288,7 +308,7 @@ pub fn run_install_from_file(
 
 #[cfg(all(test, target_os = "windows"))]
 mod tests {
-    use super::windows_continue_block;
+    use super::{windows_continue_block, windows_install_script};
 
     #[test]
     fn continuation_is_deleted_only_after_acknowledged_submit() {
@@ -306,6 +326,28 @@ mod tests {
             script.find("if errorlevel 1").unwrap()
                 < script.find("del \"continuation.txt\"").unwrap()
         );
+    }
+
+    #[test]
+    fn installed_daemon_launch_scrubs_dev_and_build_environment() {
+        let script = windows_install_script(
+            std::path::Path::new("install.log"),
+            "CodeTerm_setup.exe",
+            std::path::Path::new("codeterm.exe"),
+            ":cleanup\r\n",
+        );
+
+        let scrub = script.find("set CODETERM").unwrap();
+        let launch = script.find("start \"\" \"codeterm.exe\"").unwrap();
+        assert!(scrub < launch);
+        for variable in [
+            "CARGO_TARGET_DIR",
+            "CARGO_INCREMENTAL",
+            "RUSTC_WRAPPER",
+            "SCCACHE_BASEDIRS",
+        ] {
+            assert!(script.contains(&format!("set \"{variable}=\"")));
+        }
     }
 }
 

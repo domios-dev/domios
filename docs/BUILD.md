@@ -119,6 +119,7 @@ does not publish a release or alter GitHub assets.
 | Push unexpectedly starts compilation or formatting checks | A stale local hook predates the non-blocking push policy | Run any `build.ps1` command to restore `.githooks`, then retry; verification belongs to explicit gates and CI. |
 | `Build gateway job id already exists` immediately from a fresh command | The calling CodeTerm tab inherited a completed gateway job id from an earlier build | Update the build scripts; production gateway entry now always creates a fresh job id and ignores inherited internal ids. |
 | `pnpm build` fails only in focused TSX test files during `install-local` | A test mock violates the generic bridge signature or imports an unused JSX runtime symbol | Run `pnpm build`, fix the test type/import at the source, then retry `install-local` from the same clean canonical checkout. |
+| Installed health on port 7685 reports a dev identifier or Vite/CDP ports | The detached installer helper inherited `CODETERM_*` and Cargo build variables from the calling tab | Use the current installer helper, which scrubs CodeTerm and build variables before launching the installed daemon; reinstall and verify `/api/health`. |
 
 When a new failure is found in this flow, fix the owning script or preflight and
 add a short symptom/cause/recovery row here before closing the work.
@@ -321,4 +322,4 @@ codeterm/
 └── docs/               # Documentation
 ```
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->
