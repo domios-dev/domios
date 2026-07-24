@@ -2,6 +2,7 @@ use serde_json::{json, Value};
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
 
+use crate::agent::reports::ReportDetails;
 use crate::plan::{Task, TaskLaneMetadata};
 use crate::service::plan::milestone_gates::{
     regression_dispatch_decision, DispatchExemption, RegressionDispatchDecision, RegressionGate,
@@ -23,7 +24,7 @@ fn owned_str(p: Option<&Value>, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-const DISPATCH_READY_TIMEOUT: Duration = Duration::from_secs(90);
+const DISPATCH_READY_TIMEOUT: Duration = Duration::from_secs(60);
 
 fn dispatch_failed(stage: &str, message: String) -> JsonRpcError {
     JsonRpcError {
@@ -172,6 +173,199 @@ struct DispatchEvidence {
     lane: WorkerLaneProvenance,
 }
 
+fn epoch_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+fn publish_startup_report(
+    svc: &ServiceState,
+    parent_pane_id: &str,
+    worker_pane_id: &str,
+    worker_title: &str,
+    plan_id: &str,
+    task_id: &str,
+    payload: Value,
+) {
+    let message = payload.to_string();
+    let details = ReportDetails {
+        plan_id: Some(plan_id.to_string()),
+        task_id: Some(task_id.to_string()),
+        ..Default::default()
+    };
+    let report = svc.report_store.lock().add_detailed(
+        parent_pane_id,
+        worker_pane_id,
+        worker_title,
+        &message,
+        details,
+        None,
+    );
+    svc.events.broadcast(
+        "agent.report",
+        json!({
+            "target_pane_id": parent_pane_id,
+            "report": report.clone(),
+        }),
+    );
+    crate::api::events::emit_everywhere(
+        &svc.app_handle,
+        "agent-report",
+        json!({
+            "target_pane_id": parent_pane_id,
+            "from_pane_id": worker_pane_id,
+            "from_title": worker_title,
+            "message": message,
+            "report": report.clone(),
+        }),
+    );
+    let envelope = crate::service::messenger::MessageEnvelope::report(worker_title, worker_pane_id);
+    if let Err(error) = svc.gateway_deliver(
+        parent_pane_id,
+        envelope,
+        &report.inject_body(),
+        crate::service::message_gateway::DeliveryClass::AgentTraffic,
+    ) {
+        log::warn!(
+            "[dispatch-startup] parent delivery failed task={} pane={}: {}",
+            task_id,
+            worker_pane_id,
+            error
+        );
+    }
+}
+
+struct DispatchStartup {
+    app: AppHandle,
+    svc: ServiceState,
+    plan_id: String,
+    task_id: String,
+    pane_id: String,
+    attempt_id: String,
+    parent_pane_id: String,
+    worker_title: String,
+    brief: String,
+    original_task: Task,
+    original_plan_mode: crate::plan::PlanMode,
+    lane_for_commit: TaskLaneMetadata,
+    provenance: WorkerLaneProvenance,
+    provisioned_lane: Option<ProvisionedWorkerLane>,
+}
+
+impl DispatchStartup {
+    fn run(self, ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>) {
+        let deadline = Instant::now() + DISPATCH_READY_TIMEOUT;
+        let outcome: Result<DispatchEvidence, JsonRpcError> = (|| {
+            await_agent_ready(ready_rx, deadline)
+                .map_err(|error| dispatch_failed("agent_ready", error))?;
+            let session_id = wait_for_pane_session(&self.svc, &self.pane_id, deadline)
+                .map_err(|error| dispatch_failed("session_binding", error))?;
+            let lane = verify_worker_lane(
+                &self.provenance.canonical_cwd,
+                &self.provenance.worktree_path,
+                Some(&self.provenance.branch),
+                Some(&self.provenance.base),
+            )
+            .map_err(|error| dispatch_failed("provenance_readback", error))?;
+            self.svc
+                .send_text(&self.pane_id, &self.brief, true)
+                .map_err(|error| dispatch_failed("brief_delivery", error))?;
+            let lane_metadata = lane_metadata_for_dispatch(&self.lane_for_commit, &lane);
+            self.svc
+                .plan_store
+                .finish_task_dispatch(
+                    &self.plan_id,
+                    &self.task_id,
+                    &self.pane_id,
+                    &self.attempt_id,
+                    &session_id,
+                    lane_metadata,
+                    epoch_ms(),
+                )
+                .map_err(|error| dispatch_failed("task_commit", error.to_string()))?;
+            Ok(DispatchEvidence { session_id, lane })
+        })();
+
+        match outcome {
+            Ok(evidence) => {
+                emit_plan_changed(&self.app, &self.plan_id);
+                publish_startup_report(
+                    &self.svc,
+                    &self.parent_pane_id,
+                    &self.pane_id,
+                    &self.worker_title,
+                    &self.plan_id,
+                    &self.task_id,
+                    json!({
+                        "kind": "dispatch_ready",
+                        "plan_id": self.plan_id,
+                        "task_id": self.task_id,
+                        "tab_id": self.pane_id,
+                        "attempt_id": self.attempt_id,
+                        "session_id": evidence.session_id,
+                        "lane": {
+                            "worktree_path": evidence.lane.worktree_path,
+                            "branch": evidence.lane.branch,
+                            "base": evidence.lane.base,
+                            "canonical_project_path": evidence.lane.canonical_cwd,
+                        },
+                    }),
+                );
+            }
+            Err(error) => {
+                let stage = error
+                    .data
+                    .as_ref()
+                    .and_then(|data| data.get("stage"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("startup")
+                    .to_string();
+                let reason = error.message.clone();
+                let cleanup = rollback_failed_dispatch(
+                    self.provisioned_lane,
+                    || {
+                        self.svc
+                            .plan_store
+                            .restore_task_dispatch_snapshot(
+                                &self.plan_id,
+                                &self.original_task,
+                                self.original_plan_mode,
+                                epoch_ms(),
+                            )
+                            .map_err(|error| error.to_string())
+                    },
+                    || close_pane_if_present(&self.svc, &self.pane_id),
+                );
+                emit_plan_changed(&self.app, &self.plan_id);
+                publish_startup_report(
+                    &self.svc,
+                    &self.parent_pane_id,
+                    &self.pane_id,
+                    &self.worker_title,
+                    &self.plan_id,
+                    &self.task_id,
+                    json!({
+                        "kind": "dispatch_startup_failed",
+                        "plan_id": self.plan_id,
+                        "task_id": self.task_id,
+                        "tab_id": self.pane_id,
+                        "attempt_id": self.attempt_id,
+                        "stage": stage,
+                        "error": reason,
+                        "cleanup": match cleanup {
+                            Ok(()) => json!({"ok": true}),
+                            Err(error) => json!({"ok": false, "error": error}),
+                        },
+                    }),
+                );
+            }
+        }
+    }
+}
+
+#[cfg(test)]
 fn complete_dispatch_transaction<Ready, Binding, Provenance, Commit, Deliver, Rollback>(
     deadline: Instant,
     await_ready: Ready,
@@ -195,8 +389,8 @@ where
             wait_binding(deadline).map_err(|error| dispatch_failed("session_binding", error))?;
         let lane =
             validate_provenance().map_err(|error| dispatch_failed("provenance_readback", error))?;
-        commit(&lane, &session_id).map_err(|error| dispatch_failed("task_commit", error))?;
         deliver().map_err(|error| dispatch_failed("brief_delivery", error))?;
+        commit(&lane, &session_id).map_err(|error| dispatch_failed("task_commit", error))?;
         Ok(DispatchEvidence { session_id, lane })
     })();
     if outcome.is_err() {
@@ -381,6 +575,10 @@ pub(super) fn dispatch(
 
     // Parent defaults to the dispatching (caller) pane, resolved server-side.
     let parent = owned_str(p, "parent_pane_id").or_else(|| owned_str(p, "caller_pane_id"));
+    let parent_pane_id = parent
+        .clone()
+        .or_else(|| plan.owner.pane_id.clone())
+        .ok_or_else(|| invalid_dispatch("dispatch requires a parent Orchestrator tab"))?;
     let routing = resolve_dispatch_routing(
         owned_str(p, "agent"),
         owned_str(p, "model"),
@@ -464,7 +662,6 @@ pub(super) fn dispatch(
             return Err(dispatch_failed("provenance_validation", error));
         }
     };
-    let ready_deadline = Instant::now() + DISPATCH_READY_TIMEOUT;
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let spawn = match svc.spawn_agent_sync_with_ready(spawn_params, Some(ready_tx)) {
         Ok(spawn) => spawn,
@@ -484,80 +681,69 @@ pub(super) fn dispatch(
     let original_task = detail.task.clone();
     let original_plan_mode = plan.mode.clone();
     let brief = build_brief_with_claimed_persona(&detail.task, &detail.sections, &spawn.title);
-    let provenance_for_readback = initial_provenance.clone();
     let lane_for_commit = detail.task.lane.clone();
-    let cleanup_lane = provisioned_lane;
-    let evidence = complete_dispatch_transaction(
-        ready_deadline,
-        |deadline| await_agent_ready(ready_rx, deadline),
-        |deadline| wait_for_pane_session(svc, &pane_id, deadline),
-        || {
-            verify_worker_lane(
-                &provenance_for_readback.canonical_cwd,
-                &provenance_for_readback.worktree_path,
-                Some(&provenance_for_readback.branch),
-                Some(&provenance_for_readback.base),
-            )
-        },
-        |provenance, session_id| {
-            let lane = lane_metadata_for_dispatch(&lane_for_commit, provenance);
-            store
-                .commit_task_dispatch(
-                    &plan_id,
-                    &task_id,
-                    &pane_id,
-                    &spawn.title,
-                    session_id,
-                    lane,
-                    now,
-                )
-                .map_err(|error| error.to_string())
-        },
-        || svc.send_text(&pane_id, &brief, true),
-        || {
-            rollback_failed_dispatch(
-                cleanup_lane,
-                || {
-                    store
-                        .restore_task_dispatch_snapshot(
-                            &plan_id,
-                            &original_task,
-                            original_plan_mode,
-                            now,
-                        )
-                        .map_err(|error| error.to_string())
-                },
-                || close_pane_if_present(svc, &pane_id),
-            )
-        },
-    );
-
-    let evidence = match evidence {
-        Ok(evidence) => evidence,
+    let starting_lane = lane_metadata_for_dispatch(&lane_for_commit, &initial_provenance);
+    let attempt_id = match store.begin_task_dispatch(
+        &plan_id,
+        &task_id,
+        &pane_id,
+        &spawn.title,
+        starting_lane,
+        now,
+    ) {
+        Ok(attempt_id) => attempt_id,
         Err(error) => {
+            let cleanup = rollback_failed_dispatch(
+                provisioned_lane,
+                || Ok(()),
+                || close_pane_if_present(svc, &pane_id),
+            );
             emit_plan_changed(app, &plan_id);
-            return Err(error);
+            return Err(dispatch_failed(
+                "task_start",
+                match cleanup {
+                    Ok(()) => error.to_string(),
+                    Err(cleanup) => format!("{error}; {cleanup}"),
+                },
+            ));
         }
     };
     emit_plan_changed(app, &plan_id);
+    let startup = DispatchStartup {
+        app: app.clone(),
+        svc: svc.clone(),
+        plan_id: plan_id.clone(),
+        task_id: task_id.clone(),
+        pane_id: pane_id.clone(),
+        attempt_id: attempt_id.clone(),
+        parent_pane_id,
+        worker_title: spawn.title.clone(),
+        brief,
+        original_task,
+        original_plan_mode,
+        lane_for_commit,
+        provenance: initial_provenance.clone(),
+        provisioned_lane,
+    };
+    std::thread::spawn(move || startup.run(ready_rx));
+
     let model_fallback = spawn.model_fallback.clone();
     let mut result = json!({
         "ok": true,
+        "accepted": true,
+        "state": "starting",
         "plan_id": plan_id,
         "task_id": task_id,
+        "tab_id": pane_id,
         "pane_id": pane_id,
+        "attempt_id": attempt_id,
         "agent": resolved_provider,
         "spawn": spawn,
-        "readiness": {
-            "agent_ready": true,
-            "session_bound": true,
-            "session_id": evidence.session_id,
-        },
         "lane": {
-            "worktree_path": evidence.lane.worktree_path,
-            "branch": evidence.lane.branch,
-            "base": evidence.lane.base,
-            "canonical_project_path": evidence.lane.canonical_cwd,
+            "worktree_path": initial_provenance.worktree_path,
+            "branch": initial_provenance.branch,
+            "base": initial_provenance.base,
+            "canonical_project_path": initial_provenance.canonical_cwd,
             "destination": detail.task.lane.destination,
             "workspace_id": detail.task.lane.workspace_id,
             "workspace_name": detail.task.lane.workspace_name,
