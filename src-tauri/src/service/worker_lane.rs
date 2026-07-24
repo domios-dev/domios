@@ -90,7 +90,8 @@ impl ServiceContext {
 }
 
 fn provision_lane(project_cwd: &str, lane_label: &str) -> Result<ProvisionedWorkerLane, String> {
-    let project = Path::new(project_cwd);
+    let project_cwd = codeterm_paths::canonical_cwd(project_cwd);
+    let project = Path::new(&project_cwd);
     let repo = project
         .file_name()
         .and_then(|name| name.to_str())
@@ -118,10 +119,18 @@ fn provision_lane(project_cwd: &str, lane_label: &str) -> Result<ProvisionedWork
     })?;
     let lane_path = container.join(&slug);
     let lane_cwd = lane_path.display().to_string();
-    let base = git_value(project_cwd, ["rev-parse", "HEAD"])?;
-    run_git(project_cwd, ["worktree", "add", "-b", &branch, &lane_cwd])?;
+    let base = git_value(&project_cwd, ["rev-parse", "HEAD"])?;
+    if let Err(error) = run_git(
+        &project_cwd,
+        ["worktree", "add", "-b", &branch, &lane_cwd],
+    ) {
+        let _ = std::fs::remove_dir_all(&lane_path);
+        let _ = run_git(&project_cwd, ["worktree", "prune"]);
+        let _ = run_git(&project_cwd, ["branch", "-D", &branch]);
+        return Err(error);
+    }
     Ok(ProvisionedWorkerLane {
-        canonical_cwd: project_cwd.into(),
+        canonical_cwd: project_cwd,
         cwd: lane_cwd,
         branch,
         base,
@@ -292,7 +301,8 @@ mod tests {
         git(&project, &["add", "README.md"]);
         git(&project, &["commit", "-qm", "fixture"]);
 
-        let lane = provision_lane(project.to_str().unwrap(), "team_test").unwrap();
+        let canonical_project = std::fs::canonicalize(&project).unwrap();
+        let lane = provision_lane(canonical_project.to_str().unwrap(), "team_test").unwrap();
         let lane_path = PathBuf::from(&lane.cwd);
         assert!(lane_path.is_dir());
         assert_eq!(
