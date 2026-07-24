@@ -553,7 +553,6 @@ pub struct UsageConfig {
     pub enabled: bool,
     pub heartbeat: bool,
     pub freshness_secs: u64,
-    pub high_pct_threshold: f32,
     pub standalone_cadence_secs: u64,
 }
 
@@ -563,7 +562,6 @@ impl Default for UsageConfig {
             enabled: true,
             heartbeat: true,
             freshness_secs: 180,
-            high_pct_threshold: 90.0,
             standalone_cadence_secs: 0,
         }
     }
