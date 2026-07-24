@@ -77,6 +77,10 @@ pub struct PtyReaper {
 }
 
 impl PtyReaper {
+    pub fn pty_id(&self) -> &str {
+        &self.pty_id
+    }
+
     pub fn wait_bounded(self, timeout: std::time::Duration) -> Result<(), String> {
         self.observe_exit();
         if let Some(error) = self.kill_error.as_ref() {
