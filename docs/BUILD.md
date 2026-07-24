@@ -116,6 +116,7 @@ does not publish a release or alter GitHub assets.
 | A focused Rust test spends its deadline linking app binaries | The test omitted `--lib`, so Cargo built unrelated binary test targets | Run the focused filter through `scripts/test-capped.sh ... --lib <filter>`; never raise the deadline. |
 | `sccache: incremental compilation is prohibited` | `CARGO_INCREMENTAL=1` was combined with the shared sccache wrapper | Keep `CARGO_INCREMENTAL=0`; reuse the persistent completed target and sccache entries instead. |
 | Release-signing negative test passes despite a missing fixture key | The shell inherited `TAURI_SIGNING_PRIVATE_KEY` from the canonical `.env` | Run the repository check; its missing-key fixture explicitly removes the inherited key before asserting failure. |
+| Pre-push `cargo check` panics because `bundled-cli/*` is missing | The build gateway did not prepare the Tauri CLI resource stub | Update the hook and rerun; pre-push now creates both CLI and embed stubs before Cargo starts. |
 
 When a new failure is found in this flow, fix the owning script or preflight and
 add a short symptom/cause/recovery row here before closing the work.
@@ -310,4 +311,4 @@ codeterm/
 └── docs/               # Documentation
 ```
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->
