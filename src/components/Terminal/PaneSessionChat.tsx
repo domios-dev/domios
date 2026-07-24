@@ -38,6 +38,7 @@ import { reattachPaneChat } from "./chatReattach";
 import { planRefViewState } from "./planRefViewState";
 import { useChatScroll } from "./useChatScroll";
 import { resolveTabNavigationTarget } from "./tabNavigation";
+import { observeChatSendStatus } from "./chatSendStatus";
 
 interface Props {
   paneId: string;
@@ -448,6 +449,11 @@ export function PaneSessionChat({
     const id = window.setTimeout(() => setLongIdle(true), 90_000);
     return () => window.clearTimeout(id);
   }, [backendState?.state, pendingPrompt]);
+
+  useEffect(
+    () => observeChatSendStatus(paneId, showComposerError),
+    [paneId, showComposerError],
+  );
 
   // subtype); it arrives via the mux snapshot and events, no local polling needed.
   const liveAgentState: AgentState = useMemo(() => {

@@ -16,6 +16,7 @@ pub mod activity;
 pub mod agent_restart;
 pub mod boot_stage;
 mod boot_wait;
+pub(crate) mod chat_send_transaction;
 mod command_port_impl;
 pub mod cron;
 pub mod delivery_error;
@@ -243,6 +244,7 @@ pub struct ServiceContext {
     pub plan_turn_counter: Arc<crate::service::plan::reminders::TurnCounter>,
     pub(crate) pending_delivery_payloads:
         Arc<pending_delivery_payloads::PendingDeliveryPayloadStore>,
+    pub(crate) chat_send_ledger: Arc<chat_send_transaction::ChatSendLedger>,
     pub(crate) worker_identity_allocator:
         Arc<parking_lot::Mutex<worker_persona::WorkerPersonaReservations>>,
     /// The single optimistic outbound-delivery seam with idempotency.
