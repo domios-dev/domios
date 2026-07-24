@@ -36,7 +36,33 @@ export interface ProjectionCounters {
   authorityTail: string | null;
   committedTail: string | null;
   paintedTail: string | null;
+  /** Backend recovery coordinates from the last `snapshot_arrival` (re-attach).
+   *  Not a projection stage — kept off `firstStalledEdge`; used to attribute what
+   *  a reactivated snapshot recovered to versus the pane's prior committed tail. */
+  snapshotTail: string | null;
+  snapshotCursor: string | null;
+  snapshotOffset: number | null;
 }
+
+/** Compact history retained when a pane is forgotten, so a later reactivation can
+ *  be causally compared to where the torn-down pane actually left off. This is
+ *  archival history, not live pane state: it is never returned by `snapshot`,
+ *  never counted by `trackedPaneCount`, and never walked by `firstStalledEdge`. */
+export interface PriorActivation {
+  committedTail: string | null;
+  paintedTail: string | null;
+  snapshotTail: string | null;
+  snapshotCursor: string | null;
+  snapshotOffset: number | null;
+}
+
+/** How a reactivated snapshot lines up with the forgotten pane's prior committed
+ *  tail. `no_prior`: pane was never torn down. `pending`: torn down, no reactivation
+ *  snapshot observed yet. `recovered`: same tail id and content length ≥ prior (clean
+ *  cursor/signature-gated reconcile). `regressed`: same id but shorter (the re-attach
+ *  came back to earlier content — a desync). `diverged`: a different tail id (needs
+ *  the archived cursor/offset to attribute further). */
+export type ActivationRecovery = "no_prior" | "pending" | "recovered" | "regressed" | "diverged";
 
 export interface StalledEdge {
   from: ProjectionStage;
@@ -61,7 +87,30 @@ function freshCounters(): ProjectionCounters {
     authorityTail: null,
     committedTail: null,
     paintedTail: null,
+    snapshotTail: null,
+    snapshotCursor: null,
+    snapshotOffset: null,
   };
+}
+
+function parseTail(signature: string): { id: string; length: number } | null {
+  const hash = signature.lastIndexOf("#");
+  if (hash < 0) return null;
+  const length = Number(signature.slice(hash + 1));
+  if (!Number.isFinite(length)) return null;
+  return { id: signature.slice(0, hash), length };
+}
+
+/** Signature-gated comparison of a reactivated snapshot tail against the prior
+ *  committed tail. Same content signature → recovered; same id but shorter →
+ *  regressed; different id → diverged (unorderable by signature alone). */
+function classifyRecovery(recovered: string, target: string): ActivationRecovery {
+  if (recovered === target) return "recovered";
+  const r = parseTail(recovered);
+  const t = parseTail(target);
+  if (!r || !t) return "diverged";
+  if (r.id !== t.id) return "diverged";
+  return r.length >= t.length ? "recovered" : "regressed";
 }
 
 interface StageTail {
@@ -76,6 +125,7 @@ interface StageTail {
  *  stall — only a tail divergence is. */
 export class ChatProjectionMonitor {
   private readonly panes = new Map<string, ProjectionCounters>();
+  private readonly priors = new Map<string, PriorActivation>();
   private readonly maxTrackedPanes: number;
 
   constructor(maxTrackedPanes = DEFAULT_MAX_TRACKED_PANES) {
@@ -104,6 +154,11 @@ export class ChatProjectionMonitor {
         counters.committed += 1;
         counters.committedTail = event.tailSignature ?? counters.committedTail;
         break;
+      case "snapshot_arrival":
+        counters.snapshotTail = event.tailSignature ?? counters.snapshotTail;
+        counters.snapshotCursor = event.cursor ?? counters.snapshotCursor;
+        counters.snapshotOffset = event.offset ?? counters.snapshotOffset;
+        break;
       default:
         break;
     }
@@ -119,15 +174,57 @@ export class ChatProjectionMonitor {
     counters.paintedTail = tailSignature;
   }
 
-  /** Drop a pane's record on unmount so tracking follows component lifecycle and
-   *  torn-down panes do not linger until the LRU cap evicts them. */
+  /** Drop a pane's LIVE record on unmount so tracking follows component lifecycle
+   *  and torn-down panes do not linger until the LRU cap evicts them. Before
+   *  dropping it, archive a compact prior-activation summary (tails + recovery
+   *  coordinates) so a later reactivation of the same pane can be causally
+   *  compared. The archive is not live state: `snapshot`, `trackedPaneCount`, and
+   *  `firstStalledEdge` all ignore it. */
   forget(paneId: string): void {
+    const counters = this.panes.get(paneId);
+    if (counters) {
+      this.priors.delete(paneId);
+      this.priors.set(paneId, {
+        committedTail: counters.committedTail,
+        paintedTail: counters.paintedTail,
+        snapshotTail: counters.snapshotTail,
+        snapshotCursor: counters.snapshotCursor,
+        snapshotOffset: counters.snapshotOffset,
+      });
+      while (this.priors.size > this.maxTrackedPanes) {
+        const oldest = this.priors.keys().next().value;
+        if (oldest === undefined) break;
+        this.priors.delete(oldest);
+      }
+    }
     this.panes.delete(paneId);
   }
 
   snapshot(paneId: string): ProjectionCounters | null {
     const counters = this.panes.get(paneId);
     return counters ? { ...counters } : null;
+  }
+
+  /** Archived history from the last time this pane was forgotten (deactivated /
+   *  switched to Terminal), or null if it was never torn down. Distinct from
+   *  `snapshot`, which only sees the live record. */
+  priorActivation(paneId: string): PriorActivation | null {
+    const prior = this.priors.get(paneId);
+    return prior ? { ...prior } : null;
+  }
+
+  /** Attribute how the pane's current (reactivated) snapshot recovered relative to
+   *  the tail it had committed before it was forgotten. Compares the live
+   *  `snapshot_arrival` signature against the archived prior committed tail so an
+   *  away→back / Terminal→Chat reconcile is causally observable. */
+  activationRecovery(paneId: string): ActivationRecovery {
+    const prior = this.priors.get(paneId);
+    if (!prior) return "no_prior";
+    const recovered = this.panes.get(paneId)?.snapshotTail ?? null;
+    if (recovered == null) return "pending";
+    const target = prior.committedTail;
+    if (target == null) return "recovered";
+    return classifyRecovery(recovered, target);
   }
 
   /** First stage boundary where the downstream tail lags the upstream tail, in
