@@ -99,36 +99,6 @@ pub fn skill_md_path(plan_dir: &Path, slug: &str) -> PathBuf {
     skill_dir(plan_dir, slug).join("SKILL.md")
 }
 
-pub fn scaffold(slug: &str, title: &str, area: &str, check: Option<&str>) -> String {
-    let check_fm = match check {
-        Some(cmd) if !cmd.trim().is_empty() => format!("check: {}\n", cmd.trim()),
-        _ => String::new(),
-    };
-    let check_section = match check {
-        Some(cmd) if !cmd.trim().is_empty() => {
-            format!("\n## Check\n\nVerify with: `{}`\n", cmd.trim())
-        }
-        _ => String::new(),
-    };
-    format!(
-        "---\ntitle: {title}\narea: {area}\ntags: [plan-skill]\n{check_fm}---\n\n# {title}\n\n_One-paragraph summary that becomes the search snippet._\n\n## When to use\n\n…\n\n## Steps\n\n1. …\n2. …\n\n## Gotchas\n\n…{check_section}\n\n## Scripts\n\n- `./scripts/{slug}.sh` — describe what it does\n",
-    )
-}
-
-pub fn list_skills(plan_dir: &Path) -> Vec<String> {
-    let root = skills_root(plan_dir);
-    let Ok(entries) = std::fs::read_dir(&root) else {
-        return Vec::new();
-    };
-    let mut slugs: Vec<String> = entries
-        .filter_map(Result::ok)
-        .filter(|entry| entry.path().join("SKILL.md").is_file())
-        .filter_map(|entry| entry.file_name().into_string().ok())
-        .collect();
-    slugs.sort();
-    slugs
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -147,27 +117,6 @@ mod tests {
         assert!(valid_verdict("discard"));
         assert!(valid_verdict("superseded"));
         assert!(!valid_verdict("maybe"));
-    }
-
-    #[test]
-    fn scaffold_has_frontmatter_and_sections() {
-        let md = scaffold("deploy", "Deploy", "infra", None);
-        assert!(md.starts_with("---\n"));
-        assert!(md.contains("title: Deploy"));
-        assert!(md.contains("area: infra"));
-        assert!(md.contains("tags: [plan-skill]"));
-        assert!(md.contains("## When to use"));
-        assert!(md.contains("./scripts/deploy.sh"));
-        assert!(!md.contains("check:"));
-        assert!(!md.contains("## Check"));
-    }
-
-    #[test]
-    fn scaffold_persists_check_metadata() {
-        let md = scaffold("deploy", "Deploy", "infra", Some("./build.sh check"));
-        assert!(md.contains("check: ./build.sh check"));
-        assert!(md.contains("## Check"));
-        assert!(md.contains("`./build.sh check`"));
     }
 
     fn write_plan(plans: &Path, bucket: &str, id: &str) -> PathBuf {
@@ -222,17 +171,5 @@ mod tests {
         let root = tmp.path();
         let err = resolve_plan_dir(root, Some("ghost".into())).unwrap_err();
         assert!(err.contains("not found"));
-    }
-
-    #[test]
-    fn list_skills_sorted() {
-        let tmp = tempfile::tempdir().unwrap();
-        let plan_dir = tmp.path();
-        for slug in ["zebra", "alpha"] {
-            let d = skill_dir(plan_dir, slug);
-            std::fs::create_dir_all(&d).unwrap();
-            std::fs::write(d.join("SKILL.md"), "# x").unwrap();
-        }
-        assert_eq!(list_skills(plan_dir), vec!["alpha", "zebra"]);
     }
 }

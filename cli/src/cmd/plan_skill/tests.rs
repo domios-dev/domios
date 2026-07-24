@@ -1,43 +1,138 @@
 use super::*;
+use crate::client::SocketCallError;
 
-#[test]
-fn titleize_from_slug() {
-    assert_eq!(titleize("deploy-to-staging"), "Deploy To Staging");
-    assert_eq!(titleize("single"), "Single");
-    assert_eq!(titleize(""), "");
+#[derive(Default)]
+struct FakeRpc {
+    calls: Vec<(String, Option<Value>)>,
 }
 
-// through cwd/git-based plan resolution.
-#[test]
-fn create_edit_list_round_trip() {
-    let tmp = tempfile::tempdir().unwrap();
-    let plan_dir = tmp.path();
+impl RpcClient for FakeRpc {
+    fn call_detailed(
+        &mut self,
+        method: &str,
+        params: Option<Value>,
+    ) -> Result<Value, SocketCallError> {
+        self.calls.push((method.to_string(), params));
+        Ok(match method {
+            "plan.skills.list" => json!({ "plan_id": "plan_rpc", "skills": [] }),
+            "plan.skills.show" => json!({
+                "plan_id": "plan_rpc",
+                "skill": { "slug": "deploy", "body": "", "ledger": [] }
+            }),
+            "plan.skills.new" => json!({
+                "plan_id": "plan_rpc",
+                "skill": {
+                    "slug": "deploy",
+                    "skill_md": "remote/SKILL.md",
+                    "scripts": "remote/scripts",
+                    "ledger_seq": 1,
+                    "verdict": "keep"
+                }
+            }),
+            other => panic!("unexpected RPC method {other}"),
+        })
+    }
+}
 
-    let slug = store::slugify("Deploy To Staging");
-    let dir = store::skill_dir(plan_dir, &slug);
-    std::fs::create_dir_all(dir.join("scripts")).unwrap();
-    std::fs::write(
-        store::skill_md_path(plan_dir, &slug),
-        store::scaffold(&slug, "Deploy To Staging", "infra", None),
+#[test]
+fn list_show_and_new_route_explicit_plan_to_rpc() {
+    let mut client = FakeRpc::default();
+    handle(
+        &mut client,
+        true,
+        PlanSkillAction::List {
+            plan: Some("plan_explicit".into()),
+        },
     )
     .unwrap();
-    ledger::append_entry(plan_dir, &slug, store::KEEP, "created").unwrap();
+    handle(
+        &mut client,
+        true,
+        PlanSkillAction::Show {
+            slug: "deploy".into(),
+            plan: Some("plan_explicit".into()),
+        },
+    )
+    .unwrap();
+    handle(
+        &mut client,
+        true,
+        PlanSkillAction::New {
+            slug: "Deploy Safely".into(),
+            plan: Some("plan_explicit".into()),
+            title: Some("Safe Deploy".into()),
+            area: Some("release".into()),
+            check: Some("./scripts/check.sh".into()),
+            rationale: Some("accepted".into()),
+        },
+    )
+    .unwrap();
 
-    assert_eq!(store::list_skills(plan_dir), vec![slug.clone()]);
     assert_eq!(
-        ledger::latest_verdict(plan_dir, &slug).as_deref(),
-        Some("keep")
+        client.calls,
+        vec![
+            (
+                "plan.skills.list".into(),
+                Some(json!({ "plan_id": "plan_explicit" }))
+            ),
+            (
+                "plan.skills.show".into(),
+                Some(json!({ "plan_id": "plan_explicit", "slug": "deploy" }))
+            ),
+            (
+                "plan.skills.new".into(),
+                Some(json!({
+                    "plan_id": "plan_explicit",
+                    "slug": "Deploy Safely",
+                    "title": "Safe Deploy",
+                    "area": "release",
+                    "check": "./scripts/check.sh",
+                    "rationale": "accepted"
+                }))
+            )
+        ]
     );
+}
 
-    ledger::append_entry(plan_dir, &slug, store::SUPERSEDED, "replaced by v2").unwrap();
-    assert_eq!(
-        ledger::latest_verdict(plan_dir, &slug).as_deref(),
-        Some("superseded")
-    );
-    // History is append-only: both entries survive.
-    let history: Vec<_> = ledger::read_ledger(plan_dir)
-        .into_iter()
-        .filter(|e| e.slug == slug)
-        .collect();
-    assert_eq!(history.len(), 2);
+#[test]
+fn list_show_and_new_use_plan_id_from_environment() {
+    let _guard = crate::test_env_lock().lock().unwrap();
+    let previous = std::env::var("CODETERM_PLAN_ID").ok();
+    std::env::set_var("CODETERM_PLAN_ID", "plan_environment");
+    let mut client = FakeRpc::default();
+
+    handle(&mut client, true, PlanSkillAction::List { plan: None }).unwrap();
+    handle(
+        &mut client,
+        true,
+        PlanSkillAction::Show {
+            slug: "deploy".into(),
+            plan: None,
+        },
+    )
+    .unwrap();
+    handle(
+        &mut client,
+        true,
+        PlanSkillAction::New {
+            slug: "deploy".into(),
+            plan: None,
+            title: None,
+            area: None,
+            check: None,
+            rationale: None,
+        },
+    )
+    .unwrap();
+
+    for (_, params) in &client.calls {
+        assert_eq!(
+            params.as_ref().unwrap()["plan_id"],
+            serde_json::json!("plan_environment")
+        );
+    }
+    match previous {
+        Some(value) => std::env::set_var("CODETERM_PLAN_ID", value),
+        None => std::env::remove_var("CODETERM_PLAN_ID"),
+    }
 }
