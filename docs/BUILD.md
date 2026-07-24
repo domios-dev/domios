@@ -74,8 +74,10 @@ does not publish a release or alter GitHub assets.
    ```
 
    This route is Windows-only, requires the clean canonical checkout, reuses a
-   persistent release target, rebuilds only changed Cargo units, recreates the
-   NSIS bundle, verifies source provenance, and installs that exact artifact.
+   persistent release target with sccache, rebuilds only changed Cargo units,
+   recreates the NSIS bundle, verifies source provenance, and installs that
+   exact artifact. Cargo incremental remains disabled because sccache rejects
+   incremental rustc invocations; persistent completed artifacts provide reuse.
 
 4. Use the clean-room route when validating a public-release-equivalent
    artifact:
@@ -100,6 +102,7 @@ does not publish a release or alter GitHub assets.
 | Self-install returns but the window does not return | The detached helper owns restart | Inspect `%LOCALAPPDATA%\codeterm\self-install.log`, then query port 7685 health. |
 | Repeated local install recompiles the full release graph | The clean-room `build` route was used instead of the persistent local cache | Use `build.ps1 install-local`; reserve `build` for public-release-equivalent verification. |
 | A focused Rust test spends its deadline linking app binaries | The test omitted `--lib`, so Cargo built unrelated binary test targets | Run the focused filter through `scripts/test-capped.sh ... --lib <filter>`; never raise the deadline. |
+| `sccache: incremental compilation is prohibited` | `CARGO_INCREMENTAL=1` was combined with the shared sccache wrapper | Keep `CARGO_INCREMENTAL=0`; reuse the persistent completed target and sccache entries instead. |
 
 When a new failure is found in this flow, fix the owning script or preflight and
 add a short symptom/cause/recovery row here before closing the work.

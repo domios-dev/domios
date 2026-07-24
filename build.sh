@@ -315,7 +315,7 @@ prepare_local_install_target() {
   identity="$(printf '%s' "$canonical" | git hash-object --stdin)"
   dir="$(ct_gateway_dir)/targets/local-install/$identity"
   export CARGO_TARGET_DIR="$dir"
-  export CARGO_INCREMENTAL=1
+  export CARGO_INCREMENTAL=0
   export CODETERM_ALLOW_EXTERNAL_TARGET=1
   mkdir -p "$CARGO_TARGET_DIR"
   ct_verify_target_dir
