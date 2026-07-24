@@ -24,6 +24,7 @@
     },
     "sessionIdInjection": "none",
     "statusBarRows": 2,
+    "agentStateStatusReconciliation": true,
     "supportsLazySkills": false,
     "hasHooks": true,
     "supportsStructuredPrompts": true,

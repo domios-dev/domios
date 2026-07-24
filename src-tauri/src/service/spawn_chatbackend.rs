@@ -702,11 +702,7 @@ impl ServiceContext {
         observations_cfg: &serde_json::Value,
     ) -> serde_json::Value {
         let config = observation_config_from_json(observations_cfg);
-        let snapshot = {
-            let mux = self.mux.read();
-            let tracker = self.agent_tracker.lock();
-            mux.snapshot_with_status(&tracker)
-        };
+        let snapshot = self.snapshot_with_reconciled_status();
         let orchestrator_id = collect_watch_group(&snapshot, pane_id).map(|g| g.orchestrator_id);
         let reports = orchestrator_id
             .as_deref()
@@ -808,11 +804,7 @@ impl ServiceContext {
         &self,
         pane_id: &str,
     ) -> Option<(WatcherPolicy, serde_json::Value, HashSet<String>)> {
-        let snapshot = {
-            let mux = self.mux.read();
-            let tracker = self.agent_tracker.lock();
-            mux.snapshot_with_status(&tracker)
-        };
+        let snapshot = self.snapshot_with_reconciled_status();
         let spec = snapshot.panes.get(pane_id)?.watcher.as_ref()?;
         spec.tick_inflight_since_ms?;
         let group = guardrail_group(collect_watch_group(&snapshot, pane_id).ok()?);

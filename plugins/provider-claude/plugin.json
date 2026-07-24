@@ -25,6 +25,7 @@
     },
     "sessionIdInjection": "none",
     "statusBarRows": 3,
+    "agentStateStatusReconciliation": true,
     "supportsLazySkills": true,
     "hasHooks": true,
     "usageProbeCommand": "/usage"
