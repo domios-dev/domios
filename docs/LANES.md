@@ -1,6 +1,6 @@
 # Lane Lifecycle Standard
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->
 
 This is the portable contract for orchestrated branch work in any project. It is
 about lifecycle and evidence, not CodeTerm's own repository layout.
@@ -26,6 +26,9 @@ about lifecycle and evidence, not CodeTerm's own repository layout.
 5. QA is serialized per physical machine and parallel across machines. A QA gate
    may fix a failure it directly diagnosed when the fix is mechanical and local
    to that gate; design changes bounce to the worker.
+   The Orchestrator works from the repository's canonical integration checkout:
+   workers own isolated lanes, while merges, code review, broad QA, and release
+   gates run in that warm canonical checkout rather than cold lane worktrees.
 6. Integrate accepted work with a real merge commit from the lane into the
    integration target. Never cherry-pick, squash, replay, or patch-copy lane
    commits. Rebase the lane onto the target when necessary, re-run its bounded
