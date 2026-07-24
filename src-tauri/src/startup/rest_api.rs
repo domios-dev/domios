@@ -23,12 +23,16 @@ pub(crate) struct RestApiStatus {
 pub(crate) struct RestApiControl {
     sender: Arc<Mutex<Option<mpsc::UnboundedSender<RestApiCommand>>>>,
     status_events: watch::Sender<RestApiStatus>,
+    #[cfg(test)]
+    restart_barrier: Arc<Mutex<Option<Arc<tokio::sync::Barrier>>>>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 enum RestApiCommand {
     PortReleased,
-    Restart,
+    Restart {
+        completed: oneshot::Sender<RestApiStatus>,
+    },
 }
 
 impl RestApiControl {
@@ -41,15 +45,13 @@ impl RestApiControl {
         Self {
             sender: Arc::new(Mutex::new(None)),
             status_events,
+            #[cfg(test)]
+            restart_barrier: Arc::new(Mutex::new(None)),
         }
     }
 
     pub(crate) fn port_released(&self) -> Result<(), String> {
         self.signal(RestApiCommand::PortReleased)
-    }
-
-    pub(crate) fn restart(&self) -> Result<(), String> {
-        self.signal(RestApiCommand::Restart)
     }
 
     fn signal(&self, command: RestApiCommand) -> Result<(), String> {
@@ -65,46 +67,48 @@ impl RestApiControl {
         *self.sender.lock() = Some(sender);
     }
 
-    fn set_status(&self, phase: RestApiPhase, message: Option<String>) {
+    fn set_status(&self, phase: RestApiPhase, message: Option<String>) -> RestApiStatus {
         let generation = self.status_events.borrow().generation + 1;
-        self.status_events.send_replace(RestApiStatus {
+        let status = RestApiStatus {
             generation,
             phase,
             message,
-        });
+        };
+        self.status_events.send_replace(status.clone());
+        status
     }
 
     pub(crate) fn status(&self) -> RestApiStatus {
         self.status_events.borrow().clone()
     }
 
+    #[cfg(test)]
     fn subscribe_status(&self) -> watch::Receiver<RestApiStatus> {
         self.status_events.subscribe()
     }
 
     pub(crate) async fn restart_and_wait(&self) -> Result<RestApiStatus, String> {
-        let mut status = self.subscribe_status();
-        let previous = status.borrow().generation;
-        self.restart()?;
-        tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            loop {
-                status
-                    .changed()
-                    .await
-                    .map_err(|_| "REST API listener controller stopped".to_string())?;
-                let current = status.borrow_and_update().clone();
-                if current.generation > previous
-                    && matches!(
-                        current.phase,
-                        RestApiPhase::Listening | RestApiPhase::Failed
-                    )
-                {
-                    return Ok(current);
-                }
-            }
-        })
-        .await
-        .map_err(|_| "REST API restart did not complete before the failure deadline".to_string())?
+        let (completed, response) = oneshot::channel();
+        self.signal(RestApiCommand::Restart { completed })?;
+        tokio::time::timeout(std::time::Duration::from_secs(5), response)
+            .await
+            .map_err(|_| {
+                "REST API restart did not complete before the failure deadline".to_string()
+            })?
+            .map_err(|_| "REST API listener controller stopped".to_string())
+    }
+
+    #[cfg(test)]
+    fn set_restart_barrier(&self, barrier: Arc<tokio::sync::Barrier>) {
+        *self.restart_barrier.lock() = Some(barrier);
+    }
+
+    #[cfg(test)]
+    async fn wait_for_restart_barrier(&self) {
+        let barrier = self.restart_barrier.lock().take();
+        if let Some(barrier) = barrier {
+            barrier.wait().await;
+        }
     }
 }
 
@@ -113,10 +117,14 @@ pub(crate) type RestApiControlState = Arc<RestApiControl>;
 pub(crate) async fn start(control: RestApiControlState, bind_addr: String, router: axum::Router) {
     let (sender, mut commands) = mpsc::unbounded_channel();
     control.install(sender);
+    let mut pending_completion: Option<oneshot::Sender<RestApiStatus>> = None;
     loop {
         match tokio::net::TcpListener::bind(&bind_addr).await {
             Ok(listener) => {
-                control.set_status(RestApiPhase::Listening, None);
+                let listening = control.set_status(RestApiPhase::Listening, None);
+                if let Some(completed) = pending_completion.take() {
+                    let _ = completed.send(listening);
+                }
                 log::info!("REST API listening on http://{bind_addr}");
                 let (shutdown_tx, shutdown_rx) = oneshot::channel();
                 let server = axum::serve(listener, router.clone())
@@ -135,21 +143,31 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
                         command
                     }
                 };
-                if matches!(command, RestApiCommand::Restart) {
+                if let RestApiCommand::Restart { completed } = command {
                     control.set_status(RestApiPhase::Starting, None);
+                    #[cfg(test)]
+                    control.wait_for_restart_barrier().await;
                     let _ = shutdown_tx.send(());
                     if let Err(error) = server.await {
                         log::error!("REST API server shutdown error: {error}");
                         return;
                     }
+                    pending_completion = Some(completed);
                 }
             }
             Err(error) => {
                 let message = format!("REST API could not bind {bind_addr}: {error}. Release the port, then use Restart REST API.");
-                control.set_status(RestApiPhase::Failed, Some(message.clone()));
+                let failed = control.set_status(RestApiPhase::Failed, Some(message.clone()));
+                if let Some(completed) = pending_completion.take() {
+                    let _ = completed.send(failed);
+                }
                 log::error!("{message}");
                 match commands.recv().await {
-                    Some(RestApiCommand::PortReleased | RestApiCommand::Restart) => continue,
+                    Some(RestApiCommand::PortReleased) => continue,
+                    Some(RestApiCommand::Restart { completed }) => {
+                        pending_completion = Some(completed);
+                        continue;
+                    }
                     None => return,
                 }
             }
@@ -223,6 +241,39 @@ mod tests {
         assert!(returned.generation > initial.generation);
         let stream = tokio::net::TcpStream::connect(address).await.unwrap();
         drop(stream);
+        task.abort();
+    }
+
+    #[tokio::test]
+    async fn overlapping_restarts_complete_from_their_own_listener_generations() {
+        let address = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        let control = Arc::new(RestApiControl::new());
+        let mut status = control.subscribe_status();
+        let barrier = Arc::new(tokio::sync::Barrier::new(2));
+        control.set_restart_barrier(barrier.clone());
+        let task = tokio::spawn(start(
+            control.clone(),
+            address.to_string(),
+            axum::Router::new(),
+        ));
+        wait_for_status(&mut status, |s| s.phase == RestApiPhase::Listening).await;
+
+        let first_control = control.clone();
+        let first = tokio::spawn(async move { first_control.restart_and_wait().await.unwrap() });
+        wait_for_status(&mut status, |s| s.phase == RestApiPhase::Starting).await;
+
+        let second_control = control.clone();
+        let second = tokio::spawn(async move { second_control.restart_and_wait().await.unwrap() });
+        barrier.wait().await;
+
+        let first = first.await.unwrap();
+        let second = second.await.unwrap();
+        assert_eq!(first.phase, RestApiPhase::Listening);
+        assert_eq!(second.phase, RestApiPhase::Listening);
+        assert!(second.generation > first.generation);
         task.abort();
     }
 
