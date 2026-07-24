@@ -54,6 +54,17 @@ pub(super) fn handle(
             maybe_inject_caller_pane(&mut params);
             call_plan_rpc(client, "plan.review.override", params).map(Some)
         }
+        PlanReviewAction::ReconcileCredit { plan_id, reason } => {
+            let mut params = json!({
+                "reason": reason,
+                "from": owner_from_env(),
+            });
+            if let Some(plan_id) = plan_id {
+                params["plan_id"] = json!(plan_id);
+            }
+            maybe_inject_caller_pane(&mut params);
+            call_plan_rpc(client, "plan.review.reconcile-credit", params).map(Some)
+        }
         PlanReviewAction::Accept {
             plan_id,
             task_id,

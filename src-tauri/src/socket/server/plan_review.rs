@@ -97,6 +97,18 @@ pub(super) fn dispatch(
             emit_plan_changed(app, &plan_id);
             Ok(json!({ "plan_id": plan_id, "task_id": task_id, "recorded": true }))
         }
+        "plan.review.reconcile-credit" => {
+            let plan_id = super::plan_refs::resolve_plan(store, params)?;
+            let result = store
+                .reconcile_review_credit(&plan_id, str_field(p, "reason"), actor(p), now)
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &plan_id);
+            serde_json::to_value(result).map_err(|error| JsonRpcError {
+                code: -32603,
+                message: error.to_string(),
+                data: None,
+            })
+        }
         "plan.review.accept" => {
             let (plan_id, task_id) = super::plan_refs::resolve_task(store, params)?;
             let residual_risk = p

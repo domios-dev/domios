@@ -9,6 +9,9 @@ use crate::plan::{
 
 pub const REVIEW_MILESTONE_KIND: &str = "review";
 pub const REVIEW_ESCALATION_MILESTONE_KIND: &str = "review_escalation";
+pub const REVIEW_CREDIT_RECONCILE_MILESTONE_KIND: &str = "review_credit_reconcile";
+pub const REVIEW_CAPACITY_TAG: &str = "review-capacity";
+pub const CANONICAL_GATE_TAG: &str = "canonical-gate";
 
 fn max_review_rounds() -> u32 {
     std::env::var("CODETERM_PLAN_REVIEW_MAX_ROUNDS")
@@ -94,6 +97,31 @@ pub fn review_gate_status(plan: &Plan) -> ReviewGateStatus {
         blocked,
         reason,
     }
+}
+
+pub fn clears_review_capacity(task: &Task) -> bool {
+    task.kind == "review"
+        || task
+            .tags
+            .iter()
+            .any(|tag| tag == REVIEW_CAPACITY_TAG || tag == CANONICAL_GATE_TAG)
+}
+
+pub fn validate_dispatch_review_capacity(plan: &Plan, task: &Task) -> Result<(), PlanError> {
+    let gate = review_gate_status(plan);
+    if !gate.blocked {
+        return Ok(());
+    }
+    let debt_only =
+        gate.wip_count < gate.wip_limit as usize && gate.credit <= -(gate.wip_limit as i64);
+    if debt_only && clears_review_capacity(task) {
+        return Ok(());
+    }
+    Err(PlanError::ReviewWipExceeded {
+        wip_count: gate.wip_count,
+        wip_limit: gate.wip_limit,
+        credit: gate.credit,
+    })
 }
 
 /// Validates entry into `in_review`: evidence, review-depth bound, and oracle
@@ -204,6 +232,15 @@ pub struct ReviewTransitionResult {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct ReviewCreditReconcileResult {
+    pub plan_id: String,
+    pub previous_credit: i64,
+    pub reconciled_credit: i64,
+    pub active_reviews: usize,
+    pub stride_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct QaWave {
     pub wave_id: String,
     pub group_key: String,
@@ -301,6 +338,62 @@ impl PlanStore {
             task.updated_at = now_ms;
             Ok(())
         })
+    }
+
+    pub fn reconcile_review_credit(
+        &self,
+        plan_id: &str,
+        reason: &str,
+        from: AgentRef,
+        now_ms: u64,
+    ) -> Result<ReviewCreditReconcileResult, PlanError> {
+        let reason = reason.trim();
+        if reason.is_empty() {
+            return Err(PlanError::QaNoteRequired);
+        }
+        let mut result = None;
+        self.with_plan(plan_id, now_ms, |plan| {
+            let active_reviews = in_review_count(plan);
+            let previous_credit = plan.review_policy.credit;
+            let reconciled_credit = previous_credit.max(-(active_reviews as i64));
+            if reconciled_credit == previous_credit {
+                result = Some(ReviewCreditReconcileResult {
+                    plan_id: plan.id.clone(),
+                    previous_credit,
+                    reconciled_credit,
+                    active_reviews,
+                    stride_id: None,
+                });
+                return Ok(());
+            }
+            let stride_id = crate::plan::ids::mint_id("ms", |candidate| {
+                plan_contains_id(plan, candidate)
+            });
+            plan.review_policy.credit = reconciled_credit;
+            plan.strides.push(Milestone {
+                id: stride_id.clone(),
+                from,
+                kind: REVIEW_CREDIT_RECONCILE_MILESTONE_KIND.into(),
+                text: format!(
+                    "{reason}; review credit reconciled {previous_credit} -> {reconciled_credit} with {active_reviews} active review(s)"
+                ),
+                ts: now_ms,
+                links: vec![],
+                loop_id: None,
+                iteration: None,
+                canvas: Default::default(),
+                attachments: vec![],
+            });
+            result = Some(ReviewCreditReconcileResult {
+                plan_id: plan.id.clone(),
+                previous_credit,
+                reconciled_credit,
+                active_reviews,
+                stride_id: Some(stride_id),
+            });
+            Ok(())
+        })?;
+        result.ok_or(PlanError::NotFound)
     }
 
     /// Generic BOUNCE: atomically exits `in_review` regardless of stage

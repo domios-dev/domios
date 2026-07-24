@@ -101,6 +101,12 @@ pub enum PlanReviewAction {
         #[arg(long, allow_hyphen_values = true)]
         reproduction: String,
     },
+    /// Repair historical review-credit debt from leaked review exits and audit it
+    ReconcileCredit {
+        plan_id: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        reason: String,
+    },
     /// ACCEPT: attaches the verdict and closes the task (in_review -> done)
     Accept {
         plan_id: Option<String>,

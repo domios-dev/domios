@@ -1857,6 +1857,13 @@ Record a P0 exception authorizing the next over-round-limit review entry
 - `--reproduction`
 - `<task_id>`
 
+#### `codeterm plan review reconcile-credit`
+
+Repair historical review-credit debt from leaked review exits and audit it
+
+- `<plan_id>`
+- `--reason`
+
 #### `codeterm plan review status`
 
 Show review-backpressure status: WIP count/limit, credit, blocked reason

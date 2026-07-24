@@ -167,11 +167,18 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
         }
     }
 
-    let pending_dispatchable = s
+    let review_debt_only = s.review_gate.blocked
+        && s.review_gate.wip_count < s.review_gate.wip_limit as usize
+        && s.review_gate.credit <= -(s.review_gate.wip_limit as i64);
+    let pending_lanes = s
         .open_lanes
         .iter()
-        .any(|lane| lane.status == TaskStatus::Pending && !lane.waiting_on_dependencies);
-    if pending_dispatchable && s.review_gate.blocked {
+        .filter(|lane| lane.status == TaskStatus::Pending && !lane.waiting_on_dependencies)
+        .collect::<Vec<_>>();
+    let has_review_blocked_lane = pending_lanes
+        .iter()
+        .any(|lane| !review_debt_only || !lane.clears_review_capacity);
+    if has_review_blocked_lane && s.review_gate.blocked {
         actions.push(NextAction {
             priority: 1,
             kind: NextActionKind::ReviewWipBlocked,
@@ -183,39 +190,38 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
                 .clone()
                 .unwrap_or_else(|| "review_wip_exceeded".into()),
         });
-    } else {
-        for lane in &s.open_lanes {
-            if lane.status == TaskStatus::Pending && !lane.waiting_on_dependencies {
-                let message = if let Some(summary) = lane.competition.as_deref() {
-                    format!(
-                        "{} {} ({summary}): plan.task.compete route for plan {} task {}",
-                        crate::service_plan::competition::COMPETITIVE_DISPATCH_NUDGE,
-                        lane.task_id,
-                        s.plan_id,
-                        lane.task_id
-                    )
-                } else {
-                    format!("dispatch {} ({})", lane.task_id, lane.name)
-                };
-                let message = if s.blocking_regression_gates.is_empty() {
-                    message
-                } else {
-                    let gates = s
-                        .blocking_regression_gates
-                        .iter()
-                        .map(|g| g.key.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    format!("{message} — BLOCKED by pending regression gate(s): {gates}; clear the gate, tag the task release-blocking/regression-gate, or record an authorized override")
-                };
-                actions.push(NextAction {
-                    priority: 5,
-                    kind: NextActionKind::Dispatch,
-                    task_id: Some(lane.task_id.clone()),
-                    loop_id: None,
-                    message,
-                });
-            }
+    }
+    for lane in pending_lanes {
+        if !s.review_gate.blocked || (review_debt_only && lane.clears_review_capacity) {
+            let message = if let Some(summary) = lane.competition.as_deref() {
+                format!(
+                    "{} {} ({summary}): plan.task.compete route for plan {} task {}",
+                    crate::service_plan::competition::COMPETITIVE_DISPATCH_NUDGE,
+                    lane.task_id,
+                    s.plan_id,
+                    lane.task_id
+                )
+            } else {
+                format!("dispatch {} ({})", lane.task_id, lane.name)
+            };
+            let message = if s.blocking_regression_gates.is_empty() {
+                message
+            } else {
+                let gates = s
+                    .blocking_regression_gates
+                    .iter()
+                    .map(|g| g.key.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{message} — BLOCKED by pending regression gate(s): {gates}; clear the gate, tag the task release-blocking/regression-gate, or record an authorized override")
+            };
+            actions.push(NextAction {
+                priority: 5,
+                kind: NextActionKind::Dispatch,
+                task_id: Some(lane.task_id.clone()),
+                loop_id: None,
+                message,
+            });
         }
     }
 
@@ -243,6 +249,7 @@ mod tests {
             } else {
                 TaskPresentation::InReview
             },
+            clears_review_capacity: false,
             waiting_on_dependencies: false,
             dependency_waits: vec![],
         }
@@ -416,6 +423,44 @@ mod tests {
         let a = compute_next_actions(&s);
         assert_eq!(a.len(), 1);
         assert_eq!(a[0].kind, NextActionKind::Dispatch);
+    }
+
+    #[test]
+    fn stranded_debt_surfaces_capacity_dispatch_but_blocks_ordinary_work() {
+        let mut s = empty();
+        let mut review = lane("review", TaskStatus::Pending);
+        review.clears_review_capacity = true;
+        s.open_lanes = vec![review, lane("implementation", TaskStatus::Pending)];
+        s.live_agents = vec![LiveAgent {
+            task_id: "other".into(),
+            name: "other".into(),
+            pane_id: "pane_other".into(),
+        }];
+        s.review_gate = super::super::review_gate::ReviewGateStatus {
+            wip_count: 1,
+            wip_limit: 5,
+            credit: -5,
+            blocked: true,
+            reason: Some("review_credit_exceeded".into()),
+        };
+
+        let actions = compute_next_actions(&s);
+        assert!(actions.iter().any(|action| {
+            action.kind == NextActionKind::Dispatch && action.task_id.as_deref() == Some("review")
+        }));
+        assert!(actions.iter().all(|action| {
+            action.kind != NextActionKind::Dispatch
+                || action.task_id.as_deref() != Some("implementation")
+        }));
+        assert!(actions
+            .iter()
+            .any(|action| action.kind == NextActionKind::ReviewWipBlocked));
+
+        s.review_gate.wip_count = 5;
+        let saturated = compute_next_actions(&s);
+        assert!(saturated
+            .iter()
+            .all(|action| action.kind != NextActionKind::Dispatch));
     }
 
     #[test]

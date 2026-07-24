@@ -6993,6 +6993,30 @@
               "subcommands": []
             },
             {
+              "name": "reconcile-credit",
+              "about": "Repair historical review-credit debt from leaked review exits and audit it",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "reason",
+                  "positional": false,
+                  "value_name": "REASON",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "status",
               "about": "Show review-backpressure status: WIP count/limit, credit, blocked reason",
               "aliases": [],

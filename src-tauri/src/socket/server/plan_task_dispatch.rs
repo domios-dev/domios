@@ -38,6 +38,10 @@ fn dispatch_failed(stage: &str, message: String) -> JsonRpcError {
     }
 }
 
+fn preflight_review_capacity(plan: &crate::plan::Plan, task: &Task) -> Result<(), PlanError> {
+    crate::service::plan::review_gate::validate_dispatch_review_capacity(plan, task)
+}
+
 fn invalid_dispatch(reason: impl Into<String>) -> JsonRpcError {
     let reason = reason.into();
     JsonRpcError {
@@ -563,14 +567,7 @@ pub(super) fn dispatch(
     // Same frontier policy for the review WIP gate: decide before any pane
     // exists. A task resuming after a bounce already holds its slot.
     if detail.task.status == crate::plan::TaskStatus::Pending {
-        let gate = store.review_gate_status(&plan_id).map_err(plan_rpc_err)?;
-        if gate.blocked {
-            return Err(plan_rpc_err(PlanError::ReviewWipExceeded {
-                wip_count: gate.wip_count,
-                wip_limit: gate.wip_limit,
-                credit: gate.credit,
-            }));
-        }
+        preflight_review_capacity(&plan, &detail.task).map_err(plan_rpc_err)?;
     }
 
     // Parent defaults to the dispatching (caller) pane, resolved server-side.
