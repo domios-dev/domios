@@ -278,6 +278,28 @@ async function main(): Promise<void> {
     await act(async () => app.root.unmount());
   }
 
+  // --- 5. return replaces the bounded snapshot window instead of retaining evicted rows ---
+  {
+    const server = new FakeChatServer();
+    server.snapshot = [
+      { ...msg("old-1", "old", "1"), timestamp: undefined, seq: 900 },
+      { ...msg("old-2", "stale-tail", "2"), timestamp: undefined, seq: 901 },
+    ];
+    const app = await mount(server);
+    await app.render(server.sessionId, false);
+
+    server.snapshot = [
+      { ...msg("new-1", "fresh", "3"), timestamp: undefined, seq: 0 },
+      { ...msg("new-2", "fresh-tail", "4"), timestamp: undefined, seq: 1 },
+    ];
+    await app.render(server.sessionId, true);
+    assert(
+      app.messages().map((message) => message.content).join(",") === "fresh,fresh-tail",
+      `reactivation must replace the bounded window (${app.messages().map((message) => message.content)})`,
+    );
+    await act(async () => app.root.unmount());
+  }
+
   console.log("chat reactivation lifecycle checks passed");
 }
 
