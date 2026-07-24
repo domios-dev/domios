@@ -36,6 +36,7 @@ mod plan_read;
 mod plan_refs;
 mod plan_review;
 mod plan_role_helpers;
+mod plan_skills_rpc;
 mod plan_task_dispatch;
 mod plan_task_rpc;
 mod plan_time;
