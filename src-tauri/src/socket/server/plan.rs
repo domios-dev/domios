@@ -64,6 +64,9 @@ pub(super) fn dispatch(
     if super::plan_task_rpc::handles(method) {
         return super::plan_task_rpc::dispatch(method, params, app, svc, now);
     }
+    if super::plan_skills_rpc::handles(method) {
+        return super::plan_skills_rpc::dispatch(method, params, &svc.plan_store);
+    }
     let p = params.as_ref();
     let store = &svc.plan_store;
 
@@ -523,21 +526,6 @@ pub(super) fn dispatch(
             store.unlink_plan(&id, &to, now).map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true, "plan_id": id }))
-        }
-
-        "plan.skills.list" => {
-            let id = plan_refs::resolve_plan(store, params)?;
-            let skills = crate::service::plan::plan_skills::list_plan_skills(store, &id)
-                .map_err(plan_rpc_err)?;
-            Ok(json!({ "plan_id": id, "skills": skills }))
-        }
-
-        "plan.skills.show" => {
-            let id = plan_refs::resolve_plan(store, params)?;
-            let slug = get_string_param(params, "slug")?;
-            let skill = crate::service::plan::plan_skills::show_plan_skill(store, &id, &slug)
-                .map_err(plan_rpc_err)?;
-            Ok(json!({ "plan_id": id, "skill": skill }))
         }
 
         "plan.retrospective" => {

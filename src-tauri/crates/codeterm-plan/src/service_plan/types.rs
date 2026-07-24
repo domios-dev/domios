@@ -89,6 +89,10 @@ pub enum PlanError {
     PlanActivationRequiresUnarchive {
         plan_id: String,
     },
+    PlanSkillAlreadyExists {
+        slug: String,
+    },
+    InvalidPlanSkillSlug,
     Io(String),
 }
 
@@ -270,6 +274,12 @@ impl fmt::Display for PlanError {
                 f,
                 "plan {plan_id} is archived; restore it with `codeterm plan unarchive {plan_id}` so its live Team binding is validated"
             ),
+            PlanError::PlanSkillAlreadyExists { slug } => {
+                write!(f, "plan skill '{slug}' already exists")
+            }
+            PlanError::InvalidPlanSkillSlug => {
+                write!(f, "plan skill slug is empty after normalization")
+            }
             PlanError::Io(e) => write!(f, "io error: {e}"),
         }
     }
@@ -424,6 +434,13 @@ impl PlanError {
                 "type": "plan_activation_requires_unarchive",
                 "plan_id": plan_id
             }),
+            PlanError::PlanSkillAlreadyExists { slug } => serde_json::json!({
+                "type": "plan_skill_already_exists",
+                "slug": slug
+            }),
+            PlanError::InvalidPlanSkillSlug => {
+                serde_json::json!({ "type": "invalid_plan_skill_slug" })
+            }
             PlanError::Io(message) => serde_json::json!({ "type": "io", "message": message }),
         }
     }
