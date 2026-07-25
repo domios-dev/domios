@@ -7,8 +7,7 @@ import type {
 } from "./types";
 import type { SettingField } from "../../lib/types";
 
-export type CatalogFilter =
-  "all" | "installed" | "marketplace" | "updates" | "channels";
+export type CatalogFilter = "all" | "installed" | "marketplace" | "updates" | "channels";
 
 export interface CatalogEntry {
   id: string;
@@ -53,12 +52,7 @@ export interface PrimaryAction {
   reason?: string;
 }
 
-const UPDATE_DRIFTS = new Set(["hash_drift", "update_available"]);
-
-function isUpdateDrift(drift: string | null | undefined): boolean {
-  if (!drift) return false;
-  return UPDATE_DRIFTS.has(drift);
-}
+const UPDATE_DRIFTS = new Set(["update_available", "hash_drift"]);
 
 function caps(c?: PluginCapabilities | null): PluginCapabilities {
   return c ?? {};
@@ -87,10 +81,7 @@ export function capabilityKeys(c?: PluginCapabilities | null): string[] {
 }
 
 function entryFromInstalled(p: InstalledPlugin): CatalogEntry {
-  const sourceChannel =
-    p.source?.kind === "channel" || p.source?.kind === "system_channel"
-      ? p.source.channel
-      : null;
+  const sourceChannel = p.source?.kind === "channel" || p.source?.kind === "system_channel" ? p.source.channel : null;
   return {
     id: p.id,
     displayName: p.display_name || p.id,
@@ -123,13 +114,10 @@ function entryFromInstalled(p: InstalledPlugin): CatalogEntry {
 }
 
 /** Fold a marketplace row into an existing or fresh entry. */
-function mergeMarketplace(
-  base: CatalogEntry | undefined,
-  m: MarketplaceRow,
-): CatalogEntry {
+function mergeMarketplace(base: CatalogEntry | undefined, m: MarketplaceRow): CatalogEntry {
   const installed = base?.installed ?? m.installed === true;
   const compatible = m.compatible !== false;
-  const updateAvailable = installed && isUpdateDrift(m.drift);
+  const updateAvailable = installed && UPDATE_DRIFTS.has(m.drift);
   const entry: CatalogEntry = {
     id: m.id,
     displayName: base?.displayName || m.display_name || m.id,
@@ -149,8 +137,7 @@ function mergeMarketplace(
     pendingReload: base?.pendingReload ?? false,
     // back to the channel manifest for not-yet-installed plugins.
     capabilities: base?.capabilities ?? m.capabilities ?? null,
-    grantedPermissions:
-      base?.grantedPermissions ?? m.granted_permissions ?? null,
+    grantedPermissions: base?.grantedPermissions ?? m.granted_permissions ?? null,
     settingsSchema: base?.settingsSchema ?? null,
     description: base?.description ?? m.description ?? null,
     configHelp: base?.configHelp ?? m.config_help ?? null,
@@ -238,8 +225,7 @@ export function primaryAction(entry: CatalogEntry): PrimaryAction {
         kind: "install",
         label: "Install",
         disabled: true,
-        reason:
-          entry.blockedReason ?? "Incompatible with this CodeTerm version",
+        reason: entry.blockedReason ?? "Incompatible with this CodeTerm version",
       };
     }
     return { kind: "install", label: "Install", disabled: false };
@@ -250,8 +236,7 @@ export function primaryAction(entry: CatalogEntry): PrimaryAction {
         kind: "update",
         label: "Update",
         disabled: true,
-        reason:
-          entry.blockedReason ?? "Incompatible with this CodeTerm version",
+        reason: entry.blockedReason ?? "Incompatible with this CodeTerm version",
       };
     }
     return { kind: "update", label: "Update", disabled: false };
@@ -261,8 +246,7 @@ export function primaryAction(entry: CatalogEntry): PrimaryAction {
       kind: "none",
       label: "Dev plugin",
       disabled: true,
-      reason:
-        "Loaded from your workspace source tree — not a marketplace install. Remove it by deleting its folder from plugins/.",
+      reason: "Loaded from your workspace source tree — not a marketplace install. Remove it by deleting its folder from plugins/.",
     };
   }
   if (entry.system || !entry.removable) {
@@ -270,9 +254,7 @@ export function primaryAction(entry: CatalogEntry): PrimaryAction {
       kind: "none",
       label: entry.system ? "System plugin" : "Built in",
       disabled: true,
-      reason: entry.system
-        ? "Bundled provider — managed by CodeTerm"
-        : undefined,
+      reason: entry.system ? "Bundled provider — managed by CodeTerm" : undefined,
     };
   }
   return { kind: "uninstall", label: "Uninstall", disabled: false };
