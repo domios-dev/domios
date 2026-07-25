@@ -560,14 +560,14 @@ mod tests {
         let counter = TurnCounter::new();
         counter.record_time_tick("orch", 10);
         counter.record_time_due("orch", 11);
-        counter.record_time_failure("orch", "pane unavailable; retry on next tick");
+        counter.record_time_failure("orch", "tab unavailable; retry on next tick");
         assert_eq!(
             counter.time_reminder_telemetry("orch"),
             TimeReminderTelemetry {
                 last_tick: Some(10),
                 last_due: Some(11),
                 last_delivery: None,
-                delivery_failure_retry_reason: Some("pane unavailable; retry on next tick".into()),
+                delivery_failure_retry_reason: Some("tab unavailable; retry on next tick".into()),
             }
         );
         counter.record_time_delivery("orch", 12);

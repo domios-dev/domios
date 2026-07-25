@@ -375,7 +375,7 @@ fn notifier_delivery_uses_same_state_reconciliation_prelude() {
     assert!(text.contains("STATE-RECONCILIATION"));
     assert!(text.contains("execution-mode plan with unfinished work"));
     assert!(text.contains("codeterm docs ORCHESTRATION"));
-    assert!(text.contains("Reconcile live panes against the plan"));
+    assert!(text.contains("Reconcile live tabs against the plan"));
     assert!(text.contains("codeterm plan task close"));
     assert!(text.contains("codeterm plan task update"));
     assert!(text.contains("[task in_review]"));
@@ -460,7 +460,7 @@ fn all_tasks_done_plan_produces_no_reconciliation_prepend() {
         )
         .unwrap();
 
-    let nudge_body = "Plan reminder: this pane owns unfinished execution-plan work.";
+    let nudge_body = "Plan reminder: this tab owns unfinished execution-plan work.";
     let result = store.prepend_heartbeat_for_plan(&plan_id, nudge_body);
     assert_eq!(
         result, nudge_body,
