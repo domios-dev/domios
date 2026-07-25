@@ -227,7 +227,7 @@ fn role_identity_line(plan: &Plan, pane_id: Option<&str>) -> String {
     };
     let peer = if role == "Planner" { owner } else { planner };
     let peer_text = peer
-        .map(|pane| format!("; peer tab {peer_role} is pane {pane}"))
+        .map(|tab| format!("; peer tab {peer_role} is tab {tab}"))
         .unwrap_or_else(|| format!("; peer tab {peer_role} is unbound"));
     codeterm_types::agent::role_identity::render(
         codeterm_types::agent::role_identity::RoleIdentity::Heartbeat {
