@@ -38,11 +38,11 @@ pub fn planning_structure_nudge(
 }
 
 /// The canonical `agent spawn --role Planner --plan <id>` command, filled in
-/// with a real orchestrator pane id when known (falls back to a placeholder
+/// with a real orchestrator tab id when known (falls back to a placeholder
 /// token otherwise, matching the `PLAN_ID`-style placeholders used elsewhere
 /// in onboarding text).
 pub fn planner_spawn_cmd_hint(orchestrator_pane_id: Option<&str>, plan_id: &str) -> String {
-    let parent = orchestrator_pane_id.unwrap_or("<orch-pane>");
+    let parent = orchestrator_pane_id.unwrap_or("<orch-tab>");
     format!(
         "Choose an available provider and model appropriate for this planning task, then run: codeterm agent spawn <provider> [--model <model>] --parent {parent} --role Planner --plan {plan_id}"
     )
@@ -110,9 +110,9 @@ mod tests {
     }
 
     #[test]
-    fn spawn_cmd_hint_falls_back_to_placeholder_without_a_real_pane() {
+    fn spawn_cmd_hint_falls_back_to_placeholder_without_a_real_tab() {
         let hint = planner_spawn_cmd_hint(None, "PLAN_ID");
-        assert!(hint.contains("--parent <orch-pane>"));
+        assert!(hint.contains("--parent <orch-tab>"));
         assert!(hint.contains("--plan PLAN_ID"));
     }
 

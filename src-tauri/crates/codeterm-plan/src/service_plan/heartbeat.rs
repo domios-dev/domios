@@ -356,12 +356,12 @@ pub(super) fn reconciliation_prompt(plan_id: &str, pane_id: Option<&str>) -> Str
     );
     format!(
         "STATE-RECONCILIATION:\n\
-         - This pane owns an execution-mode plan with unfinished work; do not pause while open tasks remain.\n\
+         - This tab owns an execution-mode plan with unfinished work; do not pause while open tasks remain.\n\
          - If you forgot how to orchestrate, read `codeterm docs ORCHESTRATION` first.\n\
          - Worker reports are pushed into this tab automatically; judge each incoming report without polling an inbox.\n\
          - Read the compact plan-owned status with `{status}`.\n\
          - Use `codeterm orchestrator inspect --plan {plan_id} --json` only when a specific discrepancy requires full report bodies or raw lane state.\n\
-         - Reconcile live panes against the plan with `codeterm plan reconcile {plan_id}`.\n\
+         - Reconcile live tabs against the plan with `codeterm plan reconcile {plan_id}`.\n\
          - {} \n\
          - Parallelize independent writer lanes, but serialize broad/heavy gates in one warm integration checkout so worker worktrees do not all rebuild/test at once.\n\
          - Close verified tasks with `codeterm plan task close {plan_id} <task_id>`.\n\

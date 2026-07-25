@@ -9,7 +9,7 @@ pub const WORKER_LOOP_EVIDENCE_RULE: &str =
 pub const WORKER_COMPETITIVE_CONTEXT_TITLE: &str = "Competitive context:";
 pub const WORKER_COMPETITIVE_ISOLATION_RULES: [&str; 3] = [
     "Work only in your own assigned lane, branch, and worktree.",
-    "Do not inspect, tail, or reuse another live attempt's pane, worktree, or branch.",
+    "Do not inspect, tail, or reuse another live attempt's tab, worktree, or branch.",
     "The Orchestrator compares the attempts and decides the winner or next follow-up.",
 ];
 
@@ -53,7 +53,7 @@ pub const PEER_PLANNER_CHARTER_LINE: &str = "Planner is the attached planning sp
      not create the tasks.";
 
 pub const PEER_WAIVER_HINT: &str = "No Planner specialist is bound. \
-     Bind one with `codeterm plan update --planner <PANE_ID>` or waive with \
+     Bind one with `codeterm plan update --planner <TAB_ID>` or waive with \
      `codeterm plan update --planner none --note <reason>`.";
 
 pub const PEER_ORCH_DEFER_STRUCTURE_LINE: &str =
