@@ -1,16 +1,15 @@
 use serde_json::Value;
+use std::panic::{self, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 const DIFF_REFRESH_AFTER: Duration = Duration::from_secs(300);
 
-/// Last-known channel diff plus its refresh state. Computing the diff does a
-/// per-channel git clone (4-7s), so it must NEVER run inside the snapshot hot
-/// path — stale-but-instant beats fresh-but-blocking. An instance keeps the state
-/// self-contained so it can be exercised in isolation (no global test contention).
+/// Last-known channel diff plus its refresh state.
 struct DiffCache {
     cache: Mutex<Option<(Instant, Value)>>,
+    ready: Condvar,
     refreshing: AtomicBool,
     /// Set by a plugin/channel action so the next read refetches even within the TTL.
     force: AtomicBool,
@@ -20,14 +19,24 @@ impl DiffCache {
     const fn new() -> Self {
         Self {
             cache: Mutex::new(None),
+            ready: Condvar::new(),
             refreshing: AtomicBool::new(false),
             force: AtomicBool::new(false),
         }
     }
 
-    /// Return the last-known diff immediately. When the cache is missing, stale,
-    /// or force-flagged, hand `produce` to `spawn` (prod: a background thread;
-    /// tests: inline) — never run it on the caller. Cold first call returns a stub.
+    fn loading() -> Value {
+        serde_json::json!({ "diff": [], "loading": true })
+    }
+
+    fn cached_value(&self) -> Option<Value> {
+        self.cache
+            .lock()
+            .ok()
+            .and_then(|cache| cache.as_ref().map(|(_, value)| value.clone()))
+    }
+
+    /// Return the last-known diff and refresh stale data in the background.
     fn read<P, S>(&self, produce: P, spawn: S) -> Value
     where
         P: Fn() -> Result<Value, String> + Send + 'static,
@@ -51,36 +60,73 @@ impl DiffCache {
         }
         match snapshot {
             Some((_, v)) => v,
-            None => serde_json::json!({ "diff": [], "loading": true }),
+            None => Self::loading(),
         }
     }
 
     fn run_refresh<P>(&self, produce: P)
     where
-        P: Fn() -> Result<Value, String>,
+        P: FnOnce() -> Result<Value, String>,
     {
         let started = Instant::now();
-        match produce() {
-            Ok(v) => {
-                if let Ok(mut g) = self.cache.lock() {
-                    *g = Some((Instant::now(), v));
-                }
+        let result = panic::catch_unwind(AssertUnwindSafe(produce));
+        let mut cache = self
+            .cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match result {
+            Ok(Ok(value)) => {
+                *cache = Some((Instant::now(), value));
                 log::debug!(
                     "[plugin-diff] background refresh ok in {}ms",
                     started.elapsed().as_millis()
                 );
             }
-            Err(e) => log::warn!("[plugin-diff] background refresh failed: {e}"),
+            Ok(Err(error)) => {
+                log::warn!("[plugin-diff] background refresh failed: {error}");
+            }
+            Err(_) => {
+                log::warn!("[plugin-diff] background refresh panicked");
+            }
         }
         self.refreshing.store(false, Ordering::SeqCst);
+        self.ready.notify_all();
     }
 
-    /// Synchronously recompute the diff and store it, returning the fresh value. Unlike
-    /// `read`, this never returns stale data or defers to a background thread: the
-    /// explicit "refresh channels" action needs the result cached *now*, while any
-    /// just-added local channel source still exists, so the snapshot it returns (and the
-    /// next passive read) serve the freshly-fetched channels. On producer error the
-    /// last-known diff is kept (no empty flash). Passive reads keep using `read`.
+    fn read_cold<P>(&self, produce: P) -> Value
+    where
+        P: FnOnce() -> Result<Value, String>,
+    {
+        let mut cache = self
+            .cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some((_, value)) = cache.as_ref() {
+            return value.clone();
+        }
+        if self
+            .refreshing
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            self.force.store(false, Ordering::SeqCst);
+            drop(cache);
+            self.run_refresh(produce);
+            return self.cached_value().unwrap_or_else(Self::loading);
+        }
+
+        while cache.is_none() && self.refreshing.load(Ordering::SeqCst) {
+            cache = self
+                .ready
+                .wait(cache)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+        }
+        cache
+            .as_ref()
+            .map(|(_, value)| value.clone())
+            .unwrap_or_else(Self::loading)
+    }
+
     fn refresh_now<P>(&self, produce: P) -> Value
     where
         P: Fn() -> Result<Value, String>,
@@ -100,7 +146,7 @@ impl DiffCache {
                     .ok()
                     .and_then(|g| g.clone())
                     .map(|(_, v)| v)
-                    .unwrap_or_else(|| serde_json::json!({ "diff": [], "loading": true }))
+                    .unwrap_or_else(Self::loading)
             }
         }
     }
@@ -108,9 +154,12 @@ impl DiffCache {
 
 static DIFF: DiffCache = DiffCache::new();
 
-/// Return the last-known channel diff; refresh runs on a background thread,
-/// never inline in the snapshot hot path.
+/// Cold snapshots run the producer on the existing blocking snapshot worker so
+/// the first response is complete. Warm stale snapshots refresh in background.
 pub(super) fn cached_diff(produce: fn() -> Result<Value, String>) -> Value {
+    if DIFF.cached_value().is_none() {
+        return DIFF.read_cold(produce);
+    }
     DIFF.read(produce, |p| {
         std::thread::spawn(move || DIFF.run_refresh(p));
     })
@@ -133,14 +182,23 @@ pub(super) fn refresh_diff_now(produce: fn() -> Result<Value, String>) -> Value 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::AtomicUsize;
-    use std::sync::Arc;
+    use std::sync::{
+        atomic::{AtomicBool, AtomicUsize},
+        Arc, Barrier, Condvar, Mutex,
+    };
+    use std::thread;
 
-    // fully isolated and run the refresh inline (deterministic, no leaked threads).
     fn producer(calls: Arc<AtomicUsize>) -> impl Fn() -> Result<Value, String> + Send + 'static {
         move || {
             calls.fetch_add(1, Ordering::SeqCst);
-            Ok(serde_json::json!({ "diff": [{ "id": "fresh" }] }))
+            Ok(serde_json::json!({
+                "diff": [{
+                    "id": "bitwarden",
+                    "local_version": "0.1.0",
+                    "remote_version": "0.1.2",
+                    "drift": "update_available"
+                }]
+            }))
         }
     }
 
@@ -165,27 +223,112 @@ mod tests {
     }
 
     #[test]
-    fn cold_cache_returns_loading_stub_then_refresh_populates() {
+    fn cold_cache_returns_completed_refresh() {
         let dc = DiffCache::new();
         let calls = Arc::new(AtomicUsize::new(0));
 
-        let out = dc.read(producer(calls.clone()), |p| dc.run_refresh(p));
-        // Hot path returned the loading stub (captured pre-refresh state).
-        assert_eq!(out["loading"], serde_json::json!(true));
-        assert_eq!(out["diff"], serde_json::json!([]));
+        let out = dc.read_cold(producer(calls.clone()));
 
-        // Refresh ran exactly once and populated the cache; nothing left in flight.
+        assert_eq!(out["diff"][0]["id"], "bitwarden");
+        assert_eq!(out["diff"][0]["remote_version"], "0.1.2");
+        assert_eq!(out["diff"][0]["drift"], "update_available");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert!(!dc.refreshing.load(Ordering::SeqCst));
         assert_eq!(
             dc.cache.lock().unwrap().clone().unwrap().1["diff"][0]["id"],
-            "fresh"
+            "bitwarden"
         );
-
-        // Warm + fresh: a second read serves cache, producer not run again.
-        let again = dc.read(producer(calls.clone()), |p| dc.run_refresh(p));
-        assert_eq!(again["diff"][0]["id"], "fresh");
+        let again = dc.read_cold(producer(calls.clone()));
+        assert_eq!(again["diff"][0]["id"], "bitwarden");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn concurrent_cold_reads_run_one_producer() {
+        let dc = Arc::new(DiffCache::new());
+        let calls = Arc::new(AtomicUsize::new(0));
+        let barrier = Arc::new(Barrier::new(9));
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let mut handles = Vec::new();
+
+        for _ in 0..8 {
+            let dc = dc.clone();
+            let calls = calls.clone();
+            let barrier = barrier.clone();
+            let release = release.clone();
+            handles.push(thread::spawn(move || {
+                barrier.wait();
+                dc.read_cold(move || {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    let (lock, ready) = &*release;
+                    let mut open = lock.lock().unwrap();
+                    while !*open {
+                        open = ready.wait(open).unwrap();
+                    }
+                    Ok(serde_json::json!({
+                        "diff": [{
+                            "id": "bitwarden",
+                            "local_version": "0.1.0",
+                            "remote_version": "0.1.2",
+                            "drift": "update_available"
+                        }]
+                    }))
+                })
+            }));
+        }
+
+        barrier.wait();
+        let (lock, ready) = &*release;
+        let mut open = lock.lock().unwrap();
+        *open = true;
+        ready.notify_all();
+        drop(open);
+
+        let outputs: Vec<Value> = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect();
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(outputs
+            .iter()
+            .all(|output| output["diff"][0]["id"] == "bitwarden"));
+    }
+
+    #[test]
+    fn cold_error_is_not_cached_and_next_read_retries() {
+        let dc = DiffCache::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let first_calls = calls.clone();
+
+        let first = dc.read_cold(move || {
+            first_calls.fetch_add(1, Ordering::SeqCst);
+            Err("offline".to_string())
+        });
+        assert_eq!(first["loading"], true);
+        assert!(dc.cache.lock().unwrap().is_none());
+        assert!(!dc.refreshing.load(Ordering::SeqCst));
+
+        let second = dc.read_cold(producer(calls.clone()));
+        assert_eq!(second["diff"][0]["id"], "bitwarden");
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn cold_panic_does_not_wedge_refresh() {
+        let dc = DiffCache::new();
+        let panicked = Arc::new(AtomicBool::new(false));
+        let marker = panicked.clone();
+
+        let first = dc.read_cold(move || -> Result<Value, String> {
+            marker.store(true, Ordering::SeqCst);
+            panic!("producer panic");
+        });
+        assert_eq!(first["loading"], true);
+        assert!(panicked.load(Ordering::SeqCst));
+        assert!(!dc.refreshing.load(Ordering::SeqCst));
+
+        let second = dc.read_cold(|| Ok(serde_json::json!({ "diff": [{ "id": "recovered" }] })));
+        assert_eq!(second["diff"][0]["id"], "recovered");
     }
 
     #[test]
@@ -196,11 +339,10 @@ mod tests {
             serde_json::json!({ "diff": [{ "id": "old" }] }),
         ));
         let calls = Arc::new(AtomicUsize::new(0));
-        dc.force.store(true, Ordering::SeqCst); // what invalidate_diff() sets
+        dc.force.store(true, Ordering::SeqCst);
 
         let out = dc.read(producer(calls.clone()), |p| dc.run_refresh(p));
 
-        // Old diff stays visible (no empty flash) while the refresh runs.
         assert_eq!(out["diff"][0]["id"], "old");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert!(
@@ -209,30 +351,26 @@ mod tests {
         );
         assert_eq!(
             dc.cache.lock().unwrap().clone().unwrap().1["diff"][0]["id"],
-            "fresh"
+            "bitwarden"
         );
     }
 
     #[test]
     fn explicit_refresh_now_caches_synchronously_and_next_read_serves_it() {
         let dc = DiffCache::new();
-        // Cold cache + force set — the state invalidate_diff() leaves after a channel action.
         dc.force.store(true, Ordering::SeqCst);
         let calls = Arc::new(AtomicUsize::new(0));
 
-        // Explicit refresh computes inline and returns the fresh value immediately (not stale,
-        // no background defer) — this is what makes the just-added local channel show up now.
         let out = dc.refresh_now(producer(calls.clone()));
-        assert_eq!(out["diff"][0]["id"], "fresh");
+        assert_eq!(out["diff"][0]["id"], "bitwarden");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert!(
             !dc.force.load(Ordering::SeqCst),
             "force flag must be consumed by the synchronous refresh"
         );
 
-        // The next passive read serves that fresh value without re-running the producer.
         let again = dc.read(producer(calls.clone()), |p| dc.run_refresh(p));
-        assert_eq!(again["diff"][0]["id"], "fresh");
+        assert_eq!(again["diff"][0]["id"], "bitwarden");
         assert_eq!(
             calls.load(Ordering::SeqCst),
             1,

@@ -469,6 +469,23 @@ mod tests {
     }
 
     #[test]
+    fn update_action_builds_json_cli_args_without_plugin_id() {
+        let action = PluginManagerAction {
+            kind: "update".into(),
+            plugin_id: None,
+            channel: None,
+            url: None,
+            name: None,
+            force: false,
+            remove_data: false,
+        };
+        assert_eq!(
+            plugin_action_args(&action).unwrap(),
+            vec!["plugin", "update", "--json"]
+        );
+    }
+
+    #[test]
     fn add_channel_requires_url() {
         let action = PluginManagerAction {
             kind: "add-channel".into(),
