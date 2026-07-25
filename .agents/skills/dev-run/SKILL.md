@@ -185,7 +185,9 @@ well as the immediate environment before declaring recovery complete.
 
 ### Windows
 
-_(No entries yet — add as they're discovered.)_
+- **2026-07-25: process starts but 7686 never binds** — a temporary config guard
+  in the `ServiceContext` literal was reacquired by a later field. Snapshot config
+  once before constructing the context; do not erase dev state to mask the deadlock.
 
 ### Linux
 

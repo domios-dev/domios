@@ -639,9 +639,6 @@ pub fn run() {
             // Re-index any items missing vectors (catches failed bg indexing)
             mem.reindex_missing();
 
-            // default. For Claude this installs the Notification / Stop / PreCompact / SessionStart hooks that POST events back into our HTTP API.
-            commands::ensure_integrations_for_all(&agent_registry);
-
             let mem_supervisor = Arc::new(crate::mem::supervisor::Supervisor::new(
                 crate::mem::supervisor::Supervisor::resolve_cli_path(&crate::paths::data_dir()),
                 mem.db_path().to_path_buf(),
@@ -687,6 +684,29 @@ pub fn run() {
             states.mesh.lock().last_activity = Arc::new(
                 crate::mesh::UserLastActivityProvider(user_last_activity.clone()),
             );
+            let workers = crate::mem::workers::GraphWorkerRegistry::load(
+                crate::paths::data_dir().join("mem").join("workers.json"),
+            );
+            let remote_workers = crate::service::remote_workers::RemoteWorkerRegistry::load(
+                crate::paths::data_dir().join("remote_workers.json"),
+            );
+            let delayed_send = crate::delayed_send::DelayedSendQueue::open(
+                crate::paths::data_dir().join("delayed_send.json"),
+            )
+            .expect("delayed_send init");
+            let startup_config = states.config.lock().clone();
+            let kpi = crate::agent::kpi::KpiRecorder::from_config(
+                &startup_config,
+                &crate::paths::data_dir(),
+            );
+            let secrets =
+                crate::secrets::new_state(&startup_config.integrations.secrets, &secret_registry);
+            let services_store = crate::service::store::ServicesStore::open(
+                &crate::paths::data_dir().join("services.db"),
+            )
+            .expect("services.db init");
+            let usage_store = crate::usage::UsageStore::open(&crate::paths::data_dir())
+                .expect("usage.db init");
 
             let svc_ctx = ServiceContext {
                 mux: states.mux.clone(),
@@ -699,10 +719,7 @@ pub fn run() {
                 agent_tracker: states.agent_tracker.clone(),
                 shell_caps: Arc::new(parking_lot::Mutex::new(Default::default())),
                 report_store: states.report_store.clone(),
-                kpi: crate::agent::kpi::KpiRecorder::from_config(
-                    &states.config.lock().clone(),
-                    &crate::paths::data_dir(),
-                ),
+                kpi,
                 plan_store,
                 plan_turn_counter,
                 pending_delivery_payloads,
@@ -713,9 +730,7 @@ pub fn run() {
                 mem,
                 mem_supervisor,
                 activity: crate::mem::activity::ActivityRing::new(500),
-                workers: crate::mem::workers::GraphWorkerRegistry::load(
-                    crate::paths::data_dir().join("mem").join("workers.json"),
-                ),
+                workers,
                 plugin_activity: Arc::new(crate::plugin::activity::PluginActivityRegistry::new()),
                 worker_pool: Arc::new(crate::mem::worker_pool::WorkerPool::new(
                     crate::config::memory_config().workers_per_provider,
@@ -724,27 +739,15 @@ pub fn run() {
                 pty_ownership: Default::default(),
                 agent_run_pty_map: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
                 run_watcher: Arc::new(crate::agent::run_watcher::RunWatcherRegistry::new()),
-                remote_workers: Arc::new(
-                    crate::service::remote_workers::RemoteWorkerRegistry::load(
-                        crate::paths::data_dir().join("remote_workers.json"),
-                    ),
-                ),
+                remote_workers: Arc::new(remote_workers),
                 bridge_outbound: bridge_outbound_tx,
                 bridge_outbound_rx: Arc::new(Mutex::new(Some(bridge_outbound_rx))),
                 bridge_supervisor: Arc::new(bridge::supervisor::BridgeSupervisor::new()),
                 restart_tracker: crate::service::agent_restart::new_restart_tracker(),
                 chat_registry: crate::service::pane_chat::ChatRegistry::new(),
-                delayed_send: crate::delayed_send::DelayedSendQueue::open(
-                    crate::paths::data_dir().join("delayed_send.json"),
-                )
-                .expect("delayed_send init"),
+                delayed_send,
                 secret_registry: secret_registry.clone(),
-                secrets: {
-                    let cfg_guard = states.config.lock();
-                    let cfg = cfg_guard.integrations.secrets.clone();
-                    drop(cfg_guard);
-                    crate::secrets::new_state(&cfg, &secret_registry)
-                },
+                secrets,
                 transcribe_registry: transcribe_registry.clone(),
                 glance_registry: glance_registry.clone(),
                 bubble_registry: bubble_registry.clone(),
@@ -757,17 +760,11 @@ pub fn run() {
                 mux_emit_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 mux_emit_stats: Arc::new(crate::service::MuxEmitStats::default()),
                 session_persist_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-                services_store: Arc::new(
-                    crate::service::store::ServicesStore::open(
-                        &crate::paths::data_dir().join("services.db"),
-                    )
-                    .expect("services.db init"),
-                ),
+                services_store: Arc::new(services_store),
                 tokens: Arc::new(crate::service::tokens::TokenStore::new()),
                 pasteboard: crate::pasteboard::PasteboardState::new(),
                 input_parser,
-                usage_store: crate::usage::UsageStore::open(&crate::paths::data_dir())
-                    .expect("usage.db init"),
+                usage_store,
                 usage_activity: crate::usage::PaneActivity::new(),
                 user_last_activity,
                 usage_poller: Arc::new(parking_lot::Mutex::new(None)),
@@ -914,6 +911,7 @@ pub fn run() {
             startup::setup_conpty_host(app);
             startup::install_bundled_cli(app);
             startup::start_servers(app, &states, &service_state);
+            commands::ensure_integrations_for_all(&service_state.agent_registry);
             if states.config.lock().api.enabled {
                 crate::liveness::start_api_liveness_watchdog(
                     app_handle.clone(),
