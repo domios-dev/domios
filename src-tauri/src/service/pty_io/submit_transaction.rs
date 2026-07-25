@@ -304,12 +304,7 @@ fn run_with_submit_key<T: SubmitTransport>(
 
     let turn_was_started = transport.turn_started();
     let enter_armed = transport.generation();
-    let submit_writes = if submit_key == b"\r" {
-        MAX_SUBMIT_KEY_WRITES
-    } else {
-        1
-    };
-    for index in 0..submit_writes {
+    for index in 0..MAX_SUBMIT_KEY_WRITES {
         if index > 0 {
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
@@ -849,7 +844,10 @@ mod tests {
 
         assert!(result.submit_observed);
         assert!(!io.turn_started());
-        assert_eq!(&*io.writes.borrow(), &["paste:queued follow-up", "tab"]);
+        assert_eq!(
+            &*io.writes.borrow(),
+            &["paste:queued follow-up", "tab", "tab", "tab"]
+        );
     }
 
     #[test]
