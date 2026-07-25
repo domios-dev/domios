@@ -347,8 +347,8 @@ mod tests {
         let lane_path = PathBuf::from(&lane.cwd);
         assert!(lane_path.is_dir());
         assert_eq!(
-            lane_path.parent().unwrap(),
-            root.path().join("project-worktrees")
+            std::fs::canonicalize(lane_path.parent().unwrap()).unwrap(),
+            std::fs::canonicalize(root.path().join("project-worktrees")).unwrap()
         );
         assert!(lane.branch.starts_with("lane/team-test-"));
         assert!(!is_canonical_checkout(

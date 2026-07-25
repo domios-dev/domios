@@ -89,6 +89,33 @@ pub fn to_json() -> String {
     s
 }
 
+fn write_command_path_tree(command: &ManifestCommand, output: &mut String) {
+    output.push('{');
+    let mut first = true;
+    for child in &command.subcommands {
+        let mut branch = String::new();
+        write_command_path_tree(child, &mut branch);
+        for segment in std::iter::once(&child.name).chain(&child.aliases) {
+            if !first {
+                output.push(',');
+            }
+            first = false;
+            output.push_str(&serde_json::to_string(segment).expect("serialize command segment"));
+            output.push(':');
+            output.push_str(&branch);
+        }
+    }
+    output.push('}');
+}
+
+pub fn to_command_paths() -> String {
+    let mut tree = String::new();
+    write_command_path_tree(&build(), &mut tree);
+    format!(
+        "export interface CommandPathNode {{\n  readonly [segment: string]: CommandPathNode;\n}}\n\nexport const COMMAND_PATHS: CommandPathNode = {tree};\n"
+    )
+}
+
 /// Render the manifest as a nested markdown command reference.
 pub fn to_markdown() -> String {
     let root = build();
@@ -158,6 +185,10 @@ pub fn handle(write: bool, markdown: bool) {
     let spliced = format!("{}\n{}\n{}", &md[..start], to_markdown(), &md[end..]);
     std::fs::write(&cli_md, spliced).expect("write docs/CLI.md");
     println!("wrote {}", cli_md.display());
+
+    let command_paths = repo_path("packages/chat-ui/src/codeterm/commandPaths.ts");
+    std::fs::write(&command_paths, to_command_paths()).expect("write commandPaths.ts");
+    println!("wrote {}", command_paths.display());
 }
 
 #[cfg(test)]
@@ -170,6 +201,10 @@ mod tests {
 
     const MANIFEST_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/cli-manifest.json");
     const CLI_MD_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/CLI.md");
+    const COMMAND_PATHS_PATH: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../packages/chat-ui/src/codeterm/commandPaths.ts"
+    );
 
     fn codeterm_exe() -> Option<std::path::PathBuf> {
         if let Ok(path) = std::env::var("CARGO_BIN_EXE_codeterm") {
@@ -234,6 +269,17 @@ mod tests {
             normalize_newlines(block),
             normalize_newlines(&expected),
             "docs/CLI.md auto-block stale — run `codeterm cli-manifest --write`"
+        );
+    }
+
+    #[test]
+    fn chat_ui_command_paths_are_fresh() {
+        let committed =
+            std::fs::read_to_string(COMMAND_PATHS_PATH).expect("commandPaths.ts missing");
+        assert_eq!(
+            normalize_newlines(&committed),
+            normalize_newlines(&to_command_paths()),
+            "commandPaths.ts is stale — run `codeterm cli-manifest --write`"
         );
     }
 
