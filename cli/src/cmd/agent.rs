@@ -652,7 +652,6 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             interval,
             nudge_cooldown,
             max_actions,
-            allow_shared_checkout,
             bound_task,
             plan_task,
         } => {
@@ -776,9 +775,6 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
             if let Some(max_actions) = max_actions {
                 body["max_actions_per_tick"] = serde_json::json!(max_actions);
-            }
-            if allow_shared_checkout {
-                body["allow_shared_checkout"] = serde_json::json!(true);
             }
             if let Some(tid) = bound_task {
                 body["task_id"] = serde_json::json!(tid);

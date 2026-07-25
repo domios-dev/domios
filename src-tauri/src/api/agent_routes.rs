@@ -69,7 +69,6 @@ pub(crate) struct SpawnAgentBody {
     task_id: Option<String>,
     #[serde(alias = "plan-task")]
     plan_task: Option<String>,
-    allow_shared_checkout: Option<bool>,
     workspace_id: Option<String>,
     force_tab: Option<bool>,
     report_target_pane_id: Option<String>,
@@ -248,7 +247,6 @@ pub async fn spawn_agent(
         starter_prompt: Default::default(),
         task_id: body.task_id,
         plan_task: body.plan_task,
-        allow_shared_checkout: body.allow_shared_checkout,
         workspace_id: body.workspace_id,
         force_tab: body.force_tab,
         existing_tab_id: None,

@@ -2,9 +2,56 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::orchestrator::SpawnAgentParams;
-use super::spawn_guard::{is_canonical_checkout, is_worker_spawn};
 use super::ServiceContext;
 use crate::process_util;
+
+fn is_worker_spawn(role: Option<&str>, _role_profile: Option<&str>) -> bool {
+    role == Some("Worker")
+}
+
+fn is_canonical_checkout(cwd: &str, workspace_cwd: Option<&str>) -> bool {
+    if let Some(workspace_cwd) = workspace_cwd {
+        if same_path(cwd, workspace_cwd) {
+            return true;
+        }
+    }
+    git_is_primary_checkout(Path::new(cwd))
+}
+
+fn same_path(a: &str, b: &str) -> bool {
+    match (std::fs::canonicalize(a).ok(), std::fs::canonicalize(b).ok()) {
+        (Some(a), Some(b)) => a == b,
+        _ => ServiceContext::paths_equal(a, b),
+    }
+}
+
+fn git_is_primary_checkout(cwd: &Path) -> bool {
+    let mut command = Command::new("git");
+    process_util::no_window_std(&mut command);
+    let output = match command
+        .current_dir(cwd)
+        .args([
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-dir",
+            "--git-common-dir",
+        ])
+        .output()
+    {
+        Ok(output) if output.status.success() => output,
+        _ => return false,
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut lines = text.lines().map(str::trim).filter(|line| !line.is_empty());
+    match (lines.next(), lines.next()) {
+        (Some(git_dir), Some(common_dir)) => normalize_path(git_dir) == normalize_path(common_dir),
+        _ => false,
+    }
+}
+
+fn normalize_path(path: &str) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path))
+}
 
 #[derive(Debug)]
 pub(crate) struct ProvisionedWorkerLane {
