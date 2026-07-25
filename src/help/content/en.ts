@@ -14,7 +14,7 @@ export const enHelpContent: HelpLocaleContent = {
         },
         {
           type: "paragraph",
-          text: "Think of it as an operating system for agents. Workspaces organize projects. Panes run shells or agent chats. Plans hold multi-step work as durable state. Memory keeps knowledge between sessions. Mesh connects your machines into one private network. And the always-on General Agent is the machine's brain — always one tab away.",
+          text: "Think of it as an operating system for agents. Workspaces organize projects. Tabs run shells or agent chats. Plans hold multi-step work as durable state. Memory keeps knowledge between sessions. Mesh connects your machines into one private network. And the always-on General Agent is the machine's brain — always one tab away.",
         },
         {
           type: "list",
@@ -34,18 +34,18 @@ export const enHelpContent: HelpLocaleContent = {
     },
     {
       id: "workspaces",
-      title: "Workspaces, tabs & panes",
+      title: "Workspaces, tabs",
       subtitle: "How CodeTerm organizes your work",
       blocks: [
         {
           type: "paragraph",
-          text: "A workspace groups related work — usually one project or one effort. Each workspace holds tabs, and each tab is a pane: a real terminal (PTY) or an agent session. Agent tabs can flip between two faces of the same session: Chat shows the structured conversation, Terminal shows the raw PTY output underneath.",
+          text: "A workspace groups related work — usually one project or one effort. Each workspace holds tabs, and each tab is a terminal (PTY) or an agent session. Agent tabs can flip between two faces of the same session: Chat shows the structured conversation, Terminal shows the raw PTY output underneath.",
         },
         {
           type: "list",
           items: [
             "New session inside a workspace spawns an agent or a plain shell — your last choice is remembered.",
-            "Split panes side-by-side to compare output or watch two agents at once.",
+            "Split tabs side-by-side to compare output or watch two agents at once.",
             "The sidebar tree is live: working agents rise to the top, their current task shows under the name.",
             "A workspace with a plan shows the plan entry pinned first — it opens Board, List, and Canvas views.",
           ],
@@ -58,7 +58,7 @@ export const enHelpContent: HelpLocaleContent = {
           type: "ask",
           label: "Ask the General Agent: how should I organize my projects here?",
           question:
-            "A user is reading the CodeTerm guide (workspaces section) and pressed 'Ask the agent'. Look at their current workspaces and suggest concretely how to organize their projects in CodeTerm: when to make a new workspace, when to split panes, how to name things. Short, practical, based on what actually exists on this machine.",
+            "A user is reading the CodeTerm guide (workspaces section) and pressed 'Ask the agent'. Look at their current workspaces and suggest concretely how to organize their projects in CodeTerm: when to make a new workspace, when to split tabs, how to name things. Short, practical, based on what actually exists on this machine.",
         },
       ],
     },
@@ -69,7 +69,7 @@ export const enHelpContent: HelpLocaleContent = {
       blocks: [
         {
           type: "paragraph",
-          text: "Any provider can be spawned into a pane — Claude, Codex, OpenCode, local models — for a quick one-off session. But the real power is the orchestration system: one Orchestrator owns the plan and attaches a Planner specialist when structure needs careful thought.",
+          text: "Any provider can be spawned into a tab — Claude, Codex, OpenCode, local models — for a quick one-off session. But the real power is the orchestration system: one Orchestrator owns the plan and attaches a Planner specialist when structure needs careful thought.",
         },
         {
           type: "paragraph",
@@ -179,7 +179,7 @@ export const enHelpContent: HelpLocaleContent = {
           type: "list",
           items: [
             "Pairing is explicit and revocable; peers authenticate with tokens, nothing is open by default.",
-            "Send a message or a full task to any pane on any peer — replies route back automatically.",
+            "Send a message or a full task to any tab on any peer — replies route back automatically.",
             "Plans can span machines: a remote worker's reports flow home to the plan that owns the task.",
             "The Mesh tab shows peers, health probes, and an activity log of what crossed the wire.",
           ],
@@ -204,7 +204,7 @@ export const enHelpContent: HelpLocaleContent = {
         {
           type: "list",
           items: [
-            "Inbound messages carry a return address — the agent answers in the channel you wrote from, not in the pane.",
+            "Inbound messages carry a return address — the agent answers in the channel you wrote from, not in the tab.",
             "Allowed-user lists gate who can talk to your machine; tokens live in the secret store, not in configs.",
             "Discord and other bridges follow the same pattern when enabled; text hooks let you intercept and route messages programmatically.",
           ],

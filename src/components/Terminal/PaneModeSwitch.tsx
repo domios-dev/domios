@@ -67,7 +67,7 @@ export function PaneModeSwitch({
     <Segmented
       data-testid="pane-mode-switch"
       data-pane-id={paneId}
-      aria-label="Pane view"
+      aria-label="Tab view"
       value={mode}
       options={baseOptions}
       height={height}

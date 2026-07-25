@@ -30,7 +30,7 @@ export function chatSetupStageLabel(stage: BootStage | null | undefined, subject
   if (!stage) return "Preparing launch…";
   switch (stage) {
     case "pty_starting":
-      return "Creating pane…";
+      return "Creating tab…";
     case "pty_spawned":
       return "Spawn accepted…";
     case "reader_ready":

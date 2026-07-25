@@ -44,12 +44,12 @@ test("resolves local pane title, model and branch as labeled info chips in order
   assert(chip(row.chips, "model")?.label === "claude:opus", "model chip");
   assert(chip(row.chips, "model")?.fieldLabel === "Model", "model field label");
   const p = chip(row.chips, "pane");
-  assert(p?.label === "Verdi" && p.tone === "info", "pane title chip");
+  assert(p?.label === "Verdi" && p.tone === "info", "tab title chip");
   assert(chip(row.chips, "branch")?.label === "lane/x", "branch chip");
   assert(chip(row.chips, "branch")?.fieldLabel === "Branch", "branch field label");
   const kinds = row.chips.map((c) => c.kind);
-  assert(kinds.indexOf("model") < kinds.indexOf("pane"), "model before pane");
-  assert(kinds.indexOf("pane") < kinds.indexOf("branch"), "pane before branch");
+  assert(kinds.indexOf("model") < kinds.indexOf("pane"), "model before tab");
+  assert(kinds.indexOf("pane") < kinds.indexOf("branch"), "tab before branch");
   assert(kinds.indexOf("branch") < kinds.indexOf("age"), "branch before age");
 });
 
@@ -66,7 +66,7 @@ test("no assigned pane yields amber no-pane-recorded chip", () => {
   const row = deriveWorkingOnRow(t, {}, 0)!;
   const warns = row.chips.filter((c) => c.kind === "warn");
   assert(warns.length === 1, "one warning only");
-  assert(warns[0]?.label === "no pane recorded" && warns[0].tone === "amber", "no pane recorded amber");
+  assert(warns[0]?.label === "no tab recorded" && warns[0].tone === "amber", "no tab recorded amber");
 });
 
 test("severity ladder keeps highest warning only", () => {
@@ -74,7 +74,7 @@ test("severity ladder keeps highest warning only", () => {
   const row = deriveWorkingOnRow(t, {}, 0)!;
   assert(row.chips.filter((c) => c.kind === "warn").length === 1, "one warn");
   assert(pickHighestLaneWarning(["branch_missing", "no_pane_recorded"])?.id === "no_pane_recorded", "ladder");
-  assert(pickHighestLaneWarning(["branch_missing", "pane_gone"])?.id === "pane_gone", "pane gone wins");
+  assert(pickHighestLaneWarning(["branch_missing", "pane_gone"])?.id === "pane_gone", "tab gone wins");
 });
 
 test("pane recorded but absent locally with no peer is red pane-gone", () => {
@@ -82,7 +82,7 @@ test("pane recorded but absent locally with no peer is red pane-gone", () => {
   const row = deriveWorkingOnRow(t, {}, 0)!;
   const warns = row.chips.filter((c) => c.kind === "warn");
   assert(warns.length === 1, "one warning");
-  assert(warns[0]?.label === "pane gone" && warns[0].tone === "red", "pane gone red");
+  assert(warns[0]?.label === "tab gone" && warns[0].tone === "red", "tab gone red");
 });
 
 test("remote pane keeps peer chip and grey short-id, never pane-gone", () => {
@@ -93,7 +93,7 @@ test("remote pane keeps peer chip and grey short-id, never pane-gone", () => {
     lane: { branch: "b" },
   });
   const row = deriveWorkingOnRow(t, {}, 0)!;
-  assert(!row.chips.some((c) => c.label === "pane gone"), "no pane gone when peer present");
+  assert(!row.chips.some((c) => c.label === "tab gone"), "no tab gone when peer present");
   assert(chip(row.chips, "peer")?.label === "eight", "peer chip");
   assert(chip(row.chips, "pane")?.tone === "grey", "remote pane grey short id");
 });
