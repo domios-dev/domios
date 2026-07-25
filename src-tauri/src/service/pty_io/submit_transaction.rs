@@ -13,6 +13,7 @@ use crate::service::inject_verify::{
 use crate::service::ServiceContext;
 
 const TAIL_ROWS: usize = 8;
+const MAX_SUBMIT_KEY_WRITES: usize = 3;
 
 fn transaction_locks() -> &'static Mutex<HashMap<String, Weak<Mutex<()>>>> {
     static LOCKS: OnceLock<Mutex<HashMap<String, Weak<Mutex<()>>>>> = OnceLock::new();
@@ -106,7 +107,7 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             .svc
             .screen_state
             .lock()
-            .tail_text(self.pty_id, TAIL_ROWS)
+            .get_screen_text(self.pty_id)
             .unwrap_or_default();
         screen_echo_evidence_count(&screen, text)
     }
@@ -297,7 +298,6 @@ fn run_with_submit_key<T: SubmitTransport>(
     let baseline_evidence = transport.draft_evidence_count(text);
     let bytes_written = transport.write_paste(text, turn_deadline)?;
 
-    // The deadline is an actionable failure: a submit key cannot be safely retried.
     let mut submit_anomaly = false;
     if enter
         && two_phase
@@ -305,13 +305,15 @@ fn run_with_submit_key<T: SubmitTransport>(
         && !wait_paste_ingested(transport, text, armed, baseline_evidence, ingest_deadline)
     {
         submit_anomaly = true;
-        return Ok(InjectionResult {
-            bytes_written,
-            echo_observed: false,
-            submit_observed: false,
-            submit_anomaly,
-            elapsed: started.elapsed(),
-        });
+        if transport.draft_evidence_count(text) <= baseline_evidence {
+            return Ok(InjectionResult {
+                bytes_written,
+                echo_observed: false,
+                submit_observed: false,
+                submit_anomaly,
+                elapsed: started.elapsed(),
+            });
+        }
     }
 
     let echo_observed = transport.draft_evidence_count(text) > baseline_evidence;
@@ -326,21 +328,35 @@ fn run_with_submit_key<T: SubmitTransport>(
         });
     }
 
-    let enter_armed = transport.generation();
     let turn_was_started = transport.turn_started();
-    transport.write_submit_key(submit_key, turn_deadline)?;
-    let submit_observed = if two_phase {
-        wait_submission_acknowledged(
-            transport,
-            text,
-            baseline_evidence,
-            turn_was_started,
-            enter_armed,
-            turn_deadline,
-        )
-    } else {
-        true
-    };
+    let mut submit_observed = false;
+    for write_index in 0..MAX_SUBMIT_KEY_WRITES {
+        let enter_armed = transport.generation();
+        let deadline = Instant::now() + opts.submit_timeout;
+        transport.write_submit_key(submit_key, deadline)?;
+        submit_observed = !two_phase
+            || wait_submission_acknowledged(
+                transport,
+                text,
+                baseline_evidence,
+                turn_was_started,
+                enter_armed,
+                deadline,
+            );
+        if submit_observed {
+            break;
+        }
+        let draft_parked = transport.draft_evidence_count(text) > baseline_evidence;
+        let fresh_turn = !turn_was_started && transport.turn_started();
+        if fresh_turn || !draft_parked {
+            submit_observed = true;
+            break;
+        }
+        submit_anomaly = true;
+        if write_index + 1 == MAX_SUBMIT_KEY_WRITES {
+            break;
+        }
+    }
     submit_anomaly |= two_phase && !submit_observed;
 
     Ok(InjectionResult {
@@ -536,6 +552,9 @@ mod tests {
 
         fn write_paste(&self, text: &str, _deadline: Instant) -> Result<usize, InjectionError> {
             self.draft_pending.set(true);
+            if !self.deliver_ingest_frame {
+                self.draft_visible.set(true);
+            }
             self.writes.borrow_mut().push(format!("paste:{text}"));
             Ok(text.len())
         }
@@ -708,16 +727,16 @@ mod tests {
     }
 
     #[test]
-    fn missing_paste_evidence_fails_without_a_submit_retry() {
+    fn visible_paste_without_generation_still_submits() {
         let io = TuiModel::recovers_after_unobserved_ingest();
         let result = run(&io, "unique-marker-42", true, tui(), opts()).unwrap();
 
         assert!(result.submit_anomaly);
-        assert!(!result.submit_observed);
+        assert!(result.submit_observed);
         assert_eq!(
             &*io.writes.borrow(),
-            &["paste:unique-marker-42"],
-            "a missing ingestion event is actionable failure, never permission to retry"
+            &["paste:unique-marker-42", "enter"],
+            "visible draft evidence releases the submit key even if its generation event was missed"
         );
     }
 
@@ -731,8 +750,8 @@ mod tests {
         assert!(!io.turn_started());
         assert_eq!(
             &*io.writes.borrow(),
-            &["paste:marker"],
-            "the payload remains singular when delivery fails"
+            &["paste:marker", "enter", "enter", "enter"],
+            "the payload remains singular while the submit key is retried"
         );
 
         let surfaced = result.require_submission(true, Duration::ZERO, "> marker".into());
@@ -743,26 +762,25 @@ mod tests {
     }
 
     #[test]
-    fn paste_accepted_then_enter_swallowed_fails_without_duplicate_payload() {
+    fn paste_accepted_then_enter_swallowed_recovers_without_duplicate_payload() {
         let io = TuiModel::swallows_first_enter();
         let result = run(&io, "team bootstrap", true, tui(), opts()).unwrap();
 
         assert!(result.submit_anomaly);
-        assert!(!result.submit_observed);
-        assert!(!io.turn_started());
+        assert!(result.submit_observed);
+        assert!(io.turn_started());
         assert_eq!(
             &*io.writes.borrow(),
-            &["paste:team bootstrap", "enter"],
-            "a swallowed Enter must surface failure rather than duplicate the submit"
+            &["paste:team bootstrap", "enter", "enter"],
+            "a swallowed Enter retries only the submit key"
         );
-        assert!(matches!(
-            result.require_submission(true, Duration::ZERO, "> team bootstrap".into()),
-            Err(InjectionError::SubmitNeverConfirmed { .. })
-        ));
+        result
+            .require_submission(true, Duration::ZERO, "> team bootstrap".into())
+            .unwrap();
     }
 
     #[test]
-    fn repeated_swallowed_enters_never_retry_the_transaction() {
+    fn repeated_swallowed_enters_use_bounded_submit_key_recovery() {
         let io = TuiModel::swallows_enters(5);
         let result = run(&io, "delivery-marker", true, tui(), opts()).unwrap();
 
@@ -784,8 +802,8 @@ mod tests {
                 .iter()
                 .filter(|write| write.as_str() == "enter")
                 .count(),
-            1,
-            "a pending transaction has one submit key and no delayed retries"
+            MAX_SUBMIT_KEY_WRITES,
+            "a pending transaction retries only the submit key within its fixed budget"
         );
     }
 
@@ -801,13 +819,16 @@ mod tests {
     }
 
     #[test]
-    fn stale_working_state_cannot_certify_a_swallowed_enter() {
+    fn working_provider_recovers_swallowed_enter_when_draft_leaves_composer() {
         let io = TuiModel::already_working_and_swallows_first_enter();
         let result = run(&io, "team bootstrap", true, tui(), opts()).unwrap();
 
         assert!(result.submit_anomaly);
-        assert!(!result.submit_observed);
-        assert_eq!(&*io.writes.borrow(), &["paste:team bootstrap", "enter"]);
+        assert!(result.submit_observed);
+        assert_eq!(
+            &*io.writes.borrow(),
+            &["paste:team bootstrap", "enter", "enter"]
+        );
     }
 
     #[test]

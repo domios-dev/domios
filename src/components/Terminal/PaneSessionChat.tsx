@@ -451,8 +451,10 @@ export function PaneSessionChat({
   }, [backendState?.state, pendingPrompt]);
 
   useEffect(
-    () => observeChatSendStatus(paneId, showComposerError),
-    [paneId, showComposerError],
+    () => observeChatSendStatus(paneId, (message) => {
+      console.warn(`[chat-send] ${message}`);
+    }),
+    [paneId],
   );
 
   // subtype); it arrives via the mux snapshot and events, no local polling needed.
