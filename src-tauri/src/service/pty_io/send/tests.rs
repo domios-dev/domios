@@ -178,23 +178,6 @@ fn pty_planner_input_spy_never_degrades_to_shell_write() {
         assert!(result.is_err());
         assert!(shell_write_spy.is_empty(), "{shell} received planner bytes");
     }
-
-    pane.agent_type = Some("codex".into());
-    pane.agent_session_id = Some("session".into());
-    pane.session_binding_nonce = Some("nonce".into());
-    pane.reported_session_binding_nonce = Some("nonce".into());
-    pane.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
-    pane.exit_suspected_at = Some(std::time::Instant::now());
-    let mut shell_write_spy = Vec::new();
-    let result = submit_authenticated_pty_input(pane, "session", "nonce", payload, |_, _, text| {
-        shell_write_spy.push(text.to_string());
-        Ok(())
-    });
-    assert!(result.is_err());
-    assert!(
-        shell_write_spy.is_empty(),
-        "suspected shell fallback received agent bytes"
-    );
 }
 
 #[test]
@@ -288,12 +271,12 @@ fn live_agent_tui_is_routable_before_session_binding() {
 }
 
 #[test]
-fn pane_with_exit_suspected_is_not_routable() {
+fn stale_exit_suspicion_does_not_block_a_live_agent_pty() {
     let (mut _mux, pane_id) = fully_routable_pane();
     let pane = _mux.get_pane_mut(&pane_id).unwrap();
     pane.exit_suspected_at = Some(std::time::Instant::now());
     let pane = _mux.get_pane(&pane_id).unwrap();
-    assert!(!is_pane_routable_for_send(pane));
+    assert!(is_pane_routable_for_send(pane));
 }
 
 #[test]
@@ -390,9 +373,9 @@ fn transport_failure_emits_chat_send_failed_event() {
     pane.agent_type = Some("codex".into());
     pane.agent_session_id = Some("session-dead".into());
     pane.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
-    pane.exit_suspected_at = Some(std::time::Instant::now()); // dead pane
+    pane.agent_type = None;
 
-    // optimistic_agent_pty_target must fail — exit_suspected_at blocks send
+    // A pane without an agent classification must not receive agent input.
     let err = optimistic_agent_pty_target(pane).unwrap_err();
     assert!(
         err.contains("not accepting input"),
