@@ -16,7 +16,7 @@ pub use crate::service::plan::prompts_plan::{
 
 /// The three-tier testing ladder. Single source shared by next-actions/heartbeat prose
 /// and asserted verbatim in the ORCHESTRATION doc so the wording never drifts.
-pub const MILESTONE_GATE_LADDER: &str = "Testing ladder — per-task = focused filters in the warm canonical checkout; per-group (milestone) = one full regression gate (cargo suite + ts-unit, serialized in the warm checkout); per-release = the farm matrix across every platform.";
+pub const MILESTONE_GATE_LADDER: &str = "Testing ladder — per-task = focused filters only; per-group (milestone) = one full regression gate (cargo suite + ts-unit, serialized in the warm checkout); per-release = the farm matrix across every platform.";
 
 /// Appended to Planner-profile Worker tasks.
 pub const PLANNER_SUFFIX: &str = include_str!("../prompts/planner_suffix.md");
