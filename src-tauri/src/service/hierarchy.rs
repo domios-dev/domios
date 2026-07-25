@@ -632,7 +632,7 @@ impl ServiceContext {
                     pane,
                     from_title,
                     pane_id.to_string(),
-                    model,
+                    model.clone(),
                     report.inject_body(),
                 );
             }
@@ -668,6 +668,15 @@ impl ServiceContext {
         }
 
         self.gateway.clear_worker_report_requirement(pane_id);
+        self.record_kpi_report(
+            pane_id,
+            eff_plan_id.as_deref(),
+            eff_task_id.as_deref(),
+            model.as_deref(),
+            message.len(),
+            &report.id,
+        );
+
         Ok(ReportResult {
             report_id: report.id,
             orchestrator_pane_id: storage_key,
