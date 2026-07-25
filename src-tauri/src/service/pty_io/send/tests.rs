@@ -279,12 +279,12 @@ fn pane_without_agent_type_skips_routability_check() {
 }
 
 #[test]
-fn pane_missing_session_id_is_not_routable() {
+fn live_agent_tui_is_routable_before_session_binding() {
     let (mut _mux, pane_id) = fully_routable_pane();
     let pane = _mux.get_pane_mut(&pane_id).unwrap();
     pane.agent_session_id = None;
     let pane = _mux.get_pane(&pane_id).unwrap();
-    assert!(!is_pane_routable_for_send(pane));
+    assert!(is_pane_routable_for_send(pane));
 }
 
 #[test]

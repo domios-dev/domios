@@ -169,10 +169,7 @@ pub(super) fn optimistic_agent_pty_target(
     };
     // chat_view is UI mount state, not backend routability — a background or
     // hidden tab with a live agent PTY/session must still accept input.
-    let routable = pane.agent_type.is_some()
-        && pane.agent_session_id.is_some()
-        && pane.exit_suspected_at.is_none()
-        && accepting;
+    let routable = pane.agent_type.is_some() && pane.exit_suspected_at.is_none() && accepting;
     if !routable {
         return Err("agent_unavailable: recipient agent is not accepting input".into());
     }
@@ -659,13 +656,11 @@ impl ServiceContext {
         })
     }
 
-    /// Wait until the pane is routable for chat delivery: agent_type, session_id,
-    /// and boot_stage are all populated. For non-agent panes (bare shells) this
+    /// Wait until the pane is routable for chat delivery. For non-agent panes (bare shells) this
     /// returns immediately. The wait uses the boot_wait condvar so it resolves the
     /// instant the pane state transitions — no polling. Does NOT gate on
     /// `chat_view` — that is UI mount state, not backend routability. A
-    /// background/hidden/restored tab is routable as soon as its PTY/session is
-    /// live.
+    /// background/hidden/restored tab is routable as soon as its PTY is live.
     pub(crate) fn await_pane_routable_blocking(
         &self,
         pane_id: &str,
