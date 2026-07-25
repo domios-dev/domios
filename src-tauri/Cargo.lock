@@ -1364,6 +1364,7 @@ dependencies = [
  "ulid",
  "uuid",
  "vt100",
+ "wait-timeout",
 ]
 
 [[package]]

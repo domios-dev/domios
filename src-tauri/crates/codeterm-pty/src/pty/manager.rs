@@ -701,8 +701,8 @@ mod tests {
     use super::*;
     #[cfg(target_os = "windows")]
     use crate::pty::windows_test_support::{
-        conpty_host_children_of_current_process, legacy_conhost_children, new_conpty_hosts,
-        wait_for_processes_gone,
+        conpty_host_children_of_current_process, exclusive_conpty_test, legacy_conhost_children,
+        new_conpty_hosts, wait_for_processes_gone,
     };
 
     /// Load-bearing contract for the reader-race guard in read_pty_core: once a
@@ -711,6 +711,8 @@ mod tests {
     /// raw reader (two readers on one master fd split the byte stream).
     #[test]
     fn backend_channel_claim_is_visible_and_idempotent() {
+        #[cfg(target_os = "windows")]
+        let _guard = exclusive_conpty_test();
         let mut manager = PtyManager::new();
         let (pty_id, session) = manager
             .spawn(None, None, 80, 24, HashMap::new())
@@ -746,6 +748,8 @@ mod tests {
 
     #[test]
     fn kill_terminates_child_and_removes_session() {
+        #[cfg(target_os = "windows")]
+        let _guard = exclusive_conpty_test();
         let mut manager = PtyManager::new();
         let (pty_id, session) = manager
             .spawn(None, None, 80, 24, HashMap::new())
@@ -774,6 +778,7 @@ mod tests {
     #[cfg(target_os = "windows")]
     #[test]
     fn conpty_shell_produces_output() {
+        let _guard = exclusive_conpty_test();
         use std::io::Read;
         use std::sync::mpsc;
         let pty_system = native_pty_system();
@@ -810,6 +815,7 @@ mod tests {
     #[cfg(target_os = "windows")]
     #[test]
     fn conpty_cmd_produces_prompt_beyond_control_bytes() {
+        let _guard = exclusive_conpty_test();
         use std::io::Read;
         use std::sync::mpsc;
         let pty_system = native_pty_system();
@@ -860,6 +866,7 @@ mod tests {
     #[cfg(target_os = "windows")]
     #[test]
     fn conpty_pwsh_prompt_produces_output_beyond_cursor_query() {
+        let _guard = exclusive_conpty_test();
         use std::io::{Read, Write};
         use std::sync::mpsc;
         use std::time::{Duration, Instant};
@@ -937,6 +944,7 @@ mod tests {
     #[cfg(target_os = "windows")]
     #[test]
     fn conpty_shell_does_not_spawn_legacy_child_conhost() {
+        let _guard = exclusive_conpty_test();
         use std::io::Read;
         use std::sync::mpsc;
         let pty_system = native_pty_system();
@@ -980,6 +988,7 @@ mod tests {
     #[cfg(target_os = "windows")]
     #[test]
     fn kill_reaps_conpty_host_before_next_spawn() {
+        let _guard = exclusive_conpty_test();
         let mut manager = PtyManager::new();
         let before = conpty_host_children_of_current_process();
         let (old_pty, old_session) = manager
@@ -1052,6 +1061,7 @@ mod tests {
     #[cfg(target_os = "windows")]
     #[test]
     fn shutdown_reaps_every_owned_pty_and_conpty_host() {
+        let _guard = exclusive_conpty_test();
         let mut manager = PtyManager::new();
         let before = conpty_host_children_of_current_process();
         let mut child_pids = Vec::new();

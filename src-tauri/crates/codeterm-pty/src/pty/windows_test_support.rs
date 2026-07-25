@@ -1,5 +1,16 @@
 use std::collections::HashSet;
+use std::io::Read;
+use std::process::Stdio;
 use std::time::Duration;
+
+use wait_timeout::ChildExt;
+
+// Hosts are attributed by parent PID, which is the whole test process, so a
+// concurrent test's ConPTY would miscount as this one's. Hold it while observing.
+pub(super) fn exclusive_conpty_test() -> parking_lot::MutexGuard<'static, ()> {
+    static LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+    LOCK.lock()
+}
 
 pub(super) fn legacy_conhost_children(parent_pid: u32) -> Vec<u32> {
     let script = format!(
@@ -50,6 +61,8 @@ fn run_process_query(script: &str) -> HashSet<u32> {
         .collect()
 }
 
+// cmd.output() waits for the pipe to close, and CreateProcess can leak our
+// write-end into a concurrent ConPTY child, so wait and drain are both bounded.
 fn run_powershell(script: &str) -> Option<std::process::Output> {
     let mut cmd = std::process::Command::new("powershell.exe");
     cmd.args([
@@ -60,5 +73,47 @@ fn run_powershell(script: &str) -> Option<std::process::Output> {
         script,
     ]);
     codeterm_util::process_util::no_window_std(&mut cmd);
-    cmd.output().ok()
+    let mut child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .ok()?;
+
+    let (out_tx, out_rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    let (err_tx, err_rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    let mut stdout = child.stdout.take()?;
+    let mut stderr = child.stderr.take()?;
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stdout.read_to_end(&mut buf);
+        let _ = out_tx.send(buf);
+    });
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stderr.read_to_end(&mut buf);
+        let _ = err_tx.send(buf);
+    });
+
+    let status = match child.wait_timeout(Duration::from_secs(10)).ok()? {
+        Some(status) => status,
+        None => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+    };
+
+    // Short shared drain deadline: a leaked handle means the pipe may never
+    // close on its own, so this returns whatever arrived rather than blocking.
+    let deadline = std::time::Instant::now() + Duration::from_millis(500);
+    let recv_until = |rx: &std::sync::mpsc::Receiver<Vec<u8>>| {
+        let budget = deadline.saturating_duration_since(std::time::Instant::now());
+        rx.recv_timeout(budget).unwrap_or_default()
+    };
+    Some(std::process::Output {
+        status,
+        stdout: recv_until(&out_rx),
+        stderr: recv_until(&err_rx),
+    })
 }
