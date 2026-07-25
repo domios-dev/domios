@@ -27,7 +27,7 @@ eq(inv?.positionals, ["Понял, буду"], "send positional payload");
 
 eq(recognize('codeterm agent spawn claude --task "go"')?.path, ["agent", "spawn"], "agent spawn path");
 eq(recognize("CODETERM_API_PORT=7686 codeterm tab list")?.path, ["tab", "list"], "env-prefix stripped");
-eq(recognize("cd frontend && codeterm agent reports")?.path, ["agent", "reports"], "cd-prefix chain strips to codeterm segment");
+eq(recognize("cd frontend && codeterm agent report")?.path, ["agent", "report"], "cd-prefix chain strips to codeterm segment");
 eq(
   recognize('cd /d/Developer/codeterm\ncodeterm agent report --status in_review --sha abc123 "done" 2>&1 | tail -3')?.path,
   ["agent", "report"],

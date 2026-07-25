@@ -581,27 +581,28 @@ mod tests {
     #[tokio::test]
     async fn mesh_connect_peer_already_connected_returns_connected_without_sending() {
         let mesh = mesh_state();
-        let mut manager = mesh.lock();
-        manager.paired_peers.insert(
-            PEER_ID.to_string(),
-            crate::mesh::types::PairedPeer {
-                instance_id: PEER_ID.to_string(),
-                instance_name: "peer".to_string(),
-                addresses: vec![],
-                api_port: 7685,
-                public_key: "key".to_string(),
-                paired_at: "now".to_string(),
-                last_seen: None,
-                online: true,
-                is_primary: false,
-                access_level: crate::mesh::types::AccessLevel::Full,
-                version: None,
-                https_url: None,
-                consecutive_misses: 0,
-                last_active_ms: None,
-            },
-        );
-        drop(manager);
+        {
+            let mut manager = mesh.lock();
+            manager.paired_peers.insert(
+                PEER_ID.to_string(),
+                crate::mesh::types::PairedPeer {
+                    instance_id: PEER_ID.to_string(),
+                    instance_name: "peer".to_string(),
+                    addresses: vec![],
+                    api_port: 7685,
+                    public_key: "key".to_string(),
+                    paired_at: "now".to_string(),
+                    last_seen: None,
+                    online: true,
+                    is_primary: false,
+                    access_level: crate::mesh::types::AccessLevel::Full,
+                    version: None,
+                    https_url: None,
+                    consecutive_misses: 0,
+                    last_active_ms: None,
+                },
+            );
+        }
         let result = connect_peer_with_sender(mesh, PEER_ID.to_string(), |_, _, _| async {
             panic!("paired peer must not send")
         })

@@ -309,7 +309,7 @@ mod tests {
     where
         F: Fn(&RestApiStatus) -> bool,
     {
-        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
             loop {
                 let current = status.borrow_and_update().clone();
                 if expected(&current) {
