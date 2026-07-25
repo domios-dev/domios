@@ -240,13 +240,7 @@ fn alternate_screen_composer_proves_provider_readiness_without_text_patterns() {
 // ---------------------------------------------------------------------------
 // routability_wait_tests
 //
-// The predicate mirrors `await_pane_routable_blocking`:
-//   agent_type.is_some()
-//   && agent_session_id.is_some()
-//   && exit_suspected_at.is_none()
-//   && boot_stage == AgentReady
-//
-// UI mount state is not part of backend routability.
+// The wait and delivery predicates must remain identical.
 // ---------------------------------------------------------------------------
 
 fn fully_routable_pane() -> (MultiplexerState, String) {
@@ -262,13 +256,7 @@ fn fully_routable_pane() -> (MultiplexerState, String) {
 
 /// Mirrors the exact predicate `await_pane_routable_blocking` evaluates.
 fn is_pane_routable_for_send(pane: &crate::multiplexer::types::Pane) -> bool {
-    pane.agent_type.is_some()
-        && pane.agent_session_id.is_some()
-        && pane.exit_suspected_at.is_none()
-        && matches!(
-            pane.boot_stage,
-            Some(codeterm_types::pty::BootStage::AgentReady)
-        )
+    optimistic_agent_pty_target(pane).is_ok()
 }
 
 #[test]
@@ -324,6 +312,25 @@ fn pane_with_no_boot_stage_is_not_routable() {
     pane.boot_stage = None;
     let pane = _mux.get_pane(&pane_id).unwrap();
     assert!(!is_pane_routable_for_send(pane));
+}
+
+#[test]
+fn restored_working_tab_is_routable_after_daemon_restart() {
+    use crate::agent::offline_state_classifier::{AgentLiveState, PaneVerdict, TimelineState};
+
+    let (mut mux, pane_id) = fully_routable_pane();
+    let pane = mux.get_pane_mut(&pane_id).unwrap();
+    pane.boot_stage = Some(codeterm_types::pty::BootStage::PtyReattached);
+    pane.agent_state = Some(
+        PaneVerdict {
+            state: TimelineState::Working,
+            subtype: None,
+        }
+        .into(),
+    );
+    let _typed: &AgentLiveState = pane.agent_state.as_ref().unwrap();
+
+    assert!(is_pane_routable_for_send(pane));
 }
 
 #[test]

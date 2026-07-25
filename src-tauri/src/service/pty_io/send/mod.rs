@@ -706,15 +706,10 @@ impl ServiceContext {
         }
         let ready =
             crate::service::boot_wait::wait_until(std::time::Instant::now() + timeout, || {
-                self.mux.read().get_pane(pane_id).map_or(false, |pane| {
-                    pane.agent_type.is_some()
-                        && pane.agent_session_id.is_some()
-                        && pane.exit_suspected_at.is_none()
-                        && matches!(
-                            pane.boot_stage,
-                            Some(codeterm_types::pty::BootStage::AgentReady)
-                        )
-                })
+                self.mux
+                    .read()
+                    .get_pane(pane_id)
+                    .is_some_and(|pane| optimistic_agent_pty_target(pane).is_ok())
             });
         if ready {
             Ok(())
