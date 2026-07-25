@@ -8,7 +8,7 @@ import { ToolOutputContent } from "../ToolOutputContent";
 import { TabListCard } from "./TabListCard";
 import {
   Activity, Bot, BookOpen, Brain, CalendarClock, CheckCircle2, CircleX, Clock3, Coffee,
-  FilePenLine, FilePlus2, FileText, FolderKanban, GitBranch, Grid3X3, History, Inbox,
+  FilePenLine, FilePlus2, FileText, FolderKanban, GitBranch, Grid3X3, History,
   Link2, ListChecks, ListTree, Map, MessageSquareText, MousePointer2, Network, Play,
   Puzzle, RadioTower, ScrollText, Search, Send, Sparkles, SquarePlus, Sunrise, Terminal, Users,
 } from "lucide-react";
@@ -75,7 +75,6 @@ function actionVisual(invocation: NonNullable<ReturnType<typeof recognize>>): To
     "agent spawn": { glyph: Bot, color: "var(--ct-magenta)", label: "spawn" },
     "orchestrator status": { glyph: Users, color: "var(--ct-magenta)", label: "agents" },
     "agent report": { glyph: MessageSquareText, color: "var(--ct-magenta)", label: "report" },
-    "agent reports": { glyph: Inbox, color: "var(--ct-magenta)", label: "reports" },
     "mesh peers": { glyph: Network, color: "var(--ct-cyan)", label: "peers" },
     "mem save": { glyph: Brain, color: "var(--ct-yellow)", label: "mem save" },
     "mem search": { glyph: Search, color: "var(--ct-yellow)", label: "mem search" },

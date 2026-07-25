@@ -194,7 +194,6 @@ const catalogVisuals: Array<[string, string]> = [
   ["codeterm plan state pl_d17yp2", "lucide-activity"],
   ["codeterm agent spawn codex --role Worker", "lucide-bot"],
   ["codeterm agent report --status in_review", "lucide-message-square-text"],
-  ["codeterm agent reports --tab e3fa0754", "lucide-inbox"],
   ["codeterm orchestrator status", "lucide-users"],
   ['codeterm send --tab e3fa0754 "hi"', "lucide-send"],
   ['codeterm send --mesh host "go"', "lucide-radio-tower"],
