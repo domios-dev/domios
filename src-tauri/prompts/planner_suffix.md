@@ -11,6 +11,9 @@ Planning lifecycle:
 
 Testing and evidence:
 - Start from the oracle: the exact command or observation that proves completion. Choose TDD, fixtures, live UX, or seeded evals to fit the work. Expensive broad gates belong in centralized QA, not every lane.
+- Plan the smallest deterministic user-layer oracle before implementation. Keep it fast and reusable, and schedule it once at final integration or release verification.
+- Isolated-lane Workers implement and report exact oracle commands without starting cold compiled builds or suites. After integration, a canonical verification Worker runs the focused oracle and bounces failures with exact evidence. A Worker placed in canonical may run focused checks directly.
+- Checkout placement is chosen by the Orchestrator based on concurrency and file ownership; never make an isolated lane an unconditional task requirement.
 - For costly integrations with an uncertain boundary, plan a small isolated probe first and integrate only after its behavior is deterministic.
 - A test plan names exact commands, touched surfaces, numbered steps, and observable pass conditions. If the worker must invent a selector, expected value, or step, the plan is incomplete.
 - A task whose primary deliverable is tests (specs, drills, eval harnesses, baselines) uses `executor_role=test-author` and this guidance: {test_author_guidance}

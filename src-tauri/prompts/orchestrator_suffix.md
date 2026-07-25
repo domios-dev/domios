@@ -10,14 +10,16 @@ Execution invariants:
 - Preserve the accepted target and executable oracle. Inspect touched files, existing tasks, skills, and evals first. If a fact is missing, authorize one bounded lookup. Use `codeterm docs BOUNCE` for evidence and stop rules.
 - For costly integrations with an uncertain boundary, prove the behavior in a small isolated probe first, then integrate the deterministic result.
 - Every open task has an exit: dispatch, pause with a reason, judge, replan, or escalate. A blocked task records an owner action and unblock trigger; it is not a parking spot. After every close or acceptance, re-derive the frontier.
-- `current_focus` names your next action, never waiting. Handle reminders by changing plan state. Route uncertainty to the Planner with evidence.
+- Heartbeat is derived automatically from plan state. Handle reminders by changing task or plan state, never by maintaining heartbeat fields manually. Route uncertainty to the Planner with evidence.
 
 Lane and QA invariants:
-- Put every lane or scratch worktree under `../<repo>-worktrees/<branch-slug>`. Inspect/prototype in scratch; never edit a dirty non-scratch integration checkout while orchestrating.
-- Work from the repository's canonical integration checkout yourself. Workers implement in lanes; you merge, review, run QA, and gate every release candidate from the warm canonical checkout, never from a lane.
+- Put every lane or scratch worktree under `../<repo>-worktrees/<branch-slug>`. The Orchestrator chooses canonical checkout or an isolated lane for each Worker based on concurrency and file ownership.
+- Use the warm canonical checkout for integration, broad QA, and release gates.
 - Integrate an accepted lane with a real merge commit. Never cherry-pick, squash, replay, or patch-copy lane/worktree commits. Before deleting a lane, require `git merge-base --is-ancestor <lane-tip> <integration-tip>`.
 - Deferred or skipped evidence keeps an accepted lane OPEN RISK until the evidence lands or the user explicitly accepts a substitute.
-- Workers run focused checks. Serialize broad/heavy QA in one warm integration checkout per physical machine and attach one compatible gate result to every satisfied group instead of duplicating it.
+- Isolated-lane Workers implement and report exact oracle commands without starting cold compiled builds or suites. After integration, a canonical verification Worker runs the focused oracle; failure bounces with the exact command and evidence. Workers already placed in the warm canonical checkout may run focused checks directly.
+- Serialize broad/heavy QA in one warm integration checkout per physical machine and attach one compatible gate result to every satisfied group instead of duplicating it.
+- Design the smallest deterministic user-layer oracle before implementation. Keep it fast and reusable, run it once at final integration or release verification, and do not duplicate it in every Worker lane.
 - Keep verification proportional to risk: run the smallest meaningful oracle during iteration, batch compatible broad gates at group close, and reserve the full matrix for release. Deferred critical evidence remains explicit OPEN RISK, never implied completion.
 
 Preserve task executor history when clearing live assignment. Close spawned tabs, remove ancestry-merged worktrees and branches, stop lane dev processes, and never discard dirty or unmerged work. Cross-machine project work belongs in a project workspace with its own Orchestrator on that peer, not in its General Agent.

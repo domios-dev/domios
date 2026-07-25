@@ -67,11 +67,6 @@ fn resolve_dispatch_lane(
     task_lane: &TaskLaneMetadata,
 ) -> Result<DispatchLaneResolution, JsonRpcError> {
     if let Some(explicit) = explicit_cwd {
-        if crate::service::ServiceContext::paths_equal(explicit, canonical_cwd) {
-            return Err(invalid_dispatch(
-                "an explicit cwd may not be the plan canonical checkout",
-            ));
-        }
         if task_lane.worktree_path.as_deref().is_some_and(|recorded| {
             !crate::service::ServiceContext::paths_equal(explicit, recorded)
         }) {
@@ -117,6 +112,16 @@ fn lane_metadata_for_dispatch(
     provenance: &WorkerLaneProvenance,
 ) -> TaskLaneMetadata {
     let mut lane = original.clone();
+    if crate::service::ServiceContext::paths_equal(
+        &provenance.worktree_path,
+        &provenance.canonical_cwd,
+    ) {
+        lane.worktree_path = None;
+        lane.branch = None;
+        lane.base = None;
+        lane.cleanup_status = None;
+        return lane;
+    }
     lane.worktree_path = Some(provenance.worktree_path.clone());
     lane.branch = Some(provenance.branch.clone());
     lane.base = Some(provenance.base.clone());
@@ -637,9 +642,12 @@ pub(super) fn dispatch(
     };
 
     let lane_label = format!("{plan_id}-{task_id}");
-    let provisioned_lane = svc
-        .provision_worker_lane_for_spawn(&mut spawn_params, &lane_label)
-        .map_err(|error| dispatch_failed("lane_provision", error))?;
+    let provisioned_lane = if lane_resolution.existing.is_some() {
+        None
+    } else {
+        svc.provision_worker_lane_for_spawn(&mut spawn_params, &lane_label)
+            .map_err(|error| dispatch_failed("lane_provision", error))?
+    };
     let initial_provenance = match provisioned_lane.as_ref() {
         Some(lane) => lane.verify(),
         None => lane_resolution

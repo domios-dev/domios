@@ -189,9 +189,6 @@ pub(crate) fn verify_worker_lane(
 ) -> Result<WorkerLaneProvenance, String> {
     let canonical = canonical_path(canonical_cwd)?;
     let worktree = canonical_path(worktree_path)?;
-    if canonical == worktree {
-        return Err("worker lane must not be the canonical checkout".into());
-    }
     if !worktree.is_dir() {
         return Err(format!(
             "worker lane worktree does not exist: {}",

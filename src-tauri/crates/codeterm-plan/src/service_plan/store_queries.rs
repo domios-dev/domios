@@ -181,7 +181,12 @@ impl PlanStore {
             if pending == 0 {
                 continue;
             }
-            return Some((plan.id.clone(), pending, plan.heartbeat.active_lanes.len()));
+            let live_lanes = plan
+                .tasks
+                .iter()
+                .filter(|task| super::task_attempts::live_attempt_count(task) > 0)
+                .count();
+            return Some((plan.id.clone(), pending, live_lanes));
         }
         None
     }

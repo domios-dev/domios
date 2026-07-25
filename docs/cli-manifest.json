@@ -4328,62 +4328,6 @@
           "args": [],
           "subcommands": [
             {
-              "name": "set",
-              "about": "Set the heartbeat focus, active lanes, and rules carried into auto-reinjection",
-              "aliases": [],
-              "args": [
-                {
-                  "name": "clear-lanes",
-                  "positional": false,
-                  "value_name": "CLEAR_LANES",
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                },
-                {
-                  "name": "clear-rules",
-                  "positional": false,
-                  "value_name": "CLEAR_RULES",
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                },
-                {
-                  "name": "focus",
-                  "positional": false,
-                  "value_name": "FOCUS",
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                },
-                {
-                  "name": "lane",
-                  "positional": false,
-                  "value_name": "LANES",
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                },
-                {
-                  "name": "plan",
-                  "positional": false,
-                  "value_name": "PLAN",
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                },
-                {
-                  "name": "rule",
-                  "positional": false,
-                  "value_name": "RULES",
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                }
-              ],
-              "subcommands": []
-            },
-            {
               "name": "show",
               "about": "Show the current heartbeat and learnings",
               "aliases": [],

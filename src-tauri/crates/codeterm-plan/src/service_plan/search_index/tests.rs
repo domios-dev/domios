@@ -5,7 +5,7 @@ use std::time::Duration;
 use rusqlite::params;
 
 use super::*;
-use crate::plan::{AgentRef, OrchestratorRef, PlanMode, PlannerRef, TaskStatus};
+use crate::plan::{AgentRef, OrchestratorRef, PlannerRef, TaskStatus};
 use crate::service_plan::ports::PlanIndexQuery;
 use crate::service_plan::{task_queries::TaskListFilter, NewTask, PlanStore};
 
@@ -749,43 +749,6 @@ fn locked_task_take_succeeds_after_verified_assignment() {
         .unwrap();
     assert_eq!(task.assigned_pane_id.as_deref(), Some("pane_take"));
     assert_eq!(task.taken_by_role.as_deref(), Some("worker"));
-    locker.join().unwrap();
-}
-
-#[test]
-fn locked_heartbeat_set_succeeds_after_safe_readback() {
-    let (root, store) = store_and_root();
-    let plan = store
-        .create_plan(
-            "Heartbeat lock".into(),
-            root.path().display().to_string(),
-            OrchestratorRef::default(),
-            vec![],
-            1,
-        )
-        .unwrap();
-    store.set_mode(&plan.id, PlanMode::Execution, 2).unwrap();
-    let locker = hold_plan_index_lock(root.path());
-
-    let result = store
-        .set_heartbeat(
-            Some(&plan.id),
-            None,
-            None,
-            Some("Keep mirror failures non-fatal"),
-            Some(vec!["backend cli".into()]),
-            Some(vec!["read back before retry".into()]),
-            false,
-            false,
-            3,
-        )
-        .unwrap();
-    assert_eq!(
-        result.heartbeat.current_focus.as_deref(),
-        Some("Keep mirror failures non-fatal")
-    );
-    assert_eq!(result.heartbeat.active_lanes, vec!["backend cli"]);
-    assert_eq!(result.heartbeat.rules, vec!["read back before retry"]);
     locker.join().unwrap();
 }
 

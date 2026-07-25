@@ -69,21 +69,6 @@ pub enum OrchestratorHeartbeatAction {
         #[arg(long, env = "CODETERM_PLAN_ID")]
         plan: Option<String>,
     },
-    /// Set the heartbeat focus, active lanes, and rules carried into auto-reinjection
-    Set {
-        #[arg(long, env = "CODETERM_PLAN_ID")]
-        plan: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
-        focus: Option<String>,
-        #[arg(long = "lane", allow_hyphen_values = true)]
-        lanes: Vec<String>,
-        #[arg(long = "rule", allow_hyphen_values = true)]
-        rules: Vec<String>,
-        #[arg(long)]
-        clear_lanes: bool,
-        #[arg(long)]
-        clear_rules: bool,
-    },
 }
 
 #[cfg(test)]
@@ -92,7 +77,7 @@ mod tests {
 
     use crate::args::cli::{Cli, Commands};
 
-    use super::{OrchestratorAction, OrchestratorHeartbeatAction};
+    use super::OrchestratorAction;
 
     #[test]
     fn status_parses_plan_and_pane() {
@@ -164,37 +149,15 @@ mod tests {
     }
 
     #[test]
-    fn heartbeat_set_parses_clear_lanes_with_lane_for_cli_validation() {
-        let parsed = Cli::try_parse_from([
+    fn heartbeat_set_is_not_a_public_command() {
+        assert!(Cli::try_parse_from([
             "codeterm",
             "orchestrator",
             "heartbeat",
             "set",
             "--plan",
             "pl_1",
-            "--clear-lanes",
-            "--lane",
-            "L2",
         ])
-        .expect("heartbeat set parses");
-        match parsed.command {
-            Commands::Orchestrator {
-                action:
-                    OrchestratorAction::Heartbeat {
-                        action:
-                            OrchestratorHeartbeatAction::Set {
-                                plan,
-                                lanes,
-                                clear_lanes,
-                                ..
-                            },
-                    },
-            } => {
-                assert_eq!(plan.as_deref(), Some("pl_1"));
-                assert_eq!(lanes, vec!["L2"]);
-                assert!(clear_lanes);
-            }
-            _ => panic!("expected heartbeat set"),
-        }
+        .is_err());
     }
 }

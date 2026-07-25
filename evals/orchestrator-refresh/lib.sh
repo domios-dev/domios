@@ -49,10 +49,3 @@ wait_for_marker() {
   echo "TIMEOUT waiting for marker: $pat" >&2
   return 1
 }
-
-# Current heartbeat current_focus for a plan (empty if none).
-plan_focus() {
-  dc orchestrator heartbeat show --plan "$1" --json 2>/dev/null \
-    | python -c "import json,sys;
-d=json.load(sys.stdin); print((d.get('heartbeat') or {}).get('current_focus','') or '')" 2>/dev/null
-}
