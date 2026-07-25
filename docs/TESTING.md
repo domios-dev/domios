@@ -35,7 +35,7 @@ Is it pure logic (parsing, formatting, state machine)?
 ```
 
 Rule of thumb: every bug fix gets a test at the lowest layer that can reproduce
-it. A cross-pane rendering bug whose root cause is a marker-parsing function gets
+it. A cross-tab rendering bug whose root cause is a marker-parsing function gets
 a unit test on the parser plus, at most, one golden test for the end-to-end path.
 
 ## Runbook
@@ -124,7 +124,7 @@ TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --l
 
 ## E2E tests
 
-Test full stack via REST API against a running dev instance. Create panes, send text, check output, verify prompt lifecycle.
+Test full stack via REST API against a running dev instance. Create tabs, send text, check output, verify prompt lifecycle.
 `./build.sh e2e` skips `llm` tests by default; run `./build.sh e2e:llm` deliberately because that tier starts real model agents and spends provider tokens.
 
 **macOS/Linux:**
@@ -155,14 +155,14 @@ CODETERM_API_URL=http://HOST:PORT CODETERM_API_TOKEN=TOKEN pytest tests/e2e/ -v
 |------|-------|------|
 | `test_health.py` | 2 | API health, identify |
 | `test_workspaces.py` | 4 | Workspace CRUD |
-| `test_panes.py` | 6 | Pane create, split, close, rename |
+| `test_panes.py` | 6 | Tab create, split, close, rename |
 | `test_pty_io.py` | 13 | PTY read/write, exec, streaming |
 | `test_env.py` | 4 | CODETERM_PANE_ID env injection |
 | `test_notifications.py` | 3 | Notification create, list |
 | `test_cron.py` | 5 | Cron CRUD |
 | `test_agents.py` | 5 | Agent hierarchy |
 | `test_hooks.py` | 10 | Hook endpoints, prompt parsing accuracy, full approval flow |
-| `test_multi_pane.py` | 5 | Multi-pane prompt isolation |
+| `test_multi_pane.py` | 5 | Multi-tab prompt isolation |
 | `test_attachments.py` | 3 | File attachment via API |
 | `test_logging.py` | 4 | Log file, levels |
 | `test_claude_spawn.py` | 8 | Real Claude spawn (**slow**, 30-90s each) |
@@ -294,7 +294,7 @@ The permission prompt detection pipeline detects when AI agents show interactive
 
 ### State machine: PromptDetector
 
-Each pane has independent state:
+Each tab has independent state:
 
 ```
 Idle ──[prompt detected]──> Active ──[user responds]──> Cooldown ──[500ms]──> Idle

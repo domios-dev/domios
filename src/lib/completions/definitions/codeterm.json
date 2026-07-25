@@ -11,15 +11,15 @@
       { "name": "close", "description": "Close workspace" },
       { "name": "move-tab", "description": "Move tab between workspaces" }
     ]},
-    { "name": "pane", "description": "Pane management", "subcommands": [
-      { "name": "list", "description": "List panes" },
-      { "name": "focus", "description": "Focus pane" },
-      { "name": "close", "description": "Close pane" },
-      { "name": "split", "description": "Split pane" },
+    { "name": "pane", "description": "Tab management", "subcommands": [
+      { "name": "list", "description": "List tabs" },
+      { "name": "focus", "description": "Focus tab" },
+      { "name": "close", "description": "Close tab" },
+      { "name": "split", "description": "Split tab" },
       { "name": "rename", "description": "Rename pane/tab" },
       { "name": "resize", "description": "Resize terminal" }
     ]},
-    { "name": "send-text", "description": "Send text to pane" },
+    { "name": "send-text", "description": "Send text to tab" },
     { "name": "browser", "description": "Browser panel", "subcommands": [
       { "name": "open", "description": "Open URL" }
     ]},

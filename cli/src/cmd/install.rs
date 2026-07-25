@@ -128,7 +128,7 @@ pub fn run_install_from_file(
     eprintln!("[install --from-file] Log:       {}", log_path.display());
     if continue_prompt.is_some() && continue_pane.is_some() {
         eprintln!(
-            "[install --from-file] Continue: will deliver prompt to pane {} after restart",
+            "[install --from-file] Continue: will deliver prompt to tab {} after restart",
             continue_pane.unwrap_or("?")
         );
     } else if continue_prompt.is_some() {
@@ -199,7 +199,7 @@ pub fn run_install_from_file(
              \x20 sleep 1\n\
              done\n\
              echo '[self-install] daemon healthy; awaiting acknowledged continuation submit'\n\
-             if \"{cli}\" send --tab {pane} --from-file \"{file}\"; then\n\
+            if \"{cli}\" send --tab {pane} --from-file \"{file}\"; then\n\
              \x20 echo '[self-install] continue prompt submission confirmed'\n\
              \x20 rm -f \"{file}\"\n\
              else\n\
@@ -274,11 +274,11 @@ pub fn run_install_from_file(
     eprintln!("[install --from-file] Log:    {}", log.display());
     match (continue_prompt.is_some(), pane.is_some()) {
         (true, true) => eprintln!(
-            "[install --from-file] Continue: prompt will reach pane {} after restart",
+            "[install --from-file] Continue: prompt will reach tab {} after restart",
             pane.as_deref().unwrap_or("?")
         ),
         (true, false) => {
-            eprintln!("[install --from-file] WARN: --continue-prompt set but no pane — it will be DROPPED")
+            eprintln!("[install --from-file] WARN: --continue-prompt set but no --continue-tab / $CODETERM_PANE_ID — it will be DROPPED")
         }
         _ => {}
     }

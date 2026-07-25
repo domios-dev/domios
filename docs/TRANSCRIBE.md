@@ -11,7 +11,7 @@ platform-specific, and multi-GB. Keep it a daemon, point at it by URL.
 | Direction | What it is | Owner |
 |-----------|-----------|-------|
 | **Inbound** | Telegram/Discord voice message → text before it reaches the GA | already native (`voice_transcribe.rs`) |
-| **Outbound** | Local mic → text injected into a pane (dictation) | external driver today; native is planned |
+| **Outbound** | Local mic → text injected into a tab (dictation) | external driver today; native is planned |
 
 Both speak the **same `/transcribe` contract**, so one STT daemon serves both.
 
@@ -50,7 +50,7 @@ health_check_ttl_secs = 60
 ```
 
 When enabled, a Telegram voice/video note is transcribed before the GA sees it —
-the pane gets text, not a `file://...oga` path. Nothing to build; just point
+the tab gets text, not a `file://...oga` path. Nothing to build; just point
 `daemon_url` at a live backend.
 
 ## Standing up the STT engine (reference: local whisper)
@@ -91,7 +91,7 @@ Until native support lands, dictation is an external driver you run. Recipe:
 3. **Transcribe** — POST the WAV (or its path, if the daemon is local) to
    `/transcribe`; read `text`. Collapse whisper's internal line breaks to spaces
    (`re.sub(r"\s+", " ", text)`) so auto-submit works.
-4. **Inject into a pane** — two ways:
+4. **Inject into a tab** — two ways:
    - CLI: `codeterm send "<text>" --tab <id>` (auto-submits)
    - HTTP: `POST /api/panes/<pane_id>/send` with `Authorization: Bearer
      <service_token>` (register via `codeterm service add`, token is scoped to
@@ -99,11 +99,11 @@ Until native support lands, dictation is an external driver you run. Recipe:
 
 ### The focus caveat
 
-Targeting "the pane the user is looking at" is **not reliable today**:
+Targeting "the tab the user is looking at" is **not reliable today**:
 `codeterm tab current` is stale and `tab focus` doesn't update it (issue #123).
 Workarounds for an external driver:
-- Inject into a **fixed pane id** (`MIC_PANE`) — reliable now.
-- Or skip pane targeting entirely and type into the **focused OS window** via
+- Inject into a **fixed tab id** (`MIC_PANE`) — reliable now.
+- Or skip tab targeting entirely and type into the **focused OS window** via
   synthesized keystrokes (`keyboard.write` + an `Enter`). Works in any app
   (terminal, Paint, browser) but is app-specific on submit and fights held
   hotkey modifiers — release ctrl/alt/shift before typing, and pause ~150 ms
@@ -122,11 +122,11 @@ adds first-class UX handles CodeTerm alone can provide:
   transcribes). Either CodeTerm emits a `dictation.requested {pane_id}` event a
   driver subscribes to, or config declares a `start_cmd`/`driver_url` to invoke
   (mirrors `text_hooks`).
-- **Live render**: stream partial transcripts into the focused pane's input
+- **Live render**: stream partial transcripts into the focused tab's input
   buffer as you speak, instead of a one-shot paste at the end.
-- **Lifecycle handles** for the driver: `begin(pane)` / `partial(text)` /
+- **Lifecycle handles** for the driver: `begin(tab)` / `partial(text)` /
   `commit()` / `cancel()`, plus a real recording/transcribing **state
-  indicator** (pane-border pulse / status-line glyph), not a tooltip.
+  indicator** (tab-border pulse / status-line glyph), not a tooltip.
 - **Config** `[integrations.voice_input]`: `enabled`, `hotkey`, `device`,
   `language`, `daemon_url` (defaults to `voice_transcribe`), `auto_submit`,
   `target`.
@@ -152,5 +152,5 @@ natural **Process-tier plugin** — the plugin process owns mic capture + the
 
 So: to add a new STT backend, implement `/transcribe` and point a URL at it.
 To drive dictation today, run an external driver and inject via `codeterm send` or
-the pane send API. To do it *right*, build it as a Process-tier plugin on the
+the tab send API. To do it *right*, build it as a Process-tier plugin on the
 existing plugin contract. Either way — don't put the model in the binary.

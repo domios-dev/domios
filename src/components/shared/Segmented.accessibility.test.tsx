@@ -29,14 +29,14 @@ async function main() {
         onChange={() => {}}
         data-testid="pane-mode-switch"
         data-pane-id="pane-a"
-        aria-label="Pane view"
+        aria-label="Tab view"
       />,
     );
   });
 
   const switcher = host.querySelector('[data-testid="pane-mode-switch"]');
   if (switcher?.getAttribute("role") !== "tablist") throw new Error("switch is a tablist");
-  if (switcher?.getAttribute("aria-label") !== "Pane view") throw new Error("switch is named");
+  if (switcher?.getAttribute("aria-label") !== "Tab view") throw new Error("switch is named");
   if (switcher?.getAttribute("data-pane-id") !== "pane-a") throw new Error("switch exposes pane scope");
   const chat = host.querySelector('[role="tab"][data-value="chat"]');
   const terminal = host.querySelector('[role="tab"][data-value="terminal"]');
