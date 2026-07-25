@@ -162,7 +162,7 @@ pub(super) fn optimistic_agent_pty_target(
 ) -> Result<(String, String), String> {
     // chat_view is UI mount state, not backend routability — a background or
     // hidden tab with a live agent PTY/session must still accept input.
-    let routable = pane.agent_type.is_some() && pane.exit_suspected_at.is_none();
+    let routable = pane.agent_type.is_some();
     if !routable {
         return Err("agent_unavailable: recipient agent is not accepting input".into());
     }
