@@ -837,20 +837,6 @@ mod tests {
     }
 
     #[test]
-    fn busy_provider_queue_key_is_atomic_with_the_paste() {
-        let io = TuiModel::ingesting();
-        let result =
-            run_with_submit_key(&io, "queued follow-up", true, b"\t", tui(), opts()).unwrap();
-
-        assert!(result.submit_observed);
-        assert!(!io.turn_started());
-        assert_eq!(
-            &*io.writes.borrow(),
-            &["paste:queued follow-up", "tab", "tab", "tab"]
-        );
-    }
-
-    #[test]
     fn working_provider_recovers_swallowed_enter_when_draft_leaves_composer() {
         let io = TuiModel::already_working_and_swallows_first_enter();
         let result = run(&io, "team bootstrap", true, tui(), opts()).unwrap();

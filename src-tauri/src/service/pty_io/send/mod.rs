@@ -387,40 +387,17 @@ impl ServiceContext {
             return self.write_paste_optimistic(pty_id, text, enter);
         };
         let text = sanitize_agent_prompt_input(text);
-        let (strategy, busy_submit) = self
+        let strategy = self
             .agent_registry
-            .with_provider(&agent_id, |provider| {
-                (
-                    provider.verify_submit_strategy(),
-                    provider.busy_submit_strategy(),
-                )
-            })
-            .unwrap_or((
-                crate::agent::provider::VerifySubmitStrategy::None,
-                crate::agent::provider::BusySubmitStrategy::SubmitNormally,
-            ));
-        let is_working = matches!(
-            self.agent_tracker.lock().get_status_if_tracked(pty_id),
-            Some(crate::agent::status::PaneStatus::Working)
-        );
-        let submit_key = if enter && is_working {
-            match busy_submit {
-                crate::agent::provider::BusySubmitStrategy::Key(key) => {
-                    crate::agent::keys::action_key_bytes(&key).ok_or_else(|| {
-                        format!("provider declared unknown busy submit key: {key}")
-                    })?
-                }
-                crate::agent::provider::BusySubmitStrategy::SubmitNormally => b"\r".to_vec(),
-            }
-        } else {
-            b"\r".to_vec()
-        };
+            .with_provider(&agent_id, |provider| provider.verify_submit_strategy())
+            .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
+        let submit_key: &[u8] = b"\r";
         super::submit_transaction::submit_text_with_key(
             self,
             pty_id,
             &text,
             enter,
-            &submit_key,
+            submit_key,
             strategy,
             crate::service::inject_verify::VerifyOpts {
                 require_prompt_first: false,
