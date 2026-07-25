@@ -1,10 +1,10 @@
 use serde_json::Value;
+use std::panic::{self, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 const DIFF_REFRESH_AFTER: Duration = Duration::from_secs(300);
-const DIFF_REFRESH_WAIT: Duration = Duration::from_secs(10);
 
 #[derive(Default)]
 struct DiffRefreshState {
@@ -97,11 +97,12 @@ impl DiffCache {
                 .and_then(|state| Some(state.running_generation).filter(|g| *g != 0));
         }
 
+        let is_stub = snapshot.is_none();
         let value = match snapshot {
             Some((_, v)) => v,
             None => serde_json::json!({ "diff": [], "loading": true }),
         };
-        (value, matches!(snapshot, None), generation)
+        (value, is_stub, generation)
     }
 
     fn run_refresh_with_generation<P>(&self, produce: P, generation: u64)
@@ -109,35 +110,49 @@ impl DiffCache {
         P: Fn() -> Result<Value, String>,
     {
         let started = Instant::now();
-        let value = match produce() {
-            Ok(v) => v,
-            Err(e) => {
-                log::warn!("[plugin-diff] background refresh failed: {e}");
-                self.cache
-                    .lock()
-                    .ok()
-                    .and_then(|g| g.clone())
-                    .map(|(_, v)| v)
-                    .unwrap_or_else(|| serde_json::json!({ "diff": [], "loading": true }))
+        let produced = panic::catch_unwind(AssertUnwindSafe(&produce));
+        match produced {
+            Ok(Ok(value)) => {
+                if let Ok(mut g) = self.cache.lock() {
+                    *g = Some((Instant::now(), value));
+                }
+                log::debug!(
+                    "[plugin-diff] background refresh ok in {}ms",
+                    started.elapsed().as_millis()
+                );
+            }
+            Ok(Err(error)) => {
+                log::warn!("[plugin-diff] background refresh failed: {error}");
+                self.force.store(false, Ordering::SeqCst);
+                self.mark_completed(generation);
+                self.refreshing.store(false, Ordering::SeqCst);
+                return;
+            }
+            Err(payload) => {
+                let reason = if let Some(reason) = payload.downcast_ref::<String>() {
+                    reason.to_string()
+                } else if let Some(reason) = payload.downcast_ref::<&'static str>() {
+                    reason.to_string()
+                } else {
+                    "diff refresh panic".to_string()
+                };
+                log::warn!("[plugin-diff] background refresh panicked: {reason}");
+                self.force.store(false, Ordering::SeqCst);
+                self.mark_completed(generation);
+                self.refreshing.store(false, Ordering::SeqCst);
+                return;
             }
         };
-        if let Ok(mut g) = self.cache.lock() {
-            *g = Some((Instant::now(), value));
-        }
         self.force.store(false, Ordering::SeqCst);
-        log::debug!(
-            "[plugin-diff] background refresh ok in {}ms",
-            started.elapsed().as_millis()
-        );
         self.mark_completed(generation);
         self.refreshing.store(false, Ordering::SeqCst);
     }
 
-    fn run_refresh<P>(&self, produce: P)
+    fn run_refresh<P>(&self, produce: P, generation: u64)
     where
         P: Fn() -> Result<Value, String>,
     {
-        self.run_refresh_with_generation(produce, self.next_generation())
+        self.run_refresh_with_generation(produce, generation)
     }
 
     fn wait_for_completion(&self, generation: u64) -> bool {
@@ -148,21 +163,12 @@ impl DiffCache {
             Ok(state) => state,
             Err(_) => return false,
         };
-        let deadline = Instant::now() + DIFF_REFRESH_WAIT;
         while state.completed_generation < generation {
-            let now = Instant::now();
-            if now >= deadline {
-                return false;
-            }
-            let timeout = deadline.saturating_duration_since(now);
-            match self.refresh_cond.wait_timeout(state, timeout) {
-                Ok((next_state, timed_out)) => {
+            match self.refresh_cond.wait(state) {
+                Ok(next_state) => {
                     state = next_state;
                     if state.completed_generation >= generation {
                         return true;
-                    }
-                    if timed_out.timed_out() {
-                        return false;
                     }
                 }
                 Err(poisoned) => {
@@ -217,15 +223,10 @@ pub(super) fn cached_diff(produce: fn() -> Result<Value, String>) -> Value {
     });
     if is_stub && generation.is_some() {
         let generation = generation.unwrap_or_default();
-        if DIFF.wait_for_completion(generation) {
-            if let Some((_, v)) = DIFF.cache.lock().ok().and_then(|g| g.clone()) {
-                return v;
-            }
+        DIFF.wait_for_completion(generation);
+        if let Some((_, v)) = DIFF.cache.lock().ok().and_then(|g| g.clone()) {
+            return v;
         }
-        log::warn!(
-            "[plugin-diff] initial channel diff refresh timed out after {:?}",
-            DIFF_REFRESH_WAIT
-        );
     }
 
     first
@@ -248,7 +249,10 @@ pub(super) fn refresh_diff_now(produce: fn() -> Result<Value, String>) -> Value 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{atomic::AtomicUsize, Arc, Barrier, Condvar, Mutex};
+    use std::sync::{
+        atomic::{AtomicBool, AtomicUsize},
+        Arc, Barrier, Condvar, Mutex,
+    };
     use std::thread;
 
     fn producer(calls: Arc<AtomicUsize>) -> impl Fn() -> Result<Value, String> + Send + 'static {
@@ -287,6 +291,20 @@ mod tests {
         notify.notify_all();
     }
 
+    fn fail_once_then_succeed(
+        calls: Arc<AtomicUsize>,
+        should_fail: Arc<AtomicBool>,
+        value: Value,
+    ) -> impl Fn() -> Result<Value, String> + Send + 'static {
+        move || {
+            calls.fetch_add(1, Ordering::SeqCst);
+            if should_fail.swap(false, Ordering::SeqCst) {
+                return Err("boom".into());
+            }
+            Ok(value.clone())
+        }
+    }
+
     #[test]
     fn fresh_cache_is_served_without_running_the_producer() {
         let dc = DiffCache::new();
@@ -296,7 +314,10 @@ mod tests {
         ));
         let calls = Arc::new(AtomicUsize::new(0));
 
-        let (out, ..) = dc.read(producer(calls.clone()), |p, _| dc.run_refresh(p));
+        let generation = dc.next_generation();
+        let (out, ..) = dc.read(producer(calls.clone()), |p, _| {
+            dc.run_refresh(p, generation)
+        });
 
         assert_eq!(out["diff"][0]["id"], "cached");
         assert_eq!(
@@ -330,7 +351,8 @@ mod tests {
         assert!(dc.wait_for_completion(generation));
 
         let (again, .., generation_second) = dc.read(producer(calls.clone()), |p, _| {
-            dc.run_refresh(p);
+            let generation = dc.next_generation();
+            dc.run_refresh(p, generation);
         });
         assert_eq!(again["diff"][0]["id"], "git");
         assert_eq!(again["diff"][0]["local_version"], "0.1.0");
@@ -371,7 +393,8 @@ mod tests {
         assert_eq!(refreshed["diff"][0]["id"], "git");
 
         let (again, .., generation_again) = dc.read(producer(calls.clone()), |p, _| {
-            dc.run_refresh(p);
+            let generation = dc.next_generation();
+            dc.run_refresh(p, generation);
         });
         assert_eq!(again["diff"][0]["id"], "git");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
@@ -390,7 +413,8 @@ mod tests {
         assert!(!dc.force.load(Ordering::SeqCst));
 
         let (again, .., generation_again) = dc.read(producer(calls.clone()), |p, _| {
-            dc.run_refresh(p);
+            let generation = dc.next_generation();
+            dc.run_refresh(p, generation);
         });
         assert_eq!(again["diff"][0]["id"], "fresh");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
@@ -438,11 +462,158 @@ mod tests {
         assert!(dc.wait_for_completion(generation));
 
         let (cached, is_stub, _) = dc.read(producer(calls), |p, _| {
-            dc.run_refresh(p);
+            let generation = dc.next_generation();
+            dc.run_refresh(p, generation);
         });
         assert_eq!(cached["diff"][0]["id"], "git");
         assert_eq!(cached["diff"][0]["drift"], "update_available");
         assert_eq!(is_stub, false);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn cold_cache_error_is_not_cached_and_retries() {
+        let dc = DiffCache::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let fail_once = Arc::new(AtomicBool::new(true));
+
+        let producer = fail_once_then_succeed(
+            calls.clone(),
+            fail_once.clone(),
+            serde_json::json!({
+                "diff": [{ "id": "refreshed" }],
+            }),
+        );
+        let (out, .., first_generation) = dc.read(producer, |p, generation| {
+            thread::spawn(move || dc.run_refresh_with_generation(p, generation));
+        });
+
+        assert_eq!(out["loading"], serde_json::json!(true));
+        assert_eq!(out["diff"], serde_json::json!([]));
+        let first_generation =
+            first_generation.expect("cold cache should start one background generation");
+        assert!(dc.wait_for_completion(first_generation));
+        assert!(
+            dc.cache.lock().unwrap().is_none(),
+            "error must not cache a fallback loading row"
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        let producer = fail_once_then_succeed(
+            calls.clone(),
+            fail_once.clone(),
+            serde_json::json!({
+                "diff": [{ "id": "refreshed" }],
+            }),
+        );
+        let (next, .., second_generation) = dc.read(producer, |p, generation| {
+            thread::spawn(move || dc.run_refresh_with_generation(p, generation));
+        });
+        assert_eq!(next["loading"], serde_json::json!(true));
+        assert_eq!(second_generation, Some(first_generation + 1));
+        assert!(dc.wait_for_completion(second_generation.unwrap()));
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        let updated = dc.cache.lock().unwrap().clone().unwrap().1;
+        assert_eq!(updated["diff"][0]["id"], "refreshed");
+    }
+
+    #[test]
+    fn panicking_producer_clears_refresh_state() {
+        let dc = DiffCache::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let calls_for_panic = calls.clone();
+        let should_panic = Arc::new(AtomicBool::new(true));
+        let panic_once = {
+            let should_panic = should_panic.clone();
+            move || {
+                calls_for_panic.fetch_add(1, Ordering::SeqCst);
+                if should_panic.swap(false, Ordering::SeqCst) {
+                    panic!("boom");
+                }
+                Ok(serde_json::json!({ "diff": [{ "id": "recovered" }] }))
+            }
+        };
+
+        let (out, .., first_generation) = dc.read(panic_once, |p, generation| {
+            thread::spawn(move || dc.run_refresh_with_generation(p, generation));
+        });
+        assert_eq!(out["loading"], serde_json::json!(true));
+        let first_generation =
+            first_generation.expect("cold cache should start one background generation");
+        assert!(dc.wait_for_completion(first_generation));
+        assert!(
+            !dc.refreshing.load(Ordering::SeqCst),
+            "panic must clear refresh flag"
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(
+            dc.cache.lock().unwrap().is_none(),
+            "panic must not cache a loading stub"
+        );
+
+        let (again, .., second_generation) = dc.read(
+            || Ok(serde_json::json!({ "diff": [{ "id": "recovered" }] })),
+            |p, generation| {
+                thread::spawn(move || dc.run_refresh_with_generation(p, generation));
+            },
+        );
+        assert_eq!(second_generation, Some(first_generation + 1));
+        assert!(dc.wait_for_completion(second_generation.unwrap()));
+        let updated = dc.cache.lock().unwrap().clone().unwrap().1;
+        assert_eq!(updated["diff"][0]["id"], "recovered");
+    }
+
+    #[test]
+    fn slow_cold_refresh_completion_is_observed() {
+        let dc = DiffCache::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let producer_started = Arc::new((Mutex::new(false), Condvar::new()));
+        let gate = Arc::new((Mutex::new(false), Condvar::new()));
+        let producer = {
+            let calls = calls.clone();
+            let producer_started = producer_started.clone();
+            let gate = gate.clone();
+            move || {
+                calls.fetch_add(1, Ordering::SeqCst);
+                let (started_lock, started_notify) = &*producer_started;
+                let mut started = started_lock.lock().unwrap();
+                *started = true;
+                started_notify.notify_all();
+                drop(started);
+
+                let (lock, notify) = &*gate;
+                let mut open = lock.lock().unwrap();
+                while !*open {
+                    open = notify.wait(open).unwrap();
+                }
+                Ok(serde_json::json!({
+                    "diff": [{
+                        "id": "git",
+                        "local_version": "0.1.0",
+                        "remote_version": "0.1.2",
+                        "drift": "update_available"
+                    }]
+                }))
+            }
+        };
+
+        let (out, .., generation) = dc.read(producer, |p, generation| {
+            thread::spawn(move || dc.run_refresh_with_generation(p, generation));
+        });
+        assert_eq!(out["loading"], serde_json::json!(true));
+        assert_eq!(out["diff"], serde_json::json!([]));
+
+        let (started_lock, started_notify) = &*producer_started;
+        let mut started = started_lock.lock().unwrap();
+        while !*started {
+            started = started_notify.wait(started).unwrap();
+        }
+        release_gate(&gate);
+        let generation = generation.expect("cold cache should start one background generation");
+        assert!(dc.wait_for_completion(generation));
+        assert_eq!(dc.wait_for_completion(generation), true);
+        let completed = dc.cache.lock().unwrap().clone().unwrap().1;
+        assert_eq!(completed["diff"][0]["id"], "git");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 }
