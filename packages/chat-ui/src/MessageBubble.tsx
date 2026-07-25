@@ -111,7 +111,7 @@ function recordBubbleRender(id: string): void {
 
 export const MessageBubble = React.memo(function MessageBubble({ message, item, origin, onOriginClick, resolvePaneName, onFocusPane, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
   recordBubbleRender(message.id);
-  const isInboundCommunication = origin?.kind === "pane" || message.inboundKind === "pane" || message.inboundKind === "report" || message.inboundKind === "mesh";
+  const isInboundCommunication = origin?.kind === "pane" || message.inboundKind === "tab" || message.inboundKind === "report" || message.inboundKind === "mesh";
   const shouldAutoExpand = hasVisibleEdit(item) || isInboundCommunication || isOutboundMessage(item);
   const [expanded, setExpanded] = useState(() => {
     const persisted = TOOL_EXPANDED_BY_ID.get(message.id);

@@ -367,7 +367,7 @@ fn agent_prompt_sanitizer_preserves_literal_reply_text() {
 
 #[test]
 fn agent_prompt_sanitizer_preserves_codeterm_prefix_text() {
-    let message = "-=-codeterm:pane label=worker pane=abc123 model=codex-=-run tests";
+    let message = "-=-codeterm:tab label=worker tab=abc123 model=codex-=-run tests";
     assert_eq!(send::sanitize_agent_prompt_input(message), message);
 }
 

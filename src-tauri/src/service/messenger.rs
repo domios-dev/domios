@@ -1,10 +1,10 @@
-//! Gateway for cross-pane / report / mesh deliveries. PTY-backed recipients get
+//! Gateway for cross-tab / report / mesh deliveries. PTY-backed recipients get
 //! the legacy text prefix read by the receiving agent and UI parser
 //! (`src/lib/chatPrefixes.ts`). chatBackend recipients get structured host-side
 //! transcript metadata instead.
 //!
-//!   -=-codeterm:pane label=<Name> pane=<id>[ model=<m>][ mesh=<peer>]-=-body
-//!   -=-codeterm:report from=<Name> pane=<id> ...-=-body
+//!   -=-codeterm:tab label=<Name> tab=<id>[ model=<m>][ mesh=<peer>]-=-body
+//!   -=-codeterm:report from=<Name> tab=<id> ...-=-body
 //!
 //! This wraps the unified `message_markers` frame so pane/report prefixes and
 //! bridge attachment markers share one wire family.
@@ -49,7 +49,7 @@ pub enum Delivery {
 impl MessageKind {
     fn marker_kind(self) -> &'static str {
         match self {
-            Self::Message => "pane",
+            Self::Message => "tab",
             Self::Report => "report",
             Self::Reminder => "reminder",
             Self::Mesh => "mesh",
@@ -59,7 +59,7 @@ impl MessageKind {
 
     fn inbound_kind(self) -> &'static str {
         match self {
-            Self::Message => "pane",
+            Self::Message => "tab",
             Self::Report => "report",
             Self::Reminder => "reminder",
             Self::Mesh => "mesh",
@@ -275,11 +275,7 @@ impl Messenger {
                     ),
             )
         };
-        let entry = if envelope.kind == MessageKind::Report {
-            crate::service::pty_io::submit_transaction::PtySubmitEntry::Report
-        } else {
-            crate::service::pty_io::submit_transaction::PtySubmitEntry::Messenger
-        };
+        let entry = pty_submit_entry(envelope.kind);
         let text = if should_prefix {
             Self::from(envelope).wrap(body)
         } else {
@@ -500,7 +496,7 @@ impl Messenger {
         let name_key = if report { "from" } else { "label" };
         crate::message_markers::Marker::new(self.envelope.kind.marker_kind())
             .attr(name_key, &label)
-            .attr("pane", pane)
+            .attr("tab", pane)
             .attr_opt("model", self.envelope.from_model.as_deref().map(str::trim))
             .attr_opt("mesh", self.envelope.from_mesh.as_deref().map(str::trim))
             .build()
@@ -513,7 +509,7 @@ impl Messenger {
         let fire_at = self.envelope.fire_at.map(|v| v.to_string());
         crate::message_markers::Marker::new("reminder")
             .attr_opt("from", Some(label.as_str()).filter(|s| !s.is_empty()))
-            .attr_opt("pane", Some(pane).filter(|s| !s.is_empty()))
+            .attr_opt("tab", Some(pane).filter(|s| !s.is_empty()))
             .attr_opt("model", self.envelope.from_model.as_deref().map(str::trim))
             .attr_opt("set_at", set_at.as_deref())
             .attr_opt("fire_at", fire_at.as_deref())
@@ -542,6 +538,20 @@ impl Messenger {
                 .attr_opt("mesh", self.envelope.from_mesh.as_deref().map(str::trim))
                 .build(),
         )
+    }
+}
+
+fn pty_submit_entry(
+    kind: MessageKind,
+) -> crate::service::pty_io::submit_transaction::PtySubmitEntry {
+    match kind {
+        MessageKind::Report => crate::service::pty_io::submit_transaction::PtySubmitEntry::Report,
+        MessageKind::Message
+        | MessageKind::Reminder
+        | MessageKind::Mesh
+        | MessageKind::Telegram => {
+            crate::service::pty_io::submit_transaction::PtySubmitEntry::Messenger
+        }
     }
 }
 
@@ -618,7 +628,7 @@ fn inbound_model_context(envelope: &MessageEnvelope, body: &str) -> String {
         .attr("kind", envelope.kind.inbound_kind())
         .attr_opt("from_label", Some(label.as_str()).filter(|s| !s.is_empty()))
         .attr_opt(
-            "from_pane",
+            "from_tab",
             Some(short_id(&envelope.from_pane)).filter(|s| !s.is_empty()),
         )
         .attr_opt("from_model", envelope.from_model.as_deref().map(str::trim))
@@ -678,9 +688,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn every_pty_envelope_uses_the_shared_submit_transaction() {
+        assert_eq!(
+            pty_submit_entry(MessageKind::Message),
+            crate::service::pty_io::submit_transaction::PtySubmitEntry::Messenger
+        );
+        assert_eq!(
+            pty_submit_entry(MessageKind::Reminder),
+            crate::service::pty_io::submit_transaction::PtySubmitEntry::Messenger
+        );
+        assert_eq!(
+            pty_submit_entry(MessageKind::Mesh),
+            crate::service::pty_io::submit_transaction::PtySubmitEntry::Messenger
+        );
+        assert_eq!(
+            pty_submit_entry(MessageKind::Telegram),
+            crate::service::pty_io::submit_transaction::PtySubmitEntry::Messenger
+        );
+        assert_eq!(
+            pty_submit_entry(MessageKind::Report),
+            crate::service::pty_io::submit_transaction::PtySubmitEntry::Report
+        );
+    }
+
+    #[test]
     fn bare_message_tags_codeterm() {
         let p = Messenger::message("Edison", "e8a0ac20-1111").build();
-        assert_eq!(p, "-=-codeterm:pane label=Edison pane=e8a0ac20-=-");
+        assert_eq!(p, "-=-codeterm:tab label=Edison tab=e8a0ac20-=-");
     }
 
     #[test]
@@ -691,7 +725,7 @@ mod tests {
             .build();
         assert_eq!(
             p,
-            "-=-codeterm:pane label=Edison pane=e8a0ac20 model=opus mesh=Mac-Air-=-"
+            "-=-codeterm:tab label=Edison tab=e8a0ac20 model=opus mesh=Mac-Air-=-"
         );
     }
 
@@ -702,7 +736,7 @@ mod tests {
             .build();
         assert_eq!(
             p,
-            "-=-codeterm:report from=Worker pane=abc12345 model=sonnet-=-"
+            "-=-codeterm:report from=Worker tab=abc12345 model=sonnet-=-"
         );
     }
 
@@ -712,13 +746,13 @@ mod tests {
             .model(Some("  ".into()))
             .mesh(Some(String::new()))
             .build();
-        assert_eq!(p, "-=-codeterm:pane label=A pane=deadbeef-=-");
+        assert_eq!(p, "-=-codeterm:tab label=A tab=deadbeef-=-");
     }
 
     #[test]
     fn brackets_in_name_are_stripped() {
         let p = Messenger::message("Main [dev]", "abcdef12").build();
-        assert_eq!(p, "-=-codeterm:pane label=Main%20dev pane=abcdef12-=-");
+        assert_eq!(p, "-=-codeterm:tab label=Main%20dev tab=abcdef12-=-");
     }
 
     #[test]
@@ -726,7 +760,7 @@ mod tests {
         let p = Messenger::message("Edison", "e8a0ac20");
         assert_eq!(
             p.wrap("hello"),
-            "-=-codeterm:pane label=Edison pane=e8a0ac20-=-hello\n-=-codeterm:reply tab=e8a0ac20-=-"
+            "-=-codeterm:tab label=Edison tab=e8a0ac20-=-hello\n-=-codeterm:reply tab=e8a0ac20-=-"
         );
     }
 
@@ -735,7 +769,7 @@ mod tests {
         let p = Messenger::message("Edison", "e8a0ac20").mesh(Some("BLACKSTAR".into()));
         assert_eq!(
             p.wrap("hello"),
-            "-=-codeterm:pane label=Edison pane=e8a0ac20 mesh=BLACKSTAR-=-hello\n-=-codeterm:reply tab=e8a0ac20 mesh=BLACKSTAR-=-"
+            "-=-codeterm:tab label=Edison tab=e8a0ac20 mesh=BLACKSTAR-=-hello\n-=-codeterm:reply tab=e8a0ac20 mesh=BLACKSTAR-=-"
         );
     }
 
@@ -760,9 +794,9 @@ mod tests {
         assert!(!marked.contains(&legacy));
         let parsed = crate::message_markers::parse(&marked).expect("inbound marker parses");
         assert_eq!(parsed.kind, "inbound");
-        assert_eq!(parsed.attr("kind"), Some("pane"));
+        assert_eq!(parsed.attr("kind"), Some("tab"));
         assert_eq!(parsed.attr("from_label"), Some("Chat Backend"));
-        assert_eq!(parsed.attr("from_pane"), Some("abc12345"));
+        assert_eq!(parsed.attr("from_tab"), Some("abc12345"));
         assert_eq!(parsed.attr("from_model"), Some("qwen"));
         assert_eq!(parsed.attr("from_mesh"), Some("mesh-a"));
         assert_eq!(parsed.payload, "hello");
@@ -773,10 +807,7 @@ mod tests {
         let p = Messenger::message("Edison", "e8a0ac20")
             .peer(Some("BLACKSTAR".into()))
             .build();
-        assert_eq!(
-            p,
-            "-=-codeterm:pane label=Edison@BLACKSTAR pane=e8a0ac20-=-"
-        );
+        assert_eq!(p, "-=-codeterm:tab label=Edison@BLACKSTAR tab=e8a0ac20-=-");
     }
 
     #[test]
@@ -785,7 +816,7 @@ mod tests {
         let p = Messenger::message("", "e8a0ac20")
             .peer(Some("BLACKSTAR".into()))
             .build();
-        assert_eq!(p, "-=-codeterm:pane label=BLACKSTAR pane=e8a0ac20-=-");
+        assert_eq!(p, "-=-codeterm:tab label=BLACKSTAR tab=e8a0ac20-=-");
     }
 
     #[test]
@@ -798,7 +829,7 @@ mod tests {
             .build();
         assert_eq!(
             p,
-            "-=-codeterm:reminder from=Main%20dev pane=e8a0ac20 model=opus set_at=1000 fire_at=2000 id=dmsg-abc-=-"
+            "-=-codeterm:reminder from=Main%20dev tab=e8a0ac20 model=opus set_at=1000 fire_at=2000 id=dmsg-abc-=-"
         );
     }
 
@@ -816,7 +847,7 @@ mod tests {
             .id(Some("dmsg-1".into()));
         assert_eq!(
             p.wrap("ping"),
-            "-=-codeterm:reminder from=Main pane=e8a0ac20 set_at=1 fire_at=2 id=dmsg-1-=-ping"
+            "-=-codeterm:reminder from=Main tab=e8a0ac20 set_at=1 fire_at=2 id=dmsg-1-=-ping"
         );
     }
 
@@ -827,7 +858,7 @@ mod tests {
         let p = delivery_prefix(true, "e8a0ac20", "ce9bce56", "Edison", Some("opus"), None);
         assert_eq!(
             p.as_deref(),
-            Some("-=-codeterm:pane label=Edison pane=e8a0ac20 model=opus-=-")
+            Some("-=-codeterm:tab label=Edison tab=e8a0ac20 model=opus-=-")
         );
     }
 
@@ -864,7 +895,7 @@ mod tests {
         assert_eq!(
             p.as_deref(),
             Some(
-                "-=-codeterm:pane label=Edison@BLACKSTAR pane=e8a0ac20 model=sonnet mesh=BLACKSTAR-=-"
+                "-=-codeterm:tab label=Edison@BLACKSTAR tab=e8a0ac20 model=sonnet mesh=BLACKSTAR-=-"
             )
         );
     }
@@ -900,7 +931,7 @@ mod tests {
         assert_eq!(parsed.kind, "inbound");
         assert_eq!(parsed.attr("kind"), Some("reminder"));
         assert_eq!(parsed.attr("from_label"), Some("Main"));
-        assert_eq!(parsed.attr("from_pane"), Some("e8a0ac20"));
+        assert_eq!(parsed.attr("from_tab"), Some("e8a0ac20"));
         assert_eq!(parsed.attr("from_model"), Some("opus"));
         assert_eq!(parsed.payload, "ping");
     }
@@ -977,7 +1008,7 @@ mod tests {
         assert_eq!(msg.from_pane.as_deref(), Some("abc12345"));
         assert_eq!(msg.from_model.as_deref(), Some("qwen"));
         assert_eq!(msg.from_mesh.as_deref(), Some("Mac-Air"));
-        assert_eq!(msg.inbound_kind.as_deref(), Some("pane"));
+        assert_eq!(msg.inbound_kind.as_deref(), Some("tab"));
 
         // The model still learns the sender + return address via the marker.
         assert!(marked.contains("-=-codeterm:inbound"));
@@ -1062,9 +1093,9 @@ mod tests {
 
         assert!(!ctx.contains(&legacy));
         assert_eq!(parsed.kind, "inbound");
-        assert_eq!(parsed.attr("kind"), Some("pane"));
+        assert_eq!(parsed.attr("kind"), Some("tab"));
         assert_eq!(parsed.attr("from_label"), Some("Edison"));
-        assert_eq!(parsed.attr("from_pane"), Some("e8a0ac20"));
+        assert_eq!(parsed.attr("from_tab"), Some("e8a0ac20"));
         assert_eq!(parsed.attr("from_model"), Some("opus"));
         assert_eq!(parsed.attr("from_mesh"), Some("BLACKSTAR"));
         assert_eq!(parsed.payload, "hello");

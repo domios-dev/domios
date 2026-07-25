@@ -465,7 +465,7 @@ fn handle_pane_capture(
     }
 }
 
-/// `-=-codeterm:pane label=X pane=Y ...-=-body` → (Some("X"), "body"). Plain text → (None, text).
+/// `-=-codeterm:tab label=X tab=Y ...-=-body` → (Some("X"), "body"). Plain text → (None, text).
 fn strip_origin_marker(s: &str) -> (Option<String>, String) {
     if let Some(rest) = s.strip_prefix("-=-codeterm:") {
         if let Some(end) = rest.find("-=-") {

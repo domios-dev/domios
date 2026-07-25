@@ -203,18 +203,18 @@ pub fn telegram(user: &str, msg: Option<&str>, body: &str) -> String {
         .build()
 }
 
-pub fn mesh(peer: &str, pane: &str, body: &str) -> String {
+pub fn mesh(peer: &str, tab: &str, body: &str) -> String {
     Marker::new("mesh")
         .attr("peer", peer)
-        .attr("pane", pane)
+        .attr("tab", tab)
         .payload(body)
         .build()
 }
 
-pub fn pane(label: &str, pane: &str, body: &str) -> String {
-    Marker::new("pane")
+pub fn tab(label: &str, tab: &str, body: &str) -> String {
+    Marker::new("tab")
         .attr("label", label)
-        .attr("pane", pane)
+        .attr("tab", tab)
         .payload(body)
         .build()
 }

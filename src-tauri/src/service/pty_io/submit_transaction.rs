@@ -918,7 +918,7 @@ mod tests {
 
     #[test]
     fn spawn_introduction_uses_the_same_paste_then_enter_contract() {
-        let intro = "-=-codeterm:pane label=CodeTerm pane=system-=-You are the Orchestrator of this team. Your Planner counterpart is Rodin.";
+        let intro = "-=-codeterm:tab label=CodeTerm tab=system-=-You are the Orchestrator of this team. Your Planner counterpart is Rodin.";
         let io = ControlledTransport::new("> [Pasted Content 128 chars]");
 
         let result = submit_entry(PtySubmitEntry::Messenger, intro, |body| {

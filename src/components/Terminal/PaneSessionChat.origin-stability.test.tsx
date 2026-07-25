@@ -90,7 +90,7 @@ function originReport(id: string, shortId: string, seq: number) {
   return {
     id,
     type: "user",
-    content: `-=-codeterm:pane label=Worker pane=${shortId}-=-report body ${seq}`,
+    content: `-=-codeterm:tab label=Worker tab=${shortId}-=-report body ${seq}`,
     timestamp: String(1_700_000_000_000 + seq * 1000),
     seq,
     provider: "test",
