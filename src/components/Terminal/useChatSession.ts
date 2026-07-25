@@ -343,7 +343,9 @@ function withPreservedClientOrder(
   });
 }
 
-function replaceSnapshotWindow(
+/** Same-attach resync (rotation/retry/onResync): previous is live history, not
+ *  eviction debris, so union it with the fresh snapshot. */
+function mergeSnapshotWindow(
   previous: ChatMessage[],
   snapshot: ChatMessage[],
   nextOrder: () => number,
@@ -356,6 +358,27 @@ function replaceSnapshotWindow(
     sourceSessionId,
   );
   return mergeById(previous, freshSnapshot);
+}
+
+/** Fresh listener attach (mount/reactivation): previous is a stale bounded
+ *  window, so drop it and keep only deltas that raced in since this request. */
+function replaceSnapshotWindow(
+  previous: ChatMessage[],
+  snapshot: ChatMessage[],
+  requestOrder: number,
+  nextOrder: () => number,
+  sourceSessionId: string | null,
+): ChatMessage[] {
+  const liveSinceRequest = previous.filter(
+    (message) => message.clientOrder != null && message.clientOrder >= requestOrder,
+  );
+  const freshSnapshot = withPreservedClientOrder(
+    snapshot,
+    previous,
+    nextOrder,
+    sourceSessionId,
+  );
+  return mergeById(freshSnapshot, liveSinceRequest);
 }
 
 const MS_EPOCH_FLOOR = 1e12;
@@ -406,6 +429,9 @@ export function useChatSession({
   const attachmentSourceSessionIdRef = useRef(agentSessionId);
   const previousSessionIdRef = useRef(agentSessionId);
   const lifecycleRef = useRef(0);
+  /** Lifecycle of the last merged snapshot: unchanged => resync (merge),
+   *  new => fresh listener attach (replace). */
+  const snapshotLifecycleRef = useRef<number | null>(null);
   const knownPaneIdRef = useRef<string | null>(null);
   const attachmentStateRef = useRef(attachmentState);
   const attachGenerationRef = useRef(attachGeneration);
@@ -567,6 +593,7 @@ export function useChatSession({
     if (!active || !listenerReady) return;
     const lifecycle = lifecycleRef.current;
     const generation = attachGeneration;
+    const requestOrder = nextClientOrderRef.current;
     let cancelled = false;
     (async () => {
       try {
@@ -627,13 +654,23 @@ export function useChatSession({
         }
         markAttached();
         setBackfillCursor(res.start_offset != null && res.start_offset > 0 ? res.start_offset : null);
+        const isFreshAttach = snapshotLifecycleRef.current !== lifecycle;
+        snapshotLifecycleRef.current = lifecycle;
         setStructured((prev) =>
-          replaceSnapshotWindow(
-            prev ?? [],
-            res.messages ?? [],
-            nextClientOrder,
-            res.source_session_id,
-          ),
+          isFreshAttach
+            ? replaceSnapshotWindow(
+                prev ?? [],
+                res.messages ?? [],
+                requestOrder,
+                nextClientOrder,
+                res.source_session_id,
+              )
+            : mergeSnapshotWindow(
+                prev ?? [],
+                res.messages ?? [],
+                nextClientOrder,
+                res.source_session_id,
+              ),
         );
       } catch (e) {
         if (cancelled || lifecycleRef.current !== lifecycle || attachGenerationRef.current !== generation) return;
