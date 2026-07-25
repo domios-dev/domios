@@ -193,7 +193,7 @@ The final verification covers the layer where the user experienced the defect:
 Unit-green alone does not close a user-visible defect. Deferred final
 user-layer evidence remains explicit open risk.
 
-Testing ladder — per-task = focused filters in the warm canonical checkout; per-group (milestone) = one full regression gate (cargo suite + ts-unit, serialized in the warm checkout); per-release = the farm matrix across every platform.
+Testing ladder — per-task = focused filters only; per-group (milestone) = one full regression gate (cargo suite + ts-unit, serialized in the warm checkout); per-release = the farm matrix across every platform.
 
 Repository-specific restrictions override generic gate suggestions.
 
@@ -268,4 +268,4 @@ An effort is complete only when:
 - stale milestones are pruned;
 - the final handoff or retrospective is recorded;
 - the plan is archived.
-<!-- revision: 42 -->
+<!-- revision: 43 -->
