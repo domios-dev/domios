@@ -80,6 +80,17 @@ fn write(path: &std::path::Path, contents: &str) {
     std::fs::write(path, contents).unwrap();
 }
 
+// Windows refuses to stamp file times through a read-only handle, so open for
+// write rather than File::open.
+fn set_mtime(path: &std::path::Path, mtime: std::time::SystemTime) {
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(mtime)
+        .unwrap();
+}
+
 fn manifest_for(id: &str) -> String {
     use crate::js_runtime::host_api::HOST_API_VERSION;
     format!(
@@ -351,14 +362,8 @@ fn duplicate_root_removal_falls_back_even_with_colliding_mtimes() {
         .unwrap()
         .modified()
         .unwrap();
-    std::fs::File::open(workspace_dir.join("plugin.json"))
-        .unwrap()
-        .set_modified(user_manifest_mtime)
-        .unwrap();
-    std::fs::File::open(workspace_dir.join("plugin.js"))
-        .unwrap()
-        .set_modified(user_entry_mtime)
-        .unwrap();
+    set_mtime(&workspace_dir.join("plugin.json"), user_manifest_mtime);
+    set_mtime(&workspace_dir.join("plugin.js"), user_entry_mtime);
 
     watcher.tick();
     assert!(registrar
