@@ -179,6 +179,11 @@ impl ServiceContext {
                 prev_status,
                 current_status
             );
+            // A settled turn is the event that means the provider log grew; the pass
+            // itself runs on the ledger thread, never here.
+            if let Some(ref pid) = pane_id {
+                self.request_kpi_usage_ingest(pid);
+            }
         }
         let previous_reconciled_status = pane_id
             .as_deref()
