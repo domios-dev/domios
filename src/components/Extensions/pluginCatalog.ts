@@ -52,7 +52,18 @@ export interface PrimaryAction {
   reason?: string;
 }
 
-const UPDATE_DRIFTS = new Set(["update_available", "hash_drift"]);
+const UPDATE_DRIFTS = new Set([
+  "hash_drift",
+  "optional_update",
+  "update_available",
+  "update_optional",
+]);
+
+function isUpdateDrift(drift: string | null | undefined): boolean {
+  if (!drift) return false;
+  if (UPDATE_DRIFTS.has(drift)) return true;
+  return drift.startsWith("update_") || drift.endsWith("_update");
+}
 
 function caps(c?: PluginCapabilities | null): PluginCapabilities {
   return c ?? {};
@@ -117,7 +128,7 @@ function entryFromInstalled(p: InstalledPlugin): CatalogEntry {
 function mergeMarketplace(base: CatalogEntry | undefined, m: MarketplaceRow): CatalogEntry {
   const installed = base?.installed ?? m.installed === true;
   const compatible = m.compatible !== false;
-  const updateAvailable = installed && UPDATE_DRIFTS.has(m.drift);
+  const updateAvailable = installed && isUpdateDrift(m.drift);
   const entry: CatalogEntry = {
     id: m.id,
     displayName: base?.displayName || m.display_name || m.id,
