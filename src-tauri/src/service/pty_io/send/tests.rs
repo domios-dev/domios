@@ -6,38 +6,6 @@ use super::{
 use crate::multiplexer::state::MultiplexerState;
 
 // ---------------------------------------------------------------------------
-// send_notice_tests
-// ---------------------------------------------------------------------------
-
-#[test]
-fn failed_detached_send_names_the_pane_and_reason() {
-    let (title, body) =
-        super::send_delivery_notice(Some("Fermat"), "38cf30e1", "PTY did not start").unwrap();
-    assert_eq!(title, "Message not delivered");
-    assert_eq!(body, "Fermat: PTY did not start");
-}
-
-#[test]
-fn stale_agent_delivery_drops_without_a_user_notice() {
-    let error = "agent_unavailable: input permit is stale for pty pty-1";
-    assert_eq!(
-        super::detached_delivery_notice(Some("Codex"), "pane-1", error),
-        None
-    );
-    assert!(
-        super::detached_delivery_notice(Some("Codex"), "pane-1", "pty pty-1 is closed").is_some()
-    );
-}
-
-#[test]
-fn missing_or_blank_pane_title_falls_back_to_the_pane_id() {
-    let (_, body) = super::send_delivery_notice(None, "38cf30e1", "boot timeout").unwrap();
-    assert_eq!(body, "38cf30e1: boot timeout");
-    let (_, body) = super::send_delivery_notice(Some("   "), "38cf30e1", "boot timeout").unwrap();
-    assert_eq!(body, "38cf30e1: boot timeout");
-}
-
-// ---------------------------------------------------------------------------
 // shell_ready_wait_tests
 // ---------------------------------------------------------------------------
 

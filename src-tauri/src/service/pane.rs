@@ -256,6 +256,7 @@ impl ServiceContext {
         });
         if let Some(pty_id) = pty_id {
             let _ = self.pty.lock().rearm_guarded_input(&pty_id);
+            crate::service::boot_wait::notify_boot_changed();
         }
     }
 

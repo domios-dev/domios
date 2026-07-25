@@ -533,6 +533,7 @@ pub(crate) fn launch_agent_in_background(
     if let Some(p) = svc.mux.write().get_pane_mut(&pane_id) {
         p.agent_booting = true;
     }
+    crate::service::boot_wait::notify_boot_changed();
     std::thread::spawn(move || {
         let mut delivery_gate = crate::service::launch_delivery::LaunchDeliveryGate::new();
         let mut launch = LaunchGeneration::begin(&pane_id, "pending".into());
@@ -543,6 +544,7 @@ pub(crate) fn launch_agent_in_background(
             if let Some(p) = svc.mux.write().get_pane_mut(&pane_id) {
                 p.agent_booting = value;
             }
+            crate::service::boot_wait::notify_boot_changed();
         };
         let pty_claim = svc.pty_ownership.acquire(&pane_id);
         let (backend_pty, reused_live_pty) = match existing_live_pty(&svc, &pane_id) {

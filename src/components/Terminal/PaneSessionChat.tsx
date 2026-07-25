@@ -187,12 +187,6 @@ export function PaneSessionChat({
     showScrollDown,
     scrollToBottom,
     followSend: rawFollowSentMessage,
-    handleWheel,
-    handlePointerDown,
-    handlePointerMove,
-    handlePointerUp,
-    handlePointerCancel,
-    handleKeyDown,
     handleScroll,
   } = useChatScroll({
     sessionKey: `${paneId}:${agentSessionId ?? ""}`,
@@ -533,12 +527,6 @@ export function PaneSessionChat({
       <div className="relative flex-1 min-h-0">
       <div
         ref={scrollRef}
-        onWheel={handleWheel}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerCancel}
-        onKeyDown={handleKeyDown}
         onScroll={handleScroll}
         className="absolute inset-0 overflow-y-auto overscroll-contain p-3"
         data-testid="pane-session-chat-messages"

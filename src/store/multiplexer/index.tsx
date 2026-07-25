@@ -110,14 +110,14 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   // authoritative reconcile lands; native boots never lock (no cache path).
   const writeGateRef = useRef<WriteGate>(createWriteGate(webBootHasSyncCache()));
   const reconciledRef = useRef(false);
-  // In-flight user tab selections; masks a stale backend snapshot until the
-  // backend confirms the switch or the guard's deadline passes.
+  // In-flight user tab selections; masks stale snapshots until the backend
+  // confirms the switch, rejects it, or removes the target tab.
   const pendingTabSwitchRef = useRef<TabGuards>({});
   const peerSwitchRef = useRef(0);
 
   const applyBackendState = useCallback((s: MultiplexerState) => {
     // here silently dropped the closed-history on every reload.
-    const guarded = applyPendingTabGuard(s, pendingTabSwitchRef.current, Date.now());
+    const guarded = applyPendingTabGuard(s, pendingTabSwitchRef.current);
     dispatch({ type: "SET_STATE", state: guarded });
     if (IS_WEB) saveStateSnapshot(s);
   }, []);
@@ -567,7 +567,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         if (cwd) setPendingCwd(res.pane_id, cwd);
         setPendingCommand(res.pane_id, res.launch_command);
       }
-      pendingTabSwitchRef.current[res.workspace_id] = { tabId: res.tab_id, deadline: Date.now() + 1000 };
+      pendingTabSwitchRef.current[res.workspace_id] = { tabId: res.tab_id };
       dispatch({ type: "SET_ACTIVE_WORKSPACE", id: res.workspace_id });
       dispatch({ type: "SET_ACTIVE_TAB", workspaceId: res.workspace_id, tabId: res.tab_id });
       // Snappy local focus; backend also emits the authoritative pane-focused.
@@ -627,11 +627,14 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   );
 
   const setActiveTab = useCallback((workspaceId: string, tabId: string) => {
-    pendingTabSwitchRef.current[workspaceId] = { tabId, deadline: Date.now() + 1000 };
-    guardedInvoke("mux_set_active_tab_and_workspace", { workspaceId, tabId }).catch(() => {});
+    pendingTabSwitchRef.current[workspaceId] = { tabId };
+    guardedInvoke("mux_set_active_tab_and_workspace", { workspaceId, tabId }).catch(() => {
+      delete pendingTabSwitchRef.current[workspaceId];
+      void refreshFromBackend();
+    });
     dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
     dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId });
-  }, [guardedInvoke]);
+  }, [guardedInvoke, refreshFromBackend]);
 
   // Select + focus a just-spawned pane by resolving its owning tab; a fresh
   // pane may lag local state, so fall back to an authoritative snapshot.
