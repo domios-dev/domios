@@ -30,9 +30,17 @@ pnpm install
 ### Windows
 
 ```powershell
-# Interactive foreground session:
-.\build.ps1 dev
+# Daily commands; run from the repository root.
+.\build.ps1 dev           # foreground dev on 7686
+.\build.ps1 check         # incremental compile check
+.\build.ps1 cli           # rebuild only the installed CLI
+.\build.ps1 install-local # incremental production build + self-install
 ```
+
+`build.ps1` is the Windows command hub; do not add a Makefile or hand-expand
+its underlying Cargo, pnpm, gateway, or installer commands. `install-local`
+already resumes the calling tab with a default continuation intent. Keep the
+command short unless the continuation itself must be customized.
 
 ## Choose one operation
 
@@ -322,4 +330,4 @@ codeterm/
 └── docs/               # Documentation
 ```
 
-<!-- revision: 19 -->
+<!-- revision: 20 -->
