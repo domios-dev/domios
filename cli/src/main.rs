@@ -1007,7 +1007,7 @@ mod plan_cli_error_tests {
                 "spawn",
                 "claude",
                 "--title",
-                "-=-codeterm:pane",
+                "-=-codeterm:tab",
                 "label=main-=-",
                 "--task",
                 "echo",
@@ -1016,7 +1016,7 @@ mod plan_cli_error_tests {
             .map(String::from)
             .collect(),
         );
-        assert!(args.contains(&"--title=-=-codeterm:pane label=main-=-".to_string()));
+        assert!(args.contains(&"--title=-=-codeterm:tab label=main-=-".to_string()));
         let cli = Cli::try_parse_from(args).expect("normalized marker title parses");
         match cli.command {
             Commands::Agent {
@@ -1024,7 +1024,7 @@ mod plan_cli_error_tests {
             } => {
                 assert_eq!(
                     title.map(|parts| parts.join(" ")).as_deref(),
-                    Some("-=-codeterm:pane label=main-=-")
+                    Some("-=-codeterm:tab label=main-=-")
                 );
                 assert_eq!(task.as_deref(), Some("echo"));
             }

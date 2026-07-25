@@ -17,10 +17,10 @@ const PARITY: &[(&str, &str)] = &[
         "-=-codeterm:telegram user=100000001 msg=12345-=-do the task",
         "telegram",
     ),
-    ("-=-codeterm:mesh peer=peer-a pane=abc12345-=-hi", "mesh"),
+    ("-=-codeterm:mesh peer=peer-a tab=abc12345-=-hi", "mesh"),
     (
-        "-=-codeterm:pane label=General%20Main pane=bda0e267-=-ping",
-        "pane label has space",
+        "-=-codeterm:tab label=General%20Main tab=bda0e267-=-ping",
+        "tab label has space",
     ),
     (
         "-=-codeterm:plugin_config plugin=local-shell name=LM%20Studio-=-hello body",
@@ -42,7 +42,7 @@ fn convenience_constructors_match_parity_wire() {
         PARITY[3].0
     );
     assert_eq!(mesh("peer-a", "abc12345", "hi"), PARITY[4].0);
-    assert_eq!(pane("General Main", "bda0e267", "ping"), PARITY[5].0);
+    assert_eq!(tab("General Main", "bda0e267", "ping"), PARITY[5].0);
     assert_eq!(
         plugin_config("local-shell", "LM Studio", "hello body"),
         PARITY[6].0
@@ -73,7 +73,7 @@ fn parse_extracts_kind_attrs_payload() {
 #[test]
 fn percent_encoding_round_trips_structural_chars() {
     let nasty = "a b c=d%e\"f\ng";
-    let wire = Marker::new("pane").attr("label", nasty).build();
+    let wire = Marker::new("tab").attr("label", nasty).build();
     // No raw structural chars leaked into the frame head.
     let head = &wire[OPEN.len()..wire[OPEN.len()..].find(CLOSE).unwrap() + OPEN.len()];
     assert!(!head.contains("]]"));

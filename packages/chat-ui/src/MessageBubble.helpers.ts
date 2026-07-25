@@ -6,7 +6,7 @@ import { shortPaneRef } from "@codeterm/chat-core";
 type StructuredInboundKind = NonNullable<ChatMessage["inboundKind"]>;
 
 export const INBOUND_KIND_LABELS: Record<StructuredInboundKind, string> = {
-  pane: "pane",
+  tab: "tab",
   report: "report",
   reminder: "reminder",
   mesh: "mesh",
@@ -22,7 +22,7 @@ export function structuredInboundFromMessage(message: ChatMessage): StructuredIn
   const fromLabel = message.fromLabel?.trim();
   const fromPane = shortPaneRef(message.fromPane);
   if (!fromLabel && !fromPane) return null;
-  const kind = message.inboundKind ?? (message.fromMesh ? "mesh" : "pane");
+  const kind = message.inboundKind ?? (message.fromMesh ? "mesh" : "tab");
   const title = kind === "mesh" && message.fromMesh
     ? `${fromLabel}@${message.fromMesh}`
     : fromLabel;

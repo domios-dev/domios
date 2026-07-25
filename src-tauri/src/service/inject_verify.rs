@@ -432,7 +432,7 @@ mod tests {
         // 5000-char paste: only the trailing portion fits into the 8-row tail window. Echo verify must still confirm via suffix match.
         let body: String = "A".repeat(4900);
         let expected = format!(
-            "-=-codeterm:mesh peer=peer-a pane=abc12345-=-{} TAIL_TOKEN_END",
+            "-=-codeterm:mesh peer=peer-a tab=abc12345-=-{} TAIL_TOKEN_END",
             body
         );
         // Tail captured by screen_state contains only the last ~640 chars of the paste.
@@ -465,7 +465,7 @@ mod tests {
     fn bracketed_paste_placeholder_counts_as_echo_for_long_input() {
         let screen = "> [Pasted text #7 +1 line]\n  Press Enter to send";
         let expected = format!(
-            "-=-codeterm:mesh peer=PEER pane=abc12345-=-{}",
+            "-=-codeterm:mesh peer=PEER tab=abc12345-=-{}",
             "x".repeat(500)
         );
         assert!(
@@ -479,7 +479,7 @@ mod tests {
         // required the suffix and missed this case entirely, which is why the v1.1.18 smoke test failed for ~4.7KB single-line mesh messages.
         let screen = "> [Pasted text #1]";
         let expected = format!(
-            "-=-codeterm:mesh peer=PEER pane=abc12345-=-{}",
+            "-=-codeterm:mesh peer=PEER tab=abc12345-=-{}",
             "x".repeat(4500)
         );
         assert!(

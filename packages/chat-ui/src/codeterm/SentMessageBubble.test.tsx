@@ -120,7 +120,7 @@ await (async () => {
         fromLabel: "Watcher",
         fromPane: "abc12345",
         fromModel: "fable",
-        inboundKind: "pane",
+        inboundKind: "tab",
       }}
     />,
   );
@@ -165,7 +165,7 @@ await (async () => {
         content: "hello self",
         fromLabel: "",
         fromPane: "915fae8e",
-        inboundKind: "pane",
+        inboundKind: "tab",
       }}
     />,
   );

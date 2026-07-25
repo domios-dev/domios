@@ -1085,7 +1085,7 @@ test("chatBackend structured inbound renders an expanded typed message card", as
       fromLabel: "Worker A",
       fromPane: "abc12345",
       fromModel: "gpt-5",
-      inboundKind: "pane",
+      inboundKind: "tab",
     },
   ]);
   try {

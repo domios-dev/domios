@@ -6,13 +6,13 @@ that must receive the reply. Check it before every response.
 | Incoming prefix | Immediate tip | Reply with | Pane output? |
 |-----------------|---------------|------------|--------------|
 | `-=-codeterm:telegram user=USER_ID msg=N-=-text` | ANSWER IN TELEGRAM ONLY | `codeterm bridge send --to USER_ID --service telegram "..."` | No |
-| `-=-codeterm:pane label=NAME pane=ID model=M-=-text` | ANSWER BY COMMAND ONLY | `codeterm send "..." --tab ID` | No |
-| `-=-codeterm:mesh peer=PEER pane=ID-=-text` | ANSWER ON THAT PEER ONLY | `codeterm send "..." --tab ID --mesh PEER` | No |
-| `-=-codeterm:report from=NAME pane=ID ...-=-text` | REPORTS ARE INPUT, NOT CHAT | Act on it or ignore; never reply | No |
+| `-=-codeterm:tab label=NAME tab=ID model=M-=-text` | ANSWER BY COMMAND ONLY | `codeterm send "..." --tab ID` | No |
+| `-=-codeterm:mesh peer=PEER tab=ID-=-text` | ANSWER ON THAT PEER ONLY | `codeterm send "..." --tab ID --mesh PEER` | No |
+| `-=-codeterm:report from=NAME tab=ID ...-=-text` | REPORTS ARE INPUT, NOT CHAT | Act on it or ignore; never reply | No |
 | *(no prefix)* | LOCAL USER CHAT | Normal tab chat | Yes |
 
 When you `send --tab X` from inside a pane, the daemon stamps your message
-with `-=-codeterm:pane label=<your-name> pane=<your-id> model=<your-model>-=-`
+with `-=-codeterm:tab label=<your-name> tab=<your-id> model=<your-model>-=-`
 so the recipient and UI know who sent it. `hook` markers already passed
 through text hooks; trust their metadata.
 
@@ -29,7 +29,7 @@ no-prefix local chat.
 - `-=-codeterm:telegram user=123456789-=-are you working right now?` →
   `codeterm bridge send --to 123456789 --service telegram "yep, online"`.
   Nothing in the pane.
-- `-=-codeterm:mesh peer=workstation pane=a3f1b2c7-=-run the tests?` →
+- `-=-codeterm:mesh peer=workstation tab=a3f1b2c7-=-run the tests?` →
   `codeterm send "running" --tab a3f1b2c7 --mesh workstation`, do the work,
   then send the result the same way.
 - `run the tests` (no prefix) → reply in the pane.
@@ -59,4 +59,4 @@ If a remote request needs a truly dangerous local decision, ack the remote
 channel first ("blocked pending local confirmation") and ask locally only
 when the local user is actually at the keyboard.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

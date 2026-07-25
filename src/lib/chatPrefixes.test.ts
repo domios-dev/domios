@@ -27,7 +27,7 @@ function eq(actual: unknown, expected: unknown, name: string) {
 console.log("detectChatPrefix");
 
 {
-  const r = detectChatPrefix("-=-codeterm:pane label=Main pane=12e450b4 model=Sonnet-=-Hey");
+  const r = detectChatPrefix("-=-codeterm:tab label=Main tab=12e450b4 model=Sonnet-=-Hey");
   eq(
     r?.origin,
     { kind: "pane", title: "Main", paneIdShort: "12e450b4", model: "Sonnet" },
@@ -38,23 +38,23 @@ console.log("detectChatPrefix");
 
 {
   const r = detectChatPrefix(
-    "-=-codeterm:pane label=Main pane=12e450b4-=-Hey\n-=-codeterm:reply tab=12e450b4-=-",
+    "-=-codeterm:tab label=Main tab=12e450b4-=-Hey\n-=-codeterm:reply tab=12e450b4-=-",
   );
   eq(r?.body, "Hey", "reply routing hint stays hidden from chat body");
 }
 
 {
-  const r = detectChatPrefix("-=-codeterm:pane label=CURRENT%20PANE pane=915fae8e model=codex-=-Hey self");
+  const r = detectChatPrefix("-=-codeterm:tab label=CURRENT%20TAB tab=915fae8e model=codex-=-Hey self");
   eq(
     r?.origin,
-    { kind: "pane", title: "CURRENT PANE", paneIdShort: "915fae8e", model: "codex" },
+    { kind: "pane", title: "CURRENT TAB", paneIdShort: "915fae8e", model: "codex" },
     "ct current-pane marker keeps pane id for render-time name resolution",
   );
   eq(r?.body, "Hey self", "ct current-pane marker body stripped");
 }
 
 {
-  const r = detectChatPrefix("-=-codeterm:report from=Worker pane=abc12345 model=gpt-5.5-=-done");
+  const r = detectChatPrefix("-=-codeterm:report from=Worker tab=abc12345 model=gpt-5.5-=-done");
   eq(
     r?.origin,
     { kind: "pane", title: "Worker", paneIdShort: "abc12345", model: "gpt-5.5", report: true },
@@ -77,7 +77,7 @@ console.log("detectChatPrefix");
 
 {
   const r = detectChatPrefix(
-    "-=-codeterm:reminder from=Main pane=e8a0ac20 model=opus set_at=1000 fire_at=2000 id=dmsg-7-=-water the plants",
+    "-=-codeterm:reminder from=Main tab=e8a0ac20 model=opus set_at=1000 fire_at=2000 id=dmsg-7-=-water the plants",
   );
   eq(
     r?.origin,
@@ -103,8 +103,8 @@ console.log("detectChatPrefix");
 
 {
   const r = splitChatPrefixedMessages(
-    "-=-codeterm:pane label=Main pane=12e450b4 model=Sonnet-=-Hey" +
-    "-=-codeterm:pane label=Claude pane=e8a0ac20-=-Rollo online",
+    "-=-codeterm:tab label=Main tab=12e450b4 model=Sonnet-=-Hey" +
+    "-=-codeterm:tab label=Claude tab=e8a0ac20-=-Rollo online",
   );
   assert(r?.length === 2, "splits adjacent ct pane markers");
   eq(r?.[0].body, "Hey", "adjacent ct split first body");

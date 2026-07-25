@@ -24,21 +24,21 @@ function eq(actual: unknown, expected: unknown, name: string) {
 }
 
 const leadingSpaceMarker =
-  ` ${MARKER_OPEN}pane label=main pane=bda0e267 model=Opus-=-Payload with space`;
+  ` ${MARKER_OPEN}tab label=main tab=bda0e267 model=Opus-=-Payload with space`;
 const parsed = parseMarker(leadingSpaceMarker);
 
-eq(parsed?.kind, "pane", "parseMarker strips leading whitespace");
-eq(parsed?.attrs, { label: "main", pane: "bda0e267", model: "Opus" }, "leading-space marker attrs");
+eq(parsed?.kind, "tab", "parseMarker strips leading whitespace");
+eq(parsed?.attrs, { label: "main", tab: "bda0e267", model: "Opus" }, "leading-space marker attrs");
 eq(parsed?.payload, "Payload with space", "leading-space marker payload");
 
-const normal = parseMarker(`${MARKER_OPEN}pane label=clean-=-ok`);
-eq(normal?.kind, "pane", "parseMarker keeps no-leading-space case");
+const normal = parseMarker(`${MARKER_OPEN}tab label=clean-=-ok`);
+eq(normal?.kind, "tab", "parseMarker keeps no-leading-space case");
 eq(normal?.payload, "ok", "parseMarker keeps payload unchanged");
 
 const bracketedPaste = parseMarker(
-  `\x1b[200~${MARKER_OPEN}pane label=main pane=bda0e267-=-hello\x1b[201~`,
+  `\x1b[200~${MARKER_OPEN}tab label=main tab=bda0e267-=-hello\x1b[201~`,
 );
-eq(bracketedPaste?.kind, "pane", "parseMarker unwraps bracketed paste start");
+eq(bracketedPaste?.kind, "tab", "parseMarker unwraps bracketed paste start");
 eq(bracketedPaste?.payload, "hello", "parseMarker strips bracketed paste end from payload");
 
 eq(isPaneMarkerPlaceholderLabel("CURRENT PANE"), true, "CURRENT PANE is a pane label placeholder");

@@ -101,9 +101,9 @@ Shutdown and app restart rely on normal session persistence. Manual GA restart u
 The GA prompt keeps only a short routing reminder. The authoritative command table lives in the injected CLI reference. The prefix is the return address:
 
 - `-=-codeterm:telegram user=USER_ID ...-=-text` replies via `codeterm bridge send --to USER_ID --service telegram`.
-- `-=-codeterm:pane label=NAME pane=ID ...-=-text` replies via `codeterm send --tab ID`.
-- `-=-codeterm:mesh peer=PEER pane=ID-=-text` replies via `codeterm send --tab ID --mesh PEER`.
-- `-=-codeterm:report from=NAME pane=ID ...-=-text` is a child report; act on it or forward the summary to the original user channel.
+- `-=-codeterm:tab label=NAME tab=ID ...-=-text` replies via `codeterm send --tab ID`.
+- `-=-codeterm:mesh peer=PEER tab=ID-=-text` replies via `codeterm send --tab ID --mesh PEER`.
+- `-=-codeterm:report from=NAME tab=ID ...-=-text` is a child report; act on it or forward the summary to the original user channel.
 - `-=-codeterm:hook ...-=-metadata` is already routed by a text hook; trust the metadata and follow the inbound language.
 
 Telegram and other bridge details live in the operational playbooks:
@@ -127,4 +127,4 @@ Skills are documented in the injected CLI reference. The GA prompt does not dupl
 - Claude rule install: `src-tauri/src/plugin/agent_claude/provider/integration.rs`
 - Secrets implementation: `src-tauri/src/secrets/`
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

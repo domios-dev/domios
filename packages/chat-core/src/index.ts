@@ -53,7 +53,7 @@ export {
   markAttachment,
   markTelegram,
   markMesh,
-  markPane,
+  markTab,
   markPluginConfig,
   markReport,
   markHook,
