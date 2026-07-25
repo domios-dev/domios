@@ -11,12 +11,11 @@
       { "name": "close", "description": "Close workspace" },
       { "name": "move-tab", "description": "Move tab between workspaces" }
     ]},
-    { "name": "pane", "description": "Tab management", "subcommands": [
+    { "name": "tab", "description": "Tab management", "subcommands": [
       { "name": "list", "description": "List tabs" },
       { "name": "focus", "description": "Focus tab" },
       { "name": "close", "description": "Close tab" },
-      { "name": "split", "description": "Split tab" },
-      { "name": "rename", "description": "Rename pane/tab" },
+      { "name": "rename", "description": "Rename tab" },
       { "name": "resize", "description": "Resize terminal" }
     ]},
     { "name": "send-text", "description": "Send text to tab" },

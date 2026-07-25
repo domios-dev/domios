@@ -75,7 +75,7 @@ Startup:
 
 1. Ensure the General directory exists.
 2. Regenerate prompt files.
-3. Ensure the protected General workspace and pane exist.
+3. Ensure the protected General workspace and tab exist.
 4. Resume the existing provider session when possible; otherwise launch a fresh agent.
 5. For fresh launches, send a one-time init message that tells the GA to read the live mem snapshot, run `codeterm mesh peers`, and acknowledge readiness.
 
@@ -83,18 +83,18 @@ Resume sessions deliberately do not receive the init message because the provide
 
 Shutdown and app restart rely on normal session persistence. Manual GA restart uses the General Agent restart control; do not assume a manual `/exit` preserves context.
 
-## Protected Workspace And Pane
+## Protected Workspace And Tab
 
 | Property | Current behavior |
 |---|---|
 | Workspace | General workspace, protected from close |
-| Pane aliases | `general`, `main` |
+| Tab aliases | `general`, `main` |
 | CWD | `{general_dir}` |
 | Provider | Configured agent provider |
 | Permissions | Skip-permissions launch where the provider supports it |
 | Role | Orchestrator |
 
-`codeterm send "..." --tab general` and `codeterm send "..." --tab main` resolve to the protected pane.
+`codeterm send "..." --tab general` and `codeterm send "..." --tab main` resolve to the protected tab.
 
 ## Bridge And Mesh Routing
 

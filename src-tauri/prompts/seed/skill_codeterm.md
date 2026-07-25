@@ -1,6 +1,6 @@
 ## CodeTerm CLI
 
-Use `codeterm` to control panes, workspaces, agents, mesh peers, mem, and system power.
+Use `codeterm` to control tabs, workspaces, agents, mesh peers, mem, and system power.
 
 - `codeterm tab list` — compact tab discovery; add `--json` only for full inspection
 - `codeterm send "..." --tab ID` — type into a tab

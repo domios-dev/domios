@@ -45,7 +45,7 @@ export const enHelpContent: HelpLocaleContent = {
           type: "list",
           items: [
             "New session inside a workspace spawns an agent or a plain shell — your last choice is remembered.",
-            "Split tabs side-by-side to compare output or watch two agents at once.",
+            "Open another tab to compare output or watch two agents at once.",
             "The sidebar tree is live: working agents rise to the top, their current task shows under the name.",
             "A workspace with a plan shows the plan entry pinned first — it opens Board, List, and Canvas views.",
           ],
@@ -58,7 +58,7 @@ export const enHelpContent: HelpLocaleContent = {
           type: "ask",
           label: "Ask the General Agent: how should I organize my projects here?",
           question:
-            "A user is reading the CodeTerm guide (workspaces section) and pressed 'Ask the agent'. Look at their current workspaces and suggest concretely how to organize their projects in CodeTerm: when to make a new workspace, when to split tabs, how to name things. Short, practical, based on what actually exists on this machine.",
+            "A user is reading the CodeTerm guide (workspaces section) and pressed 'Ask the agent'. Look at their current workspaces and suggest concretely how to organize their projects in CodeTerm: when to make a new workspace, when to open more tabs, how to name things. Short, practical, based on what actually exists on this machine.",
         },
       ],
     },
