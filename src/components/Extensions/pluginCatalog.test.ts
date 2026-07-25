@@ -130,6 +130,31 @@ test("filter: updates only", () => {
   assert(updateCount(cat) === 1, "one update");
 });
 
+test("optional marketplace update drift is surfaced as update", () => {
+  const withOptionalUpdate = buildCatalog({
+    ...snapshot,
+    marketplace: [
+      ...snapshot.marketplace,
+      {
+        channel: "store",
+        id: "optional-plugin",
+        local_version: "1.0.0",
+        remote_version: "1.1.0",
+        drift: "optional_update",
+        compatible: true,
+        installed: true,
+      },
+    ],
+  });
+  const optional = withOptionalUpdate.find((e) => e.id === "optional-plugin")!;
+  assert(optional.installed, "optional-plugin must be installed");
+  assert(optional.updateAvailable, "optional update drift must be exposed");
+  assert(primaryAction(optional).kind === "update", "optional update should use Update primary action");
+  const updates = filterCatalog(withOptionalUpdate, "", "updates").map((e) => e.id);
+  assert(updates.includes("optional-plugin"), "optional update should appear in Updates filter");
+  assert(updateCount(withOptionalUpdate) === 2, "two updates should be counted");
+});
+
 test("search matches id, name, capability, description, channel", () => {
   const cat = buildCatalog(snapshot);
   assert(filterCatalog(cat, "speech", "all").map((e) => e.id).join(",") === "transcriber", "description match");
