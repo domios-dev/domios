@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 25 -->
+<!-- revision: 26 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -1165,17 +1165,6 @@ Create an orchestrator handoff and optionally reseed this tab
 #### `codeterm orchestrator heartbeat`
 
 Orchestrator heartbeat helpers
-
-#### `codeterm orchestrator heartbeat set`
-
-Set the heartbeat focus, active lanes, and rules carried into auto-reinjection
-
-- `--clear-lanes`
-- `--clear-rules`
-- `--focus`
-- `--lane`
-- `--plan`
-- `--rule`
 
 #### `codeterm orchestrator heartbeat show`
 

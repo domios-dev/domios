@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::readback::pending_after_readback;
 use super::{PlanError, PlanStore};
 use crate::plan::{
     HeartbeatLearning, LoopSpec, LoopStatus, OrchestratorHeartbeat, Plan, PlanMode, PlanStatus,
@@ -48,22 +47,6 @@ fn normalized_learning(text: &str) -> String {
         }
     }
     out.trim().to_string()
-}
-
-fn clean_list(items: Vec<String>) -> Vec<String> {
-    items
-        .into_iter()
-        .map(|item| item.trim().to_string())
-        .filter(|item| !item.is_empty())
-        .collect()
-}
-
-fn render_list(items: &[String], out: &mut String) {
-    for item in items.iter().filter(|item| !item.trim().is_empty()) {
-        out.push_str("- ");
-        out.push_str(item.trim());
-        out.push('\n');
-    }
 }
 
 fn render_running_loops(loops: &[LoopSpec], out: &mut String) {
@@ -245,15 +228,6 @@ fn render_heartbeat(
     extra_digest_lines: &[String],
 ) -> String {
     let plan_id = &plan.id;
-    let has_focus = heartbeat
-        .current_focus
-        .as_deref()
-        .is_some_and(|focus| !focus.trim().is_empty());
-    let has_lanes = heartbeat
-        .active_lanes
-        .iter()
-        .any(|lane| !lane.trim().is_empty());
-    let has_rules = heartbeat.rules.iter().any(|rule| !rule.trim().is_empty());
     let has_learnings = heartbeat
         .learnings
         .iter()
@@ -276,10 +250,7 @@ fn render_heartbeat(
     let has_reflection =
         !super::reflection::pending_reflections(plan, reflect_every_gates()).is_empty();
     let has_digests = !extra_digest_lines.is_empty();
-    if !has_focus
-        && !has_lanes
-        && !has_rules
-        && !has_learnings
+    if !has_learnings
         && !has_running_loops
         && !has_competitive_attempts
         && !has_qa
@@ -292,21 +263,6 @@ fn render_heartbeat(
         return String::new();
     }
     let mut out = format!("<codeterm-orchestrator-heartbeat plan=\"{plan_id}\">\n");
-    if let Some(focus) = heartbeat.current_focus.as_deref() {
-        if !focus.trim().is_empty() {
-            out.push_str("Current focus: ");
-            out.push_str(focus.trim());
-            out.push('\n');
-        }
-    }
-    if has_lanes {
-        out.push_str("Active lanes:\n");
-        render_list(&heartbeat.active_lanes, &mut out);
-    }
-    if has_rules {
-        out.push_str("Rules:\n");
-        render_list(&heartbeat.rules, &mut out);
-    }
     if has_learnings {
         out.push_str("Recent learnings:\n");
         for learning in heartbeat
@@ -367,7 +323,7 @@ pub(super) fn reconciliation_prompt(plan_id: &str, pane_id: Option<&str>) -> Str
          - Close verified tasks with `codeterm plan task close {plan_id} <task_id>`.\n\
          - Bounce incomplete work with `codeterm send \"<next concrete instruction>\" --tab <worker_tab_id>` and record `codeterm plan record {plan_id} --task <task_id> --step decision:<text>`.\n\
          - Clean finished lane worktrees/branches/dev daemons, then record `codeterm plan task update {plan_id} <task_id> --cleanup-status done` or why cleanup is deferred.\n\
-         - Keep the plan-owned heartbeat current with `codeterm orchestrator heartbeat set --plan {plan_id} --focus \"<now>\" --lane \"<active-lane>\"`.",
+         - Heartbeat is derived automatically from plan and task state; never maintain heartbeat fields manually.",
         super::prompts_plan::QA_PIPELINE_DISCIPLINE.trim()
     )
 }
@@ -567,59 +523,6 @@ impl PlanStore {
         out.ok_or_else(|| PlanError::Io("heartbeat learn produced no result".into()))
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn set_heartbeat(
-        &self,
-        plan_id: Option<&str>,
-        pane_id: Option<&str>,
-        session_id: Option<&str>,
-        focus: Option<&str>,
-        lanes: Option<Vec<String>>,
-        rules: Option<Vec<String>>,
-        clear_lanes: bool,
-        clear_rules: bool,
-        now_ms: u64,
-    ) -> Result<HeartbeatShowResult, PlanError> {
-        let plan_id = self.resolve_active_plan_for_orchestrator(plan_id, pane_id, session_id)?;
-        let write = self.with_plan(&plan_id, now_ms, |plan| {
-            let writes_runtime_state = focus.is_some()
-                || lanes
-                    .as_ref()
-                    .is_some_and(|items| !clean_list(items.clone()).is_empty())
-                || rules
-                    .as_ref()
-                    .is_some_and(|items| !clean_list(items.clone()).is_empty());
-            if plan.mode == PlanMode::Planning && writes_runtime_state {
-                return Err(PlanError::HeartbeatRequiresExecution);
-            }
-            if let Some(focus) = focus {
-                let focus = focus.trim();
-                if focus.to_ascii_lowercase().starts_with("waiting") {
-                    let names_open_gate = plan
-                        .gates
-                        .iter()
-                        .any(|g| g.is_open() && focus.contains(&g.id));
-                    if !names_open_gate {
-                        return Err(PlanError::WaitingFocusRequiresOpenGate);
-                    }
-                }
-                plan.heartbeat.current_focus = (!focus.is_empty()).then(|| focus.to_string());
-            }
-            if clear_lanes {
-                plan.heartbeat.active_lanes.clear();
-            } else if let Some(lanes) = lanes {
-                plan.heartbeat.active_lanes = clean_list(lanes);
-            }
-            if clear_rules {
-                plan.heartbeat.rules.clear();
-            } else if let Some(rules) = rules {
-                plan.heartbeat.rules = clean_list(rules);
-            }
-            Ok(())
-        });
-        pending_after_readback(write, self.show_heartbeat(Some(&plan_id), None, None))
-    }
-
     pub fn show_heartbeat(
         &self,
         plan_id: Option<&str>,
@@ -628,10 +531,14 @@ impl PlanStore {
     ) -> Result<HeartbeatShowResult, PlanError> {
         let plan_id = self.resolve_active_plan_for_orchestrator(plan_id, pane_id, session_id)?;
         let plan = self.get(&plan_id).ok_or(PlanError::NotFound)?;
+        let mut heartbeat = plan.heartbeat.clone();
+        heartbeat.current_focus = None;
+        heartbeat.active_lanes.clear();
+        heartbeat.rules.clear();
         Ok(HeartbeatShowResult {
             plan_id: plan.id.clone(),
-            reinjection: render_heartbeat(&plan, &plan.heartbeat, &plan.loops, &[]),
-            heartbeat: plan.heartbeat,
+            reinjection: render_heartbeat(&plan, &heartbeat, &plan.loops, &[]),
+            heartbeat,
         })
     }
 

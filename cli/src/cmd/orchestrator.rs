@@ -18,23 +18,6 @@ pub fn handle(
         }
         OrchestratorAction::Heartbeat { action } => match action {
             OrchestratorHeartbeatAction::Show { plan } => heartbeat_show(client, json_output, plan),
-            OrchestratorHeartbeatAction::Set {
-                plan,
-                focus,
-                lanes,
-                rules,
-                clear_lanes,
-                clear_rules,
-            } => heartbeat_set(
-                client,
-                json_output,
-                plan,
-                focus,
-                lanes,
-                rules,
-                clear_lanes,
-                clear_rules,
-            ),
         },
         OrchestratorAction::Refresh { plan, pane } => refresh(client, json_output, plan, pane),
         OrchestratorAction::Handoff {
@@ -324,53 +307,6 @@ fn heartbeat_show(
     plan: Option<String>,
 ) -> Result<Option<Value>, String> {
     let result = call_plan_rpc(client, "plan.heartbeat.show", heartbeat_params(plan))?;
-    if json_output {
-        return Ok(Some(result));
-    }
-    print_heartbeat(&result);
-    Ok(None)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn heartbeat_set(
-    client: &mut SocketClient,
-    json_output: bool,
-    plan: Option<String>,
-    focus: Option<String>,
-    lanes: Vec<String>,
-    rules: Vec<String>,
-    clear_lanes: bool,
-    clear_rules: bool,
-) -> Result<Option<Value>, String> {
-    if clear_lanes && !lanes.is_empty() {
-        return Err(
-            "pass either --clear-lanes or --lane, not both; use a second heartbeat set command after clearing"
-                .into(),
-        );
-    }
-    if clear_rules && !rules.is_empty() {
-        return Err(
-            "pass either --clear-rules or --rule, not both; use a second heartbeat set command after clearing"
-                .into(),
-        );
-    }
-    let mut params = heartbeat_params(plan);
-    if let Some(focus) = focus {
-        params["focus"] = json!(focus);
-    }
-    if !lanes.is_empty() {
-        params["lanes"] = json!(lanes);
-    }
-    if !rules.is_empty() {
-        params["rules"] = json!(rules);
-    }
-    if clear_lanes {
-        params["clear_lanes"] = json!(true);
-    }
-    if clear_rules {
-        params["clear_rules"] = json!(true);
-    }
-    let result = call_plan_rpc(client, "plan.heartbeat.set", params)?;
     if json_output {
         return Ok(Some(result));
     }

@@ -5,7 +5,7 @@ ACCEPTANCE and delegates all planning to you. **You cut the plan: GOAL, Spec,
 sections, and the concrete tasks** — the Orchestrator dispatches them to workers
 and accepts/bounces the results. Task-cutting is YOUR job, not the Orchestrator's.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
 
 ## What you own vs the Orchestrator
 
@@ -76,17 +76,17 @@ Effort lineage links use `codeterm effort link --from <plan> --to <plan> --rel
 ## Milestones & regression boundaries
 
 Tasks are not a flat list — group them into **milestones** and gate each
-boundary with FULL regression, not just per-task CI. This catches integration
-breakage a single lane's tests miss.
+boundary with one centralized regression run. Isolated implementation lanes do
+not repeat cold compiled builds.
 
 ```bash
 codeterm plan kinds set <plan> --kinds "build,integration,release"   # milestone-kind columns
 codeterm plan milestone add <plan> --task <task> --kind <kind> --text "<what shipped>"
 ```
 
-At each milestone boundary the Orchestrator runs the broad gate (full build +
-test suite) in one warm integration checkout before opening the next milestone.
-A milestone with no regression gate is a milestone in name only.
+At each milestone boundary the Orchestrator runs the broad gate in one warm
+integration checkout before opening the next milestone. A milestone with no
+regression gate is a milestone in name only.
 
 ## Reflection is a rhythm, not a one-off
 
@@ -149,6 +149,15 @@ they shape how the worker approaches the job. Never leave them empty.
 
 ## Discipline
 
+- Plan the smallest deterministic user-layer oracle before implementation.
+  Keep it fast and reusable, and schedule it once at final integration or
+  release verification.
+- Isolated-lane Workers implement and report exact oracle commands without
+  starting cold compiled builds or suites. After integration, a canonical
+  verification Worker runs the focused oracle and bounces failures with exact
+  evidence. A Worker placed in canonical may run focused checks directly.
+- Checkout placement is chosen by the Orchestrator based on concurrency and
+  file ownership; never make an isolated lane an unconditional task requirement.
 - A task with no exact command or surface in its test plan is under-specified —
   do not ship it; the Orchestrator will bounce it back to you.
 - Discovery/research is not a plan: it produces evidence and decisions. Turn

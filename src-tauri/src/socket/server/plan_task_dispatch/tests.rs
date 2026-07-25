@@ -84,21 +84,23 @@ fn provenance() -> WorkerLaneProvenance {
 }
 
 #[test]
-fn explicit_canonical_cwd_is_rejected_before_provisioning() {
+fn explicit_canonical_cwd_is_an_orchestrator_checkout_choice() {
     let (_root, project) = git_project();
-    let provision_count = Cell::new(0);
-    let error = resolve_dispatch_lane(
+    let resolved = resolve_dispatch_lane(
         Some(project.to_str().unwrap()),
         project.to_str().unwrap(),
         &TaskLaneMetadata::default(),
     )
-    .unwrap_err();
-    if error.code == 0 {
-        provision_count.set(provision_count.get() + 1);
-    }
-    assert_eq!(error.code, -32602);
-    assert_eq!(error.data.unwrap()["stage"], "cwd_validation");
-    assert_eq!(provision_count.get(), 0);
+    .unwrap();
+    let provenance = resolved.existing.expect("canonical provenance");
+    assert_eq!(
+        std::fs::canonicalize(&resolved.spawn_cwd).unwrap(),
+        std::fs::canonicalize(&project).unwrap()
+    );
+    let lane = lane_metadata_for_dispatch(&TaskLaneMetadata::default(), &provenance);
+    assert!(lane.worktree_path.is_none());
+    assert!(lane.branch.is_none());
+    assert!(lane.base.is_none());
     assert_eq!(git_worktree_count(&project), 1);
 }
 

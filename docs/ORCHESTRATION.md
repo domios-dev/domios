@@ -57,12 +57,12 @@ Run this loop after every report, reminder, task close, tab death, or gate:
    focus.
 4. **Give every actionable task an exit:** dispatch, pause with a reason, judge,
    replan through the Planner, or escalate.
-5. **Keep writers parallel.** Give disjoint implementation tasks separate
-   Worker tabs, branches, worktrees, and file ownership.
+5. **Keep writers parallel.** The Orchestrator chooses canonical checkout or
+   isolated lanes based on concurrency and file ownership.
 6. **Serialize heavy gates.** Run broad QA once in the warm canonical checkout,
    not independently in cold lanes.
-7. **Update heartbeat.** `current_focus` names the next action owned by the
-   Orchestrator, never “wait for Worker.”
+7. **Let heartbeat follow state.** Heartbeat is derived automatically from
+   plan and task state; never maintain focus or lane fields manually.
 8. **Clean accepted work.** Close the Worker tab, remove the ancestry-merged
    worktree and branch, stop its dev process, and record cleanup.
 
@@ -120,7 +120,7 @@ Every Worker must be visible under the Orchestrator and carry:
 
 - a clear title and description;
 - `CODETERM_PLAN_ID` and `CODETERM_TASK_ID`;
-- an isolated `lane/*` branch and sibling worktree;
+- checkout placement chosen by the Orchestrator;
 - a self-contained brief with exact acceptance and test commands;
 - instructions to report by running `codeterm agent report`.
 
@@ -164,10 +164,23 @@ checks are polling.
 
 ## Verification and acceptance
 
-Workers run the smallest meaningful focused oracle. They do not run broad
-builds or full suites in every worktree.
+Workers in isolated lanes implement and report the exact focused oracle without
+starting cold compiled builds or suites. A Worker already placed in the warm
+canonical checkout may run the focused oracle directly.
 
-The Orchestrator verifies at the layer where the user experienced the defect:
+After integrating a lane candidate, run its focused oracle through a canonical
+verification Worker. If it fails, bounce the task with the exact command and
+failure evidence. Run broad suites only once for the compatible group.
+
+Design the smallest deterministic user-layer oracle before implementation so
+unit-green changes cannot silently break the real workflow. Keep that oracle
+fast, reusable, and event-driven.
+
+During iteration, use lightweight non-build checks where useful. Run compiled
+focused checks in the warm canonical checkout, then run the actual user-layer
+oracle once at final integration or release verification.
+
+The final verification covers the layer where the user experienced the defect:
 
 - inspect the actual diff;
 - reproduce the failing scenario;
@@ -177,10 +190,10 @@ The Orchestrator verifies at the layer where the user experienced the defect:
 - use an independent adversarial reviewer for broad, hot-path, security,
   session-binding, provider-boundary, or final integration changes.
 
-Unit-green alone is not acceptance. Deferred critical evidence remains explicit
-open risk.
+Unit-green alone does not close a user-visible defect. Deferred final
+user-layer evidence remains explicit open risk.
 
-Testing ladder — per-task = focused filters only; per-group (milestone) = one full regression gate (cargo suite + ts-unit, serialized in the warm checkout); per-release = the farm matrix across every platform.
+Testing ladder — per-task = focused filters in the warm canonical checkout; per-group (milestone) = one full regression gate (cargo suite + ts-unit, serialized in the warm checkout); per-release = the farm matrix across every platform.
 
 Repository-specific restrictions override generic gate suggestions.
 
@@ -209,12 +222,9 @@ critical: clean inactive or merged lanes before expanding the wave.
 
 ## Heartbeat
 
-Heartbeat preserves the control loop across idle time and compaction.
-
-- `current_focus` is the next Orchestrator-owned action.
-- `active_lanes` lists only live work.
-- `rules` stores temporary execution constraints.
-- `learnings` stores durable orchestration lessons.
+Heartbeat preserves the control loop across idle time and compaction. The
+daemon derives it from plan state, live assignments, gates, and durable
+learnings. Orchestrators do not edit heartbeat fields.
 
 A reminder is handled only when plan state changes: dispatch, pause, verdict,
 bounce, replan, escalation, or recorded decision.
@@ -258,4 +268,4 @@ An effort is complete only when:
 - stale milestones are pruned;
 - the final handoff or retrospective is recorded;
 - the plan is archived.
-<!-- revision: 41 -->
+<!-- revision: 42 -->
