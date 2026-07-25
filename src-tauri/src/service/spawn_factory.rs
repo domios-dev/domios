@@ -55,7 +55,7 @@ pub(crate) fn reach_command(pane_id: &str) -> String {
 /// the reach command, and forbids spawning a duplicate of an already-live pair.
 pub(crate) fn introduction_body(me: &Counterpart, other: &Counterpart) -> String {
     format!(
-        "You are the {my_role} of this team. Your {other_role} counterpart is {other_label} (pane {other_pane}) — reach it with `{reach}`. It already exists: coordinate through it, never spawn a duplicate.",
+        "You are the {my_role} of this team. Your {other_role} counterpart is {other_label} (tab {other_pane}) — reach it with `{reach}`. It already exists: coordinate through it, never spawn a duplicate.",
         my_role = me.role,
         other_role = other.role,
         other_label = other.label,

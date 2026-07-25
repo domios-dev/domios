@@ -799,7 +799,7 @@ mod hierarchy_defaults_tests {
 
     #[test]
     fn idle_manager_bootstrap_is_one_team_launch_turn_with_coordination() {
-        let coordination = "Your Planner counterpart is Euler (pane planner-1).";
+        let coordination = "Your Planner counterpart is Euler (tab planner-1).";
         let mut params = SpawnAgentParams {
             manager_bootstrap: Some(crate::service::role_identity::ManagerBootstrapInputs {
                 role: "Orchestrator".into(),

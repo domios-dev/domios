@@ -130,7 +130,7 @@ mod tests {
 
     #[test]
     fn counterpart_coordination_is_part_of_the_single_bootstrap_payload() {
-        let coordination = "Your Planner counterpart is Euler (pane planner-1).";
+        let coordination = "Your Planner counterpart is Euler (tab planner-1).";
         let mut inputs = ManagerBootstrapInputs {
             role: "Orchestrator".into(),
             team_id: "not yet established".into(),

@@ -432,7 +432,7 @@ fn role_identity_names_planner_peer_across_reinjection() {
     let text = store.prepend_heartbeat_for_plan(&plan_id, "resume");
 
     assert!(text.contains(&format!("You are the Orchestrator for plan {plan_id}")));
-    assert!(text.contains("peer tab Planner is pane planner-a"));
+    assert!(text.contains("peer tab Planner is tab planner-a"));
     assert!(text.contains("<codeterm-state-reconciliation"));
 }
 
