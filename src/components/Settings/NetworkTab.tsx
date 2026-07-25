@@ -33,7 +33,7 @@ export function NetworkTab() {
             ["POST", "/api/workspaces/:id/tabs", "Create tab"],
             ["POST", "/api/workspaces/:id/tabs/:tid/move", "Move tab"],
           ]} />
-          <EndpointGroup title="Panes" endpoints={[
+          <EndpointGroup title="Tabs" endpoints={[
             ["GET", "/api/panes", "List all"],
             ["POST", "/api/panes/:id/focus", "Focus"],
             ["POST", "/api/panes/:id/close", "Close"],

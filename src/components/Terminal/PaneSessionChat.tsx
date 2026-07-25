@@ -47,8 +47,8 @@ interface Props {
   onOpenTerminalFallback?: () => void;
   uiFontScale?: number;
   isVisible?: boolean;
-  /** Pane is backed by a plugin chatBackend (no PTY). Sends route through the
-   *  pane send seam, and PTY-only affordances (terminal fallback, screen poll)
+  /** Tab is backed by a plugin chatBackend (no PTY). Sends route through the
+   *  tab send seam, and PTY-only affordances (terminal fallback, screen poll)
    *  are suppressed. */
   chatBackend?: boolean;
 }
@@ -225,7 +225,7 @@ export function PaneSessionChat({
   // input path the composer uses; jump surfaces the live terminal output.
   const handleRerunShellCommand = useCallback((command: string) => {
     if (!currentPtyId) {
-      showComposerError("Pane has no PTY");
+      showComposerError("Tab has no PTY");
       return;
     }
     void invoke("write_pty_string", { ptyId: currentPtyId, data: command + "\r", raw: false }).catch(
@@ -249,7 +249,7 @@ export function PaneSessionChat({
 
   const handleStopAgent = useCallback(() => {
     if (!currentPtyId) {
-      showComposerError("Pane has no PTY");
+      showComposerError("Tab has no PTY");
       return;
     }
     const now = Date.now();
@@ -267,8 +267,8 @@ export function PaneSessionChat({
       const answer = text.trim();
       if (!answer) return;
       if (!currentPtyId) {
-        showComposerError("Pane has no PTY");
-        throw new Error("Pane has no PTY");
+        showComposerError("Tab has no PTY");
+        throw new Error("Tab has no PTY");
       }
       setAnsweredInteractiveIds((prev) => new Set(prev).add(element.id));
       followSentMessage();
@@ -504,7 +504,7 @@ export function PaneSessionChat({
       data-testid="pane-session-chat"
       data-pane-id={paneId}
       role="region"
-      aria-label={`Pane chat: ${pane?.title ?? paneId}`}
+      aria-label={`Tab chat: ${pane?.title ?? paneId}`}
       aria-busy={loading || recovering}
       style={{
         background: "var(--ct-bg, #0d1117)",

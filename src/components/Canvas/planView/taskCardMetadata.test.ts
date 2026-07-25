@@ -43,7 +43,7 @@ test("done task with ghost pane never shows working-on or pane-gone", () => {
   const card = cardFor(plan, "t-done");
   assert(card.workingOn === null, "no working-on row");
   const meta = deriveTaskCardMetadata(card, 10_000);
-  assert(!meta.rows.some((r) => /pane gone/i.test(r.value)), "no pane-gone on done");
+  assert(!meta.rows.some((r) => /tab gone/i.test(r.value)), "no tab-gone on done");
   assert(meta.rows.some((r) => r.kind === "branch" && r.label === "Branch"), "branch row");
   assert(meta.rows.some((r) => r.kind === "age" && r.label === "Age"), "age row separate");
 });

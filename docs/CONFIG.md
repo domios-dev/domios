@@ -153,7 +153,7 @@ max_restart_attempts = 3        # Max restart attempts before giving up
 restart_delay_s = 60            # Seconds between restart attempts
 ```
 
-When enabled, CodeTerm starts with a single "General" workspace instead of the default "Main" workspace. The General Agent pane is marked as protected (cannot be closed via UI).
+When enabled, CodeTerm starts with a single "General" workspace instead of the default "Main" workspace. The General Agent tab is marked as protected (cannot be closed via UI).
 
 Settings UI: Settings > Agents > General Agent section (enable, auto-restart toggles).
 
@@ -165,7 +165,7 @@ External service integrations are configured under `[integrations]`.
 
 Connect a Telegram bot to the General Agent. Messages are routed bidirectionally:
 - **Inbound** (Telegram to Agent): Messages arrive as `[Telegram: user_id] text` in the PTY. Rapid messages within 300ms are debounced into a single delivery. A typing indicator is sent on every inbound message.
-- **Outbound** (Agent to Telegram): The agent sends replies via CLI: `codeterm bridge send --to USER_ID --service telegram "text"`. Without `--append`, always sends a new message. Use `--append` to concatenate text to the previous message (auto-inserts `\n\n` paragraph break, edits in-place within 60s window). Works from any pane, not just the General Agent.
+- **Outbound** (Agent to Telegram): The agent sends replies via CLI: `codeterm bridge send --to USER_ID --service telegram "text"`. Without `--append`, always sends a new message. Use `--append` to concatenate text to the previous message (auto-inserts `\n\n` paragraph break, edits in-place within 60s window). Works from any tab, not just the General Agent.
 
 ```toml
 [integrations]
@@ -180,7 +180,7 @@ telegram_allowed_users = []     # Telegram user IDs as strings, empty = allow al
 4. Optionally restrict users: `codeterm config set integrations.telegram_allowed_users '["123456789"]'`
 5. Restart CodeTerm (hot-reload not yet supported)
 
-Connected services are shown as icons next to the pane title in the sidebar (`connected_services` field on the pane object).
+Connected services are shown as icons next to the tab title in the sidebar (`connected_services` field on the tab object).
 
 Settings UI: Settings > Integrations > Telegram (toggle + allowed users list).
 
@@ -200,7 +200,7 @@ webhook_port = 7687
 
 ### Pre-forward text hooks (since v1.2.0)
 
-Generic intercept point for inbound bridge messages BEFORE they reach the General Agent pane. An external daemon receives the message via HTTP and decides one of three outcomes: forward unchanged, replace (daemon already responded — bridge skips the pane), or annotate with metadata that the agent can act on.
+Generic intercept point for inbound bridge messages BEFORE they reach the General Agent tab. An external daemon receives the message via HTTP and decides one of three outcomes: forward unchanged, replace (daemon already responded — bridge skips the tab), or annotate with metadata that the agent can act on.
 
 Same shape as `voice_transcribe` (health-cache + timeout + fallback) but routed for text/command messages.
 
@@ -224,7 +224,7 @@ Body: {
   "channel":      "telegram",
   "user_id":      "123456789",
   "msg_id":       "12345",
-  "pane_id":      "<target pane>",
+  "pane_id":      "<target tab>",
   "attachments":  [{"kind": "voice", "path": "/tmp/...", "filename": "..."}]
 }
 
@@ -334,11 +334,11 @@ Sessions auto-save every 30 seconds and when you close the window. Saved to:
 - **Linux:** `~/.config/codeterm/sessions/last.json`
 - **macOS:** `~/Library/Application Support/codeterm/sessions/last.json`
 
-Contains workspace layout, tab arrangement, and split tree structure.
+Contains workspace layout and tab arrangement metadata.
 
 ## CWD Tracking
 
-CodeTerm tracks the current working directory of each pane via invisible OSC 7 shell integration. No visible commands are injected into the terminal.
+CodeTerm tracks the current working directory of each tab via invisible OSC 7 shell integration. No visible commands are injected into the terminal.
 
 **How it works per shell:**
 - **zsh** (macOS default): ZDOTDIR trick -- a temporary `.zshrc` in the integration directory sources the user's real config, then adds a `precmd` hook that emits OSC 7.
@@ -371,13 +371,13 @@ Cron jobs live in `~/.codeterm/crons.json` (dev: `~/.codeterm-dev/crons.json`), 
 | `task` | `string` | — | Prompt sent to the agent via `-p` |
 | `cwd` | `string?` | *(workspace cwd)* | Working directory for the spawned agent |
 | `role` | `string?` | — | Optional hierarchy role to assign on spawn |
-| `creator_pane_id` | `string?` | — | Pane that receives reports from the cron agent |
+| `creator_pane_id` | `string?` | — | Tab that receives reports from the cron agent |
 | `oneshot` | `bool` | `false` | One-shot job: auto-disabled after first fire, deleted on completion |
 | `jitter_max_ms` | `u64?` | `null` | See jitter semantics below |
 | `max_history` | `usize` | `100` | Per-job run history cap |
 | `consecutive_failures` | `u32` | `0` | Runs failed in a row. Auto-disables at ≥ 5. |
 | `protected` | `bool` | `false` | Protected jobs cannot be deleted, only toggled |
-| `last_run` | `CronRunInfo?` | — | Last run summary (status, pane, timing) |
+| `last_run` | `CronRunInfo?` | — | Last run summary (status, tab, timing) |
 | `next_run` | `u64?` | — | Next scheduled fire (unix ms). `null` for disabled / exhausted oneshots. |
 
 ### Jitter semantics (`jitter_max_ms`)
@@ -390,7 +390,7 @@ Jitter is applied on top of the cron/oneshot fire time. A job with `0 * * * *` a
 
 ### Hidden spawn
 
-Cron runs spawn agents in **hidden panes** — no visible tab or split. Observe progress via the cron panel in the sidebar, the frontend log viewer, or `codeterm cron history ID`. Use `cron_read_log` (Tauri IPC) / the live pane fallback to tail a running run's output.
+Cron runs spawn agents in **hidden tabs** — no separate visible tab. Observe progress via the cron panel in the sidebar, the frontend log viewer, or `codeterm cron history ID`. Use `cron_read_log` (Tauri IPC) / the live tab fallback to tail a running run's output.
 
 ## UI feature gates
 
@@ -400,7 +400,7 @@ Controls which sidebar buttons are visible. Set in `[ui]` in `config.toml`.
 |-----|------|---------|-------------|
 | `ui.memory_tab_enabled` | `bool` | `true` | Show/hide the Memory sidebar button |
 | `ui.mesh_tab_enabled` | `bool` | `true` | Show/hide the Mesh sidebar button |
-| `ui.default_new_agent_pane_chat` | `bool` | `false` | Open new visible agent panes, including General/Main, in Chat UI when the provider supports it |
+| `ui.default_new_agent_pane_chat` | `bool` | `false` | Open new visible agent tabs, including General/Main, in Chat UI when the provider supports it |
 
 ```toml
 [ui]
@@ -419,7 +419,7 @@ Vector indexing uses a **single-worker** pattern: one background thread owns the
 
 ### Auto-extraction concurrency
 
-Saving a mem item triggers an extraction cascade that pulls structured entities and relationships out of the body. Extraction runs in hidden panes spawned through `workers::spawn_headless`, and is capped at **4 concurrent workers** globally via `ServiceContext::extract_semaphore` (a `tokio::sync::Semaphore` created at startup). A fifth concurrent save queues until one of the running extractions releases its permit.
+Saving a mem item triggers an extraction cascade that pulls structured entities and relationships out of the body. Extraction runs in hidden tabs spawned through `workers::spawn_headless`, and is capped at **4 concurrent workers** globally via `ServiceContext::extract_semaphore` (a `tokio::sync::Semaphore` created at startup). A fifth concurrent save queues until one of the running extractions releases its permit.
 
 To suppress extraction on a specific save — used by seed loaders to avoid re-extracting bundled items on every boot — pass `skip_extract: true` on the `POST /api/mem/items` body (or via the matching socket method). Items tagged `auto-extracted` or sourced from `extracted_from:*` are also skipped automatically.
 

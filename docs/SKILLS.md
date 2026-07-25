@@ -174,7 +174,7 @@ curl -X POST http://localhost:7685/api/notifications \
 
 ## Agent Hierarchy
 
-CodeTerm has a 2-level role hierarchy: Orchestrator (depth 1) -> Worker (depth 2). Each agent gets its own tab; the hierarchy is a logical chain, not visual splits. IDs are 8-char hex (e.g. `a3f1b2c7`).
+CodeTerm has a 2-level role hierarchy: Orchestrator (depth 1) -> Worker (depth 2). Each agent gets its own tab; the hierarchy is a logical chain, not a nested layout. IDs are 8-char hex (e.g. `a3f1b2c7`).
 
 **Roles:**
 - **Orchestrator** (was Conductor) -- top-level, spawns Workers.
@@ -239,7 +239,7 @@ Available batch methods: `spawn`, `send`, `rename`, `close`, `role`, `notify`, `
 
 ## Command Palette
 
-`Cmd+K` (macOS) / `Ctrl+K` (Windows/Linux) opens the command palette for quick access to tabs, workspaces, splits, settings, and theme switching.
+`Cmd+K` (macOS) / `Ctrl+K` (Windows/Linux) opens the command palette for quick access to tabs, workspaces, settings, and theme switching.
 
 ## Session Persistence
 
