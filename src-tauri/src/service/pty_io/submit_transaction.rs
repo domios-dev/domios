@@ -14,7 +14,6 @@ use crate::service::ServiceContext;
 
 const TAIL_ROWS: usize = 8;
 const OPTIMISTIC_SUBMIT_WRITES: usize = 6;
-const OPTIMISTIC_SUBMIT_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
 
 fn composer_marker(line: &str) -> bool {
     let trimmed = line.trim_start();
@@ -265,6 +264,27 @@ fn submission_acknowledged_now<T: SubmitTransport>(
     draft_left_composer || fresh_turn
 }
 
+fn wait_paste_ingested<T: SubmitTransport>(
+    transport: &T,
+    text: &str,
+    baseline_evidence: usize,
+    armed: u64,
+    deadline: Instant,
+) -> bool {
+    let mut generation = armed;
+    loop {
+        if transport.generation() != armed
+            && transport.draft_evidence_count(text) > baseline_evidence
+        {
+            return true;
+        }
+        if !transport.wait_change(generation, deadline) {
+            return false;
+        }
+        generation = transport.generation();
+    }
+}
+
 #[cfg(test)]
 fn run<T: SubmitTransport>(
     transport: &T,
@@ -285,13 +305,25 @@ fn run_with_submit_key<T: SubmitTransport>(
     opts: VerifyOpts,
 ) -> Result<InjectionResult, InjectionError> {
     let started = Instant::now();
-    let turn_deadline = started + opts.echo_timeout.saturating_add(opts.submit_timeout);
+    let paste_deadline = started + opts.echo_timeout;
+    let turn_deadline = paste_deadline + opts.submit_timeout;
     let two_phase = enter && opts.verify_submit;
 
     let baseline_evidence = transport.draft_evidence_count(text);
+    let paste_armed = transport.generation();
     let bytes_written = transport.write_paste(text, turn_deadline)?;
 
-    let echo_observed = transport.draft_evidence_count(text) > baseline_evidence;
+    let echo_observed = if enter {
+        wait_paste_ingested(
+            transport,
+            text,
+            baseline_evidence,
+            paste_armed,
+            paste_deadline,
+        )
+    } else {
+        transport.draft_evidence_count(text) > baseline_evidence
+    };
 
     if !enter {
         return Ok(InjectionResult {
@@ -305,10 +337,7 @@ fn run_with_submit_key<T: SubmitTransport>(
 
     let turn_was_started = transport.turn_started();
     let enter_armed = transport.generation();
-    for index in 0..OPTIMISTIC_SUBMIT_WRITES {
-        if index > 0 {
-            std::thread::sleep(OPTIMISTIC_SUBMIT_INTERVAL);
-        }
+    for _ in 0..OPTIMISTIC_SUBMIT_WRITES {
         transport.write_submit_key(submit_key, turn_deadline)?;
     }
     let submit_observed = !two_phase
