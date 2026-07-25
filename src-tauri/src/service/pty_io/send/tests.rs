@@ -297,21 +297,38 @@ fn pane_with_exit_suspected_is_not_routable() {
 }
 
 #[test]
-fn pane_before_agent_ready_is_not_routable() {
+fn launching_agent_with_a_live_pty_is_optimistically_routable() {
     let (mut _mux, pane_id) = fully_routable_pane();
     let pane = _mux.get_pane_mut(&pane_id).unwrap();
     pane.boot_stage = Some(codeterm_types::pty::BootStage::AgentLaunching);
     let pane = _mux.get_pane(&pane_id).unwrap();
-    assert!(!is_pane_routable_for_send(pane));
+    assert!(is_pane_routable_for_send(pane));
 }
 
 #[test]
-fn pane_with_no_boot_stage_is_not_routable() {
+fn agent_with_a_live_pty_is_routable_without_boot_metadata() {
     let (mut _mux, pane_id) = fully_routable_pane();
     let pane = _mux.get_pane_mut(&pane_id).unwrap();
     pane.boot_stage = None;
     let pane = _mux.get_pane(&pane_id).unwrap();
-    assert!(!is_pane_routable_for_send(pane));
+    assert!(is_pane_routable_for_send(pane));
+}
+
+#[test]
+fn stale_timeline_state_does_not_block_a_live_agent_pty() {
+    use crate::agent::offline_state_classifier::{PaneVerdict, TimelineState};
+
+    let (mut mux, pane_id) = fully_routable_pane();
+    let pane = mux.get_pane_mut(&pane_id).unwrap();
+    pane.agent_state = Some(
+        PaneVerdict {
+            state: TimelineState::Question,
+            subtype: None,
+        }
+        .into(),
+    );
+
+    assert!(is_pane_routable_for_send(pane));
 }
 
 #[test]

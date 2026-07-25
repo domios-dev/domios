@@ -160,16 +160,9 @@ pub(super) fn authenticated_pty_target(
 pub(super) fn optimistic_agent_pty_target(
     pane: &crate::multiplexer::types::Pane,
 ) -> Result<(String, String), String> {
-    let accepting = match pane.agent_state.as_ref() {
-        Some(state) => matches!(
-            state.state,
-            codeterm_types::pty::TimelineState::Working | codeterm_types::pty::TimelineState::Idle
-        ),
-        None => pane.boot_stage == Some(codeterm_types::pty::BootStage::AgentReady),
-    };
     // chat_view is UI mount state, not backend routability — a background or
     // hidden tab with a live agent PTY/session must still accept input.
-    let routable = pane.agent_type.is_some() && pane.exit_suspected_at.is_none() && accepting;
+    let routable = pane.agent_type.is_some() && pane.exit_suspected_at.is_none();
     if !routable {
         return Err("agent_unavailable: recipient agent is not accepting input".into());
     }
