@@ -39,7 +39,7 @@ Triggers: "on another machine" / "remote" / "mesh" / "send to X" / "run on X" / 
 Always use CLI, never raw curl:
 ```bash
 codeterm mesh peers                                        # find peers (paired = can send)
-codeterm tab list --mesh "home-laptop"                     # list panes on remote
+codeterm tab list --mesh "home-laptop"                     # list tabs on remote
 codeterm send "git pull && npm run dev" --tab ID --mesh PEER  # send command
 codeterm agent spawn claude --task "..." --mesh PEER       # spawn agent remotely
 codeterm tab get-text --tab ID --mesh PEER                 # read remote visible terminal text

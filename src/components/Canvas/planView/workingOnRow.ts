@@ -69,7 +69,7 @@ function sortChips(chips: WorkingOnChip[]): WorkingOnChip[] {
   );
 }
 
-// Lane hygiene warnings (branch missing, pane gone) are active-task-only via working-on chips.
+// Lane hygiene warnings (branch missing, tab gone) are active-task-only via working-on chips.
 // Done/paused/pending cards surface branch metadata when present, not duplicate warn chips.
 export function deriveWorkingOnRow(
   task: Task,

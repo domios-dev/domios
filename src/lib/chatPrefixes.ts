@@ -225,7 +225,7 @@ function collectSlashCommands(content: string): PrefixMatch | null {
 export function labelFor(origin: ChatOrigin): string {
   switch (origin.kind) {
     case "pane":
-      return origin.title || "pane";
+      return origin.title || "tab";
     case "telegram":
       return `Telegram · ${origin.userId.slice(0, 12)}`;
     case "mesh":

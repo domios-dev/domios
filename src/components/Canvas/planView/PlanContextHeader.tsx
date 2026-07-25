@@ -298,7 +298,7 @@ function PeerChip({ role, label, paneId, onOpenPane }: PeerChipProps) {
         data-testid={`plan-peer-chip-${role}`}
         className={`plan-context-chip plan-peer-chip plan-peer-chip-${role}`}
         onClick={() => onOpenPane!(paneId!)}
-        title={`Open ${roleLabel} pane`}
+        title={`Open ${roleLabel} tab`}
       >
         {content}
       </button>

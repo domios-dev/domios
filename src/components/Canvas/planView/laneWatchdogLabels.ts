@@ -11,14 +11,14 @@ export interface LaneWarningDef {
 
 // Shared with lane_liveness.rs verdict labels — one severity ladder for UI + watchdog.
 export const LANE_WARNINGS: Record<LaneWarningId, LaneWarningDef> = {
-  pane_gone: { id: "pane_gone", label: "pane gone", tone: "red", severity: 30 },
-  no_pane_recorded: { id: "no_pane_recorded", label: "no pane recorded", tone: "amber", severity: 20 },
+  pane_gone: { id: "pane_gone", label: "tab gone", tone: "red", severity: 30 },
+  no_pane_recorded: { id: "no_pane_recorded", label: "no tab recorded", tone: "amber", severity: 20 },
   branch_missing: { id: "branch_missing", label: "branch missing", tone: "amber", severity: 10 },
 };
 
 export const CHIP_FIELD_LABELS = {
   model: "Model",
-  pane: "Pane",
+  pane: "Tab",
   peer: "Peer",
   branch: "Branch",
   age: "Age",

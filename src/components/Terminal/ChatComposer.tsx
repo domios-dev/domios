@@ -200,7 +200,7 @@ function SlashPicker({
   );
 }
 
-/** Poll cadence for delayed-message pills: only the active pane polls; events drive everything else. */
+/** Poll cadence for delayed-message pills: only the active tab polls. */
 export function delayedPollIntervalMs(isActive: boolean): number | null {
   return isActive ? 10_000 : null;
 }
@@ -262,8 +262,8 @@ function ChatComposerImpl({
   paneId: string;
   paneProvider: string | null;
   currentPtyId: string | null;
-  /** This pane is backed by a plugin chatBackend (no PTY) — send via the
-   *  pane-level `chat_send_text` instead of writing to a PTY. */
+  /** This tab is backed by a plugin chatBackend (no PTY) — send via the
+   *  tab-level `chat_send_text` instead of writing to a PTY. */
   chatBackend?: boolean;
   /** Whether this composer's pane is the currently active/focused tab.
    *  When false, refocusComposer is a no-op — prevents background panes
@@ -427,7 +427,7 @@ function ChatComposerImpl({
     };
     void refresh();
     // Change events drive updates; the interval is drift insurance for the
-    // countdown pills and runs only while this pane is the active tab.
+    // countdown pills and runs only while this tab is the active tab.
     const pollMs = delayedPollIntervalMs(isActive);
     const interval = pollMs !== null ? window.setInterval(refresh, pollMs) : null;
     let unlisten: (() => void) | null = null;
@@ -453,7 +453,7 @@ function ChatComposerImpl({
 
   const sendRawToPty = useCallback(
     async (data: string) => {
-      if (!currentPtyId) throw new Error("Pane has no PTY");
+      if (!currentPtyId) throw new Error("Tab has no PTY");
       await invoke("write_pty_string", { ptyId: currentPtyId, data, raw: false });
     },
     [currentPtyId],
@@ -591,7 +591,7 @@ function ChatComposerImpl({
         const fallbackCommand = allAttachments.length === 0 ? cliFallbackCommandPayload(composed) : null;
         if (fallbackCommand) {
           // CLI fallback commands write directly to the PTY — need the id now.
-          if (!currentPtyId) throw new Error("Pane has no PTY");
+          if (!currentPtyId) throw new Error("Tab has no PTY");
           onOpenTerminalFallback?.();
           await invoke("write_pty_string", { ptyId: currentPtyId, data: fallbackCommand, raw: false });
         } else {
