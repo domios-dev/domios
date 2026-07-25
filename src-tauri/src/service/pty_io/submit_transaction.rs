@@ -402,6 +402,14 @@ pub(crate) fn submit_text_with_key(
     let required = enter && opts.verify_submit;
     let result = run_with_submit_key(&transport, text, enter, submit_key, strategy, opts).and_then(
         |result| {
+            if result.submit_anomaly {
+                log::warn!(
+                    "[submit-recovery] pty={} recovered={} payload_repeated=false elapsed_ms={}",
+                    pty_id,
+                    result.submit_observed,
+                    result.elapsed.as_millis()
+                );
+            }
             let elapsed = result.elapsed;
             let tail = transport.observe().map(|o| o.tail).unwrap_or_default();
             result.require_submission(required, elapsed, tail)
