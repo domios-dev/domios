@@ -188,6 +188,23 @@ async fn wait_for_recovery_command(
     }
 }
 
+async fn bind_listener(bind_addr: &str) -> std::io::Result<tokio::net::TcpListener> {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(250);
+    loop {
+        match tokio::net::TcpListener::bind(bind_addr).await {
+            Ok(listener) => return Ok(listener),
+            Err(error)
+                if error.kind() == std::io::ErrorKind::AddrInUse
+                    && tokio::time::Instant::now() < deadline =>
+            {
+                // A just-freed port can be momentarily reclaimed by another process; back off before retrying.
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
 pub(crate) async fn start(control: RestApiControlState, bind_addr: String, router: axum::Router) {
     let (sender, mut commands) = mpsc::unbounded_channel();
     control.install(sender);
@@ -210,7 +227,7 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
     let test_server_exit_pending = false;
     let mut pending_completion: Option<oneshot::Sender<RestApiStatus>> = None;
     loop {
-        match tokio::net::TcpListener::bind(&bind_addr).await {
+        match bind_listener(&bind_addr).await {
             Ok(listener) => {
                 let listening = control.set_status(RestApiPhase::Listening, None);
                 if let Some(completed) = pending_completion.take() {
