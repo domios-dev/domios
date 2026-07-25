@@ -15,6 +15,28 @@ use crate::service::ServiceContext;
 const TAIL_ROWS: usize = 8;
 const MAX_SUBMIT_KEY_WRITES: usize = 3;
 
+fn composer_marker(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    let trimmed = trimmed
+        .strip_prefix('│')
+        .or_else(|| trimmed.strip_prefix('┃'))
+        .unwrap_or(trimmed)
+        .trim_start();
+    matches!(trimmed.chars().next(), Some('›' | '❯' | '→'))
+}
+
+fn composer_region_text(lines: &[String], cursor_row: usize) -> String {
+    if lines.is_empty() {
+        return String::new();
+    }
+    let end = cursor_row.min(lines.len() - 1);
+    let start = (0..=end)
+        .rev()
+        .find(|row| composer_marker(&lines[*row]))
+        .unwrap_or_else(|| end.saturating_sub(TAIL_ROWS - 1));
+    lines[start..=end].join("\n")
+}
+
 fn transaction_locks() -> &'static Mutex<HashMap<String, Weak<Mutex<()>>>> {
     static LOCKS: OnceLock<Mutex<HashMap<String, Weak<Mutex<()>>>>> = OnceLock::new();
     LOCKS.get_or_init(|| Mutex::new(HashMap::new()))
@@ -103,13 +125,16 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         if text.is_empty() {
             return 1;
         }
-        let screen = self
-            .svc
-            .screen_state
-            .lock()
-            .get_screen_text(self.pty_id)
+        let state = self.svc.screen_state.lock();
+        let lines = state
+            .lines_and_tail(self.pty_id, TAIL_ROWS)
+            .map(|(lines, _)| lines)
             .unwrap_or_default();
-        screen_echo_evidence_count(&screen, text)
+        let cursor_row = state
+            .cursor_input_state(self.pty_id)
+            .map(|(_, _, row, _)| row as usize)
+            .unwrap_or_else(|| lines.len().saturating_sub(1));
+        screen_echo_evidence_count(&composer_region_text(&lines, cursor_row), text)
     }
 
     fn generation(&self) -> u64 {
@@ -458,6 +483,7 @@ mod tests {
         deliver_ingest_frame: bool,
         accept_enter: bool,
         swallowed_enters: Cell<usize>,
+        newline_enters: Cell<usize>,
         writes: RefCell<Vec<String>>,
     }
 
@@ -497,6 +523,7 @@ mod tests {
                 deliver_ingest_frame,
                 accept_enter,
                 swallowed_enters: Cell::new(0),
+                newline_enters: Cell::new(0),
                 writes: RefCell::new(Vec::new()),
             }
         }
@@ -514,6 +541,12 @@ mod tests {
         fn already_working_and_swallows_first_enter() -> Self {
             let model = Self::swallows_first_enter();
             model.turn.set(true);
+            model
+        }
+
+        fn first_enter_inserts_newline() -> Self {
+            let model = Self::new(0, true, true);
+            model.newline_enters.set(1);
             model
         }
     }
@@ -572,6 +605,11 @@ mod tests {
             self.writes.borrow_mut().push(name.to_string());
             if self.swallowed_enters.get() > 0 {
                 self.swallowed_enters.set(self.swallowed_enters.get() - 1);
+                return Ok(());
+            }
+            if self.newline_enters.get() > 0 {
+                self.newline_enters.set(self.newline_enters.get() - 1);
+                self.generation.set(self.generation.get() + 1);
                 return Ok(());
             }
             let paste_landed = self.draft_visible.get() || !self.deliver_ingest_frame;
@@ -702,6 +740,38 @@ mod tests {
     }
 
     #[test]
+    fn composer_region_excludes_matching_history_after_submission() {
+        let lines = vec![
+            "› routed payload".to_string(),
+            "• processed routed payload".to_string(),
+            "› Find and fix a bug in @filename".to_string(),
+            "gpt-5.6-sol".to_string(),
+        ];
+
+        let region = composer_region_text(&lines, 2);
+
+        assert!(!region.contains("routed payload"));
+        assert!(region.contains("Find and fix a bug"));
+    }
+
+    #[test]
+    fn composer_region_keeps_wrapped_draft_through_cursor_row() {
+        let lines = vec![
+            "• prior output".to_string(),
+            "› first draft line".to_string(),
+            "  second draft line".to_string(),
+            "  third draft line".to_string(),
+            "gpt-5.6-sol".to_string(),
+        ];
+
+        let region = composer_region_text(&lines, 3);
+
+        assert!(region.contains("first draft line"));
+        assert!(region.contains("third draft line"));
+        assert!(!region.contains("prior output"));
+    }
+
+    #[test]
     fn normal_path_fires_cr_on_the_ingestion_event_with_no_anomaly() {
         // The ingestion frame causally releases Enter; a pipe flush alone is insufficient.
         // This fails against bf1278870, where paste+CR were written back-to-back.
@@ -785,6 +855,20 @@ mod tests {
         result
             .require_submission(true, Duration::ZERO, "> team bootstrap".into())
             .unwrap();
+    }
+
+    #[test]
+    fn enter_that_inserts_newline_retries_until_the_turn_starts() {
+        let io = TuiModel::first_enter_inserts_newline();
+        let result = run(&io, "multiline payload", true, tui(), opts()).unwrap();
+
+        assert!(result.submit_anomaly);
+        assert!(result.submit_observed);
+        assert!(io.turn_started());
+        assert_eq!(
+            &*io.writes.borrow(),
+            &["paste:multiline payload", "enter", "enter"]
+        );
     }
 
     #[test]
