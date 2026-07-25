@@ -185,6 +185,20 @@ impl LaunchFailure {
     }
 }
 
+fn provider_launch_failure(
+    reader_closed: bool,
+    provider_hook_ready: bool,
+    provider_tui_ready: bool,
+) -> Option<LaunchFailure> {
+    if reader_closed {
+        Some(LaunchFailure::PtyEof)
+    } else if provider_hook_ready || provider_tui_ready {
+        None
+    } else {
+        Some(LaunchFailure::ProviderReadyTimeout)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct LaunchGeneration {
     pane_id: String,
@@ -792,25 +806,32 @@ pub(crate) fn launch_agent_in_background(
             return;
         }
 
-        if !launch.await_provider_ack(std::time::Duration::from_secs(30)) {
-            let error = if reader_monitor.closed() {
-                LaunchFailure::PtyEof.reason()
-            } else {
-                LaunchFailure::ProviderReadyTimeout.reason()
-            };
-            launch.fail(
-                &svc,
-                if reader_monitor.closed() {
-                    LaunchFailure::PtyEof
-                } else {
-                    LaunchFailure::ProviderReadyTimeout
-                },
+        let provider_hook_ready = launch.await_provider_ack(std::time::Duration::ZERO);
+        let provider_tui_ready = provider_hook_ready
+            || svc.await_agent_tui_frame_on_screen(
+                &pty_id,
+                &agent_cmd,
+                std::time::Duration::from_secs(30),
             );
+        if let Some(failure) = provider_launch_failure(
+            reader_monitor.closed(),
+            provider_hook_ready,
+            provider_tui_ready,
+        ) {
+            let error = failure.reason();
+            launch.fail(&svc, failure);
             set_booting(false);
             if let Some(tx) = ready_tx {
                 let _ = tx.send(Err(error));
             }
             return;
+        }
+        if !provider_hook_ready {
+            log::warn!(
+                "launch_agent: pane {} accepted live {} TUI before session binding",
+                pane_id,
+                agent_cmd
+            );
         }
         if !launch.emit(&svc, BootStage::ProviderReady) {
             return;
