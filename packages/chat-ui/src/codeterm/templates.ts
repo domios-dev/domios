@@ -178,6 +178,14 @@ function targetTab(inv: CodetermInvocation, resolve?: PaneNameResolver): string 
   return ref ? resolve?.(ref) ?? `tab ${ref}` : "current tab";
 }
 
+function tabCloseObject(inv: CodetermInvocation, resolve?: PaneNameResolver): string {
+  const ref = flagText(inv, "tab", "pane") ?? inv.positionals[0];
+  if (!ref) return "current tab";
+  const resolved = resolve?.(ref);
+  if (!resolved) return `tab ${ref}`;
+  return resolved === `tab ${ref}` ? resolved : `${resolved} (${ref})`;
+}
+
 function commandObject(command: string | undefined): string | undefined {
   if (!command) return undefined;
   const port = command.match(/(?:port[ =:]|:)(\d{4,5})\b/i)?.[1] ?? command.match(/\b(7[0-9]{3})\b/)?.[1];
@@ -226,6 +234,9 @@ export function describeAction(inv: CodetermInvocation, result?: string, resolve
   }
   if (path === "tab focus") {
     return { lead: "tab focus", object: targetTab(inv, resolve), chips: ["focused"] };
+  }
+  if (path === "tab close") {
+    return { lead: "tab close", object: tabCloseObject(inv, resolve), chips: [] };
   }
   if (inv.path[0] === "tab") {
     return { lead: path, object: targetTab(inv, resolve), chips: [], detail: flagText(inv, "cmd", "query") };

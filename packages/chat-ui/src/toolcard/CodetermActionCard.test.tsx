@@ -24,6 +24,13 @@ async function render(node: React.ReactElement) {
   return { host, root };
 }
 
+function buttonByRoleName(root: ParentNode, name: string): HTMLButtonElement | null {
+  return Array.from(root.querySelectorAll("button")).find((candidate) => {
+    const label = candidate.getAttribute("aria-label") ?? candidate.textContent?.trim();
+    return label === name;
+  }) as HTMLButtonElement | null;
+}
+
 const planCalls: Array<[string, string | undefined, string | undefined]> = [];
 const planHost = await render(
   <CodetermActionCard
@@ -61,6 +68,16 @@ const docsHost = await render(<CodetermActionCard event={{ ...event("codeterm do
 if (!docsHost.host.textContent?.includes("3 words") || docsHost.host.textContent.includes("chars")) throw new Error("docs metric must count words");
 const unresolvedFocusHost = await render(<CodetermActionCard event={event('codeterm send --tab unknown-ref "hi"')} expanded onToggle={() => {}} onFocusPane={(ref) => focusCalls.push(ref)} />);
 if (!unresolvedFocusHost.host.querySelector('[data-testid="codeterm-focus-tab"]')) throw new Error("tab focus should not require name resolver");
+
+const closeHost = await render(<CodetermActionCard event={event("codeterm tab close tab_x99ab")} expanded={false} onToggle={() => {}} resolvePaneName={(ref) => (ref === "tab_x99ab" ? "Research board" : undefined)} />);
+if (!buttonByRoleName(closeHost.host, "Expand tool details")) throw new Error("close tab card missing accessible toggle button");
+if (!closeHost.host.textContent?.includes("tab close") || !closeHost.host.textContent.includes("Research board (tab_x99ab)")) throw new Error("close tab summary must include resolved label and id");
+const closeStatus = closeHost.host.querySelector<HTMLSpanElement>('[data-testid="toolcard-status"]');
+if (closeStatus?.getAttribute("aria-label") !== "success") throw new Error("close tab success event must render success icon");
+
+const closeHostA = await render(<CodetermActionCard event={event("codeterm tab close tab_a12b")} expanded={false} onToggle={() => {}} resolvePaneName={() => "Shared title"} />);
+const closeHostB = await render(<CodetermActionCard event={event("codeterm tab close tab_c34d")} expanded={false} onToggle={() => {}} resolvePaneName={() => "Shared title"} />);
+if (!/Shared title \(tab_a12b\)/.test(closeHostA.host.textContent || "") || !/Shared title \(tab_c34d\)/.test(closeHostB.host.textContent || "")) throw new Error("close tab entries must stay distinguishable when titles collide");
 
 const opened: string[] = [];
 const navProps = {
