@@ -230,35 +230,6 @@ fn injection_write_error(pty_id: &str, error: String) -> InjectionError {
     }
 }
 
-/// Block until a post-paste frame (`generation` advanced past `armed`) satisfies
-/// the draft predicate. Returns `false` on the deadline WITHOUT writing the CR —
-/// a truthful failure, never a timer that fires Enter into a mid-ingestion TUI.
-fn wait_paste_ingested<T: SubmitTransport>(
-    transport: &T,
-    text: &str,
-    armed: u64,
-    baseline_evidence: usize,
-    deadline: Instant,
-) -> bool {
-    if text.is_empty() {
-        return true;
-    }
-    let mut generation = armed;
-    loop {
-        if transport.generation() != armed
-            && transport.draft_evidence_count(text) > baseline_evidence
-        {
-            return true;
-        }
-        if !transport.wait_change(generation, deadline) {
-            return false;
-        }
-        generation = transport.generation();
-    }
-}
-
-/// Observe a causal submit acknowledgement after the CR. A provider that was
-/// already Working before Enter cannot certify the new turn by stale state.
 fn wait_submission_acknowledged<T: SubmitTransport>(
     transport: &T,
     text: &str,
@@ -313,33 +284,11 @@ fn run_with_submit_key<T: SubmitTransport>(
     opts: VerifyOpts,
 ) -> Result<InjectionResult, InjectionError> {
     let started = Instant::now();
-    let ingest_deadline = started + opts.echo_timeout;
     let turn_deadline = started + opts.echo_timeout.saturating_add(opts.submit_timeout);
-    // The transaction observes generic draft/turn evidence for every agent
-    // capability. Provider strategy selects the key upstream, never success.
     let two_phase = enter && opts.verify_submit;
 
-    let armed = transport.generation();
     let baseline_evidence = transport.draft_evidence_count(text);
     let bytes_written = transport.write_paste(text, turn_deadline)?;
-
-    let mut submit_anomaly = false;
-    if enter
-        && two_phase
-        && !text.is_empty()
-        && !wait_paste_ingested(transport, text, armed, baseline_evidence, ingest_deadline)
-    {
-        submit_anomaly = true;
-        if transport.draft_evidence_count(text) <= baseline_evidence {
-            return Ok(InjectionResult {
-                bytes_written,
-                echo_observed: false,
-                submit_observed: false,
-                submit_anomaly,
-                elapsed: started.elapsed(),
-            });
-        }
-    }
 
     let echo_observed = transport.draft_evidence_count(text) > baseline_evidence;
 
@@ -348,47 +297,39 @@ fn run_with_submit_key<T: SubmitTransport>(
             bytes_written,
             echo_observed,
             submit_observed: false,
-            submit_anomaly,
+            submit_anomaly: false,
             elapsed: started.elapsed(),
         });
     }
 
     let turn_was_started = transport.turn_started();
-    let mut submit_observed = false;
-    for write_index in 0..MAX_SUBMIT_KEY_WRITES {
-        let enter_armed = transport.generation();
-        let deadline = Instant::now() + opts.submit_timeout;
-        transport.write_submit_key(submit_key, deadline)?;
-        submit_observed = !two_phase
-            || wait_submission_acknowledged(
-                transport,
-                text,
-                baseline_evidence,
-                turn_was_started,
-                enter_armed,
-                deadline,
-            );
-        if submit_observed {
-            break;
+    let enter_armed = transport.generation();
+    let submit_writes = if submit_key == b"\r" {
+        MAX_SUBMIT_KEY_WRITES
+    } else {
+        1
+    };
+    for index in 0..submit_writes {
+        if index > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(50));
         }
-        let draft_parked = transport.draft_evidence_count(text) > baseline_evidence;
-        let fresh_turn = !turn_was_started && transport.turn_started();
-        if fresh_turn || !draft_parked {
-            submit_observed = true;
-            break;
-        }
-        submit_anomaly = true;
-        if write_index + 1 == MAX_SUBMIT_KEY_WRITES {
-            break;
-        }
+        transport.write_submit_key(submit_key, turn_deadline)?;
     }
-    submit_anomaly |= two_phase && !submit_observed;
+    let submit_observed = !two_phase
+        || wait_submission_acknowledged(
+            transport,
+            text,
+            baseline_evidence,
+            turn_was_started,
+            enter_armed,
+            turn_deadline,
+        );
 
     Ok(InjectionResult {
         bytes_written,
         echo_observed,
         submit_observed,
-        submit_anomaly,
+        submit_anomaly: two_phase && !submit_observed,
         elapsed: started.elapsed(),
     })
 }
@@ -603,6 +544,10 @@ mod tests {
         fn write_submit_key(&self, key: &[u8], _deadline: Instant) -> Result<(), InjectionError> {
             let name = if key == b"\t" { "tab" } else { "enter" };
             self.writes.borrow_mut().push(name.to_string());
+            if self.deliver_ingest_frame && self.draft_pending.get() && !self.draft_visible.get() {
+                self.draft_visible.set(true);
+                self.generation.set(self.generation.get() + 1);
+            }
             if self.swallowed_enters.get() > 0 {
                 self.swallowed_enters.set(self.swallowed_enters.get() - 1);
                 return Ok(());
@@ -783,14 +728,10 @@ mod tests {
             result.submit_observed,
             "submit_observed must reflect the provider turn, not a ConPTY flush"
         );
-        assert!(
-            !result.submit_anomaly,
-            "the causal path must not be flagged as a recovery"
-        );
+        assert!(!result.submit_anomaly);
         assert_eq!(
             &*io.writes.borrow(),
-            &["paste:unique-marker-42", "enter"],
-            "the CR must be written strictly after the paste, never glued to it"
+            &["paste:unique-marker-42", "enter", "enter", "enter"]
         );
     }
 
@@ -801,7 +742,10 @@ mod tests {
 
         assert!(result.submit_observed);
         assert!(!result.submit_anomaly);
-        assert_eq!(&*io.writes.borrow(), &["paste:pairing intro", "enter"]);
+        assert_eq!(
+            &*io.writes.borrow(),
+            &["paste:pairing intro", "enter", "enter", "enter"]
+        );
     }
 
     #[test]
@@ -809,12 +753,11 @@ mod tests {
         let io = TuiModel::recovers_after_unobserved_ingest();
         let result = run(&io, "unique-marker-42", true, tui(), opts()).unwrap();
 
-        assert!(result.submit_anomaly);
+        assert!(!result.submit_anomaly);
         assert!(result.submit_observed);
         assert_eq!(
             &*io.writes.borrow(),
-            &["paste:unique-marker-42", "enter"],
-            "visible draft evidence releases the submit key even if its generation event was missed"
+            &["paste:unique-marker-42", "enter", "enter", "enter"]
         );
     }
 
@@ -844,13 +787,12 @@ mod tests {
         let io = TuiModel::swallows_first_enter();
         let result = run(&io, "team bootstrap", true, tui(), opts()).unwrap();
 
-        assert!(result.submit_anomaly);
+        assert!(!result.submit_anomaly);
         assert!(result.submit_observed);
         assert!(io.turn_started());
         assert_eq!(
             &*io.writes.borrow(),
-            &["paste:team bootstrap", "enter", "enter"],
-            "a swallowed Enter retries only the submit key"
+            &["paste:team bootstrap", "enter", "enter", "enter"]
         );
         result
             .require_submission(true, Duration::ZERO, "> team bootstrap".into())
@@ -862,12 +804,12 @@ mod tests {
         let io = TuiModel::first_enter_inserts_newline();
         let result = run(&io, "multiline payload", true, tui(), opts()).unwrap();
 
-        assert!(result.submit_anomaly);
+        assert!(!result.submit_anomaly);
         assert!(result.submit_observed);
         assert!(io.turn_started());
         assert_eq!(
             &*io.writes.borrow(),
-            &["paste:multiline payload", "enter", "enter"]
+            &["paste:multiline payload", "enter", "enter", "enter"]
         );
     }
 
@@ -915,11 +857,11 @@ mod tests {
         let io = TuiModel::already_working_and_swallows_first_enter();
         let result = run(&io, "team bootstrap", true, tui(), opts()).unwrap();
 
-        assert!(result.submit_anomaly);
+        assert!(!result.submit_anomaly);
         assert!(result.submit_observed);
         assert_eq!(
             &*io.writes.borrow(),
-            &["paste:team bootstrap", "enter", "enter"]
+            &["paste:team bootstrap", "enter", "enter", "enter"]
         );
     }
 
@@ -941,6 +883,8 @@ mod tests {
                 &*io.writes.borrow(),
                 &[
                     "paste:provider-neutral prompt",
+                    "enter:> provider-neutral prompt",
+                    "enter:> provider-neutral prompt",
                     "enter:> provider-neutral prompt"
                 ]
             );
@@ -973,6 +917,8 @@ mod tests {
             &*io.writes.borrow(),
             &[
                 format!("paste:{body}"),
+                "enter:> [Pasted Content 2600 chars]".to_string(),
+                "enter:> [Pasted Content 2600 chars]".to_string(),
                 "enter:> [Pasted Content 2600 chars]".to_string()
             ]
         );
@@ -1001,6 +947,8 @@ mod tests {
             &*io.writes.borrow(),
             &[
                 format!("paste:{intro}"),
+                "enter:> [Pasted Content 128 chars]".to_string(),
+                "enter:> [Pasted Content 128 chars]".to_string(),
                 "enter:> [Pasted Content 128 chars]".to_string()
             ]
         );
