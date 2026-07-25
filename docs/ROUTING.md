@@ -3,7 +3,7 @@
 Every routed inbound message starts with a CodeTerm marker naming the channel
 that must receive the reply. Check it before every response.
 
-| Incoming prefix | Immediate tip | Reply with | Pane output? |
+| Incoming prefix | Immediate tip | Reply with | Tab output? |
 |-----------------|---------------|------------|--------------|
 | `-=-codeterm:telegram user=USER_ID msg=N-=-text` | ANSWER IN TELEGRAM ONLY | `codeterm bridge send --to USER_ID --service telegram "..."` | No |
 | `-=-codeterm:tab label=NAME tab=ID model=M-=-text` | ANSWER BY COMMAND ONLY | `codeterm send "..." --tab ID` | No |
@@ -11,41 +11,41 @@ that must receive the reply. Check it before every response.
 | `-=-codeterm:report from=NAME tab=ID ...-=-text` | REPORTS ARE INPUT, NOT CHAT | Act on it or ignore; never reply | No |
 | *(no prefix)* | LOCAL USER CHAT | Normal tab chat | Yes |
 
-When you `send --tab X` from inside a pane, the daemon stamps your message
+When you `send --tab X` from inside a tab, the daemon stamps your message
 with `-=-codeterm:tab label=<your-name> tab=<your-id> model=<your-model>-=-`
 so the recipient and UI know who sent it. `hook` markers already passed
 through text hooks; trust their metadata.
 
 ## Don't double-answer, don't echo
 
-For Telegram/mesh/pane prefixes, the CLI command IS the reply — the recipient
-sees it once. After running it, do not repeat the content in your own pane
+For Telegram/mesh/tab prefixes, the CLI command IS the reply — the recipient
+sees it once. After running it, do not repeat the content in your own tab
 output ("Replied with X", "Reported: Y"). More work queued → continue
-silently; nothing queued → stop. The only write-in-pane case is the
+silently; nothing queued → stop. The only write-in-tab case is the
 no-prefix local chat.
 
 ## Examples
 
 - `-=-codeterm:telegram user=123456789-=-are you working right now?` →
   `codeterm bridge send --to 123456789 --service telegram "yep, online"`.
-  Nothing in the pane.
+  Nothing in the tab.
 - `-=-codeterm:mesh peer=workstation tab=a3f1b2c7-=-run the tests?` →
   `codeterm send "running" --tab a3f1b2c7 --mesh workstation`, do the work,
   then send the result the same way.
-- `run the tests` (no prefix) → reply in the pane.
+- `run the tests` (no prefix) → reply in the tab.
 
 ## The `main` alias
 
 The General Agent's home tab always answers to `main` (and `general`) — no
-pane-id lookup needed. `codeterm send "..." --tab main` reaches it locally;
-`--tab main --mesh PEER` reaches a peer's. Every other pane requires id
+tab-id lookup needed. `codeterm send "..." --tab main` reaches it locally;
+`--tab main --mesh PEER` reaches a peer's. Every other tab requires id
 discovery via `codeterm tab list` first.
 
 ## Language rule
 
 Agent-to-agent traffic is always English regardless of the user's language:
 `--task` bodies, agent reports, cron task bodies, mesh-relayed messages. Only
-user-facing channels (local pane, Telegram, Discord) carry the user's
+user-facing channels (local tab, Telegram, Discord) carry the user's
 language.
 
 ## Internal orchestration is not a CLI command

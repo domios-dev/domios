@@ -145,10 +145,10 @@ natural **Process-tier plugin** — the plugin process owns mic capture + the
   escape hatch). `dispatch_event` already does the filtered routing.
 - **Focus** without the stale `tab current` CLI: subscribe to
   `SystemEvent::PaneFocused { pane_id }` — the host already emits it, so the
-  plugin always knows the focused pane (relevant to issue #123).
+  plugin always knows the focused tab (relevant to issue #123).
 - **Settings** via `capabilities.settings`, **CLI** via `capabilities.commands`.
 - **Live render + state indicator**: the one new host surface to add — a
-  pane-input API (`begin/partial/commit/cancel`) the plugin streams partials into.
+  tab-input API (`begin/partial/commit/cancel`) the plugin streams partials into.
 
 So: to add a new STT backend, implement `/transcribe` and point a URL at it.
 To drive dictation today, run an external driver and inject via `codeterm send` or
