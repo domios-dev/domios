@@ -242,7 +242,7 @@ else
 fi
 
 WORKER_TASK="Watcher-health stalled fixture: acknowledge nothing, run no commands, send no report, and wait silently. The watcher should see this worker make no progress."
-WORKER_OUT="$(dc agent spawn claude --role Worker --parent "$ORCH" --workspace "$WS" --cwd "$WS_CWD" --allow-shared-checkout --title "WH stalled worker" --task "$WORKER_TASK" 2>&1)"
+WORKER_OUT="$(dc agent spawn claude --role Worker --parent "$ORCH" --workspace "$WS" --cwd "$WS_CWD" --title "WH stalled worker" --task "$WORKER_TASK" 2>&1)"
 WORKER_RC=$?
 if [ "$WORKER_RC" -ne 0 ]; then
   fail worker "spawn failed: $(printf '%s' "$WORKER_OUT" | head -c 180)"

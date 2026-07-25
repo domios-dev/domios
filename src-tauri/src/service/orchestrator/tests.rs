@@ -136,7 +136,6 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         starter_prompt: Default::default(),
         task_id: None,
         plan_task: None,
-        allow_shared_checkout: None,
         agent_name: None,
         args: None,
         cwd: None,

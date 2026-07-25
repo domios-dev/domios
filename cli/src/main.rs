@@ -879,7 +879,6 @@ fn is_agent_spawn_flag(arg: &str) -> bool {
             | "--interval"
             | "--nudge-cooldown"
             | "--max-actions"
-            | "--allow-shared-checkout"
             | "--task-id"
             | "--plan-task"
             | "--"

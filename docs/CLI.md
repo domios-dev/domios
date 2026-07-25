@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 24 -->
+<!-- revision: 25 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -104,7 +104,6 @@ Mark a tab as orchestrator (top-level, can spawn workers)
 Spawn a new agent; roleless unless --role is provided
 
 - `<agent>` — Agent provider id. Run `codeterm agent providers` to list registered providers (e.g. claude, codex, opencode). Default: claude
-- `--allow-shared-checkout` — Allow a Worker to spawn into a shared/canonical checkout instead of an isolated worktree. Records a visible exception stride on the bound task
 - `--args` — Extra args for the agent
 - `--can-spawn` — Override whether an explicit Orchestrator may spawn children
 - `--charter` — Watcher charter text
@@ -125,7 +124,7 @@ Spawn a new agent; roleless unless --role is provided
 - `--system` — Override the shell system prompt when spawning a chatBackend shell
 - `--task` — Task to send after agent starts
 - `--task-file` — Read the task body from a file (or `-` for stdin) instead of --task. Bypasses the caller's shell, so backticks / $(...) in the body are never evaluated. Mutually exclusive with --task
-- `--task-id` — Bound task id for the shared-checkout exception stride
+- `--task-id` — Bound task id
 - `--title` — Tab title
 - `--workspace` — Target workspace ID (default: parent's workspace or active workspace)
 

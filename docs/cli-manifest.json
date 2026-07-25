@@ -360,14 +360,6 @@
               "aliases": []
             },
             {
-              "name": "allow-shared-checkout",
-              "positional": false,
-              "value_name": "ALLOW_SHARED_CHECKOUT",
-              "default": null,
-              "help": "Allow a Worker to spawn into a shared/canonical checkout instead of an isolated worktree. Records a visible exception stride on the bound task",
-              "aliases": []
-            },
-            {
               "name": "args",
               "positional": false,
               "value_name": "ARGS",
@@ -532,7 +524,7 @@
               "positional": false,
               "value_name": "BOUND_TASK",
               "default": null,
-              "help": "Bound task id for the shared-checkout exception stride",
+              "help": "Bound task id",
               "aliases": []
             },
             {
