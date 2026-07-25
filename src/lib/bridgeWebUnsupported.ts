@@ -14,6 +14,10 @@ export const WEB_UNSUPPORTED: Record<string, string> = {
     "Desktop startup readiness acknowledgement has no browser equivalent",
   frontend_readiness_generation:
     "Desktop startup readiness generation has no browser equivalent",
+  get_rest_api_status:
+    "REST listener recovery is owned by the desktop supervisor",
+  restart_rest_api:
+    "An HTTP client cannot restart the listener carrying its own request",
 };
 
 /** Handled in invokeRaw without HTTP_MAP / CANNED membership. */

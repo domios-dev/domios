@@ -346,15 +346,16 @@ function withPreservedClientOrder(
 function replaceSnapshotWindow(
   previous: ChatMessage[],
   snapshot: ChatMessage[],
-  requestOrder: number,
   nextOrder: () => number,
   sourceSessionId: string | null,
 ): ChatMessage[] {
-  const liveSinceRequest = previous.filter(
-    (message) => message.clientOrder != null && message.clientOrder >= requestOrder,
+  const freshSnapshot = withPreservedClientOrder(
+    snapshot,
+    previous,
+    nextOrder,
+    sourceSessionId,
   );
-  const freshSnapshot = withPreservedClientOrder(snapshot, [], nextOrder, sourceSessionId);
-  return mergeById(freshSnapshot, liveSinceRequest);
+  return mergeById(previous, freshSnapshot);
 }
 
 const MS_EPOCH_FLOOR = 1e12;
@@ -566,7 +567,6 @@ export function useChatSession({
     if (!active || !listenerReady) return;
     const lifecycle = lifecycleRef.current;
     const generation = attachGeneration;
-    const requestOrder = nextClientOrderRef.current;
     let cancelled = false;
     (async () => {
       try {
@@ -631,7 +631,6 @@ export function useChatSession({
           replaceSnapshotWindow(
             prev ?? [],
             res.messages ?? [],
-            requestOrder,
             nextClientOrder,
             res.source_session_id,
           ),

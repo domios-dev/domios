@@ -65,10 +65,6 @@ export function navigationTarget(inv: CodetermInvocation, result?: string): Navi
     const ref = typeof candidate === "string" ? candidate : undefined;
     return ref ? { kind: "tab", id: ref } : null;
   }
-  if (inv.path[0] === "agent" && inv.path[1] === "reports") {
-    const candidate = inv.flags.tab ?? inv.flags.pane;
-    return typeof candidate === "string" ? { kind: "tab", id: candidate } : null;
-  }
   if (inv.path[0] === "tab") {
     const candidate = inv.flags.tab ?? inv.flags.pane ?? inv.positionals[0];
     return typeof candidate === "string" ? { kind: "tab", id: candidate } : null;
@@ -305,8 +301,8 @@ export function describeAction(inv: CodetermInvocation, result?: string, resolve
         fields: reportFields(inv),
       };
     }
-    const object = action === "spawn" ? [role, provider].filter(Boolean).join(" · ") : action === "reports" ? targetTab(inv, resolve) : action === "list" ? resultCount(result, "live") ?? "roster" : firstRef(TASK_RE, inv, result) ?? flagText(inv, "status") ?? provider;
-    return { lead, object, chips: [flagText(inv, "model", "status"), action === "reports" ? resultCount(result, "reports") : undefined].filter((v): v is string => Boolean(v)), detail: flagText(inv, "task", "sha"), fields: action === "spawn" ? [{ label: "provider", value: provider ?? "default" }, { label: "model", value: flagText(inv, "model") ?? "default" }, { label: "role", value: role ?? "Worker" }] : undefined };
+    const object = action === "spawn" ? [role, provider].filter(Boolean).join(" · ") : action === "list" ? resultCount(result, "live") ?? "roster" : firstRef(TASK_RE, inv, result) ?? flagText(inv, "status") ?? provider;
+    return { lead, object, chips: [flagText(inv, "model", "status")].filter((v): v is string => Boolean(v)), detail: flagText(inv, "task", "sha"), fields: action === "spawn" ? [{ label: "provider", value: provider ?? "default" }, { label: "model", value: flagText(inv, "model") ?? "default" }, { label: "role", value: role ?? "Worker" }] : undefined };
   }
   if (path === "mesh peers") {
     return { lead: "peers", object: resultCount(result, "online") ?? "mesh peers", chips: [] };

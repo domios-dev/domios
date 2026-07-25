@@ -13,8 +13,6 @@ function assert(cond: unknown, name: string) {
   }
 }
 
-assert(navigationTarget(inv("codeterm agent reports --tab e3fa0754"))?.kind === "tab", "reports targets its tab");
-
 function inv(cmd: string) {
   const i = recognize(cmd);
   if (!i) throw new Error(`recognize failed: ${cmd}`);
