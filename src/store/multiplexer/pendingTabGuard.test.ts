@@ -43,8 +43,8 @@ function snap(workspaces: Workspace[]): MultiplexerState {
 
 test("conflict + target present + live: masks to guarded tab, keeps guard, other fields untouched", () => {
   const s = snap([ws("w1", "A", ["A", "B"])]);
-  const guards: TabGuards = { w1: { tabId: "B", deadline: 1000 } };
-  const out = applyPendingTabGuard(s, guards, 500);
+  const guards: TabGuards = { w1: { tabId: "B" } };
+  const out = applyPendingTabGuard(s, guards);
   assert(out.workspaces[0].active_tab_id === "B", "active_tab_id masked to guarded B");
   assert(out !== s, "returns a new object when masking");
   assert(out.generation === 1, "generation untouched");
@@ -55,41 +55,41 @@ test("conflict + target present + live: masks to guarded tab, keeps guard, other
 
 test("snapshot already shows guarded tab: not masked, guard deleted (confirmation clear)", () => {
   const s = snap([ws("w1", "B", ["A", "B"])]);
-  const guards: TabGuards = { w1: { tabId: "B", deadline: 1000 } };
-  const out = applyPendingTabGuard(s, guards, 500);
+  const guards: TabGuards = { w1: { tabId: "B" } };
+  const out = applyPendingTabGuard(s, guards);
   assert(out === s, "identity when nothing to mask");
   assert(out.workspaces[0].active_tab_id === "B", "server value preserved");
   assert(!("w1" in guards), "guard deleted on confirmation");
 });
 
-test("now > deadline: not masked, guard deleted (deadline clear)", () => {
+test("stale snapshots never expire an unconfirmed user selection", () => {
   const s = snap([ws("w1", "A", ["A", "B"])]);
-  const guards: TabGuards = { w1: { tabId: "B", deadline: 1000 } };
-  const out = applyPendingTabGuard(s, guards, 1500);
-  assert(out === s, "identity, no mask past deadline");
-  assert(out.workspaces[0].active_tab_id === "A", "server value preserved");
-  assert(!("w1" in guards), "expired guard deleted");
+  const guards: TabGuards = { w1: { tabId: "B" } };
+  const out = applyPendingTabGuard(s, guards);
+  assert(out.workspaces[0].active_tab_id === "B", "user selection remains active");
+  assert("w1" in guards, "guard remains until explicit confirmation");
 });
 
 test("guarded target tab absent from snapshot: not masked, server value wins", () => {
   const s = snap([ws("w1", "A", ["A", "C"])]);
-  const guards: TabGuards = { w1: { tabId: "B", deadline: 1000 } };
-  const out = applyPendingTabGuard(s, guards, 500);
+  const guards: TabGuards = { w1: { tabId: "B" } };
+  const out = applyPendingTabGuard(s, guards);
   assert(out === s, "identity when target tab removed server-side");
   assert(out.workspaces[0].active_tab_id === "A", "server value preserved");
+  assert(!("w1" in guards), "removed target clears the guard");
 });
 
 test("no guard for a workspace: snapshot returned unchanged (identity)", () => {
   const s = snap([ws("w1", "A", ["A", "B"])]);
   const guards: TabGuards = {};
-  const out = applyPendingTabGuard(s, guards, 500);
+  const out = applyPendingTabGuard(s, guards);
   assert(out === s, "same reference when nothing changed");
 });
 
 test("multi-workspace: guard on WS1 only masks WS1, leaves WS2 as-is", () => {
   const s = snap([ws("w1", "A", ["A", "B"]), ws("w2", "X", ["X", "Y"])]);
-  const guards: TabGuards = { w1: { tabId: "B", deadline: 1000 } };
-  const out = applyPendingTabGuard(s, guards, 500);
+  const guards: TabGuards = { w1: { tabId: "B" } };
+  const out = applyPendingTabGuard(s, guards);
   assert(out.workspaces[0].active_tab_id === "B", "w1 masked to guarded B");
   assert(out.workspaces[1].active_tab_id === "X", "w2 untouched");
   assert(out.workspaces[1] === s.workspaces[1], "w2 workspace object identity preserved");

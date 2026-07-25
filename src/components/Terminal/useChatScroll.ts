@@ -8,7 +8,6 @@ import {
   setPersistedChatScrollState,
   shouldFollowChatSend,
   shouldRestoreChatViewport,
-  snapChatViewportToBottom,
   type ChatScrollAnchor,
   type ChatScrollAnchorCandidate,
   type ChatViewportMode,
@@ -49,12 +48,6 @@ export interface UseChatScrollResult {
   showScrollDown: boolean;
   scrollToBottom: () => void;
   followSend: () => void;
-  handleWheel: (event: React.WheelEvent<HTMLDivElement>) => void;
-  handlePointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
-  handlePointerMove: (event: React.PointerEvent<HTMLDivElement>) => void;
-  handlePointerUp: () => void;
-  handlePointerCancel: () => void;
-  handleKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
   handleScroll: (event: React.UIEvent<HTMLDivElement>) => void;
 }
 
@@ -82,12 +75,16 @@ export function useChatScroll({ sessionKey, active, loading, messageCount }: Use
     anchorRef.current = persisted?.anchor ?? null;
   }
 
-  const scrollIntentRef = useRef(false);
-  const pointerScrollRef = useRef(false);
+  const authoredScrollTopRef = useRef<number | null>(null);
   const lastRestoredKeyRef = useRef("");
   const followRafRef = useRef(0);
 
   const [showScrollDown, setShowScrollDown] = useState(false);
+
+  const writeScrollTop = useCallback((el: HTMLDivElement, scrollTop: number) => {
+    el.scrollTop = scrollTop;
+    authoredScrollTopRef.current = el.scrollTop;
+  }, []);
 
   const persist = useCallback(() => {
     setPersistedChatScrollState(sessionKeyRef.current, { mode: modeRef.current, anchor: anchorRef.current });
@@ -98,10 +95,10 @@ export function useChatScroll({ sessionKey, active, loading, messageCount }: Use
     if (!el) return;
     modeRef.current = "pinned";
     anchorRef.current = null;
-    snapChatViewportToBottom(el);
+    writeScrollTop(el, el.scrollHeight);
     persist();
     setShowScrollDown(false);
-  }, [persist]);
+  }, [persist, writeScrollTop]);
 
   const followSend = useCallback(() => {
     const wasPinned = modeRef.current === "pinned";
@@ -116,12 +113,10 @@ export function useChatScroll({ sessionKey, active, loading, messageCount }: Use
   const handleScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
     const el = event.currentTarget;
     const dist = el.scrollHeight - (el.scrollTop + el.clientHeight);
-    const nextMode = nextChatViewportMode(
-      modeRef.current,
-      el,
-      scrollIntentRef.current || pointerScrollRef.current,
-    );
-    scrollIntentRef.current = false;
+    const authoredScrollTop = authoredScrollTopRef.current;
+    authoredScrollTopRef.current = null;
+    if (authoredScrollTop != null && Math.abs(authoredScrollTop - el.scrollTop) <= 0.5) return;
+    const nextMode = nextChatViewportMode(el);
     modeRef.current = nextMode;
     if (nextMode === "detached") {
       const content = contentRef.current;
@@ -133,43 +128,13 @@ export function useChatScroll({ sessionKey, active, loading, messageCount }: Use
     setShowScrollDown(nextMode === "detached" && dist > SHOW_SCROLL_DOWN_THRESHOLD_PX);
   }, [persist]);
 
-  const handleWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
-    if (event.deltaY >= 0) return;
-    modeRef.current = "detached";
-    scrollIntentRef.current = true;
-  }, []);
-
-  const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    const bounds = event.currentTarget.getBoundingClientRect();
-    pointerScrollRef.current = event.clientX >= bounds.right - 20;
-  }, []);
-
-  const handlePointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.pointerType === "touch" || event.buttons !== 0) pointerScrollRef.current = true;
-  }, []);
-
-  const handlePointerUp = useCallback(() => {
-    pointerScrollRef.current = false;
-  }, []);
-
-  const handlePointerCancel = useCallback(() => {
-    pointerScrollRef.current = false;
-  }, []);
-
-  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (["ArrowUp", "PageUp", "Home"].includes(event.key)) {
-      modeRef.current = "detached";
-      scrollIntentRef.current = true;
-    }
-  }, []);
-
   // Must run synchronously inside the ResizeObserver callback: RO delivers
   // after layout but before paint, so the write lands in the same frame.
   const syncViewportToContent = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
     if (modeRef.current === "pinned") {
-      snapChatViewportToBottom(el);
+      writeScrollTop(el, el.scrollHeight);
       return;
     }
     const content = contentRef.current;
@@ -177,8 +142,8 @@ export function useChatScroll({ sessionKey, active, loading, messageCount }: Use
     if (!anchor || !content) return;
     const resolved = resolveChatScrollTopForAnchor(anchor, findAnchorOffsetTop(content, anchor.elementId));
     if (resolved == null) return;
-    el.scrollTop = resolved;
-  }, []);
+    writeScrollTop(el, resolved);
+  }, [writeScrollTop]);
 
   // Keyed on `loading`: the transcript nodes mount only after the loading gate
   // opens, so a mount-time-only effect would observe nothing and never re-run.
@@ -212,13 +177,13 @@ export function useChatScroll({ sessionKey, active, loading, messageCount }: Use
       if (resolved != null) {
         modeRef.current = "detached";
         anchorRef.current = target.anchor;
-        el.scrollTop = resolved;
+        writeScrollTop(el, resolved);
         persist();
         return;
       }
     }
     scrollToBottom();
-  }, [persist, scrollToBottom]);
+  }, [persist, scrollToBottom, writeScrollTop]);
 
   useLayoutEffect(() => {
     if (!shouldRestoreChatViewport(active, loading, messageCount, sessionKey, lastRestoredKeyRef.current)) return;
@@ -239,12 +204,6 @@ export function useChatScroll({ sessionKey, active, loading, messageCount }: Use
     showScrollDown,
     scrollToBottom,
     followSend,
-    handleWheel,
-    handlePointerDown,
-    handlePointerMove,
-    handlePointerUp,
-    handlePointerCancel,
-    handleKeyDown,
     handleScroll,
   };
 }

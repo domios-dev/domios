@@ -31,19 +31,11 @@ assert(!isChatViewportAtBottom({ scrollHeight: 1000, scrollTop: 597, clientHeigh
 
 const awayFromBottom = { scrollHeight: 1200, scrollTop: 600, clientHeight: 400 };
 assert(
-  nextChatViewportMode("pinned", awayFromBottom, false) === "pinned",
-  "layout growth cannot silently detach a pinned viewport",
+  nextChatViewportMode(awayFromBottom) === "detached",
+  "any viewport observed away from bottom detaches instead of snapping on the next message",
 );
 assert(
-  nextChatViewportMode("pinned", awayFromBottom, true) === "detached",
-  "explicit user scroll detaches a pinned viewport",
-);
-assert(
-  nextChatViewportMode("detached", awayFromBottom, false) === "detached",
-  "streaming content preserves a detached viewport",
-);
-assert(
-  nextChatViewportMode("detached", { scrollHeight: 1000, scrollTop: 600, clientHeight: 400 }, false) === "pinned",
+  nextChatViewportMode({ scrollHeight: 1000, scrollTop: 600, clientHeight: 400 }) === "pinned",
   "returning to the bottom re-pins the viewport",
 );
 
@@ -111,11 +103,8 @@ assert(nearBottomAnchor!.elementId === "c", "the last candidate anchors a viewpo
 const resolvedAfterTrim = resolveChatScrollTopForAnchor(nearBottomAnchor!, 0);
 assert(resolvedAfterTrim === 250, "resolving after a leading trim shifts the scrollTop by the removed height");
 assert(
-  nextChatViewportMode(
-    "detached",
-    { scrollHeight: 650, scrollTop: resolvedAfterTrim!, clientHeight: 400 },
-    false,
-  ) === "pinned",
+  nextChatViewportMode({ scrollHeight: 650, scrollTop: resolvedAfterTrim!, clientHeight: 400 }) ===
+    "pinned",
   "an anchor-resolved scrollTop that lands at the new bottom re-pins the viewport",
 );
 

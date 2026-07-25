@@ -252,14 +252,16 @@ impl Messenger {
             );
         }
 
-        let (should_prefix, pty_agent_target) = {
+        let (resolved_target, should_prefix, pty_agent_target) = {
             let mux = svc.mux.write();
             let resolved_target = mux
                 .resolve_pane_id(to_pane)
                 .unwrap_or_else(|| to_pane.to_string());
             let pane = mux.get_pane(&resolved_target);
-            let target_is_agent = pane.and_then(|p| p.agent_type.as_ref()).is_some();
+            let target_is_agent =
+                pane.is_some_and(|pane| pane.agent_type.is_some() || pane.agent_booting);
             (
+                resolved_target.clone(),
                 should_prefix_pty(
                     envelope.kind,
                     target_is_agent,
@@ -273,9 +275,6 @@ impl Messenger {
                     ),
             )
         };
-        let agent_binding = pty_agent_target
-            .then(|| svc.capture_optimistic_agent_session(to_pane))
-            .transpose()?;
         let entry = if envelope.kind == MessageKind::Report {
             crate::service::pty_io::submit_transaction::PtySubmitEntry::Report
         } else {
@@ -291,10 +290,10 @@ impl Messenger {
             || unreachable!(),
             || {
                 crate::service::pty_io::submit_transaction::submit_entry(entry, &text, |text| {
-                    if let Some(delivery) = agent_binding.clone() {
-                        svc.send_to_authenticated_agent_session_detached(to_pane, delivery, text);
+                    if pty_agent_target {
+                        svc.send_to_agent_when_ready_detached(&resolved_target, text);
                     } else {
-                        svc.send_text_detached(to_pane, text, true);
+                        svc.send_text_detached(&resolved_target, text, true);
                     }
                     Ok::<(), String>(())
                 })?;

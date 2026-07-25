@@ -231,50 +231,38 @@ impl ServiceContext {
         })
     }
 
-    pub(crate) fn capture_optimistic_agent_session(
-        &self,
-        pane_id: &str,
-    ) -> Result<AuthenticatedPtyDelivery, String> {
-        let mux = self.mux.read();
-        let resolved = mux
-            .resolve_pane_id(pane_id)
-            .ok_or_else(|| "agent_unavailable: recipient pane missing".to_string())?;
-        let pane = mux
-            .get_pane(&resolved)
-            .ok_or_else(|| "agent_unavailable: recipient pane missing".to_string())?;
-        let (pty_id, provider_id) = optimistic_agent_pty_target(pane)?;
-        drop(mux);
-        let permit = self.pty.lock().issue_guarded_input_permit(&pty_id)?;
-        Ok(AuthenticatedPtyDelivery {
-            pty_id,
-            provider_id,
-            permit,
-        })
-    }
-
-    pub(crate) fn send_to_authenticated_agent_session_detached(
-        &self,
-        pane_id: &str,
-        delivery: AuthenticatedPtyDelivery,
-        text: &str,
-    ) {
+    pub(crate) fn send_to_agent_when_ready_detached(&self, pane_id: &str, text: &str) {
         let svc = self.clone();
         let pane = pane_id.to_string();
         let text = text.to_string();
         std::thread::spawn(move || {
-            if let Err(error) = svc.send_authenticated_delivery_with_options(
-                delivery,
-                &text,
-                super::submit_transaction::PtySubmitEntry::Messenger,
-                false,
-            ) {
-                log::warn!("[send-async] authenticated delivery to pane {pane} failed: {error}");
-                let title = svc.mux.read().get_pane(&pane).map(|p| p.title.clone());
-                if let Some((notice_title, notice_body)) =
-                    detached_delivery_notice(title.as_deref(), &pane, &error)
-                {
-                    svc.create_notification(notice_title, Some(notice_body), Some("error"));
-                }
+            let pty_claim = svc.pty_ownership.acquire(&pane);
+            let pty_id = {
+                let mux = svc.mux.read();
+                let target = mux
+                    .get_pane(&pane)
+                    .filter(|pane| pane.agent_type.is_some())
+                    .ok_or_else(|| {
+                        "agent_unavailable: recipient is no longer an agent".to_string()
+                    });
+                target.and_then(|pane| {
+                    pane.pty_id
+                        .clone()
+                        .ok_or_else(|| "agent_unavailable: recipient PTY missing".to_string())
+                })
+            };
+            let result = pty_id.and_then(|pty_id| svc.send_text_to_pty_smart(&pty_id, &text, true));
+            drop(pty_claim);
+            if let Err(error) = result {
+                log::warn!("[send-async] agent delivery to pane {pane} failed: {error}");
+                crate::api::events::emit_everywhere(
+                    &svc.app_handle,
+                    "chat-send-failed",
+                    serde_json::json!({
+                        "pane_id": &pane,
+                        "error": &error,
+                    }),
+                );
             }
         });
     }
@@ -734,8 +722,8 @@ impl ServiceContext {
     }
 
     /// PTY work runs off-thread so CodeTerm-originated senders return immediately.
-    /// Failures MUST surface to the user: this detached seam is the only place
-    /// composer/messenger sends can die, and a log line alone loses messages.
+    /// Failures emit inline Chat status; delivery diagnostics never become
+    /// global Notifications.
     pub fn send_text_detached(&self, pane_id: &str, text: &str, enter: bool) {
         let svc = self.clone();
         let pane = pane_id.to_string();
@@ -751,12 +739,6 @@ impl ServiceContext {
                         "error": &error,
                     }),
                 );
-                let title = svc.mux.read().get_pane(&pane).map(|p| p.title.clone());
-                if let Some((notice_title, notice_body)) =
-                    send_delivery_notice(title.as_deref(), &pane, &error)
-                {
-                    svc.create_notification(notice_title, Some(notice_body), Some("error"));
-                }
             }
         });
     }
@@ -809,36 +791,6 @@ pub(super) fn provider_frame_ready(
     let structural_tui_ready = tui_ready || (alternate_screen && composer_ready);
     (structural_tui_ready && (!require_composer || composer_ready))
         || (!require_composer && prompt_ready)
-}
-
-fn is_expected_agent_drop(error: &str) -> bool {
-    error.starts_with("agent_unavailable:")
-}
-
-pub(super) fn detached_delivery_notice(
-    pane_title: Option<&str>,
-    pane_id: &str,
-    error: &str,
-) -> Option<(String, String)> {
-    (!is_expected_agent_drop(error))
-        .then(|| send_delivery_notice(pane_title, pane_id, error))
-        .flatten()
-}
-
-/// User-facing notice for a failed detached send: `(title, body)`.
-pub(crate) fn send_delivery_notice(
-    pane_title: Option<&str>,
-    pane_id: &str,
-    error: &str,
-) -> Option<(String, String)> {
-    let target = pane_title
-        .map(str::trim)
-        .filter(|title| !title.is_empty())
-        .unwrap_or(pane_id);
-    Some((
-        "Message not delivered".to_string(),
-        format!("{target}: {error}"),
-    ))
 }
 
 #[cfg(test)]
