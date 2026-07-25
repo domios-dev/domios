@@ -23,6 +23,8 @@ fn event(kind: KpiEventKind, plan_id: Option<&str>, pane_id: &str, bytes: u64) -
         timestamp: 1_700_000_000,
         kind,
         bytes,
+        tokens: None,
+        dedup_key: None,
     }
 }
 
@@ -101,6 +103,60 @@ fn list_for_plan_scopes_and_excludes_unattributed() {
     cleanup(&db);
 }
 
+/// The exact fixture the task's own test plan calls for: an accepted lifecycle event
+/// retried twice with the same dedup key, plus once with a distinct key, must land as
+/// exactly two rows — a retried choke-point call is a no-op, a genuinely new event isn't.
+#[test]
+fn retried_events_with_the_same_dedup_key_collapse_to_one_row() {
+    let db = temp_db();
+    let ledger = KpiLedger::open_at(&db).unwrap();
+
+    let retried = KpiEventInput {
+        dedup_key: Some("task_1:0:accept".into()),
+        ..event(KpiEventKind::Accept, Some("pl_1"), "pane-a", 10)
+    };
+    ledger.insert(&retried).unwrap();
+    ledger.insert(&retried).unwrap(); // simulated RPC retry — same round, same verdict
+
+    let distinct = KpiEventInput {
+        dedup_key: Some("task_2:0:bounce".into()),
+        ..event(KpiEventKind::Bounce, Some("pl_1"), "pane-a", 20)
+    };
+    ledger.insert(&distinct).unwrap();
+
+    let rows = ledger.list_all().unwrap();
+    assert_eq!(
+        rows.len(),
+        2,
+        "two retries of the same dedup key plus one distinct key is exactly two rows"
+    );
+    assert_eq!(rows[0].kind, KpiEventKind::Accept);
+    assert_eq!(rows[0].dedup_key.as_deref(), Some("task_1:0:accept"));
+    assert_eq!(rows[1].kind, KpiEventKind::Bounce);
+
+    cleanup(&db);
+}
+
+#[test]
+fn events_without_a_dedup_key_never_collide_with_each_other() {
+    let db = temp_db();
+    let ledger = KpiLedger::open_at(&db).unwrap();
+
+    for _ in 0..3 {
+        ledger
+            .insert(&event(KpiEventKind::Send, Some("pl_1"), "pane-a", 5))
+            .unwrap();
+    }
+
+    assert_eq!(
+        ledger.list_all().unwrap().len(),
+        3,
+        "kinds that leave dedup_key=None insert unconditionally, same as before the column existed"
+    );
+
+    cleanup(&db);
+}
+
 #[test]
 fn rows_survive_drop_and_reopen() {
     let db = temp_db();
@@ -115,6 +171,95 @@ fn rows_survive_drop_and_reopen() {
     let rows = reopened.list_all().unwrap();
     assert_eq!(rows.len(), 1, "ledger rows persist across reopen");
     assert_eq!(rows[0].kind, KpiEventKind::Spawn);
+
+    cleanup(&db);
+}
+
+#[test]
+fn usage_cursor_round_trips_through_insert_usage_batch() {
+    let db = temp_db();
+    let ledger = KpiLedger::open_at(&db).unwrap();
+
+    assert_eq!(
+        ledger.load_usage_cursor("/sessions/a.jsonl").unwrap(),
+        None,
+        "a never-ingested source has no watermark"
+    );
+
+    ledger
+        .insert_usage_batch(
+            &[event(KpiEventKind::TokenUsage, Some("pl_1"), "pane-a", 10)],
+            "/sessions/a.jsonl",
+            4_096,
+        )
+        .unwrap();
+
+    assert_eq!(
+        ledger.load_usage_cursor("/sessions/a.jsonl").unwrap(),
+        Some(4_096)
+    );
+    assert_eq!(ledger.list_all().unwrap().len(), 1);
+
+    // A later pass over the same source updates the watermark in place, not a new row.
+    ledger
+        .insert_usage_batch(&[], "/sessions/a.jsonl", 8_192)
+        .unwrap();
+    assert_eq!(
+        ledger.load_usage_cursor("/sessions/a.jsonl").unwrap(),
+        Some(8_192)
+    );
+
+    cleanup(&db);
+}
+
+#[test]
+fn v1_ledger_migrates_to_v2_keeping_existing_rows() {
+    let db = temp_db();
+    {
+        std::fs::create_dir_all(db.parent().unwrap()).unwrap();
+        let conn = Connection::open(&db).unwrap();
+        KpiLedger::create_v1_schema(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO kpi_events (schema_version, plan_id, pane_id, provider, ts, kind, bytes)
+             VALUES (1, 'pl_1', 'pane-a', 'claude', 1700000000, 'send', 42)",
+            [],
+        )
+        .unwrap();
+        assert_eq!(KpiLedger::user_version(&conn).unwrap(), 1);
+    }
+
+    let ledger = KpiLedger::open_at(&db).unwrap();
+    {
+        let conn = ledger.conn.lock();
+        assert_eq!(
+            KpiLedger::user_version(&conn).unwrap(),
+            CURRENT_KPI_SCHEMA_VERSION
+        );
+    }
+    let rows = ledger.list_all().unwrap();
+    assert_eq!(rows.len(), 1, "v1 row survives the v2 migration");
+    assert_eq!(rows[0].bytes, 42);
+    assert_eq!(rows[0].tokens, None, "pre-v2 rows have no token breakdown");
+
+    ledger
+        .insert(&KpiEventInput {
+            tokens: Some(TokenCounts {
+                input: 1000,
+                uncached_input: 250,
+                output: 40,
+            }),
+            ..event(KpiEventKind::TokenUsage, Some("pl_1"), "pane-a", 1040)
+        })
+        .unwrap();
+    let rows = ledger.list_all().unwrap();
+    assert_eq!(
+        rows[1].tokens,
+        Some(TokenCounts {
+            input: 1000,
+            uncached_input: 250,
+            output: 40
+        })
+    );
 
     cleanup(&db);
 }
@@ -262,6 +407,8 @@ fn thousand_mixed_synthetic_events_round_trip_and_aggregate() {
                 timestamp: 1_700_000_000 + i as u64,
                 kind,
                 bytes,
+                tokens: None,
+                dedup_key: None,
             })
             .unwrap();
 

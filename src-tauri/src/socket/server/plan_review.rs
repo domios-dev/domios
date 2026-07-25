@@ -205,6 +205,7 @@ pub(super) fn dispatch(
             let residual_risk = p
                 .and_then(|x| x.get("residual_risk"))
                 .and_then(|v| v.as_str());
+            let from = actor(p);
             let result = store
                 .accept_review(
                     &plan_id,
@@ -213,11 +214,19 @@ pub(super) fn dispatch(
                     bool_field(p, "changed_executable_surfaces"),
                     bool_field(p, "distinct_oracle"),
                     residual_risk,
-                    actor(p),
+                    from.clone(),
                     now,
                 )
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &plan_id);
+            svc.record_kpi_review_verdict(
+                from.pane_id.as_deref().unwrap_or("unknown"),
+                &plan_id,
+                &task_id,
+                crate::agent::kpi_ledger::KpiEventKind::Accept,
+                result.review_round,
+                note(p).len(),
+            );
             serde_json::to_value(result).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
@@ -226,6 +235,7 @@ pub(super) fn dispatch(
         }
         "plan.review.bounce" => {
             let (plan_id, task_id) = super::plan_refs::resolve_task(store, params)?;
+            let from = actor(p);
             let result = store
                 .bounce_review(
                     &plan_id,
@@ -233,11 +243,19 @@ pub(super) fn dispatch(
                     note(p),
                     bool_field(p, "changed_executable_surfaces"),
                     bool_field(p, "distinct_oracle"),
-                    actor(p),
+                    from.clone(),
                     now,
                 )
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &plan_id);
+            svc.record_kpi_review_verdict(
+                from.pane_id.as_deref().unwrap_or("unknown"),
+                &plan_id,
+                &task_id,
+                crate::agent::kpi_ledger::KpiEventKind::Bounce,
+                result.review_round,
+                note(p).len(),
+            );
             serde_json::to_value(result).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),

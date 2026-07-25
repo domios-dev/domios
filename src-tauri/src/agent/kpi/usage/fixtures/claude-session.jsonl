@@ -1,0 +1,5 @@
+{"type":"user","timestamp":"2026-07-17T13:01:20.100Z","message":{"role":"user","content":"start"}}
+{"type":"assistant","timestamp":"2026-07-17T13:01:25.834Z","message":{"role":"assistant","model":"claude-opus-4-8","usage":{"input_tokens":2,"cache_creation_input_tokens":24382,"cache_read_input_tokens":25382,"output_tokens":204}}}
+{"type":"assistant","timestamp":"2026-07-17T13:02:01.010Z","message":{"role":"assistant","model":"claude-opus-4-8","usage":{"input_tokens":6,"cache_creation_input_tokens":1200,"cache_read_input_tokens":49764,"output_tokens":88}}}
+{"type":"system","subtype":"compact_boundary","timestamp":"2026-07-17T13:05:00.000Z","content":"Conversation compacted","compactMetadata":{"trigger":"auto","preTokens":944410,"postTokens":413282,"cumulativeDroppedTokens":531128,"durationMs":101922}}
+{"type":"assistant","timestamp":"2026-07-17T13:06:11.500Z","message":{"role":"assistant","model":"claude-opus-4-8","usage":{"input_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":413282,"output_tokens":1508}}}

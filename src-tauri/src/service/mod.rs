@@ -26,6 +26,7 @@ mod hierarchy;
 mod inject_safety;
 pub mod inject_verify;
 pub mod input_parser;
+mod kpi_hooks;
 pub(crate) mod launch_delivery;
 pub(crate) mod launch_diagnostics;
 pub mod message_gateway;
@@ -144,6 +145,8 @@ pub struct ServiceContext {
     /// command list + cwd). Fed from `process_pty_output`; consumed by chat.
     pub shell_caps: crate::ShellCapabilityState,
     pub report_store: ReportStoreState,
+    /// Orchestration-economics event writer. Disabled (and file-less) unless `kpi.enabled`.
+    pub kpi: crate::agent::kpi::KpiRecorder,
     pub agent_registry: Arc<AgentRegistry>,
     pub mem: Arc<crate::mem::MemManager>,
     pub mem_supervisor: Arc<crate::mem::supervisor::Supervisor>,
