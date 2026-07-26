@@ -397,7 +397,41 @@ button,
   padding-left: 0.75rem;
   padding-right: 0.75rem;
   border-radius: var(--ct-radius-sm);
-  transition: all var(--ct-duration-fast) var(--ct-ease-out-expo);
+}
+
+.ct-liquid-interactive {
+  --ct-liquid-base-transform: translateZ(0);
+  transform: var(--ct-liquid-base-transform) scale(1);
+  transform-origin: center;
+  transition:
+    transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell),
+    color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    border-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+
+.ct-liquid-interactive:not(:disabled):hover {
+  transform: var(--ct-liquid-base-transform) scale(1.015);
+}
+
+.ct-liquid-interactive:not(:disabled):active {
+  transform: var(--ct-liquid-base-transform) scale(0.975);
+  transition-duration: var(--ct-duration-liquid-press);
+  transition-timing-function: var(--ct-ease-liquid-settle);
+}
+
+.ct-liquid-interactive:focus-visible {
+  outline: revert;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-liquid-interactive,
+  .ct-liquid-interactive:not(:disabled):hover,
+  .ct-liquid-interactive:not(:disabled):active {
+    transform: var(--ct-liquid-base-transform);
+    transition: none;
+    animation: none;
+  }
 }
 
 .ct-btn-compact {
