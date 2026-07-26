@@ -105,6 +105,7 @@ function stateFor(pane: Pane, generation: number): ExtendedState {
     workspaces: [{
       id: "workspace",
       name: "Project",
+      cwd: "D:\\work\\project",
       tabs: [{ id: "tab", pane_id: pane.id }],
       active_tab_id: "tab",
     }],
@@ -280,12 +281,12 @@ async function main(): Promise<void> {
   });
   await flush();
 
-  assert(server.starts.length === 1, `Terminal -> Chat started ${server.starts.length} snapshots`);
+  assert(Number(server.starts.length) === 1, `Terminal -> Chat started ${server.starts.length} snapshots`);
   assert(
     server.starts[0]?.agentSessionId === "sid-live",
     "Terminal -> Chat lost the pane-owned session id",
   );
-  assert(server.subscribers.size === 1, "Terminal -> Chat did not own one subscription");
+  assert(Number(server.subscribers.size) === 1, "Terminal -> Chat did not own one subscription");
   const rows = host.querySelectorAll('[data-testid="chat-message"]');
   assert(rows.length === 1, `bounded transcript rendered ${rows.length} rows`);
   assert(rows[0]?.textContent?.includes("pre-existing transcript"), "bounded transcript row is missing");
@@ -306,7 +307,7 @@ async function main(): Promise<void> {
     root.unmount();
   });
   await flush();
-  assert(server.subscribers.size === 0, "unmount retained the Chat subscription");
+  assert(Number(server.subscribers.size) === 0, "unmount retained the Chat subscription");
   assert(server.stops.length === 1, "unmount did not stop exactly one subscription");
   console.log(
     "PASS TabContent continuity: provider/model/switch + one transcript/subscription survived refresh and Terminal -> Chat",
