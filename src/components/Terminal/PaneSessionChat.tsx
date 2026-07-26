@@ -178,8 +178,9 @@ export function PaneSessionChat({
     onError,
     active: isActive,
     diagnosticSink: chatProjectionMonitor.sink,
+    allowUnboundAuthority: effectiveChatBackend,
   });
-  const bootSetupView = chatSetupView(pane, loading || attachmentState === "attached");
+  const bootSetupView = chatSetupView(pane, attachmentState === "attached");
 
   const {
     scrollRef,

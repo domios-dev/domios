@@ -96,6 +96,26 @@ npx tsx src/lib/colors.test.ts
 ./build.sh test:all   # every non-LLM layer (see Runbook)
 ```
 
+### Chat attach/hydration lifecycle
+
+Use the deterministic hook oracle for Terminal → Chat activation, pane-owned
+authority, bounded hydration, resync, and subscription cleanup:
+
+```bash
+npx tsx src/components/Terminal/useChatSession.attachHydration.test.tsx
+npx tsx src/components/Terminal/ChatSetupState.test.tsx
+```
+
+The harness starts hidden with null pane authority, activates into
+`awaiting_session`, and proves a global/foreign candidate cannot create Chat
+authority. It then commits the pane's own session id and binding nonce while
+hidden, reactivates, and requires the pre-existing transcript exactly once with
+one subscription. Its resync replaces the subscription without duplicating
+rows; wrong-pane, wrong-session, wrong-nonce, cancelled-generation, and
+prior-lifecycle inputs remain rejected. The setup-state oracle proves a
+hydrated current-authority transcript suppresses stale `shell_ready` and earlier
+launch overlays.
+
 ### Capped Rust test preflight
 
 `scripts/test-capped.sh` is the required lane-local Rust-test wrapper. In a
@@ -376,4 +396,4 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 
 Before approving a PR, use **`docs/contributing/review-checklist.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->
