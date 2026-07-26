@@ -26,7 +26,7 @@ impl OutputServiceHarness {
     fn new(mux: MultiplexerState) -> Self {
         let temp = tempfile::tempdir().unwrap();
         let builder = tauri::Builder::default();
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         let builder = builder.any_thread();
         let app = builder
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
@@ -248,6 +248,10 @@ fn assert_planner_resolves(
 }
 
 #[test]
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "Tauri requires its production event loop on the macOS main thread"
+)]
 fn planner_shell_like_live_tui_preserves_identity_across_snapshot_reload() {
     let (mux, pane_id, planner, owner) = seed_live_planner();
     let harness = OutputServiceHarness::new(mux);
