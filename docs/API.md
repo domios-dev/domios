@@ -128,6 +128,23 @@ Closed tabs and workspaces are recorded in a persistent ring. Every close action
 | POST | `/api/panes/{id}/hook/session_start` | *(Claude SessionStart JSON, forwarded from stdin)* | Persist the agent-reported `session_id` on the tab; covers `/new` and `/clear` inside the TUI (see below) |
 | POST | `/api/panes/{id}/agent/restart` | `{force?: bool, grace_secs?: u64}` | Restart the agent in this tab; resumes only when the recorded session is valid. See [Agent Restart](#agent-restart-post-apipanesidagentrestart). |
 
+#### Chat attachment authority
+
+The desktop `chat_start` command and web-mirror
+`POST /api/panes/{id}/chat-raw/start` return the same bounded snapshot shape.
+`source_session_id` and `session_binding_nonce` are derived from the pane and
+form one authority generation. A client adopts snapshots and
+`pane-chat-msg-{id}` deltas only when both values match the pane's current
+generation.
+
+`pending=true` with null session authority and no subscription means the pane
+is still awaiting its own session; it is not attached and must not fall back to
+another provider session. `pending=true` with matching session authority and a
+subscription means the pane is awaiting its own store. `pending=false` is a
+complete bounded snapshot, including a complete empty snapshot. Visible Chat
+owns one subscription, releases it when hidden, and obtains a fresh bounded
+snapshot on reactivation or event-stream resync.
+
 #### Agent Hierarchy
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
@@ -1352,4 +1369,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 88 -->
+<!-- revision: 89 -->

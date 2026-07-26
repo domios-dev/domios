@@ -17,6 +17,12 @@ import { enrichTimelineItems, type EnrichmentCache } from "./chatEnrichment";
 import { onResync } from "../../lib/resync";
 import { CHAT_REATTACHED_EVENT } from "./chatReattach";
 import { chatWindowRange, slideChatWindowOlder } from "./chatWindow";
+import {
+  canAdoptTranscriptAuthority,
+  newChatSubscriptionId,
+  useChatSubscription,
+  type ChatAttachmentState,
+} from "./chatSessionAuthority";
 
 const BACKFILL_PAGE_MAX_BYTES = 256 * 1024;
 export const TEST_CHAT_REPLY_EVENT = "codeterm:test-chat-reply";
@@ -55,12 +61,6 @@ interface ChatMsgEvent {
   source_session_id: string | null;
   session_binding_nonce: string | null;
 }
-
-interface TranscriptAuthority {
-  source_session_id: string | null;
-}
-
-type ChatAttachmentState = "idle" | "attaching" | "awaiting_store" | "attached" | "failed";
 
 export type ChatSessionDiagnosticEvent =
   | {
@@ -214,27 +214,6 @@ export function testChatReplyPayload(detail: TestChatReplyDetail): ChatMsgEvent 
     source_session_id: detail.sourceSessionId ?? null,
     session_binding_nonce: detail.sessionBindingNonce ?? null,
   };
-}
-
-function canAdoptTranscriptAuthority(
-  incoming: TranscriptAuthority,
-  attachedSessionId: string | null,
-  paneSessionId: string | null,
-): boolean {
-  const sourceSessionId = incoming.source_session_id;
-  if (sourceSessionId == null) return attachedSessionId == null;
-  return sourceSessionId === attachedSessionId
-    || sourceSessionId === paneSessionId
-    || (attachedSessionId == null && paneSessionId == null);
-}
-
-let subscriptionSequence = 0;
-
-function newSubscriptionId(paneId: string): string {
-  const randomId = globalThis.crypto?.randomUUID?.();
-  if (randomId) return randomId;
-  subscriptionSequence += 1;
-  return `${paneId}-${subscriptionSequence}`;
 }
 
 export function installCodeTermTestChatHandle(testMode = isCodeTermFrontendTestMode()): void {
@@ -400,6 +379,7 @@ export function useChatSession({
   onError,
   active = true,
   diagnosticSink,
+  allowUnboundAuthority = false,
 }: {
   paneId: string;
   agentSessionId: string | null;
@@ -408,6 +388,8 @@ export function useChatSession({
   /** Hidden chats must not run the daemon parser: false stops the session, true restarts it. */
   active?: boolean;
   diagnosticSink?: ChatSessionDiagnosticSink;
+  /** Plugin chatBackend panes have pane-owned backing without a PTY session id. */
+  allowUnboundAuthority?: boolean;
 }) {
   const [structured, setStructured] = useState<ChatMessage[] | null>(null);
   const [windowAnchorKey, setWindowAnchorKey] = useState<string | null>(null);
@@ -426,8 +408,12 @@ export function useChatSession({
   const activeRef = useRef(active);
   const agentSessionIdRef = useRef(agentSessionId);
   const sessionBindingNonceRef = useRef(sessionBindingNonce);
+  const allowUnboundAuthorityRef = useRef(allowUnboundAuthority);
   const attachmentSourceSessionIdRef = useRef(agentSessionId);
-  const previousSessionIdRef = useRef(agentSessionId);
+  const previousAuthorityRef = useRef({
+    sessionId: agentSessionId,
+    sessionBindingNonce: sessionBindingNonce ?? null,
+  });
   const lifecycleRef = useRef(0);
   /** Lifecycle of the last merged snapshot: unchanged => resync (merge),
    *  new => fresh listener attach (replace). */
@@ -442,7 +428,6 @@ export function useChatSession({
     sourceSessionId: agentSessionId,
     sessionBindingNonce: sessionBindingNonce ?? null,
   });
-  const activeSubscriptionIdRef = useRef<string | null>(null);
   const requestedSubscriptionIdRef = useRef<string | null>(null);
   const rotationQueuedRef = useRef(false);
   const backfillInFlightRef = useRef(false);
@@ -456,6 +441,27 @@ export function useChatSession({
     return value;
   }, []);
 
+  const emitDiagnostic = useCallback((event: ChatSessionDiagnosticEvent) => {
+    diagnosticSinkRef.current?.(event);
+  }, []);
+
+  const observeSubscription = useCallback((
+    edge: "owned" | "released",
+    subscriptionId: string,
+  ) => {
+    emitDiagnostic({
+      edge: edge === "owned" ? "subscription_owned" : "subscription_released",
+      paneId,
+      subscriptionId,
+    });
+  }, [emitDiagnostic, paneId]);
+
+  const {
+    release: releaseActiveSubscription,
+    replace: replaceActiveSubscription,
+    stopUnadopted: stopUnadoptedSubscription,
+  } = useChatSubscription(paneId, observeSubscription);
+
   useEffect(() => {
     onErrorRef.current = onError;
   }, [onError]);
@@ -464,12 +470,9 @@ export function useChatSession({
   activeRef.current = active;
   agentSessionIdRef.current = agentSessionId;
   sessionBindingNonceRef.current = sessionBindingNonce;
+  allowUnboundAuthorityRef.current = allowUnboundAuthority;
   attachmentStateRef.current = attachmentState;
   attachGenerationRef.current = attachGeneration;
-
-  const emitDiagnostic = useCallback((event: ChatSessionDiagnosticEvent) => {
-    diagnosticSinkRef.current?.(event);
-  }, []);
 
   useEffect(() => {
     setOptimistic([]);
@@ -477,10 +480,8 @@ export function useChatSession({
 
   const requestAttach = useCallback(() => {
     const nextSessionId = agentSessionIdRef.current;
-    const lineageSessionId = attachmentSourceSessionIdRef.current;
-    if (nextSessionId != null && lineageSessionId !== nextSessionId) {
-      attachmentSourceSessionIdRef.current = nextSessionId;
-    }
+    attachmentSourceSessionIdRef.current = nextSessionId;
+    requestedSubscriptionIdRef.current = newChatSubscriptionId(paneId);
     setError(null);
     setAttachmentState("attaching");
     setAttachGeneration((generation) => {
@@ -488,7 +489,7 @@ export function useChatSession({
       attachGenerationRef.current = nextGeneration;
       return nextGeneration;
     });
-  }, []);
+  }, [paneId]);
 
   const markAttached = useCallback(() => {
     setAttachmentState("attached");
@@ -505,9 +506,8 @@ export function useChatSession({
     }
     const lifecycle = lifecycleRef.current + 1;
     lifecycleRef.current = lifecycle;
-    const requestedSubscriptionId = newSubscriptionId(paneId);
+    const requestedSubscriptionId = newChatSubscriptionId(paneId);
     requestedSubscriptionIdRef.current = requestedSubscriptionId;
-    activeSubscriptionIdRef.current = null;
     attachmentSourceSessionIdRef.current = agentSessionIdRef.current;
     let unlisten: UnlistenFn | null = null;
     let unlistenTest: (() => void) | null = null;
@@ -534,9 +534,17 @@ export function useChatSession({
               tailSignature: tailSignatureOf(ev.payload.messages),
             };
             emitDiagnostic({ edge: "event_arrival", ...diagnosticBase });
-            const attachedSessionId = attachmentSourceSessionIdRef.current;
             const paneSessionId = agentSessionIdRef.current;
-            if (!canAdoptTranscriptAuthority(ev.payload, attachedSessionId, paneSessionId)) {
+            const paneSessionBindingNonce = sessionBindingNonceRef.current ?? null;
+            if (
+              ev.payload.pane_id !== paneId
+              || !canAdoptTranscriptAuthority(
+                ev.payload,
+                paneSessionId,
+                paneSessionBindingNonce,
+                allowUnboundAuthorityRef.current,
+              )
+            ) {
               emitDiagnostic({ edge: "authority_drop", ...diagnosticBase });
               return;
             }
@@ -576,47 +584,77 @@ export function useChatSession({
       if (unlisten) emitDiagnostic({ edge: "listener_released", paneId });
       unlistenTest?.();
       setListenerReady(false);
-      const activeSubscriptionId = activeSubscriptionIdRef.current;
-      if (activeSubscriptionId) {
-        activeSubscriptionIdRef.current = null;
-        emitDiagnostic({
-          edge: "subscription_released",
-          paneId,
-          subscriptionId: activeSubscriptionId,
-        });
-        void invoke("chat_stop", { paneId, subscriptionId: activeSubscriptionId }).catch(() => {});
-      }
+      releaseActiveSubscription();
     };
-  }, [active, emitDiagnostic, markAttached, nextClientOrder, paneId]);
+  }, [
+    active,
+    emitDiagnostic,
+    markAttached,
+    nextClientOrder,
+    paneId,
+    releaseActiveSubscription,
+  ]);
 
   useEffect(() => {
     if (!active || !listenerReady) return;
     const lifecycle = lifecycleRef.current;
     const generation = attachGeneration;
     const requestOrder = nextClientOrderRef.current;
+    const requestedSessionId = agentSessionIdRef.current;
+    const requestedSessionBindingNonce = sessionBindingNonceRef.current ?? null;
+    const requestedSubscriptionId =
+      requestedSubscriptionIdRef.current ?? newChatSubscriptionId(paneId);
+    requestedSubscriptionIdRef.current = requestedSubscriptionId;
     let cancelled = false;
     (async () => {
       try {
         emitDiagnostic({
           edge: "snapshot_request",
           paneId,
-          sourceSessionId: agentSessionIdRef.current,
-          sessionBindingNonce: sessionBindingNonceRef.current ?? null,
+          sourceSessionId: requestedSessionId,
+          sessionBindingNonce: requestedSessionBindingNonce,
         });
         const res = await invoke<ChatStartResult>("chat_start", {
           paneId,
-          agentSessionId: agentSessionIdRef.current,
-          subscriptionId: requestedSubscriptionIdRef.current,
+          agentSessionId: requestedSessionId,
+          subscriptionId: requestedSubscriptionId,
         });
         const currentLifecycle = lifecycleRef.current === lifecycle;
-        if (!currentLifecycle) {
-          if (res.subscription_id) {
-            void invoke("chat_stop", { paneId, subscriptionId: res.subscription_id }).catch(() => {});
+        const currentGeneration = attachGenerationRef.current === generation;
+        if (!currentLifecycle || cancelled || !currentGeneration) {
+          stopUnadoptedSubscription(res.subscription_id);
+          return;
+        }
+        const paneAuthorityUnchanged =
+          agentSessionIdRef.current === requestedSessionId
+          && (sessionBindingNonceRef.current ?? null) === requestedSessionBindingNonce;
+        const canAdoptSnapshot =
+          paneAuthorityUnchanged
+          && canAdoptTranscriptAuthority(
+            res,
+            requestedSessionId,
+            requestedSessionBindingNonce,
+            allowUnboundAuthorityRef.current,
+          );
+        if (!canAdoptSnapshot) {
+          stopUnadoptedSubscription(res.subscription_id);
+          emitDiagnostic({
+            edge: "authority_drop",
+            paneId,
+            sourceSessionId: res.source_session_id,
+            sessionBindingNonce: res.session_binding_nonce,
+            messageIds: (res.messages ?? []).map((message) => message.id),
+            tailSignature: tailSignatureOf(res.messages ?? []),
+          });
+          if (requestedSessionId == null && !allowUnboundAuthorityRef.current) {
+            replaceActiveSubscription(null);
+            setAttachmentState("awaiting_session");
+            setRecovering(true);
+            setLoading(false);
           }
           return;
         }
-        if (cancelled || attachGenerationRef.current !== generation) return;
-        activeSubscriptionIdRef.current = res.subscription_id ?? null;
+        replaceActiveSubscription(res.subscription_id ?? null);
         pendingAuthorityRef.current = {
           sourceSessionId: res.source_session_id,
           sessionBindingNonce: res.session_binding_nonce,
@@ -633,21 +671,10 @@ export function useChatSession({
           offset: res.offset ?? null,
           startOffset: res.start_offset ?? null,
         });
-        if (res.subscription_id) {
-          emitDiagnostic({
-            edge: "subscription_owned",
-            paneId,
-            subscriptionId: res.subscription_id,
-          });
-        }
-        attachmentSourceSessionIdRef.current = res.source_session_id ?? agentSessionIdRef.current;
+        attachmentSourceSessionIdRef.current = res.source_session_id;
         setError(null);
         setLoading(false);
         if (res.pending) {
-          if (agentSessionIdRef.current == null) {
-            markAttached();
-            return;
-          }
           setAttachmentState("awaiting_store");
           setRecovering(true);
           return;
@@ -685,13 +712,30 @@ export function useChatSession({
     return () => {
       cancelled = true;
     };
-  }, [active, attachGeneration, emitDiagnostic, listenerReady, markAttached, nextClientOrder, paneId]);
+  }, [
+    active,
+    attachGeneration,
+    emitDiagnostic,
+    listenerReady,
+    markAttached,
+    nextClientOrder,
+    paneId,
+    replaceActiveSubscription,
+    stopUnadoptedSubscription,
+  ]);
 
   useEffect(() => {
-    const previous = previousSessionIdRef.current;
-    previousSessionIdRef.current = agentSessionId;
+    const previous = previousAuthorityRef.current;
+    const next = {
+      sessionId: agentSessionId,
+      sessionBindingNonce: sessionBindingNonce ?? null,
+    };
+    previousAuthorityRef.current = next;
     if (
-      previous === agentSessionId
+      (
+        previous.sessionId === next.sessionId
+        && previous.sessionBindingNonce === next.sessionBindingNonce
+      )
       || !active
       || !listenerReady
     ) return;
@@ -699,9 +743,25 @@ export function useChatSession({
     rotationQueuedRef.current = true;
     queueMicrotask(() => {
       rotationQueuedRef.current = false;
-      if (activeRef.current) requestAttach();
+      if (!activeRef.current) return;
+      const currentSessionId = agentSessionIdRef.current;
+      const currentSessionBindingNonce = sessionBindingNonceRef.current ?? null;
+      if (
+        pendingAuthorityRef.current.sourceSessionId !== currentSessionId
+        || pendingAuthorityRef.current.sessionBindingNonce !== currentSessionBindingNonce
+      ) {
+        replaceActiveSubscription(null);
+      }
+      requestAttach();
     });
-  }, [active, agentSessionId, listenerReady, requestAttach]);
+  }, [
+    active,
+    agentSessionId,
+    listenerReady,
+    replaceActiveSubscription,
+    requestAttach,
+    sessionBindingNonce,
+  ]);
 
   const retry = useCallback(() => {
     setRecovering(true);
@@ -793,6 +853,8 @@ export function useChatSession({
     }
     const cursor = backfillCursor;
     if (cursor == null || cursor <= 0 || backfillInFlightRef.current) return;
+    const lifecycle = lifecycleRef.current;
+    const generation = attachGenerationRef.current;
     backfillInFlightRef.current = true;
     setBackfillLoading(true);
     try {
@@ -802,10 +864,16 @@ export function useChatSession({
         maxBytes: BACKFILL_PAGE_MAX_BYTES,
       });
       if (
-        !canAdoptTranscriptAuthority(
-          { source_session_id: res.source_session_id },
-          attachmentSourceSessionIdRef.current,
+        lifecycleRef.current !== lifecycle
+        || attachGenerationRef.current !== generation
+        || !canAdoptTranscriptAuthority(
+          {
+            source_session_id: res.source_session_id,
+            session_binding_nonce: res.session_binding_nonce,
+          },
           agentSessionIdRef.current,
+          sessionBindingNonceRef.current ?? null,
+          allowUnboundAuthorityRef.current,
         )
       ) {
         return;
