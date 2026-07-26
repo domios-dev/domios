@@ -161,6 +161,18 @@ jobs:
           }
           node scripts/prepare-embed-stub.js
 
+      # The app always points the PTY fork at the bundled ConPTY host (see
+      # startup/conpty_host.rs); without this CI would test the in-box conhost,
+      # whose ClosePseudoConsole deadlocks and which we never ship against.
+      - name: Use the bundled ConPTY host
+        shell: pwsh
+        run: |
+          $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
+          $dir = Join-Path $PWD "src-tauri\conpty\$arch"
+          if (-not (Test-Path (Join-Path $dir 'conpty.dll'))) { Write-Error "bundled conpty.dll not found at $dir"; exit 1 }
+          "CODETERM_CONPTY_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "CODETERM_CONPTY_DIR=$dir"
+
       - name: Rust lib tests
         shell: pwsh
         run: cargo test --workspace --manifest-path src-tauri/Cargo.toml --lib
