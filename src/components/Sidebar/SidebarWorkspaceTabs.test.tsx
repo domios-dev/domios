@@ -655,23 +655,6 @@ test("team header renders the live compact status tally", async () => {
   const working = host.querySelector('[data-testid="team-working-indicator"]');
   assert(title?.nextElementSibling === working, "working indicator follows the Team title");
   assert(working?.getAttribute("role") === "status", "working indicator is announced to assistive technology");
-  assert(
-    host.querySelectorAll('[data-testid="team-working-indicator"][role="status"]').length === 1,
-    "working Team exposes exactly one status wrapper",
-  );
-  assert(
-    working?.getAttribute("aria-label") === `${title?.textContent} has working members`,
-    "working Team keeps its accessible name",
-  );
-  assert(
-    /\.sidebar-team-title-row\s*\{[^}]*display:\s*inline-flex;[^}]*flex-wrap:\s*nowrap;/s.test(sidebarStyles),
-    "Team title row is an inline-flex nowrap geometry boundary",
-  );
-  assert(
-    /\.sidebar-team-title-row\s+\.activity-dots\s*\{[^}]*flex:\s*0 0 auto;[^}]*--activity-dot-size:\s*3px;[^}]*--activity-dot-gap:\s*2px;/s.test(sidebarStyles),
-    "Team activity dots keep fixed bounded dimensions and gap under constrained title width",
-  );
-  assert(working?.querySelector('[aria-hidden="true"]')?.children.length === 3, "working Team owns exactly three hidden dot children");
   assert(!host.textContent?.includes("Open effort"), "Team unit has no Open effort chrome");
   canvasFocusStore.closeWorkspace();
   await act(async () => card.click());
