@@ -122,6 +122,22 @@ automatically routes focused tests to the worktree-local
 TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib <filter>
 ```
 
+### REST generation liveness
+
+Run the listener-exit and worker-starvation fixtures separately:
+
+```bash
+bash scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib startup::rest_api::tests::unexpected_exit_autonomously_replaces_generation_after_health_proof -- --exact
+bash scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib startup::rest_api::tests::diagnostics_distinguish_listener_exit_from_worker_stall -- --exact
+```
+
+The first fixture sends no manual recovery command and observes lifecycle
+events through the replacement's real `/api/health` response. The second uses
+explicit barriers to hold all four REST workers while leaving the listener
+bound, asserts an unanswered health request within a bounded failure deadline,
+and verifies that its diagnostic differs from listener exit without publishing
+a false healthy state. Neither fixture uses production port 7685.
+
 ## E2E tests
 
 Test full stack via REST API against a running dev instance. Create tabs, send text, check output, verify prompt lifecycle.
@@ -376,4 +392,4 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 
 Before approving a PR, use **`docs/contributing/review-checklist.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->
