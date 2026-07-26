@@ -122,6 +122,7 @@ does not publish a release or alter GitHub assets.
 | CodeTerm restarts but the initiating tab does not resume | The continuation send failed or the pane id changed before session persistence | Inspect `%LOCALAPPDATA%\codeterm\self-install.log`; the retained `%TEMP%\codeterm-continuation-*.txt` contains the undelivered intent. |
 | Repeated local install recompiles the full release graph | The clean-room `build` route was used instead of the persistent local cache | Use `build.ps1 install-local`; reserve `build` for public-release-equivalent verification. |
 | A focused Rust test spends its deadline linking app binaries | The test omitted `--lib`, so Cargo built unrelated binary test targets | Run the focused filter through `scripts/test-capped.sh ... --lib <filter>`; never raise the deadline. |
+| A fresh lane's focused Rust test reports missing `../dist` or `bundled-cli/*` | Ignored Tauri resource directories have not been staged in that worktree | Run `node scripts/dev-resource-preflight.mjs` and `node scripts/prepare-cli-stub.js`, then rerun the same capped focused test. Do not substitute a frontend build or raise the cap. |
 | `sccache: incremental compilation is prohibited` | `CARGO_INCREMENTAL=1` was combined with the shared sccache wrapper | Keep `CARGO_INCREMENTAL=0`; reuse the persistent completed target and sccache entries instead. |
 | Release-signing negative test passes despite a missing fixture key | The shell inherited `TAURI_SIGNING_PRIVATE_KEY` from the canonical `.env` | Run the repository check; its missing-key fixture explicitly removes the inherited key before asserting failure. |
 | Push unexpectedly starts compilation or formatting checks | A stale local hook predates the non-blocking push policy | Run any `build.ps1` command to restore `.githooks`, then retry; verification belongs to explicit gates and CI. |
@@ -330,4 +331,14 @@ codeterm/
 └── docs/               # Documentation
 ```
 
-<!-- revision: 20 -->
+REST liveness troubleshooting: a bound socket with an unanswered health request
+is `workers_blocked`, not a listener exit. Capture `[chat_start.bounded]`,
+`[LOCK-HOLD]`, and `[SLOW-IPC]` lines, then run
+`bash evals/api-liveness-mesh-load/run.sh` against dev 7686. The representative
+cause is oversized session parsing on a REST worker; keep it bounded and on
+blocking workers. A refused socket is instead listener exit or bind ownership
+failure and belongs to the generation supervisor. If a Windows manual restart
+reports bind failure immediately after a healthy generation, verify the health
+proof consumes its body and closes its connection before publishing readiness.
+
+<!-- revision: 23 -->

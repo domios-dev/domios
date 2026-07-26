@@ -41,6 +41,27 @@ Then: `Authorization: Bearer your-secret-token`
 | POST | `/api/keepawake/start` | `{duration_secs?, display?}` | Start / restart keep-awake session |
 | POST | `/api/keepawake/stop` | — | Stop keep-awake session |
 
+The desktop REST listener has one monotonic runtime generation owner. A
+generation is reported as `listening` only after it owns the real socket and a
+real `GET /api/health` succeeds, its body is consumed, and the proof connection
+closes. This completion boundary keeps same-port Windows restarts from racing a
+lingering accepted health socket. Listener/server exit autonomously retires
+that generation and creates exactly one replacement; bind ownership failure
+waits for an explicit port-release or restart event instead of retrying on a timer.
+The internal `get_rest_api_status` command returns `generation`, `phase`,
+`diagnostic`, and `message`. Diagnostic values are `listener_exited`,
+`bind_ownership_failed`, or `workers_blocked`; the last means the listener
+remains bound but the four REST runtime workers cannot answer health.
+
+Each successful outage transition also owns a monotonic recovery id. Recovery
+events are queued, so two worker stalls recovered within one listener generation
+each produce one mesh resync while observing an event twice produces none.
+
+The representative worker-starvation cause is provider transcript parsing, not
+the listener: session JSONL can be hundreds of MiB. REST chat/transcript routes
+run the bounded 4 MiB tail parser on blocking workers, leaving all four REST
+runtime workers available for health, tab, and relay requests.
+
 
 #### Workspaces
 | Method | Path | Body | Description |
@@ -127,6 +148,23 @@ Closed tabs and workspaces are recorded in a persistent ring. Every close action
 | POST | `/api/panes/{id}/hook/stop` | `{}` | Notify that the agent finished its turn (see below) |
 | POST | `/api/panes/{id}/hook/session_start` | *(Claude SessionStart JSON, forwarded from stdin)* | Persist the agent-reported `session_id` on the tab; covers `/new` and `/clear` inside the TUI (see below) |
 | POST | `/api/panes/{id}/agent/restart` | `{force?: bool, grace_secs?: u64}` | Restart the agent in this tab; resumes only when the recorded session is valid. See [Agent Restart](#agent-restart-post-apipanesidagentrestart). |
+
+#### Chat attachment authority
+
+The desktop `chat_start` command and web-mirror
+`POST /api/panes/{id}/chat-raw/start` return the same bounded snapshot shape.
+`source_session_id` and `session_binding_nonce` are derived from the pane and
+form one authority generation. A client adopts snapshots and
+`pane-chat-msg-{id}` deltas only when both values match the pane's current
+generation.
+
+`pending=true` with null session authority and no subscription means the pane
+is still awaiting its own session; it is not attached and must not fall back to
+another provider session. `pending=true` with matching session authority and a
+subscription means the pane is awaiting its own store. `pending=false` is a
+complete bounded snapshot, including a complete empty snapshot. Visible Chat
+owns one subscription, releases it when hidden, and obtains a fresh bounded
+snapshot on reactivation or event-stream resync.
 
 #### Agent Hierarchy
 | Method | Path | Body / Query | Description |
@@ -1352,4 +1390,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 88 -->
+<!-- revision: 92 -->
