@@ -12,6 +12,23 @@
 
 Discovery (mDNS/UDP/Tailscale) finds peers on the network. Paired peers are shown in the mesh, unpaired peers appear in the "Discovered" list.
 
+## Local REST availability
+
+The local REST supervisor, not the mesh liveness detector, owns listener
+recovery. Listener/server exit produces a failed lifecycle event and exactly
+one newer generation; that replacement is advertised healthy only after socket
+ownership and a successful real `/api/health` response. Bind ownership failure
+and a still-bound listener with all four REST workers blocked have distinct
+diagnostics, so worker starvation does not cause listener-generation churn.
+
+Replacement readiness is queued to the liveness owner with a monotonic recovery
+transition id, which restores local HTTP health, emits the existing
+`mesh-state-changed` resync signal, and broadcasts the refreshed announce
+exactly once. Distinct worker-stall recoveries within one listener generation
+receive distinct ids; a duplicate observation cannot claim another resync.
+Relay delivery keeps its existing at-most-once and structured-error behavior
+across the outage.
+
 ## Auth Model
 
 Every paired peer has an Ed25519 keypair. Requests between peers are signed with the sender's private key and verified against known public keys.
@@ -228,4 +245,4 @@ services/
   smart_add.rs      — heuristic field-mapping suggestions for AddServiceWizard
 ```
 
-<!-- revision: 8 -->
+<!-- revision: 10 -->
