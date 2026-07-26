@@ -58,6 +58,18 @@ pub struct PtySession {
     pub teardown: PtyTeardownSignal,
 }
 
+impl Drop for PtySession {
+    fn drop(&mut self) {
+        // Covers drops that bypass observe_exit, e.g. a panic unwinding through
+        // an unprocessed reaper; closing inline can block (see teardown.rs).
+        if let Ok(mut pair) = self.pair.lock() {
+            if let Some(pair) = pair.take() {
+                std::thread::spawn(move || drop(pair));
+            }
+        }
+    }
+}
+
 impl PtySession {
     pub fn write_and_flush_guarded(
         &self,
@@ -635,13 +647,9 @@ impl PtyManager {
         if let Ok(mut rx) = session.backend_reader_rx.lock() {
             let _ = rx.take();
         }
-        match session.pair.lock() {
-            Ok(mut pair) => {
-                let _ = pair.take();
-            }
-            Err(e) => log::warn!("PTY {} pair mutex poisoned during kill: {}", pty_id, e),
-        }
-        log::info!("Killed PTY {} process tree; ConPTY handles closed", pty_id);
+        // ConPTY handle is closed by the reaper's background thread, not here —
+        // ClosePseudoConsole can block (see teardown.rs) and must not stall the caller.
+        log::info!("Killed PTY {} process tree; ConPTY teardown queued", pty_id);
         Ok(PtyReaper {
             pty_id: pty_id.to_string(),
             session,
