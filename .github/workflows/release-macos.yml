@@ -205,6 +205,9 @@ jobs:
             --dir _frags \
             --repo "${{ github.repository }}"
           for f in _frags/updater-*.json; do
+            # The -deb fragment claims the same linux-x86_64 key as the AppImage
+            # one but belongs to latest-deb.json; merged here it would win.
+            case "$(basename "$f")" in *-deb.json) continue ;; esac
             base=$(basename "$f" .json)
             mkdir -p "manifest-fragments/$base"
             cp "$f" "manifest-fragments/$base/latest.json"
