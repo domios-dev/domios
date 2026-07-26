@@ -143,18 +143,25 @@ mod tests {
 
     #[test]
     fn resolve_single_active_when_omitted() {
+        let _guard = crate::test_env_lock().lock().unwrap();
+        let previous = std::env::var("CODETERM_PLAN_ID").ok();
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
         let plans = plans_dir(root);
         write_plan(&plans, "active", "solo");
-        // Env must not leak from the test runner.
         std::env::remove_var("CODETERM_PLAN_ID");
         let (id, _dir) = resolve_plan_dir(root, None).unwrap();
         assert_eq!(id, "solo");
+        match previous {
+            Some(value) => std::env::set_var("CODETERM_PLAN_ID", value),
+            None => std::env::remove_var("CODETERM_PLAN_ID"),
+        }
     }
 
     #[test]
     fn resolve_ambiguous_active_errors() {
+        let _guard = crate::test_env_lock().lock().unwrap();
+        let previous = std::env::var("CODETERM_PLAN_ID").ok();
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
         let plans = plans_dir(root);
@@ -163,6 +170,10 @@ mod tests {
         std::env::remove_var("CODETERM_PLAN_ID");
         let err = resolve_plan_dir(root, None).unwrap_err();
         assert!(err.contains("disambiguate"));
+        match previous {
+            Some(value) => std::env::set_var("CODETERM_PLAN_ID", value),
+            None => std::env::remove_var("CODETERM_PLAN_ID"),
+        }
     }
 
     #[test]
