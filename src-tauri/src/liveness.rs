@@ -200,9 +200,27 @@ async fn probe_local_health(client: &reqwest::Client, api_port: u16) -> bool {
     )
 }
 
+async fn publish_api_recovery(
+    app: &tauri::AppHandle,
+    mesh: &crate::MeshStateHandle,
+    status: &crate::startup::RestApiStatus,
+) {
+    apply_mesh_local_health(mesh, true);
+    crate::api::events::emit_everywhere(app, "mesh-state-changed", serde_json::Value::Null);
+    let report = crate::mesh::broadcast_announce(mesh, None).await;
+    log::info!(
+        "[liveness] local API generation {} recovered; announce sent={} ok={} errors={}",
+        status.generation,
+        report.sent,
+        report.ok,
+        report.errors.len()
+    );
+}
+
 pub(crate) fn start_api_liveness_watchdog(
     app: tauri::AppHandle,
     mesh: crate::MeshStateHandle,
+    rest_api: crate::startup::RestApiControlState,
     api_port: u16,
 ) {
     std::thread::Builder::new()
@@ -218,31 +236,54 @@ pub(crate) fn start_api_liveness_watchdog(
                     .build()
                     .unwrap_or_default();
                 let mut state = ProbeState::default();
+                let mut recovery_events = rest_api.subscribe_recovery();
+                let mut pending_recovery = recovery_events.borrow_and_update().clone();
+                let mut announced_generation = 0;
                 loop {
-                    tokio::time::sleep(Duration::from_secs(30)).await;
+                    let recovery = if let Some(status) = pending_recovery.take() {
+                        Some(Some(status))
+                    } else {
+                        tokio::select! {
+                            _ = tokio::time::sleep(Duration::from_secs(30)) => Some(None),
+                            changed = recovery_events.changed() => changed
+                                .ok()
+                                .map(|()| recovery_events.borrow_and_update().clone()),
+                        }
+                    };
+                    let Some(recovery) = recovery else {
+                        break;
+                    };
                     // unhealthy from here on is the clean quit, not an outage.
                     if crate::crash::shutdown::is_shutting_down() {
                         log::info!("[liveness] shutting down; watchdog stopping");
                         break;
                     }
-                    let action = state.record(probe_local_health(&client, api_port).await, 3);
+                    if let Some(status) = recovery {
+                        if status.generation > announced_generation {
+                            publish_api_recovery(&app, &mesh, &status).await;
+                            announced_generation = status.generation;
+                        }
+                        continue;
+                    }
+                    let healthy = probe_local_health(&client, api_port).await;
+                    if healthy {
+                        rest_api.record_successful_probe();
+                    }
+                    let action = state.record(healthy, 3);
                     match action {
                         ProbeAction::None => {}
                         ProbeAction::MarkHealthy => {
-                            let (changed, _) =
-                                handle_probe_action(&mesh, action, false, write_liveness_report);
-                            if changed {
-                                crate::api::events::emit_everywhere(&app, "mesh-state-changed", serde_json::Value::Null);
-                                let report = crate::mesh::broadcast_announce(&mesh, None).await;
-                                log::info!(
-                                    "[liveness] local API recovered; announce sent={} ok={} errors={}",
-                                    report.sent,
-                                    report.ok,
-                                    report.errors.len()
-                                );
+                            let status = rest_api.status();
+                            if status.generation > announced_generation {
+                                publish_api_recovery(&app, &mesh, &status).await;
+                                announced_generation = status.generation;
                             }
                         }
                         ProbeAction::MarkUnhealthyAndCapture => {
+                            let diagnostic = rest_api.record_unanswered_probe();
+                            log::error!(
+                                "[liveness] local API diagnostic classification={diagnostic:?}"
+                            );
                             // await, after the loop-top guard.
                             let (changed, report_result) = handle_probe_action(
                                 &mesh,
@@ -251,7 +292,11 @@ pub(crate) fn start_api_liveness_watchdog(
                                 write_liveness_report,
                             );
                             if changed {
-                                crate::api::events::emit_everywhere(&app, "mesh-state-changed", serde_json::Value::Null);
+                                crate::api::events::emit_everywhere(
+                                    &app,
+                                    "mesh-state-changed",
+                                    serde_json::Value::Null,
+                                );
                             }
                             match report_result {
                                 Some(Ok(path)) => log::error!(
