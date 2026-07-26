@@ -337,6 +337,8 @@ is `workers_blocked`, not a listener exit. Capture `[chat_start.bounded]`,
 `bash evals/api-liveness-mesh-load/run.sh` against dev 7686. The representative
 cause is oversized session parsing on a REST worker; keep it bounded and on
 blocking workers. A refused socket is instead listener exit or bind ownership
-failure and belongs to the generation supervisor.
+failure and belongs to the generation supervisor. If a Windows manual restart
+reports bind failure immediately after a healthy generation, verify the health
+proof consumes its body and closes its connection before publishing readiness.
 
-<!-- revision: 22 -->
+<!-- revision: 23 -->

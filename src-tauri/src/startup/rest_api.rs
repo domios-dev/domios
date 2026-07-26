@@ -356,14 +356,23 @@ async fn prove_health(address: SocketAddr) -> Result<(), String> {
         .build()
         .map_err(|error| error.to_string())?;
     let url = format!("http://{}/api/health", probe_address(address));
-    let response = tokio::time::timeout(Duration::from_secs(1), client.get(url).send())
-        .await
-        .map_err(|_| "health proof exceeded its failure deadline".to_string())?
-        .map_err(|error| error.to_string())?;
-    if response.status().is_success() {
+    let status = tokio::time::timeout(Duration::from_secs(1), async {
+        let response = client
+            .get(url)
+            .header(reqwest::header::CONNECTION, "close")
+            .send()
+            .await?;
+        let status = response.status();
+        response.bytes().await?;
+        Ok::<_, reqwest::Error>(status)
+    })
+    .await
+    .map_err(|_| "health proof exceeded its failure deadline".to_string())?
+    .map_err(|error| error.to_string())?;
+    if status.is_success() {
         Ok(())
     } else {
-        Err(format!("health proof returned {}", response.status()))
+        Err(format!("health proof returned {status}"))
     }
 }
 
