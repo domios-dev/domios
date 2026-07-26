@@ -331,4 +331,12 @@ codeterm/
 └── docs/               # Documentation
 ```
 
-<!-- revision: 21 -->
+REST liveness troubleshooting: a bound socket with an unanswered health request
+is `workers_blocked`, not a listener exit. Capture `[chat_start.bounded]`,
+`[LOCK-HOLD]`, and `[SLOW-IPC]` lines, then run
+`bash evals/api-liveness-mesh-load/run.sh` against dev 7686. The representative
+cause is oversized session parsing on a REST worker; keep it bounded and on
+blocking workers. A refused socket is instead listener exit or bind ownership
+failure and belongs to the generation supervisor.
+
+<!-- revision: 22 -->

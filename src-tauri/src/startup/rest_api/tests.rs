@@ -126,7 +126,7 @@ async fn unexpected_exit_autonomously_replaces_generation_after_health_proof() {
     let control = Arc::new(RestApiControl::new());
     let exit = control.install_server_exit();
     let mut lifecycle = control.subscribe_lifecycle();
-    let mut recovery_events = control.subscribe_recovery();
+    let mut recovery_events = control.take_recovery_events().unwrap();
     let task = tokio::spawn(start(control.clone(), address.to_string(), health_router()));
     let initial = wait_for_lifecycle(&mut lifecycle, |s| s.phase == RestApiPhase::Listening).await;
 
@@ -140,18 +140,12 @@ async fn unexpected_exit_autonomously_replaces_generation_after_health_proof() {
     })
     .await;
     assert_eq!(recovered.generation, failed.generation + 1);
-    tokio::time::timeout(std::time::Duration::from_secs(5), recovery_events.changed())
+    let recovery = tokio::time::timeout(std::time::Duration::from_secs(5), recovery_events.recv())
         .await
         .expect("recovery signal deadline elapsed")
         .expect("recovery signal owner stopped");
-    assert_eq!(
-        recovery_events
-            .borrow_and_update()
-            .as_ref()
-            .expect("replacement readiness must emit recovery")
-            .generation,
-        recovered.generation
-    );
+    assert_eq!(recovery.status.generation, recovered.generation);
+    assert_eq!(recovery.transition_id, 1);
     let response = reqwest::get(format!("http://{address}/api/health"))
         .await
         .unwrap();
@@ -378,4 +372,37 @@ async fn diagnostics_distinguish_listener_exit_from_worker_stall() {
 
     stall_control.shutdown_and_wait().await.unwrap();
     server.join().unwrap();
+}
+
+#[tokio::test]
+async fn repeated_same_generation_outages_emit_exactly_one_resync_each() {
+    let control = RestApiControl::new();
+    let mut recovery_events = control.take_recovery_events().unwrap();
+    let generation = control.begin_generation();
+    control.listener_bound(generation);
+    control.mark_listening(generation).unwrap();
+    let mut claims = crate::liveness::RecoveryResyncClaims::default();
+
+    for expected_transition in 1..=2 {
+        assert_eq!(
+            control.record_unanswered_probe(),
+            RestApiDiagnostic::WorkersBlocked
+        );
+        control.record_successful_probe();
+        let recovery = recovery_events
+            .recv()
+            .await
+            .expect("each outage recovery must emit an event");
+        assert_eq!(recovery.status.generation, generation);
+        assert_eq!(recovery.transition_id, expected_transition);
+        assert!(claims.claim(recovery.transition_id));
+        assert!(
+            !claims.claim(recovery.transition_id),
+            "duplicate observation must not claim another resync"
+        );
+        assert!(
+            recovery_events.try_recv().is_err(),
+            "one recovery transition must enqueue exactly one event"
+        );
+    }
 }

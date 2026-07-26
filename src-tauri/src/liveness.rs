@@ -21,6 +21,21 @@ pub(crate) struct ProbeState {
     captured_current_outage: bool,
 }
 
+#[derive(Debug, Default)]
+pub(crate) struct RecoveryResyncClaims {
+    announced_transition: u64,
+}
+
+impl RecoveryResyncClaims {
+    pub(crate) fn claim(&mut self, transition_id: u64) -> bool {
+        if transition_id <= self.announced_transition {
+            return false;
+        }
+        self.announced_transition = transition_id;
+        true
+    }
+}
+
 impl ProbeState {
     pub(crate) fn record(&mut self, healthy: bool, threshold: u8) -> ProbeAction {
         if healthy {
@@ -203,14 +218,15 @@ async fn probe_local_health(client: &reqwest::Client, api_port: u16) -> bool {
 async fn publish_api_recovery(
     app: &tauri::AppHandle,
     mesh: &crate::MeshStateHandle,
-    status: &crate::startup::RestApiStatus,
+    recovery: &crate::startup::RestApiRecovery,
 ) {
     apply_mesh_local_health(mesh, true);
     crate::api::events::emit_everywhere(app, "mesh-state-changed", serde_json::Value::Null);
     let report = crate::mesh::broadcast_announce(mesh, None).await;
     log::info!(
-        "[liveness] local API generation {} recovered; announce sent={} ok={} errors={}",
-        status.generation,
+        "[liveness] local API generation {} recovery transition {} announced; sent={} ok={} errors={}",
+        recovery.status.generation,
+        recovery.transition_id,
         report.sent,
         report.ok,
         report.errors.len()
@@ -236,19 +252,14 @@ pub(crate) fn start_api_liveness_watchdog(
                     .build()
                     .unwrap_or_default();
                 let mut state = ProbeState::default();
-                let mut recovery_events = rest_api.subscribe_recovery();
-                let mut pending_recovery = recovery_events.borrow_and_update().clone();
-                let mut announced_generation = 0;
+                let mut recovery_events = rest_api
+                    .take_recovery_events()
+                    .expect("REST API recovery consumer already installed");
+                let mut recovery_claims = RecoveryResyncClaims::default();
                 loop {
-                    let recovery = if let Some(status) = pending_recovery.take() {
-                        Some(Some(status))
-                    } else {
-                        tokio::select! {
-                            _ = tokio::time::sleep(Duration::from_secs(30)) => Some(None),
-                            changed = recovery_events.changed() => changed
-                                .ok()
-                                .map(|()| recovery_events.borrow_and_update().clone()),
-                        }
+                    let recovery = tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_secs(30)) => Some(None),
+                        recovery = recovery_events.recv() => recovery.map(Some),
                     };
                     let Some(recovery) = recovery else {
                         break;
@@ -258,10 +269,9 @@ pub(crate) fn start_api_liveness_watchdog(
                         log::info!("[liveness] shutting down; watchdog stopping");
                         break;
                     }
-                    if let Some(status) = recovery {
-                        if status.generation > announced_generation {
-                            publish_api_recovery(&app, &mesh, &status).await;
-                            announced_generation = status.generation;
+                    if let Some(recovery) = recovery {
+                        if recovery_claims.claim(recovery.transition_id) {
+                            publish_api_recovery(&app, &mesh, &recovery).await;
                         }
                         continue;
                     }
@@ -273,11 +283,7 @@ pub(crate) fn start_api_liveness_watchdog(
                     match action {
                         ProbeAction::None => {}
                         ProbeAction::MarkHealthy => {
-                            let status = rest_api.status();
-                            if status.generation > announced_generation {
-                                publish_api_recovery(&app, &mesh, &status).await;
-                                announced_generation = status.generation;
-                            }
+                            rest_api.record_successful_probe();
                         }
                         ProbeAction::MarkUnhealthyAndCapture => {
                             let diagnostic = rest_api.record_unanswered_probe();

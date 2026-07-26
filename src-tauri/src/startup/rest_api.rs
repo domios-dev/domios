@@ -33,10 +33,17 @@ pub(crate) struct RestApiStatus {
     pub(crate) message: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RestApiRecovery {
+    pub(crate) transition_id: u64,
+    pub(crate) status: RestApiStatus,
+}
+
 #[derive(Clone)]
 struct RestApiLifecycle {
     status: RestApiStatus,
     listener_owned: bool,
+    recovery_transition: u64,
 }
 
 #[derive(Clone)]
@@ -45,7 +52,8 @@ pub(crate) struct RestApiControl {
     lifecycle: Arc<Mutex<RestApiLifecycle>>,
     status_events: watch::Sender<RestApiStatus>,
     lifecycle_events: broadcast::Sender<RestApiStatus>,
-    recovery_events: watch::Sender<Option<RestApiStatus>>,
+    recovery_events: mpsc::UnboundedSender<RestApiRecovery>,
+    recovery_receiver: Arc<Mutex<Option<mpsc::UnboundedReceiver<RestApiRecovery>>>>,
     #[cfg(test)]
     restart_barrier: Arc<Mutex<Option<Arc<tokio::sync::Barrier>>>>,
     #[cfg(test)]
@@ -86,16 +94,18 @@ impl RestApiControl {
         };
         let (status_events, _) = watch::channel(status.clone());
         let (lifecycle_events, _) = broadcast::channel(32);
-        let (recovery_events, _) = watch::channel(None);
+        let (recovery_events, recovery_receiver) = mpsc::unbounded_channel();
         Self {
             sender: Arc::new(Mutex::new(None)),
             lifecycle: Arc::new(Mutex::new(RestApiLifecycle {
                 status,
                 listener_owned: false,
+                recovery_transition: 0,
             })),
             status_events,
             lifecycle_events,
             recovery_events,
+            recovery_receiver: Arc::new(Mutex::new(Some(recovery_receiver))),
             #[cfg(test)]
             restart_barrier: Arc::new(Mutex::new(None)),
             #[cfg(test)]
@@ -165,11 +175,18 @@ impl RestApiControl {
             return None;
         }
         let status = self.publish_locked(&mut lifecycle, RestApiPhase::Listening, None, None);
-        drop(lifecycle);
         if generation > 1 {
-            self.recovery_events.send_replace(Some(status.clone()));
+            self.publish_recovery_locked(&mut lifecycle, status.clone());
         }
         Some(status)
+    }
+
+    fn publish_recovery_locked(&self, lifecycle: &mut RestApiLifecycle, status: RestApiStatus) {
+        lifecycle.recovery_transition += 1;
+        let _ = self.recovery_events.send(RestApiRecovery {
+            transition_id: lifecycle.recovery_transition,
+            status,
+        });
     }
 
     fn fail_generation(
@@ -195,15 +212,19 @@ impl RestApiControl {
     pub(crate) fn record_unanswered_probe(&self) -> RestApiDiagnostic {
         let mut lifecycle = self.lifecycle.lock();
         if lifecycle.listener_owned {
-            self.publish_locked(
-                &mut lifecycle,
-                RestApiPhase::Failed,
-                Some(RestApiDiagnostic::WorkersBlocked),
-                Some(
-                    "REST API listener remains bound while all REST workers are blocked."
-                        .to_string(),
-                ),
-            );
+            if lifecycle.status.phase != RestApiPhase::Failed
+                || lifecycle.status.diagnostic != Some(RestApiDiagnostic::WorkersBlocked)
+            {
+                self.publish_locked(
+                    &mut lifecycle,
+                    RestApiPhase::Failed,
+                    Some(RestApiDiagnostic::WorkersBlocked),
+                    Some(
+                        "REST API listener remains bound while all REST workers are blocked."
+                            .to_string(),
+                    ),
+                );
+            }
             RestApiDiagnostic::WorkersBlocked
         } else {
             lifecycle
@@ -220,8 +241,7 @@ impl RestApiControl {
             && lifecycle.status.diagnostic == Some(RestApiDiagnostic::WorkersBlocked)
         {
             let status = self.publish_locked(&mut lifecycle, RestApiPhase::Listening, None, None);
-            drop(lifecycle);
-            self.recovery_events.send_replace(Some(status));
+            self.publish_recovery_locked(&mut lifecycle, status);
         }
     }
 
@@ -239,8 +259,8 @@ impl RestApiControl {
         self.lifecycle_events.subscribe()
     }
 
-    pub(crate) fn subscribe_recovery(&self) -> watch::Receiver<Option<RestApiStatus>> {
-        self.recovery_events.subscribe()
+    pub(crate) fn take_recovery_events(&self) -> Option<mpsc::UnboundedReceiver<RestApiRecovery>> {
+        self.recovery_receiver.lock().take()
     }
 
     pub(crate) async fn restart_and_wait(&self) -> Result<RestApiStatus, String> {
