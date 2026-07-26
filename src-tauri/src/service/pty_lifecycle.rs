@@ -298,6 +298,7 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str, generation: u64) {
     svc.shell_caps.lock().remove(pty_id);
 
     if let Some(ref pid) = pane_id {
+        svc.clear_pane_agent_identity_for_lifecycle_exit(pid);
         svc.flag_bound_tasks_for_gone_pane(pid, epoch_ms());
         let prev = svc.reconciled_pane_status_for_id(pid, raw_prev);
         svc.emit_pane_status_if_changed(pty_id, prev, crate::agent::status::PaneStatus::Dead);

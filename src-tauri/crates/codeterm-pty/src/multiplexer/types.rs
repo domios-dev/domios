@@ -476,8 +476,7 @@ pub struct Pane {
     pub pending_prompt: Option<PendingPrompt>,
     /// Live 3-state agent classification (working / idle / question + subtype),
     /// computed from the PTY stream by the shared state engine and surfaced to
-    /// the chat view's state indicator. Runtime-only — recomputed from output,
-    /// never persisted to the session snapshot (which is hand-built).
+    /// the chat view. Persisted only with the pane-owned session identity.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_state: Option<codeterm_types::pty::AgentLiveState>,
     /// Auto-approve prompts (set when spawned with skip_permissions).
@@ -519,9 +518,8 @@ pub struct Pane {
     /// simply drops it; it is not required to survive a daemon restart).
     #[serde(skip, default)]
     pub pending_greeting: Option<String>,
-    /// Current agent-boot stage, surfaced to late UI attachers via the live
-    /// snapshot. Runtime-only — recomputed at spawn, never persisted (the
-    /// hand-built session snapshot omits it).
+    /// Current agent-boot stage, surfaced to late UI attachers and persisted
+    /// only with the pane-owned session identity.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub boot_stage: Option<codeterm_types::pty::BootStage>,
     /// Human-readable reason for a failed boot stage. Runtime-only and paired
