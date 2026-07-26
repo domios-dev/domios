@@ -9,6 +9,7 @@ import { BOARD_COLUMN_DEFS, groupTasksIntoColumns } from "../Canvas/planView/boa
 import { summarizeWorkers } from "./orchestrationSections";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { clampFloatingPosition } from "../shared/floatingPosition";
+import { ActivityDots } from "../shared/ActivityDots";
 import { loadTeamDisclosureState, persistTeamDisclosureState } from "./teamDisclosureState";
 
 export type TeamMemberRole = "planner" | "worker";
@@ -459,10 +460,10 @@ export function TeamUnit({
           {workingWorkerCount > 0 && (
             <span
               data-testid="team-working-indicator"
-              className="sidebar-hierarchy-typing-dots"
+              className="sidebar-team-working-indicator"
               role="status"
               aria-label={`${displayTitle} has working members`}
-            ><span /><span /><span /></span>
+            ><ActivityDots size="small" tone="muted" /></span>
           )}
         </span>
       )}
@@ -551,7 +552,7 @@ export function TeamUnit({
                 <div data-testid="workers-collapse-summary" className="sidebar-team-workers-summary">
                   {summarizeWorkers(workerCount, workingWorkerCount)}
                   {workingWorkerCount > 0 && (
-                    <span className="sidebar-hierarchy-typing-dots" aria-hidden><span /><span /><span /></span>
+                    <ActivityDots size="small" tone="muted" />
                   )}
                   <span className="sidebar-team-summary-kebab">⋮</span>
                 </div>
