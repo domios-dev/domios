@@ -25,8 +25,10 @@ struct OutputServiceHarness {
 impl OutputServiceHarness {
     fn new(mux: MultiplexerState) -> Self {
         let temp = tempfile::tempdir().unwrap();
-        let app = tauri::Builder::default()
-            .any_thread()
+        let builder = tauri::Builder::default();
+        #[cfg(windows)]
+        let builder = builder.any_thread();
+        let app = builder
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap();
         let agent_registry = Arc::new(crate::agent::registry::AgentRegistry::new());

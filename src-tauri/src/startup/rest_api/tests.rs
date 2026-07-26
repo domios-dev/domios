@@ -1,6 +1,8 @@
 use super::*;
 use std::io::{Read, Write};
 
+static REAL_SOCKET_TEST: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 async fn wait_for_status<F>(
     status: &mut watch::Receiver<RestApiStatus>,
     expected: F,
@@ -55,6 +57,7 @@ fn assert_recoverable_failure(status: &RestApiStatus, detail: &str) {
 
 #[tokio::test]
 async fn occupied_port_release_event_rebinds_the_real_listener() {
+    let _socket_owner = REAL_SOCKET_TEST.lock().await;
     let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let address = occupied.local_addr().unwrap();
     let control = Arc::new(RestApiControl::new());
@@ -77,6 +80,7 @@ async fn occupied_port_release_event_rebinds_the_real_listener() {
 
 #[tokio::test]
 async fn manual_restart_rebinds_a_real_listener() {
+    let _socket_owner = REAL_SOCKET_TEST.lock().await;
     let address = std::net::TcpListener::bind("127.0.0.1:0")
         .unwrap()
         .local_addr()
@@ -95,6 +99,7 @@ async fn manual_restart_rebinds_a_real_listener() {
 
 #[tokio::test]
 async fn port_release_while_listening_keeps_the_real_listener_running() {
+    let _socket_owner = REAL_SOCKET_TEST.lock().await;
     let address = std::net::TcpListener::bind("127.0.0.1:0")
         .unwrap()
         .local_addr()
@@ -119,6 +124,7 @@ async fn port_release_while_listening_keeps_the_real_listener_running() {
 
 #[tokio::test]
 async fn unexpected_exit_autonomously_replaces_generation_after_health_proof() {
+    let _socket_owner = REAL_SOCKET_TEST.lock().await;
     let address = std::net::TcpListener::bind("127.0.0.1:0")
         .unwrap()
         .local_addr()
@@ -156,6 +162,7 @@ async fn unexpected_exit_autonomously_replaces_generation_after_health_proof() {
 
 #[tokio::test]
 async fn shutdown_error_fails_its_restart_completion_then_recovers() {
+    let _socket_owner = REAL_SOCKET_TEST.lock().await;
     let address = std::net::TcpListener::bind("127.0.0.1:0")
         .unwrap()
         .local_addr()
@@ -188,6 +195,7 @@ async fn shutdown_error_fails_its_restart_completion_then_recovers() {
 
 #[tokio::test]
 async fn overlapping_restarts_complete_from_their_own_listener_generations() {
+    let _socket_owner = REAL_SOCKET_TEST.lock().await;
     let address = std::net::TcpListener::bind("127.0.0.1:0")
         .unwrap()
         .local_addr()
@@ -274,6 +282,7 @@ fn assert_health_is_unanswered(address: SocketAddr) {
 
 #[tokio::test]
 async fn diagnostics_distinguish_listener_exit_from_worker_stall() {
+    let _socket_owner = REAL_SOCKET_TEST.lock().await;
     let exit_address = std::net::TcpListener::bind("127.0.0.1:0")
         .unwrap()
         .local_addr()

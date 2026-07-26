@@ -10,7 +10,7 @@ For assertion discipline and layer-specific recipes, see `docs/contributing/writ
 
 | Layer | Lives in | Runner | Real LLM? | Needs dev daemon? | CI | Budget/test |
 |---|---|---|---|---|---|---|
-| Rust unit | `src-tauri/src/**/tests.rs` | `cargo test --lib` | no | no | yes (D7) | <1s |
+| Rust unit | `src-tauri/src/**/tests.rs` | `scripts/test-capped.sh … --lib` | no | no | yes (D7) | <1s |
 | TS unit | `src/**/*.test.ts`, `packages/**` | vitest (`pnpm test:unit`) | no | no | yes (D7) | <1s |
 | Plugin | `plugins/*/tests/` | `pnpm test:plugins` | no | no | yes (exists) | <5s |
 | API e2e | `tests/e2e/test_*.py` | pytest (`./build.sh e2e`) | no | yes (7686) | spike (D7) | <30s |
@@ -42,7 +42,7 @@ a unit test on the parser plus, at most, one golden test for the end-to-end path
 
 | Layer | Exact command | When required |
 |---|---|---|
-| Narrow Rust or TS unit | `cargo test <narrow filter>` / `npx tsx <one file>.test.ts` | During work, for the touched area |
+| Narrow Rust or TS unit | `scripts/test-capped.sh … <filter>` / `npx tsx <one file>.test.ts` | During work, for the touched area |
 | All implemented layers | `./build.sh test:all` | Before claiming done |
 | PR gate | `./build.sh test:all` | Before opening a PR |
 | CI gate | Rust unit + TS unit + plugin tests (+ pytest spike) | CI on PR — task D7 |
@@ -51,7 +51,7 @@ a unit test on the parser plus, at most, one golden test for the end-to-end path
 
 One command runs every non-LLM layer and prints a per-layer summary table. Layers:
 
-1. `rust-unit` — `cargo test --lib` (always runs)
+1. `rust-unit` — capped `cargo test --lib` through `scripts/test-capped.sh` (always runs)
 2. `ts-unit` — `pnpm test:unit` → `scripts/ts-unit-tests.sh`, every `src/**` + `packages/**` `*.test.ts` (always runs)
 3. `plugin` — `pnpm test:plugins` (always runs)
 4. `e2e-pytest` — only if dev (7686) is healthy, else a loud `SKIPPED` line
@@ -88,8 +88,8 @@ TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --l
 ```
 
 ```bash
-# Rust (210 tests): agent detection, multiplexer state, prompt parsing, config
-cargo test --manifest-path src-tauri/Cargo.toml --lib
+# Rust: agent detection, multiplexer state, prompt parsing, config
+scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib
 
 # TypeScript: every src/** + packages/** unit test (tsx scripts)
 pnpm test:unit
@@ -141,7 +141,7 @@ bash scripts/test-capped.test.sh
 ```
 
 **Windows: cargo test target isolation**
-Running `cargo test` against the app crate while a dev build occupies the same
+Running the capped Rust test runner against the app crate while a dev build occupies the same
 `target/` directory fails with `Os error 5` — tauri-build cannot overwrite the
 in-use `.exe`. The required wrapper detects a healthy dev instance and
 automatically routes focused tests to the worktree-local
@@ -256,7 +256,7 @@ OS targets in parallel from a macOS host:
 
 | Lane | Where | What runs | Coverage |
 |------|-------|-----------|----------|
-| `macos` | native host | `cargo test --lib` (src-tauri) + cli tests + `pnpm test:unit` + `pnpm test:plugins` | full execution |
+| `macos` | native host | capped `cargo test --lib` (src-tauri) + cli tests + `pnpm test:unit` + `pnpm test:plugins` | full execution |
 | `linux` | Docker (ubuntu:24.04, aarch64) | same suites | full execution, isolated |
 | `windows-cross` | Docker + cargo-xwin | `cargo check --target x86_64-pc-windows-msvc --lib --tests` (src-tauri + cli) | compile-level only |
 
@@ -276,6 +276,18 @@ Logs land in `$TMPDIR/codeterm-test-matrix/<lane>.log`. Containers shadow
 (`codeterm-linux-*`, `codeterm-xwin-*`) — the host checkout is never dirtied,
 and warm reruns are incremental. To reclaim disk:
 `docker volume rm $(docker volume ls -q | grep '^codeterm-')`.
+
+### Cross-platform CI troubleshooting
+
+- A Tauri test harness that must populate a production `AppHandle` uses
+  `tauri::Builder::default()`. Apply `any_thread()` only under `cfg(windows)`;
+  `mock_builder()` changes the runtime type and Windows extensions do not compile
+  on macOS.
+- Real-socket tests that reserve an ephemeral address and then rebind it must
+  serialize that reservation inside the test module. Parallel bind-drop-bind
+  fixtures can claim each other's released ports, especially on Windows.
+- Run `scripts/clippy-gate.sh` before pushing. Toolchain lint changes are release
+  failures even when focused tests and `cargo check` pass.
 
 ## Logging
 
@@ -414,10 +426,10 @@ Unit tests cover the full matrix:
 
 ```bash
 # PromptDetector state machine (14 tests)
-cargo test --manifest-path src-tauri/Cargo.toml --lib prompt::tests
+scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib prompt::tests
 
 # Structural fingerprint detection (30+ tests)
-cargo test --manifest-path src-tauri/Cargo.toml --lib detector::tests
+scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib detector::tests
 ```
 
 Key test categories in `detector.rs`:
@@ -440,4 +452,4 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 
 Before approving a PR, use **`docs/contributing/review-checklist.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
 
-<!-- revision: 21 -->
+<!-- revision: 22 -->
