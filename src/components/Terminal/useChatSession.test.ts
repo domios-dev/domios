@@ -279,6 +279,11 @@ async function runChatSessionHookTests(): Promise<void> {
       }, "new-launch-nonce");
     }) as never);
     const session = await mountSession("resumed-from", true, "old-launch-nonce");
+    assert(
+      session.latest().messages.length === 0,
+      "chat_start cannot replace the pane's current session authority",
+    );
+    await session.render("resumed-rollout", true, "new-launch-nonce");
     await act(async () => handler?.({ payload: chatEvent("resumed-rollout", [{
       id: "live",
       type: "assistant",
@@ -286,11 +291,11 @@ async function runChatSessionHookTests(): Promise<void> {
       timestamp: "2",
     }], "rotated-launch-nonce") }));
     assert(
-      session.latest().messages.map((message) => message.content).join(",") === "resumed snapshot,live resumed reply",
-      "chat_start adopts the authenticated resumed rollout and ignores launch nonce rotation",
+      session.latest().messages.map((message) => message.content).join(",") === "resumed snapshot",
+      "only the pane-confirmed session and binding nonce can update the transcript",
     );
     await act(async () => session.root.unmount());
-    console.log("PASS authoritative chat_start handoff owns the resumed rollout transcript");
+    console.log("PASS pane authority gates snapshot handoff and nonce rotation");
   }
 
   {
@@ -366,12 +371,9 @@ async function runChatSessionHookTests(): Promise<void> {
       content: "materialized without remount",
       timestamp: "1",
     }]) }));
-    assert(
-      session.latest().messages[0]?.content === "materialized without remount",
-      "a live delta establishes missing transcript authority without a terminal remount",
-    );
+    assert(session.latest().messages.length === 0, "an unbound pane rejects a global live delta");
     await act(async () => session.root.unmount());
-    console.log("PASS live delta adopts missing transcript authority");
+    console.log("PASS unbound pane has no global transcript authority");
   }
 
   {
@@ -408,7 +410,13 @@ async function runChatSessionHookTests(): Promise<void> {
     __setInvokeForTest((async (command: string, args?: Record<string, unknown>) => {
       if (command === "chat_start") {
         startArgs.push(args);
-        return chatStartResult("sid-1", { text: "", offset: 0, pending: true });
+        return {
+          ...chatStartResult(
+            String(args?.agentSessionId),
+            { text: "", offset: 0, pending: true },
+          ),
+          subscription_id: args?.subscriptionId,
+        };
       }
       if (command === "chat_stop") stops += 1;
       return {};
@@ -416,13 +424,13 @@ async function runChatSessionHookTests(): Promise<void> {
     const session = await mountSession("sid-1");
     await session.render("sid-2");
     await session.render("sid-3");
-    assert(stops === 0 && unlistens === 0, "T3 pending session rotations keep listener ownership intact");
+    assert(stops === 2 && unlistens === 0, "T3 rotations release only stale subscriptions");
     await timers.advance(0);
     assert(startArgs.length === 3 && startArgs[2]?.agentSessionId === "sid-3", "T3 resyncs each explicit pending session rotation");
-    assert(stops === 0 && unlistens === 0, "T3 rotation resync does not stop or unlisten");
+    assert(stops === 2 && unlistens === 0, "T3 rotation keeps listener ownership singular");
     await act(async () => session.root.unmount());
     restoreTimers();
-    console.log("PASS T3 pending rotations preserve listener ownership");
+    console.log("PASS T3 pending rotations replace subscriptions without replacing the listener");
   }
 
   {

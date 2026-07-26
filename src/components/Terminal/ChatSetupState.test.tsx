@@ -81,10 +81,11 @@ async function main() {
     assert(chatSetupView(null).kind === "none", "no pane is none");
   });
 
-  await test("reserved or launching panes stay booting even after chat attaches", () => {
+  await test("an authoritative attached chat suppresses stale setup stages", () => {
     const reserved = { ...pane(null), agent_booting: true } as Pane;
-    assert(chatSetupView(reserved, true).kind === "starting", "reserved pane is booting");
-    assert(chatSetupView(pane("pty_starting"), true).kind === "starting", "launching pane is booting");
+    assert(chatSetupView(reserved, true).kind === "none", "reserved state is stale after hydration");
+    assert(chatSetupView(pane("pty_starting"), true).kind === "none", "early launch state is stale after hydration");
+    assert(chatSetupView(pane("shell_ready"), true).kind === "none", "ShellReady is stale after hydration");
   });
 
   await test("starting renders the setup card with the stage label", async () => {

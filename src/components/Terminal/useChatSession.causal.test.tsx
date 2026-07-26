@@ -271,13 +271,13 @@ async function main(): Promise<void> {
   assert(server.snapshotReads === 1, "attach performs exactly one snapshot read");
   assert(server.subscribers.size === 1, "H3 falsifier: attach owns one subscription");
 
-  // T-H2: the source session remains authoritative across a nonce rotation.
+  // T-H2: the pane binding generation remains authoritative across deltas.
   await act(async () => {
     server.emit([msg("m1")], server.sourceSessionId, "nonce-rotated");
   });
-  assert(timeline.count("authority_drop") === 0, "H2 falsifier: own-session rotated nonce dropped");
-  assert(timeline.count("authority_adopt") === 1, "H2 falsifier: own-session delta was not adopted");
-  assert(app.visibleCount() === 2, "H2 falsifier: adopted own-session delta did not project");
+  assert(timeline.count("authority_drop") === 1, "H2 falsifier: stale binding nonce was adopted");
+  assert(timeline.count("authority_adopt") === 0, "H2 falsifier: stale binding nonce reached state");
+  assert(app.visibleCount() === 1, "H2 falsifier: stale binding nonce changed projection");
   assert(server.snapshotReads === 1, "steady-state delta triggered a forbidden snapshot");
 
   server.sourceSessionId = "session-next";
@@ -324,7 +324,7 @@ async function main(): Promise<void> {
     "H3 falsifier: server delta did not reach the live listener",
   );
   assert(
-    timeline.count("authority_adopt") === streamCount + 1,
+    timeline.count("authority_adopt") === streamCount,
     "H2 falsifier: an own-session stream delta lost authority",
   );
   assert(
@@ -381,7 +381,7 @@ async function main(): Promise<void> {
     },
     falsifiers: {
       "T-H1": "own-session transcript ingestion lags an urgent commit",
-      "T-H2": "an own-session delta is rejected after nonce rotation",
+      "T-H2": "a stale binding-nonce delta is adopted",
       "T-H3": "arrival count diverges or live subscription cardinality differs from one",
     },
     timelineTail: timeline.entries.slice(-24),

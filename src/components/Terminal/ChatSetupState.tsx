@@ -65,9 +65,9 @@ export function chatSetupView(
   pane: Pane | null | undefined,
   chatSessionAttached = false,
 ): PaneBootOverlayView {
+  if (chatSessionAttached) return { kind: "none" };
   const stage = pane?.boot_stage;
   if (stage === "spawn_failed") {
-    if (chatSessionAttached) return { kind: "none" };
     return {
       kind: "failed",
       reason: pane?.boot_failure_reason ?? null,
