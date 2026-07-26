@@ -15,7 +15,19 @@ DMG="${1:-}"
 TMPLOG=$(mktemp -t notarize-XXXXXX.log)
 trap 'rm -f "$TMPLOG"' EXIT
 
-if ! xcrun notarytool submit "$DMG" --keychain-profile codeterm --wait \
+# Credentials come from the job env (GitHub Secrets) or the local backup file.
+# A keychain profile needs manual provisioning that a fresh runner cannot repeat.
+if [ -z "${APPLE_ID:-}" ] && [ -f "$HOME/.claude/.secrets/apple-notary.env" ]; then
+  set -a; . "$HOME/.claude/.secrets/apple-notary.env"; set +a
+fi
+NOTARY_PASSWORD="${APPLE_APP_SPECIFIC_PASSWORD:-${APPLE_PASSWORD:-}}"
+if [ -z "${APPLE_ID:-}" ] || [ -z "${APPLE_TEAM_ID:-}" ] || [ -z "$NOTARY_PASSWORD" ]; then
+  echo "ERROR: notary credentials missing (need APPLE_ID, APPLE_TEAM_ID and APPLE_APP_SPECIFIC_PASSWORD or APPLE_PASSWORD)" >&2
+  exit 1
+fi
+NOTARY_AUTH=(--apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$NOTARY_PASSWORD")
+
+if ! xcrun notarytool submit "$DMG" "${NOTARY_AUTH[@]}" --wait \
        > "$TMPLOG" 2>&1; then
   echo "FAIL: notarytool submit returned non-zero. Tail:" >&2
   tail -30 "$TMPLOG" >&2
