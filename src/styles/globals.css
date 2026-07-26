@@ -1037,6 +1037,22 @@ button,
   container-type: inline-size;
 }
 
+.sidebar-tab-activation {
+  transform-origin: center;
+  transition: transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell);
+}
+
+.sidebar-tab-activation:hover { transform: scale(1.01); }
+.sidebar-tab-activation:active {
+  transform: scale(.978);
+  transition-duration: var(--ct-duration-instant);
+}
+
+.sidebar-tab-activation:focus-visible {
+  outline: 1px solid var(--ct-accent);
+  outline-offset: 2px;
+}
+
 /* Model badge — visible by default, fades out on tab hover so the
    3-dot menu can take its slot without shifting layout. */
 .sidebar-tab-badge {
@@ -1576,6 +1592,14 @@ button,
   color: inherit;
   cursor: pointer;
   text-align: left;
+  transform-origin: center;
+  transition: transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell);
+}
+
+.sidebar-team-card-activation:hover { transform: scale(1.01); }
+.sidebar-team-card-activation:active {
+  transform: scale(.978);
+  transition-duration: var(--ct-duration-instant);
 }
 
 .sidebar-team-card-activation:focus-visible,
@@ -1593,6 +1617,32 @@ button,
   flex: 0 0 auto;
   border-radius: 50%;
 }
+
+.sidebar-team-donut-reaction {
+  animation: sidebar-team-donut-grow var(--ct-duration-liquid-donut) var(--ct-ease-squash-jump);
+  transform-origin: center;
+}
+
+.sidebar-team-count-reaction .sidebar-team-readout-count {
+  animation: sidebar-team-count-pop var(--ct-duration-liquid-press) var(--ct-ease-squash-jump);
+  transform-origin: center;
+}
+
+.sidebar-team-header-completion { overflow: hidden; }
+
+.sidebar-team-header-completion::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 35%, color-mix(in srgb, var(--ct-on-accent) 30%, transparent) 50%, transparent 65%);
+  content: "";
+  pointer-events: none;
+  transform: translateX(-120%);
+  animation: sidebar-team-completion-sweep var(--ct-duration-liquid-sweep) var(--ct-ease-liquid-settle);
+}
+
+@keyframes sidebar-team-donut-grow{0%{transform:scale(.955)}58%{transform:scale(1.02)}100%{transform:scale(1)}}
+@keyframes sidebar-team-count-pop{0%{transform:scale(.955)}55%{transform:scale(1.02)}100%{transform:scale(1)}}
+@keyframes sidebar-team-completion-sweep{to{transform:translateX(120%)}}
 
 .sidebar-structural-header {
   display: flex;
@@ -1708,6 +1758,14 @@ button,
   padding: 4px;
   background: transparent;
   color: var(--ct-muted-fg);
+  transform-origin: center;
+  transition: transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell);
+}
+
+.sidebar-workspace-card-select:hover { transform: scale(1.02); }
+.sidebar-workspace-card-select:active {
+  transform: scale(.955);
+  transition-duration: var(--ct-duration-instant);
 }
 
 .sidebar-workspace-card-initials {
@@ -1820,7 +1878,8 @@ button,
   border-radius: 7px;
   background: transparent;
   color: var(--ct-muted-fg);
-  transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
+  transform-origin: center;
+  transition: border-color 140ms ease, background 140ms ease, color 140ms ease, transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell);
 }
 
 .sidebar-workspace-card-create:hover,
@@ -1828,6 +1887,12 @@ button,
   border-color: var(--ct-accent);
   background: color-mix(in srgb, var(--ct-accent) 9%, transparent);
   color: var(--ct-accent);
+  transform: scale(1.02);
+}
+
+.sidebar-workspace-card-create:active {
+  transform: scale(.955);
+  transition-duration: var(--ct-duration-instant);
 }
 
 [data-testid="workspace-group"] + [data-testid="workspace-group"] {
@@ -2132,6 +2197,30 @@ button,
 
   .sidebar-team-readout-separator {
     display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-team-donut-reaction,
+  .sidebar-team-count-reaction .sidebar-team-readout-count,
+  .sidebar-team-header-completion::after {
+    animation: none;
+  }
+
+  .sidebar-team-card-activation,
+  .sidebar-team-card-activation:hover,
+  .sidebar-team-card-activation:active,
+  .sidebar-tab-activation,
+  .sidebar-tab-activation:hover,
+  .sidebar-tab-activation:active,
+  .sidebar-workspace-card-select,
+  .sidebar-workspace-card-select:hover,
+  .sidebar-workspace-card-select:active,
+  .sidebar-workspace-card-create,
+  .sidebar-workspace-card-create:hover,
+  .sidebar-workspace-card-create:active {
+    transform: none;
+    transition: none;
   }
 }
 

@@ -292,7 +292,7 @@ function TabItemInner({
         aria-label={`Open tab ${displayTitle}`}
         aria-current={isActive ? "page" : undefined}
         onClick={onClick}
-        className={`flex flex-1 items-center min-w-0 relative z-[1] border-0 bg-transparent p-0 text-left text-inherit font-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
+        className={`sidebar-tab-activation flex flex-1 items-center min-w-0 relative z-[1] border-0 bg-transparent p-0 text-left text-inherit font-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
       >
       <div className={`flex flex-1 items-center min-w-0 ${touchMode ? "gap-2.5" : "gap-2"}`}>
         <span data-testid="tab-pane-icon" className="shrink-0 leading-none">
