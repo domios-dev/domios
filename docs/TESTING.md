@@ -61,6 +61,11 @@ run. Behaviour benches and the suspended Playwright suite are excluded. With dev
 down you still get full unit coverage and a clear record of
 what was skipped.
 
+The canonical dev monitor owns the machine build gateway while port 7686 is
+running. Stop dev with `./build.sh kill` before `test:all`; otherwise the gate
+queues behind dev and cannot start. If its caller exits while queued, cancel the
+orphan with `./build.sh gateway-cancel <job-id>` before retrying.
+
 ## Unit tests
 
 Fast, no running instance needed. Test detection logic, state management, parsers.
@@ -435,4 +440,4 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 
 Before approving a PR, use **`docs/contributing/review-checklist.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
 
-<!-- revision: 20 -->
+<!-- revision: 21 -->
