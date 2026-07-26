@@ -1,6 +1,6 @@
 // Run: npx tsx src/components/Terminal/ComposerActionButton.test.tsx
 
-import React, { act } from "react";
+import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { ComposerActionButton } from "./ComposerActionButton";
@@ -130,7 +130,7 @@ test("locked voice stops to preview and busy voice stays disabled", async () => 
 test("recording pointer cancellation keeps the lock callback", async () => {
   let locks = 0;
   const { button } = await renderButton(voiceHandle({
-    voice: { recording: true },
+    voice: { ...voiceHandle().voice, recording: true },
     mainIsSend: false,
     voiceMode: "hold",
     voiceActive: true,
