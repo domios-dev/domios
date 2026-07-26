@@ -40,7 +40,7 @@ export function Button({
 }: ButtonProps) {
   const variantCls = VARIANT_CLASS[variant];
   const sizeCls = SIZE_CLASS[size];
-  const cls = [variantCls, sizeCls, className].filter(Boolean).join(" ");
+  const cls = [variantCls, "ct-liquid-interactive", sizeCls, className].filter(Boolean).join(" ");
 
   return (
     <button

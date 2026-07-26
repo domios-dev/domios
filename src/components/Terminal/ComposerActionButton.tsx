@@ -1,9 +1,10 @@
+import type { CSSProperties } from "react";
 import { ChevronUp, Lock, Mic, Square, X } from "lucide-react";
 import { ComposerSendIcon } from "./composerBubble";
 import type { ComposerVoiceHandle } from "./voice/useComposerVoice";
 
 const btnBase =
-  "flex items-center justify-center shrink-0 transition-all duration-150";
+  "ct-liquid-interactive flex items-center justify-center shrink-0";
 
 const accentFg = "var(--ct-on-accent, #fff)";
 const recordingFg = "var(--ct-red, #f85149)";
@@ -139,7 +140,7 @@ function actionButtonStyle(
   mainIsSend: boolean,
   isLocked: boolean,
   bubblePose: { x: number; y: number; sx: number; sy: number },
-) {
+): CSSProperties & { "--ct-liquid-base-transform": string } {
   const accent = voiceActive || mainIsSend || isLocked;
   return {
     background: mainIsSend
@@ -153,7 +154,7 @@ function actionButtonStyle(
     color: accent ? accentFg : "var(--ct-fg, #c9d1d9)",
     height: voiceActive ? "5.5rem" : undefined,
     width: voiceActive ? "5.5rem" : undefined,
-    transform: voiceActive
+    "--ct-liquid-base-transform": voiceActive
       ? `translate(calc(-50% + ${bubblePose.x}px), calc(-50% + ${bubblePose.y}px)) scale(${bubblePose.sx}, ${bubblePose.sy})`
       : "translate(-50%, -50%)",
     touchAction: "none" as const,
