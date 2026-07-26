@@ -234,7 +234,7 @@ test("bound-session pending snapshot renders recovery instead of false empty", a
   await act(async () => root.unmount());
 });
 
-test("fresh unbound chat keeps its usable surface while the transcript store is pending", async () => {
+test("fresh unbound PTY chat reports recovery while keeping launch failure actionable", async () => {
   const paneId = "fresh-unbound-chat";
   const state = muxStateFor({
     [paneId]: paneBase(paneId, {
@@ -252,9 +252,13 @@ test("fresh unbound chat keeps its usable surface while the transcript store is 
   );
   const chat = host.querySelector('[role="region"][aria-label="Tab chat: fresh-unbound-chat"]');
   const composer = host.querySelector('[aria-label="Message composer"]');
-  assert(chat?.getAttribute("aria-busy") === "false", "usable fresh chat is not announced as loading");
+  assert(chat?.getAttribute("aria-busy") === "true", "unbound PTY authority is announced as recovering");
+  assert(host.querySelector('[data-testid="chat-recovering-state"]'), "pending authority exposes recovery state");
   assert(composer, "usable fresh chat keeps its named composer");
-  assert(!host.querySelector('[role="alert"][aria-label="Launch failed"]'), "late failure cannot cover a usable fresh chat");
+  assert(
+    host.querySelector('[role="alert"][aria-label="Launch failed"]'),
+    "unbound PTY authority keeps its launch failure actionable",
+  );
   await act(async () => root.unmount());
 });
 
@@ -290,7 +294,7 @@ test("an attached current session ignores a late PTY reattach stage", async () =
   await act(async () => root.unmount());
 });
 
-test("the durable session attaches across a launch nonce rotation", async () => {
+test("the durable session rejects stale launch nonces and attaches to current authority", async () => {
   const paneId = "binding-epoch-pane";
   const state = muxStateFor({
     [paneId]: paneBase(paneId, {
@@ -318,15 +322,26 @@ test("the durable session attaches across a launch nonce rotation", async () => 
       messages: [{ id: "same-session-event", type: "assistant", content: "attached", timestamp: "1" }],
     });
   });
-  assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "launch nonce rotation cannot invalidate the durable transcript");
-  assert(host.textContent?.includes("attached"), "same-session event updates the transcript");
+  assert(host.querySelector('[data-testid="chat-launch-failed"]'), "stale launch nonce cannot claim current authority");
+  assert(!host.textContent?.includes("attached"), "stale launch nonce cannot alter the transcript");
+
+  await act(async () => {
+    emitChat({
+      pane_id: paneId,
+      source_session_id: "bound-session",
+      session_binding_nonce: "current-epoch",
+      messages: [{ id: "current-session-event", type: "assistant", content: "attached", timestamp: "2" }],
+    });
+  });
+  assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "current authority attaches the durable transcript");
+  assert(host.textContent?.includes("attached"), "current-authority event updates the transcript");
 
   await act(async () => {
     emitChat({
       pane_id: paneId,
       source_session_id: "foreign-session",
       session_binding_nonce: "current-epoch",
-      messages: [{ id: "foreign-event", type: "assistant", content: "foreign", timestamp: "2" }],
+      messages: [{ id: "foreign-event", type: "assistant", content: "foreign", timestamp: "3" }],
     });
   });
   assert(host.querySelector('[data-testid="chat-composer"]') === composer, "attachment keeps the composer mounted");

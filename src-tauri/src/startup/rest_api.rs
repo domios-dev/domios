@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::future::IntoFuture;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
@@ -509,7 +510,7 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
     let mut test_server_exit_pending = true;
     #[cfg(not(test))]
     let mut test_server_exit_pending = false;
-    let mut pending_completion: Option<oneshot::Sender<RestApiStatus>> = None;
+    let mut pending_completions: VecDeque<oneshot::Sender<RestApiStatus>> = VecDeque::new();
 
     loop {
         let generation = control.begin_generation();
@@ -527,8 +528,11 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
                         false,
                     )
                     .expect("active REST generation must accept its bind failure");
-                if let Some(completed) = pending_completion.take() {
+                if let Some(completed) = pending_completions.pop_front() {
                     let _ = completed.send(failed);
+                }
+                if !pending_completions.is_empty() {
+                    continue;
                 }
                 match await_bind_recovery(&control, &mut commands).await {
                     Some(GenerationEvent::Replace) => continue,
@@ -536,7 +540,7 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
                         unreachable!("bind recovery cannot observe a server exit")
                     }
                     Some(GenerationEvent::Restart(completed)) => {
-                        pending_completion = Some(completed);
+                        pending_completions.push_back(completed);
                         continue;
                     }
                     #[cfg(test)]
@@ -555,19 +559,27 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
                 let message =
                     format!("REST API could not inspect bound socket {bind_addr}: {error}");
                 log::error!("{message}");
-                control.fail_generation(
-                    generation,
-                    RestApiDiagnostic::BindOwnershipFailed,
-                    message,
-                    false,
-                );
+                let failed = control
+                    .fail_generation(
+                        generation,
+                        RestApiDiagnostic::BindOwnershipFailed,
+                        message,
+                        false,
+                    )
+                    .expect("active REST generation must accept its socket inspection failure");
+                if let Some(completed) = pending_completions.pop_front() {
+                    let _ = completed.send(failed);
+                }
+                if !pending_completions.is_empty() {
+                    continue;
+                }
                 match await_bind_recovery(&control, &mut commands).await {
                     Some(GenerationEvent::Replace) => continue,
                     Some(GenerationEvent::ServerExited) => {
                         unreachable!("bind recovery cannot observe a server exit")
                     }
                     Some(GenerationEvent::Restart(completed)) => {
-                        pending_completion = Some(completed);
+                        pending_completions.push_back(completed);
                         continue;
                     }
                     #[cfg(test)]
@@ -619,17 +631,18 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
                     break GenerationEvent::Replace;
                 }
                 proof = &mut health => {
-                    match proof {
+                    let restart_queued = match proof {
                         Ok(()) => {
                             let listening = control
                                 .mark_listening(generation)
                                 .expect("health proof belongs to the active bound generation");
-                            if let Some(completed) = pending_completion.take() {
+                            if let Some(completed) = pending_completions.pop_front() {
                                 let _ = completed.send(listening);
                             }
                             log::info!(
                                 "REST API generation {generation} health-proven on http://{bind_addr}"
                             );
+                            !pending_completions.is_empty()
                         }
                         Err(error) => {
                             let message = format!(
@@ -644,10 +657,14 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
                                     true,
                                 )
                                 .expect("health proof belongs to the active bound generation");
-                            if let Some(completed) = pending_completion.take() {
+                            if let Some(completed) = pending_completions.pop_front() {
                                 let _ = completed.send(failed);
                             }
+                            !pending_completions.is_empty()
                         }
+                    };
+                    if restart_queued {
+                        break GenerationEvent::Replace;
                     }
                     break match await_running_event(
                         &control,
@@ -692,7 +709,7 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
         match event {
             GenerationEvent::Replace => {}
             GenerationEvent::ServerExited => unreachable!("server exit is normalized"),
-            GenerationEvent::Restart(completed) => pending_completion = Some(completed),
+            GenerationEvent::Restart(completed) => pending_completions.push_back(completed),
             #[cfg(test)]
             GenerationEvent::Shutdown(completed) => {
                 let _ = completed.send(());

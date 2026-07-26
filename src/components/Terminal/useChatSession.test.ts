@@ -513,11 +513,12 @@ async function runChatSessionHookTests(): Promise<void> {
     await session.render("sid-3", true, "nonce-2");
     await timers.advance(0);
     assert(startArgs.length === 3 && startArgs[2]?.agentSessionId === "sid-3", "T6 deferred initial attach reaches the latest session");
-    assert(stops === 0 && unlistens === 0, "T6 idle rotation keeps the existing chat listener and daemon session");
+    assert(stops === 1 && unlistens === 0, "T6 idle rotation releases only the superseded subscription");
     initialAttach.resolve?.(chatStartResult("sid-1", { text: "", offset: 0, pending: true }, "nonce-1"));
     await flush();
     await timers.advance(30_000);
     assert(startArgs.length === 3, "T6 resolving a stale initial attach does not poll or reattach again");
+    assert(stops === 1 && unlistens === 0, "T6 stale completion cannot stop the active subscription");
     await act(async () => session.root.unmount());
     restoreTimers();
     console.log("PASS T6 deferred idle rotations preserve the active lease without polling");
@@ -551,11 +552,18 @@ async function runChatSessionHookTests(): Promise<void> {
     await session.render("sid-3");
     await timers.advance(0);
     assert(startArgs.length === 4 && startArgs[3]?.agentSessionId === "sid-3", "T7 attaching rotation reaches the latest session");
-    assert(stops === 0 && unlistens === 0, "T7 attaching rotation does not stop or unlisten");
+    assert(
+      stops === 3 && unlistens === 0,
+      `T7 attaching rotation releases each superseded subscription (${stops}/${unlistens})`,
+    );
     retryAttach.resolve?.(chatStartResult("sid-1", { text: "", offset: 0, pending: true }));
     await flush();
     await timers.advance(30_000);
     assert(startArgs.length === 4, "T7 attaching rotation does not introduce polling");
+    assert(
+      stops === 4 && unlistens === 0,
+      `T7 stale completion releases its own superseded subscription (${stops}/${unlistens})`,
+    );
     await act(async () => session.root.unmount());
     restoreTimers();
     console.log("PASS T7 attaching rotations preserve listener ownership");
@@ -582,7 +590,10 @@ async function runChatSessionHookTests(): Promise<void> {
     await session.render("sid-3");
     await timers.advance(0);
     assert(startArgs.length === 3 && startArgs[2]?.agentSessionId === "sid-3", "T8 failed rotation reaches the latest session");
-    assert(stops === 0 && unlistens === 0, "T8 failed rotation preserves the listener and daemon session");
+    assert(
+      stops === 1 && unlistens === 0,
+      `T8 failed rotation releases only the superseded subscription (${stops}/${unlistens})`,
+    );
     await timers.advance(30_000);
     assert(startArgs.length === 3, "T8 failed rotation keeps no-polling behavior");
     await act(async () => session.root.unmount());
