@@ -148,6 +148,8 @@ pub fn complete_first_run_core(
     if !known {
         return Err(format!("Unknown provider: {}", provider_id));
     }
+    super::state::clear_session_id();
+    super::state::require_fresh_session()?;
 
     let (default_chat_view, mem, mux, pty, screen_state) = {
         let mut cfg = config.lock();
@@ -179,6 +181,9 @@ pub fn complete_first_run_core(
     let svc = svc.clone();
     let app = app.clone();
     std::thread::spawn(move || {
+        if let Err(error) = super::instructions::ensure_bootstrap_instructions() {
+            log::error!("[general-agent] Failed to write bootstrap instructions: {error}");
+        }
         generate_instructions(&provider_owned, Some(&mem));
         start_general_agent(&svc, &mux, &pty, &screen_state, &config, &app);
     });

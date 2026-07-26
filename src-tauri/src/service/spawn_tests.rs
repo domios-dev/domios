@@ -889,7 +889,6 @@ fn spawn_with_no_role_and_no_activate_does_not_steal_focus() {
 #[test]
 fn chat_default_on_capable_visible_agent_sets_chat_view() {
     assert!(should_default_agent_pane_to_chat(
-        true,
         PaneVisibility::Visible,
         true,
     ));
@@ -898,16 +897,14 @@ fn chat_default_on_capable_visible_agent_sets_chat_view() {
 #[test]
 fn chat_default_on_non_capable_visible_agent_stays_terminal() {
     assert!(!should_default_agent_pane_to_chat(
-        true,
         PaneVisibility::Visible,
         false,
     ));
 }
 
 #[test]
-fn chat_default_off_capable_visible_agent_stays_terminal() {
-    assert!(!should_default_agent_pane_to_chat(
-        false,
+fn chat_capable_visible_agent_always_defaults_to_chat() {
+    assert!(should_default_agent_pane_to_chat(
         PaneVisibility::Visible,
         true,
     ));
@@ -916,7 +913,6 @@ fn chat_default_off_capable_visible_agent_stays_terminal() {
 #[test]
 fn chat_default_on_hidden_agent_stays_terminal() {
     assert!(!should_default_agent_pane_to_chat(
-        true,
         PaneVisibility::Hidden,
         true,
     ));

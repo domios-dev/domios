@@ -9,8 +9,8 @@ mod types;
 
 #[cfg(test)]
 pub(crate) use launch::{
-    arm_provider_session_for_test, should_deliver_spawn_preferences, skip_local_worker_role,
-    spawn_onboarding_task, AgentRegistry, LaunchGeneration,
+    arm_provider_session_for_test, skip_local_worker_role, spawn_onboarding_task, AgentRegistry,
+    LaunchGeneration,
 };
 pub(crate) use launch::{
     build_agent_command, launch_agent_in_background, record_provider_session,

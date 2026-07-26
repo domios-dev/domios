@@ -65,6 +65,9 @@ pub const GENERAL_AGENT_TEMPLATE: &str = include_str!("../prompts/general_agent.
 /// Single source of truth so command syntax stays in sync.
 pub const CODETERM_CLI: &str = include_str!("../prompts/codeterm_cli.md");
 
+/// Compact CodeTerm control contract prepended to non-General agent launches.
+pub const AGENT_CODETERM_PRIMER: &str = include_str!("../prompts/agent_codeterm_primer.md");
+
 /// Bootstrap instructions template — becomes the agent's personal config file after first run.
 pub const BOOTSTRAP_INSTRUCTIONS_TEMPLATE: &str =
     include_str!("../prompts/bootstrap_instructions.md");

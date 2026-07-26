@@ -1,9 +1,8 @@
 import { useEffect, useState, useCallback } from "react";
 import { Segmented, type SegmentedOption } from "../shared/Segmented";
-import { emitPaneUiMode, isChatDefaultEnabled, type PaneUiMode } from "../../lib/chatUiMode";
+import { emitPaneUiMode, type PaneUiMode } from "../../lib/chatUiMode";
 import {
   listenCurrentPaneUiMode,
-  listenPaneUiModeDefaultChanged,
   resolveInitialPaneUiMode,
 } from "../../lib/clientPaneUiMode";
 import { useMuxSelector } from "../../store/multiplexer";
@@ -18,12 +17,10 @@ const CHAT: SegmentedOption<PaneUiMode> = { value: "chat", label: "Chat" };
 export function PaneModeSwitch({
   paneId,
   height,
-  chatFirst = false,
   chatPty = true,
 }: {
   paneId: string;
   height?: number;
-  chatFirst?: boolean;
   chatPty?: boolean;
 }) {
   const paneSelector = useCallback((s: Parameters<typeof selectPane>[0]) => selectPane(s, paneId), [paneId]);
@@ -41,27 +38,11 @@ export function PaneModeSwitch({
   const [mode, setMode] = useState<PaneUiMode>(() =>
     resolveInitialPaneUiMode(paneId, {
       chatCapable,
-      chatViewFlag: pane?.chat_view === true,
-      chatDefault: isChatDefaultEnabled(),
     }),
   );
-  const [defaultChatFirst, setDefaultChatFirst] = useState(() => chatFirst || isChatDefaultEnabled());
   useEffect(() => listenCurrentPaneUiMode(paneId, setMode), [paneId]);
-  useEffect(() => {
-    setDefaultChatFirst(chatFirst || isChatDefaultEnabled());
-  }, [chatFirst]);
-  useEffect(() => listenPaneUiModeDefaultChanged((enabled) => {
-    setDefaultChatFirst(enabled);
-    setMode(resolveInitialPaneUiMode(paneId, {
-      chatCapable,
-      chatViewFlag: pane?.chat_view === true,
-      chatDefault: enabled,
-    }));
-  }), [paneId, chatCapable, pane?.chat_view]);
 
   if (!chatPty) return null;
-
-  const baseOptions = defaultChatFirst ? [CHAT, TERMINAL] : [TERMINAL, CHAT];
 
   return (
     <Segmented
@@ -69,7 +50,7 @@ export function PaneModeSwitch({
       data-pane-id={paneId}
       aria-label="Tab view"
       value={mode}
-      options={baseOptions}
+      options={[CHAT, TERMINAL]}
       height={height}
       onChange={(next) => {
         setMode(next);

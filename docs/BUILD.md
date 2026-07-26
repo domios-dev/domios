@@ -293,6 +293,11 @@ CodeTerm's private local-install `CARGO_TARGET_DIR`. Run the test through
 checkout's warm manifest target, or isolated `target-check` while dev is
 running. Do not delete the shared build cache or raise the timeout.
 
+If a focused Rust test fails with `PermissionDenied (os error 5)` while replacing
+a Tauri build artifact, another dev/build owner still holds the canonical target.
+Verify listeners first, stop only the dev instance on 7686 (or its explicitly
+named non-production port), and rerun `scripts/test-capped.sh`. Never stop 7685.
+
 Check your MSVC installation:
 ```powershell
 & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
@@ -342,4 +347,4 @@ failure and belongs to the generation supervisor. If a Windows manual restart
 reports bind failure immediately after a healthy generation, verify the health
 proof consumes its body and closes its connection before publishing readiness.
 
-<!-- revision: 24 -->
+<!-- revision: 25 -->

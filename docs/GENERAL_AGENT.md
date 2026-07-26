@@ -37,7 +37,9 @@ Implementation: `src-tauri/src/service/general_agent/instructions.rs`.
 - `AGENT.md` from `GENERAL_AGENT_TEMPLATE`
 - `CLAUDE.md` as a minimal `@./AGENT.md` wrapper
 - `AGENTS.md` as the rendered GA prompt plus `CODETERM_RULE` and `BRIDGE_MEM`
-- `bootstrap.md` only when it does not already exist
+
+The first-run completion path creates `bootstrap.md` once. Routine prompt
+regeneration never recreates it after the GA removes it.
 
 `render_agent_md()` substitutes:
 
@@ -57,7 +59,10 @@ The live memory snapshot comes from `mem wake-up` when available. If mem is unav
 
 ## Bootstrap
 
-On first boot, CodeTerm writes `bootstrap.md` into the General workspace. The fresh-session init message tells the GA to check that file for `<!-- bootstrap: true -->` and follow it.
+On first boot, CodeTerm writes `bootstrap.md` into the General workspace and
+delivers its contents as a separate confirmed message after the permanent
+system prompt. Bootstrap is not part of the system prompt and is not sent on
+resume.
 
 The bootstrap flow is intentionally conversational:
 
@@ -76,10 +81,15 @@ Startup:
 1. Ensure the General directory exists.
 2. Regenerate prompt files.
 3. Ensure the protected General workspace and tab exist.
-4. Resume the existing provider session when possible; otherwise launch a fresh agent.
-5. For fresh launches, send a one-time init message that tells the GA to read the live mem snapshot, run `codeterm mesh peers`, and acknowledge readiness.
+4. On picker completion, consume a durable fresh-session intent and never scan
+   global provider sessions by CWD.
+5. Otherwise resume the explicitly owned provider session when possible.
+6. Deliver the permanent General prompt once through the provider's generated
+   native startup instructions or durable confirmed fallback.
+7. On the first fresh launch only, deliver `bootstrap.md` as a separate message.
 
-Resume sessions deliberately do not receive the init message because the provider replays previous context.
+Resume sessions deliberately do not receive bootstrap because the provider
+replays previous context.
 
 Shutdown and app restart rely on normal session persistence. Manual GA restart uses the General Agent restart control; do not assume a manual `/exit` preserves context.
 
@@ -127,4 +137,4 @@ Skills are documented in the injected CLI reference. The GA prompt does not dupl
 - Claude rule install: `src-tauri/src/plugin/agent_claude/provider/integration.rs`
 - Secrets implementation: `src-tauri/src/secrets/`
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

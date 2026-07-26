@@ -3,6 +3,23 @@
 use super::{binding_wait, general_dir, instructions, launch_lock, state, GENERAL_ALIAS};
 use codeterm_types::pty::BootStage;
 
+fn deliver_confirmed_general_message(
+    svc: &crate::ServiceState,
+    pane_id: &str,
+    text: &str,
+) -> Result<(), String> {
+    crate::service::pty_io::submit_transaction::submit_entry(
+        crate::service::pty_io::submit_transaction::PtySubmitEntry::Direct,
+        text,
+        |payload| {
+            svc.send_text_detached(pane_id, payload, true);
+            Ok::<(), String>(())
+        },
+    )?;
+    svc.confirm_pending_delivery(pane_id)
+        .map_err(|error| error.to_string())
+}
+
 /// Start the General Agent — called from start_servers on a background thread.
 ///
 /// 1. Ensure directories + instructions file
@@ -140,7 +157,13 @@ pub fn start_general_agent(
             }
         }
     };
-    let session_id = if snapshot_session_id.is_some() {
+    let force_fresh_session = state::take_fresh_session_requirement();
+    let session_id = if force_fresh_session {
+        svc.set_agent_session_id(&pane_id, None);
+        state::clear_session_id();
+        log::info!("[general-agent] First-run launch requires a fresh provider session");
+        None
+    } else if snapshot_session_id.is_some() {
         snapshot_session_id
     } else if let Some(stored) =
         state::load_session_id(&svc.agent_registry, provider_name, &general_cwd)
@@ -288,6 +311,7 @@ pub fn start_general_agent(
     log::info!("[general-agent] Shell ready, building launch command...");
 
     let use_resume = session_id.is_some();
+    let mut fallback_system_prompt = None;
     let cmd = if use_resume {
         let sid = session_id.as_ref().unwrap();
         match svc
@@ -330,6 +354,29 @@ pub fn start_general_agent(
             .get_pane(&pane_id)
             .and_then(|p| p.cwd.clone())
             .unwrap_or_default();
+        let system_prompt = instructions::render_system_prompt(provider_name, Some(&svc.mem));
+        let fallback = svc
+            .agent_registry
+            .with_provider(provider_name, |provider| {
+                matches!(
+                    crate::service::launch_delivery::mode_for_descriptor(
+                        &provider.system_prompt_delivery()
+                    ),
+                    crate::service::launch_delivery::LaunchDeliveryMode::ConfirmedFallback
+                )
+            })
+            .unwrap_or(true);
+        fallback_system_prompt = fallback.then_some(system_prompt);
+        if let Some(prompt) = fallback_system_prompt.as_deref() {
+            if let Err(error) = svc.create_pending_delivery(
+                &pane_id,
+                crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
+                prompt,
+            ) {
+                fail_general_agent_start(svc, mux, &pane_id, &error.to_string());
+                return;
+            }
+        }
         let params = crate::agent::provider::AgentLaunchParams {
             agent_name: None,
             task: None,
@@ -391,20 +438,6 @@ pub fn start_general_agent(
         return;
     }
 
-    // Fresh session: send one inline orient message to seed context.
-    // Resume mode omits this because `--resume` already restores prior turns.
-    if !use_resume {
-        let init_msg = "init [Orient yourself: \
-            check the pre-injected `## Live mem snapshot` for identity / critical facts; \
-            run `codeterm mesh peers`; \
-            ack readiness in ONE short line stating your name from L0 and peer count \
-            (e.g. \"Ready. <your-name>, 2 peers paired (1 online).\"). \
-            Read-only — no spawns, no Telegram, no file writes during init unless mem says so. \
-            On first-ever boot: check `bootstrap.md` in CWD for `<!-- bootstrap: true -->` and follow that flow.]";
-        svc.send_text_detached(&pane_id, init_msg, true);
-        log::info!("[general-agent] Scheduled fresh-session init kick");
-    }
-
     // no longer inject --session-id), so the next restart can resume this exact session.
     if !use_resume {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
@@ -420,6 +453,30 @@ pub fn start_general_agent(
         }
     }
 
+    svc.emit_boot_stage(&pane_id, BootStage::ProviderReady, None);
+    if let Some(prompt) = fallback_system_prompt {
+        if let Err(error) = deliver_confirmed_general_message(svc, &pane_id, &prompt) {
+            fail_general_agent_start(svc, mux, &pane_id, &error);
+            return;
+        }
+    }
+    if !use_resume {
+        let bootstrap_path = general_dir().join("bootstrap.md");
+        if let Ok(bootstrap) = std::fs::read_to_string(bootstrap_path) {
+            if let Err(error) = svc
+                .create_pending_delivery(
+                    &pane_id,
+                    crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
+                    &bootstrap,
+                )
+                .map_err(|error| error.to_string())
+                .and_then(|_| deliver_confirmed_general_message(svc, &pane_id, &bootstrap))
+            {
+                fail_general_agent_start(svc, mux, &pane_id, &error);
+                return;
+            }
+        }
+    }
     svc.emit_boot_stage(&pane_id, BootStage::AgentReady, None);
     if let Some(pane) = mux.write().get_pane_mut(&pane_id) {
         pane.agent_booting = false;
