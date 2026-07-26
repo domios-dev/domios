@@ -103,6 +103,7 @@ authority, bounded hydration, resync, and subscription cleanup:
 
 ```bash
 npx tsx src/components/Terminal/useChatSession.attachHydration.test.tsx
+npx tsx src/components/Terminal/TabContent.chatContinuity.test.tsx
 npx tsx src/components/Terminal/ChatSetupState.test.tsx
 ```
 
@@ -114,7 +115,10 @@ one subscription. Its resync replaces the subscription without duplicating
 rows; wrong-pane, wrong-session, wrong-nonce, cancelled-generation, and
 prior-lifecycle inputs remain rejected. The setup-state oracle proves a
 hydrated current-authority transcript suppresses stale `shell_ready` and earlier
-launch overlays.
+launch overlays. The `TabContent` oracle refreshes the mux with a new pane
+snapshot carrying the same provider, model, session id, and binding nonce, then
+drives Terminal → Chat and requires one pre-existing row and one subscription
+without losing the mode switch or identity labels.
 
 ### Capped Rust test preflight
 
@@ -396,4 +400,4 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 
 Before approving a PR, use **`docs/contributing/review-checklist.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
 
-<!-- revision: 19 -->
+<!-- revision: 20 -->
