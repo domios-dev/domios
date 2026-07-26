@@ -459,11 +459,14 @@ impl ServiceContext {
     pub fn kill_pane_pty(&self, pane_id: &str) -> Result<(), String> {
         // A chatBackend pane has no PTY process — close the plugin session.
         if let Some((plugin_id, session_id)) = self.pane_chat_backing(pane_id) {
-            return self.chatbackend_close(&plugin_id, &session_id);
+            self.chatbackend_close(&plugin_id, &session_id)?;
+            self.clear_pane_agent_identity_for_lifecycle_exit(pane_id);
+            return Ok(());
         }
         let pty_id = self.resolve_pty_id(pane_id)?;
         self.pty_ownership.release_pty(&pty_id);
         kill_live_pane_pty(&mut self.pty.lock(), &pty_id)?;
+        self.clear_pane_agent_identity_for_lifecycle_exit(pane_id);
         Ok(())
     }
 
