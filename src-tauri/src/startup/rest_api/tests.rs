@@ -88,10 +88,18 @@ async fn manual_restart_rebinds_a_real_listener() {
     let control = Arc::new(RestApiControl::new());
     let mut status = control.subscribe_status();
     let task = tokio::spawn(start(control.clone(), address.to_string(), health_router()));
-    let initial = wait_for_status(&mut status, |s| s.phase == RestApiPhase::Listening).await;
-    let returned = control.restart_and_wait().await.unwrap();
-    assert_eq!(returned.phase, RestApiPhase::Listening);
-    assert!(returned.generation > initial.generation);
+    let mut previous = wait_for_status(&mut status, |s| s.phase == RestApiPhase::Listening).await;
+    for _ in 0..8 {
+        let returned = control.restart_and_wait().await.unwrap();
+        assert_eq!(
+            returned.phase,
+            RestApiPhase::Listening,
+            "{:?}",
+            returned.message
+        );
+        assert!(returned.generation > previous.generation);
+        previous = returned;
+    }
     let stream = tokio::net::TcpStream::connect(address).await.unwrap();
     drop(stream);
     task.abort();

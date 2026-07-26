@@ -43,9 +43,11 @@ Then: `Authorization: Bearer your-secret-token`
 
 The desktop REST listener has one monotonic runtime generation owner. A
 generation is reported as `listening` only after it owns the real socket and a
-real `GET /api/health` succeeds. Listener/server exit autonomously retires that
-generation and creates exactly one replacement; bind ownership failure waits
-for an explicit port-release or restart event instead of retrying on a timer.
+real `GET /api/health` succeeds, its body is consumed, and the proof connection
+closes. This completion boundary keeps same-port Windows restarts from racing a
+lingering accepted health socket. Listener/server exit autonomously retires
+that generation and creates exactly one replacement; bind ownership failure
+waits for an explicit port-release or restart event instead of retrying on a timer.
 The internal `get_rest_api_status` command returns `generation`, `phase`,
 `diagnostic`, and `message`. Diagnostic values are `listener_exited`,
 `bind_ownership_failed`, or `workers_blocked`; the last means the listener
@@ -1388,4 +1390,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 91 -->
+<!-- revision: 92 -->
