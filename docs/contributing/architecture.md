@@ -94,6 +94,8 @@ Every host function a JS drop-in can call is a confinement surface. Drop-in plug
 
 Detection code (prompts, task completion, agent identification, output parsing) must use structural fingerprints, not literal text. If Claude renames "Do you want to proceed?" to "Do you want to create?", detection should still work — match the structure (numbered options + footer), not the wording. Vendors change copy without warning; structure is stable. Generalize, don't enumerate.
 
+Output parsing can classify activity and emit diagnostics, but it never clears pane identity. Only explicit PTY, process, or authenticated session lifecycle transitions may clear the provider, pane-owned session, binding nonces, and Planner binding. A Team with an active plan renders that plan's title as the visible and accessible effort title; the persistent Team name is the planless identity fallback.
+
 "Structural" means detection survives any single vendor copy change. Each provider
 keeps a signal list where each signal has a weight, and detection fires only when
 the score reaches the provider threshold. No single literal string may carry more
@@ -104,4 +106,4 @@ than half of that threshold. Signal kinds, strongest first:
 - layout shapes such as footer lines with multiple segments or prompt-character columns
 - literal copy strings, which are weak signals and never the sole gate
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->
