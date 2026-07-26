@@ -603,12 +603,13 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
         };
         control.listener_bound(generation);
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
-        let server = axum::serve(listener, router.clone())
-            .with_graceful_shutdown(async {
-                let _ = shutdown_rx.await;
-            })
-            .into_future();
-        tokio::pin!(server);
+        let mut server = Box::pin(
+            axum::serve(listener, router.clone())
+                .with_graceful_shutdown(async {
+                    let _ = shutdown_rx.await;
+                })
+                .into_future(),
+        );
         let health = prove_health(local_addr);
         tokio::pin!(health);
 
