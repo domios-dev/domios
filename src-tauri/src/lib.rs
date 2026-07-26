@@ -916,6 +916,7 @@ pub fn run() {
                 crate::liveness::start_api_liveness_watchdog(
                     app_handle.clone(),
                     states.mesh.clone(),
+                    states.rest_api.clone(),
                     states.config.lock().api.port,
                 );
             }

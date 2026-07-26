@@ -122,6 +122,41 @@ automatically routes focused tests to the worktree-local
 TEST_CAP_SECS=90 scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib <filter>
 ```
 
+### REST generation liveness
+
+Run the listener-exit and worker-starvation fixtures separately:
+
+```bash
+bash scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib startup::rest_api::tests::unexpected_exit_autonomously_replaces_generation_after_health_proof -- --exact
+bash scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib startup::rest_api::tests::diagnostics_distinguish_listener_exit_from_worker_stall -- --exact
+bash scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib startup::rest_api::tests::repeated_same_generation_outages_emit_exactly_one_resync_each -- --exact
+```
+
+The first fixture sends no manual recovery command and observes lifecycle
+events through the replacement's real `/api/health` response. The second uses
+explicit barriers to hold all four REST workers while leaving the listener
+bound, asserts an unanswered health request within a bounded failure deadline,
+and verifies that its diagnostic differs from listener exit without publishing
+a false healthy state. This worker gate is synthetic diagnostic coverage, not
+the incident cause. The third fixture proves two stalls in one generation each
+claim one distinct recovery resync and duplicate observation claims none.
+
+Run the real-load dev oracle separately:
+
+```bash
+bash evals/api-liveness-mesh-load/run.sh
+```
+
+It is locked to dev 7686 through `evals/_lib/lib.sh` and `dc`, has a 15-second
+failure deadline, and issues no readiness poll or delay. One barrier releases
+four sparse 476 MiB Claude transcript reads, health/tab observations, signed
+report/heartbeat-shaped relays, a duplicate relay, and a structured-error
+relay. It requires health/tab within one second, relay/send acknowledgement
+within two seconds, one durable delivery per id, and the original structured
+delivery error. The real load owner is the session parser; the bounded 4 MiB
+tail and blocking-worker route keep it off the four REST runtime workers.
+Neither the fixtures nor the oracle address production port 7685.
+
 ## E2E tests
 
 Test full stack via REST API against a running dev instance. Create tabs, send text, check output, verify prompt lifecycle.
@@ -376,4 +411,4 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 
 Before approving a PR, use **`docs/contributing/review-checklist.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
 
-<!-- revision: 18 -->
+<!-- revision: 20 -->
