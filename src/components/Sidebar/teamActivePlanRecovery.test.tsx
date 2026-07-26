@@ -138,6 +138,7 @@ let restAvailable = true;
 let backendPlans = [oldPlan];
 let backendSnapshot = snapshot("Old Team label");
 let requests: Promise<unknown>[] = [];
+let renameAttempts = 0;
 
 function tracked<T>(promise: Promise<T>): Promise<T> {
   requests.push(promise);
@@ -241,6 +242,9 @@ function Projection() {
         onActivateTab={() => {}}
         onCloseTab={() => {}}
         onRenameTab={() => {}}
+        onRenameTeam={() => {
+          renameAttempts += 1;
+        }}
         onNewSession={() => {}}
       />
     </SidebarDnd>
@@ -286,6 +290,15 @@ async function main() {
   "precondition: old active plan is visible");
   assert(host.querySelector('[data-testid="team-status-todo"] .sidebar-team-readout-count')
     ?.textContent === "35", "precondition: 35 stale tasks are visible");
+  await act(async () => {
+    (host.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement).click();
+  });
+  assert(!document.querySelector('[data-testid="team-menu"]')?.textContent?.includes("Rename"),
+    "an active effort does not expose a Team rename that cannot change its visible title");
+  assert(renameAttempts === 0, "the hidden active-effort rename cannot mutate Team identity");
+  await act(async () => {
+    (host.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement).click();
+  });
 
   restAvailable = false;
   await act(async () => {

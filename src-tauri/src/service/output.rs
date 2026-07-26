@@ -174,7 +174,10 @@ impl ServiceContext {
                 .get_screen_text(pty_id)
                 .unwrap_or_default();
             let has_agent_markers = self.agent_registry.detect_from_output(&screen).is_some();
-            if diagnose_shell_prompt_without_agent_markers(&screen, has_agent_markers) {
+            if matches!(
+                decide_agent_output_lifecycle(&screen, has_agent_markers),
+                AgentOutputLifecycleDecision::PreserveIdentityAndLogShellLikeFrame
+            ) {
                 log::debug!(
                     "[output] shell-looking marker-less frame in pane {}; lifecycle unchanged",
                     pane_id.as_deref().unwrap_or("unknown"),
@@ -810,15 +813,28 @@ fn screen_ends_in_shell_prompt(screen: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn diagnose_shell_prompt_without_agent_markers(screen: &str, has_agent_markers: bool) -> bool {
-    !screen.is_empty() && !has_agent_markers && screen_ends_in_shell_prompt(screen)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AgentOutputLifecycleDecision {
+    PreserveIdentity,
+    PreserveIdentityAndLogShellLikeFrame,
+}
+
+fn decide_agent_output_lifecycle(
+    screen: &str,
+    has_agent_markers: bool,
+) -> AgentOutputLifecycleDecision {
+    if !screen.is_empty() && !has_agent_markers && screen_ends_in_shell_prompt(screen) {
+        AgentOutputLifecycleDecision::PreserveIdentityAndLogShellLikeFrame
+    } else {
+        AgentOutputLifecycleDecision::PreserveIdentity
+    }
 }
 
 #[cfg(test)]
 mod exit_detection_tests {
     use super::{
-        diagnose_shell_prompt_without_agent_markers, screen_ends_in_shell_prompt,
-        should_detect_unbound_session,
+        decide_agent_output_lifecycle, screen_ends_in_shell_prompt, should_detect_unbound_session,
+        AgentOutputLifecycleDecision,
     };
 
     #[test]
@@ -836,14 +852,14 @@ mod exit_detection_tests {
 
     #[test]
     fn shell_prompt_without_markers_is_diagnostic_only() {
-        assert!(diagnose_shell_prompt_without_agent_markers(
-            "PS D:\\Developer\\codeterm>",
-            false,
-        ));
-        assert!(!diagnose_shell_prompt_without_agent_markers(
-            "PS D:\\Developer\\codeterm>",
-            true,
-        ));
+        assert_eq!(
+            decide_agent_output_lifecycle("PS D:\\Developer\\codeterm>", false),
+            AgentOutputLifecycleDecision::PreserveIdentityAndLogShellLikeFrame
+        );
+        assert_eq!(
+            decide_agent_output_lifecycle("PS D:\\Developer\\codeterm>", true),
+            AgentOutputLifecycleDecision::PreserveIdentity
+        );
     }
 
     #[test]
@@ -856,5 +872,5 @@ mod exit_detection_tests {
 }
 
 #[cfg(test)]
-#[path = "output/tests/planner_identity.rs"]
-mod planner_identity_tests;
+#[path = "output/agent_lifecycle_tests.rs"]
+mod agent_lifecycle_tests;

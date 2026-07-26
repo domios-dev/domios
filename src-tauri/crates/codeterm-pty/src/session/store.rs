@@ -42,6 +42,18 @@ pub struct TabSnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentIdentitySnapshot {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_binding_nonce: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reported_session_binding_nonce: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_state: Option<codeterm_types::pty::AgentLiveState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub boot_stage: Option<codeterm_types::pty::BootStage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum SplitNodeSnapshot {
     Leaf {
@@ -67,6 +79,8 @@ pub enum SplitNodeSnapshot {
         /// Agent session ID for --resume (backward compat: reads "claude_session_id" too).
         #[serde(skip_serializing_if = "Option::is_none", alias = "agent_session_id")]
         claude_session_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent_identity: Option<AgentIdentitySnapshot>,
         /// Orchestration role.
         #[serde(skip_serializing_if = "Option::is_none", default)]
         role: Option<String>,

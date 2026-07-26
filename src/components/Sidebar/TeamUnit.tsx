@@ -506,7 +506,7 @@ export function TeamUnit({
               providersLoading={providersLoading}
               contextMenuTargetRef={headerRef}
               onOpenPlan={plan ? () => onOpenEffort({ teamId: team.id, managerPaneId: null, planId: plan.id }) : undefined}
-              onRename={onRenameTeam ? () => {
+              onRename={!plan && onRenameTeam ? () => {
                 setRenameError(null);
                 setEditing(true);
               } : undefined}
