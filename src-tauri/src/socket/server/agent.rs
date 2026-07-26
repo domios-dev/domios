@@ -98,32 +98,15 @@ pub(super) fn dispatch(
                 })?;
             let mut resp = serde_json::json!({
                 "ok": true,
+                "accepted": true,
+                "state": "recorded",
                 "report_id": result.report_id,
+                "target_tab_id": result.orchestrator_pane_id,
             });
             if !result.notices.is_empty() {
                 resp["notices"] = serde_json::json!(result.notices);
             }
             Ok(resp)
-        }
-
-        "agent.reports" => {
-            let pane_id = get_string_param(params, "pane_id")?;
-            let clear = params
-                .as_ref()
-                .and_then(|p| p.get("clear"))
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            let svc_ref = &**svc;
-            let reports = if clear {
-                svc_ref.get_and_clear_reports(&pane_id)
-            } else {
-                svc_ref.get_reports(&pane_id)
-            };
-            serde_json::to_value(&reports).map_err(|e| JsonRpcError {
-                code: -32603,
-                message: e.to_string(),
-                data: None,
-            })
         }
 
         "agent.ledger" => {

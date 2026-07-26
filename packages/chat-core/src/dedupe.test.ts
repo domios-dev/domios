@@ -1,5 +1,5 @@
 import { matchedOptimisticEchoes, collapseDuplicateUserMessages, type OptimisticEcho } from "./dedupe";
-import { markPane, markVoice } from "./markers";
+import { markTab, markVoice } from "./markers";
 import type { NormalizedChatMessage } from "./types";
 
 let passed = 0;
@@ -136,7 +136,7 @@ const T0 = 1_700_000_000_000;
 {
   const { matchedIds, pendingIds } = matchedOptimisticEchoes(
     [echo("opt-1", "check the cursor ordering bug", T0)],
-    [user("a-0", markPane("Andrey", "abc12345", "check the cursor ordering bug"), T0 + 500)],
+    [user("a-0", markTab("Andrey", "abc12345", "check the cursor ordering bug"), T0 + 500)],
   );
   eq(matchedIds, ["opt-1"], "transport-prefixed stored echo matches optimistic body");
   eq(pendingIds, [], "transport-prefixed echo leaves no duplicate pending bubble");

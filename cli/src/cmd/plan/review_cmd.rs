@@ -2,7 +2,7 @@ use crate::args::plan::PlanReviewAction;
 use crate::client::RpcClient;
 use serde_json::{json, Value};
 
-use super::{call_plan_rpc, maybe_inject_caller_pane, owner_from_env};
+use super::{call_plan_rpc, inject_trusted_session, maybe_inject_caller_pane, owner_from_env};
 
 pub(super) fn handle(
     client: &mut dyn RpcClient,
@@ -53,6 +53,31 @@ pub(super) fn handle(
             }
             maybe_inject_caller_pane(&mut params);
             call_plan_rpc(client, "plan.review.override", params).map(Some)
+        }
+        PlanReviewAction::ReconcileCredit { plan_id, reason } => {
+            let mut params = json!({
+                "reason": reason,
+            });
+            if let Some(plan_id) = plan_id {
+                params["plan_id"] = json!(plan_id);
+            }
+            inject_trusted_session(&mut params);
+            call_plan_rpc(client, "plan.review.reconcile-credit", params).map(Some)
+        }
+        PlanReviewAction::AuthorizeCapacity {
+            plan_id,
+            task_id,
+            class,
+        } => {
+            let mut params = json!({
+                "task_id": task_id,
+                "class": class,
+            });
+            if let Some(plan_id) = plan_id {
+                params["plan_id"] = json!(plan_id);
+            }
+            inject_trusted_session(&mut params);
+            call_plan_rpc(client, "plan.review.authorize-capacity", params).map(Some)
         }
         PlanReviewAction::Accept {
             plan_id,

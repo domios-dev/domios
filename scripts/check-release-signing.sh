@@ -6,7 +6,8 @@ TEST_ROOT="${TMPDIR:-/tmp}/codeterm-release-signing-$$"
 trap 'rm -rf "$TEST_ROOT"' EXIT
 mkdir -p "$TEST_ROOT"
 
-if CODETERM_TAURI_SIGNING_KEY_FILE="$TEST_ROOT/missing.key" bash -c \
+if env -u TAURI_SIGNING_PRIVATE_KEY \
+    CODETERM_TAURI_SIGNING_KEY_FILE="$TEST_ROOT/missing.key" bash -c \
     "source '$ROOT/scripts/release-signing.sh'; ct_load_release_signing_key" \
     > "$TEST_ROOT/missing.log" 2>&1; then
   echo "missing signing key unexpectedly passed" >&2
@@ -15,7 +16,8 @@ fi
 grep -q "refusing to compile an unsigned updater" "$TEST_ROOT/missing.log"
 
 printf 'fixture-secret\r\n' > "$TEST_ROOT/key"
-value="$(CODETERM_TAURI_SIGNING_KEY_FILE="$TEST_ROOT/key" bash -c \
+value="$(env -u TAURI_SIGNING_PRIVATE_KEY \
+  CODETERM_TAURI_SIGNING_KEY_FILE="$TEST_ROOT/key" bash -c \
   "source '$ROOT/scripts/release-signing.sh'; ct_load_release_signing_key; printf '%s' \"\$TAURI_SIGNING_PRIVATE_KEY\"")"
 [ "$value" = "fixture-secret" ]
 

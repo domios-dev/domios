@@ -631,6 +631,53 @@ fn snapshot_with_status_mirrors_tracked_pty_status_only() {
     );
 }
 
+#[test]
+fn snapshot_status_resolver_distinguishes_repaint_from_long_turn() {
+    use codeterm_types::pty::{
+        reconcile_status, BootStage, PaneStatus, PaneStatusTracker, PaneVerdict, TimelineState,
+    };
+
+    let (mut state, _root) = MultiplexerState::new();
+    let wsid = state.list_workspaces()[0].id.clone();
+    let (_tab, idle_pane) = state.create_tab(&wsid).unwrap();
+    let (_tab2, working_pane) = state.create_tab(&wsid).unwrap();
+    for (pane_id, pty_id, agent_state) in [
+        (&idle_pane, "pty-idle", TimelineState::Idle),
+        (&working_pane, "pty-working", TimelineState::Working),
+    ] {
+        let pane = state.get_pane_mut(pane_id).unwrap();
+        pane.pty_id = Some(pty_id.into());
+        pane.agent_type = Some("fixture".into());
+        pane.boot_stage = Some(BootStage::AgentReady);
+        pane.agent_state = Some(
+            PaneVerdict {
+                state: agent_state,
+                subtype: None,
+            }
+            .into(),
+        );
+    }
+
+    let mut tracker = PaneStatusTracker::new();
+    tracker.update_output("pty-idle", [1u8; 32]);
+    tracker.update_output("pty-working", [2u8; 32]);
+
+    let snap = state.snapshot_with_status_resolver(&tracker, |pane, raw| {
+        reconcile_status(
+            raw,
+            pane.boot_stage,
+            pane.agent_state.as_ref().map(|state| state.state),
+            true,
+            pane.pending_prompt.is_some(),
+        )
+    });
+    assert_eq!(snap.pane_statuses.get(&idle_pane), Some(&PaneStatus::Idle));
+    assert_eq!(
+        snap.pane_statuses.get(&working_pane),
+        Some(&PaneStatus::Working)
+    );
+}
+
 fn test_pending_prompt() -> crate::multiplexer::types::PendingPrompt {
     crate::multiplexer::types::PendingPrompt {
         question: "Allow?".into(),

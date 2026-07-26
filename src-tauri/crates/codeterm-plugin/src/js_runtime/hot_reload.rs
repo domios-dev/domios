@@ -16,6 +16,7 @@ const POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 #[derive(Clone)]
 struct Tracked {
+    manifest_path: PathBuf,
     manifest_mtime: SystemTime,
     entry_mtime: SystemTime,
     config_mtime: SystemTime,
@@ -193,6 +194,7 @@ impl HotReloadRegistry {
                 state.insert(
                     manifest.id.clone(),
                     Tracked {
+                        manifest_path: manifest_path.clone(),
                         manifest_mtime: mtime_or_epoch(manifest_path),
                         entry_mtime: mtime_or_epoch(&entry_path),
                         config_mtime: config_mtime_for(manifest_path),
@@ -322,8 +324,11 @@ impl HotReloadRegistry {
 
         let prior = self.state.lock().get(&manifest.id).cloned();
         if let Some(prev) = prior {
-            let manifest_changed = prev.manifest_mtime != manifest_mtime;
-            let entry_changed = prev.entry_mtime != entry_mtime;
+            // A duplicate id can move to a different root's file; mtimes alone can't
+            // tell that apart from "unchanged" if they happen to collide (coarse OS clocks).
+            let path_changed = prev.manifest_path != manifest_path;
+            let manifest_changed = path_changed || prev.manifest_mtime != manifest_mtime;
+            let entry_changed = path_changed || prev.entry_mtime != entry_mtime;
             let config_changed = prev.config_mtime != config_mtime;
             if !manifest_changed && !entry_changed && !config_changed {
                 return Some(manifest.id);
@@ -371,6 +376,7 @@ impl HotReloadRegistry {
                     self.state.lock().insert(
                         id.clone(),
                         Tracked {
+                            manifest_path: manifest_path.to_path_buf(),
                             manifest_mtime,
                             entry_mtime,
                             config_mtime,
@@ -400,6 +406,7 @@ impl HotReloadRegistry {
                 self.state.lock().insert(
                     id.clone(),
                     Tracked {
+                        manifest_path: manifest_path.to_path_buf(),
                         manifest_mtime,
                         entry_mtime,
                         config_mtime,

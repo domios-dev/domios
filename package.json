@@ -1,6 +1,6 @@
 {
   "name": "codeterm",
-  "version": "1.7.4",
+  "version": "1.7.5",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -13,7 +13,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "test:unit": "bash scripts/ts-unit-tests.sh",
+    "test:unit": "node scripts/run-ts-unit-tests.mjs",
     "test:plugins": "bash scripts/plugin-tests.sh",
     "build:plugin": "node scripts/build-plugin.mjs",
     "build:plugin-ui": "node scripts/build-plugin-ui.mjs",
@@ -37,6 +37,7 @@
     "lint": "biome check .",
     "sync:versions": "node scripts/sync-plugin-versions.mjs",
     "check:versions": "node scripts/sync-plugin-versions.mjs --check",
+    "check:release-locks": "node scripts/check-release-locks.mjs",
     "sync:plugin-versions": "node scripts/sync-plugin-versions.mjs",
     "check:plugin-versions": "node scripts/sync-plugin-versions.mjs --check"
   },

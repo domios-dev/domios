@@ -17,6 +17,9 @@ export interface ExtendedState extends MultiplexerState {
   activeTabIds: Record<string, string>;
   /** Highest snapshot generation applied so far; guards against stale snapshots. */
   generation: number;
+  /** Pane ids removed by an optimistic close, masked out of accepted snapshots
+   *  until an accepted snapshot omits them (self-clear) or an explicit remove. */
+  pendingCloses: string[];
 }
 
 export function makeTab(pane: Pane): Tab {

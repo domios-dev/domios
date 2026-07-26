@@ -205,7 +205,7 @@ pub enum PlanAction {
         status: Option<String>,
         #[arg(long)]
         mode: Option<String>,
-        /// Set attached Planner: <pane_id> to bind, or "none" to waive (requires --note).
+        /// Set attached Planner: <tab_id> to bind, or "none" to waive (requires --note).
         #[arg(long)]
         planner: Option<String>,
         /// Waiver note (required when --planner none).
@@ -269,7 +269,7 @@ pub enum PlanAction {
     Claim { plan_id: String },
     /// Record task progress with one atomic plan write
     Record {
-        /// Plan id (if available from pane binding or env)
+        /// Plan id (if available from tab binding or env)
         #[arg(env = "CODETERM_PLAN_ID")]
         plan_id: Option<String>,
         #[arg(long, env = "CODETERM_TASK_ID")]
@@ -343,7 +343,7 @@ pub enum PlanAction {
         #[command(subcommand)]
         action: PlanQaAction,
     },
-    /// Review-backpressure: WIP/credit status, waves, overrides, accept/bounce
+    /// Review-backpressure: capacity, credit reconciliation, and verdicts
     Review {
         #[command(subcommand)]
         action: PlanReviewAction,

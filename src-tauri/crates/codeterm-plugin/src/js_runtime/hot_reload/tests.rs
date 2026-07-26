@@ -57,11 +57,38 @@ fn test_caps() -> CapabilityRegistries {
     }
 }
 
+// Poll tick() until `condition` holds instead of assuming one tick is enough;
+// bounded so a genuine regression still fails instead of hanging.
+fn tick_until<F: Fn() -> bool>(watcher: &HotReloadRegistry, condition: F) -> bool {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        watcher.tick();
+        if condition() {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
 fn write(path: &std::path::Path, contents: &str) {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).unwrap();
     }
     std::fs::write(path, contents).unwrap();
+}
+
+// Windows refuses to stamp file times through a read-only handle, so open for
+// write rather than File::open.
+fn set_mtime(path: &std::path::Path, mtime: std::time::SystemTime) {
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(mtime)
+        .unwrap();
 }
 
 fn manifest_for(id: &str) -> String {
@@ -150,10 +177,12 @@ fn requires_reload_plugin_installed_live_is_pending_not_active() {
         "fresh requiresReload install must be pending_reload"
     );
     std::fs::remove_dir_all(&dir).unwrap();
-    watcher.tick();
-    assert!(!watcher
-        .pending_reload_ids()
-        .contains(&"needsreload".to_string()));
+    assert!(
+        tick_until(&watcher, || !watcher
+            .pending_reload_ids()
+            .contains(&"needsreload".to_string())),
+        "folder removal must clear pending_reload"
+    );
 }
 
 #[test]
@@ -306,6 +335,52 @@ fn duplicate_root_removal_falls_back_to_lower_priority_plugin() {
 }
 
 #[test]
+fn duplicate_root_removal_falls_back_even_with_colliding_mtimes() {
+    // Windows' coarse system clock can give two back-to-back writes the same
+    // mtime; force that collision to pin the fallback-by-path invariant.
+    let workspace = tempfile::tempdir().unwrap();
+    let user = tempfile::tempdir().unwrap();
+    let registrar = TestRegistrar::new();
+    let watcher = HotReloadRegistry::new(
+        vec![workspace.path().to_path_buf(), user.path().to_path_buf()],
+        registrar.clone(),
+        test_caps(),
+    );
+
+    let workspace_dir = workspace.path().join("provider-dupe");
+    write(&workspace_dir.join("plugin.json"), &manifest_for("dupe"));
+    write(&workspace_dir.join("plugin.js"), &plugin_for("workspace"));
+    let user_dir = user.path().join("dupe");
+    write(&user_dir.join("plugin.json"), &manifest_for("dupe"));
+    write(&user_dir.join("plugin.js"), &plugin_for("user"));
+
+    let user_manifest_mtime = std::fs::metadata(user_dir.join("plugin.json"))
+        .unwrap()
+        .modified()
+        .unwrap();
+    let user_entry_mtime = std::fs::metadata(user_dir.join("plugin.js"))
+        .unwrap()
+        .modified()
+        .unwrap();
+    set_mtime(&workspace_dir.join("plugin.json"), user_manifest_mtime);
+    set_mtime(&workspace_dir.join("plugin.js"), user_entry_mtime);
+
+    watcher.tick();
+    assert!(registrar
+        .with_provider("dupe", |p| p.detect_from_title("user cli"))
+        .unwrap_or(false));
+
+    std::fs::remove_dir_all(&user_dir).unwrap();
+    watcher.tick();
+    assert!(
+        registrar
+            .with_provider("dupe", |p| p.detect_from_title("workspace cli"))
+            .unwrap_or(false),
+        "fallback must reload even when the winning and fallback candidates share an mtime"
+    );
+}
+
+#[test]
 fn tick_registers_capability_plugin_live_without_restart() {
     let root = tempfile::tempdir().unwrap();
     let registrar = TestRegistrar::new();
@@ -344,9 +419,8 @@ fn tick_deregisters_capability_on_folder_removal() {
     watcher.tick();
     assert!(caps.bubble.contains("bubbler"));
     std::fs::remove_dir_all(&dir).unwrap();
-    watcher.tick();
     assert!(
-        !caps.bubble.contains("bubbler"),
+        tick_until(&watcher, || !caps.bubble.contains("bubbler")),
         "capability must be deregistered on uninstall"
     );
 }
@@ -366,9 +440,11 @@ fn tick_unregisters_plugins_after_folder_removal() {
     watcher.tick();
     assert_eq!(registrar.provider_count(), 1);
     std::fs::remove_dir_all(&dir).unwrap();
-    watcher.tick();
-    assert!(watcher.tracked_ids().is_empty());
-    assert_eq!(registrar.provider_count(), 0);
+    assert!(
+        tick_until(&watcher, || watcher.tracked_ids().is_empty()
+            && registrar.provider_count() == 0),
+        "folder removal must unregister the plugin"
+    );
 }
 
 #[test]
@@ -469,6 +545,8 @@ fn concurrent_tick_and_reload_does_not_deadlock() {
         t.join().unwrap();
     }
     std::fs::remove_dir_all(&dir).ok();
-    watcher.tick();
-    assert!(watcher.tracked_ids().is_empty());
+    assert!(
+        tick_until(&watcher, || watcher.tracked_ids().is_empty()),
+        "final removal must clear tracked ids"
+    );
 }

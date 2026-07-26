@@ -1,5 +1,5 @@
 /// Inter-agent reporting system for orchestration hierarchy.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -130,6 +130,8 @@ impl AgentReport {
 /// so a restarted orchestrator can still see its workers.
 pub struct ReportStore {
     reports: HashMap<String, Vec<AgentReport>>,
+    delivered: HashSet<String>,
+    in_flight: HashSet<String>,
     max_reports_per_orchestrator: usize,
     ledger: Option<Arc<OrchestrationLedger>>,
 }
@@ -138,6 +140,8 @@ impl ReportStore {
     pub fn new(max_per_orchestrator: usize) -> Self {
         Self {
             reports: HashMap::new(),
+            delivered: HashSet::new(),
+            in_flight: HashSet::new(),
             max_reports_per_orchestrator: max_per_orchestrator,
             ledger: None,
         }
@@ -148,6 +152,8 @@ impl ReportStore {
     pub fn with_ledger(max_per_orchestrator: usize, ledger: Arc<OrchestrationLedger>) -> Self {
         Self {
             reports: HashMap::new(),
+            delivered: HashSet::new(),
+            in_flight: HashSet::new(),
             max_reports_per_orchestrator: max_per_orchestrator,
             ledger: Some(ledger),
         }
@@ -289,16 +295,25 @@ impl ReportStore {
             }
         }
 
-        let entries = self
-            .reports
-            .entry(orchestrator_pane_id.to_string())
-            .or_default();
-        entries.push(report.clone());
-
-        if entries.len() > self.max_reports_per_orchestrator {
-            let excess = entries.len() - self.max_reports_per_orchestrator;
-            entries.drain(..excess);
+        {
+            let entries = self
+                .reports
+                .entry(orchestrator_pane_id.to_string())
+                .or_default();
+            entries.push(report.clone());
+            if entries.len() > self.max_reports_per_orchestrator {
+                let excess = entries.len() - self.max_reports_per_orchestrator;
+                entries.drain(..excess);
+            }
         }
+        let live_ids: HashSet<&str> = self
+            .reports
+            .values()
+            .flatten()
+            .map(|entry| entry.id.as_str())
+            .collect();
+        self.delivered.retain(|id| live_ids.contains(id.as_str()));
+        self.in_flight.retain(|id| live_ids.contains(id.as_str()));
 
         report
     }
@@ -306,15 +321,53 @@ impl ReportStore {
     /// Get all reports for an orchestrator, optionally clearing them.
     pub fn get(&mut self, orchestrator_pane_id: &str, clear: bool) -> Vec<AgentReport> {
         if clear {
-            self.reports
+            let removed = self
+                .reports
                 .remove(orchestrator_pane_id)
-                .unwrap_or_default()
+                .unwrap_or_default();
+            for report in &removed {
+                self.delivered.remove(&report.id);
+                self.in_flight.remove(&report.id);
+            }
+            removed
         } else {
             self.reports
                 .get(orchestrator_pane_id)
                 .cloned()
                 .unwrap_or_default()
         }
+    }
+
+    pub fn claim_pending_for(&mut self, orchestrator_pane_id: &str) -> Vec<AgentReport> {
+        let pending: Vec<AgentReport> = self
+            .reports
+            .get(orchestrator_pane_id)
+            .into_iter()
+            .flatten()
+            .filter(|report| {
+                !self.delivered.contains(&report.id) && !self.in_flight.contains(&report.id)
+            })
+            .cloned()
+            .collect();
+        self.in_flight
+            .extend(pending.iter().map(|report| report.id.clone()));
+        pending
+    }
+
+    pub fn claim(&mut self, report_id: &str) -> bool {
+        if self.delivered.contains(report_id) || self.in_flight.contains(report_id) {
+            return false;
+        }
+        self.in_flight.insert(report_id.to_string())
+    }
+
+    pub fn mark_delivered(&mut self, report_id: &str) {
+        self.in_flight.remove(report_id);
+        self.delivered.insert(report_id.to_string());
+    }
+
+    pub fn release_delivery(&mut self, report_id: &str) {
+        self.in_flight.remove(report_id);
     }
 
     /// True when at least one report from `from_pane_id` is stored under
@@ -339,7 +392,12 @@ impl ReportStore {
 
     /// Remove all reports for an orchestrator (cleanup on close).
     pub fn remove(&mut self, orchestrator_pane_id: &str) {
-        self.reports.remove(orchestrator_pane_id);
+        if let Some(removed) = self.reports.remove(orchestrator_pane_id) {
+            for report in removed {
+                self.delivered.remove(&report.id);
+                self.in_flight.remove(&report.id);
+            }
+        }
     }
 }
 
@@ -398,6 +456,18 @@ mod tests {
         assert_eq!(store.count("cond-1"), 1);
         store.add("cond-1", "w2", "W2", "msg");
         assert_eq!(store.count("cond-1"), 2);
+    }
+
+    #[test]
+    fn pending_reports_clear_only_after_delivery() {
+        let mut store = ReportStore::new(100);
+        let report = store.add("cond-1", "w1", "W1", "ready");
+        assert_eq!(store.claim_pending_for("cond-1").len(), 1);
+        assert!(store.claim_pending_for("cond-1").is_empty());
+        store.release_delivery(&report.id);
+        assert_eq!(store.claim_pending_for("cond-1").len(), 1);
+        store.mark_delivered(&report.id);
+        assert!(store.claim_pending_for("cond-1").is_empty());
     }
 
     #[test]

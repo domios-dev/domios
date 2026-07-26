@@ -241,6 +241,9 @@ pub async fn hook_stop(
         .svc
         .run_watcher
         .complete_via_stop_hook(&state.svc, &pane_id);
+    state
+        .svc
+        .complete_worker_turn_without_report(&pane_id, "provider-stop");
 
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -310,6 +313,9 @@ pub async fn hook_session_start(
     )?;
     crate::service::general_agent::binding_wait::notify_session_bound();
     acknowledge_authenticated_launch(&state.svc.mux, &pane_id, &claim, report_nonce.as_deref());
+    if claim.nonce_verified {
+        state.svc.rearm_authenticated_agent_input(&pane_id);
+    }
 
     // while it runs — not only after completion.
     propagate_run_session(&state, &pane_id, &sid);

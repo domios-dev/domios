@@ -34,9 +34,8 @@ pub struct InjectionResult {
     pub bytes_written: usize,
     pub echo_observed: bool,
     pub submit_observed: bool,
-    /// The submit succeeded only via the bounded recovery path (the paste render
-    /// event was never observed and one forced Enter was issued). Success still
-    /// required the provider turn transition; this flags the transport anomaly.
+    /// The submit needed the bounded recovery path after paste or turn evidence
+    /// was missed. Success still required the provider turn transition.
     pub submit_anomaly: bool,
     pub elapsed: Duration,
 }
@@ -74,6 +73,9 @@ pub enum InjectionError {
     PtyClosed {
         pty_id: String,
     },
+    AgentInputUnavailable {
+        pty_id: String,
+    },
     AgentTuiPresent {
         pty_id: String,
     },
@@ -106,6 +108,13 @@ impl std::fmt::Display for InjectionError {
                 )
             }
             Self::PtyClosed { pty_id } => write!(f, "pty {} is closed", pty_id),
+            Self::AgentInputUnavailable { pty_id } => {
+                write!(
+                    f,
+                    "agent_unavailable: input permit is stale for pty {}",
+                    pty_id
+                )
+            }
             Self::AgentTuiPresent { pty_id } => {
                 write!(
                     f,
@@ -423,7 +432,7 @@ mod tests {
         // 5000-char paste: only the trailing portion fits into the 8-row tail window. Echo verify must still confirm via suffix match.
         let body: String = "A".repeat(4900);
         let expected = format!(
-            "-=-codeterm:mesh peer=peer-a pane=abc12345-=-{} TAIL_TOKEN_END",
+            "-=-codeterm:mesh peer=peer-a tab=abc12345-=-{} TAIL_TOKEN_END",
             body
         );
         // Tail captured by screen_state contains only the last ~640 chars of the paste.
@@ -456,7 +465,7 @@ mod tests {
     fn bracketed_paste_placeholder_counts_as_echo_for_long_input() {
         let screen = "> [Pasted text #7 +1 line]\n  Press Enter to send";
         let expected = format!(
-            "-=-codeterm:mesh peer=PEER pane=abc12345-=-{}",
+            "-=-codeterm:mesh peer=PEER tab=abc12345-=-{}",
             "x".repeat(500)
         );
         assert!(
@@ -470,7 +479,7 @@ mod tests {
         // required the suffix and missed this case entirely, which is why the v1.1.18 smoke test failed for ~4.7KB single-line mesh messages.
         let screen = "> [Pasted text #1]";
         let expected = format!(
-            "-=-codeterm:mesh peer=PEER pane=abc12345-=-{}",
+            "-=-codeterm:mesh peer=PEER tab=abc12345-=-{}",
             "x".repeat(4500)
         );
         assert!(

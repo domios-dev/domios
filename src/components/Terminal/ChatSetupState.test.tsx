@@ -56,7 +56,7 @@ async function render(element: React.ReactElement): Promise<HTMLElement> {
 
 async function main() {
   await test("stage labels are launch-event labels", () => {
-    assert(chatSetupStageLabel("pty_starting", "Claude Code") === "Creating pane…", "pty_starting");
+    assert(chatSetupStageLabel("pty_starting", "Claude Code") === "Creating tab…", "pty_starting");
     assert(chatSetupStageLabel("pty_spawned", "Claude Code") === "Spawn accepted…", "pty_spawned");
     assert(chatSetupStageLabel("shell_ready", "Claude Code") === "Session attached…", "shell_ready");
     assert(chatSetupStageLabel("preparing_role_instructions", "Claude Code") === "Preparing claude code instructions…", "preparing_role_instructions");

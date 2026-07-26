@@ -70,14 +70,6 @@ pub fn append_entry(
     Ok(entry)
 }
 
-pub fn latest_verdict(plan_dir: &Path, slug: &str) -> Option<String> {
-    read_ledger(plan_dir)
-        .into_iter()
-        .rev()
-        .find(|entry| entry.slug == slug)
-        .map(|entry| entry.verdict)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -115,17 +107,5 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let entry = append_entry(tmp.path(), "x", "keep", "line1\nline2").unwrap();
         assert_eq!(entry.rationale, "line1 line2");
-    }
-
-    #[test]
-    fn latest_verdict_tracks_history() {
-        let tmp = tempfile::tempdir().unwrap();
-        let plan_dir = tmp.path();
-        append_entry(plan_dir, "a", "keep", "new").unwrap();
-        append_entry(plan_dir, "a", "discard", "obsolete").unwrap();
-        append_entry(plan_dir, "b", "keep", "new").unwrap();
-        assert_eq!(latest_verdict(plan_dir, "a").as_deref(), Some("discard"));
-        assert_eq!(latest_verdict(plan_dir, "b").as_deref(), Some("keep"));
-        assert_eq!(latest_verdict(plan_dir, "missing"), None);
     }
 }

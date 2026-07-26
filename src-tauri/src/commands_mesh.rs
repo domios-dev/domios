@@ -30,90 +30,11 @@ pub fn mesh_refresh_discovery(
 pub async fn mesh_connect(
     mesh: tauri::State<'_, crate::MeshStateHandle>,
     instance_id: String,
-) -> Result<(), String> {
-    let (request, target_addr, target_port, instance_id) = {
-        let m = mesh.lock();
-        let peer = crate::mesh::discovered::resolve_discovered(&m.discovered_peers, &instance_id)
-            .map_err(|e| e.to_string())?;
-        let instance_id = peer.instance_id.clone();
-        let addr = peer
-            .addresses
-            .iter()
-            .find(|a| a.is_tailscale)
-            .or_else(|| peer.addresses.first())
-            .ok_or_else(|| "No address for peer".to_string())?;
-
-        let local_addr = m
-            .tailscale_ip
-            .clone()
-            .or_else(|| m.local_ip.clone())
-            .unwrap_or_else(|| "127.0.0.1".to_string());
-        let public_key = m
-            .ident
-            .identity
-            .public_key
-            .clone()
-            .ok_or("No identity keypair")?;
-
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        let request = crate::mesh::types::PairingRequest {
-            request_id: uuid::Uuid::new_v4().to_string(),
-            from_instance_id: m.ident.identity.instance_id.clone(),
-            from_instance_name: m.ident.instance_name.clone(),
-            from_address: local_addr,
-            from_port: m.api_port,
-            from_addresses: m.local_announce_addresses(),
-            public_key,
-            timestamp: now,
-            status: crate::mesh::types::PairingStatus::Pending,
-            introduced_by: None,
-        };
-        (request, addr.ip.clone(), peer.api_port, instance_id)
-    };
-
-    {
-        let mut m = mesh.lock();
-        m.pairing_targets.insert(
-            request.request_id.clone(),
-            (target_addr.clone(), target_port, instance_id.clone()),
-        );
-        m.pending_requests
-            .insert(request.request_id.clone(), request.clone());
-    }
-
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .unwrap_or_default();
-    let url = format!(
-        "http://{}:{}/api/mesh/pair/request",
-        target_addr, target_port
-    );
-    let resp = client
-        .post(&url)
-        .json(&request)
-        .send()
+) -> Result<serde_json::Value, String> {
+    crate::api::mesh_routes::connection::connect_peer(mesh.inner().clone(), instance_id)
         .await
-        .map_err(|e| format!("Network error: {}", e))?;
-    if !resp.status().is_success() {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(format!("Pair request rejected: {}", body));
-    }
-    let receipt = resp
-        .json::<serde_json::Value>()
-        .await
-        .map_err(|e| format!("Invalid pair response: {}", e))?;
-    let remote_instance_id = receipt["instance_id"]
-        .as_str()
-        .ok_or("Pair response omitted the peer identity")?;
-    mesh.lock()
-        .confirm_pairing_target_identity(&request.request_id, remote_instance_id)?;
-
-    log::info!("[mesh] Pairing request sent to {}", remote_instance_id);
-    Ok(())
+        .map(|result| result.as_json())
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]

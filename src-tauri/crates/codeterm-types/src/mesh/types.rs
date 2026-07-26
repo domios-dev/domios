@@ -1,5 +1,7 @@
 //! Mesh networking types — peer discovery, pairing, and communication.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 fn default_true() -> bool {
@@ -335,6 +337,9 @@ pub struct GossipPeerInfo {
 pub struct MeshSyncPayload {
     /// Known peers in the mesh (addresses only, no tokens).
     pub peers: Vec<GossipPeerInfo>,
+    /// Monotonic generation of the sender's authoritative peer-claim snapshot.
+    #[serde(default)]
+    pub generation: u64,
 }
 
 // ── Relay ───────────────────────────────────────────────────────────
@@ -433,6 +438,12 @@ pub struct RevocationList {
     pub revoked: Vec<String>,
     /// Instance IDs blocked from sending pairing requests.
     pub blocked: Vec<String>,
+    /// Locally-created tombstones. Their generation survives restart so stale
+    /// gossip cannot recreate an explicitly removed peer.
+    #[serde(default)]
+    pub tombstones: HashMap<String, u64>,
+    #[serde(default)]
+    pub next_tombstone_generation: u64,
 }
 
 #[cfg(test)]

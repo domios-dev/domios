@@ -2,7 +2,7 @@ use codeterm_types::config::schema::UsageConfig;
 use codeterm_types::usage::UsageSnapshotRow;
 
 pub const FRESHNESS_MS: i64 = 180_000;
-pub const HIGH_PCT_THRESHOLD: f32 = 80.0;
+pub const HIGH_PCT_THRESHOLD: f32 = 90.0;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UsageDigestLine {
@@ -19,24 +19,24 @@ pub fn usage_digest_lines(
     if !cfg.enabled || !cfg.heartbeat || rows.is_empty() {
         return (Vec::new(), None);
     }
-    let threshold = if cfg.high_pct_threshold > 0.0 {
-        cfg.high_pct_threshold
-    } else {
-        HIGH_PCT_THRESHOLD
-    };
     let mut lines = Vec::new();
-    let mut high_labels = Vec::new();
-    let mut low_labels = Vec::new();
+    let mut high_count = 0;
+    let mut lower_usage_count = 0;
     for row in rows {
-        let line = render_usage_line(row, now_ms, cfg.freshness_secs.saturating_mul(1000) as i64);
-        if row.high_pressure(threshold) {
-            high_labels.push(row.label.clone());
-        } else {
-            low_labels.push(row.label.clone());
+        let line = render_usage_line(
+            row,
+            now_ms,
+            cfg.freshness_secs.saturating_mul(1000) as i64,
+            HIGH_PCT_THRESHOLD,
+        );
+        if row.high_pressure(HIGH_PCT_THRESHOLD) {
+            high_count += 1;
+        } else if row.primary_pct().is_some() {
+            lower_usage_count += 1;
         }
         lines.push(line);
     }
-    let guidance = balancing_guidance(&high_labels, &low_labels);
+    let guidance = balancing_guidance(high_count, lower_usage_count, HIGH_PCT_THRESHOLD);
     (lines, guidance)
 }
 
@@ -47,10 +47,11 @@ pub struct UsageDigestRow {
 
 impl UsageDigestRow {
     pub fn high_pressure(&self, threshold: f32) -> bool {
-        self.row
-            .as_ref()
-            .and_then(primary_pct)
-            .is_some_and(|pct| pct >= threshold)
+        self.primary_pct().is_some_and(|pct| pct >= threshold)
+    }
+
+    fn primary_pct(&self) -> Option<f32> {
+        self.row.as_ref().and_then(primary_pct)
     }
 }
 
@@ -58,7 +59,12 @@ fn primary_pct(row: &UsageSnapshotRow) -> Option<f32> {
     row.weekly_pct.or(row.session_pct)
 }
 
-fn render_usage_line(row: &UsageDigestRow, now_ms: i64, freshness_ms: i64) -> String {
+fn render_usage_line(
+    row: &UsageDigestRow,
+    now_ms: i64,
+    freshness_ms: i64,
+    threshold: f32,
+) -> String {
     let Some(snapshot) = row.row.as_ref() else {
         return format!("{}: no snapshot yet", row.label);
     };
@@ -80,11 +86,7 @@ fn render_usage_line(row: &UsageDigestRow, now_ms: i64, freshness_ms: i64) -> St
             .or(snapshot.session_resets_at)
             .map(|ts| format_reset_local(ts))
             .unwrap_or_default();
-        let flag = if pct >= HIGH_PCT_THRESHOLD {
-            " — REDUCE"
-        } else {
-            ""
-        };
+        let flag = if pct >= threshold { " — REDUCE" } else { "" };
         return format!(
             "{}: {:.0}% {window}{reset}{flag}{stale_tag}",
             row.label, pct
@@ -96,7 +98,7 @@ fn render_usage_line(row: &UsageDigestRow, now_ms: i64, freshness_ms: i64) -> St
         } else {
             0.0
         };
-        let flag = if pct >= HIGH_PCT_THRESHOLD as f64 {
+        let flag = if pct >= threshold as f64 {
             " — REDUCE"
         } else {
             ""
@@ -120,15 +122,17 @@ fn format_reset_local(ts_ms: i64) -> String {
     format!(" (resets {:02}:{:02})", local.hour(), local.minute())
 }
 
-fn balancing_guidance(high: &[String], low: &[String]) -> Option<String> {
-    if high.is_empty() || low.is_empty() {
+fn balancing_guidance(
+    high_count: usize,
+    lower_usage_count: usize,
+    threshold: f32,
+) -> Option<String> {
+    if high_count == 0 || lower_usage_count == 0 {
         return None;
     }
     Some(format!(
-        "{} >{:.0}%: prefer routing new dispatches to {} until reset",
-        high.join("/"),
-        HIGH_PCT_THRESHOLD,
-        low.join("/")
+        "Usage pressure above {:.0}%: if further dispatch is needed, use available lower-usage workers until reset",
+        threshold
     ))
 }
 
@@ -168,7 +172,7 @@ mod tests {
     }
 
     #[test]
-    fn renders_provider_lines_and_balancing_guidance() {
+    fn default_threshold_is_ninety_and_guidance_is_provider_neutral() {
         let cfg = UsageConfig::default();
         let now = 1_000_000_i64;
         let rows = vec![
@@ -177,7 +181,7 @@ mod tests {
                 row: Some(row("codex", 91.0, now - 30_000)),
             },
             UsageDigestRow {
-                label: "Claude".into(),
+                label: "Claude Code".into(),
                 row: Some(row("claude", 62.0, now - 30_000)),
             },
         ];
@@ -187,8 +191,61 @@ mod tests {
             .any(|l| l.contains("91%") && l.contains("REDUCE")));
         assert!(lines.iter().any(|l| l.contains("62%")));
         let hint = guidance.expect("guidance");
-        assert!(hint.contains("Codex"));
-        assert!(hint.contains("Claude"));
+        assert!(hint.contains("90%"));
+        assert!(hint.contains("available lower-usage workers"));
+        assert!(!hint.contains("Codex"));
+        assert!(!hint.contains("Claude Code"));
+    }
+
+    #[test]
+    fn fixed_threshold_does_not_reduce_the_ninety_percent_policy() {
+        let cfg = UsageConfig::default();
+        let now = 1_000_000_i64;
+        let rows = vec![
+            UsageDigestRow {
+                label: "Provider A".into(),
+                row: Some(row("a", 89.0, now)),
+            },
+            UsageDigestRow {
+                label: "Provider B".into(),
+                row: Some(row("b", 91.0, now)),
+            },
+        ];
+        let (lines, guidance) = usage_digest_lines(&cfg, now, &rows);
+        assert!(!lines[0].contains("REDUCE"));
+        assert!(lines[1].contains("REDUCE"));
+        assert!(guidance.expect("guidance").contains("90%"));
+    }
+
+    #[test]
+    fn does_not_offer_guidance_without_known_lower_usage_provider() {
+        let cfg = UsageConfig::default();
+        let now = 1_000_000_i64;
+        let all_high = vec![
+            UsageDigestRow {
+                label: "Provider A".into(),
+                row: Some(row("a", 91.0, now)),
+            },
+            UsageDigestRow {
+                label: "Provider B".into(),
+                row: Some(row("b", 95.0, now)),
+            },
+        ];
+        assert!(usage_digest_lines(&cfg, now, &all_high).1.is_none());
+
+        let no_lower_snapshot = vec![
+            UsageDigestRow {
+                label: "Provider A".into(),
+                row: Some(row("a", 91.0, now)),
+            },
+            UsageDigestRow {
+                label: "Provider B".into(),
+                row: None,
+            },
+        ];
+        assert!(usage_digest_lines(&cfg, now, &no_lower_snapshot)
+            .1
+            .is_none());
     }
 
     #[test]

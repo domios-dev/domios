@@ -776,13 +776,15 @@ mod tests {
 
     #[test]
     fn run_times_out_blocking_process() {
+        // The grandchild outsleeps any PowerShell startup jitter, so run()
+        // blocking on it reads as a 30s outlier, not a boundary value.
         #[cfg(windows)]
         let opts = serde_json::json!({
             "bin": "powershell",
             "args": [
                 "-NoProfile",
                 "-Command",
-                r#"$p = Start-Process -FilePath powershell -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 2') -NoNewWindow -PassThru; Wait-Process -Id $p.Id"#
+                r#"$p = Start-Process -FilePath powershell -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 30') -NoNewWindow -PassThru; Wait-Process -Id $p.Id"#
             ],
             "timeoutMs": 50,
         });
@@ -793,10 +795,17 @@ mod tests {
             "timeoutMs": 50,
         });
 
+        // Windows: budget for slow PowerShell interpreter startup under CI
+        // contention (measured well before the 30s a real regression would take).
+        #[cfg(windows)]
+        let max_elapsed = Duration::from_secs(8);
+        #[cfg(not(windows))]
+        let max_elapsed = Duration::from_secs(1);
+
         let started = Instant::now();
         let out: serde_json::Value = serde_json::from_str(&run(&opts.to_string())).unwrap();
         assert!(
-            started.elapsed() < Duration::from_secs(1),
+            started.elapsed() < max_elapsed,
             "timeout waited for descendant pipe handles to close: {:?}",
             started.elapsed()
         );

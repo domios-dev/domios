@@ -177,8 +177,8 @@ fn read_bounded_text(path: &std::path::Path) -> Option<String> {
     Some(text)
 }
 
-/// The expensive (network git-clone) channel diff, run only on the background
-/// refresh thread owned by `diff_cache`, never inline in the passive snapshot.
+/// The expensive channel diff runs inside the snapshot's blocking worker.
+/// Cold reads complete inline; warm stale reads refresh in the background.
 fn fetch_channel_diff() -> Result<Value, String> {
     run_plugin_cli(&["plugin", "channel", "diff", "--json"])
 }
@@ -241,7 +241,7 @@ pub(super) fn build_snapshot(
     // Best-effort register the default channel so its plugins surface as available; offline failures retry next snapshot.
     let _ = run_plugin_cli(&["plugin", "channel", "ensure-default", "--json"]);
     let channels = run_plugin_cli(&["plugin", "channel", "list", "--json"])?;
-    // background-refreshed cache so it never blocks the snapshot hot path.
+    // Cold completion stays inside the blocking snapshot worker.
     let diff = super::diff_cache::cached_diff(fetch_channel_diff);
 
     let plugins_arr = plugins

@@ -235,6 +235,31 @@ impl ServiceContext {
         self.write_pane_agent_type(pane_id, agent_type, false);
     }
 
+    pub(crate) fn invalidate_guarded_agent_input(&self, pane_id: &str) {
+        let pty_id = self
+            .mux
+            .read()
+            .get_pane(pane_id)
+            .and_then(|pane| pane.pty_id.clone());
+        if let Some(pty_id) = pty_id {
+            self.pty.lock().invalidate_guarded_input(&pty_id);
+        }
+    }
+
+    pub(crate) fn rearm_authenticated_agent_input(&self, pane_id: &str) {
+        let pty_id = self.mux.read().get_pane(pane_id).and_then(|pane| {
+            (pane.agent_type.is_some()
+                && pane.agent_session_id.is_some()
+                && pane.session_binding_nonce == pane.reported_session_binding_nonce)
+                .then(|| pane.pty_id.clone())
+                .flatten()
+        });
+        if let Some(pty_id) = pty_id {
+            let _ = self.pty.lock().rearm_guarded_input(&pty_id);
+            crate::service::boot_wait::notify_boot_changed();
+        }
+    }
+
     /// Same as `set_pane_agent_type` but also pins `agent_type_locked = true`.
     /// Used by spawn paths and the typed-launch input parser to declare explicit
     /// user intent. While locked, output-based re-detection is ignored.
@@ -252,6 +277,9 @@ impl ServiceContext {
     }
 
     fn write_pane_agent_type(&self, pane_id: &str, agent_type: Option<String>, lock: bool) {
+        if agent_type.is_none() {
+            self.invalidate_guarded_agent_input(pane_id);
+        }
         let transition = {
             let mut mux = self.mux.write();
             let Some(pane) = mux.get_pane_mut(pane_id) else {
@@ -680,8 +708,9 @@ impl ServiceContext {
                 return;
             }
         }
+        let mut changed = false;
         if let Some(pane) = mux.get_pane_mut(pane_id) {
-            let changed = pane.agent_session_id != session_id;
+            changed = pane.agent_session_id != session_id;
             pane.agent_session_id = session_id;
             pane.reported_session_binding_nonce = None;
             if changed {
@@ -689,6 +718,9 @@ impl ServiceContext {
             }
         }
         drop(mux);
+        if changed {
+            self.invalidate_guarded_agent_input(pane_id);
+        }
         if session_bound {
             crate::service::general_agent::binding_wait::notify_session_bound();
         }
@@ -698,6 +730,7 @@ impl ServiceContext {
 
     /// Rotate the per-launch binding nonce before a provider command is written.
     pub fn rotate_session_binding_nonce(&self, pane_id: &str) -> String {
+        self.invalidate_guarded_agent_input(pane_id);
         let nonce = uuid::Uuid::new_v4().to_string();
         if let Some(pane) = self.mux.write().get_pane_mut(pane_id) {
             pane.session_binding_nonce = Some(nonce.clone());

@@ -10,6 +10,7 @@ mod cli_shim;
 mod conpty_host;
 mod frontend_ready;
 mod logging;
+mod rest_api;
 mod servers;
 mod states;
 mod window;
@@ -24,6 +25,7 @@ pub(crate) use frontend_ready::{
     wait_for_frontend_ready_until,
 };
 pub(crate) use logging::setup_logging;
+pub(crate) use rest_api::{RestApiControl, RestApiControlState, RestApiStatus};
 pub(crate) use servers::start_servers;
 pub(crate) use states::init_states;
 pub(crate) use window::{build_system_tray, setup_window_styling};

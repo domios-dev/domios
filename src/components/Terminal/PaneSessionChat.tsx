@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { MessageBubble } from "@codeterm/chat-ui";
@@ -27,7 +27,8 @@ import { PendingPromptCard } from "./PendingPromptCard";
 import { AgentStateIndicator } from "./AgentStateIndicator";
 import type { AgentState } from "./AgentStateIndicator";
 import { useAttachments } from "./useAttachments";
-import { useChatSession, isCodeTermFrontendTestMode } from "./useChatSession";
+import { useChatSession, isCodeTermFrontendTestMode, paintTailSignature } from "./useChatSession";
+import { chatProjectionMonitor, scheduleAfterPaint } from "./chatProjectionDiagnostics";
 import { ChatModelBubble } from "../Extensions/ChatModelBubble";
 import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
 import { WatcherReadOnlyBar } from "./WatcherReadOnlyBar";
@@ -37,6 +38,7 @@ import { reattachPaneChat } from "./chatReattach";
 import { planRefViewState } from "./planRefViewState";
 import { useChatScroll } from "./useChatScroll";
 import { resolveTabNavigationTarget } from "./tabNavigation";
+import { observeChatSendStatus } from "./chatSendStatus";
 
 interface Props {
   paneId: string;
@@ -45,8 +47,8 @@ interface Props {
   onOpenTerminalFallback?: () => void;
   uiFontScale?: number;
   isVisible?: boolean;
-  /** Pane is backed by a plugin chatBackend (no PTY). Sends route through the
-   *  pane send seam, and PTY-only affordances (terminal fallback, screen poll)
+  /** Tab is backed by a plugin chatBackend (no PTY). Sends route through the
+   *  tab send seam, and PTY-only affordances (terminal fallback, screen poll)
    *  are suppressed. */
   chatBackend?: boolean;
 }
@@ -97,6 +99,7 @@ export function PaneSessionChat({
   if (isCodeTermFrontendTestMode()) {
     const counts = (window.__renderCounts ??= {});
     counts[paneId] = (counts[paneId] ?? 0) + 1;
+    window.__chatProjection ??= chatProjectionMonitor;
   }
 
   const touchMode = useTouchOptimizedUi();
@@ -174,6 +177,7 @@ export function PaneSessionChat({
     sessionBindingNonce: pane?.session_binding_nonce,
     onError,
     active: isActive,
+    diagnosticSink: chatProjectionMonitor.sink,
   });
   const bootSetupView = chatSetupView(pane, loading || attachmentState === "attached");
 
@@ -183,12 +187,6 @@ export function PaneSessionChat({
     showScrollDown,
     scrollToBottom,
     followSend: rawFollowSentMessage,
-    handleWheel,
-    handlePointerDown,
-    handlePointerMove,
-    handlePointerUp,
-    handlePointerCancel,
-    handleKeyDown,
     handleScroll,
   } = useChatScroll({
     sessionKey: `${paneId}:${agentSessionId ?? ""}`,
@@ -227,7 +225,7 @@ export function PaneSessionChat({
   // input path the composer uses; jump surfaces the live terminal output.
   const handleRerunShellCommand = useCallback((command: string) => {
     if (!currentPtyId) {
-      showComposerError("Pane has no PTY");
+      showComposerError("Tab has no PTY");
       return;
     }
     void invoke("write_pty_string", { ptyId: currentPtyId, data: command + "\r", raw: false }).catch(
@@ -251,7 +249,7 @@ export function PaneSessionChat({
 
   const handleStopAgent = useCallback(() => {
     if (!currentPtyId) {
-      showComposerError("Pane has no PTY");
+      showComposerError("Tab has no PTY");
       return;
     }
     const now = Date.now();
@@ -269,8 +267,8 @@ export function PaneSessionChat({
       const answer = text.trim();
       if (!answer) return;
       if (!currentPtyId) {
-        showComposerError("Pane has no PTY");
-        throw new Error("Pane has no PTY");
+        showComposerError("Tab has no PTY");
+        throw new Error("Tab has no PTY");
       }
       setAnsweredInteractiveIds((prev) => new Set(prev).add(element.id));
       followSentMessage();
@@ -309,27 +307,34 @@ export function PaneSessionChat({
     [paneTitleMap],
   );
 
-  const deferredEnrichedMessages = useDeferredValue(enrichedMessages);
+  const renderedEnrichedMessages = enrichedMessages;
+  const deferredPlanRefMessages = useDeferredValue(enrichedMessages);
+  // Record the visible tail after paint so diagnostics do not overstate progress
+  // when React commits faster than the browser paints.
+  useEffect(() => {
+    const tail = paintTailSignature(renderedEnrichedMessages[renderedEnrichedMessages.length - 1]?.msg);
+    return scheduleAfterPaint(() => chatProjectionMonitor.recordPaint(paneId, tail));
+  }, [paneId, renderedEnrichedMessages]);
+  // Drop torn-down pane diagnostics immediately instead of waiting for LRU eviction.
+  useEffect(() => () => chatProjectionMonitor.forget(paneId), [paneId]);
   const latestFailedToolCallId = useMemo(() => {
-    for (let i = deferredEnrichedMessages.length - 1; i >= 0; i -= 1) {
-      const msg = deferredEnrichedMessages[i]?.msg;
+    for (let i = renderedEnrichedMessages.length - 1; i >= 0; i -= 1) {
+      const msg = renderedEnrichedMessages[i]?.msg;
       if (msg?.type === "tool_call" && msg.toolError === true) {
         return msg.id;
       }
     }
     return null;
-  }, [deferredEnrichedMessages]);
+  }, [renderedEnrichedMessages]);
 
-  // Reuse the previous array when the deduped ref-set is unchanged: a fresh
-  // identity every streamed chunk would churn resolvePlanRef and re-render the
-  // whole MessageBubble list (each re-parsing markdown) → composer input stall.
+  // Keep the ref array stable when streaming changes no plan reference.
   const visiblePlanRefsRef = useRef<{
     key: string;
     value: Array<{ planId: string; targetId?: string; targetKind: "plan" | "task" | "section" }>;
   }>({ key: "", value: [] });
   const visiblePlanRefs = useMemo(() => {
     const refs: Array<{ planId: string; targetId?: string; targetKind: "plan" | "task" | "section" }> = [];
-    for (const { msg } of deferredEnrichedMessages) {
+    for (const { msg } of deferredPlanRefMessages) {
       if (msg.type === "tool_result" || msg.type === "system" || msg.type === "local_command") continue;
       for (const ref of extractPlanRefs(msg.content ?? "")) {
         refs.push({
@@ -344,7 +349,7 @@ export function PaneSessionChat({
     if (key === prev.key) return prev.value;
     visiblePlanRefsRef.current = { key, value: refs };
     return refs;
-  }, [deferredEnrichedMessages]);
+  }, [deferredPlanRefMessages]);
   const resolvedPlanRefs = usePlanRefResolver(
     api ?? DISABLED_PLAN_API,
     visiblePlanRefs,
@@ -396,6 +401,40 @@ export function PaneSessionChat({
     if (target) void selectTabByPane(target.workspaceId, target.paneId);
   }, [paneAgentTypes, planNav.workspaces, selectTabByPane]);
 
+  // Preserve origin prop identities so streamed chunks do not re-render old bubbles.
+  type OriginProps = { key: string; onOriginClick: () => void; originAvatar: ReactNode };
+  const originPropsCacheRef = useRef<Map<string, OriginProps>>(new Map());
+  const originFocusRef = useRef<((paneId: string) => void) | null>(null);
+  const originPropsById = useMemo(() => {
+    // onOriginClick closes over setFocusedPane, so a new setFocusedPane identity
+    // must rebind every entry — drop the cache instead of reusing stale closures.
+    if (originFocusRef.current !== setFocusedPane) {
+      originFocusRef.current = setFocusedPane;
+      originPropsCacheRef.current = new Map();
+    }
+    const cache = originPropsCacheRef.current;
+    const next = new Map<string, OriginProps>();
+    for (const { msg, origin } of renderedEnrichedMessages) {
+      if (origin?.kind !== "pane") continue;
+      const idShort = origin.paneIdShort;
+      const fullId = Object.keys(paneAgentTypes).find((id) => id.startsWith(idShort));
+      if (!fullId) continue;
+      const providerId = paneAgentTypes[fullId] ?? "";
+      const key = `${fullId}:${providerId}`;
+      const prev = cache.get(msg.id);
+      const entry: OriginProps = prev && prev.key === key
+        ? prev
+        : {
+            key,
+            onOriginClick: () => setFocusedPane(fullId),
+            originAvatar: providerId ? <OriginProviderAvatar providerId={providerId} /> : undefined,
+          };
+      next.set(msg.id, entry);
+    }
+    originPropsCacheRef.current = next;
+    return next;
+  }, [renderedEnrichedMessages, paneAgentTypes, setFocusedPane]);
+
   useEffect(() => {
     if (backendState?.state === "working" || pendingPrompt) {
       setLongIdle(false);
@@ -404,6 +443,13 @@ export function PaneSessionChat({
     const id = window.setTimeout(() => setLongIdle(true), 90_000);
     return () => window.clearTimeout(id);
   }, [backendState?.state, pendingPrompt]);
+
+  useEffect(
+    () => observeChatSendStatus(paneId, (message) => {
+      console.warn(`[chat-send] ${message}`);
+    }),
+    [paneId],
+  );
 
   // subtype); it arrives via the mux snapshot and events, no local polling needed.
   const liveAgentState: AgentState = useMemo(() => {
@@ -458,7 +504,7 @@ export function PaneSessionChat({
       data-testid="pane-session-chat"
       data-pane-id={paneId}
       role="region"
-      aria-label={`Pane chat: ${pane?.title ?? paneId}`}
+      aria-label={`Tab chat: ${pane?.title ?? paneId}`}
       aria-busy={loading || recovering}
       style={{
         background: "var(--ct-bg, #0d1117)",
@@ -481,12 +527,6 @@ export function PaneSessionChat({
       <div className="relative flex-1 min-h-0">
       <div
         ref={scrollRef}
-        onWheel={handleWheel}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerCancel}
-        onKeyDown={handleKeyDown}
         onScroll={handleScroll}
         className="absolute inset-0 overflow-y-auto overscroll-contain p-3"
         data-testid="pane-session-chat-messages"
@@ -539,7 +579,7 @@ export function PaneSessionChat({
             </button>
           </div>
         )}
-        {deferredEnrichedMessages.length === 0 && !inlinePrompt && liveAgentState.state !== "question" && (
+        {renderedEnrichedMessages.length === 0 && !inlinePrompt && liveAgentState.state !== "question" && (
           error ? null : recovering ? (
             <div className="opacity-50 text-center py-8 text-sm" data-testid="chat-recovering-state">
               Recovering chat history…
@@ -550,17 +590,8 @@ export function PaneSessionChat({
             </div>
           ) : null
         )}
-        {deferredEnrichedMessages.map(({ msg, item, origin }) => {
-          let onOriginClick: (() => void) | undefined;
-          let originProviderId: string | null | undefined;
-          if (origin?.kind === "pane") {
-            const idShort = origin.paneIdShort;
-            const fullId = Object.keys(paneAgentTypes).find((id) => id.startsWith(idShort));
-            if (fullId) {
-              onOriginClick = () => setFocusedPane(fullId);
-              originProviderId = paneAgentTypes[fullId];
-            }
-          }
+        {renderedEnrichedMessages.map(({ msg, item, origin }) => {
+          const originProps = originPropsById.get(msg.id);
           return (
             <div
               key={msg.id}
@@ -583,12 +614,8 @@ export function PaneSessionChat({
                 answeredInteractiveIds={answeredInteractiveIds}
                 onRerunShellCommand={handleRerunShellCommand}
                 onJumpToShellCommand={onOpenTerminalFallback ? handleJumpToShellCommand : undefined}
-                originAvatar={
-                  origin?.kind === "pane" && originProviderId
-                    ? <OriginProviderAvatar providerId={originProviderId} />
-                    : undefined
-                }
-                onOriginClick={onOriginClick}
+                originAvatar={originProps?.originAvatar}
+                onOriginClick={originProps?.onOriginClick}
                 onFocusPane={resolveFocusTab}
               />
             </div>
@@ -607,7 +634,7 @@ export function PaneSessionChat({
           onOpenTerminal={onOpenTerminalFallback}
           onEscape={focusComposer}
         />
-        {!inlinePrompt && (deferredEnrichedMessages.length > 0 || liveAgentState.state === "question") && (
+        {!inlinePrompt && (renderedEnrichedMessages.length > 0 || liveAgentState.state === "question") && (
           // with the message text instead of the far-left container edge.
           <div className="w-full max-w-4xl min-w-0 mx-auto">
             <AgentStateIndicator
@@ -652,7 +679,7 @@ export function PaneSessionChat({
         />
       ) : (
       <>
-      {deferredEnrichedMessages.length > 0 && (
+      {renderedEnrichedMessages.length > 0 && (
         <ChatSetupStatusLine
           pane={pane}
           providerName={provider?.displayName ?? "the agent"}

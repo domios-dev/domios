@@ -16,6 +16,7 @@ pub mod activity;
 pub mod agent_restart;
 pub mod boot_stage;
 mod boot_wait;
+pub(crate) mod chat_send_transaction;
 mod command_port_impl;
 pub mod cron;
 pub mod delivery_error;
@@ -25,6 +26,7 @@ mod hierarchy;
 mod inject_safety;
 pub mod inject_verify;
 pub mod input_parser;
+mod kpi_hooks;
 pub(crate) mod launch_delivery;
 pub(crate) mod launch_diagnostics;
 pub mod message_gateway;
@@ -59,10 +61,10 @@ pub mod spawn;
 mod spawn_chatbackend;
 mod spawn_cli;
 mod spawn_factory;
-mod spawn_guard;
 mod spawn_params;
 mod spawn_plan_task;
 pub(crate) mod spawn_title;
+mod status_reconciliation;
 pub mod store;
 pub mod structured_prompt;
 pub mod sync_watcher;
@@ -82,7 +84,7 @@ mod worker_identity;
 mod worker_lane;
 #[cfg(test)]
 pub(crate) use worker_lane::provision_lane_for_test;
-pub(crate) use worker_lane::ProvisionedWorkerLane;
+pub(crate) use worker_lane::{verify_worker_lane, ProvisionedWorkerLane, WorkerLaneProvenance};
 mod worker_persona;
 mod workspace;
 
@@ -143,6 +145,8 @@ pub struct ServiceContext {
     /// command list + cwd). Fed from `process_pty_output`; consumed by chat.
     pub shell_caps: crate::ShellCapabilityState,
     pub report_store: ReportStoreState,
+    /// Orchestration-economics event writer. Disabled (and file-less) unless `kpi.enabled`.
+    pub kpi: crate::agent::kpi::KpiRecorder,
     pub agent_registry: Arc<AgentRegistry>,
     pub mem: Arc<crate::mem::MemManager>,
     pub mem_supervisor: Arc<crate::mem::supervisor::Supervisor>,
@@ -242,6 +246,7 @@ pub struct ServiceContext {
     pub plan_turn_counter: Arc<crate::service::plan::reminders::TurnCounter>,
     pub(crate) pending_delivery_payloads:
         Arc<pending_delivery_payloads::PendingDeliveryPayloadStore>,
+    pub(crate) chat_send_ledger: Arc<chat_send_transaction::ChatSendLedger>,
     pub(crate) worker_identity_allocator:
         Arc<parking_lot::Mutex<worker_persona::WorkerPersonaReservations>>,
     /// The single optimistic outbound-delivery seam with idempotency.
@@ -429,6 +434,7 @@ impl ServiceContext {
         let pending = self.mux_emit_pending.clone();
         let mux = self.mux.clone();
         let agent_tracker = self.agent_tracker.clone();
+        let agent_registry = self.agent_registry.clone();
         let stats = self.mux_emit_stats.clone();
         let spawned = std::thread::Builder::new()
             .name("mux-emit".into())
@@ -436,6 +442,7 @@ impl ServiceContext {
                 let snapshot = Self::coalesce_snapshot(
                     &mux,
                     &agent_tracker,
+                    &agent_registry,
                     &pending,
                     std::time::Duration::from_millis(50),
                 );
@@ -486,12 +493,13 @@ impl ServiceContext {
     fn coalesce_snapshot(
         mux: &MuxState,
         agent_tracker: &AgentTrackerState,
+        agent_registry: &AgentRegistry,
         pending: &AtomicBool,
         delay: std::time::Duration,
     ) -> crate::multiplexer::state::MultiplexerSnapshot {
         std::thread::sleep(delay);
         pending.store(false, Ordering::Release);
-        mux.read().snapshot_with_status(&agent_tracker.lock())
+        status_reconciliation::snapshot_with_reconciled_status(mux, agent_tracker, agent_registry)
     }
 
     pub(crate) fn emit_pane_title_pinned(&self, pane_id: &str, title: &str) {

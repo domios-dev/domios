@@ -32,6 +32,7 @@ function base(): ExtendedState {
     toasts: [],
     activeTabIds: {},
     generation: 0,
+    pendingCloses: [],
   };
 }
 
@@ -783,6 +784,115 @@ test("CLOSE_TAB removes a manager-root subtree", () => {
   assert(after.panes["pane-orch"], "orchestrator pane remains");
   assert(!after.panes["pane-manager"] && !after.panes["pane-worker"], "manager subtree panes removed");
   assert(Object.keys(after.paneStatuses).length === 0, "manager subtree statuses removed");
+});
+
+function snapWithTabs(
+  generation: number,
+  pairs: Array<[string, string]>,
+): MultiplexerState {
+  const panes: Record<string, Pane> = {};
+  for (const [, paneId] of pairs) panes[paneId] = { id: paneId, title: paneId } as unknown as Pane;
+  return {
+    workspaces: [
+      {
+        id: "w1",
+        name: "W",
+        tabs: pairs.map(([id, pane_id]) => ({ id, pane_id })),
+        active_tab_id: pairs[0]?.[0] ?? null,
+        cwd: null,
+      } as unknown as Workspace,
+    ],
+    panes,
+    active_workspace_id: "w1",
+    focused_pane_id: null,
+    generation,
+  };
+}
+
+function tabIds(state: ExtendedState): string {
+  return state.workspaces[0]?.tabs.map((t) => t.id).join(",") ?? "";
+}
+
+test("SET_STATE masks a tombstoned pane from an accepted snapshot", () => {
+  const start = { ...base(), generation: 5, pendingCloses: ["pane-B"] };
+  const next = reducer(start, {
+    type: "SET_STATE",
+    state: snapWithTabs(6, [["A", "pane-A"], ["B", "pane-B"]]),
+  });
+  assert(tabIds(next) === "A", "closed tab B masked out of the accepted snapshot");
+  assert(!next.panes["pane-B"], "masked pane removed from panes map");
+  assert(next.pendingCloses.join(",") === "pane-B", "tombstone retained while the pane is reported");
+});
+
+test("SET_STATE self-clears a tombstone when the accepted snapshot omits the pane", () => {
+  const start = { ...base(), generation: 5, pendingCloses: ["pane-B"] };
+  const next = reducer(start, {
+    type: "SET_STATE",
+    state: snapWithTabs(6, [["A", "pane-A"]]),
+  });
+  assert(tabIds(next) === "A", "only the live tab remains");
+  assert(next.pendingCloses.length === 0, "tombstone cleared once the accepted snapshot omits the pane");
+});
+
+test("SET_STATE does NOT clear a tombstone on a rejected stale snapshot that omits the pane", () => {
+  const start = { ...base(), generation: 10, pendingCloses: ["pane-B"] };
+  const stale = reducer(start, {
+    type: "SET_STATE",
+    state: snapWithTabs(5, [["A", "pane-A"]]),
+  });
+  assert(stale === start, "stale snapshot is rejected outright");
+  assert(stale.pendingCloses.join(",") === "pane-B", "rejected snapshot must not clear the tombstone");
+  const later = reducer(stale, {
+    type: "SET_STATE",
+    state: snapWithTabs(11, [["A", "pane-A"], ["B", "pane-B"]]),
+  });
+  assert(tabIds(later) === "A", "surviving tombstone still masks B on a later accepted snapshot");
+});
+
+test("no time-based expiry: repeated accepted snapshots listing the pane keep masking", () => {
+  let state: ExtendedState = { ...base(), generation: 0, pendingCloses: ["pane-B"] };
+  for (let gen = 1; gen <= 50; gen++) {
+    state = reducer(state, {
+      type: "SET_STATE",
+      state: snapWithTabs(gen, [["A", "pane-A"], ["B", "pane-B"]]),
+    });
+    assert(tabIds(state) === "A", `gen ${gen}: B stays masked`);
+    assert(state.pendingCloses.join(",") === "pane-B", `gen ${gen}: tombstone never self-expires`);
+  }
+  const omitted = reducer(state, {
+    type: "SET_STATE",
+    state: snapWithTabs(51, [["A", "pane-A"]]),
+  });
+  assert(omitted.pendingCloses.length === 0, "only an accepted omitting snapshot clears the tombstone");
+});
+
+test("REMOVE_PENDING_CLOSE drops the tombstone so a later snapshot restores the pane", () => {
+  const start = { ...base(), generation: 5, pendingCloses: ["pane-B"] };
+  const removed = reducer(start, { type: "REMOVE_PENDING_CLOSE", paneIds: ["pane-B"] });
+  assert(removed.pendingCloses.length === 0, "explicit remove drops the tombstone");
+  const restored = reducer(removed, {
+    type: "SET_STATE",
+    state: snapWithTabs(6, [["A", "pane-A"], ["B", "pane-B"]]),
+  });
+  assert(tabIds(restored) === "A,B", "with no tombstone the authoritative pane reappears");
+});
+
+test("CLOSE_TAB records a tombstone for the removed pane", () => {
+  const start: ExtendedState = {
+    ...base(),
+    workspaces: [
+      { id: "w1", name: "W", tabs: [{ id: "A", pane_id: "pane-A" }], active_tab_id: "A", cwd: null } as unknown as Workspace,
+    ],
+    panes: { "pane-A": { id: "pane-A", title: "A" } as unknown as Pane },
+    activeTabIds: { w1: "A" },
+  };
+  const next = reducer(start, {
+    type: "CLOSE_TAB",
+    workspaceId: "w1",
+    tabId: "A",
+    removedPaneIds: ["pane-A"],
+  });
+  assert(next.pendingCloses.join(",") === "pane-A", "closing a tab tombstones its pane");
 });
 
 console.log(failures === 0 ? "✓ reducer tests green" : `✗ ${failures} failure(s)`);

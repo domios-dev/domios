@@ -168,8 +168,7 @@ pub async fn do_approve(
             consecutive_misses: 0,
             last_active_ms: None,
         };
-        m.paired_peers
-            .insert(request.from_instance_id.clone(), peer);
+        m.complete_explicit_pairing(peer);
         m.pending_requests.remove(&request_id);
         let _ = m.save();
     }
@@ -260,8 +259,7 @@ pub async fn mesh_pair_accept(
             consecutive_misses: 0,
             last_active_ms: None,
         };
-        mesh.paired_peers
-            .insert(accept.from_instance_id.clone(), peer);
+        mesh.complete_explicit_pairing(peer);
         mesh.pending_requests.remove(&accept.request_id);
         mesh.pairing_targets.remove(&accept.request_id);
         let _ = mesh.save();

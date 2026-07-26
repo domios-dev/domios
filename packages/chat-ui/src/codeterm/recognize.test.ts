@@ -27,7 +27,7 @@ eq(inv?.positionals, ["Понял, буду"], "send positional payload");
 
 eq(recognize('codeterm agent spawn claude --task "go"')?.path, ["agent", "spawn"], "agent spawn path");
 eq(recognize("CODETERM_API_PORT=7686 codeterm tab list")?.path, ["tab", "list"], "env-prefix stripped");
-eq(recognize("cd frontend && codeterm agent reports")?.path, ["agent", "reports"], "cd-prefix chain strips to codeterm segment");
+eq(recognize("cd frontend && codeterm agent report")?.path, ["agent", "report"], "cd-prefix chain strips to codeterm segment");
 eq(
   recognize('cd /d/Developer/codeterm\ncodeterm agent report --status in_review --sha abc123 "done" 2>&1 | tail -3')?.path,
   ["agent", "report"],
@@ -52,7 +52,7 @@ eq(recognize("codeterm plan task update task_1 --status done")?.path, ["plan", "
 eq(recognize("codeterm spec link add pl_1 --spec sp_1")?.path, ["spec", "link", "add"], "depth-3 spec path");
 
 console.log("\n--- templates ---\n");
-import { renderTemplate } from "./templates";
+import { describeAction, renderTemplate } from "./templates";
 
 const sent = recognize('codeterm send --tab bda0e267 "hi there"')!;
 eq(renderTemplate(sent).title, "Sent to tab bda0e267", "send title");
@@ -71,6 +71,10 @@ eq(renderTemplate(sentUnknown, undefined, resolveName).title, "Sent to tab deadb
 
 const spawn = recognize('codeterm agent spawn claude --task "do x" --workspace ws1')!;
 eq(renderTemplate(spawn).title, "Spawned claude", "agent spawn title");
+const close = recognize("codeterm tab close tab_8f1e2d")!;
+eq(describeAction(close, undefined, (ref) => (ref === "tab_8f1e2d" ? "Research board" : undefined)).lead, "tab close", "tab close action lead");
+eq(describeAction(close, undefined, (ref) => (ref === "tab_8f1e2d" ? "Research board" : undefined)).object, "Research board (tab_8f1e2d)", "tab close object includes closed id");
+eq(describeAction(close).object, "tab tab_8f1e2d", "tab close fallback object uses raw id");
 
 eq(renderTemplate(recognize("codeterm cron list --json")!).title, "cron list", "unknown → fallback title");
 

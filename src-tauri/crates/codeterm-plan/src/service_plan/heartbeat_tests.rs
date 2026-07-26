@@ -57,66 +57,6 @@ fn heartbeat_learning_persists_reloads_and_dedups() {
 }
 
 #[test]
-fn heartbeat_set_writes_focus_lanes_rules_and_reinjects() {
-    let (_dir, store, plan_id) = store_with_plan("orch-a");
-
-    let result = store
-        .set_heartbeat(
-            Some(&plan_id),
-            None,
-            None,
-            Some("Land lane fixes"),
-            Some(vec!["lane-a: cli".into(), "  ".into()]),
-            Some(vec!["never merge before gate green".into()]),
-            false,
-            false,
-            20,
-        )
-        .unwrap();
-    assert_eq!(
-        result.heartbeat.current_focus.as_deref(),
-        Some("Land lane fixes")
-    );
-    assert_eq!(
-        result.heartbeat.active_lanes,
-        vec!["lane-a: cli".to_string()]
-    );
-    assert_eq!(
-        result.heartbeat.rules,
-        vec!["never merge before gate green".to_string()]
-    );
-
-    // Auto-reinjection now carries the focus + lanes set above.
-    let reinjected = store.prepend_heartbeat_for_orchestrator_pane("orch-a", "continue");
-    assert!(reinjected.contains("Current focus: Land lane fixes"));
-    assert!(reinjected.contains("lane-a: cli"));
-
-    // Partial set leaves unspecified fields intact; --clear-lanes empties lanes.
-    let cleared = store
-        .set_heartbeat(
-            Some(&plan_id),
-            None,
-            None,
-            None,
-            None,
-            None,
-            true,
-            false,
-            30,
-        )
-        .unwrap();
-    assert_eq!(
-        cleared.heartbeat.current_focus.as_deref(),
-        Some("Land lane fixes")
-    );
-    assert!(cleared.heartbeat.active_lanes.is_empty());
-    assert_eq!(
-        cleared.heartbeat.rules,
-        vec!["never merge before gate green".to_string()]
-    );
-}
-
-#[test]
 fn heartbeat_renders_live_competitive_attempt_summary() {
     let (_dir, store, plan_id) = store_with_plan("orch-a");
     let task_id = store
@@ -149,35 +89,6 @@ fn heartbeat_renders_live_competitive_attempt_summary() {
             "competitive lane",
             2
         )));
-}
-
-#[test]
-fn planning_mode_rejects_runtime_heartbeat_state() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = PlanStore::new_for_test(dir.path());
-    let plan = store
-        .create_plan(
-            "Planning".into(),
-            dir.path().display().to_string(),
-            OrchestratorRef::from_pane("orch-a"),
-            vec![],
-            10,
-        )
-        .unwrap();
-    let err = store
-        .set_heartbeat(
-            Some(&plan.id),
-            None,
-            None,
-            Some("remember this"),
-            None,
-            None,
-            false,
-            false,
-            20,
-        )
-        .unwrap_err();
-    assert!(matches!(err, super::PlanError::HeartbeatRequiresExecution));
 }
 
 #[test]
@@ -230,11 +141,11 @@ fn heartbeat_resolution_prefers_execution_plan_with_open_work() {
 
     let shown = store.show_heartbeat(None, Some("orch-a"), None).unwrap();
     assert_eq!(shown.plan_id, live.id);
-    assert_eq!(shown.heartbeat.current_focus.as_deref(), Some("live focus"));
+    assert_eq!(shown.heartbeat.current_focus, None);
 
     let text = store.prepend_heartbeat_for_orchestrator_pane("orch-a", "continue");
     assert!(text.contains(&format!("plan=\"{}\"", live.id)));
-    assert!(text.contains("Current focus: live focus"));
+    assert!(!text.contains("Current focus:"));
     assert!(!text.contains("old focus"));
 
     store
@@ -291,13 +202,16 @@ fn heartbeat_resolves_for_owner_pane_at_send_time() {
     assert!(before.starts_with("<codeterm-role-identity"));
     assert!(before.contains(&format!("You are the Orchestrator for plan {plan_id}")));
     assert!(before.contains("STATE-RECONCILIATION"));
-    assert!(before.contains("First run `codeterm agent reports --tab orch-a`"));
+    assert!(before.contains("Worker reports are pushed into this tab automatically"));
+    assert!(!before.contains("codeterm agent reports"));
     assert!(before.contains("codeterm orchestrator status --plan"));
-    assert!(before.contains("--tab orch-a --json"));
+    assert!(before.contains("--tab orch-a"));
+    assert!(!before.contains("--tab orch-a --json"));
+    assert!(before.contains("codeterm orchestrator inspect --plan"));
     assert!(before.contains("codeterm plan reconcile"));
     assert!(before.contains("codeterm plan task close"));
     assert!(before.contains("codeterm send \"<next concrete instruction>\" --tab"));
-    assert!(before.contains("Keep the plan-owned heartbeat current"));
+    assert!(before.contains("Heartbeat is derived automatically"));
     assert!(before.contains("codeterm docs ORCHESTRATION"));
     assert!(!before.contains("Re-arm exactly one heartbeat"));
     assert!(before.ends_with("continue"));
@@ -333,9 +247,9 @@ fn heartbeat_resolves_for_owner_pane_at_send_time() {
     let after = store.prepend_heartbeat_for_orchestrator_pane("orch-a", "continue");
     assert!(after.contains("<codeterm-state-reconciliation"));
     assert!(after.contains("<codeterm-orchestrator-heartbeat"));
-    assert!(after.contains("Current focus: Review worker branches"));
-    assert!(after.contains("Active lanes:\n- backend tests\n- frontend canvas"));
-    assert!(after.contains("Rules:\n- Workers report in_review only"));
+    assert!(!after.contains("Current focus:"));
+    assert!(!after.contains("Active lanes:"));
+    assert!(!after.contains("Rules:"));
     assert!(after.contains("Workers report in_review"));
     assert_eq!(
         after
@@ -352,8 +266,7 @@ fn heartbeat_resolves_for_owner_pane_at_send_time() {
         })
         .unwrap();
     let resolved_later = store.prepend_heartbeat_for_orchestrator_pane("orch-a", "continue");
-    assert!(resolved_later.contains("Current focus: Integrate verified branches"));
-    assert!(!resolved_later.contains("Current focus: Review worker branches"));
+    assert!(!resolved_later.contains("Current focus:"));
 
     let worker_text = store.prepend_heartbeat_for_orchestrator_pane("worker-a", "continue");
     assert_eq!(worker_text, "continue");
@@ -372,7 +285,7 @@ fn notifier_delivery_uses_same_state_reconciliation_prelude() {
     assert!(text.contains("STATE-RECONCILIATION"));
     assert!(text.contains("execution-mode plan with unfinished work"));
     assert!(text.contains("codeterm docs ORCHESTRATION"));
-    assert!(text.contains("Reconcile live panes against the plan"));
+    assert!(text.contains("Reconcile live tabs against the plan"));
     assert!(text.contains("codeterm plan task close"));
     assert!(text.contains("codeterm plan task update"));
     assert!(text.contains("[task in_review]"));
@@ -396,18 +309,17 @@ fn owner_plan_nudge_prepends_heartbeat_and_exact_recovery_commands() {
 
     assert!(text.starts_with("<codeterm-role-identity"));
     assert!(text.contains(&format!("You are the Orchestrator for plan {plan_id}")));
-    assert!(text.contains("codeterm agent reports --tab orch-a"));
+    assert!(text.contains("Worker reports are pushed into this tab automatically"));
+    assert!(!text.contains("codeterm agent reports"));
     assert!(text.contains(&format!(
-        "codeterm orchestrator status --plan {plan_id} --tab orch-a --json"
+        "codeterm orchestrator status --plan {plan_id} --tab orch-a"
     )));
     assert!(text.contains(&format!("codeterm plan task close {plan_id} <task_id>")));
     assert!(text.contains("codeterm send \"<next concrete instruction>\" --tab <worker_tab_id>"));
-    assert!(text.contains(&format!(
-        "codeterm orchestrator heartbeat set --plan {plan_id}"
-    )));
+    assert!(text.contains("Heartbeat is derived automatically"));
     assert!(text.contains("codeterm docs ORCHESTRATION"));
-    assert!(text.contains("<codeterm-orchestrator-heartbeat"));
-    assert!(text.contains("Current focus: Review open lanes"));
+    assert!(!text.contains("<codeterm-orchestrator-heartbeat"));
+    assert!(!text.contains("Current focus:"));
     assert!(text.contains("Plan reminder: this tab owns unfinished execution-plan work."));
 }
 
@@ -428,7 +340,7 @@ fn role_identity_names_planner_peer_across_reinjection() {
     let text = store.prepend_heartbeat_for_plan(&plan_id, "resume");
 
     assert!(text.contains(&format!("You are the Orchestrator for plan {plan_id}")));
-    assert!(text.contains("peer tab Planner is pane planner-a"));
+    assert!(text.contains("peer tab Planner is tab planner-a"));
     assert!(text.contains("<codeterm-state-reconciliation"));
 }
 
@@ -456,7 +368,7 @@ fn all_tasks_done_plan_produces_no_reconciliation_prepend() {
         )
         .unwrap();
 
-    let nudge_body = "Plan reminder: this pane owns unfinished execution-plan work.";
+    let nudge_body = "Plan reminder: this tab owns unfinished execution-plan work.";
     let result = store.prepend_heartbeat_for_plan(&plan_id, nudge_body);
     assert_eq!(
         result, nudge_body,

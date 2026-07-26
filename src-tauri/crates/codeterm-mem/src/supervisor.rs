@@ -304,6 +304,7 @@ mod tests {
     /// Returns the path to the script (kept alive by `_dir`).
     #[cfg(unix)]
     fn fake_cli(dir: &tempfile::TempDir, stdout: &str, exit_code: i32) -> PathBuf {
+        use std::io::Write;
         use std::os::unix::fs::PermissionsExt;
         let script = dir.path().join("fake-cli");
         let body = format!(
@@ -311,7 +312,13 @@ mod tests {
             stdout.replace('\'', "'\\''"),
             exit_code
         );
-        std::fs::write(&script, body).unwrap();
+        {
+            let mut file = std::fs::File::create(&script).unwrap();
+            file.write_all(body.as_bytes()).unwrap();
+            // Force the write through before exec: a merely-closed fd can still
+            // race spawn() as ETXTBSY on some filesystems under load.
+            file.sync_all().unwrap();
+        }
         let mut perms = std::fs::metadata(&script).unwrap().permissions();
         perms.set_mode(0o755);
         std::fs::set_permissions(&script, perms).unwrap();

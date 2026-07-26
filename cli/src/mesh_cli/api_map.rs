@@ -204,7 +204,34 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             _ => ("GET".into(), "/api/workspaces".into(), None),
         },
         Commands::Tab { action } => match action {
-            crate::PaneAction::List { .. } => ("GET".into(), "/api/panes".into(), None),
+            crate::PaneAction::List {
+                workspace,
+                all_workspaces,
+                agents,
+            } => {
+                let mut query = vec![format!("agents={agents}")];
+                if let Some(workspace) = workspace {
+                    query.push(format!("workspace_id={}", urlencoding::encode(workspace)));
+                } else if !all_workspaces {
+                    query.push("focused_workspace=true".into());
+                }
+                (
+                    "GET".into(),
+                    format!("/api/panes?{}", query.join("&")),
+                    None,
+                )
+            }
+            crate::PaneAction::Inspect { tabs } => (
+                "GET".into(),
+                format!(
+                    "/api/panes/inspect?pane_ids={}",
+                    tabs.iter()
+                        .map(|pane| urlencoding::encode(pane).into_owned())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                ),
+                None,
+            ),
             crate::PaneAction::Current { .. } => ("GET".into(), "/api/panes".into(), None),
             crate::PaneAction::New {
                 workspace,
@@ -425,7 +452,6 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 interval,
                 nudge_cooldown,
                 max_actions,
-                allow_shared_checkout,
                 bound_task,
                 plan_task,
             } => {
@@ -530,9 +556,6 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 if let Some(max_actions) = max_actions {
                     body["max_actions_per_tick"] = serde_json::json!(max_actions);
-                }
-                if *allow_shared_checkout {
-                    body["allow_shared_checkout"] = serde_json::json!(true);
                 }
                 if let Some(tid) = bound_task {
                     body["task_id"] = serde_json::json!(tid);

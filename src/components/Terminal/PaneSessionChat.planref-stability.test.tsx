@@ -1,11 +1,5 @@
 // Run: npx tsx src/components/Terminal/PaneSessionChat.planref-stability.test.tsx
-//
-// Render-count oracle for the composer-freeze fix. A long chat streams many
-// tail-delta chunks (as codex does per token batch). Every chunk re-renders
-// PaneSessionChat; the fix keeps visiblePlanRefs (and thus resolvePlanRef)
-// referentially stable when the ref-set is unchanged, so memoized MessageBubble
-// rows for UNCHANGED messages must NOT re-render per chunk. Before the fix each
-// chunk churned resolvePlanRef and re-rendered the whole visible list.
+// Render-count oracle: stable visiblePlanRefs must keep memoized rows from re-rendering per stream chunk.
 
 import { act } from "react";
 import { Window } from "happy-dom";
@@ -71,6 +65,7 @@ function muxStateFor(panes: Record<string, Pane>): ExtendedState {
     focused_pane_id: Object.keys(panes)[0] ?? null,
     notifications: [], paneStatuses: {}, toasts: [], activeTabIds: {},
     generation: 1,
+    pendingCloses: [],
   };
 }
 

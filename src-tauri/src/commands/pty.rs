@@ -149,8 +149,9 @@ pub async fn spawn_pty_core(
     }
 
     let t0 = std::time::Instant::now();
+    let spawn_gate = state.lock().spawn_gate();
     let built = tokio::task::spawn_blocking(move || {
-        crate::pty::manager::build_session(command, cwd, cols, rows, env_vars)
+        crate::pty::manager::build_session(spawn_gate, command, cwd, cols, rows, env_vars)
     })
     .await
     .map_err(|e| format!("spawn_pty join error: {}", e))??;
@@ -694,16 +695,19 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
             Ok(data)
         }
         Err(e) => {
-            tracker.lock().set_dead(&pty_id);
+            let raw_prev = {
+                let mut tracker = tracker.lock();
+                let prev = tracker.get_status(&pty_id);
+                tracker.set_dead(&pty_id);
+                prev
+            };
             let pane_id = mux.write().pane_id_for_pty(&pty_id);
             if let Some(ref pid) = pane_id {
-                crate::api::events::emit_everywhere(
-                    &app,
-                    "pane-status-changed",
-                    serde_json::json!({
-                        "pane_id": pid,
-                        "status": "Dead",
-                    }),
+                let prev = svc.reconciled_pane_status_for_id(pid, raw_prev);
+                svc.emit_pane_status_if_changed(
+                    &pty_id,
+                    prev,
+                    crate::agent::status::PaneStatus::Dead,
                 );
 
                 // Cron fallback marks failed if agent dies without cron completion.

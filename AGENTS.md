@@ -36,11 +36,15 @@ When splitting a file with inline `#[cfg(test)] mod tests`, keep `mod tests;` in
 
 Use `build.sh` (`build.ps1` from PowerShell). It scopes lifecycle operations to dev and never kills prod.
 
+Choose the operation before running a command: shared development is `docs/BUILD.md#development`; a local production installer for this machine is `docs/BUILD.md#local-production-build-and-self-install`; public publishing is `docs/RELEASE.md`. Do not substitute one for another. For every newly discovered build failure, fix the owning step and add the symptom, cause, and recovery to that operation's troubleshooting section before declaring it complete.
+
 ```bash
 ./build.sh dev              # incremental dev (port 7686, hot reload, auto-builds CLI)
 ./build.sh check            # cargo check (~2s incremental)
+./build.sh release-preflight # refresh and verify both Cargo lockfiles before a production build
 ./build.sh test             # Rust unit tests
 ./build.sh build            # production build
+./build.sh install-local    # incremental production build + self-install (Windows canonical)
 ./build.sh cli              # rebuild CLI only → ~/.codeterm/bin/ (no dev restart)
 ./build.sh kill             # safe kill of dev only
 ./build.sh e2e              # API E2E tests against running dev
@@ -190,6 +194,15 @@ Verify on macOS, Windows, Linux. Never add platform-specific code without handli
 
 Repository-local operational skills live in `.agents/skills/`. Load the matching skill for dev, testing, prompt evaluation, or release work instead of duplicating its procedure here.
 
+## Orchestration failure visibility
+
+Treat failures in CodeTerm's own coordination path as product incidents. A
+false-success dispatch, missing `AgentReady` or session binding, undelivered
+brief, vanished Worker, or lost task assignment requires an immediate,
+standalone user alert before work continues. State the impact, affected tasks,
+cleanup performed, and active fallback; never bury the failure inside a later
+technical status or silently retry it.
+
 ## Code style
 
 SOLID + DRY non-negotiable. **Default: NO comments** — names + types + structure carry meaning. Only comment WHY (non-obvious invariant, OS quirk, deliberate workaround), never WHAT. **Hard limit: 2 lines per comment, strictly.** No multi-line narrative comment blocks — if a WHY needs more than 2 lines, the code needs a better name or a smaller function, not more prose. Giant explanatory comment blocks are forbidden and get removed on sight. (Applies to inline `//` comments; license/file headers and public-API doc comments are exempt but must still stay terse.) Detailed Rust + TypeScript guidance and architecture guardrails: **`docs/contributing/style.md`**.
@@ -235,4 +248,4 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
 
-<!-- revision: 6 -->
+<!-- revision: 8 -->

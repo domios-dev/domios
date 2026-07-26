@@ -260,11 +260,28 @@ impl PlanStore {
             return Err(PlanError::TaskNotFound);
         };
         let write = self.with_plan(&plan_id, now_ms, |p| {
-            let task = p
+            let task_index = p
                 .tasks
-                .iter_mut()
-                .find(|task| task.id == canonical_task_id)
+                .iter()
+                .position(|task| task.id == canonical_task_id)
                 .ok_or(PlanError::TaskNotFound)?;
+            if let Some(pane) =
+                pane_id.filter(|_| p.tasks[task_index].status == TaskStatus::Pending)
+            {
+                let lane = super::TaskLaneUpdate {
+                    pane_id: Some(Some(pane.to_string())),
+                    ..Default::default()
+                };
+                super::mutations::validate_task_status_transition_with_lane(
+                    p,
+                    &canonical_task_id,
+                    &TaskStatus::Pending,
+                    &TaskStatus::InProgress,
+                    None,
+                    Some(&lane),
+                )?;
+            }
+            let task = &mut p.tasks[task_index];
             task.assigned_pane_id = pane_id.map(str::to_string);
             task.taken_by_role = taken_by_role.map(str::to_string);
             if let Some(pane) = pane_id {

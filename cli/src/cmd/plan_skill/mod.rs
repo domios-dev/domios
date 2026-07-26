@@ -2,7 +2,6 @@ use serde_json::{json, Value};
 
 use crate::args::plan::PlanSkillAction;
 use crate::client::RpcClient;
-use crate::cmd::plan_local::project_root;
 
 pub mod ledger;
 pub mod mem;
@@ -22,8 +21,8 @@ pub fn handle(
             check,
             rationale,
         } => new_skill(client, json, slug, plan, title, area, check, rationale),
-        PlanSkillAction::List { plan } => list_skills(json, plan),
-        PlanSkillAction::Show { slug, plan } => show_skill(json, slug, plan),
+        PlanSkillAction::List { plan } => list_skills(client, json, plan),
+        PlanSkillAction::Show { slug, plan } => show_skill(client, json, slug, plan),
         PlanSkillAction::Edit {
             slug,
             plan,
@@ -59,23 +58,34 @@ fn record_stride(
     }
 }
 
-fn resolve(plan: Option<String>) -> Result<(String, std::path::PathBuf), String> {
-    let root = project_root(None)?;
+fn resolve_local(plan: Option<String>) -> Result<(String, std::path::PathBuf), String> {
+    let root = crate::cmd::plan_local::project_root(None)?;
     store::resolve_plan_dir(&root, plan)
 }
 
-fn titleize(slug: &str) -> String {
-    slug.split('-')
-        .filter(|w| !w.is_empty())
-        .map(|w| {
-            let mut c = w.chars();
-            match c.next() {
-                Some(first) => first.to_ascii_uppercase().to_string() + c.as_str(),
-                None => String::new(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+fn plan_rpc_params(plan: Option<String>) -> Value {
+    let plan_id = plan.filter(|value| !value.trim().is_empty()).or_else(|| {
+        std::env::var("CODETERM_PLAN_ID")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+    });
+    let mut params = json!({});
+    if let Some(plan_id) = plan_id {
+        params["plan_id"] = json!(plan_id);
+    } else {
+        crate::cmd::plan::maybe_inject_caller_pane(&mut params);
+    }
+    params
+}
+
+fn call(client: &mut dyn RpcClient, method: &str, params: Value) -> Result<Value, String> {
+    crate::cmd::plan::call_plan_rpc(client, method, params)
+}
+
+fn skill_value<'a>(response: &'a Value, method: &str) -> Result<&'a Value, String> {
+    response
+        .get("skill")
+        .ok_or_else(|| format!("{method} returned no skill"))
 }
 
 fn best_effort_index(plan_id: &str, plan_dir: &std::path::Path, slug: &str) -> bool {
@@ -99,47 +109,37 @@ fn new_skill(
     check: Option<String>,
     rationale: Option<String>,
 ) -> Result<Option<Value>, String> {
-    let (plan_id, plan_dir) = resolve(plan)?;
-    let slug = store::slugify(&slug);
-    if slug.is_empty() {
-        return Err("slug is empty after normalization".to_string());
+    let mut params = plan_rpc_params(plan);
+    params["slug"] = json!(slug);
+    if let Some(value) = title {
+        params["title"] = json!(value);
     }
-    let dir = store::skill_dir(&plan_dir, &slug);
-    if dir.exists() {
-        return Err(format!(
-            "plan skill '{slug}' already exists at {}",
-            dir.display()
-        ));
+    if let Some(value) = area {
+        params["area"] = json!(value);
     }
-    let title = title.unwrap_or_else(|| titleize(&slug));
-    let area = area.unwrap_or_else(|| "general".to_string());
-    std::fs::create_dir_all(dir.join("scripts")).map_err(|e| e.to_string())?;
-    let skill_md = store::skill_md_path(&plan_dir, &slug);
-    std::fs::write(
-        &skill_md,
-        store::scaffold(&slug, &title, &area, check.as_deref()),
-    )
-    .map_err(|e| e.to_string())?;
-
-    let rationale = rationale.unwrap_or_else(|| "created".to_string());
-    let entry = ledger::append_entry(&plan_dir, &slug, store::KEEP, &rationale)?;
-    let timeline = record_stride(client, &plan_id, &slug, store::KEEP, &rationale);
-    let indexed = best_effort_index(&plan_id, &plan_dir, &slug);
-
+    if let Some(value) = check {
+        params["check"] = json!(value);
+    }
+    if let Some(value) = rationale {
+        params["rationale"] = json!(value);
+    }
+    let response = call(client, "plan.skills.new", params)?;
     if json {
-        return Ok(Some(json!({
-            "plan_id": plan_id,
-            "slug": slug,
-            "skill_md": skill_md.display().to_string(),
-            "ledger_seq": entry.seq,
-            "timeline_recorded": timeline,
-            "mem_indexed": indexed,
-        })));
+        return Ok(Some(response));
     }
-    println!("Created plan skill '{slug}' for plan {plan_id}");
-    println!("  SKILL.md: {}", skill_md.display());
-    println!("  scripts:  {}", dir.join("scripts").display());
-    println!("  ledger:   seq {} verdict={}", entry.seq, entry.verdict);
+    let skill = skill_value(&response, "plan.skills.new")?;
+    println!(
+        "Created plan skill '{}' for plan {}",
+        skill["slug"].as_str().unwrap_or(""),
+        response["plan_id"].as_str().unwrap_or("")
+    );
+    println!("  SKILL.md: {}", skill["skill_md"].as_str().unwrap_or(""));
+    println!("  scripts:  {}", skill["scripts"].as_str().unwrap_or(""));
+    println!(
+        "  ledger:   seq {} verdict={}",
+        skill["ledger_seq"],
+        skill["verdict"].as_str().unwrap_or("")
+    );
     Ok(None)
 }
 
@@ -153,7 +153,7 @@ fn edit_skill(
     rationale: String,
     body_file: Option<String>,
 ) -> Result<Option<Value>, String> {
-    let (plan_id, plan_dir) = resolve(plan)?;
+    let (plan_id, plan_dir) = resolve_local(plan)?;
     let slug = store::slugify(&slug);
     let skill_md = store::skill_md_path(&plan_dir, &slug);
     if !skill_md.is_file() {
@@ -186,25 +186,30 @@ fn edit_skill(
     Ok(None)
 }
 
-fn list_skills(json: bool, plan: Option<String>) -> Result<Option<Value>, String> {
-    let (plan_id, plan_dir) = resolve(plan)?;
-    let slugs = store::list_skills(&plan_dir);
-    let rows: Vec<Value> = slugs
-        .iter()
-        .map(|slug| {
-            let verdict = ledger::latest_verdict(&plan_dir, slug).unwrap_or_else(|| "-".into());
-            json!({ "slug": slug, "verdict": verdict })
-        })
-        .collect();
+fn list_skills(
+    client: &mut dyn RpcClient,
+    json: bool,
+    plan: Option<String>,
+) -> Result<Option<Value>, String> {
+    let response = call(client, "plan.skills.list", plan_rpc_params(plan))?;
     if json {
-        return Ok(Some(json!({ "plan_id": plan_id, "skills": rows })));
+        return Ok(Some(response));
     }
+    let rows = response["skills"]
+        .as_array()
+        .ok_or_else(|| "plan.skills.list returned no skills array".to_string())?;
     if rows.is_empty() {
-        println!("No plan skills for plan {plan_id}.");
+        println!(
+            "No plan skills for plan {}.",
+            response["plan_id"].as_str().unwrap_or("")
+        );
         return Ok(None);
     }
-    println!("Plan skills for {plan_id}:");
-    for row in &rows {
+    println!(
+        "Plan skills for {}:",
+        response["plan_id"].as_str().unwrap_or("")
+    );
+    for row in rows {
         println!(
             "  - {} [{}]",
             row["slug"].as_str().unwrap_or(""),
@@ -214,31 +219,22 @@ fn list_skills(json: bool, plan: Option<String>) -> Result<Option<Value>, String
     Ok(None)
 }
 
-fn show_skill(json: bool, slug: String, plan: Option<String>) -> Result<Option<Value>, String> {
-    let (plan_id, plan_dir) = resolve(plan)?;
-    let slug = store::slugify(&slug);
-    let skill_md = store::skill_md_path(&plan_dir, &slug);
-    if !skill_md.is_file() {
-        return Err(format!("plan skill '{slug}' not found"));
-    }
-    let body = std::fs::read_to_string(&skill_md).map_err(|e| e.to_string())?;
-    let history: Vec<Value> = ledger::read_ledger(&plan_dir)
-        .into_iter()
-        .filter(|entry| entry.slug == slug)
-        .map(|entry| json!({ "seq": entry.seq, "verdict": entry.verdict, "rationale": entry.rationale }))
-        .collect();
+fn show_skill(
+    client: &mut dyn RpcClient,
+    json: bool,
+    slug: String,
+    plan: Option<String>,
+) -> Result<Option<Value>, String> {
+    let mut params = plan_rpc_params(plan);
+    params["slug"] = json!(slug);
+    let response = call(client, "plan.skills.show", params)?;
     if json {
-        return Ok(Some(json!({
-            "plan_id": plan_id,
-            "slug": slug,
-            "skill_md": skill_md.display().to_string(),
-            "body": body,
-            "ledger": history,
-        })));
+        return Ok(Some(response));
     }
-    print!("{body}");
+    let skill = skill_value(&response, "plan.skills.show")?;
+    print!("{}", skill["body"].as_str().unwrap_or(""));
     println!("\n--- ledger ---");
-    for entry in &history {
+    for entry in skill["ledger"].as_array().into_iter().flatten() {
         println!(
             "  seq {} [{}] {}",
             entry["seq"],

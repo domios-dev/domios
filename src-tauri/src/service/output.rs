@@ -179,19 +179,23 @@ impl ServiceContext {
                 prev_status,
                 current_status
             );
+            // A settled turn is the event that means the provider log grew; the pass
+            // itself runs on the ledger thread, never here.
+            if let Some(ref pid) = pane_id {
+                self.request_kpi_usage_ingest(pid);
+            }
         }
+        let previous_reconciled_status = pane_id
+            .as_deref()
+            .map(|pid| self.reconciled_pane_status_for_id(pid, prev_status))
+            .unwrap_or(prev_status);
 
         // agent_type is intentional: explicit spawn paths set it directly.
         // Output parsing no longer infers identity except the narrow shell-prompt exit path.
         let agent_type = if agent_type.is_none() {
             None
         } else if let Some(ref pid) = pane_id {
-            // Agent already detected — check if it's still running. This is the SOLE agent exit detection point (removed from idle-poll to avoid races).
-            // Only check periodically to avoid overhead on every chunk.
-            static UNDETECT_COUNT: std::sync::atomic::AtomicU64 =
-                std::sync::atomic::AtomicU64::new(0);
-            let count = UNDETECT_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            if is_planner || count % 50 == 0 {
+            if should_check_agent_exit(is_planner, screen_changed) {
                 // Keep a short grace after session-tagging so early prompt snapshots don't trigger false exits.
                 // Locked panes skip output-based clearing because slow startup can leave stale prompt text visible.
                 if in_grace_cached || (locked_cached && !is_planner) {
@@ -200,6 +204,7 @@ impl ServiceContext {
                     if let Some(pane) = self.mux.write().get_pane_mut(pid) {
                         pane.exit_suspected_at = None;
                     }
+                    self.rearm_authenticated_agent_input(pid);
                     agent_type
                 } else {
                     let screen = self
@@ -211,6 +216,7 @@ impl ServiceContext {
                         && self.agent_registry.detect_from_output(&screen).is_none()
                         && screen_ends_in_shell_prompt(&screen);
                     if suspected_exit {
+                        self.invalidate_guarded_agent_input(pid);
                         let confirmed = {
                             let mut mux = self.mux.write();
                             match mux.get_pane_mut(pid) {
@@ -254,6 +260,7 @@ impl ServiceContext {
                         if let Some(pane) = self.mux.write().get_pane_mut(pid) {
                             pane.exit_suspected_at = None;
                         }
+                        self.rearm_authenticated_agent_input(pid);
                         agent_type
                     }
                 }
@@ -328,7 +335,11 @@ impl ServiceContext {
             self.run_watcher.complete_via_semantic_idle(self, pty_id);
         }
 
-        (prev_status, current_status)
+        let current_reconciled_status = pane_id
+            .as_deref()
+            .map(|pid| self.reconciled_pane_status_for_id(pid, current_status))
+            .unwrap_or(current_status);
+        (previous_reconciled_status, current_reconciled_status)
     }
 
     /// Build a pending prompt from the provider's STRUCTURED handle, if it has
@@ -444,6 +455,8 @@ impl ServiceContext {
             },
             previous,
         );
+        let became_idle =
+            previous.state != TimelineState::Idle && verdict.state == TimelineState::Idle;
         let mut new_state: AgentLiveState = verdict.into();
         // Surface the live status/progress line while working (UI shows it verbatim);
         // when idle, surface the completed-turn summary as a muted secondary line.
@@ -477,6 +490,9 @@ impl ServiceContext {
         if changed {
             self.emit_state_changed();
             self.schedule_planner_replay(&pane_id);
+            if became_idle {
+                self.complete_worker_turn_without_report(&pane_id, "idle-transition");
+            }
         }
     }
 
@@ -883,6 +899,10 @@ fn screen_ends_in_shell_prompt(screen: &str) -> bool {
         .unwrap_or(false)
 }
 
+fn should_check_agent_exit(is_planner: bool, screen_changed: bool) -> bool {
+    is_planner || screen_changed
+}
+
 /// Debounce decision for output-based agent-exit detection. A still-running TUI
 /// can flash ONE marker-less, shell-prompt-looking frame (a WebView reload /
 /// resize redraw); requiring the suspicion to persist past `debounce` stops that
@@ -902,7 +922,10 @@ fn exit_debounce(
 
 #[cfg(test)]
 mod exit_detection_tests {
-    use super::{exit_debounce, screen_ends_in_shell_prompt, should_detect_unbound_session};
+    use super::{
+        exit_debounce, screen_ends_in_shell_prompt, should_check_agent_exit,
+        should_detect_unbound_session,
+    };
     use crate::service::boot_stage::{allows_shell_prompt_exit, BootStage};
     use std::time::{Duration, Instant};
 
@@ -986,5 +1009,12 @@ mod exit_detection_tests {
     #[test]
     fn post_agent_ready_shell_prompt_still_clears() {
         assert!(allows_shell_prompt_exit(Some(BootStage::AgentReady)));
+    }
+
+    #[test]
+    fn changed_agent_screen_checks_exit_without_global_sampling() {
+        assert!(should_check_agent_exit(false, true));
+        assert!(should_check_agent_exit(true, false));
+        assert!(!should_check_agent_exit(false, false));
     }
 }

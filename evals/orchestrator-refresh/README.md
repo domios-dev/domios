@@ -15,8 +15,7 @@ loud alert.
 
 - **`drill.sh`** — the ordered-transcript proof. Asserts the strict order
   `s1_handoff < compact cmd < s3_settle < s4_reorient < s5_verify < resumed`
-  from the dev log, and that post-refresh `current_focus` still matches the
-  pre-refresh frontier (continuity across handoff).
+  from the dev log, then verifies the plan remains readable after resumption.
 - **`drill_failure_branches.sh`** — the two must-never-strand branches:
   - **hung compact** → still reaches S4 re-orient on settle timeout;
   - **dead resumption** → exactly one re-nudge, then an ALERT (notification +
@@ -74,3 +73,5 @@ provider-id literal:
 | `settle_timeout_secs`  | `120`   | S3: proceed to re-orient anyway on timeout |
 | `reorient_timeout_secs`| `30`    | S4: proceed to verify on delivery/timeout |
 | `verify_timeout_secs`  | `180`   | S5: re-nudge once, then alert |
+
+<!-- revision: 1 -->

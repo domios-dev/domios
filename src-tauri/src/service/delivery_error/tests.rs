@@ -54,6 +54,15 @@ fn preflight_refusals_guarantee_zero_bytes() {
     );
     assert_eq!(tui.code(), "pane_busy_refused");
     assert!(!tui.bytes_written());
+
+    let stale_permit = DeliveryError::from_injection(
+        "p1",
+        InjectionError::AgentInputUnavailable {
+            pty_id: "pty1".into(),
+        },
+    );
+    assert_eq!(stale_permit.code(), "pane_busy_refused");
+    assert!(!stale_permit.bytes_written());
 }
 
 #[test]

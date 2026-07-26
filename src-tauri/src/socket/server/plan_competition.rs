@@ -7,6 +7,7 @@ use crate::service::{ServiceState, SpawnIdentityProvenance};
 use super::plan::{emit_plan_changed, plan_rpc_err};
 use super::plan_fields::pane_role;
 use super::plan_refs;
+use super::plan_role_helpers::record_spawned_attempt;
 use super::{get_string_param, JsonRpcError};
 
 pub(super) fn metadata_field(
@@ -43,6 +44,25 @@ fn invalid_update(e: serde_json::Error) -> JsonRpcError {
     }
 }
 
+fn preflight_compete_review_capacity(
+    store: &crate::service::plan::PlanStore,
+    plan_id: &str,
+    task_id: &str,
+) -> Result<(), crate::service::plan::PlanError> {
+    let plan = store
+        .get(plan_id)
+        .ok_or(crate::service::plan::PlanError::NotFound)?;
+    let task = plan
+        .tasks
+        .iter()
+        .find(|task| task.id == task_id)
+        .ok_or(crate::service::plan::PlanError::TaskNotFound)?;
+    if task.status == crate::plan::TaskStatus::Pending {
+        crate::service::plan::review_gate::validate_dispatch_review_capacity(&plan, task)?;
+    }
+    Ok(())
+}
+
 pub(super) fn compete(
     params: &Option<Value>,
     app: &AppHandle,
@@ -52,6 +72,7 @@ pub(super) fn compete(
     let store = &svc.plan_store;
     let p = params.as_ref();
     let (id, tid) = plan_refs::resolve_task(store, params)?;
+    preflight_compete_review_capacity(store, &id, &tid).map_err(plan_rpc_err)?;
     let body = p.ok_or(JsonRpcError {
         code: -32602,
         message: "params required".to_string(),
@@ -106,8 +127,8 @@ pub(super) fn compete(
                 message: e,
                 data: None,
             })?;
-        let created = store
-            .record_task_compete_attempt(
+        let created = record_spawned_attempt(svc, &spawn.pane_id, || {
+            store.record_task_compete_attempt(
                 &id,
                 &tid,
                 &spawn.pane_id,
@@ -115,7 +136,7 @@ pub(super) fn compete(
                 pane_role(svc, &spawn.pane_id),
                 now,
             )
-            .map_err(plan_rpc_err)?;
+        })?;
         let session_id = svc
             .mux
             .read()
@@ -147,6 +168,55 @@ pub(super) fn compete(
         "attempts": attempts,
         "spawns": spawns
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::plan::{AgentRef, OrchestratorRef, Plan, ReviewCapacityClass};
+    use crate::service::plan::{NewTask, PlanError, PlanStore};
+
+    #[test]
+    fn compete_cannot_bypass_review_debt_with_spoofed_task_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PlanStore::new_for_test(dir.path());
+        let mut plan = Plan::new(
+            "competition".into(),
+            dir.path().display().to_string(),
+            OrchestratorRef::from_pane("orch"),
+        );
+        store.save(&mut plan, 1).unwrap();
+        let task_id = store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "spoofed review".into(),
+                    kind: "review".into(),
+                    tags: vec!["review-capacity".into(), "canonical-gate".into()],
+                    ..Default::default()
+                },
+                2,
+            )
+            .unwrap();
+        let mut persisted = store.get(&plan.id).unwrap();
+        persisted.review_policy.credit = -(persisted.review_policy.wip_limit as i64);
+        store.save(&mut persisted, 3).unwrap();
+
+        assert!(matches!(
+            preflight_compete_review_capacity(&store, &plan.id, &task_id),
+            Err(PlanError::ReviewWipExceeded { .. })
+        ));
+        store
+            .grant_review_capacity(
+                &plan.id,
+                &task_id,
+                ReviewCapacityClass::Review,
+                AgentRef::from_pane("orch"),
+                4,
+            )
+            .unwrap();
+        preflight_compete_review_capacity(&store, &plan.id, &task_id).unwrap();
+    }
 }
 
 pub(super) fn judge(

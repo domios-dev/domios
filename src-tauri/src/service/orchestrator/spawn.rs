@@ -106,7 +106,6 @@ impl ServiceContext {
         crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params)?;
         self.preflight_worker_plan_task_spawn(&params)?;
         let _worker_persona_reservation = self.reserve_worker_persona(&mut params)?;
-        let checkout_exception = self.worker_checkout_guard(&params)?;
         let role = params.role.clone();
         let role_profile = params.role_profile.clone();
         let plan_id = params.plan_id.clone();
@@ -131,10 +130,12 @@ impl ServiceContext {
         self.persist_unresolved_plugin_model_request(&handle.pane_id, &bind_params);
         let model_identity = self.pane_model_identity(&handle.pane_id);
         self.bind_worker_plan_task_or_rollback_pane(&bind_params, &handle.pane_id)?;
-        if let Some(exc) = checkout_exception {
-            self.record_shared_checkout_exception(&exc, &handle.pane_id);
-        }
         self.bind_planner_spawn(plan_id.as_deref(), role_profile.as_deref(), &handle.pane_id);
+        self.record_kpi_spawn(
+            &handle.pane_id,
+            model_identity.2.as_deref(),
+            bind_params.task.as_deref().unwrap_or_default().len(),
+        );
         Ok(SpawnResult {
             pane_id: handle.pane_id,
             tab_id: handle.tab_id,
@@ -177,7 +178,6 @@ impl ServiceContext {
         crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params)?;
         self.preflight_worker_plan_task_spawn(&params)?;
         let _worker_persona_reservation = self.reserve_worker_persona(&mut params)?;
-        let checkout_exception = self.worker_checkout_guard(&params)?;
         // Orchestrators must be pinned to an explicit workspace.
         // Active-workspace fallback can silently land them in the wrong plan context.
         if params.role.as_deref() == Some("Orchestrator")
@@ -228,6 +228,11 @@ impl ServiceContext {
                 .filter(|value| !value.is_empty())
                 .map(str::to_string);
             self.bind_worker_plan_task_or_rollback_pane(&bind_params, &handle.pane_id)?;
+            self.record_kpi_spawn(
+                &handle.pane_id,
+                requested_model.as_deref(),
+                bind_params.task.as_deref().unwrap_or_default().len(),
+            );
             return Ok(SpawnResult {
                 pane_id: handle.pane_id,
                 tab_id: handle.tab_id,
@@ -582,10 +587,6 @@ impl ServiceContext {
 
         // (subscriber already started inside ensure_for_spawn above)
 
-        if let Some(exc) = checkout_exception {
-            self.record_shared_checkout_exception(&exc, &pane_id);
-        }
-
         let title = self
             .mux
             .read()
@@ -595,6 +596,11 @@ impl ServiceContext {
 
         let budget_notice = self.workspace_pane_budget_notice(&ws_id);
         let reasoning_effort = params.reasoning_effort.clone();
+        self.record_kpi_spawn(
+            &pane_id,
+            model_resolution.model.as_deref(),
+            params.task.as_deref().unwrap_or_default().len(),
+        );
         Ok(SpawnResult {
             pane_id,
             tab_id,
@@ -799,7 +805,7 @@ mod hierarchy_defaults_tests {
 
     #[test]
     fn idle_manager_bootstrap_is_one_team_launch_turn_with_coordination() {
-        let coordination = "Your Planner counterpart is Euler (pane planner-1).";
+        let coordination = "Your Planner counterpart is Euler (tab planner-1).";
         let mut params = SpawnAgentParams {
             manager_bootstrap: Some(crate::service::role_identity::ManagerBootstrapInputs {
                 role: "Orchestrator".into(),

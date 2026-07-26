@@ -152,6 +152,24 @@ function assertLink(host: HTMLElement, href: string) {
   assert(link, `expected rendered markdown link ${href}`);
 }
 
+function toolCall(
+  id: string,
+  toolKind: Exclude<NormalizedChatMessage["toolKind"], undefined>,
+  overrides: Partial<NormalizedChatMessage> = {},
+): NormalizedChatMessage {
+  return {
+    id,
+    provider: "test-provider",
+    type: "tool_call",
+    content: "",
+    toolName: "operation",
+    toolId: `${id}-call`,
+    toolKind,
+    toolSummary: id,
+    ...overrides,
+  };
+}
+
 function toolCardFor(host: HTMLElement, label: string): HTMLElement | undefined {
   return Array.from(host.querySelectorAll<HTMLElement>('[data-testid="chat-tool-call"]'))
     .find((card) => (card.textContent ?? "").includes(label));
@@ -483,6 +501,83 @@ test("codex exec_command rg search does not render as structured edit diff", asy
   }
 });
 
+test("semantic edit diffs auto-expand independently of provider label", async () => {
+  const { host, root } = await renderMessages([
+    toolCall("semantic-edit", "edit", {
+      provider: "provider-one",
+      toolEdits: [{ path: "src/primary.ts", old: "before", new: "after" }],
+    }),
+  ]);
+  try {
+    const card = host.querySelector<HTMLElement>('[data-testid="chat-tool-call"]');
+    assert(card, "expected semantic edit card");
+    assert(card.querySelector('[aria-label="Collapse tool details"]'), "semantic edit should start expanded");
+    assert(card.querySelector('[data-testid="toolcard-edit-file"]'), "semantic edit should show its visible diff");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("commands, raw input, failures, and agent reports start collapsed", async () => {
+  const { host, root } = await renderMessages([
+    toolCall("collapsed-command", "command", { toolInput: { command: "npm test" } }),
+    toolCall("collapsed-raw-input", "generic", { toolInput: { content: "raw operational input" } }),
+    toolCall("collapsed-failed-command", "command", { toolError: true, toolResult: "command failed" }),
+    toolCall("collapsed-agent-report", "codeterm", { toolDetail: "agent report STATUS: done" }),
+  ], "collapsed-failed-command");
+  try {
+    const cards = Array.from(host.querySelectorAll<HTMLElement>('[data-testid="chat-tool-call"]'));
+    assert(cards.length === 4, "expected each operational tool card");
+    for (const card of cards) {
+      assert(card.querySelector('[aria-label="Expand tool details"]'), "operational tool activity should start collapsed");
+    }
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("explicit expansion choices persist across rerenders", async () => {
+  const message: NormalizedChatMessage = {
+    id: "persistent-semantic-edit",
+    provider: "provider-one",
+    type: "tool_call",
+    content: "",
+    toolName: "apply_change",
+    toolId: "persistent-semantic-edit-call",
+    toolKind: "edit",
+    toolSummary: "src/persist.ts",
+    toolEdits: [{ path: "src/persist.ts", old: "before", new: "after" }],
+  };
+  const { host, root } = await renderMessages([message]);
+  try {
+    const collapse = host.querySelector<HTMLButtonElement>('[aria-label="Collapse tool details"]');
+    assert(collapse, "semantic edit should start expanded");
+    await act(async () => {
+      collapse.dispatchEvent(new windowAny.MouseEvent("click", { bubbles: true }));
+    });
+    await waitForEffects();
+    assert(host.querySelector('[aria-label="Expand tool details"]'), "explicit collapse should update the card");
+
+    await act(async () => {
+      root.render(
+        <div>
+          {reduceToolEvents([{ ...message, provider: "provider-renamed" }]).map((item) => {
+            const rendered = item.kind === "message" ? item.message : item.event.message;
+            return <MessageBubble key={rendered.id} message={rendered} item={item.kind === "tool" ? item : undefined} />;
+          })}
+        </div>,
+      );
+    });
+    await waitForEffects();
+    assert(host.querySelector('[aria-label="Expand tool details"]'), "explicit collapse should survive a provider-label rerender");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
 test("chatBackend exec tool_call renders command card and attached result", async () => {
   const { host, root } = await renderMessages([
     {
@@ -780,6 +875,13 @@ test("generate image tool result renders preview instead of raw base64", async (
     },
   ]);
   try {
+    assert(!host.querySelector('[data-testid="chat-tool-image-preview"]'), "image tool output should start collapsed");
+    const expand = host.querySelector<HTMLButtonElement>('[aria-label="Expand tool details"]');
+    assert(expand, "image tool output should expose details control");
+    await act(async () => {
+      expand.dispatchEvent(new windowAny.MouseEvent("click", { bubbles: true }));
+    });
+    await waitForEffects();
     assert(host.querySelector('[data-testid="chat-tool-image-preview"]'), "expected image preview card");
     const img = host.querySelector('[data-testid="chat-tool-image-preview"] img') as HTMLImageElement | null;
     assert(img, "expected preview img");
@@ -983,7 +1085,7 @@ test("chatBackend structured inbound renders an expanded typed message card", as
       fromLabel: "Worker A",
       fromPane: "abc12345",
       fromModel: "gpt-5",
-      inboundKind: "pane",
+      inboundKind: "tab",
     },
   ]);
   try {

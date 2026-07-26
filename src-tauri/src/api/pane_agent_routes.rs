@@ -10,6 +10,10 @@ use super::{
 pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
     router
         .route("/api/panes/{id}/send", post(pane_routes::send_text))
+        .route(
+            "/api/panes/{id}/chat-send",
+            post(pane_routes::chat_send_text).get(pane_routes::chat_send_status),
+        )
         .route("/api/panes/{id}/stop", post(pane_routes::stop_pane))
         .route("/api/panes/{id}/focus", post(pane_routes::focus_pane))
         .route("/api/panes/{id}/close", post(pane_routes::close_pane))

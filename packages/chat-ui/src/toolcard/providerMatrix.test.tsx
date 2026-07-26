@@ -31,14 +31,9 @@ if (!reportHost.textContent.includes("Added cards") || !reportHost.textContent.i
   throw new Error("agent report fields were not rendered");
 }
 
-const reportsHost = await render(<ToolCallBubble event={command("codeterm agent reports --tab e3fa0754 --json --limit 50", "[]")} expanded onToggle={() => {}} onFocusPane={() => {}} />);
-if (!reportsHost.querySelector(".lucide-inbox") || !reportsHost.querySelector('[data-testid="codeterm-focus-tab"]')) {
-  throw new Error("agent reports did not use the special reports card");
-}
-
 for (const detail of ["git status --short", 'cat notes.txt | codeterm mem save "payload"']) {
   const host = await render(<ToolCallBubble event={command(detail)} expanded={false} onToggle={() => {}} />);
   if (!host.querySelector(".lucide-terminal") || host.querySelector(".lucide-brain")) throw new Error(`non-action command was misclassified: ${detail}`);
 }
 
-console.log("provider-neutral CodeTerm action matrix: 8/8 passed");
+console.log("provider-neutral CodeTerm action matrix: 7/7 passed");

@@ -1103,6 +1103,14 @@ fn test_alias_not_found_falls_back_to_id() {
 }
 
 #[test]
+fn test_public_tab_id_resolves_to_its_backing_pane() {
+    let (state, pane_id) = MultiplexerState::new();
+    let tab_id = state.find_tab_for_pane(&pane_id).unwrap();
+
+    assert_eq!(state.resolve_pane_id(&tab_id), Some(pane_id));
+}
+
+#[test]
 fn test_resolve_nonexistent_returns_none() {
     let (state, _) = MultiplexerState::new();
     let resolved = state.resolve_pane_id("does-not-exist");

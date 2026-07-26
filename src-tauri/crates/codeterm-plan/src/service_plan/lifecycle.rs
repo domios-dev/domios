@@ -86,6 +86,12 @@ impl PlanStore {
                     to: TaskStatus::Paused,
                 });
             }
+            if p.tasks[idx].status == TaskStatus::InReview {
+                return Err(PlanError::TransitionDenied {
+                    from: TaskStatus::InReview,
+                    to: TaskStatus::Paused,
+                });
+            }
             mid = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));
             let task = &mut p.tasks[idx];
             if task.status != TaskStatus::Paused {

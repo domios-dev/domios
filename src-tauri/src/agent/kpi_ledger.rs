@@ -2,10 +2,10 @@
 //! [`kpi_ledger_enabled`] first.
 
 use parking_lot::Mutex;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
-const CURRENT_KPI_SCHEMA_VERSION: u32 = 1;
+const CURRENT_KPI_SCHEMA_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -69,6 +69,21 @@ impl KpiEventKind {
     ];
 }
 
+/// Token breakdown for `token_usage` events. `input` counts every input token the
+/// provider billed (cached included); `uncached_input` is the freshly-processed slice.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TokenCounts {
+    pub input: u64,
+    pub uncached_input: u64,
+    pub output: u64,
+}
+
+impl TokenCounts {
+    pub fn total(&self) -> u64 {
+        self.input.saturating_add(self.output)
+    }
+}
+
 /// The ledger stamps `schema_version` and `id` at insert time; callers never supply them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct KpiEventInput {
@@ -81,6 +96,12 @@ pub struct KpiEventInput {
     pub timestamp: u64,
     pub kind: KpiEventKind,
     pub bytes: u64,
+    /// Only `TokenUsage` events carry this; every other kind leaves it `None`.
+    pub tokens: Option<TokenCounts>,
+    /// Stable per-event identity (e.g. a report id, or `task_id:round:verdict`) that
+    /// makes a retried choke-point call a no-op instead of a second row. `None` for
+    /// kinds with no natural retry-safe identity yet.
+    pub dedup_key: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -96,6 +117,8 @@ pub struct KpiEventRecord {
     pub timestamp: u64,
     pub kind: KpiEventKind,
     pub bytes: u64,
+    pub tokens: Option<TokenCounts>,
+    pub dedup_key: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -159,6 +182,14 @@ impl KpiLedger {
                     Self::create_v1_schema(conn)?;
                     version = 1;
                 }
+                1 => {
+                    Self::add_v2_token_columns(conn)?;
+                    version = 2;
+                }
+                2 => {
+                    Self::add_v3_dedup_and_cursors(conn)?;
+                    version = 3;
+                }
                 CURRENT_KPI_SCHEMA_VERSION => return Ok(()),
                 _ if version > CURRENT_KPI_SCHEMA_VERSION => {
                     return Err(rusqlite::Error::InvalidQuery);
@@ -194,6 +225,41 @@ impl KpiLedger {
         )
     }
 
+    fn add_v2_token_columns(conn: &Connection) -> rusqlite::Result<()> {
+        conn.execute_batch(
+            r#"
+            ALTER TABLE kpi_events ADD COLUMN input_tokens INTEGER;
+            ALTER TABLE kpi_events ADD COLUMN uncached_input_tokens INTEGER;
+            ALTER TABLE kpi_events ADD COLUMN output_tokens INTEGER;
+
+            PRAGMA user_version = 2;
+            "#,
+        )
+    }
+
+    /// Partial index: `dedup_key` stays `NULL` (and unindexed) for kinds with no
+    /// retry-safe identity yet, so only callers that opt in pay the uniqueness cost.
+    /// `kpi_usage_cursors` persists the forward-only usage/compaction read position
+    /// across daemon restarts — without it a restart re-reads each session file from
+    /// byte/rowid zero and re-inserts every already-recorded row.
+    fn add_v3_dedup_and_cursors(conn: &Connection) -> rusqlite::Result<()> {
+        conn.execute_batch(
+            r#"
+            ALTER TABLE kpi_events ADD COLUMN dedup_key TEXT;
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_kpi_events_dedup
+                ON kpi_events(dedup_key) WHERE dedup_key IS NOT NULL;
+
+            CREATE TABLE IF NOT EXISTS kpi_usage_cursors (
+                source_path   TEXT PRIMARY KEY,
+                cursor_offset INTEGER NOT NULL
+            );
+
+            PRAGMA user_version = 3;
+            "#,
+        )
+    }
+
     fn user_version(conn: &Connection) -> rusqlite::Result<u32> {
         conn.query_row("PRAGMA user_version", [], |r| {
             let version = r.get::<_, i64>(0)?;
@@ -204,12 +270,21 @@ impl KpiLedger {
     /// Write-once: always appends, unlike OrchestrationLedger's UPSERT-on-report.
     pub fn insert(&self, event: &KpiEventInput) -> Result<(), String> {
         let conn = self.conn.lock();
+        Self::insert_with(&conn, event)
+    }
+
+    /// `OR IGNORE` only ever fires for rows that set `dedup_key` and collide with one
+    /// already committed — a retried choke-point call becomes a silent no-op instead
+    /// of a second row. Kinds that leave `dedup_key` `None` insert unconditionally,
+    /// same as before this column existed.
+    fn insert_with(conn: &Connection, event: &KpiEventInput) -> Result<(), String> {
         conn.execute(
             r#"
-            INSERT INTO kpi_events (
+            INSERT OR IGNORE INTO kpi_events (
                 schema_version, plan_id, task_id, pane_id, role, provider, model,
-                ts, kind, bytes
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                ts, kind, bytes, input_tokens, uncached_input_tokens, output_tokens,
+                dedup_key
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
             "#,
             params![
                 CURRENT_KPI_SCHEMA_VERSION,
@@ -222,10 +297,76 @@ impl KpiLedger {
                 event.timestamp as i64,
                 event.kind.label(),
                 event.bytes as i64,
+                event.tokens.map(|t| t.input as i64),
+                event.tokens.map(|t| t.uncached_input as i64),
+                event.tokens.map(|t| t.output as i64),
+                event.dedup_key,
             ],
         )
         .map_err(|e| format!("kpi ledger insert: {}", e))?;
         Ok(())
+    }
+
+    /// One transaction for the whole batch — a burst of coordination events costs one
+    /// commit, not one per event.
+    pub fn insert_many(&self, events: &[KpiEventInput]) -> Result<(), String> {
+        if events.is_empty() {
+            return Ok(());
+        }
+        let mut conn = self.conn.lock();
+        let tx = conn
+            .transaction()
+            .map_err(|e| format!("kpi ledger transaction: {}", e))?;
+        for event in events {
+            Self::insert_with(&tx, event)?;
+        }
+        tx.commit()
+            .map_err(|e| format!("kpi ledger commit: {}", e))?;
+        Ok(())
+    }
+
+    /// Usage/compaction ingestion's crash-safe counterpart to `insert_many`: the batch
+    /// and the advanced read cursor commit in the same transaction, so a crash between
+    /// the two is impossible — either both land or neither does, and a restart can
+    /// never re-read already-recorded bytes/rows.
+    pub fn insert_usage_batch(
+        &self,
+        events: &[KpiEventInput],
+        source_path: &str,
+        cursor_offset: u64,
+    ) -> Result<(), String> {
+        let mut conn = self.conn.lock();
+        let tx = conn
+            .transaction()
+            .map_err(|e| format!("kpi ledger usage transaction: {}", e))?;
+        for event in events {
+            Self::insert_with(&tx, event)?;
+        }
+        tx.execute(
+            r#"
+            INSERT INTO kpi_usage_cursors (source_path, cursor_offset) VALUES (?1, ?2)
+            ON CONFLICT(source_path) DO UPDATE SET cursor_offset = excluded.cursor_offset
+            "#,
+            params![source_path, cursor_offset as i64],
+        )
+        .map_err(|e| format!("kpi ledger cursor upsert: {}", e))?;
+        tx.commit()
+            .map_err(|e| format!("kpi ledger usage commit: {}", e))?;
+        Ok(())
+    }
+
+    /// The persisted forward-only read position for a usage source, or `None` if this
+    /// source has never been ingested (a fresh forward-from-zero read).
+    pub fn load_usage_cursor(&self, source_path: &str) -> Result<Option<u64>, String> {
+        let conn = self.conn.lock();
+        conn.query_row(
+            "SELECT cursor_offset FROM kpi_usage_cursors WHERE source_path = ?1",
+            params![source_path],
+            |r| r.get::<_, i64>(0),
+        )
+        .optional()
+        .map_err(|e| format!("kpi ledger cursor load: {}", e))
+        .map(|v| v.map(|offset| offset as u64))
     }
 
     /// No pagination — small-scale inspection and tests only.
@@ -246,7 +387,7 @@ impl KpiLedger {
         let sql = format!(
             r#"
             SELECT id, schema_version, plan_id, task_id, pane_id, role, provider, model,
-                   ts, kind, bytes
+                   ts, kind, bytes, input_tokens, uncached_input_tokens, output_tokens, dedup_key
             FROM kpi_events
             WHERE {}
             ORDER BY ts ASC, id ASC
@@ -267,6 +408,16 @@ impl KpiLedger {
     fn row_from_sql(r: &rusqlite::Row<'_>) -> rusqlite::Result<KpiEventRecord> {
         let kind_label: String = r.get(9)?;
         let kind = KpiEventKind::parse(&kind_label).unwrap_or(KpiEventKind::Send);
+        let tokens = r
+            .get::<_, Option<i64>>(11)?
+            .map(|input| -> rusqlite::Result<TokenCounts> {
+                Ok(TokenCounts {
+                    input: input as u64,
+                    uncached_input: r.get::<_, Option<i64>>(12)?.unwrap_or(0) as u64,
+                    output: r.get::<_, Option<i64>>(13)?.unwrap_or(0) as u64,
+                })
+            })
+            .transpose()?;
         Ok(KpiEventRecord {
             id: r.get(0)?,
             schema_version: r.get::<_, i64>(1)? as u32,
@@ -279,6 +430,8 @@ impl KpiLedger {
             timestamp: r.get::<_, i64>(8)? as u64,
             kind,
             bytes: r.get::<_, i64>(10)? as u64,
+            tokens,
+            dedup_key: r.get(14)?,
         })
     }
 

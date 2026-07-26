@@ -1,0 +1,135 @@
+// Run: npx tsx src/components/Terminal/PaneSessionChat.origin-actions.test.tsx
+//
+// Correctness oracle for the FIX 1 origin-props cache. The per-message cache keys
+// entries on (targetPane:provider) and reuses the whole entry — including the
+// onOriginClick closure — while that key is unchanged. onOriginClick closes over
+// setFocusedPane, so if setFocusedPane's identity changes (new render of the mux
+// actions) while the pane/provider is the same, a naive cache hands back a closure
+// bound to the STALE setFocusedPane and the "Show Tab" action fires the wrong
+// handler. This test re-renders with a fresh setFocusedPane and asserts the click
+// routes to the CURRENT one. It is RED against the initial cache (07f0d793) and
+// GREEN once the cache is invalidated on setFocusedPane identity change.
+
+import { act } from "react";
+import { Window } from "happy-dom";
+import { createRoot } from "react-dom/client";
+import type { Pane } from "../../lib/types";
+import { MultiplexerActionsContext, MuxStateStoreContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
+import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
+import type { ExtendedState } from "../../store/multiplexer/tree";
+
+type TestFn = () => void | Promise<void>;
+const tests: Array<[string, TestFn]> = [];
+function test(name: string, fn: TestFn) { tests.push([name, fn]); }
+function assert(condition: unknown, message: string): asserts condition {
+  if (!condition) throw new Error(message);
+}
+
+type Handler = (e: { payload: unknown }) => void;
+const listeners = new Map<string, Set<Handler>>();
+
+function setupDom() {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const window = new Window({ url: "http://localhost/" });
+  for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLTextAreaElement", "SVGElement", "Element", "Node", "Event", "CustomEvent", "MouseEvent"] as const) {
+    Object.defineProperty(globalThis, key, { value: (window as never)[key], configurable: true });
+  }
+  Object.defineProperty(globalThis, "requestAnimationFrame", { configurable: true, value: (cb: FrameRequestCallback) => { cb(0); return 0; } });
+  Object.defineProperty(globalThis, "cancelAnimationFrame", { configurable: true, value: () => {} });
+  class StubResizeObserver { observe(): void {} unobserve(): void {} disconnect(): void {} }
+  Object.defineProperty(globalThis, "ResizeObserver", { configurable: true, value: StubResizeObserver });
+}
+
+function paneBase(id: string): Pane {
+  return { id, pty_id: null, pane_type: "Terminal", title: id, cwd: null, backing: { kind: "chat_backend", plugin_id: "lmstudio", session_id: "sess-1" } } as Pane;
+}
+function originPane(id: string): Pane { return { id, pty_id: null, pane_type: "Terminal", title: id, cwd: null, agent_type: "claude" } as Pane; }
+
+function actionsWith(setFocusedPane: (paneId: string) => void): MultiplexerActionsContextType {
+  const noop = () => {};
+  const noopAsync = async () => undefined;
+  return new Proxy({}, {
+    get: (_t, prop) => {
+      if (prop === "setFocusedPane") return setFocusedPane;
+      if (prop === "spawnAgentTab") return async () => null;
+      if (prop === "createOrchestrationPair") return async () => { throw new Error("not implemented"); };
+      if (prop === "createWorkspace" || prop === "createTab" || prop === "selectTabByPane") return noopAsync;
+      return noop;
+    },
+  }) as MultiplexerActionsContextType;
+}
+
+function muxStateFor(panes: Record<string, Pane>): ExtendedState {
+  return { workspaces: [], panes, teams: [], active_workspace_id: null, focused_pane_id: Object.keys(panes)[0] ?? null, notifications: [], paneStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [] };
+}
+function originReport(id: string, shortId: string, seq: number) {
+  return { id, type: "user", content: `-=-codeterm:tab label=Worker tab=${shortId}-=-report body ${seq}`, timestamp: String(1_700_000_000_000 + seq * 1000), seq, provider: "test" };
+}
+
+async function main() {
+  setupDom();
+  const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
+  const { PaneSessionChat } = await import("./PaneSessionChat");
+
+  const paneId = "chat-pane";
+  const originShort = "wrkr0001";
+  const originFull = "wrkr0001-full-pane-id";
+  const initial = [originReport("m0", originShort, 0)];
+
+  __setInvokeForTest((async (cmd: string) => {
+    if (cmd === "chat_start") return { text: "", offset: 0, messages: initial, pending: false, source_session_id: null, session_binding_nonce: null };
+    if (cmd === "delayed_send_list" || cmd === "list_agent_providers") return [];
+    return {};
+  }) as never);
+  __setListenForTest((async (event: string, cb: Handler) => {
+    let set = listeners.get(event); if (!set) { set = new Set(); listeners.set(event, set); }
+    set.add(cb); return () => { set?.delete(cb); };
+  }) as never);
+
+  test("origin action routes to the current setFocusedPane after its identity changes", async () => {
+    const calls: string[] = [];
+    const spyA = (id: string) => { calls.push(`A:${id}`); };
+    const spyB = (id: string) => { calls.push(`B:${id}`); };
+
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const store = createMuxStateStore(() => muxStateFor({ [paneId]: paneBase(paneId), [originFull]: originPane(originFull) }));
+
+    const renderWith = (actions: MultiplexerActionsContextType) =>
+      root.render(
+        <MuxStateStoreContext.Provider value={store}>
+          <MultiplexerActionsContext.Provider value={actions}>
+            <PaneSessionChat paneId={paneId} chatBackend isVisible />
+          </MultiplexerActionsContext.Provider>
+        </MuxStateStoreContext.Provider>,
+      );
+
+    await act(async () => { renderWith(actionsWith(spyA)); });
+    await act(async () => { await Promise.resolve(); });
+
+    // Re-render with a FRESH setFocusedPane identity; pane/provider key is unchanged.
+    await act(async () => { renderWith(actionsWith(spyB)); });
+    await act(async () => { await Promise.resolve(); });
+
+    const button = host.querySelector<HTMLButtonElement>('button[title="Show Tab"]');
+    assert(button, "origin 'Show Tab' action button present");
+    await act(async () => {
+      button!.dispatchEvent(new (globalThis as { MouseEvent: typeof MouseEvent }).MouseEvent("click", { bubbles: true }));
+    });
+
+    assert(calls.length === 1, `exactly one focus call (got ${JSON.stringify(calls)})`);
+    assert(calls[0] === `B:${originFull}`, `click must route to CURRENT setFocusedPane (got ${JSON.stringify(calls)})`);
+    console.log(`  origin-actions: routed ${calls[0]}`);
+    await act(async () => root.unmount());
+  });
+
+  let failed = 0;
+  for (const [name, fn] of tests) {
+    try { await fn(); console.log(`PASS ${name}`); }
+    catch (error) { failed += 1; console.error(`FAIL ${name}`, error); }
+  }
+  if (failed > 0) throw new Error(`${failed} test(s) failed`);
+}
+
+void main();

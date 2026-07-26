@@ -188,7 +188,7 @@ fn send_to_shell_pane_with_source_has_no_marker() {
     );
     assert_eq!(out, "cd /path && ./build.sh dev");
     assert!(
-        !out.contains("-=-codeterm:pane"),
+        !out.contains("-=-codeterm:tab"),
         "a bare shell must run raw text, never the return-address marker"
     );
 }
@@ -197,7 +197,7 @@ fn send_to_shell_pane_with_source_has_no_marker() {
 fn send_to_agent_pane_with_source_keeps_marker() {
     let out = render_send(true, true, PaneInputTransport::Pty, "ship it");
     assert!(
-        out.contains("-=-codeterm:pane"),
+        out.contains("-=-codeterm:tab"),
         "an agent pane still gets the return-address marker"
     );
     assert!(out.ends_with("ship it"));

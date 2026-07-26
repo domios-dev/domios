@@ -38,15 +38,15 @@ function detectTransportPrefix(content: string): PrefixMatch | null {
   const marker = parseMarker(content);
   if (!marker) return null;
   const body = stripReplyHint(marker.payload);
-  if (marker.kind === "pane" || marker.kind === "report") {
-    const title = marker.attrs.label ?? marker.attrs.from ?? "pane";
-    const paneIdShort = marker.attrs.pane;
-    if (paneIdShort) {
+  if (marker.kind === "tab" || marker.kind === "report") {
+    const title = marker.attrs.label ?? marker.attrs.from ?? "tab";
+    const tabIdShort = marker.attrs.tab;
+    if (tabIdShort) {
       return {
         origin: {
           kind: "pane",
           title,
-          paneIdShort,
+          paneIdShort: tabIdShort,
           ...(marker.attrs.model ? { model: marker.attrs.model } : {}),
           ...(marker.attrs.mesh ? { mesh: marker.attrs.mesh } : {}),
           ...(marker.kind === "report" ? { report: true } : {}),
@@ -89,7 +89,7 @@ function detectTransportPrefix(content: string): PrefixMatch | null {
       origin: {
         kind: "reminder",
         ...(marker.attrs.from ? { whoSet: marker.attrs.from } : {}),
-        ...(marker.attrs.pane ? { pane: marker.attrs.pane } : {}),
+        ...(marker.attrs.tab ? { pane: marker.attrs.tab } : {}),
         ...(marker.attrs.model ? { model: marker.attrs.model } : {}),
         ...(marker.attrs.set_at ? { setAt: marker.attrs.set_at } : {}),
         ...(marker.attrs.fire_at ? { fireAt: marker.attrs.fire_at } : {}),
@@ -225,7 +225,7 @@ function collectSlashCommands(content: string): PrefixMatch | null {
 export function labelFor(origin: ChatOrigin): string {
   switch (origin.kind) {
     case "pane":
-      return origin.title || "pane";
+      return origin.title || "tab";
     case "telegram":
       return `Telegram · ${origin.userId.slice(0, 12)}`;
     case "mesh":

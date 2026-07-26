@@ -1,34 +1,50 @@
 use crate::client::SocketClient;
 use crate::cmd::agent::normalize_pane_description;
-use crate::cmd::print::handle_result;
+use crate::cmd::print::{handle_result, print_json};
 use crate::{build_http, read_api_config, resolve_pane, PaneAction};
 
 pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
     match action {
-        PaneAction::List { agents } => match client.call("pane.list", None) {
-            Ok(value) => {
-                let Some(arr) = value.as_array() else {
-                    handle_result(json, Ok(value));
-                    return;
-                };
-                let mut list = arr.clone();
-                if agents {
-                    list.retain(|p| {
-                        p.get("agent_type")
-                            .and_then(|v| v.as_str())
-                            .is_some_and(|s| !s.is_empty())
-                    });
+        PaneAction::List {
+            workspace,
+            all_workspaces,
+            agents,
+        } => {
+            let workspace_id = if all_workspaces {
+                None
+            } else {
+                workspace.or_else(|| std::env::var("CODETERM_WORKSPACE_ID").ok())
+            };
+            let params = serde_json::json!({
+                "workspace_id": workspace_id,
+                "focused_workspace": !all_workspaces && workspace_id.is_none(),
+                "agents_only": agents,
+            });
+            match client.call("pane.list", Some(params)) {
+                Ok(value) => {
+                    let Some(arr) = value.as_array() else {
+                        handle_result(json, Ok(value));
+                        return;
+                    };
+                    let list = arr.clone();
+                    if json {
+                        print_json(&serde_json::Value::Array(list));
+                    } else if list.is_empty() {
+                        println!("(no tabs)");
+                    } else {
+                        print!("{}", render_pane_tree(&list));
+                    }
                 }
-                if json {
-                    println!("{}", serde_json::to_string_pretty(&list).unwrap());
-                } else if list.is_empty() {
-                    println!("(no panes)");
-                } else {
-                    print!("{}", render_pane_tree(&list));
-                }
+                other => handle_result(json, other),
             }
-            other => handle_result(json, other),
-        },
+        }
+        PaneAction::Inspect { tabs } => {
+            let result = client.call(
+                "pane.inspect",
+                Some(serde_json::json!({ "pane_ids": tabs })),
+            );
+            handle_result(json, result);
+        }
         PaneAction::New {
             workspace,
             cwd,
@@ -101,13 +117,13 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                         match http.post(&exec_url).json(&exec_body).send() {
                             Ok(r) if r.status().is_success() => Ok(resp),
                             Ok(r) => Err(format!(
-                                "pane created (id={}) but --cmd failed: HTTP {}: {}",
+                                "tab created (id={}) but --cmd failed: HTTP {}: {}",
                                 pane_id,
                                 r.status().as_u16(),
                                 r.text().unwrap_or_default()
                             )),
                             Err(e) => Err(format!(
-                                "pane created (id={}) but --cmd failed: {}",
+                                "tab created (id={}) but --cmd failed: {}",
                                 pane_id, e
                             )),
                         }
@@ -225,7 +241,7 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                             return;
                         }
                     }
-                    eprintln!("No pane text");
+                    eprintln!("No tab text");
                     std::process::exit(1);
                 }
                 Err(e) => {
@@ -302,7 +318,7 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
             {
                 Ok(resp) => {
                     if !resp.status().is_success() {
-                        eprintln!("Pane not found");
+                        eprintln!("Tab not found");
                         std::process::exit(1);
                     }
                     if let Ok(p) = resp.json::<serde_json::Value>() {
@@ -313,13 +329,13 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                         let at = p.get("agent_type").and_then(|v| v.as_str()).unwrap_or("-");
                         let status = p.get("status").and_then(|v| v.as_str()).unwrap_or("-");
                         let title = p.get("title").and_then(|v| v.as_str()).unwrap_or("-");
-                        println!("pane:    {}", pane_id);
+                        println!("tab:     {}", pane_id);
                         println!("agent:   {}", at);
                         println!("title:   {}", title);
                         println!("status:  {}", status);
                         return;
                     }
-                    eprintln!("Pane not found");
+                    eprintln!("Tab not found");
                     std::process::exit(1);
                 }
                 Err(e) => {
@@ -349,7 +365,7 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                     let body: serde_json::Value =
                         resp.json().unwrap_or_else(|_| serde_json::json!({}));
                     if json {
-                        println!("{}", serde_json::to_string_pretty(&body).unwrap());
+                        print_json(&body);
                     } else if !status.is_success() {
                         eprintln!("Stop failed: HTTP {}", status);
                         std::process::exit(1);
@@ -358,9 +374,9 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false)
                     {
-                        println!("Stopped pane {}", pane_id);
+                        println!("Stopped tab {}", pane_id);
                     } else {
-                        println!("Pane {} has no stop keystroke declared", pane_id);
+                        println!("Tab {} has no stop keystroke declared", pane_id);
                     }
                 }
                 Err(e) => {
@@ -449,7 +465,7 @@ fn handle_pane_capture(
     }
 }
 
-/// `-=-codeterm:pane label=X pane=Y ...-=-body` → (Some("X"), "body"). Plain text → (None, text).
+/// `-=-codeterm:tab label=X tab=Y ...-=-body` → (Some("X"), "body"). Plain text → (None, text).
 fn strip_origin_marker(s: &str) -> (Option<String>, String) {
     if let Some(rest) = s.strip_prefix("-=-codeterm:") {
         if let Some(end) = rest.find("-=-") {
@@ -535,10 +551,10 @@ fn print_pane_chat(v: &serde_json::Value) {
 pub fn print_pane_find_results(json: bool, pattern: &str, panes: &[serde_json::Value]) {
     let scored = rank_panes(pattern, panes);
     if json {
-        let out: Vec<&serde_json::Value> = scored.iter().map(|(_, p)| *p).collect();
-        println!("{}", serde_json::to_string_pretty(&out).unwrap());
+        let out = serde_json::Value::Array(scored.into_iter().map(|(_, p)| p.clone()).collect());
+        print_json(&out);
     } else if scored.is_empty() {
-        println!("No panes match: {}", pattern);
+        println!("No tabs match: {}", pattern);
     } else {
         for (_, p) in &scored {
             println!("{}", format_pane_row(p));

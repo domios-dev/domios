@@ -209,7 +209,11 @@ impl ServiceContext {
 }
 
 fn pane_accepts_agent_input(pane: &Pane) -> bool {
-    pane.agent_type.is_some() && pane.boot_stage == Some(BootStage::AgentReady)
+    pane.agent_type.is_some()
+        && matches!(
+            pane.boot_stage,
+            Some(BootStage::AgentReady | BootStage::PtyReattached)
+        )
 }
 
 #[cfg(test)]
@@ -226,7 +230,7 @@ mod tests {
     }
 
     #[test]
-    fn pane_agent_input_requires_agent_ready_boot_stage() {
+    fn pane_agent_input_accepts_spawned_and_reattached_ready_stages() {
         let (mut mux, pane_id) = MultiplexerState::new();
         let pane = mux.get_pane_mut(&pane_id).expect("initial pane");
         pane.agent_type = Some("codex".into());
@@ -234,6 +238,9 @@ mod tests {
         assert!(!pane_accepts_agent_input(&pane));
 
         pane.boot_stage = Some(BootStage::AgentReady);
+        assert!(pane_accepts_agent_input(&pane));
+
+        pane.boot_stage = Some(BootStage::PtyReattached);
         assert!(pane_accepts_agent_input(&pane));
     }
 }

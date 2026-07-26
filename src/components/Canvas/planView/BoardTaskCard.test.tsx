@@ -129,7 +129,7 @@ test("done card with stale pane id never renders pane-gone", async () => {
   };
   const { host } = await render(<BoardTaskCard card={cardFor(plan, "t-done-ghost")} />);
   assert(!host.querySelector('[data-testid="working-on-row"]'), "no working-on on done");
-  assert(!host.textContent?.includes("pane gone"), "no pane-gone text");
+  assert(!host.textContent?.includes("tab gone"), "no tab-gone text");
   assert(host.querySelector('[data-testid="plan-board-task-lane"]'), "branch row on done");
   assert(host.querySelector('[data-testid="plan-board-task-age"]'), "age row on done");
 });

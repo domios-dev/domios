@@ -167,9 +167,9 @@ fn renders_unknown_heartbeat_plan_fix() {
         &json!({ "plan_id": null, "pane_id": "pane_1", "session_id": "session_1" }),
     )
     .unwrap();
-    assert!(msg.contains("✗ no heartbeat plan was found for this pane/session"));
+    assert!(msg.contains("✗ no heartbeat plan was found for this tab/session"));
     assert!(msg.contains("codeterm orchestrator heartbeat show --plan <id>"));
-    assert!(msg.contains("codeterm orchestrator heartbeat set --plan <id>"));
+    assert!(!msg.contains("heartbeat set"));
 }
 
 #[test]

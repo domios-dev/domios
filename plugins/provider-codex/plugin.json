@@ -1,6 +1,6 @@
 {
   "id": "codex",
-  "version": "1.7.4",
+  "version": "1.7.5",
   "minCodeterm": "1.0.0",
   "hostApi": 2,
   "displayName": "Codex",
@@ -28,6 +28,7 @@
     },
     "sessionIdInjection": "none",
     "statusBarRows": 1,
+    "agentStateStatusReconciliation": true,
     "supportsLazySkills": false,
     "hasHooks": true,
     "usageProbeCommand": "/status"
@@ -49,9 +50,9 @@
       "description": "Small, fast, and cost-efficient model for simpler coding tasks."
     },
     {
-      "id": "gpt-5.3-codex",
-      "displayName": "GPT-5.3 Codex",
-      "description": "Coding-optimized model."
+      "id": "gpt-5.3-codex-spark",
+      "displayName": "GPT-5.3 Codex Spark",
+      "description": "Ultra-fast coding model."
     },
     {
       "id": "gpt-5.2",

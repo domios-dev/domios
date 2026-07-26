@@ -115,6 +115,7 @@ function muxStateFor(panes: Record<string, Pane>): ExtendedState {
     toasts: [],
     activeTabIds: {},
     generation: 1,
+    pendingCloses: [],
   };
 }
 
@@ -208,7 +209,7 @@ test("normal chat_backend pane keeps composer and hides read-only bar", async ()
   const messages = host.querySelector('[data-testid="pane-session-chat-messages"]');
   const composer = host.querySelector('[data-testid="chat-composer"]');
   assert(chat?.getAttribute("role") === "region", "chat is an accessible region");
-  assert(chat?.getAttribute("aria-label") === "Pane chat: chat-pane", "chat region is named");
+  assert(chat?.getAttribute("aria-label") === "Tab chat: chat-pane", "chat region is named");
   assert(messages?.getAttribute("role") === "log", "conversation is an accessible log");
   assert(messages?.getAttribute("aria-label") === "Conversation", "conversation log is named");
   assert(composer?.getAttribute("aria-label") === "Message composer", "composer is named");
@@ -249,7 +250,7 @@ test("fresh unbound chat keeps its usable surface while the transcript store is 
     state,
     () => ({ text: "", offset: 0, pending: true }),
   );
-  const chat = host.querySelector('[role="region"][aria-label="Pane chat: fresh-unbound-chat"]');
+  const chat = host.querySelector('[role="region"][aria-label="Tab chat: fresh-unbound-chat"]');
   const composer = host.querySelector('[aria-label="Message composer"]');
   assert(chat?.getAttribute("aria-busy") === "false", "usable fresh chat is not announced as loading");
   assert(composer, "usable fresh chat keeps its named composer");

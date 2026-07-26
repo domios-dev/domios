@@ -5,6 +5,8 @@ import {
   listenForTestChatReplies,
   resetTestChatClockForCodeTerm,
   testChatReplyPayload,
+  type ChatSessionDiagnosticEvent,
+  type ChatSessionDiagnosticSink,
   useChatSession,
 } from "./useChatSession";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
@@ -207,10 +209,11 @@ async function mountSession(
   sessionId: string | null,
   active = true,
   sessionBindingNonce: string | null = null,
+  diagnosticSink?: ChatSessionDiagnosticSink,
 ): Promise<{ root: Root; render: (nextSessionId: string | null, nextActive?: boolean, nextSessionBindingNonce?: string | null) => Promise<void>; latest: () => SessionView }> {
   let view: SessionView = { loading: true, recovering: false, messages: [] };
   function Harness({ currentSessionId, currentActive, currentSessionBindingNonce }: { currentSessionId: string | null; currentActive: boolean; currentSessionBindingNonce: string | null }) {
-    const session = useChatSession({ paneId: "pane", agentSessionId: currentSessionId, sessionBindingNonce: currentSessionBindingNonce, active: currentActive });
+    const session = useChatSession({ paneId: "pane", agentSessionId: currentSessionId, sessionBindingNonce: currentSessionBindingNonce, active: currentActive, diagnosticSink });
     view = { loading: session.loading, recovering: session.recovering, messages: session.allMessages };
     return null;
   }
@@ -423,9 +426,11 @@ async function runChatSessionHookTests(): Promise<void> {
   }
 
   {
-    const timers = new FakeTimers();
-    const restoreTimers = timers.install();
     let starts = 0;
+    let resolveResync!: () => void;
+    const resynced = new Promise<void>((resolve) => {
+      resolveResync = resolve;
+    });
     let handler: ((event: { payload: { pane_id: string; messages: NormalizedChatMessage[] } }) => void) | null = null;
     __setListenForTest(async (_event, nextHandler) => {
       handler = nextHandler as typeof handler;
@@ -438,16 +443,18 @@ async function runChatSessionHookTests(): Promise<void> {
         ? chatStartResult("sid-1", { text: "", offset: 1, messages: [{ id: "one", type: "assistant", content: "one", timestamp: "1" }] })
         : chatStartResult("sid-2", { text: "", offset: 3, messages: [{ id: "one", type: "assistant", content: "one updated", timestamp: "1" }, { id: "three", type: "assistant", content: "three", timestamp: "3" }] });
     }) as never);
-    const session = await mountSession("sid-1");
+    const diagnosticSink = (event: ChatSessionDiagnosticEvent) => {
+      if (event.edge === "state_commit" && event.messageIds?.includes("three")) resolveResync();
+    };
+    const session = await mountSession("sid-1", true, null, diagnosticSink);
     await act(async () => handler?.({ payload: chatEvent("sid-1", [{ id: "two", type: "assistant", content: "two", timestamp: "2" }]) }));
     await session.render("sid-2");
-    await timers.advance(0);
+    await resynced;
     const messages = session.latest().messages;
     assert(starts === 2, "T4 attached rotation performs one coalesced resync");
     assert(messages.map((message) => message.id).join(",") === "one,two,three", "T4 resync preserves transcript ordering");
     assert(messages.map((message) => message.clientOrder).join(",") === "0,1,2", "T4 resync preserves monotonic client order");
     await act(async () => session.root.unmount());
-    restoreTimers();
     console.log("PASS T4 attached rotation preserves transcript order");
   }
 

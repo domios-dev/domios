@@ -10,6 +10,15 @@ command, every secret, every retry) lives in the `github-release` skill:
 **Golden rule:** every artifact is built from the **tagged commit on `master`** —
 never from `develop`, never from an untagged tree.
 
+This is the public-release operation only. For a local production installer use
+`docs/BUILD.md#local-production-build-and-self-install`; for a dev window use
+the `dev-run` skill. Do not substitute either for this workflow.
+
+When a new release failure is discovered, repair the owning workflow or script
+and add a short symptom/cause/recovery entry to this document or the release
+skill before retrying. A successful rerun without updating the procedure is not
+complete remediation.
+
 ## Two-repo layout
 
 | Repo | Role |
@@ -59,9 +68,10 @@ re-cut from the new merge commit — a full wasted build cycle across all three 
 VER=X.Y.Z
 npm run sync:versions -- "$VER"
 ./build.sh check                      # refreshes Cargo.lock
+./build.sh release-preflight           # refreshes and verifies both Cargo lockfiles
 npm run check:versions
 git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock \
-  src-tauri/tauri.conf.json cli/Cargo.toml plugins packages scripts
+  src-tauri/tauri.conf.json cli/Cargo.toml cli/Cargo.lock plugins packages scripts
 git commit -m "release: v$VER"
 git push origin develop
 ```
@@ -159,7 +169,7 @@ Only force-move the tag (`git tag -f "release-$VER" && git push origin "release-
 when you deliberately need every platform to rebuild from a new commit and nothing has published
 yet.
 
-## 6. Troubleshooting (from the 1.7.2 release)
+## 6. Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
@@ -167,6 +177,8 @@ yet.
 | Linux arm64 leg fails to start, or the Docker build errors on missing tools | `codeterm-build-linux-arm64` Docker image is missing or stale on the Mac runner | `cd .codeterm/build-machine/docker && docker build -t codeterm-build-linux-arm64 -f Dockerfile.linux-arm64 .`. Also confirm Docker Desktop memory is ~20 GiB — the `codeterm` crate needs ≳8 GiB to compile and an under-provisioned Docker OOM-kills `rustc`. |
 | `release-windows.yml` jobs show `cancelled` for both `x86_64-pc-windows-msvc` and `aarch64-pc-windows-msvc` shortly after the tag push, no `.exe` uploaded by CI | The `windows-build` (ROG) self-hosted runner was offline/unreachable when the tag fired | Dispatch a worker on the ROG mesh peer to run `bash .agents/skills/github-release/scripts/win-release.sh $VER` directly (checkout → build → sign → upload, machine-parseable report). This produces the **x64** installer only — see next row. Once the runner is confirmed back online, `gh run rerun` (§5) can still be used for future tags; it does not retroactively fill in the missed run for this version. |
 | `latest.json` / release assets have no `windows-aarch64` entry for this version | The manual x64 fallback above has no ARM64 equivalent — cross-compiling `aarch64-pc-windows-msvc` needs the runner's `vcvarsall x64_arm64` toolchain, which only exists on the registered `windows-build` runner, not on an ad-hoc peer | Do not synthesize or claim a `windows-aarch64` asset for a release built this way. Either wait for the runner and rerun `release-windows.yml` before publishing, or ship without it and note the gap in the release notes; 1.7.2 shipped without it. |
+| Windows x64 succeeds, then ARM64 immediately fails with `rustup.exe not found` | `Swatinem/rust-cache` can clean `%USERPROFILE%\.cargo\bin` in the x64 post-job hook before the queued ARM64 job starts | Keep a copied proxy set outside Cargo's cache path (for ROG: `%USERPROFILE%\tools\rustup-proxies`) first in the runner `.env` `PATH`; restore Cargo's normal proxies, restart only the runner listener, then use `gh run rerun <run-id> --failed`. v1.7.4 proved this repair on the same tag/SHA. |
+| An archived release manifest downloads a later release or 404s after a newer version becomes GitHub Latest | The manifest used `/releases/latest/download/…` floating asset URLs | Generate all `latest.json` and updater fragment URLs with `/releases/download/vX.Y.Z/…`. Track this in issue #265; do not use an archived manifest as a stable download record until fixed. |
 
 ## 7. Runner restoration boundaries
 
@@ -252,4 +264,4 @@ The minisign updater key (`~/.tauri/codeterm.key`, empty password; its public ha
 the `github-release` skill lists the exact ids and restore paths. A builder without the minisign
 key produces artifacts the updater can't verify.
 
-<!-- revision: 9 -->
+<!-- revision: 11 -->

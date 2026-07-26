@@ -81,6 +81,12 @@ fn usage_config_defaults_on() {
 }
 
 #[test]
+fn legacy_usage_threshold_is_ignored() {
+    let cfg: UsageConfig = toml::from_str("high_pct_threshold = 75").unwrap();
+    assert!(cfg.enabled);
+}
+
+#[test]
 fn orchestration_reflect_every_gates_override() {
     let cfg: OrchestrationConfig = toml::from_str("[reflect]\nevery_gates = 25\n").unwrap();
     assert_eq!(cfg.reflect.every_gates, 25);
