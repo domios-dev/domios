@@ -377,6 +377,20 @@ async fn prove_health(address: SocketAddr) -> Result<(), String> {
     }
 }
 
+async fn bind_listener(bind_addr: &str) -> std::io::Result<tokio::net::TcpListener> {
+    let address = bind_addr
+        .parse::<SocketAddr>()
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
+    let socket = if address.is_ipv4() {
+        tokio::net::TcpSocket::new_v4()?
+    } else {
+        tokio::net::TcpSocket::new_v6()?
+    };
+    socket.set_reuseaddr(true)?;
+    socket.bind(address)?;
+    socket.listen(1024)
+}
+
 fn listener_exit_message(result: Result<(), std::io::Error>) -> String {
     match result {
         Ok(()) => "REST API listener/server future exited unexpectedly.".to_string(),
@@ -524,7 +538,7 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
 
     loop {
         let generation = control.begin_generation();
-        let listener = match tokio::net::TcpListener::bind(&bind_addr).await {
+        let listener = match bind_listener(&bind_addr).await {
             Ok(listener) => listener,
             Err(error) => {
                 let message =
