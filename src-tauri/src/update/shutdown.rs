@@ -51,6 +51,7 @@ pub async fn graceful_shutdown(app: &tauri::AppHandle) -> Result<(), String> {
 
     wait_or_kill_panes(svc.pty.clone(), agent_panes).await?;
     let reaped = reap_owned_ptys(&svc).await?;
+    let conpty_hosts = super::conpty_cleanup::cleanup_before_installer().await?;
 
     persist_session(app, &svc)?;
 
@@ -59,8 +60,9 @@ pub async fn graceful_shutdown(app: &tauri::AppHandle) -> Result<(), String> {
     }
 
     log::info!(
-        "[updater] graceful_shutdown: complete; {} PTY session(s) reaped",
-        reaped
+        "[updater] graceful_shutdown: complete; {} PTY session(s) reaped, {} bundled ConPTY host(s) reaped",
+        reaped,
+        conpty_hosts
     );
     Ok(())
 }
