@@ -351,12 +351,13 @@ fn probe_address(address: SocketAddr) -> SocketAddr {
 }
 
 async fn prove_health(address: SocketAddr) -> Result<(), String> {
+    const HEALTH_PROOF_DEADLINE: Duration = Duration::from_secs(5);
     let client = reqwest::Client::builder()
         .no_proxy()
         .build()
         .map_err(|error| error.to_string())?;
     let url = format!("http://{}/api/health", probe_address(address));
-    let status = tokio::time::timeout(Duration::from_secs(1), async {
+    let status = tokio::time::timeout(HEALTH_PROOF_DEADLINE, async {
         let response = client
             .get(url)
             .header(reqwest::header::CONNECTION, "close")

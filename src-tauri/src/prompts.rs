@@ -479,6 +479,7 @@ mod tests {
             "codeterm_rule.md",
             "bridge_mem.md",
             "general_agent.md",
+            "agent_codeterm_primer.md",
             "codeterm_cli.md",
             "bootstrap_instructions.md",
             "worker_task_preamble.md",

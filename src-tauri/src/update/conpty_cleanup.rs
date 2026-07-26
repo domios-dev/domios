@@ -333,7 +333,8 @@ mod tests {
         let host = dir.join("OpenConsole.exe");
         std::fs::copy(std::env::current_exe().unwrap(), &host).unwrap();
 
-        let mut child = Command::new(&host)
+        let mut command = Command::new(&host);
+        command
             .args([
                 "--exact",
                 "update::conpty_cleanup::tests::openconsole_test_helper",
@@ -341,9 +342,9 @@ mod tests {
             ])
             .env("CODETERM_OPENCONSOLE_TEST_HELPER", "1")
             .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
+            .stdout(Stdio::piped());
+        crate::process_util::no_window_std(&mut command);
+        let mut child = command.spawn().unwrap();
 
         let readiness = wait_for_helper_ready(&mut child, Duration::from_secs(10));
         if !readiness {

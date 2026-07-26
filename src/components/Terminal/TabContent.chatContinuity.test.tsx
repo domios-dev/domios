@@ -254,10 +254,12 @@ async function main(): Promise<void> {
   const switchBeforeRefresh = host.querySelector('[data-testid="pane-mode-switch"]');
   assert(switchBeforeRefresh, "bound provider did not expose the Terminal/Chat switch");
   assert(
-    switchBeforeRefresh.querySelector('[data-value="terminal"]')?.getAttribute("aria-selected") === "true",
-    "continuity harness did not start in Terminal",
+    switchBeforeRefresh.querySelector('[data-value="chat"]')?.getAttribute("aria-selected") === "true",
+    "chat-capable pane did not start in Chat",
   );
-  assert(server.starts.length === 0, "Terminal requested a Chat snapshot");
+  assert(server.starts.length === 1, `default Chat started ${server.starts.length} snapshots`);
+  assert(server.starts[0]?.agentSessionId === "sid-live", "default Chat lost the pane-owned session id");
+  assert(Number(server.subscribers.size) === 1, "default Chat did not own one subscription");
 
   state = stateFor({ ...boundPane() }, 2);
   await act(async () => {
@@ -268,23 +270,12 @@ async function main(): Promise<void> {
     host.querySelector('[data-testid="pane-mode-switch"]'),
     "snapshot refresh lost the provider-owned Chat capability",
   );
-  assert(server.starts.length === 0, "same-authority refresh attached hidden Chat");
-
-  const chatTab = host.querySelector(
-    '[data-testid="pane-mode-switch"] [data-value="chat"]',
-  ) as HTMLButtonElement | null;
-  assert(chatTab, "Chat switch action disappeared after refresh");
-  await act(async () => {
-    chatTab.click();
-  });
-  await flush();
-
-  assert(Number(server.starts.length) === 1, `Terminal -> Chat started ${server.starts.length} snapshots`);
+  assert(Number(server.starts.length) === 1, "same-authority refresh restarted Chat");
   assert(
     server.starts[0]?.agentSessionId === "sid-live",
-    "Terminal -> Chat lost the pane-owned session id",
+    "same-authority refresh lost the pane-owned session id",
   );
-  assert(Number(server.subscribers.size) === 1, "Terminal -> Chat did not own one subscription");
+  assert(Number(server.subscribers.size) === 1, "same-authority refresh duplicated the subscription");
   const rows = host.querySelectorAll('[data-testid="chat-message"]');
   assert(rows.length === 1, `bounded transcript rendered ${rows.length} rows`);
   assert(rows[0]?.textContent?.includes("pre-existing transcript"), "bounded transcript row is missing");
@@ -298,7 +289,7 @@ async function main(): Promise<void> {
   assert(
     host.querySelector('[data-testid="pane-mode-switch"] [data-value="chat"]')
       ?.getAttribute("aria-selected") === "true",
-    "Terminal -> Chat switch did not retain Chat mode",
+    "same-authority refresh did not retain Chat mode",
   );
 
   await act(async () => {
@@ -308,7 +299,7 @@ async function main(): Promise<void> {
   assert(Number(server.subscribers.size) === 0, "unmount retained the Chat subscription");
   assert(server.stops.length === 1, "unmount did not stop exactly one subscription");
   console.log(
-    "PASS TabContent continuity: provider/model/switch + one transcript/subscription survived refresh and Terminal -> Chat",
+    "PASS TabContent continuity: default Chat provider/model + one transcript/subscription survived refresh",
   );
 }
 

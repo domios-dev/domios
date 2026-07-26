@@ -12,10 +12,7 @@ pub fn default_chat_view_for_provider(
     let supports_chat_ui = registry
         .with_provider(provider_id, |provider| provider.supports_chat_ui())
         .unwrap_or(false);
-    should_default_agent_pane_to_chat(
-        PaneVisibility::Visible,
-        supports_chat_ui,
-    )
+    should_default_agent_pane_to_chat(PaneVisibility::Visible, supports_chat_ui)
 }
 
 pub fn apply_general_chat_view_default(

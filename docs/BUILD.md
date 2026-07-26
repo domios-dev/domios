@@ -346,5 +346,9 @@ blocking workers. A refused socket is instead listener exit or bind ownership
 failure and belongs to the generation supervisor. If a Windows manual restart
 reports bind failure immediately after a healthy generation, verify the health
 proof consumes its body and closes its connection before publishing readiness.
+If the macOS full Rust gate reports a REST lifecycle deadline while focused
+listener tests pass, inspect whether the real `/api/health` proof exhausted its
+bounded failure deadline under runner contention. Keep the proof event-driven;
+do not replace it with a settle delay or treat elapsed time as readiness.
 
-<!-- revision: 25 -->
+<!-- revision: 26 -->

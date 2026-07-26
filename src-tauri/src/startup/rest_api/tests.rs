@@ -2,6 +2,7 @@ use super::*;
 use std::io::{Read, Write};
 
 static REAL_SOCKET_TEST: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+const LIFECYCLE_TEST_DEADLINE: std::time::Duration = std::time::Duration::from_secs(15);
 
 async fn wait_for_status<F>(
     status: &mut watch::Receiver<RestApiStatus>,
@@ -10,7 +11,7 @@ async fn wait_for_status<F>(
 where
     F: Fn(&RestApiStatus) -> bool,
 {
-    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+    tokio::time::timeout(LIFECYCLE_TEST_DEADLINE, async {
         loop {
             let current = status.borrow_and_update().clone();
             if expected(&current) {
@@ -30,7 +31,7 @@ async fn wait_for_lifecycle<F>(
 where
     F: Fn(&RestApiStatus) -> bool,
 {
-    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+    tokio::time::timeout(LIFECYCLE_TEST_DEADLINE, async {
         loop {
             let event = events.recv().await.expect("lifecycle sender stopped");
             if expected(&event) {
