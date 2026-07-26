@@ -1,11 +1,11 @@
 import { LivingDots } from "../../ds/LivingDots";
-import type { Specimen } from "../types";
+import { defineSpecimen } from "../types";
 
 function LivingDotsSpecimen(props: Record<string, unknown>) {
   return <div className="lg-lab"><LivingDots {...props} /></div>;
 }
 
-export default {
+export default defineSpecimen({
   id: "living-dots",
   title: "Living Dots",
   category: "Status",
@@ -18,4 +18,4 @@ export default {
     { id: "muted-micro", label: "Muted · micro", props: { tone: "muted", size: "micro" } },
     { id: "idle", label: "Idle", props: { tone: "accent", size: "small", idle: true } },
   ],
-} satisfies Specimen;
+});
