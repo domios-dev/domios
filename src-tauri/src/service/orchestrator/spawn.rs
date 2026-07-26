@@ -1,10 +1,9 @@
 use super::launch::{
-    build_agent_command, launch_agent_in_background, should_deliver_spawn_preferences,
-    skip_local_worker_role, spawn_onboarding_task,
+    agent_system_prompt, build_agent_command, launch_agent_in_background, skip_local_worker_role,
+    spawn_onboarding_task,
 };
 use super::types::{ReasoningEffortProvenance, SpawnAgentParams, SpawnResult};
 use crate::service::{spawn_title, ServiceContext};
-use tauri::Manager;
 
 /// Build effort provenance for a launch where the requested effort has already
 /// passed capability validation. No silent downgrade ⇒ `resolved == requested`.
@@ -304,14 +303,7 @@ impl ServiceContext {
         };
         params.cwd = resolved_cwd;
 
-        let default_chat_enabled = self
-            .app_handle
-            .state::<crate::config::ConfigState>()
-            .lock()
-            .ui
-            .default_new_agent_pane_chat;
         let default_chat_view = crate::service::spawn::should_default_agent_pane_to_chat(
-            default_chat_enabled,
             crate::service::spawn::PaneVisibility::Visible,
             self.agent_registry
                 .with_provider(&agent_cmd, |p| p.supports_chat_ui())
@@ -509,7 +501,10 @@ impl ServiceContext {
                     let orch_tab = orch_pane.as_deref().unwrap_or("unknown");
                     let onboard =
                         crate::prompts::planner_onboarding_task(&orch_label, orch_tab, plan_id);
-                    Some(format!("{codeterm_pfx}{onboard}"))
+                    Some(format!(
+                        "{codeterm_pfx}{}",
+                        agent_system_prompt(Some(&onboard))
+                    ))
                 }
                 None => bg_task,
             }
@@ -518,10 +513,6 @@ impl ServiceContext {
         } else {
             bg_task
         };
-        // Planner-start injection point: pull machine-local orchestration preferences off the hot path.
-        if should_deliver_spawn_preferences(is_planner, bg_task.as_deref()) {
-            self.deliver_orchestration_preferences(&pane_id);
-        }
         // Tag with the spawner's origin prefix (FROM-<spawner>) for every provider —
         // but role onboarding is already CodeTerm-attributed, so skip it there.
         let bg_task = if is_planner || is_orch_onboarding {
@@ -732,9 +723,8 @@ impl ServiceContext {
         if !self.provider_registry.is_spawnable_chat_backend(agent) {
             return Ok(());
         }
-        if params.system_prompt.is_none() {
-            params.system_prompt = params.task.take();
-        }
+        let assignment = params.system_prompt.take().or_else(|| params.task.take());
+        params.system_prompt = Some(agent_system_prompt(assignment.as_deref()));
         Ok(())
     }
 }

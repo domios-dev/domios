@@ -470,8 +470,6 @@ test("pane header reconnect control requests a hook-owned reattach", async () =>
         paneId="header-pane"
         cwd={null}
         showSwitch={false}
-        chatFirst={false}
-        chatDefaultPrompted={true}
         canReconnect={true}
         isActive={true}
       />,
@@ -523,8 +521,6 @@ test("pane actions restart the agent session and copy its ID", async () => {
         paneId="agent-pane"
         cwd={null}
         showSwitch={false}
-        chatFirst={false}
-        chatDefaultPrompted={true}
         canReconnect={true}
         canRestartSession={true}
         sessionId="session-123"
@@ -565,8 +561,6 @@ test("pane header does not repeat the mobile top safe area", async () => {
         paneId="mobile-header-pane"
         cwd={null}
         showSwitch={false}
-        chatFirst={false}
-        chatDefaultPrompted={true}
       />,
     );
   });

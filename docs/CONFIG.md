@@ -400,13 +400,11 @@ Controls which sidebar buttons are visible. Set in `[ui]` in `config.toml`.
 |-----|------|---------|-------------|
 | `ui.memory_tab_enabled` | `bool` | `true` | Show/hide the Memory sidebar button |
 | `ui.mesh_tab_enabled` | `bool` | `true` | Show/hide the Mesh sidebar button |
-| `ui.default_new_agent_pane_chat` | `bool` | `false` | Open new visible agent tabs, including General/Main, in Chat UI when the provider supports it |
 
 ```toml
 [ui]
 memory_tab_enabled = true
 mesh_tab_enabled = true
-default_new_agent_pane_chat = false
 ```
 
 ## Memory
@@ -483,4 +481,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
 
-<!-- revision: 26 -->
+<!-- revision: 28 -->

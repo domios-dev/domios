@@ -28,8 +28,6 @@ interface TabContentProps {
   workspaceCwd?: string | null;
   uiFontScale?: number;
   isVisible: boolean;
-  chatFirst: boolean;
-  chatDefaultPrompted: boolean;
 }
 
 export function TabContent({
@@ -44,8 +42,6 @@ export function TabContent({
   workspaceCwd,
   uiFontScale,
   isVisible,
-  chatFirst,
-  chatDefaultPrompted,
   api,
 }: TabContentProps) {
   const descriptor = useAgentDescriptor(pane?.agent_type);
@@ -100,8 +96,6 @@ export function TabContent({
           paneId={pane.id}
           cwd={cwd}
           showSwitch={showSwitch}
-          chatFirst={chatFirst}
-          chatDefaultPrompted={chatDefaultPrompted}
           usageProvider={usageProvider}
           usageVisible={usageVisible}
           api={api}

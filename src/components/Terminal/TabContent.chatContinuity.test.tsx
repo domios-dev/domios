@@ -242,8 +242,6 @@ async function main(): Promise<void> {
               onPtySpawned={() => {}}
               theme={theme}
               isVisible
-              chatFirst={false}
-              chatDefaultPrompted
             />
           </MultiplexerActionsContext.Provider>
         </MuxStateStoreContext.Provider>,

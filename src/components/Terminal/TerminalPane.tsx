@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SquareTerminal, X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
-import { IS_WEB, listen } from "../../lib/bridge";
+import { listen } from "../../lib/bridge";
 import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
 import { paneFieldsEqual, selectPane } from "../../store/multiplexer/selectors";
 import {
@@ -20,7 +20,6 @@ import { registerPanePaste } from "../../lib/panePasteRegistry";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import {
   listenClientPaneUiMode,
-  listenPaneUiModeDefaultChanged,
   publishCurrentPaneUiMode,
   resolveInitialPaneUiMode,
   setClientPaneUiMode,
@@ -30,11 +29,7 @@ import { TerminalKeyBar } from "./TerminalKeyBar";
 import { CompletionPopup } from "./CompletionPopup";
 import { SearchBar } from "./SearchBar";
 import { PaneSessionChat } from "./PaneSessionChat";
-import {
-  isChatDefaultEnabled,
-  isPaneUiModeEvent,
-  type PaneUiMode,
-} from "../../lib/chatUiMode";
+import { isPaneUiModeEvent, type PaneUiMode } from "../../lib/chatUiMode";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import type { ApiConfig, PaneStatus, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 import { claimResizeOwner, getResizeClientId } from "../../lib/resizeOwner";
@@ -90,18 +85,6 @@ export const TerminalPane = memo(function TerminalPane({
         : agentDescriptor
           ? agentDescriptor.supports_chat_ui === true
           : true;
-  const [mobileWebDefaultChat, setMobileWebDefaultChat] = useState(() =>
-    IS_WEB && typeof window !== "undefined" && window.matchMedia("(max-width: 700px)").matches,
-  );
-
-  useEffect(() => {
-    if (!IS_WEB || typeof window === "undefined") return;
-    const query = window.matchMedia("(max-width: 700px)");
-    const update = () => setMobileWebDefaultChat(query.matches);
-    update();
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, []);
   const userModeOverrideRef = useRef<PaneUiMode | null>(null);
   const computeMode = useCallback((): PaneUiMode => {
     if (userModeOverrideRef.current) {
@@ -109,11 +92,8 @@ export const TerminalPane = memo(function TerminalPane({
     }
     return resolveInitialPaneUiMode(paneId, {
       chatCapable,
-      chatViewFlag: pane?.chat_view === true,
-      chatDefault: isChatDefaultEnabled(),
-      mobileDefault: mobileWebDefaultChat,
     });
-  }, [paneId, chatCapable, pane?.chat_view, mobileWebDefaultChat]);
+  }, [paneId, chatCapable]);
   const [uiMode, setUiMode] = useState<PaneUiMode>(computeMode);
   const [terminalFallbackOpen, setTerminalFallbackOpen] = useState(false);
   const [historyReplaying, setHistoryReplaying] = useState(false);
@@ -216,11 +196,6 @@ export const TerminalPane = memo(function TerminalPane({
     userModeOverrideRef.current = mode;
     setUiMode(mode === "chat" && !chatCapable ? "terminal" : mode);
   }), [paneId, chatCapable]);
-
-  useEffect(() => listenPaneUiModeDefaultChanged(() => {
-    userModeOverrideRef.current = null;
-    setUiMode(computeMode());
-  }), [computeMode]);
 
   // Remote-control: an explicit REST /chat-view call (bridge, agents, tests)
   // broadcasts `pane-chat-view`; apply it as if the user toggled locally.

@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
-use tauri::Manager;
 
 use super::orchestrator::{build_agent_command, launch_agent_in_background};
 use super::ServiceContext;
@@ -149,11 +148,10 @@ pub(crate) fn resolve_spawn_workspace_id(
 }
 
 pub(crate) fn should_default_agent_pane_to_chat(
-    default_enabled: bool,
     visibility: PaneVisibility,
     provider_supports_chat_ui: bool,
 ) -> bool {
-    default_enabled && visibility == PaneVisibility::Visible && provider_supports_chat_ui
+    visibility == PaneVisibility::Visible && provider_supports_chat_ui
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -307,14 +305,7 @@ impl ServiceContext {
         let (resolved_cwd, cwd_warning) = Self::resolve_agent_cwd(&spec.cwd, &ws_cwd);
         let warning = merge_warnings(cwd_warning, cli_warning);
 
-        let default_chat_enabled = self
-            .app_handle
-            .state::<crate::config::ConfigState>()
-            .lock()
-            .ui
-            .default_new_agent_pane_chat;
         let default_chat_view = should_default_agent_pane_to_chat(
-            default_chat_enabled,
             spec.visibility,
             self.agent_registry
                 .with_provider(&agent_cmd, |p| p.supports_chat_ui())
