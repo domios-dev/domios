@@ -1,7 +1,7 @@
 import { SegmentedDonut } from "../../ds/SegmentedDonut";
-import type { Specimen } from "../types";
+import { defineSpecimen } from "../types";
 
-export default {
+export default defineSpecimen({
   id: "segmented-donut",
   title: "Segmented donut",
   category: "Status",
@@ -13,4 +13,4 @@ export default {
     { id: "complete", label: "Complete", props: { size: 44, segments: [{ status: "done", count: 8 }] } },
     { id: "empty", label: "Empty", props: { size: 44, segments: [] } },
   ],
-} satisfies Specimen;
+});
