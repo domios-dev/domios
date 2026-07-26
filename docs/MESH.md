@@ -21,11 +21,13 @@ ownership and a successful real `/api/health` response. Bind ownership failure
 and a still-bound listener with all four REST workers blocked have distinct
 diagnostics, so worker starvation does not cause listener-generation churn.
 
-Replacement readiness is published to the liveness owner, which restores local
-HTTP health, emits the existing `mesh-state-changed` resync signal, and
-broadcasts the refreshed announce. A recovered stalled generation enters the
-same path after an external health probe succeeds. Relay delivery keeps its
-existing at-most-once and structured-error behavior across the outage.
+Replacement readiness is queued to the liveness owner with a monotonic recovery
+transition id, which restores local HTTP health, emits the existing
+`mesh-state-changed` resync signal, and broadcasts the refreshed announce
+exactly once. Distinct worker-stall recoveries within one listener generation
+receive distinct ids; a duplicate observation cannot claim another resync.
+Relay delivery keeps its existing at-most-once and structured-error behavior
+across the outage.
 
 ## Auth Model
 
@@ -243,4 +245,4 @@ services/
   smart_add.rs      — heuristic field-mapping suggestions for AddServiceWizard
 ```
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

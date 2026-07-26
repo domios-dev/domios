@@ -51,6 +51,15 @@ The internal `get_rest_api_status` command returns `generation`, `phase`,
 `bind_ownership_failed`, or `workers_blocked`; the last means the listener
 remains bound but the four REST runtime workers cannot answer health.
 
+Each successful outage transition also owns a monotonic recovery id. Recovery
+events are queued, so two worker stalls recovered within one listener generation
+each produce one mesh resync while observing an event twice produces none.
+
+The representative worker-starvation cause is provider transcript parsing, not
+the listener: session JSONL can be hundreds of MiB. REST chat/transcript routes
+run the bounded 4 MiB tail parser on blocking workers, leaving all four REST
+runtime workers available for health, tab, and relay requests.
+
 
 #### Workspaces
 | Method | Path | Body | Description |
@@ -1362,4 +1371,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 89 -->
+<!-- revision: 90 -->
