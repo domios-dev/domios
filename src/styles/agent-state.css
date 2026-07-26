@@ -57,30 +57,35 @@
    a gentle left→right wave (text flowing). Hue eases over 0.6s; phase is
    debounced upstream so it can't strobe. */
 .ct-phase-dots {
+  --activity-dot-size: 4px;
+  --activity-dot-gap: 3px;
+  --activity-dot-jump: 3px;
+  --activity-dot-duration: 1.05s;
+  --activity-dot-delay: 0.12s;
   display: inline-flex;
   align-items: flex-end;
-  gap: 3px;
+  gap: var(--activity-dot-gap);
   align-self: baseline;
-  height: 0.72em;
+  height: calc(var(--activity-dot-size) + var(--activity-dot-jump));
   flex: 0 0 auto;
   color: var(--ct-accent, #58a6ff);
   transition: color 0.6s ease;
 }
 .ct-phase-dots i {
-  width: 4px;
-  height: 4px;
+  width: var(--activity-dot-size);
+  height: var(--activity-dot-size);
   border-radius: 50%;
   background: currentColor;
   display: block;
   transform-origin: 50% 100%;
-  animation: ct-dots-squash-jump 1.05s cubic-bezier(0.22, 0.9, 0.25, 1) infinite;
+  animation: ct-dots-squash-jump var(--activity-dot-duration) var(--ct-ease-spring) infinite;
   transition: opacity 0.45s ease, transform 0.45s ease;
 }
 [data-agent-state="working"] .ct-phase-dots i:nth-child(2) {
-  animation-delay: 0.12s;
+  animation-delay: var(--activity-dot-delay);
 }
 [data-agent-state="working"] .ct-phase-dots i:nth-child(3) {
-  animation-delay: 0.24s;
+  animation-delay: calc(var(--activity-dot-delay) * 2);
 }
 [data-agent-phase="thinking"] .ct-phase-dots {
   color: var(--ct-think, #a371f7);
@@ -109,10 +114,44 @@
 }
 @keyframes ct-dots-squash-jump {
   0%, 70%, 100% { opacity: 0.64; transform: translateY(0) scaleX(1) scaleY(1); }
-  10% { opacity: 0.9; transform: translateY(0.5px) scaleX(1.2) scaleY(0.72); }
-  24% { opacity: 1; transform: translateY(-3px) scaleX(0.92) scaleY(1.1); }
-  42% { opacity: 0.95; transform: translateY(0.25px) scaleX(1.14) scaleY(0.78); }
+  10% { opacity: 0.9; transform: translateY(calc(var(--activity-dot-size) * 0.15)) scaleX(1.2) scaleY(0.72); }
+  24% { opacity: 1; transform: translateY(calc(var(--activity-dot-jump) * -1)) scaleX(0.92) scaleY(1.1); }
+  42% { opacity: 0.95; transform: translateY(calc(var(--activity-dot-size) * 0.08)) scaleX(1.14) scaleY(0.78); }
   54% { opacity: 0.78; transform: translateY(0) scaleX(1) scaleY(1); }
+}
+
+.activity-dots--micro {
+  --activity-dot-size: 2.5px;
+  --activity-dot-gap: 1.25px;
+  --activity-dot-jump: 1.25px;
+}
+.activity-dots--small {
+  --activity-dot-size: 3px;
+  --activity-dot-gap: 2px;
+  --activity-dot-jump: 2px;
+}
+.activity-dots--medium {
+  --activity-dot-size: 5px;
+  --activity-dot-gap: 3px;
+  --activity-dot-jump: 3.25px;
+}
+.activity-dots--accent { color: color-mix(in srgb, var(--ct-accent) 72%, var(--ct-fg)); }
+.activity-dots--thinking { color: color-mix(in srgb, var(--ct-thinking, #a371f7) 72%, var(--ct-fg)); }
+.activity-dots--muted { color: color-mix(in srgb, currentColor 72%, var(--ct-fg)); }
+.activity-dots i:nth-child(2) { animation-delay: var(--activity-dot-delay); }
+.activity-dots i:nth-child(3) { animation-delay: calc(var(--activity-dot-delay) * 2); }
+.activity-dots--thinking {
+  --activity-dot-duration: 1.35s;
+  --activity-dot-delay: 0.16s;
+}
+.activity-dots--streaming {
+  --activity-dot-duration: 0.88s;
+  --activity-dot-delay: 0.1s;
+}
+.activity-dots--idle i {
+  animation: none;
+  opacity: 0.42;
+  transform: scale(0.9);
 }
 
 /* Going idle: the three-dot slot stays intact and settles into a static,
@@ -217,6 +256,7 @@
   }
   .ct-agent-cursor-rest { opacity: 0.6; }
   .ct-phase-dots i { opacity: 0.85; transition: none; }
+  .activity-dots i { animation: none !important; opacity: 0.85; transform: scale(1); }
   [data-agent-state="idle"] .ct-phase-dots i:nth-child(2),
   [data-agent-state="idle"] .ct-phase-dots i:nth-child(3) { opacity: 0; }
 }
