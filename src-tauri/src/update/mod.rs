@@ -1,6 +1,7 @@
 pub mod apply;
 pub mod channel;
 pub mod checker;
+mod conpty_cleanup;
 pub mod manifest;
 pub mod post_update;
 pub mod shutdown;
