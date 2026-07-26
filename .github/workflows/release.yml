@@ -41,18 +41,38 @@ jobs:
           fetch-depth: 0
 
       - name: Preflight (toolchain + signing + engines reachable)
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
         run: |
-          set -e
+          # Collect every result before exiting, so one bad credential reports the
+          # whole picture instead of hiding the checks behind it.
+          rc=0
           echo "host: $(uname -msr)"
-          security find-identity -v -p codesigning | grep -q ANDREY && echo "✅ Developer ID present" || { echo "::error::no Developer ID"; exit 1; }
-          test -f "$HOME/.claude/.secrets/apple-notary.env" && echo "✅ notary env" || { echo "::error::missing apple-notary.env"; exit 1; }
-          xcrun notarytool history --keychain-profile codeterm >/tmp/codeterm-notary-preflight.log 2>&1 \
-            && echo "✅ Apple notary profile usable" \
-            || { cat /tmp/codeterm-notary-preflight.log; echo "::error::Apple notary profile unusable; check expired/missing Apple Developer agreements for the team"; exit 1; }
-          test -f "$HOME/.tauri/codeterm.key" && echo "✅ minisign key" || { echo "::error::missing minisign key"; exit 1; }
+          security find-identity -v -p codesigning | grep -q ANDREY && echo "✅ Developer ID present" || { echo "::error::no Developer ID"; rc=1; }
+          test -f "$HOME/.tauri/codeterm.key" && echo "✅ minisign key" || { echo "::error::missing minisign key"; rc=1; }
+          gh auth status 2>&1 | grep -q "Logged in" && echo "✅ gh auth" || { echo "::error::gh not authed"; rc=1; }
           docker image inspect codeterm-build-linux-arm64 >/dev/null 2>&1 && echo "✅ docker arm64 image" || echo "::warning::bake codeterm-build-linux-arm64"
           docker image inspect codeterm-build-linux-x64   >/dev/null 2>&1 && echo "✅ docker x64 image"   || echo "::warning::bake codeterm-build-linux-x64"
-          gh auth status 2>&1 | grep -q "Logged in" && echo "✅ gh auth" || { echo "::error::gh not authed"; exit 1; }
+
+          # Authenticate with the credentials the build will actually use. The
+          # keychain profile is deliberately not consulted: it cannot be
+          # provisioned non-interactively, so it rots silently (cost v1.7.5 a run).
+          if [ -z "${APPLE_ID:-}" ] && [ -f "$HOME/.claude/.secrets/apple-notary.env" ]; then
+            set -a; . "$HOME/.claude/.secrets/apple-notary.env"; set +a
+          fi
+          NOTARY_PASSWORD="${APPLE_APP_SPECIFIC_PASSWORD:-${APPLE_PASSWORD:-}}"
+          if [ -z "${APPLE_ID:-}" ] || [ -z "${APPLE_TEAM_ID:-}" ] || [ -z "$NOTARY_PASSWORD" ]; then
+            echo "::error::notary credentials missing — set the APPLE_ID / APPLE_TEAM_ID / APPLE_PASSWORD repo secrets"; rc=1
+          elif xcrun notarytool history --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+                 --password "$NOTARY_PASSWORD" >/tmp/codeterm-notary-preflight.log 2>&1; then
+            echo "✅ Apple notary credentials accepted"
+          else
+            tail -20 /tmp/codeterm-notary-preflight.log
+            echo "::error::Apple notary rejected these credentials — rotate the APPLE_PASSWORD app-specific password, or check the team's Developer agreements"; rc=1
+          fi
+          exit "$rc"
 
       - name: Stamp the v${{ steps.ver.outputs.ver }} build tag at the release commit
         run: |
@@ -78,6 +98,10 @@ jobs:
           docker info >/dev/null 2>&1 && echo "✅ docker up" || { echo "::error::Docker not available after wait"; exit 1; }
 
       - name: Build macOS + Linux (2 engines × 2 waves)
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
         run: |
           # Windows is built separately on the ROG self-hosted runner via
           # release-windows.yml (tag-triggered); this Mac builds mac+linux only.

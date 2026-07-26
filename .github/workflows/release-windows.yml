@@ -330,6 +330,9 @@ jobs:
           New-Item -ItemType Directory -Force _frags, manifest-fragments | Out-Null
           gh release download "$env:TAG" --pattern 'updater-*.json' --dir _frags --repo "$env:SOURCE_REPO"
           foreach ($f in Get-ChildItem _frags -Filter 'updater-*.json') {
+            # The -deb fragment claims the same linux-x86_64 key as the AppImage
+            # one but belongs to latest-deb.json; merged here it would win.
+            if ($f.Name -like '*-deb.json') { continue }
             $base = $f.BaseName
             New-Item -ItemType Directory -Force "manifest-fragments/$base" | Out-Null
             Copy-Item $f.FullName "manifest-fragments/$base/latest.json" -Force

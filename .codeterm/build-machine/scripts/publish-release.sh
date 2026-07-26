@@ -78,8 +78,13 @@ gh release edit "$TAG" --repo "$SRC" --draft=false
 echo "### rebuild merged latest.json (fragments + existing manifest, monotonic)"
 rm -rf _merge && mkdir -p _merge
 gh release download "$TAG" --repo "$SRC" --pattern 'updater-*.json' --dir _merge 2>/dev/null || true
-# subdir-per-fragment so the recursive finder treats each as a fragment
-i=0; for f in _merge/updater-*.json; do d="_merge/frag-$i"; mkdir -p "$d"; mv "$f" "$d/latest.json"; i=$((i+1)); done
+# subdir-per-fragment so the recursive finder treats each as a fragment. The -deb
+# fragment claims the same linux-x86_64 key as the AppImage one — it owns
+# latest-deb.json only, and merged here it would win and break AppImage updates.
+i=0; for f in _merge/updater-*.json; do
+  case "$(basename "$f")" in *-deb.json) rm -f "$f"; continue ;; esac
+  d="_merge/frag-$i"; mkdir -p "$d"; mv "$f" "$d/latest.json"; i=$((i+1))
+done
 gh release download "$TAG" --repo "$SRC" --pattern 'latest.json' --dir _merge 2>/dev/null || true
 BASE_ARG=()
 [ -f _merge/latest.json ] && BASE_ARG=(--base _merge/latest.json)
