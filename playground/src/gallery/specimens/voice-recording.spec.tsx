@@ -1,11 +1,11 @@
 import { VoiceRecording, type VoiceRecordingProps } from "../../ds/VoiceRecording";
-import type { Specimen } from "../types";
+import { defineSpecimen } from "../types";
 
 function VoiceRecordingSpecimen(props: VoiceRecordingProps) {
   return <VoiceRecording {...props} />;
 }
 
-export default {
+export default defineSpecimen({
   id: "voice-recording",
   title: "Voice recording",
   category: "Voice",
@@ -21,4 +21,4 @@ export default {
   ],
   Component: VoiceRecordingSpecimen,
   motion: "animated",
-} satisfies Specimen;
+});
