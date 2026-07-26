@@ -280,9 +280,10 @@ and warm reruns are incremental. To reclaim disk:
 ### Cross-platform CI troubleshooting
 
 - A Tauri test harness that must populate a production `AppHandle` uses
-  `tauri::Builder::default()`. Apply `any_thread()` only under `cfg(windows)`;
-  `mock_builder()` changes the runtime type and Windows extensions do not compile
-  on macOS.
+  `tauri::Builder::default()`. Apply `any_thread()` on Windows and Linux;
+  `mock_builder()` changes the runtime type. macOS requires the real event loop
+  on the process main thread, so a libtest-thread AppHandle harness must be
+  ignored there and covered by the Windows/Linux matrix.
 - Real-socket tests that reserve an ephemeral address and then rebind it must
   serialize that reservation inside the test module. Parallel bind-drop-bind
   fixtures can claim each other's released ports, especially on Windows.
@@ -452,4 +453,4 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 
 Before approving a PR, use **`docs/contributing/review-checklist.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
 
-<!-- revision: 22 -->
+<!-- revision: 23 -->
