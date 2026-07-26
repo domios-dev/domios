@@ -430,6 +430,7 @@ async fn drive_restart(
         );
         return;
     }
+    svc.clear_pane_agent_identity_for_lifecycle_exit(&snap.pane_id);
 
     let Some(launch_cmd) = build_relaunch_command(&svc, &snap, session_present)
         .map(|cmd| crate::agent::stub_launch::apply(&snap.provider, cmd))

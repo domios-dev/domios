@@ -108,45 +108,22 @@ impl ServiceContext {
         let (
             pane_id,
             agent_type,
-            in_grace_cached,
-            locked_cached,
             has_active_prompt,
             is_auto_approve,
             shell_nonce,
             pane_cwd,
             agent_session_id,
-            is_planner,
-            observed_boot_stage,
         ) = {
             let mux = self.mux.read();
             let pid = mux.pane_id_for_pty(pty_id);
             let pane = pid.as_ref().and_then(|id| mux.get_pane(id));
             let at = pane.and_then(|p| p.agent_type.clone());
-            let grace = pane
-                .and_then(|p| p.agent_set_at)
-                .map(|t| t.elapsed().as_secs() < 30)
-                .unwrap_or(false);
-            let locked = pane.map(|p| p.agent_type_locked).unwrap_or(false);
             let active_prompt = pane.and_then(|p| p.pending_prompt.as_ref()).is_some();
             let auto_approve = pane.map(|p| p.auto_approve).unwrap_or(false);
             let nonce = pane.and_then(|p| p.shell_integration_nonce.clone());
             let cwd = pane.and_then(|p| p.cwd.clone());
             let sid = pane.and_then(|p| p.agent_session_id.clone());
-            let planner = pane.is_some_and(|p| p.role_profile.as_deref() == Some("planner"));
-            let boot_stage = pane.and_then(|p| p.boot_stage);
-            (
-                pid,
-                at,
-                grace,
-                locked,
-                active_prompt,
-                auto_approve,
-                nonce,
-                cwd,
-                sid,
-                planner,
-                boot_stage,
-            )
+            (pid, at, active_prompt, auto_approve, nonce, cwd, sid)
         };
 
         self.process_shell_markers(pty_id, pane_id.as_deref(), shell_nonce, data);
@@ -190,86 +167,20 @@ impl ServiceContext {
             .map(|pid| self.reconciled_pane_status_for_id(pid, prev_status))
             .unwrap_or(prev_status);
 
-        // agent_type is intentional: explicit spawn paths set it directly.
-        // Output parsing no longer infers identity except the narrow shell-prompt exit path.
-        let agent_type = if agent_type.is_none() {
-            None
-        } else if let Some(ref pid) = pane_id {
-            if should_check_agent_exit(is_planner, screen_changed) {
-                // Keep a short grace after session-tagging so early prompt snapshots don't trigger false exits.
-                // Locked panes skip output-based clearing because slow startup can leave stale prompt text visible.
-                if in_grace_cached || (locked_cached && !is_planner) {
-                    agent_type
-                } else if !super::boot_stage::allows_shell_prompt_exit(observed_boot_stage) {
-                    if let Some(pane) = self.mux.write().get_pane_mut(pid) {
-                        pane.exit_suspected_at = None;
-                    }
-                    self.rearm_authenticated_agent_input(pid);
-                    agent_type
-                } else {
-                    let screen = self
-                        .screen_state
-                        .lock()
-                        .get_screen_text(pty_id)
-                        .unwrap_or_default();
-                    let suspected_exit = !screen.is_empty()
-                        && self.agent_registry.detect_from_output(&screen).is_none()
-                        && screen_ends_in_shell_prompt(&screen);
-                    if suspected_exit {
-                        self.invalidate_guarded_agent_input(pid);
-                        let confirmed = {
-                            let mut mux = self.mux.write();
-                            match mux.get_pane_mut(pid) {
-                                Some(pane) => {
-                                    let (clear, next) = if is_planner {
-                                        (true, None)
-                                    } else {
-                                        exit_debounce(
-                                            pane.exit_suspected_at,
-                                            std::time::Instant::now(),
-                                            std::time::Duration::from_secs(2),
-                                        )
-                                    };
-                                    pane.exit_suspected_at = next;
-                                    clear
-                                }
-                                None => false,
-                            }
-                        };
-                        if confirmed {
-                            log::info!(
-                                "[output] agent exited in pane {} (shell prompt persisted)",
-                                pid
-                            );
-                            self.set_pane_agent_type(pid, None);
-                            self.prompt_detector.lock().clear(pid);
-                            crate::service::structured_prompt::clear_pane(pid);
-                            {
-                                let mut mux = self.mux.write();
-                                if let Some(pane) = mux.get_pane_mut(pid) {
-                                    pane.pending_prompt = None;
-                                }
-                            }
-                            self.emit_state_changed();
-                            None
-                        } else {
-                            agent_type
-                        }
-                    } else {
-                        // Agent markers present (or no shell prompt) — still alive; clear suspicion.
-                        if let Some(pane) = self.mux.write().get_pane_mut(pid) {
-                            pane.exit_suspected_at = None;
-                        }
-                        self.rearm_authenticated_agent_input(pid);
-                        agent_type
-                    }
-                }
-            } else {
-                agent_type
+        if agent_type.is_some() && screen_changed {
+            let screen = self
+                .screen_state
+                .lock()
+                .get_screen_text(pty_id)
+                .unwrap_or_default();
+            let has_agent_markers = self.agent_registry.detect_from_output(&screen).is_some();
+            if diagnose_shell_prompt_without_agent_markers(&screen, has_agent_markers) {
+                log::debug!(
+                    "[output] shell-looking marker-less frame in pane {}; lifecycle unchanged",
+                    pane_id.as_deref().unwrap_or("unknown"),
+                );
             }
-        } else {
-            agent_type
-        };
+        }
 
         if let (Some(ref pid), Some(ref at)) = (&pane_id, &agent_type) {
             self.maybe_detect_agent_session(pid, at);
@@ -899,35 +810,16 @@ fn screen_ends_in_shell_prompt(screen: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn should_check_agent_exit(is_planner: bool, screen_changed: bool) -> bool {
-    is_planner || screen_changed
-}
-
-/// Debounce decision for output-based agent-exit detection. A still-running TUI
-/// can flash ONE marker-less, shell-prompt-looking frame (a WebView reload /
-/// resize redraw); requiring the suspicion to persist past `debounce` stops that
-/// single frame from clearing a live agent. Returns `(should_clear, next_state)`:
-/// the caller writes `next_state` back to the pane's `exit_suspected_at`.
-fn exit_debounce(
-    suspected_at: Option<std::time::Instant>,
-    now: std::time::Instant,
-    debounce: std::time::Duration,
-) -> (bool, Option<std::time::Instant>) {
-    match suspected_at {
-        Some(since) if now.duration_since(since) >= debounce => (true, None),
-        Some(_) => (false, suspected_at),
-        None => (false, Some(now)),
-    }
+fn diagnose_shell_prompt_without_agent_markers(screen: &str, has_agent_markers: bool) -> bool {
+    !screen.is_empty() && !has_agent_markers && screen_ends_in_shell_prompt(screen)
 }
 
 #[cfg(test)]
 mod exit_detection_tests {
     use super::{
-        exit_debounce, screen_ends_in_shell_prompt, should_check_agent_exit,
+        diagnose_shell_prompt_without_agent_markers, screen_ends_in_shell_prompt,
         should_detect_unbound_session,
     };
-    use crate::service::boot_stage::{allows_shell_prompt_exit, BootStage};
-    use std::time::{Duration, Instant};
 
     #[test]
     fn shell_prompt_recognized_only_on_bare_prompt_lines() {
@@ -943,32 +835,15 @@ mod exit_detection_tests {
     }
 
     #[test]
-    fn first_suspicion_arms_timer_but_does_not_clear() {
-        let now = Instant::now();
-        let (clear, next) = exit_debounce(None, now, Duration::from_secs(2));
-        assert!(!clear, "one transient frame must never clear the agent");
-        assert_eq!(next, Some(now), "timer armed for the debounce window");
-    }
-
-    #[test]
-    fn suspicion_within_window_holds_without_clearing() {
-        let t0 = Instant::now();
-        let later = t0 + Duration::from_millis(1500);
-        let (clear, next) = exit_debounce(Some(t0), later, Duration::from_secs(2));
-        assert!(!clear, "still inside the 2s window — keep the agent");
-        assert_eq!(next, Some(t0), "timer unchanged");
-    }
-
-    #[test]
-    fn persisted_suspicion_past_window_clears() {
-        let t0 = Instant::now();
-        let later = t0 + Duration::from_millis(2100);
-        let (clear, next) = exit_debounce(Some(t0), later, Duration::from_secs(2));
-        assert!(
-            clear,
-            "shell prompt persisted past debounce — real exit, clear"
-        );
-        assert_eq!(next, None, "suspicion reset after clearing");
+    fn shell_prompt_without_markers_is_diagnostic_only() {
+        assert!(diagnose_shell_prompt_without_agent_markers(
+            "PS D:\\Developer\\codeterm>",
+            false,
+        ));
+        assert!(!diagnose_shell_prompt_without_agent_markers(
+            "PS D:\\Developer\\codeterm>",
+            true,
+        ));
     }
 
     #[test]
@@ -978,43 +853,8 @@ mod exit_detection_tests {
             "session-owned-by-pane"
         )));
     }
-
-    #[test]
-    fn reconnect_prompt_during_launch_keeps_identity() {
-        for stage in [
-            BootStage::PtyStarting,
-            BootStage::PtySpawned,
-            BootStage::ReaderReady,
-            BootStage::ShellReady,
-            BootStage::AgentLaunching,
-            BootStage::LaunchWritten,
-            BootStage::ProviderReady,
-        ] {
-            assert!(
-                !allows_shell_prompt_exit(Some(stage)),
-                "prompt observed during {stage:?} must not clear identity"
-            );
-        }
-    }
-
-    #[test]
-    fn prompt_observation_uses_captured_stage_when_agent_ready_is_imminent() {
-        let observed_stage = BootStage::AgentLaunching;
-        let current_stage = BootStage::AgentReady;
-
-        assert_eq!(current_stage, BootStage::AgentReady);
-        assert!(!allows_shell_prompt_exit(Some(observed_stage)));
-    }
-
-    #[test]
-    fn post_agent_ready_shell_prompt_still_clears() {
-        assert!(allows_shell_prompt_exit(Some(BootStage::AgentReady)));
-    }
-
-    #[test]
-    fn changed_agent_screen_checks_exit_without_global_sampling() {
-        assert!(should_check_agent_exit(false, true));
-        assert!(should_check_agent_exit(true, false));
-        assert!(!should_check_agent_exit(false, false));
-    }
 }
+
+#[cfg(test)]
+#[path = "output/tests/planner_identity.rs"]
+mod planner_identity_tests;
