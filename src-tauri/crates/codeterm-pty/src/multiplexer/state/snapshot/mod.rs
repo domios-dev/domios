@@ -156,6 +156,12 @@ impl MultiplexerState {
                 agent_type: pane.and_then(|p| p.agent_type.clone()),
                 agent_type_locked: pane.map(|p| p.agent_type_locked).unwrap_or(false),
                 claude_session_id: pane.and_then(|p| p.agent_session_id.clone()),
+                agent_identity: pane.map(|p| AgentIdentitySnapshot {
+                    session_binding_nonce: p.session_binding_nonce.clone(),
+                    reported_session_binding_nonce: p.reported_session_binding_nonce.clone(),
+                    agent_state: p.agent_state.clone(),
+                    boot_stage: p.boot_stage,
+                }),
                 role: pane.and_then(|p| p.role.map(|r| format!("{:?}", r))),
                 role_profile: pane.and_then(|p| p.role_profile.clone()),
                 team_id: pane.and_then(|p| p.team_id.clone()),
@@ -261,6 +267,7 @@ impl MultiplexerState {
                 agent_type,
                 agent_type_locked,
                 claude_session_id,
+                agent_identity,
                 role,
                 role_profile,
                 team_id,
@@ -336,6 +343,9 @@ impl MultiplexerState {
                     Some(sid.clone())
                 }
             });
+            let restored_identity = restored_session_id
+                .as_ref()
+                .and_then(|_| agent_identity.as_ref());
             let restored_agent_type = agent_type
                 .clone()
                 .or_else(|| derive_agent_type_from_title(title.as_deref()));
@@ -364,8 +374,10 @@ impl MultiplexerState {
                     agent_provider_resolved_model: agent_provider_resolved_model.clone(),
                     model_fallback: model_fallback.clone(),
                     model_identity_mismatch: model_identity_mismatch.clone(),
-                    session_binding_nonce: None,
-                    reported_session_binding_nonce: None,
+                    session_binding_nonce: restored_identity
+                        .and_then(|identity| identity.session_binding_nonce.clone()),
+                    reported_session_binding_nonce: restored_identity
+                        .and_then(|identity| identity.reported_session_binding_nonce.clone()),
                     shell_integration_nonce: None,
                     role: parsed_role,
                     role_profile: role_profile.clone(),
@@ -382,7 +394,8 @@ impl MultiplexerState {
                     title_level: restored_level,
                     chat_view: chat_view.unwrap_or(false),
                     pending_prompt: None,
-                    agent_state: None,
+                    agent_state: restored_identity
+                        .and_then(|identity| identity.agent_state.clone()),
                     auto_approve: *auto_approve,
                     protected: false,
                     connected_services: vec![],
@@ -395,7 +408,7 @@ impl MultiplexerState {
                     worker_id: None,
                     restored_from_snapshot: true,
                     pending_greeting: None,
-                    boot_stage: None,
+                    boot_stage: restored_identity.and_then(|identity| identity.boot_stage),
                     boot_failure_reason: None,
                 },
             );
