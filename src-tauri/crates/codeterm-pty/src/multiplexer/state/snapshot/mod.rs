@@ -343,9 +343,7 @@ impl MultiplexerState {
                     Some(sid.clone())
                 }
             });
-            let restored_identity = restored_session_id
-                .as_ref()
-                .and_then(|_| agent_identity.as_ref());
+            let restored_identity = restored_session_id.as_ref().and(agent_identity.as_ref());
             let restored_agent_type = agent_type
                 .clone()
                 .or_else(|| derive_agent_type_from_title(title.as_deref()));
