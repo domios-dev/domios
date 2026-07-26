@@ -744,7 +744,10 @@ test("Team card keeps plan activation separate from collapse and menu controls",
   const contextActions = Array.from(contextMenu.querySelectorAll("button"));
   const openPlan = contextActions.find((button) => button.textContent?.includes("Open Plan")) as HTMLButtonElement | undefined;
   assert(openPlan, "Team context menu exposes Open Plan when a plan is bound");
-  assert(contextActions.some((button) => button.textContent?.includes("Rename")), "Team context menu exposes Rename");
+  assert(
+    !contextActions.some((button) => button.textContent?.includes("Rename")),
+    "a Team bound to an active plan hides the unrelated Team rename action",
+  );
   const menuRectStyle = contextMenu.style;
   assert(Number.parseFloat(menuRectStyle.left) >= 4 && Number.parseFloat(menuRectStyle.top) >= 4, "context menu stays inside viewport margins");
   await act(async () => openPlan.click());

@@ -15,7 +15,7 @@ import type {
   ChatSessionDiagnosticSink,
 } from "./useChatSession";
 
-const INSTANCE = process.env.CODETERM_INSTANCE ?? "chat-stale-h123";
+const INSTANCE = process.env.CODETERM_INSTANCE?.trim() || "chat-stale-h123";
 const MAX_TIMELINE = 256;
 
 function assert(condition: unknown, label: string): asserts condition {
