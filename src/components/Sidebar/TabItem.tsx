@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Copy, Pencil, RefreshCw, RotateCcw, UserCog, X } from "lucide-react";
 import { usePaneProvider, useShellSessionModel } from "../../lib/usePaneProvider";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
+import { ActivityDots } from "../shared/ActivityDots";
 import { TelegramIcon, TerminalIcon } from "../Icons";
 import { ProviderGlyph } from "../ProviderGlyph";
 import type { Pane, PaneStatus, Tab } from "../../lib/types";
@@ -89,15 +90,7 @@ function TabWorkingActivity() {
       data-testid="tab-working-activity"
       className="inline-flex items-center shrink-0"
     >
-      <span
-        data-hierarchy-typing="true"
-        className="sidebar-hierarchy-typing-dots inline-flex items-center gap-[2px] align-middle shrink-0"
-        aria-hidden
-      >
-        <span />
-        <span />
-        <span />
-      </span>
+      <ActivityDots size="small" tone="muted" />
     </span>
   );
 }
