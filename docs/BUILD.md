@@ -351,7 +351,8 @@ listener tests pass, inspect whether the real `/api/health` proof exhausted its
 bounded failure deadline under runner contention. Keep the proof event-driven;
 do not replace it with a settle delay or treat elapsed time as readiness.
 On Windows, an intermittent `os error 10048` during repeated manual restart
-means the completed server future still owns its listener. The generation
-supervisor must drop that owned future before attempting the replacement bind.
+means either the completed server future still owns its listener or the socket
+cannot reclaim its own address. Drop the owned future before rebinding and keep
+the listener's reuse-address policy consistent across generations.
 
 <!-- revision: 26 -->
