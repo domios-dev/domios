@@ -37,6 +37,39 @@ pub fn normalize_pane_description(value: &str) -> Result<Option<String>, String>
     }
 }
 
+pub(crate) fn clear_agent_identity_for_lifecycle_exit(
+    pane: &mut crate::multiplexer::types::Pane,
+) -> bool {
+    let has_identity = pane.agent_type.is_some()
+        || pane.agent_type_locked
+        || pane.agent_session_id.is_some()
+        || pane.agent_session_name.is_some()
+        || pane.session_binding_nonce.is_some()
+        || pane.reported_session_binding_nonce.is_some()
+        || pane.agent_state.is_some()
+        || pane.pending_prompt.is_some();
+    if !has_identity {
+        return false;
+    }
+    pane.agent_type = None;
+    pane.agent_type_locked = false;
+    pane.agent_set_at = None;
+    pane.agent_booting = false;
+    pane.agent_session_id = None;
+    pane.agent_session_name = None;
+    pane.session_binding_nonce = None;
+    pane.reported_session_binding_nonce = None;
+    pane.agent_state = None;
+    pane.pending_prompt = None;
+    pane.exit_suspected_at = None;
+    crate::service::boot_stage::apply_boot_stage(
+        pane,
+        codeterm_types::pty::BootStage::ShellReady,
+        None,
+    );
+    true
+}
+
 fn epoch_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -114,6 +147,7 @@ impl ServiceContext {
             .get_pane(pane_id)
             .and_then(|pane| pane.pending_delivery.as_ref())
             .map(|record| record.content_digest.clone());
+        self.clear_pane_agent_identity_for_lifecycle_exit(pane_id);
         let pre_focus = self.mux.read().get_focused_pane_id().map(str::to_string);
         let pty_ids = self.mux.write().close_pane(pane_id)?;
         let post_focus = self.mux.read().get_focused_pane_id().map(str::to_string);
@@ -232,7 +266,12 @@ impl ServiceContext {
     }
 
     pub fn set_pane_agent_type(&self, pane_id: &str, agent_type: Option<String>) {
-        self.write_pane_agent_type(pane_id, agent_type, false);
+        match agent_type {
+            Some(agent_type) => self.write_pane_agent_type(pane_id, agent_type, false),
+            None => {
+                self.clear_pane_agent_identity_for_lifecycle_exit(pane_id);
+            }
+        }
     }
 
     pub(crate) fn invalidate_guarded_agent_input(&self, pane_id: &str) {
@@ -264,7 +303,7 @@ impl ServiceContext {
     /// Used by spawn paths and the typed-launch input parser to declare explicit
     /// user intent. While locked, output-based re-detection is ignored.
     pub fn set_and_lock_pane_agent_type(&self, pane_id: &str, agent_type: String) {
-        self.write_pane_agent_type(pane_id, Some(agent_type), true);
+        self.write_pane_agent_type(pane_id, agent_type, true);
     }
 
     /// Release the lock without changing `agent_type`. Public so a future Tauri
@@ -276,63 +315,56 @@ impl ServiceContext {
         }
     }
 
-    fn write_pane_agent_type(&self, pane_id: &str, agent_type: Option<String>, lock: bool) {
-        if agent_type.is_none() {
-            self.invalidate_guarded_agent_input(pane_id);
-        }
+    fn write_pane_agent_type(&self, pane_id: &str, agent_type: String, lock: bool) {
         let transition = {
             let mut mux = self.mux.write();
             let Some(pane) = mux.get_pane_mut(pane_id) else {
                 return;
             };
             let prev = pane.agent_type.clone();
-            if agent_type.is_some() {
-                pane.agent_set_at = Some(std::time::Instant::now());
-            }
-            pane.agent_type = agent_type.clone();
-            // Clearing agent_type also clears the lock — agent died/disconnected.
-            if agent_type.is_none() {
-                pane.agent_type_locked = false;
-                pane.session_binding_nonce = None;
-                pane.reported_session_binding_nonce = None;
-                pane.agent_session_id = None;
-                pane.agent_state = None;
-                pane.pending_prompt = None;
-                // apply_boot_stage, not a raw assignment: a failure reason latched
-                // by an earlier spawn must not outlive the stage that recorded it.
-                crate::service::boot_stage::apply_boot_stage(
-                    pane,
-                    codeterm_types::pty::BootStage::ShellReady,
-                    None,
-                );
-            } else if lock {
+            pane.agent_set_at = Some(std::time::Instant::now());
+            pane.exit_suspected_at = None;
+            pane.agent_type = Some(agent_type.clone());
+            if lock {
                 pane.agent_type_locked = true;
             }
             (prev, agent_type)
         };
         log::info!(
-            "[set_pane_agent_type] pane={} prev={:?} new={:?}",
+            "[set_pane_agent_type] pane={} prev={:?} new={}",
             pane_id,
             transition.0,
             transition.1,
         );
         let (prev, next) = transition;
-        if prev.is_none() && next.is_some() {
-            self.replay_inbound_buffer(pane_id, next.as_deref().unwrap_or(""));
+        if prev.is_none() {
+            self.replay_inbound_buffer(pane_id, &next);
         }
-        if let Some(new_type) = next {
-            if prev.as_deref() != Some(new_type.as_str()) {
-                self.kick_off_session_name_detection(pane_id, &new_type);
-                self.refresh_session_model_once(pane_id, &new_type);
-            }
-        } else {
-            self.clear_dead_planner_binding(pane_id);
-            // Drop friendly name on agent clear; keep the last-seen model so the tab doesn't flicker blank between sessions.
+        if prev.as_deref() != Some(next.as_str()) {
+            self.kick_off_session_name_detection(pane_id, &next);
+            self.refresh_session_model_once(pane_id, &next);
+        }
+    }
+
+    pub(crate) fn clear_pane_agent_identity_for_lifecycle_exit(&self, pane_id: &str) -> bool {
+        let cleared = {
             let mut mux = self.mux.write();
-            if let Some(pane) = mux.get_pane_mut(pane_id) {
-                pane.agent_session_name = None;
-            }
+            mux.get_pane_mut(pane_id)
+                .is_some_and(clear_agent_identity_for_lifecycle_exit)
+        };
+        if !cleared {
+            return false;
         }
+        self.invalidate_guarded_agent_input(pane_id);
+        log::info!(
+            "[agent-lifecycle] cleared pane identity after explicit exit: {}",
+            pane_id
+        );
+        self.clear_dead_planner_binding(pane_id);
+        self.prompt_detector.lock().clear(pane_id);
+        crate::service::structured_prompt::clear_pane(pane_id);
+        self.emit_state_changed();
+        true
     }
 
     /// Boot path: refresh model once for every pane that already has an

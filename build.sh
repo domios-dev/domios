@@ -1153,7 +1153,7 @@ case "$CMD" in
       if "$@"; then ta_record "$name" PASS; else ta_record "$name" FAIL; fi
     }
 
-    ta_run "rust-unit"  cargo test --manifest-path src-tauri/Cargo.toml --lib
+    ta_run "rust-unit"  scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml --lib
     ta_run "ts-unit"    pnpm -s test:unit
     ta_run "plugin"     pnpm -s test:plugins
 

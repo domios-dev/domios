@@ -2,11 +2,13 @@
 
 mod first_plan;
 mod plan_reminder_nudge;
+mod planner_binding;
 mod planner_delivery;
 mod status;
 mod worker_handoff;
 
 pub(crate) use first_plan::FirstPlanTeamError;
+pub(crate) use planner_binding::clear_planner_bindings_for_lifecycle_exit;
 pub use status::PaneStatusInfo;
 
 use planner_delivery::{
@@ -70,28 +72,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn clear_dead_planner_binding(&self, pane_id: &str) {
-        let now_ms = epoch_ms();
-        for plan in self.plan_store.list_full() {
-            let Some(crate::plan::PlannerRef::Pane {
-                pane_id: bound,
-                title,
-                ..
-            }) = &plan.planner
-            else {
-                continue;
-            };
-            if bound == pane_id {
-                let _ = self.plan_store.set_planner_ref(
-                    &plan.id,
-                    Some(crate::plan::PlannerRef::Pane {
-                        pane_id: pane_id.to_string(),
-                        session_id: None,
-                        title: title.clone(),
-                    }),
-                    now_ms,
-                );
-            }
-        }
+        clear_planner_bindings_for_lifecycle_exit(&self.plan_store, pane_id, epoch_ms());
     }
 
     pub(crate) fn replay_planner_requests_if_routable(&self, pane_id: &str) {

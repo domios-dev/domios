@@ -361,6 +361,7 @@ export function TeamUnit({
   const [renameError, setRenameError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
   const teamTabCount = managerCount + workerCount;
+  const displayTitle = plan?.title.trim() || team.name?.trim() || "Team";
   const buckets = useMemo(
     () => (plan ? deriveTeamTaskBuckets(plan, panes) : EMPTY_BUCKETS),
     [plan, panes],
@@ -454,13 +455,13 @@ export function TeamUnit({
         />
       ) : (
         <span className="sidebar-team-title-row">
-          <span data-testid="team-name" className="sidebar-team-name">{team.name?.trim() || "Team"}</span>
+          <span data-testid="team-name" className="sidebar-team-name">{displayTitle}</span>
           {workingWorkerCount > 0 && (
             <span
               data-testid="team-working-indicator"
               className="sidebar-hierarchy-typing-dots"
               role="status"
-              aria-label={`${team.name?.trim() || "Team"} has working members`}
+              aria-label={`${displayTitle} has working members`}
             ><span /><span /><span /></span>
           )}
         </span>
@@ -486,7 +487,7 @@ export function TeamUnit({
             type="button"
             data-testid="team-card-activation"
             className="sidebar-team-card-activation"
-            aria-label={`Open ${plan.title}`}
+            aria-label={`Open ${displayTitle}`}
             onClick={() => onOpenEffort({ teamId: team.id, managerPaneId: null, planId: plan.id })}
           >
             {cardContents}
@@ -505,7 +506,7 @@ export function TeamUnit({
               providersLoading={providersLoading}
               contextMenuTargetRef={headerRef}
               onOpenPlan={plan ? () => onOpenEffort({ teamId: team.id, managerPaneId: null, planId: plan.id }) : undefined}
-              onRename={onRenameTeam ? () => {
+              onRename={!plan && onRenameTeam ? () => {
                 setRenameError(null);
                 setEditing(true);
               } : undefined}
