@@ -88,13 +88,11 @@ finish planning before generating execution tasks:\n\
 then retry the task add. If you intentionally need a draft task, pass `--force`."
         )),
         "heartbeat_requires_execution" => Some(format!(
-            "✗ heartbeat is for active execution state, not planning notes.\n\
-Use spec/plan sections for approval rules, or mem for durable preferences:\n\
+            "✗ heartbeat is derived automatically from execution state.\n\
+Use spec/plan sections for plan rules or mem for durable preferences:\n\
   codeterm docs ORCHESTRATION\n\
   codeterm plan state {plan_id}\n\
-  codeterm mem save-preference --scope global --title \"CodeTerm planner preference\" \"<preference>\"\n\
-After approval/execution starts, set heartbeat with:\n\
-  codeterm orchestrator heartbeat set --plan {plan_id} --focus \"<now>\" --lane \"<active-lane>\""
+  codeterm mem save-preference --scope global --title \"CodeTerm planner preference\" \"<preference>\""
         )),
         "budget_exhausted" => {
             let count = data.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
@@ -142,7 +140,7 @@ After approval/execution starts, set heartbeat with:\n\
             "✗ no such task group on plan '{plan_id}'.\nfix: declare the group first, then record the run:\n  codeterm plan groups set {plan_id} --groups \"<key:label>\"\n  codeterm plan qa next {plan_id} --group <key> --claim --note \"<scope>\""
         )),
         "waiting_focus_requires_open_gate" => Some(format!(
-            "✗ waiting_focus status requires an open decision gate.\nfix: ask a gate question first, then set the focus:\n  codeterm plan decision ask {plan_id} \"<question>\"\n  codeterm orchestrator heartbeat set --plan {plan_id} --focus waiting_focus"
+            "✗ waiting requires an open decision gate.\nfix: record the decision explicitly:\n  codeterm plan decision ask {plan_id} \"<question>\""
         )),
         "dependency_task_not_found" => Some(format!(
             "✗ dependency task '{}' was not found in plan '{plan_id}'.\nfix: list tasks, then choose an existing dependency:\n  codeterm plan task list {plan_id}\n  codeterm plan task update {plan_id} {} --depends-on <task_id>",
@@ -296,7 +294,7 @@ fn render_not_found(plan_id: &str, loop_id: &str, params: &Value) -> String {
     }
     if params.get("pane_id").is_some() || params.get("session_id").is_some() {
         return format!(
-            "✗ no heartbeat plan was found for this pane/session.\nfix: pass the plan explicitly:\n  codeterm orchestrator heartbeat show --plan {plan_id}\n  codeterm orchestrator heartbeat set --plan {plan_id} --focus \"<now>\""
+            "✗ no heartbeat plan was found for this tab/session.\nfix: pass the plan explicitly:\n  codeterm orchestrator heartbeat show --plan {plan_id}"
         );
     }
     with_cross_daemon_hint(format!(

@@ -96,6 +96,26 @@ fn every_delivery_class_dispatches_optimistically() {
     }
 }
 
+#[test]
+fn worker_report_requirement_is_consumed_exactly_once() {
+    let gateway = MessageGateway::new();
+
+    gateway.require_worker_report("worker-tab");
+
+    assert!(gateway.take_worker_report_requirement("worker-tab"));
+    assert!(!gateway.take_worker_report_requirement("worker-tab"));
+}
+
+#[test]
+fn explicit_worker_report_clears_the_requirement() {
+    let gateway = MessageGateway::new();
+    gateway.require_worker_report("worker-tab");
+
+    gateway.clear_worker_report_requirement("worker-tab");
+
+    assert!(!gateway.take_worker_report_requirement("worker-tab"));
+}
+
 fn text_msg(target: &str, body: &str, key: Option<&str>) -> OutboundMessage {
     OutboundMessage {
         target: target.to_string(),

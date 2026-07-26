@@ -5,7 +5,7 @@ import { BusySpinner } from "../components/shared/BusyState";
 
 type AskState = "idle" | "sending" | "sent" | "error";
 
-/** Sends the question to the General Agent pane (alias "main") and reports state inline. */
+/** Sends the question to the General Agent tab (alias "main") and reports state inline. */
 export function AskButton({ label, question }: { label: string; question: string }) {
   const [state, setState] = useState<AskState>("idle");
 

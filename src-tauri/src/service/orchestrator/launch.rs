@@ -185,6 +185,20 @@ impl LaunchFailure {
     }
 }
 
+fn provider_launch_failure(
+    reader_closed: bool,
+    provider_hook_ready: bool,
+    provider_tui_ready: bool,
+) -> Option<LaunchFailure> {
+    if reader_closed {
+        Some(LaunchFailure::PtyEof)
+    } else if provider_hook_ready || provider_tui_ready {
+        None
+    } else {
+        Some(LaunchFailure::ProviderReadyTimeout)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct LaunchGeneration {
     pane_id: String,
@@ -519,6 +533,7 @@ pub(crate) fn launch_agent_in_background(
     if let Some(p) = svc.mux.write().get_pane_mut(&pane_id) {
         p.agent_booting = true;
     }
+    crate::service::boot_wait::notify_boot_changed();
     std::thread::spawn(move || {
         let mut delivery_gate = crate::service::launch_delivery::LaunchDeliveryGate::new();
         let mut launch = LaunchGeneration::begin(&pane_id, "pending".into());
@@ -529,6 +544,7 @@ pub(crate) fn launch_agent_in_background(
             if let Some(p) = svc.mux.write().get_pane_mut(&pane_id) {
                 p.agent_booting = value;
             }
+            crate::service::boot_wait::notify_boot_changed();
         };
         let pty_claim = svc.pty_ownership.acquire(&pane_id);
         let (backend_pty, reused_live_pty) = match existing_live_pty(&svc, &pane_id) {
@@ -792,25 +808,32 @@ pub(crate) fn launch_agent_in_background(
             return;
         }
 
-        if !launch.await_provider_ack(std::time::Duration::from_secs(30)) {
-            let error = if reader_monitor.closed() {
-                LaunchFailure::PtyEof.reason()
-            } else {
-                LaunchFailure::ProviderReadyTimeout.reason()
-            };
-            launch.fail(
-                &svc,
-                if reader_monitor.closed() {
-                    LaunchFailure::PtyEof
-                } else {
-                    LaunchFailure::ProviderReadyTimeout
-                },
+        let provider_hook_ready = launch.await_provider_ack(std::time::Duration::ZERO);
+        let provider_tui_ready = provider_hook_ready
+            || svc.await_agent_tui_frame_on_screen(
+                &pty_id,
+                &agent_cmd,
+                std::time::Duration::from_secs(30),
             );
+        if let Some(failure) = provider_launch_failure(
+            reader_monitor.closed(),
+            provider_hook_ready,
+            provider_tui_ready,
+        ) {
+            let error = failure.reason();
+            launch.fail(&svc, failure);
             set_booting(false);
             if let Some(tx) = ready_tx {
                 let _ = tx.send(Err(error));
             }
             return;
+        }
+        if !provider_hook_ready {
+            log::warn!(
+                "launch_agent: pane {} accepted live {} TUI before session binding",
+                pane_id,
+                agent_cmd
+            );
         }
         if !launch.emit(&svc, BootStage::ProviderReady) {
             return;

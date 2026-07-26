@@ -44,17 +44,29 @@ pub enum WorkspaceAction {
 
 #[derive(Subcommand)]
 pub enum PaneAction {
-    /// List all tabs as a workspace-grouped tree. `--agents` filters to
-    /// agent tabs only.
+    /// List compact tab summaries in the current workspace. Use
+    /// `tab inspect` for full tab details.
     ///
     /// Each tab carries a `backing.kind`: `pty` tabs (terminal agents,
     /// shells) have a real shell — `send` injects text you can execute.
     /// `chat_backend` tabs (LLM chat via plugin) have NO shell: `send`
     /// delivers a chat message; never instruct them to run shell commands.
     List {
+        /// Workspace id to list. Defaults to this tab's workspace, then the focused workspace.
+        #[arg(long, value_name = "WORKSPACE_ID")]
+        workspace: Option<String>,
+        /// Include every workspace instead of the current one.
+        #[arg(long, conflicts_with = "workspace")]
+        all_workspaces: bool,
         /// Show only tabs running an agent (have an agent_type).
         #[arg(long)]
         agents: bool,
+    },
+    /// Show the full daemon tab payload for one or more explicit tab ids.
+    Inspect {
+        /// One or more tab ids to inspect.
+        #[arg(required = true, num_args = 1..)]
+        tabs: Vec<String>,
     },
     /// Plain shell tab. For an AI tab use `codeterm agent spawn` instead.
     New {

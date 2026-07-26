@@ -5,8 +5,10 @@
 #   ./build.sh dev --wait — same, but backgrounds and blocks until /api/health
 #                          responds (handy for scripts/agents)
 #   ./build.sh check     — integration-owner cargo check
+#   ./build.sh release-preflight — refresh and verify release Cargo lockfiles
 #   ./build.sh worktree-check — explicit isolated, nonincremental lane check
 #   ./build.sh build     — production build
+#   ./build.sh install-local — incremental production build + self-install, then resume the calling tab
 #   ./build.sh bootstrap — create/build bundled CLI + embed sidecar for fresh clones
 #   ./build.sh qa-prep   — one-shot: dist + sidecars for a fresh isolated worktree (no tsc gate)
 #   ./build.sh cli       — build CLI and install to ~/.codeterm/bin/ + ~/.codeterm-dev/bin/
@@ -300,6 +302,75 @@ prepare_release_target() {
   mkdir -p "$CARGO_TARGET_DIR"
   echo "[cache-policy] fresh release target=$CARGO_TARGET_DIR"
   echo "[cache-policy] CARGO_INCREMENTAL=$CARGO_INCREMENTAL"
+}
+
+prepare_local_install_target() {
+  local dir canonical current identity
+  current="$(git rev-parse --show-toplevel)"
+  canonical="$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')"
+  if [ "$current" != "$canonical" ]; then
+    echo "ERROR: install-local must run from the canonical checkout: $canonical" >&2
+    exit 2
+  fi
+  identity="$(printf '%s' "$canonical" | git hash-object --stdin)"
+  dir="$(ct_gateway_dir)/targets/local-install/$identity"
+  export CARGO_TARGET_DIR="$dir"
+  export CARGO_INCREMENTAL=0
+  export CODETERM_ALLOW_EXTERNAL_TARGET=1
+  mkdir -p "$CARGO_TARGET_DIR"
+  ct_verify_target_dir
+  echo "[cache-policy] persistent local-install target=$CARGO_TARGET_DIR"
+  echo "[cache-policy] CARGO_INCREMENTAL=$CARGO_INCREMENTAL"
+}
+
+parse_local_install_continuation() {
+  LOCAL_INSTALL_CONTINUE_TAB="${CODETERM_PANE_ID:-}"
+  LOCAL_INSTALL_CONTINUE_PROMPT=""
+  LOCAL_INSTALL_CONTINUE_ENABLED=1
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --continue-prompt)
+        [ "$#" -ge 2 ] || { echo "ERROR: --continue-prompt requires text" >&2; exit 2; }
+        LOCAL_INSTALL_CONTINUE_PROMPT="$2"
+        shift 2
+        ;;
+      --continue-tab)
+        [ "$#" -ge 2 ] || { echo "ERROR: --continue-tab requires a pane id" >&2; exit 2; }
+        LOCAL_INSTALL_CONTINUE_TAB="$2"
+        shift 2
+        ;;
+      --no-continue)
+        LOCAL_INSTALL_CONTINUE_ENABLED=0
+        shift
+        ;;
+      *)
+        echo "ERROR: unknown install-local option: $1" >&2
+        exit 2
+        ;;
+    esac
+  done
+
+  if [ "$LOCAL_INSTALL_CONTINUE_ENABLED" = "0" ]; then
+    LOCAL_INSTALL_CONTINUE_TAB=""
+    LOCAL_INSTALL_CONTINUE_PROMPT=""
+    return
+  fi
+
+  if [ -z "$LOCAL_INSTALL_CONTINUE_TAB" ]; then
+    if [ -n "$LOCAL_INSTALL_CONTINUE_PROMPT" ]; then
+      echo "ERROR: install-local continuation needs --continue-tab or CODETERM_PANE_ID" >&2
+      exit 2
+    fi
+    LOCAL_INSTALL_CONTINUE_ENABLED=0
+    return
+  fi
+
+  if [ -z "$LOCAL_INSTALL_CONTINUE_PROMPT" ]; then
+    local source_sha
+    source_sha="$(git rev-parse HEAD)"
+    LOCAL_INSTALL_CONTINUE_PROMPT="Local CodeTerm install completed for build $source_sha. Verify the production health endpoint reports this SHA, then continue the work that requested the reinstall."
+  fi
 }
 
 require_release_source() {
@@ -804,6 +875,15 @@ case "$CMD" in
     ct_configure_sccache
     cargo check --manifest-path src-tauri/Cargo.toml
     ;;
+  release-preflight)
+    enter_build_gateway "$CMD ${*:2}"
+    prepare_dev_frontend_dist "$(pwd -P)"
+    prepare_bundle_stubs
+    ct_configure_sccache
+    cargo check --manifest-path src-tauri/Cargo.toml
+    cargo check --manifest-path cli/Cargo.toml
+    node scripts/check-release-locks.mjs
+    ;;
   test)
     enter_build_gateway "$CMD ${*:2}"
     prepare_dev_frontend_dist "$(pwd -P)"
@@ -819,6 +899,7 @@ case "$CMD" in
     ;;
   build)
     enter_build_gateway "$CMD ${*:2}"
+    node scripts/check-release-locks.mjs
     require_release_source
     ct_load_release_signing_key
     prepare_release_target
@@ -838,6 +919,62 @@ case "$CMD" in
       exit 1
     fi
     echo "✅ web bundle present (dist/index.html) — packaged into installer via bundle.resources"
+    ;;
+  install-local)
+    parse_local_install_continuation "${@:2}"
+    if [ "${CODETERM_TEST_PRINT_LOCAL_INSTALL_CONTINUATION:-0}" = "1" ]; then
+      printf 'enabled=%s\ntab=%s\nprompt=%s\n' \
+        "$LOCAL_INSTALL_CONTINUE_ENABLED" \
+        "$LOCAL_INSTALL_CONTINUE_TAB" \
+        "$LOCAL_INSTALL_CONTINUE_PROMPT"
+      exit 0
+    fi
+    case "$OSTYPE" in
+      msys*|cygwin*|win32*) ;;
+      *)
+        echo "ERROR: install-local is supported only on Windows" >&2
+        exit 2
+        ;;
+    esac
+    enter_build_gateway "$CMD ${*:2}"
+    node scripts/check-release-locks.mjs
+    require_release_source
+    ct_load_release_signing_key
+    prepare_local_install_target
+    ensure_deps
+    ct_configure_sccache
+    RELEASE_PROVENANCE="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.provenance.json"
+    ct_snapshot_provenance "full-build-input" "local-install" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
+      "$RELEASE_PROVENANCE"
+    rm -rf "$CARGO_TARGET_DIR/release/bundle/nsis"
+    pnpm tauri build
+    ct_check_provenance "full-build-input" "local-install" "$(ct_host_triple)" "${RUSTFLAGS:-}" "${CODETERM_BUILD_FEATURES:-}" \
+      "$RELEASE_PROVENANCE"
+    VERSION="$(node -p "require('./package.json').version")"
+    INSTALLER="$CARGO_TARGET_DIR/release/bundle/nsis/CodeTerm_${VERSION}_x64-setup.exe"
+    if [ ! -f "$INSTALLER" ]; then
+      echo "ERROR: local installer missing after build: $INSTALLER" >&2
+      exit 1
+    fi
+    echo "Local installer ready: $INSTALLER"
+    INSTALL_ARGS=(update install --from-file "$(cygpath -w "$INSTALLER")")
+    if [ "$LOCAL_INSTALL_CONTINUE_ENABLED" = "1" ]; then
+      INSTALL_ARGS+=(--continue-prompt "$LOCAL_INSTALL_CONTINUE_PROMPT" --continue-tab "$LOCAL_INSTALL_CONTINUE_TAB")
+      echo "Post-install continuation: pane $LOCAL_INSTALL_CONTINUE_TAB"
+    else
+      echo "Post-install continuation: disabled (no calling CodeTerm pane)"
+    fi
+    env \
+      -u CODETERM_INSTANCE \
+      -u CODETERM_VITE_PORT \
+      -u CODETERM_DEV_IDENTIFIER \
+      -u CODETERM_CDP_PORT \
+      -u CODETERM_ALLOW_EXTERNAL_TARGET \
+      -u CARGO_TARGET_DIR \
+      -u CARGO_INCREMENTAL \
+      -u RUSTC_WRAPPER \
+      -u SCCACHE_BASEDIRS \
+      codeterm "${INSTALL_ARGS[@]}"
     ;;
   qa-prep)
     enter_build_gateway "$CMD ${*:2}"
@@ -1044,7 +1181,7 @@ case "$CMD" in
     exit "$ta_rc"
     ;;
   *)
-    echo "Usage: ./build.sh {dev|check|worktree-check|test|test:all|build|qa-prep|cli|clean|kill|e2e|fmt-check|gateway-status|gateway-cancel|gateway-fake|gateway-health-check|env}"
+    echo "Usage: ./build.sh {dev|check|worktree-check|test|test:all|build|install-local [--continue-prompt TEXT] [--continue-tab ID] [--no-continue]|qa-prep|cli|clean|kill|e2e|fmt-check|gateway-status|gateway-cancel|gateway-fake|gateway-health-check|env}"
     exit 1
     ;;
 esac

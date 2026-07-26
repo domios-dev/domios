@@ -299,38 +299,6 @@
           "subcommands": []
         },
         {
-          "name": "reports",
-          "about": "Read reports (for orchestrator tabs)",
-          "aliases": [],
-          "args": [
-            {
-              "name": "clear",
-              "positional": false,
-              "value_name": "CLEAR",
-              "default": null,
-              "help": "Clear reports after reading",
-              "aliases": []
-            },
-            {
-              "name": "limit",
-              "positional": false,
-              "value_name": "LIMIT",
-              "default": null,
-              "help": "Show only the N most recent reports (default: all)",
-              "aliases": []
-            },
-            {
-              "name": "tab",
-              "positional": false,
-              "value_name": "TAB",
-              "default": null,
-              "help": "Tab ID (default: current focused tab)",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
           "name": "restart",
           "about": "Restart agent (graceful exit; resumes only when the tab has a valid provider session)",
           "aliases": [],
@@ -389,14 +357,6 @@
               "value_name": "AGENT",
               "default": "claude",
               "help": "Agent provider id. Run `codeterm agent providers` to list registered providers (e.g. claude, codex, opencode). Default: claude",
-              "aliases": []
-            },
-            {
-              "name": "allow-shared-checkout",
-              "positional": false,
-              "value_name": "ALLOW_SHARED_CHECKOUT",
-              "default": null,
-              "help": "Allow a Worker to spawn into a shared/canonical checkout instead of an isolated worktree. Records a visible exception stride on the bound task",
               "aliases": []
             },
             {
@@ -564,7 +524,7 @@
               "positional": false,
               "value_name": "BOUND_TASK",
               "default": null,
-              "help": "Bound task id for the shared-checkout exception stride",
+              "help": "Bound task id",
               "aliases": []
             },
             {
@@ -4368,62 +4328,6 @@
           "args": [],
           "subcommands": [
             {
-              "name": "set",
-              "about": "Set the heartbeat focus, active lanes, and rules carried into auto-reinjection",
-              "aliases": [],
-              "args": [
-                {
-                  "name": "clear-lanes",
-                  "positional": false,
-                  "value_name": "CLEAR_LANES",
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                },
-                {
-                  "name": "clear-rules",
-                  "positional": false,
-                  "value_name": "CLEAR_RULES",
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                },
-                {
-                  "name": "focus",
-                  "positional": false,
-                  "value_name": "FOCUS",
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                },
-                {
-                  "name": "lane",
-                  "positional": false,
-                  "value_name": "LANES",
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                },
-                {
-                  "name": "plan",
-                  "positional": false,
-                  "value_name": "PLAN",
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                },
-                {
-                  "name": "rule",
-                  "positional": false,
-                  "value_name": "RULES",
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                }
-              ],
-              "subcommands": []
-            },
-            {
               "name": "show",
               "about": "Show the current heartbeat and learnings",
               "aliases": [],
@@ -4440,6 +4344,30 @@
               "subcommands": []
             }
           ]
+        },
+        {
+          "name": "inspect",
+          "about": "Show the full orchestration snapshot, including report bodies",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan",
+              "positional": false,
+              "value_name": "PLAN",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "value_name": "TAB",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
         },
         {
           "name": "learn",
@@ -4499,7 +4427,7 @@
         },
         {
           "name": "status",
-          "about": "Show orchestration status as reports, live lanes, drift, and next actions",
+          "about": "Show a compact orchestration summary",
           "aliases": [],
           "args": [
             {
@@ -6708,7 +6636,7 @@
               "positional": true,
               "value_name": "PLAN_ID",
               "default": null,
-              "help": "Plan id (if available from pane binding or env)",
+              "help": "Plan id (if available from tab binding or env)",
               "aliases": []
             },
             {
@@ -6844,7 +6772,7 @@
         },
         {
           "name": "review",
-          "about": "Review-backpressure: WIP/credit status, waves, overrides, accept/bounce",
+          "about": "Review-backpressure: capacity, credit reconciliation, and verdicts",
           "aliases": [],
           "args": [],
           "subcommands": [
@@ -6891,6 +6819,38 @@
                   "value_name": "RESIDUAL_RISK",
                   "default": null,
                   "help": "Past the default round bound, routes residual risk to a follow-up task",
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "authorize-capacity",
+              "about": "Grant daemon-owned review-capacity provenance to one task",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "class",
+                  "positional": false,
+                  "value_name": "CLASS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
                   "aliases": []
                 },
                 {
@@ -6993,6 +6953,30 @@
                   "name": "task_id",
                   "positional": true,
                   "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "reconcile-credit",
+              "about": "Repair historical review-credit debt from leaked review exits and audit it",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "reason",
+                  "positional": false,
+                  "value_name": "REASON",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -8804,7 +8788,7 @@
               "positional": false,
               "value_name": "PLANNER",
               "default": null,
-              "help": "Set attached Planner: <pane_id> to bind, or \"none\" to waive (requires --note)",
+              "help": "Set attached Planner: <tab_id> to bind, or \"none\" to waive (requires --note)",
               "aliases": []
             },
             {
@@ -10424,8 +10408,24 @@
           "subcommands": []
         },
         {
+          "name": "inspect",
+          "about": "Show the full daemon tab payload for one or more explicit tab ids",
+          "aliases": [],
+          "args": [
+            {
+              "name": "tabs",
+              "positional": true,
+              "value_name": "TABS",
+              "default": null,
+              "help": "One or more tab ids to inspect",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "list",
-          "about": "List all tabs as a workspace-grouped tree. `--agents` filters to agent tabs only",
+          "about": "List compact tab summaries in the current workspace. Use `tab inspect` for full tab details",
           "aliases": [],
           "args": [
             {
@@ -10434,6 +10434,22 @@
               "value_name": "AGENTS",
               "default": null,
               "help": "Show only tabs running an agent (have an agent_type)",
+              "aliases": []
+            },
+            {
+              "name": "all-workspaces",
+              "positional": false,
+              "value_name": "ALL_WORKSPACES",
+              "default": null,
+              "help": "Include every workspace instead of the current one",
+              "aliases": []
+            },
+            {
+              "name": "workspace",
+              "positional": false,
+              "value_name": "WORKSPACE_ID",
+              "default": null,
+              "help": "Workspace id to list. Defaults to this tab's workspace, then the focused workspace",
               "aliases": []
             }
           ],
@@ -10857,7 +10873,7 @@
         },
         {
           "name": "close",
-          "about": "Close every member pane and remove the Team registry entry",
+          "about": "Close every member tab and remove the Team registry entry",
           "aliases": [],
           "args": [
             {

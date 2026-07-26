@@ -113,7 +113,6 @@ impl SpawnPaneSpec {
             starter_prompt: Default::default(),
             task_id: None,
             plan_task: None,
-            allow_shared_checkout: None,
             workspace_id: self.workspace_id.clone(),
             force_tab: None,
             existing_tab_id: None,

@@ -24,7 +24,7 @@ pub use broadcast::{
     broadcast_announce, broadcast_introductions, broadcast_sync, refresh_local_addresses,
     AnnounceReport,
 };
-pub use manager::MeshManager;
+pub use manager::{MeshManager, PairingDelivery};
 pub use ports::{LastActivityProvider, MeshEventSink};
 pub use serve_setup::{
     disable_web_serve, enable_web_serve, probe_serve_status, reconcile_web_serve,

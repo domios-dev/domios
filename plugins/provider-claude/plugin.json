@@ -1,6 +1,6 @@
 {
   "id": "claude",
-  "version": "1.7.4",
+  "version": "1.7.5",
   "minCodeterm": "1.0.0",
   "hostApi": 2,
   "displayName": "Claude Code",
@@ -25,6 +25,7 @@
     },
     "sessionIdInjection": "none",
     "statusBarRows": 3,
+    "agentStateStatusReconciliation": true,
     "supportsLazySkills": true,
     "hasHooks": true,
     "usageProbeCommand": "/usage"

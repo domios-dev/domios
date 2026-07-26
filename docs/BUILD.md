@@ -30,9 +30,107 @@ pnpm install
 ### Windows
 
 ```powershell
-# Interactive foreground session:
-.\build.ps1 dev
+# Daily commands; run from the repository root.
+.\build.ps1 dev           # foreground dev on 7686
+.\build.ps1 check         # incremental compile check
+.\build.ps1 cli           # rebuild only the installed CLI
+.\build.ps1 install-local # incremental production build + self-install
 ```
+
+`build.ps1` is the Windows command hub; do not add a Makefile or hand-expand
+its underlying Cargo, pnpm, gateway, or installer commands. `install-local`
+already resumes the calling tab with a default continuation intent. Keep the
+command short unless the continuation itself must be customized.
+
+## Choose one operation
+
+These flows are deliberately separate. Run all shared builds and gates from the
+warm canonical checkout; lanes may only run focused checks or named isolated dev
+instances.
+
+| Goal | Entry point | Touches production? | Read first |
+|---|---|---:|---|
+| Develop and inspect changes | `./build.sh dev` / `.\build.ps1 dev` | No; port 7686 only | `.agents/skills/dev-run/SKILL.md` |
+| Build and test a local production installer | `./build.sh release-preflight`, then `./build.sh build` | Only the explicit self-install step | this section |
+| Publish to all users | PR to `master`, then `release-X.Y.Z` tag | Yes; CI and public updater mirror | `docs/RELEASE.md` and `github-release` skill |
+
+Never use a dev build as a local-install artifact, and never turn a local
+installer build into a public release by uploading it manually.
+
+## Local production build and self-install
+
+Use this only when testing a production-mode build on this Windows machine. It
+does not publish a release or alter GitHub assets.
+
+1. Start from the intended, clean release branch in the canonical checkout.
+2. After a version bump, run the idempotent preflight. It refreshes both Cargo
+   lockfiles and verifies they match `package.json`:
+
+   ```powershell
+   .\build.ps1 release-preflight
+   git add src-tauri/Cargo.lock cli/Cargo.lock
+   git commit -m "release: sync Cargo lock versions"
+   git status --short
+   ```
+
+3. For repeated local production testing, build and self-install through the
+   persistent canonical cache:
+
+   ```powershell
+   .\build.ps1 install-local
+   Invoke-RestMethod http://127.0.0.1:7685/api/health
+   ```
+
+   This route is Windows-only, requires the clean canonical checkout, reuses a
+   persistent release target with sccache, rebuilds only changed Cargo units,
+   recreates the NSIS bundle, verifies source provenance, and installs that
+   exact artifact. When invoked inside CodeTerm, it saves the session and sends
+   a continuation intent to the calling pane after the new daemon is healthy.
+   The default intent verifies the installed SHA and resumes the interrupted
+   work. Override or disable it when needed:
+
+   ```powershell
+   .\build.ps1 install-local --continue-prompt "Verify the installed build, then resume release QA."
+   .\build.ps1 install-local --continue-tab "<pane-id>" --continue-prompt "Continue the interrupted task."
+   .\build.ps1 install-local --no-continue
+   ```
+
+   Cargo incremental remains disabled because sccache rejects incremental rustc
+   invocations; persistent completed artifacts provide reuse.
+
+4. Use the clean-room route when validating a public-release-equivalent
+   artifact:
+
+   ```powershell
+   .\build.ps1 build
+   codeterm update install --from-file "<printed-installer-path>"
+   ```
+
+   `build` always creates a fresh nonincremental target under
+   `%LOCALAPPDATA%\CodeTerm\build-gateway\targets\release\<job>\`. It remains
+   intentionally slower and isolated. The updater helper stops only the
+   current-user installed CodeTerm, runs NSIS, and restarts it.
+
+### Local production troubleshooting
+
+| Symptom | Cause | Recovery |
+|---|---|---|
+| `Release lock version mismatch` before build | Version manifests and one or both Cargo lockfiles differ | Run `release-preflight`, commit both lockfiles, then retry. |
+| `release source is not clean` | A source or lockfile change has not been reviewed/committed | Inspect `git status --short`; commit the intentional change or stop. Never bypass provenance. |
+| `source SHA/status mismatch` after a bundle was created | A build step changed tracked source inputs after the provenance snapshot | Do not install that artifact. Identify the mutating step, fix it, and rerun from a clean tree. |
+| Self-install returns but the window does not return | The detached helper owns restart | Inspect `%LOCALAPPDATA%\codeterm\self-install.log`, then query port 7685 health. |
+| CodeTerm restarts but the initiating tab does not resume | The continuation send failed or the pane id changed before session persistence | Inspect `%LOCALAPPDATA%\codeterm\self-install.log`; the retained `%TEMP%\codeterm-continuation-*.txt` contains the undelivered intent. |
+| Repeated local install recompiles the full release graph | The clean-room `build` route was used instead of the persistent local cache | Use `build.ps1 install-local`; reserve `build` for public-release-equivalent verification. |
+| A focused Rust test spends its deadline linking app binaries | The test omitted `--lib`, so Cargo built unrelated binary test targets | Run the focused filter through `scripts/test-capped.sh ... --lib <filter>`; never raise the deadline. |
+| `sccache: incremental compilation is prohibited` | `CARGO_INCREMENTAL=1` was combined with the shared sccache wrapper | Keep `CARGO_INCREMENTAL=0`; reuse the persistent completed target and sccache entries instead. |
+| Release-signing negative test passes despite a missing fixture key | The shell inherited `TAURI_SIGNING_PRIVATE_KEY` from the canonical `.env` | Run the repository check; its missing-key fixture explicitly removes the inherited key before asserting failure. |
+| Push unexpectedly starts compilation or formatting checks | A stale local hook predates the non-blocking push policy | Run any `build.ps1` command to restore `.githooks`, then retry; verification belongs to explicit gates and CI. |
+| `Build gateway job id already exists` immediately from a fresh command | The calling CodeTerm tab inherited a completed gateway job id from an earlier build | Update the build scripts; production gateway entry now always creates a fresh job id and ignores inherited internal ids. |
+| `pnpm build` fails only in focused TSX test files during `install-local` | A test mock violates the generic bridge signature or imports an unused JSX runtime symbol | Run `pnpm build`, fix the test type/import at the source, then retry `install-local` from the same clean canonical checkout. |
+| Installed health on port 7685 reports a dev identifier or Vite/CDP ports | The detached installer helper inherited `CODETERM_*` and Cargo build variables from the calling tab | Use the current installer helper, which scrubs CodeTerm and build variables before launching the installed daemon; reinstall and verify `/api/health`. |
+
+When a new failure is found in this flow, fix the owning script or preflight and
+add a short symptom/cause/recovery row here before closing the work.
 
 Do not use `dev --wait` for an interactive Windows session. It is reserved for
 automation that needs a detached health gate and does not prove a visible window.
@@ -77,12 +175,13 @@ Dev builds (`npx tauri dev`) run with `tauri.dev.conf.json` overrides:
 
 ## Git Hooks
 
-Custom git hooks live in `.githooks/` and are automatically wired via `git config core.hooksPath` by every `./build.sh` invocation. The pre-push hook prepares the embed sidecar stub, then runs `cargo check`, `cargo fmt --check`, and `cargo clippy` on the main crate and CLI. On Windows it uses an isolated Cargo target directory so it does not collide with a running dev daemon that already owns `src-tauri/target`.
+Custom git hooks live in `.githooks/` and are automatically wired via `git config core.hooksPath` by every `./build.sh` invocation. The pre-push hook is intentionally a no-op: pushing never compiles, formats, lints, or prepares resources. Run focused checks before handoff and broad gates in the canonical checkout; CI remains the remote enforcement boundary.
 
-Focused Rust tests use the same Windows rule. `scripts/test-capped.sh` detects a
-healthy dev instance and selects the worktree-local `target-check`
-cache with `sccache` before Cargo starts, avoiding late `os error 32` relink
-failures without recompiling dependencies in every run.
+Focused Rust tests use the same Windows rule. `scripts/test-capped.sh` keeps the
+manifest's warm target normally and selects checkout-local `target-check` with
+`sccache` only while dev owns the app target. It rejects an inherited internal
+build-gateway target because that cache can contain absolute metadata from
+another checkout.
 
 `build.ps1 dev` is also a true restart command: it stops only port 7686 before
 joining the app build gateway. This ordering prevents the old dev monitor from
@@ -120,7 +219,7 @@ After `./build.sh build`:
 
 | File | Location |
 |------|----------|
-| **NSIS installer** | `src-tauri/target/release/bundle/nsis/CodeTerm_X.Y.Z_x64-setup.exe` |
+| **NSIS installer** | printed build-gateway release target; see Local production build and self-install |
 | **MSI installer** | `src-tauri/target/release/bundle/msi/CodeTerm_X.Y.Z_x64_en-US.msi` |
 | **Portable exe** | `src-tauri/target/release/codeterm.exe` |
 | **CLI binary** | bundled automatically by `build.sh` into `~/.codeterm/bin/` |
@@ -185,6 +284,13 @@ taskkill /F /IM explorer.exe && start explorer.exe
 
 If build fails with `link.exe` errors, ensure MSVC is properly configured. The project includes `.cargo/config.toml` with MSVC paths. You may need to update paths if your MSVC version differs.
 
+If a focused test fails while `link.exe` or `mt.exe` reads
+`windows-app-manifest.xml` from a deleted worktree, the shell inherited
+CodeTerm's private local-install `CARGO_TARGET_DIR`. Run the test through
+`scripts/test-capped.sh`; it removes that private override and uses this
+checkout's warm manifest target, or isolated `target-check` while dev is
+running. Do not delete the shared build cache or raise the timeout.
+
 Check your MSVC installation:
 ```powershell
 & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
@@ -224,4 +330,4 @@ codeterm/
 └── docs/               # Documentation
 ```
 
-<!-- revision: 10 -->
+<!-- revision: 20 -->

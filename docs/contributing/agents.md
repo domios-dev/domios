@@ -132,6 +132,9 @@ Independent lanes can use separate worktrees and branches. This keeps diffs
 reviewable and protects unrelated work. A later integration branch can combine
 the lane diffs for full-system verification.
 
+The Orchestrator works from the canonical integration checkout. Workers own
+isolated lanes; merges, reviews, broad QA, and release gates run warm there.
+
 Worktrees with uncommitted changes are source artifacts. They should be kept
 until their diffs have been integrated, reviewed, or intentionally discarded.
 
@@ -167,4 +170,4 @@ Prompt templates compiled into the binary live under `src-tauri/prompts/`:
 
 The Rust loader is `src-tauri/src/prompts.rs`.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

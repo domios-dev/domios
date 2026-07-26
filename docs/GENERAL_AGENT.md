@@ -75,7 +75,7 @@ Startup:
 
 1. Ensure the General directory exists.
 2. Regenerate prompt files.
-3. Ensure the protected General workspace and pane exist.
+3. Ensure the protected General workspace and tab exist.
 4. Resume the existing provider session when possible; otherwise launch a fresh agent.
 5. For fresh launches, send a one-time init message that tells the GA to read the live mem snapshot, run `codeterm mesh peers`, and acknowledge readiness.
 
@@ -83,27 +83,27 @@ Resume sessions deliberately do not receive the init message because the provide
 
 Shutdown and app restart rely on normal session persistence. Manual GA restart uses the General Agent restart control; do not assume a manual `/exit` preserves context.
 
-## Protected Workspace And Pane
+## Protected Workspace And Tab
 
 | Property | Current behavior |
 |---|---|
 | Workspace | General workspace, protected from close |
-| Pane aliases | `general`, `main` |
+| Tab aliases | `general`, `main` |
 | CWD | `{general_dir}` |
 | Provider | Configured agent provider |
 | Permissions | Skip-permissions launch where the provider supports it |
 | Role | Orchestrator |
 
-`codeterm send "..." --tab general` and `codeterm send "..." --tab main` resolve to the protected pane.
+`codeterm send "..." --tab general` and `codeterm send "..." --tab main` resolve to the protected tab.
 
 ## Bridge And Mesh Routing
 
 The GA prompt keeps only a short routing reminder. The authoritative command table lives in the injected CLI reference. The prefix is the return address:
 
 - `-=-codeterm:telegram user=USER_ID ...-=-text` replies via `codeterm bridge send --to USER_ID --service telegram`.
-- `-=-codeterm:pane label=NAME pane=ID ...-=-text` replies via `codeterm send --tab ID`.
-- `-=-codeterm:mesh peer=PEER pane=ID-=-text` replies via `codeterm send --tab ID --mesh PEER`.
-- `-=-codeterm:report from=NAME pane=ID ...-=-text` is a child report; act on it or forward the summary to the original user channel.
+- `-=-codeterm:tab label=NAME tab=ID ...-=-text` replies via `codeterm send --tab ID`.
+- `-=-codeterm:mesh peer=PEER tab=ID-=-text` replies via `codeterm send --tab ID --mesh PEER`.
+- `-=-codeterm:report from=NAME tab=ID ...-=-text` is a child report; act on it or forward the summary to the original user channel.
 - `-=-codeterm:hook ...-=-metadata` is already routed by a text hook; trust the metadata and follow the inbound language.
 
 Telegram and other bridge details live in the operational playbooks:
@@ -127,4 +127,4 @@ Skills are documented in the injected CLI reference. The GA prompt does not dupl
 - Claude rule install: `src-tauri/src/plugin/agent_claude/provider/integration.rs`
 - Secrets implementation: `src-tauri/src/secrets/`
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

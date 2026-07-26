@@ -98,6 +98,14 @@ impl MultiplexerState {
         &self,
         agent_tracker: &codeterm_types::pty::PaneStatusTracker,
     ) -> MultiplexerSnapshot {
+        self.snapshot_with_status_resolver(agent_tracker, |_, status| status)
+    }
+
+    pub fn snapshot_with_status_resolver(
+        &self,
+        agent_tracker: &codeterm_types::pty::PaneStatusTracker,
+        resolve: impl Fn(&Pane, codeterm_types::pty::PaneStatus) -> codeterm_types::pty::PaneStatus,
+    ) -> MultiplexerSnapshot {
         use codeterm_types::pty::PaneStatus;
 
         let mut snap = self.snapshot();
@@ -109,10 +117,14 @@ impl MultiplexerState {
                     .pty_id
                     .as_deref()
                     .and_then(|pty_id| agent_tracker.get_status_if_tracked(pty_id));
-                if pane.pending_prompt.is_some() && !matches!(tracked, Some(PaneStatus::Dead)) {
-                    return Some((pane_id.clone(), PaneStatus::Waiting));
-                }
-                tracked.map(|status| (pane_id.clone(), status))
+                let raw = if pane.pending_prompt.is_some()
+                    && !matches!(tracked, Some(PaneStatus::Dead))
+                {
+                    Some(PaneStatus::Waiting)
+                } else {
+                    tracked
+                }?;
+                Some((pane_id.clone(), resolve(pane, raw)))
             })
             .collect();
         snap

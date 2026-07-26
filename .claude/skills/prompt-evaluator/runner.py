@@ -46,6 +46,13 @@ from pathlib import Path
 from typing import Any
 
 
+def _configure_utf8_standard_streams() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="replace")
+
+
 def _force_rmtree(path: str) -> None:
     """
     Best-effort recursive removal that swallows ALL errors. Needed because
@@ -151,11 +158,8 @@ def load_eval_set(path: str) -> list[Eval]:
 # ── Agent invocation ───────────────────────────────────────────────
 
 
-# Meta-instruction appended to every eval user message. The agent under
-# test reads this as user-provided "test harness mode" framing and emits
-# a deterministic command list instead of natural-language deliberation.
-# This is appended to the USER message, NOT the system prompt — we don't
-# want to contaminate the prompt-under-test with harness instructions.
+# Trusted harness framing is appended to the complete prompt-under-test.
+# The eval fixture remains the sole user message.
 EVAL_WRAPPER_SUFFIX = """
 
 ---
@@ -204,10 +208,15 @@ def run_agent(
     # on Windows when the dir contains reserved-name files (NUL, CON,
     # ...) created by bash hook scripts redirecting to `> NUL`. Even
     # ignore_cleanup_errors doesn't catch that path.
-    wrapped_user_msg = eval_prompt + EVAL_WRAPPER_SUFFIX
+    trusted_system_prompt = system_prompt + EVAL_WRAPPER_SUFFIX
 
     if _CACHE_ENABLED:
-        cached = _cache.get(model, system_prompt, wrapped_user_msg, namespace="agent")
+        cached = _cache.get(
+            model,
+            trusted_system_prompt,
+            eval_prompt,
+            namespace="agent",
+        )
         if cached is not None:
             return (True, cached)
 
@@ -218,9 +227,9 @@ def run_agent(
                 [
                     "claude",
                     "-p",
-                    wrapped_user_msg,
+                    eval_prompt,
                     "--system-prompt",
-                    system_prompt,
+                    trusted_system_prompt,
                     "--allowedTools",
                     "",
                     "--output-format",
@@ -255,7 +264,13 @@ def run_agent(
 
     response_text = envelope.get("result") or ""
     if _CACHE_ENABLED and response_text:
-        _cache.put(model, system_prompt, wrapped_user_msg, response_text, namespace="agent")
+        _cache.put(
+            model,
+            trusted_system_prompt,
+            eval_prompt,
+            response_text,
+            namespace="agent",
+        )
     return (True, response_text)
 
 
@@ -908,4 +923,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    _configure_utf8_standard_streams()
     sys.exit(main())

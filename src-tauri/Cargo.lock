@@ -1086,7 +1086,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm"
-version = "1.7.4"
+version = "1.7.5"
 dependencies = [
  "aes-gcm",
  "annembed",
@@ -1364,6 +1364,7 @@ dependencies = [
  "ulid",
  "uuid",
  "vt100",
+ "wait-timeout",
 ]
 
 [[package]]

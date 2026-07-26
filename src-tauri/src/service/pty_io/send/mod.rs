@@ -53,7 +53,7 @@ pub fn await_shell_prompt(
 
 /// `on_armed` fires with the re-arm count each time the wait is armed, before
 /// it blocks — the ordering hook the arm-vs-bind regression test needs.
-fn await_shell_prompt_armed(
+pub(super) fn await_shell_prompt_armed(
     screen_state: &crate::ScreenStateHandle,
     pty_id: &str,
     timeout: std::time::Duration,
@@ -142,41 +142,52 @@ pub fn await_bare_shell_prompt(
     ready
 }
 
-fn authenticated_pty_target(
+pub(super) fn authenticated_pty_target(
     pane: &crate::multiplexer::types::Pane,
     expected_session_id: &str,
     expected_binding_nonce: &str,
 ) -> Result<(String, String), String> {
-    let accepting = match pane.agent_state.as_ref() {
-        Some(state) => matches!(
-            state.state,
-            codeterm_types::pty::TimelineState::Working | codeterm_types::pty::TimelineState::Idle
-        ),
-        None => pane.boot_stage == Some(codeterm_types::pty::BootStage::AgentReady),
-    };
-    let authenticated = pane.agent_type.is_some()
-        && pane.agent_session_id.as_deref() == Some(expected_session_id)
+    let target = optimistic_agent_pty_target(pane)?;
+    let authenticated = pane.agent_session_id.as_deref() == Some(expected_session_id)
         && pane.session_binding_nonce.as_deref() == Some(expected_binding_nonce)
-        && pane.reported_session_binding_nonce.as_deref() == Some(expected_binding_nonce)
-        && pane.chat_view
-        && accepting;
+        && pane.reported_session_binding_nonce.as_deref() == Some(expected_binding_nonce);
     if !authenticated {
         return Err("agent_unavailable: planner session is stale".into());
+    }
+    Ok(target)
+}
+
+pub(super) fn optimistic_agent_pty_target(
+    pane: &crate::multiplexer::types::Pane,
+) -> Result<(String, String), String> {
+    // chat_view is UI mount state, not backend routability — a background or
+    // hidden tab with a live agent PTY/session must still accept input.
+    let routable = pane.agent_type.is_some();
+    if !routable {
+        return Err("agent_unavailable: recipient agent is not accepting input".into());
     }
     match &pane.backing {
         crate::multiplexer::types::PaneBacking::Pty => Ok((
             pane.pty_id
                 .clone()
-                .ok_or_else(|| "agent_unavailable: planner PTY missing".to_string())?,
+                .ok_or_else(|| "agent_unavailable: recipient PTY missing".to_string())?,
             pane.agent_type.clone().unwrap_or_default(),
         )),
         crate::multiplexer::types::PaneBacking::ChatBackend { .. } => {
-            Err("agent_unavailable: planner is not PTY-backed".into())
+            Err("agent_unavailable: recipient is not PTY-backed".into())
         }
     }
 }
 
-fn submit_authenticated_pty_input<T>(
+#[derive(Clone)]
+pub(crate) struct AuthenticatedPtyDelivery {
+    pub(crate) pty_id: String,
+    pub(crate) provider_id: String,
+    pub(crate) permit: crate::pty::write_queue::GuardedInputPermit,
+}
+
+#[cfg(test)]
+pub(super) fn submit_authenticated_pty_input<T>(
     pane: &crate::multiplexer::types::Pane,
     expected_session_id: &str,
     expected_binding_nonce: &str,
@@ -196,14 +207,13 @@ pub(crate) fn sanitize_agent_prompt_input(text: &str) -> String {
 }
 
 impl ServiceContext {
-    pub(crate) fn send_to_authenticated_agent_session(
+    fn authenticated_pty_delivery(
         &self,
         pane_id: &str,
         expected_session_id: &str,
         expected_binding_nonce: &str,
-        text: &str,
-    ) -> Result<(), String> {
-        let target = || -> Result<(String, String), String> {
+    ) -> Result<AuthenticatedPtyDelivery, String> {
+        let (pty_id, provider_id) = {
             let mux = self.mux.read();
             let resolved = mux
                 .resolve_pane_id(pane_id)
@@ -211,47 +221,103 @@ impl ServiceContext {
             let pane = mux
                 .get_pane(&resolved)
                 .ok_or_else(|| "agent_unavailable: planner pane missing".to_string())?;
-            submit_authenticated_pty_input(
-                pane,
-                expected_session_id,
-                expected_binding_nonce,
-                text,
-                |pty_id, provider_id, _| Ok((pty_id.to_string(), provider_id.to_string())),
-            )
+            authenticated_pty_target(pane, expected_session_id, expected_binding_nonce)?
         };
+        let permit = self.pty.lock().issue_guarded_input_permit(&pty_id)?;
+        Ok(AuthenticatedPtyDelivery {
+            pty_id,
+            provider_id,
+            permit,
+        })
+    }
 
-        let (pty_id, provider_id) = target()?;
-        let strategy = self
-            .agent_registry
-            .with_provider(&provider_id, |provider| provider.verify_submit_strategy())
-            .ok_or_else(|| "agent_unavailable: unknown planner provider".to_string())?;
-        if target()? != (pty_id.clone(), provider_id.clone()) {
-            return Err("agent_unavailable: planner transport changed".into());
-        }
-        super::submit_transaction::submit_entry(
-            super::submit_transaction::PtySubmitEntry::Planner,
+    pub(crate) fn send_to_agent_when_ready_detached(&self, pane_id: &str, text: &str) {
+        let svc = self.clone();
+        let pane = pane_id.to_string();
+        let text = text.to_string();
+        std::thread::spawn(move || {
+            let pty_claim = svc.pty_ownership.acquire(&pane);
+            let pty_id = {
+                let mux = svc.mux.read();
+                let target = mux
+                    .get_pane(&pane)
+                    .filter(|pane| pane.agent_type.is_some())
+                    .ok_or_else(|| {
+                        "agent_unavailable: recipient is no longer an agent".to_string()
+                    });
+                target.and_then(|pane| {
+                    pane.pty_id
+                        .clone()
+                        .ok_or_else(|| "agent_unavailable: recipient PTY missing".to_string())
+                })
+            };
+            let result = pty_id.and_then(|pty_id| svc.send_text_to_pty_smart(&pty_id, &text, true));
+            drop(pty_claim);
+            if let Err(error) = result {
+                log::warn!("[send-async] agent delivery to pane {pane} failed: {error}");
+                crate::api::events::emit_everywhere(
+                    &svc.app_handle,
+                    "chat-send-failed",
+                    serde_json::json!({
+                        "pane_id": &pane,
+                        "error": &error,
+                    }),
+                );
+            }
+        });
+    }
+
+    pub(crate) fn send_to_authenticated_agent_session(
+        &self,
+        pane_id: &str,
+        expected_session_id: &str,
+        expected_binding_nonce: &str,
+        text: &str,
+    ) -> Result<(), String> {
+        let delivery =
+            self.authenticated_pty_delivery(pane_id, expected_session_id, expected_binding_nonce)?;
+        self.send_authenticated_delivery_with_options(
+            delivery,
             text,
-            |text| {
-                self.send_text_verified(
-                    &pty_id,
-                    text,
-                    true,
-                    strategy,
-                    crate::service::inject_verify::VerifyOpts {
-                        require_prompt_first: false,
-                        verify_echo: false,
-                        verify_submit: true,
-                        ..Default::default()
-                    },
-                )
-                .map(|_| ())
-                .map_err(|error| error.to_string())
-            },
+            super::submit_transaction::PtySubmitEntry::Planner,
+            true,
         )
     }
 
-    /// Send text to a pane (chatBackend or PTY). Agent PTYs use causal paste
-    /// ingestion and bounded recovery, but acknowledgement misses stay diagnostic.
+    fn send_authenticated_delivery_with_options(
+        &self,
+        delivery: AuthenticatedPtyDelivery,
+        text: &str,
+        entry: super::submit_transaction::PtySubmitEntry,
+        verify_submit: bool,
+    ) -> Result<(), String> {
+        let strategy = self
+            .agent_registry
+            .with_provider(&delivery.provider_id, |provider| {
+                provider.verify_submit_strategy()
+            })
+            .ok_or_else(|| "agent_unavailable: unknown planner provider".to_string())?;
+        super::submit_transaction::submit_entry(entry, text, |text| {
+            self.send_text_verified_guarded(
+                &delivery.pty_id,
+                text,
+                true,
+                strategy,
+                delivery.permit.clone(),
+                crate::service::inject_verify::VerifyOpts {
+                    require_prompt_first: false,
+                    verify_echo: false,
+                    verify_submit,
+                    ..Default::default()
+                },
+            )
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+        })
+    }
+
+    /// Send text to a pane (chatBackend or PTY). Agent PTYs complete only after
+    /// a causal turn transition or an actionable delivery failure.
     pub fn send_text(&self, pane_id: &str, text: &str, enter: bool) -> Result<(), String> {
         if self.pane_chat_backing(pane_id).is_some() {
             return self.chatbackend_pane_send(pane_id, text);
@@ -259,13 +325,13 @@ impl ServiceContext {
         self.ensure_pane_pty_for_send(pane_id)?;
         self.await_agent_boot_blocking(pane_id, std::time::Duration::from_secs(90))?;
         let pty_id = self.await_pty_link_blocking(pane_id, std::time::Duration::from_secs(15))?;
+        self.await_pane_routable_blocking(pane_id, std::time::Duration::from_secs(30))?;
 
         self.send_text_to_pty_smart(&pty_id, text, enter)
     }
 
-    /// Verified twin of `send_text` — waits for echo/submit evidence. Parked:
-    /// terminal delivery can't be reliably confirmed, so production uses the
-    /// optimistic `send_text`. Not wired to any caller yet.
+    /// Compatibility entry point for callers which explicitly require delivery
+    /// confirmation. `send_text` now applies the same transaction contract.
     pub fn send_text_with_guarantee(
         &self,
         pane_id: &str,
@@ -278,12 +344,13 @@ impl ServiceContext {
         self.ensure_pane_pty_for_send(pane_id)?;
         self.await_agent_boot_blocking(pane_id, std::time::Duration::from_secs(90))?;
         let pty_id = self.await_pty_link_blocking(pane_id, std::time::Duration::from_secs(15))?;
+        self.await_pane_routable_blocking(pane_id, std::time::Duration::from_secs(30))?;
 
         self.send_text_to_pty_smart_guaranteed(&pty_id, text, enter)
     }
 
-    /// Provider-aware delivery. PTY agents use causal paste ingestion and
-    /// bounded recovery; only zero-byte transport failures reject the send.
+    /// Capability-aware delivery. PTY agent transactions remain pending until
+    /// a causal turn transition or an actionable failure.
     pub fn send_text_to_pty_smart(
         &self,
         pty_id: &str,
@@ -298,71 +365,27 @@ impl ServiceContext {
             return self.write_paste_optimistic(pty_id, text, enter);
         };
         let text = sanitize_agent_prompt_input(text);
-        let (strategy, busy_submit) = self
+        let strategy = self
             .agent_registry
-            .with_provider(&agent_id, |provider| {
-                (
-                    provider.verify_submit_strategy(),
-                    provider.busy_submit_strategy(),
-                )
-            })
-            .unwrap_or((
-                crate::agent::provider::VerifySubmitStrategy::None,
-                crate::agent::provider::BusySubmitStrategy::SubmitNormally,
-            ));
-        let is_working = matches!(
-            self.agent_tracker.lock().get_status_if_tracked(pty_id),
-            Some(crate::agent::status::PaneStatus::Working)
-        );
-        let submit_key = if enter && is_working {
-            match busy_submit {
-                crate::agent::provider::BusySubmitStrategy::Key(key) => {
-                    crate::agent::keys::action_key_bytes(&key).ok_or_else(|| {
-                        format!("provider declared unknown busy submit key: {key}")
-                    })?
-                }
-                crate::agent::provider::BusySubmitStrategy::SubmitNormally => b"\r".to_vec(),
-            }
-        } else {
-            b"\r".to_vec()
-        };
-        let strategy_verifies =
-            !matches!(strategy, crate::agent::provider::VerifySubmitStrategy::None);
+            .with_provider(&agent_id, |provider| provider.verify_submit_strategy())
+            .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
+        let submit_key: &[u8] = b"\r";
         super::submit_transaction::submit_text_with_key(
             self,
             pty_id,
             &text,
             enter,
-            &submit_key,
+            submit_key,
             strategy,
             crate::service::inject_verify::VerifyOpts {
                 require_prompt_first: false,
                 verify_echo: true,
-                verify_submit: false,
+                verify_submit: enter,
                 ..Default::default()
             },
+            None,
         )
-        .map(|result| {
-            if submit_needs_unconfirmed_warning(enter, strategy_verifies, result.submit_observed) {
-                let target = pane_id.as_deref().unwrap_or(pty_id);
-                log::warn!("[send-unconfirmed] pane {target}: submit not acknowledged");
-                let title = pane_id
-                    .as_deref()
-                    .and_then(|id| self.mux.read().get_pane(id).map(|p| p.title.clone()));
-                let display = title
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|t| !t.is_empty())
-                    .unwrap_or(target);
-                self.create_notification(
-                    "Message delivery unconfirmed".to_string(),
-                    Some(format!(
-                        "{display}: the agent UI did not acknowledge the submit — check the tab."
-                    )),
-                    Some("warning"),
-                );
-            }
-        })
+        .map(|_| ())
         .map_err(|error| error.to_string())
     }
 
@@ -614,6 +637,43 @@ impl ServiceContext {
         })
     }
 
+    /// Wait until the pane is routable for chat delivery. For non-agent panes (bare shells) this
+    /// returns immediately. The wait uses the boot_wait condvar so it resolves the
+    /// instant the pane state transitions — no polling. Does NOT gate on
+    /// `chat_view` — that is UI mount state, not backend routability. A
+    /// background/hidden/restored tab is routable as soon as its PTY is live.
+    pub(crate) fn await_pane_routable_blocking(
+        &self,
+        pane_id: &str,
+        timeout: std::time::Duration,
+    ) -> Result<(), String> {
+        let needs_routability = {
+            let mux = self.mux.read();
+            match mux.get_pane(pane_id) {
+                Some(pane) => pane.agent_type.is_some(),
+                None => return Ok(()),
+            }
+        };
+        if !needs_routability {
+            return Ok(());
+        }
+        let ready =
+            crate::service::boot_wait::wait_until(std::time::Instant::now() + timeout, || {
+                self.mux
+                    .read()
+                    .get_pane(pane_id)
+                    .is_some_and(|pane| optimistic_agent_pty_target(pane).is_ok())
+            });
+        if ready {
+            Ok(())
+        } else {
+            Err(format!(
+                "Agent in pane {} did not become routable within {:?}",
+                pane_id, timeout
+            ))
+        }
+    }
+
     /// `send_text` by PTY id, skipping pane→pty resolution — use when the caller
     /// holds a verified pty_id and must not race a `link_pty` swap of `pane.pty_id`.
     pub fn send_text_to_pty(&self, pty_id: &str, text: &str, enter: bool) -> Result<(), String> {
@@ -662,8 +722,8 @@ impl ServiceContext {
     }
 
     /// PTY work runs off-thread so CodeTerm-originated senders return immediately.
-    /// Failures MUST surface to the user: this detached seam is the only place
-    /// composer/messenger sends can die, and a log line alone loses messages.
+    /// Failures emit inline Chat status; delivery diagnostics never become
+    /// global Notifications.
     pub fn send_text_detached(&self, pane_id: &str, text: &str, enter: bool) {
         let svc = self.clone();
         let pane = pane_id.to_string();
@@ -671,10 +731,14 @@ impl ServiceContext {
         std::thread::spawn(move || {
             if let Err(error) = svc.send_text(&pane, &text, enter) {
                 log::warn!("[send-async] delivery to pane {pane} failed: {error}");
-                let title = svc.mux.read().get_pane(&pane).map(|p| p.title.clone());
-                let (notice_title, notice_body) =
-                    send_failure_notice(title.as_deref(), &pane, &error);
-                svc.create_notification(notice_title, Some(notice_body), Some("error"));
+                crate::api::events::emit_everywhere(
+                    &svc.app_handle,
+                    "chat-send-failed",
+                    serde_json::json!({
+                        "pane_id": &pane,
+                        "error": &error,
+                    }),
+                );
             }
         });
     }
@@ -717,7 +781,7 @@ pub(crate) fn provider_or_generic_tui(provider_ready: Option<bool>, generic_read
     provider_ready.unwrap_or(generic_ready)
 }
 
-fn provider_frame_ready(
+pub(super) fn provider_frame_ready(
     tui_ready: bool,
     prompt_ready: bool,
     require_composer: bool,
@@ -729,239 +793,5 @@ fn provider_frame_ready(
         || (!require_composer && prompt_ready)
 }
 
-/// User-facing notice for a failed detached send: `(title, body)`.
-pub(crate) fn send_failure_notice(
-    pane_title: Option<&str>,
-    pane_id: &str,
-    error: &str,
-) -> (String, String) {
-    let target = pane_title
-        .map(str::trim)
-        .filter(|title| !title.is_empty())
-        .unwrap_or(pane_id);
-    (
-        "Message not delivered".to_string(),
-        format!("{target}: {error}"),
-    )
-}
-
-/// An Enter-submitted send that a verifying provider never acknowledged must
-/// warn the user; silent optimistic success is how follow-ups get lost.
-pub(crate) fn submit_needs_unconfirmed_warning(
-    enter: bool,
-    strategy_verifies: bool,
-    submit_observed: bool,
-) -> bool {
-    enter && strategy_verifies && !submit_observed
-}
-
 #[cfg(test)]
-mod send_notice_tests {
-    use super::{send_failure_notice, submit_needs_unconfirmed_warning};
-
-    #[test]
-    fn failed_detached_send_names_the_pane_and_reason() {
-        let (title, body) = send_failure_notice(Some("Fermat"), "38cf30e1", "PTY did not start");
-        assert_eq!(title, "Message not delivered");
-        assert_eq!(body, "Fermat: PTY did not start");
-    }
-
-    #[test]
-    fn missing_or_blank_pane_title_falls_back_to_the_pane_id() {
-        let (_, body) = send_failure_notice(None, "38cf30e1", "boot timeout");
-        assert_eq!(body, "38cf30e1: boot timeout");
-        let (_, body) = send_failure_notice(Some("   "), "38cf30e1", "boot timeout");
-        assert_eq!(body, "38cf30e1: boot timeout");
-    }
-
-    #[test]
-    fn unconfirmed_submit_warns_only_for_verifying_enter_sends() {
-        // The reported field failure: Enter send, verifying TUI provider, no ack.
-        assert!(submit_needs_unconfirmed_warning(true, true, false));
-        // Acknowledged submits stay quiet.
-        assert!(!submit_needs_unconfirmed_warning(true, true, true));
-        // Non-verifying providers (bare shell) never observe submits — no spam.
-        assert!(!submit_needs_unconfirmed_warning(true, false, false));
-        // Text without Enter cannot be an unconfirmed submission.
-        assert!(!submit_needs_unconfirmed_warning(false, true, false));
-    }
-}
-
-#[cfg(test)]
-mod shell_ready_wait_tests {
-    use super::{await_shell_prompt, await_shell_prompt_armed};
-    use codeterm_pty::pty::screen_state::ScreenState;
-    use codeterm_util::lock_hold::TimedMutex;
-    use std::sync::mpsc;
-    use std::sync::Arc;
-    use std::time::{Duration, Instant};
-
-    const MACOS_BASH_BANNER_PROMPT: &[u8] = b"The default interactive shell is now zsh.\r\n\
-To update your account to use zsh, please run `chsh -s /bin/zsh`.\r\n\
-For more details, please visit https://support.apple.com/kb/HT208050.\r\n\
-rollacode-bot:general dev$ ";
-
-    fn handle() -> crate::ScreenStateHandle {
-        Arc::new(TimedMutex::new("screen_state", ScreenState::new()))
-    }
-
-    /// The 1.7.2 macOS `Main` regression: the readiness signal was torn down
-    /// under a blocked waiter, which reported the CONFIGURED deadline as if it
-    /// had elapsed — at the spawn timestamp — and left the relaunch to a
-    /// watchdog tick ~99s later. A lost signal must re-arm within the same
-    /// deadline instead of ending the wait.
-    #[test]
-    fn a_torn_down_readiness_signal_re_arms_instead_of_reporting_a_deadline() {
-        let screen_state = handle();
-        assert!(screen_state.lock().bind_pty_generation("pty-1", 1));
-
-        let (armed_tx, armed_rx) = mpsc::channel();
-        let (done_tx, done_rx) = mpsc::channel();
-        let waiter_screen = screen_state.clone();
-        let waiter = std::thread::spawn(move || {
-            let started = Instant::now();
-            let ready = await_shell_prompt_armed(
-                &waiter_screen,
-                "pty-1",
-                Duration::from_secs(60),
-                |rearms| armed_tx.send(rearms).unwrap(),
-            );
-            done_tx.send((ready, started.elapsed())).unwrap();
-        });
-
-        assert_eq!(armed_rx.recv_timeout(Duration::from_secs(5)).unwrap(), 0);
-        // The reader rebinding its generation is what closed the armed signal.
-        assert!(screen_state.lock().bind_pty_generation("pty-1", 2));
-        assert!(screen_state
-            .lock()
-            .process_if_generation("pty-1", 2, MACOS_BASH_BANNER_PROMPT));
-
-        let (ready, elapsed) = done_rx.recv_timeout(Duration::from_secs(10)).unwrap();
-        waiter.join().unwrap();
-        assert!(ready, "readiness must survive a signal teardown");
-        assert!(
-            elapsed < Duration::from_secs(10),
-            "wait must not run to the deadline: {elapsed:?}"
-        );
-    }
-
-    /// Arming before the backend reader binds is the real launch ordering; the
-    /// bind must not discard the wait.
-    #[test]
-    fn readiness_armed_before_the_reader_binds_still_completes() {
-        let screen_state = handle();
-        let (armed_tx, armed_rx) = mpsc::channel();
-        let (done_tx, done_rx) = mpsc::channel();
-        let waiter_screen = screen_state.clone();
-        let waiter = std::thread::spawn(move || {
-            let ready = await_shell_prompt_armed(
-                &waiter_screen,
-                "pty-1",
-                Duration::from_secs(60),
-                |rearms| armed_tx.send(rearms).unwrap(),
-            );
-            done_tx.send(ready).unwrap();
-        });
-
-        assert_eq!(armed_rx.recv_timeout(Duration::from_secs(5)).unwrap(), 0);
-        assert!(screen_state.lock().bind_pty_generation("pty-1", 1));
-        assert!(screen_state
-            .lock()
-            .process_if_generation("pty-1", 1, MACOS_BASH_BANNER_PROMPT));
-
-        assert!(done_rx.recv_timeout(Duration::from_secs(10)).unwrap());
-        waiter.join().unwrap();
-    }
-
-    #[test]
-    fn a_prompt_already_on_screen_returns_without_waiting() {
-        let screen_state = handle();
-        assert!(screen_state.lock().bind_pty_generation("pty-1", 1));
-        assert!(screen_state
-            .lock()
-            .process_if_generation("pty-1", 1, MACOS_BASH_BANNER_PROMPT));
-
-        assert!(await_shell_prompt(
-            &screen_state,
-            "pty-1",
-            Duration::from_secs(60)
-        ));
-    }
-
-    #[test]
-    fn an_expired_deadline_reports_not_ready() {
-        let screen_state = handle();
-        assert!(screen_state.lock().bind_pty_generation("pty-1", 1));
-
-        assert!(!await_shell_prompt(&screen_state, "pty-1", Duration::ZERO));
-    }
-}
-
-#[cfg(test)]
-mod planner_delivery_tests {
-    use super::{provider_frame_ready, provider_or_generic_tui, submit_authenticated_pty_input};
-    use crate::multiplexer::state::MultiplexerState;
-
-    #[test]
-    fn pty_planner_input_spy_never_degrades_to_shell_write() {
-        let (mut mux, pane_id) = MultiplexerState::new();
-        let pane = mux.get_pane_mut(&pane_id).unwrap();
-        pane.backing = crate::multiplexer::types::PaneBacking::Pty;
-        pane.pty_id = Some("pty-planner".into());
-        pane.chat_view = true;
-        pane.agent_type = Some("codex".into());
-        pane.agent_session_id = Some("session".into());
-        pane.session_binding_nonce = Some("nonce".into());
-        pane.reported_session_binding_nonce = Some("nonce".into());
-        pane.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
-
-        let payload = "- audit `model`\n- <nonexistent>\n$env:X='y'; $(false)";
-        let mut agent_input_spy = Vec::new();
-        submit_authenticated_pty_input(pane, "session", "nonce", payload, |pty, provider, text| {
-            agent_input_spy.push((pty.to_string(), provider.to_string(), text.to_string()));
-            Ok(())
-        })
-        .unwrap();
-        assert_eq!(
-            agent_input_spy,
-            [("pty-planner".into(), "codex".into(), payload.into())]
-        );
-
-        for shell in ["powershell", "bash", "zsh"] {
-            pane.agent_type = None;
-            pane.agent_session_id = None;
-            pane.reported_session_binding_nonce = None;
-            pane.agent_state = None;
-            pane.boot_stage = Some(codeterm_types::pty::BootStage::ShellReady);
-            let mut shell_write_spy = Vec::new();
-            let result =
-                submit_authenticated_pty_input(pane, "session", "nonce", payload, |_, _, text| {
-                    shell_write_spy.push((shell, text.to_string()));
-                    Ok(())
-                });
-            assert!(result.is_err());
-            assert!(shell_write_spy.is_empty(), "{shell} received planner bytes");
-        }
-    }
-
-    #[test]
-    fn provider_readiness_overrides_generic_tui_glyphs() {
-        assert!(!provider_or_generic_tui(Some(false), true));
-        assert!(provider_or_generic_tui(Some(true), false));
-        assert!(provider_or_generic_tui(None, true));
-    }
-
-    #[test]
-    fn provider_prompt_proves_launch_without_claiming_composer_readiness() {
-        assert!(provider_frame_ready(false, true, false, false, false));
-        assert!(!provider_frame_ready(false, true, true, false, false));
-        assert!(provider_frame_ready(true, false, true, false, true));
-    }
-
-    #[test]
-    fn alternate_screen_composer_proves_provider_readiness_without_text_patterns() {
-        assert!(provider_frame_ready(false, false, true, true, true));
-        assert!(!provider_frame_ready(false, false, true, false, true));
-        assert!(!provider_frame_ready(false, false, true, true, false));
-    }
-}
+mod tests;

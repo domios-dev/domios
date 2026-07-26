@@ -140,7 +140,7 @@ export function PlanCompanionBubble({
                 type="button"
                 data-testid="plan-companion-open-pane"
                 onClick={() => onOpenPane(resolution.paneId)}
-                title="Open full pane"
+                title="Open full tab"
                 className="flex h-6 w-6 shrink-0 items-center justify-center rounded border cursor-pointer"
                 style={{ background: "var(--ct-bg)", borderColor: "var(--ct-border)", color: "var(--ct-fg)" }}
               >

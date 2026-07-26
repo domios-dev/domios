@@ -103,7 +103,7 @@ export interface NormalizedChatMessage {
   fromPane?: string;
   fromModel?: string;
   fromMesh?: string;
-  inboundKind?: "pane" | "report" | "reminder" | "mesh" | "telegram";
+  inboundKind?: "tab" | "report" | "reminder" | "mesh" | "telegram";
   /** Interactive prompts the provider extracted from this message (answerable widgets). */
   interactive?: InteractiveElement[];
   /** `shell_command` items only — the command line, lifecycle status, exit code

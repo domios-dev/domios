@@ -36,6 +36,7 @@ pub(crate) struct AppStates {
     pub(crate) mesh: MeshStateHandle,
     pub(crate) keepawake: KeepAwakeStateHandle,
     pub(crate) resize_owner: ResizeOwnerState,
+    pub(crate) rest_api: super::RestApiControlState,
 }
 
 /// Orchestration bindings the dead epoch persisted, versus what came back.
@@ -138,6 +139,7 @@ pub(crate) fn init_states() -> AppStates {
     let resize_owner: ResizeOwnerState = Arc::new(Mutex::new(
         crate::resize_owner::ResizeOwnerRegistry::default(),
     ));
+    let rest_api = Arc::new(super::RestApiControl::new());
 
     let mesh_config = config_state.lock().mesh.clone();
     let api_port = config_state.lock().api.port;
@@ -269,6 +271,7 @@ pub(crate) fn init_states() -> AppStates {
         mesh: mesh_state,
         keepawake: keepawake::new_state(),
         resize_owner,
+        rest_api,
     }
 }
 

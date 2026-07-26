@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 22 -->
+<!-- revision: 26 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -9,11 +9,11 @@ a global flag on every command.
 
 **Planning?** Read the EFFORT workflow first — `docs/ORCHESTRATION.md` (GOAL ⟶ Spec ⊥ Plan ⟶ Tasks ⟶ Strides; author GOAL-first, Spec=WHAT, Plan=HOW built from the spec, M:N section links). Don't cram requirements into plan sections; the Spec holds WHAT.
 
-The Team verbs are `codeterm team list|show|rename|close|adopt-plan`. `codeterm team close <team_id>` is the only operation that removes a Team; it cascade-closes the Team's members, archives/detaches its plans, records owner retirement, and clears owner/planner routing to the destroyed panes. Agent callers may mutate only their own `team_id` when they are the Team's Orchestrator or planner Manager; rename and close retain their authenticated direct-user path. A newly minted Team is returned with `codeterm team rename <team_id> <name>` and `codeterm docs ORCHESTRATION` guidance.
+The Team verbs are `codeterm team list|show|rename|close|adopt-plan`. `codeterm team close <team_id>` is the only operation that removes a Team; it cascade-closes the Team's members, archives/detaches its plans, records owner retirement, and clears owner/planner routing to the destroyed tabs. Agent callers may mutate only their own `team_id` when they are the Team's Orchestrator or planner Manager; rename and close retain their authenticated direct-user path. A newly minted Team is returned with `codeterm team rename <team_id> <name>` and `codeterm docs ORCHESTRATION` guidance.
 
 `codeterm team adopt-plan <team_id> <plan_id>` requires `CODETERM_PANE_ID` for the destination Team's Orchestrator or planner Manager. It activates an archived/teamless plan only when the Team has exactly one live Orchestrator and no other active plan. Adoption atomically binds the Team, replaces the old owner with that Orchestrator, records owner history, clears stale planner routing, and relinks live task hierarchy. `codeterm plan unarchive|resume` require an existing live Team binding; they never recreate a Team.
 
-`codeterm plan transfer <plan_id> --to <orchestrator-pane>` moves the plan to the destination Orchestrator's live Team. The CLI requires `CODETERM_PANE_ID`, supplies that caller identity, and the daemon requires the pane to be the source Team's Orchestrator or planner Manager; missing callers, Workers, and foreign-Team panes cannot transfer. Transfer changes the Team, owner, owner history, and stale planner routing atomically before relinking hierarchy.
+`codeterm plan transfer <plan_id> --to <orchestrator-tab>` moves the plan to the destination Orchestrator's live Team. The CLI requires `CODETERM_PANE_ID`, supplies that caller identity, and the daemon requires the tab to be the source Team's Orchestrator or planner Manager; missing callers, Workers, and foreign-Team tabs cannot transfer. Transfer changes the Team, owner, owner history, and stale planner routing atomically before relinking hierarchy.
 
 <!-- cli:auto-start -->
 #### `codeterm agent`
@@ -85,14 +85,6 @@ Send a report to your parent in the hierarchy
 - `--test-result` — Result of the test command (e.g. "42 passed")
 - `--text` — Report message as a flag, useful when paired with --doc
 
-#### `codeterm agent reports`
-
-Read reports (for orchestrator tabs)
-
-- `--clear` — Clear reports after reading
-- `--limit` — Show only the N most recent reports (default: all)
-- `--tab` — Tab ID (default: current focused tab)
-
 #### `codeterm agent restart`
 
 Restart agent (graceful exit; resumes only when the tab has a valid provider session)
@@ -112,7 +104,6 @@ Mark a tab as orchestrator (top-level, can spawn workers)
 Spawn a new agent; roleless unless --role is provided
 
 - `<agent>` — Agent provider id. Run `codeterm agent providers` to list registered providers (e.g. claude, codex, opencode). Default: claude
-- `--allow-shared-checkout` — Allow a Worker to spawn into a shared/canonical checkout instead of an isolated worktree. Records a visible exception stride on the bound task
 - `--args` — Extra args for the agent
 - `--can-spawn` — Override whether an explicit Orchestrator may spawn children
 - `--charter` — Watcher charter text
@@ -133,7 +124,7 @@ Spawn a new agent; roleless unless --role is provided
 - `--system` — Override the shell system prompt when spawning a chatBackend shell
 - `--task` — Task to send after agent starts
 - `--task-file` — Read the task body from a file (or `-` for stdin) instead of --task. Bypasses the caller's shell, so backticks / $(...) in the body are never evaluated. Mutually exclusive with --task
-- `--task-id` — Bound task id for the shared-checkout exception stride
+- `--task-id` — Bound task id
 - `--title` — Tab title
 - `--workspace` — Target workspace ID (default: parent's workspace or active workspace)
 
@@ -1175,22 +1166,18 @@ Create an orchestrator handoff and optionally reseed this tab
 
 Orchestrator heartbeat helpers
 
-#### `codeterm orchestrator heartbeat set`
-
-Set the heartbeat focus, active lanes, and rules carried into auto-reinjection
-
-- `--clear-lanes`
-- `--clear-rules`
-- `--focus`
-- `--lane`
-- `--plan`
-- `--rule`
-
 #### `codeterm orchestrator heartbeat show`
 
 Show the current heartbeat and learnings
 
 - `--plan`
+
+#### `codeterm orchestrator inspect`
+
+Show the full orchestration snapshot, including report bodies
+
+- `--plan`
+- `--tab`
 
 #### `codeterm orchestrator learn`
 
@@ -1209,7 +1196,7 @@ Run the daemon-side refresh cycle (handoff → compact → re-orient → verify 
 
 #### `codeterm orchestrator status`
 
-Show orchestration status as reports, live lanes, drift, and next actions
+Show a compact orchestration summary
 
 - `--plan`
 - `--tab`
@@ -1789,7 +1776,7 @@ Record task progress with one atomic plan write
 - `--key`
 - `--link`
 - `--name`
-- `<plan_id>` — Plan id (if available from pane binding or env)
+- `<plan_id>` — Plan id (if available from tab binding or env)
 - `--sections`
 - `--status` — Task status: pending | in_progress | in_review | blocked | paused | done | cancelled
 - `--step`
@@ -1825,7 +1812,7 @@ Write the plan completion retrospective (plan-level stride, kind retrospective)
 
 #### `codeterm plan review`
 
-Review-backpressure: WIP/credit status, waves, overrides, accept/bounce
+Review-backpressure: capacity, credit reconciliation, and verdicts
 
 #### `codeterm plan review accept`
 
@@ -1836,6 +1823,14 @@ ACCEPT: attaches the verdict and closes the task (in_review -> done)
 - `--note`
 - `<plan_id>`
 - `--residual-risk` — Past the default round bound, routes residual risk to a follow-up task
+- `<task_id>`
+
+#### `codeterm plan review authorize-capacity`
+
+Grant daemon-owned review-capacity provenance to one task
+
+- `--class`
+- `<plan_id>`
 - `<task_id>`
 
 #### `codeterm plan review bounce`
@@ -1857,6 +1852,13 @@ Record a P0 exception authorizing the next over-round-limit review entry
 - `--reason`
 - `--reproduction`
 - `<task_id>`
+
+#### `codeterm plan review reconcile-credit`
+
+Repair historical review-credit debt from leaked review exits and audit it
+
+- `<plan_id>`
+- `--reason`
 
 #### `codeterm plan review status`
 
@@ -2235,7 +2237,7 @@ Update plan metadata
 - `--mode`
 - `--note` — Waiver note (required when --planner none)
 - `<plan_id>`
-- `--planner` — Set attached Planner: <pane_id> to bind, or "none" to waive (requires --note)
+- `--planner` — Set attached Planner: <tab_id> to bind, or "none" to waive (requires --note)
 - `--spec`
 - `--spec-file`
 - `--status`
@@ -2652,11 +2654,19 @@ Get visible terminal text of a tab (what the user sees)
 - `--formatted` — Include raw ANSI escape codes (colors, cursor state) instead of plain text
 - `--tab` — Tab ID (default: current focused tab)
 
+#### `codeterm tab inspect`
+
+Show the full daemon tab payload for one or more explicit tab ids
+
+- `<tabs>` — One or more tab ids to inspect
+
 #### `codeterm tab list`
 
-List all tabs as a workspace-grouped tree. `--agents` filters to agent tabs only
+List compact tab summaries in the current workspace. Use `tab inspect` for full tab details
 
 - `--agents` — Show only tabs running an agent (have an agent_type)
+- `--all-workspaces` — Include every workspace instead of the current one
+- `--workspace` — Workspace id to list. Defaults to this tab's workspace, then the focused workspace
 
 #### `codeterm tab new`
 
@@ -2762,7 +2772,7 @@ Bind an existing plan to a Team
 
 #### `codeterm team close`
 
-Close every member pane and remove the Team registry entry
+Close every member tab and remove the Team registry entry
 
 - `<team_id>` — Team ID
 

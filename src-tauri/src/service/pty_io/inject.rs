@@ -72,6 +72,30 @@ impl ServiceContext {
         super::submit_transaction::submit_text(self, pty_id, text, enter, submit_strategy, opts)
     }
 
+    pub(crate) fn send_text_verified_guarded(
+        &self,
+        pty_id: &str,
+        text: &str,
+        enter: bool,
+        submit_strategy: crate::agent::provider::VerifySubmitStrategy,
+        permit: crate::pty::write_queue::GuardedInputPermit,
+        opts: crate::service::inject_verify::VerifyOpts,
+    ) -> Result<
+        crate::service::inject_verify::InjectionResult,
+        crate::service::inject_verify::InjectionError,
+    > {
+        super::submit_transaction::submit_text_with_key(
+            self,
+            pty_id,
+            text,
+            enter,
+            b"\r",
+            submit_strategy,
+            opts,
+            Some(permit),
+        )
+    }
+
     /// Inject a command into a plain shell pane via script-exec, bypassing
     /// bracketed-paste. Ensures the PTY exists and awaits the PTY link before
     /// writing; delegates to `send_shell_spawn` which calls `await_shell_ready`.

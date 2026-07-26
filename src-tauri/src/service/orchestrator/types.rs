@@ -110,14 +110,10 @@ pub struct SpawnAgentParams {
     pub task: Option<String>,
     #[serde(default, skip)]
     pub(crate) starter_prompt: crate::agent::provider::StarterPrompt,
-    /// Bound task id (CODETERM_TASK_ID) — the shared-checkout exception stride
-    /// lands here when `--allow-shared-checkout` is used.
+    /// Bound task id (CODETERM_TASK_ID).
     pub task_id: Option<String>,
     /// Named plan task to bind when spawning `--role Worker` (`--plan-task`).
     pub plan_task: Option<String>,
-    /// Opt out of the Worker canonical-checkout guard, recording a visible
-    /// exception stride on the bound task.
-    pub allow_shared_checkout: Option<bool>,
     pub workspace_id: Option<String>,
     /// Force creation as a new tab instead of split pane (even with parent).
     pub force_tab: Option<bool>,

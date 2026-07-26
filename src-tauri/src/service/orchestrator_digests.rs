@@ -6,6 +6,9 @@ use crate::service::plan::usage_digest::{
 };
 use crate::service::ServiceContext;
 
+const CLEANUP_SOFT_LIMIT: usize = 5;
+const CLEANUP_CRITICAL_LIMIT: usize = 10;
+
 pub fn prepend_orchestrator_heartbeat(
     svc: &ServiceContext,
     plan_id: &str,
@@ -19,16 +22,85 @@ pub fn prepend_orchestrator_heartbeat(
         return text.to_string();
     }
     let digest_lines = collect_digest_lines(svc, &plan, pane_id);
-    svc.plan_store
-        .prepend_heartbeat_for_plan_with_digests(plan_id, text, &digest_lines)
+    let injected =
+        svc.plan_store
+            .prepend_heartbeat_for_plan_with_digests(plan_id, text, &digest_lines);
+    if let Some(pane_id) = pane_id {
+        let heartbeat_bytes = injected.len().saturating_sub(text.len());
+        if heartbeat_bytes > 0 {
+            svc.record_kpi_event(
+                pane_id,
+                crate::agent::kpi_ledger::KpiEventKind::Heartbeat,
+                heartbeat_bytes,
+            );
+        }
+    }
+    injected
 }
 
 fn collect_digest_lines(svc: &ServiceContext, plan: &Plan, pane_id: Option<&str>) -> Vec<String> {
     let mut out = Vec::new();
     out.extend(queue_pressure_lines(svc, plan, pane_id));
+    out.extend(cleanup_pressure_lines(svc, pane_id));
     out.extend(usage_lines(svc));
-    out.truncate(6);
+    out.truncate(8);
     out
+}
+
+fn cleanup_pressure_lines(svc: &ServiceContext, pane_id: Option<&str>) -> Vec<String> {
+    let Some(pane_id) = pane_id.filter(|id| !id.trim().is_empty()) else {
+        return Vec::new();
+    };
+    let (worker_count, cwd) = {
+        let mux = svc.mux.read();
+        let worker_count = mux.get_children_ids(pane_id).len();
+        let cwd = mux.get_pane(pane_id).and_then(|pane| pane.cwd.clone());
+        (worker_count, cwd)
+    };
+    let mut lines = Vec::new();
+    if let Some(line) = cleanup_pressure_line("Worker", worker_count, "close inactive worker tabs")
+    {
+        lines.push(line);
+    }
+    if let Some(worktree_count) = cwd.as_deref().and_then(count_repo_worktrees) {
+        if let Some(line) =
+            cleanup_pressure_line("Worktree", worktree_count, "remove ancestry-merged lanes")
+        {
+            lines.push(line);
+        }
+    }
+    lines
+}
+
+fn cleanup_pressure_line(kind: &str, count: usize, action: &str) -> Option<String> {
+    if count > CLEANUP_CRITICAL_LIMIT {
+        return Some(format!(
+            "CRITICAL {kind} pressure: {count} active; {action} before dispatching more"
+        ));
+    }
+    (count > CLEANUP_SOFT_LIMIT).then(|| {
+        format!(
+            "{kind} pressure: {count} active; parallel work may be valid, but {action} if lanes are idle"
+        )
+    })
+}
+
+fn count_repo_worktrees(cwd: &str) -> Option<usize> {
+    let cwd = std::path::Path::new(cwd);
+    let git_dir = cwd
+        .ancestors()
+        .map(|dir| dir.join(".git"))
+        .find(|git| git.is_dir())?;
+    let linked = git_dir.join("worktrees");
+    let linked_count = match std::fs::read_dir(linked) {
+        Ok(entries) => entries
+            .filter_map(Result::ok)
+            .filter(|entry| entry.path().is_dir())
+            .count(),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => 0,
+        Err(_) => return None,
+    };
+    Some(linked_count + 1)
 }
 
 fn queue_pressure_lines(svc: &ServiceContext, plan: &Plan, pane_id: Option<&str>) -> Vec<String> {
@@ -124,4 +196,22 @@ fn now_epoch_ms() -> u64 {
 
 fn now_epoch_secs() -> u64 {
     now_epoch_ms() / 1000
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cleanup_pressure_line;
+
+    #[test]
+    fn cleanup_pressure_thresholds_are_soft_then_critical() {
+        assert_eq!(cleanup_pressure_line("Worker", 5, "clean"), None);
+        assert_eq!(
+            cleanup_pressure_line("Worker", 6, "clean").as_deref(),
+            Some("Worker pressure: 6 active; parallel work may be valid, but clean if lanes are idle")
+        );
+        assert_eq!(
+            cleanup_pressure_line("Worker", 11, "clean").as_deref(),
+            Some("CRITICAL Worker pressure: 11 active; clean before dispatching more")
+        );
+    }
 }

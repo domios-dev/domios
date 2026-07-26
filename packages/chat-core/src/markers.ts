@@ -101,10 +101,10 @@ export const markAttachment = (file: string, name?: string | null) =>
   buildMarker("file", [["file", file], ...opt("name", name)]);
 export const markTelegram = (user: string, msg: string | null, body: string) =>
   buildMarker("telegram", [["user", user], ...opt("msg", msg)], body);
-export const markMesh = (peer: string, pane: string, body: string) =>
-  buildMarker("mesh", [["peer", peer], ["pane", pane]], body);
-export const markPane = (label: string, pane: string, body: string) =>
-  buildMarker("pane", [["label", label], ["pane", pane]], body);
+export const markMesh = (peer: string, tab: string, body: string) =>
+  buildMarker("mesh", [["peer", peer], ["tab", tab]], body);
+export const markTab = (label: string, tab: string, body: string) =>
+  buildMarker("tab", [["label", label], ["tab", tab]], body);
 export const markPluginConfig = (id: string, name: string, body: string): string =>
   buildMarker("plugin_config", [["plugin", id], ["name", name]], body);
 export const markReport = (from: string, body: string) =>

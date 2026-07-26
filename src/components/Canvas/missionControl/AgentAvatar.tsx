@@ -17,7 +17,7 @@ export function AgentAvatar({ agent, showName, onClick }: AgentAvatarProps) {
         data-state={agent.state}
         data-provider={agent.provider}
         data-mc-interactive={onClick ? "true" : undefined}
-        title={onClick ? `${agent.name} (${agent.provider}) — open pane` : `${agent.name} (${agent.provider})`}
+        title={onClick ? `${agent.name} (${agent.provider}) — open tab` : `${agent.name} (${agent.provider})`}
         data-testid={`avatar-${agent.id}`}
         role={onClick ? "button" : undefined}
         tabIndex={onClick ? 0 : undefined}

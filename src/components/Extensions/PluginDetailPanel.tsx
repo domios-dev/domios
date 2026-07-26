@@ -225,7 +225,7 @@ export function PluginDetailPanel({
         <div style={{ fontSize: 11.5, color: "#fca5a5", marginBottom: 14 }} data-testid="extensions-action-disabled-reason">{action.reason}</div>
       )}
 
-      {/* P1: a chatBackend plugin is opened as a non-PTY chat pane from here. */}
+      {/* P1: a chatBackend plugin is opened as a non-PTY chat tab from here. */}
       {entry.capabilities?.chat_backend && entry.installed && !entry.pendingReload && (
         <div style={{ marginBottom: 16 }}>
           <button
@@ -237,7 +237,7 @@ export function PluginDetailPanel({
               );
             }}
             style={primaryBtnStyle("install", false)}
-            title={`Open a chat pane backed by ${entry.displayName}`}
+            title={`Open a chat tab backed by ${entry.displayName}`}
           >
             Open chat
           </button>

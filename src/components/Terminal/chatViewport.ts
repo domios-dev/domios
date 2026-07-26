@@ -17,13 +17,10 @@ export function snapChatViewportToBottom(viewport: ChatViewportGeometry): void {
 }
 
 export function nextChatViewportMode(
-  current: ChatViewportMode,
   viewport: ChatViewportGeometry,
-  userScrollIntent: boolean,
 ): ChatViewportMode {
   if (isChatViewportAtBottom(viewport)) return "pinned";
-  if (userScrollIntent) return "detached";
-  return current;
+  return "detached";
 }
 
 export function shouldFollowChatSend(wasPinned: boolean, isStillPinned: boolean): boolean {

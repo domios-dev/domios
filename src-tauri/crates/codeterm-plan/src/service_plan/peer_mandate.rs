@@ -10,7 +10,7 @@ use crate::plan::PlanningState;
 /// Used wherever planning work is delegated by name.
 pub fn planner_peer_label(resolution: &PeerResolution) -> String {
     match resolution {
-        PeerResolution::Planner { pane_id } => format!("the Planner specialist (pane {pane_id})"),
+        PeerResolution::Planner { pane_id } => format!("the Planner specialist (tab {pane_id})"),
         PeerResolution::OrchestratorFallback { .. } => {
             "the Planner specialist (currently down — respawn it)".into()
         }
@@ -38,11 +38,11 @@ pub fn planning_structure_nudge(
 }
 
 /// The canonical `agent spawn --role Planner --plan <id>` command, filled in
-/// with a real orchestrator pane id when known (falls back to a placeholder
+/// with a real orchestrator tab id when known (falls back to a placeholder
 /// token otherwise, matching the `PLAN_ID`-style placeholders used elsewhere
 /// in onboarding text).
 pub fn planner_spawn_cmd_hint(orchestrator_pane_id: Option<&str>, plan_id: &str) -> String {
-    let parent = orchestrator_pane_id.unwrap_or("<orch-pane>");
+    let parent = orchestrator_pane_id.unwrap_or("<orch-tab>");
     format!(
         "Choose an available provider and model appropriate for this planning task, then run: codeterm agent spawn <provider> [--model <model>] --parent {parent} --role Planner --plan {plan_id}"
     )
@@ -53,7 +53,7 @@ pub fn planner_spawn_cmd_hint(orchestrator_pane_id: Option<&str>, plan_id: &str)
 pub fn planner_peer_intro_line(plan_id: &str, orchestrator_pane_id: Option<&str>) -> String {
     let orch = orchestrator_pane_id.unwrap_or("unknown");
     format!(
-        "You are the Planner specialist for plan {plan_id}; the Orchestrator owner is pane {orch}. {} First read `codeterm docs PLANNER` — it covers your role, the planning toolset (codeterm spec/plan/section, `codeterm plan task add`, `plan doctor`), and that YOU cut the tasks (the Orchestrator dispatches and accepts, it does not create them). The full CLI reference is the `codeterm` skill — if it is not loaded, `codeterm mem search \"codeterm skill\"` and read the returned SKILL.md. A fresh pairing starts empty: if no goal or planning request has been delegated yet, reply that you are ready and WAIT — do not explore the project or read other plans.",
+        "You are the Planner specialist for plan {plan_id}; the Orchestrator owner is tab {orch}. {} First read `codeterm docs PLANNER` — it covers your role, the planning toolset (codeterm spec/plan/section, `codeterm plan task add`, `plan doctor`), and that YOU cut the tasks (the Orchestrator dispatches and accepts, it does not create them). The full CLI reference is the `codeterm` skill — if it is not loaded, `codeterm mem search \"codeterm skill\"` and read the returned SKILL.md. A fresh pairing starts empty: if no goal or planning request has been delegated yet, reply that you are ready and WAIT — do not explore the project or read other plans.",
         super::prompts_plan::PEER_PLANNER_CHARTER_LINE
     )
 }
@@ -110,9 +110,9 @@ mod tests {
     }
 
     #[test]
-    fn spawn_cmd_hint_falls_back_to_placeholder_without_a_real_pane() {
+    fn spawn_cmd_hint_falls_back_to_placeholder_without_a_real_tab() {
         let hint = planner_spawn_cmd_hint(None, "PLAN_ID");
-        assert!(hint.contains("--parent <orch-pane>"));
+        assert!(hint.contains("--parent <orch-tab>"));
         assert!(hint.contains("--plan PLAN_ID"));
     }
 

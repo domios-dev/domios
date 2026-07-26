@@ -28,12 +28,18 @@ HOST_TRIPLE="${CODETERM_TEST_HOST_TRIPLE:-$(rustc -vV | awk -F': ' '/^host:/{pri
 
 configure_windows_test_target() {
     [[ "$HOST_TRIPLE" == *-windows-* ]] || return 0
-    [ -z "${CARGO_TARGET_DIR:-}" ] || return 0
-    if [ "${CODETERM_TEST_DEV_HEALTH:-}" = "healthy" ] ||
-        curl --silent --fail --max-time 1 http://127.0.0.1:7686/api/health >/dev/null 2>&1; then
+    case "${CARGO_TARGET_DIR:-}" in
+        *[/\\]CodeTerm[/\\]build-gateway[/\\]targets[/\\]*)
+            printf '[test-capped] ignoring inherited internal build-gateway target: %s\n' "$CARGO_TARGET_DIR"
+            unset CARGO_TARGET_DIR
+            ;;
+    esac
+    if [ -z "${CARGO_TARGET_DIR:-}" ] &&
+        { [ "${CODETERM_TEST_DEV_HEALTH:-}" = "healthy" ] ||
+            curl --silent --fail --max-time 1 http://127.0.0.1:7686/api/health >/dev/null 2>&1; }; then
         CARGO_TARGET_DIR="$ROOT/target-check"
         export CARGO_TARGET_DIR
-        printf '[test-capped] Windows dev owns the app target; using isolated test target: %s\n' "$CARGO_TARGET_DIR"
+        printf '[test-capped] using isolated Windows test target: %s\n' "$CARGO_TARGET_DIR"
         if command -v sccache >/dev/null 2>&1; then
             RUSTC_WRAPPER=sccache
             SCCACHE_BASEDIRS="${SCCACHE_BASEDIRS:-$ROOT}"

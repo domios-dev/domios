@@ -77,6 +77,10 @@ pub struct PtyReaper {
 }
 
 impl PtyReaper {
+    pub fn pty_id(&self) -> &str {
+        &self.pty_id
+    }
+
     pub fn wait_bounded(self, timeout: std::time::Duration) -> Result<(), String> {
         self.observe_exit();
         if let Some(error) = self.kill_error.as_ref() {
@@ -99,6 +103,11 @@ impl PtyReaper {
         let session = self.session.clone();
         let pty_id = self.pty_id.clone();
         std::thread::spawn(move || {
+            // ClosePseudoConsole can deadlock inside the in-box conhost; off the
+            // foreground thread that degrades to the bounded wait below.
+            if let Ok(mut pair) = session.pair.lock() {
+                let _ = pair.take();
+            }
             let result = match session.child.lock() {
                 Ok(mut child) => child.wait().map_err(|error| error.to_string()),
                 Err(error) => Err(format!("child mutex poisoned: {error}")),

@@ -123,6 +123,8 @@ console.log("\n--- task instructions launch ---\n");
   const idle = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "idle_wakeup" });
   assert(idle.includes("You are a newly started agent. Wait for instructions from the user or your orchestration parent."), "idle launch uses the non-actionable wake-up starter");
   assert(!idle.includes("Execute the assigned task."), "idle launch never uses the task starter");
+  const empty = p.buildLaunchCommand({ task: "   " });
+  assert(!empty.includes("Execute the assigned task."), "empty instructions never create a starter message");
   const teamText = "host-owned team bootstrap";
   const team = p.buildLaunchCommand({ task: hostileTask, starterPrompt: "team_bootstrap", starterPromptText: teamText });
   assert(team.includes(teamText), "team launch uses the host-owned starter text");

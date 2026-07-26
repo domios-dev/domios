@@ -148,7 +148,7 @@ const plugin: PluginModule = {
       // Quote each caller-supplied arg to prevent shell injection.
       for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }
-    if (p.task) {
+    if (p.task?.trim()) {
       const taskPath = host.fs.writeTempFile(p.task, ".ct-task.md");
       if (!taskPath) throw new Error("failed to write Codex task instructions");
       const quotedPath = host.shell.quoteFor(taskPath, host.platform());

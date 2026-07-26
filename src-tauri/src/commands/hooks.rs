@@ -79,13 +79,16 @@ pub fn install_provider_rule(
         .ok_or_else(|| format!("Unknown provider: {}", provider_id))?
 }
 
-/// Called once at startup. Iterates every registered provider and gives
-/// it a chance to auto-install its CodeTerm integration if missing.
-/// Providers without an integration just no-op.
+/// Repairs provider integrations without holding the registry lock or blocking startup.
 pub fn ensure_integrations_for_all(registry: &crate::agent::registry::AgentRegistry) {
     let port = default_api_port();
-    let ids = registry.provider_ids();
-    for id in &ids {
-        registry.with_provider(id, |p| p.ensure_integration_on_startup(port));
+    for provider in registry.all_provider_arcs() {
+        let id = provider.id().to_string();
+        if let Err(error) = std::thread::Builder::new()
+            .name(format!("integration-{id}"))
+            .spawn(move || provider.ensure_integration_on_startup(port))
+        {
+            log::warn!("[provider {id}] integration repair thread failed: {error}");
+        }
     }
 }

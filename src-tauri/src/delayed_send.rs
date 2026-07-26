@@ -556,7 +556,7 @@ mod tests {
                 crate::service::messenger::Messenger::pty_prefix(&envelope),
                 msg.text
             ),
-            "-=-codeterm:reminder from=Main pane=e8a0ac20 model=opus set_at=1000 fire_at=2000 id=dmsg-7-=-hi"
+            "-=-codeterm:reminder from=Main tab=e8a0ac20 model=opus set_at=1000 fire_at=2000 id=dmsg-7-=-hi"
         );
     }
 

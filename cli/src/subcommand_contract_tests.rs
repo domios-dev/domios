@@ -276,6 +276,58 @@ fn tab_new_without_chat_backend_defaults_to_none() {
 }
 
 #[test]
+fn tab_list_defaults_to_compact_current_workspace_scope() {
+    let parsed = PaneOnly::try_parse_from(["tab", "list"]).expect("tab list parses");
+    assert!(matches!(
+        parsed.action,
+        PaneAction::List {
+            workspace: None,
+            all_workspaces: false,
+            agents: false,
+        }
+    ));
+}
+
+#[test]
+fn tab_list_and_inspect_parse_explicit_scopes() {
+    let listed = PaneOnly::try_parse_from(["tab", "list", "--workspace", "ws_1", "--agents"])
+        .expect("scoped tab list parses");
+    assert!(matches!(
+        listed.action,
+        PaneAction::List {
+            workspace: Some(ref workspace),
+            all_workspaces: false,
+            agents: true,
+        } if workspace == "ws_1"
+    ));
+    let inspected =
+        PaneOnly::try_parse_from(["tab", "inspect", "tab_1", "tab_2"]).expect("tab inspect parses");
+    assert!(matches!(
+        inspected.action,
+        PaneAction::Inspect { tabs } if tabs == ["tab_1", "tab_2"]
+    ));
+    let all = PaneOnly::try_parse_from(["tab", "list", "--all-workspaces"])
+        .expect("all-workspaces tab list parses");
+    assert!(matches!(
+        all.action,
+        PaneAction::List {
+            workspace: None,
+            all_workspaces: true,
+            agents: false,
+        }
+    ));
+    assert!(
+        PaneOnly::try_parse_from(["tab", "list", "--workspace", "ws_1", "--all-workspaces"])
+            .is_err()
+    );
+}
+
+#[test]
+fn pane_command_alias_is_rejected() {
+    assert!(Cli::try_parse_from(["codeterm", "pane", "list"]).is_err());
+}
+
+#[test]
 fn tab_new_is_primary_command() {
     let tab = Cli::try_parse_from(["codeterm", "tab", "new"]).expect("tab new parses");
     assert!(matches!(

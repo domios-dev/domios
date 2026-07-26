@@ -66,7 +66,8 @@ mkdir -p "$bundle_repo/src-tauri/target/release"
 : >"$bundle_repo/src-tauri/target/release/codeterm-embed${embed_ext}"
 if (
     cd "$bundle_repo"
-    node -e 'require("./scripts/bundle-embed.js").bundleEmbed(process.env, process.cwd())'
+    env -u CARGO_TARGET_DIR node -e \
+        'require("./scripts/bundle-embed.js").bundleEmbed(process.env, process.cwd())'
 ) >"$TMPDIR/bundle.out" 2>&1; then
     printf 'bundle-stub: empty embed stub was accepted\n' >&2
     exit 1
@@ -109,8 +110,20 @@ CODETERM_TEST_HOST_TRIPLE=x86_64-pc-windows-msvc CODETERM_TEST_DEV_HEALTH=health
     CARGO_TEST_CMD=bash "$WRAPPER" -c \
     'case "$CARGO_TARGET_DIR" in */target-check) exit 0;; *) exit 11;; esac' \
     >"$windows_target_output" 2>&1
-grep -q 'Windows dev owns the app target; using isolated test target:' "$windows_target_output" || {
-    printf 'windows-target: active dev did not select the isolated focused-test target\n' >&2
+grep -q 'using isolated Windows test target:' "$windows_target_output" || {
+    printf 'windows-target: wrapper did not select the isolated focused-test target\n' >&2
+    exit 1
+}
+
+inherited_target_output="$TMPDIR/inherited-target.out"
+CODETERM_TEST_HOST_TRIPLE=x86_64-pc-windows-msvc \
+    CODETERM_TEST_DEV_HEALTH=healthy \
+    CARGO_TARGET_DIR='C:\Users\dev\AppData\Local\CodeTerm\build-gateway\targets\local-install\stale' \
+    CARGO_TEST_CMD=bash "$WRAPPER" -c \
+    'case "$CARGO_TARGET_DIR" in */target-check) exit 0;; *) exit 12;; esac' \
+    >"$inherited_target_output" 2>&1
+grep -q 'ignoring inherited internal build-gateway target:' "$inherited_target_output" || {
+    printf 'inherited-target: wrapper did not reject the internal gateway target\n' >&2
     exit 1
 }
 
@@ -122,7 +135,7 @@ grep -q '^cargo-test-ran$' "$explicit_target_output" || {
     printf 'explicit-target: wrapper exited before invoking the test command\n' >&2
     exit 1
 }
-! grep -q 'using isolated test target' "$explicit_target_output" || {
+! grep -q 'using isolated Windows test target' "$explicit_target_output" || {
     printf 'explicit-target: wrapper overrode the caller target directory\n' >&2
     exit 1
 }

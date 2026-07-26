@@ -16,7 +16,7 @@ pub use crate::service::plan::prompts_plan::{
 
 /// The three-tier testing ladder. Single source shared by next-actions/heartbeat prose
 /// and asserted verbatim in the ORCHESTRATION doc so the wording never drifts.
-pub const MILESTONE_GATE_LADDER: &str = "Testing ladder — per-task = focused filters only; per-group (milestone) = one full regression gate (cargo suite + ts-unit + playwright golden, serialized in the warm checkout); per-release = the farm matrix across every platform.";
+pub const MILESTONE_GATE_LADDER: &str = "Testing ladder — per-task = focused filters only; per-group (milestone) = one full regression gate (cargo suite + ts-unit, serialized in the warm checkout); per-release = the farm matrix across every platform.";
 
 /// Appended to Planner-profile Worker tasks.
 pub const PLANNER_SUFFIX: &str = include_str!("../prompts/planner_suffix.md");
@@ -213,7 +213,7 @@ mod tests {
 
     #[test]
     fn operational_prompts_keep_clarity_fixes() {
-        assert!(WORKER_SUFFIX.contains("STATUS: done | blocked | partial"));
+        assert!(WORKER_SUFFIX.contains("STATUS: in_review"));
         assert!(WORKER_SUFFIX.contains("TESTS RUN:"));
         assert!(WORKER_SUFFIX.contains("GATES REQUESTED:"));
         assert!(!TESTING_DISCIPLINE.trim().is_empty());
@@ -342,10 +342,45 @@ mod tests {
     }
 
     #[test]
+    fn orchestration_policy_keeps_checkout_choice_and_final_user_oracle_in_sync() {
+        const ORCHESTRATION_DOC: &str = include_str!("../../docs/ORCHESTRATION.md");
+        let rendered = orchestrator_suffix();
+
+        for policy in [
+            "chooses canonical checkout or",
+            "isolated lane",
+            "Design the smallest deterministic user-layer oracle",
+            "final integration or release verification",
+            "cold compiled builds or suites",
+            "verification Worker",
+            "Heartbeat is derived automatically",
+        ] {
+            assert!(rendered.contains(policy), "prompt missing policy: {policy}");
+            assert!(
+                ORCHESTRATION_DOC.contains(policy),
+                "orchestration doc missing policy: {policy}"
+            );
+        }
+    }
+
+    #[test]
     fn planner_suffix_is_bounded_and_fully_rendered() {
+        const PLANNER_DOC: &str = include_str!("../../docs/PLANNER.md");
         let rendered = planner_suffix();
         assert!(rendered.split_whitespace().count() < 800);
         assert!(!rendered.contains("{test_author_guidance}"));
+        for policy in [
+            "smallest deterministic user-layer oracle",
+            "cold compiled builds or suites",
+            "verification Worker",
+            "Checkout placement is chosen by the Orchestrator",
+        ] {
+            assert!(rendered.contains(policy), "prompt missing policy: {policy}");
+            assert!(
+                PLANNER_DOC.contains(policy),
+                "planner doc missing policy: {policy}"
+            );
+        }
     }
 
     #[test]

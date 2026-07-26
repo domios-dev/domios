@@ -272,7 +272,7 @@ function OrchestrationGroup({
     <SettingsCard
       icon={<Timer size={16} />}
       title="Orchestration nudges"
-      description="Plan-driven reminders for agent panes with open plan work. The silence nudge fires only after a pane has been completely inactive for the whole interval — any activity (turns, reports, plan updates) resets its timer."
+      description="Plan-driven reminders for agent tabs with open plan work. The silence nudge fires only after a tab has been completely inactive for the whole interval — any activity (turns, reports, plan updates) resets its timer."
     >
       <Toggle
         label="Plan reminders & nudges"

@@ -782,7 +782,7 @@ pub async fn chat_send_text(
     svc: tauri::State<'_, ServiceState>,
     pane_id: String,
     text: String,
-) -> Result<String, String> {
+) -> Result<crate::service::chat_send_transaction::ChatSendStatus, String> {
     // Agent without knowing its pane id — parity with the REST send route.
     let pane_id = svc.mux.read().resolve_pane_id(&pane_id).unwrap_or(pane_id);
     let run_stages =
@@ -792,9 +792,16 @@ pub async fn chat_send_text(
     } else {
         text
     };
-    // A chat send always submits.
-    svc.send_text_when_ready(&pane_id, &text, true).await?;
-    Ok(pane_id)
+    svc.start_chat_send(&pane_id, text)
+}
+
+#[tauri::command]
+pub fn chat_send_status(
+    svc: tauri::State<'_, ServiceState>,
+    pane_id: String,
+) -> Vec<crate::service::chat_send_transaction::ChatSendStatus> {
+    let pane_id = svc.mux.read().resolve_pane_id(&pane_id).unwrap_or(pane_id);
+    svc.chat_send_ledger.reconcile(&pane_id)
 }
 
 /// P1: open a non-PTY chatBackend pane driven by `plugin_id` (a plugin declaring

@@ -22,10 +22,8 @@ import {
 import type { ModelInfo, PendingPrompt, ProviderDescriptor } from "../../lib/types";
 import { ModelSuggestionPicker } from "./ModelSuggestionPicker";
 import { PaneTaskStrip } from "./PaneTaskStrip";
+import { COMPOSER_MIN_HEIGHT, applyComposerAutosize } from "./composerAutosize";
 
-const COMPOSER_MIN_HEIGHT = 20;
-const COMPOSER_HEIGHT_EPSILON = 2;
-const COMPOSER_MAX_HEIGHT = 230;
 const AUDIO_ATTACHMENT_RE = /\.(webm|ogg|oga|opus|mp3|wav|m4a|aac|mp4|flac)$/i;
 // several seconds) then morphs this bubble into the transcript, or an error.
 const VOICE_TRANSCRIBING_PLACEHOLDER = "🎙 Transcribing voice note…";
@@ -51,14 +49,6 @@ declare global {
       ignoredKeys: string[];
     };
   }
-}
-
-function composerHeight(el: HTMLTextAreaElement): number {
-  const measured = el.scrollHeight;
-  if (measured <= COMPOSER_MIN_HEIGHT + COMPOSER_HEIGHT_EPSILON) {
-    return COMPOSER_MIN_HEIGHT;
-  }
-  return Math.min(Math.max(measured, COMPOSER_MIN_HEIGHT), COMPOSER_MAX_HEIGHT);
 }
 
 function cliFallbackCommandPayload(text: string): string | null {
@@ -210,7 +200,7 @@ function SlashPicker({
   );
 }
 
-/** Poll cadence for delayed-message pills: only the active pane polls; events drive everything else. */
+/** Poll cadence for delayed-message pills: only the active tab polls. */
 export function delayedPollIntervalMs(isActive: boolean): number | null {
   return isActive ? 10_000 : null;
 }
@@ -272,8 +262,8 @@ function ChatComposerImpl({
   paneId: string;
   paneProvider: string | null;
   currentPtyId: string | null;
-  /** This pane is backed by a plugin chatBackend (no PTY) — send via the
-   *  pane-level `chat_send_text` instead of writing to a PTY. */
+  /** This tab is backed by a plugin chatBackend (no PTY) — send via the
+   *  tab-level `chat_send_text` instead of writing to a PTY. */
   chatBackend?: boolean;
   /** Whether this composer's pane is the currently active/focused tab.
    *  When false, refocusComposer is a no-op — prevents background panes
@@ -305,6 +295,7 @@ function ChatComposerImpl({
   const [modelHighlight, setModelHighlight] = useState(0);
   const touchMode = useTouchOptimizedUi();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const shellRef = useRef<HTMLDivElement>(null);
   const lastSendRef = useRef<{ text: string; at: number }>({ text: "", at: 0 });
   const [delayedMessages, setDelayedMessages] = useState<DelayedMessage[]>([]);
   const [delayedQueueOpen, setDelayedQueueOpen] = useState(false);
@@ -360,9 +351,7 @@ function ChatComposerImpl({
   useLayoutEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
-    el.style.height = `${COMPOSER_MIN_HEIGHT}px`;
-    const next = composerHeight(el);
-    el.style.height = `${next}px`;
+    applyComposerAutosize(el, shellRef.current);
     recordComposerPaint();
   }, [input]);
 
@@ -438,7 +427,7 @@ function ChatComposerImpl({
     };
     void refresh();
     // Change events drive updates; the interval is drift insurance for the
-    // countdown pills and runs only while this pane is the active tab.
+    // countdown pills and runs only while this tab is the active tab.
     const pollMs = delayedPollIntervalMs(isActive);
     const interval = pollMs !== null ? window.setInterval(refresh, pollMs) : null;
     let unlisten: (() => void) | null = null;
@@ -464,7 +453,7 @@ function ChatComposerImpl({
 
   const sendRawToPty = useCallback(
     async (data: string) => {
-      if (!currentPtyId) throw new Error("Pane has no PTY");
+      if (!currentPtyId) throw new Error("Tab has no PTY");
       await invoke("write_pty_string", { ptyId: currentPtyId, data, raw: false });
     },
     [currentPtyId],
@@ -602,7 +591,7 @@ function ChatComposerImpl({
         const fallbackCommand = allAttachments.length === 0 ? cliFallbackCommandPayload(composed) : null;
         if (fallbackCommand) {
           // CLI fallback commands write directly to the PTY — need the id now.
-          if (!currentPtyId) throw new Error("Pane has no PTY");
+          if (!currentPtyId) throw new Error("Tab has no PTY");
           onOpenTerminalFallback?.();
           await invoke("write_pty_string", { ptyId: currentPtyId, data: fallbackCommand, raw: false });
         } else {
@@ -669,6 +658,7 @@ function ChatComposerImpl({
 
   return (
     <div
+      ref={shellRef}
       className="relative shrink-0 p-2 border-t"
       data-testid="chat-composer-shell"
       style={{

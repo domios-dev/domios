@@ -697,11 +697,22 @@ impl PlanStore {
     ) -> Result<TaskAttemptCreated, PlanError> {
         let mut created = None;
         self.with_plan(plan_id, now_ms, |plan| {
-            let task = plan
+            let task_index = plan
                 .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+                .iter()
+                .position(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
+            if plan.tasks[task_index].status == TaskStatus::Pending {
+                super::review_gate::validate_dispatch_review_capacity(
+                    plan,
+                    &plan.tasks[task_index],
+                )?;
+            }
+            let task = &mut plan.tasks[task_index];
+            if task.status == TaskStatus::Pending {
+                task.status = TaskStatus::InProgress;
+                task.status_changed_at = now_ms;
+            }
             task.assigned_pane_id = Some(pane_id.into());
             task.lane.pane_id = Some(pane_id.into());
             task.taken_by_role = role.map(str::to_string);
@@ -735,11 +746,18 @@ impl PlanStore {
     ) -> Result<TaskAttemptCreated, PlanError> {
         let mut created = None;
         self.with_plan(plan_id, now_ms, |plan| {
-            let task = plan
+            let task_index = plan
                 .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+                .iter()
+                .position(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
+            if plan.tasks[task_index].status == TaskStatus::Pending {
+                super::review_gate::validate_dispatch_review_capacity(
+                    plan,
+                    &plan.tasks[task_index],
+                )?;
+            }
+            let task = &mut plan.tasks[task_index];
             if task.status == TaskStatus::Pending {
                 task.status = TaskStatus::InProgress;
                 task.status_changed_at = now_ms;
@@ -856,7 +874,7 @@ impl PlanStore {
     }
 
     /// Ingest a worker report for its currently assigned task in one plan write.
-    /// Only a committed `in_review` report may advance the task; every other
+    /// An accepted `in_review` report advances the task; every other
     /// accepted report remains a handoff milestone without changing task state.
     pub fn ingest_bound_worker_report(
         &self,
@@ -869,11 +887,7 @@ impl PlanStore {
         let Some(reporter_pane) = from.pane_id.as_deref() else {
             return Ok(false);
         };
-        let committed_review = report.status == Some(ReportStatus::InReview)
-            && report
-                .sha
-                .as_deref()
-                .is_some_and(|sha| !sha.trim().is_empty());
+        let committed_review = report.status == Some(ReportStatus::InReview);
         self.with_plan(plan_id, now_ms, |plan| {
             let task_index = plan
                 .tasks
@@ -917,9 +931,6 @@ impl PlanStore {
                 from: from.clone(),
                 kind: "worker_report".into(),
                 text: match report.status {
-                    Some(ReportStatus::InReview) if !committed_review => {
-                        format!("HANDOFF (uncommitted): {}", report.message)
-                    }
                     Some(status) => format!("{}: {}", status.label(), report.message),
                     None => report.message.clone(),
                 },

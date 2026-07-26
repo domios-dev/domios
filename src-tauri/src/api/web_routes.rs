@@ -22,11 +22,7 @@ pub async fn mux_state(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let snapshot = state
-        .svc
-        .mux
-        .read()
-        .snapshot_with_status(&state.svc.agent_tracker.lock());
+    let snapshot = state.svc.snapshot_with_reconciled_status();
     Ok(Json(serde_json::to_value(snapshot).unwrap_or_default()))
 }
 

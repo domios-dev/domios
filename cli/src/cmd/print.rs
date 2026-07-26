@@ -10,7 +10,7 @@ const ENTITY_ID_FIELDS: &[&str] = &[
     "milestone_id",
     "stride_id",
     "loop_id",
-    "pane_id",
+    "tab_id",
     "workspace_id",
     "service_id",
     "run_id",
@@ -19,6 +19,7 @@ const ENTITY_ID_FIELDS: &[&str] = &[
 
 pub fn uniform_id_value(value: &serde_json::Value) -> serde_json::Value {
     let mut out = value.clone();
+    rename_pane_json_keys(&mut out);
     add_uniform_id_alias(&mut out);
     out
 }
@@ -46,6 +47,72 @@ fn add_uniform_id_alias(value: &mut serde_json::Value) {
         return;
     };
     obj.insert("id".into(), serde_json::Value::String(id));
+}
+
+fn rename_pane_json_keys(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Array(items) => {
+            for item in items {
+                rename_pane_json_keys(item);
+            }
+        }
+        serde_json::Value::Object(object) => {
+            for item in object.values_mut() {
+                rename_pane_json_keys(item);
+            }
+            let keys: Vec<String> = object.keys().cloned().collect();
+            for key in keys {
+                let tab_key = tab_json_key(&key);
+                if tab_key != key {
+                    if let Some(value) = object.remove(&key) {
+                        object.entry(tab_key).or_insert(value);
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn tab_json_key(key: &str) -> String {
+    let mut out = String::with_capacity(key.len());
+    let chars: Vec<char> = key.chars().collect();
+    let mut segment_start = 0;
+    for index in 1..=chars.len() {
+        let boundary = index == chars.len()
+            || chars[index] == '_'
+            || chars[index] == '-'
+            || chars[index].is_ascii_uppercase()
+                && (chars[index - 1].is_ascii_lowercase()
+                    || chars[index - 1].is_ascii_uppercase()
+                        && chars
+                            .get(index + 1)
+                            .is_some_and(|next| next.is_ascii_lowercase()));
+        if !boundary {
+            continue;
+        }
+        out.push_str(&tab_json_segment(&chars[segment_start..index]));
+        if index < chars.len() && (chars[index] == '_' || chars[index] == '-') {
+            out.push(chars[index]);
+            segment_start = index + 1;
+        } else {
+            segment_start = index;
+        }
+    }
+    out
+}
+
+fn tab_json_segment(segment: &[char]) -> String {
+    let source: String = segment.iter().collect();
+    match source.as_str() {
+        "pane" => "tab".into(),
+        "panes" => "tabs".into(),
+        "Pane" => "Tab".into(),
+        "Panes" => "Tabs".into(),
+        "PANE" => "TAB".into(),
+        "PANES" => "TABS".into(),
+        _ => source,
+    }
 }
 
 pub fn handle_result(json: bool, result: Result<serde_json::Value, String>) {
@@ -86,6 +153,8 @@ pub fn print_human(value: &serde_json::Value) {
 }
 
 pub fn print_object(value: &serde_json::Value) {
+    let mut value = value.clone();
+    rename_pane_json_keys(&mut value);
     if let Some(obj) = value.as_object() {
         let max_key_len = obj.keys().map(|k| k.len()).max().unwrap_or(0);
         for (key, val) in obj {
@@ -247,5 +316,68 @@ mod tests {
     fn uniform_id_alias_adds_top_level_id_for_agent_spawn() {
         let out = uniform_id_value(&json!({ "pane_id": "pane_1", "agent": "codex" }));
         assert_eq!(out.get("id").and_then(|v| v.as_str()), Some("pane_1"));
+    }
+
+    #[test]
+    fn json_output_uses_tab_field_names_recursively() {
+        let out = uniform_id_value(&json!({
+            "pane_id": "tab_1",
+            "parent_pane_id": "tab_0",
+            "panes": [{ "createdByPane": "tab_2" }]
+        }));
+        assert_eq!(out.get("tab_id").and_then(|v| v.as_str()), Some("tab_1"));
+        assert_eq!(
+            out.get("parent_tab_id").and_then(|v| v.as_str()),
+            Some("tab_0")
+        );
+        assert_eq!(
+            out.pointer("/tabs/0/createdByTab").and_then(|v| v.as_str()),
+            Some("tab_2")
+        );
+    }
+
+    #[test]
+    fn json_output_preserves_string_values_named_pane() {
+        let input = json!({
+            "pane_id": "tab_1",
+            "title": "pane",
+            "message": "panes",
+            "nested": [{ "body": "pane", "label": "panes" }]
+        });
+        let out = uniform_id_value(&input);
+        assert_eq!(out["title"], input["title"]);
+        assert_eq!(out["message"], input["message"]);
+        assert_eq!(out["nested"][0]["body"], input["nested"][0]["body"]);
+        assert_eq!(out["nested"][0]["label"], input["nested"][0]["label"]);
+    }
+
+    #[test]
+    fn json_output_keeps_canonical_tab_key_when_legacy_key_collides() {
+        let out = uniform_id_value(&json!({
+            "pane_id": "legacy",
+            "tab_id": "canonical",
+            "createdByPane": "legacy-creator",
+            "createdByTab": "canonical-creator"
+        }));
+        assert!(out.get("pane_id").is_none());
+        assert_eq!(out["tab_id"], "canonical");
+        assert_eq!(out["id"], "canonical");
+        assert!(out.get("createdByPane").is_none());
+        assert_eq!(out["createdByTab"], "canonical-creator");
+    }
+
+    #[test]
+    fn human_output_uses_tab_field_names_without_changing_values() {
+        let mut value = serde_json::json!({
+            "pane_type": "pane",
+            "parentPaneId": "parent-pane"
+        });
+
+        rename_pane_json_keys(&mut value);
+
+        assert_eq!(value["tab_type"], "pane");
+        assert_eq!(value["parentTabId"], "parent-pane");
+        assert!(value.get("pane_type").is_none());
+        assert!(value.get("parentPaneId").is_none());
     }
 }

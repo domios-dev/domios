@@ -1,6 +1,6 @@
 {
   "id": "opencode",
-  "version": "1.7.4",
+  "version": "1.7.5",
   "minCodeterm": "1.0.0",
   "hostApi": 2,
   "displayName": "OpenCode",
@@ -24,6 +24,7 @@
     },
     "sessionIdInjection": "none",
     "statusBarRows": 2,
+    "agentStateStatusReconciliation": true,
     "supportsLazySkills": false,
     "hasHooks": true,
     "supportsStructuredPrompts": true,

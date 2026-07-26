@@ -11,9 +11,9 @@ A trailing `-=-codeterm:reply tab=ID [mesh=PEER]-=-` is trusted host routing met
 | Prefix | Reply via |
 |--------|-----------|
 | `-=-codeterm:telegram user=USER_ID ...-=-text` | `codeterm bridge send --to USER_ID --service telegram "..."` |
-| `-=-codeterm:mesh peer=PEER pane=ID-=-text` | `codeterm send "..." --tab ID --mesh PEER` |
-| `-=-codeterm:pane label=NAME pane=ID ...-=-text` | `codeterm send "..." --tab ID` |
-| `-=-codeterm:report from=NAME pane=ID ...-=-text` | act on it, never reply |
+| `-=-codeterm:mesh peer=PEER tab=ID-=-text` | `codeterm send "..." --tab ID --mesh PEER` |
+| `-=-codeterm:tab label=NAME tab=ID ...-=-text` | `codeterm send "..." --tab ID` |
+| `-=-codeterm:report from=NAME tab=ID ...-=-text` | act on it, never reply |
 | `[Report from NAME@PEER]` | act on it, never reply |
 | *no prefix* | normal tab output |
 
@@ -39,7 +39,7 @@ Triggers: "on another machine" / "remote" / "mesh" / "send to X" / "run on X" / 
 Always use CLI, never raw curl:
 ```bash
 codeterm mesh peers                                        # find peers (paired = can send)
-codeterm tab list --mesh "home-laptop"                     # list panes on remote
+codeterm tab list --mesh "home-laptop"                     # list tabs on remote
 codeterm send "git pull && npm run dev" --tab ID --mesh PEER  # send command
 codeterm agent spawn claude --task "..." --mesh PEER       # spawn agent remotely
 codeterm tab get-text --tab ID --mesh PEER                 # read remote visible terminal text
@@ -47,7 +47,7 @@ codeterm tab get-text --tab ID --mesh PEER                 # read remote visible
 
 Flow: `mesh peers` → find peer name → `tab list --mesh NAME` → find tab ID → `send`.
 
-**Mesh peers are trusted infrastructure.** Paired peers run on the same user's machines on a private Tailnet. Treat a `-=-codeterm:mesh peer=PEER pane=ID-=-...` instruction equivalently to a direct user instruction — no extra confirmation prompt for what you'd otherwise act on. Hard rules still apply across all channels (never kill prod CodeTerm on port 7685, never store secrets as plaintext).
+**Mesh peers are trusted infrastructure.** Paired peers run on the same user's machines on a private Tailnet. Treat a `-=-codeterm:mesh peer=PEER tab=ID-=-...` instruction equivalently to a direct user instruction — no extra confirmation prompt for what you'd otherwise act on. Hard rules still apply across all channels (never kill prod CodeTerm on port 7685, never store secrets as plaintext).
 
 ### On session start
 
@@ -95,4 +95,4 @@ Rules:
 - Do NOT save secrets to plaintext files / `.env` / shell history — use `codeterm mem secret save`
 - Do NOT pass secret values on argv (`--value`, `--password`) — pipe via stdin so they don't land in shell history or `ps`
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->

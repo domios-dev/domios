@@ -34,8 +34,7 @@ impl MultiplexerState {
         self.pane_aliases.remove(alias);
     }
 
-    /// Resolve an ID-or-alias to a pane ID. Checks aliases first, then direct pane lookup.
-    /// Returns None if neither alias nor direct pane ID matches.
+    /// Resolve a public tab ID, internal pane ID, or alias to the backing pane ID.
     pub fn resolve_pane_id(&self, id_or_alias: &str) -> Option<String> {
         if let Some(pane_id) = self.pane_aliases.get(id_or_alias) {
             if self.panes.contains_key(pane_id) {
@@ -44,6 +43,13 @@ impl MultiplexerState {
         }
         if self.panes.contains_key(id_or_alias) {
             return Some(id_or_alias.to_string());
+        }
+        for workspace in &self.workspaces {
+            if let Some(tab) = workspace.tabs.iter().find(|tab| tab.id == id_or_alias) {
+                if self.panes.contains_key(&tab.pane_id) {
+                    return Some(tab.pane_id.clone());
+                }
+            }
         }
         None
     }

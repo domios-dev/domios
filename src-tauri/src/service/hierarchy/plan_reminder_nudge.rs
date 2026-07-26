@@ -440,7 +440,13 @@ impl ServiceContext {
     fn deliver_automated_plan_reminder(&self, pane_id: &str, text: &str) -> Result<(), String> {
         let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("system");
         crate::service::messenger::Messenger::deliver(self, pane_id, envelope, text)
-            .map(|_| ())
+            .map(|_| {
+                self.record_kpi_event(
+                    pane_id,
+                    crate::agent::kpi_ledger::KpiEventKind::Nudge,
+                    text.len(),
+                );
+            })
             .map_err(|e| {
                 log::warn!("[plan-reminder] deliver to {} failed: {}", pane_id, e);
                 format!("{e}; retry on next scheduler tick")

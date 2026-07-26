@@ -44,6 +44,21 @@ pub struct ReviewAuditEntry {
     pub at: u64,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewCapacityClass {
+    Review,
+    CanonicalGate,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReviewCapacityGrant {
+    pub task_id: String,
+    pub class: ReviewCapacityClass,
+    pub granted_by: AgentRef,
+    pub granted_at: u64,
+}
+
 /// Plan-level review-backpressure policy: bounded in_review WIP plus a
 /// completion/closure credit ledger (entering review spends credit, closing
 /// a review round earns it back).
@@ -51,6 +66,8 @@ pub struct ReviewAuditEntry {
 pub struct ReviewPolicy {
     pub wip_limit: u32,
     pub credit: i64,
+    #[serde(default)]
+    pub capacity_grants: Vec<ReviewCapacityGrant>,
 }
 
 impl Default for ReviewPolicy {
@@ -58,6 +75,7 @@ impl Default for ReviewPolicy {
         Self {
             wip_limit: DEFAULT_REVIEW_WIP_LIMIT,
             credit: 0,
+            capacity_grants: Vec::new(),
         }
     }
 }

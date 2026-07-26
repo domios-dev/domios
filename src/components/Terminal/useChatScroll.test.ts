@@ -166,7 +166,22 @@ async function main(): Promise<void> {
     `scroll authority disables native overflow-anchor (got "${scroll.style.overflowAnchor}")`,
   );
 
-  // --- 3c. every commit re-syncs before paint even without a resize ---
+  // --- 3c. a real scroll event is sufficient evidence of user detachment ---
+  // Browser/webview input paths do not consistently deliver wheel before
+  // scroll, so the viewport must not depend on that precursor.
+  scroll.scrollTop = 400;
+  await act(async () => {
+    hookResult!.handleScroll({ currentTarget: scroll } as unknown as React.UIEvent<HTMLDivElement>);
+  });
+  await renderFixture(root, false, 2);
+  assert(
+    scroll.scrollTop === 400,
+    `incoming messages preserve a manually detached viewport (got scrollTop=${scroll.scrollTop})`,
+  );
+
+  await act(async () => hookResult!.scrollToBottom());
+
+  // --- 3d. every pinned commit re-syncs before paint even without a resize ---
   // (window shift: top row dropped + new row appended, total height unchanged.)
   scroll.scrollTop = 700;
   await renderFixture(root, false, 2);
@@ -199,7 +214,6 @@ async function main(): Promise<void> {
   }
 
   await act(async () => {
-    hookResult!.handleWheel({ deltaY: -120 } as unknown as React.WheelEvent<HTMLDivElement>);
     scroll.scrollTop = 150;
     hookResult!.handleScroll({ currentTarget: scroll } as unknown as React.UIEvent<HTMLDivElement>);
   });

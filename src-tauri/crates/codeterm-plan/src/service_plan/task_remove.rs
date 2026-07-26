@@ -10,6 +10,17 @@ impl PlanStore {
             .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
             .map(|task| task.id.clone())
             .ok_or(PlanError::TaskNotFound)?;
+        if plan
+            .tasks
+            .iter()
+            .find(|task| task.id == canonical_id)
+            .is_some_and(|task| task.status == crate::plan::TaskStatus::InReview)
+        {
+            return Err(PlanError::TransitionDenied {
+                from: crate::plan::TaskStatus::InReview,
+                to: crate::plan::TaskStatus::Cancelled,
+            });
+        }
         let dependent_task_ids: Vec<String> = plan
             .tasks
             .iter()
@@ -48,6 +59,15 @@ impl PlanStore {
 
     pub fn rm_all_tasks(&self, plan_id: &str, now_ms: u64) -> Result<usize, PlanError> {
         self.with_plan(plan_id, now_ms, |p| {
+            if p.tasks
+                .iter()
+                .any(|task| task.status == crate::plan::TaskStatus::InReview)
+            {
+                return Err(PlanError::TransitionDenied {
+                    from: crate::plan::TaskStatus::InReview,
+                    to: crate::plan::TaskStatus::Cancelled,
+                });
+            }
             let count = p.tasks.len();
             p.tasks.clear();
             p.heartbeat.current_focus = None;

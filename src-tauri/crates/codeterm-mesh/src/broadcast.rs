@@ -7,7 +7,7 @@ use super::{discovery, transport, types};
 
 pub async fn broadcast_sync(mesh: &MeshState) {
     let (payload, clients) = {
-        let m = mesh.lock();
+        let mut m = mesh.lock();
         let payload = m.build_sync_payload();
         let clients: Vec<_> = m
             .paired_peers
