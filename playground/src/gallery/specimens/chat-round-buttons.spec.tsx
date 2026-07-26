@@ -1,12 +1,12 @@
 import { ChatComposerMock, ChatRoundButton, type ChatRoundButtonKind, type ChatRoundButtonState } from "../../ds/ChatRoundButton";
-import type { Specimen } from "../types";
+import { defineSpecimen } from "../types";
 
 function ChatRoundButtonSpecimen({ kind = "voice", state = "rest", context = false, disabled = false }: { kind?: ChatRoundButtonKind; state?: ChatRoundButtonState; context?: boolean; disabled?: boolean }) {
   if (context) return <ChatComposerMock state={state} />;
   return <ChatRoundButton kind={kind} state={state} disabled={disabled} />;
 }
 
-export default {
+export default defineSpecimen({
   id: "chat-round-buttons",
   title: "Chat round buttons",
   category: "Buttons",
@@ -21,4 +21,4 @@ export default {
     { id: "context", label: "Composer context", props: { state: "rest", context: true } },
   ],
   Component: ChatRoundButtonSpecimen,
-} satisfies Specimen;
+});
