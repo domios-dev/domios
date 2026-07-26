@@ -553,7 +553,7 @@ async function runChatSessionHookTests(): Promise<void> {
     await timers.advance(0);
     assert(startArgs.length === 4 && startArgs[3]?.agentSessionId === "sid-3", "T7 attaching rotation reaches the latest session");
     assert(
-      stops === 3 && unlistens === 0,
+      Number(stops) === 3 && unlistens === 0,
       `T7 attaching rotation releases each superseded subscription (${stops}/${unlistens})`,
     );
     retryAttach.resolve?.(chatStartResult("sid-1", { text: "", offset: 0, pending: true }));
@@ -561,7 +561,7 @@ async function runChatSessionHookTests(): Promise<void> {
     await timers.advance(30_000);
     assert(startArgs.length === 4, "T7 attaching rotation does not introduce polling");
     assert(
-      stops === 4 && unlistens === 0,
+      Number(stops) === 4 && unlistens === 0,
       `T7 stale completion releases its own superseded subscription (${stops}/${unlistens})`,
     );
     await act(async () => session.root.unmount());

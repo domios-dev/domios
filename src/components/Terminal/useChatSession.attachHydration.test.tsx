@@ -61,6 +61,10 @@ type ChatHandler = (event: {
   };
 }) => void;
 
+function currentHandler(server: FakeChatServer): ChatHandler | null {
+  return server.handler;
+}
+
 class FakeChatServer {
   readonly starts: string[] = [];
   readonly stops: string[] = [];
@@ -234,7 +238,7 @@ async function main(): Promise<void> {
   assert(server.subscribers.size === 0, "hidden Chat retained a subscription");
 
   await app.render("sid-live", "nonce-live", false);
-  assert(server.starts.length === 1, "hidden authority commit requested a snapshot");
+  assert(Number(server.starts.length) === 1, "hidden authority commit requested a snapshot");
   server.queueStart((subscriptionId) => ({
     text: "",
     start_offset: 0,
@@ -248,7 +252,7 @@ async function main(): Promise<void> {
   await app.render("sid-live", "nonce-live", true);
   assert(app.attachmentState() === "attached", "bounded snapshot did not attach Chat");
   assert(app.messageIds().join(",") === "history", "pre-existing transcript did not render once");
-  assert(server.subscribers.size === 1, "visible Chat did not own exactly one subscription");
+  assert(Number(server.subscribers.size) === 1, "visible Chat did not own exactly one subscription");
 
   await act(async () => {
     server.emit([message("wrong-pane")], "sid-live", "nonce-live", "foreign-pane");
@@ -276,7 +280,7 @@ async function main(): Promise<void> {
   await flush();
   assert(server.starts.length === startsBeforeResync + 1, "resync did not request one snapshot");
   assert(app.messageIds().join(",") === "history,current-delta", "resync duplicated transcript rows");
-  assert(server.subscribers.size === 1, "resync left overlapping subscriptions");
+  assert(Number(server.subscribers.size) === 1, "resync left overlapping subscriptions");
   assert(server.stops.includes(server.starts[startsBeforeResync - 1]), "resync did not stop prior subscription");
 
   const late = deferred<StartResult>();
@@ -286,8 +290,8 @@ async function main(): Promise<void> {
     return { ...result, subscription_id: subscriptionId };
   });
   await app.render("sid-live", "nonce-live", true);
-  const lateHandler = server.handler;
-  const lateSubscription = server.starts.at(-1) ?? "";
+  const lateHandler = currentHandler(server);
+  const lateSubscription = server.starts[server.starts.length - 1] ?? "";
   await app.render("sid-live", "nonce-live", false);
   late.resolve({
     text: "",
