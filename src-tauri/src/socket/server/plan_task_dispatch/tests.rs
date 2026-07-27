@@ -1,18 +1,25 @@
 use super::{
-    await_agent_ready, build_brief, build_brief_with_personality, complete_dispatch_transaction,
-    dispatch_worker_identity, lane_metadata_for_dispatch, preflight_review_capacity,
-    regression_blocked_error, resolve_dispatch_lane, resolve_dispatch_routing,
-    rollback_failed_dispatch, unqualified_model_error,
+    apply_dispatch_starting_contract, await_agent_ready, build_brief, build_brief_with_personality,
+    complete_dispatch_transaction, dispatch_ready_event, dispatch_worker_identity,
+    lane_metadata_for_dispatch, preflight_review_capacity, regression_blocked_error,
+    resolve_dispatch_lane, resolve_dispatch_routing, rollback_failed_dispatch,
+    unqualified_model_error, DispatchEvidence,
 };
+use crate::multiplexer::state::MultiplexerState;
+use crate::multiplexer::types::AgentRole;
 use crate::plan::{
     IdentityProvenance, OrchestratorRef, Plan, PlanMode, Task, TaskLaneMetadata, TaskStatus,
 };
+use crate::pty::manager::PtyManager;
 use crate::service::plan::milestone_gates::RegressionGate;
 use crate::service::plan::task_queries::TaskSection;
 use crate::service::plan::{NewTask, PlanStore};
-use crate::service::{provision_lane_for_test, SpawnIdentityProvenance, WorkerLaneProvenance};
+use crate::service::{
+    provision_lane_for_test, SpawnIdentityProvenance, SpawnResult, WorkerLaneProvenance,
+};
 use serde_json::json;
 use std::cell::{Cell, RefCell};
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -81,6 +88,249 @@ fn provenance() -> WorkerLaneProvenance {
         branch: "lane/test".into(),
         base: "master".into(),
     }
+}
+
+fn spawn_result(pane_id: &str, tab_id: &str) -> SpawnResult {
+    SpawnResult {
+        pane_id: pane_id.into(),
+        tab_id: tab_id.into(),
+        pty_id: String::new(),
+        agent: "codex".into(),
+        model: None,
+        planned_model: None,
+        requested_model: None,
+        provider_resolved_model: None,
+        actual_model: None,
+        reasoning_effort: None,
+        reasoning_effort_provenance: Default::default(),
+        title: "worker".into(),
+        description: None,
+        role: Some("Worker".into()),
+        role_profile: None,
+        warning: None,
+        model_fallback: None,
+        budget_notice: None,
+    }
+}
+
+fn starting_response(pane_id: &str, spawn_tab_id: &str) -> serde_json::Value {
+    let mut response = json!({"ok": true});
+    apply_dispatch_starting_contract(&mut response, pane_id, &spawn_result(pane_id, spawn_tab_id));
+    response
+}
+
+fn collect_tab_and_pane_ids(value: &serde_json::Value, ids: &mut HashSet<String>) {
+    match value {
+        serde_json::Value::Object(fields) => {
+            for (key, value) in fields {
+                if matches!(key.as_str(), "tab_id" | "pane_id") {
+                    if let Some(id) = value.as_str() {
+                        ids.insert(id.to_string());
+                    }
+                }
+                collect_tab_and_pane_ids(value, ids);
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for value in values {
+                collect_tab_and_pane_ids(value, ids);
+            }
+        }
+        _ => {}
+    }
+}
+
+struct DispatchRuntime {
+    mux: MultiplexerState,
+    pty: PtyManager,
+    workspace_id: String,
+    parent_pane_id: String,
+    baseline_tab_count: usize,
+}
+
+impl DispatchRuntime {
+    fn new() -> Self {
+        let (mut mux, _) = MultiplexerState::new();
+        let workspace = mux.list_workspaces().into_iter().next().unwrap();
+        let parent_pane_id = workspace.pane_ids.first().unwrap().clone();
+        mux.set_pane_role(&parent_pane_id, AgentRole::Orchestrator, None)
+            .unwrap();
+        Self {
+            baseline_tab_count: workspace.tab_count,
+            workspace_id: workspace.id,
+            parent_pane_id,
+            mux,
+            pty: PtyManager::new(),
+        }
+    }
+
+    fn create_worker(&mut self) -> (String, String, String) {
+        let (tab_id, pane_id) = self.mux.create_tab(&self.workspace_id).unwrap();
+        self.mux
+            .set_pane_role(&pane_id, AgentRole::Worker, Some(&self.parent_pane_id))
+            .unwrap();
+        let (pty_id, _) = self
+            .pty
+            .spawn(
+                None,
+                Some(std::env::current_dir().unwrap().display().to_string()),
+                80,
+                24,
+                HashMap::new(),
+            )
+            .unwrap();
+        self.mux.link_pty(&pane_id, pty_id.clone());
+        self.mux.get_pane_mut(&pane_id).unwrap().agent_session_id = Some("session-worker".into());
+        (tab_id, pane_id, pty_id)
+    }
+
+    fn close_worker(&mut self, tab_id: &str) -> Result<(), String> {
+        for pty_id in self.mux.close_tab(&self.workspace_id, tab_id)? {
+            self.pty.kill(&pty_id)?;
+        }
+        Ok(())
+    }
+
+    fn tab_count(&self) -> usize {
+        self.mux
+            .list_workspaces()
+            .into_iter()
+            .find(|workspace| workspace.id == self.workspace_id)
+            .unwrap()
+            .tab_count
+    }
+}
+
+#[test]
+fn dispatch_response_has_single_authoritative_tab_id() {
+    for (spawn_tab_id, authoritative_pane_id) in [
+        ("0256a845", "d3d39cd2"),
+        ("7064c401", "b46ee19a"),
+        ("e1a0d44d", "5f3decc7"),
+    ] {
+        let response = starting_response(authoritative_pane_id, spawn_tab_id);
+        let mut ids = HashSet::new();
+        collect_tab_and_pane_ids(&response, &mut ids);
+        assert_eq!(
+            ids,
+            HashSet::from([authoritative_pane_id.to_string()]),
+            "spawn identity {spawn_tab_id} conflicted with {authoritative_pane_id}"
+        );
+    }
+}
+
+#[test]
+fn dispatch_response_never_claims_ready_before_event() {
+    let response = starting_response("pane-worker", "phantom-tab");
+    assert_eq!(response["accepted"], true);
+    assert_eq!(response["state"], "awaiting_dispatch_ready");
+    assert_eq!(response["readiness"]["ready"], false);
+    assert_eq!(response["readiness"]["awaiting_event"], "dispatch_ready");
+    assert_eq!(response["spawn"]["pty_id"], "");
+    assert_ne!(response["kind"], "dispatch_ready");
+
+    let event = dispatch_ready_event(
+        "plan",
+        "task",
+        "pane-worker",
+        "attempt",
+        &DispatchEvidence {
+            session_id: "session-worker".into(),
+            lane: provenance(),
+        },
+    );
+    assert_eq!(event["kind"], "dispatch_ready");
+    assert_eq!(event["tab_id"], "pane-worker");
+}
+
+#[test]
+fn one_dispatch_creates_exactly_one_tab() {
+    let runtime = RefCell::new(DispatchRuntime::new());
+    let (tab_id, pane_id, pty_id) = runtime.borrow_mut().create_worker();
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+    ready_tx.send(Ok(())).unwrap();
+
+    let evidence = complete_dispatch_transaction(
+        Instant::now() + Duration::from_secs(1),
+        |deadline| await_agent_ready(ready_rx, deadline),
+        |_| {
+            Ok(runtime
+                .borrow()
+                .mux
+                .get_pane(&pane_id)
+                .and_then(|pane| pane.agent_session_id.clone())
+                .expect("session record"))
+        },
+        || Ok(provenance()),
+        |_, session_id| {
+            assert_eq!(session_id, "session-worker");
+            Ok(())
+        },
+        || panic!("successful dispatch must not roll back"),
+    )
+    .unwrap();
+    let (event_tx, event_rx) = std::sync::mpsc::channel();
+    event_tx
+        .send(dispatch_ready_event(
+            "plan", "task", &pane_id, "attempt", &evidence,
+        ))
+        .unwrap();
+    let ready_event = event_rx.recv().unwrap();
+
+    assert_eq!(ready_event["kind"], "dispatch_ready");
+    let runtime_ref = runtime.borrow();
+    assert_eq!(runtime_ref.tab_count(), runtime_ref.baseline_tab_count + 1);
+    assert_eq!(
+        runtime_ref.mux.find_workspace_for_pane(&pane_id),
+        Some(runtime_ref.workspace_id.clone())
+    );
+    let worker = runtime_ref.mux.get_pane(&pane_id).unwrap();
+    let parent = runtime_ref
+        .mux
+        .get_pane(&runtime_ref.parent_pane_id)
+        .unwrap();
+    assert!(parent.team_id.is_some());
+    assert_eq!(worker.team_id, parent.team_id);
+    assert_eq!(worker.pty_id.as_deref(), Some(pty_id.as_str()));
+    assert_eq!(worker.agent_session_id.as_deref(), Some("session-worker"));
+    assert!(runtime_ref.pty.get_session(&pty_id).is_some());
+    let mut response_ids = HashSet::new();
+    collect_tab_and_pane_ids(&starting_response(&pane_id, &tab_id), &mut response_ids);
+    assert_eq!(response_ids, HashSet::from([pane_id.clone()]));
+    drop(runtime_ref);
+    runtime.borrow_mut().close_worker(&tab_id).unwrap();
+}
+
+#[test]
+fn dispatch_failure_leaves_no_orphan() {
+    let runtime = RefCell::new(DispatchRuntime::new());
+    let (tab_id, pane_id, pty_id) = runtime.borrow_mut().create_worker();
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+    ready_tx
+        .send(Err("injected startup failure".into()))
+        .unwrap();
+
+    let error = complete_dispatch_transaction(
+        Instant::now() + Duration::from_secs(1),
+        |deadline| await_agent_ready(ready_rx, deadline),
+        |_| Ok("session-worker".into()),
+        || Ok(provenance()),
+        |_, _| Ok(()),
+        || {
+            rollback_failed_dispatch(
+                None,
+                || Ok(()),
+                || runtime.borrow_mut().close_worker(&tab_id),
+            )
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(error.data.unwrap()["stage"], "agent_ready");
+    let runtime = runtime.borrow();
+    assert_eq!(runtime.tab_count(), runtime.baseline_tab_count);
+    assert!(runtime.mux.get_pane(&pane_id).is_none());
+    assert!(runtime.pty.get_session(&pty_id).is_none());
 }
 
 #[test]
