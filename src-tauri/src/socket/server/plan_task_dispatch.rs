@@ -182,6 +182,50 @@ struct DispatchEvidence {
     lane: WorkerLaneProvenance,
 }
 
+fn apply_dispatch_starting_contract(
+    result: &mut Value,
+    pane_id: &str,
+    spawn: &crate::service::SpawnResult,
+) {
+    let mut spawn_metadata = json!(spawn);
+    if let Some(fields) = spawn_metadata.as_object_mut() {
+        fields.remove("pane_id");
+        fields.remove("tab_id");
+    }
+    result["accepted"] = json!(true);
+    result["state"] = json!("awaiting_dispatch_ready");
+    result["readiness"] = json!({
+        "ready": false,
+        "awaiting_event": "dispatch_ready",
+    });
+    result["tab_id"] = json!(pane_id);
+    result["pane_id"] = json!(pane_id);
+    result["spawn"] = spawn_metadata;
+}
+
+fn dispatch_ready_event(
+    plan_id: &str,
+    task_id: &str,
+    pane_id: &str,
+    attempt_id: &str,
+    evidence: &DispatchEvidence,
+) -> Value {
+    json!({
+        "kind": "dispatch_ready",
+        "plan_id": plan_id,
+        "task_id": task_id,
+        "tab_id": pane_id,
+        "attempt_id": attempt_id,
+        "session_id": evidence.session_id,
+        "lane": {
+            "worktree_path": evidence.lane.worktree_path,
+            "branch": evidence.lane.branch,
+            "base": evidence.lane.base,
+            "canonical_project_path": evidence.lane.canonical_cwd,
+        },
+    })
+}
+
 fn epoch_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -310,20 +354,13 @@ impl DispatchStartup {
                     &self.worker_title,
                     &self.plan_id,
                     &self.task_id,
-                    json!({
-                        "kind": "dispatch_ready",
-                        "plan_id": self.plan_id,
-                        "task_id": self.task_id,
-                        "tab_id": self.pane_id,
-                        "attempt_id": self.attempt_id,
-                        "session_id": evidence.session_id,
-                        "lane": {
-                            "worktree_path": evidence.lane.worktree_path,
-                            "branch": evidence.lane.branch,
-                            "base": evidence.lane.base,
-                            "canonical_project_path": evidence.lane.canonical_cwd,
-                        },
-                    }),
+                    dispatch_ready_event(
+                        &self.plan_id,
+                        &self.task_id,
+                        &self.pane_id,
+                        &self.attempt_id,
+                        &evidence,
+                    ),
                 );
             }
             Err(error) => {
@@ -735,15 +772,10 @@ pub(super) fn dispatch(
     let model_fallback = spawn.model_fallback.clone();
     let mut result = json!({
         "ok": true,
-        "accepted": true,
-        "state": "starting",
         "plan_id": plan_id,
         "task_id": task_id,
-        "tab_id": pane_id,
-        "pane_id": pane_id,
         "attempt_id": attempt_id,
         "agent": resolved_provider,
-        "spawn": spawn,
         "lane": {
             "worktree_path": initial_provenance.worktree_path,
             "branch": initial_provenance.branch,
@@ -754,6 +786,7 @@ pub(super) fn dispatch(
             "workspace_name": detail.task.lane.workspace_name,
         },
     });
+    apply_dispatch_starting_contract(&mut result, &pane_id, &spawn);
     if !warnings.is_empty() {
         result["warnings"] = json!(warnings);
     }
