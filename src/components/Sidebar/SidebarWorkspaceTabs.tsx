@@ -20,6 +20,7 @@ import { isWorkspaceTabActive } from "./sidebarSelection";
 import { persistTabRename, SidebarSingleTabRow } from "./SidebarPlanPeerPair";
 import { sortTeamManagers } from "./orchestrationSections";
 import { TabItem } from "./TabItem";
+import { isSidebarTabVisible } from "./workspaceTabs";
 import {
   TeamUnit,
   type TeamMemberRole,
@@ -84,6 +85,7 @@ export interface SidebarWorkspaceTabsProps {
   onCloseTab: (tabId: string) => void;
   onRenameTab: (tabId: string, title: string) => void;
   onNewSession: () => void;
+  newSessionDisabled?: boolean;
   onRenameTeam?: (teamId: string, name: string, managerPaneId: string) => void | Promise<void>;
   onAddTeamMember?: (
     teamId: string,
@@ -98,7 +100,7 @@ export interface SidebarWorkspaceTabsProps {
 export function SidebarWorkspaceTabs({
   workspace: ws,
   activeTabId: wsActiveTabId,
-  sortedTabs,
+  sortedTabs: allSortedTabs,
   panes,
   paneStatuses,
   teams,
@@ -122,10 +124,15 @@ export function SidebarWorkspaceTabs({
   onCloseTab,
   onRenameTab,
   onNewSession,
+  newSessionDisabled = false,
   onRenameTeam,
   onAddTeamMember,
   onCloseTeam,
 }: SidebarWorkspaceTabsProps) {
+  const sortedTabs = useMemo(
+    () => allSortedTabs.filter((tab) => isSidebarTabVisible(tab, panes)),
+    [allSortedTabs, panes],
+  );
   const membersByTeam = useMemo(() => {
     const grouped = new Map<string, TeamTabMember[]>();
     sortedTabs.forEach((tab, index) => {
@@ -299,8 +306,10 @@ export function SidebarWorkspaceTabs({
         type="button"
         data-testid="sidebar-new-session"
         onClick={onNewSession}
+        disabled={newSessionDisabled}
+        aria-disabled={newSessionDisabled}
         className={`sidebar-new-session flex items-center gap-2 min-w-0 max-w-full mx-2 mt-1 mb-0.5 px-3 ${touchMode ? "min-h-[44px] py-2" : "py-1"} rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] disabled:opacity-40 disabled:hover:bg-transparent transition-colors`}
-        title="New session in this workspace"
+        title={newSessionDisabled ? "Finish Get started before creating another session" : "New session in this workspace"}
       >
         <Plus size={10} strokeWidth={1.5} className="shrink-0" />
         <span className={`${sidebarActionText} min-w-0 truncate`}>New session</span>

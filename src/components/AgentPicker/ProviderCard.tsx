@@ -26,16 +26,20 @@ export function ProviderCard({
       data-testid={`agent-picker-card-${provider.id}`}
       data-installed={installed ? "yes" : "no"}
       data-selected={selected ? "yes" : "no"}
+      aria-pressed={selected}
       disabled={disabled}
       onClick={onSelect}
       className={[
-        "ct-panel-card flex flex-col items-center gap-2 px-4 py-3 min-w-[7.5rem] transition-colors",
+        "agent-provider-card ct-liquid-interactive ct-panel-card relative flex flex-col items-center gap-2 px-4 py-3 min-w-[7.5rem]",
         selected
-          ? "border-[var(--ct-accent)] bg-[var(--ct-accent)]/10 text-[var(--ct-fg)]"
+          ? "text-[var(--ct-fg)]"
           : "text-[var(--ct-muted-fg)] hover:border-[var(--ct-accent)]/40 hover:text-[var(--ct-fg)]",
         disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer",
       ].join(" ")}
     >
+      <span className="agent-provider-card-selection" aria-hidden="true">
+        ✓
+      </span>
       <AgentIcon providerId={provider.id} className="text-2xl" />
       <span className="text-xs font-medium">{provider.display_name}</span>
       <Chip variant={installed ? "success" : "muted"}>
