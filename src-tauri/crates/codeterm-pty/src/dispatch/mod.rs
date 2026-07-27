@@ -38,8 +38,8 @@ pub trait CommandPort: Send + Sync {
         &self,
         ws_id: &str,
         index: Option<usize>,
-    ) -> Result<(String, String), String>;
-    fn reopen_closed_group(&self, group_id: &str) -> Result<(String, String, String), String>;
+    ) -> Result<String, String>;
+    fn reopen_closed_group(&self, group_id: &str) -> Result<(String, String), String>;
     fn resize_tab(&self, tab_id: &str, cols: u16, rows: u16) -> Result<(), String>;
     fn kill_tab_pty(&self, tab_id: &str) -> Result<(), String>;
     fn list_agent_providers(&self) -> Vec<serde_json::Value>;
@@ -351,15 +351,15 @@ pub(crate) fn build_tab_list_json(
     let mut tab_index: std::collections::HashMap<String, (String, String, String, String)> =
         std::collections::HashMap::new();
     for ws in &snapshot.workspaces {
-        for tab in &ws.tabs {
+        for tab_id in &ws.tabs {
             let tab_title = snapshot
                 .tabs
-                .get(&tab.tab_id)
+                .get(tab_id)
                 .map(|tab| tab.title.clone())
-                .unwrap_or_else(|| tab.tab_id.chars().take(8).collect());
+                .unwrap_or_else(|| tab_id.chars().take(8).collect());
             tab_index.insert(
-                tab.tab_id.clone(),
-                (tab.id.clone(), tab_title, ws.id.clone(), ws.name.clone()),
+                tab_id.clone(),
+                (tab_id.clone(), tab_title, ws.id.clone(), ws.name.clone()),
             );
         }
     }
@@ -405,11 +405,11 @@ pub(crate) fn build_tab_summary_json(
     let mut tab_index: std::collections::HashMap<&str, (&str, &str, &str)> =
         std::collections::HashMap::new();
     for workspace in &snapshot.workspaces {
-        for tab in &workspace.tabs {
+        for tab_id in &workspace.tabs {
             tab_index.insert(
-                tab.tab_id.as_str(),
+                tab_id.as_str(),
                 (
-                    tab.id.as_str(),
+                    tab_id.as_str(),
                     workspace.id.as_str(),
                     workspace.name.as_str(),
                 ),
@@ -576,9 +576,8 @@ fn cmd_workspace_reopen_closed_tab(
     workspace_id: &str,
     index: Option<usize>,
 ) -> Result<CommandResult, String> {
-    let (tab_id, tab_id) = ctx.reopen_closed_tab(workspace_id, index)?;
+    let tab_id = ctx.reopen_closed_tab(workspace_id, index)?;
     Ok(CommandResult::Json(serde_json::json!({
-        "tab_id": tab_id,
         "tab_id": tab_id,
     })))
 }
@@ -587,10 +586,9 @@ fn cmd_workspace_reopen_closed_group(
     ctx: &dyn CommandPort,
     group_id: &str,
 ) -> Result<CommandResult, String> {
-    let (workspace_id, tab_id, tab_id) = ctx.reopen_closed_group(group_id)?;
+    let (workspace_id, tab_id) = ctx.reopen_closed_group(group_id)?;
     Ok(CommandResult::Json(serde_json::json!({
         "workspace_id": workspace_id,
-        "tab_id": tab_id,
         "tab_id": tab_id,
     })))
 }

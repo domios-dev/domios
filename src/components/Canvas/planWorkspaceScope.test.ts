@@ -15,9 +15,9 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 const WORKSPACES: Workspace[] = [
-  { id: "ws-owner", name: "Canvas Hub", tabs: [{ id: "tab-owner", tab_id: "orch-1" }], active_tab_id: null, cwd: "/repo/hub" },
-  { id: "ws-api", name: "API Lane", tabs: [{ id: "tab-api", tab_id: "tab-api" }], active_tab_id: null, cwd: "/repo/api" },
-  { id: "ws-ui", name: "UI Lane", tabs: [{ id: "tab-ui", tab_id: "tab-ui" }], active_tab_id: null, cwd: "/repo/ui" },
+  { id: "ws-owner", name: "Canvas Hub", tabs: ["orch-1"], active_tab_id: null, cwd: "/repo/hub" },
+  { id: "ws-api", name: "API Lane", tabs: ["tab-api"], active_tab_id: null, cwd: "/repo/api" },
+  { id: "ws-ui", name: "UI Lane", tabs: ["tab-ui"], active_tab_id: null, cwd: "/repo/ui" },
 ];
 
 test("derivePlanWorkspaceScope identifies owner workspace from owner Tab", () => {

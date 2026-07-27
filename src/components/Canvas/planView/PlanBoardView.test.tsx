@@ -58,7 +58,7 @@ const TABS = {
 // FIXTURE_PLAN.owner.tab_id is orch-1 → bind it to this test workspace.
 const WS_ID = "ws-test";
 const WORKSPACES: Workspace[] = [
-  { id: WS_ID, name: "Test", tabs: [{ id: "tab-orch", tab_id: "orch-1" }], active_tab_id: null, cwd: null },
+  { id: WS_ID, name: "Test", tabs: ["orch-1"], active_tab_id: null, cwd: null },
 ];
 
 test("renders loading gate", async () => {

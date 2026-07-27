@@ -692,13 +692,13 @@ export function reopenClosedTab(workspaceId: string, index = 0): Promise<TabInfo
 /** Reopen a whole closed group (single / cascade subtree / workspace) by id.
  *  Recreates the workspace if needed and restores every tab, relinking the
  *  orchestration hierarchy. Returns workspace + tab ids of the activated tab. */
-export function reopenClosedGroup(groupId: string): Promise<{ workspace_id: string; tab_id: string; tab_id: string }> {
+export function reopenClosedGroup(groupId: string): Promise<{ workspace_id: string; tab_id: string }> {
   return invoke("mux_reopen_closed_group", { groupId });
 }
 
 /** Reopen a tab from the orphaned ring (its workspace was deleted). Recreates
  *  the workspace automatically. Returns workspace + tab ids. */
-export function restoreOrphanedTab(tabId: string): Promise<{ workspace_id: string; tab_id: string; tab_id: string }> {
+export function restoreOrphanedTab(tabId: string): Promise<{ workspace_id: string; tab_id: string }> {
   return invoke("mux_restore_orphaned_tab", { tabId });
 }
 

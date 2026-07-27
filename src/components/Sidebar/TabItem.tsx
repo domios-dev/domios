@@ -5,7 +5,7 @@ import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { ActivityDots } from "../shared/ActivityDots";
 import { TelegramIcon, TerminalIcon } from "../Icons";
 import { ProviderGlyph } from "../ProviderGlyph";
-import type { Tab, TabStatus, Tab } from "../../lib/types";
+import type { Tab, TabStatus } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { SidebarModelBadge } from "./SidebarModelBadge";
@@ -38,7 +38,6 @@ interface TabItemProps {
   hasAgent?: boolean;
   status?: TabStatus | null;
   onRename?: (title: string) => void;
-  tab?: Tab | null;
   orchestrators?: Tab[];
   isAppearing?: boolean;
   isClosing?: boolean;
@@ -107,7 +106,6 @@ function TabSubline({ roleShield }: { roleShield: string | null }) {
 }
 
 function TabItemInner({
-  tab,
   isActive,
   onClick,
   onClose,
@@ -136,14 +134,14 @@ function TabItemInner({
   const shellSessionModel = useShellSessionModel(tab);
   const providerName = provider?.displayName || "Agent";
   // back to the live chatBackend session model (fetched/cached out of band).
-  const tabModel = tab?.agent_session_model ?? shellSessionModel;
+  const tabModel = tab.agent_session_model ?? shellSessionModel;
   const tabModelBadge = tabModel ? formatModelBadge(tabModel) : null;
   const roleShield = roleShieldLabel(tab);
-  const description = tab?.description ?? tab.description ?? null;
+  const description = tab.description ?? null;
   const canonicalTitle = displayTitleForTab(tab, tab);
   const displayTitle = hasAgent ? canonicalTitle.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : canonicalTitle;
   const isSubTab =
-    tab?.role !== "Orchestrator" && (Boolean(tab?.parent_tab_id) || (tab?.depth ?? 0) > 0);
+    tab.role !== "Orchestrator" && (Boolean(tab.parent_tab_id) || (tab.depth ?? 0) > 0);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(canonicalTitle);
   const tabRef = useRef<HTMLDivElement>(null);

@@ -1,14 +1,11 @@
 import type { Tab, Workspace } from "../../lib/types";
-import { childTabIdsInWorkspace, tabIdsInWorkspace } from "../Sidebar/workspaceTabs";
 import type { PlanIndexEntry } from "./plansApi";
 import { assignedTaskIdsForTab } from "./planOpenFocus";
 import { canvasFocusStore, type CanvasWorkspaceTarget } from "./canvasFocusStore";
 import type { Plan } from "./types";
 
 export function workspaceTabIds(workspace: Workspace, tabs: Record<string, Tab>): Set<string> {
-  const ids = tabIdsInWorkspace(workspace.tabs, tabs);
-  for (const pid of childTabIdsInWorkspace(workspace.tabs, tabs)) ids.add(pid);
-  return ids;
+  return new Set(workspace.tabs.filter((tabId) => tabs[tabId]?.hidden !== true));
 }
 
 // Cumulative workspace view: the root's own plans plus nested project roots.

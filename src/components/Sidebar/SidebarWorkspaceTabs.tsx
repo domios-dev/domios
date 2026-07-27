@@ -5,7 +5,6 @@ import type {
   TabStatus,
   ProviderDescriptor,
   RemoteWorkersByOrchestrator,
-  Tab,
   Team,
   Workspace,
 } from "../../lib/types";
@@ -45,7 +44,6 @@ function newestActivePlansByTeam(plans: readonly TeamPlan[]): Map<string, Plan> 
 
 interface TeamTabMember {
   tab: Tab;
-  tab: TeamTab;
   index: number;
 }
 
@@ -130,17 +128,17 @@ export function SidebarWorkspaceTabs({
   onCloseTeam,
 }: SidebarWorkspaceTabsProps) {
   const sortedTabs = useMemo(
-    () => allSortedTabs.filter((tab) => isSidebarTabVisible(tab, tabs)),
-    [allSortedTabs, tabs],
+    () => allSortedTabs.filter(isSidebarTabVisible),
+    [allSortedTabs],
   );
   const membersByTeam = useMemo(() => {
     const grouped = new Map<string, TeamTabMember[]>();
     sortedTabs.forEach((tab, index) => {
-      const tab = tabs[tab.tab_id] as TeamTab | undefined;
-      if (!tab?.team_id) return;
-      const members = grouped.get(tab.team_id) ?? [];
-      members.push({ tab, tab, index });
-      grouped.set(tab.team_id, members);
+      const teamTab = tab as TeamTab;
+      if (!teamTab.team_id) return;
+      const members = grouped.get(teamTab.team_id) ?? [];
+      members.push({ tab: teamTab, index });
+      grouped.set(teamTab.team_id, members);
     });
     return grouped;
   }, [sortedTabs, tabs]);
@@ -176,7 +174,6 @@ export function SidebarWorkspaceTabs({
       <SidebarSingleTabRow
         tab={member.tab}
         index={member.index}
-        tab={member.tab}
         activity={resolveTabTabActivity(planIndex, member.tab.id, tabs)}
         activeWork={activeWork}
         isClosing={closingTabIds.has(member.tab.id)}
@@ -193,29 +190,28 @@ export function SidebarWorkspaceTabs({
   const renderedTeamIds = new Set<string>();
   const rows: ReactNode[] = [];
   const looseItems = sortedTabs
-    .filter((tab) => !(tabs[tab.tab_id] as TeamTab | undefined)?.team_id)
+    .filter((tab) => !(tab as TeamTab).team_id)
     .map((tab) => `${TAB_PREFIX}${tab.id}`);
   const pinnedLooseItems = sortedTabs
     .filter(
       (tab) =>
-        !(tabs[tab.tab_id] as TeamTab | undefined)?.team_id && tabs[tab.tab_id]?.protected,
+        !(tab as TeamTab).team_id && tab.protected,
     )
     .map((tab) => `${TAB_PREFIX}${tab.id}`);
 
   for (const [index, tab] of sortedTabs.entries()) {
-    const tab = tabs[tab.tab_id] as TeamTab | undefined;
-    const teamId = tab?.team_id ?? null;
+    const teamTab = tab as TeamTab;
+    const teamId = teamTab.team_id ?? null;
     if (!teamId) {
       rows.push(
         <SidebarSingleTabRow
-          key={tab.id}
-          tab={tab}
+          key={teamTab.id}
+          tab={teamTab}
           index={index}
-          tab={tab ?? null}
-          activity={tab ? resolveTabTabActivity(planIndex, tab.id, tabs) : null}
+          activity={resolveTabTabActivity(planIndex, teamTab.id, tabs)}
           activeWork={activeWork}
-          isClosing={closingTabIds.has(tab.id)}
-          isAppearing={appearingTabIds.has(tab.id)}
+          isClosing={closingTabIds.has(teamTab.id)}
+          isAppearing={appearingTabIds.has(teamTab.id)}
           group="tab"
           groupKey={ws.id}
           items={looseItems}
@@ -350,10 +346,10 @@ export function SidebarCollapsedActiveTab({
   onRenameTab,
 }: SidebarCollapsedActiveTabProps) {
   if (!activeTabId) return null;
-  const activeTab = ws.tabs.find((tab) => tab.id === activeTabId);
+  if (!ws.tabs.includes(activeTabId)) return null;
+  const activeTab = tabs[activeTabId];
   if (!activeTab) return null;
-  const tab = tabs[activeTab.tab_id] ?? null;
-  const activity = tab ? resolveTabTabActivity(planIndex, tab.id, tabs) : null;
+  const activity = resolveTabTabActivity(planIndex, activeTab.id, tabs);
 
   return (
     <TabItem
@@ -369,13 +365,12 @@ export function SidebarCollapsedActiveTab({
       onClose={() => onCloseTab(activeTab.id)}
       canClose={true}
       workspaceId={ws.id}
-      hasAgent={Boolean(tab?.agent_type)}
-      status={tab ? tabStatuses[tab.id] ?? null : null}
+      hasAgent={Boolean(activeTab.agent_type)}
+      status={tabStatuses[activeTab.id] ?? null}
       onRename={(title) => {
         onRenameTab(activeTab.id, title);
         persistTabRename(ws.id, activeTab.id, title);
       }}
-      tab={tab}
       orchestrators={orchestrators}
       touchMode={touchMode}
       uiFontScale={uiFontScale}
