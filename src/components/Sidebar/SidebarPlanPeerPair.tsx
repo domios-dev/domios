@@ -51,9 +51,9 @@ export interface SidebarTabItemRowProps {
   collapsed?: boolean;
   onToggleCollapse?: () => void;
   collapsedSummary?: string | null;
-  onActivatepane: (tabId: string) => void;
-  onClosepane: (tabId: string) => void;
-  onRenamepane: (tabId: string, title: string) => void;
+  onActivateTab: (tabId: string) => void;
+  onCloseTab: (tabId: string) => void;
+  onRenameTab: (tabId: string, title: string) => void;
 }
 
 function SidebarTabItemRow({

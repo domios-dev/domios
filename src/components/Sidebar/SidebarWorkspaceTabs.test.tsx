@@ -1,9 +1,8 @@
 // Run: npx tsx src/components/Sidebar/SidebarWorkspaceTabs.test.tsx
 
 import { readFileSync } from "node:fs";
-import { act, useState } from "react";
 import { Window } from "happy-dom";
-import { createRoot, type Root } from "react-dom/client";
+import type { Root } from "react-dom/client";
 import type { Pane, PaneStatus, ProviderDescriptor, Tab, Team, Workspace } from "../../lib/types";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "../Canvas/cards/fixtures.testdata";
@@ -14,6 +13,10 @@ import { canvasFocusStore } from "../Canvas/canvasFocusStore";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
 import { forwardTerminalFallback } from "../../lib/terminalFallbackInput";
 import { __setInvokeForTest } from "../../lib/bridge";
+
+let act: typeof import("react").act;
+let useState: typeof import("react").useState;
+let createRoot: typeof import("react-dom/client").createRoot;
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -31,7 +34,9 @@ function setupDom() {
   const window = new Window({ url: "http://localhost/" });
   Object.defineProperty(globalThis, "window", { value: window, configurable: true });
   Object.defineProperty(globalThis, "document", { value: window.document, configurable: true });
+  Object.defineProperty(globalThis, "navigator", { value: window.navigator, configurable: true });
   Object.defineProperty(globalThis, "HTMLElement", { value: window.HTMLElement, configurable: true });
+  Object.defineProperty(globalThis, "HTMLInputElement", { value: window.HTMLInputElement, configurable: true });
   Object.defineProperty(globalThis, "SVGElement", { value: window.SVGElement, configurable: true });
   Object.defineProperty(globalThis, "Element", { value: window.Element, configurable: true });
   Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
@@ -116,6 +121,7 @@ async function renderSidebar({
   activeTabId,
   onActivateTab = () => {},
   onCloseTab = () => {},
+  onRenameTab = () => {},
   onRenameTeam,
   onAddTeamMember,
   onCloseTeam = () => {},
@@ -129,6 +135,7 @@ async function renderSidebar({
   activeTabId?: string | null;
   onActivateTab?: (tabId: string) => void;
   onCloseTab?: (tabId: string) => void;
+  onRenameTab?: (tabId: string, title: string) => void;
   onRenameTeam?: (teamId: string, name: string, managerPaneId: string) => void | Promise<void>;
   onAddTeamMember?: (
     teamId: string,
@@ -177,9 +184,9 @@ async function renderSidebar({
           sidebarActionText="text-xs"
           orchestrators={Object.values(panes).filter((member) => member.role === "Orchestrator")}
           onBeforeOpenPlan={() => {}}
-          onActivatepane={onActivateTab}
-          onClosepane={onCloseTab}
-          onRenamepane={() => {}}
+          onActivateTab={onActivateTab}
+          onCloseTab={onCloseTab}
+          onRenameTab={onRenameTab}
           onNewSession={() => {}}
           onRenameTeam={onRenameTeam}
           onAddTeamMember={onAddTeamMember}
@@ -825,23 +832,13 @@ test("team worker rows follow tab sort order", async () => {
 
 test("clicking a team worker activates it", async () => {
   const panes: Record<string, Pane> = {
-    orchestrator: pane({
-      id: "orchestrator",
-      title: "Orchestrator",
-      role: "Orchestrator",
-      team_id: TEAM.id,
-    }),
+    orchestrator: pane({ id: "orchestrator", title: "Orchestrator", role: "Orchestrator", team_id: TEAM.id }),
     worker: pane({ id: "worker", title: "Worker", role: "Worker", team_id: TEAM.id }),
   };
   const tabs = [tab("tab-orchestrator", "orchestrator", 0), tab("tab-worker", "worker", 1)];
-  const workspace: Workspace = {
-    id: "workspace",
-    name: "Workspace",
-    tabs,
-    active_tab_id: "tab-orchestrator",
-    cwd: null,
-  };
+  const workspace: Workspace = { id: "workspace", name: "Workspace", tabs, active_tab_id: "tab-orchestrator", cwd: null };
 
+  const activations: string[] = [];
   let updateManagerStatus = (_status: PaneStatus) => {};
 
   function Harness() {
@@ -871,9 +868,9 @@ test("clicking a team worker activates it", async () => {
           sidebarActionText="text-xs"
           orchestrators={[panes.orchestrator]}
           onBeforeOpenPlan={() => {}}
-          onActivatepane={setActiveTabId}
-          onClosepane={() => {}}
-          onRenamepane={() => {}}
+          onActivateTab={(tabId) => { activations.push(tabId); setActiveTabId(tabId); }}
+          onCloseTab={() => {}}
+          onRenameTab={() => {}}
           onNewSession={() => {}}
         />
       </SidebarDnd>
@@ -910,6 +907,7 @@ test("clicking a team worker activates it", async () => {
   const workerButton = workerRow.querySelector('button[aria-label="Open tab Worker"]') as HTMLButtonElement | null;
   assert(workerButton, "worker exposes its open action");
   await act(async () => workerButton.click());
+  assert(JSON.stringify(activations) === JSON.stringify(["tab-worker"]), "activation receives the tab id exactly once");
   assert(workerButton.getAttribute("aria-current") === "page", "activated worker exposes aria-current");
   assert(managerButton.getAttribute("aria-current") === null, "inactive manager clears aria-current");
   assert(
@@ -1040,14 +1038,14 @@ test("team worker close control calls onCloseTab", async () => {
     }),
   };
   const tabs = [tab("tab-orchestrator", "orchestrator", 0), tab("tab-worker", "worker", 1)];
-  const { host, root } = await renderSidebar({ panes, tabs, onClosepane: (id) => closed.push(id) });
+  const { host, root } = await renderSidebar({ panes, tabs, onCloseTab: (id) => closed.push(id) });
   const row = host.querySelector('[data-pane-id="tab-worker"]');
   assert(row, "worker row rendered");
   await openTabActionsMenu(row);
   const close = document.querySelector('[data-testid="tab-menu-close"]') as HTMLButtonElement | null;
   assert(close && !close.disabled, "worker close control enabled");
   await act(async () => close.click());
-  assert(closed.includes("tab-worker"), "worker close calls onCloseTab");
+  assert(JSON.stringify(closed) === JSON.stringify(["tab-worker"]), "worker close receives the tab id exactly once");
   await act(async () => root.unmount());
 });
 
@@ -1081,6 +1079,7 @@ test("Team disclosure stays user-owned across rerenders and remounts", async () 
 
 test("tab rich menu opens from right click and exposes session actions", async () => {
   const commands: string[] = [];
+  const renamed: Array<[string, string]> = [];
   let copied = "";
   __setInvokeForTest((async (command: string) => {
     commands.push(command);
@@ -1092,16 +1091,9 @@ test("tab rich menu opens from right click and exposes session actions", async (
     value: { writeText: async (value: string) => { copied = value; } },
   });
   const panes: Record<string, Pane> = {
-    worker: pane({
-      id: "worker",
-      title: "Worker",
-      role: "Worker",
-      team_id: TEAM.id,
-      agent_type: "claude",
-      agent_session_id: "session-42",
-    }),
+    worker: pane({ id: "worker", title: "Worker", role: "Worker", team_id: TEAM.id, agent_type: "claude", agent_session_id: "session-42" }),
   };
-  const { host, root } = await renderSidebar({ panes, tabs: [tab("tab-worker", "worker", 0)] });
+  const { host, root } = await renderSidebar({ panes, tabs: [tab("tab-worker", "worker", 0)], onRenameTab: (tabId, title) => renamed.push([tabId, title]) });
   const row = host.querySelector('[data-pane-id="tab-worker"]');
   assert(row, "worker row rendered");
   await act(async () => {
@@ -1142,6 +1134,14 @@ test("tab rich menu opens from right click and exposes session actions", async (
   assert(restart, "three-dot trigger opens the same restart action");
   await act(async () => restart.click());
   assert(commands.includes("restart_agent_pane"), "restart uses the session-preserving backend action");
+  const title = host.querySelector('[data-testid="tab-title"]');
+  assert(title, "tab title rendered");
+  await act(async () => title.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+  const input = host.querySelector('input[aria-label="Rename tab Worker"]') as HTMLInputElement;
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+  await act(async () => { setter?.call(input, "Renamed Worker"); input.dispatchEvent(new Event("input", { bubbles: true })); });
+  await act(async () => input.blur());
+  assert(JSON.stringify(renamed) === JSON.stringify([["tab-worker", "Renamed Worker"]]), "rename receives the tab id and title exactly once");
   await act(async () => root.unmount());
 });
 
@@ -1164,18 +1164,21 @@ test("team manager close control calls onCloseTab", async () => {
     }),
   };
   const tabs = [tab("tab-orchestrator", "orchestrator", 0), tab("tab-manager", "manager", 1)];
-  const { host, root } = await renderSidebar({ panes, tabs, onClosepane: (id) => closed.push(id) });
+  const { host, root } = await renderSidebar({ panes, tabs, onCloseTab: (id) => closed.push(id) });
   const row = host.querySelector('[data-pane-id="tab-manager"]');
   assert(row, "manager row rendered");
   await openTabActionsMenu(row);
   const close = document.querySelector('[data-testid="tab-menu-close"]') as HTMLButtonElement | null;
   assert(close && !close.disabled, "manager close control enabled");
   await act(async () => close.click());
-  assert(closed.includes("tab-manager"), "manager close calls onCloseTab");
+  assert(JSON.stringify(closed) === JSON.stringify(["tab-manager"]), "manager close receives the tab id exactly once");
   await act(async () => root.unmount());
 });
 
 async function main() {
+  ({ act, useState } = await import("react"));
+  ({ createRoot } = await import("react-dom/client"));
+
   let failed = 0;
   for (const [name, fn] of tests) {
     try {
