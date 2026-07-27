@@ -24,7 +24,7 @@ scripts/qa-gate.sh run macos-native
 # JSON for plan stride / automation
 scripts/qa-gate.sh run check --json
 
-# Smoke: passing gate exits 0 + prints QA_RUN (prod-pane env safe)
+# Smoke: passing gate exits 0 + prints QA_RUN (prod-tab env safe)
 scripts/qa-gate-smoke.sh
 ```
 
@@ -83,11 +83,11 @@ Run **serially** on each builder; do not fan out per-worker compiles:
 - `--skip-dev-check` — run dev gates even when 7686 is down (will likely fail)
 - `--json` — JSON lines instead of KV
 
-## Prod-pane safety
+## Prod-tab safety
 
-When launched from a prod CodeTerm orchestrator pane (`CODETERM_API_PORT=7685`), the runner
+When launched from a prod CodeTerm orchestrator tab (`CODETERM_API_PORT=7685`), the runner
 sanitizes inherited env before each gate: pins API port to **7686**, resets socket to dev,
-clears pane identity. Explicit non-prod ports are kept. Opt out with `QA_GATE_ENV_LOCKED=1`;
+clears tab identity. Explicit non-prod ports are kept. Opt out with `QA_GATE_ENV_LOCKED=1`;
 named dev instance via `QA_GATE_INSTANCE=<name>`; custom socket via `QA_GATE_SOCKET_PATH`.
 
 <!-- revision: 2 -->

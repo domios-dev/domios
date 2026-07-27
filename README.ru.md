@@ -35,7 +35,7 @@
 <!-- TRANSLATION-TODO (2026-04-29 review): translation lags README.md — please mirror these sections from English:
      1. The two top-of-features GIF subsections (`### Agent Orchestration`, `### Cron Jobs`) shown right after the language nav.
      2. Per-OS install subsections instead of one combined "Скачать": `### macOS (Homebrew)`, `### Windows (Scoop)`, `### Windows (installer)`, `### Linux`.
-     3. Rename the "Встроенный браузер" section to match English `### Canvas Panels` (the feature was renamed). -->
+     3. Rename the "Встроенный браузер" section to match English `### Canvas Tabls` (the feature was renamed). -->
 
 ---
 
@@ -171,15 +171,15 @@ CodeTerm предоставляет три API для интеграции:
 
 ```bash
 # Список панелей
-curl http://localhost:7685/api/panes
+curl http://localhost:7685/api/tabs
 
 # Выполнить команду и получить вывод
-curl -X POST http://localhost:7685/api/panes/{id}/exec \
+curl -X POST http://localhost:7685/api/tabs/{id}/exec \
   -H "Content-Type: application/json" \
   -d '{"command": "git status"}'
 
 # Отправить текст в терминал
-curl -X POST http://localhost:7685/api/panes/{id}/send \
+curl -X POST http://localhost:7685/api/tabs/{id}/send \
   -H "Content-Type: application/json" \
   -d '{"text": "npm test", "enter": true}'
 
@@ -191,10 +191,10 @@ curl -X POST http://localhost:7685/api/workspaces \
 # Запустить агента в новой панели рядом с родительской
 curl -X POST http://localhost:7685/api/agents/spawn \
   -H "Content-Type: application/json" \
-  -d '{"agent": "claude", "parent_pane_id": "PANE_ID"}'
+  -d '{"agent": "claude", "parent_tab_id": "TAB_ID"}'
 
 # Потоковый вывод в реальном времени (SSE)
-curl http://localhost:7685/api/panes/{id}/output/stream
+curl http://localhost:7685/api/tabs/{id}/output/stream
 ```
 
 ### CLI-утилита
@@ -207,7 +207,7 @@ codeterm workspace create "Project"
 # Управление терминалом
 codeterm tab list
 codeterm send --tab TAB_ID "npm run build"
-codeterm get-output PANE_ID --lines 50
+codeterm get-output TAB_ID --lines 50
 
 # Уведомления
 codeterm notify "Build complete" --level info
@@ -223,7 +223,7 @@ CodeTerm устанавливает следующие переменные в �
 | Переменная | Описание |
 |------------|----------|
 | `CODETERM` | Всегда `1` — определяет, запущен ли процесс внутри CodeTerm |
-| `CODETERM_PANE_ID` | UUID текущей панели |
+| `CODETERM_TAB_ID` | UUID текущей панели |
 | `CODETERM_SOCKET_PATH` | Путь к сокету для JSON-RPC API |
 | `TERM_PROGRAM` | `CodeTerm` |
 

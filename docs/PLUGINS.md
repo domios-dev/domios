@@ -51,7 +51,7 @@ plugins/<id>/
   package.json         # type:module + workspace dep on @codeterm/plugin-sdk
   src/plugin.ts        # SOURCE — logic, typed against @codeterm/plugin-sdk; ends with `export default plugin`
   plugin.js            # BUILD ARTIFACT (esbuild → CJS) — committed; do not hand-edit
-  settings.schema.json # optional — JSON-schema for the settings panel
+  settings.schema.json # optional — JSON-schema for the settings tabl
   ui/                  # optional — the plugin's own UI (for the `view` capability)
     src/main.tsx       # SOURCE — React entry, mounts on #ct-root
     app-<hash>.js      # BUILD ARTIFACT — content-hashed, cacheable bundle; committed
@@ -132,8 +132,8 @@ that calls the corresponding `plugin.js` export. The exports a plugin provides:
 | `chatBackend`  | `openSession(ctx)`, `sendMessage`, `pump?`, `poll`, `closeSession`, `listModels?`, `listPresets?` | an **open agent shell** — see below |
 | `agentProvider`| `detectFromTitle`, `parseSessionDelta`, `buildLaunchCommand`, `checkIntegration`, `installIntegration`, … | see `plugins/provider-*/src/plugin.ts` |
 
-`ctx` for bubble/glance carries the Tab's `cwd`. `action: "openPanel:view:<id>"` opens
-the plugin's own iframe view; `"openPanel:<name>"` opens a built-in panel.
+`ctx` for bubble/glance carries the Tab's `cwd`. `action: "openTabl:view:<id>"` opens
+the plugin's own iframe view; `"openTabl:<name>"` opens a built-in tabl.
 
 ### Host API (`host.*`, synchronous, inside QuickJS)
 
@@ -209,7 +209,7 @@ and each owns its own "brain". The shipped reference instance is **lmstudio**
 
 | Export | Role |
 |--------|------|
-| `openSession(ctx)` | start a session; `ctx = { paneId, config, systemPrompt?, preset?, model?, mode?, engine? }`. Resolve the preset (`ctx.preset` or `defaultPreset`), apply any `ctx.systemPrompt` override, and **emit a `system_prompt` first message** so the prompt is observable. Watcher sessions receive `mode: "watcher"` and a machine `engine` instead of accepting user turns. |
+| `openSession(ctx)` | start a session; `ctx = { tabId, config, systemPrompt?, preset?, model?, mode?, engine? }`. Resolve the preset (`ctx.preset` or `defaultPreset`), apply any `ctx.systemPrompt` override, and **emit a `system_prompt` first message** so the prompt is observable. Watcher sessions receive `mode: "watcher"` and a machine `engine` instead of accepting user turns. |
 | `sendMessage(sid, text)` | enqueue a user turn; kick the ReAct loop. |
 | `watcherTick(sid, input)` *(optional)* | enqueue one host-driven watcher tick for sessions opened with `mode: "watcher"`. It returns immediately; `pump`/`poll` streams the context card, model reply, and verdict. |
 | `pump(sid)` *(optional)* | drive one loop step: stream the LLM call, append the growing assistant message (stable id), scan the completed message for tool blocks, execute each curated tool, append a `tool_result`, continue (capped — e.g. 8 rounds/turn). |
@@ -256,7 +256,7 @@ Verdicts use this contract:
 
 ```ts
 type WatcherVerdictStatus = "ok" | "attention" | "stalled";
-type WatcherAction = { kind: "nudge" | "notify" | "report"; pane?: string; message: string };
+type WatcherAction = { kind: "nudge" | "notify" | "report"; tab?: string; message: string };
 type WatcherVerdict = { status: WatcherVerdictStatus; summary: string; state?: unknown; actions?: WatcherAction[] };
 ```
 
@@ -310,7 +310,7 @@ exactly — it is the single source of truth.
    codeterm agent spawn lmstudio                              # uses defaultPreset
    codeterm agent spawn lmstudio --preset rhymes              # pick a preset
    codeterm agent spawn lmstudio --system "You answer only in rhymes."
-   codeterm agent spawn lmstudio --role Watcher --parent <orch-pane> \
+   codeterm agent spawn lmstudio --role Watcher --parent <orch-tab> \
      --charter charter:watcher-orchestration --interval 30s
    ```
 
@@ -328,15 +328,15 @@ documented in the plugin's own `README.md` and `configHelp`.
    ```
 3. Write `src/plugin.ts` — typed against the SDK, ending with `export default plugin`:
    ```ts
-   import type { ExecOpts, ExecResult, PaneContext, PluginModule, StatusBubble } from "@codeterm/plugin-sdk";
+   import type { ExecOpts, ExecResult, TabContext, PluginModule, StatusBubble } from "@codeterm/plugin-sdk";
 
    function git(cwd: string, args: string[]): ExecResult {
      return JSON.parse(host.exec(JSON.stringify({ bin: "git", args: ["-C", cwd].concat(args) })));
    }
-   function statusBubble(ctx: PaneContext): StatusBubble | null {
+   function statusBubble(ctx: TabContext): StatusBubble | null {
      if (!ctx || !ctx.cwd) return null;
      // … shell git, build the pill …
-     return { label: branch, tone: "default", icon: "git", action: "openPanel:view:git" };
+     return { label: branch, tone: "default", icon: "git", action: "openTabl:view:git" };
    }
    const plugin: PluginModule = { statusBubble /*, renderGlance, viewCall, … */ };
    export default plugin;
@@ -361,7 +361,7 @@ documented in the plugin's own `README.md` and `configHelp`.
 ### UI gotchas (the sandbox is strict)
 
 - **No `localStorage`/`sessionStorage`/`document.cookie`.** Touching them throws
-  `SecurityError` in the origin-null iframe and crashes the React render → blank panel.
+  `SecurityError` in the origin-null iframe and crashes the React render → blank tabl.
   Guard every access with `try/catch` and degrade to in-memory.
 - **No app imports.** The iframe bundle can't import from `src/`. Inline the types,
   icons, and CSS it needs (no Tailwind compiler runs in the bundle — ship the CSS).

@@ -96,7 +96,7 @@
 
 ### 14-memory-ui
 
-- [tests/playwright/suites/14-memory-ui/memory-panel.spec.ts](../../tests/playwright/suites/14-memory-ui/memory-panel.spec.ts) - Memory panel supports list, detail, edit, and related-item navigation.
+- [tests/playwright/suites/14-memory-ui/memory-tabl.spec.ts](../../tests/playwright/suites/14-memory-ui/memory-tabl.spec.ts) - Memory tabl supports list, detail, edit, and related-item navigation.
 
 ### 15-extensions
 

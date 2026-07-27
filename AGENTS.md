@@ -136,7 +136,7 @@ Acquire in order, drop before awaiting. parking_lot is **not reentrant** — `mu
 1. `mux` (MultiplexerState)
 2. `output_buf` (OutputBuffer)
 3. `screen_state` (ScreenState)
-4. `agent_tracker` (PaneStatusTracker)
+4. `agent_tracker` (TabStatusTracker)
 5. `pty` (PtyManager)
 
 After parallel Rust refactors, grep for nested `.lock()` to verify ordering.
@@ -145,12 +145,12 @@ After parallel Rust refactors, grep for nested `.lock()` to verify ordering.
 
 ## Async runtime & hot-path discipline (perf — learned the hard way)
 
-Blocking/heavy work on the Tauri async runtime starves ALL IPC and freezes the WHOLE UI (every pane + sidebar), not just the caller. A 3-4s full-UI freeze on every tab switch was `plugin_manager_snapshot` forking CLI subprocesses (including a network `channel diff`) on the async runtime.
+Blocking/heavy work on the Tauri async runtime starves ALL IPC and freezes the WHOLE UI (every tab + sidebar), not just the caller. A 3-4s full-UI freeze on every tab switch was `plugin_manager_snapshot` forking CLI subprocesses (including a network `channel diff`) on the async runtime.
 
 - **The daemon NEVER shells out to its own `codeterm` CLI.** Call the in-process function. A daemon forking its own CLI that reconnects to it is an architecture smell — and slow (process start + IPC + network per call).
 - **Blocking / IO / heavy / subprocess work in a Tauri command → `tokio::task::spawn_blocking`.** Synchronous `dispatch::dispatch`, disk reads, network, `Command::new` all qualify. A plain sync `fn` command runs on the runtime too — same rule applies.
 - **Hot-path commands (fire on tab switch / mount / render) must be cheap and bounded.** Cache expensive snapshots; rebuild on change (file-watcher / explicit action), never on every call.
-- **Measure before optimizing.** The dev build logs `[SLOW-IPC] <cmd> <ms>` + `[LONGTASK]` (frontend `invoke` wrapper → dev log). A trivial command (e.g. `get_config`) blocking seconds means the runtime is starved; the slow command that resolves FIRST is the cause, the rest are queued victims — don't chase the victims. Test under realistic load (many panes), not a clean 2-tab dev instance.
+- **Measure before optimizing.** The dev build logs `[SLOW-IPC] <cmd> <ms>` + `[LONGTASK]` (frontend `invoke` wrapper → dev log). A trivial command (e.g. `get_config`) blocking seconds means the runtime is starved; the slow command that resolves FIRST is the cause, the rest are queued victims — don't chase the victims. Test under realistic load (many tabs), not a clean 2-tab dev instance.
 
 ## No sleeps or timer-driven coordination
 
@@ -217,7 +217,7 @@ The provider/plugin boundary is the project's load-bearing seam. It stays clean 
 
 1. **Core asks capabilities, never identities.** Branch on `supports_chat_ui()` / `available_models()` / a new capability fn — never on a hardcoded provider-id list or display string. If you're matching `"codex"` / `"opencode"` in core code, you've leaked the boundary.
 2. **Native + JS parity in lockstep.** Any trait method a JS drop-in can implement MUST gain a case in `parity_test.rs` proving the native and JS paths agree on shared fixtures. A capability without a parity test will silently drift on drop-ins.
-3. **Detection keys off the pane's OWN session.** Provider detection (model, session, status) reads only the record belonging to this pane's claimed session id — never "latest global" / "newest for cwd". Unknown → return null (honest) over a guess (contaminating). This is a real bug class we've shipped.
+3. **Detection keys off the tab's OWN session.** Provider detection (model, session, status) reads only the record belonging to this tab's claimed session id — never "latest global" / "newest for cwd". Unknown → return null (honest) over a guess (contaminating). This is a real bug class we've shipped.
 4. **Audit the host-API surface when it grows.** Every new host function a drop-in can call is a new confinement hole — justify it against the FS/sqlite/env sandbox, and remember QuickJS lacks bindings the native runtime has (a missing `console` once aborted parsing silently).
 5. **Keep core provider plugin metadata in lockstep.** Until provider plugins split into their own release stream, their versions mirror the CodeTerm app version. After bumping `package.json`, run `npm run sync:versions` and verify with `npm run check:versions`; this syncs provider manifests/packages, internal `packages/*` package versions, and `plugins/channel.json`. Official `codeterm-core` channel installs are trusted system plugins, startup repairs same-version embedded hash drift, and newer channel versions must not be downgraded.
 

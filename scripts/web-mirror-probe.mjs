@@ -21,12 +21,12 @@ const api = async (method, p, body) => {
 };
 
 // 1. chat-raw/start returns real history for the GA tab.
-const tabs = await api("GET", "/panes");
+const tabs = await api("GET", "/tabs");
 const gaTab = tabs.find((p) => p.agent_type === "claude" && p.protected);
 if (!gaTab) throw new Error("no GA claude tab found");
-const chat = await api("POST", `/panes/${gaTab.id}/chat-raw/start`);
+const chat = await api("POST", `/tabs/${gaTab.id}/chat-raw/start`);
 console.log(`1. chat-raw/start: text=${(chat.text ?? "").length} bytes, start_offset=${chat.start_offset} ${chat.text?.length > 100 ? "✓" : "✗ EMPTY"}`);
-await api("POST", `/panes/${gaTab.id}/chat-raw/stop`);
+await api("POST", `/tabs/${gaTab.id}/chat-raw/stop`);
 
 // 2+3 in the browser.
 const browser = await chromium.launch({ channel: "msedge", headless: true });
@@ -55,12 +55,12 @@ const spawned = await api("POST", "/agents/spawn", {
   task: "Reply with the word MIRRORPROBE",
 });
 await page.waitForTimeout(3000);
-const tabs2 = await api("GET", "/panes");
-const agentTab = tabs2.find((p) => p.id === spawned.pane_id);
+const tabs2 = await api("GET", "/tabs");
+const agentTab = tabs2.find((p) => p.id === spawned.tab_id);
 console.log(`4. agent tab spawned from web path: agent_type=${agentTab?.agent_type} ${agentTab?.agent_type === "claude" ? "✓" : "✗"}`);
 
 // Cleanup.
-await api("POST", `/panes/${spawned.pane_id}/close`).catch(() => {});
+await api("POST", `/tabs/${spawned.tab_id}/close`).catch(() => {});
 if (probeWs) await api("POST", `/workspaces/${probeWs.id}/close`).catch(() => {});
 await page.screenshot({ path: "test-results/web-mirror-probe.png" });
 await browser.close();

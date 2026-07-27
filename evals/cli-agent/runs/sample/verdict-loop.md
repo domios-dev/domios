@@ -5,12 +5,12 @@
 - usage.latest ✅ | config.get ✅
 - usage.projection ❌ flailed (claude --help / ls ~/.claude) — usage cue not yet compiled in; recheck after rebuild
 
-## batch2 (pane+agent)
-- pane.exec ✅ | agent.models ✅
+## batch2 (tab+agent)
+- tab.exec ✅ | agent.models ✅
 - agent.providers ❌ greps source (count 33) instead of `codeterm agent providers`
-- pane.list ⚠️ still appends `agent hierarchy` (doc cue ignored) → needs alias
-- pane.current ⚠️ uses $CODETERM_PANE_ID, not `pane current`
-- pane.search ⚠️ uses `pane list`, not `pane search`
+- tab.list ⚠️ still appends `agent hierarchy` (doc cue ignored) → needs alias
+- tab.current ⚠️ uses $CODETERM_TAB_ID, not `tab current`
+- tab.search ⚠️ uses `tab list`, not `tab search`
 
 ## batch3 (mem+ws+cron) — 6/6 PASS
 - mem.search ✅ (+mem graph related) | mem.save ✅ | mem.get ✅ (real id)
@@ -26,24 +26,24 @@
 
 ## CONFIRMED real misses (low-concurrency, reliable) → fix targets
 1. agent.providers → greps source, not `agent providers` (WORST, count 33)
-2. pane.list → appends nonexistent `agent hierarchy` (doc cue ignored) → add alias
-3. pane.current → $CODETERM_PANE_ID, not `pane current`
-4. pane.search → `pane list`, not `pane search`
+2. tab.list → appends nonexistent `agent hierarchy` (doc cue ignored) → add alias
+3. tab.current → $CODETERM_TAB_ID, not `tab current`
+4. tab.search → `tab list`, not `tab search`
 5. usage.projection → flailed (cue added but ran pre-rebuild; retest)
 ## Methodology: ≤6 concurrency removed all flakiness (cron/sessions clean) — high parallelism was noise, not CLI.
 
 ## RETEST (after structural fix + cues, rebuilt dev)
 - usage.projection ✅ FIXED → `codeterm usage projection` (cue worked)
 - theme.list ✅ clean → `codeterm theme list`
-- pane.list ✅ structurally fixed → `agent hierarchy` now a real alias (no more exit 2)
+- tab.list ✅ structurally fixed → `agent hierarchy` now a real alias (no more exit 2)
 - agent.providers — STILL greps source. But `codeterm agent providers` gives the
   exact answer (id/display/default model/count). Conclusion: ARTIFACT — agent is
   running inside the codeterm repo and prefers ground-truth source-grep; a real
   agent in a non-codeterm project would use the command. NOT a CLI bug.
-- pane.current — uses $CODETERM_PANE_ID. Re-judged: this is CORRECT — the docs
-  themselves say `pane current` returns the *focused* pane (maybe someone else's),
-  so $CODETERM_PANE_ID is the right way to know YOUR pane. Not a miss.
-- pane.search — uses `pane list`+grep; gets the answer. Minor, equally-valid path.
+- tab.current — uses $CODETERM_TAB_ID. Re-judged: this is CORRECT — the docs
+  themselves say `tab current` returns the *focused* tab (maybe someone else's),
+  so $CODETERM_TAB_ID is the right way to know YOUR tab. Not a miss.
+- tab.search — uses `tab list`+grep; gets the answer. Minor, equally-valid path.
 
 ## FINAL CONCLUSION
 - 30 cases × all CLI families, claude, judged at ≤6 concurrency (no flakiness).
@@ -60,18 +60,18 @@
 
 ## OPENCODE (DeepSeek V4 Flash Free) — cross-provider
 - b1: usage.latest ✅; identify→curl+cat Cargo ❌; usage.projection→read/glob ❌; capabilities/docs/config.get→"task" tool, terse (count 3-5)
-- b2: pane.list ✅ (+used new `agent hierarchy` alias); pane.exec ✅; pane.search→pane list; pane.current→env+curl; agent.providers/models→"task" terse
+- b2: tab.list ✅ (+used new `agent hierarchy` alias); tab.exec ✅; tab.search→tab list; tab.current→env+curl; agent.providers/models→"task" terse
 - Pattern: cues that steered claude (identify/capabilities/usage) do NOT transfer to DeepSeek — it reaches for curl/read/glob or a terse "task". Model-capability limit, not a CLI/doc bug. The `agent list/hierarchy` alias DID help opencode too.
 
 ## OPENCODE b3/b4/b5 (rest) — coverage complete
 - b3: mem.search ✅, mem.get ✅ (real id!), workspace.create ✅; mem.save count=3 NO tool calls ❌ (DeepSeek skips mem save — consistent); workspace.list→evals dc wrapper; cron.list→tried `crontab -l` (system!) then codeterm
 - b4: mesh.status→curl ❌; mesh.peers→hallucinated `mesh peer list` ❌; theme.list→read/glob ❌; paste→flail; sessions→"task" terse
 - b5: describe-only via terse "skill"; mesh.connect→grep/read; keepawake→`caffeinate -d -t 120` ❌ (external, not `codeterm keepawake`)
-### OPENCODE verdict: DeepSeek under-uses the codeterm CLI — reaches for external/system tools (curl, caffeinate, crontab, ccusage, read/glob/grep), hallucinates names (`mesh peer list`), skips mem save. Strong at: mem search/get (real id), workspace create, pane list + new agent hierarchy alias. Cues that fixed claude don't transfer. = model-capability limit, not CLI bug.
+### OPENCODE verdict: DeepSeek under-uses the codeterm CLI — reaches for external/system tools (curl, caffeinate, crontab, ccusage, read/glob/grep), hallucinates names (`mesh peer list`), skips mem save. Strong at: mem search/get (real id), workspace create, tab list + new agent hierarchy alias. Cues that fixed claude don't transfer. = model-capability limit, not CLI bug.
 
 ## CODEX (gpt-5.3-codex) — now readable via new parseSessionDelta parser
 - b1: usage/capabilities/docs/config.get/identify → ALL via rg/ls/find filesystem exploration (count 35-66, heavy flail), `codeterm --version` (wrong). Barely uses codeterm commands.
-- b2: pane.list ✅ (read SKILL.md from disk → `pane list` + `agent hierarchy` ✅); pane.exec ✅; agent.providers/models → rg source ❌; pane.search → `tmux list-panes` ❌ (thinks codeterm≈tmux); pane.current count=3 no response.
+- b2: tab.list ✅ (read SKILL.md from disk → `tab list` + `agent hierarchy` ✅); tab.exec ✅; agent.providers/models → rg source ❌; tab.search → `tmux list-tabs` ❌ (thinks codeterm≈tmux); tab.current count=3 no response.
 - CODEX verdict: WORST of 3 at CLI use — aggressive shell exploration + external tools (tmux). Readable now (parser shipped). Model-capability limit, not CLI bug.
 
 ## CROSS-PROVIDER PATTERN
@@ -90,7 +90,7 @@
 
 ## ✅ ALL THREE PROVIDERS COVERED (b1-b5 each), all chat readable.
 ### Fixes shipped this whole effort (all validated):
-1. pane chat read path (session_file_path vs jsonl_path)
+1. tab chat read path (session_file_path vs jsonl_path)
 2. macOS /var→/private/var cwd canonicalization (claude jsonl + opencode session)
 3. introspection cue (identify/capabilities/docs) — validated on claude
 4. `agent list`/`agent hierarchy` real aliases — used by ALL three providers

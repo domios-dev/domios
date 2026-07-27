@@ -2,7 +2,7 @@
   "provider": "claude",
   "situation": "prose-questionnaire-negative-r1",
   "capturedAtMs": 1781992430652,
-  "paneId": "69d832f4",
+  "tabId": "69d832f4",
   "source": "dev-7686",
   "until": "(?s)^\\s*1[\\.\\)].*\\n.*^\\s*2[\\.\\)]",
   "prompt": "Print a numbered questionnaire as plain text and tell me to answer in one line — do NOT open an interactive picker.",

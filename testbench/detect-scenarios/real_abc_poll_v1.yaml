@@ -1,5 +1,5 @@
 # Real-prompt corpus (Round 2). Source: Andrey's actual prompts mined from live
-# panes Twain (codex 2bace0d6), Dickens (opencode 40c87bb3), Verne (cursor
+# tabs Twain (codex 2bace0d6), Dickens (opencode 40c87bb3), Verne (cursor
 # bd97717e) on 2026-06-21. The exact casual A/B/C "poll" prompt is the generator
 # ONLY — never hardcode it into the detector. Unlike provider_cli_question_probe_v1
 # this does NOT push the provider toward a CLI UI: each provider chooses its own

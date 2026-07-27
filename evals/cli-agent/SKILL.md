@@ -18,7 +18,7 @@ skill changes, or to measure multi-step reliability across providers.
 1. Ensure dev is up and current: `./build.sh dev --wait`.
 2. A batch: `bash evals/cli-agent/run-suite.sh claude,codex,opencode evals/cli-agent/cases/mem.yaml`
 3. Transcripts land in `evals/cli-agent/runs/<ts>/<case>-<provider>.md` (readable)
-   and `.json` (raw normalized messages from `GET /api/panes/:id/chat`).
+   and `.json` (raw normalized messages from `GET /api/tabs/:id/chat`).
 4. Read each transcript and fill `judge-template.md` → `runs/<ts>/verdict.md`.
 
 ## Rubric (per case × provider)
@@ -41,7 +41,7 @@ apply, destructive mem). For those cases the `prompt` asks the agent to *explain
 or dry-run, not execute. All bench workspaces are torn down after each case.
 
 ## How the read works
-`codeterm tab chat --tab <id> [--since N] --json` (and `GET /api/panes/:id/chat`)
+`codeterm tab chat --tab <id> [--since N] --json` (and `GET /api/tabs/:id/chat`)
 return the already-parsed normalized messages — `type` (user/assistant/thinking/
 tool_call/tool_result), `content`, `toolName`, `toolInput`, `toolResult` — the
 same shape the chat UI renders. Stateless; no tailer.

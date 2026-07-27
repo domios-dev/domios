@@ -91,7 +91,7 @@ Every bidirectional crate edge below blocks a clean Cargo cut.
 | app <-> `codeterm-plan` | `service -> plan` 262, `socket -> plan` 22, but `service/plan` reaches app events/mem/agent/socket | Extract `PlanEventSink`, `PlanSearchPort`, `PlanSkillPort`, and `PlanClock` traits owned by `codeterm-plan`; app implements them. Move socket read/route adapters to app. |
 | app <-> `codeterm-mem` | `api -> mem` 37; `mem -> cron` 12, `mem -> service` 5, `mem -> api` 1, `mem -> pty` 1 | Replace cron/service/api calls with app-owned worker scheduling and `MemEventSink`; move ANSI cleanup helper used by mem into util or keep the worker adapter in app. |
 | app <-> `codeterm-mesh` | app routes/commands call mesh; `mesh -> api` 2 and `mesh -> user_last_activity` 2 | Use `MeshEventSink` for UI broadcasts and pass last-activity data into mesh manager as a value/provider trait. |
-| app <-> `codeterm-bridge` | app routes call bridge; `bridge -> service` 4 and `bridge -> startup` 1 | Bridge owns protocol state only. App provides `BridgePanePort` and startup test helpers stay in app integration tests. |
+| app <-> `codeterm-bridge` | app routes call bridge; `bridge -> service` 4 and `bridge -> startup` 1 | Bridge owns protocol state only. App provides `BridgeTabPort` and startup test helpers stay in app integration tests. |
 | app <-> `codeterm-pty` | app/socket/commands call pty/mux/dispatch; `multiplexer -> service` 12, `dispatch -> service/api` 4 | Move command execution adapters out of `dispatch` into app. PTY/mux emits typed events; app consumes them and calls services. |
 | app <-> `codeterm-plugin` | app commands/startup call plugin; `plugin -> api` 8, `plugin -> service` 11, `plugin -> socket` 1, `plugin -> mem` 4 | Define plugin host traits in `codeterm-plugin` for events, service context, socket path, compute/mem host APIs. App implements; plugin tests use fake hosts. |
 | `codeterm-plugin` <-> `codeterm-types` | plugin imports provider types 121; `agent/chatbackend/usage -> plugin` 4 | Move `CapabilityRegistry`-touching implementations out of type modules into plugin/app adapters. Types crate must not know plugin. |
@@ -134,14 +134,14 @@ Every bidirectional crate edge below blocks a clean Cargo cut.
 | `service` | `config` | 40 | `service/cron.rs -> crate::config::memory_config` |
 | `api` | `mem` | 37 | `api/mem_routes/calibration.rs -> crate::mem::store::with_changed_by` |
 | `api` | `dispatch` | 34 | `api/health_routes.rs -> crate::dispatch::dispatch` |
-| `socket` | `dispatch` | 32 | `socket/server/pane.rs -> crate::dispatch::dispatch` |
+| `socket` | `dispatch` | 32 | `socket/server/tab.rs -> crate::dispatch::dispatch` |
 | `api` | `agent` | 29 | `api/agent_routes.rs -> crate::agent::reports::ReportDetails` |
 | `commands_mesh` | `mesh` | 28 | `commands_mesh.rs -> crate::mesh::discovered::resolve_discovered` |
 | `service` | `api` | 26 | `service/boot_stage.rs -> crate::api::events::emit_everywhere` |
 | `service` | `mem` | 25 | `service/general_agent/instructions.rs -> crate::mem::MemManager` |
 | `api` | `config` | 24 | `api/bridge_routes.rs -> crate::config::save_config_pub` |
 | `socket` | `plan` | 22 | `socket/server/plan.rs -> crate::plan` |
-| `api` | `commands` | 18 | `api/agent_routes.rs -> crate::commands::InstallPaneResult` |
+| `api` | `commands` | 18 | `api/agent_routes.rs -> crate::commands::InstallTabResult` |
 | `bridge` | `transcribe` | 18 | `bridge/manager/mod.rs -> crate::transcribe::TranscribeRegistry` |
 | `chatpipeline` | `transcribe` | 18 | `chatpipeline/mod.rs -> crate::transcribe::TranscribeRegistry` |
 | `service` | `chatbackend` | 18 | `service/mod.rs -> crate::chatbackend::ChatBackendRegistryHandle` |
@@ -165,7 +165,7 @@ Every bidirectional crate edge below blocks a clean Cargo cut.
 | `service` | `plugin` | 10 | `service/agent_restart.rs -> crate::plugin::agent_claude::ClaudeProvider::new` |
 | `api` | `delayed_send` | 9 | `api/delayed_send_routes.rs -> crate::delayed_send::DelayedMessageView` |
 | `commands` | `attachments` | 9 | `commands/clipboard.rs -> crate::attachments::save_with_uuid` |
-| `commands` | `plugin` | 9 | `commands/pane.rs -> crate::plugin::js_runtime::PluginManifest` |
+| `commands` | `plugin` | 9 | `commands/tab.rs -> crate::plugin::js_runtime::PluginManifest` |
 | `multiplexer` | `session` | 9 | `multiplexer/state/snapshot/mod.rs -> crate::session::store::SessionSnapshot` |
 | `plugin` | `paths` | 9 | `plugin/agent_claude/provider/sessions.rs -> crate::paths::canonical_cwd` |
 | `service` | `process_util` | 9 | `service/health/process.rs -> crate::process_util::no_window_std` |
@@ -178,7 +178,7 @@ Every bidirectional crate edge below blocks a clean Cargo cut.
 | `api` | `multiplexer` | 7 | `api/agent_routes.rs -> crate::multiplexer::types::AgentRole` |
 | `api` | `pty` | 7 | `api/dev_cast_routes.rs -> crate::pty::cast` |
 | `commands` | `api` | 7 | `commands/pty.rs -> crate::api::events::emit_everywhere` |
-| `commands` | `multiplexer` | 7 | `commands/pane.rs -> crate::multiplexer::commands::MuxState` |
+| `commands` | `multiplexer` | 7 | `commands/tab.rs -> crate::multiplexer::commands::MuxState` |
 | `commands` | `pty` | 7 | `commands/pty.rs -> crate::pty::manager::build_session` |
 | `commands_mesh` | `service` | 7 | `commands_mesh.rs -> crate::service::ServiceState` |
 | `lib` | `mem` | 7 | `lib.rs -> crate::mem::supervisor::Supervisor::new` |
@@ -212,7 +212,7 @@ Every bidirectional crate edge below blocks a clean Cargo cut.
 | `startup` | `service` | 5 | `startup/background.rs -> crate::service::ServiceState` |
 | `api` | `commands_mesh` | 4 | `api/web_routes.rs -> crate::commands_mesh::fetch_peer_services_view` |
 | `bridge` | `service` | 4 | `bridge/manager/mod.rs -> crate::service::general_agent` |
-| `commands` | `chatbackend` | 4 | `commands/pane.rs -> crate::chatbackend::ChatSessionInfo` |
+| `commands` | `chatbackend` | 4 | `commands/tab.rs -> crate::chatbackend::ChatSessionInfo` |
 | `commands` | `paths` | 4 | `commands/plugins/cli.rs -> crate::paths::data_dir` |
 | `plugin` | `agent_commands` | 4 | `plugin/js_runtime/agent_commands.rs -> crate::agent_commands::AgentCommandProvider` |
 | `plugin` | `bubble` | 4 | `plugin/js_runtime/bubble.rs -> crate::bubble::BubbleProvider` |
@@ -225,7 +225,7 @@ Every bidirectional crate edge below blocks a clean Cargo cut.
 | `service` | `mesh` | 4 | `service/hierarchy.rs -> crate::mesh::types::RelayCommand` |
 | `service` | `usage` | 4 | `service/mod.rs -> crate::usage::UsageStoreHandle` |
 | `socket` | `notification` | 4 | `socket/server/mod.rs -> crate::notification::NotifState` |
-| `startup` | `agent` | 4 | `startup/background.rs -> crate::agent::status::PaneStatus` |
+| `startup` | `agent` | 4 | `startup/background.rs -> crate::agent::status::TabStatus` |
 | `startup` | `api` | 4 | `startup/background.rs -> crate::api::events::emit_everywhere` |
 | `startup` | `multiplexer` | 4 | `startup/background.rs -> crate::multiplexer::commands::MuxState` |
 | `update` | `service` | 4 | `update/post_update.rs -> crate::service::ServiceState` |
@@ -266,10 +266,10 @@ Every bidirectional crate edge below blocks a clean Cargo cut.
 | `agent` | `cron` | 2 | `agent/run_watcher.rs -> crate::cron::store::CronRunStatus::Success` |
 | `agent` | `plugin` | 2 | `agent/provider.rs -> crate::plugin::SkillFile` |
 | `api` | `logs` | 2 | `api/logs_routes.rs -> crate::logs::store::global` |
-| `api` | `startup` | 2 | `api/bridge_routes.rs -> crate::startup::unmark_pane_connected_service` |
+| `api` | `startup` | 2 | `api/bridge_routes.rs -> crate::startup::unmark_tab_connected_service` |
 | `bridge` | `attachments` | 2 | `bridge/telegram.rs -> crate::attachments::evict` |
 | `bridge` | `chatpipeline` | 2 | `bridge/voice_transcribe.rs -> crate::chatpipeline::run_voice_stage` |
-| `commands` | `prompts` | 2 | `commands/pane.rs -> crate::prompts::PEER_ORCH_GREETING` |
+| `commands` | `prompts` | 2 | `commands/tab.rs -> crate::prompts::PEER_ORCH_GREETING` |
 | `commands` | `shell` | 2 | `commands/tests.rs -> crate::shell::ShellSyntax::NULL_DEV` |
 | `config` | `paths` | 2 | `config/mod.rs -> crate::paths::config_path` |
 | `config` | `service` | 2 | `config/schema/mod.rs -> crate::service::plan::reflection::DEFAULT_REFLECT_EVERY_GATES` |
@@ -317,23 +317,23 @@ Every bidirectional crate edge below blocks a clean Cargo cut.
 | `agent` | `paths` | 1 | `agent/model_catalog.rs -> crate::paths::data_dir` |
 | `agent` | `plan` | 1 | `agent/reports.rs -> crate::plan::AttachmentRef` |
 | `agent_commands` | `plugin` | 1 | `agent_commands/mod.rs -> crate::plugin::capability::CapabilityRegistry` |
-| `api` | `chatpipeline` | 1 | `api/pane_routes/send.rs -> crate::chatpipeline::is_user_turn_send` |
+| `api` | `chatpipeline` | 1 | `api/tab_routes/send.rs -> crate::chatpipeline::is_user_turn_send` |
 | `api` | `pasteboard` | 1 | `api/pasteboard_routes.rs -> crate::pasteboard::PutParams` |
 | `api` | `plugin` | 1 | `api/events.rs -> crate::plugin::activity::PluginActivity` |
 | `api` | `resize_owner` | 1 | `api/pty_routes.rs -> crate::resize_owner::ResizeOwner` |
 | `api` | `usage` | 1 | `api/usage_routes.rs -> crate::usage::projection::compute` |
 | `api` | `view_host` | 1 | `api/web_plugin_routes.rs -> crate::view_host::plugin_ui_dir` |
-| `bridge` | `agent` | 1 | `bridge/response.rs -> crate::agent::status::PaneStatus` |
+| `bridge` | `agent` | 1 | `bridge/response.rs -> crate::agent::status::TabStatus` |
 | `bridge` | `startup` | 1 | `bridge/migrate_test.rs -> crate::startup::start_telegram_bridge_for_test` |
 | `bubble` | `plugin` | 1 | `bubble/mod.rs -> crate::plugin::capability::CapabilityRegistry` |
 | `bubble` | `view` | 1 | `bubble/mod.rs -> crate::view::Tone` |
 | `chatbackend` | `plugin` | 1 | `chatbackend/mod.rs -> crate::plugin::capability::CapabilityRegistry` |
-| `chatbackend` | `service` | 1 | `chatbackend/mod.rs -> crate::service::pane_transport` |
+| `chatbackend` | `service` | 1 | `chatbackend/mod.rs -> crate::service::tab_transport` |
 | `chatpreprocessor` | `chatpipeline` | 1 | `chatpreprocessor/mod.rs -> crate::chatpipeline` |
 | `chatpreprocessor` | `plugin` | 1 | `chatpreprocessor/mod.rs -> crate::plugin::capability::CapabilityRegistry` |
-| `commands` | `bridge` | 1 | `commands/pane.rs -> crate::bridge::voice_transcribe::format_attachment_line` |
+| `commands` | `bridge` | 1 | `commands/tab.rs -> crate::bridge::voice_transcribe::format_attachment_line` |
 | `commands` | `bubble` | 1 | `commands/plugins/view.rs -> crate::bubble::BubbleRegistry` |
-| `commands` | `chatpipeline` | 1 | `commands/pane.rs -> crate::chatpipeline::is_user_turn_send` |
+| `commands` | `chatpipeline` | 1 | `commands/tab.rs -> crate::chatpipeline::is_user_turn_send` |
 | `commands` | `glance` | 1 | `commands/plugins/view.rs -> crate::glance::GlanceRegistry` |
 | `commands` | `resize_owner` | 1 | `commands/pty.rs -> crate::resize_owner::ResizeOwner` |
 | `commands` | `socket` | 1 | `commands/pty.rs -> crate::socket::server::socket_display_path` |
@@ -373,7 +373,7 @@ Every bidirectional crate edge below blocks a clean Cargo cut.
 | `secrets` | `process_util` | 1 | `secrets/secret_file.rs -> crate::process_util::no_window_std` |
 | `service` | `agent_commands` | 1 | `service/mod.rs -> crate::agent_commands::AgentCommandRegistryHandle` |
 | `service` | `bubble` | 1 | `service/mod.rs -> crate::bubble::BubbleRegistryHandle` |
-| `service` | `chatpipeline` | 1 | `service/pane_transport.rs -> crate::chatpipeline::run_text_stages` |
+| `service` | `chatpipeline` | 1 | `service/tab_transport.rs -> crate::chatpipeline::run_text_stages` |
 | `service` | `glance` | 1 | `service/mod.rs -> crate::glance::GlanceRegistryHandle` |
 | `service` | `notification` | 1 | `service/notification.rs -> crate::notification::store::NotificationLevel` |
 | `service` | `pasteboard` | 1 | `service/mod.rs -> crate::pasteboard::PasteboardState` |

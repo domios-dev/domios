@@ -67,8 +67,8 @@ WHY: happy paths do not prove gates. Example:
 ## Harness rules
 
 Rule: headless e2e Tabs should be eager. WHY: lazy Tabs have no PTY until a UI
-mounts them. Example: `tests/e2e/conftest.py::fresh_pane` and
-`tests/e2e/test_eager_pane.py`.
+mounts them. Example: `tests/e2e/conftest.py::fresh_tab` and
+`tests/e2e/test_eager_tab.py`.
 
 Rule: do not trust inherited env. WHY: tests must target dev 7686, not prod
 7685 or a user shell. Example: `tests/e2e/conftest.py` force-sets the dev API
@@ -78,7 +78,7 @@ Rule: sweep before and after daemon e2e. WHY: leaked workspaces make later tests
 order-dependent. Example: `tests/e2e/conftest.py::_cleanup_e2e_workspaces`.
 
 Rule: teardown in `try/finally`. WHY: failures must not leak workspaces, Tabs,
-or external stubs. Example: `tests/e2e/test_eager_pane.py`.
+or external stubs. Example: `tests/e2e/test_eager_tab.py`.
 
 Rule: keep shared inputs under `tests/fixtures/` unless a package has a local
 fixture convention. WHY: review can see what is data versus test logic. Example:
@@ -141,7 +141,7 @@ Example: `plugins/provider-claude/tests/plugin.test.ts` and
 7. Prove fail-first with a sabotage marker, fake length, or rejection input.
 
 WHY: API e2e should prove daemon-visible behavior without relying on UI focus.
-Example: `tests/e2e/test_inject_verify.py` and `tests/e2e/test_eager_pane.py`.
+Example: `tests/e2e/test_inject_verify.py` and `tests/e2e/test_eager_tab.py`.
 
 ### Playwright smoke
 

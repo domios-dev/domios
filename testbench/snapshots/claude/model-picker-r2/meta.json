@@ -2,7 +2,7 @@
   "provider": "claude",
   "situation": "model-picker-r2",
   "capturedAtMs": 1781997138859,
-  "paneId": "c2e8f61f",
+  "tabId": "c2e8f61f",
   "source": "dev-7686",
   "until": "(Select model|Switch model|Choose.*model|❯|›).*(Enter|select|esc|↑|↓)",
   "prompt": "/model",

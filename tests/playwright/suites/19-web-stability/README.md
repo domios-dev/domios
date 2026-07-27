@@ -20,7 +20,7 @@ compose the lower-level helpers and feature specs into playbook case ids.
 | CACHE-1 / CACHE-2 / CACHE-3 | `CACHE-1/CACHE-2/CACHE-3 cached shell paints before delayed mux and reconciles daemon truth` |
 | SW-1 / SW-2 | `SW-1/SW-2 offline shell renders cached app while /api is never service-worker cached` |
 | NAME-1 / Gate 3 | `NAME-1/GATE-3 tab and workspace names survive reload and daemon save boundary` |
-| PAR-1 / MEM | `PAR-1/MEM MemoryPanel web parity: panel opens without native-only command errors` |
+| PAR-1 / MEM | `PAR-1/MEM MemoryTabl web parity: tabl opens without native-only command errors` |
 | RPL-1 / RPL-2 | `RPL-1/RPL-2 replay cast renders fidelity sentinels and survives reload` |
 | RPL-4 / Gate 4 attention | `RPL-4/GATE-4 attention rail uses hook driver and clears exactly` |
 | Gate 4 cross-machine | `GATE-4 cross-machine last-active picker and switched-peer shell via MeshStub` |

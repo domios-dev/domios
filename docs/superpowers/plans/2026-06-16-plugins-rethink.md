@@ -40,7 +40,7 @@
   `transcribers` only for symmetry.
 - **G3 (Task 1.3):** `format_attachment_line` has **three** call sites — telegram bridge
   (`bridge/manager/mod.rs:569`, has `svc`), chat route (`api/web_routes.rs`, has `AppState`),
-  and the Tauri command (`commands/pane.rs::transcribe_voice_attachment(path)`, **no state —
+  and the Tauri command (`commands/tab.rs::transcribe_voice_attachment(path)`, **no state —
   add `State<'_, …>`**). Thread the `TranscribeRegistry` + active id through all three.
 - **G4 (Task 1.4/1.10):** add `transcribe_registry: Arc<TranscribeRegistry>` to
   `ServiceContext`; add `set_transcribe_registry`/`set_secret_registry` to `PluginManager`
@@ -84,7 +84,7 @@
 **Phase 4 — Extensions UX (React)**
 - `src/components/Extensions/*` *(new)* — top-level view, tray, cards, grant dialog, capability chip.
 - `src/components/Titlebar/Titlebar.tsx`, `MeshPresenceTray.tsx` *(modify)* — Extensions entry; machine picker.
-- `src/components/Sidebar/Sidebar.tsx` *(modify)* — presence header replaces "Panes".
+- `src/components/Sidebar/Sidebar.tsx` *(modify)* — presence header replaces "Tabs".
 - `src/App.tsx` *(modify)* — `mainView` gains `"extensions"`.
 - `src/lib/bridge.ts` *(modify)* — `plugin_manager_*` + capability cmds into `HTTP_MAP`.
 - `src/components/Settings/{PluginsTab,SecretsTab}.tsx` *(modify)* — promote / re-surface.
@@ -344,12 +344,12 @@ pub type TranscribeRegistry = crate::plugin::capability::CapabilityRegistry<dyn 
 - [ ] `ExtensionsTray.tsx` (rows, gear-on-hover, pin, groups Pinned/Plugins/Agents/System) using the real `MeshPresenceTray` dropdown chrome (220px, `#1e1e2e`, active tint + ✓). `App.tsx` `mainView` gains `"extensions"`. Titlebar entry replaces/augments the power button (Keep-Awake becomes a `system` plugin row).
 - [ ] Commit — `feat(extensions): tray + top-level view`
 
-### Task 4.3: Plugin settings panels + Settings→Plugins promote
-- [ ] Plugin detail uses `SchemaRenderer` over `settings_schema`. `PluginsTab` becomes the VS Code-style marketplace (channels/list/detail/changelog). `SecretsTab` keeps the backend picker (now lists registered backends incl. plugin ones); Bitwarden config moves to its plugin panel.
+### Task 4.3: Plugin settings tabls + Settings→Plugins promote
+- [ ] Plugin detail uses `SchemaRenderer` over `settings_schema`. `PluginsTab` becomes the VS Code-style marketplace (channels/list/detail/changelog). `SecretsTab` keeps the backend picker (now lists registered backends incl. plugin ones); Bitwarden config moves to its plugin tabl.
 - [ ] Commit — `feat(extensions): schema settings + marketplace`
 
 ### Task 4.4: Sidebar presence + machine picker + web parity
-- [ ] `Sidebar.tsx` "Panes" → presence header (real dot); web UI adds the machine-picker dropdown beside it. `bridge.ts` adds `plugin_manager_*` + capability/secret commands to `HTTP_MAP`.
+- [ ] `Sidebar.tsx` "Tabs" → presence header (real dot); web UI adds the machine-picker dropdown beside it. `bridge.ts` adds `plugin_manager_*` + capability/secret commands to `HTTP_MAP`.
 - [ ] Commit — `feat(extensions): sidebar presence + machine picker + web parity`
 
 **Phase 4 gate:** `npm run build` (or dev build) green; Playwright smoke of the tray + grant dialog; manual click-through of all design screens.

@@ -116,7 +116,7 @@ restrictive ACL on Windows too.
 
 ## Verified SAFE (checked, no action)
 
-- `exec_in_pane` / `send_text` / `spawn` — no shell string-building; input is
+- `exec_in_tab` / `send_text` / `spawn` — no shell string-building; input is
   PTY bytes or argv. The PTY is a shell by design, fully behind auth.
 - Git endpoints — `Command::new("git").arg(...)` argv form; sha validated; user
   paths after `--`. No injection.

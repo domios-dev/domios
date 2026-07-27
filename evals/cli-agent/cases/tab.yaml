@@ -1,20 +1,20 @@
-- id: pane.list.basic
-  command: "pane list"
-  prompt: "Show me all panes as a tree and tell me which agents are running."
+- id: tab.list.basic
+  command: "tab list"
+  prompt: "Show me all tabs as a tree and tell me which agents are running."
   expect: "Runs `codeterm tab list` (maybe --agents), reads the tree."
   safety: execute
-- id: pane.current.basic
-  command: "pane current"
-  prompt: "Which pane am I in right now?"
+- id: tab.current.basic
+  command: "tab current"
+  prompt: "Which tab am I in right now?"
   expect: "Runs `codeterm tab current`."
   safety: execute
-- id: pane.exec.basic
-  command: "pane exec"
-  prompt: "Run `echo hello-from-bench` in this pane and show me the output."
+- id: tab.exec.basic
+  command: "tab exec"
+  prompt: "Run `echo hello-from-bench` in this tab and show me the output."
   expect: "Runs `codeterm tab exec` (or send) and reports the echoed output."
   safety: execute
-- id: pane.search.basic
-  command: "pane search"
-  prompt: "Find any pane whose title or session looks like 'claude'."
+- id: tab.search.basic
+  command: "tab search"
+  prompt: "Find any tab whose title or session looks like 'claude'."
   expect: "Runs `codeterm tab search claude`."
   safety: execute

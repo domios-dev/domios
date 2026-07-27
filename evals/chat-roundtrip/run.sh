@@ -3,9 +3,9 @@
 #
 # THE ORACLE for "did my message land": spawns a REAL provider agent on the DEV
 # daemon, sends a message through the SAME path the chat composer uses
-# (POST /api/panes/{id}/send → send_text_when_ready, identical to the Tauri
+# (POST /api/tabs/{id}/send → send_text_when_ready, identical to the Tauri
 # `chat_send_text` command), then polls the PARSED chat transcript
-# (GET /api/panes/{id}/chat) until the user echo AND a following assistant reply
+# (GET /api/tabs/{id}/chat) until the user echo AND a following assistant reply
 # appear. Asserts both. This proves backend delivery end-to-end — the thing that
 # was missing when OSC4 shipped green-but-broken.
 #
@@ -19,14 +19,14 @@
 #
 # Cases: binding, elementary, rapid-send, and (codex|cursor) picker-extraction —
 # the facet9 P9.3 gate that drives a command-approval menu and asserts the prompt
-# (question + ALL options) was extracted into the pane's pending_prompt.
+# (question + ALL options) was extracted into the tab's pending_prompt.
 #
 # Usage:
 #   ./run.sh                            # claude + codex (codex runs the picker case)
 #   CR_PROVIDERS="codex cursor" ./run.sh # both picker-extraction providers
 #   CR_PROVIDERS="cursor" ./run.sh      # one provider
 #   CR_TIMEOUT=120 ./run.sh             # per-turn poll budget (s)
-#   CR_KEEP=1 ./run.sh                  # leave panes/workspace for inspection
+#   CR_KEEP=1 ./run.sh                  # leave tabs/workspace for inspection
 set -uo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
@@ -48,42 +48,42 @@ fail() { echo "  ✗ $1" >&2; FAILS=$((FAILS + 1)); }
 
 now_ms() { $PY -c 'import time;print(int(time.time()*1000))'; }
 
-pane_status() {
-  dev_get "/api/panes/$1/status" \
+tab_status() {
+  dev_get "/api/tabs/$1/status" \
     | $PY -c "import json,sys;print(json.load(sys.stdin).get('status',''))" 2>/dev/null
 }
 
 # Faithful chat send: same REST seam the web chat composer hits, which routes to
 # send_text_when_ready — the exact path as the Tauri chat_send_text command.
 chat_send() {
-  local pane="$1" text="$2"
+  local tab="$1" text="$2"
   $PY -c "import json,sys;print(json.dumps({'text':sys.argv[1],'enter':True}))" "$text" \
     | curl -s --max-time 30 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
         -H "Content-Type: application/json" --data @- \
-        "http://127.0.0.1:7686/api/panes/$pane/send" >/dev/null
+        "http://127.0.0.1:7686/api/tabs/$tab/send" >/dev/null
 }
 
 # Parsed transcript snapshot (the SAME normalized ChatMsg shape the chat UI
 # renders). Stateless read — no tailer dependency.
-chat_snapshot() { dev_get "/api/panes/$1/chat?since=0"; }
+chat_snapshot() { dev_get "/api/tabs/$1/chat?since=0"; }
 
-# Full mux snapshot — carries each pane's pending_prompt (the extracted
+# Full mux snapshot — carries each tab's pending_prompt (the extracted
 # interactive prompt the chat card renders). Read-only.
 mux_state() { dev_get /api/mux/state; }
 
 # The UI seam the web chat view hits: chat_start_core, which returns
-# {pending, messages}. Unlike /chat/start (pane_chat_routes) it does NOT 400
+# {pending, messages}. Unlike /chat/start (tab_chat_routes) it does NOT 400
 # before the session binds — it returns pending:true, exactly what the chat UI
 # sees. This is the oracle for the "stuck pending / session: -" binding bug.
-chat_raw_start() { dev_post "/api/panes/$1/chat-raw/start" '{}'; }
+chat_raw_start() { dev_post "/api/tabs/$1/chat-raw/start" '{}'; }
 
 # Poll the transcript until the user echo of `text` appears AND an assistant
 # message follows it. Echoes a JSON capture tuple on success; empty on timeout.
 poll_roundtrip() {
-  local pane="$1" text="$2" sent_ms="$3" deadline=$((SECONDS + TIMEOUT))
+  local tab="$1" text="$2" sent_ms="$3" deadline=$((SECONDS + TIMEOUT))
   while [ "$SECONDS" -lt "$deadline" ]; do
     local cap
-    cap="$(chat_snapshot "$pane" | $PY "$RT" match-roundtrip "$text" "$sent_ms")"
+    cap="$(chat_snapshot "$tab" | $PY "$RT" match-roundtrip "$text" "$sent_ms")"
     if [ -n "$cap" ]; then echo "$cap"; return 0; fi
     sleep 2
   done
@@ -99,13 +99,13 @@ ws_id() {
 spawn_agent() {
   local provider="$1" ws="$2" title="$3"
   dc agent spawn "$provider" --workspace "$ws" --cwd "$WS_CWD" --title "$title" 2>&1 \
-    | grep -oE "pane [a-f0-9]+" | awk '{print $2}' | head -1
+    | grep -oE "tab [a-f0-9]+" | awk '{print $2}' | head -1
 }
 
 wait_live() {
-  local pane="$1"
+  local tab="$1"
   for _ in $(seq 1 40); do
-    local st; st="$(pane_status "$pane")"
+    local st; st="$(tab_status "$tab")"
     [ -n "$st" ] && [ "$st" != "Dead" ] && { sleep 4; return 0; }
     sleep 1
   done
@@ -116,14 +116,14 @@ wait_live() {
 # Send one trivially-answerable prompt; the agent echoes a nonce back. Proves:
 # (a) the user message lands in the transcript, (b) an assistant reply follows.
 case_elementary() {
-  local provider="$1" pane="$2"
+  local provider="$1" tab="$2"
   local nonce; nonce="RT$(now_ms)"
   local prompt="Reply with exactly this token and nothing else: PONG-$nonce"
   echo "[chat-roundtrip] $provider: elementary — send + await echo & reply"
-  dev_post "/api/panes/$pane/chat/start" '{}' >/dev/null
+  dev_post "/api/tabs/$tab/chat/start" '{}' >/dev/null
   local sent_ms; sent_ms="$(now_ms)"
-  chat_send "$pane" "$prompt"
-  local cap; cap="$(poll_roundtrip "$pane" "$prompt" "$sent_ms")"
+  chat_send "$tab" "$prompt"
+  local cap; cap="$(poll_roundtrip "$tab" "$prompt" "$sent_ms")"
   if [ -z "$cap" ]; then
     fail "$provider elementary: user echo + assistant reply did NOT appear within ${TIMEOUT}s"
     return 1
@@ -139,16 +139,16 @@ case_elementary() {
 # coverable within a combined turn). Beats the "stuck sending…" class where
 # quick sends never resolve.
 case_rapid() {
-  local provider="$1" pane="$2"
+  local provider="$1" tab="$2"
   echo "[chat-roundtrip] $provider: rapid multi-send (3 quick messages)"
   local base; base="RR$(now_ms)"
-  dev_post "/api/panes/$pane/chat/start" '{}' >/dev/null
-  chat_send "$pane" "rapid one $base"; sleep 1
-  chat_send "$pane" "rapid two $base"; sleep 1
-  chat_send "$pane" "rapid three $base"
+  dev_post "/api/tabs/$tab/chat/start" '{}' >/dev/null
+  chat_send "$tab" "rapid one $base"; sleep 1
+  chat_send "$tab" "rapid two $base"; sleep 1
+  chat_send "$tab" "rapid three $base"
   local deadline=$((SECONDS + TIMEOUT)) ok=0
   while [ "$SECONDS" -lt "$deadline" ]; do
-    ok="$(chat_snapshot "$pane" | $PY "$RT" rapid-check "$base")"
+    ok="$(chat_snapshot "$tab" | $PY "$RT" rapid-check "$base")"
     [ "$ok" = "1" ] && break
     sleep 2
   done
@@ -166,18 +166,18 @@ case_rapid() {
 # so a timestamp-only sort shuffled same-second / timeless turns. The transcript
 # now carries a monotonic source-order `seq` that pins order regardless.
 case_ordering() {
-  local provider="$1" pane="$2" n=5
+  local provider="$1" tab="$2" n=5
   echo "[chat-roundtrip] $provider: ordering — send $n distinct msgs, assert send-order in transcript"
-  dev_post "/api/panes/$pane/chat/start" '{}' >/dev/null
+  dev_post "/api/tabs/$tab/chat/start" '{}' >/dev/null
   local base; base="OR$(now_ms)"
   local i
   for i in $(seq 1 "$n"); do
-    chat_send "$pane" "msg $i of $base reply with K$i"
+    chat_send "$tab" "msg $i of $base reply with K$i"
     sleep 1
   done
   local deadline=$((SECONDS + TIMEOUT)) res="missing"
   while [ "$SECONDS" -lt "$deadline" ]; do
-    res="$(chat_snapshot "$pane" | $PY "$RT" order-check "$base" "$n")"
+    res="$(chat_snapshot "$tab" | $PY "$RT" order-check "$base" "$n")"
     [ "$res" = "ok" ] && break
     # Keep polling while messages are still landing; a real disorder also resolves
     # only by deadline, so we report whatever the final state is.
@@ -191,22 +191,22 @@ case_ordering() {
 }
 
 # --- Case: session-binding gate (CE3) -------------------------------
-# A fresh agent pane MUST bind its session and DELIVER the transcript through the
+# A fresh agent tab MUST bind its session and DELIVER the transcript through the
 # UI seam (chat-raw/start) — never sit on pending:true forever. That perpetual
 # pending IS the bug Andrey saw: "Polo session: -", chat empty while the TUI
 # works. This case reproduces it and is the gate proving the binding+delivery fix.
 case_binding() {
-  local provider="$1" pane="$2"
-  echo "[chat-roundtrip] $provider: session-binding — fresh pane binds + chat-raw/start delivers (not pending)"
+  local provider="$1" tab="$2"
+  echo "[chat-roundtrip] $provider: session-binding — fresh tab binds + chat-raw/start delivers (not pending)"
   local nonce; nonce="BIND$(now_ms)"
   local prompt="Reply with exactly this token and nothing else: BOUND-$nonce"
   # Informational: the UI seam typically reports pending until the session binds.
-  local init; init="$(chat_raw_start "$pane" | $PY "$RT" binding-state "$prompt")"
+  local init; init="$(chat_raw_start "$tab" | $PY "$RT" binding-state "$prompt")"
   echo "    initial chat-raw/start state: $init"
-  chat_send "$pane" "$prompt"
+  chat_send "$tab" "$prompt"
   local deadline=$((SECONDS + TIMEOUT)) state="pending"
   while [ "$SECONDS" -lt "$deadline" ]; do
-    state="$(chat_raw_start "$pane" | $PY "$RT" binding-state "$prompt")"
+    state="$(chat_raw_start "$tab" | $PY "$RT" binding-state "$prompt")"
     [ "$state" = "bound" ] && break
     sleep 2
   done
@@ -219,21 +219,21 @@ case_binding() {
 
 # --- Case: interactive-picker extraction (facet9 P9.3) --------------
 # Drive the agent into a command-approval menu, then assert CodeTerm extracted
-# the prompt — question + ALL options — into the pane's pending_prompt (the SAME
+# the prompt — question + ALL options — into the tab's pending_prompt (the SAME
 # field the chat card reads). This gates the per-provider parse path: codex's
 # numbered menu via the universal parser; cursor via its new plugin parsePrompt.
-# A non-skip-permissions pane prompts before running a shell command.
+# A non-skip-permissions tab prompts before running a shell command.
 case_picker() {
-  local provider="$1" pane="$2"
+  local provider="$1" tab="$2"
   echo "[chat-roundtrip] $provider: picker-extraction — drive a menu + assert question/options extracted"
-  dev_post "/api/panes/$pane/chat/start" '{}' >/dev/null
+  dev_post "/api/tabs/$tab/chat/start" '{}' >/dev/null
   # /model shows the model picker — a real interactive menu that ALWAYS renders.
-  # (Approval menus are suppressed when the pane is auto-approve/skip-permissions,
+  # (Approval menus are suppressed when the tab is auto-approve/skip-permissions,
   # which is CodeTerm's spawn default — so they're not a reliable picker trigger.)
-  chat_send "$pane" "/model"
+  chat_send "$tab" "/model"
   local deadline=$((SECONDS + TIMEOUT)) cap=""
   while [ "$SECONDS" -lt "$deadline" ]; do
-    cap="$(mux_state | $PY "$RT" pending-prompt "$pane")"
+    cap="$(mux_state | $PY "$RT" pending-prompt "$tab")"
     [ -n "$cap" ] && break
     sleep 2
   done
@@ -250,8 +250,8 @@ case_picker() {
     || fail "$provider picker: expected >=2 options, got ${n:-0}"
   echo "$cap" > "$OUT_DIR/picker-$provider.json"
   # Dismiss the picker (esc) + clear so the menu doesn't block teardown.
-  dc send --actions esc --tab "$pane" >/dev/null 2>&1 || true
-  dev_post "/api/panes/$pane/prompt/clear" '{}' >/dev/null 2>&1 || true
+  dc send --actions esc --tab "$tab" >/dev/null 2>&1 || true
+  dev_post "/api/tabs/$tab/prompt/clear" '{}' >/dev/null 2>&1 || true
 }
 
 main() {
@@ -268,21 +268,21 @@ main() {
 
   for provider in $PROVIDERS; do
     echo; echo "=== provider: $provider ==="
-    local pane; pane="$(spawn_agent "$provider" "$ws" "rt-$provider")"
-    if [ -z "$pane" ]; then fail "$provider: agent spawn failed"; continue; fi
-    echo "[chat-roundtrip] $provider pane=$pane — waiting for agent"
-    if ! wait_live "$pane"; then
+    local tab; tab="$(spawn_agent "$provider" "$ws" "rt-$provider")"
+    if [ -z "$tab" ]; then fail "$provider: agent spawn failed"; continue; fi
+    echo "[chat-roundtrip] $provider tab=$tab — waiting for agent"
+    if ! wait_live "$tab"; then
       fail "$provider: agent never came live"
-      [ "${CR_KEEP:-0}" = "1" ] || dc tab close "$pane" >/dev/null 2>&1
+      [ "${CR_KEEP:-0}" = "1" ] || dc tab close "$tab" >/dev/null 2>&1
       continue
     fi
-    case_binding "$provider" "$pane"
-    case_elementary "$provider" "$pane"
-    case_rapid "$provider" "$pane"
-    case_ordering "$provider" "$pane"
+    case_binding "$provider" "$tab"
+    case_elementary "$provider" "$tab"
+    case_rapid "$provider" "$tab"
+    case_ordering "$provider" "$tab"
     # Picker-extraction gate (facet9 P9.3/P9.4): /model populates pending_prompt.
-    case "$provider" in claude|cursor|codex) case_picker "$provider" "$pane" ;; esac
-    [ "${CR_KEEP:-0}" = "1" ] || dc tab close "$pane" >/dev/null 2>&1
+    case "$provider" in claude|cursor|codex) case_picker "$provider" "$tab" ;; esac
+    [ "${CR_KEEP:-0}" = "1" ] || dc tab close "$tab" >/dev/null 2>&1
   done
 
   echo

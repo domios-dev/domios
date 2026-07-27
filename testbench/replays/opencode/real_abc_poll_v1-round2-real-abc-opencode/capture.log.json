@@ -24,7 +24,7 @@
   {
     "t_ms": 5539,
     "event": "spawned",
-    "pane": "060a33cd",
+    "tab": "060a33cd",
     "workspace": "bf7c1bab",
     "terminal": {
       "cols": 120,

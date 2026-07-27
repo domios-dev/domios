@@ -92,13 +92,13 @@ plumbing on the develop branch.
 ### Fixed
 
 - **Cron status race after explicit `cron complete`** — when an agent
-  inside a cron pane called `codeterm cron complete`, the backend
-  marked the run Success and closed the pane, but the
+  inside a cron tab called `codeterm cron complete`, the backend
+  marked the run Success and closed the tab, but the
   `RunWatcherRegistry` watchdog kept its 30-second idle timer alive.
-  After the pane closed there was no more output, the timer tripped,
+  After the tab closed there was no more output, the timer tripped,
   and `finish_run` overwrote the Success with Failed. `cron_complete`
-  now calls `run_watcher.mark_completed_externally` on the pane's pty
-  before `close_pane`, so the watchdog exits cleanly. Confirmed
+  now calls `run_watcher.mark_completed_externally` on the tab's pty
+  before `close_tab`, so the watchdog exits cleanly. Confirmed
   against the dreamer's 2026-04-25 → 2026-04-29 run logs.
 
 ### Added
@@ -112,7 +112,7 @@ plumbing on the develop branch.
   matches the actual repo secret.
 - **Documentation review pass** — README translations carry
   TRANSLATION-TODO markers for the three sections that drifted from
-  English (top-of-features GIFs, per-OS install split, "Canvas Panels"
+  English (top-of-features GIFs, per-OS install split, "Canvas Tabls"
   rename). Stale references to deleted plans / endpoints in `docs/`,
   `.claude/agents/`, and prompt files are corrected.
 - **Stronger orchestrator suffix** — `prompts/orchestrator_suffix.md`
@@ -149,7 +149,7 @@ Design rationale for the 04-25 batch lives in the mem decisions chain
   `--apply`, `--channel <stable|rc|nightly>`. Manifests are signed with
   ed25519 (public key embedded in `tauri.conf.json`). Auto-install runs
   the 9-step graceful shutdown (mem WAL checkpoint, supervisor stop,
-  signed binary swap) and panes auto-resume after restart. CI release
+  signed binary swap) and tabs auto-resume after restart. CI release
   workflow ships Win + macOS Intel + macOS ARM signed assets +
   channel-aware manifests. (Phases 1–4: 9215040, f1dfc7f, 5a6658b,
   fe8e738; merged in 540d42e.) See
@@ -157,11 +157,11 @@ Design rationale for the 04-25 batch lives in the mem decisions chain
   and [`docs/plans/auto-update.md`](docs/plans/auto-update.md).
 
 - **Agent restart CLI / API** — `codeterm agent restart --tab ID
-  [--force] [--grace-secs N]` and `POST /api/panes/{id}/agent/restart`.
-  Reuses the existing `/exit` + auto-resume pane lifecycle (no new
+  [--force] [--grace-secs N]` and `POST /api/tabs/{id}/agent/restart`.
+  Reuses the existing `/exit` + auto-resume tab lifecycle (no new
   restart logic). Returns `202` with `session_was_stale` to signal
   whether the recorded session id was still valid; `429` rate-limits
-  per-pane to avoid restart loops. (f7e130a, merged in d9577d8.)
+  per-tab to avoid restart loops. (f7e130a, merged in d9577d8.)
 
 - **Voice transcription in the Telegram bridge** — when
   `[integrations.voice_transcribe] enabled = true`, the bridge POSTs
@@ -203,9 +203,9 @@ Design rationale for the 04-25 batch lives in the mem decisions chain
 ### Fixed
 
 - **PTY child process termination on `PtyManager::kill`** — closing a
-  pane now explicitly kills the child process instead of relying on
+  tab now explicitly kills the child process instead of relying on
   shell-side cleanup, fixing leaked subprocesses when the user closed
-  a pane mid-command. (be0d045, merged in 8227b5e.)
+  a tab mid-command. (be0d045, merged in 8227b5e.)
 
 ### Changed
 

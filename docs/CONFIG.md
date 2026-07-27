@@ -48,11 +48,11 @@ next_tab = "Ctrl+Tab"     # cycle forward through plan entry + session tabs in s
 prev_tab = "Ctrl+Shift+Tab"  # cycle backward
 split_right = "Ctrl+Shift+ArrowRight"
 split_down = "Ctrl+Shift+ArrowDown"
-close_pane = "Ctrl+Shift+Q"
-focus_pane_left = "Alt+ArrowLeft"
-focus_pane_right = "Alt+ArrowRight"
-focus_pane_up = "Alt+ArrowUp"
-focus_pane_down = "Alt+ArrowDown"
+close_tab = "Ctrl+Shift+Q"
+focus_tab_left = "Alt+ArrowLeft"
+focus_tab_right = "Alt+ArrowRight"
+focus_tab_up = "Alt+ArrowUp"
+focus_tab_down = "Alt+ArrowDown"
 new_workspace = "Ctrl+Shift+N"
 copy = "Ctrl+Shift+C"
 paste = "Ctrl+Shift+V"
@@ -224,7 +224,7 @@ Body: {
   "channel":      "telegram",
   "user_id":      "123456789",
   "msg_id":       "12345",
-  "pane_id":      "<target tab>",
+  "tab_id":      "<target tab>",
   "attachments":  [{"kind": "voice", "path": "/tmp/...", "filename": "..."}]
 }
 
@@ -371,7 +371,7 @@ Cron jobs live in `~/.codeterm/crons.json` (dev: `~/.codeterm-dev/crons.json`), 
 | `task` | `string` | — | Prompt sent to the agent via `-p` |
 | `cwd` | `string?` | *(workspace cwd)* | Working directory for the spawned agent |
 | `role` | `string?` | — | Optional hierarchy role to assign on spawn |
-| `creator_pane_id` | `string?` | — | Tab that receives reports from the cron agent |
+| `creator_tab_id` | `string?` | — | Tab that receives reports from the cron agent |
 | `oneshot` | `bool` | `false` | One-shot job: auto-disabled after first fire, deleted on completion |
 | `jitter_max_ms` | `u64?` | `null` | See jitter semantics below |
 | `max_history` | `usize` | `100` | Per-job run history cap |
@@ -390,7 +390,7 @@ Jitter is applied on top of the cron/oneshot fire time. A job with `0 * * * *` a
 
 ### Hidden spawn
 
-Cron runs spawn agents in **hidden tabs** — no separate visible tab. Observe progress via the cron panel in the sidebar, the frontend log viewer, or `codeterm cron history ID`. Use `cron_read_log` (Tauri IPC) / the live tab fallback to tail a running run's output.
+Cron runs spawn agents in **hidden tabs** — no separate visible tab. Observe progress via the cron tabl in the sidebar, the frontend log viewer, or `codeterm cron history ID`. Use `cron_read_log` (Tauri IPC) / the live tab fallback to tail a running run's output.
 
 ## UI feature gates
 

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use codeterm_lib::agent::command_detection::CommandDetection;
 use codeterm_lib::agent::detector;
-use codeterm_lib::agent::pane_state::{PaneState, PaneStateClassification, PaneStateSnapshot};
+use codeterm_lib::agent::tab_state::{TabState, TabStateClassification, TabStateSnapshot};
 use codeterm_lib::agent::provider::AgentProvider;
 use codeterm_lib::agent::semantic_marker::{SemanticEvent, SemanticMarkerParser};
 use codeterm_lib::agent::signal_extractor::{SignalExtractor, StreamSignals, VolatileHint};
@@ -46,7 +46,7 @@ struct Cast {
 
 #[derive(Clone, Debug)]
 struct StepResult {
-    classify: Option<PaneStateClassification>,
+    classify: Option<TabStateClassification>,
     coarse: Coarse,
     mid_stream: bool,
     signals: StreamSignals,
@@ -256,9 +256,9 @@ fn coarse(sig: &StreamSignals) -> Coarse {
     }
 }
 
-fn classify_at(provider: &JsProvider, sig: &StreamSignals) -> Option<PaneStateClassification> {
-    provider.classify_pane_state(&PaneStateSnapshot {
-        pane_id: "testbench".into(),
+fn classify_at(provider: &JsProvider, sig: &StreamSignals) -> Option<TabStateClassification> {
+    provider.classify_tab_state(&TabStateSnapshot {
+        tab_id: "testbench".into(),
         agent_type: provider.id().to_string(),
         session_id: None,
         cwd: None,
@@ -359,7 +359,7 @@ fn run_agent_state_case(
         }
     }
 
-    let classify_negs: Vec<PaneState> = expected
+    let classify_negs: Vec<TabState> = expected
         .negatives
         .iter()
         .filter(|n| !matches!(n.as_str(), "waiting" | "turn_complete"))
@@ -477,8 +477,8 @@ fn run_provider_screen_attr_case(
 
 pub fn provider_screen_actual(provider: &JsProvider, text: &str) -> Value {
     let prompt = provider.parse_prompt(text);
-    let classify = provider.classify_pane_state(&PaneStateSnapshot {
-        pane_id: "testbench".into(),
+    let classify = provider.classify_tab_state(&TabStateSnapshot {
+        tab_id: "testbench".into(),
         agent_type: provider.id().to_string(),
         session_id: None,
         cwd: None,
@@ -489,7 +489,7 @@ pub fn provider_screen_actual(provider: &JsProvider, text: &str) -> Value {
         "detectEvents": provider.detect_events(text).iter().map(|e| format!("{e:?}")).collect::<Vec<_>>(),
         "genericPromptDetected": detector::detect_interactive_prompt(text),
         "parsePrompt": prompt,
-        "classifyPaneState": classify,
+        "classifyTabState": classify,
     })
 }
 
@@ -567,12 +567,12 @@ fn format_semantic_event(event: &SemanticEvent) -> String {
     }
 }
 
-fn final_state(steps: &[StepResult]) -> PaneState {
+fn final_state(steps: &[StepResult]) -> TabState {
     steps
         .iter()
         .rev()
         .find_map(|s| s.classify.as_ref().map(|c| c.state))
-        .unwrap_or(PaneState::Unknown)
+        .unwrap_or(TabState::Unknown)
 }
 
 fn final_keys(steps: &[StepResult]) -> Option<Vec<String>> {
@@ -681,12 +681,12 @@ fn compact(value: &Value) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "<json>".into())
 }
 
-fn parse_state(s: &str) -> PaneState {
+fn parse_state(s: &str) -> TabState {
     serde_json::from_value(Value::String(s.to_string()))
-        .unwrap_or_else(|_| panic!("unknown PaneState {s:?}"))
+        .unwrap_or_else(|_| panic!("unknown TabState {s:?}"))
 }
 
-fn label(s: PaneState) -> String {
+fn label(s: TabState) -> String {
     serde_json::to_value(s)
         .ok()
         .and_then(|v| v.as_str().map(str::to_string))

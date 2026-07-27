@@ -1,14 +1,14 @@
-• Ran codeterm pane status --pane $CODETERM_PANE_ID
-  └ pane:    ffa85297
+• Ran codeterm tab status --tab $CODETERM_TAB_ID
+  └ tab:    ffa85297
     agent:   codex
     … +2 lines (ctrl + t to view transcript)
     prompt:  no
     chat:    false
 
-• Ran codeterm get-output --pane $CODETERM_PANE_ID | tail -80
+• Ran codeterm get-output --tab $CODETERM_TAB_ID | tail -80
   └ ;2;242;242;242;49mrking•Working•WorkingWorking•orking•rking
 
-    • I’m checking the active pane state first so I can avoid sending keystrokes blindly if there is no prompt
+    • I’m checking the active tab state first so I can avoid sending keystrokes blindly if there is no prompt
     open.•king
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────

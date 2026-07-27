@@ -11,9 +11,9 @@ a global flag on every command.
 
 The Team verbs are `codeterm team list|show|rename|close|adopt-plan`. `codeterm team close <team_id>` is the only operation that removes a Team; it cascade-closes the Team's members, archives/detaches its plans, records owner retirement, and clears owner/planner routing to the destroyed tabs. Agent callers may mutate only their own `team_id` when they are the Team's Orchestrator or planner Manager; rename and close retain their authenticated direct-user path. A newly minted Team is returned with `codeterm team rename <team_id> <name>` and `codeterm docs ORCHESTRATION` guidance.
 
-`codeterm team adopt-plan <team_id> <plan_id>` requires `CODETERM_PANE_ID` for the destination Team's Orchestrator or planner Manager. It activates an archived/teamless plan only when the Team has exactly one live Orchestrator and no other active plan. Adoption atomically binds the Team, replaces the old owner with that Orchestrator, records owner history, clears stale planner routing, and relinks live task hierarchy. `codeterm plan unarchive|resume` require an existing live Team binding; they never recreate a Team.
+`codeterm team adopt-plan <team_id> <plan_id>` requires `CODETERM_TAB_ID` for the destination Team's Orchestrator or planner Manager. It activates an archived/teamless plan only when the Team has exactly one live Orchestrator and no other active plan. Adoption atomically binds the Team, replaces the old owner with that Orchestrator, records owner history, clears stale planner routing, and relinks live task hierarchy. `codeterm plan unarchive|resume` require an existing live Team binding; they never recreate a Team.
 
-`codeterm plan transfer <plan_id> --to <orchestrator-tab>` moves the plan to the destination Orchestrator's live Team. The CLI requires `CODETERM_PANE_ID`, supplies that caller identity, and the daemon requires the tab to be the source Team's Orchestrator or planner Manager; missing callers, Workers, and foreign-Team tabs cannot transfer. Transfer changes the Team, owner, owner history, and stale planner routing atomically before relinking hierarchy.
+`codeterm plan transfer <plan_id> --to <orchestrator-tab>` moves the plan to the destination Orchestrator's live Team. The CLI requires `CODETERM_TAB_ID`, supplies that caller identity, and the daemon requires the tab to be the source Team's Orchestrator or planner Manager; missing callers, Workers, and foreign-Team tabs cannot transfer. Transfer changes the Team, owner, owner history, and stale planner routing atomically before relinking hierarchy.
 
 <!-- cli:auto-start -->
 #### `codeterm agent`
@@ -31,7 +31,7 @@ Toggle whether a tab can spawn children
 
 Compact agent context (sends /compact to Claude)
 
-- `--tab` — Tab ID (default: $CODETERM_PANE_ID or focused tab)
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID or focused tab)
 
 #### `codeterm agent ledger`
 
@@ -51,7 +51,7 @@ Link a tab as worker under a parent
 Switch agent model. Claude only — Codex /model is an interactive picker, respawn with `agent spawn codex --model X` instead
 
 - `<name>` — Model name (Claude: sonnet, haiku, opus). Run `agent models claude` to list
-- `--tab` — Tab ID (default: $CODETERM_PANE_ID or focused tab)
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID or focused tab)
 
 #### `codeterm agent models`
 
@@ -79,7 +79,7 @@ Send a report to your parent in the hierarchy
 - `--sha` — Commit SHA produced
 - `--skipped` — Anything deliberately skipped
 - `--status` — Task outcome: in_review | blocked | partial | done
-- `--tab` — Tab ID (default: $CODETERM_PANE_ID or focused tab)
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID or focused tab)
 - `--task` — Task id to append this report to (if available)
 - `--test-cmd` — Test command that was run
 - `--test-result` — Result of the test command (e.g. "42 passed")
@@ -91,7 +91,7 @@ Restart agent (graceful exit; resumes only when the tab has a valid provider ses
 
 - `--force` — Skip the graceful exit and force-kill instead. Use only when the agent is hung
 - `--grace-secs` — Wait this long for graceful exit before force-killing (seconds)
-- `--tab` — Tab ID (default: $CODETERM_PANE_ID or focused tab)
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID or focused tab)
 
 #### `codeterm agent set-orchestrator`
 
@@ -253,7 +253,7 @@ Create a cron job
 - `--once` — Oneshot: fire once at scheduled time, then auto-delete
 - `--schedule` — Cron schedule (5-field: "*/30 * * * *") or oneshot time ("in 5m", ISO8601)
 - `--skill` — Mem skill slug (`codeterm mem skill new <slug>`) to resolve and inject into the task brief at fire time as an explicit, Read-able path
-- `--tab` — Tab ID to receive reports from cron agent (default: $CODETERM_PANE_ID)
+- `--tab` — Tab ID to receive reports from cron agent (default: $CODETERM_TAB_ID)
 - `--task` — Task prompt for the agent
 - `--timeout-secs` — Per-cron run timeout (seconds). Overrides global memory.worker_timeout_seconds. Set high (e.g. 1800) for long-running tasks like memory dreaming
 - `--tz` — IANA timezone for the schedule (e.g. "Europe/Riga"). Default: UTC
@@ -324,7 +324,7 @@ Queue a delayed message
 - `--delay` — Relative delay: 45s, 10m, 1h30m, 2d. Bare number means minutes
 - `--from-file` — Read text from a file instead of the positional arg
 - `--stdin` — Read text from stdin
-- `--tab` — Target tab ID (default: $CODETERM_PANE_ID or focused tab)
+- `--tab` — Target tab ID (default: $CODETERM_TAB_ID or focused tab)
 - `<text>` — Text to queue (positional, or omit and use --from-file/--stdin)
 
 #### `codeterm delayed delete`
@@ -348,7 +348,7 @@ Edit a queued or failed delayed message
 
 List delayed messages for a tab
 
-- `--tab` — Target tab ID (default: $CODETERM_PANE_ID or focused tab)
+- `--tab` — Target tab ID (default: $CODETERM_TAB_ID or focused tab)
 
 #### `codeterm delayed send-now`
 
@@ -483,7 +483,7 @@ Re-run extraction workers for items that haven't been extracted yet. Useful afte
 
 Flush a tab's PTY scrollback as a kind=conversation mem_item (called by PreCompact hook before context summarization)
 
-- `--tab` — Tab id (default: $CODETERM_PANE_ID)
+- `--tab` — Tab id (default: $CODETERM_TAB_ID)
 - `--title` — Optional title hint
 
 #### `codeterm mem forget`
@@ -989,7 +989,7 @@ Print L0+L1 wake-up context (GA init injection)
 
 #### `codeterm mem worker`
 
-Graph-worker operations (hidden mem panel agents)
+Graph-worker operations (hidden mem tabl agents)
 
 #### `codeterm mem worker get`
 
@@ -2350,7 +2350,7 @@ Report worker progress to the owning orchestrator or plan
 - `--sha` — Commit SHA produced
 - `--skipped` — Anything deliberately skipped
 - `--status` — Task outcome: in_review | blocked | partial | done
-- `--tab` — Tab ID (default: $CODETERM_PANE_ID or focused tab)
+- `--tab` — Tab ID (default: $CODETERM_TAB_ID or focused tab)
 - `--task` — Task id to append this report to (if available)
 - `--test-cmd` — Test command that was run
 - `--test-result` — Result of the test command (e.g. "42 passed")
@@ -2365,7 +2365,7 @@ Send text to a tab (default: current tab)
 - `--delay` — Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d. Bare number means minutes. NOT the normal send path: use only for future delivery the user asked for — plain send is immediate and must never be buffered
 - `--from-file` — Read text from a file instead of the positional arg. Lets you pass payloads that would otherwise be eaten by shell quoting
 - `--stdin` — Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --tab X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF
-- `--tab` — Target tab ID (default: $CODETERM_PANE_ID or focused tab)
+- `--tab` — Target tab ID (default: $CODETERM_TAB_ID or focused tab)
 - `<text>` — Text to send (positional, or omit and use --from-file/--stdin)
 
 #### `codeterm service`
@@ -2599,20 +2599,20 @@ Dev-only: tee a tab's raw PTY output into an asciicast v2 `.cast` file
 Arm capture: tee raw PTY output (ANSI intact) + timestamps to `--out`
 
 - `--out` — Path of the `.cast` file to write
-- `--tab` — Target tab ID (default: $CODETERM_PANE_ID or focused tab)
+- `--tab` — Target tab ID (default: $CODETERM_TAB_ID or focused tab)
 
 #### `codeterm tab capture stop`
 
 Disarm capture: flush/close the `.cast` and write a sibling `screen.txt`
 
-- `--tab` — Target tab ID (default: $CODETERM_PANE_ID or focused tab)
+- `--tab` — Target tab ID (default: $CODETERM_TAB_ID or focused tab)
 
 #### `codeterm tab chat`
 
 Read a tab's parsed chat transcript (text/thinking/tool calls/results)
 
 - `--since` — Only return messages from this index onward
-- `--tab` — Target tab ID (default: $CODETERM_PANE_ID or focused tab)
+- `--tab` — Target tab ID (default: $CODETERM_TAB_ID or focused tab)
 
 #### `codeterm tab close`
 
@@ -2845,7 +2845,7 @@ Install update (--auto for automatic download + install + restart)
 - `--after-update` — Message to inject into the General Agent tab after the new daemon boots. Lets the GA continue work post-update — e.g. "verify the new build and report version via Telegram"
 - `--auto` — Use Tauri built-in updater: download, install, and restart automatically
 - `--continue-prompt` — Optional prompt to send to the calling tab once the new daemon is up — lets a session continue work post-restart
-- `--continue-tab` — Tab to deliver `--continue-prompt` to. Defaults to `$CODETERM_PANE_ID`
+- `--continue-tab` — Tab to deliver `--continue-prompt` to. Defaults to `$CODETERM_TAB_ID`
 - `--from-file` — Install from a local NSIS installer (Windows). Kills the running daemon, runs the installer silently, then relaunches codeterm. Bypasses network — useful for local-build testing
 - `--manifest-url` — Override manifest URL (dev/test escape hatch). Requires the backend to be built with the `dev-updater-allowlocal` feature for non-https schemes; release builds reject it
 

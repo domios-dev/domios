@@ -93,7 +93,7 @@ Until native support lands, dictation is an external driver you run. Recipe:
    (`re.sub(r"\s+", " ", text)`) so auto-submit works.
 4. **Inject into a tab** — two ways:
    - CLI: `codeterm send "<text>" --tab <id>` (auto-submits)
-   - HTTP: `POST /api/panes/<pane_id>/send` with `Authorization: Bearer
+   - HTTP: `POST /api/tabs/<tab_id>/send` with `Authorization: Bearer
      <service_token>` (register via `codeterm service add`, token is scoped to
      that endpoint). Good for a daemon with no shell.
 
@@ -102,7 +102,7 @@ Until native support lands, dictation is an external driver you run. Recipe:
 Targeting "the tab the user is looking at" is **not reliable today**:
 `codeterm tab current` is stale and `tab focus` doesn't update it (issue #123).
 Workarounds for an external driver:
-- Inject into a **fixed tab id** (`MIC_PANE`) — reliable now.
+- Inject into a **fixed tab id** (`MIC_TAB`) — reliable now.
 - Or skip tab targeting entirely and type into the **focused OS window** via
   synthesized keystrokes (`keyboard.write` + an `Enter`). Works in any app
   (terminal, Paint, browser) but is app-specific on submit and fights held
@@ -119,7 +119,7 @@ end-state keeps the split — **engine external & swappable, glue native** — a
 adds first-class UX handles CodeTerm alone can provide:
 
 - **Trigger seam**: a native button/hotkey *dispatches outward* (it never
-  transcribes). Either CodeTerm emits a `dictation.requested {pane_id}` event a
+  transcribes). Either CodeTerm emits a `dictation.requested {tab_id}` event a
   driver subscribes to, or config declares a `start_cmd`/`driver_url` to invoke
   (mirrors `text_hooks`).
 - **Live render**: stream partial transcripts into the focused tab's input
@@ -144,7 +144,7 @@ natural **Process-tier plugin** — the plugin process owns mic capture + the
   the native button/hotkey publishes (typed `SystemEvent` or the `Generic`
   escape hatch). `dispatch_event` already does the filtered routing.
 - **Focus** without the stale `tab current` CLI: subscribe to
-  `SystemEvent::PaneFocused { pane_id }` — the host already emits it, so the
+  `SystemEvent::TabFocused { tab_id }` — the host already emits it, so the
   plugin always knows the focused tab (relevant to issue #123).
 - **Settings** via `capabilities.settings`, **CLI** via `capabilities.commands`.
 - **Live render + state indicator**: the one new host surface to add — a

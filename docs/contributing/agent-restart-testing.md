@@ -7,7 +7,7 @@ Cross-references:
 - Service code: `src-tauri/src/service/agent_restart.rs`
 - REST handler: `src-tauri/src/api/routes.rs::agent_restart_handler`
 - CLI: `cli/src/main.rs::Agent { Restart { ... } }`
-- API doc: [`docs/API.md` §Agent Restart](../API.md#agent-restart-post-apipanesidagentrestart)
+- API doc: [`docs/API.md` §Agent Restart](../API.md#agent-restart-post-apitabsidagentrestart)
 
 ## What the flow does
 
@@ -30,17 +30,17 @@ target:
 
 ```bash
 ./build.sh dev
-# Open a workspace, spawn `claude` in a pane, let it idle
-PANE=$(curl -s http://127.0.0.1:7686/api/panes \
+# Open a workspace, spawn `claude` in a tab, let it idle
+TAB=$(curl -s http://127.0.0.1:7686/api/tabs \
   -H "Authorization: Bearer $TOKEN" \
   | python3 -c "import sys,json;print([p['id'] for p in json.load(sys.stdin) if p.get('agent_type')=='claude'][0])")
-echo "Target pane: $PANE"
+echo "Target tab: $TAB"
 ```
 
 ## 1. Graceful restart
 
 ```bash
-~/.codeterm-dev/bin/codeterm agent restart --tab $PANE
+~/.codeterm-dev/bin/codeterm agent restart --tab $TAB
 ```
 
 Expected:
@@ -50,8 +50,8 @@ Expected:
   session had a `claude_session_id` recorded, the new process is
   launched with `--resume <id>`. Verify with:
   ```bash
-  curl -s http://127.0.0.1:7686/api/panes -H "Authorization: Bearer $TOKEN" \
-    | python3 -c "import sys,json; p=[x for x in json.load(sys.stdin) if x['id']==\"$PANE\"][0]; print(p)"
+  curl -s http://127.0.0.1:7686/api/tabs -H "Authorization: Bearer $TOKEN" \
+    | python3 -c "import sys,json; p=[x for x in json.load(sys.stdin) if x['id']==\"$TAB\"][0]; print(p)"
   ```
   `pty_id` should change; `claude_session_id` should remain stable.
 
@@ -62,7 +62,7 @@ SIGSTOP to the PTY's child process (Windows: use Process Explorer to
 suspend the process). Then:
 
 ```bash
-~/.codeterm-dev/bin/codeterm agent restart --tab $PANE --force --grace-secs 3
+~/.codeterm-dev/bin/codeterm agent restart --tab $TAB --force --grace-secs 3
 ```
 
 Expected:
@@ -80,7 +80,7 @@ the endpoint twice in quick succession:
 
 ```bash
 for i in 1 2; do
-  curl -i -X POST "http://127.0.0.1:7686/api/panes/$tab/agent/restart" \
+  curl -i -X POST "http://127.0.0.1:7686/api/tabs/$tab/agent/restart" \
     -H "Authorization: Bearer $TOKEN"
 done
 ```
@@ -102,7 +102,7 @@ A common pattern: an Orchestrator notices a Worker is stuck and asks
 the system to restart it.
 
 ```bash
-codeterm agent restart --tab $WORKER_PANE_ID --grace-secs 30
+codeterm agent restart --tab $WORKER_TAB_ID --grace-secs 30
 ```
 
 The Orchestrator's Tab keeps running; only the Worker's PTY cycles.

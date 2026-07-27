@@ -167,7 +167,7 @@ Stored in Bitwarden vault (retrieve via `codeterm mem secret get --name <slug>` 
 
 When delegating this skill to an agent (release coordinator or ROG worker), **spawn with `--model haiku`**. The pipeline is mostly orchestration + bash + git/gh — Haiku is fast and cheap enough; Sonnet/Opus is overkill and doubles wall time on thinking phases.
 
-Spawn with `codeterm agent spawn claude --task "..." --model haiku`. Parent is inferred from `$CODETERM_PANE_ID`; reports route back to you automatically (Orchestrator + child-tab model, no `--role` flag needed).
+Spawn with `codeterm agent spawn claude --task "..." --model haiku`. Parent is inferred from `$CODETERM_TAB_ID`; reports route back to you automatically (Orchestrator + child-tab model, no `--role` flag needed).
 
 ### 0. Kill any running dev
 
@@ -707,7 +707,7 @@ codeterm update install \
   --continue-prompt "after restart, verify tab performance"
 ```
 
-`--continue-tab` defaults to `$CODETERM_PANE_ID`. The helper:
+`--continue-tab` defaults to `$CODETERM_TAB_ID`. The helper:
 1. Sleeps 2s, lets the calling CLI return.
 2. `taskkill /F /IM codeterm.exe codeterm-embed.exe`.
 3. Runs the NSIS installer with `/S` (silent — no UAC since `installMode=currentUser`).

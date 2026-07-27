@@ -46,8 +46,8 @@ def dev_env() -> dict[str, str]:
             "CODETERM_API_PORT": DEV_PORT,
             "CODETERM_API_TOKEN": token,
             "CODETERM_SOCKET_PATH": "codeterm-dev.sock",
-            "CODETERM_PANE_ID": "",
-            "CODETERM_PARENT_PANE_ID": "",
+            "CODETERM_TAB_ID": "",
+            "CODETERM_PARENT_TAB_ID": "",
         }
     )
     return env
@@ -79,31 +79,31 @@ def dev_post(path: str, payload: dict[str, Any]) -> Any:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def resize_pane_for_capture(pane_id: str, cols: int, rows: int) -> dict[str, Any]:
+def resize_tab_for_capture(tab_id: str, cols: int, rows: int) -> dict[str, Any]:
     deadline = time.monotonic() + 20.0
     last_error: Exception | None = None
     while time.monotonic() < deadline:
         try:
-            return dev_post(f"/api/panes/{pane_id}/resize", {"cols": cols, "rows": rows})
+            return dev_post(f"/api/tabs/{tab_id}/resize", {"cols": cols, "rows": rows})
         except Exception as exc:
             last_error = exc
             time.sleep(0.75)
-    raise RuntimeError(f"failed to resize replay pane {pane_id} to {cols}x{rows}: {last_error}")
+    raise RuntimeError(f"failed to resize replay tab {tab_id} to {cols}x{rows}: {last_error}")
 
 
-def start_capture(pane_id: str, cast_path: Path) -> dict[str, Any]:
+def start_capture(tab_id: str, cast_path: Path) -> dict[str, Any]:
     deadline = time.monotonic() + 20.0
     last_error: Exception | None = None
     result: dict[str, Any] | None = None
     while time.monotonic() < deadline:
         try:
-            result = dev_post(f"/api/panes/{pane_id}/capture/start", {"out": str(cast_path)})
+            result = dev_post(f"/api/tabs/{tab_id}/capture/start", {"out": str(cast_path)})
             break
         except Exception as exc:
             last_error = exc
             time.sleep(0.5)
     if result is None:
-        raise RuntimeError(f"failed to start capture for pane {pane_id}: {last_error}")
+        raise RuntimeError(f"failed to start capture for tab {tab_id}: {last_error}")
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:
         if cast_path.exists():
@@ -112,8 +112,8 @@ def start_capture(pane_id: str, cast_path: Path) -> dict[str, Any]:
     raise RuntimeError(f"capture start returned ok but did not create {cast_path}")
 
 
-def stop_capture(pane_id: str, cast_path: Path) -> dict[str, Any]:
-    result = dev_post(f"/api/panes/{pane_id}/capture/stop", {})
+def stop_capture(tab_id: str, cast_path: Path) -> dict[str, Any]:
+    result = dev_post(f"/api/tabs/{tab_id}/capture/stop", {})
     if not cast_path.exists():
         raise RuntimeError(f"capture stop returned ok but {cast_path} is missing")
     return result
@@ -124,7 +124,7 @@ def ensure_dev() -> None:
         dev_get("/api/health")
     except Exception as exc:
         raise SystemExit(
-            "dev daemon is not healthy on port 7686; start it in a visible CodeTerm pane: "
+            "dev daemon is not healthy on port 7686; start it in a visible CodeTerm tab: "
             "codeterm tab new --cmd \"cd <repo> && ./build.sh dev\""
         ) from exc
 
@@ -149,16 +149,16 @@ def run_codeterm(*args: str, json_out: bool = False) -> Any:
     return proc.stdout.strip()
 
 
-def pane_status(pane_id: str) -> str:
+def tab_status(tab_id: str) -> str:
     try:
-        return str(dev_get(f"/api/panes/{pane_id}/status").get("status", ""))
+        return str(dev_get(f"/api/tabs/{tab_id}/status").get("status", ""))
     except Exception:
         return ""
 
 
-def pane_text(pane_id: str) -> str:
+def tab_text(tab_id: str) -> str:
     try:
-        return run_codeterm("tab", "get-text", "--tab", pane_id)
+        return run_codeterm("tab", "get-text", "--tab", tab_id)
     except Exception:
         return ""
 
@@ -240,7 +240,7 @@ class WaitResult:
     timed_out: bool
 
 
-def wait_stable(pane_id: str, pacing: dict[str, Any]) -> WaitResult:
+def wait_stable(tab_id: str, pacing: dict[str, Any]) -> WaitResult:
     start = time.monotonic()
     max_wait = float(pacing.get("max_wait_ms", 180_000)) / 1000.0
     min_dwell = float(pacing.get("min_dwell_ms", 1200)) / 1000.0
@@ -251,9 +251,9 @@ def wait_stable(pane_id: str, pacing: dict[str, Any]) -> WaitResult:
 
     while True:
         now = time.monotonic()
-        text = pane_text(pane_id)
+        text = tab_text(tab_id)
         norm = normalize_for_stability(text)
-        status = pane_status(pane_id)
+        status = tab_status(tab_id)
         last_status = status or last_status
         if norm != last_norm:
             last_norm = norm
@@ -269,10 +269,10 @@ def wait_stable(pane_id: str, pacing: dict[str, Any]) -> WaitResult:
         time.sleep(1.0)
 
 
-def settle_startup_prompts(pane_id: str, log: list[dict[str, Any]], rel_ms) -> None:
+def settle_startup_prompts(tab_id: str, log: list[dict[str, Any]], rel_ms) -> None:
     deadline = time.monotonic() + 25.0
     while time.monotonic() < deadline:
-        action = startup_prompt_action(pane_text(pane_id))
+        action = startup_prompt_action(tab_text(tab_id))
         if action is None:
             return
         args = ["send"]
@@ -280,7 +280,7 @@ def settle_startup_prompts(pane_id: str, log: list[dict[str, Any]], rel_ms) -> N
             args.append(action.text)
         if action.actions is not None:
             args.extend(["--actions", action.actions])
-        args.extend(["--tab", pane_id])
+        args.extend(["--tab", tab_id])
         run_codeterm(*args)
         log.append(
             {
@@ -294,14 +294,14 @@ def settle_startup_prompts(pane_id: str, log: list[dict[str, Any]], rel_ms) -> N
         time.sleep(2.0)
 
 
-def recover_agent_after_startup(pane_id: str, provider: str, log: list[dict[str, Any]], rel_ms) -> None:
-    text = pane_text(pane_id)
+def recover_agent_after_startup(tab_id: str, provider: str, log: list[dict[str, Any]], rel_ms) -> None:
+    text = tab_text(tab_id)
     if provider != "cursor" or composer_visible(text) or not shell_prompt_visible(text):
         return
-    run_codeterm("agent", "restart", "--tab", pane_id, "--force")
+    run_codeterm("agent", "restart", "--tab", tab_id, "--force")
     log.append({"t_ms": rel_ms(), "event": "startup_agent_restart", "provider": provider})
     time.sleep(8.0)
-    settle_startup_prompts(pane_id, log, rel_ms)
+    settle_startup_prompts(tab_id, log, rel_ms)
 
 
 def provider_version(provider: str) -> str:
@@ -367,7 +367,7 @@ def capture(args: argparse.Namespace) -> Path:
         json_out=True,
     )
     workspace_id = ws["id"]
-    pane = run_codeterm(
+    tab = run_codeterm(
         "agent",
         "spawn",
         provider,
@@ -380,7 +380,7 @@ def capture(args: argparse.Namespace) -> Path:
         "--json",
         json_out=True,
     )
-    pane_id = pane["pane_id"]
+    tab_id = tab["tab_id"]
 
     events: list[dict[str, Any]] = []
     phases: list[dict[str, Any]] = []
@@ -391,7 +391,7 @@ def capture(args: argparse.Namespace) -> Path:
     def rel_ms() -> int:
         return int(time.time() * 1000) - start_wall_ms
 
-    capture_start_result = start_capture(pane_id, cast_path)
+    capture_start_result = start_capture(tab_id, cast_path)
     start_wall_ms = int(time.time() * 1000)
     log.append(
         {
@@ -401,7 +401,7 @@ def capture(args: argparse.Namespace) -> Path:
             "capture_start_result": capture_start_result,
         }
     )
-    resize_result = resize_pane_for_capture(pane_id, cols, rows)
+    resize_result = resize_tab_for_capture(tab_id, cols, rows)
     log.append(
         {
             "t_ms": rel_ms(),
@@ -412,21 +412,21 @@ def capture(args: argparse.Namespace) -> Path:
     )
     time.sleep(0.5)
 
-    focus_peer_pane_id = ""
+    focus_peer_tab_id = ""
     focus_churn = scenario.get("focus_churn", {})
     if focus_churn.get("enabled"):
         try:
             peer = run_codeterm(
-                "pane",
+                "tab",
                 "new",
                 "--workspace",
                 workspace_id,
                 "--json",
                 json_out=True,
             )
-            focus_peer_pane_id = peer.get("pane_id", "")
+            focus_peer_tab_id = peer.get("tab_id", "")
         except Exception as exc:
-            focus_peer_pane_id = ""
+            focus_peer_tab_id = ""
             print(f"warning: focus peer unavailable; focus churn disabled: {exc}", file=sys.stderr)
 
     def flush_progress() -> None:
@@ -434,14 +434,14 @@ def capture(args: argparse.Namespace) -> Path:
         write_json(out_dir / "capture.log.json", log)
 
     def churn_focus(label: str, cycles: int | None = None, delay_ms: int | None = None) -> None:
-        if not focus_peer_pane_id:
+        if not focus_peer_tab_id:
             return
         cycles = cycles if cycles is not None else int(focus_churn.get("cycles", 6))
         delay_ms = delay_ms if delay_ms is not None else int(focus_churn.get("delay_ms", 350))
         for i in range(cycles):
-            run_codeterm("pane", "focus", focus_peer_pane_id)
+            run_codeterm("tab", "focus", focus_peer_tab_id)
             time.sleep(delay_ms / 1000.0)
-            run_codeterm("pane", "focus", pane_id)
+            run_codeterm("tab", "focus", tab_id)
             time.sleep(delay_ms / 1000.0)
             log.append({"t_ms": rel_ms(), "event": "focus_churn", "label": label, "cycle": i + 1})
 
@@ -450,24 +450,24 @@ def capture(args: argparse.Namespace) -> Path:
         {
             "t_ms": rel_ms(),
             "event": "spawned",
-            "pane": pane_id,
+            "tab": tab_id,
             "workspace": workspace_id,
             "terminal": {"cols": cols, "rows": rows},
             "resize_result": resize_result,
         }
     )
-    settle_startup_prompts(pane_id, log, rel_ms)
-    recover_agent_after_startup(pane_id, provider, log, rel_ms)
-    wait_stable(pane_id, scenario.get("pacing", {}))
+    settle_startup_prompts(tab_id, log, rel_ms)
+    recover_agent_after_startup(tab_id, provider, log, rel_ms)
+    wait_stable(tab_id, scenario.get("pacing", {}))
 
     for turn in scenario["turns"]:
         before = rel_ms()
         text = turn["user"]
-        run_codeterm("send", "--tab", pane_id, text, "--actions", "enter")
+        run_codeterm("send", "--tab", tab_id, text, "--actions", "enter")
         events.append({"t_ms": before, "kind": "input", "turn": turn["n"], "text": text})
         log.append({"t_ms": before, "event": "send_turn", "turn": turn["n"]})
         flush_progress()
-        wait = wait_stable(pane_id, scenario.get("pacing", {}))
+        wait = wait_stable(tab_id, scenario.get("pacing", {}))
         after = rel_ms()
         phases.append(
             {
@@ -523,9 +523,9 @@ def capture(args: argparse.Namespace) -> Path:
     if scenario.get("stop", {}).get("focus_churn"):
         churn_focus("final-idle")
     time.sleep(max(0, final_idle_ms - (rel_ms() - final_start)) / 1000.0)
-    capture_stop_result = stop_capture(pane_id, cast_path)
+    capture_stop_result = stop_capture(tab_id, cast_path)
     log.append({"t_ms": rel_ms(), "event": "capture_stop", "capture_stop_result": capture_stop_result})
-    screen = pane_text(pane_id)
+    screen = tab_text(tab_id)
     (out_dir / "screen.txt").write_text(screen, encoding="utf-8")
 
     meta = {
@@ -535,7 +535,7 @@ def capture(args: argparse.Namespace) -> Path:
         "provider_version": provider_version(provider),
         "codeterm_health": dev_get("/api/health"),
         "workspace_id": workspace_id,
-        "pane_id": pane_id,
+        "tab_id": tab_id,
         "workspace_dir": str(workspace_dir),
         "captured_at_ms": int(time.time() * 1000),
         "terminal": {

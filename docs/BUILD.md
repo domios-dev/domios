@@ -91,7 +91,7 @@ does not publish a release or alter GitHub assets.
 
    ```powershell
    .\build.ps1 install-local --continue-prompt "Verify the installed build, then resume release QA."
-   .\build.ps1 install-local --continue-tab "<pane-id>" --continue-prompt "Continue the interrupted task."
+   .\build.ps1 install-local --continue-tab "<tab-id>" --continue-prompt "Continue the interrupted task."
    .\build.ps1 install-local --no-continue
    ```
 
@@ -144,7 +144,7 @@ readiness path for scripts and CI. Use one visible CodeTerm Tab as the sole
 foreground owner:
 
 ```powershell
-# Verify no previous dev listener/process remains, then open one visible pane.
+# Verify no previous dev listener/process remains, then open one visible tab.
 codeterm tab new --cmd "Set-Location '<checkout>'; .\build.ps1 dev"
 ```
 
@@ -312,7 +312,7 @@ codeterm/
 │   │   ├── lib.rs      # App entry, state setup
 │   │   ├── commands.rs  # PTY Tauri commands
 │   │   ├── pty/         # PTY manager (portable-pty)
-│   │   ├── multiplexer/ # Workspace/Tab/Pane state
+│   │   ├── multiplexer/ # Workspace/Tab/Tab state
 │   │   ├── agent/       # Agent detection, git info
 │   │   ├── socket/      # JSON-RPC socket server
 │   │   ├── api/         # REST API (Axum)

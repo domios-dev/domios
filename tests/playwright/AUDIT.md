@@ -77,9 +77,9 @@ Files: 20. Tests: 78. Findings: 0 (0 errors, 0 warnings).
 | good | @smoke theme selection applies to live config and CSS variables | tests/playwright/suites/13-settings/settings.spec.ts:44 | 0 |
 | good | @smoke font family edit persists through the Settings UI | tests/playwright/suites/13-settings/settings.spec.ts:72 | 0 |
 | good | @smoke keybinding display renders configured shortcuts | tests/playwright/suites/13-settings/settings.spec.ts:87 | 0 |
-| good | @golden MemoryPanel searches saved memory and opens item preview | tests/playwright/suites/14-memory-ui/memory-panel.spec.ts:43 | 0 |
-| good | @golden MemoryPanel renders graph relations in item detail | tests/playwright/suites/14-memory-ui/memory-panel.spec.ts:68 | 0 |
-| good | @smoke list and detail panel render channel extension metadata | tests/playwright/suites/15-extensions/extensions.spec.ts:170 | 0 |
+| good | @golden MemoryTabl searches saved memory and opens item preview | tests/playwright/suites/14-memory-ui/memory-tabl.spec.ts:43 | 0 |
+| good | @golden MemoryTabl renders graph relations in item detail | tests/playwright/suites/14-memory-ui/memory-tabl.spec.ts:68 | 0 |
+| good | @smoke list and detail tabl render channel extension metadata | tests/playwright/suites/15-extensions/extensions.spec.ts:170 | 0 |
 | good | @golden installed extension exposes Configure with AI and plugin activity toast | tests/playwright/suites/15-extensions/extensions.spec.ts:184 | 0 |
 | good | @smoke uninstall confirmation includes remove-data checkbox | tests/playwright/suites/15-extensions/extensions.spec.ts:224 | 0 |
 | good | @golden ChatView renders message blocks, code blocks, and image attachments from mock replies | tests/playwright/suites/16-chat-view/chat-rendering.spec.ts:54 | 0 |

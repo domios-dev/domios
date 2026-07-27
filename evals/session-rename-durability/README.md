@@ -13,7 +13,7 @@ bash evals/session-rename-durability/run.sh
 
 Flow:
 
-1. Create `WS-rename-durability` workspace + shell pane.
+1. Create `WS-rename-durability` workspace + shell tab.
 2. Rename workspace and tab via REST API.
 3. Assert `last.json` already reflects the new names.
 4. `kill -9` / `taskkill /F` the dev daemon immediately.

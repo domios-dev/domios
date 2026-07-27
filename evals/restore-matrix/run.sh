@@ -10,9 +10,9 @@ export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9223"
 export VITE_CODETERM_TEST=1
 export CODETERM_TEST_CLOCK=1
 
-# Tunables (env-overridable so the matrix can be debugged one provider/pane at a
-# time and capped in wall-time). Three panes/provider proves same-provider
-# multi-pane isolation while still keeping a full 4-provider run practical.
+# Tunables (env-overridable so the matrix can be debugged one provider/tab at a
+# time and capped in wall-time). Three tabs/provider proves same-provider
+# multi-tab isolation while still keeping a full 4-provider run practical.
 RM_PROVIDERS="${RM_PROVIDERS:-claude codex opencode cursor}"
 RM_PER_PROVIDER="${RM_PER_PROVIDER:-3}"
 RM_MATERIALIZE_TIMEOUT="${RM_MATERIALIZE_TIMEOUT:-60}"
@@ -54,13 +54,13 @@ for line in pathlib.Path(tsv).read_text(encoding='utf-8').splitlines():
     parts = line.split('\t')
     while len(parts) < 11:
         parts.append('')
-    provider, idx, model, pane_id, tab_id, marker, sid_before, sid_after, skipped, reason, booted_model = parts[:11]
+    provider, idx, model, tab_id, tab_id, marker, sid_before, sid_after, skipped, reason, booted_model = parts[:11]
     slots.append({
         'provider': provider,
         'index': int(idx),
         'requested_model': model,
         'booted_model_evidence': booted_model or None,
-        'pane_id': pane_id or None,
+        'tab_id': tab_id or None,
         'tab_id': tab_id or None,
         'marker': marker,
         'sid_before': sid_before or None,
@@ -87,7 +87,7 @@ replace_slot_field() {
 PYTHONIOENCODING=utf-8 python - "$SLOTS_TSV" "$provider" "$idx" "$field" "$value" <<'PY'
 import os, pathlib, sys
 path, provider, idx, field, value = sys.argv[1:6]
-fields = ['provider','idx','model','pane_id','tab_id','marker','sid_before','sid_after','skipped','reason','booted_model']
+fields = ['provider','idx','model','tab_id','tab_id','marker','sid_before','sid_after','skipped','reason','booted_model']
 col = fields.index(field)
 rows = []
 path = pathlib.Path(path)
@@ -252,8 +252,8 @@ PY
 }
 
 detect_booted_model_evidence() {
-  local provider="$1" pane_id="$2"
-  dc tab get-text --tab "$pane_id" 2>/dev/null | PYTHONIOENCODING=utf-8 python - "$provider" <<'PY'
+  local provider="$1" tab_id="$2"
+  dc tab get-text --tab "$tab_id" 2>/dev/null | PYTHONIOENCODING=utf-8 python - "$provider" <<'PY'
 import re, sys
 provider = sys.argv[1]
 text = sys.stdin.read().lower()
@@ -281,14 +281,14 @@ print(evidence)
 PY
 }
 
-pane_json_by_id() {
-  local pane_id="$1"
-  dev_get /api/panes | python - "$pane_id" <<'PY'
+tab_json_by_id() {
+  local tab_id="$1"
+  dev_get /api/tabs | python - "$tab_id" <<'PY'
 import json, sys
-pane_id = sys.argv[1]
-for pane in json.load(sys.stdin):
-    if pane.get('id') == pane_id:
-        print(json.dumps(pane))
+tab_id = sys.argv[1]
+for tab in json.load(sys.stdin):
+    if tab.get('id') == tab_id:
+        print(json.dumps(tab))
         sys.exit(0)
 sys.exit(1)
 PY
@@ -296,14 +296,14 @@ PY
 
 refresh_slot_pre() {
   local provider="$1" idx="$2" timeout="${3:-45}"
-  local pane_id tab_id sid pane_json deadline
-  pane_id=$(awk -F '\t' -v p="$provider" -v i="$idx" '$1==p && $2==i {print $4}' "$SLOTS_TSV")
-  [ -n "$pane_id" ] || return 1
+  local tab_id tab_id sid tab_json deadline
+  tab_id=$(awk -F '\t' -v p="$provider" -v i="$idx" '$1==p && $2==i {print $4}' "$SLOTS_TSV")
+  [ -n "$tab_id" ] || return 1
   deadline=$((SECONDS + timeout))
   while [ $SECONDS -lt $deadline ]; do
-    pane_json=$(pane_json_by_id "$pane_id" 2>/dev/null || true)
-    tab_id=$(echo "$pane_json" | json_field "data.get('tab_id')")
-    sid=$(echo "$pane_json" | json_field "data.get('agent_session_id')")
+    tab_json=$(tab_json_by_id "$tab_id" 2>/dev/null || true)
+    tab_id=$(echo "$tab_json" | json_field "data.get('tab_id')")
+    sid=$(echo "$tab_json" | json_field "data.get('agent_session_id')")
     [ -n "$tab_id" ] && replace_slot_field "$provider" "$idx" tab_id "$tab_id"
     [ -n "$sid" ] && replace_slot_field "$provider" "$idx" sid_before "$sid"
     if [ -n "$tab_id" ] && [ -n "$sid" ]; then
@@ -315,32 +315,32 @@ refresh_slot_pre() {
 }
 
 refresh_all_slots_pre() {
-  dev_get /api/panes > "$RUN_DIR/pre-panes.json"
-  PYTHONIOENCODING=utf-8 python - "$SLOTS_TSV" "$RUN_DIR/pre-panes.json" <<'PY'
+  dev_get /api/tabs > "$RUN_DIR/pre-tabs.json"
+  PYTHONIOENCODING=utf-8 python - "$SLOTS_TSV" "$RUN_DIR/pre-tabs.json" <<'PY'
 import json, pathlib, sys
-slots_path, panes_path = sys.argv[1:3]
+slots_path, tabs_path = sys.argv[1:3]
 rows = [line.split('\t') for line in pathlib.Path(slots_path).read_text(encoding='utf-8').splitlines() if line.strip()]
 for r in rows:
     while len(r) < 11:
         r.append('')
-panes = {p.get('id'): p for p in json.load(open(panes_path, encoding='utf-8'))}
+tabs = {p.get('id'): p for p in json.load(open(tabs_path, encoding='utf-8'))}
 for r in rows:
-    pane = panes.get(r[3])
-    if not pane:
+    tab = tabs.get(r[3])
+    if not tab:
         continue
-    if pane.get('tab_id'):
-        r[4] = pane.get('tab_id') or ''
-    if pane.get('agent_session_id'):
-        r[6] = pane.get('agent_session_id') or ''
+    if tab.get('tab_id'):
+        r[4] = tab.get('tab_id') or ''
+    if tab.get('agent_session_id'):
+        r[6] = tab.get('agent_session_id') or ''
 pathlib.Path(slots_path).write_text('\n'.join('\t'.join(r) for r in rows) + '\n', encoding='utf-8')
 PY
-  local line line_usv provider idx model pane_id tab_id marker sid_before sid_after skipped reason booted_model
+  local line line_usv provider idx model tab_id tab_id marker sid_before sid_after skipped reason booted_model
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     line_usv=${line//$'\t'/$'\034'}
-    IFS=$'\034' read -r provider idx model pane_id tab_id marker sid_before sid_after skipped reason booted_model <<< "$line_usv"
-    if [ -n "${pane_id:-}" ]; then
-      replace_slot_field "$provider" "$idx" booted_model "$(detect_booted_model_evidence "$provider" "$pane_id")"
+    IFS=$'\034' read -r provider idx model tab_id tab_id marker sid_before sid_after skipped reason booted_model <<< "$line_usv"
+    if [ -n "${tab_id:-}" ]; then
+      replace_slot_field "$provider" "$idx" booted_model "$(detect_booted_model_evidence "$provider" "$tab_id")"
     fi
   done < "$SLOTS_TSV"
 }
@@ -350,29 +350,29 @@ spawn_slot() {
   local title="rm-${provider}-${idx}"
   local cwd="$WORKSPACE_CWD/$title"
   mkdir -p "$cwd"
-  local out pane_id tab_id sid
+  local out tab_id tab_id sid
   out=$(dc agent spawn "$provider" --workspace "$WORKSPACE_ID" --cwd "$cwd" --title "$title" --model "$model" 2>&1)
-  pane_id=$(echo "$out" | grep -oE 'pane [a-f0-9]+' | awk '{print $2}' | head -1)
-  if [ -z "$pane_id" ]; then
+  tab_id=$(echo "$out" | grep -oE 'tab [a-f0-9]+' | awk '{print $2}' | head -1)
+  if [ -z "$tab_id" ]; then
     replace_slot_field "$provider" "$idx" skipped 1
     replace_slot_field "$provider" "$idx" reason "spawn failed: $out"
     echo "SKIP provider=$provider slot=$idx reason=spawn failed"
     return 1
   fi
-  replace_slot_field "$provider" "$idx" pane_id "$pane_id"
-  local pane_json
-  pane_json=$(pane_json_by_id "$pane_id" 2>/dev/null || true)
-  tab_id=$(echo "$pane_json" | json_field "data.get('tab_id')")
-  sid=$(echo "$pane_json" | json_field "data.get('agent_session_id')")
+  replace_slot_field "$provider" "$idx" tab_id "$tab_id"
+  local tab_json
+  tab_json=$(tab_json_by_id "$tab_id" 2>/dev/null || true)
+  tab_id=$(echo "$tab_json" | json_field "data.get('tab_id')")
+  sid=$(echo "$tab_json" | json_field "data.get('agent_session_id')")
   replace_slot_field "$provider" "$idx" tab_id "$tab_id"
   replace_slot_field "$provider" "$idx" sid_before "$sid"
-  replace_slot_field "$provider" "$idx" booted_model "$(detect_booted_model_evidence "$provider" "$pane_id")"
-  echo "SPAWN provider=$provider slot=$idx pane=$pane_id sid=${sid:-none} marker=$marker"
+  replace_slot_field "$provider" "$idx" booted_model "$(detect_booted_model_evidence "$provider" "$tab_id")"
+  echo "SPAWN provider=$provider slot=$idx tab=$tab_id sid=${sid:-none} marker=$marker"
   return 0
 }
 
 send_marker_and_wait() {
-  local provider="$1" idx="$2" pane_id="$3" marker="$4"
+  local provider="$1" idx="$2" tab_id="$3" marker="$4"
   local prompt="Reply with exactly $marker and nothing else."
   local out deadline payload response status body attempt evidence
 
@@ -382,13 +382,13 @@ print(json.dumps({"text": sys.argv[1], "enter": True}))
 PY
 )
   for attempt in 1 2; do
-    response=$(curl -s --max-time 120 -w '\n%{http_code}' -X POST -H "$CODETERM_DEV_AUTH_HEADER" -H "Content-Type: application/json" --data "$payload" "http://127.0.0.1:7686/api/panes/$pane_id/send")
+    response=$(curl -s --max-time 120 -w '\n%{http_code}' -X POST -H "$CODETERM_DEV_AUTH_HEADER" -H "Content-Type: application/json" --data "$payload" "http://127.0.0.1:7686/api/tabs/$tab_id/send")
     status=$(printf '%s' "$response" | tail -n 1)
     body=$(printf '%s' "$response" | sed '$d')
     if [ "$status" != "200" ]; then
       replace_slot_field "$provider" "$idx" skipped 1
       replace_slot_field "$provider" "$idx" reason "send failed HTTP $status: $body"
-      echo "SKIP provider=$provider slot=$idx pane=$pane_id reason=send failed HTTP $status: $body"
+      echo "SKIP provider=$provider slot=$idx tab=$tab_id reason=send failed HTTP $status: $body"
       return 1
     fi
     deadline=$((SECONDS + RM_MATERIALIZE_TIMEOUT))
@@ -396,26 +396,26 @@ PY
       refresh_slot_pre "$provider" "$idx" 1 || true
       evidence=$(marker_materialized_in_store "$provider" "$idx" 2>/dev/null || true)
       if [ -n "$evidence" ]; then
-        echo "PASS pre-marker-store provider=$provider slot=$idx pane=$pane_id marker=$marker evidence=$evidence"
+        echo "PASS pre-marker-store provider=$provider slot=$idx tab=$tab_id marker=$marker evidence=$evidence"
         return 0
       fi
-      out=$(dc tab get-text --tab "$pane_id" 2>&1 || true)
+      out=$(dc tab get-text --tab "$tab_id" 2>&1 || true)
       if printf '%s' "$out" | marker_in_text "$marker"; then
-        echo "INFO pre-marker-terminal-visible provider=$provider slot=$idx pane=$pane_id marker=$marker waiting_for_provider_store"
+        echo "INFO pre-marker-terminal-visible provider=$provider slot=$idx tab=$tab_id marker=$marker waiting_for_provider_store"
       fi
       if echo "$out" | grep -Eiq 'rate-limit-options|session limit|usage limit|upgrade your plan|sign in|login|authenticate'; then
         replace_slot_field "$provider" "$idx" skipped 1
         replace_slot_field "$provider" "$idx" reason "auth/rate-limit screen before marker materialized"
-        echo "SKIP provider=$provider slot=$idx pane=$pane_id reason=auth/rate-limit screen before marker materialized"
+        echo "SKIP provider=$provider slot=$idx tab=$tab_id reason=auth/rate-limit screen before marker materialized"
         return 1
       fi
       sleep 5
     done
-    echo "WARN provider=$provider slot=$idx pane=$pane_id marker did not materialize after send attempt $attempt"
+    echo "WARN provider=$provider slot=$idx tab=$tab_id marker did not materialize after send attempt $attempt"
   done
   replace_slot_field "$provider" "$idx" skipped 1
   replace_slot_field "$provider" "$idx" reason "send/setup failure: marker did not materialize pre-kill after retry"
-  echo "SEND_SETUP_FAIL provider=$provider slot=$idx pane=$pane_id reason=marker did not materialize pre-kill after retry"
+  echo "SEND_SETUP_FAIL provider=$provider slot=$idx tab=$tab_id reason=marker did not materialize pre-kill after retry"
   return 1
 }
 
@@ -471,11 +471,11 @@ prepare_slots() {
 }
 
 spawn_all_slots() {
-  local pids=() line line_usv provider idx model marker _pane _tab _sid_before _sid_after _skipped _reason _booted_model
+  local pids=() line line_usv provider idx model marker _tab _tab _sid_before _sid_after _skipped _reason _booted_model
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     line_usv=${line//$'\t'/$'\034'}
-    IFS=$'\034' read -r provider idx model _pane _tab marker _sid_before _sid_after _skipped _reason _booted_model <<< "$line_usv"
+    IFS=$'\034' read -r provider idx model _tab _tab marker _sid_before _sid_after _skipped _reason _booted_model <<< "$line_usv"
     (
       spawn_slot "$provider" "$idx" "$model" "$marker"
     ) &
@@ -487,14 +487,14 @@ spawn_all_slots() {
 }
 
 send_all_markers() {
-  local pids=() line line_usv provider idx model pane_id tab_id marker sid_before sid_after skipped reason booted_model
+  local pids=() line line_usv provider idx model tab_id tab_id marker sid_before sid_after skipped reason booted_model
   while IFS= read -r line; do
     [ -n "$line" ] || continue
     line_usv=${line//$'\t'/$'\034'}
-    IFS=$'\034' read -r provider idx model pane_id tab_id marker sid_before sid_after skipped reason booted_model <<< "$line_usv"
-    if [ -n "${pane_id:-}" ] && [ "${skipped:-0}" != "1" ]; then
+    IFS=$'\034' read -r provider idx model tab_id tab_id marker sid_before sid_after skipped reason booted_model <<< "$line_usv"
+    if [ -n "${tab_id:-}" ] && [ "${skipped:-0}" != "1" ]; then
       (
-        send_marker_and_wait "$provider" "$idx" "$pane_id" "$marker"
+        send_marker_and_wait "$provider" "$idx" "$tab_id" "$marker"
       ) &
       pids+=("$!")
     fi
@@ -509,7 +509,7 @@ assert_post_chat_isolation() {
 import json, os, pathlib, re, sys, urllib.error, urllib.request
 slots_path = pathlib.Path(sys.argv[1])
 token = os.environ.get("CODETERM_API_TOKEN", "")
-fields = ['provider','idx','model','pane_id','tab_id','marker','sid_before','sid_after','skipped','reason','booted_model']
+fields = ['provider','idx','model','tab_id','tab_id','marker','sid_before','sid_after','skipped','reason','booted_model']
 rows = []
 for line in slots_path.read_text(encoding="utf-8").splitlines():
     if not line.strip():
@@ -534,89 +534,89 @@ def api_get(path):
         return json.loads(response.read().decode("utf-8"))
 
 for row in active:
-    pane_id = row["pane_id"]
+    tab_id = row["tab_id"]
     marker = row["marker"]
-    if not pane_id:
-        raise SystemExit(f"FAIL chat provider={row['provider']} slot={row['idx']}: missing pane_id")
+    if not tab_id:
+        raise SystemExit(f"FAIL chat provider={row['provider']} slot={row['idx']}: missing tab_id")
     try:
-        payload = api_get(f"/api/panes/{pane_id}/chat")
+        payload = api_get(f"/api/tabs/{tab_id}/chat")
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
-        raise SystemExit(f"FAIL chat provider={row['provider']} slot={row['idx']} pane={pane_id}: HTTP {exc.code}: {body[:300]}")
+        raise SystemExit(f"FAIL chat provider={row['provider']} slot={row['idx']} tab={tab_id}: HTTP {exc.code}: {body[:300]}")
     text = json.dumps(payload.get("messages", []), ensure_ascii=False)
     norm = clean(text)
     own = clean(marker)
     if own not in norm:
-        raise SystemExit(f"FAIL chat provider={row['provider']} slot={row['idx']} pane={pane_id}: marker missing from /chat marker={marker}")
+        raise SystemExit(f"FAIL chat provider={row['provider']} slot={row['idx']} tab={tab_id}: marker missing from /chat marker={marker}")
     for other in markers:
         if other == marker:
             continue
         if clean(other) in norm:
-            raise SystemExit(f"FAIL chat provider={row['provider']} slot={row['idx']} pane={pane_id}: /chat contains other marker {other}")
-    print(f"PASS chat provider={row['provider']} slot={row['idx']} pane={pane_id} marker={marker}")
+            raise SystemExit(f"FAIL chat provider={row['provider']} slot={row['idx']} tab={tab_id}: /chat contains other marker {other}")
+    print(f"PASS chat provider={row['provider']} slot={row['idx']} tab={tab_id} marker={marker}")
 PY
 }
 
 refresh_post_sids_and_assert_api() {
-  local panes_json="$RUN_DIR/post-panes.json"
-  dev_get /api/panes > "$panes_json"
-  PYTHONIOENCODING=utf-8 python - "$SLOTS_TSV" "$panes_json" <<'PY'
+  local tabs_json="$RUN_DIR/post-tabs.json"
+  dev_get /api/tabs > "$tabs_json"
+  PYTHONIOENCODING=utf-8 python - "$SLOTS_TSV" "$tabs_json" <<'PY'
 import pathlib, sys, json
-slots_path, panes_path = sys.argv[1:3]
+slots_path, tabs_path = sys.argv[1:3]
 rows = [line.split('\t') for line in pathlib.Path(slots_path).read_text(encoding='utf-8').splitlines() if line.strip()]
-panes = {p.get('id'): p for p in json.load(open(panes_path, encoding='utf-8'))}
+tabs = {p.get('id'): p for p in json.load(open(tabs_path, encoding='utf-8'))}
 pre_sid_owner = {r[6]: r[3] for r in rows if r[6] and r[8] != '1'}
 post_sid_owner = {}
 def assertable(r):
     marker, skipped, reason = r[5], r[8], r[9]
     if skipped != '1':
         return True
-    # If we successfully created a pane and sent a unique marker but timed out
-    # waiting for it, that pane is still an oracle target. The UI must not be
+    # If we successfully created a tab and sent a unique marker but timed out
+    # waiting for it, that tab is still an oracle target. The UI must not be
     # allowed to hide a fresh/wrong restore behind a provider-level skip.
     return bool(r[3]) and marker.startswith('RESTORE-MARKER-') and not marker.startswith('RESTORE-MARKER-skipped-') and reason == 'marker did not appear before timeout'
 
 for r in rows:
     while len(r) < 11:
         r.append('')
-    provider, idx, model, pane_id, tab_id, marker, sid_before, sid_after, skipped, reason, booted_model = r
-    if not pane_id:
+    provider, idx, model, tab_id, tab_id, marker, sid_before, sid_after, skipped, reason, booted_model = r
+    if not tab_id:
         continue
-    pane = panes.get(pane_id)
-    if not pane:
+    tab = tabs.get(tab_id)
+    if not tab:
         if assertable(r):
-            raise SystemExit(f"FAIL provider={provider} slot={idx} pane={pane_id}: pane missing after restart")
+            raise SystemExit(f"FAIL provider={provider} slot={idx} tab={tab_id}: tab missing after restart")
         continue
-    if pane.get('tab_id') and not tab_id:
-        r[4] = pane.get('tab_id') or ''
-    sid_after = pane.get('agent_session_id') or ''
+    if tab.get('tab_id') and not tab_id:
+        r[4] = tab.get('tab_id') or ''
+    sid_after = tab.get('agent_session_id') or ''
     r[7] = sid_after
     if not assertable(r):
-        print(f"SKIP api provider={provider} slot={idx} pane={pane_id} reason={reason or 'provider skipped'} sid_before={sid_before or 'none'} sid_after={sid_after or 'none'}")
+        print(f"SKIP api provider={provider} slot={idx} tab={tab_id} reason={reason or 'provider skipped'} sid_before={sid_before or 'none'} sid_after={sid_after or 'none'}")
         continue
-    if pane.get('agent_type') != provider:
-        raise SystemExit(f"FAIL provider={provider} slot={idx} pane={pane_id}: provider changed to {pane.get('agent_type')!r}")
+    if tab.get('agent_type') != provider:
+        raise SystemExit(f"FAIL provider={provider} slot={idx} tab={tab_id}: provider changed to {tab.get('agent_type')!r}")
     if sid_before and sid_after and sid_after != sid_before:
-        raise SystemExit(f"FAIL provider={provider} slot={idx} pane={pane_id}: sid drift {sid_before} -> {sid_after}")
+        raise SystemExit(f"FAIL provider={provider} slot={idx} tab={tab_id}: sid drift {sid_before} -> {sid_after}")
     if sid_before and not sid_after:
-        raise SystemExit(f"FAIL provider={provider} slot={idx} pane={pane_id}: sid missing after restart; before={sid_before}")
+        raise SystemExit(f"FAIL provider={provider} slot={idx} tab={tab_id}: sid missing after restart; before={sid_before}")
     if not sid_before and not sid_after:
-        print(f"SKIP sid-check provider={provider} slot={idx} pane={pane_id} reason=unsupported-or-not-detected")
+        print(f"SKIP sid-check provider={provider} slot={idx} tab={tab_id} reason=unsupported-or-not-detected")
     if sid_after:
         other = pre_sid_owner.get(sid_after)
-        if other and other != pane_id:
-            raise SystemExit(f"FAIL provider={provider} slot={idx} pane={pane_id}: holds another pane sid {sid_after} owner={other}")
-        if sid_after in post_sid_owner and post_sid_owner[sid_after] != pane_id:
-            raise SystemExit(f"FAIL provider={provider} slot={idx} pane={pane_id}: duplicate post sid {sid_after} also={post_sid_owner[sid_after]}")
-        post_sid_owner[sid_after] = pane_id
-    print(f"PASS api provider={provider} slot={idx} pane={pane_id} sid_before={sid_before or 'none'} sid_after={sid_after or 'none'}")
+        if other and other != tab_id:
+            raise SystemExit(f"FAIL provider={provider} slot={idx} tab={tab_id}: holds another tab sid {sid_after} owner={other}")
+        if sid_after in post_sid_owner and post_sid_owner[sid_after] != tab_id:
+            raise SystemExit(f"FAIL provider={provider} slot={idx} tab={tab_id}: duplicate post sid {sid_after} also={post_sid_owner[sid_after]}")
+        post_sid_owner[sid_after] = tab_id
+    print(f"PASS api provider={provider} slot={idx} tab={tab_id} sid_before={sid_before or 'none'} sid_after={sid_after or 'none'}")
 pathlib.Path(slots_path).write_text('\n'.join('\t'.join(r) for r in rows) + '\n', encoding='utf-8')
 PY
 }
 
 print_slot_table() {
   awk -F '\t' 'BEGIN {
-      printf "provider\tslot\tpane\trequested_model\tbooted_model\tsid_before\tsid_after\tstatus\treason\tmarker\n"
+      printf "provider\tslot\ttab\trequested_model\tbooted_model\tsid_before\tsid_after\tstatus\treason\tmarker\n"
     }
     {
       status=($9=="1" ? "SKIP" : "PASS");
@@ -640,7 +640,7 @@ spawn_all_slots
 echo "== parallel marker sends and pre-kill materialization gates"
 send_all_markers
 
-echo "== refresh pre-restart pane/session/model evidence"
+echo "== refresh pre-restart tab/session/model evidence"
 refresh_all_slots_pre || exit 1
 
 active_count=$(awk -F '\t' '$9 != "1" {count++} END {print count+0}' "$SLOTS_TSV")
@@ -684,6 +684,6 @@ fi
 
 echo "== restore matrix PASS manifest=$MANIFEST"
 print_slot_table
-awk -F '\t' '$9 != "1" {printf "PASS provider=%s slot=%s pane=%s requested_model=%s booted_model=%s marker=%s sid_before=%s sid_after=%s\n", $1,$2,$4,$3,($11?$11:"unknown"),$6,($7?$7:"none"),($8?$8:"none")}' "$SLOTS_TSV"
+awk -F '\t' '$9 != "1" {printf "PASS provider=%s slot=%s tab=%s requested_model=%s booted_model=%s marker=%s sid_before=%s sid_after=%s\n", $1,$2,$4,$3,($11?$11:"unknown"),$6,($7?$7:"none"),($8?$8:"none")}' "$SLOTS_TSV"
 awk -F '\t' '$9 == "1" {printf "SKIP provider=%s slot=%s requested_model=%s booted_model=%s reason=%s\n", $1,$2,$3,($11?$11:"unknown"),$10}' "$SLOTS_TSV"
 SUCCESS=1

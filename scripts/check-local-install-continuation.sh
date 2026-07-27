@@ -6,7 +6,7 @@ cd "$root"
 
 sha="$(git rev-parse HEAD)"
 default_output="$(
-  CODETERM_PANE_ID=tab-default \
+  CODETERM_TAB_ID=tab-default \
     CODETERM_TEST_PRINT_LOCAL_INSTALL_CONTINUATION=1 \
     ./build.sh install-local
 )"
@@ -25,7 +25,7 @@ grep -Fqx "tab=tab-custom" <<< "$custom_output"
 grep -Fqx "prompt=resume custom work" <<< "$custom_output"
 
 disabled_output="$(
-  CODETERM_PANE_ID=tab-default \
+  CODETERM_TAB_ID=tab-default \
     CODETERM_TEST_PRINT_LOCAL_INSTALL_CONTINUATION=1 \
     ./build.sh install-local --no-continue
 )"
@@ -33,7 +33,7 @@ grep -Fqx "enabled=0" <<< "$disabled_output"
 grep -Fqx "tab=" <<< "$disabled_output"
 grep -Fqx "prompt=" <<< "$disabled_output"
 
-if CODETERM_PANE_ID= CODETERM_TEST_PRINT_LOCAL_INSTALL_CONTINUATION=1 \
+if CODETERM_TAB_ID= CODETERM_TEST_PRINT_LOCAL_INSTALL_CONTINUATION=1 \
   ./build.sh install-local --continue-prompt "missing target" >/dev/null 2>&1; then
   echo "continuation prompt without a target must fail" >&2
   exit 1

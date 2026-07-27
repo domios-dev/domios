@@ -33,7 +33,7 @@ bash evals/watcher-health/run.sh
 
 The script sources `evals/_lib/lib.sh`; every CodeTerm CLI call goes through
 `dc` and is pinned to dev. It never invokes the bare `codeterm` CLI, so a
-prod-hosted agent pane cannot leak calls to port 7685.
+prod-hosted agent tab cannot leak calls to port 7685.
 
 Missing LM Studio or a non-watcher plugin is reported as `SKIP ...` and exits
 zero. Product assertions print `PASS`/`FAIL` summary lines and a failing
@@ -43,7 +43,7 @@ assertion exits non-zero.
 
 The bench uses a custom inline charter with a 45 second stall threshold so the
 silent worker fixture genuinely qualifies as stalled inside the run. It reads
-`dc --json pane chat` and checks `messages[].type` for `context_request` and
+`dc --json tab chat` and checks `messages[].type` for `context_request` and
 `watcher_verdict`; nudge counting uses structured `fromLabel`/`from_label`
 metadata on the orchestrator transcript.
 
