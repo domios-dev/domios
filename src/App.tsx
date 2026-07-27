@@ -386,8 +386,8 @@ function AppInner() {
   const paletteCommands = useMemo(
     () =>
       buildDefaultCommands({
-        newpane: handleNewTab,
-        closepane: handleCloseCurrentTab,
+        newTab: handleNewTab,
+        closeTab: handleCloseCurrentTab,
         newWorkspace: () => {
           openDialog({ directory: true, multiple: false, title: "Choose workspace folder" })
             .then((folder) => {
@@ -504,7 +504,7 @@ function AppInner() {
       <Titlebar
         onToggleSidebar={toggleSidebar}
         showSidebarToggle={!sidebarOpen}
-        onNewpane={handleNewTab}
+        onNewTab={handleNewTab}
         theme={stableTheme}
         onOpenSettingsAbout={() => { setSettingsSection("about"); setSettingsOpen(true); }}
         onOpenSettings={(section) => { setSettingsSection(section); setSettingsOpen(true); }}
@@ -541,7 +541,7 @@ function AppInner() {
                 onOpenMemory={() => { setMemoryOpen(true); closeSidebarOnMobile(); }}
                 onOpenMesh={() => { setMeshOpen(true); closeSidebarOnMobile(); }}
                 onOpenExtensions={() => { setExtensionsOpen(true); closeSidebarOnMobile(); }}
-                onNavigateTopane={handleNavigateToTab}
+                onNavigateToTab={handleNavigateToTab}
                 mainView={mainView}
                 config={config}
                 uiFontScale={uiFontScale}
