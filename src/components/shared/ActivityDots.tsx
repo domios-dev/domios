@@ -34,8 +34,8 @@ export function ActivityDots({
       aria-hidden="true"
     >
       <i />
-      <i />
-      <i />
+      {size !== "micro" && <i />}
+      {size !== "micro" && <i />}
     </span>
   );
 }

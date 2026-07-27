@@ -57,11 +57,6 @@
    a gentle left→right wave (text flowing). Hue eases over 0.6s; phase is
    debounced upstream so it can't strobe. */
 .ct-phase-dots {
-  --activity-dot-size: 4px;
-  --activity-dot-gap: 3px;
-  --activity-dot-jump: 3px;
-  --activity-dot-duration: 1.05s;
-  --activity-dot-delay: 0.12s;
   display: inline-flex;
   align-items: flex-end;
   gap: var(--activity-dot-gap);
@@ -71,6 +66,10 @@
   color: var(--ct-accent, #58a6ff);
   transition: color 0.6s ease;
 }
+.activity-dots {
+  --activity-dot-duration: 1.05s;
+  --activity-dot-delay: 0.12s;
+}
 .ct-phase-dots i {
   width: var(--activity-dot-size);
   height: var(--activity-dot-size);
@@ -78,7 +77,7 @@
   background: currentColor;
   display: block;
   transform-origin: 50% 100%;
-  animation: ct-dots-squash-jump var(--activity-dot-duration) var(--ct-ease-spring) infinite;
+  animation: ct-dots-squash-jump var(--activity-dot-duration) var(--ct-ease-squash-jump) infinite;
   transition: opacity 0.45s ease, transform 0.45s ease;
 }
 [data-agent-state="working"] .ct-phase-dots i:nth-child(2) {
@@ -114,9 +113,9 @@
 }
 @keyframes ct-dots-squash-jump {
   0%, 70%, 100% { opacity: 0.64; transform: translateY(0) scaleX(1) scaleY(1); }
-  10% { opacity: 0.9; transform: translateY(calc(var(--activity-dot-size) * 0.15)) scaleX(1.2) scaleY(0.72); }
+  10% { opacity: 0.9; transform: translateY(calc(var(--activity-dot-size) * 0.15)) scaleX(1.28) scaleY(0.64); }
   24% { opacity: 1; transform: translateY(calc(var(--activity-dot-jump) * -1)) scaleX(0.92) scaleY(1.1); }
-  42% { opacity: 0.95; transform: translateY(calc(var(--activity-dot-size) * 0.08)) scaleX(1.14) scaleY(0.78); }
+  42% { opacity: 0.95; transform: translateY(calc(var(--activity-dot-size) * 0.08)) scaleX(1.2) scaleY(0.7); }
   54% { opacity: 0.78; transform: translateY(0) scaleX(1) scaleY(1); }
 }
 

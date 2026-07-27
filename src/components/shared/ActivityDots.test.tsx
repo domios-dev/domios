@@ -27,7 +27,7 @@ async function run() {
   const dots = host.querySelector('[data-testid="dots"]');
   assert(dots, "ActivityDots renders");
   assert.equal(dots.getAttribute("aria-hidden"), "true");
-  assert.equal(dots.children.length, 3, "ActivityDots always renders three dots");
+  assert.equal(dots.children.length, 3, "small dots render three dots");
   assert(dots.classList.contains("activity-dots--small"));
   assert(dots.classList.contains("activity-dots--thinking"));
   assert(dots.classList.contains("activity-dots--streaming"));
@@ -35,14 +35,27 @@ async function run() {
   await act(async () => root.render(<ActivityDots idle />));
   assert(host.querySelector(".activity-dots--idle"), "idle state is static");
 
+  await act(async () => root.render(<ActivityDots size="micro" />));
+  assert.equal(host.querySelector(".activity-dots--micro")?.children.length, 1, "micro renders one breathing dot");
+
   const css = readFileSync(new URL("../../styles/agent-state.css", import.meta.url), "utf8");
   assert.match(css, /\.activity-dots--micro\s*\{[^}]*--activity-dot-size:\s*2\.5px;[^}]*--activity-dot-gap:\s*1\.25px;/s);
   assert.match(css, /\.activity-dots--small\s*\{[^}]*--activity-dot-size:\s*3px;[^}]*--activity-dot-gap:\s*2px;/s);
   assert.match(css, /\.activity-dots--medium\s*\{[^}]*--activity-dot-size:\s*5px;[^}]*--activity-dot-gap:\s*3px;/s);
   const reducedMotion = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"));
   assert.match(reducedMotion, /\.activity-dots i\s*\{[^}]*animation:\s*none !important;[^}]*opacity:\s*0\.85;/s);
-  assert(!/\.activity-dots--micro i:nth-child\([23]\)\s*\{[^}]*display:\s*none/s.test(css), "micro keeps all three dots visible");
+  const phaseDots = css.match(/\.ct-phase-dots\s*\{([^}]*)\}/s);
+  assert(phaseDots, "legacy phase dots rule exists");
+  assert(!/--activity-dot-[\w-]+\s*:/.test(phaseDots[1]), "legacy phase dots do not own geometry vars");
+  for (const size of ["micro", "small", "medium"]) {
+    const rule = css.match(new RegExp(`\\.activity-dots--${size}\\s*\\{([^}]*)\\}`, "s"));
+    assert(rule, `${size} geometry rule exists`);
+    for (const variable of ["size", "gap", "jump"]) {
+      assert.match(rule[1], new RegExp(`--activity-dot-${variable}:`), `${size} owns ${variable}`);
+    }
+  }
   assert.equal((css.match(/@keyframes ct-dots-squash-jump/g) ?? []).length, 1, "one shared dot keyframe family");
+  assert.match(css, /animation:\s*ct-dots-squash-jump[^;]*var\(--ct-ease-squash-jump\)/);
 
   await act(async () => root.unmount());
   console.log("activity dots tests: passed");
