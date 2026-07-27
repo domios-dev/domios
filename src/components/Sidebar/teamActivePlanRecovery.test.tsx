@@ -240,9 +240,9 @@ function Projection() {
         sidebarActionText="text-xs"
         orchestrators={Object.values(mux.panes)}
         onBeforeOpenPlan={() => {}}
-        onActivatepane={() => {}}
-        onClosepane={() => {}}
-        onRenamepane={() => {}}
+        onActivateTab={() => {}}
+        onCloseTab={() => {}}
+        onRenameTab={() => {}}
         onRenameTeam={() => {
           renameAttempts += 1;
         }}
