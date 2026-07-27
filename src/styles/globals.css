@@ -1918,12 +1918,6 @@ button,
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--ct-accent) 22%, transparent);
 }
 
-.sidebar-workspace-card-working .activity-dots {
-  --activity-dot-size: 2.5px;
-  --activity-dot-gap: 1.25px;
-  --activity-dot-jump: 1.25px;
-}
-
 .sidebar-workspace-card-create {
   display: flex;
   width: 42px;
@@ -2012,8 +2006,6 @@ button,
 
 .sidebar-team-title-row .activity-dots {
   flex: 0 0 auto;
-  --activity-dot-size: 3px;
-  --activity-dot-gap: 2px;
 }
 
 .sidebar-team-working-indicator {

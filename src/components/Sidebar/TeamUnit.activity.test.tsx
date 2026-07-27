@@ -53,8 +53,11 @@ async function main() {
   if (!/\.sidebar-team-title-row\s*\{[^}]*display:\s*inline-flex;[^}]*flex-wrap:\s*nowrap;/s.test(styles)) {
     throw new Error("Team title row is an inline-flex nowrap geometry boundary");
   }
-  if (!/\.sidebar-team-title-row\s+\.activity-dots\s*\{[^}]*flex:\s*0 0 auto;[^}]*--activity-dot-size:\s*3px;[^}]*--activity-dot-gap:\s*2px;/s.test(styles)) {
-    throw new Error("Team activity dots keep fixed bounded dimensions and gap under constrained title width");
+  if (!/\.sidebar-team-title-row\s+\.activity-dots\s*\{[^}]*flex:\s*0 0 auto;/s.test(styles)) {
+    throw new Error("Team activity dots keep a fixed flex boundary under constrained title width");
+  }
+  if (!working?.querySelector(".activity-dots--small")) {
+    throw new Error("Team activity dots use shared small geometry");
   }
   if (working?.querySelector('[aria-hidden="true"]')?.children.length !== 3) {
     throw new Error("working Team owns exactly three hidden dot children");
