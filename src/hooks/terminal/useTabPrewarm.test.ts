@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
+import { Window } from "happy-dom";
 import {
   recordRecentTab,
   retainLiveTabs,
   scheduleSequentialPrewarm,
   selectPrewarmTabIds,
   TAB_PREWARM_LIMIT,
+  useTabPrewarm,
 } from "./useTabPrewarm";
 
 test("recent tabs prewarm before adjacent tabs", () => {
@@ -82,4 +87,66 @@ test("prewarm waits for each backend result and cancellation stops the sequence"
 test("already mounted tabs stay warm until the tab is closed", () => {
   const mounted = new Set(["tab-a", "tab-b", "closed-pane"]);
   assert.deepEqual([...retainLiveTabs(mounted, ["tab-a", "tab-b", "tab-c"])], ["tab-a", "tab-b"]);
+});
+
+test("App provider key invokes the hook prewarm callback exactly once", async () => {
+  const appSource = readFileSync(new URL("../../App.tsx", import.meta.url), "utf8");
+  assert.match(appSource, /prewarmTab:\s*prewarmBackendTab/);
+  assert.match(
+    appSource,
+    /shouldMountTab\s*=\s*isActiveTab\s*\|\|\s*isMainTab\s*\|\|\s*prewarmTabIds\.has\(tab\.id\)/,
+  );
+
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const window = new Window({ url: "http://localhost/prewarm" });
+  Object.defineProperty(globalThis, "window", { value: window, configurable: true });
+  Object.defineProperty(globalThis, "document", { value: window.document, configurable: true });
+  Object.defineProperty(globalThis, "navigator", { value: window.navigator, configurable: true });
+  Object.defineProperty(globalThis, "HTMLElement", { value: window.HTMLElement, configurable: true });
+  Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
+
+  const frames: FrameRequestCallback[] = [];
+  Object.defineProperty(globalThis, "requestAnimationFrame", {
+    configurable: true,
+    value: (callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    },
+  });
+  Object.defineProperty(globalThis, "cancelAnimationFrame", {
+    configurable: true,
+    value: () => {},
+  });
+
+  const calls: string[] = [];
+  const prewarmTab = async (tabId: string) => {
+    calls.push(tabId);
+  };
+  function Probe() {
+    useTabPrewarm({
+      workspaceId: "workspace-1",
+      activeTabId: "tab-a",
+      tabIds: ["tab-a", "tab-b"],
+      liveTabIds: ["tab-a", "tab-b"],
+      prewarmTab,
+    });
+    return null;
+  }
+
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(createElement(Probe));
+  });
+  assert.equal(frames.length, 1);
+  await act(async () => {
+    const frame = frames.shift();
+    assert.ok(frame);
+    frame(0);
+    await Promise.resolve();
+  });
+  assert.deepEqual(calls, ["tab-b"]);
+  await act(async () => root.unmount());
+  host.remove();
 });

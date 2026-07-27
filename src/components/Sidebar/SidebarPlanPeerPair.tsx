@@ -9,7 +9,7 @@ import { TabItem } from "./TabItem";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 
 export interface PlannerPeerTabContext {
-  plannerpane: Tab | null;
+  plannerTab: Tab | null;
   /** Planner pane id to keep out of the Workers subtree — it renders under
    *  Managers instead. Undefined when no planner is bound. */
   peerExclude: Set<string> | undefined;

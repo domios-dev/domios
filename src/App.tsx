@@ -338,7 +338,7 @@ function AppInner() {
         })
         .map((tab) => tab.id) ?? [],
     liveTabIds: state.workspaces.flatMap((ws) => ws.tabs.map((tab) => tab.id)),
-    prewarmpane: prewarmBackendTab,
+    prewarmTab: prewarmBackendTab,
   });
   const showWorkspaceCanvas =
     mainView === "workspace" && !pluginViewId && activeWs != null && !activeTab;
