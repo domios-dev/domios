@@ -64,10 +64,21 @@ fn is_current_codeterm_hook(hook_entry: &Json) -> bool {
         .and_then(|hs| hs.as_array())
         .map(|hs| {
             hs.iter().any(|h| {
-                h.get("_source")
+                let current_marker = h
+                    .get("_source")
                     .and_then(|s| s.as_str())
                     .map(|src| src == CODETERM_HOOK_MARKER)
-                    .unwrap_or(false)
+                    .unwrap_or(false);
+                let current_tab_contract = h
+                    .get("command")
+                    .and_then(|command| command.as_str())
+                    .map(|command| {
+                        command.contains("CODETERM_TAB_ID")
+                            && !command.contains("CODETERM_PANE_ID")
+                            && !command.contains("/api/panes/")
+                    })
+                    .unwrap_or(false);
+                current_marker && current_tab_contract
             })
         })
         .unwrap_or(false)
@@ -369,5 +380,26 @@ mod tests {
         let result = check_integration();
         assert!(result.get("settings_exists").is_some());
         assert!(result.get("hooks_installed").is_some());
+    }
+
+    #[test]
+    fn current_marker_does_not_accept_the_stale_pane_contract() {
+        let stale = serde_json::json!({
+            "hooks": [{
+                "type": "command",
+                "command": "curl http://localhost:7686/api/panes/$CODETERM_PANE_ID/hook/session_start",
+                "_source": CODETERM_HOOK_MARKER
+            }]
+        });
+        let current = serde_json::json!({
+            "hooks": [{
+                "type": "command",
+                "command": "curl http://localhost:7686/api/tabs/$CODETERM_TAB_ID/hook/session_start",
+                "_source": CODETERM_HOOK_MARKER
+            }]
+        });
+
+        assert!(!is_current_codeterm_hook(&stale));
+        assert!(is_current_codeterm_hook(&current));
     }
 }
