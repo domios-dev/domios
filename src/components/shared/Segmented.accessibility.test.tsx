@@ -46,6 +46,12 @@ async function main() {
   if (chat?.getAttribute("aria-selected") !== "true") throw new Error("active view is exposed");
   if (terminal?.getAttribute("aria-selected") !== "false") throw new Error("inactive view is exposed");
   if (chat?.tagName !== "BUTTON" || terminal?.tagName !== "BUTTON") throw new Error("segments are keyboard-operable buttons");
+  await act(async () => {
+    (terminal as HTMLButtonElement).click();
+  });
+  const thumb = host.querySelector<HTMLElement>(".ct-liquid-segmented__thumb--travel");
+  assert.equal(thumb?.style.getPropertyValue("--sx-from"), "0%");
+  assert.equal(thumb?.style.getPropertyValue("--sx-to"), "100%");
 
   const segmentedSource = readFileSync(resolve(import.meta.dirname, "Segmented.tsx"), "utf8");
   assert.match(segmentedSource, /"--sx-from"/);

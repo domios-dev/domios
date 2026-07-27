@@ -24,6 +24,12 @@ interface SegmentedProps<T extends string> {
   "aria-label"?: string;
 }
 
+interface SegmentTravel {
+  key: number;
+  from: number;
+  to: number;
+}
+
 export function Segmented<T extends string>({
   value,
   options,
@@ -32,29 +38,28 @@ export function Segmented<T extends string>({
   className = "",
   ...rest
 }: SegmentedProps<T>) {
-  const [travelKey, setTravelKey] = useState(0);
-  const from = useRef<number | null>(null);
+  const nextKey = useRef(0);
+  const [travel, setTravel] = useState<SegmentTravel | null>(null);
   const activeIndex = Math.max(0, options.findIndex((option) => option.value === value));
   const select = useCallback(
     (index: number) => {
       if (index !== activeIndex) {
-        from.current = activeIndex;
-        setTravelKey((key) => key + 1);
+        nextKey.current += 1;
+        setTravel({ key: nextKey.current, from: activeIndex, to: index });
       }
       onChange(options[index].value);
     },
     [activeIndex, onChange, options],
   );
-  const traveling = from.current !== null;
   const style = {
     height,
     "--seg-count": options.length,
     "--seg-index": activeIndex,
   } as CSSProperties;
-  const thumbStyle = traveling
+  const thumbStyle = travel
     ? {
-        "--sx-from": `${from.current! * 100}%`,
-        "--sx-to": `${activeIndex * 100}%`,
+        "--sx-from": `${travel.from * 100}%`,
+        "--sx-to": `${travel.to * 100}%`,
       } as CSSProperties
     : undefined;
 
@@ -68,13 +73,11 @@ export function Segmented<T extends string>({
       style={style}
     >
       <span
-        key={travelKey}
+        key={travel?.key ?? 0}
         aria-hidden
-        className={`ct-liquid-segmented__thumb${traveling ? " ct-liquid-segmented__thumb--travel" : ""}`}
+        className={`ct-liquid-segmented__thumb${travel ? " ct-liquid-segmented__thumb--travel" : ""}`}
         style={thumbStyle}
-        onAnimationEnd={() => {
-          from.current = null;
-        }}
+        onAnimationEnd={() => setTravel(null)}
       />
       {options.map((option, index) => (
         <button
