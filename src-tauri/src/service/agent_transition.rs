@@ -1,5 +1,5 @@
 use crate::multiplexer::state::MultiplexerState;
-use crate::multiplexer::types::{AgentRole, Pane};
+use crate::multiplexer::types::{AgentRole, Tab};
 use crate::plan::PlannerRef;
 use crate::service::plan::mutations::agent_lifecycle::{
     AgentLifecyclePlanChange, AgentLifecyclePlanRebind, AgentLifecyclePlanTransaction,
@@ -10,13 +10,13 @@ use crate::service::ServiceContext;
 pub(crate) enum AgentPlacement {
     Roleless,
     Worker {
-        parent_pane_id: String,
+        parent_tab_id: String,
     },
     Planner {
         plan_id: String,
     },
     Manager {
-        parent_pane_id: String,
+        parent_tab_id: String,
         role_profile: Option<String>,
     },
     Orchestrator {
@@ -26,7 +26,7 @@ pub(crate) enum AgentPlacement {
 
 #[derive(Debug, Clone)]
 pub(crate) struct AgentTransitionRequest {
-    pub pane_id: String,
+    pub tab_id: String,
     pub destination: AgentPlacement,
     pub require_verified_session: bool,
     pub planner_replacement: Option<(String, Option<PlannerRef>)>,
@@ -34,9 +34,9 @@ pub(crate) struct AgentTransitionRequest {
 }
 
 impl AgentTransitionRequest {
-    pub(crate) fn roleless(pane_id: impl Into<String>) -> Self {
+    pub(crate) fn roleless(tab_id: impl Into<String>) -> Self {
         Self {
-            pane_id: pane_id.into(),
+            tab_id: tab_id.into(),
             destination: AgentPlacement::Roleless,
             require_verified_session: false,
             planner_replacement: None,
@@ -59,11 +59,11 @@ struct PreparedTransition {
 }
 
 impl ServiceContext {
-    pub fn set_pane_role(
+    pub fn set_tab_role(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         role_str: &str,
-        parent_pane_id: Option<&str>,
+        parent_tab_id: Option<&str>,
         can_spawn: Option<bool>,
     ) -> Result<(), String> {
         let destination = match Self::parse_role(role_str)? {
@@ -71,19 +71,19 @@ impl ServiceContext {
                 can_spawn: can_spawn.unwrap_or(true),
             },
             AgentRole::Manager => AgentPlacement::Manager {
-                parent_pane_id: parent_pane_id
-                    .ok_or("Manager requires a parent_pane_id")?
+                parent_tab_id: parent_tab_id
+                    .ok_or("Manager requires a parent_tab_id")?
                     .to_string(),
                 role_profile: None,
             },
             AgentRole::Worker => AgentPlacement::Worker {
-                parent_pane_id: parent_pane_id
-                    .ok_or("Worker requires a parent_pane_id")?
+                parent_tab_id: parent_tab_id
+                    .ok_or("Worker requires a parent_tab_id")?
                     .to_string(),
             },
         };
         self.transition_agent(AgentTransitionRequest {
-            pane_id: pane_id.to_string(),
+            tab_id: tab_id.to_string(),
             destination,
             require_verified_session: false,
             planner_replacement: None,
@@ -92,13 +92,13 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub fn clear_pane_role(&self, pane_id: &str) -> Result<(), String> {
-        match self.transition_agent(AgentTransitionRequest::roleless(pane_id)) {
+    pub fn clear_tab_role(&self, tab_id: &str) -> Result<(), String> {
+        match self.transition_agent(AgentTransitionRequest::roleless(tab_id)) {
             Ok(_) => Ok(()),
             Err(error) if error.contains("not found") => {
                 let touched = self
                     .remote_workers
-                    .forget_by_remote_pane(pane_id, None, None);
+                    .forget_by_remote_tab(tab_id, None, None);
                 if touched.is_empty() {
                     return Err(error);
                 }
@@ -138,9 +138,9 @@ impl ServiceContext {
         plan_id: &str,
         planner: Option<PlannerRef>,
     ) -> Result<Vec<String>, String> {
-        if let Some(PlannerRef::Pane { pane_id, .. }) = &planner {
+        if let Some(PlannerRef::Tab { tab_id, .. }) = &planner {
             return self.transition_agent(AgentTransitionRequest {
-                pane_id: pane_id.clone(),
+                tab_id: tab_id.clone(),
                 destination: AgentPlacement::Planner {
                     plan_id: plan_id.to_string(),
                 },
@@ -155,14 +155,14 @@ impl ServiceContext {
             .get(plan_id)
             .ok_or_else(|| format!("Plan {plan_id} not found"))?
             .planner;
-        let old_pane_id = match current {
-            Some(PlannerRef::Pane { pane_id, .. }) => Some(pane_id),
+        let old_tab_id = match current {
+            Some(PlannerRef::Tab { tab_id, .. }) => Some(tab_id),
             _ => None,
         };
-        if let Some(pane_id) = old_pane_id.as_ref() {
-            if self.mux.read().get_pane(&pane_id).is_some() {
+        if let Some(tab_id) = old_tab_id.as_ref() {
+            if self.mux.read().get_tab(&tab_id).is_some() {
                 return self.transition_agent(AgentTransitionRequest {
-                    pane_id: pane_id.clone(),
+                    tab_id: tab_id.clone(),
                     destination: AgentPlacement::Roleless,
                     require_verified_session: false,
                     planner_replacement: Some((plan_id.to_string(), planner)),
@@ -173,7 +173,7 @@ impl ServiceContext {
 
         let mux = self.mux.write();
         let change = AgentLifecyclePlanChange {
-            pane_id: old_pane_id.unwrap_or_default(),
+            tab_id: old_tab_id.unwrap_or_default(),
             preserve_owned_plans: true,
             preserve_task_bindings_for_owner: None,
             planner_binding: Some((plan_id.to_string(), planner)),
@@ -202,11 +202,11 @@ pub(crate) fn transition_plan_to_orchestrator_core(
     activate: bool,
     now_ms: u64,
 ) -> Result<crate::plan::Plan, String> {
-    let pane_id = owner
-        .pane_id
+    let tab_id = owner
+        .tab_id
         .as_deref()
-        .filter(|pane_id| !pane_id.trim().is_empty())
-        .ok_or_else(|| "plan rebind requires a destination Orchestrator pane".to_string())?
+        .filter(|tab_id| !tab_id.trim().is_empty())
+        .ok_or_else(|| "plan rebind requires a destination Orchestrator tab".to_string())?
         .to_string();
     let rebind = AgentLifecyclePlanRebind {
         plan_id: plan_id.to_string(),
@@ -220,7 +220,7 @@ pub(crate) fn transition_plan_to_orchestrator_core(
         mux,
         plan_store,
         AgentTransitionRequest {
-            pane_id,
+            tab_id,
             destination: AgentPlacement::Orchestrator { can_spawn: true },
             require_verified_session: false,
             planner_replacement: None,
@@ -276,8 +276,8 @@ fn prepare_transition(
     request: &AgentTransitionRequest,
 ) -> Result<PreparedTransition, String> {
     let source = mux
-        .get_pane(&request.pane_id)
-        .ok_or_else(|| format!("Pane {} not found", request.pane_id))?
+        .get_tab(&request.tab_id)
+        .ok_or_else(|| format!("Tab {} not found", request.tab_id))?
         .clone();
     if request.require_verified_session {
         verified_session(&source)?;
@@ -289,13 +289,13 @@ fn prepare_transition(
     let plan_rebind = destination_plan_rebind(mux, plan_store, request, &source)?;
     let preserve_owned_plans = matches!(request.destination, AgentPlacement::Orchestrator { .. })
         && source.role == Some(AgentRole::Orchestrator)
-        && source.parent_pane_id.is_none();
+        && source.parent_tab_id.is_none();
     let preserve_task_bindings_for_owner = match &request.destination {
-        AgentPlacement::Worker { parent_pane_id }
+        AgentPlacement::Worker { parent_tab_id }
             if source.role == Some(AgentRole::Worker)
-                && source.parent_pane_id.as_deref() == Some(parent_pane_id.as_str()) =>
+                && source.parent_tab_id.as_deref() == Some(parent_tab_id.as_str()) =>
         {
-            Some(parent_pane_id.clone())
+            Some(parent_tab_id.clone())
         }
         _ => None,
     };
@@ -304,7 +304,7 @@ fn prepare_transition(
         plan_store,
         &request.destination,
         plan_rebind.as_ref(),
-        &request.pane_id,
+        &request.tab_id,
     );
     if let Some(incumbent_id) = incumbent.as_deref() {
         for affected_id in clear_lifecycle(staged, incumbent_id)? {
@@ -315,14 +315,14 @@ fn prepare_transition(
     let affected = apply_destination(staged, request, preserve_owned_plans, plan_rebind.as_ref())?;
     for affected_id in affected
         .into_iter()
-        .filter(|pane_id| pane_id != &request.pane_id)
+        .filter(|tab_id| tab_id != &request.tab_id)
     {
         plan_changes.push(revocation_change(affected_id));
     }
     relink_plan_members(staged, plan_store, plan_rebind.as_ref())?;
     let planner_binding = planner_binding(staged, request, plan_rebind.as_ref())?;
     plan_changes.push(AgentLifecyclePlanChange {
-        pane_id: request.pane_id.clone(),
+        tab_id: request.tab_id.clone(),
         preserve_owned_plans,
         preserve_task_bindings_for_owner,
         planner_binding: request.planner_replacement.clone().or(planner_binding),
@@ -344,47 +344,47 @@ fn apply_destination(
     plan_rebind: Option<&AgentLifecyclePlanRebind>,
 ) -> Result<Vec<String>, String> {
     if preserve_owned_plans {
-        normalize_orchestrator(mux, &request.pane_id)?;
+        normalize_orchestrator(mux, &request.tab_id)?;
         return Ok(Vec::new());
     }
 
-    let affected = clear_lifecycle(mux, &request.pane_id)?;
+    let affected = clear_lifecycle(mux, &request.tab_id)?;
     match &request.destination {
         AgentPlacement::Roleless => {}
-        AgentPlacement::Worker { parent_pane_id } => {
-            mux.set_pane_role(&request.pane_id, AgentRole::Worker, Some(parent_pane_id))?;
-            set_report_owner(mux, &request.pane_id, parent_pane_id)?;
+        AgentPlacement::Worker { parent_tab_id } => {
+            mux.set_tab_role(&request.tab_id, AgentRole::Worker, Some(parent_tab_id))?;
+            set_report_owner(mux, &request.tab_id, parent_tab_id)?;
         }
         AgentPlacement::Manager {
-            parent_pane_id,
+            parent_tab_id,
             role_profile,
         } => {
-            mux.set_pane_role(&request.pane_id, AgentRole::Manager, Some(parent_pane_id))?;
-            let pane = mux
-                .get_pane_mut(&request.pane_id)
-                .ok_or_else(|| format!("Pane {} not found", request.pane_id))?;
-            pane.role_profile = role_profile.clone();
-            pane.report_target_pane_id = Some(parent_pane_id.clone());
+            mux.set_tab_role(&request.tab_id, AgentRole::Manager, Some(parent_tab_id))?;
+            let tab = mux
+                .get_tab_mut(&request.tab_id)
+                .ok_or_else(|| format!("Tab {} not found", request.tab_id))?;
+            tab.role_profile = role_profile.clone();
+            tab.report_target_tab_id = Some(parent_tab_id.clone());
         }
         AgentPlacement::Planner { plan_id } => {
-            let owner = rebind_owner_pane(plan_rebind, plan_id)?;
-            mux.set_pane_role(&request.pane_id, AgentRole::Manager, Some(&owner))?;
-            let pane = mux
-                .get_pane_mut(&request.pane_id)
-                .ok_or_else(|| format!("Pane {} not found", request.pane_id))?;
-            pane.role_profile = Some("planner".into());
-            pane.report_target_pane_id = Some(owner);
+            let owner = rebind_owner_tab(plan_rebind, plan_id)?;
+            mux.set_tab_role(&request.tab_id, AgentRole::Manager, Some(&owner))?;
+            let tab = mux
+                .get_tab_mut(&request.tab_id)
+                .ok_or_else(|| format!("Tab {} not found", request.tab_id))?;
+            tab.role_profile = Some("planner".into());
+            tab.report_target_tab_id = Some(owner);
         }
         AgentPlacement::Orchestrator { can_spawn } => {
-            mux.set_pane_role(&request.pane_id, AgentRole::Orchestrator, None)?;
-            mux.set_can_spawn(&request.pane_id, *can_spawn)?;
+            mux.set_tab_role(&request.tab_id, AgentRole::Orchestrator, None)?;
+            mux.set_can_spawn(&request.tab_id, *can_spawn)?;
         }
     }
     Ok(affected)
 }
 
-fn clear_lifecycle(mux: &mut MultiplexerState, pane_id: &str) -> Result<Vec<String>, String> {
-    let mut affected = vec![pane_id.to_string()];
+fn clear_lifecycle(mux: &mut MultiplexerState, tab_id: &str) -> Result<Vec<String>, String> {
+    let mut affected = vec![tab_id.to_string()];
     let mut cursor = 0;
     while cursor < affected.len() {
         let children = mux.get_children_ids(&affected[cursor]);
@@ -397,24 +397,24 @@ fn clear_lifecycle(mux: &mut MultiplexerState, pane_id: &str) -> Result<Vec<Stri
     }
     let old_teams: Vec<_> = affected
         .iter()
-        .filter_map(|id| mux.get_pane(id).and_then(|pane| pane.team_id.clone()))
+        .filter_map(|id| mux.get_tab(id).and_then(|tab| tab.team_id.clone()))
         .collect();
-    mux.clear_pane_role(pane_id)?;
+    mux.clear_tab_role(tab_id)?;
     for id in &affected {
-        if let Some(pane) = mux.get_pane_mut(id) {
-            pane.team_id = None;
-            pane.pending_paired_planner_pane_id = None;
-            pane.report_target_pane_id = None;
-            pane.report_target_mesh_peer = None;
-            pane.spawned_by_pane_id = None;
+        if let Some(tab) = mux.get_tab_mut(id) {
+            tab.team_id = None;
+            tab.pending_paired_planner_tab_id = None;
+            tab.report_target_tab_id = None;
+            tab.report_target_mesh_peer = None;
+            tab.spawned_by_tab_id = None;
         }
     }
     for team_id in old_teams {
         let remains_in_use = mux
             .snapshot()
-            .panes
+            .tabs
             .values()
-            .any(|pane| pane.team_id.as_deref() == Some(team_id.as_str()));
+            .any(|tab| tab.team_id.as_deref() == Some(team_id.as_str()));
         if !remains_in_use {
             mux.remove_team(&team_id);
         }
@@ -422,9 +422,9 @@ fn clear_lifecycle(mux: &mut MultiplexerState, pane_id: &str) -> Result<Vec<Stri
     Ok(affected)
 }
 
-fn revocation_change(pane_id: String) -> AgentLifecyclePlanChange {
+fn revocation_change(tab_id: String) -> AgentLifecyclePlanChange {
     AgentLifecyclePlanChange {
-        pane_id,
+        tab_id,
         preserve_owned_plans: false,
         preserve_task_bindings_for_owner: None,
         planner_binding: None,
@@ -432,45 +432,45 @@ fn revocation_change(pane_id: String) -> AgentLifecyclePlanChange {
     }
 }
 
-fn normalize_orchestrator(mux: &mut MultiplexerState, pane_id: &str) -> Result<(), String> {
-    let pane = mux
-        .get_pane_mut(pane_id)
-        .ok_or_else(|| format!("Pane {pane_id} not found"))?;
-    pane.role = Some(AgentRole::Orchestrator);
-    pane.role_profile = None;
-    pane.parent_pane_id = None;
-    pane.can_spawn = true;
-    pane.depth = 1;
-    pane.report_target_pane_id = None;
-    pane.report_target_mesh_peer = None;
-    pane.spawned_by_pane_id = None;
-    pane.pending_paired_planner_pane_id = None;
+fn normalize_orchestrator(mux: &mut MultiplexerState, tab_id: &str) -> Result<(), String> {
+    let tab = mux
+        .get_tab_mut(tab_id)
+        .ok_or_else(|| format!("Tab {tab_id} not found"))?;
+    tab.role = Some(AgentRole::Orchestrator);
+    tab.role_profile = None;
+    tab.parent_tab_id = None;
+    tab.can_spawn = true;
+    tab.depth = 1;
+    tab.report_target_tab_id = None;
+    tab.report_target_mesh_peer = None;
+    tab.spawned_by_tab_id = None;
+    tab.pending_paired_planner_tab_id = None;
     Ok(())
 }
 
 fn set_report_owner(
     mux: &mut MultiplexerState,
-    pane_id: &str,
-    owner_pane_id: &str,
+    tab_id: &str,
+    owner_tab_id: &str,
 ) -> Result<(), String> {
-    let pane = mux
-        .get_pane_mut(pane_id)
-        .ok_or_else(|| format!("Pane {pane_id} not found"))?;
-    pane.role_profile = None;
-    pane.report_target_pane_id = Some(owner_pane_id.to_string());
+    let tab = mux
+        .get_tab_mut(tab_id)
+        .ok_or_else(|| format!("Tab {tab_id} not found"))?;
+    tab.role_profile = None;
+    tab.report_target_tab_id = Some(owner_tab_id.to_string());
     Ok(())
 }
 
-fn verified_session(pane: &Pane) -> Result<(&str, &str), String> {
-    let session_id = pane
+fn verified_session(tab: &Tab) -> Result<(&str, &str), String> {
+    let session_id = tab
         .agent_session_id
         .as_deref()
         .ok_or_else(|| "agent_unavailable: live session binding is missing".to_string())?;
-    let configured = pane
+    let configured = tab
         .session_binding_nonce
         .as_deref()
         .ok_or_else(|| "agent_unavailable: session binding nonce is missing".to_string())?;
-    let reported = pane
+    let reported = tab
         .reported_session_binding_nonce
         .as_deref()
         .ok_or_else(|| "agent_unavailable: session binding nonce is unverified".to_string())?;
@@ -486,8 +486,8 @@ fn plan_owner(
 ) -> Result<String, String> {
     plan_store
         .get(plan_id)
-        .and_then(|plan| plan.owner.pane_id)
-        .filter(|pane_id| !pane_id.trim().is_empty())
+        .and_then(|plan| plan.owner.tab_id)
+        .filter(|tab_id| !tab_id.trim().is_empty())
         .ok_or_else(|| format!("Plan {plan_id} has no live Orchestrator owner"))
 }
 
@@ -495,13 +495,13 @@ fn destination_plan_rebind(
     mux: &MultiplexerState,
     plan_store: &crate::service::plan::PlanStore,
     request: &AgentTransitionRequest,
-    source: &Pane,
+    source: &Tab,
 ) -> Result<Option<AgentLifecyclePlanRebind>, String> {
     if let Some(rebind) = &request.plan_rebind {
         if !matches!(request.destination, AgentPlacement::Orchestrator { .. }) {
             return Err("plan rebind requires an Orchestrator destination".into());
         }
-        verify_live_rebind_destination(mux, &request.pane_id, rebind)?;
+        verify_live_rebind_destination(mux, &request.tab_id, rebind)?;
         verify_rebind_team_available(plan_store, rebind)?;
         return Ok(Some(rebind.clone()));
     }
@@ -509,19 +509,19 @@ fn destination_plan_rebind(
         return Ok(None);
     };
     let placed_owner = source
-        .parent_pane_id
+        .parent_tab_id
         .as_deref()
-        .filter(|pane_id| {
-            mux.get_pane(pane_id)
-                .is_some_and(|pane| pane.role == Some(AgentRole::Orchestrator))
+        .filter(|tab_id| {
+            mux.get_tab(tab_id)
+                .is_some_and(|tab| tab.role == Some(AgentRole::Orchestrator))
         })
         .map(str::to_string);
-    let owner_pane_id = match placed_owner {
+    let owner_tab_id = match placed_owner {
         Some(owner) => owner,
         None => plan_owner(plan_store, plan_id)?,
     };
-    let owner = orchestrator_ref(mux, &owner_pane_id)?;
-    let team_id = live_orchestrator_team(mux, &owner_pane_id)?;
+    let owner = orchestrator_ref(mux, &owner_tab_id)?;
+    let team_id = live_orchestrator_team(mux, &owner_tab_id)?;
     let rebind = AgentLifecyclePlanRebind {
         plan_id: plan_id.clone(),
         owner,
@@ -536,13 +536,13 @@ fn destination_plan_rebind(
 
 fn verify_live_rebind_destination(
     mux: &MultiplexerState,
-    pane_id: &str,
+    tab_id: &str,
     rebind: &AgentLifecyclePlanRebind,
 ) -> Result<(), String> {
-    if rebind.owner.pane_id.as_deref() != Some(pane_id) {
-        return Err("plan rebind owner does not match the destination pane".into());
+    if rebind.owner.tab_id.as_deref() != Some(tab_id) {
+        return Err("plan rebind owner does not match the destination tab".into());
     }
-    let team_id = live_orchestrator_team(mux, pane_id)?;
+    let team_id = live_orchestrator_team(mux, tab_id)?;
     if team_id != rebind.team_id {
         return Err("plan rebind Team does not match the destination Orchestrator".into());
     }
@@ -570,38 +570,38 @@ fn verify_rebind_team_available(
 
 fn orchestrator_ref(
     mux: &MultiplexerState,
-    pane_id: &str,
+    tab_id: &str,
 ) -> Result<crate::plan::OrchestratorRef, String> {
-    let pane = mux
-        .get_pane(pane_id)
-        .filter(|pane| pane.role == Some(AgentRole::Orchestrator))
-        .ok_or_else(|| format!("Destination pane {pane_id} is not an Orchestrator"))?;
+    let tab = mux
+        .get_tab(tab_id)
+        .filter(|tab| tab.role == Some(AgentRole::Orchestrator))
+        .ok_or_else(|| format!("Destination tab {tab_id} is not an Orchestrator"))?;
     Ok(crate::plan::OrchestratorRef {
-        pane_id: Some(pane_id.to_string()),
-        session_id: pane.agent_session_id.clone(),
-        title: Some(pane.title.clone()),
+        tab_id: Some(tab_id.to_string()),
+        session_id: tab.agent_session_id.clone(),
+        title: Some(tab.title.clone()),
     })
 }
 
-fn live_orchestrator_team(mux: &MultiplexerState, pane_id: &str) -> Result<String, String> {
-    let pane = mux
-        .get_pane(pane_id)
-        .filter(|pane| pane.role == Some(AgentRole::Orchestrator))
-        .ok_or_else(|| format!("Destination pane {pane_id} is not an Orchestrator"))?;
-    pane.team_id
+fn live_orchestrator_team(mux: &MultiplexerState, tab_id: &str) -> Result<String, String> {
+    let tab = mux
+        .get_tab(tab_id)
+        .filter(|tab| tab.role == Some(AgentRole::Orchestrator))
+        .ok_or_else(|| format!("Destination tab {tab_id} is not an Orchestrator"))?;
+    tab.team_id
         .as_deref()
         .filter(|team_id| mux.get_team(team_id).is_some())
         .map(str::to_string)
-        .ok_or_else(|| format!("Destination Orchestrator {pane_id} does not belong to a live Team"))
+        .ok_or_else(|| format!("Destination Orchestrator {tab_id} does not belong to a live Team"))
 }
 
-fn rebind_owner_pane(
+fn rebind_owner_tab(
     rebind: Option<&AgentLifecyclePlanRebind>,
     plan_id: &str,
 ) -> Result<String, String> {
     rebind
         .filter(|rebind| rebind.plan_id == plan_id)
-        .and_then(|rebind| rebind.owner.pane_id.clone())
+        .and_then(|rebind| rebind.owner.tab_id.clone())
         .ok_or_else(|| format!("Plan {plan_id} has no lifecycle rebind destination"))
 }
 
@@ -613,11 +613,11 @@ fn relink_plan_members(
     let Some(rebind) = rebind else {
         return Ok(());
     };
-    let owner_pane_id = rebind
+    let owner_tab_id = rebind
         .owner
-        .pane_id
+        .tab_id
         .as_deref()
-        .ok_or_else(|| "plan rebind requires a destination Orchestrator pane".to_string())?;
+        .ok_or_else(|| "plan rebind requires a destination Orchestrator tab".to_string())?;
     let mut plan = plan_store
         .get(&rebind.plan_id)
         .ok_or_else(|| format!("Plan {} not found", rebind.plan_id))?;
@@ -625,7 +625,7 @@ fn relink_plan_members(
     crate::service::plan::relink_to_owner(
         &mut crate::service::plan::lane_port_impl::LaneStatePort(mux),
         &plan,
-        owner_pane_id,
+        owner_tab_id,
     );
     Ok(())
 }
@@ -638,20 +638,20 @@ fn planner_binding(
     let AgentPlacement::Planner { plan_id } = &request.destination else {
         return Ok(None);
     };
-    let pane = mux
-        .get_pane(&request.pane_id)
-        .ok_or_else(|| format!("Pane {} not found", request.pane_id))?;
-    let (session_id, _) = verified_session(pane)?;
-    let owner = rebind_owner_pane(plan_rebind, plan_id)?;
-    if pane.parent_pane_id.as_deref() != Some(owner.as_str()) {
+    let tab = mux
+        .get_tab(&request.tab_id)
+        .ok_or_else(|| format!("Tab {} not found", request.tab_id))?;
+    let (session_id, _) = verified_session(tab)?;
+    let owner = rebind_owner_tab(plan_rebind, plan_id)?;
+    if tab.parent_tab_id.as_deref() != Some(owner.as_str()) {
         return Err("planner parent does not match the destination plan owner".into());
     }
     Ok(Some((
         plan_id.clone(),
-        Some(PlannerRef::Pane {
-            pane_id: request.pane_id.clone(),
+        Some(PlannerRef::Tab {
+            tab_id: request.tab_id.clone(),
             session_id: Some(session_id.to_string()),
-            title: Some(pane.title.clone()),
+            title: Some(tab.title.clone()),
         }),
     )))
 }
@@ -660,7 +660,7 @@ fn planner_incumbent(
     plan_store: &crate::service::plan::PlanStore,
     destination: &AgentPlacement,
     plan_rebind: Option<&AgentLifecyclePlanRebind>,
-    target_pane_id: &str,
+    target_tab_id: &str,
 ) -> Option<String> {
     let plan_id = match destination {
         AgentPlacement::Planner { plan_id } => plan_id,
@@ -670,10 +670,10 @@ fn planner_incumbent(
         }
         _ => return None,
     };
-    let Some(PlannerRef::Pane { pane_id, .. }) = plan_store.get(plan_id)?.planner else {
+    let Some(PlannerRef::Tab { tab_id, .. }) = plan_store.get(plan_id)?.planner else {
         return None;
     };
-    (pane_id != target_pane_id).then_some(pane_id)
+    (tab_id != target_tab_id).then_some(tab_id)
 }
 
 fn verify_destination(
@@ -681,44 +681,44 @@ fn verify_destination(
     request: &AgentTransitionRequest,
     plan_rebind: Option<&AgentLifecyclePlanRebind>,
 ) -> Result<(), String> {
-    let pane = mux
-        .get_pane(&request.pane_id)
-        .ok_or_else(|| format!("Pane {} not found", request.pane_id))?;
+    let tab = mux
+        .get_tab(&request.tab_id)
+        .ok_or_else(|| format!("Tab {} not found", request.tab_id))?;
     match &request.destination {
         AgentPlacement::Roleless => {
-            if pane.role.is_some()
-                || pane.parent_pane_id.is_some()
-                || pane.team_id.is_some()
-                || pane.can_spawn
-                || pane.report_target_pane_id.is_some()
+            if tab.role.is_some()
+                || tab.parent_tab_id.is_some()
+                || tab.team_id.is_some()
+                || tab.can_spawn
+                || tab.report_target_tab_id.is_some()
             {
                 return Err("roleless transition post-condition failed".into());
             }
         }
-        AgentPlacement::Worker { parent_pane_id } => {
-            verify_leaf(pane, AgentRole::Worker, None, parent_pane_id, mux)?
+        AgentPlacement::Worker { parent_tab_id } => {
+            verify_leaf(tab, AgentRole::Worker, None, parent_tab_id, mux)?
         }
         AgentPlacement::Manager {
-            parent_pane_id,
+            parent_tab_id,
             role_profile,
         } => verify_leaf(
-            pane,
+            tab,
             AgentRole::Manager,
             role_profile.as_deref(),
-            parent_pane_id,
+            parent_tab_id,
             mux,
         )?,
         AgentPlacement::Planner { plan_id } => {
-            let owner = rebind_owner_pane(plan_rebind, plan_id)?;
-            verify_leaf(pane, AgentRole::Manager, Some("planner"), &owner, mux)?;
-            verified_session(pane)?;
+            let owner = rebind_owner_tab(plan_rebind, plan_id)?;
+            verify_leaf(tab, AgentRole::Manager, Some("planner"), &owner, mux)?;
+            verified_session(tab)?;
         }
         AgentPlacement::Orchestrator { can_spawn } => {
-            if pane.role != Some(AgentRole::Orchestrator)
-                || pane.parent_pane_id.is_some()
-                || pane.depth != 1
-                || pane.can_spawn != *can_spawn
-                || pane.report_target_pane_id.is_some()
+            if tab.role != Some(AgentRole::Orchestrator)
+                || tab.parent_tab_id.is_some()
+                || tab.depth != 1
+                || tab.can_spawn != *can_spawn
+                || tab.report_target_tab_id.is_some()
             {
                 return Err("Orchestrator transition post-condition failed".into());
             }
@@ -728,22 +728,22 @@ fn verify_destination(
 }
 
 fn verify_leaf(
-    pane: &Pane,
+    tab: &Tab,
     role: AgentRole,
     role_profile: Option<&str>,
-    parent_pane_id: &str,
+    parent_tab_id: &str,
     mux: &MultiplexerState,
 ) -> Result<(), String> {
     let parent_team = mux
-        .get_pane(parent_pane_id)
+        .get_tab(parent_tab_id)
         .and_then(|parent| parent.team_id.as_deref());
-    if pane.role != Some(role)
-        || pane.role_profile.as_deref() != role_profile
-        || pane.parent_pane_id.as_deref() != Some(parent_pane_id)
-        || pane.team_id.as_deref() != parent_team
-        || pane.can_spawn
-        || pane.depth != 2
-        || pane.report_target_pane_id.as_deref() != Some(parent_pane_id)
+    if tab.role != Some(role)
+        || tab.role_profile.as_deref() != role_profile
+        || tab.parent_tab_id.as_deref() != Some(parent_tab_id)
+        || tab.team_id.as_deref() != parent_team
+        || tab.can_spawn
+        || tab.depth != 2
+        || tab.report_target_tab_id.as_deref() != Some(parent_tab_id)
     {
         return Err("leaf transition post-condition failed".into());
     }

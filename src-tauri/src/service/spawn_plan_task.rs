@@ -1,4 +1,4 @@
-//! Worker spawn binds a named plan task (`--plan-task`) to the new pane.
+//! Worker spawn binds a named plan task (`--plan-task`) to the new tab.
 
 use crate::service::plan::PlanStore;
 use crate::service::{ServiceContext, SpawnAgentParams};
@@ -18,7 +18,7 @@ pub(crate) fn validate_worker_plan_task_spawn(params: &SpawnAgentParams) -> Resu
     Ok(())
 }
 
-/// Reject a WIP-gate-blocked dispatch before any pane is provisioned, so
+/// Reject a WIP-gate-blocked dispatch before any tab is provisioned, so
 /// there is nothing left to roll back.
 pub(crate) fn preflight_worker_plan_task_wip_gate(
     store: &PlanStore,
@@ -43,11 +43,11 @@ pub(crate) fn preflight_worker_plan_task_wip_gate(
         .map_err(|error| error.to_string())
 }
 
-pub(crate) fn bind_worker_task_to_pane(
+pub(crate) fn bind_worker_task_to_tab(
     store: &PlanStore,
     plan_id: Option<&str>,
     task_ref: &str,
-    pane_id: &str,
+    tab_id: &str,
     now_ms: u64,
 ) -> Result<(String, String), String> {
     let resolved = store
@@ -56,7 +56,7 @@ pub(crate) fn bind_worker_task_to_pane(
     let plan_id = resolved.plan_id;
     let task_id = resolved.task_id;
     store
-        .assign_task_with_role(&plan_id, &task_id, pane_id, None, Some("worker"), now_ms)
+        .assign_task_with_role(&plan_id, &task_id, tab_id, None, Some("worker"), now_ms)
         .map_err(|e| e.to_string())?;
     if let Err(e) = store.update_task(
         &plan_id,
@@ -99,7 +99,7 @@ fn record_executor_identity_or_revert(
     plan_id: &str,
     task_id: &str,
     task_ref: &str,
-    pane_id: &str,
+    tab_id: &str,
     title: &str,
     session_id: Option<&str>,
     now_ms: u64,
@@ -107,7 +107,7 @@ fn record_executor_identity_or_revert(
     if let Err(e) = store.update_attempt_executor_identity(
         plan_id,
         task_ref,
-        pane_id,
+        tab_id,
         Some(title),
         session_id,
         now_ms,
@@ -118,37 +118,37 @@ fn record_executor_identity_or_revert(
     Ok(())
 }
 
-/// Bind the pane and executor identity as one compensated transaction.
-/// Any failure reverts plan state and closes the provisioned pane.
+/// Bind the tab and executor identity as one compensated transaction.
+/// Any failure reverts plan state and closes the provisioned tab.
 pub(crate) fn bind_worker_plan_task_transaction(
     store: &PlanStore,
     plan_id: Option<&str>,
     task_ref: &str,
-    pane_id: &str,
+    tab_id: &str,
     title: &str,
     session_id: Option<&str>,
     now_ms: u64,
-    close_pane: impl FnOnce(),
+    close_tab: impl FnOnce(),
 ) -> Result<String, String> {
     let (plan_id, task_id) =
-        match bind_worker_task_to_pane(store, plan_id, task_ref, pane_id, now_ms) {
+        match bind_worker_task_to_tab(store, plan_id, task_ref, tab_id, now_ms) {
             Ok(ids) => ids,
             Err(e) => {
-                close_pane();
+                close_tab();
                 return Err(e);
             }
         };
     if let Err(e) = record_executor_identity_or_revert(
-        store, &plan_id, &task_id, task_ref, pane_id, title, session_id, now_ms,
+        store, &plan_id, &task_id, task_ref, tab_id, title, session_id, now_ms,
     ) {
-        close_pane();
+        close_tab();
         return Err(e);
     }
     Ok(plan_id)
 }
 
 impl ServiceContext {
-    /// Preflight the review WIP gate before any pane gets provisioned.
+    /// Preflight the review WIP gate before any tab gets provisioned.
     pub(crate) fn preflight_worker_plan_task_spawn(
         &self,
         params: &SpawnAgentParams,
@@ -159,12 +159,12 @@ impl ServiceContext {
         preflight_worker_plan_task_wip_gate(&self.plan_store, params.plan_id.as_deref(), task_ref)
     }
 
-    /// Bind `--plan-task` to the pane, compensating fully on any failure —
+    /// Bind `--plan-task` to the tab, compensating fully on any failure —
     /// see `bind_worker_plan_task_transaction`.
-    pub(crate) fn bind_worker_plan_task_or_rollback_pane(
+    pub(crate) fn bind_worker_plan_task_or_rollback_tab(
         &self,
         params: &SpawnAgentParams,
-        pane_id: &str,
+        tab_id: &str,
     ) -> Result<(), String> {
         let Some(task_ref) = worker_spawn_plan_task_ref(params) else {
             return Ok(());
@@ -172,22 +172,22 @@ impl ServiceContext {
         let now_ms = epoch_ms();
         let (title, session_id) = {
             let mux = self.mux.read();
-            let title = mux.display_label_for_pane(pane_id);
+            let title = mux.display_label_for_tab(tab_id);
             let session_id = mux
-                .get_pane(pane_id)
-                .and_then(|pane| pane.agent_session_id.clone());
+                .get_tab(tab_id)
+                .and_then(|tab| tab.agent_session_id.clone());
             (title, session_id)
         };
         let plan_id = bind_worker_plan_task_transaction(
             &self.plan_store,
             params.plan_id.as_deref(),
             task_ref,
-            pane_id,
+            tab_id,
             &title,
             session_id.as_deref(),
             now_ms,
             || {
-                let _ = self.close_pane(pane_id);
+                let _ = self.close_tab(tab_id);
             },
         )?;
         crate::api::events::emit_everywhere(
@@ -211,7 +211,7 @@ mod tests {
             .create_plan_for_team(
                 "Spawn bind".into(),
                 dir.display().to_string(),
-                OrchestratorRef::from_pane("orch"),
+                OrchestratorRef::from_tab("orch"),
                 "team-orch".into(),
                 vec![],
                 1,
@@ -238,12 +238,12 @@ mod tests {
     fn bind_sets_executor_and_in_progress() {
         let dir = tempfile::tempdir().unwrap();
         let (store, plan_id, task_id) = store_with_task(dir.path());
-        bind_worker_task_to_pane(&store, Some(&plan_id), "spawn-bind", "pane-worker", 10).unwrap();
+        bind_worker_task_to_tab(&store, Some(&plan_id), "spawn-bind", "tab-worker", 10).unwrap();
         let plan = store.get(&plan_id).unwrap();
         let task = plan.tasks.iter().find(|t| t.id == task_id).unwrap();
         assert_eq!(task.status, TaskStatus::InProgress);
-        assert_eq!(task.assigned_pane_id.as_deref(), Some("pane-worker"));
-        assert_eq!(task.lane.pane_id.as_deref(), Some("pane-worker"));
+        assert_eq!(task.assigned_tab_id.as_deref(), Some("tab-worker"));
+        assert_eq!(task.lane.tab_id.as_deref(), Some("tab-worker"));
         assert_eq!(task.taken_by_role.as_deref(), Some("worker"));
     }
 
@@ -265,7 +265,7 @@ mod tests {
     }
 
     #[test]
-    fn preflight_rejects_before_any_pane_when_wip_gate_blocked() {
+    fn preflight_rejects_before_any_tab_when_wip_gate_blocked() {
         let dir = tempfile::tempdir().unwrap();
         let (store, plan_id, _task_id) = store_with_task(dir.path());
         block_review_wip(&store, &plan_id);
@@ -305,7 +305,7 @@ mod tests {
                 &plan_id,
                 &task_id,
                 crate::plan::ReviewCapacityClass::Review,
-                crate::plan::AgentRef::from_pane("orch"),
+                crate::plan::AgentRef::from_tab("orch"),
                 5,
             )
             .unwrap();
@@ -313,38 +313,38 @@ mod tests {
     }
 
     // Reproduces the incident: `assign_task_with_role` (step 1) already binds
-    // the pane before `update_task(in_progress)` (step 2) hits the WIP gate.
+    // the tab before `update_task(in_progress)` (step 2) hits the WIP gate.
     #[test]
-    fn wip_gate_failure_after_pane_bind_leaves_zero_residual_task_lane_binding() {
+    fn wip_gate_failure_after_tab_bind_leaves_zero_residual_task_lane_binding() {
         let dir = tempfile::tempdir().unwrap();
         let (store, plan_id, task_id) = store_with_task(dir.path());
         block_review_wip(&store, &plan_id);
 
-        let err = bind_worker_task_to_pane(&store, Some(&plan_id), "spawn-bind", "pane-worker", 10)
+        let err = bind_worker_task_to_tab(&store, Some(&plan_id), "spawn-bind", "tab-worker", 10)
             .unwrap_err();
         assert!(err.contains("review"), "got: {err}");
 
         let plan = store.get(&plan_id).unwrap();
         let task = plan.tasks.iter().find(|t| t.id == task_id).unwrap();
         assert_eq!(task.status, TaskStatus::Pending);
-        assert_eq!(task.assigned_pane_id, None);
-        assert_eq!(task.lane.pane_id, None);
+        assert_eq!(task.assigned_tab_id, None);
+        assert_eq!(task.lane.tab_id, None);
     }
 
-    // A mismatched pane_id models any bug where the two steps disagree on
-    // which pane the attempt lives on; the failed record must revert the bind.
+    // A mismatched tab_id models any bug where the two steps disagree on
+    // which tab the attempt lives on; the failed record must revert the bind.
     #[test]
     fn identity_update_failure_after_bind_reverts_task_and_lane_binding() {
         let dir = tempfile::tempdir().unwrap();
         let (store, plan_id, task_id) = store_with_task(dir.path());
-        bind_worker_task_to_pane(&store, Some(&plan_id), "spawn-bind", "pane-worker", 10).unwrap();
+        bind_worker_task_to_tab(&store, Some(&plan_id), "spawn-bind", "tab-worker", 10).unwrap();
 
         let err = record_executor_identity_or_revert(
             &store,
             &plan_id,
             &task_id,
             "spawn-bind",
-            "pane-mismatched",
+            "tab-mismatched",
             "Ada",
             None,
             11,
@@ -355,40 +355,40 @@ mod tests {
         let plan = store.get(&plan_id).unwrap();
         let task = plan.tasks.iter().find(|t| t.id == task_id).unwrap();
         assert_eq!(task.status, TaskStatus::Pending);
-        assert_eq!(task.assigned_pane_id, None);
-        assert_eq!(task.lane.pane_id, None);
+        assert_eq!(task.assigned_tab_id, None);
+        assert_eq!(task.lane.tab_id, None);
     }
 
     // Proven via the WIP-gate path — the failure reliably triggerable here
     // without dependency-injecting the identity step itself.
     #[test]
-    fn transaction_closes_pane_and_reverts_state_on_any_post_provision_failure() {
+    fn transaction_closes_tab_and_reverts_state_on_any_post_provision_failure() {
         let dir = tempfile::tempdir().unwrap();
         let (store, plan_id, task_id) = store_with_task(dir.path());
         block_review_wip(&store, &plan_id);
 
-        let mut pane_closed = false;
+        let mut tab_closed = false;
         let err = bind_worker_plan_task_transaction(
             &store,
             Some(&plan_id),
             "spawn-bind",
-            "pane-worker",
+            "tab-worker",
             "Ada",
             None,
             10,
-            || pane_closed = true,
+            || tab_closed = true,
         )
         .unwrap_err();
         assert!(err.contains("review"), "got: {err}");
         assert!(
-            pane_closed,
+            tab_closed,
             "the just-created Tab must be closed on any post-provision failure"
         );
 
         let plan = store.get(&plan_id).unwrap();
         let task = plan.tasks.iter().find(|t| t.id == task_id).unwrap();
         assert_eq!(task.status, TaskStatus::Pending);
-        assert_eq!(task.assigned_pane_id, None);
-        assert_eq!(task.lane.pane_id, None);
+        assert_eq!(task.assigned_tab_id, None);
+        assert_eq!(task.lane.tab_id, None);
     }
 }

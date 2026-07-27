@@ -49,7 +49,7 @@ fn render_regression_gates(val: &Value, out: &mut String) {
     for o in &overrides {
         let actor = o
             .get("actor")
-            .and_then(|a| a.get("pane_id"))
+            .and_then(|a| a.get("tab_id"))
             .and_then(|v| v.as_str())
             .unwrap_or("unknown");
         let reason = o.get("reason").and_then(|v| v.as_str()).unwrap_or("");
@@ -122,7 +122,7 @@ pub fn render_state(val: &Value) -> String {
 
     let owner = val
         .get("owner")
-        .and_then(|o| o.get("pane_id"))
+        .and_then(|o| o.get("tab_id"))
         .and_then(|v| v.as_str())
         .filter(|v| !v.is_empty());
     if let Some(owner) = owner {
@@ -132,12 +132,12 @@ pub fn render_state(val: &Value) -> String {
         let kind = res.get("kind").and_then(|v| v.as_str()).unwrap_or("unset");
         match kind {
             "live" => {
-                let pane = res.get("pane_id").and_then(|v| v.as_str()).unwrap_or("?");
-                out.push_str(&format!("planner tab: {pane} (live)\n"));
+                let tab = res.get("tab_id").and_then(|v| v.as_str()).unwrap_or("?");
+                out.push_str(&format!("planner tab: {tab} (live)\n"));
             }
             "fallback_orchestrator" => {
                 let bound = res
-                    .get("bound_pane_id")
+                    .get("bound_tab_id")
                     .and_then(|v| v.as_str())
                     .unwrap_or("?");
                 let reason = res.get("reason").and_then(|v| v.as_str()).unwrap_or("");
@@ -333,7 +333,7 @@ pub fn render_state(val: &Value) -> String {
                 out.push_str(&format!(
                     "  - {} -> {} ({})\n",
                     s(a, "task_id"),
-                    s(a, "pane_id"),
+                    s(a, "tab_id"),
                     s(a, "name"),
                 ));
             }
@@ -396,15 +396,15 @@ mod tests {
             "status": "active",
             "mode": "planning",
             "goal": {"vector": "ship it"},
-            "owner": {"pane_id": "pane_o"},
+            "owner": {"tab_id": "tab_o"},
             "task_counts": {"total": 4, "done": 1, "in_progress": 1, "in_review": 1, "pending": 1, "blocked": 0, "cancelled": 0},
             "percent_done": 0.25,
             "coverage": {"plan_covered_fraction": 0.5, "gaps": ["s2"]},
-            "drift": {"total": 1, "by_kind": {"in_progress_pane_gone": 1}},
+            "drift": {"total": 1, "by_kind": {"in_progress_tab_gone": 1}},
             "heartbeat": {"current_focus": "foundation", "active_lanes": ["loop-state"]},
             "loops": [{"id": "lp_1", "status": "running", "target": "harden", "count": 2, "budget": 5, "stop_when": "0 bugs"}],
             "open_lanes": [{"task_id": "t_p", "status": "pending", "presentation": "actionable_pending", "name": "pend"}],
-            "live_agents": [{"task_id": "t_r", "pane_id": "pane_live", "name": "rev"}],
+            "live_agents": [{"task_id": "t_r", "tab_id": "tab_live", "name": "rev"}],
             "recent_strides": [{"kind": "decision", "text": "did a thing"}]
         });
         let out = render_state(&val);
@@ -412,11 +412,11 @@ mod tests {
         assert!(out.contains("goal: ship it"));
         assert!(out.contains("25% done"));
         assert!(out.contains("coverage: 50% (1 section gap"));
-        assert!(out.contains("drift: 1 (in_progress_pane_gone 1)"));
+        assert!(out.contains("drift: 1 (in_progress_tab_gone 1)"));
         assert!(out.contains("focus: foundation"));
         assert!(out.contains("lp_1 [running] harden: 2/5; stop_when: 0 bugs"));
         assert!(out.contains("t_p [pending; actionable pending] pend"));
-        assert!(out.contains("t_r -> pane_live (rev)"));
+        assert!(out.contains("t_r -> tab_live (rev)"));
         assert!(out.contains("[decision] did a thing"));
     }
 
@@ -451,12 +451,12 @@ mod tests {
             "percent_done": 1.0,
             "pending_regression_gates": [{"key": "phase-1", "label": "Phase 1"}, {"key": "phase-2", "label": "Phase 2"}],
             "blocking_regression_gates": [{"key": "phase-2", "label": "Phase 2"}],
-            "regression_overrides": [{"actor": {"pane_id": "pane_o"}, "reason": "hotfix under sign-off", "gates": ["phase-1"], "ts": 42}]
+            "regression_overrides": [{"actor": {"tab_id": "tab_o"}, "reason": "hotfix under sign-off", "gates": ["phase-1"], "ts": 42}]
         });
         let out = render_state(&val);
         assert!(out.contains("regression gates pending: phase-1, phase-2"));
         assert!(out.contains("dispatch: BLOCKED by regression gate(s): phase-2"));
-        assert!(out.contains("override by pane_o @ 42 [phase-1]: hotfix under sign-off"));
+        assert!(out.contains("override by tab_o @ 42 [phase-1]: hotfix under sign-off"));
     }
 
     #[test]
@@ -470,7 +470,7 @@ mod tests {
             "percent_done": 1.0,
             "pending_regression_gates": [{"key": "phase-1", "label": "Phase 1"}],
             "blocking_regression_gates": [],
-            "regression_overrides": [{"actor": {"pane_id": "pane_o"}, "reason": "waiver", "gates": ["phase-1"], "ts": 7}]
+            "regression_overrides": [{"actor": {"tab_id": "tab_o"}, "reason": "waiver", "gates": ["phase-1"], "ts": 7}]
         });
         let out = render_state(&val);
         assert!(out.contains("regression gates pending: phase-1"));

@@ -11,31 +11,31 @@ impl PlanStore {
     pub fn rebind_planner_session(
         &self,
         plan_id: &str,
-        pane_id: &str,
+        tab_id: &str,
         session_id: &str,
         binding_nonce: &str,
         now_ms: u64,
     ) -> Result<bool, PlanError> {
         self.with_plan(plan_id, now_ms, |plan| {
-            let Some(PlannerRef::Pane {
-                pane_id: bound,
+            let Some(PlannerRef::Tab {
+                tab_id: bound,
                 title,
                 ..
             }) = &plan.planner
             else {
                 return Ok(false);
             };
-            if bound != pane_id {
+            if bound != tab_id {
                 return Ok(false);
             }
-            plan.planner = Some(PlannerRef::Pane {
-                pane_id: pane_id.to_string(),
+            plan.planner = Some(PlannerRef::Tab {
+                tab_id: tab_id.to_string(),
                 session_id: Some(session_id.to_string()),
                 title: title.clone(),
             });
             for request in &mut plan.planner_requests {
                 if request.state != PlannerRequestState::InProgress
-                    || request.delivered_to_pane_id.as_deref() != Some(pane_id)
+                    || request.delivered_to_tab_id.as_deref() != Some(tab_id)
                 {
                     continue;
                 }
@@ -64,7 +64,7 @@ impl PlanStore {
         plan_id: &str,
         request_id: String,
         payload: String,
-        caller_pane_id: Option<&str>,
+        caller_tab_id: Option<&str>,
         caller_session_id: Option<&str>,
         now_ms: u64,
     ) -> Result<PlannerRequest, PlanError> {
@@ -80,7 +80,7 @@ impl PlanStore {
                 request_id,
                 payload,
                 payload_blob: None,
-                caller_pane_id: caller_pane_id.map(str::to_string),
+                caller_tab_id: caller_tab_id.map(str::to_string),
                 caller_session_id: caller_session_id.map(str::to_string),
                 state: PlannerRequestState::Queued,
                 created_at: now_ms,
@@ -89,7 +89,7 @@ impl PlanStore {
                 delivery_attempts: 0,
                 completed_at: None,
                 failed_at: None,
-                delivered_to_pane_id: None,
+                delivered_to_tab_id: None,
                 delivered_to_session_id: None,
                 delivered_with_binding_nonce: None,
             };
@@ -97,7 +97,7 @@ impl PlanStore {
             plan.planner_inbox.push(PlannerInboxEntry {
                 request_id: request.request_id.clone(),
                 phase: PlannerDeliveryPhase::PreSend,
-                pane_id: None,
+                tab_id: None,
                 session_id: None,
                 binding_nonce: None,
                 transport: None,
@@ -111,7 +111,7 @@ impl PlanStore {
     pub fn claim_planner_requests(
         &self,
         plan_id: &str,
-        pane_id: &str,
+        tab_id: &str,
         session_id: &str,
         binding_nonce: &str,
         now_ms: u64,
@@ -126,7 +126,7 @@ impl PlanStore {
                     plan.planner_inbox.push(PlannerInboxEntry {
                         request_id: request.request_id.clone(),
                         phase: PlannerDeliveryPhase::PreSend,
-                        pane_id: None,
+                        tab_id: None,
                         session_id: None,
                         binding_nonce: None,
                         transport: None,
@@ -170,10 +170,10 @@ impl PlanStore {
                 request.accepted_at = None;
                 request.lease_expires_at = Some(now_ms.saturating_add(DELIVERY_LEASE_MS));
                 request.delivery_attempts = request.delivery_attempts.saturating_add(1);
-                request.delivered_to_pane_id = Some(pane_id.to_string());
+                request.delivered_to_tab_id = Some(tab_id.to_string());
                 request.delivered_to_session_id = Some(session_id.to_string());
                 request.delivered_with_binding_nonce = Some(binding_nonce.to_string());
-                inbox.pane_id = Some(pane_id.to_string());
+                inbox.tab_id = Some(tab_id.to_string());
                 inbox.session_id = Some(session_id.to_string());
                 inbox.binding_nonce = Some(binding_nonce.to_string());
                 inbox.last_error = None;
@@ -209,7 +209,7 @@ impl PlanStore {
             request.state = PlannerRequestState::Queued;
             request.accepted_at = None;
             request.lease_expires_at = None;
-            request.delivered_to_pane_id = None;
+            request.delivered_to_tab_id = None;
             request.delivered_to_session_id = None;
             request.delivered_with_binding_nonce = None;
             if let Some(inbox) = plan
@@ -218,7 +218,7 @@ impl PlanStore {
                 .find(|entry| entry.request_id == request_id)
             {
                 inbox.phase = PlannerDeliveryPhase::PreSend;
-                inbox.pane_id = None;
+                inbox.tab_id = None;
                 inbox.session_id = None;
                 inbox.binding_nonce = None;
                 inbox.transport = None;
@@ -394,8 +394,8 @@ mod tests {
             dir.path().display().to_string(),
             OrchestratorRef::default(),
         );
-        plan.planner = Some(PlannerRef::Pane {
-            pane_id: "planner".into(),
+        plan.planner = Some(PlannerRef::Tab {
+            tab_id: "planner".into(),
             session_id: Some("preflight-session".into()),
             title: Some("Planner".into()),
         });
@@ -419,7 +419,7 @@ mod tests {
         let rebound = store.get(&plan.id).unwrap();
         assert!(matches!(
             rebound.planner,
-            Some(PlannerRef::Pane { session_id: Some(ref id), .. }) if id == "opened-session"
+            Some(PlannerRef::Tab { session_id: Some(ref id), .. }) if id == "opened-session"
         ));
         let request = &rebound.planner_requests[0];
         assert_eq!(

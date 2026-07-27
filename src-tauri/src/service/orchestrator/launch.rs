@@ -4,11 +4,11 @@ use crate::{
 };
 pub(crate) fn skip_local_worker_role(
     role: &crate::multiplexer::types::AgentRole,
-    parent_pane_id: Option<&str>,
+    parent_tab_id: Option<&str>,
     report_target_mesh_peer: Option<&str>,
 ) -> bool {
     matches!(role, crate::multiplexer::types::AgentRole::Worker)
-        && parent_pane_id.is_none()
+        && parent_tab_id.is_none()
         && report_target_mesh_peer.map_or(false, |p| !p.is_empty())
 }
 
@@ -58,7 +58,7 @@ pub(crate) use crate::agent::{provider::AgentLaunchParams, registry::AgentRegist
 #[derive(Default)]
 pub(crate) struct LaunchRegistry {
     next_generation: u64,
-    panes: std::collections::HashMap<String, RegisteredLaunch>,
+    tabs: std::collections::HashMap<String, RegisteredLaunch>,
 }
 #[cfg(test)]
 #[path = "launch/tests.rs"]
@@ -76,10 +76,10 @@ struct ProviderAck {
     changed: parking_lot::Condvar,
 }
 impl LaunchRegistry {
-    pub(crate) fn begin(&mut self, pane_id: &str, pty_id: String) -> LaunchGeneration {
+    pub(crate) fn begin(&mut self, tab_id: &str, pty_id: String) -> LaunchGeneration {
         self.next_generation = self.next_generation.wrapping_add(1).max(1);
         let launch = LaunchGeneration {
-            pane_id: pane_id.into(),
+            tab_id: tab_id.into(),
             pty_id,
             generation: self.next_generation,
             stage: BootStage::PtySpawned,
@@ -87,8 +87,8 @@ impl LaunchRegistry {
             provider_ack: std::sync::Arc::new(ProviderAck::default()),
             binding_nonce: None,
         };
-        self.panes.insert(
-            launch.pane_id.clone(),
+        self.tabs.insert(
+            launch.tab_id.clone(),
             RegisteredLaunch {
                 pty_id: launch.pty_id.clone(),
                 generation: launch.generation,
@@ -100,7 +100,7 @@ impl LaunchRegistry {
     }
 
     fn owns(&self, launch: &LaunchGeneration) -> bool {
-        self.panes.get(&launch.pane_id).is_some_and(|registered| {
+        self.tabs.get(&launch.tab_id).is_some_and(|registered| {
             registered.pty_id == launch.pty_id && registered.generation == launch.generation
         })
     }
@@ -109,7 +109,7 @@ impl LaunchRegistry {
         if !self.owns(launch) {
             return false;
         }
-        self.panes.remove(&launch.pane_id);
+        self.tabs.remove(&launch.tab_id);
         true
     }
 
@@ -118,7 +118,7 @@ impl LaunchRegistry {
         launch: &LaunchGeneration,
         binding_nonce: String,
     ) -> bool {
-        let Some(registered) = self.panes.get_mut(&launch.pane_id) else {
+        let Some(registered) = self.tabs.get_mut(&launch.tab_id) else {
             return false;
         };
         if registered.pty_id != launch.pty_id || registered.generation != launch.generation {
@@ -128,10 +128,10 @@ impl LaunchRegistry {
         true
     }
 
-    fn record_provider_session(&self, pane_id: &str, binding: &ProviderSessionBinding) -> bool {
+    fn record_provider_session(&self, tab_id: &str, binding: &ProviderSessionBinding) -> bool {
         let Some(ack) = self
-            .panes
-            .get(pane_id)
+            .tabs
+            .get(tab_id)
             .filter(|launch| {
                 launch.pty_id == binding.pty_id
                     && launch.binding_nonce.as_deref() == Some(&binding.binding_nonce)
@@ -146,14 +146,14 @@ impl LaunchRegistry {
     }
 
     fn take_for_pty(&mut self, pty_id: &str) -> Option<LaunchGeneration> {
-        let pane_id = self
-            .panes
+        let tab_id = self
+            .tabs
             .iter()
             .find(|(_, registered)| registered.pty_id == pty_id)
-            .map(|(pane_id, _)| pane_id.clone())?;
-        let registered = self.panes.remove(&pane_id)?;
+            .map(|(tab_id, _)| tab_id.clone())?;
+        let registered = self.tabs.remove(&tab_id)?;
         Some(LaunchGeneration {
-            pane_id,
+            tab_id,
             pty_id: registered.pty_id,
             generation: registered.generation,
             stage: BootStage::PtySpawned,
@@ -174,7 +174,7 @@ enum LaunchFailure {
     ReaderReadyTimeout,
     ShellReadyTimeout,
     PtyEof,
-    PaneClosed,
+    TabClosed,
     LaunchWrite(String),
     ProviderReadyTimeout,
     TaskDelivery(String),
@@ -188,7 +188,7 @@ impl LaunchFailure {
             Self::ReaderReadyTimeout => "ReaderReadyTimeout".into(),
             Self::ShellReadyTimeout => "ShellReadyTimeout".into(),
             Self::PtyEof => "PtyEof".into(),
-            Self::PaneClosed => "PaneClosedBeforePtyLink".into(),
+            Self::TabClosed => "TabClosedBeforePtyLink".into(),
             Self::LaunchWrite(error) => format!("LaunchWriteFailed: {error}"),
             Self::ProviderReadyTimeout => "ProviderReadyTimeout".into(),
             Self::TaskDelivery(error) => format!("TaskDeliveryFailed: {error}"),
@@ -212,7 +212,7 @@ fn provider_launch_failure(
 
 #[derive(Debug, Clone)]
 pub(crate) struct LaunchGeneration {
-    pane_id: String,
+    tab_id: String,
     pty_id: String,
     generation: u64,
     stage: BootStage,
@@ -227,26 +227,26 @@ pub(crate) struct ProviderSessionBinding {
     pub(crate) binding_nonce: String,
 }
 
-pub(crate) fn record_provider_session(pane_id: &str, binding: &ProviderSessionBinding) -> bool {
+pub(crate) fn record_provider_session(tab_id: &str, binding: &ProviderSessionBinding) -> bool {
     LAUNCH_REGISTRY
         .lock()
-        .record_provider_session(pane_id, binding)
+        .record_provider_session(tab_id, binding)
 }
 #[cfg(test)]
 pub(crate) fn arm_provider_session_for_test(
-    pane_id: &str,
+    tab_id: &str,
     pty_id: &str,
     nonce: &str,
 ) -> LaunchGeneration {
-    let launch = LaunchGeneration::begin(pane_id, pty_id.to_string());
+    let launch = LaunchGeneration::begin(tab_id, pty_id.to_string());
     LAUNCH_REGISTRY
         .lock()
         .bind_provider_session(&launch, nonce.to_string());
     launch
 }
 impl LaunchGeneration {
-    fn begin(pane_id: &str, pty_id: String) -> Self {
-        LAUNCH_REGISTRY.lock().begin(pane_id, pty_id)
+    fn begin(tab_id: &str, pty_id: String) -> Self {
+        LAUNCH_REGISTRY.lock().begin(tab_id, pty_id)
     }
 
     fn owns(&self) -> bool {
@@ -254,7 +254,7 @@ impl LaunchGeneration {
     }
 
     fn capture_binding_nonce(&mut self, svc: &ServiceContext) {
-        let nonce = svc.rotate_session_binding_nonce(&self.pane_id);
+        let nonce = svc.rotate_session_binding_nonce(&self.tab_id);
         self.binding_nonce = Some(nonce.clone());
         LAUNCH_REGISTRY.lock().bind_provider_session(self, nonce);
     }
@@ -269,21 +269,21 @@ impl LaunchGeneration {
     }
 
     fn replace(&mut self, pty_id: String) {
-        let pane_id = self.pane_id.clone();
-        *self = Self::begin(&pane_id, pty_id);
+        let tab_id = self.tab_id.clone();
+        *self = Self::begin(&tab_id, pty_id);
     }
 
     fn emit(&mut self, svc: &ServiceContext, stage: BootStage) -> bool {
         self.transition(stage);
         self.commit_if_current(|| {
-            svc.emit_boot_stage(&self.pane_id, stage, None);
+            svc.emit_boot_stage(&self.tab_id, stage, None);
         })
     }
 
     fn fail(&self, svc: &ServiceContext, failure: LaunchFailure) -> bool {
         let reason = failure.reason();
         self.finish_if_current(|| {
-            svc.emit_boot_stage(&self.pane_id, BootStage::SpawnFailed, Some(&reason));
+            svc.emit_boot_stage(&self.tab_id, BootStage::SpawnFailed, Some(&reason));
         })
     }
 
@@ -323,7 +323,7 @@ impl LaunchGeneration {
 pub(crate) fn record_reader_termination(svc: &ServiceContext, pty_id: &str) {
     take_reader_termination(pty_id, |launch| {
         let reason = LaunchFailure::PtyEof.reason();
-        svc.emit_boot_stage(&launch.pane_id, BootStage::SpawnFailed, Some(&reason));
+        svc.emit_boot_stage(&launch.tab_id, BootStage::SpawnFailed, Some(&reason));
     });
 }
 
@@ -383,12 +383,12 @@ struct BackendPty {
     reader: ReaderReadiness,
 }
 
-fn existing_live_pty(svc: &ServiceContext, pane_id: &str) -> Option<String> {
+fn existing_live_pty(svc: &ServiceContext, tab_id: &str) -> Option<String> {
     let pty_id = svc
         .mux
         .read()
-        .get_pane(pane_id)
-        .and_then(|pane| pane.pty_id.clone())?;
+        .get_tab(tab_id)
+        .and_then(|tab| tab.pty_id.clone())?;
     svc.pty
         .lock()
         .get_session(&pty_id)
@@ -398,11 +398,11 @@ fn existing_live_pty(svc: &ServiceContext, pane_id: &str) -> Option<String> {
 
 fn reused_provider_tui_owns_launch(
     reused_live_pty: bool,
-    pane_agent_type: Option<&str>,
+    tab_agent_type: Option<&str>,
     requested_agent: &str,
     provider_tui_visible: bool,
 ) -> bool {
-    reused_live_pty && pane_agent_type == Some(requested_agent) && provider_tui_visible
+    reused_live_pty && tab_agent_type == Some(requested_agent) && provider_tui_visible
 }
 
 fn start_backend_reader(
@@ -448,13 +448,13 @@ fn start_backend_reader(
     })
 }
 
-fn spawn_backend_pty(svc: &ServiceContext, pane_id: &str) -> Result<BackendPty, LaunchFailure> {
+fn spawn_backend_pty(svc: &ServiceContext, tab_id: &str) -> Result<BackendPty, LaunchFailure> {
     let cwd = svc
         .mux
         .read()
-        .get_pane(pane_id)
-        .and_then(|pane| pane.cwd.clone());
-    let env_vars = svc.pane_env(pane_id);
+        .get_tab(tab_id)
+        .and_then(|tab| tab.cwd.clone());
+    let env_vars = svc.tab_env(tab_id);
     let (pty_id, _) = svc
         .pty
         .lock()
@@ -500,24 +500,24 @@ fn replacement_pty_candidate(
 
 fn await_replacement_pty(
     svc: &ServiceContext,
-    pane_id: &str,
+    tab_id: &str,
     closed_pty_id: &str,
     timeout: std::time::Duration,
 ) -> Option<String> {
     #[cfg(not(windows))]
     {
-        let _ = (svc, pane_id, closed_pty_id, timeout);
+        let _ = (svc, tab_id, closed_pty_id, timeout);
         None
     }
     #[cfg(windows)]
     {
         let deadline = std::time::Instant::now() + timeout;
-        super::pane_relink_signal::wait_for_relink(deadline, || {
+        super::tab_relink_signal::wait_for_relink(deadline, || {
             let linked = svc
                 .mux
                 .read()
-                .get_pane(pane_id)
-                .and_then(|pane| pane.pty_id.clone());
+                .get_tab(tab_id)
+                .and_then(|tab| tab.pty_id.clone());
             let session_exists = linked
                 .as_deref()
                 .is_some_and(|pty_id| svc.pty.lock().get_session(pty_id).is_some());
@@ -529,7 +529,7 @@ fn await_replacement_pty(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn launch_agent_in_background(
     svc: ServiceContext,
-    pane_id: String,
+    tab_id: String,
     tab_id: String,
     ws_id: String,
     launch_cmd: String,
@@ -540,25 +540,25 @@ pub(crate) fn launch_agent_in_background(
 ) {
     let registry = svc.agent_registry.clone();
     let launch_started = std::time::Instant::now();
-    // thread spawns: callers get the pane id immediately and may send right away.
-    if let Some(p) = svc.mux.write().get_pane_mut(&pane_id) {
+    // thread spawns: callers get the tab id immediately and may send right away.
+    if let Some(p) = svc.mux.write().get_tab_mut(&tab_id) {
         p.agent_booting = true;
     }
     crate::service::boot_wait::notify_boot_changed();
     std::thread::spawn(move || {
         let mut delivery_gate = crate::service::launch_delivery::LaunchDeliveryGate::new();
-        let mut launch = LaunchGeneration::begin(&pane_id, "pending".into());
+        let mut launch = LaunchGeneration::begin(&tab_id, "pending".into());
         if !launch.emit(&svc, BootStage::PtyStarting) {
             return;
         }
         let set_booting = |value: bool| {
-            if let Some(p) = svc.mux.write().get_pane_mut(&pane_id) {
+            if let Some(p) = svc.mux.write().get_tab_mut(&tab_id) {
                 p.agent_booting = value;
             }
             crate::service::boot_wait::notify_boot_changed();
         };
-        let pty_claim = svc.pty_ownership.acquire(&pane_id);
-        let (backend_pty, reused_live_pty) = match existing_live_pty(&svc, &pane_id) {
+        let pty_claim = svc.pty_ownership.acquire(&tab_id);
+        let (backend_pty, reused_live_pty) = match existing_live_pty(&svc, &tab_id) {
             Some(pty_id) => match start_backend_reader(&svc, &pty_id) {
                 Ok(reader) => (BackendPty { id: pty_id, reader }, true),
                 Err(failure) => {
@@ -571,13 +571,13 @@ pub(crate) fn launch_agent_in_background(
                     return;
                 }
             },
-            None => match spawn_backend_pty(&svc, &pane_id) {
+            None => match spawn_backend_pty(&svc, &tab_id) {
                 Ok(backend_pty) => (backend_pty, false),
                 Err(failure) => {
                     let error = failure.reason();
                     log::error!(
                         "launch_agent: backend PTY spawn failed for Tab {}: {}",
-                        pane_id,
+                        tab_id,
                         error
                     );
                     launch.fail(&svc, failure);
@@ -594,11 +594,11 @@ pub(crate) fn launch_agent_in_background(
             id: candidate_pty_id,
             reader: reader_readiness,
         } = backend_pty;
-        let selection = svc.link_pty_with_claim(&pty_claim, &pane_id, candidate_pty_id, true);
+        let selection = svc.link_pty_with_claim(&pty_claim, &tab_id, candidate_pty_id, true);
         drop(pty_claim);
         if !selection.linked {
-            let error = LaunchFailure::PaneClosed.reason();
-            launch.fail(&svc, LaunchFailure::PaneClosed);
+            let error = LaunchFailure::TabClosed.reason();
+            launch.fail(&svc, LaunchFailure::TabClosed);
             set_booting(false);
             let _ = svc.close_tab(&ws_id, &tab_id);
             if let Some(tx) = ready_tx {
@@ -628,31 +628,31 @@ pub(crate) fn launch_agent_in_background(
             return;
         }
 
-        let (pane_agent_type, screen) = {
-            let pane_agent_type = svc
+        let (tab_agent_type, screen) = {
+            let tab_agent_type = svc
                 .mux
                 .read()
-                .get_pane(&pane_id)
-                .and_then(|pane| pane.agent_type.clone());
+                .get_tab(&tab_id)
+                .and_then(|tab| tab.agent_type.clone());
             let screen = svc
                 .screen_state
                 .lock()
                 .get_screen_text(&pty_id)
                 .unwrap_or_default();
-            (pane_agent_type, screen)
+            (tab_agent_type, screen)
         };
         let provider_tui_visible = registry
             .with_provider(&agent_cmd, |provider| provider.screen_has_tui(&screen))
             .unwrap_or(false);
         if reused_provider_tui_owns_launch(
             reused_live_pty,
-            pane_agent_type.as_deref(),
+            tab_agent_type.as_deref(),
             &agent_cmd,
             provider_tui_visible,
         ) {
             log::info!(
                 "launch_agent: Tab {} already owns live {} TUI on PTY {}; preserving ready state",
-                pane_id,
+                tab_id,
                 agent_cmd,
                 pty_id
             );
@@ -722,14 +722,14 @@ pub(crate) fn launch_agent_in_background(
             Err(error) => {
                 match await_replacement_pty(
                     &svc,
-                    &pane_id,
+                    &tab_id,
                     &pty_id,
                     std::time::Duration::from_secs(10),
                 ) {
                     Some(replacement) => {
                         log::warn!(
                             "launch_agent: retrying launch for Tab {} on replacement pty {} after pty {} closed",
-                            pane_id, replacement, pty_id
+                            tab_id, replacement, pty_id
                         );
                         pty_id = replacement;
                         let replacement_reader = match start_backend_reader(&svc, &pty_id) {
@@ -802,7 +802,7 @@ pub(crate) fn launch_agent_in_background(
         if let Err(e) = launch_result {
             log::error!(
                 "launch_agent: launch_cmd failed for Tab {} (pty {}): {}",
-                pane_id,
+                tab_id,
                 pty_id,
                 e
             );
@@ -842,7 +842,7 @@ pub(crate) fn launch_agent_in_background(
         if !provider_hook_ready {
             log::warn!(
                 "launch_agent: Tab {} accepted live {} TUI before session binding",
-                pane_id,
+                tab_id,
                 agent_cmd
             );
         }
@@ -861,17 +861,17 @@ pub(crate) fn launch_agent_in_background(
                 set_booting(false);
                 {
                     let mut mux = svc.mux.write();
-                    let pane = mux.get_pane_mut(&pane_id).expect("launch Tab exists");
-                    pane.pending_delivery.get_or_insert_with(|| {
+                    let tab = mux.get_tab_mut(&tab_id).expect("launch Tab exists");
+                    tab.pending_delivery.get_or_insert_with(|| {
                         crate::service::launch_delivery::pending_record_for_spec(spec.clone())
                     });
                 }
-                let consumption = delivery_gate.consume(&svc.mux, &pane_id, &svc, || {
+                let consumption = delivery_gate.consume(&svc.mux, &tab_id, &svc, || {
                     crate::service::pty_io::submit_transaction::submit_entry(
                         crate::service::pty_io::submit_transaction::PtySubmitEntry::Direct,
                         &task_text,
                         |text| {
-                            svc.send_text_detached(&pane_id, text, true);
+                            svc.send_text_detached(&tab_id, text, true);
                             Ok::<(), String>(())
                         },
                     )?;
@@ -881,7 +881,7 @@ pub(crate) fn launch_agent_in_background(
                     &consumption,
                     Ok(crate::service::launch_delivery::LaunchConsumptionOutcome::Confirmed)
                 ) {
-                    svc.confirm_pending_delivery(&pane_id)
+                    svc.confirm_pending_delivery(&tab_id)
                         .err()
                         .map(|error| error.to_string())
                 } else {
@@ -892,7 +892,7 @@ pub(crate) fn launch_agent_in_background(
                 if let Some(e) = delivery_error {
                     log::error!(
                         "launch_agent: task delivery failed for Tab {} (pty {}): {}",
-                        pane_id,
+                        tab_id,
                         pty_id,
                         e
                     );
@@ -906,7 +906,7 @@ pub(crate) fn launch_agent_in_background(
             }
         } else if task.is_some() {
             let _ = crate::service::launch_delivery::dispatch_initial_delivery::<(), fn()>(
-                delivery, &svc, &pane_id, None,
+                delivery, &svc, &tab_id, None,
             );
         }
 
@@ -917,7 +917,7 @@ pub(crate) fn launch_agent_in_background(
         LAUNCH_REGISTRY.lock().finish(&launch);
         log::info!(
             "launch_agent: agent ready in Tab {} after {}ms",
-            pane_id,
+            tab_id,
             launch_started.elapsed().as_millis()
         );
         if let Some(tx) = ready_tx {

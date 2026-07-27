@@ -1,5 +1,5 @@
 /**
- * Real report payloads captured off the wire (pane 02d1339c, plan pl_ghk358).
+ * Real report payloads captured off the wire (tab 02d1339c, plan pl_ghk358).
  * The status line is the leading structured block; everything after it is the
  * free-form message a report card must keep rendering.
  */

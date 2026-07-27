@@ -503,8 +503,8 @@ mod tests {
     fn leakage_serialization_keeps_payload_out_of_snapshot() {
         let payload = "payload-must-never-enter-snapshots-or-logs";
         let digest = digest(payload);
-        let (mut state, pane_id) = crate::multiplexer::state::MultiplexerState::new();
-        state.get_pane_mut(&pane_id).unwrap().pending_delivery = Some(PendingDeliveryRecord::new(
+        let (mut state, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+        state.get_tab_mut(&tab_id).unwrap().pending_delivery = Some(PendingDeliveryRecord::new(
             digest.clone(),
             PendingDeliveryChannel::InteractiveInput,
         ));

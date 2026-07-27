@@ -183,7 +183,7 @@ fn render_open_gates(plan: &Plan, now_ms: u64, out: &mut String) {
             format!("{age_min}m")
         };
         let blocking = gate.blocking_task_ids.len();
-        let routed = gate.routed_to_pane_id.as_deref().unwrap_or("unrouted");
+        let routed = gate.routed_to_tab_id.as_deref().unwrap_or("unrouted");
         out.push_str(&format!(
             "- {} (age:{age} blocking:{blocking} routed:{routed}): {}\n",
             gate.id,
@@ -192,15 +192,15 @@ fn render_open_gates(plan: &Plan, now_ms: u64, out: &mut String) {
     }
 }
 
-fn role_identity_line(plan: &Plan, pane_id: Option<&str>) -> String {
-    let owner = plan.owner.pane_id.as_deref();
+fn role_identity_line(plan: &Plan, tab_id: Option<&str>) -> String {
+    let owner = plan.owner.tab_id.as_deref();
     let planner = match &plan.planner {
-        Some(PlannerRef::Pane { pane_id, .. }) => Some(pane_id.as_str()),
+        Some(PlannerRef::Tab { tab_id, .. }) => Some(tab_id.as_str()),
         _ => None,
     };
-    let role = match pane_id {
-        Some(pane) if owner == Some(pane) => "Orchestrator",
-        Some(pane) if planner == Some(pane) => "Planner",
+    let role = match tab_id {
+        Some(tab) if owner == Some(tab) => "Orchestrator",
+        Some(tab) if planner == Some(tab) => "Planner",
         _ => "Orchestrator",
     };
     let peer_role = if role == "Planner" {
@@ -305,10 +305,10 @@ fn render_heartbeat(
     out
 }
 
-pub(super) fn reconciliation_prompt(plan_id: &str, pane_id: Option<&str>) -> String {
-    let status = pane_id.map_or_else(
+pub(super) fn reconciliation_prompt(plan_id: &str, tab_id: Option<&str>) -> String {
+    let status = tab_id.map_or_else(
         || format!("codeterm orchestrator status --plan {plan_id}"),
-        |pane| format!("codeterm orchestrator status --plan {plan_id} --tab {pane}"),
+        |tab| format!("codeterm orchestrator status --plan {plan_id} --tab {tab}"),
     );
     format!(
         "STATE-RECONCILIATION:\n\
@@ -333,7 +333,7 @@ fn prepend_heartbeat(
     heartbeat: &OrchestratorHeartbeat,
     loops: &[LoopSpec],
     text: &str,
-    pane_id: Option<&str>,
+    tab_id: Option<&str>,
 ) -> String {
     let plan = Plan {
         id: plan_id.to_string(),
@@ -342,8 +342,8 @@ fn prepend_heartbeat(
         ..Plan::new(String::new(), String::new(), Default::default())
     };
     let block = render_heartbeat(&plan, heartbeat, loops, &[]);
-    let identity = role_identity_line(&plan, pane_id);
-    let prompt = reconciliation_prompt(plan_id, pane_id);
+    let identity = role_identity_line(&plan, tab_id);
+    let prompt = reconciliation_prompt(plan_id, tab_id);
     let reconciliation = format!(
         "<codeterm-state-reconciliation plan=\"{plan_id}\">\n{prompt}\n</codeterm-state-reconciliation>"
     );
@@ -372,8 +372,8 @@ pub(super) fn prepend_plan_heartbeat_with_digests(
         return text.to_string();
     }
     let block = render_heartbeat(plan, &plan.heartbeat, &plan.loops, digest_lines);
-    let identity = role_identity_line(plan, plan.owner.pane_id.as_deref());
-    let prompt = reconciliation_prompt(&plan.id, plan.owner.pane_id.as_deref());
+    let identity = role_identity_line(plan, plan.owner.tab_id.as_deref());
+    let prompt = reconciliation_prompt(&plan.id, plan.owner.tab_id.as_deref());
     let reconciliation = format!(
         "<codeterm-state-reconciliation plan=\"{}\">\n{prompt}\n</codeterm-state-reconciliation>",
         plan.id
@@ -410,14 +410,14 @@ pub fn is_plan_complete(plan: &Plan) -> bool {
     !plan.tasks.is_empty() && plan.tasks.iter().all(|task| task.status.is_terminal())
 }
 
-fn owner_matches(plan: &Plan, pane_id: Option<&str>, session_id: Option<&str>) -> bool {
-    let pane_matches = pane_id
-        .filter(|pane| !pane.trim().is_empty())
-        .is_some_and(|pane| plan.owner.pane_id.as_deref() == Some(pane));
+fn owner_matches(plan: &Plan, tab_id: Option<&str>, session_id: Option<&str>) -> bool {
+    let tab_matches = tab_id
+        .filter(|tab| !tab.trim().is_empty())
+        .is_some_and(|tab| plan.owner.tab_id.as_deref() == Some(tab));
     let session_matches = session_id
         .filter(|session| !session.trim().is_empty())
         .is_some_and(|session| plan.owner.session_id.as_deref() == Some(session));
-    pane_matches || session_matches
+    tab_matches || session_matches
 }
 
 fn heartbeat_resolution_rank(plan: &Plan) -> (u8, u64) {
@@ -436,7 +436,7 @@ impl PlanStore {
     pub fn resolve_active_plan_for_orchestrator(
         &self,
         plan_id: Option<&str>,
-        pane_id: Option<&str>,
+        tab_id: Option<&str>,
         session_id: Option<&str>,
     ) -> Result<String, PlanError> {
         if let Some(plan_id) = plan_id.filter(|id| !id.trim().is_empty()) {
@@ -453,7 +453,7 @@ impl PlanStore {
             if plan.status != PlanStatus::Active {
                 continue;
             }
-            if !owner_matches(&plan, pane_id, session_id) {
+            if !owner_matches(&plan, tab_id, session_id) {
                 continue;
             }
             let rank = heartbeat_resolution_rank(&plan);
@@ -475,7 +475,7 @@ impl PlanStore {
     pub fn add_heartbeat_learning(
         &self,
         plan_id: Option<&str>,
-        pane_id: Option<&str>,
+        tab_id: Option<&str>,
         session_id: Option<&str>,
         text: &str,
         tag: Option<&str>,
@@ -485,7 +485,7 @@ impl PlanStore {
         if text.is_empty() {
             return Err(PlanError::Io("learning text is required".into()));
         }
-        let plan_id = self.resolve_active_plan_for_orchestrator(plan_id, pane_id, session_id)?;
+        let plan_id = self.resolve_active_plan_for_orchestrator(plan_id, tab_id, session_id)?;
         let normalized = normalized_learning(text);
         let mut out = None;
         self.with_plan(&plan_id, now_ms, |plan| {
@@ -526,10 +526,10 @@ impl PlanStore {
     pub fn show_heartbeat(
         &self,
         plan_id: Option<&str>,
-        pane_id: Option<&str>,
+        tab_id: Option<&str>,
         session_id: Option<&str>,
     ) -> Result<HeartbeatShowResult, PlanError> {
-        let plan_id = self.resolve_active_plan_for_orchestrator(plan_id, pane_id, session_id)?;
+        let plan_id = self.resolve_active_plan_for_orchestrator(plan_id, tab_id, session_id)?;
         let plan = self.get(&plan_id).ok_or(PlanError::NotFound)?;
         let mut heartbeat = plan.heartbeat.clone();
         heartbeat.current_focus = None;
@@ -561,8 +561,8 @@ impl PlanStore {
         prepend_plan_heartbeat_with_digests(&plan, text, digest_lines)
     }
 
-    pub fn prepend_heartbeat_for_orchestrator_pane(&self, pane_id: &str, text: &str) -> String {
-        let Ok(plan_id) = self.resolve_active_plan_for_orchestrator(None, Some(pane_id), None)
+    pub fn prepend_heartbeat_for_orchestrator_tab(&self, tab_id: &str, text: &str) -> String {
+        let Ok(plan_id) = self.resolve_active_plan_for_orchestrator(None, Some(tab_id), None)
         else {
             return text.to_string();
         };

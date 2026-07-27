@@ -346,16 +346,16 @@ impl AgentProvider for JsProvider {
             .flatten()
     }
 
-    fn classify_pane_state(
+    fn classify_tab_state(
         &self,
-        snapshot: &crate::pane_state::PaneStateSnapshot,
-    ) -> Option<crate::pane_state::PaneStateClassification> {
-        if !self.has_js("classifyPaneState") {
-            return self.native().and_then(|n| n.classify_pane_state(snapshot));
+        snapshot: &crate::tab_state::TabStateSnapshot,
+    ) -> Option<crate::tab_state::TabStateClassification> {
+        if !self.has_js("classifyTabState") {
+            return self.native().and_then(|n| n.classify_tab_state(snapshot));
         }
         let arg = serde_json::to_value(snapshot).ok()?;
-        self.try_call::<Option<crate::pane_state::PaneStateClassification>>(
-            "classifyPaneState",
+        self.try_call::<Option<crate::tab_state::TabStateClassification>>(
+            "classifyTabState",
             &[arg],
         )
         .flatten()

@@ -1,21 +1,21 @@
 // Run: npx tsx src/components/Sidebar/sidebarCycle.test.ts
 
 import assert from "node:assert/strict";
-import type { Tab, Pane } from "../../lib/types";
+import type { Tab, Tab } from "../../lib/types";
 import { buildSidebarCycleItems, cycleStep } from "./sidebarCycle";
 
-function makeTab(id: string, paneId: string, order: number): Tab {
-  return { id, pane_id: paneId, sort_order: order } as unknown as Tab;
+function makeTab(id: string, tabId: string, order: number): Tab {
+  return { id, tab_id: tabId, sort_order: order } as unknown as Tab;
 }
 
-function makePane(id: string): Pane {
-  return { id } as unknown as Pane;
+function makeTab(id: string): Tab {
+  return { id } as unknown as Tab;
 }
 
-const panes: Record<string, Pane> = {
-  p1: makePane("p1"),
-  p2: makePane("p2"),
-  p3: makePane("p3"),
+const tabs: Record<string, Tab> = {
+  p1: makeTab("p1"),
+  p2: makeTab("p2"),
+  p3: makeTab("p3"),
 };
 
 const tabs: Tab[] = [
@@ -27,7 +27,7 @@ const tabs: Tab[] = [
 // buildSidebarCycleItems
 
 assert.deepEqual(
-  buildSidebarCycleItems(tabs, panes, false),
+  buildSidebarCycleItems(tabs, tabs, false),
   [
     { kind: "tab", tabId: "t1" },
     { kind: "tab", tabId: "t2" },
@@ -37,13 +37,13 @@ assert.deepEqual(
 );
 
 assert.deepEqual(
-  buildSidebarCycleItems(tabs, panes, true)[0],
+  buildSidebarCycleItems(tabs, tabs, true)[0],
   { kind: "plan" },
   "with plan: plan entry is first",
 );
 
 assert.equal(
-  buildSidebarCycleItems(tabs, panes, true).length,
+  buildSidebarCycleItems(tabs, tabs, true).length,
   4,
   "with plan: total items = plan + tabs",
 );

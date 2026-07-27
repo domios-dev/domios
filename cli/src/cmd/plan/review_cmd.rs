@@ -2,7 +2,7 @@ use crate::args::plan::PlanReviewAction;
 use crate::client::RpcClient;
 use serde_json::{json, Value};
 
-use super::{call_plan_rpc, inject_trusted_session, maybe_inject_caller_pane, owner_from_env};
+use super::{call_plan_rpc, inject_trusted_session, maybe_inject_caller_tab, owner_from_env};
 
 pub(super) fn handle(
     client: &mut dyn RpcClient,
@@ -51,7 +51,7 @@ pub(super) fn handle(
             if let Some(plan_id) = plan_id {
                 params["plan_id"] = json!(plan_id);
             }
-            maybe_inject_caller_pane(&mut params);
+            maybe_inject_caller_tab(&mut params);
             call_plan_rpc(client, "plan.review.override", params).map(Some)
         }
         PlanReviewAction::ReconcileCredit { plan_id, reason } => {
@@ -100,7 +100,7 @@ pub(super) fn handle(
             if let Some(residual_risk) = residual_risk {
                 params["residual_risk"] = json!(residual_risk);
             }
-            maybe_inject_caller_pane(&mut params);
+            maybe_inject_caller_tab(&mut params);
             call_plan_rpc(client, "plan.review.accept", params).map(Some)
         }
         PlanReviewAction::Bounce {
@@ -120,7 +120,7 @@ pub(super) fn handle(
             if let Some(plan_id) = plan_id {
                 params["plan_id"] = json!(plan_id);
             }
-            maybe_inject_caller_pane(&mut params);
+            maybe_inject_caller_tab(&mut params);
             call_plan_rpc(client, "plan.review.bounce", params).map(Some)
         }
     }

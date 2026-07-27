@@ -70,9 +70,9 @@ pub struct ReportArgs {
     /// Markdown document to append to the report milestone
     #[arg(long, value_name = "PATH")]
     pub doc: Option<String>,
-    /// Tab ID (default: $CODETERM_PANE_ID or focused tab)
+    /// Tab ID (default: $CODETERM_TAB_ID or focused tab)
     #[arg(long = "tab", value_name = "TAB")]
-    pub pane: Option<String>,
+    pub tab: Option<String>,
     /// Plan id to append this report to (if available)
     #[arg(long, env = "CODETERM_PLAN_ID")]
     pub plan: Option<String>,
@@ -118,29 +118,29 @@ pub enum AgentAction {
     SetOrchestrator {
         /// Tab ID (default: current focused tab)
         #[arg(long = "tab", value_name = "TAB")]
-        pane: Option<String>,
+        tab: Option<String>,
     },
 
     /// Link a tab as worker under a parent
     Link {
         /// Parent tab ID (orchestrator)
-        #[arg(long = "parent-pane")]
+        #[arg(long = "parent-tab")]
         parent: String,
         /// Tab ID to link (default: current focused tab)
         #[arg(long = "tab", value_name = "TAB")]
-        pane: Option<String>,
+        tab: Option<String>,
     },
     /// Remove a tab's role (also orphans children)
     Unlink {
         /// Tab ID (default: current focused tab)
         #[arg(long = "tab", value_name = "TAB")]
-        pane: Option<String>,
+        tab: Option<String>,
     },
     /// Toggle whether a tab can spawn children
     AllowSpawn {
         /// Tab ID (default: current focused tab)
         #[arg(long = "tab", value_name = "TAB")]
-        pane: Option<String>,
+        tab: Option<String>,
         /// Enable or disable spawning
         #[arg(long, default_value = "true")]
         enable: bool,
@@ -152,19 +152,19 @@ pub enum AgentAction {
     Ledger {
         /// Orchestrator tab ID (default: current focused tab)
         #[arg(long = "tab", value_name = "TAB")]
-        pane: Option<String>,
+        tab: Option<String>,
     },
     /// Compact agent context (sends /compact to Claude)
     Compact {
-        /// Tab ID (default: $CODETERM_PANE_ID or focused tab)
+        /// Tab ID (default: $CODETERM_TAB_ID or focused tab)
         #[arg(long = "tab", value_name = "TAB")]
-        pane: Option<String>,
+        tab: Option<String>,
     },
     /// Restart agent (graceful exit; resumes only when the tab has a valid provider session)
     Restart {
-        /// Tab ID (default: $CODETERM_PANE_ID or focused tab)
+        /// Tab ID (default: $CODETERM_TAB_ID or focused tab)
         #[arg(long = "tab", value_name = "TAB")]
-        pane: Option<String>,
+        tab: Option<String>,
         /// Skip the graceful exit and force-kill instead. Use only when the agent is hung.
         #[arg(long)]
         force: bool,
@@ -176,9 +176,9 @@ pub enum AgentAction {
     Model {
         /// Model name (Claude: sonnet, haiku, opus). Run `agent models claude` to list.
         name: String,
-        /// Tab ID (default: $CODETERM_PANE_ID or focused tab)
+        /// Tab ID (default: $CODETERM_TAB_ID or focused tab)
         #[arg(long = "tab", value_name = "TAB")]
-        pane: Option<String>,
+        tab: Option<String>,
     },
     /// List available agent providers (claude, codex, ...) with their
     /// display names, default models, and capability flags.
@@ -192,7 +192,7 @@ pub enum AgentAction {
     ///
     /// Two spawn shapes:
     ///   Worker (leaf task you own; reports back; never spawns further):
-    ///     spawn claude --role Worker --parent $CODETERM_PANE_ID --task "...
+    ///     spawn claude --role Worker --parent $CODETERM_TAB_ID --task "...
     ///     when done: codeterm agent report '<summary>'"
     ///   Orchestrator (independent objective / separate workspace / remote):
     ///     spawn codex --role Orchestrator --workspace WS_ID --task "..."
@@ -217,7 +217,7 @@ pub enum AgentAction {
         #[arg(long)]
         role: Option<SpawnRole>,
         /// Parent tab ID (for Workers)
-        #[arg(long = "parent-pane")]
+        #[arg(long = "parent-tab")]
         parent: Option<String>,
         /// Plan id to bind — required for `--role Planner` to auto-bind
         /// Plan.planner and deliver the peer prompt naming the Orchestrator.
@@ -391,25 +391,25 @@ mod tests {
     }
 
     #[test]
-    fn ledger_parses_pane_and_global_json() {
+    fn ledger_parses_tab_and_global_json() {
         let cli = Cli::try_parse_from(["codeterm", "--json", "agent", "ledger", "--tab", "orch-1"])
             .expect("ledger should parse");
         assert!(cli.json, "global --json applies to ledger output");
         match cli.command {
             crate::Commands::Agent {
-                action: AgentAction::Ledger { pane },
-            } => assert_eq!(pane.as_deref(), Some("orch-1")),
+                action: AgentAction::Ledger { tab },
+            } => assert_eq!(tab.as_deref(), Some("orch-1")),
             _ => panic!("expected agent ledger action"),
         }
     }
 
     #[test]
-    fn ledger_pane_is_optional() {
+    fn ledger_tab_is_optional() {
         let cli = Cli::try_parse_from(["codeterm", "agent", "ledger"]).expect("ledger w/o tab");
         match cli.command {
             crate::Commands::Agent {
-                action: AgentAction::Ledger { pane },
-            } => assert!(pane.is_none()),
+                action: AgentAction::Ledger { tab },
+            } => assert!(tab.is_none()),
             _ => panic!("expected agent ledger action"),
         }
     }

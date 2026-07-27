@@ -1,6 +1,6 @@
 use crate::client::SocketClient;
 use crate::cmd::print::print_human;
-use crate::resolve_pane;
+use crate::resolve_tab;
 use regex::Regex;
 
 const RESOLVED_TEXT_PREFIX: &str = "CODETERM_RESOLVED_TEXT=";
@@ -123,7 +123,7 @@ pub fn handle_send_text_result(
 pub fn handle_send_text(
     client: &mut SocketClient,
     json: bool,
-    pane: Option<String>,
+    tab: Option<String>,
     text: Option<String>,
     from_file: Option<String>,
     from_stdin: bool,
@@ -137,7 +137,7 @@ pub fn handle_send_text(
             std::process::exit(2);
         }
         crate::cmd::delayed::queue_from_send(
-            client, json, pane, text, from_file, from_stdin, delay, at,
+            client, json, tab, text, from_file, from_stdin, delay, at,
         );
         return;
     }
@@ -177,23 +177,23 @@ pub fn handle_send_text(
             std::process::exit(2);
         }
     }
-    let pane_id = resolve_pane(client, pane);
+    let tab_id = resolve_tab(client, tab);
     if let Some(actions) = parsed_actions {
-        let result = send_actions_via_http(json, &pane_id, &resolved_text, actions);
+        let result = send_actions_via_http(json, &tab_id, &resolved_text, actions);
         handle_send_text_result(json, result, Some(&resolved_text));
         return;
     }
     let mut params = serde_json::json!({
-        "pane_id": pane_id,
+        "tab_id": tab_id,
         "text": resolved_text,
     });
-    // recipient side. Skip when target is self (chatting with own pane — no point self-tagging).
-    if let Ok(my_pane) = std::env::var("CODETERM_PANE_ID") {
-        if !my_pane.is_empty() && my_pane != pane_id {
-            params["source_pane"] = serde_json::json!(my_pane);
+    // recipient side. Skip when target is self (chatting with own tab — no point self-tagging).
+    if let Ok(my_tab) = std::env::var("CODETERM_TAB_ID") {
+        if !my_tab.is_empty() && my_tab != tab_id {
+            params["source_tab"] = serde_json::json!(my_tab);
         }
     }
-    let result = client.call("pane.send_text", Some(params));
+    let result = client.call("tab.send_text", Some(params));
     handle_send_text_result(json, result, Some(&resolved_text));
 }
 
@@ -381,7 +381,7 @@ fn parse_ctrl_key(value: &str) -> Option<u8> {
 
 fn send_actions_via_http(
     _json: bool,
-    pane_id: &str,
+    tab_id: &str,
     text: &str,
     actions: Vec<SendActionSpec>,
 ) -> Result<serde_json::Value, String> {
@@ -393,13 +393,13 @@ fn send_actions_via_http(
     if !text.is_empty() {
         body["text"] = serde_json::json!(text);
     }
-    if let Ok(my_pane) = std::env::var("CODETERM_PANE_ID") {
-        if !my_pane.is_empty() && my_pane != pane_id {
-            body["source_pane"] = serde_json::json!(my_pane);
+    if let Ok(my_tab) = std::env::var("CODETERM_TAB_ID") {
+        if !my_tab.is_empty() && my_tab != tab_id {
+            body["source_tab"] = serde_json::json!(my_tab);
         }
     }
     let resp = http
-        .post(format!("{}/api/panes/{}/send", base, pane_id))
+        .post(format!("{}/api/tabs/{}/send", base, tab_id))
         .json(&body)
         .send()
         .map_err(|e| e.to_string())?;

@@ -233,7 +233,7 @@ impl AgentRegistry {
         parking_lot::RwLockReadGuard::try_map(guard, |map| map.get(id).map(|b| b.as_ref())).ok()
     }
 
-    /// Detect agent provider from a pane/tab title.
+    /// Detect agent provider from a tab/tab title.
     /// Returns the provider id if found.
     pub fn detect_from_title(&self, title: &str) -> Option<String> {
         let guard = self.providers.read();

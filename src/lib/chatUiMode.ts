@@ -1,37 +1,37 @@
 import { getAgentDescriptor } from "./agentDescriptorCache";
-import type { PaneBacking } from "./types";
+import type { TabBacking } from "./types";
 
-export type PaneUiMode = "terminal" | "chat";
+export type TabUiMode = "terminal" | "chat";
 
-export function isChatUiSupported(agentType?: string | null, backing?: PaneBacking | null): boolean {
+export function isChatUiSupported(agentType?: string | null, backing?: TabBacking | null): boolean {
   if (backing?.kind === "chat_backend") return true;
   if (!agentType) return false;
   return getAgentDescriptor(agentType)?.supports_chat_ui === true;
 }
 
-export function shouldDefaultNewAgentPaneToChat(
+export function shouldDefaultNewAgentTabToChat(
   agentType?: string | null,
-  backing?: PaneBacking | null,
+  backing?: TabBacking | null,
 ): boolean {
   return isChatUiSupported(agentType, backing);
 }
 
-export function emitPaneUiMode(paneId: string, mode: PaneUiMode): void {
-  window.dispatchEvent(new CustomEvent("codeterm-pane-ui-mode", {
-    detail: { paneId, mode },
+export function emitTabUiMode(tabId: string, mode: TabUiMode): void {
+  window.dispatchEvent(new CustomEvent("codeterm-tab-ui-mode", {
+    detail: { tabId, mode },
   }));
   if (mode === "terminal") {
     requestAnimationFrame(() => {
-      window.dispatchEvent(new CustomEvent("codeterm-pane-resize", { detail: { paneId, force: true } }));
+      window.dispatchEvent(new CustomEvent("codeterm-tab-resize", { detail: { tabId, force: true } }));
     });
   }
 }
 
-export function isPaneUiModeEvent(event: Event): event is CustomEvent<{ paneId: string; mode: PaneUiMode }> {
+export function isTabUiModeEvent(event: Event): event is CustomEvent<{ tabId: string; mode: TabUiMode }> {
   const detail = (event as CustomEvent).detail;
   return Boolean(
     detail &&
-    typeof detail.paneId === "string" &&
+    typeof detail.tabId === "string" &&
     (detail.mode === "terminal" || detail.mode === "chat"),
   );
 }

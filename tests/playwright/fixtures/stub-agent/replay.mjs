@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Stub agent replayer — stands in for a real provider CLI inside a CodeTerm
- * pane when the daemon runs with CODETERM_STUB_AGENT_CMD (dev builds only).
+ * tab when the daemon runs with CODETERM_STUB_AGENT_CMD (dev builds only).
  *
  * Invocation (built by src-tauri/src/agent/stub_launch.rs):
  *   node replay.mjs --stub-provider <id> -- <original provider argv...>
@@ -74,7 +74,7 @@ const {
   task,
 } = parseArgv(process.argv.slice(2));
 const sessionId = resumeSid || presetSid || randomUUID();
-const paneId = process.env.CODETERM_PANE_ID || "";
+const tabId = process.env.CODETERM_TAB_ID || "";
 const apiUrl = (process.env.CODETERM_API_URL || "").replace(/\/$/, "");
 const apiToken = process.env.CODETERM_API_TOKEN || "";
 
@@ -124,9 +124,9 @@ function encodeClaudeCwd(cwd) {
 }
 
 async function announceSession() {
-  if (!apiUrl || !apiToken || !paneId) return;
+  if (!apiUrl || !apiToken || !tabId) return;
   try {
-    await fetch(`${apiUrl}/api/panes/${paneId}/hook/session_start`, {
+    await fetch(`${apiUrl}/api/tabs/${tabId}/hook/session_start`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -183,7 +183,7 @@ function readAppendedTask(pathname) {
 }
 
 // Claude persists chats as jsonl in ~/.claude/projects/<dash-encoded-cwd>/;
-// the pane chat tailer reads that file, so scripted turns must land there
+// the tab chat tailer reads that file, so scripted turns must land there
 // exactly like the real CLI writes them. Other providers: chat parity TBD.
 const sessionFile = (() => {
   if (provider !== "claude") return null;
@@ -241,8 +241,8 @@ function persistTurn(userText, assistantText) {
 }
 
 function submitReport(message) {
-  if (!apiUrl || !apiToken || !paneId) return;
-  fetch(`${apiUrl}/api/panes/${paneId}/report`, {
+  if (!apiUrl || !apiToken || !tabId) return;
+  fetch(`${apiUrl}/api/tabs/${tabId}/report`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

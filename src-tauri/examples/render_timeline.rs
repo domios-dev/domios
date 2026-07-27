@@ -17,7 +17,7 @@ use std::path::Path;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use codeterm_lib::agent::attributed_screen::detect_picker;
 use codeterm_lib::agent::offline_state_classifier::{
-    classify_signals, extract_completion_summary, extract_status_line, PaneVerdict, TimelineState,
+    classify_signals, extract_completion_summary, extract_status_line, TabVerdict, TimelineState,
 };
 use codeterm_lib::agent::signal_extractor::{SignalExtractor, StreamSignals, VolatileHint};
 use serde_json::{json, Value};
@@ -56,13 +56,13 @@ struct Cast {
 struct DetectorOverlay {
     /// The previous frame's verdict, threaded so the replay runs the SAME stateful
     /// `classify_state` (grace + stuck-working safety net) the live path runs.
-    previous: PaneVerdict,
+    previous: TabVerdict,
 }
 
 impl Default for DetectorOverlay {
     fn default() -> Self {
         DetectorOverlay {
-            previous: PaneVerdict {
+            previous: TabVerdict {
                 state: TimelineState::Idle,
                 subtype: None,
             },

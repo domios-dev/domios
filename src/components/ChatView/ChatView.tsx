@@ -16,7 +16,7 @@ import { BusyState } from "../shared/BusyState";
 // Current UI shows only local optimistic input while PTY path remains unchanged.
 
 interface ChatViewProps {
-  paneId: string;
+  tabId: string;
   ptyId?: string | null;
   title?: string;
   agentType?: string | null;
@@ -39,7 +39,7 @@ interface PromptPayload {
 
 type ChatMessage = NormalizedChatMessage;
 
-interface PaneSnapshot {
+interface TabSnapshot {
   id: string;
   pty_id?: string | null;
   cwd?: string | null;
@@ -50,7 +50,7 @@ interface PaneSnapshot {
 }
 
 interface MuxSnapshot {
-  panes?: Record<string, PaneSnapshot>;
+  tabs?: Record<string, TabSnapshot>;
 }
 
 function basename(p: string): string {
@@ -65,11 +65,11 @@ function mimeFromPath(p: string): string {
   return "application/octet-stream";
 }
 
-export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: ChatViewProps) {
+export function ChatView({ tabId, ptyId, agentType, onToggle: _onToggle }: ChatViewProps) {
   const provider = getAgentProvider(agentType);
   const touchMode = useTouchOptimizedUi();
   const [allMessages, setAllMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = usePersistentDraft(`chat-view:${paneId}`);
+  const [input, setInput] = usePersistentDraft(`chat-view:${tabId}`);
   const [visibleCount, setVisibleCount] = useState(50);
   const [waitingForReply, setWaitingForReply] = useState(false);
   const [inputExpanded, setInputExpanded] = useState(false);
@@ -141,7 +141,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
       try {
         const state = await invoke<MuxSnapshot>("mux_get_state");
         if (!active) return;
-        const prompt = state?.panes?.[paneId]?.pending_prompt ?? null;
+        const prompt = state?.tabs?.[tabId]?.pending_prompt ?? null;
         if (prompt) {
           setPendingPrompt(prompt);
           pendingPromptRef.current = prompt;
@@ -149,8 +149,8 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
       } catch { /* ignore */ }
     })();
 
-    const unlistenPrompt = listen<{ pane_id: string; prompt: PromptPayload | null }>("prompt-state-changed", ({ payload }) => {
-      if (payload.pane_id === paneId) {
+    const unlistenPrompt = listen<{ tab_id: string; prompt: PromptPayload | null }>("prompt-state-changed", ({ payload }) => {
+      if (payload.tab_id === tabId) {
         const prompt = payload.prompt ?? null;
         const hadPrompt = pendingPromptRef.current != null;
         setPendingPrompt(prompt);
@@ -170,7 +170,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
       active = false;
       unlistenPrompt.then(fn => fn());
     };
-  }, [paneId]);
+  }, [tabId]);
 
   const handleScroll = useCallback(() => {
     const el = scrollContainerRef.current;
@@ -209,8 +209,8 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
     try {
       const resolvePtyId = async (): Promise<string | null> => {
         if (ptyId) return ptyId;
-        const state = await invoke<{ panes: Record<string, { pty_id: string | null }> }>("mux_get_state");
-        return state.panes[paneId]?.pty_id || null;
+        const state = await invoke<{ tabs: Record<string, { pty_id: string | null }> }>("mux_get_state");
+        return state.tabs[tabId]?.pty_id || null;
       };
       const pid = await resolvePtyId();
       if (!pid) return;
@@ -264,7 +264,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
     } finally {
       refocusComposer();
     }
-  }, [input, attachments, ptyId, paneId, refocusComposer]);
+  }, [input, attachments, ptyId, tabId, refocusComposer]);
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     const items = Array.from(e.clipboardData.items);
@@ -385,7 +385,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
       ref={rootRef}
       className="relative flex flex-col w-full h-full select-text"
       data-testid="direct-chat-view"
-      data-pane-id={paneId}
+      data-tab-id={tabId}
       style={{
         background: "var(--ct-bg, #0d1117)",
         color: "var(--ct-fg, #c9d1d9)",
@@ -465,7 +465,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
                           setPendingPrompt(null);
                           pendingPromptRef.current = null;
                           try {
-                            await invoke("mux_respond_prompt", { paneId, value: opt.value });
+                            await invoke("mux_respond_prompt", { tabId, value: opt.value });
                           } catch { /* ignore */ }
                         }}
                         className="px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:brightness-110"

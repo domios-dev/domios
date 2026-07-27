@@ -15,13 +15,13 @@ impl PlanStore {
             title: plan.title.clone(),
             status: plan.status.clone(),
             updated_at: plan.updated_at,
-            assigned_pane_ids: plan
+            assigned_tab_ids: plan
                 .tasks
                 .iter()
                 .filter(|task| !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled))
                 .filter_map(|t| {
-                    let pane_id = t.assigned_pane_id.as_deref()?.trim();
-                    (!pane_id.is_empty()).then(|| pane_id.to_string())
+                    let tab_id = t.assigned_tab_id.as_deref()?.trim();
+                    (!tab_id.is_empty()).then(|| tab_id.to_string())
                 })
                 .collect(),
             task_count: plan.tasks.len(),
@@ -138,7 +138,7 @@ impl PlanStore {
         self.note_plan_write(&committed, &path);
         let entry = Self::index_entry(&committed, path);
         self.index.write().insert(committed.id.clone(), entry);
-        self.reset_bound_panes(&committed);
+        self.reset_bound_tabs(&committed);
         Ok(())
     }
 

@@ -632,7 +632,7 @@ impl PlanStore {
                         intent: None,
                         parent_task_id: Some(parent_id),
                         depends_on: vec![],
-                        assigned_pane_id: None,
+                        assigned_tab_id: None,
                         lane: Default::default(),
                         taken_by_role: None,
                         peer: None,

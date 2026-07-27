@@ -46,19 +46,19 @@ impl PlanningState {
     }
 }
 
-/// Who advanced the planning state. Only a planner pane or the user is a legal
-/// author — the state never advances by generic pane guessing or orchestrator.
+/// Who advanced the planning state. Only a planner tab or the user is a legal
+/// author — the state never advances by generic tab guessing or orchestrator.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PlanningAuthor {
-    Planner { pane_id: String },
+    Planner { tab_id: String },
     User,
 }
 
 impl PlanningAuthor {
     pub fn label(&self) -> String {
         match self {
-            PlanningAuthor::Planner { pane_id } => format!("planner {pane_id}"),
+            PlanningAuthor::Planner { tab_id } => format!("planner {tab_id}"),
             PlanningAuthor::User => "user".into(),
         }
     }
@@ -113,7 +113,7 @@ mod tests {
             from: PlanningState::Drafting,
             to: PlanningState::Approved,
             by: PlanningAuthor::Planner {
-                pane_id: "pane_x".into(),
+                tab_id: "tab_x".into(),
             },
             note: Some("looks ready".into()),
             at: 42,

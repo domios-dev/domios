@@ -24,7 +24,7 @@ impl MultiplexerState {
             is_active: false,
             cwd,
             protected: false,
-            pane_ids: vec![],
+            tab_ids: vec![],
             existing: None,
         }
     }
@@ -33,10 +33,10 @@ impl MultiplexerState {
         self.workspaces.iter().find(|w| w.id == id)
     }
 
-    /// Live pane count for a single workspace (one pane per tab). Scoped to the
-    /// given workspace only — other workspaces never contribute — so the pane
+    /// Live tab count for a single workspace (one tab per tab). Scoped to the
+    /// given workspace only — other workspaces never contribute — so the tab
     /// budget can't couple unrelated workspaces. Unknown id → 0.
-    pub fn pane_count_in_workspace(&self, id: &str) -> usize {
+    pub fn tab_count_in_workspace(&self, id: &str) -> usize {
         self.get_workspace(id).map(|w| w.tabs.len()).unwrap_or(0)
     }
 
@@ -58,7 +58,7 @@ impl MultiplexerState {
     /// so callers can drop the mux lock before acting on the result.
     pub fn find_workspace_info_by_cwd(&self, query: &str) -> Option<WorkspaceInfo> {
         let ws = self.find_workspace_by_cwd(query)?;
-        let pane_ids: Vec<String> = ws.tabs.iter().map(|t| t.pane_id.clone()).collect();
+        let tab_ids: Vec<String> = ws.tabs.iter().map(|t| t.tab_id.clone()).collect();
         Some(WorkspaceInfo {
             id: ws.id.clone(),
             name: ws.name.clone(),
@@ -66,7 +66,7 @@ impl MultiplexerState {
             is_active: self.active_workspace_id.as_deref() == Some(&ws.id),
             cwd: ws.cwd.clone(),
             protected: ws.protected,
-            pane_ids,
+            tab_ids,
             existing: None,
         })
     }
@@ -102,22 +102,22 @@ impl MultiplexerState {
 
         let workspace = self.workspaces.remove(idx);
 
-        let pane_ids: Vec<String> = workspace
+        let tab_ids: Vec<String> = workspace
             .tabs
             .iter()
-            .map(|tab| tab.pane_id.clone())
+            .map(|tab| tab.tab_id.clone())
             .collect();
 
-        let pty_ids: Vec<String> = pane_ids
+        let pty_ids: Vec<String> = tab_ids
             .iter()
-            .filter_map(|pid| self.panes.get(pid))
-            .filter_map(|pane| pane.pty_id.clone())
+            .filter_map(|pid| self.tabs.get(pid))
+            .filter_map(|tab| tab.pty_id.clone())
             .collect();
 
-        for pid in &pane_ids {
-            if let Some(pane) = self.panes.remove(pid) {
-                if let Some(pty_id) = &pane.pty_id {
-                    self.pty_to_pane.remove(pty_id);
+        for pid in &tab_ids {
+            if let Some(tab) = self.tabs.remove(pid) {
+                if let Some(pty_id) = &tab.pty_id {
+                    self.pty_to_tab.remove(pty_id);
                 }
             }
         }
@@ -126,9 +126,9 @@ impl MultiplexerState {
             self.active_workspace_id = self.workspaces.first().map(|w| w.id.clone());
         }
 
-        if let Some(ref focused) = self.focused_pane_id {
-            if pane_ids.contains(focused) {
-                self.focused_pane_id = None;
+        if let Some(ref focused) = self.focused_tab_id {
+            if tab_ids.contains(focused) {
+                self.focused_tab_id = None;
                 self.fallback_focus_to_general();
             }
         }
@@ -223,7 +223,7 @@ impl MultiplexerState {
         self.workspaces
             .iter()
             .map(|w| {
-                let pane_ids: Vec<String> = w.tabs.iter().map(|t| t.pane_id.clone()).collect();
+                let tab_ids: Vec<String> = w.tabs.iter().map(|t| t.tab_id.clone()).collect();
                 WorkspaceInfo {
                     id: w.id.clone(),
                     name: w.name.clone(),
@@ -231,7 +231,7 @@ impl MultiplexerState {
                     is_active: self.active_workspace_id.as_deref() == Some(&w.id),
                     cwd: w.cwd.clone(),
                     protected: w.protected,
-                    pane_ids,
+                    tab_ids,
                     existing: None,
                 }
             })
@@ -240,11 +240,11 @@ impl MultiplexerState {
 }
 
 #[cfg(test)]
-mod pane_count_tests {
+mod tab_count_tests {
     use super::*;
 
     #[test]
-    fn pane_count_is_scoped_to_one_workspace() {
+    fn tab_count_is_scoped_to_one_workspace() {
         let (mut state, _root) = MultiplexerState::new();
         let small = state.create_workspace("small".into(), None).id;
         let crowded = state.create_workspace("crowded".into(), None).id;
@@ -254,14 +254,14 @@ mod pane_count_tests {
             state.create_tab(&crowded).unwrap();
         }
 
-        // The crowded workspace's 25 panes must never leak into the small one.
-        assert_eq!(state.pane_count_in_workspace(&small), 1);
-        assert_eq!(state.pane_count_in_workspace(&crowded), 25);
+        // The crowded workspace's 25 tabs must never leak into the small one.
+        assert_eq!(state.tab_count_in_workspace(&small), 1);
+        assert_eq!(state.tab_count_in_workspace(&crowded), 25);
     }
 
     #[test]
-    fn pane_count_unknown_workspace_is_zero() {
+    fn tab_count_unknown_workspace_is_zero() {
         let (state, _root) = MultiplexerState::new();
-        assert_eq!(state.pane_count_in_workspace("does-not-exist"), 0);
+        assert_eq!(state.tab_count_in_workspace("does-not-exist"), 0);
     }
 }

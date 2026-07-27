@@ -143,14 +143,14 @@ pub fn await_bare_shell_prompt(
 }
 
 pub(super) fn authenticated_pty_target(
-    pane: &crate::multiplexer::types::Pane,
+    tab: &crate::multiplexer::types::Tab,
     expected_session_id: &str,
     expected_binding_nonce: &str,
 ) -> Result<(String, String), String> {
-    let target = optimistic_agent_pty_target(pane)?;
-    let authenticated = pane.agent_session_id.as_deref() == Some(expected_session_id)
-        && pane.session_binding_nonce.as_deref() == Some(expected_binding_nonce)
-        && pane.reported_session_binding_nonce.as_deref() == Some(expected_binding_nonce);
+    let target = optimistic_agent_pty_target(tab)?;
+    let authenticated = tab.agent_session_id.as_deref() == Some(expected_session_id)
+        && tab.session_binding_nonce.as_deref() == Some(expected_binding_nonce)
+        && tab.reported_session_binding_nonce.as_deref() == Some(expected_binding_nonce);
     if !authenticated {
         return Err("agent_unavailable: planner session is stale".into());
     }
@@ -158,22 +158,22 @@ pub(super) fn authenticated_pty_target(
 }
 
 pub(super) fn optimistic_agent_pty_target(
-    pane: &crate::multiplexer::types::Pane,
+    tab: &crate::multiplexer::types::Tab,
 ) -> Result<(String, String), String> {
     // chat_view is UI mount state, not backend routability — a background or
     // hidden tab with a live agent PTY/session must still accept input.
-    let routable = pane.agent_type.is_some();
+    let routable = tab.agent_type.is_some();
     if !routable {
         return Err("agent_unavailable: recipient agent is not accepting input".into());
     }
-    match &pane.backing {
-        crate::multiplexer::types::PaneBacking::Pty => Ok((
-            pane.pty_id
+    match &tab.backing {
+        crate::multiplexer::types::TabBacking::Pty => Ok((
+            tab.pty_id
                 .clone()
                 .ok_or_else(|| "agent_unavailable: recipient PTY missing".to_string())?,
-            pane.agent_type.clone().unwrap_or_default(),
+            tab.agent_type.clone().unwrap_or_default(),
         )),
-        crate::multiplexer::types::PaneBacking::ChatBackend { .. } => {
+        crate::multiplexer::types::TabBacking::ChatBackend { .. } => {
             Err("agent_unavailable: recipient is not PTY-backed".into())
         }
     }
@@ -188,14 +188,14 @@ pub(crate) struct AuthenticatedPtyDelivery {
 
 #[cfg(test)]
 pub(super) fn submit_authenticated_pty_input<T>(
-    pane: &crate::multiplexer::types::Pane,
+    tab: &crate::multiplexer::types::Tab,
     expected_session_id: &str,
     expected_binding_nonce: &str,
     text: &str,
     submit: impl FnOnce(&str, &str, &str) -> Result<T, String>,
 ) -> Result<T, String> {
     let (pty_id, provider_id) =
-        authenticated_pty_target(pane, expected_session_id, expected_binding_nonce)?;
+        authenticated_pty_target(tab, expected_session_id, expected_binding_nonce)?;
     submit(&pty_id, &provider_id, text)
 }
 
@@ -209,19 +209,19 @@ pub(crate) fn sanitize_agent_prompt_input(text: &str) -> String {
 impl ServiceContext {
     fn authenticated_pty_delivery(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         expected_session_id: &str,
         expected_binding_nonce: &str,
     ) -> Result<AuthenticatedPtyDelivery, String> {
         let (pty_id, provider_id) = {
             let mux = self.mux.read();
             let resolved = mux
-                .resolve_pane_id(pane_id)
+                .resolve_tab_id(tab_id)
                 .ok_or_else(|| "agent_unavailable: planner Tab missing".to_string())?;
-            let pane = mux
-                .get_pane(&resolved)
+            let tab = mux
+                .get_tab(&resolved)
                 .ok_or_else(|| "agent_unavailable: planner Tab missing".to_string())?;
-            authenticated_pty_target(pane, expected_session_id, expected_binding_nonce)?
+            authenticated_pty_target(tab, expected_session_id, expected_binding_nonce)?
         };
         let permit = self.pty.lock().issue_guarded_input_permit(&pty_id)?;
         Ok(AuthenticatedPtyDelivery {
@@ -231,22 +231,22 @@ impl ServiceContext {
         })
     }
 
-    pub(crate) fn send_to_agent_when_ready_detached(&self, pane_id: &str, text: &str) {
+    pub(crate) fn send_to_agent_when_ready_detached(&self, tab_id: &str, text: &str) {
         let svc = self.clone();
-        let pane = pane_id.to_string();
+        let tab = tab_id.to_string();
         let text = text.to_string();
         std::thread::spawn(move || {
-            let pty_claim = svc.pty_ownership.acquire(&pane);
+            let pty_claim = svc.pty_ownership.acquire(&tab);
             let pty_id = {
                 let mux = svc.mux.read();
                 let target = mux
-                    .get_pane(&pane)
-                    .filter(|pane| pane.agent_type.is_some())
+                    .get_tab(&tab)
+                    .filter(|tab| tab.agent_type.is_some())
                     .ok_or_else(|| {
                         "agent_unavailable: recipient is no longer an agent".to_string()
                     });
-                target.and_then(|pane| {
-                    pane.pty_id
+                target.and_then(|tab| {
+                    tab.pty_id
                         .clone()
                         .ok_or_else(|| "agent_unavailable: recipient PTY missing".to_string())
                 })
@@ -254,12 +254,12 @@ impl ServiceContext {
             let result = pty_id.and_then(|pty_id| svc.send_text_to_pty_smart(&pty_id, &text, true));
             drop(pty_claim);
             if let Err(error) = result {
-                log::warn!("[send-async] agent delivery to Tab {pane} failed: {error}");
+                log::warn!("[send-async] agent delivery to Tab {tab} failed: {error}");
                 crate::api::events::emit_everywhere(
                     &svc.app_handle,
                     "chat-send-failed",
                     serde_json::json!({
-                        "pane_id": &pane,
+                        "tab_id": &tab,
                         "error": &error,
                     }),
                 );
@@ -269,13 +269,13 @@ impl ServiceContext {
 
     pub(crate) fn send_to_authenticated_agent_session(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         expected_session_id: &str,
         expected_binding_nonce: &str,
         text: &str,
     ) -> Result<(), String> {
         let delivery =
-            self.authenticated_pty_delivery(pane_id, expected_session_id, expected_binding_nonce)?;
+            self.authenticated_pty_delivery(tab_id, expected_session_id, expected_binding_nonce)?;
         self.send_authenticated_delivery_with_options(
             delivery,
             text,
@@ -316,16 +316,16 @@ impl ServiceContext {
         })
     }
 
-    /// Send text to a pane (chatBackend or PTY). Agent PTYs complete only after
+    /// Send text to a tab (chatBackend or PTY). Agent PTYs complete only after
     /// a causal turn transition or an actionable delivery failure.
-    pub fn send_text(&self, pane_id: &str, text: &str, enter: bool) -> Result<(), String> {
-        if self.pane_chat_backing(pane_id).is_some() {
-            return self.chatbackend_pane_send(pane_id, text);
+    pub fn send_text(&self, tab_id: &str, text: &str, enter: bool) -> Result<(), String> {
+        if self.tab_chat_backing(tab_id).is_some() {
+            return self.chatbackend_tab_send(tab_id, text);
         }
-        self.ensure_pane_pty_for_send(pane_id)?;
-        self.await_agent_boot_blocking(pane_id, std::time::Duration::from_secs(90))?;
-        let pty_id = self.await_pty_link_blocking(pane_id, std::time::Duration::from_secs(15))?;
-        self.await_pane_routable_blocking(pane_id, std::time::Duration::from_secs(30))?;
+        self.ensure_tab_pty_for_send(tab_id)?;
+        self.await_agent_boot_blocking(tab_id, std::time::Duration::from_secs(90))?;
+        let pty_id = self.await_pty_link_blocking(tab_id, std::time::Duration::from_secs(15))?;
+        self.await_tab_routable_blocking(tab_id, std::time::Duration::from_secs(30))?;
 
         self.send_text_to_pty_smart(&pty_id, text, enter)
     }
@@ -334,17 +334,17 @@ impl ServiceContext {
     /// confirmation. `send_text` now applies the same transaction contract.
     pub fn send_text_with_guarantee(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         text: &str,
         enter: bool,
     ) -> Result<(), String> {
-        if self.pane_chat_backing(pane_id).is_some() {
-            return self.chatbackend_pane_send(pane_id, text);
+        if self.tab_chat_backing(tab_id).is_some() {
+            return self.chatbackend_tab_send(tab_id, text);
         }
-        self.ensure_pane_pty_for_send(pane_id)?;
-        self.await_agent_boot_blocking(pane_id, std::time::Duration::from_secs(90))?;
-        let pty_id = self.await_pty_link_blocking(pane_id, std::time::Duration::from_secs(15))?;
-        self.await_pane_routable_blocking(pane_id, std::time::Duration::from_secs(30))?;
+        self.ensure_tab_pty_for_send(tab_id)?;
+        self.await_agent_boot_blocking(tab_id, std::time::Duration::from_secs(90))?;
+        let pty_id = self.await_pty_link_blocking(tab_id, std::time::Duration::from_secs(15))?;
+        self.await_tab_routable_blocking(tab_id, std::time::Duration::from_secs(30))?;
 
         self.send_text_to_pty_smart_guaranteed(&pty_id, text, enter)
     }
@@ -357,8 +357,8 @@ impl ServiceContext {
         text: &str,
         enter: bool,
     ) -> Result<(), String> {
-        let (pane_id, agent_type) = self.resolve_pane_and_ready_agent(pty_id);
-        if let Some(ref pid) = pane_id {
+        let (tab_id, agent_type) = self.resolve_tab_and_ready_agent(pty_id);
+        if let Some(ref pid) = tab_id {
             self.await_agent_boot_blocking(pid, std::time::Duration::from_secs(90))?;
         }
         let Some(agent_id) = agent_type else {
@@ -420,11 +420,11 @@ impl ServiceContext {
             .map_err(|e| e.to_string())
     }
 
-    fn resolve_pane_and_ready_agent(&self, pty_id: &str) -> (Option<String>, Option<String>) {
+    fn resolve_tab_and_ready_agent(&self, pty_id: &str) -> (Option<String>, Option<String>) {
         let mux = self.mux.read();
-        match mux.pane_id_for_pty(pty_id) {
+        match mux.tab_id_for_pty(pty_id) {
             Some(pid) => {
-                let at = mux.get_pane(&pid).and_then(|p| {
+                let at = mux.get_tab(&pid).and_then(|p| {
                     (p.boot_stage == Some(codeterm_types::pty::BootStage::AgentReady))
                         .then(|| p.agent_type.clone())
                         .flatten()
@@ -445,8 +445,8 @@ impl ServiceContext {
         text: &str,
         enter: bool,
     ) -> Result<(), String> {
-        let (pane_id, agent_type) = self.resolve_pane_and_ready_agent(pty_id);
-        if let Some(ref pid) = pane_id {
+        let (tab_id, agent_type) = self.resolve_tab_and_ready_agent(pty_id);
+        if let Some(ref pid) = tab_id {
             self.await_agent_boot_blocking(pid, std::time::Duration::from_secs(90))?;
         }
         if let Some(ref agent_id) = agent_type {
@@ -575,17 +575,17 @@ impl ServiceContext {
     /// Queue text without making the caller wait for PTY or TUI evidence.
     pub async fn send_text_when_ready(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         text: &str,
         enter: bool,
     ) -> Result<(), String> {
-        self.send_text_detached(pane_id, text, enter);
+        self.send_text_detached(tab_id, text, enter);
         Ok(())
     }
 
     pub(crate) fn await_agent_boot_blocking(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         timeout: std::time::Duration,
     ) -> Result<(), String> {
         let ready =
@@ -593,8 +593,8 @@ impl ServiceContext {
                 !self
                     .mux
                     .read()
-                    .get_pane(pane_id)
-                    .map(|pane| pane.agent_booting)
+                    .get_tab(tab_id)
+                    .map(|tab| tab.agent_booting)
                     .unwrap_or(false)
             });
         if ready {
@@ -602,7 +602,7 @@ impl ServiceContext {
         } else {
             Err(format!(
                 "Agent in Tab {} is still booting — input would be lost",
-                pane_id
+                tab_id
             ))
         }
     }
@@ -622,35 +622,35 @@ impl ServiceContext {
 
     pub(crate) fn await_pty_link_blocking(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         timeout: std::time::Duration,
     ) -> Result<String, String> {
-        crate::service::orchestrator::pane_relink_signal::wait_for_relink(
+        crate::service::orchestrator::tab_relink_signal::wait_for_relink(
             std::time::Instant::now() + timeout,
-            || self.resolve_pty_id(pane_id).ok(),
+            || self.resolve_pty_id(tab_id).ok(),
         )
         .ok_or_else(|| {
             format!(
                 "Tab {} not found or PTY did not start within {:?}",
-                pane_id, timeout
+                tab_id, timeout
             )
         })
     }
 
-    /// Wait until the pane is routable for chat delivery. For non-agent panes (bare shells) this
+    /// Wait until the tab is routable for chat delivery. For non-agent tabs (bare shells) this
     /// returns immediately. The wait uses the boot_wait condvar so it resolves the
-    /// instant the pane state transitions — no polling. Does NOT gate on
+    /// instant the tab state transitions — no polling. Does NOT gate on
     /// `chat_view` — that is UI mount state, not backend routability. A
     /// background/hidden/restored tab is routable as soon as its PTY is live.
-    pub(crate) fn await_pane_routable_blocking(
+    pub(crate) fn await_tab_routable_blocking(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         timeout: std::time::Duration,
     ) -> Result<(), String> {
         let needs_routability = {
             let mux = self.mux.read();
-            match mux.get_pane(pane_id) {
-                Some(pane) => pane.agent_type.is_some(),
+            match mux.get_tab(tab_id) {
+                Some(tab) => tab.agent_type.is_some(),
                 None => return Ok(()),
             }
         };
@@ -661,21 +661,21 @@ impl ServiceContext {
             crate::service::boot_wait::wait_until(std::time::Instant::now() + timeout, || {
                 self.mux
                     .read()
-                    .get_pane(pane_id)
-                    .is_some_and(|pane| optimistic_agent_pty_target(pane).is_ok())
+                    .get_tab(tab_id)
+                    .is_some_and(|tab| optimistic_agent_pty_target(tab).is_ok())
             });
         if ready {
             Ok(())
         } else {
             Err(format!(
                 "Agent in Tab {} did not become routable within {:?}",
-                pane_id, timeout
+                tab_id, timeout
             ))
         }
     }
 
-    /// `send_text` by PTY id, skipping pane→pty resolution — use when the caller
-    /// holds a verified pty_id and must not race a `link_pty` swap of `pane.pty_id`.
+    /// `send_text` by PTY id, skipping tab→pty resolution — use when the caller
+    /// holds a verified pty_id and must not race a `link_pty` swap of `tab.pty_id`.
     pub fn send_text_to_pty(&self, pty_id: &str, text: &str, enter: bool) -> Result<(), String> {
         super::submit_transaction::submit_entry(
             super::submit_transaction::PtySubmitEntry::Direct,
@@ -700,8 +700,8 @@ impl ServiceContext {
     }
 
     /// Write raw bytes (no bracket paste) — for keystrokes the TUI must interpret (vim j/k, arrows).
-    pub fn write_raw(&self, pane_id: &str, data: &[u8]) -> Result<(), String> {
-        let pty_id = self.resolve_pty_id(pane_id)?;
+    pub fn write_raw(&self, tab_id: &str, data: &[u8]) -> Result<(), String> {
+        let pty_id = self.resolve_pty_id(tab_id)?;
         self.pty
             .lock()
             .write(&pty_id, data)
@@ -709,9 +709,9 @@ impl ServiceContext {
     }
 
     /// Inject ordered raw key sequences off-thread so the state reactor never
-    /// blocks on the pty lock. PTY-only — chatBackend panes have no keys.
-    pub fn inject_raw_keys_async(&self, pane_id: &str, writes: Vec<Vec<u8>>) -> Result<(), String> {
-        let pty_id = self.resolve_pty_id(pane_id)?;
+    /// blocks on the pty lock. PTY-only — chatBackend tabs have no keys.
+    pub fn inject_raw_keys_async(&self, tab_id: &str, writes: Vec<Vec<u8>>) -> Result<(), String> {
+        let pty_id = self.resolve_pty_id(tab_id)?;
         let pty = self.pty.clone();
         std::thread::spawn(move || {
             for bytes in writes {
@@ -724,18 +724,18 @@ impl ServiceContext {
     /// PTY work runs off-thread so CodeTerm-originated senders return immediately.
     /// Failures emit inline Chat status; delivery diagnostics never become
     /// global Notifications.
-    pub fn send_text_detached(&self, pane_id: &str, text: &str, enter: bool) {
+    pub fn send_text_detached(&self, tab_id: &str, text: &str, enter: bool) {
         let svc = self.clone();
-        let pane = pane_id.to_string();
+        let tab = tab_id.to_string();
         let text = text.to_string();
         std::thread::spawn(move || {
-            if let Err(error) = svc.send_text(&pane, &text, enter) {
-                log::warn!("[send-async] delivery to Tab {pane} failed: {error}");
+            if let Err(error) = svc.send_text(&tab, &text, enter) {
+                log::warn!("[send-async] delivery to Tab {tab} failed: {error}");
                 crate::api::events::emit_everywhere(
                     &svc.app_handle,
                     "chat-send-failed",
                     serde_json::json!({
-                        "pane_id": &pane,
+                        "tab_id": &tab,
                         "error": &error,
                     }),
                 );
@@ -744,34 +744,34 @@ impl ServiceContext {
     }
 
     /// Feed payloads to the typed-launch input parser so the CLI/API path triggers
-    /// the same `agent_type` lock as a direct Tauri write. Skips locked panes.
+    /// the same `agent_type` lock as a direct Tauri write. Skips locked tabs.
     pub(crate) fn feed_input_parser(&self, pty_id: &str, text: &str, enter: bool) {
-        let (pane_id, locked) = {
+        let (tab_id, locked) = {
             let m = self.mux.read();
-            let pid = m.pane_id_for_pty(pty_id);
+            let pid = m.tab_id_for_pty(pty_id);
             let locked = pid
                 .as_ref()
-                .and_then(|id| m.get_pane(id))
+                .and_then(|id| m.get_tab(id))
                 .map(|p| p.agent_type_locked)
                 .unwrap_or(false);
             (pid, locked)
         };
-        let Some(pane_id) = pane_id else { return };
+        let Some(tab_id) = tab_id else { return };
         if locked {
-            self.input_parser.clear(&pane_id);
+            self.input_parser.clear(&tab_id);
             return;
         }
         let mut payload = text.as_bytes().to_vec();
         if enter {
             payload.push(b'\r');
         }
-        if let Some(provider_id) = self.input_parser.process(&pane_id, &payload) {
+        if let Some(provider_id) = self.input_parser.process(&tab_id, &payload) {
             log::info!(
                 "[input-parser] detected '{}' send in Tab {} — locking agent_type",
                 provider_id,
-                pane_id,
+                tab_id,
             );
-            self.set_and_lock_pane_agent_type(&pane_id, provider_id);
+            self.set_and_lock_tab_agent_type(&tab_id, provider_id);
             self.emit_state_changed();
         }
     }

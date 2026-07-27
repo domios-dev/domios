@@ -2,7 +2,7 @@
 //!
 //! Wraps the manual /exit + resume dance documented in AGENT.md as a single
 //! atomic primitive callable from the CLI (`codeterm agent restart`) and from
-//! the self-update flow (`feat/auto-update`) which restarts every agent pane
+//! the self-update flow (`feat/auto-update`) which restarts every agent tab
 //! around binary swap.
 
 use std::collections::HashMap;
@@ -14,13 +14,13 @@ use parking_lot::Mutex;
 use super::ServiceContext;
 use crate::agent::provider::{AgentLaunchParams, StructuredPromptServer};
 
-/// Minimum seconds between consecutive restarts for a single pane.
+/// Minimum seconds between consecutive restarts for a single tab.
 pub const RESTART_RATE_LIMIT_SECS: u64 = 30;
 
 /// Default grace period before force-killing the agent process.
 pub const DEFAULT_GRACE_SECS: u64 = 10;
 
-/// Tracks the last successful restart per pane for rate limiting.
+/// Tracks the last successful restart per tab for rate limiting.
 /// Lives on `ServiceContext` and survives across requests.
 pub type RestartTracker = Arc<Mutex<HashMap<String, Instant>>>;
 
@@ -38,7 +38,7 @@ pub enum AgentRestartError {
 
 #[derive(Debug, Clone)]
 pub struct RestartOutcome {
-    pub pane_id: String,
+    pub tab_id: String,
     pub provider: String,
     pub session_id: Option<String>,
     pub session_was_stale: bool,
@@ -55,7 +55,7 @@ impl RestartOutcome {
         }
     }
 
-    /// Permission/sandbox profile the relaunch preserves from the pane.
+    /// Permission/sandbox profile the relaunch preserves from the tab.
     pub fn permission_profile(&self) -> &'static str {
         if self.auto_approve {
             "yolo"
@@ -65,12 +65,12 @@ impl RestartOutcome {
     }
 }
 
-/// Snapshot of the bits of pane state we need to drive a restart.
+/// Snapshot of the bits of tab state we need to drive a restart.
 /// Captured once under the mux lock so the async task does not need to
 /// re-acquire it just to read fields.
 #[derive(Debug, Clone)]
-struct PaneRestartSnapshot {
-    pane_id: String,
+struct TabRestartSnapshot {
+    tab_id: String,
     pty_id: String,
     provider: String,
     session_id: Option<String>,
@@ -79,26 +79,26 @@ struct PaneRestartSnapshot {
 }
 
 impl ServiceContext {
-    /// Atomic agent restart. Validates pane + rate limit synchronously,
+    /// Atomic agent restart. Validates tab + rate limit synchronously,
     /// then spawns a tokio task that drives the actual /exit → wait → resume
     /// sequence. Returns immediately with 202-style outcome.
     pub fn agent_restart(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         force: bool,
         grace_secs: u64,
     ) -> Result<RestartOutcome, AgentRestartError> {
-        if let Some(outcome) = self.recover_general_agent_pane(pane_id, force)? {
+        if let Some(outcome) = self.recover_general_agent_tab(tab_id, force)? {
             return Ok(outcome);
         }
-        let snap = self.snapshot_pane_for_restart(pane_id)?;
+        let snap = self.snapshot_tab_for_restart(tab_id)?;
 
-        self.check_and_record_restart(&snap.pane_id)?;
+        self.check_and_record_restart(&snap.tab_id)?;
 
         let session_was_stale = !self.session_file_present(&snap);
 
         let outcome = RestartOutcome {
-            pane_id: snap.pane_id.clone(),
+            tab_id: snap.tab_id.clone(),
             provider: snap.provider.clone(),
             session_id: snap.session_id.clone(),
             session_was_stale,
@@ -134,23 +134,23 @@ impl ServiceContext {
         Ok(outcome)
     }
 
-    /// The protected General `Main` pane below `AgentReady` has no live agent to
+    /// The protected General `Main` tab below `AgentReady` has no live agent to
     /// `/exit`, so the generic restart path can only report "no agent in this
     /// Tab". Route it to the guarded General Agent relaunch instead — the one
     /// recovery that rebuilds the PTY. Rate limiting still applies, and the
     /// relaunch claim is what prevents a second launch, so this cannot storm.
-    fn recover_general_agent_pane(
+    fn recover_general_agent_tab(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         force: bool,
     ) -> Result<Option<RestartOutcome>, AgentRestartError> {
-        let Some(target) = self.general_pane_awaiting_agent(pane_id) else {
+        let Some(target) = self.general_tab_awaiting_agent(tab_id) else {
             return Ok(None);
         };
         self.check_and_record_restart(&target)?;
 
         let mux = self.mux.clone();
-        let claimed = crate::service::general_agent::claim_general_agent_pane_retry(&target, &mux)
+        let claimed = crate::service::general_agent::claim_general_agent_tab_retry(&target, &mux)
             .map_err(AgentRestartError::BadRequest)?;
         if !claimed {
             return Err(AgentRestartError::BadRequest(
@@ -160,10 +160,10 @@ impl ServiceContext {
 
         let (provider, session_id) = {
             let m = self.mux.read();
-            let pane = m.get_pane(&target);
+            let tab = m.get_tab(&target);
             (
-                pane.and_then(|p| p.agent_type.clone()),
-                pane.and_then(|p| p.agent_session_id.clone()),
+                tab.and_then(|p| p.agent_type.clone()),
+                tab.and_then(|p| p.agent_session_id.clone()),
             )
         };
 
@@ -196,7 +196,7 @@ impl ServiceContext {
             target
         );
         Ok(Some(RestartOutcome {
-            pane_id: target,
+            tab_id: target,
             provider,
             session_id,
             session_was_stale: false,
@@ -205,37 +205,37 @@ impl ServiceContext {
         }))
     }
 
-    /// `Some(pane_id)` when this request targets the protected General pane and
-    /// that pane has not reached `AgentReady` — the stuck state a plain restart
+    /// `Some(tab_id)` when this request targets the protected General tab and
+    /// that tab has not reached `AgentReady` — the stuck state a plain restart
     /// cannot address.
-    fn general_pane_awaiting_agent(&self, pane_id: &str) -> Option<String> {
+    fn general_tab_awaiting_agent(&self, tab_id: &str) -> Option<String> {
         use codeterm_types::pty::BootStage;
         let m = self.mux.read();
-        let general = m.resolve_pane_id(crate::service::general_agent::GENERAL_ALIAS)?;
-        if m.resolve_pane_id(pane_id)? != general {
+        let general = m.resolve_tab_id(crate::service::general_agent::GENERAL_ALIAS)?;
+        if m.resolve_tab_id(tab_id)? != general {
             return None;
         }
-        let pane = m.get_pane(&general)?;
-        (pane.protected && pane.boot_stage != Some(BootStage::AgentReady)).then_some(general)
+        let tab = m.get_tab(&general)?;
+        (tab.protected && tab.boot_stage != Some(BootStage::AgentReady)).then_some(general)
     }
 
-    fn snapshot_pane_for_restart(
+    fn snapshot_tab_for_restart(
         &self,
-        pane_id: &str,
-    ) -> Result<PaneRestartSnapshot, AgentRestartError> {
+        tab_id: &str,
+    ) -> Result<TabRestartSnapshot, AgentRestartError> {
         let mux = self.mux.write();
         let resolved = mux
-            .resolve_pane_id(pane_id)
-            .ok_or_else(|| AgentRestartError::NotFound(format!("Tab {} not found", pane_id)))?;
-        let pane = mux
-            .get_pane(&resolved)
-            .ok_or_else(|| AgentRestartError::NotFound(format!("Tab {} not found", pane_id)))?;
+            .resolve_tab_id(tab_id)
+            .ok_or_else(|| AgentRestartError::NotFound(format!("Tab {} not found", tab_id)))?;
+        let tab = mux
+            .get_tab(&resolved)
+            .ok_or_else(|| AgentRestartError::NotFound(format!("Tab {} not found", tab_id)))?;
 
-        let provider = pane
+        let provider = tab
             .agent_type
             .clone()
             .ok_or_else(|| AgentRestartError::BadRequest("no agent in this Tab".to_string()))?;
-        let pty_id = pane
+        let pty_id = tab
             .pty_id
             .clone()
             .ok_or_else(|| AgentRestartError::BadRequest("Tab has no PTY".to_string()))?;
@@ -251,20 +251,20 @@ impl ServiceContext {
             )));
         }
 
-        Ok(PaneRestartSnapshot {
-            pane_id: resolved,
+        Ok(TabRestartSnapshot {
+            tab_id: resolved,
             pty_id,
             provider,
-            session_id: pane.agent_session_id.clone(),
-            cwd: pane.cwd.clone(),
-            auto_approve: pane.auto_approve,
+            session_id: tab.agent_session_id.clone(),
+            cwd: tab.cwd.clone(),
+            auto_approve: tab.auto_approve,
         })
     }
 
-    fn check_and_record_restart(&self, pane_id: &str) -> Result<(), AgentRestartError> {
+    fn check_and_record_restart(&self, tab_id: &str) -> Result<(), AgentRestartError> {
         let mut tracker = self.restart_tracker.lock();
         let now = Instant::now();
-        if let Some(last) = tracker.get(pane_id) {
+        if let Some(last) = tracker.get(tab_id) {
             let elapsed = now.duration_since(*last);
             let limit = Duration::from_secs(RESTART_RATE_LIMIT_SECS);
             if elapsed < limit {
@@ -274,11 +274,11 @@ impl ServiceContext {
                 });
             }
         }
-        tracker.insert(pane_id.to_string(), now);
+        tracker.insert(tab_id.to_string(), now);
         Ok(())
     }
 
-    fn session_file_present(&self, snap: &PaneRestartSnapshot) -> bool {
+    fn session_file_present(&self, snap: &TabRestartSnapshot) -> bool {
         let (Some(cwd), Some(sid)) = (snap.cwd.as_deref(), snap.session_id.as_deref()) else {
             return false;
         };
@@ -294,7 +294,7 @@ impl ServiceContext {
 /// degradation on stale ids, not failure.
 fn build_relaunch_command(
     svc: &ServiceContext,
-    snap: &PaneRestartSnapshot,
+    snap: &TabRestartSnapshot,
     session_present: bool,
 ) -> Option<String> {
     let provider = &snap.provider;
@@ -306,7 +306,7 @@ fn build_relaunch_command(
         .with_provider(provider, |p| p.needs_structured_prompt_server())
         .unwrap_or(false)
         .then(|| {
-            crate::service::structured_prompt::ensure_for_spawn(svc, provider, &snap.pane_id, cwd)
+            crate::service::structured_prompt::ensure_for_spawn(svc, provider, &snap.tab_id, cwd)
         })
         .flatten();
     build_relaunch_command_with_registry(
@@ -367,15 +367,15 @@ fn build_relaunch_command_with_registry(
 
 async fn drive_restart(
     svc: ServiceContext,
-    snap: PaneRestartSnapshot,
+    snap: TabRestartSnapshot,
     force: bool,
     grace: Duration,
 ) {
     let session_present = svc.session_file_present(&snap);
     if !session_present && snap.session_id.is_some() {
         log::warn!(
-            "[agent_restart] pane={} session_id={:?} not found on disk — will start fresh",
-            snap.pane_id,
+            "[agent_restart] tab={} session_id={:?} not found on disk — will start fresh",
+            snap.tab_id,
             snap.session_id
         );
     }
@@ -387,21 +387,21 @@ async fn drive_restart(
             .flatten()
         {
             log::info!(
-                "[agent_restart] pane={} sending {} (graceful)",
-                snap.pane_id,
+                "[agent_restart] tab={} sending {} (graceful)",
+                snap.tab_id,
                 exit_cmd
             );
-            if let Err(e) = svc.send_text(&snap.pane_id, &exit_cmd, true) {
+            if let Err(e) = svc.send_text(&snap.tab_id, &exit_cmd, true) {
                 log::warn!(
-                    "[agent_restart] graceful exit send failed for pane={}: {}",
-                    snap.pane_id,
+                    "[agent_restart] graceful exit send failed for tab={}: {}",
+                    snap.tab_id,
                     e
                 );
             }
         } else {
             log::info!(
-                "[agent_restart] pane={} provider={} has no exit_command — falling through to grace wait",
-                snap.pane_id,
+                "[agent_restart] tab={} provider={} has no exit_command — falling through to grace wait",
+                snap.tab_id,
                 snap.provider
             );
         }
@@ -410,48 +410,48 @@ async fn drive_restart(
     let shell_ready = wait_for_shell_after_exit(&svc, &snap, force, grace).await;
     if !shell_ready {
         log::error!(
-            "[agent_restart] pane={} agent TUI still on screen after exit + Ctrl-C escalation — \
+            "[agent_restart] tab={} agent TUI still on screen after exit + Ctrl-C escalation — \
              aborting relaunch to avoid piping launch command into the TUI's input box. \
              User can re-run restart with force=true or close the Tab manually.",
-            snap.pane_id
+            snap.tab_id
         );
         crate::logs::record(
             crate::logs::LogLevel::Warn,
             "agent.restart",
             format!(
                 "restart aborted on Tab {} — agent did not exit cleanly; re-run with force=true",
-                snap.pane_id
+                snap.tab_id
             ),
             Some(serde_json::json!({
-                "pane_id": snap.pane_id,
+                "tab_id": snap.tab_id,
                 "provider": snap.provider,
                 "reason": "tui_still_visible",
             })),
         );
         return;
     }
-    svc.clear_pane_agent_identity_for_lifecycle_exit(&snap.pane_id);
+    svc.clear_tab_agent_identity_for_lifecycle_exit(&snap.tab_id);
 
     let Some(launch_cmd) = build_relaunch_command(&svc, &snap, session_present)
         .map(|cmd| crate::agent::stub_launch::apply(&snap.provider, cmd))
     else {
         log::error!(
-            "[agent_restart] pane={} provider={} returned no launch command — restart aborted",
-            snap.pane_id,
+            "[agent_restart] tab={} provider={} returned no launch command — restart aborted",
+            snap.tab_id,
             snap.provider
         );
         return;
     };
 
     log::info!(
-        "[agent_restart] pane={} launching: {}",
-        snap.pane_id,
+        "[agent_restart] tab={} launching: {}",
+        snap.tab_id,
         launch_cmd
     );
-    if let Err(e) = svc.send_text(&snap.pane_id, &launch_cmd, true) {
+    if let Err(e) = svc.send_text(&snap.tab_id, &launch_cmd, true) {
         log::error!(
-            "[agent_restart] pane={} relaunch send failed: {}",
-            snap.pane_id,
+            "[agent_restart] tab={} relaunch send failed: {}",
+            snap.tab_id,
             e
         );
     }
@@ -459,18 +459,18 @@ async fn drive_restart(
 
 async fn wait_for_shell_after_exit(
     svc: &ServiceContext,
-    snap: &PaneRestartSnapshot,
+    snap: &TabRestartSnapshot,
     force: bool,
     grace: Duration,
 ) -> bool {
     if force {
         log::info!(
-            "[agent_restart] pane={} force=true — sending Ctrl-C and waiting briefly",
-            snap.pane_id
+            "[agent_restart] tab={} force=true — sending Ctrl-C and waiting briefly",
+            snap.tab_id
         );
-        let _ = svc.write_raw(&snap.pane_id, b"\x03");
+        let _ = svc.write_raw(&snap.tab_id, b"\x03");
         tokio::time::sleep(Duration::from_millis(300)).await;
-        let _ = svc.write_raw(&snap.pane_id, b"\x03");
+        let _ = svc.write_raw(&snap.tab_id, b"\x03");
         return poll_bare_shell_prompt(svc, &snap.pty_id, Duration::from_secs(3)).await;
     }
 
@@ -479,12 +479,12 @@ async fn wait_for_shell_after_exit(
     }
 
     log::warn!(
-        "[agent_restart] pane={} graceful exit timed out — escalating to Ctrl-C",
-        snap.pane_id
+        "[agent_restart] tab={} graceful exit timed out — escalating to Ctrl-C",
+        snap.tab_id
     );
-    let _ = svc.write_raw(&snap.pane_id, b"\x03");
+    let _ = svc.write_raw(&snap.tab_id, b"\x03");
     tokio::time::sleep(Duration::from_millis(500)).await;
-    let _ = svc.write_raw(&snap.pane_id, b"\x03");
+    let _ = svc.write_raw(&snap.tab_id, b"\x03");
     poll_bare_shell_prompt(svc, &snap.pty_id, Duration::from_secs(3)).await
 }
 
@@ -532,10 +532,10 @@ mod tests {
         new_restart_tracker()
     }
 
-    fn check(tracker: &RestartTracker, pane_id: &str) -> Result<(), AgentRestartError> {
+    fn check(tracker: &RestartTracker, tab_id: &str) -> Result<(), AgentRestartError> {
         let mut guard = tracker.lock();
         let now = Instant::now();
-        if let Some(last) = guard.get(pane_id) {
+        if let Some(last) = guard.get(tab_id) {
             let elapsed = now.duration_since(*last);
             let limit = Duration::from_secs(RESTART_RATE_LIMIT_SECS);
             if elapsed < limit {
@@ -545,21 +545,21 @@ mod tests {
                 });
             }
         }
-        guard.insert(pane_id.to_string(), now);
+        guard.insert(tab_id.to_string(), now);
         Ok(())
     }
 
     #[test]
     fn rate_limit_first_call_succeeds() {
         let t = fresh_tracker();
-        assert!(check(&t, "pane-1").is_ok());
+        assert!(check(&t, "tab-1").is_ok());
     }
 
     #[test]
     fn rate_limit_second_call_blocked() {
         let t = fresh_tracker();
-        check(&t, "pane-1").unwrap();
-        match check(&t, "pane-1") {
+        check(&t, "tab-1").unwrap();
+        match check(&t, "tab-1") {
             Err(AgentRestartError::RateLimited { retry_after_secs }) => {
                 assert!(retry_after_secs > 0);
                 assert!(retry_after_secs <= RESTART_RATE_LIMIT_SECS);
@@ -569,18 +569,18 @@ mod tests {
     }
 
     #[test]
-    fn rate_limit_independent_panes() {
+    fn rate_limit_independent_tabs() {
         let t = fresh_tracker();
-        check(&t, "pane-a").unwrap();
-        assert!(check(&t, "pane-b").is_ok());
+        check(&t, "tab-a").unwrap();
+        assert!(check(&t, "tab-b").is_ok());
     }
 
     #[test]
     fn rate_limit_resets_after_window() {
         let t = fresh_tracker();
         let past = Instant::now() - Duration::from_secs(RESTART_RATE_LIMIT_SECS + 1);
-        t.lock().insert("pane-1".to_string(), past);
-        assert!(check(&t, "pane-1").is_ok());
+        t.lock().insert("tab-1".to_string(), past);
+        assert!(check(&t, "tab-1").is_ok());
     }
 
     fn registry_with_claude() -> crate::agent::registry::AgentRegistry {
@@ -674,7 +674,7 @@ mod tests {
 
     fn outcome(session_id: Option<&str>, stale: bool, auto_approve: bool) -> RestartOutcome {
         RestartOutcome {
-            pane_id: "p1".to_string(),
+            tab_id: "p1".to_string(),
             provider: "codex".to_string(),
             session_id: session_id.map(String::from),
             session_was_stale: stale,

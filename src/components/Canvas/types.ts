@@ -15,10 +15,10 @@ export const TaskStatus = {
 } as const satisfies Record<string, TaskStatus>;
 export type LoopStatus = "running" | "done" | "exhausted" | "stopped";
 export type DriftKind =
-  | "in_progress_pane_gone"
+  | "in_progress_tab_gone"
   | "stale_in_review"
   | "stale_pending_unstaffed"
-  | "bound_to_closed_pane"
+  | "bound_to_closed_tab"
   | "accepted_but_not_done";
 
 export interface DriftItem {
@@ -37,21 +37,21 @@ export interface ElementCanvas {
 }
 
 export interface OrchestratorRef {
-  pane_id: string | null;
+  tab_id: string | null;
   session_id: string | null;
   title: string | null;
 }
 export type AgentRef = OrchestratorRef;
 
 export type PlannerRef =
-  | { kind: "pane"; pane_id: string; session_id?: string | null; title?: string | null }
+  | { kind: "tab"; tab_id: string; session_id?: string | null; title?: string | null }
   | { kind: "waived"; note: string };
 
 export type PlanMode = "planning" | "approved" | "execution" | "paused" | "complete";
 export type PlanningState = "drafting" | "structure_ready" | "approved";
 
 export interface TaskLaneMetadata {
-  pane_id?: string | null;
+  tab_id?: string | null;
   workspace_id?: string | null;
   workspace_name?: string | null;
   worktree_path?: string | null;
@@ -146,9 +146,9 @@ export interface TaskExecutionReportSnapshot {
 
 export interface TaskExecutionAttempt {
   id?: string;
-  pane_id?: string | null;
-  pane_title?: string | null;
-  executor_pane_id?: string | null;
+  tab_id?: string | null;
+  tab_title?: string | null;
+  executor_tab_id?: string | null;
   executor_title?: string | null;
   agent_type?: string | null;
   model?: string | null;
@@ -200,7 +200,7 @@ export interface Task {
   links?: string[];
   intent: string | null;
   parent_task_id: string | null;
-  assigned_pane_id: string | null;
+  assigned_tab_id: string | null;
   lane?: TaskLaneMetadata;
   taken_by_role?: string | null;
   peer: string | null;
@@ -321,7 +321,7 @@ export type GateStatus = "open" | "answered" | "escalated";
 
 export interface GateAnswer {
   text: string;
-  by_pane_id?: string | null;
+  by_tab_id?: string | null;
   at: number;
 }
 
@@ -331,8 +331,8 @@ export interface DecisionGate {
   question: string;
   context?: string;
   blocking_task_ids?: string[];
-  routed_to_pane_id?: string | null;
-  asked_by_pane_id?: string | null;
+  routed_to_tab_id?: string | null;
+  asked_by_tab_id?: string | null;
   asked_at: number;
   status: GateStatus;
   answer?: GateAnswer | null;

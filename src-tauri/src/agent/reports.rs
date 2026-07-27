@@ -38,7 +38,7 @@ pub struct ReportDetails {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentReport {
     pub id: String,
-    pub from_pane_id: String,
+    pub from_tab_id: String,
     pub from_title: String,
     pub message: String,
     pub timestamp: u64,
@@ -122,7 +122,7 @@ impl AgentReport {
     }
 }
 
-/// Stores reports keyed by orchestrator pane ID.
+/// Stores reports keyed by orchestrator tab ID.
 ///
 /// The in-memory `reports` map is the live notification stream (fast reads,
 /// capped, wiped on restart). The optional durable [`OrchestrationLedger`] is
@@ -161,24 +161,24 @@ impl ReportStore {
 
     /// Durable rows for an orchestrator (survive restart). Empty when no ledger
     /// is attached (in-memory test stores) or the orchestrator has no workers.
-    pub fn ledger_rows(&self, orchestrator_pane_id: &str) -> Vec<LedgerRow> {
+    pub fn ledger_rows(&self, orchestrator_tab_id: &str) -> Vec<LedgerRow> {
         self.ledger
             .as_ref()
-            .and_then(|l| l.list_for_orchestrator(orchestrator_pane_id).ok())
+            .and_then(|l| l.list_for_orchestrator(orchestrator_tab_id).ok())
             .unwrap_or_default()
     }
 
-    /// Add a freeform (message-only) report under an orchestrator's pane ID.
+    /// Add a freeform (message-only) report under an orchestrator's tab ID.
     pub fn add(
         &mut self,
-        orchestrator_pane_id: &str,
-        from_pane_id: &str,
+        orchestrator_tab_id: &str,
+        from_tab_id: &str,
         from_title: &str,
         message: &str,
     ) -> AgentReport {
         self.add_detailed(
-            orchestrator_pane_id,
-            from_pane_id,
+            orchestrator_tab_id,
+            from_tab_id,
             from_title,
             message,
             ReportDetails::default(),
@@ -188,20 +188,20 @@ impl ReportStore {
 
     /// Add a report carrying optional structured fields. Message-only callers
     /// pass `ReportDetails::default()` (via [`add`]) for unchanged behaviour.
-    /// `model` is the worker's live session model (pane metadata, not part of
+    /// `model` is the worker's live session model (tab metadata, not part of
     /// the report body) — recorded in the durable ledger only.
     pub fn add_detailed(
         &mut self,
-        orchestrator_pane_id: &str,
-        from_pane_id: &str,
+        orchestrator_tab_id: &str,
+        from_tab_id: &str,
         from_title: &str,
         message: &str,
         details: ReportDetails,
         model: Option<&str>,
     ) -> AgentReport {
         self.add_detailed_with_model_identity(
-            orchestrator_pane_id,
-            from_pane_id,
+            orchestrator_tab_id,
+            from_tab_id,
             from_title,
             message,
             details,
@@ -218,8 +218,8 @@ impl ReportStore {
 
     pub fn add_detailed_with_model_identity(
         &mut self,
-        orchestrator_pane_id: &str,
-        from_pane_id: &str,
+        orchestrator_tab_id: &str,
+        from_tab_id: &str,
         from_title: &str,
         message: &str,
         details: ReportDetails,
@@ -245,7 +245,7 @@ impl ReportStore {
             .and_then(|identity| identity.mismatch.clone());
         let report = AgentReport {
             id: uuid::Uuid::new_v4().to_string(),
-            from_pane_id: from_pane_id.to_string(),
+            from_tab_id: from_tab_id.to_string(),
             from_title: from_title.to_string(),
             message: message.to_string(),
             timestamp: SystemTime::now()
@@ -274,8 +274,8 @@ impl ReportStore {
         // a ledger write failure is logged, never blocks the live report path.
         if let Some(ledger) = &self.ledger {
             let row = LedgerRow {
-                orchestrator_pane_id: orchestrator_pane_id.to_string(),
-                worker_pane_id: from_pane_id.to_string(),
+                orchestrator_tab_id: orchestrator_tab_id.to_string(),
+                worker_tab_id: from_tab_id.to_string(),
                 title: from_title.to_string(),
                 plan_id: details.plan_id.clone(),
                 task_id: details.task_id.clone(),
@@ -291,14 +291,14 @@ impl ReportStore {
                 updated_at: report.timestamp,
             };
             if let Err(e) = ledger.upsert(&row) {
-                log::warn!("[ledger] upsert for worker {} failed: {}", from_pane_id, e);
+                log::warn!("[ledger] upsert for worker {} failed: {}", from_tab_id, e);
             }
         }
 
         {
             let entries = self
                 .reports
-                .entry(orchestrator_pane_id.to_string())
+                .entry(orchestrator_tab_id.to_string())
                 .or_default();
             entries.push(report.clone());
             if entries.len() > self.max_reports_per_orchestrator {
@@ -319,11 +319,11 @@ impl ReportStore {
     }
 
     /// Get all reports for an orchestrator, optionally clearing them.
-    pub fn get(&mut self, orchestrator_pane_id: &str, clear: bool) -> Vec<AgentReport> {
+    pub fn get(&mut self, orchestrator_tab_id: &str, clear: bool) -> Vec<AgentReport> {
         if clear {
             let removed = self
                 .reports
-                .remove(orchestrator_pane_id)
+                .remove(orchestrator_tab_id)
                 .unwrap_or_default();
             for report in &removed {
                 self.delivered.remove(&report.id);
@@ -332,16 +332,16 @@ impl ReportStore {
             removed
         } else {
             self.reports
-                .get(orchestrator_pane_id)
+                .get(orchestrator_tab_id)
                 .cloned()
                 .unwrap_or_default()
         }
     }
 
-    pub fn claim_pending_for(&mut self, orchestrator_pane_id: &str) -> Vec<AgentReport> {
+    pub fn claim_pending_for(&mut self, orchestrator_tab_id: &str) -> Vec<AgentReport> {
         let pending: Vec<AgentReport> = self
             .reports
-            .get(orchestrator_pane_id)
+            .get(orchestrator_tab_id)
             .into_iter()
             .flatten()
             .filter(|report| {
@@ -370,29 +370,29 @@ impl ReportStore {
         self.in_flight.remove(report_id);
     }
 
-    /// True when at least one report from `from_pane_id` is stored under
-    /// `orchestrator_pane_id`. Used by the worker-death watchdog to decide
+    /// True when at least one report from `from_tab_id` is stored under
+    /// `orchestrator_tab_id`. Used by the worker-death watchdog to decide
     /// whether a dying worker has already spoken (so no synthetic report is
     /// needed). There is no separate terminal-report flag — any prior report
     /// counts as the worker having reported up the chain.
-    pub fn has_report_from(&self, orchestrator_pane_id: &str, from_pane_id: &str) -> bool {
+    pub fn has_report_from(&self, orchestrator_tab_id: &str, from_tab_id: &str) -> bool {
         self.reports
-            .get(orchestrator_pane_id)
-            .map(|v| v.iter().any(|r| r.from_pane_id == from_pane_id))
+            .get(orchestrator_tab_id)
+            .map(|v| v.iter().any(|r| r.from_tab_id == from_tab_id))
             .unwrap_or(false)
     }
 
     /// Get report count for an orchestrator.
-    pub fn count(&self, orchestrator_pane_id: &str) -> usize {
+    pub fn count(&self, orchestrator_tab_id: &str) -> usize {
         self.reports
-            .get(orchestrator_pane_id)
+            .get(orchestrator_tab_id)
             .map(|v| v.len())
             .unwrap_or(0)
     }
 
     /// Remove all reports for an orchestrator (cleanup on close).
-    pub fn remove(&mut self, orchestrator_pane_id: &str) {
-        if let Some(removed) = self.reports.remove(orchestrator_pane_id) {
+    pub fn remove(&mut self, orchestrator_tab_id: &str) {
+        if let Some(removed) = self.reports.remove(orchestrator_tab_id) {
             for report in removed {
                 self.delivered.remove(&report.id);
                 self.in_flight.remove(&report.id);
@@ -420,7 +420,7 @@ mod tests {
         let mut store = ReportStore::new(100);
         let report = store.add("cond-1", "worker-1", "Worker 1", "Task complete");
         assert!(!report.id.is_empty());
-        assert_eq!(report.from_pane_id, "worker-1");
+        assert_eq!(report.from_tab_id, "worker-1");
         assert_eq!(report.from_title, "Worker 1");
         assert_eq!(report.message, "Task complete");
     }
@@ -434,8 +434,8 @@ mod tests {
 
         let reports = store.get("cond-1", false);
         assert_eq!(reports.len(), 2);
-        assert_eq!(reports[0].from_pane_id, "w1");
-        assert_eq!(reports[1].from_pane_id, "w2");
+        assert_eq!(reports[0].from_tab_id, "w1");
+        assert_eq!(reports[1].from_tab_id, "w2");
     }
 
     #[test]

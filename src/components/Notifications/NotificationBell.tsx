@@ -11,7 +11,7 @@ interface NotificationBellProps {
   onMarkRead: (id: string) => void;
   onMarkAllRead: () => void;
   onDelete: (id: string) => void;
-  onNavigate: (paneId: string, workspaceId: string | null) => void;
+  onNavigate: (tabId: string, workspaceId: string | null) => void;
 }
 
 export function NotificationBell({
@@ -89,8 +89,8 @@ export function NotificationBell({
             onMarkRead={onMarkRead}
             onMarkAllRead={onMarkAllRead}
             onDelete={onDelete}
-            onJumpToPane={(paneId, workspaceId) => {
-              onNavigate(paneId, workspaceId);
+            onJumpToTab={(tabId, workspaceId) => {
+              onNavigate(tabId, workspaceId);
               setOpen(false);
             }}
             onClose={() => setOpen(false)}

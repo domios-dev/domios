@@ -2,7 +2,7 @@
 //!
 //! When a provider exposes a STRUCTURED prompt source (claude's AskUserQuestion
 //! in the parsed JSONL transcript, opencode's SSE event bus), core builds
-//! `pane.pending_prompt` from that handle instead of scraping the ephemeral PTY
+//! `tab.pending_prompt` from that handle instead of scraping the ephemeral PTY
 //! picker. This module owns the pure transforms shared across providers:
 //!
 //! - [`active_question_prompt`] — pick the live (unanswered) AskUserQuestion out

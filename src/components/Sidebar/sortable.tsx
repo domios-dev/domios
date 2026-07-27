@@ -45,7 +45,7 @@ export interface ReorderHandlers {
   reorderWorkspaces: (orderedWorkspaceIds: string[]) => void;
   reorderTabs: (args: {
     workspaceId?: string;
-    parentPaneId?: string;
+    parentTabId?: string;
     orderedTabIds: string[];
   }) => void;
 }
@@ -123,7 +123,7 @@ export function SidebarDnd({
       if (ad.group === "workspace") {
         handlers.reorderWorkspaces(ordered);
       } else if (ad.group === "child") {
-        handlers.reorderTabs({ parentPaneId: ad.groupKey, orderedTabIds: ordered });
+        handlers.reorderTabs({ parentTabId: ad.groupKey, orderedTabIds: ordered });
       } else {
         handlers.reorderTabs({ workspaceId: ad.groupKey, orderedTabIds: ordered });
       }

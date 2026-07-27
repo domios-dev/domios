@@ -5,11 +5,11 @@ import { useMuxState } from "../../store/multiplexer";
 import { useSwarmCanvas } from "./useSwarmCanvas";
 import { computeTreeLayout } from "./layout";
 import type { SwarmState, SwarmNode, SwarmEdge, ReportParticle } from "./types";
-import type { Pane, PaneStatus } from "../../lib/types";
+import type { Tab, TabStatus } from "../../lib/types";
 
 let particleCounter = 0;
 
-function mapRoleToSwarm(role: Pane["role"]): SwarmNode["role"] {
+function mapRoleToSwarm(role: Tab["role"]): SwarmNode["role"] {
   switch (role) {
     case "Orchestrator":
       return "Orchestrator";
@@ -20,11 +20,11 @@ function mapRoleToSwarm(role: Pane["role"]): SwarmNode["role"] {
   }
 }
 
-function mapPaneStatus(
-  paneId: string,
-  paneStatuses: Record<string, PaneStatus>,
+function mapTabStatus(
+  tabId: string,
+  tabStatuses: Record<string, TabStatus>,
 ): SwarmNode["status"] {
-  const status = paneStatuses[paneId];
+  const status = tabStatuses[tabId];
   if (!status) return "Idle";
   return status;
 }
@@ -57,18 +57,18 @@ export function SwarmOverlay({ visible, onClose }: SwarmOverlayProps) {
     const nodes = new Map<string, SwarmNode>();
     const edges = new Map<string, SwarmEdge>();
 
-    for (const pane of Object.values(state.panes)) {
-      if (!pane.role) continue;
+    for (const tab of Object.values(state.tabs)) {
+      if (!tab.role) continue;
 
-      const mappedRole = mapRoleToSwarm(pane.role);
-      const mappedStatus = mapPaneStatus(pane.id, (state as any).paneStatuses || {});
+      const mappedRole = mapRoleToSwarm(tab.role);
+      const mappedStatus = mapTabStatus(tab.id, (state as any).tabStatuses || {});
 
-      nodes.set(pane.id, {
-        id: pane.id,
-        title: pane.title || pane.id.slice(0, 8),
+      nodes.set(tab.id, {
+        id: tab.id,
+        title: tab.title || tab.id.slice(0, 8),
         role: mappedRole,
         status: mappedStatus,
-        parentId: pane.parent_pane_id || null,
+        parentId: tab.parent_tab_id || null,
         x: 0,
         y: 0,
         targetX: 0,
@@ -92,7 +92,7 @@ export function SwarmOverlay({ visible, onClose }: SwarmOverlayProps) {
     }
 
     return { nodes, edges, viewport: { x: 0, y: 0, zoom: 1 } };
-  }, [state.panes, (state as any).paneStatuses]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [state.tabs, (state as any).tabStatuses]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const swarmRef = useRef(swarmState);
   swarmRef.current = swarmState;
@@ -112,18 +112,18 @@ export function SwarmOverlay({ visible, onClose }: SwarmOverlayProps) {
 
     const unsubs: (() => void)[] = [];
 
-    listen<{ pane_id: string; parent_pane_id?: string }>("agent-report", (event) => {
+    listen<{ tab_id: string; parent_tab_id?: string }>("agent-report", (event) => {
       if (cancelled) return;
-      const { pane_id, parent_pane_id } = event.payload;
+      const { tab_id, parent_tab_id } = event.payload;
 
       const sw = swarmRef.current;
-      const childNode = sw.nodes.get(pane_id);
+      const childNode = sw.nodes.get(tab_id);
       if (!childNode) return;
 
-      const parentId = parent_pane_id || childNode.parentId;
+      const parentId = parent_tab_id || childNode.parentId;
       if (!parentId) return;
 
-      const edgeKey = `${parentId}->${pane_id}`;
+      const edgeKey = `${parentId}->${tab_id}`;
       const edge = sw.edges.get(edgeKey);
       if (!edge) return;
 

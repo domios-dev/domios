@@ -386,7 +386,7 @@ mod tests {
         s.live_agents = vec![LiveAgent {
             task_id: "other".into(),
             name: "other".into(),
-            pane_id: "pane_other".into(),
+            tab_id: "tab_other".into(),
         }];
         s.review_gate = super::super::review_gate::ReviewGateStatus {
             wip_count: 5,
@@ -411,7 +411,7 @@ mod tests {
         s.live_agents = vec![LiveAgent {
             task_id: "other".into(),
             name: "other".into(),
-            pane_id: "pane_other".into(),
+            tab_id: "tab_other".into(),
         }];
         s.review_gate = super::super::review_gate::ReviewGateStatus {
             wip_count: 1,
@@ -434,7 +434,7 @@ mod tests {
         s.live_agents = vec![LiveAgent {
             task_id: "other".into(),
             name: "other".into(),
-            pane_id: "pane_other".into(),
+            tab_id: "tab_other".into(),
         }];
         s.review_gate = super::super::review_gate::ReviewGateStatus {
             wip_count: 1,
@@ -550,12 +550,12 @@ mod tests {
         s.execution_tasks_unlocked = false;
         s.planning_state = crate::plan::PlanningState::Drafting;
         s.planner_resolution = crate::plan::peer::PeerResolution::Planner {
-            pane_id: "pane_planner".into(),
+            tab_id: "tab_planner".into(),
         };
         s.planning_approval_blockers = vec!["no GOAL vector set".into()];
         let a = compute_next_actions(&s);
         assert_eq!(a[0].kind, NextActionKind::ApprovePlan);
-        assert!(a[0].message.contains("pane_planner"));
+        assert!(a[0].message.contains("tab_planner"));
         assert!(a[0].message.contains("no GOAL vector set"));
     }
 

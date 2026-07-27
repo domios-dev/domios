@@ -4,13 +4,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde::Serialize;
 use uuid::Uuid;
 
-use super::types::{AgentRole, Pane, PaneBacking, PaneType, Tab, TitleLevel, Workspace};
+use super::types::{AgentRole, Tab, TabBacking, TabType, Tab, TitleLevel, Workspace};
 use codeterm_types::team::Team;
 
 mod alias;
 mod closed;
 pub mod names;
-mod pane;
+mod tab;
 mod reorder;
 mod role;
 mod snapshot;
@@ -18,7 +18,7 @@ mod tab;
 mod workspace;
 
 pub use closed::{
-    ClosedGroup, ClosedPaneView, ClosedPanesStore, GroupKind, CLOSED_GROUP_CAP,
+    ClosedGroup, ClosedTabView, ClosedTabsStore, GroupKind, CLOSED_GROUP_CAP,
     RECENTLY_CLOSED_CAP, RECENTLY_CLOSED_VIEW_LIMIT,
 };
 
@@ -44,36 +44,36 @@ pub struct WorkspaceInfo {
     pub is_active: bool,
     pub cwd: Option<String>,
     pub protected: bool,
-    pub pane_ids: Vec<String>,
+    pub tab_ids: Vec<String>,
     /// Set to true when create_workspace deduped by cwd (no new ws was created).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub existing: Option<bool>,
 }
 
-/// Central multiplexer state: workspaces, tabs, panes, and their relationships.
+/// Central multiplexer state: workspaces, tabs, tabs, and their relationships.
 pub struct MultiplexerState {
     workspaces: Vec<Workspace>,
-    panes: HashMap<String, Pane>,
+    tabs: HashMap<String, Tab>,
     active_workspace_id: Option<String>,
-    focused_pane_id: Option<String>,
-    /// Reverse lookup: pty_id -> pane_id for O(1) resolution.
-    pty_to_pane: HashMap<String, String>,
-    /// Alias registry: human-readable name -> pane_id.
-    pane_aliases: HashMap<String, String>,
-    /// Team registry: team_id -> Team. Membership itself lives on each pane's
+    focused_tab_id: Option<String>,
+    /// Reverse lookup: pty_id -> tab_id for O(1) resolution.
+    pty_to_tab: HashMap<String, String>,
+    /// Alias registry: human-readable name -> tab_id.
+    tab_aliases: HashMap<String, String>,
+    /// Team registry: team_id -> Team. Membership itself lives on each tab's
     /// `team_id`; this holds the team's own metadata (name, lifecycle). Persisted
     /// in the session snapshot.
     teams: HashMap<String, Team>,
     /// Monotonic snapshot generation. Every `snapshot()` stamps a strictly
     /// increasing value so the frontend reducer can ignore a stale snapshot
     /// (older generation) that resolves after a newer one — kills the
-    /// spawn-then-blink race where a pre-pane `mux_get_state` clobbers the tab.
+    /// spawn-then-blink race where a pre-tab `mux_get_state` clobbers the tab.
     generation: AtomicU64,
-    /// Durable browser-style closed-pane history. Leaf lock (its own
+    /// Durable browser-style closed-tab history. Leaf lock (its own
     /// `Mutex<Connection>`); only ever touched while the mux lock is held, never
     /// across an await. Defaults to in-memory; production swaps in a file-backed
     /// store at startup via [`MultiplexerState::attach_closed_store`].
-    pub(super) closed_store: ClosedPanesStore,
+    pub(super) closed_store: ClosedTabsStore,
 }
 
 pub struct TeamCloseTransaction {
@@ -86,15 +86,15 @@ impl TeamCloseTransaction {
     }
 
     pub fn commit(self, target: &mut MultiplexerState, closed_roots: &[String]) {
-        for pane_id in closed_roots {
-            target.record_cascade_close(pane_id);
+        for tab_id in closed_roots {
+            target.record_cascade_close(tab_id);
         }
         target.workspaces = self.staged.workspaces;
-        target.panes = self.staged.panes;
+        target.tabs = self.staged.tabs;
         target.active_workspace_id = self.staged.active_workspace_id;
-        target.focused_pane_id = self.staged.focused_pane_id;
-        target.pty_to_pane = self.staged.pty_to_pane;
-        target.pane_aliases = self.staged.pane_aliases;
+        target.focused_tab_id = self.staged.focused_tab_id;
+        target.pty_to_tab = self.staged.pty_to_tab;
+        target.tab_aliases = self.staged.tab_aliases;
         target.teams = self.staged.teams;
         target.generation.store(
             self.staged.generation.load(Ordering::Relaxed),
@@ -113,26 +113,26 @@ pub struct TeamResolution {
 #[derive(Debug, Clone, Serialize)]
 pub struct MultiplexerSnapshot {
     pub workspaces: Vec<Workspace>,
-    pub panes: HashMap<String, Pane>,
+    pub tabs: HashMap<String, Tab>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub teams: Vec<Team>,
     pub active_workspace_id: Option<String>,
-    pub focused_pane_id: Option<String>,
+    pub focused_tab_id: Option<String>,
     /// Monotonic generation; the reducer drops any snapshot whose value is
     /// `<=` the one already applied.
     pub generation: u64,
-    /// Bounded newest-first view of the closed-pane history (across all
+    /// Bounded newest-first view of the closed-tab history (across all
     /// workspaces) for the sidebar. Sourced live from the sqlite store, NOT the
     /// persisted session snapshot — keeps both lean.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub recently_closed: Vec<ClosedPaneView>,
-    /// Aggregate Idle/Working/Waiting/Dead per PTY-backed pane, mirrored from
-    /// `PaneStatusTracker` so a fresh page load hydrates the same rail color a
-    /// live `pane-status-changed` event would have delivered. Only populated by
+    pub recently_closed: Vec<ClosedTabView>,
+    /// Aggregate Idle/Working/Waiting/Dead per PTY-backed tab, mirrored from
+    /// `TabStatusTracker` so a fresh page load hydrates the same rail color a
+    /// live `tab-status-changed` event would have delivered. Only populated by
     /// [`MultiplexerState::snapshot_with_status`] — plain `snapshot()` leaves it
     /// empty since most internal callers don't need it.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub pane_statuses: HashMap<String, codeterm_types::pty::PaneStatus>,
+    pub tab_statuses: HashMap<String, codeterm_types::pty::TabStatus>,
 }
 
 impl MultiplexerState {
@@ -140,14 +140,14 @@ impl MultiplexerState {
         TeamCloseTransaction {
             staged: Self {
                 workspaces: self.workspaces.clone(),
-                panes: self.panes.clone(),
+                tabs: self.tabs.clone(),
                 active_workspace_id: self.active_workspace_id.clone(),
-                focused_pane_id: self.focused_pane_id.clone(),
-                pty_to_pane: self.pty_to_pane.clone(),
-                pane_aliases: self.pane_aliases.clone(),
+                focused_tab_id: self.focused_tab_id.clone(),
+                pty_to_tab: self.pty_to_tab.clone(),
+                tab_aliases: self.tab_aliases.clone(),
                 teams: self.teams.clone(),
                 generation: AtomicU64::new(self.generation.load(Ordering::Relaxed)),
-                closed_store: ClosedPanesStore::in_memory(),
+                closed_store: ClosedTabsStore::in_memory(),
             },
         }
     }
@@ -156,14 +156,14 @@ impl MultiplexerState {
     pub fn empty() -> Self {
         Self {
             workspaces: vec![],
-            panes: HashMap::new(),
+            tabs: HashMap::new(),
             active_workspace_id: None,
-            focused_pane_id: None,
-            pty_to_pane: HashMap::new(),
-            pane_aliases: HashMap::new(),
+            focused_tab_id: None,
+            pty_to_tab: HashMap::new(),
+            tab_aliases: HashMap::new(),
             teams: HashMap::new(),
             generation: AtomicU64::new(0),
-            closed_store: ClosedPanesStore::in_memory(),
+            closed_store: ClosedTabsStore::in_memory(),
         }
     }
 
@@ -204,23 +204,23 @@ impl MultiplexerState {
     }
 
     /// Swap the in-memory closed-history store for a durable file-backed one.
-    /// Called once at startup so closed-pane history survives daemon restarts.
-    pub fn attach_closed_store(&mut self, store: ClosedPanesStore) {
+    /// Called once at startup so closed-tab history survives daemon restarts.
+    pub fn attach_closed_store(&mut self, store: ClosedTabsStore) {
         self.closed_store = store;
     }
 
-    /// Create a new state with a default "Main" workspace, one tab, and one pane.
-    /// Returns (state, initial_pane_id).
+    /// Create a new state with a default "Main" workspace, one tab, and one tab.
+    /// Returns (state, initial_tab_id).
     pub fn new() -> (Self, String) {
-        let pane_id = short_id();
+        let tab_id = short_id();
         let tab_id = short_id();
         let workspace_id = short_id();
 
-        let pane = Pane {
-            id: pane_id.clone(),
+        let tab = Tab {
+            id: tab_id.clone(),
             pty_id: None,
-            backing: PaneBacking::default(),
-            pane_type: PaneType::Terminal,
+            backing: TabBacking::default(),
+            tab_type: TabType::Terminal,
             pending_delivery: None,
             title: names::generate_tab_name(),
             description: None,
@@ -244,13 +244,13 @@ impl MultiplexerState {
             role_profile: None,
             team_id: None,
             watcher: None,
-            parent_pane_id: None,
-            pending_paired_planner_pane_id: None,
+            parent_tab_id: None,
+            pending_paired_planner_tab_id: None,
             can_spawn: true,
             depth: 1,
-            report_target_pane_id: None,
+            report_target_tab_id: None,
             report_target_mesh_peer: None,
-            spawned_by_pane_id: None,
+            spawned_by_tab_id: None,
             title_level: TitleLevel::Default,
             chat_view: false,
             pending_prompt: None,
@@ -274,7 +274,7 @@ impl MultiplexerState {
         let tab = Tab {
             id: tab_id.clone(),
             description: None,
-            pane_id: pane_id.clone(),
+            tab_id: tab_id.clone(),
             sort_order: 0,
         };
 
@@ -288,21 +288,21 @@ impl MultiplexerState {
             sort_order: 0,
         };
 
-        let mut panes = HashMap::new();
-        panes.insert(pane_id.clone(), pane);
+        let mut tabs = HashMap::new();
+        tabs.insert(tab_id.clone(), tab);
 
         let state = Self {
             workspaces: vec![workspace],
-            panes,
+            tabs,
             active_workspace_id: Some(workspace_id),
-            focused_pane_id: Some(pane_id.clone()),
-            pty_to_pane: HashMap::new(),
-            pane_aliases: HashMap::new(),
+            focused_tab_id: Some(tab_id.clone()),
+            pty_to_tab: HashMap::new(),
+            tab_aliases: HashMap::new(),
             teams: HashMap::new(),
             generation: AtomicU64::new(0),
-            closed_store: ClosedPanesStore::in_memory(),
+            closed_store: ClosedTabsStore::in_memory(),
         };
 
-        (state, pane_id)
+        (state, tab_id)
     }
 }

@@ -3,14 +3,14 @@
 //! Layout:
 //!   - [`schedule`] — pure schedule parsing/validation/computation
 //!   - [`crud`]     — CronStore CRUD + run history recording
-//!   - [`panes`]    — pane-ownership tracking + per-job log persistence
+//!   - [`tabs`]    — tab-ownership tracking + per-job log persistence
 //!
 //! Public surface: types + the `CronStore` constructors / save below, with the
 //! schedule helpers re-exported so callers keep using `cron::store::compute_next_run`
 //! (and friends) unchanged.
 
 mod crud;
-mod panes;
+mod tabs;
 mod schedule;
 #[cfg(test)]
 mod tests;
@@ -44,9 +44,9 @@ pub struct CronRunInfo {
     pub started_at: u64,
     pub finished_at: Option<u64>,
     pub status: CronRunStatus,
-    pub pane_id: Option<String>,
     pub tab_id: Option<String>,
-    // session_id + cwd captured before the hidden pane closes so the read-only chat-ui can resolve and render this past run's jsonl.
+    pub tab_id: Option<String>,
+    // session_id + cwd captured before the hidden tab closes so the read-only chat-ui can resolve and render this past run's jsonl.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -75,7 +75,7 @@ pub struct CronJob {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skill: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub creator_pane_id: Option<String>,
+    pub creator_tab_id: Option<String>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub oneshot: bool,
     #[serde(default = "default_max_history")]
@@ -134,7 +134,7 @@ impl Default for CronFile {
 pub struct CronStore {
     file: CronFile,
     file_path: PathBuf,
-    pane_owners: HashMap<String, (String, String)>,
+    tab_owners: HashMap<String, (String, String)>,
     clock: SharedClock,
 }
 
@@ -172,7 +172,7 @@ impl CronStore {
         Self {
             file,
             file_path,
-            pane_owners: HashMap::new(),
+            tab_owners: HashMap::new(),
             clock,
         }
     }
@@ -208,7 +208,7 @@ pub struct CronCreateParams {
     #[serde(default)]
     pub skill: Option<String>,
     #[serde(default)]
-    pub creator_pane_id: Option<String>,
+    pub creator_tab_id: Option<String>,
     #[serde(default)]
     pub enabled: Option<bool>,
     #[serde(default)]

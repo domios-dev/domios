@@ -12,7 +12,7 @@ const CLEANUP_CRITICAL_LIMIT: usize = 10;
 pub fn prepend_orchestrator_heartbeat(
     svc: &ServiceContext,
     plan_id: &str,
-    pane_id: Option<&str>,
+    tab_id: Option<&str>,
     text: &str,
 ) -> String {
     let Some(plan) = svc.plan_store.get(plan_id) else {
@@ -21,15 +21,15 @@ pub fn prepend_orchestrator_heartbeat(
     if crate::service::plan::heartbeat::is_plan_complete(&plan) {
         return text.to_string();
     }
-    let digest_lines = collect_digest_lines(svc, &plan, pane_id);
+    let digest_lines = collect_digest_lines(svc, &plan, tab_id);
     let injected =
         svc.plan_store
             .prepend_heartbeat_for_plan_with_digests(plan_id, text, &digest_lines);
-    if let Some(pane_id) = pane_id {
+    if let Some(tab_id) = tab_id {
         let heartbeat_bytes = injected.len().saturating_sub(text.len());
         if heartbeat_bytes > 0 {
             svc.record_kpi_event(
-                pane_id,
+                tab_id,
                 crate::agent::kpi_ledger::KpiEventKind::Heartbeat,
                 heartbeat_bytes,
             );
@@ -38,23 +38,23 @@ pub fn prepend_orchestrator_heartbeat(
     injected
 }
 
-fn collect_digest_lines(svc: &ServiceContext, plan: &Plan, pane_id: Option<&str>) -> Vec<String> {
+fn collect_digest_lines(svc: &ServiceContext, plan: &Plan, tab_id: Option<&str>) -> Vec<String> {
     let mut out = Vec::new();
-    out.extend(queue_pressure_lines(svc, plan, pane_id));
-    out.extend(cleanup_pressure_lines(svc, pane_id));
+    out.extend(queue_pressure_lines(svc, plan, tab_id));
+    out.extend(cleanup_pressure_lines(svc, tab_id));
     out.extend(usage_lines(svc));
     out.truncate(8);
     out
 }
 
-fn cleanup_pressure_lines(svc: &ServiceContext, pane_id: Option<&str>) -> Vec<String> {
-    let Some(pane_id) = pane_id.filter(|id| !id.trim().is_empty()) else {
+fn cleanup_pressure_lines(svc: &ServiceContext, tab_id: Option<&str>) -> Vec<String> {
+    let Some(tab_id) = tab_id.filter(|id| !id.trim().is_empty()) else {
         return Vec::new();
     };
     let (worker_count, cwd) = {
         let mux = svc.mux.read();
-        let worker_count = mux.get_children_ids(pane_id).len();
-        let cwd = mux.get_pane(pane_id).and_then(|pane| pane.cwd.clone());
+        let worker_count = mux.get_children_ids(tab_id).len();
+        let cwd = mux.get_tab(tab_id).and_then(|tab| tab.cwd.clone());
         (worker_count, cwd)
     };
     let mut lines = Vec::new();
@@ -103,26 +103,26 @@ fn count_repo_worktrees(cwd: &str) -> Option<usize> {
     Some(linked_count + 1)
 }
 
-fn queue_pressure_lines(svc: &ServiceContext, plan: &Plan, pane_id: Option<&str>) -> Vec<String> {
+fn queue_pressure_lines(svc: &ServiceContext, plan: &Plan, tab_id: Option<&str>) -> Vec<String> {
     let cfg = load_config().orchestration.digests;
     let now_ms = now_epoch_ms();
     let stalled = count_stalled_lanes(plan, now_ms);
     let counters = plan_digest_counters(plan, now_ms, stalled);
     let fired = evaluate_digest_rules(&cfg, &counters);
-    let Some(pane_id) = pane_id.filter(|id| !id.trim().is_empty()) else {
+    let Some(tab_id) = tab_id.filter(|id| !id.trim().is_empty()) else {
         return fired.into_iter().map(|(_, line)| line).collect();
     };
     fired
         .into_iter()
         .filter_map(|(rule, line)| {
             if svc.plan_turn_counter.digest_rule_due(
-                pane_id,
+                tab_id,
                 &rule.id,
                 now_epoch_secs(),
                 rule.rate_limit_secs,
             ) {
                 svc.plan_turn_counter
-                    .mark_digest_rule_fired(pane_id, &rule.id, now_epoch_secs());
+                    .mark_digest_rule_fired(tab_id, &rule.id, now_epoch_secs());
                 Some(line)
             } else {
                 None

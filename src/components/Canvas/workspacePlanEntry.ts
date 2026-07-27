@@ -1,13 +1,13 @@
-import type { Pane, Workspace } from "../../lib/types";
-import { childPaneIdsInWorkspace, paneIdsInWorkspace } from "../Sidebar/workspaceTabs";
+import type { Tab, Workspace } from "../../lib/types";
+import { childTabIdsInWorkspace, tabIdsInWorkspace } from "../Sidebar/workspaceTabs";
 import type { PlanIndexEntry } from "./plansApi";
-import { assignedTaskIdsForPane } from "./planOpenFocus";
+import { assignedTaskIdsForTab } from "./planOpenFocus";
 import { canvasFocusStore, type CanvasWorkspaceTarget } from "./canvasFocusStore";
 import type { Plan } from "./types";
 
-export function workspacePaneIds(workspace: Workspace, panes: Record<string, Pane>): Set<string> {
-  const ids = paneIdsInWorkspace(workspace.tabs, panes);
-  for (const pid of childPaneIdsInWorkspace(workspace.tabs, panes)) ids.add(pid);
+export function workspaceTabIds(workspace: Workspace, tabs: Record<string, Tab>): Set<string> {
+  const ids = tabIdsInWorkspace(workspace.tabs, tabs);
+  for (const pid of childTabIdsInWorkspace(workspace.tabs, tabs)) ids.add(pid);
   return ids;
 }
 
@@ -16,7 +16,7 @@ export function workspacePaneIds(workspace: Workspace, panes: Record<string, Pan
 export function deriveWorkspacePlanEntries(
   index: PlanIndexEntry[],
   workspace: Workspace,
-  _panes: Record<string, Pane>,
+  _tabs: Record<string, Tab>,
 ): PlanIndexEntry[] {
   const canonical = new Map<string, PlanIndexEntry>();
   for (const entry of index) {
@@ -83,7 +83,7 @@ function hasWorkspacePlanContent(entry: PlanIndexEntry): boolean {
     || (entry.element_count ?? 0) > 0
     || (entry.loop_count ?? 0) > 0
     || entry.has_goal === true
-    || entry.assigned_pane_ids.length > 0;
+    || entry.assigned_tab_ids.length > 0;
 }
 
 export function workspacePlanEntryKind(_entries: PlanIndexEntry[]): string {
@@ -125,13 +125,13 @@ export function workspacePlanEntryExtraCount(entries: PlanIndexEntry[]): number 
   return Math.max(0, entries.length - 1);
 }
 
-export function resolvePanePlanFocusTarget(
+export function resolveTabPlanFocusTarget(
   entries: PlanIndexEntry[],
-  paneId: string,
+  tabId: string,
 ): CanvasWorkspaceTarget | null {
   if (entries.length === 0) return null;
   return {
-    focusPaneId: paneId,
+    focusTabId: tabId,
     planId: entries.length === 1 ? entries[0].plan_id : undefined,
   };
 }
@@ -144,15 +144,15 @@ export function openWorkspacePlanCanvas(target?: CanvasWorkspaceTarget): void {
 
 export interface TeamPlanCanvasTarget {
   teamId: string;
-  managerPaneId: string | null;
+  managerTabId: string | null;
   planId?: string;
 }
 
 export function openTeamPlanCanvas(target: TeamPlanCanvasTarget): void {
   openWorkspacePlanCanvas({
     teamId: target.teamId,
-    managerPaneId: target.managerPaneId,
-    focusPaneId: target.managerPaneId ?? undefined,
+    managerTabId: target.managerTabId,
+    focusTabId: target.managerTabId ?? undefined,
     planId: target.planId,
   });
 }
@@ -222,8 +222,8 @@ export function resolveWorkspaceFocusNodeIds(
 ): string[] {
   if (mode !== "workspace" || !target) return [];
   if (target.nodeIds?.length) return target.nodeIds;
-  if (target.focusPaneId) {
-    const taskIds = assignedTaskIdsForPane(plans, target.focusPaneId);
+  if (target.focusTabId) {
+    const taskIds = assignedTaskIdsForTab(plans, target.focusTabId);
     if (taskIds.length) return taskIds;
   }
   if (target.planId) return [target.planId];
@@ -232,19 +232,19 @@ export function resolveWorkspaceFocusNodeIds(
 
 export function canvasFitContextKey(
   mode: string,
-  focusPaneId: string | null | undefined,
+  focusTabId: string | null | undefined,
   workspaceTarget: CanvasWorkspaceTarget | null | undefined,
 ): string {
   const ws = workspaceTarget;
-  return `${mode}:${focusPaneId ?? ""}:${ws?.focusPaneId ?? ""}:${ws?.planId ?? ""}:${ws?.nodeIds?.join(",") ?? ""}`;
+  return `${mode}:${focusTabId ?? ""}:${ws?.focusTabId ?? ""}:${ws?.planId ?? ""}:${ws?.nodeIds?.join(",") ?? ""}`;
 }
 
-export function openPanePlanFocus(
+export function openTabPlanFocus(
   entries: PlanIndexEntry[],
-  paneId: string,
+  tabId: string,
   nodeIds?: string[],
 ): void {
-  const base = resolvePanePlanFocusTarget(entries, paneId);
+  const base = resolveTabPlanFocusTarget(entries, tabId);
   if (!base) return;
   openWorkspacePlanCanvas({
     ...base,

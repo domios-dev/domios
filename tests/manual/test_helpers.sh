@@ -11,10 +11,10 @@ export CT_TOKEN="${CODETERM_API_TOKEN:-$(grep 'token' "$USERPROFILE/.codeterm-de
 _ct() { curl -s "$CT_API$1" -H "Authorization: Bearer $CT_TOKEN" "${@:2}"; }
 _ct_json() { _ct "$1" -H "Content-Type: application/json" "${@:2}"; }
 
-# ── Pane helpers ─────────────────────────────────────────────
+# ── Tab helpers ─────────────────────────────────────────────
 
-ct_panes() {
-  _ct /api/panes | python -c "
+ct_tabs() {
+  _ct /api/tabs | python -c "
 import json,sys
 for p in json.load(sys.stdin):
     at = str(p.get('agent_type',''))
@@ -25,8 +25,8 @@ for p in json.load(sys.stdin):
 }
 
 ct_screen() {
-  local pane="${1:-$(ct_first_pane)}"
-  _ct "/api/panes/$pane/text" | python -c "
+  local tab="${1:-$(ct_first_tab)}"
+  _ct "/api/tabs/$tab/text" | python -c "
 import json,sys
 s=json.load(sys.stdin).get('text','')
 for i,l in enumerate(s.split(chr(10))):
@@ -34,32 +34,32 @@ for i,l in enumerate(s.split(chr(10))):
 " 2>/dev/null
 }
 
-ct_first_pane() {
-  _ct /api/panes | python -c "import json,sys; print(json.load(sys.stdin)[0]['id'])"
+ct_first_tab() {
+  _ct /api/tabs | python -c "import json,sys; print(json.load(sys.stdin)[0]['id'])"
 }
 
 ct_focus() {
-  local pane="${1:-$(ct_first_pane)}"
-  _ct_json "/api/panes/$pane/focus" -X POST > /dev/null
-  echo "Focused $pane"
+  local tab="${1:-$(ct_first_tab)}"
+  _ct_json "/api/tabs/$tab/focus" -X POST > /dev/null
+  echo "Focused $tab"
 }
 
 ct_send() {
-  local pane="$1"; shift
+  local tab="$1"; shift
   local text="$*"
-  _ct_json "/api/panes/$pane/send" -X POST -d "{\"text\":\"$text\",\"enter\":true}" > /dev/null
+  _ct_json "/api/tabs/$tab/send" -X POST -d "{\"text\":\"$text\",\"enter\":true}" > /dev/null
 }
 
 ct_send_raw() {
-  local pane="$1"; shift
+  local tab="$1"; shift
   local text="$*"
-  _ct_json "/api/panes/$pane/send" -X POST \
+  _ct_json "/api/tabs/$tab/send" -X POST \
     -d "{\"batch\":[{\"text\":\"$text\",\"enter\":false}]}" > /dev/null
 }
 
 ct_send_keys() {
-  # Send a sequence of keys with delays: ct_send_keys PANE "\x1b" 200 "/exit" 150 "\r"
-  local pane="$1"; shift
+  # Send a sequence of keys with delays: ct_send_keys TAB "\x1b" 200 "/exit" 150 "\r"
+  local tab="$1"; shift
   local batch="["
   local first=true
   while [ $# -gt 0 ]; do
@@ -69,16 +69,16 @@ ct_send_keys() {
     batch+="{\"text\":\"$text\",\"enter\":false,\"delay_ms\":$delay}"
   done
   batch+="]"
-  _ct_json "/api/panes/$pane/send" -X POST -d "{\"batch\":$batch}" > /dev/null
+  _ct_json "/api/tabs/$tab/send" -X POST -d "{\"batch\":$batch}" > /dev/null
 }
 
 # ── Agent helpers ────────────────────────────────────────────
 
 ct_agent() {
-  local pane="${1:-$(ct_first_pane)}"
-  _ct /api/panes | python -c "
+  local tab="${1:-$(ct_first_tab)}"
+  _ct /api/tabs | python -c "
 import json,sys
-p=next((x for x in json.load(sys.stdin) if x['id']=='$pane'),{})
+p=next((x for x in json.load(sys.stdin) if x['id']=='$tab'),{})
 at = p.get('agent_type','NONE')
 sid = p.get('agent_session_id','none')
 pp = 'yes' if p.get('pending_prompt') else 'no'
@@ -87,18 +87,18 @@ print(f'agent={at}  session={sid}  prompt={pp}')
 }
 
 ct_start_claude() {
-  local pane="${1:-$(ct_first_pane)}"
-  ct_focus "$pane"
+  local tab="${1:-$(ct_first_tab)}"
+  ct_focus "$tab"
   sleep 1
-  ct_send "$pane" "claude"
-  echo "Starting Claude in $pane..."
+  ct_send "$tab" "claude"
+  echo "Starting Claude in $tab..."
   # Poll for agent detection
   for i in $(seq 1 20); do
     sleep 3
-    local at=$(_ct /api/panes | python -c "import json,sys; p=next((x for x in json.load(sys.stdin) if x['id']=='$pane'),{}); print(p.get('agent_type','NONE'))" 2>/dev/null)
+    local at=$(_ct /api/tabs | python -c "import json,sys; p=next((x for x in json.load(sys.stdin) if x['id']=='$tab'),{}); print(p.get('agent_type','NONE'))" 2>/dev/null)
     if [ "$at" != "NONE" ]; then
       echo "✓ Agent detected: $at (${i}x3s)"
-      ct_agent "$pane"
+      ct_agent "$tab"
       return 0
     fi
   done
@@ -107,15 +107,15 @@ ct_start_claude() {
 }
 
 ct_hook() {
-  local pane="${1:-$(ct_first_pane)}"
+  local tab="${1:-$(ct_first_tab)}"
   local body="${2:-{}}"
-  _ct_json "/api/panes/$pane/hook/permission" -X POST -d "$body"
+  _ct_json "/api/tabs/$tab/hook/permission" -X POST -d "$body"
   echo ""
 }
 
 ct_hook_stop() {
-  local pane="${1:-$(ct_first_pane)}"
-  _ct_json "/api/panes/$pane/hook/stop" -X POST
+  local tab="${1:-$(ct_first_tab)}"
+  _ct_json "/api/tabs/$tab/hook/stop" -X POST
   echo ""
 }
 
@@ -132,8 +132,8 @@ for ws in json.load(sys.stdin):
 ct_new_tab() {
   local ws_id="${1:-$(_ct /api/workspaces | python -c "import json,sys; print(json.load(sys.stdin)[0]['id'])")}"
   local result=$(_ct_json "/api/workspaces/$ws_id/tabs" -X POST)
-  local pane_id=$(echo "$result" | python -c "import json,sys; print(json.load(sys.stdin)['pane_id'])")
-  echo "$pane_id"
+  local tab_id=$(echo "$result" | python -c "import json,sys; print(json.load(sys.stdin)['tab_id'])")
+  echo "$tab_id"
 }
 
 # ── Quick status ─────────────────────────────────────────────
@@ -142,8 +142,8 @@ ct_status() {
   echo "=== Workspaces ==="
   ct_workspaces
   echo ""
-  echo "=== Panes ==="
-  ct_panes
+  echo "=== Tabs ==="
+  ct_tabs
 }
 
 ct_health() {
@@ -168,4 +168,4 @@ ct_clear_logs() {
 }
 
 echo "CodeTerm test helpers loaded. API=$CT_API"
-echo "Commands: ct_status ct_panes ct_screen ct_agent ct_send ct_start_claude ct_hook ct_logs"
+echo "Commands: ct_status ct_tabs ct_screen ct_agent ct_send ct_start_claude ct_hook ct_logs"

@@ -5,7 +5,7 @@ use crate::plan::TaskCompetitionMetadata;
 use crate::service::{ServiceState, SpawnIdentityProvenance};
 
 use super::plan::{emit_plan_changed, plan_rpc_err};
-use super::plan_fields::pane_role;
+use super::plan_fields::tab_role;
 use super::plan_refs;
 use super::plan_role_helpers::record_spawned_attempt;
 use super::{get_string_param, JsonRpcError};
@@ -91,8 +91,8 @@ pub(super) fn compete(
             .get("models")
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default(),
-        parent_pane_id: body
-            .get("parent_pane_id")
+        parent_tab_id: body
+            .get("parent_tab_id")
             .and_then(|v| v.as_str())
             .map(str::to_string),
         workspace_id: body
@@ -112,12 +112,12 @@ pub(super) fn compete(
             title: draft.title.clone(),
             title_provenance: Some(SpawnIdentityProvenance::Suggested),
             role: Some("Worker".into()),
-            parent_pane_id: draft.parent_pane_id.clone(),
+            parent_tab_id: draft.parent_tab_id.clone(),
             task: Some(draft.task_prompt.clone()),
             workspace_id: draft.workspace_id.clone(),
             model: draft.model.clone(),
             planned_model: draft.planned_model.clone(),
-            spawned_by_pane_id: draft.parent_pane_id.clone(),
+            spawned_by_tab_id: draft.parent_tab_id.clone(),
             ..Default::default()
         };
         let spawn = svc
@@ -127,26 +127,26 @@ pub(super) fn compete(
                 message: e,
                 data: None,
             })?;
-        let created = record_spawned_attempt(svc, &spawn.pane_id, || {
+        let created = record_spawned_attempt(svc, &spawn.tab_id, || {
             store.record_task_compete_attempt(
                 &id,
                 &tid,
-                &spawn.pane_id,
+                &spawn.tab_id,
                 &draft,
-                pane_role(svc, &spawn.pane_id),
+                tab_role(svc, &spawn.tab_id),
                 now,
             )
         })?;
         let session_id = svc
             .mux
             .read()
-            .get_pane(&spawn.pane_id)
-            .and_then(|pane| pane.agent_session_id.clone());
+            .get_tab(&spawn.tab_id)
+            .and_then(|tab| tab.agent_session_id.clone());
         store
             .update_attempt_executor_identity(
                 &id,
                 &tid,
-                &spawn.pane_id,
+                &spawn.tab_id,
                 Some(&spawn.title),
                 session_id.as_deref(),
                 now,
@@ -183,7 +183,7 @@ mod tests {
         let mut plan = Plan::new(
             "competition".into(),
             dir.path().display().to_string(),
-            OrchestratorRef::from_pane("orch"),
+            OrchestratorRef::from_tab("orch"),
         );
         store.save(&mut plan, 1).unwrap();
         let task_id = store
@@ -211,7 +211,7 @@ mod tests {
                 &plan.id,
                 &task_id,
                 ReviewCapacityClass::Review,
-                AgentRef::from_pane("orch"),
+                AgentRef::from_tab("orch"),
                 4,
             )
             .unwrap();

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ProviderGlyph } from "../ProviderGlyph";
-import type { BootStage, Pane } from "../../lib/types";
-import type { PaneBootOverlayView } from "./bootOverlay";
+import type { BootStage, Tab } from "../../lib/types";
+import type { TabBootOverlayView } from "./bootOverlay";
 
 const STAGE_PROGRESS: Record<BootStage, number> = {
   pty_starting: 8,
@@ -18,11 +18,11 @@ const STAGE_PROGRESS: Record<BootStage, number> = {
   spawn_failed: 0,
 };
 
-export function chatSetupSubject(pane: Pane | null | undefined, providerName: string): string {
-  if (pane?.role === "Orchestrator") return "Orchestrator";
-  if (pane?.role === "Worker") return "Worker";
-  if (pane?.role === "Manager" && pane.role_profile === "planner") return "Planner";
-  if (pane?.role === "Manager") return "Manager";
+export function chatSetupSubject(tab: Tab | null | undefined, providerName: string): string {
+  if (tab?.role === "Orchestrator") return "Orchestrator";
+  if (tab?.role === "Worker") return "Worker";
+  if (tab?.role === "Manager" && tab.role_profile === "planner") return "Planner";
+  if (tab?.role === "Manager") return "Manager";
   return providerName;
 }
 
@@ -62,19 +62,19 @@ function unreachableBootStage(stage: never): never {
 }
 
 export function chatSetupView(
-  pane: Pane | null | undefined,
+  tab: Tab | null | undefined,
   chatSessionAttached = false,
-): PaneBootOverlayView {
+): TabBootOverlayView {
   if (chatSessionAttached) return { kind: "none" };
-  const stage = pane?.boot_stage;
+  const stage = tab?.boot_stage;
   if (stage === "spawn_failed") {
     return {
       kind: "failed",
-      reason: pane?.boot_failure_reason ?? null,
-      canRetry: pane?.agent_type != null || pane?.role != null || pane?.protected === true,
+      reason: tab?.boot_failure_reason ?? null,
+      canRetry: tab?.agent_type != null || tab?.role != null || tab?.protected === true,
     };
   }
-  if (pane?.agent_booting && !stage) return { kind: "starting", label: "Starting" };
+  if (tab?.agent_booting && !stage) return { kind: "starting", label: "Starting" };
   if (stage === "agent_ready" || stage === "pty_reattached" || !stage) return { kind: "none" };
   switch (stage) {
     case "pty_starting":
@@ -92,8 +92,8 @@ export function chatSetupView(
 }
 
 interface ChatSetupStateProps {
-  pane: Pane | null | undefined;
-  view: PaneBootOverlayView;
+  tab: Tab | null | undefined;
+  view: TabBootOverlayView;
   providerName: string;
   providerIconSvg?: string | null;
   providerIconColor?: string | null;
@@ -105,8 +105,8 @@ interface ChatSetupStateProps {
   onEscape?: () => void;
 }
 
-function projectFact(pane: Pane | null | undefined, projectName?: string | null): string {
-  const context = projectName || pane?.cwd;
+function projectFact(tab: Tab | null | undefined, projectName?: string | null): string {
+  const context = projectName || tab?.cwd;
   if (!context) return "workspace";
   const normalized = context.replace(/\\/g, "/").replace(/\/$/, "");
   return normalized.slice(normalized.lastIndexOf("/") + 1) || "workspace";
@@ -146,8 +146,8 @@ function LaunchGlyph({ providerName, iconSvg, iconColor, iconHint }: LaunchGlyph
   );
 }
 
-export function ChatSetupStatusLine({ pane, providerName }: { pane: Pane | null | undefined; providerName: string }) {
-  if (chatSetupView(pane).kind !== "starting") return null;
+export function ChatSetupStatusLine({ tab, providerName }: { tab: Tab | null | undefined; providerName: string }) {
+  if (chatSetupView(tab).kind !== "starting") return null;
   return (
     <div
       className="flex shrink-0 items-center border-t px-3 py-1.5 text-[11px]"
@@ -155,13 +155,13 @@ export function ChatSetupStatusLine({ pane, providerName }: { pane: Pane | null 
       style={{ borderColor: "var(--ct-border)", color: "var(--ct-muted-fg)" }}
       aria-live="polite"
     >
-      {chatSetupStageLabel(pane?.boot_stage, chatSetupSubject(pane, providerName))}
+      {chatSetupStageLabel(tab?.boot_stage, chatSetupSubject(tab, providerName))}
     </div>
   );
 }
 
 export function ChatSetupState({
-  pane,
+  tab,
   view,
   providerName,
   providerIconSvg,
@@ -180,7 +180,7 @@ export function ChatSetupState({
     view.kind === "none" ? "hidden" : "present",
   );
   const wasFailed = useRef(false);
-  const subject = chatSetupSubject(pane, providerName);
+  const subject = chatSetupSubject(tab, providerName);
   const isFailed = view.kind === "failed";
   const reducedMotion = useReducedMotion();
 
@@ -250,9 +250,9 @@ export function ChatSetupState({
 
   if (view.kind !== "starting" && transitionState !== "exiting") return null;
 
-  const progress = pane?.boot_stage ? STAGE_PROGRESS[pane.boot_stage] : STAGE_PROGRESS.pty_starting;
-  const project = projectFact(pane, projectName);
-  const facts = [providerName, pane?.agent_session_model, project].filter(Boolean).join(" · ");
+  const progress = tab?.boot_stage ? STAGE_PROGRESS[tab.boot_stage] : STAGE_PROGRESS.pty_starting;
+  const project = projectFact(tab, projectName);
+  const facts = [providerName, tab?.agent_session_model, project].filter(Boolean).join(" · ");
   const eyebrow = teamName?.trim() || `Project: ${project}`;
   return (
     <div ref={cardRef} className="chat-launch-overlay flex justify-center px-4 py-12" data-testid="chat-setup-state" data-transition-state={transitionState} onKeyDown={handleKeyDown} onTransitionEnd={handleTransitionEnd} style={cardStyle}>
@@ -265,7 +265,7 @@ export function ChatSetupState({
         <div className="mt-1 text-sm font-semibold" data-testid="chat-launch-role" style={{ color: "var(--ct-fg)" }}>{subject}</div>
         <div className="mt-1 font-mono text-[11px]" data-testid="chat-launch-facts" style={{ color: "var(--ct-muted-fg)" }}>{facts}</div>
         <div className="mt-4 min-h-5 text-xs" data-testid="chat-setup-stage" aria-live="polite" style={{ color: "var(--ct-fg)" }}>
-          {chatSetupStageLabel(pane?.boot_stage, subject)}
+          {chatSetupStageLabel(tab?.boot_stage, subject)}
         </div>
       </div>
     </div>

@@ -28,7 +28,7 @@ fn create_notification_with_delivery(
     level: Option<&str>,
     actions: Option<serde_json::Value>,
     sticky: Option<bool>,
-    pane_id: Option<String>,
+    tab_id: Option<String>,
     workspace_id: Option<String>,
     emit: impl FnOnce(serde_json::Value),
 ) -> String {
@@ -45,7 +45,7 @@ fn create_notification_with_delivery(
         title.clone(),
         body.clone(),
         parsed_level,
-        pane_id.clone(),
+        tab_id.clone(),
         workspace_id.clone(),
     );
 
@@ -54,7 +54,7 @@ fn create_notification_with_delivery(
         "title": title,
         "body": body,
         "level": level_str,
-        "pane_id": pane_id,
+        "tab_id": tab_id,
         "workspace_id": workspace_id,
     });
     if let Some(ref acts) = actions {
@@ -90,7 +90,7 @@ impl ServiceContext {
         level: Option<&str>,
         actions: Option<serde_json::Value>,
         sticky: Option<bool>,
-        pane_id: Option<String>,
+        tab_id: Option<String>,
         workspace_id: Option<String>,
     ) -> String {
         create_notification_with_delivery(
@@ -102,7 +102,7 @@ impl ServiceContext {
             level,
             actions,
             sticky,
-            pane_id,
+            tab_id,
             workspace_id,
             |payload| self.notify_event("notification-created", payload),
         )
@@ -110,18 +110,18 @@ impl ServiceContext {
 
     pub fn create_agent_input_request_notification(
         &self,
-        pane_id: String,
+        tab_id: String,
         session_id: String,
     ) -> Result<String, String> {
         let (title, body, workspace_id) = {
             let mux = self.mux.read();
-            let pane = mux
-                .get_pane(&pane_id)
+            let tab = mux
+                .get_tab(&tab_id)
                 .ok_or_else(|| "Tab not found".to_string())?;
-            if pane.agent_session_id.as_deref() != Some(session_id.as_str()) {
+            if tab.agent_session_id.as_deref() != Some(session_id.as_str()) {
                 return Err("Tab session is no longer authoritative".to_string());
             }
-            let state = pane
+            let state = tab
                 .agent_state
                 .as_ref()
                 .ok_or_else(|| "Tab is not waiting for input".to_string())?;
@@ -133,7 +133,7 @@ impl ServiceContext {
             {
                 return Err("Tab is not waiting for user input".to_string());
             }
-            let body = pane
+            let body = tab
                 .pending_prompt
                 .as_ref()
                 .map(|prompt| prompt.question.trim())
@@ -148,10 +148,10 @@ impl ServiceContext {
                 .ok_or_else(|| "Complete input request is not available".to_string())?
                 .to_string();
             let workspace_id = mux
-                .find_workspace_for_pane(&pane_id)
+                .find_workspace_for_tab(&tab_id)
                 .ok_or_else(|| "Owning workspace not found".to_string())?;
             (
-                format!("Input needed in Tab {}", pane.title),
+                format!("Input needed in Tab {}", tab.title),
                 body,
                 workspace_id,
             )
@@ -166,7 +166,7 @@ impl ServiceContext {
             Some("warning"),
             None,
             None,
-            Some(pane_id),
+            Some(tab_id),
             Some(workspace_id),
             |payload| self.notify_event("notification-created", payload),
         ))
@@ -201,7 +201,7 @@ mod tests {
             Some("warning"),
             None,
             None,
-            Some("pane-owned".into()),
+            Some("tab-owned".into()),
             Some("workspace-owned".into()),
             |payload| emitted.lock().push(payload),
         );
@@ -210,7 +210,7 @@ mod tests {
         assert_eq!(notifications.list(false).len(), 1);
         let notification = notifications.list(false)[0];
         assert_eq!(notification.id, id);
-        assert_eq!(notification.pane_id.as_deref(), Some("pane-owned"));
+        assert_eq!(notification.tab_id.as_deref(), Some("tab-owned"));
         assert_eq!(
             notification.workspace_id.as_deref(),
             Some("workspace-owned")
@@ -224,14 +224,14 @@ mod tests {
         let events = emitted.lock();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0]["id"], id);
-        assert_eq!(events[0]["pane_id"], "pane-owned");
+        assert_eq!(events[0]["tab_id"], "tab-owned");
         assert_eq!(events[0]["workspace_id"], "workspace-owned");
         assert_eq!(
             events[0]["body"],
             "Which deployment region should I use?\nInclude the failover region."
         );
         assert!(
-            !events[0]["title"].as_str().unwrap().contains("Pane"),
+            !events[0]["title"].as_str().unwrap().contains("Tab"),
             "user-visible notification copy uses Tab wording"
         );
     }
@@ -256,7 +256,7 @@ mod tests {
             "service/orchestrator/batch.rs",
             "api/notification_routes.rs",
             "service/output.rs",
-            "service/pane.rs",
+            "service/tab.rs",
             "service/spawn_chatbackend.rs",
             "socket/server/notification.rs",
         ];

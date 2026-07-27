@@ -12,11 +12,11 @@ fn cleanup(db: &std::path::Path) {
     std::fs::remove_dir_all(db.parent().unwrap()).ok();
 }
 
-fn event(kind: KpiEventKind, plan_id: Option<&str>, pane_id: &str, bytes: u64) -> KpiEventInput {
+fn event(kind: KpiEventKind, plan_id: Option<&str>, tab_id: &str, bytes: u64) -> KpiEventInput {
     KpiEventInput {
         plan_id: plan_id.map(String::from),
         task_id: Some("task_1".into()),
-        pane_id: pane_id.into(),
+        tab_id: tab_id.into(),
         role: Some("worker".into()),
         provider: "claude".into(),
         model: Some("claude-opus-4-8".into()),
@@ -47,10 +47,10 @@ fn insert_and_list_round_trip_carries_schema_version() {
     let ledger = KpiLedger::open_at(&db).unwrap();
 
     ledger
-        .insert(&event(KpiEventKind::Send, Some("pl_1"), "pane-a", 128))
+        .insert(&event(KpiEventKind::Send, Some("pl_1"), "tab-a", 128))
         .unwrap();
     ledger
-        .insert(&event(KpiEventKind::Report, Some("pl_1"), "pane-b", 512))
+        .insert(&event(KpiEventKind::Report, Some("pl_1"), "tab-b", 512))
         .unwrap();
 
     let all = ledger.list_all().unwrap();
@@ -63,7 +63,7 @@ fn insert_and_list_round_trip_carries_schema_version() {
     }
     assert_eq!(all[0].kind, KpiEventKind::Send);
     assert_eq!(all[0].bytes, 128);
-    assert_eq!(all[0].pane_id, "pane-a");
+    assert_eq!(all[0].tab_id, "tab-a");
     assert_eq!(all[1].kind, KpiEventKind::Report);
     assert_eq!(all[1].bytes, 512);
 
@@ -76,22 +76,22 @@ fn list_for_plan_scopes_and_excludes_unattributed() {
     let ledger = KpiLedger::open_at(&db).unwrap();
 
     ledger
-        .insert(&event(KpiEventKind::Send, Some("pl_1"), "pane-a", 10))
+        .insert(&event(KpiEventKind::Send, Some("pl_1"), "tab-a", 10))
         .unwrap();
     ledger
-        .insert(&event(KpiEventKind::Send, Some("pl_2"), "pane-b", 20))
+        .insert(&event(KpiEventKind::Send, Some("pl_2"), "tab-b", 20))
         .unwrap();
     ledger
-        .insert(&event(KpiEventKind::Send, None, "pane-c", 30))
+        .insert(&event(KpiEventKind::Send, None, "tab-c", 30))
         .unwrap();
 
     let pl1 = ledger.list_for_plan("pl_1").unwrap();
     assert_eq!(pl1.len(), 1);
-    assert_eq!(pl1[0].pane_id, "pane-a");
+    assert_eq!(pl1[0].tab_id, "tab-a");
 
     let pl2 = ledger.list_for_plan("pl_2").unwrap();
     assert_eq!(pl2.len(), 1);
-    assert_eq!(pl2[0].pane_id, "pane-b");
+    assert_eq!(pl2[0].tab_id, "tab-b");
 
     assert_eq!(ledger.list_for_plan("nobody").unwrap().len(), 0);
     assert_eq!(
@@ -113,14 +113,14 @@ fn retried_events_with_the_same_dedup_key_collapse_to_one_row() {
 
     let retried = KpiEventInput {
         dedup_key: Some("task_1:0:accept".into()),
-        ..event(KpiEventKind::Accept, Some("pl_1"), "pane-a", 10)
+        ..event(KpiEventKind::Accept, Some("pl_1"), "tab-a", 10)
     };
     ledger.insert(&retried).unwrap();
     ledger.insert(&retried).unwrap(); // simulated RPC retry — same round, same verdict
 
     let distinct = KpiEventInput {
         dedup_key: Some("task_2:0:bounce".into()),
-        ..event(KpiEventKind::Bounce, Some("pl_1"), "pane-a", 20)
+        ..event(KpiEventKind::Bounce, Some("pl_1"), "tab-a", 20)
     };
     ledger.insert(&distinct).unwrap();
 
@@ -144,7 +144,7 @@ fn events_without_a_dedup_key_never_collide_with_each_other() {
 
     for _ in 0..3 {
         ledger
-            .insert(&event(KpiEventKind::Send, Some("pl_1"), "pane-a", 5))
+            .insert(&event(KpiEventKind::Send, Some("pl_1"), "tab-a", 5))
             .unwrap();
     }
 
@@ -163,7 +163,7 @@ fn rows_survive_drop_and_reopen() {
     {
         let ledger = KpiLedger::open_at(&db).unwrap();
         ledger
-            .insert(&event(KpiEventKind::Spawn, Some("pl_1"), "pane-a", 64))
+            .insert(&event(KpiEventKind::Spawn, Some("pl_1"), "tab-a", 64))
             .unwrap();
     } // Connection dropped — simulates daemon restart.
 
@@ -188,7 +188,7 @@ fn usage_cursor_round_trips_through_insert_usage_batch() {
 
     ledger
         .insert_usage_batch(
-            &[event(KpiEventKind::TokenUsage, Some("pl_1"), "pane-a", 10)],
+            &[event(KpiEventKind::TokenUsage, Some("pl_1"), "tab-a", 10)],
             "/sessions/a.jsonl",
             4_096,
         )
@@ -220,8 +220,8 @@ fn v1_ledger_migrates_to_v2_keeping_existing_rows() {
         let conn = Connection::open(&db).unwrap();
         KpiLedger::create_v1_schema(&conn).unwrap();
         conn.execute(
-            "INSERT INTO kpi_events (schema_version, plan_id, pane_id, provider, ts, kind, bytes)
-             VALUES (1, 'pl_1', 'pane-a', 'claude', 1700000000, 'send', 42)",
+            "INSERT INTO kpi_events (schema_version, plan_id, tab_id, provider, ts, kind, bytes)
+             VALUES (1, 'pl_1', 'tab-a', 'claude', 1700000000, 'send', 42)",
             [],
         )
         .unwrap();
@@ -248,7 +248,7 @@ fn v1_ledger_migrates_to_v2_keeping_existing_rows() {
                 uncached_input: 250,
                 output: 40,
             }),
-            ..event(KpiEventKind::TokenUsage, Some("pl_1"), "pane-a", 1040)
+            ..event(KpiEventKind::TokenUsage, Some("pl_1"), "tab-a", 1040)
         })
         .unwrap();
     let rows = ledger.list_all().unwrap();
@@ -284,11 +284,11 @@ fn aggregate_by_kind_counts_totals_and_percentiles() {
 
     for bytes in [10, 20, 30, 40, 50] {
         ledger
-            .insert(&event(KpiEventKind::Send, Some("pl_1"), "pane-a", bytes))
+            .insert(&event(KpiEventKind::Send, Some("pl_1"), "tab-a", bytes))
             .unwrap();
     }
     ledger
-        .insert(&event(KpiEventKind::Report, Some("pl_1"), "pane-b", 999))
+        .insert(&event(KpiEventKind::Report, Some("pl_1"), "tab-b", 999))
         .unwrap();
 
     let agg = ledger.aggregate_by_kind(None).unwrap();
@@ -319,10 +319,10 @@ fn aggregate_by_kind_scopes_to_plan() {
     let ledger = KpiLedger::open_at(&db).unwrap();
 
     ledger
-        .insert(&event(KpiEventKind::Send, Some("pl_1"), "pane-a", 100))
+        .insert(&event(KpiEventKind::Send, Some("pl_1"), "tab-a", 100))
         .unwrap();
     ledger
-        .insert(&event(KpiEventKind::Send, Some("pl_2"), "pane-b", 200))
+        .insert(&event(KpiEventKind::Send, Some("pl_2"), "tab-b", 200))
         .unwrap();
 
     let pl1_agg = ledger.aggregate_by_kind(Some("pl_1")).unwrap();
@@ -338,13 +338,13 @@ fn aggregate_by_plan_rolls_up_unattributed_to_none() {
     let ledger = KpiLedger::open_at(&db).unwrap();
 
     ledger
-        .insert(&event(KpiEventKind::Send, Some("pl_1"), "pane-a", 10))
+        .insert(&event(KpiEventKind::Send, Some("pl_1"), "tab-a", 10))
         .unwrap();
     ledger
-        .insert(&event(KpiEventKind::Send, Some("pl_1"), "pane-b", 20))
+        .insert(&event(KpiEventKind::Send, Some("pl_1"), "tab-b", 20))
         .unwrap();
     ledger
-        .insert(&event(KpiEventKind::Send, None, "pane-c", 5))
+        .insert(&event(KpiEventKind::Send, None, "tab-c", 5))
         .unwrap();
 
     let agg = ledger.aggregate_by_plan().unwrap();
@@ -394,13 +394,13 @@ fn thousand_mixed_synthetic_events_round_trip_and_aggregate() {
         } else {
             Some(format!("pl_{}", i % 5))
         };
-        let pane_id = format!("pane-{}", i % 20);
+        let tab_id = format!("tab-{}", i % 20);
 
         ledger
             .insert(&KpiEventInput {
                 plan_id: plan_id.clone(),
                 task_id: Some(format!("task_{}", i % 7)),
-                pane_id,
+                tab_id,
                 role: Some("worker".into()),
                 provider: "claude".into(),
                 model: Some("claude-opus-4-8".into()),

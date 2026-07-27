@@ -51,7 +51,7 @@ impl CronStore {
             cwd: params.cwd,
             role: params.role,
             skill: params.skill,
-            creator_pane_id: params.creator_pane_id,
+            creator_tab_id: params.creator_tab_id,
             oneshot,
             max_history: params.max_history.unwrap_or(default_max_history()),
             created_at: now_ms,
@@ -367,7 +367,7 @@ impl CronStore {
 
     /// Locate a run by id across all jobs' history, without knowing its job_id
     /// up front — used to distinguish "no such run" from "run already
-    /// finalized" when its pane ownership has already been unregistered.
+    /// finalized" when its tab ownership has already been unregistered.
     pub fn find_run_by_id(&self, run_id: &str) -> Option<(&str, &CronRunInfo)> {
         self.file.history.iter().find_map(|(job_id, runs)| {
             runs.iter()

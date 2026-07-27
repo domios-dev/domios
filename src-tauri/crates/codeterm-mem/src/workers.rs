@@ -84,7 +84,7 @@ pub fn is_dreaming_intent(intent: &str) -> bool {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GraphWorkerInfo {
     pub worker_id: String,
-    pub pane_id: String,
+    pub tab_id: String,
     pub intent: String,
     pub spawned_by: String,
     pub spawned_at: u64,
@@ -100,7 +100,7 @@ pub struct GraphWorkerInfo {
     pub agent_provider: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
-    // session_id + cwd captured before the hidden pane closes so the read-only chat-ui can resolve and render this run's jsonl after the fact.
+    // session_id + cwd captured before the hidden tab closes so the read-only chat-ui can resolve and render this run's jsonl after the fact.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -261,10 +261,10 @@ impl GraphWorkerRegistry {
         self.persist();
     }
 
-    pub fn set_pane_id(&self, worker_id: &str, pane_id: String) {
+    pub fn set_tab_id(&self, worker_id: &str, tab_id: String) {
         let mut map = self.inner.write();
         if let Some(w) = map.get_mut(worker_id) {
-            w.pane_id = pane_id;
+            w.tab_id = tab_id;
         }
         drop(map);
         self.persist();
@@ -342,14 +342,14 @@ pub fn save_worker_log(worker_id: &str, output: &str) -> Result<PathBuf, String>
 
 pub fn make_info(
     worker_id: String,
-    pane_id: String,
+    tab_id: String,
     intent: String,
     spawned_by: String,
     color: String,
 ) -> GraphWorkerInfo {
     GraphWorkerInfo {
         worker_id,
-        pane_id,
+        tab_id,
         intent,
         spawned_by,
         spawned_at: now_ms(),
@@ -379,7 +379,7 @@ mod tests {
     fn fresh_info(id: &str) -> GraphWorkerInfo {
         make_info(
             id.into(),
-            "pane1".into(),
+            "tab1".into(),
             "test intent".into(),
             "user:test".into(),
             "hsl(0,0%,0%)".into(),

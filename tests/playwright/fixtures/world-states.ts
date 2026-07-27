@@ -9,7 +9,7 @@ export const WORLD_STATE_PROFILE_KEY = CARD_METADATA_PROFILE_KEY;
 
 export const worldStates = {
   planWithKnownTasks: "plan-with-known-tasks",
-  paneTreeWithStatuses: "pane-tree-with-statuses",
+  tabTreeWithStatuses: "tab-tree-with-statuses",
   midStreamChatTranscript: "mid-stream-chat-transcript",
   doneHeavy: "done-heavy",
 } as const;

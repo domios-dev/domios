@@ -1,4 +1,4 @@
-import type { Tab, Pane } from "../../lib/types";
+import type { Tab, Tab } from "../../lib/types";
 import { flattenSidebarTabs } from "./workspaceTabs";
 
 export type CycleItem =
@@ -9,12 +9,12 @@ export type CycleItem =
  *  Plan entry (if present) is pinned first, matching its sidebar position. */
 export function buildSidebarCycleItems(
   tabs: Tab[],
-  panes: Record<string, Pane>,
+  tabs: Record<string, Tab>,
   hasPlanEntry: boolean,
 ): CycleItem[] {
   const items: CycleItem[] = [];
   if (hasPlanEntry) items.push({ kind: "plan" });
-  for (const tab of flattenSidebarTabs(tabs, panes)) {
+  for (const tab of flattenSidebarTabs(tabs, tabs)) {
     items.push({ kind: "tab", tabId: tab.id });
   }
   return items;

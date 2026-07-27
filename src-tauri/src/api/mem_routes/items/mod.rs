@@ -345,8 +345,8 @@ pub async fn mem_wake_up(
     Query(p): Query<WakeUpParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let caller_workspace = crate::api::pane_routes::caller_pane_header(&headers)
-        .and_then(|pane_id| state.svc.mux.read().find_workspace_for_pane(&pane_id));
+    let caller_workspace = crate::api::tab_routes::caller_tab_header(&headers)
+        .and_then(|tab_id| state.svc.mux.read().find_workspace_for_tab(&tab_id));
     let opts = wake_up_options_from_params(&p, caller_workspace);
     let text = state
         .svc
@@ -486,7 +486,7 @@ pub async fn mem_promote(
 
 #[derive(Deserialize)]
 pub struct FlushBody {
-    pub pane: String,
+    pub tab: String,
     #[serde(default)]
     pub title: Option<String>,
 }
@@ -499,8 +499,8 @@ pub async fn mem_flush(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let pty_id = {
         let mux = state.svc.mux.write();
-        mux.resolve_pane_id(&b.pane)
-            .ok_or((StatusCode::NOT_FOUND, format!("Tab not found: {}", b.pane)))?
+        mux.resolve_tab_id(&b.tab)
+            .ok_or((StatusCode::NOT_FOUND, format!("Tab not found: {}", b.tab)))?
     };
     let pty_id_for_buffer = state
         .svc
@@ -510,9 +510,9 @@ pub async fn mem_flush(
         let buf = state.svc.output_buf.lock();
         buf.get_full_text(&pty_id_for_buffer).unwrap_or_default()
     };
-    let id = learnings::flush_pane(
+    let id = learnings::flush_tab(
         &state.svc.mem,
-        &b.pane,
+        &b.tab,
         b.title.as_deref().unwrap_or(""),
         body,
     )

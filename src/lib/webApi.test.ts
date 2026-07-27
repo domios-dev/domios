@@ -55,12 +55,12 @@ async function run() {
     });
   };
 
-  const stalePaneRequest = webFetch("/api/panes/blackstar-pane/chat-raw/start", { method: "POST" });
+  const staleTabRequest = webFetch("/api/tabs/blackstar-tab/chat-raw/start", { method: "POST" });
   invalidateWebRequestContext();
   assert((requestSignal as AbortSignal | null)?.aborted, "peer switch aborts the old Tab request");
   try {
-    await stalePaneRequest;
-    assert(false, "aborted old-pane request must reject");
+    await staleTabRequest;
+    assert(false, "aborted old-tab request must reject");
   } catch (error) {
     assert(error instanceof DOMException && error.name === "AbortError", "old request rejects as AbortError");
   }
@@ -68,9 +68,9 @@ async function run() {
   const { loadCachedStateSync, saveStateSnapshot } = await import("./stateCache");
   const state = (id: string) => ({
     workspaces: [{ id, name: id, tabs: [], active_tab_id: null, cwd: null }],
-    panes: {},
+    tabs: {},
     active_workspace_id: id,
-    focused_pane_id: null,
+    focused_tab_id: null,
   });
   clearRelayTarget();
   saveStateSnapshot(state("blackstar"));

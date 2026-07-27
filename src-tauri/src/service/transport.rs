@@ -1,16 +1,16 @@
 //! `AgentTransport` — the runtime half of a provider behind one seam, plus the
 //! atomic spawn entry the frontend calls. Both impls wrap existing substrates
 //! ([`PtyTransport`] → backend-owned PTY launch; [`ChatTransport`] →
-//! `chatbackend_launch_async`). [`ServiceContext::spawn_pane_atomic`] builds the
-//! pane and kicks launch async, returning a snapshot the client applies once.
+//! `chatbackend_launch_async`). [`ServiceContext::spawn_tab_atomic`] builds the
+//! tab and kicks launch async, returning a snapshot the client applies once.
 
 use serde::{Deserialize, Serialize};
 
-use super::spawn::{should_default_agent_pane_to_chat, PaneVisibility};
+use super::spawn::{should_default_agent_tab_to_chat, TabVisibility};
 use super::ServiceContext;
 use crate::agent::provider::{AgentLaunchParams, ProviderTransport};
 use crate::multiplexer::state::MultiplexerSnapshot;
-use crate::multiplexer::types::PaneBacking;
+use crate::multiplexer::types::TabBacking;
 
 /// Frontend-facing params for the one atomic spawn command.
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -40,7 +40,7 @@ fn default_true() -> bool {
 #[derive(Debug, Clone, Serialize)]
 pub struct AtomicSpawn {
     pub snapshot: MultiplexerSnapshot,
-    pub pane_id: String,
+    pub tab_id: String,
     pub tab_id: String,
     pub workspace_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -52,7 +52,7 @@ pub struct AtomicSpawn {
 /// Per-spawn context handed to a transport's `launch`.
 pub struct TransportLaunchCtx<'a> {
     pub provider_id: &'a str,
-    pub pane_id: &'a str,
+    pub tab_id: &'a str,
     pub tab_id: &'a str,
     pub workspace_id: &'a str,
     pub skip_permissions: bool,
@@ -60,7 +60,7 @@ pub struct TransportLaunchCtx<'a> {
     pub model: Option<&'a str>,
 }
 
-/// The runtime half of a provider. `launch` never blocks pane visibility: it
+/// The runtime half of a provider. `launch` never blocks tab visibility: it
 /// kicks its work onto a backend task and returns `None`.
 pub trait AgentTransport {
     fn launch(
@@ -102,8 +102,8 @@ impl AgentTransport for PtyTransport {
             ctx.model.map(str::to_string),
             None,
         );
-        if let Some(pane) = svc.mux.write().get_pane_mut(ctx.pane_id) {
-            crate::service::spawn::persist_model_launch_identity(pane, None, &model_resolution);
+        if let Some(tab) = svc.mux.write().get_tab_mut(ctx.tab_id) {
+            crate::service::spawn::persist_model_launch_identity(tab, None, &model_resolution);
         }
         let model_args = model_resolution
             .model
@@ -116,13 +116,13 @@ impl AgentTransport for PtyTransport {
         let cwd = svc
             .mux
             .read()
-            .get_pane(ctx.pane_id)
+            .get_tab(ctx.tab_id)
             .and_then(|p| p.cwd.clone())
             .unwrap_or_default();
         let structured_prompt_server = crate::service::structured_prompt::ensure_for_spawn(
             svc,
             ctx.provider_id,
-            ctx.pane_id,
+            ctx.tab_id,
             &cwd,
         );
         let params = AgentLaunchParams {
@@ -143,7 +143,7 @@ impl AgentTransport for PtyTransport {
         Ok(backend_owned_pty_launch(launch_command, |launch_command| {
             crate::service::orchestrator::launch_agent_in_background(
                 svc.clone(),
-                ctx.pane_id.to_string(),
+                ctx.tab_id.to_string(),
                 ctx.tab_id.to_string(),
                 ctx.workspace_id.to_string(),
                 launch_command,
@@ -171,21 +171,21 @@ impl AgentTransport for ChatTransport {
             obj.entry("model")
                 .or_insert_with(|| serde_json::Value::String(model.to_string()));
         }
-        // Stamp the connecting backing synchronously so the pane renders as chat at once, not briefly as a terminal with a stray PTY.
+        // Stamp the connecting backing synchronously so the tab renders as chat at once, not briefly as a terminal with a stray PTY.
         {
             let mut mux = svc.mux.write();
-            if let Some(pane) = mux.get_pane_mut(ctx.pane_id) {
-                pane.backing = PaneBacking::ChatBackend {
+            if let Some(tab) = mux.get_tab_mut(ctx.tab_id) {
+                tab.backing = TabBacking::ChatBackend {
                     plugin_id: ctx.provider_id.to_string(),
                     session_id: String::new(),
                 };
-                pane.chat_view = true;
+                tab.chat_view = true;
             }
         }
         let history_meta = config.clone();
         svc.chatbackend_launch_async(
             ctx.provider_id.to_string(),
-            ctx.pane_id.to_string(),
+            ctx.tab_id.to_string(),
             ctx.tab_id.to_string(),
             ctx.workspace_id.to_string(),
             config,
@@ -196,8 +196,8 @@ impl AgentTransport for ChatTransport {
 }
 
 impl ServiceContext {
-    /// The atomic spawn entry: pick the transport, build the pane synchronously, kick launch async, return the snapshot.
-    pub fn spawn_pane_atomic(&self, params: AtomicSpawnParams) -> Result<AtomicSpawn, String> {
+    /// The atomic spawn entry: pick the transport, build the tab synchronously, kick launch async, return the snapshot.
+    pub fn spawn_tab_atomic(&self, params: AtomicSpawnParams) -> Result<AtomicSpawn, String> {
         let provider = if params.agent_id.trim().is_empty() {
             crate::config::default_agent_provider()
         } else {
@@ -212,12 +212,12 @@ impl ServiceContext {
                         provider
                     ));
                 }
-                self.spawn_pane_atomic_with(&provider, &params, &ChatTransport, true, None)
+                self.spawn_tab_atomic_with(&provider, &params, &ChatTransport, true, None)
             }
             Some(ProviderTransport::Pty) => {
                 self.require_agent_provider_ready(&provider)?;
                 let chat_view = self.default_agent_chat_view(&provider);
-                self.spawn_pane_atomic_with(
+                self.spawn_tab_atomic_with(
                     &provider,
                     &params,
                     &PtyTransport,
@@ -229,7 +229,7 @@ impl ServiceContext {
                 // Unknown id → honest readiness error (never a guess).
                 self.require_agent_provider_ready(&provider)?;
                 let chat_view = self.default_agent_chat_view(&provider);
-                self.spawn_pane_atomic_with(
+                self.spawn_tab_atomic_with(
                     &provider,
                     &params,
                     &PtyTransport,
@@ -241,8 +241,8 @@ impl ServiceContext {
     }
 
     fn default_agent_chat_view(&self, provider: &str) -> bool {
-        should_default_agent_pane_to_chat(
-            PaneVisibility::Visible,
+        should_default_agent_tab_to_chat(
+            TabVisibility::Visible,
             self.agent_registry
                 .with_provider(provider, |p| p.supports_chat_ui())
                 .unwrap_or(false),
@@ -250,8 +250,8 @@ impl ServiceContext {
     }
 
     /// Create + cwd + chat_view + activate + focus, then launch. `agent_type` is set
-    /// only for PTY providers; chat panes carry identity in their `backing`.
-    fn spawn_pane_atomic_with(
+    /// only for PTY providers; chat tabs carry identity in their `backing`.
+    fn spawn_tab_atomic_with(
         &self,
         provider: &str,
         params: &AtomicSpawnParams,
@@ -262,32 +262,32 @@ impl ServiceContext {
         let (ws_id, ws_cwd) = self.resolve_spawn_workspace(params.workspace_id.clone())?;
         let (resolved_cwd, warning) = Self::resolve_agent_cwd(&params.cwd, &ws_cwd);
 
-        let (tab_id, pane_id) = {
+        let (tab_id, tab_id) = {
             let mut mux = self.mux.write();
-            let (tab_id, pane_id) = mux.create_tab(&ws_id)?;
-            if let Some(pane) = mux.get_pane_mut(&pane_id) {
+            let (tab_id, tab_id) = mux.create_tab(&ws_id)?;
+            if let Some(tab) = mux.get_tab_mut(&tab_id) {
                 if let Some(ref dir) = resolved_cwd {
-                    pane.cwd = Some(dir.clone());
+                    tab.cwd = Some(dir.clone());
                 }
-                pane.agent_requested_model = params
+                tab.agent_requested_model = params
                     .model
                     .as_deref()
                     .map(str::trim)
                     .filter(|m| !m.is_empty())
                     .map(str::to_string);
                 if chat_view {
-                    pane.chat_view = true;
+                    tab.chat_view = true;
                 }
             }
             let _ = mux.set_active_workspace(&ws_id);
             let _ = mux.set_active_tab(&ws_id, &tab_id);
-            (tab_id, pane_id)
+            (tab_id, tab_id)
         };
 
         if let Some(at) = agent_type {
-            self.set_pane_agent_type(&pane_id, Some(at.to_string()));
+            self.set_tab_agent_type(&tab_id, Some(at.to_string()));
         }
-        let _ = self.focus_pane(&pane_id);
+        let _ = self.focus_tab(&tab_id);
 
         // The tab is already created/activated/focused; roll it back on launch failure so the user isn't left on a blank tab.
         let launch_command = finish_launch(
@@ -295,7 +295,7 @@ impl ServiceContext {
                 self,
                 &TransportLaunchCtx {
                     provider_id: provider,
-                    pane_id: &pane_id,
+                    tab_id: &tab_id,
                     tab_id: &tab_id,
                     workspace_id: &ws_id,
                     skip_permissions: params.skip_permissions,
@@ -306,7 +306,7 @@ impl ServiceContext {
             || {
                 self.mux
                     .write()
-                    .rollback_spawn_tab(&ws_id, &tab_id, &pane_id);
+                    .rollback_spawn_tab(&ws_id, &tab_id, &tab_id);
                 self.emit_state_changed();
             },
         )?;
@@ -316,7 +316,7 @@ impl ServiceContext {
 
         Ok(AtomicSpawn {
             snapshot,
-            pane_id,
+            tab_id,
             tab_id,
             workspace_id: ws_id,
             launch_command,

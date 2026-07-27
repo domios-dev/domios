@@ -69,11 +69,11 @@ export function SecretsTab({
       muxState.workspaces[0];
     if (!ws) return;
     try {
-      const tabInfo = await invoke<{ id: string; title: string; pane_id: string }>(
+      const tabInfo = await invoke<{ id: string; title: string; tab_id: string }>(
         "mux_create_tab",
         { workspaceId: ws.id, activate: true },
       );
-      setPendingCommand(tabInfo.pane_id, cmd);
+      setPendingCommand(tabInfo.tab_id, cmd);
       await invoke("mux_set_active_workspace", { workspaceId: ws.id });
       await invoke("mux_set_active_tab", { workspaceId: ws.id, tabId: tabInfo.id });
       // Tell the host UI to switch back to the workspace view (away from Settings) so the user sees the install running.
@@ -376,7 +376,7 @@ export function SecretsTab({
   const sectionLabelClass = UI_TEXT.sectionTitle;
 
   return (
-    <div className="flex flex-col gap-5" data-testid="settings-secrets-pane">
+    <div className="flex flex-col gap-5" data-testid="settings-secrets-tab">
       <SettingsCard
         icon={<KeyRound size={16} />}
         title="Secret store"
@@ -544,7 +544,7 @@ export function SecretsTab({
         <SettingsCard icon={<LogIn size={16} />} title="Sign in to Bitwarden">
           <div className="flex gap-1 text-[11px]">
             <button
-              data-testid="settings-secrets-login-password-pane"
+              data-testid="settings-secrets-login-password-tab"
               onClick={() => setActiveTab("password")}
               className={`${UI_BUTTON.compact} border ${
                 activeTab === "password" ? UI_BUTTON.primary : UI_BUTTON.ghost
@@ -553,7 +553,7 @@ export function SecretsTab({
               Password
             </button>
             <button
-              data-testid="settings-secrets-login-apikey-pane"
+              data-testid="settings-secrets-login-apikey-tab"
               onClick={() => setActiveTab("apikey")}
               className={`${UI_BUTTON.compact} border ${
                 activeTab === "apikey" ? UI_BUTTON.primary : UI_BUTTON.ghost
@@ -756,7 +756,7 @@ export function SecretsTab({
               <div className="text-[11px] text-[var(--ct-muted-fg)]">
                 No secrets saved yet. Use{" "}
                 <code className="font-mono text-[var(--ct-fg)]">codeterm mem secret save --name X</code>{" "}
-                from any pane.
+                from any tab.
               </div>
             ) : (
               <div className="space-y-1">

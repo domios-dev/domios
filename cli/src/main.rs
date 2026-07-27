@@ -10,8 +10,8 @@ use client::{discover_socket, SocketClient};
 
 pub use mesh_cli::{MeshAction, MeshPeerAction};
 
-pub fn resolve_pane(client: &mut SocketClient, id: Option<String>) -> String {
-    cmd::local_io::resolve_pane(client, id)
+pub fn resolve_tab(client: &mut SocketClient, id: Option<String>) -> String {
+    cmd::local_io::resolve_tab(client, id)
 }
 
 /// Determine the CodeTerm data directory.
@@ -19,7 +19,7 @@ pub fn resolve_pane(client: &mut SocketClient, id: Option<String>) -> String {
 /// Detection priority:
 ///   1. CODETERM_SOCKET_PATH containing "codeterm-dev" (set by dev PTYs)
 ///   2. CODETERM_API_PORT == 7686 (dev's port — useful when calling CLI from
-///      outside a dev pane, e.g. tests)
+///      outside a dev tab, e.g. tests)
 ///   3. Default: prod
 ///
 /// When a dev context is detected and CODETERM_INSTANCE is set, the slug is
@@ -173,9 +173,9 @@ pub fn build_http(token: &Option<String>) -> Result<reqwest::blocking::Client, r
             headers.insert(reqwest::header::AUTHORIZATION, val);
         }
     }
-    if let Ok(pane) = std::env::var("CODETERM_PANE_ID") {
-        if let Ok(v) = reqwest::header::HeaderValue::from_str(&pane) {
-            headers.insert("X-CodeTerm-Pane-Id", v);
+    if let Ok(tab) = std::env::var("CODETERM_TAB_ID") {
+        if let Ok(v) = reqwest::header::HeaderValue::from_str(&tab) {
+            headers.insert("X-CodeTerm-Tab-Id", v);
         }
     }
     if let Ok(worker) = std::env::var("CODETERM_WORKER_ID") {
@@ -201,7 +201,7 @@ pub use args::mem::{
     MemSkillAction, MemWorkerAction,
 };
 pub use args::misc::{
-    BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PaneAction, PasteAction,
+    BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, TabAction, PasteAction,
     ThemeAction, WebAction, WorkspaceAction,
 };
 pub use args::plan::PlanAction;
@@ -215,11 +215,11 @@ pub use args::team::TeamAction;
 pub use args::update::UpdateAction;
 pub use args::usage::UsageAction;
 
-/// Resolve pane ID: explicit arg > $CODETERM_PANE_ID env var > focused pane from server.
+/// Resolve tab ID: explicit arg > $CODETERM_TAB_ID env var > focused tab from server.
 ///
-/// When running inside CodeTerm, $CODETERM_PANE_ID is set automatically by the PTY.
-/// This ensures commands like `pane split` always target the caller's pane,
-/// not whatever pane the user happens to have focused.
+/// When running inside CodeTerm, $CODETERM_TAB_ID is set automatically by the PTY.
+/// This ensures commands like `tab split` always target the caller's tab,
+/// not whatever tab the user happens to have focused.
 fn main() {
     stdout::run(main_impl);
 }
@@ -468,7 +468,7 @@ fn main_impl() {
         }
 
         Commands::Tab { action } => {
-            cmd::pane::handle_pane(&mut client, cli.json, action);
+            cmd::tab::handle_tab(&mut client, cli.json, action);
             return;
         }
 
@@ -483,7 +483,7 @@ fn main_impl() {
         }
 
         Commands::SendText {
-            pane,
+            tab,
             text,
             from_file,
             stdin,
@@ -494,7 +494,7 @@ fn main_impl() {
             cmd::local_io::handle_send_text(
                 &mut client,
                 cli.json,
-                pane,
+                tab,
                 text,
                 from_file,
                 stdin,

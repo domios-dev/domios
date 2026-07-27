@@ -5,7 +5,7 @@ import type {
   ChatAttachment as ImageAttachment,
   TimelineItem,
 } from "@codeterm/chat-core";
-import { isPaneMarkerPlaceholderLabel, shortPaneRef } from "@codeterm/chat-core";
+import { isTabMarkerPlaceholderLabel, shortTabRef } from "@codeterm/chat-core";
 import {
   Download, Image,
   Send,            // generic chat (telegram / service)
@@ -20,7 +20,7 @@ import { ReminderCard } from "./codeterm/ReminderCard";
 import { InboundReportCard } from "./codeterm/InboundReportCard";
 import { InboundMessageCard } from "./codeterm/InboundMessageCard";
 import { messageTimestamp } from "./codeterm/relativeTime";
-import type { PaneNameResolver } from "./codeterm/templates";
+import type { TabNameResolver } from "./codeterm/templates";
 import { ChevronIcon, PRE_WRAP_CLASS } from "./CodeBlock";
 import {
   CommandBody,
@@ -56,22 +56,22 @@ interface MessageBubbleProps {
   onAnswerInteractive?: InteractiveAnswerHandler;
   /** Widget ids already answered — kept in the parent so they survive remounts. */
   answeredInteractiveIds?: Set<string>;
-  /** When set, this user message arrived via a codeterm channel (cross-pane,
+  /** When set, this user message arrived via a codeterm channel (cross-tab,
    *  telegram, mesh, slash-command) and should render as a typed header
    *  instead of the default right-aligned "user" styling. */
   origin?: ChatOrigin;
   originAvatar?: React.ReactNode;
-  /** When set, clicking the origin header focuses the source pane. */
+  /** When set, clicking the origin header focuses the source tab. */
   onOriginClick?: () => void;
-  /** Resolve a pane id/short-id to a tab name for CodeTerm cards (e.g. "Sent to <name>"). */
-  resolvePaneName?: PaneNameResolver;
+  /** Resolve a tab id/short-id to a tab name for CodeTerm cards (e.g. "Sent to <name>"). */
+  resolveTabName?: TabNameResolver;
   /** Focus a referenced Tab from a CodeTerm action card. */
-  onFocusPane?: (paneRef: string) => void;
+  onFocusTab?: (tabRef: string) => void;
   /** Open the plan view for a plan, optionally focused on a task/section node. */
   onOpenPlan?: (planId: string, focusId?: string, focusKind?: "plan" | "task" | "section") => void;
   resolvePlanRef?: (planId: string, focusId?: string, focusKind?: "plan" | "task" | "section") => ResolvedChatPlanRef | null;
   fontScale?: number;
-  /** `shell_command` decoration — re-run the command in the pane's PTY. */
+  /** `shell_command` decoration — re-run the command in the tab's PTY. */
   onRerunShellCommand?: (command: string) => void;
   /** `shell_command` decoration — surface the command's terminal output. */
   onJumpToShellCommand?: (message: ChatMessage) => void;
@@ -93,11 +93,11 @@ function isOutboundMessage(item: TimelineItem | undefined): boolean {
   return invocation != null && isSend(invocation);
 }
 
-function paneOriginTitle(origin: Extract<ChatOrigin, { kind: "pane" }>, resolvePaneName?: PaneNameResolver): string {
-  const paneRef = shortPaneRef(origin.paneIdShort);
-  const resolved = paneRef ? resolvePaneName?.(paneRef) : undefined;
-  if (isPaneMarkerPlaceholderLabel(origin.title)) return resolved ?? (paneRef || "tab");
-  return origin.title.trim() || resolved || paneRef || "tab";
+function tabOriginTitle(origin: Extract<ChatOrigin, { kind: "tab" }>, resolveTabName?: TabNameResolver): string {
+  const tabRef = shortTabRef(origin.tabIdShort);
+  const resolved = tabRef ? resolveTabName?.(tabRef) : undefined;
+  if (isTabMarkerPlaceholderLabel(origin.title)) return resolved ?? (tabRef || "tab");
+  return origin.title.trim() || resolved || tabRef || "tab";
 }
 
 // Test-only render counter (opt-in: a harness sets window.__bubbleRenderCounts
@@ -109,9 +109,9 @@ function recordBubbleRender(id: string): void {
   counts[id] = (counts[id] ?? 0) + 1;
 }
 
-export const MessageBubble = React.memo(function MessageBubble({ message, item, origin, onOriginClick, resolvePaneName, onFocusPane, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
+export const MessageBubble = React.memo(function MessageBubble({ message, item, origin, onOriginClick, resolveTabName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
   recordBubbleRender(message.id);
-  const isInboundCommunication = origin?.kind === "pane" || message.inboundKind === "tab" || message.inboundKind === "report" || message.inboundKind === "mesh";
+  const isInboundCommunication = origin?.kind === "tab" || message.inboundKind === "tab" || message.inboundKind === "report" || message.inboundKind === "mesh";
   const shouldAutoExpand = hasVisibleEdit(item) || isInboundCommunication || isOutboundMessage(item);
   const [expanded, setExpanded] = useState(() => {
     const persisted = TOOL_EXPANDED_BY_ID.get(message.id);
@@ -234,11 +234,11 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
       );
     }
 
-    if (effectiveOrigin?.kind === "pane" && effectiveOrigin.report) {
+    if (effectiveOrigin?.kind === "tab" && effectiveOrigin.report) {
       return (
         <InboundReportCard
           message={message}
-          sender={paneOriginTitle(effectiveOrigin, resolvePaneName)}
+          sender={tabOriginTitle(effectiveOrigin, resolveTabName)}
           expanded={expanded}
           onToggle={() => setExpandedPersistent(!expanded)}
           onFocusTab={onOriginClick}
@@ -249,13 +249,13 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
       );
     }
 
-    if (effectiveOrigin?.kind === "pane") {
+    if (effectiveOrigin?.kind === "tab") {
       return (
         <InboundMessageCard
           message={message}
-          sender={paneOriginTitle(effectiveOrigin, resolvePaneName)}
+          sender={tabOriginTitle(effectiveOrigin, resolveTabName)}
           model={effectiveOrigin.model}
-          channel={inboundKind === "mesh" || effectiveOrigin.mesh ? "mesh" : "pane"}
+          channel={inboundKind === "mesh" || effectiveOrigin.mesh ? "mesh" : "tab"}
           expanded={expanded}
           onToggle={() => setExpandedPersistent(!expanded)}
           onFocusTab={onOriginClick}
@@ -266,7 +266,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
       );
     }
 
-    // codeterm channel (cross-pane, telegram, mesh) or wraps slash-commands.
+    // codeterm channel (cross-tab, telegram, mesh) or wraps slash-commands.
     const originHeader = effectiveOrigin ? (() => {
       const OriginIcon =
         effectiveOrigin.kind === "mesh"          ? Network :
@@ -527,8 +527,8 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
           message={item?.kind === "tool" ? undefined : message}
           expanded={expanded}
           onToggle={setExpandedPersistent}
-          resolvePaneName={resolvePaneName}
-          onFocusPane={onFocusPane}
+          resolveTabName={resolveTabName}
+          onFocusTab={onFocusTab}
           onOpenPlan={onOpenPlan}
           resolvePlanRef={resolvePlanRef}
           fontScale={fontScale}

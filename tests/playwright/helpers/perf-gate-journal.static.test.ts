@@ -6,7 +6,7 @@ import test from "node:test";
 const source = readFileSync(join(process.cwd(), "tests/playwright/suites/00-perf-gate/perf-gate.spec.ts"), "utf8");
 
 function renderMetricUsesTerminatedRawSend(source: string): boolean {
-  return /await api\.post\(\s*`\/panes\/\$\{paneId\}\/send`,\s*\{\s*text: `STUB_ECHO \$\{marker\}\\r`,\s*raw: true\s*\}\s*\)/s.test(source);
+  return /await api\.post\(\s*`\/tabs\/\$\{tabId\}\/send`,\s*\{\s*text: `STUB_ECHO \$\{marker\}\\r`,\s*raw: true\s*\}\s*\)/s.test(source);
 }
 
 test("perf gate emits lifecycle events instead of legacy diagnostic rows", () => {
@@ -36,8 +36,8 @@ test("render metric terminates its transport-clean raw input", () => {
 });
 
 test("terminal focus scopes duplicate titles by canonical tab identity", () => {
-  assert.match(source, /\[data-testid="tab-item"\]\[data-tab-id="\$\{pane\.tab_id\}"\]/);
-  assert.match(source, /await api\.focusPane\(paneId\)/);
+  assert.match(source, /\[data-testid="tab-item"\]\[data-tab-id="\$\{tab\.tab_id\}"\]/);
+  assert.match(source, /await api\.focusTab\(tabId\)/);
   assert.match(source, /toHaveAttribute\("aria-busy", "false"/);
-  assert.doesNotMatch(source, /page\.getByRole\("button", \{ name: `Open tab \$\{pane\.title\}`/);
+  assert.doesNotMatch(source, /page\.getByRole\("button", \{ name: `Open tab \$\{tab\.title\}`/);
 });

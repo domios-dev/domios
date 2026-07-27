@@ -41,7 +41,7 @@ assert(
 assert(header.includes("<PairAffordance"), "PlanContextHeader uses PairAffordance");
 assert(header.includes('data-testid="plan-peer-pair"'), "plan header orchestration marker");
 
-assert(hierarchy.includes("excludePaneIds"), "Hierarchy subtree can exclude attached Planner");
+assert(hierarchy.includes("excludeTabIds"), "Hierarchy subtree can exclude attached Planner");
 
 assert(!css.includes(".pair-affordance-rail"), "dead sidebar rail styles removed");
 assert(!source.includes('layout === "sidebar"'), "PairAffordance sidebar layout removed");

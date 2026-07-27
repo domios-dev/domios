@@ -275,7 +275,7 @@ impl ScreenState {
     }
 
     /// Get screen as escape-coded bytes — preserves colors, cursor position, cursor visibility.
-    /// Used for screen restore on pane remount (HMR, tab switch).
+    /// Used for screen restore on tab remount (HMR, tab switch).
     pub fn get_screen_formatted(&self, pty_id: &str) -> Option<Vec<u8>> {
         self.parsers.get(pty_id).map(|p| {
             let screen = p.screen();

@@ -88,7 +88,7 @@ impl LaunchDeliveryGate {
     pub(crate) fn consume<F>(
         &self,
         mux: &MuxState,
-        pane_id: &str,
+        tab_id: &str,
         sink: &impl BootStageSink,
         transaction: F,
     ) -> Result<LaunchConsumptionOutcome, LaunchConsumptionError>
@@ -101,8 +101,8 @@ impl LaunchDeliveryGate {
         let should_submit = {
             let mut mux = mux.write();
             let pending = mux
-                .get_pane_mut(pane_id)
-                .and_then(|pane| pane.pending_delivery.as_mut())
+                .get_tab_mut(tab_id)
+                .and_then(|tab| tab.pending_delivery.as_mut())
                 .expect("fallback launch owns a pending delivery record");
             if pending.state() == PendingDeliveryState::Confirmed {
                 false
@@ -117,7 +117,7 @@ impl LaunchDeliveryGate {
         let result = dispatch_initial_delivery(
             LaunchDeliveryMode::ConfirmedFallback,
             sink,
-            pane_id,
+            tab_id,
             Some(transaction),
         )
         .expect("fallback delivery dispatch executes the transaction");
@@ -125,8 +125,8 @@ impl LaunchDeliveryGate {
         let delivery = {
             let mut mux = mux.write();
             let pending = mux
-                .get_pane_mut(pane_id)
-                .and_then(|pane| pane.pending_delivery.as_mut())
+                .get_tab_mut(tab_id)
+                .and_then(|tab| tab.pending_delivery.as_mut())
                 .expect("fallback launch retains its pending delivery record");
             confirm_fallback(pending, submission_observed)
         };
@@ -267,7 +267,7 @@ pub(crate) fn confirm_fallback(
 pub(crate) fn dispatch_initial_delivery<T, F>(
     mode: LaunchDeliveryMode,
     sink: &impl BootStageSink,
-    pane_id: &str,
+    tab_id: &str,
     transaction: Option<F>,
 ) -> Option<T>
 where
@@ -276,7 +276,7 @@ where
     match mode {
         LaunchDeliveryMode::SystemPrompt => None,
         LaunchDeliveryMode::ConfirmedFallback => transaction.map(|transaction| {
-            sink.record(pane_id, BootStage::DeliveringInstructions, None);
+            sink.record(tab_id, BootStage::DeliveringInstructions, None);
             transaction()
         }),
     }
@@ -401,7 +401,7 @@ mod tests {
         dispatch_initial_delivery(
             LaunchDeliveryMode::ConfirmedFallback,
             &sink,
-            "pair-pane",
+            "pair-tab",
             Some(|| submissions += 1),
         );
         confirm_fallback(&mut pending, true).unwrap();
@@ -409,7 +409,7 @@ mod tests {
             dispatch_initial_delivery(
                 LaunchDeliveryMode::ConfirmedFallback,
                 &sink,
-                "pair-pane",
+                "pair-tab",
                 Some(|| submissions += 1),
             );
         }
@@ -430,8 +430,8 @@ mod tests {
             spec.payload.contains("Execute the assigned task."),
             assigned
         );
-        let (mut state, pane_id) = crate::multiplexer::state::MultiplexerState::new();
-        state.get_pane_mut(&pane_id).unwrap().pending_delivery = Some(pending);
+        let (mut state, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+        state.get_tab_mut(&tab_id).unwrap().pending_delivery = Some(pending);
         let mux = Arc::new(TimedRwLock::new("fallback-delivery-test", state));
         let sink = RecordingSink::default();
         let mut submitted = Vec::new();
@@ -439,7 +439,7 @@ mod tests {
         gate.mark_shell_ready();
         gate.mark_provider_ready();
         assert_eq!(
-            gate.consume(&mux, &pane_id, &sink, || {
+            gate.consume(&mux, &tab_id, &sink, || {
                 submitted.push(spec.payload.clone());
                 Ok(true)
             })
@@ -448,7 +448,7 @@ mod tests {
         );
         let pending = mux
             .read()
-            .get_pane(&pane_id)
+            .get_tab(&tab_id)
             .unwrap()
             .pending_delivery
             .clone()
@@ -611,11 +611,11 @@ mod tests {
     #[test]
     fn fallback_emits_delivering_after_tui_ready() {
         let sink = RecordingSink::default();
-        sink.record("pane-1", BootStage::AgentLaunching, None);
+        sink.record("tab-1", BootStage::AgentLaunching, None);
         dispatch_initial_delivery(
             LaunchDeliveryMode::ConfirmedFallback,
             &sink,
-            "pane-1",
+            "tab-1",
             Some(|| sink.record_transaction()),
         );
 
@@ -629,12 +629,12 @@ mod tests {
     fn system_prompt_channel_never_emits_delivering() {
         let sink = RecordingSink::default();
         let mut transactions = 0;
-        sink.record("pane-1", BootStage::AgentLaunching, None);
+        sink.record("tab-1", BootStage::AgentLaunching, None);
 
         let result = dispatch_initial_delivery(
             mode_for_descriptor(&SystemPromptDelivery::SessionConfig),
             &sink,
-            "pane-1",
+            "tab-1",
             Some(|| transactions += 1),
         );
 

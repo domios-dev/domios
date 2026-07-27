@@ -216,7 +216,7 @@ export function updateCount(entries: CatalogEntry[]): number {
   return entries.filter((e) => e.updateAvailable).length;
 }
 
-/** The one most-important action for an entry's detail pane. Uninstall is also
+/** The one most-important action for an entry's detail tab. Uninstall is also
  * offered as a secondary action whenever `entry.removable` (see `canUninstall`). */
 export function primaryAction(entry: CatalogEntry): PrimaryAction {
   if (!entry.installed) {

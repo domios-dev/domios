@@ -43,7 +43,7 @@ fn is_codeterm_hook(hook_entry: &Json) -> bool {
                     .map(|cmd| {
                         let is_codeterm_url = cmd.contains("7685") || cmd.contains("7686");
                         let is_codeterm_path = cmd.contains("/api/notifications")
-                            || cmd.contains("/api/panes/")
+                            || cmd.contains("/api/tabs/")
                             || cmd.contains("/hook/permission")
                             || cmd.contains("/hook/stop")
                             || cmd.contains("/hook/session_start")
@@ -159,16 +159,16 @@ pub fn install_integration(api_port: u16) -> Result<(), String> {
     let auth_h = "-H \"Authorization: Bearer ${CODETERM_API_TOKEN}\"";
     let nonce_h = "-H \"X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}\"";
     let notify_cmd = format!(
-        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/panes/$CODETERM_PANE_ID/hook/permission -H 'Content-Type: application/json' {auth_h} -d '{{}}' > {null_dev} 2>&1 || true"
+        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/tabs/$CODETERM_TAB_ID/hook/permission -H 'Content-Type: application/json' {auth_h} -d '{{}}' > {null_dev} 2>&1 || true"
     );
     let stop_cmd = format!(
-        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/panes/$CODETERM_PANE_ID/hook/stop -H 'Content-Type: application/json' {auth_h} -d '{{}}' > {null_dev} 2>&1 || true"
+        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/tabs/$CODETERM_TAB_ID/hook/stop -H 'Content-Type: application/json' {auth_h} -d '{{}}' > {null_dev} 2>&1 || true"
     );
     let precompact_cmd = format!(
-        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/mem/flush -H 'Content-Type: application/json' {auth_h} -d '{{\"pane\":\"'\"$CODETERM_PANE_ID\"'\",\"title\":\"pre-compact\"}}' > {null_dev} 2>&1 || true"
+        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/mem/flush -H 'Content-Type: application/json' {auth_h} -d '{{\"tab\":\"'\"$CODETERM_TAB_ID\"'\",\"title\":\"pre-compact\"}}' > {null_dev} 2>&1 || true"
     );
     let session_start_cmd = format!(
-        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' {auth_h} {nonce_h} --data-binary @- > {null_dev} 2>&1 || true"
+        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/tabs/$CODETERM_TAB_ID/hook/session_start -H 'Content-Type: application/json' {auth_h} {nonce_h} --data-binary @- > {null_dev} 2>&1 || true"
     );
 
     if json.get("hooks").is_none() {

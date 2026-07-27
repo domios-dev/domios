@@ -733,7 +733,7 @@ var plugin = {
       if (!taskPath) throw new Error("failed to write Codex task instructions");
       const quotedPath = host.shell.quoteFor(taskPath, host.platform());
       if (host.platform() === "windows") {
-        prefix = `Add-Type -AssemblyName System.Web.Extensions; $ctTaskInstructions = Get-Content -Raw -Encoding UTF8 ${quotedPath}; $ctTaskJson = (New-Object System.Web.Script.Serialization.JavaScriptSerializer).Serialize($ctTaskInstructions); $ctProfileSuffix = if ($env:CODETERM_PANE_ID) { $env:CODETERM_PANE_ID -replace '[^A-Za-z0-9_-]', '-' } else { [guid]::NewGuid().ToString('N') }; $ctProfileName = 'codeterm-' + $ctProfileSuffix; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); Set-Content -LiteralPath $ctProfilePath -Encoding UTF8 -Value ('developer_instructions = ' + $ctTaskJson); Remove-Item -LiteralPath ${quotedPath} -Force -ErrorAction SilentlyContinue; try { `;
+        prefix = `Add-Type -AssemblyName System.Web.Extensions; $ctTaskInstructions = Get-Content -Raw -Encoding UTF8 ${quotedPath}; $ctTaskJson = (New-Object System.Web.Script.Serialization.JavaScriptSerializer).Serialize($ctTaskInstructions); $ctProfileSuffix = if ($env:CODETERM_TAB_ID) { $env:CODETERM_TAB_ID -replace '[^A-Za-z0-9_-]', '-' } else { [guid]::NewGuid().ToString('N') }; $ctProfileName = 'codeterm-' + $ctProfileSuffix; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); Set-Content -LiteralPath $ctProfilePath -Encoding UTF8 -Value ('developer_instructions = ' + $ctTaskJson); Remove-Item -LiteralPath ${quotedPath} -Force -ErrorAction SilentlyContinue; try { `;
         parts.push("--profile");
         parts.push("$ctProfileName");
       } else {
@@ -973,7 +973,7 @@ var plugin = {
     const portExpr = "${CODETERM_API_PORT:-" + port + "}";
     const authH = '-H "Authorization: Bearer ${CODETERM_API_TOKEN}"';
     const nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
-    const cmd = "curl -s -X POST http://localhost:" + portExpr + "/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' " + nonceH + " " + authH + " --data-binary @- > " + nullDev + " 2>&1 || true";
+    const cmd = "curl -s -X POST http://localhost:" + portExpr + "/api/tabs/$CODETERM_TAB_ID/hook/session_start -H 'Content-Type: application/json' -H 'X-CodeTerm-Agent-Provider: codex' " + nonceH + " " + authH + " --data-binary @- > " + nullDev + " 2>&1 || true";
     const scriptPath = codexWindowsHookScriptPath();
     const commandWindows = scriptPath ? 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + scriptPath + '"' : cmd;
     if (scriptPath && !host.fs.writeFile(scriptPath, codexWindowsHookScript(port))) {
@@ -1125,7 +1125,7 @@ var plugin = {
     }
     return out;
   },
-  classifyPaneState(snapshot) {
+  classifyTabState(snapshot) {
     const screen = String(snapshot && snapshot.screenText || "").replace(/\r\n?/g, "\n");
     if (!screen.trim()) return null;
     if (looksBusy(screen)) return { state: "working", confidence: 0 };
@@ -1370,8 +1370,8 @@ function codexWindowsHookScript(apiPort) {
     "# " + CODETERM_CODEX_HOOK_MARKER,
     "# " + CODETERM_CODEX_PROFILE_CLEANUP_MARKER,
     '$ErrorActionPreference = "SilentlyContinue"',
-    "$pane = $env:CODETERM_PANE_ID",
-    "if ([string]::IsNullOrWhiteSpace($pane)) { exit 0 }",
+    "$tab = $env:CODETERM_TAB_ID",
+    "if ([string]::IsNullOrWhiteSpace($tab)) { exit 0 }",
     '$port = if ($env:CODETERM_API_PORT) { $env:CODETERM_API_PORT } else { "' + String(apiPort || 7686) + '" }',
     '$base = if ($env:CODETERM_API_URL) { $env:CODETERM_API_URL.TrimEnd("/") } else { "http://127.0.0.1:$port" }',
     "$headers = @{",
@@ -1385,8 +1385,8 @@ function codexWindowsHookScript(apiPort) {
     '  $headers["Authorization"] = "Bearer $($env:CODETERM_API_TOKEN)"',
     "}",
     "$body = [Console]::In.ReadToEnd()",
-    'Invoke-RestMethod -Method Post -Uri "$base/api/panes/$pane/hook/session_start" -Headers $headers -Body $body -TimeoutSec 5 | Out-Null',
-    "$profileSuffix = $pane -replace '[^A-Za-z0-9_-]', '-'",
+    'Invoke-RestMethod -Method Post -Uri "$base/api/tabs/$tab/hook/session_start" -Headers $headers -Body $body -TimeoutSec 5 | Out-Null',
+    "$profileSuffix = $tab -replace '[^A-Za-z0-9_-]', '-'",
     '$profilePath = Join-Path $env:USERPROFILE (".codex\\codeterm-$profileSuffix.config.toml")',
     "Remove-Item -LiteralPath $profilePath -Force -ErrorAction SilentlyContinue",
     "exit 0",

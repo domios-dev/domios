@@ -27,17 +27,17 @@ impl FirstPlanHarness {
 fn teamless_orchestrator(mux: &MuxState) -> String {
     let mut mux = mux.write();
     let workspace_id = mux.list_workspaces()[0].id.clone();
-    let owner_pane_id = mux.create_tab(&workspace_id).unwrap().1;
-    mux.set_pane_role(&owner_pane_id, AgentRole::Orchestrator, None)
+    let owner_tab_id = mux.create_tab(&workspace_id).unwrap().1;
+    mux.set_tab_role(&owner_tab_id, AgentRole::Orchestrator, None)
         .unwrap();
-    owner_pane_id
+    owner_tab_id
 }
 
 #[test]
 fn plan_create_uses_atomic_team_outcome() {
     let dir = tempfile::tempdir().unwrap();
     let harness = FirstPlanHarness::new(dir.path());
-    let owner_pane_id = teamless_orchestrator(&harness.mux);
+    let owner_tab_id = teamless_orchestrator(&harness.mux);
     let spec = harness
         .plan_store
         .create_spec("Requirements".into(), dir.path().display().to_string(), 1)
@@ -47,7 +47,7 @@ fn plan_create_uses_atomic_team_outcome() {
         &harness.plan_store,
         "Spec effort".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane(&owner_pane_id),
+        OrchestratorRef::from_tab(&owner_tab_id),
         vec![],
         Some(spec.id.clone()),
         2,
@@ -68,13 +68,13 @@ fn plan_create_uses_atomic_team_outcome() {
 fn plan_goal_autocreate_uses_atomic_team_outcome() {
     let dir = tempfile::tempdir().unwrap();
     let harness = FirstPlanHarness::new(dir.path());
-    let owner_pane_id = teamless_orchestrator(&harness.mux);
+    let owner_tab_id = teamless_orchestrator(&harness.mux);
     let outcome = create_first_plan_for_orchestrator(
         &harness.mux,
         &harness.plan_store,
         "Goal effort".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane(&owner_pane_id),
+        OrchestratorRef::from_tab(&owner_tab_id),
         vec![],
         None,
         1,
@@ -102,13 +102,13 @@ fn plan_goal_autocreate_uses_atomic_team_outcome() {
 fn first_plan_response_has_team_naming_reminder() {
     let dir = tempfile::tempdir().unwrap();
     let harness = FirstPlanHarness::new(dir.path());
-    let owner_pane_id = teamless_orchestrator(&harness.mux);
+    let owner_tab_id = teamless_orchestrator(&harness.mux);
     let outcome = create_first_plan_for_orchestrator(
         &harness.mux,
         &harness.plan_store,
         "Named effort".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane(&owner_pane_id),
+        OrchestratorRef::from_tab(&owner_tab_id),
         vec![],
         None,
         1,
@@ -125,13 +125,13 @@ fn first_plan_response_has_team_naming_reminder() {
 fn existing_team_second_plan_preserves_hard_refuse() {
     let dir = tempfile::tempdir().unwrap();
     let harness = FirstPlanHarness::new(dir.path());
-    let owner_pane_id = teamless_orchestrator(&harness.mux);
+    let owner_tab_id = teamless_orchestrator(&harness.mux);
     let first = create_first_plan_for_orchestrator(
         &harness.mux,
         &harness.plan_store,
         "First".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane(&owner_pane_id),
+        OrchestratorRef::from_tab(&owner_tab_id),
         vec![],
         None,
         1,
@@ -142,7 +142,7 @@ fn existing_team_second_plan_preserves_hard_refuse() {
         &harness.plan_store,
         "Second".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane(&owner_pane_id),
+        OrchestratorRef::from_tab(&owner_tab_id),
         vec![],
         None,
         2,

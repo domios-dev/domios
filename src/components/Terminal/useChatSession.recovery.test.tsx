@@ -18,7 +18,7 @@ async function main() {
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
   let starts = 0;
   let stops = 0;
-  let listener: ((event: { payload: { pane_id: string; source_session_id: string | null; session_binding_nonce: string | null; messages: Array<{ id: string; type: "assistant"; content: string; timestamp: string }> } }) => void) | null = null;
+  let listener: ((event: { payload: { tab_id: string; source_session_id: string | null; session_binding_nonce: string | null; messages: Array<{ id: string; type: "assistant"; content: string; timestamp: string }> } }) => void) | null = null;
   __setListenForTest(async (_event, handler) => {
     listener = handler as typeof listener;
     return () => {};
@@ -41,7 +41,7 @@ async function main() {
 
   let latest = { recovering: false, messages: [] as string[] };
   function Harness() {
-    const session = useChatSession({ paneId: "pane", agentSessionId: "bound-session", sessionBindingNonce: null });
+    const session = useChatSession({ tabId: "tab", agentSessionId: "bound-session", sessionBindingNonce: null });
     latest = { recovering: session.recovering, messages: session.allMessages.map((message) => message.content) };
     return null;
   }
@@ -53,7 +53,7 @@ async function main() {
   if (stops !== 0) throw new Error("pending snapshot stopped the listener");
   await act(async () => listener?.({
     payload: {
-      pane_id: "pane",
+      tab_id: "tab",
       source_session_id: "bound-session",
       session_binding_nonce: null,
       messages: [{ id: "history", type: "assistant", content: "history restored", timestamp: "1" }],

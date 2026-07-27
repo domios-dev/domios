@@ -2,7 +2,7 @@ import type { Terminal } from "@xterm/xterm";
 
 export interface UseAgentDetectionOptions {
   termRef: React.MutableRefObject<Terminal | null>;
-  paneId: string;
+  tabId: string;
   termReady: boolean;
 }
 

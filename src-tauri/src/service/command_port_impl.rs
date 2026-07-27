@@ -1,6 +1,6 @@
 use crate::dispatch::CommandPort;
 use crate::multiplexer::state::{MultiplexerSnapshot, WorkspaceInfo};
-use crate::multiplexer::types::ClosedPane;
+use crate::multiplexer::types::ClosedTab;
 use crate::service::ServiceContext;
 
 impl CommandPort for ServiceContext {
@@ -12,46 +12,46 @@ impl CommandPort for ServiceContext {
         self.mux.read().snapshot()
     }
 
-    fn send_text(&self, pane_id: &str, text: &str, enter: bool) -> Result<(), String> {
+    fn send_text(&self, tab_id: &str, text: &str, enter: bool) -> Result<(), String> {
         // Fire-and-forget so interactive sends never wait for terminal evidence.
-        self.send_text_detached(pane_id, text, enter);
+        self.send_text_detached(tab_id, text, enter);
         Ok(())
     }
 
-    fn read_pane_output(
+    fn read_tab_output(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         offset: Option<usize>,
         max_bytes: Option<usize>,
         strip_ansi: bool,
         full: bool,
     ) -> Result<serde_json::Value, String> {
-        self.pane_transport(pane_id)?
+        self.tab_transport(tab_id)?
             .read_output(offset, max_bytes, strip_ansi, full)
     }
 
-    fn read_pane_screen(
+    fn read_tab_screen(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         formatted: bool,
     ) -> Result<serde_json::Value, String> {
-        self.pane_transport(pane_id)?.read_screen(formatted)
+        self.tab_transport(tab_id)?.read_screen(formatted)
     }
 
-    fn close_pane_guarded(&self, caller: Option<&str>, pane_id: &str) -> Result<(), String> {
-        ServiceContext::close_pane_guarded(self, caller, pane_id)
+    fn close_tab_guarded(&self, caller: Option<&str>, tab_id: &str) -> Result<(), String> {
+        ServiceContext::close_tab_guarded(self, caller, tab_id)
     }
 
-    fn focus_pane(&self, pane_id: &str) -> Result<(), String> {
-        ServiceContext::focus_pane(self, pane_id)
+    fn focus_tab(&self, tab_id: &str) -> Result<(), String> {
+        ServiceContext::focus_tab(self, tab_id)
     }
 
-    fn rename_pane(&self, pane_id: &str, title: &str) -> Result<(), String> {
-        ServiceContext::rename_pane(self, pane_id, title)
+    fn rename_tab(&self, tab_id: &str, title: &str) -> Result<(), String> {
+        ServiceContext::rename_tab(self, tab_id, title)
     }
 
-    fn set_pane_description(&self, pane_id: &str, desc: &str) -> Result<(), String> {
-        ServiceContext::set_pane_description(self, pane_id, desc)
+    fn set_tab_description(&self, tab_id: &str, desc: &str) -> Result<(), String> {
+        ServiceContext::set_tab_description(self, tab_id, desc)
     }
 
     fn create_workspace(&self, name: String, cwd: Option<String>, activate: bool) -> WorkspaceInfo {
@@ -70,28 +70,28 @@ impl CommandPort for ServiceContext {
         ServiceContext::list_workspaces(self)
     }
 
-    fn list_recently_closed(&self, ws_id: &str) -> Vec<ClosedPane> {
+    fn list_recently_closed(&self, ws_id: &str) -> Vec<ClosedTab> {
         ServiceContext::list_recently_closed(self, ws_id)
     }
 
-    fn reopen_closed_pane(
+    fn reopen_closed_tab(
         &self,
         ws_id: &str,
         index: Option<usize>,
     ) -> Result<(String, String), String> {
-        ServiceContext::reopen_closed_pane(self, ws_id, index)
+        ServiceContext::reopen_closed_tab(self, ws_id, index)
     }
 
     fn reopen_closed_group(&self, group_id: &str) -> Result<(String, String, String), String> {
         ServiceContext::reopen_closed_group(self, group_id)
     }
 
-    fn resize_pane(&self, pane_id: &str, cols: u16, rows: u16) -> Result<(), String> {
-        ServiceContext::resize_pane(self, pane_id, cols, rows)
+    fn resize_tab(&self, tab_id: &str, cols: u16, rows: u16) -> Result<(), String> {
+        ServiceContext::resize_tab(self, tab_id, cols, rows)
     }
 
-    fn kill_pane_pty(&self, pane_id: &str) -> Result<(), String> {
-        ServiceContext::kill_pane_pty(self, pane_id)
+    fn kill_tab_pty(&self, tab_id: &str) -> Result<(), String> {
+        ServiceContext::kill_tab_pty(self, tab_id)
     }
 
     fn list_agent_providers(&self) -> Vec<serde_json::Value> {

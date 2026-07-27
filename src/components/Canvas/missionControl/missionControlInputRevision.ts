@@ -1,11 +1,11 @@
-import type { Pane } from "../../../lib/types";
+import type { Tab } from "../../../lib/types";
 import { buildTaskPresenceFingerprint } from "../canvasView/presenceFingerprint";
 import { flattenSections } from "../sectionRows";
 import type { Plan } from "../types";
 
-// Fingerprint of plan + pane fields that affect buildMissionControl / modelToSnapshot.
-// Status churn and pane heartbeats that do not touch these fields must not rebuild the stage.
-export function missionControlInputRevision(plan: Plan, panes: Record<string, Pane>): string {
+// Fingerprint of plan + tab fields that affect buildMissionControl / modelToSnapshot.
+// Status churn and tab heartbeats that do not touch these fields must not rebuild the stage.
+export function missionControlInputRevision(plan: Plan, tabs: Record<string, Tab>): string {
   const parts: string[] = [
     plan.id,
     String(plan.updated_at),
@@ -23,8 +23,8 @@ export function missionControlInputRevision(plan: Plan, panes: Record<string, Pa
       t.status,
       String(t.status_changed_at ?? 0),
       String(t.updated_at ?? 0),
-      clean(t.assigned_pane_id),
-      clean(t.lane?.pane_id),
+      clean(t.assigned_tab_id),
+      clean(t.lane?.tab_id),
       clean(t.lane?.branch),
       clean(t.taken_by_role),
       clean(t.review_stage),
@@ -47,7 +47,7 @@ export function missionControlInputRevision(plan: Plan, panes: Record<string, Pa
     parts.push(s.id, s.title.trim());
   }
 
-  return `${parts.join("\0")}\x1e${buildTaskPresenceFingerprint([plan], panes)}`;
+  return `${parts.join("\0")}\x1e${buildTaskPresenceFingerprint([plan], tabs)}`;
 }
 
 function clean(value?: string | null): string {

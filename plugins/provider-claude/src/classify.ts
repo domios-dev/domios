@@ -1,14 +1,14 @@
 import { usageParseTodayClock } from "./usage";
 
-export interface PaneStateSnapshot {
-  paneId: string;
+export interface TabStateSnapshot {
+  tabId: string;
   agentType: string;
   sessionId?: string | null;
   cwd?: string | null;
   screenText: string;
 }
 
-type PaneState =
+type TabState =
   | "working"
   | "waiting_on_auth"
   | "update_prompt"
@@ -17,17 +17,17 @@ type PaneState =
   | "idle_stuck"
   | "unknown";
 
-interface PaneStateAction {
+interface TabStateAction {
   keys?: string[];
   delayedResume?: { at: string; text: string; thenKeys?: string[] };
   surface?: { kind: string; payload: unknown };
 }
 
-export interface PaneStateClassification {
-  state: PaneState;
+export interface TabStateClassification {
+  state: TabState;
   confidence: number;
   data?: { resetAt?: string; questions?: string[] };
-  action?: PaneStateAction;
+  action?: TabStateAction;
 }
 
 // Must match the core reactor's GLOBAL_THRESHOLD (state_reactor.rs) — below it the reactor would reject the verdict.
@@ -36,12 +36,12 @@ const CLASSIFY_THRESHOLD = 0.8;
 // Buffer past the parsed reset so `continue your work` lands after the limit actually clears.
 const RESUME_BUFFER_MS = 60 * 1000;
 
-export function classifyClaudePaneState(snapshot: PaneStateSnapshot): PaneStateClassification | null {
+export function classifyClaudeTabState(snapshot: TabStateSnapshot): TabStateClassification | null {
   // Normalize CRLF/CR → LF: the structural patterns below match on \n boundaries.
   const screen = String((snapshot && snapshot.screenText) || "").replace(/\r\n?/g, "\n");
   if (!screen.trim()) return null;
 
-  // Busy veto: a streaming pane is never parked, so a mid-turn menu isn't read as a prompt.
+  // Busy veto: a streaming tab is never parked, so a mid-turn menu isn't read as a prompt.
   if (looksBusy(screen)) return { state: "working", confidence: 0 };
 
   const activeChoice = activeTerminalChoiceBlock(screen);
@@ -59,7 +59,7 @@ export function classifyClaudePaneState(snapshot: PaneStateSnapshot): PaneStateC
   // Rate-limit menu → confirm-wait + schedule resume.
   const rl = scoreRateLimit(screen, host.unixNowMs());
   if (rl.confidence >= CLASSIFY_THRESHOLD && rl.waitKeys && rl.waitKeys.length > 0) {
-    const action: PaneStateAction = { keys: rl.waitKeys };
+    const action: TabStateAction = { keys: rl.waitKeys };
     const data: { resetAt?: string } = {};
     if (rl.resetAtMs !== null) {
       data.resetAt = new Date(rl.resetAtMs).toISOString();

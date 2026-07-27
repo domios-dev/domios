@@ -5,7 +5,7 @@ use parking_lot::Mutex;
 use crate::mem::{workers, SearchQuery};
 use crate::plugin::activity::{emit_plugin_activity, PluginActivity, PluginActivityRegistry};
 use crate::secrets::secret_file::SecretFile;
-use crate::service::spawn::{AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec};
+use crate::service::spawn::{AgentSpawnSpec, TabCommand, TabVisibility, SpawnTabSpec};
 use crate::service::ServiceContext;
 
 // ── Progress activity id map (mirrors host_compute) ─────────────────────────
@@ -117,7 +117,7 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
         }
     }
 
-    // ── Workspace / pane ─────────────────────────────────────────────────
+    // ── Workspace / tab ─────────────────────────────────────────────────
 
     fn workspace_ensure_json(&self, opts_json: &str) -> String {
         #[derive(serde::Deserialize)]
@@ -134,26 +134,26 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
         serde_json::json!({ "workspaceId": ws.id }).to_string()
     }
 
-    fn workspace_panes_json(&self, workspace_id: &str) -> String {
-        let panes: Vec<serde_json::Value> = self
+    fn workspace_tabs_json(&self, workspace_id: &str) -> String {
+        let tabs: Vec<serde_json::Value> = self
             .list_workspaces()
             .into_iter()
             .find(|w| w.id == workspace_id)
             .map(|w| {
-                w.pane_ids
+                w.tab_ids
                     .iter()
-                    .map(|p| serde_json::json!({ "paneId": p }))
+                    .map(|p| serde_json::json!({ "tabId": p }))
                     .collect()
             })
             .unwrap_or_default();
-        serde_json::Value::Array(panes).to_string()
+        serde_json::Value::Array(tabs).to_string()
     }
 
-    fn close_pane(&self, pane_id: &str) {
-        let _ = ServiceContext::close_pane(self, pane_id);
+    fn close_tab(&self, tab_id: &str) {
+        let _ = ServiceContext::close_tab(self, tab_id);
     }
 
-    fn spawn_pane_json(&self, _spec_json: &str) -> String {
+    fn spawn_tab_json(&self, _spec_json: &str) -> String {
         // Stub: full JSON-driven spawn spec parsing not yet wired.
         "{}".to_string()
     }
@@ -290,8 +290,8 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
 
     fn agent_reap_json(&self, session_id: &str) -> String {
         if let Some(w) = self.workers.get(session_id) {
-            if !w.pane_id.is_empty() {
-                let _ = ServiceContext::close_pane(self, &w.pane_id);
+            if !w.tab_id.is_empty() {
+                let _ = ServiceContext::close_tab(self, &w.tab_id);
             }
             let _ = self.workers.kill(session_id);
         }
@@ -462,12 +462,12 @@ fn enqueue_agent_turn(
         let worker_id_blocking = worker_id_task.clone();
         let title = format!("plugin:{intent}");
         let spawn_result = tokio::task::spawn_blocking(move || {
-            let spec = SpawnPaneSpec {
-                visibility: PaneVisibility::Hidden,
+            let spec = SpawnTabSpec {
+                visibility: TabVisibility::Hidden,
                 title: Some(title),
                 description: None,
                 workspace_id,
-                command: PaneCommand::Agent(AgentSpawnSpec {
+                command: TabCommand::Agent(AgentSpawnSpec {
                     provider,
                     planned_model: None,
                     model: if model.is_empty() { None } else { Some(model) },
@@ -480,14 +480,14 @@ fn enqueue_agent_turn(
                 }),
                 ..Default::default()
             };
-            svc_blocking.spawn_pane(spec)
+            svc_blocking.spawn_tab(spec)
         })
         .await;
 
         let handle = match spawn_result {
             Ok(Ok(h)) => h,
             Ok(Err(e)) => {
-                log::error!("[plugin-host] {worker_id_task} spawn_pane failed: {e}");
+                log::error!("[plugin-host] {worker_id_task} spawn_tab failed: {e}");
                 let _ = svc_task
                     .workers
                     .update_status(&worker_id_task, workers::WorkerStatus::Error);
@@ -506,7 +506,7 @@ fn enqueue_agent_turn(
 
         svc_task
             .workers
-            .set_pane_id(&worker_id_task, handle.pane_id.clone());
+            .set_tab_id(&worker_id_task, handle.tab_id.clone());
 
         let deadline =
             tokio::time::Instant::now() + std::time::Duration::from_secs(TURN_WATCHDOG_SECS);
@@ -523,7 +523,7 @@ fn enqueue_agent_turn(
                 let _ = svc_task
                     .workers
                     .update_status(&worker_id_task, workers::WorkerStatus::Orphaned);
-                let _ = svc_task.close_pane(&handle.pane_id);
+                let _ = svc_task.close_tab(&handle.tab_id);
                 break;
             }
         }

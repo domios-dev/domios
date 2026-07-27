@@ -8,7 +8,7 @@ pub const DEFAULT_STALE_REVIEW_MS: u64 = IN_REVIEW_UNJUDGED_STALE_MS;
 pub const NEEDS_REASSIGN_LABEL: &str = "needs-reassign";
 pub const STALE_REVIEW_LABEL: &str = "stale-review";
 pub const STALE_UNSTAFFED_LABEL: &str = "stale-unstaffed";
-pub const PANE_GONE_LABEL: &str = "pane-gone";
+pub const TAB_GONE_LABEL: &str = "tab-gone";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AgedOpenTask {
@@ -54,16 +54,16 @@ pub fn aged_open_tasks(plan: &Plan, now_ms: u64) -> Vec<AgedOpenTask> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PaneRole {
+pub enum TabRole {
     Orchestrator,
     Worker,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct PaneProbe {
+pub struct TabProbe {
     pub exists: bool,
     pub live_agent: bool,
-    /// The session which proved it owns this pane through the launch nonce.
+    /// The session which proved it owns this tab through the launch nonce.
     pub agent_session_id: Option<String>,
     /// A nonce-verified session binding exists for the reported session.
     pub session_binding_valid: bool,
@@ -71,11 +71,11 @@ pub struct PaneProbe {
     pub chat_delivery_target: bool,
     /// The agent is ready, working, or idle; questions and unknown states do not route work.
     pub agent_accepting_work: bool,
-    pub role: Option<PaneRole>,
-    pub parent_pane_id: Option<String>,
+    pub role: Option<TabRole>,
+    pub parent_tab_id: Option<String>,
 }
 
-impl PaneProbe {
+impl TabProbe {
     pub fn planner_routable_for(&self, expected_session_id: Option<&str>) -> bool {
         self.live_agent
             && self.session_binding_valid
@@ -90,7 +90,7 @@ impl PaneProbe {
 pub struct ReconcileConfig {
     pub now_ms: u64,
     pub stale_review_ms: u64,
-    pub current_orchestrator_pane_id: Option<String>,
+    pub current_orchestrator_tab_id: Option<String>,
 }
 
 impl ReconcileConfig {
@@ -98,7 +98,7 @@ impl ReconcileConfig {
         Self {
             now_ms,
             stale_review_ms: DEFAULT_STALE_REVIEW_MS,
-            current_orchestrator_pane_id: None,
+            current_orchestrator_tab_id: None,
         }
     }
 }
@@ -106,10 +106,10 @@ impl ReconcileConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum DriftKind {
-    InProgressPaneGone,
+    InProgressTabGone,
     StaleInReview,
     StalePendingUnstaffed,
-    BoundToClosedPane,
+    BoundToClosedTab,
     AcceptedButNotDone,
 }
 
@@ -124,49 +124,49 @@ pub struct DriftItem {
     pub not_mine: bool,
 }
 
-pub fn detect_plan_drift<F>(plan: &Plan, config: &ReconcileConfig, pane_probe: F) -> Vec<DriftItem>
+pub fn detect_plan_drift<F>(plan: &Plan, config: &ReconcileConfig, tab_probe: F) -> Vec<DriftItem>
 where
-    F: Fn(&str) -> PaneProbe,
+    F: Fn(&str) -> TabProbe,
 {
     let mut items = Vec::new();
     for task in &plan.tasks {
-        let assigned_pane = task
-            .assigned_pane_id
+        let assigned_tab = task
+            .assigned_tab_id
             .as_deref()
             .map(str::trim)
-            .filter(|pane_id| !pane_id.is_empty());
-        let pane = if is_terminal_task_status(&task.status) {
+            .filter(|tab_id| !tab_id.is_empty());
+        let tab = if is_terminal_task_status(&task.status) {
             None
         } else {
-            assigned_pane.map(|pane_id| (pane_id, pane_probe(pane_id)))
+            assigned_tab.map(|tab_id| (tab_id, tab_probe(tab_id)))
         };
-        let not_mine = pane
+        let not_mine = tab
             .as_ref()
             .is_some_and(|(_, probe)| assigned_to_other_orchestrator(probe, config));
 
         if task.status == TaskStatus::InProgress {
-            match pane.as_ref() {
+            match tab.as_ref() {
                 None => items.push(item(
                     plan,
                     task,
-                    DriftKind::InProgressPaneGone,
-                    "task is in_progress but has no assigned pane",
+                    DriftKind::InProgressTabGone,
+                    "task is in_progress but has no assigned tab",
                     NEEDS_REASSIGN_LABEL,
                     not_mine,
                 )),
-                Some((pane_id, probe)) if !probe.exists => items.push(item(
+                Some((tab_id, probe)) if !probe.exists => items.push(item(
                     plan,
                     task,
-                    DriftKind::InProgressPaneGone,
-                    format!("task is in_progress but assigned pane {pane_id} is closed"),
+                    DriftKind::InProgressTabGone,
+                    format!("task is in_progress but assigned tab {tab_id} is closed"),
                     NEEDS_REASSIGN_LABEL,
                     not_mine,
                 )),
-                Some((pane_id, probe)) if !probe.live_agent => items.push(item(
+                Some((tab_id, probe)) if !probe.live_agent => items.push(item(
                     plan,
                     task,
-                    DriftKind::InProgressPaneGone,
-                    format!("task is in_progress but pane {pane_id} has no live agent"),
+                    DriftKind::InProgressTabGone,
+                    format!("task is in_progress but tab {tab_id} has no live agent"),
                     NEEDS_REASSIGN_LABEL,
                     not_mine,
                 )),
@@ -192,7 +192,7 @@ where
         }
 
         if task.status == TaskStatus::Pending
-            && pane.is_none()
+            && tab.is_none()
             && task.status_changed_at > 0
             && config.now_ms.saturating_sub(task.status_changed_at) > PENDING_UNSTAFFED_STALE_MS
         {
@@ -209,14 +209,14 @@ where
             ));
         }
 
-        if let Some((pane_id, probe)) = pane.as_ref() {
+        if let Some((tab_id, probe)) = tab.as_ref() {
             if !probe.exists {
                 items.push(item(
                     plan,
                     task,
-                    DriftKind::BoundToClosedPane,
-                    format!("task is assigned to closed pane {pane_id}"),
-                    "clear dead pane binding",
+                    DriftKind::BoundToClosedTab,
+                    format!("task is assigned to closed tab {tab_id}"),
+                    "clear dead tab binding",
                     not_mine,
                 ));
             }
@@ -236,22 +236,22 @@ where
     items
 }
 
-pub fn detect_pane_gone(plan: &Plan, pane_id: &str) -> Vec<DriftItem> {
-    let pane_id = pane_id.trim();
-    if pane_id.is_empty() {
+pub fn detect_tab_gone(plan: &Plan, tab_id: &str) -> Vec<DriftItem> {
+    let tab_id = tab_id.trim();
+    if tab_id.is_empty() {
         return Vec::new();
     }
     plan.tasks
         .iter()
         .filter(|task| !is_terminal_task_status(&task.status))
-        .filter(|task| task.assigned_pane_id.as_deref().map(str::trim) == Some(pane_id))
+        .filter(|task| task.assigned_tab_id.as_deref().map(str::trim) == Some(tab_id))
         .map(|task| {
             item(
                 plan,
                 task,
-                DriftKind::BoundToClosedPane,
-                format!("assigned pane {pane_id} is gone"),
-                PANE_GONE_LABEL,
+                DriftKind::BoundToClosedTab,
+                format!("assigned tab {tab_id} is gone"),
+                TAB_GONE_LABEL,
                 false,
             )
         })
@@ -277,10 +277,10 @@ pub fn lane_last_activity_ms(task: &Task) -> u64 {
         .max(task.status_changed_at)
 }
 
-fn lane_inputs(task: &Task, probe: Option<&PaneProbe>, now_ms: u64) -> LaneInputs {
+fn lane_inputs(task: &Task, probe: Option<&TabProbe>, now_ms: u64) -> LaneInputs {
     LaneInputs {
-        has_assigned_pane: probe.is_some(),
-        pane_present_local: probe.is_some_and(|p| p.exists),
+        has_assigned_tab: probe.is_some(),
+        tab_present_local: probe.is_some_and(|p| p.exists),
         has_peer: task.peer.as_deref().is_some_and(|p| !p.trim().is_empty()),
         // Mesh presence unknown here: derive stays conservative (a peer lane
         // absent locally reads Working, never Gone) so a sleeping laptop is safe.
@@ -292,31 +292,31 @@ fn lane_inputs(task: &Task, probe: Option<&PaneProbe>, now_ms: u64) -> LaneInput
 }
 
 /// Watchdog demotion pass, meant to run on the reminder-scheduler cadence.
-/// Demotes an in_progress lane ONLY when its assigned pane is genuinely gone
+/// Demotes an in_progress lane ONLY when its assigned tab is genuinely gone
 /// (absent locally, no peer that could still host it — via derive_lane_liveness)
 /// AND it has been silent past the grace window. Never touches ReportOverdue /
-/// IdleStalled lanes (honest slow work), pane-less lanes (UI-owned), or lanes
+/// IdleStalled lanes (honest slow work), tab-less lanes (UI-owned), or lanes
 /// owned by another orchestrator. The caller's probe keys `exists` off the
-/// lane's OWN session, so a recycled pane id hosting a different agent reads gone.
+/// lane's OWN session, so a recycled tab id hosting a different agent reads gone.
 pub fn detect_lane_demotions<F>(
     plan: &Plan,
     config: &ReconcileConfig,
     thresholds: &LaneThresholds,
-    pane_probe: F,
+    tab_probe: F,
 ) -> Vec<LaneDemotion>
 where
-    F: Fn(&str) -> PaneProbe,
+    F: Fn(&str) -> TabProbe,
 {
     plan.tasks
         .iter()
         .filter(|task| task.status == TaskStatus::InProgress)
         .filter_map(|task| {
-            let assigned_pane = task
-                .assigned_pane_id
+            let assigned_tab = task
+                .assigned_tab_id
                 .as_deref()
                 .map(str::trim)
-                .filter(|pane_id| !pane_id.is_empty());
-            let probe = assigned_pane.map(&pane_probe);
+                .filter(|tab_id| !tab_id.is_empty());
+            let probe = assigned_tab.map(&tab_probe);
             if probe
                 .as_ref()
                 .is_some_and(|p| assigned_to_other_orchestrator(p, config))
@@ -324,7 +324,7 @@ where
                 return None;
             }
             let inputs = lane_inputs(task, probe.as_ref(), config.now_ms);
-            if derive_lane_liveness(&inputs, thresholds) != LaneLiveness::PaneGone {
+            if derive_lane_liveness(&inputs, thresholds) != LaneLiveness::TabGone {
                 return None;
             }
             if inputs.last_activity_ms == 0 {
@@ -335,22 +335,22 @@ where
                 task_id: task.id.clone(),
                 plan_id: plan.id.clone(),
                 reason: format!(
-                    "watchdog: assigned pane gone and silent for {idle}ms — demoted to pending"
+                    "watchdog: assigned tab gone and silent for {idle}ms — demoted to pending"
                 ),
             })
         })
         .collect()
 }
 
-fn assigned_to_other_orchestrator(probe: &PaneProbe, config: &ReconcileConfig) -> bool {
-    if probe.role != Some(PaneRole::Worker) {
+fn assigned_to_other_orchestrator(probe: &TabProbe, config: &ReconcileConfig) -> bool {
+    if probe.role != Some(TabRole::Worker) {
         return false;
     }
-    let Some(parent) = probe.parent_pane_id.as_deref() else {
+    let Some(parent) = probe.parent_tab_id.as_deref() else {
         return false;
     };
     config
-        .current_orchestrator_pane_id
+        .current_orchestrator_tab_id
         .as_deref()
         .is_some_and(|mine| parent != mine)
 }
@@ -419,7 +419,7 @@ mod tests {
             intent: None,
             parent_task_id: None,
             depends_on: vec![],
-            assigned_pane_id: None,
+            assigned_tab_id: None,
             lane: Default::default(),
             taken_by_role: None,
             peer: None,
@@ -438,7 +438,7 @@ mod tests {
         let mut plan = Plan::new(
             "p".into(),
             "/repo".into(),
-            OrchestratorRef::from_pane("orch"),
+            OrchestratorRef::from_tab("orch"),
         );
         plan.id = "plan".into();
         plan.tasks = tasks;
@@ -449,28 +449,28 @@ mod tests {
         ReconcileConfig {
             now_ms,
             stale_review_ms: 1_000,
-            current_orchestrator_pane_id: Some("orch".into()),
+            current_orchestrator_tab_id: Some("orch".into()),
         }
     }
 
     #[test]
-    fn detects_in_progress_without_live_pane() {
+    fn detects_in_progress_without_live_tab() {
         let mut t = task("t1", TaskStatus::InProgress);
-        t.assigned_pane_id = Some("dead".into());
-        let items = detect_plan_drift(&plan(vec![t]), &cfg(2_000), |_| PaneProbe {
+        t.assigned_tab_id = Some("dead".into());
+        let items = detect_plan_drift(&plan(vec![t]), &cfg(2_000), |_| TabProbe {
             exists: false,
             ..Default::default()
         });
         assert!(items
             .iter()
-            .any(|item| item.kind == DriftKind::InProgressPaneGone));
+            .any(|item| item.kind == DriftKind::InProgressTabGone));
     }
 
     #[test]
     fn detects_stale_in_review() {
         let mut t = task("t1", TaskStatus::InReview);
         t.status_changed_at = 1;
-        let items = detect_plan_drift(&plan(vec![t]), &cfg(2_500), |_| PaneProbe::default());
+        let items = detect_plan_drift(&plan(vec![t]), &cfg(2_500), |_| TabProbe::default());
         assert_eq!(items[0].kind, DriftKind::StaleInReview);
         assert_eq!(items[0].suggested_fix, STALE_REVIEW_LABEL);
     }
@@ -480,7 +480,7 @@ mod tests {
         let mut t = task("t1", TaskStatus::Pending);
         t.status_changed_at = 1;
         let now = PENDING_UNSTAFFED_STALE_MS + 10;
-        let items = detect_plan_drift(&plan(vec![t]), &cfg(now), |_| PaneProbe::default());
+        let items = detect_plan_drift(&plan(vec![t]), &cfg(now), |_| TabProbe::default());
         assert!(items
             .iter()
             .any(|item| item.kind == DriftKind::StalePendingUnstaffed));
@@ -501,32 +501,32 @@ mod tests {
     }
 
     #[test]
-    fn detects_bound_to_closed_pane() {
+    fn detects_bound_to_closed_tab() {
         let mut t = task("t1", TaskStatus::Pending);
-        t.assigned_pane_id = Some("closed".into());
-        let items = detect_plan_drift(&plan(vec![t]), &cfg(2_000), |_| PaneProbe {
+        t.assigned_tab_id = Some("closed".into());
+        let items = detect_plan_drift(&plan(vec![t]), &cfg(2_000), |_| TabProbe {
             exists: false,
             ..Default::default()
         });
-        assert_eq!(items[0].kind, DriftKind::BoundToClosedPane);
+        assert_eq!(items[0].kind, DriftKind::BoundToClosedTab);
     }
 
     #[test]
-    fn ignores_empty_and_terminal_closed_pane_bindings() {
+    fn ignores_empty_and_terminal_closed_tab_bindings() {
         let mut empty = task("empty", TaskStatus::Pending);
-        empty.assigned_pane_id = Some(" ".into());
+        empty.assigned_tab_id = Some(" ".into());
         let mut done = task("done", TaskStatus::Done);
-        done.assigned_pane_id = Some("closed".into());
+        done.assigned_tab_id = Some("closed".into());
         let mut cancelled = task("cancelled", TaskStatus::Cancelled);
-        cancelled.assigned_pane_id = Some("closed".into());
+        cancelled.assigned_tab_id = Some("closed".into());
         let items = detect_plan_drift(&plan(vec![empty, done, cancelled]), &cfg(2_000), |_| {
-            PaneProbe {
+            TabProbe {
                 exists: false,
                 ..Default::default()
             }
         });
         assert!(items.is_empty());
-        assert!(detect_pane_gone(&plan(vec![]), "").is_empty());
+        assert!(detect_tab_gone(&plan(vec![]), "").is_empty());
     }
 
     #[test]
@@ -544,7 +544,7 @@ mod tests {
             canvas: Default::default(),
             attachments: vec![],
         });
-        let items = detect_plan_drift(&plan(vec![t]), &cfg(2), |_| PaneProbe::default());
+        let items = detect_plan_drift(&plan(vec![t]), &cfg(2), |_| TabProbe::default());
         assert!(!items
             .iter()
             .any(|item| item.kind == DriftKind::AcceptedButNotDone));
@@ -553,12 +553,12 @@ mod tests {
     #[test]
     fn flags_not_mine_for_other_orchestrator_worker() {
         let mut t = task("t1", TaskStatus::InProgress);
-        t.assigned_pane_id = Some("worker".into());
-        let items = detect_plan_drift(&plan(vec![t]), &cfg(2_000), |_| PaneProbe {
+        t.assigned_tab_id = Some("worker".into());
+        let items = detect_plan_drift(&plan(vec![t]), &cfg(2_000), |_| TabProbe {
             exists: true,
             live_agent: false,
-            role: Some(PaneRole::Worker),
-            parent_pane_id: Some("other-orch".into()),
+            role: Some(TabRole::Worker),
+            parent_tab_id: Some("other-orch".into()),
             ..Default::default()
         });
         assert!(items[0].not_mine);
@@ -571,9 +571,9 @@ mod tests {
         }
     }
 
-    fn in_progress_lane(id: &str, pane: &str, status_changed_at: u64) -> Task {
+    fn in_progress_lane(id: &str, tab: &str, status_changed_at: u64) -> Task {
         let mut t = task(id, TaskStatus::InProgress);
-        t.assigned_pane_id = Some(pane.into());
+        t.assigned_tab_id = Some(tab.into());
         t.status_changed_at = status_changed_at;
         t
     }
@@ -583,7 +583,7 @@ mod tests {
         let t = in_progress_lane("t1", "dead", 1);
         let demotions =
             detect_lane_demotions(&plan(vec![t]), &cfg(5_000), &lane_thresholds(), |_| {
-                PaneProbe {
+                TabProbe {
                     exists: false,
                     ..Default::default()
                 }
@@ -597,7 +597,7 @@ mod tests {
         let t = in_progress_lane("t1", "live", 4_900);
         let demotions =
             detect_lane_demotions(&plan(vec![t]), &cfg(5_000), &lane_thresholds(), |_| {
-                PaneProbe {
+                TabProbe {
                     exists: true,
                     live_agent: true,
                     ..Default::default()
@@ -608,11 +608,11 @@ mod tests {
 
     #[test]
     fn never_demotes_report_overdue_lane() {
-        // Pane present but silent past overdue: honest slow work, not gone.
+        // Tab present but silent past overdue: honest slow work, not gone.
         let t = in_progress_lane("t1", "live", 1);
         let demotions =
             detect_lane_demotions(&plan(vec![t]), &cfg(5_000), &lane_thresholds(), |_| {
-                PaneProbe {
+                TabProbe {
                     exists: true,
                     live_agent: true,
                     ..Default::default()
@@ -626,7 +626,7 @@ mod tests {
         let t = in_progress_lane("t1", "dead", 4_900);
         let demotions =
             detect_lane_demotions(&plan(vec![t]), &cfg(5_000), &lane_thresholds(), |_| {
-                PaneProbe {
+                TabProbe {
                     exists: false,
                     ..Default::default()
                 }
@@ -639,11 +639,11 @@ mod tests {
         let t = in_progress_lane("t1", "worker", 1);
         let demotions =
             detect_lane_demotions(&plan(vec![t]), &cfg(5_000), &lane_thresholds(), |_| {
-                PaneProbe {
+                TabProbe {
                     exists: false,
                     live_agent: false,
-                    role: Some(PaneRole::Worker),
-                    parent_pane_id: Some("other-orch".into()),
+                    role: Some(TabRole::Worker),
+                    parent_tab_id: Some("other-orch".into()),
                     ..Default::default()
                 }
             });
@@ -651,12 +651,12 @@ mod tests {
     }
 
     #[test]
-    fn pane_gone_detector_is_bound_to_requested_pane() {
+    fn tab_gone_detector_is_bound_to_requested_tab() {
         let mut t1 = task("t1", TaskStatus::InProgress);
-        t1.assigned_pane_id = Some("gone".into());
+        t1.assigned_tab_id = Some("gone".into());
         let mut t2 = task("t2", TaskStatus::InProgress);
-        t2.assigned_pane_id = Some("live".into());
-        let items = detect_pane_gone(&plan(vec![t1, t2]), "gone");
+        t2.assigned_tab_id = Some("live".into());
+        let items = detect_tab_gone(&plan(vec![t1, t2]), "gone");
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].task_id, "t1");
     }

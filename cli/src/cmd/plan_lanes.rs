@@ -3,7 +3,7 @@ use serde_json::Value;
 struct LaneRow {
     task: String,
     status: String,
-    pane: String,
+    tab: String,
     branch: String,
     worktree: String,
     cleanup: String,
@@ -16,20 +16,20 @@ fn opt<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
         .filter(|s| !s.is_empty())
 }
 
-// Liveness verdict -> short pane state; keeps peer_offline distinct from dead.
-fn pane_state(liveness: &str) -> &'static str {
+// Liveness verdict -> short tab state; keeps peer_offline distinct from dead.
+fn tab_state(liveness: &str) -> &'static str {
     match liveness {
         "working" => "alive",
         "report_overdue" => "overdue",
         "idle_stalled" => "stalled",
-        "pane_gone" => "dead",
+        "tab_gone" => "dead",
         "peer_offline" => "peer-off",
         _ => "-",
     }
 }
 
 fn is_stale(liveness: &str, uncleaned: bool) -> bool {
-    matches!(liveness, "pane_gone" | "report_overdue") || uncleaned
+    matches!(liveness, "tab_gone" | "report_overdue") || uncleaned
 }
 
 fn task_label(v: &Value) -> String {
@@ -63,7 +63,7 @@ fn build_rows(val: &Value) -> Vec<LaneRow> {
     lanes
         .iter()
         .map(|v| {
-            let liveness = opt(v, "liveness").unwrap_or("no_pane");
+            let liveness = opt(v, "liveness").unwrap_or("no_tab");
             let uncleaned = v
                 .get("uncleaned")
                 .and_then(|x| x.as_bool())
@@ -71,7 +71,7 @@ fn build_rows(val: &Value) -> Vec<LaneRow> {
             LaneRow {
                 task: task_label(v),
                 status: opt(v, "status").unwrap_or("-").to_string(),
-                pane: pane_state(liveness).to_string(),
+                tab: tab_state(liveness).to_string(),
                 branch: opt(v, "branch").unwrap_or("-").to_string(),
                 worktree: opt(v, "worktree").unwrap_or("-").to_string(),
                 cleanup: cleanup_label(v),
@@ -104,7 +104,7 @@ pub fn render_lanes(val: &Value, stale_only: bool) -> String {
         let cells = [
             &r.task,
             &r.status,
-            &r.pane,
+            &r.tab,
             &r.branch,
             &r.worktree,
             &r.cleanup,
@@ -123,7 +123,7 @@ pub fn render_lanes(val: &Value, stale_only: bool) -> String {
         let cells = [
             &r.task,
             &r.status,
-            &r.pane,
+            &r.tab,
             &r.branch,
             &r.worktree,
             &r.cleanup,
@@ -146,19 +146,19 @@ mod tests {
             "lanes": [
                 {
                     "task_id": "t_alive", "handle": "t_alive", "title": "live work",
-                    "status": "in_progress", "pane_id": "pane-a", "liveness": "working",
+                    "status": "in_progress", "tab_id": "tab-a", "liveness": "working",
                     "branch": "lane/a", "worktree": "/wt/a",
                     "cleanup_status": null, "uncleaned": false
                 },
                 {
                     "task_id": "t_dead", "handle": "t_dead", "title": "gone",
-                    "status": "in_progress", "pane_id": "pane-d", "liveness": "pane_gone",
+                    "status": "in_progress", "tab_id": "tab-d", "liveness": "tab_gone",
                     "branch": "lane/d", "worktree": "/wt/d",
                     "cleanup_status": null, "uncleaned": false
                 },
                 {
                     "task_id": "t_dirty", "handle": "t_dirty", "title": "left over",
-                    "status": "in_review", "pane_id": "pane-c", "liveness": "working",
+                    "status": "in_review", "tab_id": "tab-c", "liveness": "working",
                     "branch": "lane/c", "worktree": "/wt/c",
                     "cleanup_status": "pending", "uncleaned": true
                 }
@@ -175,7 +175,7 @@ mod tests {
         assert!(out.contains("alive"));
         assert!(out.contains("lane/a"));
         assert!(out.contains("/wt/a"));
-        // dead pane row present in the full table.
+        // dead tab row present in the full table.
         assert!(out.contains("t_dead"));
         assert!(out.contains("dead"));
         // 3 data rows + 1 header.

@@ -2,7 +2,7 @@
 //!
 //! When `update --apply --after-update TEXT` runs, the backend writes the
 //! text to a file before triggering the Tauri restart. On next boot this
-//! module picks it up, waits for the General Agent pane to be ready, sends
+//! module picks it up, waits for the General Agent tab to be ready, sends
 //! the text through `send` semantics (as if the user typed it), and
 //! deletes the file.
 
@@ -46,28 +46,28 @@ async fn run(svc: &ServiceState) -> Result<(), String> {
 
     // takes a few seconds to come up after restart.
     let deadline = std::time::Instant::now() + Duration::from_secs(60);
-    let mut pane_id: Option<String> = None;
+    let mut tab_id: Option<String> = None;
     while std::time::Instant::now() < deadline {
         let candidate = {
             let mux = svc.mux.write();
-            mux.resolve_pane_id(crate::service::general_agent::GENERAL_ALIAS)
+            mux.resolve_tab_id(crate::service::general_agent::GENERAL_ALIAS)
         };
         if let Some(id) = candidate {
             let has_pty = svc
                 .mux
                 .write()
-                .get_pane(&id)
+                .get_tab(&id)
                 .and_then(|p| p.pty_id.clone())
                 .is_some();
             if has_pty {
-                pane_id = Some(id);
+                tab_id = Some(id);
                 break;
             }
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 
-    let Some(pane_id) = pane_id else {
+    let Some(tab_id) = tab_id else {
         log::warn!("[post-update] general Tab never became ready — leaving message file in place");
         return Ok(());
     };
@@ -75,11 +75,11 @@ async fn run(svc: &ServiceState) -> Result<(), String> {
     // Grace for the agent to finish drawing its prompt and accept input.
     tokio::time::sleep(Duration::from_secs(5)).await;
 
-    match svc.send_text(&pane_id, &text, true) {
+    match svc.send_text(&tab_id, &text, true) {
         Ok(_) => {
             log::info!(
                 "[post-update] injected message into general Tab {}",
-                pane_id
+                tab_id
             );
             if let Err(e) = std::fs::remove_file(&p) {
                 log::warn!("[post-update] failed to delete {}: {}", p.display(), e);

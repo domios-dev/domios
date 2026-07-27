@@ -258,9 +258,9 @@ async fn discover_models_native_js_parity() {
     assert_eq!(js.discover_models().await, native.discover_models().await);
 }
 
-fn classify_pane_state_snapshot() -> crate::pane_state::PaneStateSnapshot {
-    crate::pane_state::PaneStateSnapshot {
-        pane_id: "pane-1".into(),
+fn classify_tab_state_snapshot() -> crate::tab_state::TabStateSnapshot {
+    crate::tab_state::TabStateSnapshot {
+        tab_id: "tab-1".into(),
         agent_type: "classify-fixture".into(),
         session_id: None,
         cwd: None,
@@ -268,13 +268,13 @@ fn classify_pane_state_snapshot() -> crate::pane_state::PaneStateSnapshot {
     }
 }
 
-fn classify_pane_state_fixture() -> crate::pane_state::PaneStateClassification {
-    use crate::pane_state::*;
-    PaneStateClassification {
-        state: PaneState::UpdatePrompt,
+fn classify_tab_state_fixture() -> crate::tab_state::TabStateClassification {
+    use crate::tab_state::*;
+    TabStateClassification {
+        state: TabState::UpdatePrompt,
         confidence: 1.0,
         data: None,
-        action: Some(PaneStateAction {
+        action: Some(TabStateAction {
             keys: Some(vec!["down".into(), "enter".into()]),
             delayed_resume: None,
             surface: None,
@@ -323,22 +323,22 @@ impl AgentProvider for ClassifyNativeStub {
     fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
         None
     }
-    fn classify_pane_state(
+    fn classify_tab_state(
         &self,
-        _: &crate::pane_state::PaneStateSnapshot,
-    ) -> Option<crate::pane_state::PaneStateClassification> {
-        Some(classify_pane_state_fixture())
+        _: &crate::tab_state::TabStateSnapshot,
+    ) -> Option<crate::tab_state::TabStateClassification> {
+        Some(classify_tab_state_fixture())
     }
 }
 
 #[test]
-fn classify_pane_state_native_js_parity() {
+fn classify_tab_state_native_js_parity() {
     let native = ClassifyNativeStub;
     let js = load_inline_js(
         "classify-fixture",
         r#"
             module.exports.default = {
-                classifyPaneState(snapshot) {
+                classifyTabState(snapshot) {
                     return {
                         state: 'update_prompt',
                         confidence: 1.0,
@@ -348,28 +348,28 @@ fn classify_pane_state_native_js_parity() {
             };
         "#,
     );
-    let snap = classify_pane_state_snapshot();
+    let snap = classify_tab_state_snapshot();
     assert_eq!(
-        native.classify_pane_state(&snap),
-        Some(classify_pane_state_fixture())
+        native.classify_tab_state(&snap),
+        Some(classify_tab_state_fixture())
     );
     assert_eq!(
-        js.classify_pane_state(&snap),
-        native.classify_pane_state(&snap)
+        js.classify_tab_state(&snap),
+        native.classify_tab_state(&snap)
     );
 }
 
 #[test]
-fn classify_pane_state_unimplemented_matches_native_default_none() {
+fn classify_tab_state_unimplemented_matches_native_default_none() {
     // returns the SAME default (None) as the native trait default.
-    let native_default = DiscoverModelsNativeStub; // does not override classify_pane_state
+    let native_default = DiscoverModelsNativeStub; // does not override classify_tab_state
     let js = load_inline_js(
         "classify-none-fixture",
         r#"module.exports.default = { detectFromTitle() { return false; } };"#,
     );
-    let snap = classify_pane_state_snapshot();
-    assert_eq!(native_default.classify_pane_state(&snap), None);
-    assert_eq!(js.classify_pane_state(&snap), None);
+    let snap = classify_tab_state_snapshot();
+    assert_eq!(native_default.classify_tab_state(&snap), None);
+    assert_eq!(js.classify_tab_state(&snap), None);
 }
 
 #[test]

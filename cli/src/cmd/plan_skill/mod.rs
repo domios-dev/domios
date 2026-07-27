@@ -47,7 +47,7 @@ fn record_stride(
         "plan_id": plan_id,
         "kind": "skill",
         "text": text,
-        "from": { "pane_id": std::env::var("CODETERM_PANE_ID").ok() },
+        "from": { "tab_id": std::env::var("CODETERM_TAB_ID").ok() },
     });
     match client.call("plan.stride.add", Some(params)) {
         Ok(_) => true,
@@ -73,7 +73,7 @@ fn plan_rpc_params(plan: Option<String>) -> Value {
     if let Some(plan_id) = plan_id {
         params["plan_id"] = json!(plan_id);
     } else {
-        crate::cmd::plan::maybe_inject_caller_pane(&mut params);
+        crate::cmd::plan::maybe_inject_caller_tab(&mut params);
     }
     params
 }

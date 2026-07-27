@@ -161,7 +161,7 @@ class FakeChatServer {
     });
     this.handler?.({
       payload: {
-        pane_id: "pane",
+        tab_id: "tab",
         messages,
         source_session_id: sourceSessionId,
         session_binding_nonce: sessionBindingNonce,
@@ -216,7 +216,7 @@ async function mount(
     const [urgentEpoch, setUrgentEpoch] = useState(0);
     urgentUpdate = () => setUrgentEpoch((value) => value + 1);
     const session = useChatSession({
-      paneId: "pane",
+      tabId: "tab",
       agentSessionId: sessionId,
       sessionBindingNonce: nonce,
       active: true,
@@ -271,7 +271,7 @@ async function main(): Promise<void> {
   assert(server.snapshotReads === 1, "attach performs exactly one snapshot read");
   assert(server.subscribers.size === 1, "H3 falsifier: attach owns one subscription");
 
-  // T-H2: the pane binding generation remains authoritative across deltas.
+  // T-H2: the tab binding generation remains authoritative across deltas.
   await act(async () => {
     server.emit([msg("m1")], server.sourceSessionId, "nonce-rotated");
   });

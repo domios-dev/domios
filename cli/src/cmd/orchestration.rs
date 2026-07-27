@@ -59,9 +59,9 @@ fn new_pair(
     if let Some(t) = title {
         params["title"] = json!(t);
     }
-    if let Ok(spawner) = std::env::var("CODETERM_PANE_ID") {
+    if let Ok(spawner) = std::env::var("CODETERM_TAB_ID") {
         if !spawner.is_empty() {
-            params["spawned_by_pane_id"] = json!(spawner);
+            params["spawned_by_tab_id"] = json!(spawner);
         }
     }
 
@@ -75,17 +75,17 @@ fn new_pair(
 
 fn print_result(value: &Value) {
     let plan_id = value.get("plan_id").and_then(|v| v.as_str()).unwrap_or("?");
-    let orch_pane = value
-        .get("orchestrator_pane_id")
+    let orch_tab = value
+        .get("orchestrator_tab_id")
         .and_then(|v| v.as_str())
         .unwrap_or("?");
-    let planner_pane = value
-        .get("planner_pane_id")
+    let planner_tab = value
+        .get("planner_tab_id")
         .and_then(|v| v.as_str())
         .unwrap_or("?");
     println!("Plan: {plan_id}");
-    println!("Orchestrator: Tab {orch_pane}");
-    println!("Planner: Tab {planner_pane}");
+    println!("Orchestrator: Tab {orch_tab}");
+    println!("Planner: Tab {planner_tab}");
     if let Some(warning) = value.get("warning").and_then(|v| v.as_str()) {
         eprintln!("Warning: {warning}");
     }

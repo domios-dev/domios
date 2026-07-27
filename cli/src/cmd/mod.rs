@@ -15,7 +15,7 @@ pub mod mem_secret;
 pub mod mesh;
 pub mod orchestration;
 pub mod orchestrator;
-pub mod pane;
+pub mod tab;
 pub mod paste;
 pub mod plan;
 pub mod plan_doctor;

@@ -1,5 +1,5 @@
 use crate::client::RpcClient;
-use crate::cmd::plan::{call_plan_rpc, maybe_inject_caller_pane, resolve_text};
+use crate::cmd::plan::{call_plan_rpc, maybe_inject_caller_tab, resolve_text};
 use serde_json::{json, Value};
 
 #[allow(clippy::too_many_arguments)]
@@ -24,7 +24,7 @@ fn build_params(
     parent: Option<String>,
     depends_on: Vec<String>,
     clear_dependencies: bool,
-    pane: Option<String>,
+    tab: Option<String>,
     workspace_id: Option<String>,
     workspace_name: Option<String>,
     worktree: Option<String>,
@@ -97,7 +97,7 @@ fn build_params(
         params["depends_on"] = json!(depends_on);
     }
     if let Some(lane) = crate::cmd::plan::lane_params(
-        pane,
+        tab,
         workspace_id,
         workspace_name,
         worktree,
@@ -124,7 +124,7 @@ fn build_params(
     if let Some(handle) = handle {
         params["handle"] = json!(handle);
     }
-    maybe_inject_caller_pane(&mut params);
+    maybe_inject_caller_tab(&mut params);
     params
 }
 
@@ -155,7 +155,7 @@ pub(crate) fn run(
     parent: Option<String>,
     depends_on: Vec<String>,
     clear_dependencies: bool,
-    pane: Option<String>,
+    tab: Option<String>,
     workspace_id: Option<String>,
     workspace_name: Option<String>,
     worktree: Option<String>,
@@ -195,7 +195,7 @@ pub(crate) fn run(
         parent,
         depends_on,
         clear_dependencies,
-        pane,
+        tab,
         workspace_id,
         workspace_name,
         worktree,
@@ -345,7 +345,7 @@ mod tests {
     }
 
     #[test]
-    fn status_and_pane_share_one_update_rpc_payload() {
+    fn status_and_tab_share_one_update_rpc_payload() {
         let params = build_params(
             Some("pl_1".into()),
             "task_1".into(),
@@ -367,7 +367,7 @@ mod tests {
             None,
             vec![],
             false,
-            Some("worker-pane".into()),
+            Some("worker-tab".into()),
             None,
             None,
             None,
@@ -383,6 +383,6 @@ mod tests {
             None,
         );
         assert_eq!(params.get("status"), Some(&json!("in_progress")));
-        assert_eq!(params.pointer("/lane/pane_id"), Some(&json!("worker-pane")));
+        assert_eq!(params.pointer("/lane/tab_id"), Some(&json!("worker-tab")));
     }
 }

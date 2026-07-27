@@ -7,14 +7,14 @@ const workspaces: Workspace[] = [
   {
     id: "workspace-a",
     name: "A",
-    tabs: [{ id: "tab-a", pane_id: "58ffb596-full" }],
+    tabs: [{ id: "tab-a", tab_id: "58ffb596-full" }],
     active_tab_id: null,
     cwd: null,
   },
   {
     id: "workspace-b",
     name: "B",
-    tabs: [{ id: "tab-b", pane_id: "other-pane" }],
+    tabs: [{ id: "tab-b", tab_id: "other-tab" }],
     active_tab_id: null,
     cwd: null,
   },
@@ -22,15 +22,15 @@ const workspaces: Workspace[] = [
 
 test("resolves an exact Tab to its owning workspace", () => {
   assert.deepEqual(
-    resolveTabNavigationTarget("other-pane", ["58ffb596-full", "other-pane"], workspaces),
-    { paneId: "other-pane", workspaceId: "workspace-b" },
+    resolveTabNavigationTarget("other-tab", ["58ffb596-full", "other-tab"], workspaces),
+    { tabId: "other-tab", workspaceId: "workspace-b" },
   );
 });
 
 test("resolves a unique short ref to its owning workspace", () => {
   assert.deepEqual(
-    resolveTabNavigationTarget("58ffb596", ["58ffb596-full", "other-pane"], workspaces),
-    { paneId: "58ffb596-full", workspaceId: "workspace-a" },
+    resolveTabNavigationTarget("58ffb596", ["58ffb596-full", "other-tab"], workspaces),
+    { tabId: "58ffb596-full", workspaceId: "workspace-a" },
   );
 });
 

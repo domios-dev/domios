@@ -1,18 +1,18 @@
 use serde::Serialize;
 
 use crate::plan::lane_liveness::{derive_lane_liveness, LaneInputs, LaneLiveness, LaneThresholds};
-use crate::plan::reconcile::PaneProbe;
+use crate::plan::reconcile::TabProbe;
 use crate::plan::{Plan, Task, TaskStatus};
 
 /// One row of the `plan lanes` hygiene table: a lane task joined with its
-/// TaskLaneMetadata and a liveness verdict keyed off the pane's OWN session.
+/// TaskLaneMetadata and a liveness verdict keyed off the tab's OWN session.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct LaneRow {
     pub task_id: String,
     pub handle: Option<String>,
     pub title: String,
     pub status: TaskStatus,
-    pub pane_id: Option<String>,
+    pub tab_id: Option<String>,
     pub liveness: LaneLiveness,
     pub branch: Option<String>,
     pub worktree: Option<String>,
@@ -39,22 +39,22 @@ fn lane_uncleaned(task: &Task) -> bool {
     }
 }
 
-fn lane_liveness<F>(task: &Task, pane_probe: &mut F, now_ms: u64) -> (Option<String>, LaneLiveness)
+fn lane_liveness<F>(task: &Task, tab_probe: &mut F, now_ms: u64) -> (Option<String>, LaneLiveness)
 where
-    F: FnMut(&str) -> PaneProbe,
+    F: FnMut(&str) -> TabProbe,
 {
-    let pane_id = task
+    let tab_id = task
         .lane
-        .pane_id
+        .tab_id
         .clone()
-        .or_else(|| task.assigned_pane_id.clone());
+        .or_else(|| task.assigned_tab_id.clone());
     let has_peer = task.peer.is_some();
     // Local-only v1: a mesh/peer lane is treated as offline (no mesh probe),
     // never guessed gone — a sleeping peer must not read as dead.
-    let probe = pane_id.as_deref().map(|p| pane_probe(p));
+    let probe = tab_id.as_deref().map(|p| tab_probe(p));
     let inputs = LaneInputs {
-        has_assigned_pane: pane_id.is_some(),
-        pane_present_local: probe.as_ref().map(|p| p.exists).unwrap_or(false),
+        has_assigned_tab: tab_id.is_some(),
+        tab_present_local: probe.as_ref().map(|p| p.exists).unwrap_or(false),
         has_peer,
         peer_online: if has_peer { Some(false) } else { None },
         tracker_active: probe.as_ref().map(|p| p.live_agent),
@@ -62,26 +62,26 @@ where
         now_ms,
     };
     let liveness = derive_lane_liveness(&inputs, &LaneThresholds::default());
-    (pane_id, liveness)
+    (tab_id, liveness)
 }
 
 /// Build one row per open lane (pending/in_progress/in_review). Liveness is
-/// derived from the pane's own probe — unknown panes stay honestly NoPane.
-pub fn build_lane_rows<F>(plan: &Plan, mut pane_probe: F, now_ms: u64) -> Vec<LaneRow>
+/// derived from the tab's own probe — unknown tabs stay honestly NoTab.
+pub fn build_lane_rows<F>(plan: &Plan, mut tab_probe: F, now_ms: u64) -> Vec<LaneRow>
 where
-    F: FnMut(&str) -> PaneProbe,
+    F: FnMut(&str) -> TabProbe,
 {
     plan.tasks
         .iter()
         .filter(|t| is_open(&t.status))
         .map(|t| {
-            let (pane_id, liveness) = lane_liveness(t, &mut pane_probe, now_ms);
+            let (tab_id, liveness) = lane_liveness(t, &mut tab_probe, now_ms);
             LaneRow {
                 task_id: t.id.clone(),
                 handle: t.handle.clone(),
                 title: t.name.clone(),
                 status: t.status.clone(),
-                pane_id,
+                tab_id,
                 liveness,
                 branch: t.lane.branch.clone(),
                 worktree: t.lane.worktree_path.clone(),

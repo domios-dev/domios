@@ -7,10 +7,10 @@ pub struct PtyOwnership {
     launch_claims: Arc<Mutex<HashMap<String, String>>>,
 }
 
-pub struct PanePtyClaim {
-    pane_id: String,
+pub struct TabPtyClaim {
+    tab_id: String,
     ownership: PtyOwnership,
-    _activation: crate::service::pty_activation::PaneActivationPermit,
+    _activation: crate::service::pty_activation::TabActivationPermit,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -28,38 +28,38 @@ impl PtySelection {
 
 pub enum LinkOutcome {
     Linked(Option<String>),
-    PaneMissing,
+    TabMissing,
 }
 
 impl PtyOwnership {
-    pub fn acquire(&self, pane_id: &str) -> PanePtyClaim {
-        PanePtyClaim {
-            pane_id: pane_id.to_string(),
+    pub fn acquire(&self, tab_id: &str) -> TabPtyClaim {
+        TabPtyClaim {
+            tab_id: tab_id.to_string(),
             ownership: self.clone(),
-            _activation: crate::service::pty_activation::acquire(pane_id),
+            _activation: crate::service::pty_activation::acquire(tab_id),
         }
     }
 
-    pub async fn acquire_async(&self, pane_id: String) -> Result<PanePtyClaim, String> {
-        let activation = crate::service::pty_activation::acquire_async(pane_id.clone()).await?;
-        Ok(PanePtyClaim {
-            pane_id,
+    pub async fn acquire_async(&self, tab_id: String) -> Result<TabPtyClaim, String> {
+        let activation = crate::service::pty_activation::acquire_async(tab_id.clone()).await?;
+        Ok(TabPtyClaim {
+            tab_id,
             ownership: self.clone(),
             _activation: activation,
         })
     }
 
     #[cfg(test)]
-    fn acquire_with_wait_hook(&self, pane_id: &str, waiting: impl FnMut()) -> PanePtyClaim {
-        PanePtyClaim {
-            pane_id: pane_id.to_string(),
+    fn acquire_with_wait_hook(&self, tab_id: &str, waiting: impl FnMut()) -> TabPtyClaim {
+        TabPtyClaim {
+            tab_id: tab_id.to_string(),
             ownership: self.clone(),
-            _activation: crate::service::pty_activation::acquire_with_wait_hook(pane_id, waiting),
+            _activation: crate::service::pty_activation::acquire_with_wait_hook(tab_id, waiting),
         }
     }
 
-    pub fn launch_claim(&self, pane_id: &str) -> Option<String> {
-        self.launch_claims.lock().get(pane_id).cloned()
+    pub fn launch_claim(&self, tab_id: &str) -> Option<String> {
+        self.launch_claims.lock().get(tab_id).cloned()
     }
 
     pub fn release_pty(&self, pty_id: &str) {
@@ -78,7 +78,7 @@ impl PtyOwnership {
     }
 }
 
-impl PanePtyClaim {
+impl TabPtyClaim {
     pub fn settle(
         &self,
         candidate_pty_id: String,
@@ -90,7 +90,7 @@ impl PanePtyClaim {
     ) -> PtySelection {
         let existing_claim = {
             let claims = self.ownership.launch_claims.lock();
-            claims.get(&self.pane_id).cloned()
+            claims.get(&self.tab_id).cloned()
         };
         let mut claimed = existing_claim.and_then(|claimed| {
             if is_live(&claimed) {
@@ -104,7 +104,7 @@ impl PanePtyClaim {
             self.ownership
                 .launch_claims
                 .lock()
-                .insert(self.pane_id.clone(), candidate_pty_id.clone());
+                .insert(self.tab_id.clone(), candidate_pty_id.clone());
             claimed = Some(candidate_pty_id.clone());
         }
         let selected = claimed.unwrap_or_else(|| candidate_pty_id.clone());
@@ -119,7 +119,7 @@ impl PanePtyClaim {
                 }
                 true
             }
-            LinkOutcome::PaneMissing => {
+            LinkOutcome::TabMissing => {
                 self.ownership.release_pty(&selected);
                 kill(&selected);
                 false
@@ -153,7 +153,7 @@ impl PanePtyClaim {
 
 #[cfg(test)]
 mod tests {
-    use super::{LinkOutcome, PanePtyClaim, PtyOwnership};
+    use super::{LinkOutcome, TabPtyClaim, PtyOwnership};
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Barrier, Mutex};
@@ -181,12 +181,12 @@ mod tests {
             id
         }
 
-        fn run(&self, ownership: &PtyOwnership, pane: &str, launch: bool, command: &str) {
-            let claim = ownership.acquire(pane);
-            self.run_claimed(claim, pane, launch, command);
+        fn run(&self, ownership: &PtyOwnership, tab: &str, launch: bool, command: &str) {
+            let claim = ownership.acquire(tab);
+            self.run_claimed(claim, tab, launch, command);
         }
 
-        fn run_claimed(&self, claim: PanePtyClaim, pane: &str, launch: bool, command: &str) {
+        fn run_claimed(&self, claim: TabPtyClaim, tab: &str, launch: bool, command: &str) {
             let state = self.clone();
             let existing = self.clone();
             let spawned = self.clone();
@@ -202,7 +202,7 @@ mod tests {
                     let state = existing.0.lock().unwrap();
                     state
                         .links
-                        .get(pane)
+                        .get(tab)
                         .filter(|pty_id| state.live.contains(*pty_id))
                         .cloned()
                 },
@@ -222,7 +222,7 @@ mod tests {
                             .lock()
                             .unwrap()
                             .links
-                            .insert(pane.to_string(), id.to_string()),
+                            .insert(tab.to_string(), id.to_string()),
                     )
                 },
                 move |id| {
@@ -232,7 +232,7 @@ mod tests {
                     }
                 },
                 move |id| {
-                    ready.0.lock().unwrap().ready.insert(pane.to_string());
+                    ready.0.lock().unwrap().ready.insert(tab.to_string());
                     let _ = id;
                 },
             );
@@ -248,8 +248,8 @@ mod tests {
             }
         }
 
-        fn close(&self, ownership: &PtyOwnership, pane: &str) {
-            let pty_id = self.0.lock().unwrap().links.remove(pane).unwrap();
+        fn close(&self, ownership: &PtyOwnership, tab: &str) {
+            let pty_id = self.0.lock().unwrap().links.remove(tab).unwrap();
             ownership.release_pty(&pty_id);
             let mut state = self.0.lock().unwrap();
             if state.live.remove(&pty_id) {
@@ -263,7 +263,7 @@ mod tests {
         let callbacks = RecordingCallbacks::default();
         let start = Arc::new(Barrier::new(5));
         let mut threads = Vec::new();
-        for (pane, command) in [("pair-a", "agent-a"), ("pair-b", "agent-b")] {
+        for (tab, command) in [("pair-a", "agent-a"), ("pair-b", "agent-b")] {
             let (first_acquired_tx, first_acquired_rx) = std::sync::mpsc::channel();
             let (second_waiting_tx, second_waiting_rx) = std::sync::mpsc::channel();
             let ownership_first = ownership.clone();
@@ -271,12 +271,12 @@ mod tests {
             let start_first = start.clone();
             threads.push(std::thread::spawn(move || {
                 start_first.wait();
-                let claim = ownership_first.acquire(pane);
+                let claim = ownership_first.acquire(tab);
                 first_acquired_tx.send(()).unwrap();
                 second_waiting_rx.recv().unwrap();
                 callbacks_first.run_claimed(
                     claim,
-                    pane,
+                    tab,
                     !frontend_first,
                     if frontend_first { "" } else { command },
                 );
@@ -289,14 +289,14 @@ mod tests {
                 start_second.wait();
                 first_acquired_rx.recv().unwrap();
                 let mut waiting_tx = Some(second_waiting_tx);
-                let claim = ownership_second.acquire_with_wait_hook(pane, move || {
+                let claim = ownership_second.acquire_with_wait_hook(tab, move || {
                     if let Some(tx) = waiting_tx.take() {
                         tx.send(()).unwrap();
                     }
                 });
                 callbacks_second.run_claimed(
                     claim,
-                    pane,
+                    tab,
                     frontend_first,
                     if frontend_first { command } else { "" },
                 );
@@ -310,7 +310,7 @@ mod tests {
     }
 
     #[test]
-    fn concurrent_pair_spawn_single_pty_per_pane() {
+    fn concurrent_pair_spawn_single_pty_per_tab() {
         for frontend_first in [false, true] {
             let (_, callbacks) = concurrent_pair(frontend_first);
             let state = callbacks.0.lock().unwrap();
@@ -386,14 +386,14 @@ mod tests {
         let ownership = PtyOwnership::default();
         let callbacks = RecordingCallbacks::default();
         let candidate = callbacks.spawn();
-        let permit = ownership.acquire("orphan-pane");
+        let permit = ownership.acquire("orphan-tab");
         let live = callbacks.clone();
         let killed = callbacks.clone();
         permit.settle(
             candidate.clone(),
             false,
             move |id| live.0.lock().unwrap().live.contains(id),
-            move |_| LinkOutcome::PaneMissing,
+            move |_| LinkOutcome::TabMissing,
             move |id| {
                 let mut state = killed.0.lock().unwrap();
                 if state.live.remove(id) {
@@ -408,11 +408,11 @@ mod tests {
     }
 
     #[test]
-    fn missing_pane_launch_candidate_is_reaped_without_readiness() {
+    fn missing_tab_launch_candidate_is_reaped_without_readiness() {
         let ownership = PtyOwnership::default();
         let callbacks = RecordingCallbacks::default();
         let candidate = callbacks.spawn();
-        let permit = ownership.acquire("missing-pane");
+        let permit = ownership.acquire("missing-tab");
         let live = callbacks.clone();
         let killed = callbacks.clone();
         let ready = Arc::new(AtomicBool::new(false));
@@ -421,7 +421,7 @@ mod tests {
             candidate.clone(),
             true,
             move |id| live.0.lock().unwrap().live.contains(id),
-            move |_| LinkOutcome::PaneMissing,
+            move |_| LinkOutcome::TabMissing,
             move |id| {
                 let mut state = killed.0.lock().unwrap();
                 if state.live.remove(id) {
@@ -433,7 +433,7 @@ mod tests {
 
         assert!(!selection.linked);
         assert!(!ready.load(Ordering::Acquire));
-        assert!(ownership.launch_claim("missing-pane").is_none());
+        assert!(ownership.launch_claim("missing-tab").is_none());
         assert_eq!(callbacks.0.lock().unwrap().killed, vec![candidate]);
     }
 

@@ -29,26 +29,26 @@ function hitCounter() {
 const TAB_ID = "tab";
 
 type EvMsg = { id: string; content?: string };
-function arrival(paneId: string, msgs: EvMsg[]): ChatSessionDiagnosticEvent {
-  return { edge: "event_arrival", paneId, sourceSessionId: null, sessionBindingNonce: null, messageIds: msgs.map((m) => m.id), tailSignature: tailSignatureOf(msgs) };
+function arrival(tabId: string, msgs: EvMsg[]): ChatSessionDiagnosticEvent {
+  return { edge: "event_arrival", tabId, sourceSessionId: null, sessionBindingNonce: null, messageIds: msgs.map((m) => m.id), tailSignature: tailSignatureOf(msgs) };
 }
-function adopt(paneId: string, msgs: EvMsg[]): ChatSessionDiagnosticEvent {
-  return { edge: "authority_adopt", paneId, sourceSessionId: null, sessionBindingNonce: null, messageIds: msgs.map((m) => m.id), tailSignature: tailSignatureOf(msgs) };
+function adopt(tabId: string, msgs: EvMsg[]): ChatSessionDiagnosticEvent {
+  return { edge: "authority_adopt", tabId, sourceSessionId: null, sessionBindingNonce: null, messageIds: msgs.map((m) => m.id), tailSignature: tailSignatureOf(msgs) };
 }
-function drop(paneId: string, msgs: EvMsg[]): ChatSessionDiagnosticEvent {
-  return { edge: "authority_drop", paneId, sourceSessionId: null, sessionBindingNonce: null, messageIds: msgs.map((m) => m.id), tailSignature: tailSignatureOf(msgs) };
+function drop(tabId: string, msgs: EvMsg[]): ChatSessionDiagnosticEvent {
+  return { edge: "authority_drop", tabId, sourceSessionId: null, sessionBindingNonce: null, messageIds: msgs.map((m) => m.id), tailSignature: tailSignatureOf(msgs) };
 }
-function commit(paneId: string, msgs: EvMsg[]): ChatSessionDiagnosticEvent {
-  return { edge: "state_commit", paneId, sourceSessionId: null, sessionBindingNonce: null, messageIds: msgs.map((m) => m.id), tailSignature: tailSignatureOf(msgs) };
+function commit(tabId: string, msgs: EvMsg[]): ChatSessionDiagnosticEvent {
+  return { edge: "state_commit", tabId, sourceSessionId: null, sessionBindingNonce: null, messageIds: msgs.map((m) => m.id), tailSignature: tailSignatureOf(msgs) };
 }
 function snapshotArrival(
-  paneId: string,
+  tabId: string,
   msgs: EvMsg[],
   coords: { cursor?: string | null; offset?: number | null; startOffset?: number | null } = {},
 ): ChatSessionDiagnosticEvent {
   return {
     edge: "snapshot_arrival",
-    paneId,
+    tabId,
     sourceSessionId: null,
     sessionBindingNonce: null,
     messageIds: msgs.map((m) => m.id),
@@ -59,13 +59,13 @@ function snapshotArrival(
     startOffset: coords.startOffset ?? null,
   };
 }
-// Drive a pane up to a committed+painted steady state at the given tail.
-function bringToSteadyState(monitor: ChatProjectionMonitor, paneId: string, msgs: EvMsg[]): void {
-  monitor.ingest(snapshotArrival(paneId, msgs, { cursor: "c0", offset: msgs.length, startOffset: 0 }));
-  monitor.ingest(arrival(paneId, msgs));
-  monitor.ingest(adopt(paneId, msgs));
-  monitor.ingest(commit(paneId, msgs));
-  monitor.recordPaint(paneId, tailSignatureOf(msgs));
+// Drive a tab up to a committed+painted steady state at the given tail.
+function bringToSteadyState(monitor: ChatProjectionMonitor, tabId: string, msgs: EvMsg[]): void {
+  monitor.ingest(snapshotArrival(tabId, msgs, { cursor: "c0", offset: msgs.length, startOffset: 0 }));
+  monitor.ingest(arrival(tabId, msgs));
+  monitor.ingest(adopt(tabId, msgs));
+  monitor.ingest(commit(tabId, msgs));
+  monitor.recordPaint(tabId, tailSignatureOf(msgs));
 }
 
 // ── Unit: distinct per-stage counters ──────────────────────────────────────
@@ -116,21 +116,21 @@ function testMonotonicAndBounded(): void {
 
   monitor.ingest(arrival("a", [{ id: "x", content: "x" }]));
   monitor.ingest(arrival("b", [{ id: "y", content: "y" }]));
-  assert(monitor.trackedPaneCount() === 2, "tracked Tabs capped at bound");
-  monitor.ingest(arrival(TAB_ID, [{ id: "z", content: "z" }])); // touch pane -> evicts the LRU pane ("a")
-  assert(monitor.trackedPaneCount() === 2, "adding beyond the cap evicts, stays bounded");
+  assert(monitor.trackedTabCount() === 2, "tracked Tabs capped at bound");
+  monitor.ingest(arrival(TAB_ID, [{ id: "z", content: "z" }])); // touch tab -> evicts the LRU tab ("a")
+  assert(monitor.trackedTabCount() === 2, "adding beyond the cap evicts, stays bounded");
   assert(monitor.snapshot("a") === null, "least-recently-used Tab evicted");
   assert(monitor.snapshot(TAB_ID) !== null && monitor.snapshot("b") !== null, "recently-used Tabs retained");
 }
 
-// ── Unit: lifecycle cleanup — records do not outlive their pane ──────────────
+// ── Unit: lifecycle cleanup — records do not outlive their tab ──────────────
 function testForgetLifecycle(): void {
   const monitor = new ChatProjectionMonitor();
   monitor.ingest(arrival(TAB_ID, [{ id: "m0", content: "hi" }]));
-  assert(monitor.trackedPaneCount() === 1, "Tab tracked after ingest");
+  assert(monitor.trackedTabCount() === 1, "Tab tracked after ingest");
   monitor.forget(TAB_ID);
   assert(monitor.snapshot(TAB_ID) === null, "forget drops the Tab record");
-  assert(monitor.trackedPaneCount() === 0, "forget shrinks the tracked Tab count, not just evicts on cap");
+  assert(monitor.trackedTabCount() === 0, "forget shrinks the tracked Tab count, not just evicts on cap");
 }
 
 // ── Unit: painted-tail probe fires after paint (double rAF), not at commit ───
@@ -255,7 +255,7 @@ function testSnapshotSignatureRecorded(): void {
 }
 
 // ── Unit: away→back / Terminal→Chat activation reconcile oracle ───────────────
-// Terminal↔Chat toggling unmounts/remounts PaneSessionChat, so forget() runs on
+// Terminal↔Chat toggling unmounts/remounts TabSessionChat, so forget() runs on
 // the way out and a fresh snapshot on the way back. The oracle proves the prior
 // committed tail survives teardown and the reactivated snapshot is attributed by
 // its cursor/signature — a clean recovery, a same-id regression, or a divergence.
@@ -269,7 +269,7 @@ function testActivationReconcileOracle(): void {
 
     monitor.forget(TAB_ID); // Terminal switch: unmount
     assert(monitor.snapshot(TAB_ID) === null, "forget drops the live record");
-    assert(monitor.trackedPaneCount() === 0, "torn-down Tab is not counted as live");
+    assert(monitor.trackedTabCount() === 0, "torn-down Tab is not counted as live");
     assert(monitor.firstStalledEdge(TAB_ID) === null, "a forgotten Tab reports no live stall");
     const prior = monitor.priorActivation(TAB_ID)!;
     assert(prior.committedTail === "a1#11", "prior committed tail is preserved across teardown");
@@ -283,7 +283,7 @@ function testActivationReconcileOracle(): void {
   }
 
   // Regression: the re-attach lands on the same tail id but shorter content — the
-  // backend tailer came back with less than the pane had already committed.
+  // backend tailer came back with less than the tab had already committed.
   {
     const monitor = new ChatProjectionMonitor();
     bringToSteadyState(monitor, TAB_ID, [{ id: "m0", content: "hi" }, { id: "a1", content: "abcdefghij" }]); // "a1#10"
@@ -376,7 +376,7 @@ function classifyRecoveryProbe(recovered: string, target: string): string {
 
 // ── Unit: test-only exposure of the live monitor for E2E/integration probes ───
 function testTestOnlyExposure(): void {
-  // Mirrors PaneSessionChat's test-mode wiring: expose the process-wide monitor on
+  // Mirrors TabSessionChat's test-mode wiring: expose the process-wide monitor on
   // window under a test-only key so harnesses can read live projection state.
   const monitor = new ChatProjectionMonitor();
   const w = globalThis as unknown as { __chatProjection?: ChatProjectionMonitor };
@@ -454,7 +454,7 @@ async function testFrozenTailSignatureIntegration(): Promise<void> {
     const [urgent, setUrgent] = useState(0);
     bumpUrgent = () => setUrgent((v) => v + 1);
     const session = useChatSession({
-      paneId: TAB_ID,
+      tabId: TAB_ID,
       agentSessionId: "session-own",
       sessionBindingNonce: "nonce-a",
       active: true,
@@ -488,7 +488,7 @@ async function testFrozenTailSignatureIntegration(): Promise<void> {
     for (let i = 0; i < streamCount; i += 1) {
       handler?.({
         payload: {
-          pane_id: TAB_ID, messages: [msg("m1", "x".repeat(i + 1))],
+          tab_id: TAB_ID, messages: [msg("m1", "x".repeat(i + 1))],
           source_session_id: "session-own", session_binding_nonce: "nonce-a",
         },
       });
@@ -557,7 +557,7 @@ async function testActivationRemountIntegration(): Promise<void> {
   const monitor = new ChatProjectionMonitor();
   function Harness() {
     const session = useChatSession({
-      paneId: TAB_ID,
+      tabId: TAB_ID,
       agentSessionId: "session-own",
       sessionBindingNonce: "nonce-a",
       active: true,
@@ -590,7 +590,7 @@ async function testActivationRemountIntegration(): Promise<void> {
       backend[1] = grown;
       handler?.({
         payload: {
-          pane_id: TAB_ID, messages: [grown],
+          tab_id: TAB_ID, messages: [grown],
           source_session_id: "session-own", session_binding_nonce: "nonce-a",
         },
       });

@@ -12,21 +12,21 @@ Files: 20. Tests: 78. Findings: 0 (0 errors, 0 warnings).
 | --- | --- | --- | ---: |
 | good | @smoke /api/health is ok with a build hash | tests/playwright/suites/01-smoke/smoke.spec.ts:8 | 0 |
 | good | @smoke the real app window renders the shell UI | tests/playwright/suites/01-smoke/smoke.spec.ts:15 | 0 |
-| good | @smoke default workspace and at least one pane exist | tests/playwright/suites/01-smoke/smoke.spec.ts:36 | 0 |
+| good | @smoke default workspace and at least one tab exist | tests/playwright/suites/01-smoke/smoke.spec.ts:36 | 0 |
 | good | @smoke system agent providers are registered | tests/playwright/suites/01-smoke/smoke.spec.ts:45 | 0 |
 | good | @smoke UI agrees with API about the active workspace | tests/playwright/suites/01-smoke/smoke.spec.ts:53 | 0 |
 | good | @golden workspace create/focus/close round-trip, UI tracks it | tests/playwright/suites/02-multiplexer/multiplexer.spec.ts:20 | 0 |
-| good | @golden pane create/focus/close round-trip | tests/playwright/suites/02-multiplexer/multiplexer.spec.ts:44 | 0 |
-| good | @smoke @regression #132: exactly one focused pane across 50 focus switches | tests/playwright/suites/02-multiplexer/multiplexer.spec.ts:61 | 0 |
-| good | @golden workspace + pane survive a daemon kill/restart | tests/playwright/suites/02-multiplexer/multiplexer.spec.ts:79 | 0 |
+| good | @golden tab create/focus/close round-trip | tests/playwright/suites/02-multiplexer/multiplexer.spec.ts:44 | 0 |
+| good | @smoke @regression #132: exactly one focused tab across 50 focus switches | tests/playwright/suites/02-multiplexer/multiplexer.spec.ts:61 | 0 |
+| good | @golden workspace + tab survive a daemon kill/restart | tests/playwright/suites/02-multiplexer/multiplexer.spec.ts:79 | 0 |
 | good | @smoke spawn with an unknown provider errors honestly | tests/playwright/suites/03-agents/agents.spec.ts:21 | 0 |
 | good | @smoke report IPC primitive: child report lands in parent inbox (no LLM) | tests/playwright/suites/03-agents/agents.spec.ts:34 | 0 |
-| good | @smoke pane status endpoint answers for a live pane and 404s for a dead id | tests/playwright/suites/03-agents/agents.spec.ts:58 | 0 |
+| good | @smoke tab status endpoint answers for a live tab and 404s for a dead id | tests/playwright/suites/03-agents/agents.spec.ts:58 | 0 |
 | good | @golden real agent spawn → works → reports back (structural asserts) | tests/playwright/suites/03-agents/agents.spec.ts:74 | 0 |
 | good | @golden multi-turn + tool round-trip observed in the live terminal DOM | tests/playwright/suites/03-agents/agents.spec.ts:146 | 0 |
 | good | @golden agent restart mid-session resumes and stays usable | tests/playwright/suites/03-agents/agents.spec.ts:185 | 0 |
 | good | @golden fully live: agent response read from the rendered terminal DOM | tests/playwright/suites/03-agents/agents.spec.ts:248 | 0 |
-| good | @golden two chat panes exchange a cross-pane message, origin rendered | tests/playwright/suites/03-agents/cross-pane-chat.spec.ts:59 | 0 |
+| good | @golden two chat tabs exchange a cross-tab message, origin rendered | tests/playwright/suites/03-agents/cross-tab-chat.spec.ts:59 | 0 |
 | good | @golden stub peer: pair → online → wedged → offline (hysteresis) → recovered, in API and Mesh-tab UI | tests/playwright/suites/04-mesh/mesh.spec.ts:31 | 0 |
 | good | @golden liar peer: alive but its services endpoint errors honestly | tests/playwright/suites/04-mesh/mesh.spec.ts:149 | 0 |
 | good | @golden Scenario A: add channel and install plugin through Settings DOM | tests/playwright/suites/05-plugins/plugins.spec.ts:168 | 0 |
@@ -46,7 +46,7 @@ Files: 20. Tests: 78. Findings: 0 (0 errors, 0 warnings).
 | good | @smoke protected routes reject a missing bearer with 401 | tests/playwright/suites/11-api/api-core.spec.ts:35 | 0 |
 | good | @smoke protected routes reject a garbage bearer with 401 | tests/playwright/suites/11-api/api-core.spec.ts:42 | 0 |
 | good | @smoke public liveness routes answer without auth | tests/playwright/suites/11-api/api-core.spec.ts:49 | 0 |
-| good | @golden pane ops on a nonexistent id return 404 | tests/playwright/suites/11-api/api-core.spec.ts:57 | 0 |
+| good | @golden tab ops on a nonexistent id return 404 | tests/playwright/suites/11-api/api-core.spec.ts:57 | 0 |
 | good | @golden PTY echo round-trip: send a command, read it back from output | tests/playwright/suites/11-api/api-core.spec.ts:66 | 0 |
 | good | @golden workspace ops on a nonexistent id return 404, close is not idempotent-silent | tests/playwright/suites/11-api/api-core.spec.ts:91 | 0 |
 | good | @golden cron CRUD lifecycle | tests/playwright/suites/11-api/api-core.spec.ts:108 | 0 |

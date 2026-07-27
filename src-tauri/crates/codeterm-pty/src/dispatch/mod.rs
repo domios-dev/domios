@@ -9,21 +9,21 @@ use serde::{Deserialize, Serialize};
 pub trait CommandPort: Send + Sync {
     fn mark_user_activity(&self);
     fn mux_snapshot(&self) -> crate::multiplexer::state::MultiplexerSnapshot;
-    fn send_text(&self, pane_id: &str, text: &str, enter: bool) -> Result<(), String>;
-    fn read_pane_output(
+    fn send_text(&self, tab_id: &str, text: &str, enter: bool) -> Result<(), String>;
+    fn read_tab_output(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         offset: Option<usize>,
         max_bytes: Option<usize>,
         strip_ansi: bool,
         full: bool,
     ) -> Result<serde_json::Value, String>;
-    fn read_pane_screen(&self, pane_id: &str, formatted: bool)
+    fn read_tab_screen(&self, tab_id: &str, formatted: bool)
         -> Result<serde_json::Value, String>;
-    fn close_pane_guarded(&self, caller: Option<&str>, pane_id: &str) -> Result<(), String>;
-    fn focus_pane(&self, pane_id: &str) -> Result<(), String>;
-    fn rename_pane(&self, pane_id: &str, title: &str) -> Result<(), String>;
-    fn set_pane_description(&self, pane_id: &str, desc: &str) -> Result<(), String>;
+    fn close_tab_guarded(&self, caller: Option<&str>, tab_id: &str) -> Result<(), String>;
+    fn focus_tab(&self, tab_id: &str) -> Result<(), String>;
+    fn rename_tab(&self, tab_id: &str, title: &str) -> Result<(), String>;
+    fn set_tab_description(&self, tab_id: &str, desc: &str) -> Result<(), String>;
     fn create_workspace(
         &self,
         name: String,
@@ -33,15 +33,15 @@ pub trait CommandPort: Send + Sync {
     fn rename_workspace(&self, ws_id: &str, name: &str) -> Result<(), String>;
     fn close_workspace_guarded(&self, caller: Option<&str>, ws_id: &str) -> Result<(), String>;
     fn list_workspaces(&self) -> Vec<crate::multiplexer::state::WorkspaceInfo>;
-    fn list_recently_closed(&self, ws_id: &str) -> Vec<crate::multiplexer::types::ClosedPane>;
-    fn reopen_closed_pane(
+    fn list_recently_closed(&self, ws_id: &str) -> Vec<crate::multiplexer::types::ClosedTab>;
+    fn reopen_closed_tab(
         &self,
         ws_id: &str,
         index: Option<usize>,
     ) -> Result<(String, String), String>;
     fn reopen_closed_group(&self, group_id: &str) -> Result<(String, String, String), String>;
-    fn resize_pane(&self, pane_id: &str, cols: u16, rows: u16) -> Result<(), String>;
-    fn kill_pane_pty(&self, pane_id: &str) -> Result<(), String>;
+    fn resize_tab(&self, tab_id: &str, cols: u16, rows: u16) -> Result<(), String>;
+    fn kill_tab_pty(&self, tab_id: &str) -> Result<(), String>;
     fn list_agent_providers(&self) -> Vec<serde_json::Value>;
 }
 
@@ -53,11 +53,11 @@ pub enum Command {
     /// Health check / system identify
     Health,
 
-    /// List all panes with metadata
-    PaneList,
+    /// List all tabs with metadata
+    TabList,
 
-    /// List compact pane summaries scoped to one workspace or the focused workspace.
-    PaneSummary {
+    /// List compact tab summaries scoped to one workspace or the focused workspace.
+    TabSummary {
         #[serde(default)]
         workspace_id: Option<String>,
         #[serde(default)]
@@ -66,20 +66,20 @@ pub enum Command {
         agents_only: bool,
     },
 
-    /// Inspect selected panes with the full pane payload.
-    PaneInspect { pane_ids: Vec<String> },
+    /// Inspect selected tabs with the full tab payload.
+    TabInspect { tab_ids: Vec<String> },
 
-    /// Send text to a pane's PTY
+    /// Send text to a tab's PTY
     SendText {
-        pane_id: String,
+        tab_id: String,
         text: String,
         #[serde(default = "default_true")]
         enter: bool,
     },
 
-    /// Get pane output (terminal buffer)
+    /// Get tab output (terminal buffer)
     GetOutput {
-        pane_id: String,
+        tab_id: String,
         #[serde(default)]
         offset: Option<usize>,
         #[serde(default)]
@@ -90,33 +90,33 @@ pub enum Command {
         full: bool,
     },
 
-    /// Get visible pane text (VT100-parsed terminal screen).
+    /// Get visible tab text (VT100-parsed terminal screen).
     /// When `formatted` is true, the string contains ANSI escape codes
     /// preserving colors, cursor position, and cursor visibility — used
-    /// for full state restore on pane remount. Default returns plain text.
+    /// for full state restore on tab remount. Default returns plain text.
     GetText {
-        pane_id: String,
+        tab_id: String,
         #[serde(default)]
         formatted: bool,
     },
 
-    /// Close a pane and kill its PTY. `caller_pane_id` is the pane making the
-    /// request (CODETERM_PANE_ID), used to refuse coordinator self-close.
-    PaneClose {
-        pane_id: String,
+    /// Close a tab and kill its PTY. `caller_tab_id` is the tab making the
+    /// request (CODETERM_TAB_ID), used to refuse coordinator self-close.
+    TabClose {
+        tab_id: String,
         #[serde(default)]
-        caller_pane_id: Option<String>,
+        caller_tab_id: Option<String>,
     },
 
-    /// Focus a pane (move keyboard focus).
-    PaneFocus { pane_id: String },
+    /// Focus a tab (move keyboard focus).
+    TabFocus { tab_id: String },
 
-    /// Rename a pane's title (pinned until the user clears it).
-    PaneRename { pane_id: String, title: String },
+    /// Rename a tab's title (pinned until the user clears it).
+    TabRename { tab_id: String, title: String },
 
-    /// Set or clear a pane's short description.
-    PaneDescribe {
-        pane_id: String,
+    /// Set or clear a tab's short description.
+    TabDescribe {
+        tab_id: String,
         description: String,
     },
 
@@ -136,23 +136,23 @@ pub enum Command {
     /// Rename an existing workspace.
     WorkspaceRename { workspace_id: String, name: String },
 
-    /// Close a workspace and kill all of its PTYs. `caller_pane_id` refuses a
+    /// Close a workspace and kill all of its PTYs. `caller_tab_id` refuses a
     /// coordinator closing the workspace it runs in.
     WorkspaceClose {
         workspace_id: String,
         #[serde(default)]
-        caller_pane_id: Option<String>,
+        caller_tab_id: Option<String>,
     },
 
     /// List all workspaces with their metadata.
     WorkspaceList,
 
-    /// List a workspace's recently-closed panes (newest first).
+    /// List a workspace's recently-closed tabs (newest first).
     WorkspaceRecentlyClosed { workspace_id: String },
 
-    /// Reopen a recently-closed pane (browser-style). `index` selects the ring
+    /// Reopen a recently-closed tab (browser-style). `index` selects the ring
     /// entry (newest = 0, default).
-    WorkspaceReopenClosedPane {
+    WorkspaceReopenClosedTab {
         workspace_id: String,
         #[serde(default)]
         index: Option<usize>,
@@ -161,16 +161,16 @@ pub enum Command {
     /// Reopen a whole closed group (single / cascade subtree / workspace) by id.
     WorkspaceReopenClosedGroup { group_id: String },
 
-    /// Resize the PTY backing a pane.
+    /// Resize the PTY backing a tab.
     PtyResize {
-        pane_id: String,
+        tab_id: String,
         cols: u16,
         rows: u16,
     },
 
-    /// Kill the PTY process for a pane without removing the pane from the mux.
-    /// Compare to `PaneClose`, which both stops the process and drops the pane.
-    PtyKill { pane_id: String },
+    /// Kill the PTY process for a tab without removing the tab from the mux.
+    /// Compare to `TabClose`, which both stops the process and drops the tab.
+    PtyKill { tab_id: String },
 }
 
 fn default_true() -> bool {
@@ -208,41 +208,41 @@ pub fn dispatch(cmd: &Command, ctx: &dyn CommandPort) -> Result<CommandResult, S
     }
     match cmd {
         Command::Health => cmd_health(),
-        Command::PaneList => cmd_pane_list(ctx),
-        Command::PaneSummary {
+        Command::TabList => cmd_tab_list(ctx),
+        Command::TabSummary {
             workspace_id,
             focused_workspace,
             agents_only,
-        } => cmd_pane_summary(
+        } => cmd_tab_summary(
             ctx,
             workspace_id.as_deref(),
             *focused_workspace,
             *agents_only,
         ),
-        Command::PaneInspect { pane_ids } => cmd_pane_inspect(ctx, pane_ids),
+        Command::TabInspect { tab_ids } => cmd_tab_inspect(ctx, tab_ids),
         Command::SendText {
-            pane_id,
+            tab_id,
             text,
             enter,
-        } => cmd_send_text(ctx, pane_id, text, *enter),
+        } => cmd_send_text(ctx, tab_id, text, *enter),
         Command::GetOutput {
-            pane_id,
+            tab_id,
             offset,
             max_bytes,
             strip_ansi,
             full,
-        } => cmd_get_output(ctx, pane_id, *offset, *max_bytes, *strip_ansi, *full),
-        Command::GetText { pane_id, formatted } => cmd_get_text(ctx, pane_id, *formatted),
-        Command::PaneClose {
-            pane_id,
-            caller_pane_id,
-        } => cmd_pane_close(ctx, pane_id, caller_pane_id.as_deref()),
-        Command::PaneFocus { pane_id } => cmd_pane_focus(ctx, pane_id),
-        Command::PaneRename { pane_id, title } => cmd_pane_rename(ctx, pane_id, title),
-        Command::PaneDescribe {
-            pane_id,
+        } => cmd_get_output(ctx, tab_id, *offset, *max_bytes, *strip_ansi, *full),
+        Command::GetText { tab_id, formatted } => cmd_get_text(ctx, tab_id, *formatted),
+        Command::TabClose {
+            tab_id,
+            caller_tab_id,
+        } => cmd_tab_close(ctx, tab_id, caller_tab_id.as_deref()),
+        Command::TabFocus { tab_id } => cmd_tab_focus(ctx, tab_id),
+        Command::TabRename { tab_id, title } => cmd_tab_rename(ctx, tab_id, title),
+        Command::TabDescribe {
+            tab_id,
             description,
-        } => cmd_pane_describe(ctx, pane_id, description),
+        } => cmd_tab_describe(ctx, tab_id, description),
         Command::ListAgentProviders => cmd_list_agent_providers(ctx),
         Command::WorkspaceCreate {
             name,
@@ -254,25 +254,25 @@ pub fn dispatch(cmd: &Command, ctx: &dyn CommandPort) -> Result<CommandResult, S
         }
         Command::WorkspaceClose {
             workspace_id,
-            caller_pane_id,
-        } => cmd_workspace_close(ctx, workspace_id, caller_pane_id.as_deref()),
+            caller_tab_id,
+        } => cmd_workspace_close(ctx, workspace_id, caller_tab_id.as_deref()),
         Command::WorkspaceList => cmd_workspace_list(ctx),
         Command::WorkspaceRecentlyClosed { workspace_id } => {
             cmd_workspace_recently_closed(ctx, workspace_id)
         }
-        Command::WorkspaceReopenClosedPane {
+        Command::WorkspaceReopenClosedTab {
             workspace_id,
             index,
-        } => cmd_workspace_reopen_closed_pane(ctx, workspace_id, *index),
+        } => cmd_workspace_reopen_closed_tab(ctx, workspace_id, *index),
         Command::WorkspaceReopenClosedGroup { group_id } => {
             cmd_workspace_reopen_closed_group(ctx, group_id)
         }
         Command::PtyResize {
-            pane_id,
+            tab_id,
             cols,
             rows,
-        } => cmd_pty_resize(ctx, pane_id, *cols, *rows),
-        Command::PtyKill { pane_id } => cmd_pty_kill(ctx, pane_id),
+        } => cmd_pty_resize(ctx, tab_id, *cols, *rows),
+        Command::PtyKill { tab_id } => cmd_pty_kill(ctx, tab_id),
     }
 }
 
@@ -282,14 +282,14 @@ fn is_mutating_user_command(cmd: &Command) -> bool {
     matches!(
         cmd,
         Command::SendText { .. }
-            | Command::PaneClose { .. }
-            | Command::PaneFocus { .. }
-            | Command::PaneRename { .. }
-            | Command::PaneDescribe { .. }
+            | Command::TabClose { .. }
+            | Command::TabFocus { .. }
+            | Command::TabRename { .. }
+            | Command::TabDescribe { .. }
             | Command::WorkspaceCreate { .. }
             | Command::WorkspaceRename { .. }
             | Command::WorkspaceClose { .. }
-            | Command::WorkspaceReopenClosedPane { .. }
+            | Command::WorkspaceReopenClosedTab { .. }
             | Command::WorkspaceReopenClosedGroup { .. }
             | Command::PtyResize { .. }
             | Command::PtyKill { .. }
@@ -306,13 +306,13 @@ fn cmd_health() -> Result<CommandResult, String> {
     })))
 }
 
-fn cmd_pane_list(ctx: &dyn CommandPort) -> Result<CommandResult, String> {
+fn cmd_tab_list(ctx: &dyn CommandPort) -> Result<CommandResult, String> {
     let snapshot = ctx.mux_snapshot();
-    let panes = build_pane_list_json(&snapshot);
-    Ok(CommandResult::Json(serde_json::json!(panes)))
+    let tabs = build_tab_list_json(&snapshot);
+    Ok(CommandResult::Json(serde_json::json!(tabs)))
 }
 
-fn cmd_pane_summary(
+fn cmd_tab_summary(
     ctx: &dyn CommandPort,
     workspace_id: Option<&str>,
     focused_workspace: bool,
@@ -320,32 +320,32 @@ fn cmd_pane_summary(
 ) -> Result<CommandResult, String> {
     let snapshot = ctx.mux_snapshot();
     Ok(CommandResult::Json(serde_json::json!(
-        build_pane_summary_json(&snapshot, workspace_id, focused_workspace, agents_only,)
+        build_tab_summary_json(&snapshot, workspace_id, focused_workspace, agents_only,)
     )))
 }
 
-fn cmd_pane_inspect(ctx: &dyn CommandPort, pane_ids: &[String]) -> Result<CommandResult, String> {
-    if pane_ids.is_empty() {
-        return Err("pane.inspect requires at least one Tab id".into());
+fn cmd_tab_inspect(ctx: &dyn CommandPort, tab_ids: &[String]) -> Result<CommandResult, String> {
+    if tab_ids.is_empty() {
+        return Err("tab.inspect requires at least one Tab id".into());
     }
     let snapshot = ctx.mux_snapshot();
-    let requested: std::collections::HashSet<&str> = pane_ids.iter().map(String::as_str).collect();
-    let panes = build_pane_list_json(&snapshot)
+    let requested: std::collections::HashSet<&str> = tab_ids.iter().map(String::as_str).collect();
+    let tabs = build_tab_list_json(&snapshot)
         .into_iter()
-        .filter(|pane| {
-            pane.get("id")
+        .filter(|tab| {
+            tab.get("id")
                 .and_then(|value| value.as_str())
                 .is_some_and(|id| requested.contains(id))
         })
         .collect::<Vec<_>>();
-    if panes.len() != requested.len() {
+    if tabs.len() != requested.len() {
         return Err("one or more requested Tabs were not found".into());
     }
-    Ok(CommandResult::Json(serde_json::json!(panes)))
+    Ok(CommandResult::Json(serde_json::json!(tabs)))
 }
 
-/// Enrich pane JSON with tab + workspace identifiers.
-pub(crate) fn build_pane_list_json(
+/// Enrich tab JSON with tab + workspace identifiers.
+pub(crate) fn build_tab_list_json(
     snapshot: &crate::multiplexer::state::MultiplexerSnapshot,
 ) -> Vec<serde_json::Value> {
     let mut tab_index: std::collections::HashMap<String, (String, String, String, String)> =
@@ -353,19 +353,19 @@ pub(crate) fn build_pane_list_json(
     for ws in &snapshot.workspaces {
         for tab in &ws.tabs {
             let tab_title = snapshot
-                .panes
-                .get(&tab.pane_id)
-                .map(|pane| pane.title.clone())
-                .unwrap_or_else(|| tab.pane_id.chars().take(8).collect());
+                .tabs
+                .get(&tab.tab_id)
+                .map(|tab| tab.title.clone())
+                .unwrap_or_else(|| tab.tab_id.chars().take(8).collect());
             tab_index.insert(
-                tab.pane_id.clone(),
+                tab.tab_id.clone(),
                 (tab.id.clone(), tab_title, ws.id.clone(), ws.name.clone()),
             );
         }
     }
-    let focused_id = snapshot.focused_pane_id.as_deref();
+    let focused_id = snapshot.focused_tab_id.as_deref();
     snapshot
-        .panes
+        .tabs
         .values()
         .filter(|p| !p.hidden)
         .map(|p| {
@@ -396,7 +396,7 @@ pub(crate) fn build_pane_list_json(
         .collect()
 }
 
-pub(crate) fn build_pane_summary_json(
+pub(crate) fn build_tab_summary_json(
     snapshot: &crate::multiplexer::state::MultiplexerSnapshot,
     workspace_id: Option<&str>,
     focused_workspace: bool,
@@ -407,7 +407,7 @@ pub(crate) fn build_pane_summary_json(
     for workspace in &snapshot.workspaces {
         for tab in &workspace.tabs {
             tab_index.insert(
-                tab.pane_id.as_str(),
+                tab.tab_id.as_str(),
                 (
                     tab.id.as_str(),
                     workspace.id.as_str(),
@@ -417,46 +417,46 @@ pub(crate) fn build_pane_summary_json(
         }
     }
     let focused_workspace_id = snapshot
-        .focused_pane_id
+        .focused_tab_id
         .as_deref()
-        .and_then(|pane_id| tab_index.get(pane_id).map(|(_, id, _)| *id));
+        .and_then(|tab_id| tab_index.get(tab_id).map(|(_, id, _)| *id));
     let selected_workspace =
         workspace_id.or_else(|| focused_workspace.then_some(focused_workspace_id).flatten());
-    let focused_id = snapshot.focused_pane_id.as_deref();
+    let focused_id = snapshot.focused_tab_id.as_deref();
     snapshot
-        .panes
+        .tabs
         .values()
-        .filter(|pane| !pane.hidden)
-        .filter(|pane| !agents_only || pane.agent_type.is_some())
-        .filter(|pane| {
+        .filter(|tab| !tab.hidden)
+        .filter(|tab| !agents_only || tab.agent_type.is_some())
+        .filter(|tab| {
             selected_workspace.is_none_or(|selected| {
                 tab_index
-                    .get(pane.id.as_str())
+                    .get(tab.id.as_str())
                     .is_some_and(|(_, workspace, _)| *workspace == selected)
             })
         })
-        .filter_map(|pane| {
-            let (tab_id, workspace_id, workspace_name) = tab_index.get(pane.id.as_str())?;
-            let backing_kind = match &pane.backing {
-                crate::multiplexer::types::PaneBacking::Pty => "pty",
-                crate::multiplexer::types::PaneBacking::ChatBackend { .. } => "chat_backend",
+        .filter_map(|tab| {
+            let (tab_id, workspace_id, workspace_name) = tab_index.get(tab.id.as_str())?;
+            let backing_kind = match &tab.backing {
+                crate::multiplexer::types::TabBacking::Pty => "pty",
+                crate::multiplexer::types::TabBacking::ChatBackend { .. } => "chat_backend",
             };
             Some(serde_json::json!({
-                "id": pane.id,
+                "id": tab.id,
                 "tab_id": tab_id,
-                "title": pane.title,
-                "description": pane.description,
+                "title": tab.title,
+                "description": tab.description,
                 "workspace_id": workspace_id,
                 "workspace_name": workspace_name,
-                "parent_pane_id": pane.parent_pane_id,
-                "agent_type": pane.agent_type,
-                "agent_session_id": pane.agent_session_id,
-                "agent_session_model": pane.agent_session_model,
-                "boot_stage": pane.boot_stage,
-                "status": pane.agent_state.as_ref().map(|state| state.state),
-                "role": pane.role,
+                "parent_tab_id": tab.parent_tab_id,
+                "agent_type": tab.agent_type,
+                "agent_session_id": tab.agent_session_id,
+                "agent_session_model": tab.agent_session_model,
+                "boot_stage": tab.boot_stage,
+                "status": tab.agent_state.as_ref().map(|state| state.state),
+                "role": tab.role,
                 "backing_kind": backing_kind,
-                "focused": focused_id == Some(pane.id.as_str()),
+                "focused": focused_id == Some(tab.id.as_str()),
             }))
         })
         .collect()
@@ -464,64 +464,64 @@ pub(crate) fn build_pane_summary_json(
 
 fn cmd_send_text(
     ctx: &dyn CommandPort,
-    pane_id: &str,
+    tab_id: &str,
     text: &str,
     enter: bool,
 ) -> Result<CommandResult, String> {
-    ctx.send_text(pane_id, text, enter)?;
+    ctx.send_text(tab_id, text, enter)?;
     Ok(CommandResult::Json(serde_json::json!({"ok": true})))
 }
 
 fn cmd_get_output(
     ctx: &dyn CommandPort,
-    pane_id: &str,
+    tab_id: &str,
     offset: Option<usize>,
     max_bytes: Option<usize>,
     strip_ansi: bool,
     full: bool,
 ) -> Result<CommandResult, String> {
-    let json = ctx.read_pane_output(pane_id, offset, max_bytes, strip_ansi, full)?;
+    let json = ctx.read_tab_output(tab_id, offset, max_bytes, strip_ansi, full)?;
     Ok(CommandResult::Json(json))
 }
 
 fn cmd_get_text(
     ctx: &dyn CommandPort,
-    pane_id: &str,
+    tab_id: &str,
     formatted: bool,
 ) -> Result<CommandResult, String> {
-    let json = ctx.read_pane_screen(pane_id, formatted)?;
+    let json = ctx.read_tab_screen(tab_id, formatted)?;
     Ok(CommandResult::Json(json))
 }
 
-fn cmd_pane_close(
+fn cmd_tab_close(
     ctx: &dyn CommandPort,
-    pane_id: &str,
-    caller_pane_id: Option<&str>,
+    tab_id: &str,
+    caller_tab_id: Option<&str>,
 ) -> Result<CommandResult, String> {
-    ctx.close_pane_guarded(caller_pane_id, pane_id)?;
+    ctx.close_tab_guarded(caller_tab_id, tab_id)?;
     Ok(CommandResult::Json(serde_json::json!({"ok": true})))
 }
 
-fn cmd_pane_focus(ctx: &dyn CommandPort, pane_id: &str) -> Result<CommandResult, String> {
-    ctx.focus_pane(pane_id)?;
+fn cmd_tab_focus(ctx: &dyn CommandPort, tab_id: &str) -> Result<CommandResult, String> {
+    ctx.focus_tab(tab_id)?;
     Ok(CommandResult::Json(serde_json::json!({"ok": true})))
 }
 
-fn cmd_pane_rename(
+fn cmd_tab_rename(
     ctx: &dyn CommandPort,
-    pane_id: &str,
+    tab_id: &str,
     title: &str,
 ) -> Result<CommandResult, String> {
-    ctx.rename_pane(pane_id, title)?;
+    ctx.rename_tab(tab_id, title)?;
     Ok(CommandResult::Json(serde_json::json!({"ok": true})))
 }
 
-fn cmd_pane_describe(
+fn cmd_tab_describe(
     ctx: &dyn CommandPort,
-    pane_id: &str,
+    tab_id: &str,
     description: &str,
 ) -> Result<CommandResult, String> {
-    ctx.set_pane_description(pane_id, description)?;
+    ctx.set_tab_description(tab_id, description)?;
     Ok(CommandResult::Json(serde_json::json!({"ok": true})))
 }
 
@@ -548,9 +548,9 @@ fn cmd_workspace_rename(
 fn cmd_workspace_close(
     ctx: &dyn CommandPort,
     workspace_id: &str,
-    caller_pane_id: Option<&str>,
+    caller_tab_id: Option<&str>,
 ) -> Result<CommandResult, String> {
-    ctx.close_workspace_guarded(caller_pane_id, workspace_id)?;
+    ctx.close_workspace_guarded(caller_tab_id, workspace_id)?;
     Ok(CommandResult::Json(serde_json::json!({"ok": true})))
 }
 
@@ -571,15 +571,15 @@ fn cmd_workspace_recently_closed(
     Ok(CommandResult::Json(json))
 }
 
-fn cmd_workspace_reopen_closed_pane(
+fn cmd_workspace_reopen_closed_tab(
     ctx: &dyn CommandPort,
     workspace_id: &str,
     index: Option<usize>,
 ) -> Result<CommandResult, String> {
-    let (tab_id, pane_id) = ctx.reopen_closed_pane(workspace_id, index)?;
+    let (tab_id, tab_id) = ctx.reopen_closed_tab(workspace_id, index)?;
     Ok(CommandResult::Json(serde_json::json!({
         "tab_id": tab_id,
-        "pane_id": pane_id,
+        "tab_id": tab_id,
     })))
 }
 
@@ -587,26 +587,26 @@ fn cmd_workspace_reopen_closed_group(
     ctx: &dyn CommandPort,
     group_id: &str,
 ) -> Result<CommandResult, String> {
-    let (workspace_id, tab_id, pane_id) = ctx.reopen_closed_group(group_id)?;
+    let (workspace_id, tab_id, tab_id) = ctx.reopen_closed_group(group_id)?;
     Ok(CommandResult::Json(serde_json::json!({
         "workspace_id": workspace_id,
         "tab_id": tab_id,
-        "pane_id": pane_id,
+        "tab_id": tab_id,
     })))
 }
 
 fn cmd_pty_resize(
     ctx: &dyn CommandPort,
-    pane_id: &str,
+    tab_id: &str,
     cols: u16,
     rows: u16,
 ) -> Result<CommandResult, String> {
-    ctx.resize_pane(pane_id, cols, rows)?;
+    ctx.resize_tab(tab_id, cols, rows)?;
     Ok(CommandResult::Json(serde_json::json!({"ok": true})))
 }
 
-fn cmd_pty_kill(ctx: &dyn CommandPort, pane_id: &str) -> Result<CommandResult, String> {
-    ctx.kill_pane_pty(pane_id)?;
+fn cmd_pty_kill(ctx: &dyn CommandPort, tab_id: &str) -> Result<CommandResult, String> {
+    ctx.kill_tab_pty(tab_id)?;
     Ok(CommandResult::Json(serde_json::json!({"ok": true})))
 }
 
@@ -641,15 +641,15 @@ mod tests {
 
     #[test]
     fn test_command_deserialize_send_text() {
-        let json = r#"{"cmd": "send_text", "pane_id": "abc", "text": "hello"}"#;
+        let json = r#"{"cmd": "send_text", "tab_id": "abc", "text": "hello"}"#;
         let cmd: Command = serde_json::from_str(json).unwrap();
         match cmd {
             Command::SendText {
-                pane_id,
+                tab_id,
                 text,
                 enter,
             } => {
-                assert_eq!(pane_id, "abc");
+                assert_eq!(tab_id, "abc");
                 assert_eq!(text, "hello");
                 assert!(enter); // default true
             }
@@ -659,7 +659,7 @@ mod tests {
 
     #[test]
     fn test_command_deserialize_send_text_enter_false() {
-        let json = r#"{"cmd": "send_text", "pane_id": "abc", "text": "hello", "enter": false}"#;
+        let json = r#"{"cmd": "send_text", "tab_id": "abc", "text": "hello", "enter": false}"#;
         let cmd: Command = serde_json::from_str(json).unwrap();
         match cmd {
             Command::SendText { enter, .. } => assert!(!enter),
@@ -669,17 +669,17 @@ mod tests {
 
     #[test]
     fn test_command_deserialize_get_output() {
-        let json = r#"{"cmd": "get_output", "pane_id": "abc", "strip_ansi": true}"#;
+        let json = r#"{"cmd": "get_output", "tab_id": "abc", "strip_ansi": true}"#;
         let cmd: Command = serde_json::from_str(json).unwrap();
         match cmd {
             Command::GetOutput {
-                pane_id,
+                tab_id,
                 strip_ansi,
                 full,
                 offset,
                 max_bytes,
             } => {
-                assert_eq!(pane_id, "abc");
+                assert_eq!(tab_id, "abc");
                 assert!(strip_ansi);
                 assert!(!full); // default false
                 assert!(offset.is_none());
@@ -691,11 +691,11 @@ mod tests {
 
     #[test]
     fn test_command_deserialize_get_text() {
-        let json = r#"{"cmd": "get_text", "pane_id": "abc", "formatted": true}"#;
+        let json = r#"{"cmd": "get_text", "tab_id": "abc", "formatted": true}"#;
         let cmd: Command = serde_json::from_str(json).unwrap();
         match cmd {
-            Command::GetText { pane_id, formatted } => {
-                assert_eq!(pane_id, "abc");
+            Command::GetText { tab_id, formatted } => {
+                assert_eq!(tab_id, "abc");
                 assert!(formatted);
             }
             _ => panic!("wrong variant"),
@@ -703,10 +703,10 @@ mod tests {
     }
 
     #[test]
-    fn test_command_deserialize_pane_list() {
-        let json = r#"{"cmd": "pane_list"}"#;
+    fn test_command_deserialize_tab_list() {
+        let json = r#"{"cmd": "tab_list"}"#;
         let cmd: Command = serde_json::from_str(json).unwrap();
-        assert!(matches!(cmd, Command::PaneList));
+        assert!(matches!(cmd, Command::TabList));
     }
 
     #[test]
@@ -719,26 +719,26 @@ mod tests {
     // ── Command enum round-trip tests ───────────────────────────────
 
     #[test]
-    fn pane_close_deserialize() {
+    fn tab_close_deserialize() {
         let cmd: Command =
-            serde_json::from_str(r#"{"cmd": "pane_close", "pane_id": "abc"}"#).unwrap();
-        assert!(matches!(cmd, Command::PaneClose { .. }));
+            serde_json::from_str(r#"{"cmd": "tab_close", "tab_id": "abc"}"#).unwrap();
+        assert!(matches!(cmd, Command::TabClose { .. }));
     }
 
     #[test]
-    fn pane_focus_deserialize() {
+    fn tab_focus_deserialize() {
         let cmd: Command =
-            serde_json::from_str(r#"{"cmd": "pane_focus", "pane_id": "abc"}"#).unwrap();
-        assert!(matches!(cmd, Command::PaneFocus { .. }));
+            serde_json::from_str(r#"{"cmd": "tab_focus", "tab_id": "abc"}"#).unwrap();
+        assert!(matches!(cmd, Command::TabFocus { .. }));
     }
 
     #[test]
-    fn pane_rename_deserialize() {
-        let json = r#"{"cmd": "pane_rename", "pane_id": "abc", "title": "My Pane"}"#;
+    fn tab_rename_deserialize() {
+        let json = r#"{"cmd": "tab_rename", "tab_id": "abc", "title": "My Tab"}"#;
         let cmd: Command = serde_json::from_str(json).unwrap();
         match cmd {
-            Command::PaneRename { pane_id, title } => {
-                assert_eq!(pane_id, "abc");
+            Command::TabRename { tab_id, title } => {
+                assert_eq!(tab_id, "abc");
                 assert_eq!(title, "My Tab");
             }
             _ => panic!("wrong variant"),
@@ -747,17 +747,17 @@ mod tests {
 
     #[test]
     fn get_output_deserialize_full_params() {
-        let json = r#"{"cmd":"get_output","pane_id":"p","offset":100,"max_bytes":4096,"strip_ansi":true,"full":true}"#;
+        let json = r#"{"cmd":"get_output","tab_id":"p","offset":100,"max_bytes":4096,"strip_ansi":true,"full":true}"#;
         let cmd: Command = serde_json::from_str(json).unwrap();
         match cmd {
             Command::GetOutput {
-                pane_id,
+                tab_id,
                 offset,
                 max_bytes,
                 strip_ansi,
                 full,
             } => {
-                assert_eq!(pane_id, "p");
+                assert_eq!(tab_id, "p");
                 assert_eq!(offset, Some(100));
                 assert_eq!(max_bytes, Some(4096));
                 assert!(strip_ansi);
@@ -772,32 +772,32 @@ mod tests {
         // Validates that every variant we migrated survives a JSON round trip with tag-based dispatch.
         let commands = vec![
             Command::Health,
-            Command::PaneList,
+            Command::TabList,
             Command::SendText {
-                pane_id: "p".into(),
+                tab_id: "p".into(),
                 text: "hi".into(),
                 enter: true,
             },
             Command::GetOutput {
-                pane_id: "p".into(),
+                tab_id: "p".into(),
                 offset: None,
                 max_bytes: None,
                 strip_ansi: false,
                 full: false,
             },
             Command::GetText {
-                pane_id: "p".into(),
+                tab_id: "p".into(),
                 formatted: false,
             },
-            Command::PaneClose {
-                pane_id: "p".into(),
-                caller_pane_id: None,
+            Command::TabClose {
+                tab_id: "p".into(),
+                caller_tab_id: None,
             },
-            Command::PaneFocus {
-                pane_id: "p".into(),
+            Command::TabFocus {
+                tab_id: "p".into(),
             },
-            Command::PaneRename {
-                pane_id: "p".into(),
+            Command::TabRename {
+                tab_id: "p".into(),
                 title: "t".into(),
             },
             Command::ListAgentProviders,
@@ -812,16 +812,16 @@ mod tests {
             },
             Command::WorkspaceClose {
                 workspace_id: "w".into(),
-                caller_pane_id: None,
+                caller_tab_id: None,
             },
             Command::WorkspaceList,
             Command::PtyResize {
-                pane_id: "p".into(),
+                tab_id: "p".into(),
                 cols: 80,
                 rows: 24,
             },
             Command::PtyKill {
-                pane_id: "p".into(),
+                tab_id: "p".into(),
             },
         ];
         for cmd in commands {
@@ -909,15 +909,15 @@ mod tests {
 
     #[test]
     fn pty_resize_deserialize() {
-        let json = r#"{"cmd":"pty_resize","pane_id":"p","cols":120,"rows":40}"#;
+        let json = r#"{"cmd":"pty_resize","tab_id":"p","cols":120,"rows":40}"#;
         let cmd: Command = serde_json::from_str(json).unwrap();
         match cmd {
             Command::PtyResize {
-                pane_id,
+                tab_id,
                 cols,
                 rows,
             } => {
-                assert_eq!(pane_id, "p");
+                assert_eq!(tab_id, "p");
                 assert_eq!(cols, 120);
                 assert_eq!(rows, 40);
             }
@@ -927,7 +927,7 @@ mod tests {
 
     #[test]
     fn pty_kill_deserialize() {
-        let cmd: Command = serde_json::from_str(r#"{"cmd":"pty_kill","pane_id":"p"}"#).unwrap();
+        let cmd: Command = serde_json::from_str(r#"{"cmd":"pty_kill","tab_id":"p"}"#).unwrap();
         assert!(matches!(cmd, Command::PtyKill { .. }));
     }
 
@@ -937,68 +937,68 @@ mod tests {
         assert!(matches!(cmd, Command::ListAgentProviders));
     }
 
-    // `cmd_pane_list` and `build_pane_list_json` enrich panes with sidebar labels.
+    // `cmd_tab_list` and `build_tab_list_json` enrich tabs with sidebar labels.
     // Tests stay on the pure helper so both `Tab list` and `Tab find` keep full workspace context.
 
     #[test]
-    fn pane_list_attaches_tab_title_and_workspace_name() {
+    fn tab_list_attaches_tab_title_and_workspace_name() {
         use crate::multiplexer::state::MultiplexerState;
-        let (mut state, initial_pane) = MultiplexerState::new();
+        let (mut state, initial_tab) = MultiplexerState::new();
         let snapshot = state.snapshot();
         let ws = snapshot.workspaces.first().expect("default ws").clone();
-        let tab_id = state.find_tab_for_pane(&initial_pane).expect("default tab");
+        let tab_id = state.find_tab_for_tab(&initial_tab).expect("default tab");
         state.rename_tab(&ws.id, &tab_id, "Dalton").unwrap();
         let snapshot = state.snapshot();
-        let panes = build_pane_list_json(&snapshot);
-        let pane = panes
+        let tabs = build_tab_list_json(&snapshot);
+        let tab = tabs
             .iter()
-            .find(|p| p.get("id").and_then(|v| v.as_str()) == Some(initial_pane.as_str()))
+            .find(|p| p.get("id").and_then(|v| v.as_str()) == Some(initial_tab.as_str()))
             .expect("default Tab present in list");
         assert_eq!(
-            pane.get("tab_title").and_then(|v| v.as_str()),
+            tab.get("tab_title").and_then(|v| v.as_str()),
             Some("Dalton"),
             "tab_title must be attached so CLI can show the sidebar label",
         );
         assert_eq!(
-            pane.get("tab_id").and_then(|v| v.as_str()),
+            tab.get("tab_id").and_then(|v| v.as_str()),
             Some(tab_id.as_str()),
         );
         assert_eq!(
-            pane.get("workspace_id").and_then(|v| v.as_str()),
+            tab.get("workspace_id").and_then(|v| v.as_str()),
             Some(ws.id.as_str()),
         );
         assert!(
-            pane.get("workspace_name").and_then(|v| v.as_str()).is_some(),
+            tab.get("workspace_name").and_then(|v| v.as_str()).is_some(),
             "workspace_name must be attached so user can disambiguate same-titled tabs across workspaces",
         );
     }
 
     #[test]
-    fn pane_summary_is_workspace_scoped_and_excludes_full_payload_fields() {
+    fn tab_summary_is_workspace_scoped_and_excludes_full_payload_fields() {
         use crate::multiplexer::state::MultiplexerState;
-        let (state, initial_pane) = MultiplexerState::new();
+        let (state, initial_tab) = MultiplexerState::new();
         let snapshot = state.snapshot();
         let workspace = snapshot.workspaces.first().expect("default workspace");
-        let summaries = build_pane_summary_json(&snapshot, Some(&workspace.id), false, false);
+        let summaries = build_tab_summary_json(&snapshot, Some(&workspace.id), false, false);
         assert_eq!(summaries.len(), 1);
-        let pane = summaries.first().expect("summary Tab");
-        assert_eq!(pane["id"].as_str(), Some(initial_pane.as_str()));
-        assert_eq!(pane["workspace_id"].as_str(), Some(workspace.id.as_str()));
-        assert!(pane.get("cwd").is_none());
-        assert!(pane.get("session_binding_nonce").is_none());
-        assert!(pane.get("agent_state").is_none());
-        assert!(pane.get("model_fallback").is_none());
+        let tab = summaries.first().expect("summary Tab");
+        assert_eq!(tab["id"].as_str(), Some(initial_tab.as_str()));
+        assert_eq!(tab["workspace_id"].as_str(), Some(workspace.id.as_str()));
+        assert!(tab.get("cwd").is_none());
+        assert!(tab.get("session_binding_nonce").is_none());
+        assert!(tab.get("agent_state").is_none());
+        assert!(tab.get("model_fallback").is_none());
     }
 
     #[test]
-    fn pane_summary_command_deserializes_compact_scope_options() {
+    fn tab_summary_command_deserializes_compact_scope_options() {
         let command: Command = serde_json::from_str(
-            r#"{"cmd":"pane_summary","workspace_id":"ws_1","focused_workspace":false,"agents_only":true}"#,
+            r#"{"cmd":"tab_summary","workspace_id":"ws_1","focused_workspace":false,"agents_only":true}"#,
         )
         .expect("Tab summary command");
         assert!(matches!(
             command,
-            Command::PaneSummary {
+            Command::TabSummary {
                 workspace_id: Some(workspace_id),
                 focused_workspace: false,
                 agents_only: true,
@@ -1007,16 +1007,16 @@ mod tests {
     }
 
     #[test]
-    fn pane_list_focused_field_tracks_mux_focused_pane_id() {
+    fn tab_list_focused_field_tracks_mux_focused_tab_id() {
         use crate::multiplexer::state::MultiplexerState;
-        let (mut state, pane_a) = MultiplexerState::new();
-        // Create a second pane.
-        let pane_b = state.create_pane();
-        // Focus pane_a explicitly.
-        state.set_focused_pane(&pane_a).unwrap();
-        let panes = build_pane_list_json(&state.snapshot());
-        let get_focused = |panes: &[serde_json::Value], id: &str| {
-            panes
+        let (mut state, tab_a) = MultiplexerState::new();
+        // Create a second tab.
+        let tab_b = state.create_tab();
+        // Focus tab_a explicitly.
+        state.set_focused_tab(&tab_a).unwrap();
+        let tabs = build_tab_list_json(&state.snapshot());
+        let get_focused = |tabs: &[serde_json::Value], id: &str| {
+            tabs
                 .iter()
                 .find(|p| p.get("id").and_then(|v| v.as_str()) == Some(id))
                 .and_then(|p| p.get("focused"))
@@ -1024,36 +1024,36 @@ mod tests {
                 .unwrap_or(false)
         };
         assert!(
-            get_focused(&panes, &pane_a),
+            get_focused(&tabs, &tab_a),
             "focused Tab must have focused=true"
         );
         assert!(
-            !get_focused(&panes, &pane_b),
+            !get_focused(&tabs, &tab_b),
             "non-focused Tab must have focused=false"
         );
         // Switch focus.
-        state.set_focused_pane(&pane_b).unwrap();
-        let panes = build_pane_list_json(&state.snapshot());
+        state.set_focused_tab(&tab_b).unwrap();
+        let tabs = build_tab_list_json(&state.snapshot());
         assert!(
-            !get_focused(&panes, &pane_a),
-            "pane_a must be unfocused after switch"
+            !get_focused(&tabs, &tab_a),
+            "tab_a must be unfocused after switch"
         );
         assert!(
-            get_focused(&panes, &pane_b),
-            "pane_b must be focused after switch"
+            get_focused(&tabs, &tab_b),
+            "tab_b must be focused after switch"
         );
     }
 
     #[test]
-    fn pane_list_marks_exactly_one_focused_pane_from_each_snapshot() {
+    fn tab_list_marks_exactly_one_focused_tab_from_each_snapshot() {
         use crate::multiplexer::state::MultiplexerState;
-        let (mut state, pane_a) = MultiplexerState::new();
-        let pane_b = state.create_pane();
+        let (mut state, tab_a) = MultiplexerState::new();
+        let tab_b = state.create_tab();
 
-        for focused in [&pane_a, &pane_b] {
-            state.set_focused_pane(focused).unwrap();
-            let panes = build_pane_list_json(&state.snapshot());
-            let focused_ids: Vec<&str> = panes
+        for focused in [&tab_a, &tab_b] {
+            state.set_focused_tab(focused).unwrap();
+            let tabs = build_tab_list_json(&state.snapshot());
+            let focused_ids: Vec<&str> = tabs
                 .iter()
                 .filter(|p| p.get("focused").and_then(|v| v.as_bool()).unwrap_or(false))
                 .filter_map(|p| p.get("id").and_then(|v| v.as_str()))
@@ -1068,7 +1068,7 @@ mod tests {
     }
 
     #[test]
-    fn pane_list_keeps_tab_info_after_rename_to_fibonacci() {
+    fn tab_list_keeps_tab_info_after_rename_to_fibonacci() {
         use crate::multiplexer::state::MultiplexerState;
         let (mut state, visible) = MultiplexerState::new();
         let ws_id = state
@@ -1078,13 +1078,13 @@ mod tests {
             .expect("default ws")
             .id
             .clone();
-        let tab_id = state.find_tab_for_pane(&visible).unwrap();
+        let tab_id = state.find_tab_for_tab(&visible).unwrap();
         state.rename_tab(&ws_id, &tab_id, "Fibonacci").unwrap();
         let snapshot = state.snapshot();
-        let panes = build_pane_list_json(&snapshot);
-        assert_eq!(panes.len(), 1);
+        let tabs = build_tab_list_json(&snapshot);
+        assert_eq!(tabs.len(), 1);
         assert_eq!(
-            panes[0].get("tab_title").and_then(|v| v.as_str()),
+            tabs[0].get("tab_title").and_then(|v| v.as_str()),
             Some("Fibonacci"),
         );
     }

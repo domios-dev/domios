@@ -457,7 +457,7 @@ mod tests {
             .create_plan(
                 "Skills".into(),
                 tmp.path().display().to_string(),
-                OrchestratorRef::from_pane("orch"),
+                OrchestratorRef::from_tab("orch"),
                 vec![],
                 1,
             )
@@ -494,7 +494,7 @@ mod tests {
             .create_plan(
                 "Skills".into(),
                 tmp.path().display().to_string(),
-                OrchestratorRef::from_pane("orch"),
+                OrchestratorRef::from_tab("orch"),
                 vec![],
                 1,
             )
@@ -561,7 +561,7 @@ mod tests {
             .create_plan(
                 "Skills".into(),
                 tmp.path().display().to_string(),
-                OrchestratorRef::from_pane("orch"),
+                OrchestratorRef::from_tab("orch"),
                 vec![],
                 1,
             )
@@ -596,7 +596,7 @@ mod tests {
             .create_plan(
                 "External coordination".into(),
                 project.path().display().to_string(),
-                OrchestratorRef::from_pane("orch"),
+                OrchestratorRef::from_tab("orch"),
                 vec![],
                 1,
             )
@@ -639,7 +639,7 @@ mod tests {
             .create_plan(
                 "External skills".into(),
                 project.path().display().to_string(),
-                OrchestratorRef::from_pane("orch"),
+                OrchestratorRef::from_tab("orch"),
                 vec![],
                 1,
             )
@@ -708,7 +708,7 @@ mod tests {
             .create_plan(
                 "Ignore legacy state".into(),
                 project.path().display().to_string(),
-                OrchestratorRef::from_pane("orch"),
+                OrchestratorRef::from_tab("orch"),
                 vec![],
                 1,
             )

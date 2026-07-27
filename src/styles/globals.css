@@ -1262,7 +1262,7 @@ button,
   transition: height 200ms ease-out, padding 200ms ease-out;
 }
 
-/* Unfocused pane dimming — muted chrome on inactive tabs; title stays full fg. */
+/* Unfocused tab dimming — muted chrome on inactive tabs; title stays full fg. */
 .sidebar-tab-dimmed {
   color: var(--ct-muted-fg, #8b949e);
 }
@@ -2504,11 +2504,11 @@ button,
 }
 
 /* =========================================================================
-   Split Pane Animations
+   Split Tab Animations
    ========================================================================= */
 
-/* Pane materialize — new pane "comes into focus" */
-@keyframes pane-materialize {
+/* Tab materialize — new tab "comes into focus" */
+@keyframes tab-materialize {
   from {
     opacity: 0;
     transform: scale(0.98);
@@ -2521,12 +2521,12 @@ button,
   }
 }
 
-.pane-materialize {
-  animation: pane-materialize 280ms var(--ct-ease-liquid-settle) both;
+.tab-materialize {
+  animation: tab-materialize 280ms var(--ct-ease-liquid-settle) both;
 }
 
-/* Pane close collapse */
-@keyframes pane-collapse-content {
+/* Tab close collapse */
+@keyframes tab-collapse-content {
   from {
     opacity: 1;
     transform: scale(1);

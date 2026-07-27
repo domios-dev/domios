@@ -18,12 +18,12 @@ export function isTerminalWorkerStatus(status: string): boolean {
 }
 
 export function workerEmptyState(
-  livePaneId: string | null,
+  liveTabId: string | null,
   connected: boolean,
   status: string,
   reason?: string | null,
 ): string {
-  if (livePaneId) return connected ? "Waiting for first event…" : "Connecting…";
+  if (liveTabId) return connected ? "Waiting for first event…" : "Connecting…";
   const s = normalizeStatus(status);
   if (TERMINAL_STATUSES.has(s)) {
     if (s === "done") return "Completed — no output captured";

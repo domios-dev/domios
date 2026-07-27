@@ -5,7 +5,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize)]
 pub struct Notification {
     pub id: String,
-    pub pane_id: Option<String>,
+    pub tab_id: Option<String>,
     pub workspace_id: Option<String>,
     pub title: String,
     pub body: Option<String>,
@@ -40,7 +40,7 @@ impl NotificationStore {
         title: String,
         body: Option<String>,
         level: NotificationLevel,
-        pane_id: Option<String>,
+        tab_id: Option<String>,
         workspace_id: Option<String>,
     ) -> String {
         let id = Uuid::new_v4().to_string();
@@ -51,7 +51,7 @@ impl NotificationStore {
 
         let notification = Notification {
             id: id.clone(),
-            pane_id,
+            tab_id,
             workspace_id,
             title,
             body,
@@ -187,19 +187,19 @@ mod tests {
     }
 
     #[test]
-    fn test_notification_with_body_and_pane() {
+    fn test_notification_with_body_and_tab() {
         let mut store = NotificationStore::new(100);
         store.add(
             "Title".into(),
             Some("Body text".into()),
             NotificationLevel::Info,
-            Some("pane-1".into()),
+            Some("tab-1".into()),
             Some("ws-1".into()),
         );
         let n = &store.list(false)[0];
         assert_eq!(n.title, "Title");
         assert_eq!(n.body.as_deref(), Some("Body text"));
-        assert_eq!(n.pane_id.as_deref(), Some("pane-1"));
+        assert_eq!(n.tab_id.as_deref(), Some("tab-1"));
         assert_eq!(n.workspace_id.as_deref(), Some("ws-1"));
     }
 }

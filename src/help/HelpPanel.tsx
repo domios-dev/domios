@@ -37,7 +37,7 @@ export function HelpPanel({ config, locale = "en", initialSection }: HelpPanelPr
   const [activeId, setActiveId] = useState<HelpSectionId>(
     initialSection ?? content.sections[0]?.id ?? "overview",
   );
-  const paneRef = useRef<HTMLDivElement>(null);
+  const tabRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (initialSection) setActiveId(initialSection);
@@ -45,7 +45,7 @@ export function HelpPanel({ config, locale = "en", initialSection }: HelpPanelPr
 
   const scrollToSection = useCallback((id: HelpSectionId) => {
     setActiveId(id);
-    const el = paneRef.current?.querySelector(`[data-help-section="${id}"]`);
+    const el = tabRef.current?.querySelector(`[data-help-section="${id}"]`);
     el?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
@@ -85,7 +85,7 @@ export function HelpPanel({ config, locale = "en", initialSection }: HelpPanelPr
         </select>
       </div>
 
-      <div ref={paneRef} className="flex-1 min-w-0 overflow-y-auto space-y-10 pb-8" data-testid="help-content-pane">
+      <div ref={tabRef} className="flex-1 min-w-0 overflow-y-auto space-y-10 pb-8" data-testid="help-content-tab">
         {content.sections.map((section) => (
           <section
             key={section.id}

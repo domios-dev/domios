@@ -15,9 +15,9 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 const WORKSPACES: Workspace[] = [
-  { id: "ws-owner", name: "Canvas Hub", tabs: [{ id: "tab-owner", pane_id: "orch-1" }], active_tab_id: null, cwd: "/repo/hub" },
-  { id: "ws-api", name: "API Lane", tabs: [{ id: "tab-api", pane_id: "pane-api" }], active_tab_id: null, cwd: "/repo/api" },
-  { id: "ws-ui", name: "UI Lane", tabs: [{ id: "tab-ui", pane_id: "pane-ui" }], active_tab_id: null, cwd: "/repo/ui" },
+  { id: "ws-owner", name: "Canvas Hub", tabs: [{ id: "tab-owner", tab_id: "orch-1" }], active_tab_id: null, cwd: "/repo/hub" },
+  { id: "ws-api", name: "API Lane", tabs: [{ id: "tab-api", tab_id: "tab-api" }], active_tab_id: null, cwd: "/repo/api" },
+  { id: "ws-ui", name: "UI Lane", tabs: [{ id: "tab-ui", tab_id: "tab-ui" }], active_tab_id: null, cwd: "/repo/ui" },
 ];
 
 test("derivePlanWorkspaceScope identifies owner workspace from owner Tab", () => {
@@ -31,13 +31,13 @@ test("derivePlanWorkspaceScope marks cross-workspace when task lanes span worksp
   const plan: Plan = {
     ...FIXTURE_PLAN,
     tasks: [
-      { ...FIXTURE_TASK, id: "task-api", name: "API", assigned_pane_id: "pane-api" },
+      { ...FIXTURE_TASK, id: "task-api", name: "API", assigned_tab_id: "tab-api" },
       {
         ...FIXTURE_TASK,
         id: "task-ui",
         name: "UI",
-        assigned_pane_id: "pane-ui",
-        lane: { pane_id: "pane-ui", workspace_id: "ws-ui", workspace_name: "UI Lane" },
+        assigned_tab_id: "tab-ui",
+        lane: { tab_id: "tab-ui", workspace_id: "ws-ui", workspace_name: "UI Lane" },
       },
     ],
   };
@@ -52,17 +52,17 @@ test("derivePlanWorkspaceScope marks cross-workspace when task lanes span worksp
 test("derivePlanWorkspaceScope falls back to lane metadata when workspace tabs are unavailable", () => {
   const plan: Plan = {
     ...FIXTURE_PLAN,
-    owner: { ...FIXTURE_PLAN.owner, pane_id: "orch-missing" },
+    owner: { ...FIXTURE_PLAN.owner, tab_id: "orch-missing" },
     tasks: [
       {
         ...FIXTURE_TASK,
         id: "task-owned",
-        lane: { pane_id: "orch-missing", workspace_id: "ws-owner", workspace_name: "Owner Lane" },
+        lane: { tab_id: "orch-missing", workspace_id: "ws-owner", workspace_name: "Owner Lane" },
       },
       {
         ...FIXTURE_TASK,
         id: "task-remote",
-        lane: { pane_id: "pane-remote", workspace_id: "ws-remote", workspace_name: "Remote Lane" },
+        lane: { tab_id: "tab-remote", workspace_id: "ws-remote", workspace_name: "Remote Lane" },
       },
     ],
   };

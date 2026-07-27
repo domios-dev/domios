@@ -11,10 +11,10 @@ import type {
   ModelInfo,
   NormalizedChatMessage,
 } from "../capabilities";
-import type { Host, Backend, PaneRef, UsageSnapshot } from "../host";
+import type { Host, Backend, TabRef, UsageSnapshot } from "../host";
 
 const backend: ChatBackend = {
-  openSession: (ctx) => ({ sessionId: ctx.paneId }),
+  openSession: (ctx) => ({ sessionId: ctx.tabId }),
   sendMessage: (_sessionId, _text) => {},
   poll: (_sessionId, _cursor) => ({ messages: [], cursor: null }),
   closeSession: (_sessionId) => {},
@@ -26,7 +26,7 @@ const backend: ChatBackend = {
 void backend;
 
 const openShellSession = backend.openSession({
-  paneId: "pane-1",
+  tabId: "tab-1",
   config: {},
   systemPrompt: "You are CodeTerm.",
   preset: "codeterm",
@@ -105,10 +105,10 @@ async function exercise() {
   if (w.done) void w.report;
   void w.error;
 
-  // workspace: ensure + panes — SYNCHRONOUS (cheap mux ops, no agent turn).
+  // workspace: ensure + tabs — SYNCHRONOUS (cheap mux ops, no agent turn).
   const { workspaceId } = host.workspace.ensure({ name: "ws" });
-  const panes: PaneRef[] = host.workspace.panes(workspaceId);
-  void panes;
+  const tabs: TabRef[] = host.workspace.tabs(workspaceId);
+  void tabs;
 
   // agent: spawn (fresh) / resume (specific) / get (key→session) / send (ticket) / poll / reap / usage.
   const backendSpec: Backend = { provider: "claude", model: "opus" };

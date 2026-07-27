@@ -2,7 +2,7 @@ use crate::args::plan::PlanQaAction;
 use crate::client::RpcClient;
 use serde_json::{json, Value};
 
-use super::{call_plan_rpc, maybe_inject_caller_pane, owner_from_env};
+use super::{call_plan_rpc, maybe_inject_caller_tab, owner_from_env};
 
 pub(super) fn handle(
     client: &mut dyn RpcClient,
@@ -25,7 +25,7 @@ pub(super) fn handle(
             if let Some(note) = note {
                 params["note"] = json!(note);
             }
-            maybe_inject_caller_pane(&mut params);
+            maybe_inject_caller_tab(&mut params);
             let val = call_plan_rpc(client, "plan.qa.queue", params)?;
             if json_output || val.get("task_id").is_some() {
                 return Ok(Some(val));
@@ -49,7 +49,7 @@ pub(super) fn handle(
             if let Some(note) = note {
                 params["note"] = json!(note);
             }
-            maybe_inject_caller_pane(&mut params);
+            maybe_inject_caller_tab(&mut params);
             let val = call_plan_rpc(client, "plan.qa.next", params)?;
             if json_output {
                 return Ok(Some(val));
@@ -72,7 +72,7 @@ pub(super) fn handle(
             if let Some(plan_id) = plan_id {
                 params["plan_id"] = json!(plan_id);
             }
-            maybe_inject_caller_pane(&mut params);
+            maybe_inject_caller_tab(&mut params);
             call_plan_rpc(client, "plan.qa.pass", params).map(Some)
         }
         PlanQaAction::Fail {
@@ -84,7 +84,7 @@ pub(super) fn handle(
             if let Some(plan_id) = plan_id {
                 params["plan_id"] = json!(plan_id);
             }
-            maybe_inject_caller_pane(&mut params);
+            maybe_inject_caller_tab(&mut params);
             call_plan_rpc(client, "plan.qa.fail", params).map(Some)
         }
         PlanQaAction::Override {
@@ -96,7 +96,7 @@ pub(super) fn handle(
             if let Some(plan_id) = plan_id {
                 params["plan_id"] = json!(plan_id);
             }
-            maybe_inject_caller_pane(&mut params);
+            maybe_inject_caller_tab(&mut params);
             let val = call_plan_rpc(client, "plan.qa.override", params)?;
             if json_output {
                 return Ok(Some(val));

@@ -1,8 +1,8 @@
 import { useMemo, type ReactNode } from "react";
 import { Plus } from "lucide-react";
 import type {
-  Pane,
-  PaneStatus,
+  Tab,
+  TabStatus,
   ProviderDescriptor,
   RemoteWorkersByOrchestrator,
   Tab,
@@ -12,7 +12,7 @@ import type {
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import type { Plan } from "../Canvas/types";
 import type { ActiveWorkSnapshot } from "../Canvas/planView/activeWork";
-import { resolvePaneTabActivity } from "../Canvas/paneTabActivity";
+import { resolveTabTabActivity } from "../Canvas/tabTabActivity";
 import { openTeamPlanCanvas } from "../Canvas/workspacePlanEntry";
 import { RemoteWorkerRow } from "./RemoteWorkerRow";
 import { SortableContext, verticalListSortingStrategy, TAB_PREFIX } from "./sortable";
@@ -26,7 +26,7 @@ import {
   type TeamMemberRole,
 } from "./TeamUnit";
 
-type TeamPane = Pane & { team_id?: string | null };
+type TeamTab = Tab & { team_id?: string | null };
 type TeamPlan = Plan & { team_id?: string | null };
 
 function newestActivePlansByTeam(plans: readonly TeamPlan[]): Map<string, Plan> {
@@ -45,25 +45,25 @@ function newestActivePlansByTeam(plans: readonly TeamPlan[]): Map<string, Plan> 
 
 interface TeamTabMember {
   tab: Tab;
-  pane: TeamPane;
+  tab: TeamTab;
   index: number;
 }
 
 function isEligibleTeamStaffingManager(member: TeamTabMember): boolean {
-  return member.pane.role === "Orchestrator"
-    || (member.pane.role === "Manager" && member.pane.role_profile === "planner");
+  return member.tab.role === "Orchestrator"
+    || (member.tab.role === "Manager" && member.tab.role_profile === "planner");
 }
 
 function selectTeamStaffingManager(members: readonly TeamTabMember[]): string | null {
-  return members.find(isEligibleTeamStaffingManager)?.pane.id ?? null;
+  return members.find(isEligibleTeamStaffingManager)?.tab.id ?? null;
 }
 
 export interface SidebarWorkspaceTabsProps {
   workspace: Workspace;
   activeTabId: string | null;
   sortedTabs: Tab[];
-  panes: Record<string, Pane>;
-  paneStatuses: Record<string, PaneStatus>;
+  tabs: Record<string, Tab>;
+  tabStatuses: Record<string, TabStatus>;
   teams: Team[];
   planIndex: PlanIndexEntry[];
   plans: Plan[];
@@ -79,30 +79,30 @@ export interface SidebarWorkspaceTabsProps {
   uiFontScale?: number;
   compact: boolean;
   sidebarActionText: string;
-  orchestrators: Pane[];
+  orchestrators: Tab[];
   onBeforeOpenPlan: () => void;
   onActivateTab: (tabId: string) => void;
   onCloseTab: (tabId: string) => void;
   onRenameTab: (tabId: string, title: string) => void;
   onNewSession: () => void;
   newSessionDisabled?: boolean;
-  onRenameTeam?: (teamId: string, name: string, managerPaneId: string) => void | Promise<void>;
+  onRenameTeam?: (teamId: string, name: string, managerTabId: string) => void | Promise<void>;
   onAddTeamMember?: (
     teamId: string,
     role: TeamMemberRole,
     providerId: string,
-    managerPaneId: string,
+    managerTabId: string,
     model?: string,
   ) => void | Promise<void>;
-  onCloseTeam?: (teamId: string, managerPaneId: string) => void;
+  onCloseTeam?: (teamId: string, managerTabId: string) => void;
 }
 
 export function SidebarWorkspaceTabs({
   workspace: ws,
   activeTabId: wsActiveTabId,
   sortedTabs: allSortedTabs,
-  panes,
-  paneStatuses,
+  tabs,
+  tabStatuses,
   teams,
   planIndex,
   plans,
@@ -130,20 +130,20 @@ export function SidebarWorkspaceTabs({
   onCloseTeam,
 }: SidebarWorkspaceTabsProps) {
   const sortedTabs = useMemo(
-    () => allSortedTabs.filter((tab) => isSidebarTabVisible(tab, panes)),
-    [allSortedTabs, panes],
+    () => allSortedTabs.filter((tab) => isSidebarTabVisible(tab, tabs)),
+    [allSortedTabs, tabs],
   );
   const membersByTeam = useMemo(() => {
     const grouped = new Map<string, TeamTabMember[]>();
     sortedTabs.forEach((tab, index) => {
-      const pane = panes[tab.pane_id] as TeamPane | undefined;
-      if (!pane?.team_id) return;
-      const members = grouped.get(pane.team_id) ?? [];
-      members.push({ tab, pane, index });
-      grouped.set(pane.team_id, members);
+      const tab = tabs[tab.tab_id] as TeamTab | undefined;
+      if (!tab?.team_id) return;
+      const members = grouped.get(tab.team_id) ?? [];
+      members.push({ tab, tab, index });
+      grouped.set(tab.team_id, members);
     });
     return grouped;
-  }, [sortedTabs, panes]);
+  }, [sortedTabs, tabs]);
 
   const teamById = useMemo(
     () => new Map(teams.filter((team) => team.workspace_id === ws.id).map((team) => [team.id, team])),
@@ -156,7 +156,7 @@ export function SidebarWorkspaceTabs({
     activeTabId: wsActiveTabId,
     isActiveVisual,
     workspaceCanvasActive,
-    paneStatuses,
+    tabStatuses,
     orchestrators,
     touchMode,
     uiFontScale,
@@ -176,8 +176,8 @@ export function SidebarWorkspaceTabs({
       <SidebarSingleTabRow
         tab={member.tab}
         index={member.index}
-        pane={member.pane}
-        activity={resolvePaneTabActivity(planIndex, member.pane.id, panes)}
+        tab={member.tab}
+        activity={resolveTabTabActivity(planIndex, member.tab.id, tabs)}
         activeWork={activeWork}
         isClosing={closingTabIds.has(member.tab.id)}
         isAppearing={appearingTabIds.has(member.tab.id)}
@@ -193,26 +193,26 @@ export function SidebarWorkspaceTabs({
   const renderedTeamIds = new Set<string>();
   const rows: ReactNode[] = [];
   const looseItems = sortedTabs
-    .filter((tab) => !(panes[tab.pane_id] as TeamPane | undefined)?.team_id)
+    .filter((tab) => !(tabs[tab.tab_id] as TeamTab | undefined)?.team_id)
     .map((tab) => `${TAB_PREFIX}${tab.id}`);
   const pinnedLooseItems = sortedTabs
     .filter(
       (tab) =>
-        !(panes[tab.pane_id] as TeamPane | undefined)?.team_id && panes[tab.pane_id]?.protected,
+        !(tabs[tab.tab_id] as TeamTab | undefined)?.team_id && tabs[tab.tab_id]?.protected,
     )
     .map((tab) => `${TAB_PREFIX}${tab.id}`);
 
   for (const [index, tab] of sortedTabs.entries()) {
-    const pane = panes[tab.pane_id] as TeamPane | undefined;
-    const teamId = pane?.team_id ?? null;
+    const tab = tabs[tab.tab_id] as TeamTab | undefined;
+    const teamId = tab?.team_id ?? null;
     if (!teamId) {
       rows.push(
         <SidebarSingleTabRow
           key={tab.id}
           tab={tab}
           index={index}
-          pane={pane ?? null}
-          activity={pane ? resolvePaneTabActivity(planIndex, pane.id, panes) : null}
+          tab={tab ?? null}
+          activity={tab ? resolveTabTabActivity(planIndex, tab.id, tabs) : null}
           activeWork={activeWork}
           isClosing={closingTabIds.has(tab.id)}
           isAppearing={appearingTabIds.has(tab.id)}
@@ -230,18 +230,18 @@ export function SidebarWorkspaceTabs({
 
     const members = membersByTeam.get(teamId) ?? [];
     const managers = sortTeamManagers(
-      members.filter((member) => member.pane.role === "Orchestrator" || member.pane.role === "Manager"),
+      members.filter((member) => member.tab.role === "Orchestrator" || member.tab.role === "Manager"),
     );
     const workers = members.filter(
-      (member) => member.pane.role !== "Orchestrator" && member.pane.role !== "Manager",
+      (member) => member.tab.role !== "Orchestrator" && member.tab.role !== "Manager",
     );
     const managerItems = managers.map((member) => `${TAB_PREFIX}${member.tab.id}`);
     const workerItems = workers.map((member) => `${TAB_PREFIX}${member.tab.id}`);
     const orchestratorIds = managers
-      .filter((member) => member.pane.role === "Orchestrator")
-      .map((member) => member.pane.id);
+      .filter((member) => member.tab.role === "Orchestrator")
+      .map((member) => member.tab.id);
     const teamRemoteWorkers = orchestratorIds.flatMap((id) => remoteWorkers[id] ?? []);
-    const workingLocal = workers.filter((member) => paneStatuses[member.pane.id] === "Working").length;
+    const workingLocal = workers.filter((member) => tabStatuses[member.tab.id] === "Working").length;
     const workingRemote = teamRemoteWorkers.filter((worker) => worker.status === "working").length;
     const team = teamById.get(teamId) ?? {
       id: teamId,
@@ -250,14 +250,14 @@ export function SidebarWorkspaceTabs({
       created_at: 0,
       workspace_id: ws.id,
     };
-    const managerPaneId = selectTeamStaffingManager(managers);
+    const managerTabId = selectTeamStaffingManager(managers);
 
     rows.push(
       <TeamUnit
         key={teamId}
         team={team}
         plan={plansByTeam.get(teamId) ?? null}
-        panes={panes}
+        tabs={tabs}
         managerCount={managers.length}
         managers={
           <SortableContext items={managerItems} strategy={verticalListSortingStrategy}>
@@ -273,7 +273,7 @@ export function SidebarWorkspaceTabs({
             </SortableContext>
             {teamRemoteWorkers.map((worker) => (
               <RemoteWorkerRow
-                key={`${worker.peer}/${worker.remote_pane}`}
+                key={`${worker.peer}/${worker.remote_tab}`}
                 worker={worker}
                 depth={0}
               />
@@ -282,18 +282,18 @@ export function SidebarWorkspaceTabs({
         }
         providers={providers}
         providersLoading={providersLoading}
-        onRenameTeam={onRenameTeam && managerPaneId
-          ? (teamId, name) => onRenameTeam(teamId, name, managerPaneId)
+        onRenameTeam={onRenameTeam && managerTabId
+          ? (teamId, name) => onRenameTeam(teamId, name, managerTabId)
           : undefined}
         onOpenEffort={(target) => {
           onBeforeOpenPlan();
-          openTeamPlanCanvas({ ...target, managerPaneId });
+          openTeamPlanCanvas({ ...target, managerTabId });
         }}
-        onAddMember={onAddTeamMember && managerPaneId
-          ? (role, providerId, model) => onAddTeamMember(teamId, role, providerId, managerPaneId, model)
+        onAddMember={onAddTeamMember && managerTabId
+          ? (role, providerId, model) => onAddTeamMember(teamId, role, providerId, managerTabId, model)
           : undefined}
-        onCloseTeam={onCloseTeam && managerPaneId
-          ? (teamId) => onCloseTeam(teamId, managerPaneId)
+        onCloseTeam={onCloseTeam && managerTabId
+          ? (teamId) => onCloseTeam(teamId, managerTabId)
           : undefined}
       />,
     );
@@ -321,12 +321,12 @@ export function SidebarWorkspaceTabs({
 export interface SidebarCollapsedActiveTabProps {
   workspace: Workspace;
   activeTabId: string | null;
-  panes: Record<string, Pane>;
-  paneStatuses: Record<string, PaneStatus>;
+  tabs: Record<string, Tab>;
+  tabStatuses: Record<string, TabStatus>;
   planIndex: PlanIndexEntry[];
   isActiveVisual: boolean;
   workspaceCanvasActive: boolean;
-  orchestrators: Pane[];
+  orchestrators: Tab[];
   touchMode: boolean;
   uiFontScale?: number;
   onActivateTab: (tabId: string) => void;
@@ -337,8 +337,8 @@ export interface SidebarCollapsedActiveTabProps {
 export function SidebarCollapsedActiveTab({
   workspace: ws,
   activeTabId,
-  panes,
-  paneStatuses,
+  tabs,
+  tabStatuses,
   planIndex,
   isActiveVisual,
   workspaceCanvasActive,
@@ -352,8 +352,8 @@ export function SidebarCollapsedActiveTab({
   if (!activeTabId) return null;
   const activeTab = ws.tabs.find((tab) => tab.id === activeTabId);
   if (!activeTab) return null;
-  const pane = panes[activeTab.pane_id] ?? null;
-  const activity = pane ? resolvePaneTabActivity(planIndex, pane.id, panes) : null;
+  const tab = tabs[activeTab.tab_id] ?? null;
+  const activity = tab ? resolveTabTabActivity(planIndex, tab.id, tabs) : null;
 
   return (
     <TabItem
@@ -369,13 +369,13 @@ export function SidebarCollapsedActiveTab({
       onClose={() => onCloseTab(activeTab.id)}
       canClose={true}
       workspaceId={ws.id}
-      hasAgent={Boolean(pane?.agent_type)}
-      status={pane ? paneStatuses[pane.id] ?? null : null}
+      hasAgent={Boolean(tab?.agent_type)}
+      status={tab ? tabStatuses[tab.id] ?? null : null}
       onRename={(title) => {
         onRenameTab(activeTab.id, title);
         persistTabRename(ws.id, activeTab.id, title);
       }}
-      pane={pane}
+      tab={tab}
       orchestrators={orchestrators}
       touchMode={touchMode}
       uiFontScale={uiFontScale}

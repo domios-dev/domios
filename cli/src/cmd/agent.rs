@@ -4,7 +4,7 @@ use crate::cmd::hints::maybe_orchestration_reminder;
 use crate::cmd::plan_errors::render_plan_call_error;
 use crate::cmd::print::{handle_result, print_object};
 use crate::cmd::report_guard::ReportRefusal;
-use crate::{build_http, read_api_config, resolve_pane, AgentAction};
+use crate::{build_http, read_api_config, resolve_tab, AgentAction};
 use std::io::Read;
 
 /// Resolve the spawn task body from `--task` / `--task-file`. `--task-file`
@@ -104,7 +104,7 @@ pub(crate) fn parse_duration_secs(value: &str, flag: &str) -> Result<u64, String
     Ok(total)
 }
 
-pub(crate) const MAX_PANE_DESCRIPTION_CHARS: usize = 200;
+pub(crate) const MAX_TAB_DESCRIPTION_CHARS: usize = 200;
 
 pub(crate) fn join_cli_words(value: Option<Vec<String>>) -> Option<String> {
     value
@@ -206,12 +206,12 @@ fn handle_report_refusal(
     std::process::exit(1);
 }
 
-pub(crate) fn normalize_pane_description(value: &str) -> Result<Option<String>, String> {
+pub(crate) fn normalize_tab_description(value: &str) -> Result<Option<String>, String> {
     let trimmed = value.trim();
-    if trimmed.chars().count() > MAX_PANE_DESCRIPTION_CHARS {
+    if trimmed.chars().count() > MAX_TAB_DESCRIPTION_CHARS {
         return Err(format!(
             "description must be {} characters or fewer",
-            MAX_PANE_DESCRIPTION_CHARS
+            MAX_TAB_DESCRIPTION_CHARS
         ));
     }
     if trimmed.is_empty() {
@@ -396,10 +396,10 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 }
             }
         }
-        AgentAction::SetOrchestrator { pane } => {
-            let pane_id = resolve_pane(client, pane);
+        AgentAction::SetOrchestrator { tab } => {
+            let tab_id = resolve_tab(client, tab);
             match http
-                .post(format!("{}/api/panes/{}/role", base, pane_id))
+                .post(format!("{}/api/tabs/{}/role", base, tab_id))
                 .json(&serde_json::json!({"role": "Orchestrator"}))
                 .send()
             {
@@ -410,10 +410,10 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 }
             }
         }
-        AgentAction::Link { parent, pane } => {
-            let pane_id = resolve_pane(client, pane);
+        AgentAction::Link { parent, tab } => {
+            let tab_id = resolve_tab(client, tab);
             let parent_resp = http
-                .get(format!("{}/api/panes/{}/status", base, parent))
+                .get(format!("{}/api/tabs/{}/status", base, parent))
                 .send();
             let role = match parent_resp {
                 Ok(resp) => {
@@ -432,8 +432,8 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 }
             };
             match http
-                .post(format!("{}/api/panes/{}/role", base, pane_id))
-                .json(&serde_json::json!({"role": role, "parent_pane_id": parent}))
+                .post(format!("{}/api/tabs/{}/role", base, tab_id))
+                .json(&serde_json::json!({"role": role, "parent_tab_id": parent}))
                 .send()
             {
                 Ok(resp) => print_agent_mutation_response(resp),
@@ -443,10 +443,10 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 }
             }
         }
-        AgentAction::Unlink { pane } => {
-            let pane_id = resolve_pane(client, pane);
+        AgentAction::Unlink { tab } => {
+            let tab_id = resolve_tab(client, tab);
             match http
-                .delete(format!("{}/api/panes/{}/role", base, pane_id))
+                .delete(format!("{}/api/tabs/{}/role", base, tab_id))
                 .send()
             {
                 Ok(resp) => print_agent_mutation_response(resp),
@@ -456,10 +456,10 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 }
             }
         }
-        AgentAction::AllowSpawn { pane, enable } => {
-            let pane_id = resolve_pane(client, pane);
+        AgentAction::AllowSpawn { tab, enable } => {
+            let tab_id = resolve_tab(client, tab);
             match http
-                .post(format!("{}/api/panes/{}/can-spawn", base, pane_id))
+                .post(format!("{}/api/tabs/{}/can-spawn", base, tab_id))
                 .json(&serde_json::json!({"can_spawn": enable}))
                 .send()
             {
@@ -478,7 +478,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             text,
             kind,
             doc,
-            pane,
+            tab,
             plan,
             task,
             status,
@@ -492,8 +492,8 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             acknowledge_dirty,
             attachments,
         }) => {
-            if let Some(ref explicit) = pane {
-                if let Ok(own) = std::env::var("CODETERM_PANE_ID") {
+            if let Some(ref explicit) = tab {
+                if let Ok(own) = std::env::var("CODETERM_TAB_ID") {
                     let differs = !own.is_empty()
                         && own != *explicit
                         && !own.starts_with(explicit.as_str())
@@ -508,7 +508,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     }
                 }
             }
-            let pane_id = resolve_pane(client, pane);
+            let tab_id = resolve_tab(client, tab);
             let mut message = text.or(message).unwrap_or_default();
             if let Some(path) = doc {
                 let doc_text = match std::fs::read_to_string(&path) {
@@ -530,7 +530,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             let plan = env_default(plan, "CODETERM_PLAN_ID");
             let task = env_default(task, "CODETERM_TASK_ID");
             let mut body = serde_json::json!({
-                "pane_id": pane_id,
+                "tab_id": tab_id,
                 "message": message,
             });
             if let Some(k) = kind {
@@ -704,7 +704,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 body["title"] = serde_json::json!(t);
             }
             if let Some(d) = join_cli_words(description) {
-                match normalize_pane_description(&d) {
+                match normalize_tab_description(&d) {
                     Ok(Some(d)) => body["description"] = serde_json::json!(d),
                     Ok(None) => body["description"] = serde_json::json!(""),
                     Err(e) => {
@@ -723,7 +723,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 }
             }
             if let Some(p) = parent {
-                body["parent_pane_id"] = serde_json::json!(p);
+                body["parent_tab_id"] = serde_json::json!(p);
             }
             if let Some(pl) = plan {
                 body["plan_id"] = serde_json::json!(pl);
@@ -773,10 +773,10 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             if let Some(pt) = plan_task {
                 body["plan_task"] = serde_json::json!(pt);
             }
-            // Record the spawner's pane for report-routing fallback.
-            if let Ok(spawner) = std::env::var("CODETERM_PANE_ID") {
+            // Record the spawner's tab for report-routing fallback.
+            if let Ok(spawner) = std::env::var("CODETERM_TAB_ID") {
                 if !spawner.is_empty() {
-                    body["spawned_by_pane_id"] = serde_json::json!(spawner);
+                    body["spawned_by_tab_id"] = serde_json::json!(spawner);
                 }
             }
             match client.call("agent.spawn", Some(body)) {
@@ -785,7 +785,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         crate::cmd::print::print_json(&val);
                         return;
                     }
-                    let pid = val.get("pane_id").and_then(|v| v.as_str());
+                    let pid = val.get("tab_id").and_then(|v| v.as_str());
                     let title_str = val.get("title").and_then(|v| v.as_str()).unwrap_or("?");
                     let agent_str = val.get("agent").and_then(|v| v.as_str()).unwrap_or("?");
                     let resolved = val
@@ -815,22 +815,22 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 }
             }
         }
-        AgentAction::Ledger { pane } => {
-            let pane_id = resolve_pane(client, pane);
+        AgentAction::Ledger { tab } => {
+            let tab_id = resolve_tab(client, tab);
             match client.call(
                 "agent.ledger",
-                Some(serde_json::json!({ "pane_id": pane_id })),
+                Some(serde_json::json!({ "tab_id": tab_id })),
             ) {
                 Ok(val) => {
                     if json {
                         println!("{}", serde_json::to_string_pretty(&val).unwrap());
                     } else if let Some(arr) = val.as_array() {
                         if arr.is_empty() {
-                            println!("No workers in ledger for {}.", pane_id);
+                            println!("No workers in ledger for {}.", tab_id);
                         }
                         for r in arr {
                             let worker = r
-                                .get("worker_pane_id")
+                                .get("worker_tab_id")
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("?");
                             let title = r.get("title").and_then(|v| v.as_str()).unwrap_or("");
@@ -851,16 +851,16 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 }
             }
         }
-        AgentAction::Compact { pane } => {
-            let pane_id = resolve_pane(client, pane);
+        AgentAction::Compact { tab } => {
+            let tab_id = resolve_tab(client, tab);
             let cmd = "/compact\n";
             match http
-                .post(format!("{}/api/panes/{}/send", base, pane_id))
+                .post(format!("{}/api/tabs/{}/send", base, tab_id))
                 .json(&serde_json::json!({"text": cmd}))
                 .send()
             {
                 Ok(_) => {
-                    println!("Sent /compact to {}", pane_id);
+                    println!("Sent /compact to {}", tab_id);
                 }
                 Err(e) => {
                     eprintln!("Error: {}", e);
@@ -869,14 +869,14 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
         }
         AgentAction::Restart {
-            pane,
+            tab,
             force,
             grace_secs,
         } => {
-            let pane_id = resolve_pane(client, pane);
+            let tab_id = resolve_tab(client, tab);
             let body = serde_json::json!({"force": force, "grace_secs": grace_secs});
             match http
-                .post(format!("{}/api/panes/{}/agent/restart", base, pane_id))
+                .post(format!("{}/api/tabs/{}/agent/restart", base, tab_id))
                 .json(&body)
                 .send()
             {
@@ -918,7 +918,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         };
                         println!(
                             "Restarting Tab {}: {}, profile={} (same Tab id, same session unless stale)",
-                            pane_id, session, profile
+                            tab_id, session, profile
                         );
                     }
                 }
@@ -928,17 +928,17 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 }
             }
         }
-        AgentAction::Model { name, pane } => {
-            let pane_id = resolve_pane(client, pane);
+        AgentAction::Model { name, tab } => {
+            let tab_id = resolve_tab(client, tab);
             let agent_type = http
-                .get(format!("{}/api/panes", base))
+                .get(format!("{}/api/tabs", base))
                 .send()
                 .ok()
                 .and_then(|r| r.json::<serde_json::Value>().ok())
                 .and_then(|v| {
                     v.as_array().and_then(|arr| {
                         arr.iter()
-                            .find(|p| p.get("id").and_then(|i| i.as_str()) == Some(&pane_id))
+                            .find(|p| p.get("id").and_then(|i| i.as_str()) == Some(&tab_id))
                             .and_then(|p| {
                                 p.get("agent_type")
                                     .and_then(|t| t.as_str())
@@ -956,12 +956,12 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             // Trailing \r submits it — raw mode is byte-for-byte, so we include it.
             let cmd = format!("/model {}\r", name);
             match http
-                .post(format!("{}/api/panes/{}/send", base, pane_id))
+                .post(format!("{}/api/tabs/{}/send", base, tab_id))
                 .json(&serde_json::json!({"text": cmd, "raw": true}))
                 .send()
             {
                 Ok(_) => {
-                    println!("Sent /model {} to {}", name, pane_id);
+                    println!("Sent /model {} to {}", name, tab_id);
                 }
                 Err(e) => {
                     eprintln!("Error: {}", e);

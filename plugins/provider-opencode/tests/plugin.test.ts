@@ -161,7 +161,7 @@ console.log("\n--- discoverModels ---\n");
   );
 }
 
-// opencode plugin so the session-start report can prove pane ownership.
+// opencode plugin so the session-start report can prove tab ownership.
 {
   let body = "";
   const host = ocHost({
@@ -249,7 +249,7 @@ console.log("\n--- detectSessionModel (identity-bound, no cwd fallback) ---\n");
       writeFile: () => true,
       writeJson: () => true,
       sqliteQuery: (_db: string, sql: string, params: unknown[]) => {
-        // s.directory — never by the pane's session_id.
+        // s.directory — never by the tab's session_id.
         if (sql.indexOf("s.directory") !== -1 || sql.indexOf("JOIN session") !== -1) {
           cwdScanRan = true;
           return [{ data: JSON.stringify({ role: "assistant", modelID: "sibling/model" }) }];

@@ -1,5 +1,5 @@
 //! Paired creation (task_7e5f9354): spawn an Orchestrator + Planner together,
-//! linked from birth by pane hierarchy; the plan is created lazily on the
+//! linked from birth by tab hierarchy; the plan is created lazily on the
 //! Orchestrator's first goal/plan create. Builds entirely on the
 //! planner-attachment primitives already wired by the peer-foundation
 //! (`crate::plan::peer`) and Lane 1 (`crate::service::plan::peer_mandate`,
@@ -23,7 +23,7 @@ pub struct OrchestrationPairParams {
     pub planner_agent: String,
     pub planner_model: Option<String>,
     pub workspace_id: Option<String>,
-    pub spawned_by_pane_id: Option<String>,
+    pub spawned_by_tab_id: Option<String>,
     /// Blank picker tab to claim for the Orchestrator in place, instead of
     /// spawning it as a brand-new tab (new-session picker confirm path).
     pub existing_tab_id: Option<String>,
@@ -36,24 +36,24 @@ pub struct OrchestrationPairParams {
 pub struct OrchestrationPairResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plan_id: Option<String>,
-    pub orchestrator_pane_id: String,
+    pub orchestrator_tab_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub orchestrator_model: Option<String>,
-    pub planner_pane_id: String,
+    pub planner_tab_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub planner_model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
-    /// Advisory pane-budget nudge (task_4d649dfd) for the workspace AFTER both
-    /// panes land — a pair adds two, so its count is the authoritative one.
+    /// Advisory tab-budget nudge (task_4d649dfd) for the workspace AFTER both
+    /// tabs land — a pair adds two, so its count is the authoritative one.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub budget_notice: Option<crate::service::pane_budget::PaneBudgetNotice>,
+    pub budget_notice: Option<crate::service::tab_budget::TabBudgetNotice>,
 }
 
 /// The exact command to finish a degraded pair by hand, using the real
 /// requested provider/model rather than a hardcoded default.
 fn degraded_fix_command(
-    orch_pane_id: &str,
+    orch_tab_id: &str,
     planner_agent: &str,
     planner_model: Option<&str>,
 ) -> String {
@@ -62,7 +62,7 @@ fn degraded_fix_command(
         .map(|m| format!(" --model {m}"))
         .unwrap_or_default();
     format!(
-        "codeterm agent spawn {planner_agent}{model_flag} --parent {orch_pane_id} --role Planner"
+        "codeterm agent spawn {planner_agent}{model_flag} --parent {orch_tab_id} --role Planner"
     )
 }
 
@@ -109,9 +109,9 @@ fn derive_planner_name<'a>(
 
 struct ReservedPairTabs {
     orchestrator_tab_id: String,
-    orchestrator_pane_id: String,
+    orchestrator_tab_id: String,
     planner_tab_id: String,
-    planner_pane_id: String,
+    planner_tab_id: String,
     planner_name: String,
 }
 
@@ -120,32 +120,32 @@ fn reserve_pair_tabs(
     workspace_id: &str,
     existing_orchestrator_tab_id: Option<&str>,
 ) -> Result<ReservedPairTabs, String> {
-    let (orchestrator_tab_id, orchestrator_pane_id) = match existing_orchestrator_tab_id {
+    let (orchestrator_tab_id, orchestrator_tab_id) = match existing_orchestrator_tab_id {
         Some(tab_id) => mux.claim_existing_tab(workspace_id, tab_id)?,
         None => mux.create_tab(workspace_id)?,
     };
-    let orchestrator_label = mux.display_label_for_pane(&orchestrator_pane_id);
+    let orchestrator_label = mux.display_label_for_tab(&orchestrator_tab_id);
     let existing_titles: Vec<String> = mux
         .get_workspace(workspace_id)
         .into_iter()
         .flat_map(|workspace| workspace.tabs.iter())
-        .filter_map(|tab| mux.get_pane(&tab.pane_id).map(|pane| pane.title.clone()))
+        .filter_map(|tab| mux.get_tab(&tab.tab_id).map(|tab| tab.title.clone()))
         .collect();
     let planner_name = derive_planner_name(
         existing_titles.iter().map(String::as_str),
         &orchestrator_label,
     );
-    let (planner_tab_id, planner_pane_id) = mux.create_tab(workspace_id)?;
-    mux.rename_pane_at_level(
-        &planner_pane_id,
+    let (planner_tab_id, planner_tab_id) = mux.create_tab(workspace_id)?;
+    mux.rename_tab_at_level(
+        &planner_tab_id,
         &planner_name,
         crate::multiplexer::types::TitleLevel::User,
     )?;
-    for pane_id in [&orchestrator_pane_id, &planner_pane_id] {
-        if let Some(pane) = mux.get_pane_mut(pane_id) {
-            pane.agent_booting = true;
+    for tab_id in [&orchestrator_tab_id, &planner_tab_id] {
+        if let Some(tab) = mux.get_tab_mut(tab_id) {
+            tab.agent_booting = true;
             crate::service::boot_stage::apply_boot_stage(
-                pane,
+                tab,
                 codeterm_types::pty::BootStage::PtyStarting,
                 None,
             );
@@ -153,9 +153,9 @@ fn reserve_pair_tabs(
     }
     Ok(ReservedPairTabs {
         orchestrator_tab_id,
-        orchestrator_pane_id,
+        orchestrator_tab_id,
         planner_tab_id,
-        planner_pane_id,
+        planner_tab_id,
         planner_name,
     })
 }
@@ -179,22 +179,22 @@ fn pair_agent_state_allows_followup(
 }
 
 impl ServiceContext {
-    fn pair_agent_live_now(&self, pane_id: &str, provider: &str) -> bool {
+    fn pair_agent_live_now(&self, tab_id: &str, provider: &str) -> bool {
         let (booting, boot_stage, backing, pty_id) = {
             let mux = self.mux.read();
-            let Some(pane) = mux.get_pane(pane_id) else {
+            let Some(tab) = mux.get_tab(tab_id) else {
                 return false;
             };
             (
-                pane.agent_booting,
-                pane.boot_stage,
-                pane.backing.clone(),
-                pane.pty_id.clone(),
+                tab.agent_booting,
+                tab.boot_stage,
+                tab.backing.clone(),
+                tab.pty_id.clone(),
             )
         };
         let is_chat_backend = matches!(
             backing,
-            crate::multiplexer::types::PaneBacking::ChatBackend { .. }
+            crate::multiplexer::types::TabBacking::ChatBackend { .. }
         );
         if is_chat_backend {
             return pair_agent_state_allows_followup(booting, boot_stage, true, false);
@@ -219,17 +219,17 @@ impl ServiceContext {
 
     async fn await_pair_agent_ready(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         provider: &str,
         ready_rx: tokio::sync::oneshot::Receiver<Result<(), String>>,
         deadline: std::time::Instant,
     ) -> Result<(), String> {
         let now = std::time::Instant::now();
         let agent_deadline = deadline.min(now + PAIR_AGENT_READY_TIMEOUT);
-        let is_chat_backend = self.mux.read().get_pane(pane_id).is_some_and(|pane| {
+        let is_chat_backend = self.mux.read().get_tab(tab_id).is_some_and(|tab| {
             matches!(
-                &pane.backing,
-                crate::multiplexer::types::PaneBacking::ChatBackend { .. }
+                &tab.backing,
+                crate::multiplexer::types::TabBacking::ChatBackend { .. }
             )
         });
         if !is_chat_backend {
@@ -256,15 +256,15 @@ impl ServiceContext {
             }
         }
         loop {
-            if self.pair_agent_live_now(pane_id, provider) {
+            if self.pair_agent_live_now(tab_id, provider) {
                 return Ok(());
             }
             if std::time::Instant::now() >= agent_deadline {
                 let failure = self
                     .mux
                     .read()
-                    .get_pane(pane_id)
-                    .and_then(|pane| pane.boot_failure_reason.clone())
+                    .get_tab(tab_id)
+                    .and_then(|tab| tab.boot_failure_reason.clone())
                     .unwrap_or_else(|| "agent TUI was not confirmed live".into());
                 return Err(failure);
             }
@@ -274,17 +274,17 @@ impl ServiceContext {
 
     fn deliver_pair_followup(
         &self,
-        orchestrator_pane_id: &str,
+        orchestrator_tab_id: &str,
         orchestrator_provider: &str,
         body: &str,
     ) -> Result<(), String> {
-        if !self.pair_agent_live_now(orchestrator_pane_id, orchestrator_provider) {
+        if !self.pair_agent_live_now(orchestrator_tab_id, orchestrator_provider) {
             return Err(format!(
-                "orchestrator Tab {orchestrator_pane_id} is not a confirmed live agent"
+                "orchestrator Tab {orchestrator_tab_id} is not a confirmed live agent"
             ));
         }
         self.gateway_deliver(
-            orchestrator_pane_id,
+            orchestrator_tab_id,
             MessageEnvelope::codeterm_reminder("orchestration-pair"),
             body,
             crate::service::message_gateway::DeliveryClass::SystemNotice,
@@ -293,31 +293,31 @@ impl ServiceContext {
     }
 
     /// Bind a pending pair-spawned Planner when an Orchestrator creates its
-    /// first plan. Returns true only when a pending pane was consumed.
+    /// first plan. Returns true only when a pending tab was consumed.
     pub(crate) fn bind_pending_paired_planner(
         &self,
         plan_id: &str,
         owner: &OrchestratorRef,
         now_ms: u64,
     ) -> Result<bool, String> {
-        let Some(orch_pane_id) = owner.pane_id.as_deref().filter(|p| !p.is_empty()) else {
+        let Some(orch_tab_id) = owner.tab_id.as_deref().filter(|p| !p.is_empty()) else {
             return Ok(false);
         };
-        let planner_pane_id = {
+        let planner_tab_id = {
             let mut mux = self.mux.write();
-            let Some(orch) = mux.get_pane_mut(orch_pane_id) else {
+            let Some(orch) = mux.get_tab_mut(orch_tab_id) else {
                 return Ok(false);
             };
-            orch.pending_paired_planner_pane_id.take()
+            orch.pending_paired_planner_tab_id.take()
         };
-        let Some(planner_pane_id) = planner_pane_id else {
+        let Some(planner_tab_id) = planner_tab_id else {
             return Ok(false);
         };
         self.plan_store
             .set_planner_ref(
                 plan_id,
-                Some(PlannerRef::Pane {
-                    pane_id: planner_pane_id.clone(),
+                Some(PlannerRef::Tab {
+                    tab_id: planner_tab_id.clone(),
                     session_id: None,
                     title: None,
                 }),
@@ -325,16 +325,16 @@ impl ServiceContext {
             )
             .map_err(|e| e.to_string())?;
         log::info!(
-            "[orchestration-pair] bound pending planner {planner_pane_id} to first plan {plan_id} for orchestrator {orch_pane_id}"
+            "[orchestration-pair] bound pending planner {planner_tab_id} to first plan {plan_id} for orchestrator {orch_tab_id}"
         );
         Ok(true)
     }
 
-    pub(crate) fn pane_has_pending_paired_planner(&self, pane_id: &str) -> bool {
+    pub(crate) fn tab_has_pending_paired_planner(&self, tab_id: &str) -> bool {
         self.mux
             .read()
-            .get_pane(pane_id)
-            .and_then(|p| p.pending_paired_planner_pane_id.as_deref())
+            .get_tab(tab_id)
+            .and_then(|p| p.pending_paired_planner_tab_id.as_deref())
             .map(|p| !p.is_empty())
             .unwrap_or(false)
     }
@@ -357,11 +357,11 @@ impl ServiceContext {
 
         // Leaf roles cannot create orchestration pairs.
         // Mirrors the child-spawn refusal in multiplexer::state::role.
-        if let Some(ref spawner_id) = params.spawned_by_pane_id {
+        if let Some(ref spawner_id) = params.spawned_by_tab_id {
             if !spawner_id.is_empty() {
                 let is_leaf = {
                     let mux = self.mux.write();
-                    mux.get_pane(spawner_id)
+                    mux.get_tab(spawner_id)
                         .map(|p| {
                             matches!(
                                 p.role,
@@ -423,16 +423,16 @@ impl ServiceContext {
         let orchestrator_label = self
             .mux
             .read()
-            .display_label_for_pane(&reserved.orchestrator_pane_id);
+            .display_label_for_tab(&reserved.orchestrator_tab_id);
         let orch_counterpart = crate::service::spawn_factory::Counterpart::new(
             "Orchestrator",
             &orchestrator_label,
-            &reserved.orchestrator_pane_id,
+            &reserved.orchestrator_tab_id,
         );
         let planner_counterpart = crate::service::spawn_factory::Counterpart::new(
             "Planner",
             &reserved.planner_name,
-            &reserved.planner_pane_id,
+            &reserved.planner_tab_id,
         );
         let mut orchestrator_bootstrap =
             crate::service::spawn_factory::forming_identity("Orchestrator", project.clone());
@@ -447,7 +447,7 @@ impl ServiceContext {
             role: Some("Orchestrator".into()),
             can_spawn: Some(true),
             workspace_id: Some(workspace_id.clone()),
-            spawned_by_pane_id: params.spawned_by_pane_id.clone(),
+            spawned_by_tab_id: params.spawned_by_tab_id.clone(),
             task: None,
             manager_bootstrap: Some(orchestrator_bootstrap),
             existing_tab_id: Some(reserved.orchestrator_tab_id.clone()),
@@ -459,16 +459,16 @@ impl ServiceContext {
             Ok(result) => result,
             Err(error) => {
                 self.emit_boot_stage(
-                    &reserved.orchestrator_pane_id,
+                    &reserved.orchestrator_tab_id,
                     codeterm_types::pty::BootStage::SpawnFailed,
                     Some(&error),
                 );
-                if let Some(pane) = self
+                if let Some(tab) = self
                     .mux
                     .write()
-                    .get_pane_mut(&reserved.orchestrator_pane_id)
+                    .get_tab_mut(&reserved.orchestrator_tab_id)
                 {
-                    pane.agent_booting = false;
+                    tab.agent_booting = false;
                 }
                 let _ = self
                     .mux
@@ -480,7 +480,7 @@ impl ServiceContext {
                 ));
             }
         };
-        let orch_pane_id = orch_result.pane_id.clone();
+        let orch_tab_id = orch_result.tab_id.clone();
 
         let mut planner_bootstrap =
             crate::service::spawn_factory::forming_identity("Planner", project);
@@ -494,10 +494,10 @@ impl ServiceContext {
             title: Some(reserved.planner_name.clone()),
             role: Some("Manager".into()),
             role_profile: Some("planner".into()),
-            parent_pane_id: Some(orch_pane_id.clone()),
+            parent_tab_id: Some(orch_tab_id.clone()),
             plan_id: None,
             workspace_id: Some(workspace_id.clone()),
-            spawned_by_pane_id: Some(orch_pane_id.clone()),
+            spawned_by_tab_id: Some(orch_tab_id.clone()),
             task: None,
             manager_bootstrap: Some(planner_bootstrap),
             existing_tab_id: Some(reserved.planner_tab_id.clone()),
@@ -510,19 +510,19 @@ impl ServiceContext {
             .await
         {
             Ok(planner_result) => {
-                let planner_pane_id = planner_result.pane_id.clone();
-                if let Some(pane) = self.mux.write().get_pane_mut(&orch_pane_id) {
-                    pane.pending_paired_planner_pane_id = Some(planner_pane_id.clone());
+                let planner_tab_id = planner_result.tab_id.clone();
+                if let Some(tab) = self.mux.write().get_tab_mut(&orch_tab_id) {
+                    tab.pending_paired_planner_tab_id = Some(planner_tab_id.clone());
                 }
                 let (orch_ready, planner_ready) = tokio::join!(
                     self.await_pair_agent_ready(
-                        &orch_pane_id,
+                        &orch_tab_id,
                         &params.orchestrator_agent,
                         orch_ready_rx,
                         readiness_deadline,
                     ),
                     self.await_pair_agent_ready(
-                        &planner_pane_id,
+                        &planner_tab_id,
                         &params.planner_agent,
                         planner_ready_rx,
                         readiness_deadline,
@@ -533,23 +533,23 @@ impl ServiceContext {
                     (orch_status, planner_status) => {
                         let orch_error = orch_status.err();
                         let planner_error = planner_status.err();
-                        for (pane_id, error) in [
-                            (&orch_pane_id, orch_error.as_deref()),
-                            (&planner_pane_id, planner_error.as_deref()),
+                        for (tab_id, error) in [
+                            (&orch_tab_id, orch_error.as_deref()),
+                            (&planner_tab_id, planner_error.as_deref()),
                         ] {
                             if let Some(error) = error {
                                 self.emit_boot_stage(
-                                    pane_id,
+                                    tab_id,
                                     codeterm_types::pty::BootStage::SpawnFailed,
                                     Some(error),
                                 );
-                                if let Some(pane) = self.mux.write().get_pane_mut(pane_id) {
-                                    pane.agent_booting = false;
+                                if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
+                                    tab.agent_booting = false;
                                 }
                             }
                         }
                         let fix_command = degraded_fix_command(
-                            &orch_pane_id,
+                            &orch_tab_id,
                             &params.planner_agent,
                             planner_model.as_deref(),
                         );
@@ -557,12 +557,12 @@ impl ServiceContext {
                             let followup =
                                 orchestrator_pair_followup_degraded(&fix_command, planner_error);
                             if let Err(notify_err) = self.deliver_pair_followup(
-                                &orch_pane_id,
+                                &orch_tab_id,
                                 &params.orchestrator_agent,
                                 &followup,
                             ) {
                                 log::warn!(
-                                    "[orchestration-pair] failed to notify orchestrator {orch_pane_id} of degraded pairing: {notify_err}"
+                                    "[orchestration-pair] failed to notify orchestrator {orch_tab_id} of degraded pairing: {notify_err}"
                                 );
                             }
                         }
@@ -586,22 +586,22 @@ impl ServiceContext {
                     let mut mux = self.mux.write();
                     let orch_tab = mux
                         .get_workspace(&workspace_id)
-                        .and_then(|ws| ws.tabs.iter().find(|t| t.pane_id == orch_pane_id))
+                        .and_then(|ws| ws.tabs.iter().find(|t| t.tab_id == orch_tab_id))
                         .map(|t| t.id.clone());
                     let _ = mux.set_active_workspace(&workspace_id);
                     if let Some(tab_id) = orch_tab {
                         let _ = mux.set_active_tab(&workspace_id, &tab_id);
                     }
                 }
-                let _ = self.focus_pane(&orch_pane_id);
+                let _ = self.focus_tab(&orch_tab_id);
                 self.emit_state_changed();
                 // final count is the authoritative one for the nudge.
-                let budget_notice = self.workspace_pane_budget_notice(&workspace_id);
+                let budget_notice = self.workspace_tab_budget_notice(&workspace_id);
                 Ok(OrchestrationPairResult {
                     plan_id: None,
-                    orchestrator_pane_id: orch_pane_id,
+                    orchestrator_tab_id: orch_tab_id,
                     orchestrator_model,
-                    planner_pane_id,
+                    planner_tab_id,
                     planner_model,
                     warning: warning.or(orch_result.warning).or(planner_result.warning),
                     budget_notice,
@@ -609,28 +609,28 @@ impl ServiceContext {
             }
             Err(e) => {
                 self.emit_boot_stage(
-                    &reserved.planner_pane_id,
+                    &reserved.planner_tab_id,
                     codeterm_types::pty::BootStage::SpawnFailed,
                     Some(&e),
                 );
-                if let Some(pane) = self.mux.write().get_pane_mut(&reserved.planner_pane_id) {
-                    pane.agent_booting = false;
+                if let Some(tab) = self.mux.write().get_tab_mut(&reserved.planner_tab_id) {
+                    tab.agent_booting = false;
                 }
                 let fix_command = degraded_fix_command(
-                    &orch_pane_id,
+                    &orch_tab_id,
                     &params.planner_agent,
                     planner_model.as_deref(),
                 );
                 let followup = orchestrator_pair_followup_degraded(&fix_command, &e);
                 if let Err(notify_err) =
-                    self.deliver_pair_followup(&orch_pane_id, &params.orchestrator_agent, &followup)
+                    self.deliver_pair_followup(&orch_tab_id, &params.orchestrator_agent, &followup)
                 {
                     log::warn!(
-                        "[orchestration-pair] failed to notify orchestrator {orch_pane_id} of degraded pairing: {notify_err}"
+                        "[orchestration-pair] failed to notify orchestrator {orch_tab_id} of degraded pairing: {notify_err}"
                     );
                 }
                 Err(format!(
-                    "Orchestrator spawned (Tab {orch_pane_id}) but Planner spawn failed: {e}. No plan was created. Complete the pair after first goal with: {fix_command}"
+                    "Orchestrator spawned (Tab {orch_tab_id}) but Planner spawn failed: {e}. No plan was created. Complete the pair after first goal with: {fix_command}"
                 ))
             }
         }
@@ -661,7 +661,7 @@ mod tests {
             .create_plan_for_team(
                 "First goal".into(),
                 _root.path().display().to_string(),
-                OrchestratorRef::from_pane("orch-1"),
+                OrchestratorRef::from_tab("orch-1"),
                 "team-orch-1".into(),
                 Vec::new(),
                 1,
@@ -670,8 +670,8 @@ mod tests {
         store
             .set_planner_ref(
                 &plan.id,
-                Some(PlannerRef::Pane {
-                    pane_id: "planner-1".into(),
+                Some(PlannerRef::Tab {
+                    tab_id: "planner-1".into(),
                     session_id: None,
                     title: None,
                 }),
@@ -682,11 +682,11 @@ mod tests {
         let plans = store.list_index();
         assert_eq!(plans.len(), 1, "first goal creates exactly one plan");
         let bound = store.get(&plan.id).unwrap();
-        assert_eq!(bound.owner.pane_id.as_deref(), Some("orch-1"));
+        assert_eq!(bound.owner.tab_id.as_deref(), Some("orch-1"));
         assert_eq!(
             bound.planner,
-            Some(PlannerRef::Pane {
-                pane_id: "planner-1".into(),
+            Some(PlannerRef::Tab {
+                tab_id: "planner-1".into(),
                 session_id: None,
                 title: None,
             })
@@ -801,20 +801,20 @@ mod tests {
         let workspace_id = mux.list_workspaces()[0].id.clone();
         let reserved = reserve_pair_tabs(&mut mux, &workspace_id, None).unwrap();
 
-        assert_ne!(reserved.orchestrator_pane_id, reserved.planner_pane_id);
-        assert!(mux.get_pane(&reserved.orchestrator_pane_id).is_some());
-        assert!(mux.get_pane(&reserved.planner_pane_id).is_some());
-        for pane_id in [&reserved.orchestrator_pane_id, &reserved.planner_pane_id] {
-            let pane = mux.get_pane(pane_id).unwrap();
-            assert!(pane.agent_booting, "reserved Tab must announce booting");
+        assert_ne!(reserved.orchestrator_tab_id, reserved.planner_tab_id);
+        assert!(mux.get_tab(&reserved.orchestrator_tab_id).is_some());
+        assert!(mux.get_tab(&reserved.planner_tab_id).is_some());
+        for tab_id in [&reserved.orchestrator_tab_id, &reserved.planner_tab_id] {
+            let tab = mux.get_tab(tab_id).unwrap();
+            assert!(tab.agent_booting, "reserved Tab must announce booting");
             assert_eq!(
-                pane.boot_stage,
+                tab.boot_stage,
                 Some(codeterm_types::pty::BootStage::PtyStarting),
                 "reserved Tab must never expose a blank chat before launch"
             );
         }
         assert_eq!(
-            mux.display_label_for_pane(&reserved.planner_pane_id),
+            mux.display_label_for_tab(&reserved.planner_tab_id),
             reserved.planner_name
         );
         assert!(mux

@@ -15,7 +15,7 @@ pub struct MemActivityEvent {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MemActivitySource {
     pub kind: String,
-    pub pane_id: Option<String>,
+    pub tab_id: Option<String>,
     pub worker_id: Option<String>,
     pub agent_provider: Option<String>,
 }
@@ -72,7 +72,7 @@ mod tests {
             mem_ids: vec!["id1".into()],
             source: MemActivitySource {
                 kind: "rest".into(),
-                pane_id: None,
+                tab_id: None,
                 worker_id: None,
                 agent_provider: None,
             },
@@ -110,7 +110,7 @@ mod tests {
             mem_ids: vec!["a".into(), "b".into()],
             source: MemActivitySource {
                 kind: "worker".into(),
-                pane_id: Some("p1".into()),
+                tab_id: Some("p1".into()),
                 worker_id: Some("w1".into()),
                 agent_provider: Some("claude".into()),
             },
@@ -121,7 +121,7 @@ mod tests {
         assert_eq!(back.op, "write");
         assert_eq!(back.mem_ids, vec!["a", "b"]);
         assert_eq!(back.source.kind, "worker");
-        assert_eq!(back.source.pane_id.as_deref(), Some("p1"));
+        assert_eq!(back.source.tab_id.as_deref(), Some("p1"));
         assert_eq!(back.ts_ms, 42);
     }
 }

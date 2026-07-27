@@ -18,7 +18,7 @@ pub(crate) struct PtySpawnBody {
     cols: u16,
     rows: u16,
     predicted_id: Option<String>,
-    pane_id: Option<String>,
+    tab_id: Option<String>,
 }
 
 /// Web-mirror twin of the `spawn_pty` Tauri command — same launch/resume
@@ -38,7 +38,7 @@ pub async fn pty_spawn(
         body.cols,
         body.rows,
         body.predicted_id,
-        body.pane_id,
+        body.tab_id,
     )
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
@@ -92,7 +92,7 @@ pub async fn pty_read(
 pub(crate) struct PtyWriteBody {
     data: String,
     /// Mirrors the Tauri command: raw=false means "composed text" — bracket
-    /// paste + verified Enter for agent panes. Defaults to true (xterm
+    /// paste + verified Enter for agent tabs. Defaults to true (xterm
     /// keystroke stream).
     #[serde(default = "default_true")]
     raw: bool,
@@ -205,12 +205,12 @@ pub async fn pty_launch_command(
 pub async fn claim_resize_owner(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(pane_id): Path<String>,
+    Path(tab_id): Path<String>,
     Json(body): Json<ResizeOwnerBody>,
 ) -> Result<Json<crate::resize_owner::ResizeOwner>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let owner = state.resize_owner.lock().claim(
-        pane_id,
+        tab_id,
         body.pty_id,
         body.client_id,
         body.cols,

@@ -25,7 +25,7 @@ async function main() {
       <TeamUnit
         team={{ id: "team-1", name: "Team", lifecycle: "active", created_at: 0, workspace_id: "ws" }}
         plan={null}
-        panes={{}}
+        tabs={{}}
         managers={null}
         managerCount={1}
         workers={null}
@@ -53,7 +53,7 @@ async function main() {
       <TeamUnit
         team={{ id: "team-2", name: "Managerless", lifecycle: "forming", created_at: 0, workspace_id: "ws" }}
         plan={null}
-        panes={{}}
+        tabs={{}}
         managers={null}
         managerCount={0}
         workers={null}

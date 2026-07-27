@@ -5,10 +5,10 @@
  */
 import { test, expect } from "../../helpers/fixtures";
 
-function visibleTabs(ws: any, panes: Record<string, any>) {
+function visibleTabs(ws: any, tabs: Record<string, any>) {
   return ws.tabs.filter((tab: any) => {
-    const pane = panes[tab.pane_id];
-    return pane && pane.hidden !== true && pane.show_in_tabbar !== false;
+    const tab = tabs[tab.tab_id];
+    return tab && tab.hidden !== true && tab.show_in_tabbar !== false;
   });
 }
 
@@ -19,17 +19,17 @@ test("@golden web tab-switch does not bounce to previous tab", async ({ ui, api 
 
   let st = await api.get<any>("/mux/state");
   let ws =
-    st.workspaces.find((w: any) => visibleTabs(w, st.panes).length >= 2) ??
+    st.workspaces.find((w: any) => visibleTabs(w, st.tabs).length >= 2) ??
     st.workspaces[0];
-  for (let attempt = 0; ws && visibleTabs(ws, st.panes).length < 2 && attempt < 3; attempt++) {
+  for (let attempt = 0; ws && visibleTabs(ws, st.tabs).length < 2 && attempt < 3; attempt++) {
     await api.post(`/workspaces/${ws.id}/tabs`, { eager: true });
     st = await api.get<any>("/mux/state");
     ws = st.workspaces.find((w: any) => w.id === ws.id);
   }
-  if (!ws || visibleTabs(ws, st.panes).length < 2) {
+  if (!ws || visibleTabs(ws, st.tabs).length < 2) {
     throw new Error("expected at least two sidebar-visible tabs for bounce regression");
   }
-  const [tabA, tabB] = visibleTabs(ws, st.panes).slice(0, 2).map((t: any) => t.id);
+  const [tabA, tabB] = visibleTabs(ws, st.tabs).slice(0, 2).map((t: any) => t.id);
 
   await expect(page.locator(`[data-testid="tab-item"][data-tab-id="${tabA}"]`).first()).toBeVisible({
     timeout: 20_000,

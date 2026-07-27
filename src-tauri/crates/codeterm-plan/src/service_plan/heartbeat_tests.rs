@@ -8,7 +8,7 @@ fn store_with_plan(owner: &str) -> (tempfile::TempDir, PlanStore, String) {
         .create_plan(
             "Heartbeat".into(),
             dir.path().display().to_string(),
-            OrchestratorRef::from_pane(owner),
+            OrchestratorRef::from_tab(owner),
             vec![],
             10,
         )
@@ -99,7 +99,7 @@ fn heartbeat_resolution_prefers_execution_plan_with_open_work() {
         .create_plan(
             "Stale owner plan".into(),
             dir.path().display().to_string(),
-            OrchestratorRef::from_pane("orch-a"),
+            OrchestratorRef::from_tab("orch-a"),
             vec![],
             10,
         )
@@ -114,7 +114,7 @@ fn heartbeat_resolution_prefers_execution_plan_with_open_work() {
         .create_plan(
             "Live execution plan".into(),
             dir.path().display().to_string(),
-            OrchestratorRef::from_pane("orch-a"),
+            OrchestratorRef::from_tab("orch-a"),
             vec![],
             20,
         )
@@ -143,7 +143,7 @@ fn heartbeat_resolution_prefers_execution_plan_with_open_work() {
     assert_eq!(shown.plan_id, live.id);
     assert_eq!(shown.heartbeat.current_focus, None);
 
-    let text = store.prepend_heartbeat_for_orchestrator_pane("orch-a", "continue");
+    let text = store.prepend_heartbeat_for_orchestrator_tab("orch-a", "continue");
     assert!(text.contains(&format!("plan=\"{}\"", live.id)));
     assert!(!text.contains("Current focus:"));
     assert!(!text.contains("old focus"));
@@ -177,13 +177,13 @@ fn paused_plan_is_not_resolved_or_prepended_for_heartbeat() {
         .pause_plan(
             &plan_id,
             "waiting on quota",
-            AgentRef::from_pane("orch-paused"),
+            AgentRef::from_tab("orch-paused"),
             22,
         )
         .unwrap();
 
     assert_eq!(
-        store.prepend_heartbeat_for_orchestrator_pane("orch-paused", "continue"),
+        store.prepend_heartbeat_for_orchestrator_tab("orch-paused", "continue"),
         "continue"
     );
     assert_eq!(
@@ -196,9 +196,9 @@ fn paused_plan_is_not_resolved_or_prepended_for_heartbeat() {
 }
 
 #[test]
-fn heartbeat_resolves_for_owner_pane_at_send_time() {
+fn heartbeat_resolves_for_owner_tab_at_send_time() {
     let (_dir, store, plan_id) = store_with_plan("orch-a");
-    let before = store.prepend_heartbeat_for_orchestrator_pane("orch-a", "continue");
+    let before = store.prepend_heartbeat_for_orchestrator_tab("orch-a", "continue");
     assert!(before.starts_with("<codeterm-role-identity"));
     assert!(before.contains(&format!("You are the Orchestrator for plan {plan_id}")));
     assert!(before.contains("STATE-RECONCILIATION"));
@@ -244,7 +244,7 @@ fn heartbeat_resolves_for_owner_pane_at_send_time() {
             30,
         )
         .unwrap();
-    let after = store.prepend_heartbeat_for_orchestrator_pane("orch-a", "continue");
+    let after = store.prepend_heartbeat_for_orchestrator_tab("orch-a", "continue");
     assert!(after.contains("<codeterm-state-reconciliation"));
     assert!(after.contains("<codeterm-orchestrator-heartbeat"));
     assert!(!after.contains("Current focus:"));
@@ -265,10 +265,10 @@ fn heartbeat_resolves_for_owner_pane_at_send_time() {
             Ok(())
         })
         .unwrap();
-    let resolved_later = store.prepend_heartbeat_for_orchestrator_pane("orch-a", "continue");
+    let resolved_later = store.prepend_heartbeat_for_orchestrator_tab("orch-a", "continue");
     assert!(!resolved_later.contains("Current focus:"));
 
-    let worker_text = store.prepend_heartbeat_for_orchestrator_pane("worker-a", "continue");
+    let worker_text = store.prepend_heartbeat_for_orchestrator_tab("worker-a", "continue");
     assert_eq!(worker_text, "continue");
 }
 
@@ -328,8 +328,8 @@ fn role_identity_names_planner_peer_across_reinjection() {
     let (_dir, store, plan_id) = store_with_plan("orch-a");
     store
         .with_plan(&plan_id, 20, |plan| {
-            plan.planner = Some(PlannerRef::Pane {
-                pane_id: "planner-a".into(),
+            plan.planner = Some(PlannerRef::Tab {
+                tab_id: "planner-a".into(),
                 session_id: None,
                 title: Some("Planner".into()),
             });
@@ -363,7 +363,7 @@ fn all_tasks_done_plan_produces_no_reconciliation_prepend() {
             &plan_id,
             &task_id,
             Some("done"),
-            AgentRef::from_pane("orch-a"),
+            AgentRef::from_tab("orch-a"),
             30,
         )
         .unwrap();
@@ -377,10 +377,10 @@ fn all_tasks_done_plan_produces_no_reconciliation_prepend() {
     assert!(!result.contains("STATE-RECONCILIATION"));
     assert!(!result.contains("codeterm-state-reconciliation"));
 
-    let pane_result = store.prepend_heartbeat_for_orchestrator_pane("orch-a", nudge_body);
+    let tab_result = store.prepend_heartbeat_for_orchestrator_tab("orch-a", nudge_body);
     assert_eq!(
-        pane_result, nudge_body,
-        "complete plan must be silent via orchestrator pane path"
+        tab_result, nudge_body,
+        "complete plan must be silent via orchestrator tab path"
     );
 }
 
@@ -429,7 +429,7 @@ fn is_plan_complete_predicate_covers_execution_all_done_and_explicit_complete() 
         .create_plan(
             "T".into(),
             dir.path().display().to_string(),
-            OrchestratorRef::from_pane("orch"),
+            OrchestratorRef::from_tab("orch"),
             vec![],
             1,
         )
@@ -453,7 +453,7 @@ fn is_plan_complete_predicate_covers_execution_all_done_and_explicit_complete() 
         )
         .unwrap();
     store
-        .close_task(&plan.id, &task_id, None, AgentRef::from_pane("orch"), 4)
+        .close_task(&plan.id, &task_id, None, AgentRef::from_tab("orch"), 4)
         .unwrap();
     let done_plan = store.get(&plan.id).unwrap();
     assert!(
@@ -479,7 +479,7 @@ fn is_plan_complete_rejects_paused_and_blocked_tasks() {
         .create_plan(
             "Deferred".into(),
             dir.path().display().to_string(),
-            OrchestratorRef::from_pane("orch"),
+            OrchestratorRef::from_tab("orch"),
             vec![],
             1,
         )
@@ -501,7 +501,7 @@ fn is_plan_complete_rejects_paused_and_blocked_tasks() {
             &plan.id,
             &paused_id,
             "waiting for quota reset",
-            AgentRef::from_pane("orch"),
+            AgentRef::from_tab("orch"),
             4,
         )
         .unwrap();

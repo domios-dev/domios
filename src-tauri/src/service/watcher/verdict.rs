@@ -28,7 +28,7 @@ pub enum WatcherVerdictStatus {
 pub struct WatcherAction {
     pub kind: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pane: Option<String>,
+    pub tab: Option<String>,
     pub message: String,
 }
 
@@ -115,10 +115,10 @@ fn parse_actions(v: Option<&Value>) -> Vec<WatcherAction> {
         .filter_map(|item| {
             let kind = item.get("kind")?.as_str()?.to_string();
             let message = item.get("message")?.as_str()?.to_string();
-            let pane = item.get("pane").and_then(Value::as_str).map(str::to_string);
+            let tab = item.get("tab").and_then(Value::as_str).map(str::to_string);
             Some(WatcherAction {
                 kind,
-                pane,
+                tab,
                 message,
             })
         })
@@ -209,7 +209,7 @@ fn state_blob_bytes(state: &Value) -> usize {
 fn action_targets_group(action: &WatcherAction, group: &HashSet<String>) -> bool {
     match action.kind.as_str() {
         "notify" => true,
-        "nudge" | "report" => action.pane.as_deref().is_some_and(|p| group.contains(p)),
+        "nudge" | "report" => action.tab.as_deref().is_some_and(|p| group.contains(p)),
         _ => false,
     }
 }
@@ -223,10 +223,10 @@ fn nudge_on_cooldown(
     if action.kind != "nudge" {
         return false;
     }
-    let Some(pane) = action.pane.as_deref() else {
+    let Some(tab) = action.tab.as_deref() else {
         return false;
     };
-    let Some(&last_ms) = cooldowns.get(pane) else {
+    let Some(&last_ms) = cooldowns.get(tab) else {
         return false;
     };
     now_ms.saturating_sub(last_ms) < cooldown_secs.saturating_mul(1000)
@@ -260,12 +260,12 @@ pub fn apply_guardrails(
             continue;
         }
         if action.kind == "nudge" {
-            if let Some(pane) = action.pane.as_deref() {
+            if let Some(tab) = action.tab.as_deref() {
                 if nudge_on_cooldown(action, cooldowns, policy.nudge_cooldown_secs, now_ms) {
                     dropped.push((action.clone(), "cooldown"));
                     continue;
                 }
-                if !nudged_this_tick.insert(pane.to_string()) {
+                if !nudged_this_tick.insert(tab.to_string()) {
                     dropped.push((action.clone(), "cooldown"));
                     continue;
                 }

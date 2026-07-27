@@ -133,7 +133,7 @@ fn chat_preprocessor_round_trips_symmetrically() {
 
 #[test]
 fn parse_chat_backend_bool_is_enabled_not_spawnable() {
-    // user-spawnable (a host-/agent-driven pane, e.g. the NPC plugin).
+    // user-spawnable (a host-/agent-driven tab, e.g. the NPC plugin).
     let json = r#"{
             "id": "codeterm-npc",
             "version": "0.1.0",

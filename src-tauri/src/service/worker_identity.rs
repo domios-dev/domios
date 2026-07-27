@@ -16,12 +16,12 @@ pub(crate) fn persist_attempt_executor_identity(
     svc: &ServiceState,
     plan_id: &str,
     task_id: &str,
-    pane_id: &str,
+    tab_id: &str,
     title: &str,
     now: u64,
 ) -> Result<(), PlanError> {
     persist_attempt_executor_identity_for_mux(
-        store, &svc.mux, plan_id, task_id, pane_id, title, now,
+        store, &svc.mux, plan_id, task_id, tab_id, title, now,
     )
 }
 
@@ -30,18 +30,18 @@ pub(crate) fn persist_attempt_executor_identity_for_mux(
     mux: &MuxState,
     plan_id: &str,
     task_id: &str,
-    pane_id: &str,
+    tab_id: &str,
     title: &str,
     now: u64,
 ) -> Result<(), PlanError> {
     let session_id = mux
         .read()
-        .get_pane(pane_id)
-        .and_then(|pane| pane.agent_session_id.clone());
+        .get_tab(tab_id)
+        .and_then(|tab| tab.agent_session_id.clone());
     store.update_attempt_executor_identity(
         plan_id,
         task_id,
-        pane_id,
+        tab_id,
         Some(title),
         session_id.as_deref(),
         now,
@@ -79,7 +79,7 @@ mod tests {
         let mut plan = Plan::new(
             "Respawn".into(),
             dir.path().display().to_string(),
-            OrchestratorRef::from_pane("orch"),
+            OrchestratorRef::from_tab("orch"),
         );
         store.save(&mut plan, 1).unwrap();
         let task_id = store
@@ -104,7 +104,7 @@ mod tests {
             provider: "claude".into(),
             planned_model: None,
             model: None,
-            parent_pane_id: None,
+            parent_tab_id: None,
             workspace_id: Some("ws".into()),
             title: Some("user-title".into()),
             explicit_title: true,
@@ -116,13 +116,13 @@ mod tests {
             .write()
             .create_workspace("Respawn".into(), Some(dir.path().display().to_string()))
             .id;
-        let (_tab_id, pane_id) = mux.write().create_tab(&ws).unwrap();
-        mux.write().get_pane_mut(&pane_id).unwrap().agent_session_id = Some("sess-1".into());
+        let (_tab_id, tab_id) = mux.write().create_tab(&ws).unwrap();
+        mux.write().get_tab_mut(&tab_id).unwrap().agent_session_id = Some("sess-1".into());
         store
-            .record_task_respawn_attempt(&plan.id, &task_id, &pane_id, &draft, Some("worker"), 3)
+            .record_task_respawn_attempt(&plan.id, &task_id, &tab_id, &draft, Some("worker"), 3)
             .unwrap();
         persist_attempt_executor_identity_for_mux(
-            &store, &mux, &plan.id, &task_id, &pane_id, "Ada", 4,
+            &store, &mux, &plan.id, &task_id, &tab_id, "Ada", 4,
         )
         .unwrap();
         let task = store.show_task(&task_id).unwrap();
@@ -130,7 +130,7 @@ mod tests {
             .task
             .execution_attempts
             .iter()
-            .find(|attempt| attempt.executor_pane_id == pane_id)
+            .find(|attempt| attempt.executor_tab_id == tab_id)
             .unwrap();
         assert_eq!(attempt.executor_title.as_deref(), Some("Ada"));
         assert_eq!(attempt.session_id.as_deref(), Some("sess-1"));

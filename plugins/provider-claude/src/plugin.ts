@@ -13,9 +13,9 @@ import {
 } from "./session";
 import { discoverAnthropicModels, manifestModels } from "./models";
 import {
-  classifyClaudePaneState,
-  PaneStateSnapshot,
-  PaneStateClassification,
+  classifyClaudeTabState,
+  TabStateSnapshot,
+  TabStateClassification,
 } from "./classify";
 import {
   buildClaudePromptResponse,
@@ -649,17 +649,17 @@ const plugin: PluginModule = {
     const portExpr = "${CODETERM_API_PORT:-" + port + "}";
 
     const notifyCmd = "curl -s -X POST http://localhost:" + portExpr
-      + "/api/panes/$CODETERM_PANE_ID/hook/permission "
+      + "/api/tabs/$CODETERM_TAB_ID/hook/permission "
       + "-H 'Content-Type: application/json' " + authH + " -d '{}' > " + nullDev + " 2>&1 || true";
     const stopCmd = "curl -s -X POST http://localhost:" + portExpr
-      + "/api/panes/$CODETERM_PANE_ID/hook/stop "
+      + "/api/tabs/$CODETERM_TAB_ID/hook/stop "
       + "-H 'Content-Type: application/json' " + authH + " -d '{}' > " + nullDev + " 2>&1 || true";
     const precompactCmd = "curl -s -X POST http://localhost:" + portExpr
       + "/api/mem/flush -H 'Content-Type: application/json' " + authH
-      + ' -d \'{"pane":"\'"$CODETERM_PANE_ID"\'","title":"pre-compact"}\' > '
+      + ' -d \'{"tab":"\'"$CODETERM_TAB_ID"\'","title":"pre-compact"}\' > '
       + nullDev + " 2>&1 || true";
     const sessionStartCmd = "curl -s -X POST http://localhost:" + portExpr
-      + "/api/panes/$CODETERM_PANE_ID/hook/session_start "
+      + "/api/tabs/$CODETERM_TAB_ID/hook/session_start "
       + "-H 'Content-Type: application/json' " + authH + " " + nonceH + " --data-binary @- > "
       + nullDev + " 2>&1 || true";
 
@@ -720,10 +720,10 @@ const plugin: PluginModule = {
     return { ok: false, error: "writeJson failed for " + path };
   },
 
-  // AS3/AS4 pane-state classification lives in ./classify; the facade delegates.
+  // AS3/AS4 tab-state classification lives in ./classify; the facade delegates.
   // See that module for the auth/rate-limit/clarifying ensemble and its guarantees.
-  classifyPaneState(snapshot: PaneStateSnapshot): PaneStateClassification | null {
-    return classifyClaudePaneState(snapshot);
+  classifyTabState(snapshot: TabStateSnapshot): TabStateClassification | null {
+    return classifyClaudeTabState(snapshot);
   },
 };
 
@@ -825,7 +825,7 @@ function isCodetermHook(entry: HookEntry): boolean {
     if (typeof cmd === "string") {
       const isUrl = cmd.indexOf("7685") !== -1 || cmd.indexOf("7686") !== -1;
       const isPath = cmd.indexOf("/api/notifications") !== -1
-        || cmd.indexOf("/api/panes/") !== -1
+        || cmd.indexOf("/api/tabs/") !== -1
         || cmd.indexOf("/hook/permission") !== -1
         || cmd.indexOf("/hook/stop") !== -1
         || cmd.indexOf("/hook/session_start") !== -1

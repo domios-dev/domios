@@ -9,14 +9,14 @@ use codeterm_types::team::Team;
 pub struct TabInfo {
     pub id: String,
     pub title: String,
-    pub pane_id: String,
+    pub tab_id: String,
 }
 
 #[derive(serde::Serialize)]
 pub struct OrphanedRestoreInfo {
     pub workspace_id: String,
     pub tab_id: String,
-    pub pane_id: String,
+    pub tab_id: String,
 }
 
 /// Returns the full multiplexer state for frontend hydration (read-only).
@@ -69,24 +69,24 @@ pub fn mux_rename_team_core(
     mux: &mut crate::multiplexer::state::MultiplexerState,
     team_id: String,
     name: String,
-    caller_pane_id: Option<String>,
+    caller_tab_id: Option<String>,
 ) -> Result<Team, String> {
-    let caller_pane_id = require_team_rename_caller(caller_pane_id)?;
-    crate::service::rename_team_core(mux, &team_id, name, Some(&caller_pane_id))
+    let caller_tab_id = require_team_rename_caller(caller_tab_id)?;
+    crate::service::rename_team_core(mux, &team_id, name, Some(&caller_tab_id))
 }
 
 pub(crate) fn mux_rename_team_service_core(
     svc: &ServiceState,
     team_id: String,
     name: String,
-    caller_pane_id: Option<String>,
+    caller_tab_id: Option<String>,
 ) -> Result<Team, String> {
-    let caller_pane_id = require_team_rename_caller(caller_pane_id)?;
-    svc.rename_team(&team_id, name, Some(&caller_pane_id))
+    let caller_tab_id = require_team_rename_caller(caller_tab_id)?;
+    svc.rename_team(&team_id, name, Some(&caller_tab_id))
 }
 
-fn require_team_rename_caller(caller_pane_id: Option<String>) -> Result<String, String> {
-    caller_pane_id.ok_or_else(|| "callerTabId is required to rename a Team".into())
+fn require_team_rename_caller(caller_tab_id: Option<String>) -> Result<String, String> {
+    caller_tab_id.ok_or_else(|| "callerTabId is required to rename a Team".into())
 }
 
 /// Rename a Team through the service boundary so authorization and the state
@@ -104,11 +104,11 @@ pub fn mux_rename_team(
 pub(crate) fn mux_close_team_service_core(
     svc: &ServiceState,
     team_id: String,
-    caller_pane_id: Option<String>,
+    caller_tab_id: Option<String>,
 ) -> Result<Team, String> {
-    let caller_pane_id =
-        caller_pane_id.ok_or_else(|| "callerTabId is required to close a Team".to_string())?;
-    svc.close_team(&team_id, Some(&caller_pane_id))
+    let caller_tab_id =
+        caller_tab_id.ok_or_else(|| "callerTabId is required to close a Team".to_string())?;
+    svc.close_team(&team_id, Some(&caller_tab_id))
 }
 
 #[tauri::command]
@@ -125,16 +125,16 @@ pub(crate) async fn mux_add_team_member_service_core(
     team_id: String,
     provider: String,
     role: String,
-    caller_pane_id: Option<String>,
+    caller_tab_id: Option<String>,
     title: Option<String>,
     task: Option<String>,
     model: Option<String>,
 ) -> Result<crate::service::AddTeamMemberResult, String> {
-    let caller_pane_id =
-        caller_pane_id.ok_or_else(|| "callerTabId is required to add a Team member".to_string())?;
+    let caller_tab_id =
+        caller_tab_id.ok_or_else(|| "callerTabId is required to add a Team member".to_string())?;
     svc.add_team_member(
         &team_id,
-        &caller_pane_id,
+        &caller_tab_id,
         crate::service::AddTeamMemberParams {
             provider,
             role,
@@ -184,12 +184,12 @@ mod tests {
             .resolve_or_mint_team_for_parent(&orchestrator)
             .unwrap()
             .team_id;
-        let planner = mux.create_pane();
-        mux.set_pane_role(&planner, AgentRole::Manager, Some(&orchestrator))
+        let planner = mux.create_tab();
+        mux.set_tab_role(&planner, AgentRole::Manager, Some(&orchestrator))
             .unwrap();
-        mux.get_pane_mut(&planner).unwrap().role_profile = Some("planner".into());
-        let worker = mux.create_pane();
-        mux.set_pane_role(&worker, AgentRole::Worker, Some(&orchestrator))
+        mux.get_tab_mut(&planner).unwrap().role_profile = Some("planner".into());
+        let worker = mux.create_tab();
+        mux.set_tab_role(&worker, AgentRole::Worker, Some(&orchestrator))
             .unwrap();
         (mux, team_id, orchestrator, planner, worker)
     }
@@ -226,9 +226,9 @@ mod tests {
     }
 
     #[test]
-    fn mux_rename_team_core_rejects_worker_and_foreign_pane() {
+    fn mux_rename_team_core_rejects_worker_and_foreign_tab() {
         let (mut mux, team_id, _, _, worker) = team_members();
-        let foreign = mux.create_pane();
+        let foreign = mux.create_tab();
 
         assert!(mux_rename_team_core(
             &mut mux,
@@ -298,14 +298,14 @@ pub fn mux_reorder_tab(
     svc.reorder_tab(&workspace_id, &ordered_tab_ids)
 }
 
-/// Reorder the child tabs of a parent pane (within its sibling group only).
+/// Reorder the child tabs of a parent tab (within its sibling group only).
 #[tauri::command]
 pub fn mux_reorder_child(
     svc: State<'_, ServiceState>,
-    parent_pane_id: String,
+    parent_tab_id: String,
     ordered_tab_ids: Vec<String>,
 ) -> Result<(), String> {
-    svc.reorder_child(&parent_pane_id, &ordered_tab_ids)
+    svc.reorder_child(&parent_tab_id, &ordered_tab_ids)
 }
 
 /// Reorder workspaces.
@@ -324,15 +324,15 @@ pub fn mux_create_tab(
     workspace_id: String,
     eager: Option<bool>,
 ) -> Result<TabInfo, String> {
-    let (tab_id, pane_id) = svc.create_tab(&workspace_id)?;
+    let (tab_id, tab_id) = svc.create_tab(&workspace_id)?;
     if eager.unwrap_or(false) {
-        svc.ensure_pane_pty_for_send(&pane_id)?;
+        svc.ensure_tab_pty_for_send(&tab_id)?;
     }
-    let title = svc.mux.read().display_label_for_pane(&pane_id);
+    let title = svc.mux.read().display_label_for_tab(&tab_id);
     Ok(TabInfo {
         id: tab_id,
         title,
-        pane_id,
+        tab_id,
     })
 }
 
@@ -366,7 +366,7 @@ pub fn mux_set_active_tab_and_workspace(
     svc.set_active_tab_and_workspace(&workspace_id, &tab_id)
 }
 
-/// Rename the pane owned by a tab.
+/// Rename the tab owned by a tab.
 #[tauri::command]
 pub fn mux_rename_tab(
     svc: State<'_, ServiceState>,
@@ -377,25 +377,25 @@ pub fn mux_rename_tab(
     svc.rename_tab(&workspace_id, &tab_id, &title)
 }
 
-/// Close a pane and kill its PTY (cascade-closes children).
+/// Close a tab and kill its PTY (cascade-closes children).
 #[tauri::command]
-pub fn mux_close_pane(svc: State<'_, ServiceState>, pane_id: String) -> Result<(), String> {
-    svc.close_pane(&pane_id)
+pub fn mux_close_tab(svc: State<'_, ServiceState>, tab_id: String) -> Result<(), String> {
+    svc.close_tab(&tab_id)
 }
 
-/// Reopen a recently-closed pane (browser-style).
+/// Reopen a recently-closed tab (browser-style).
 #[tauri::command]
-pub fn mux_reopen_closed_pane(
+pub fn mux_reopen_closed_tab(
     svc: State<'_, ServiceState>,
     workspace_id: String,
     index: Option<usize>,
 ) -> Result<TabInfo, String> {
-    let (tab_id, pane_id) = svc.reopen_closed_pane(&workspace_id, index)?;
-    let title = svc.mux.read().display_label_for_pane(&pane_id);
+    let (tab_id, tab_id) = svc.reopen_closed_tab(&workspace_id, index)?;
+    let title = svc.mux.read().display_label_for_tab(&tab_id);
     Ok(TabInfo {
         id: tab_id,
         title,
-        pane_id,
+        tab_id,
     })
 }
 
@@ -405,94 +405,94 @@ pub fn mux_reopen_closed_group(
     svc: State<'_, ServiceState>,
     group_id: String,
 ) -> Result<OrphanedRestoreInfo, String> {
-    let (workspace_id, tab_id, pane_id) = svc.reopen_closed_group(&group_id)?;
+    let (workspace_id, tab_id, tab_id) = svc.reopen_closed_group(&group_id)?;
     Ok(OrphanedRestoreInfo {
         workspace_id,
         tab_id,
-        pane_id,
+        tab_id,
     })
 }
 
-/// Reopen a pane from the orphaned ring.
+/// Reopen a tab from the orphaned ring.
 #[tauri::command]
-pub fn mux_restore_orphaned_pane(
+pub fn mux_restore_orphaned_tab(
     svc: State<'_, ServiceState>,
-    pane_id: String,
+    tab_id: String,
 ) -> Result<OrphanedRestoreInfo, String> {
-    let (workspace_id, tab_id, new_pane_id) = svc.reopen_orphaned_pane(pane_id.as_str())?;
+    let (workspace_id, tab_id, new_tab_id) = svc.reopen_orphaned_tab(tab_id.as_str())?;
     Ok(OrphanedRestoreInfo {
         workspace_id,
         tab_id,
-        pane_id: new_pane_id,
+        tab_id: new_tab_id,
     })
 }
 
-/// Set the focused pane.
+/// Set the focused tab.
 #[tauri::command]
-pub fn mux_set_focused_pane(svc: State<'_, ServiceState>, pane_id: String) -> Result<(), String> {
-    svc.focus_pane(&pane_id)
+pub fn mux_set_focused_tab(svc: State<'_, ServiceState>, tab_id: String) -> Result<(), String> {
+    svc.focus_tab(&tab_id)
 }
 
-/// Link a PTY to a pane.
+/// Link a PTY to a tab.
 #[tauri::command]
 pub fn mux_link_pty(
     svc: State<'_, ServiceState>,
-    pane_id: String,
+    tab_id: String,
     pty_id: String,
 ) -> Result<String, String> {
-    Ok(svc.link_pty(&pane_id, pty_id))
+    Ok(svc.link_pty(&tab_id, pty_id))
 }
 
-/// Rename a pane (User-level — highest priority, blocks auto-rename).
+/// Rename a tab (User-level — highest priority, blocks auto-rename).
 #[tauri::command]
-pub fn mux_rename_pane(
+pub fn mux_rename_tab(
     svc: State<'_, ServiceState>,
-    pane_id: String,
+    tab_id: String,
     title: String,
 ) -> Result<(), String> {
-    svc.rename_pane(&pane_id, &title)
+    svc.rename_tab(&tab_id, &title)
 }
 
-/// Update the working directory of a pane (called from OSC 7 handler).
+/// Update the working directory of a tab (called from OSC 7 handler).
 #[tauri::command]
-pub fn mux_update_pane_cwd(
+pub fn mux_update_tab_cwd(
     svc: State<'_, ServiceState>,
-    pane_id: String,
+    tab_id: String,
     cwd: String,
 ) -> Result<(), String> {
-    svc.update_pane_cwd(&pane_id, cwd);
+    svc.update_tab_cwd(&tab_id, cwd);
     Ok(())
 }
 
-/// Update the agent type of a pane (called when Claude Code is detected).
+/// Update the agent type of a tab (called when Claude Code is detected).
 #[tauri::command]
-pub fn mux_set_pane_agent_type(
+pub fn mux_set_tab_agent_type(
     svc: State<'_, ServiceState>,
-    pane_id: String,
+    tab_id: String,
     agent_type: Option<String>,
 ) -> Result<(), String> {
-    svc.set_pane_agent_type(&pane_id, agent_type);
+    svc.set_tab_agent_type(&tab_id, agent_type);
     Ok(())
 }
 
-/// Release the `agent_type_locked` flag on a pane.
+/// Release the `agent_type_locked` flag on a tab.
 #[tauri::command]
-pub fn mux_unlock_pane_agent_type(
+pub fn mux_unlock_tab_agent_type(
     svc: State<'_, ServiceState>,
-    pane_id: String,
+    tab_id: String,
 ) -> Result<(), String> {
-    svc.unlock_pane_agent_type(&pane_id);
+    svc.unlock_tab_agent_type(&tab_id);
     Ok(())
 }
 
-/// Set chat view state on a pane.
+/// Set chat view state on a tab.
 #[tauri::command]
 pub fn mux_set_chat_view(
     svc: State<'_, ServiceState>,
-    pane_id: String,
+    tab_id: String,
     enabled: bool,
 ) -> Result<(), String> {
-    svc.set_chat_view(&pane_id, enabled);
+    svc.set_chat_view(&tab_id, enabled);
     Ok(())
 }
 
@@ -509,7 +509,7 @@ pub fn detect_claude_session_id(
 
 /// Provider-agnostic version of `detect_claude_session_id`.
 #[tauri::command]
-pub fn detect_pane_session_id(
+pub fn detect_tab_session_id(
     svc: State<'_, ServiceState>,
     provider_id: String,
     cwd: String,
@@ -540,14 +540,14 @@ pub fn detect_agent_session_id(
         .map(|opt| opt)
 }
 
-/// Store a detected agent session ID on a pane.
+/// Store a detected agent session ID on a tab.
 #[tauri::command]
 pub fn mux_set_claude_session_id(
     svc: State<'_, ServiceState>,
-    pane_id: String,
+    tab_id: String,
     session_id: Option<String>,
 ) -> Result<(), String> {
-    svc.set_agent_session_id(&pane_id, session_id);
+    svc.set_agent_session_id(&tab_id, session_id);
     Ok(())
 }
 
@@ -590,13 +590,13 @@ pub fn build_agent_launch_command(
         .ok_or_else(|| format!("Unknown agent provider: {}", agent_id))
 }
 
-/// The one atomic spawn command: create + cwd + agent_type + activate + focus a pane.
+/// The one atomic spawn command: create + cwd + agent_type + activate + focus a tab.
 #[tauri::command]
-pub fn mux_spawn_pane(
+pub fn mux_spawn_tab(
     svc: State<'_, ServiceState>,
     params: crate::service::transport::AtomicSpawnParams,
 ) -> Result<crate::service::transport::AtomicSpawn, String> {
-    svc.spawn_pane_atomic(params)
+    svc.spawn_tab_atomic(params)
 }
 
 /// Paired orchestration creation.
@@ -608,39 +608,39 @@ pub async fn mux_create_orchestration_pair(
     svc.create_orchestration_pair(params).await
 }
 
-/// Set a pane's orchestration role.
+/// Set a tab's orchestration role.
 #[tauri::command]
-pub fn mux_set_pane_role(
+pub fn mux_set_tab_role(
     svc: State<'_, ServiceState>,
-    pane_id: String,
+    tab_id: String,
     role: String,
-    parent_pane_id: Option<String>,
+    parent_tab_id: Option<String>,
 ) -> Result<(), String> {
-    svc.set_pane_role(&pane_id, &role, parent_pane_id.as_deref(), None)
+    svc.set_tab_role(&tab_id, &role, parent_tab_id.as_deref(), None)
 }
 
-/// Clear a pane's orchestration role (also orphans children).
+/// Clear a tab's orchestration role (also orphans children).
 #[tauri::command]
-pub fn mux_clear_pane_role(svc: State<'_, ServiceState>, pane_id: String) -> Result<(), String> {
-    svc.clear_pane_role(&pane_id)
+pub fn mux_clear_tab_role(svc: State<'_, ServiceState>, tab_id: String) -> Result<(), String> {
+    svc.clear_tab_role(&tab_id)
 }
 
-/// Promote a pane to Orchestrator and inject the onboarding cheat-sheet.
+/// Promote a tab to Orchestrator and inject the onboarding cheat-sheet.
 #[tauri::command]
-pub fn mux_make_orchestrator(svc: State<'_, ServiceState>, pane_id: String) -> Result<(), String> {
-    svc.make_orchestrator(&pane_id)
+pub fn mux_make_orchestrator(svc: State<'_, ServiceState>, tab_id: String) -> Result<(), String> {
+    svc.make_orchestrator(&tab_id)
 }
 
 #[tauri::command]
 pub fn mux_make_planner(
     svc: State<'_, ServiceState>,
-    pane_id: String,
+    tab_id: String,
     plan_id: String,
 ) -> Result<(), String> {
     svc.transition_plan_planner(
         &plan_id,
-        Some(crate::plan::PlannerRef::Pane {
-            pane_id,
+        Some(crate::plan::PlannerRef::Tab {
+            tab_id,
             session_id: None,
             title: None,
         }),
@@ -648,24 +648,24 @@ pub fn mux_make_planner(
     Ok(())
 }
 
-/// Toggle whether a pane can spawn child agents.
+/// Toggle whether a tab can spawn child agents.
 #[tauri::command]
 pub fn mux_set_can_spawn(
     svc: State<'_, ServiceState>,
-    pane_id: String,
+    tab_id: String,
     can_spawn: bool,
 ) -> Result<(), String> {
-    svc.set_can_spawn(&pane_id, can_spawn)
+    svc.set_can_spawn(&tab_id, can_spawn)
 }
 
 /// Respond to a pending prompt.
 #[tauri::command]
 pub fn mux_respond_prompt(
     svc: State<'_, ServiceState>,
-    pane_id: String,
+    tab_id: String,
     value: String,
 ) -> Result<(), String> {
-    svc.respond_prompt(&pane_id, &value)
+    svc.respond_prompt(&tab_id, &value)
 }
 
 /// Execute a batch of commands via the service layer.

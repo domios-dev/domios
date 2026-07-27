@@ -2,7 +2,7 @@ use super::send;
 use super::*;
 use crate::plan::{OrchestratorRef, Plan, TaskLaneMetadata};
 use crate::service::plan::{NewTask, PlanStore, TaskLaneUpdate};
-use crate::service::pty_io::lifecycle::{active_pane_lane_base, pane_task_env};
+use crate::service::pty_io::lifecycle::{active_tab_lane_base, tab_task_env};
 use crate::service::pty_io::lifecycle::{
     claim_restored_launch, claim_restored_pty_boot, restore_and_schedule_launch,
     restore_materialization_core,
@@ -86,35 +86,35 @@ fn concurrent_restore_single_winner_cas() {
     let (mut state, parent_id) = MultiplexerState::new();
     let workspace_id = state.list_workspaces()[0].id.clone();
     state
-        .set_pane_role(&parent_id, AgentRole::Orchestrator, None)
+        .set_tab_role(&parent_id, AgentRole::Orchestrator, None)
         .unwrap();
     let team_id = state
         .resolve_or_mint_team_for_parent(&parent_id)
         .unwrap()
         .team_id;
-    let pane_id = state.create_tab(&workspace_id).unwrap().1;
+    let tab_id = state.create_tab(&workspace_id).unwrap().1;
     state
-        .set_pane_role(&pane_id, AgentRole::Worker, Some(&parent_id))
+        .set_tab_role(&tab_id, AgentRole::Worker, Some(&parent_id))
         .unwrap();
-    let pane = state.get_pane_mut(&pane_id).unwrap();
-    pane.agent_type = Some("fixture-provider".into());
-    pane.agent_session_id = Some("fixture-session".into());
-    pane.cwd = Some("fixture-cwd".into());
-    pane.restored_from_snapshot = true;
+    let tab = state.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("fixture-provider".into());
+    tab.agent_session_id = Some("fixture-session".into());
+    tab.cwd = Some("fixture-cwd".into());
+    tab.restored_from_snapshot = true;
     let mux: MuxState = Arc::new(TimedRwLock::new("restore-test", state));
     let barrier = Arc::new(Barrier::new(3));
     let schedules = Arc::new(AtomicUsize::new(0));
     let results = (0..2)
         .map(|_| {
             let mux = mux.clone();
-            let pane_id = pane_id.clone();
+            let tab_id = tab_id.clone();
             let barrier = barrier.clone();
             let schedules = schedules.clone();
             std::thread::spawn(move || {
                 barrier.wait();
                 restore_and_schedule_launch(
                     &mux,
-                    &pane_id,
+                    &tab_id,
                     "fixture-provider",
                     Some("fixture-session"),
                     Some("fixture-cwd"),
@@ -139,10 +139,10 @@ fn concurrent_restore_single_winner_cas() {
         1
     );
     assert_eq!(schedules.load(Ordering::SeqCst), 1);
-    let pane = mux.read().get_pane(&pane_id).unwrap().clone();
-    assert_eq!(pane.parent_pane_id.as_deref(), Some(parent_id.as_str()));
-    assert_eq!(pane.team_id.as_deref(), Some(team_id.as_str()));
-    assert_eq!(pane.agent_session_id.as_deref(), Some("fixture-session"));
+    let tab = mux.read().get_tab(&tab_id).unwrap().clone();
+    assert_eq!(tab.parent_tab_id.as_deref(), Some(parent_id.as_str()));
+    assert_eq!(tab.team_id.as_deref(), Some(team_id.as_str()));
+    assert_eq!(tab.agent_session_id.as_deref(), Some("fixture-session"));
 }
 
 #[test]
@@ -162,12 +162,12 @@ fn restore_resolves_payload_into_launch_option() {
     )
     .unwrap();
     store.write(&digest, payload).unwrap();
-    let (mut state, pane_id) = MultiplexerState::new();
-    let pane = state.get_pane_mut(&pane_id).unwrap();
-    pane.agent_type = Some("fixture-provider".into());
-    pane.cwd = Some("fixture-cwd".into());
-    pane.restored_from_snapshot = true;
-    pane.pending_delivery = Some(crate::multiplexer::types::PendingDeliveryRecord::new(
+    let (mut state, tab_id) = MultiplexerState::new();
+    let tab = state.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("fixture-provider".into());
+    tab.cwd = Some("fixture-cwd".into());
+    tab.restored_from_snapshot = true;
+    tab.pending_delivery = Some(crate::multiplexer::types::PendingDeliveryRecord::new(
         digest.clone(),
         crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
     ));
@@ -178,7 +178,7 @@ fn restore_resolves_payload_into_launch_option() {
 
     restore_and_schedule_launch(
         &mux,
-        &pane_id,
+        &tab_id,
         "fixture-provider",
         None,
         Some("fixture-cwd"),
@@ -211,12 +211,12 @@ fn restore_missing_payload_spawnfailed_zero_launch_pending() {
         &std::collections::HashSet::new(),
     )
     .unwrap();
-    let (mut state, pane_id) = MultiplexerState::new();
-    let pane = state.get_pane_mut(&pane_id).unwrap();
-    pane.agent_type = Some("fixture-provider".into());
-    pane.cwd = Some("fixture-cwd".into());
-    pane.restored_from_snapshot = true;
-    pane.pending_delivery = Some(PendingDeliveryRecord::new(
+    let (mut state, tab_id) = MultiplexerState::new();
+    let tab = state.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("fixture-provider".into());
+    tab.cwd = Some("fixture-cwd".into());
+    tab.restored_from_snapshot = true;
+    tab.pending_delivery = Some(PendingDeliveryRecord::new(
         digest.clone(),
         PendingDeliveryChannel::InteractiveInput,
     ));
@@ -226,7 +226,7 @@ fn restore_missing_payload_spawnfailed_zero_launch_pending() {
 
     let result = restore_materialization_core(
         &mux,
-        &pane_id,
+        &tab_id,
         "fixture-provider",
         None,
         Some("fixture-cwd"),
@@ -254,7 +254,7 @@ fn restore_missing_payload_spawnfailed_zero_launch_pending() {
     assert!(launch_request.lock().is_none());
     assert_eq!(
         mux.read()
-            .get_pane(&pane_id)
+            .get_tab(&tab_id)
             .unwrap()
             .pending_delivery
             .as_ref()
@@ -265,21 +265,21 @@ fn restore_missing_payload_spawnfailed_zero_launch_pending() {
 }
 
 #[test]
-fn stale_session_validity_cannot_claim_changed_pane() {
+fn stale_session_validity_cannot_claim_changed_tab() {
     use crate::multiplexer::commands::MuxState;
     use crate::multiplexer::state::MultiplexerState;
     use codeterm_util::lock_hold::TimedRwLock;
     use std::sync::Arc;
-    let (mut state, pane_id) = MultiplexerState::new();
-    let pane = state.get_pane_mut(&pane_id).unwrap();
-    pane.agent_type = Some("fixture-provider".into());
-    pane.agent_session_id = Some("new".into());
-    pane.cwd = Some("cwd".into());
-    pane.restored_from_snapshot = true;
+    let (mut state, tab_id) = MultiplexerState::new();
+    let tab = state.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("fixture-provider".into());
+    tab.agent_session_id = Some("new".into());
+    tab.cwd = Some("cwd".into());
+    tab.restored_from_snapshot = true;
     let mux: MuxState = Arc::new(TimedRwLock::new("restore-test", state));
     assert!(claim_restored_launch(
         &mux,
-        &pane_id,
+        &tab_id,
         "fixture-provider",
         Some("old"),
         Some("cwd"),
@@ -289,7 +289,7 @@ fn stale_session_validity_cannot_claim_changed_pane() {
     .is_none());
     assert!(
         mux.read()
-            .get_pane(&pane_id)
+            .get_tab(&tab_id)
             .unwrap()
             .restored_from_snapshot
     );
@@ -301,19 +301,19 @@ fn restored_pty_boot_claim_excludes_lazy_materialization() {
     use crate::multiplexer::state::MultiplexerState;
     use codeterm_util::lock_hold::TimedRwLock;
     use std::sync::Arc;
-    let (mut state, pane_id) = MultiplexerState::new();
-    let pane = state.get_pane_mut(&pane_id).unwrap();
-    pane.agent_type = Some("fixture-provider".into());
-    pane.agent_session_id = Some("session".into());
-    pane.cwd = Some("cwd".into());
-    pane.restored_from_snapshot = true;
+    let (mut state, tab_id) = MultiplexerState::new();
+    let tab = state.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("fixture-provider".into());
+    tab.agent_session_id = Some("session".into());
+    tab.cwd = Some("cwd".into());
+    tab.restored_from_snapshot = true;
     let mux: MuxState = Arc::new(TimedRwLock::new("restore-boot-claim-test", state));
 
-    let claim = claim_restored_pty_boot(&mux, &pane_id).unwrap().unwrap();
+    let claim = claim_restored_pty_boot(&mux, &tab_id).unwrap().unwrap();
     assert_eq!(claim.session_id.as_deref(), Some("session"));
     assert!(claim_restored_launch(
         &mux,
-        &pane_id,
+        &tab_id,
         "fixture-provider",
         Some("session"),
         Some("cwd"),
@@ -407,7 +407,7 @@ fn unix_spawn_dispatch_has_no_bracketed_paste_markers() {
     );
 }
 
-/// Routing rule: a shell pane (no agent_type) must use script-exec, not
+/// Routing rule: a shell tab (no agent_type) must use script-exec, not
 /// bracketed paste. Verified by checking build_spawn_dispatch output on Unix.
 #[cfg(unix)]
 #[test]
@@ -520,7 +520,7 @@ fn store_with_bound_task(lane_base: &str) -> (tempfile::TempDir, PlanStore, Stri
     let mut plan = Plan::new(
         "Lane base".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("orch"),
+        OrchestratorRef::from_tab("orch"),
     );
     store.save(&mut plan, 1).unwrap();
     let task_id = store
@@ -539,13 +539,13 @@ fn store_with_bound_task(lane_base: &str) -> (tempfile::TempDir, PlanStore, Stri
         )
         .unwrap();
     store
-        .assign_task(&plan.id, &task_id, "pane-a", None, 3)
+        .assign_task(&plan.id, &task_id, "tab-a", None, 3)
         .unwrap();
     (dir, store, plan.id, task_id)
 }
 
 #[test]
-fn active_pane_lane_base_prefers_live_attempt_base() {
+fn active_tab_lane_base_prefers_live_attempt_base() {
     let (_dir, store, plan_id, task_id) = store_with_bound_task("attempt-base");
     store
         .update_task_lane(
@@ -560,23 +560,23 @@ fn active_pane_lane_base_prefers_live_attempt_base() {
         .unwrap();
 
     assert_eq!(
-        active_pane_lane_base(&store, "pane-a").as_deref(),
+        active_tab_lane_base(&store, "tab-a").as_deref(),
         Some("attempt-base")
     );
 }
 
 #[test]
-fn active_pane_lane_base_falls_back_to_lane_base_when_attempt_missing() {
+fn active_tab_lane_base_falls_back_to_lane_base_when_attempt_missing() {
     let (_dir, store, _plan_id, _task_id) = store_with_bound_task("lane-base");
 
     assert_eq!(
-        active_pane_lane_base(&store, "pane-a").as_deref(),
+        active_tab_lane_base(&store, "tab-a").as_deref(),
         Some("lane-base")
     );
 }
 
 #[test]
-fn active_pane_lane_base_ignores_closed_and_other_pane_attempts() {
+fn active_tab_lane_base_ignores_closed_and_other_tab_attempts() {
     let (_dir, store, plan_id, task_id) = store_with_bound_task("closed-base");
     store.revert_task_dispatch(&plan_id, &task_id, 4).unwrap();
     store
@@ -591,28 +591,28 @@ fn active_pane_lane_base_ignores_closed_and_other_pane_attempts() {
         )
         .unwrap();
     store
-        .assign_task(&plan_id, &task_id, "pane-b", None, 6)
+        .assign_task(&plan_id, &task_id, "tab-b", None, 6)
         .unwrap();
     store
-        .assign_task(&plan_id, &task_id, "pane-a", None, 7)
+        .assign_task(&plan_id, &task_id, "tab-a", None, 7)
         .unwrap();
 
     assert_eq!(
-        active_pane_lane_base(&store, "pane-a").as_deref(),
+        active_tab_lane_base(&store, "tab-a").as_deref(),
         Some("lane-base")
     );
-    assert_eq!(active_pane_lane_base(&store, "pane-b"), None);
+    assert_eq!(active_tab_lane_base(&store, "tab-b"), None);
 }
 
 #[test]
-fn active_pane_lane_base_none_without_binding() {
+fn active_tab_lane_base_none_without_binding() {
     let (_dir, store, _plan_id, _task_id) = store_with_bound_task("lane-base");
 
-    assert_eq!(active_pane_lane_base(&store, "unbound-pane"), None);
+    assert_eq!(active_tab_lane_base(&store, "unbound-tab"), None);
 }
 
 #[test]
-fn pane_task_env_uses_live_attempt_base_and_leaves_plain_pane_clean() {
+fn tab_task_env_uses_live_attempt_base_and_leaves_plain_tab_clean() {
     let (_dir, store, plan_id, task_id) = store_with_bound_task("attempt-base");
     store
         .update_task_lane(
@@ -626,7 +626,7 @@ fn pane_task_env_uses_live_attempt_base_and_leaves_plain_pane_clean() {
         )
         .unwrap();
 
-    let bound = pane_task_env(&store, "pane-a");
+    let bound = tab_task_env(&store, "tab-a");
     assert_eq!(
         bound.get("CODETERM_LANE_BASE").map(String::as_str),
         Some("attempt-base")
@@ -640,7 +640,7 @@ fn pane_task_env_uses_live_attempt_base_and_leaves_plain_pane_clean() {
         Some(task_id.as_str())
     );
 
-    let plain = pane_task_env(&store, "plain-pane");
+    let plain = tab_task_env(&store, "plain-tab");
     assert!(
         plain.is_empty(),
         "unbound Tabs must not inherit plan/task/lane env"

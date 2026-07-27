@@ -10,17 +10,17 @@ interface Toast {
 
 interface InternalToastProps {
   pendingPrompt: { question: string } | null;
-  paneId: string;
+  tabId: string;
   agentType: string | null;
 }
 
-export function InternalToast({ pendingPrompt, paneId, agentType }: InternalToastProps) {
+export function InternalToast({ pendingPrompt, tabId, agentType }: InternalToastProps) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (pendingPrompt && agentType) {
-      const id = `prompt-${paneId}`;
+      const id = `prompt-${tabId}`;
       if (!dismissed.has(id)) {
         setToasts(prev => {
           if (prev.some(t => t.id === id)) return prev;
@@ -28,10 +28,10 @@ export function InternalToast({ pendingPrompt, paneId, agentType }: InternalToas
         });
       }
     } else {
-      setToasts(prev => prev.filter(t => t.id !== `prompt-${paneId}`));
-      setDismissed(prev => { const n = new Set(prev); n.delete(`prompt-${paneId}`); return n; });
+      setToasts(prev => prev.filter(t => t.id !== `prompt-${tabId}`));
+      setDismissed(prev => { const n = new Set(prev); n.delete(`prompt-${tabId}`); return n; });
     }
-  }, [pendingPrompt, paneId, agentType, dismissed]);
+  }, [pendingPrompt, tabId, agentType, dismissed]);
 
   useEffect(() => {
     const timers = toasts

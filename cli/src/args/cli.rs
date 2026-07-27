@@ -16,7 +16,7 @@ use super::delayed::DelayedAction;
 use super::effort::EffortAction;
 use super::mem::MemAction;
 use super::misc::{
-    BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PaneAction, PasteAction,
+    BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, TabAction, PasteAction,
     ThemeAction, WorkspaceAction,
 };
 use super::orchestration::OrchestrationAction;
@@ -108,7 +108,7 @@ pub enum Commands {
     #[command(name = "tab")]
     Tab {
         #[command(subcommand)]
-        action: PaneAction,
+        action: TabAction,
     },
 
     /// Send text to a tab (default: current tab).
@@ -128,9 +128,9 @@ pub enum Commands {
         #[arg(allow_hyphen_values = true)]
         text: Option<String>,
 
-        /// Target tab ID (default: $CODETERM_PANE_ID or focused tab)
+        /// Target tab ID (default: $CODETERM_TAB_ID or focused tab)
         #[arg(long = "tab", value_name = "TAB")]
-        pane: Option<String>,
+        tab: Option<String>,
 
         /// Read text from a file instead of the positional arg. Lets you
         /// pass payloads that would otherwise be eaten by shell quoting.

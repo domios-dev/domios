@@ -22,13 +22,13 @@ pub enum QuestionSubtype {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PaneVerdict {
+pub struct TabVerdict {
     pub state: TimelineState,
     pub subtype: Option<QuestionSubtype>,
 }
 
-/// Persisted-to-frontend snapshot of a pane's live agent state. Stored on the
-/// pane (runtime-only, recomputed from output) and serialized into the mux
+/// Persisted-to-frontend snapshot of a tab's live agent state. Stored on the
+/// tab (runtime-only, recomputed from output) and serialized into the mux
 /// snapshot so the chat view's state indicator renders it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentLiveState {
@@ -47,17 +47,17 @@ pub struct AgentLiveState {
     pub question: Option<String>,
 }
 
-impl From<AgentLiveState> for PaneVerdict {
+impl From<AgentLiveState> for TabVerdict {
     fn from(s: AgentLiveState) -> Self {
-        PaneVerdict {
+        TabVerdict {
             state: s.state,
             subtype: s.subtype,
         }
     }
 }
 
-impl From<PaneVerdict> for AgentLiveState {
-    fn from(v: PaneVerdict) -> Self {
+impl From<TabVerdict> for AgentLiveState {
+    fn from(v: TabVerdict) -> Self {
         AgentLiveState {
             state: v.state,
             subtype: v.subtype,

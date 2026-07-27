@@ -41,7 +41,7 @@ function member(
   role: OrchestrationGroupMember["role"],
   roleProfile: string | null,
 ): OrchestrationGroupMember {
-  return { paneId: id, title: id, role, roleProfile };
+  return { tabId: id, title: id, role, roleProfile };
 }
 
 setupDom();

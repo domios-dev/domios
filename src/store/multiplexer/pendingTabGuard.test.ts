@@ -18,7 +18,7 @@ function assert(cond: unknown, msg: string): asserts cond {
 }
 
 function tab(id: string): Tab {
-  return { id, pane_id: `pane-${id}` } as unknown as Tab;
+  return { id, tab_id: `tab-${id}` } as unknown as Tab;
 }
 
 function ws(id: string, activeTabId: string | null, tabIds: string[]): Workspace {
@@ -34,9 +34,9 @@ function ws(id: string, activeTabId: string | null, tabIds: string[]): Workspace
 function snap(workspaces: Workspace[]): MultiplexerState {
   return {
     workspaces,
-    panes: {},
+    tabs: {},
     active_workspace_id: workspaces[0]?.id ?? null,
-    focused_pane_id: null,
+    focused_tab_id: null,
     generation: 1,
   };
 }

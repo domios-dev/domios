@@ -41,7 +41,7 @@ export function TelegramIcon({ size = 10, className, style }: IconProps) {
   );
 }
 
-/** GitHub Octicon terminal — used for tab/pane icons */
+/** GitHub Octicon terminal — used for tab/tab icons */
 export function TerminalIcon({ size = 12, className, style }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor" className={className} style={style}>

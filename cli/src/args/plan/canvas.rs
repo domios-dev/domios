@@ -270,8 +270,8 @@ pub enum PlanDecisionAction {
         /// Task ids (or handles) to pause until this gate is answered
         #[arg(long = "block")]
         blocking_task_ids: Vec<String>,
-        #[arg(long = "asked-by-pane")]
-        asked_by_pane: Option<String>,
+        #[arg(long = "asked-by-tab")]
+        asked_by_tab: Option<String>,
     },
     /// Answer an open gate (immutable audit record, resumes paused tasks)
     Answer {
@@ -279,8 +279,8 @@ pub enum PlanDecisionAction {
         gate_id: String,
         #[arg(long, allow_hyphen_values = true)]
         answer: String,
-        #[arg(long = "answered-by-pane")]
-        answered_by_pane: Option<String>,
+        #[arg(long = "answered-by-tab")]
+        answered_by_tab: Option<String>,
     },
     /// Acknowledge one durably delivered Planner request
     #[command(hide = true)]

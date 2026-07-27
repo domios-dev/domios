@@ -1,5 +1,5 @@
-import type { Pane } from "../../../lib/types";
-import { resolvePlanExclusivePaneTasks } from "../paneCurrentTask";
+import type { Tab } from "../../../lib/types";
+import { resolvePlanExclusiveTabTasks } from "../tabCurrentTask";
 import { flattenSections } from "../sectionRows";
 import { buildTaskPresence } from "../taskPresence";
 import { historicalExecutorForTask } from "../taskExecutorHistory";
@@ -26,7 +26,7 @@ export interface PlanListRow {
   doneCount?: number;
   allTasksDone?: boolean;
   sectionTitle?: string;
-  paneLabel?: string;
+  tabLabel?: string;
   historicalExecutorSummary?: string;
   focus?: string;
   pauseReason?: string;
@@ -78,13 +78,13 @@ function taskKind(task: Task, taskIds: ReadonlySet<string>): "task" | "subtask" 
 function buildTaskRow(
   task: Task,
   plan: Plan,
-  panes: Record<string, Pane>,
-  exclusivePaneTasks: Map<string, string>,
+  tabs: Record<string, Tab>,
+  exclusiveTabTasks: Map<string, string>,
   sectionById: ReadonlyMap<string, string>,
   taskIds: ReadonlySet<string>,
 ): PlanListRow {
-  const presence = buildTaskPresence(plan, task, panes, exclusivePaneTasks);
-  const historical = historicalExecutorForTask(task, panes, presence != null);
+  const presence = buildTaskPresence(plan, task, tabs, exclusiveTabTasks);
+  const historical = historicalExecutorForTask(task, tabs, presence != null);
   const latest = latestMilestone(task);
   const kind = taskKind(task, taskIds);
   return {
@@ -96,7 +96,7 @@ function buildTaskRow(
     status: task.status,
     statusLabel: statusText(task),
     sectionTitle: sectionTitle(task, sectionById),
-    paneLabel: presence?.label ?? undefined,
+    tabLabel: presence?.label ?? undefined,
     historicalExecutorSummary: historical?.summary,
     focus: presence?.focus ?? undefined,
     pauseReason: task.pause_reason?.trim() || undefined,
@@ -105,21 +105,21 @@ function buildTaskRow(
     activityTs: latest?.ts ?? task.status_changed_at ?? task.updated_at ?? task.created_at,
     taskId: task.id,
     loopBadge: loopForTask(plan, task.id) ?? undefined,
-    competeBadge: competitionForTask(task, panes) ?? undefined,
-    workingOn: deriveWorkingOnRow(task, panes) ?? undefined,
+    competeBadge: competitionForTask(task, tabs) ?? undefined,
+    workingOn: deriveWorkingOnRow(task, tabs) ?? undefined,
   };
 }
 
 export function buildPlanListRows(
   plan: Plan,
-  opts: { panes?: Record<string, Pane> } = {},
+  opts: { tabs?: Record<string, Tab> } = {},
 ): PlanListRow[] {
-  const panes = opts.panes ?? {};
+  const tabs = opts.tabs ?? {};
   const rows: PlanListRow[] = [];
-  const exclusivePaneTasks = resolvePlanExclusivePaneTasks(plan);
+  const exclusiveTabTasks = resolvePlanExclusiveTabTasks(plan);
   const taskIds = new Set(plan.tasks.map((t) => t.id));
   const sectionById = new Map(flattenSections(plan.sections).map((s) => [s.id, s.title]));
-  const taskRows = plan.tasks.map((task) => buildTaskRow(task, plan, panes, exclusivePaneTasks, sectionById, taskIds));
+  const taskRows = plan.tasks.map((task) => buildTaskRow(task, plan, tabs, exclusiveTabTasks, sectionById, taskIds));
   const groups: Array<{ id: string; title: string; statuses: TaskStatus[] }> = [
     { id: "active", title: "In progress + review", statuses: ["in_progress", "in_review"] },
     { id: "blocked", title: "Blocked", statuses: ["blocked"] },
@@ -151,7 +151,7 @@ export function buildPlanListRows(
 
 export function buildPlanListForest(
   plans: readonly Plan[],
-  opts: { panes?: Record<string, Pane> } = {},
+  opts: { tabs?: Record<string, Tab> } = {},
 ): PlanListRow[] {
-  return plans.flatMap((plan) => buildPlanListRows(plan, { panes: opts.panes }));
+  return plans.flatMap((plan) => buildPlanListRows(plan, { tabs: opts.tabs }));
 }

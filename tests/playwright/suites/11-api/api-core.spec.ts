@@ -23,13 +23,13 @@ async function raw(
   return { status: r.status, body: await r.text() };
 }
 
-async function waitForPaneOutput(paneId: string, marker: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/panes/${paneId}/output/stream?from=0`, {
+async function waitForTabOutput(tabId: string, marker: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/tabs/${tabId}/output/stream?from=0`, {
     headers: { Authorization: `Bearer ${readDevToken()}` },
     signal: AbortSignal.timeout(30_000),
   });
   if (!response.ok || !response.body) {
-    throw new Error(`output stream for ${paneId} failed with HTTP ${response.status}`);
+    throw new Error(`output stream for ${tabId} failed with HTTP ${response.status}`);
   }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -40,12 +40,12 @@ async function waitForPaneOutput(paneId: string, marker: string): Promise<void> 
     received += decoder.decode(value, { stream: true });
     if (received.includes(marker)) return;
   }
-  throw new Error(`output stream for ${paneId} ended before ${marker}`);
+  throw new Error(`output stream for ${tabId} ended before ${marker}`);
 }
 
 // ── auth contract ────────────────────────────────────────────────────
 
-const PROTECTED_GETS = ["/api/panes", "/api/workspaces", "/api/activity", "/api/crons", "/api/themes"];
+const PROTECTED_GETS = ["/api/tabs", "/api/workspaces", "/api/activity", "/api/crons", "/api/themes"];
 
 test("@smoke protected routes reject a missing bearer with 401", async () => {
   for (const path of PROTECTED_GETS) {
@@ -67,35 +67,35 @@ test("@smoke public liveness routes answer without auth", async () => {
   expect(JSON.parse(health.body).status).toBe("ok");
 });
 
-// ── panes: not-found + PTY echo round-trip ───────────────────────────
+// ── tabs: not-found + PTY echo round-trip ───────────────────────────
 
-test("@golden pane ops on a nonexistent id return 404", async () => {
+test("@golden tab ops on a nonexistent id return 404", async () => {
   for (const op of ["focus", "close"]) {
-    const { status } = await raw("POST", `/api/panes/no-such-pane/${op}`);
+    const { status } = await raw("POST", `/api/tabs/no-such-tab/${op}`);
     expect(status, `POST ${op}`).toBe(404);
   }
-  const { status } = await raw("GET", "/api/panes/no-such-pane/output");
+  const { status } = await raw("GET", "/api/tabs/no-such-tab/output");
   expect(status, "GET output").toBe(404);
 });
 
-test("@golden PTY echo round-trip: send a command, read it back from output", async ({ api, paneCleanup }) => {
-  const created = await paneCleanup.createPane({ eager: true });
+test("@golden PTY echo round-trip: send a command, read it back from output", async ({ api, tabCleanup }) => {
+  const created = await tabCleanup.createTab({ eager: true });
   const marker = `pw-api-${Date.now()}`;
   const left = marker.slice(0, Math.floor(marker.length / 2));
   const right = marker.slice(Math.floor(marker.length / 2));
   try {
-    const outputSeen = waitForPaneOutput(created.id, marker);
-    await api.post(`/panes/${created.id}/send`, {
+    const outputSeen = waitForTabOutput(created.id, marker);
+    await api.post(`/tabs/${created.id}/send`, {
       text: `node -e "console.log('${left}' + '${right}')"`,
       enter: true,
     });
     await outputSeen;
 
-    const out = await api.get<{ text?: string } | string>(`/panes/${created.id}/output`);
+    const out = await api.get<{ text?: string } | string>(`/tabs/${created.id}/output`);
     const text = typeof out === "string" ? out : (out.text ?? JSON.stringify(out));
     expect(text).toContain(marker);
   } finally {
-    await api.closePane(created.id).catch(() => {});
+    await api.closeTab(created.id).catch(() => {});
   }
 });
 

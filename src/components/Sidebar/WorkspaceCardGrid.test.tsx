@@ -24,7 +24,7 @@ for (const [name, value] of Object.entries({
 const workspace = (id: string, name: string, tabs = 0): Workspace => ({
   id,
   name,
-  tabs: Array.from({ length: tabs }, (_, index) => ({ id: `tab-${index}`, pane_id: `pane-${index}`, title: `Tab ${index}` } as never)),
+  tabs: Array.from({ length: tabs }, (_, index) => ({ id: `tab-${index}`, tab_id: `tab-${index}`, title: `Tab ${index}` } as never)),
   active_tab_id: null,
   cwd: null,
 });

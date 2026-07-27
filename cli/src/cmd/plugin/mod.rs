@@ -142,7 +142,7 @@ fn print_human(value: &serde_json::Value) {
 
 /// `codeterm plugin <id> <verb> [args…]` → route `plugin:<id>.<verb>` over the
 /// socket to the owning plugin's `onAgentCommand` (the inverse seam). The caller's
-/// worker/pane id is sent as `sessionId` so the host can scope the verb to the
+/// worker/tab id is sent as `sessionId` so the host can scope the verb to the
 /// commands the plugin declared at spawn. A plugin-reported `{ error }` surfaces
 /// as a non-zero exit.
 fn pass_command(parts: Vec<String>) -> Result<serde_json::Value, String> {
@@ -160,7 +160,7 @@ fn pass_command(parts: Vec<String>) -> Result<serde_json::Value, String> {
     let session_id = std::env::var("CODETERM_WORKER_ID")
         .ok()
         .filter(|s| !s.is_empty())
-        .or_else(|| std::env::var("CODETERM_PANE_ID").ok())
+        .or_else(|| std::env::var("CODETERM_TAB_ID").ok())
         .unwrap_or_default();
     let method = format!("plugin:{id}.{verb}");
     let params = serde_json::json!({ "args": args, "sessionId": session_id });

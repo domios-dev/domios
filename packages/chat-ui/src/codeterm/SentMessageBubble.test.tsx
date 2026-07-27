@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 import { recognize } from "./recognize";
 import { SentMessageBubble } from "./SentMessageBubble";
 import { CodetermCard } from "./CodetermCard";
-import { crossPaneBubbleClassName, CROSS_PANE_SHELL_TESTID } from "../crossPaneBubble";
+import { crossTabBubbleClassName, CROSS_TAB_SHELL_TESTID } from "../crossTabBubble";
 import { MessageBubble } from "../MessageBubble";
 
 const windowInstance = new Window({ url: "http://localhost/sent-message-test" });
@@ -48,22 +48,22 @@ const PLAN = "pl_" + "a".repeat(32);
 const TASK = "task_" + "b".repeat(32);
 const SECTION = "sec_vecy77";
 
-// basic bubble + pane-name resolution
+// basic bubble + tab-name resolution
 await (async () => {
   const host = await render(
     <SentMessageBubble
       inv={inv(`codeterm send --tab 915fae8e "## Update\n- done"`)}
-      resolvePaneName={(r) => (r === "915fae8e" ? "Puccini" : undefined)}
+      resolveTabName={(r) => (r === "915fae8e" ? "Puccini" : undefined)}
     />,
   );
   const text = host.textContent ?? "";
-  const shell = host.querySelector(`[data-testid="${CROSS_PANE_SHELL_TESTID}"]`) as HTMLElement | null;
+  const shell = host.querySelector(`[data-testid="${CROSS_TAB_SHELL_TESTID}"]`) as HTMLElement | null;
   const bubble = host.querySelector('[data-testid="chat-sent-message"]') as HTMLElement | null;
-  assert(shell != null, "renders left-aligned cross-pane shell");
-  assert(shell!.className.includes("justify-start"), "outbound cross-pane is left aligned");
+  assert(shell != null, "renders left-aligned cross-tab shell");
+  assert(shell!.className.includes("justify-start"), "outbound cross-tab is left aligned");
   assert(bubble != null, "renders sent-message body");
   assert(host.querySelector('[data-testid="chat-sent-header"]') != null, "renders sent-message header");
-  assert(bubble!.className === crossPaneBubbleClassName("text-base"), "outbound uses shared cross-pane bubble class");
+  assert(bubble!.className === crossTabBubbleClassName("text-base"), "outbound uses shared cross-tab bubble class");
   assert(!bubble!.className.includes("border"), "shared bubble has no accent border frame");
   assert(text.includes("Puccini"), "renders resolved recipient name");
   assert(text.includes("Update") && text.includes("done"), "renders markdown body content");
@@ -79,7 +79,7 @@ for (const [command, expectedBody] of [
     <SentMessageBubble
       inv={inv(command)}
       result="OK (sent)"
-      resolvePaneName={(ref) => (ref === "recipient" ? "Recipient" : undefined)}
+      resolveTabName={(ref) => (ref === "recipient" ? "Recipient" : undefined)}
     />,
   );
   const text = host.textContent ?? "";
@@ -138,7 +138,7 @@ await (async () => {
         type: "user",
         content: "hello inbound",
         fromLabel: "Watcher",
-        fromPane: "abc12345",
+        fromTab: "abc12345",
         fromModel: "fable",
         inboundKind: "tab",
       }}
@@ -149,50 +149,50 @@ await (async () => {
   assert(outboundBubble != null, "outbound message renders its compact bubble");
   assert(inboundCard != null, "inbound message renders its activity card");
   assert(
-    inboundHost.querySelector('[data-testid="chat-cross-pane-bubble"]') == null,
-    "inbound activity does not regress to the legacy cross-pane bubble",
+    inboundHost.querySelector('[data-testid="chat-cross-tab-bubble"]') == null,
+    "inbound activity does not regress to the legacy cross-tab bubble",
   );
 })();
 
-// inbound current-pane marker resolves placeholder labels from pane id
+// inbound current-tab marker resolves placeholder labels from tab id
 await (async () => {
   const host = await render(
     <MessageBubble
       message={{
-        id: "inbound-current-pane",
+        id: "inbound-current-tab",
         provider: "codex",
         type: "user",
         content: "hello self",
       }}
-      origin={{ kind: "pane", title: "CURRENT Pane", paneIdShort: "915fae8e", model: "codex" }}
-      resolvePaneName={(r) => (r === "915fae8e" ? "Puccini" : undefined)}
+      origin={{ kind: "tab", title: "CURRENT Tab", tabIdShort: "915fae8e", model: "codex" }}
+      resolveTabName={(r) => (r === "915fae8e" ? "Puccini" : undefined)}
     />,
   );
   const header = host.querySelector('[data-testid="chat-inbound-message"]') as HTMLElement | null;
   const text = header?.textContent ?? "";
-  assert(text.includes("Puccini"), "current-pane marker renders resolved recipient name");
-  assert(!text.includes("CURRENT Pane"), "current-pane marker placeholder is replaced");
+  assert(text.includes("Puccini"), "current-tab marker renders resolved recipient name");
+  assert(!text.includes("CURRENT Tab"), "current-tab marker placeholder is replaced");
 })();
 
-// inbound current-pane structured metadata falls back to pane id when label is blank
+// inbound current-tab structured metadata falls back to tab id when label is blank
 await (async () => {
   const host = await render(
     <MessageBubble
       message={{
-        id: "inbound-current-pane-blank",
+        id: "inbound-current-tab-blank",
         provider: "codex",
         type: "user",
         content: "hello self",
         fromLabel: "",
-        fromPane: "915fae8e",
+        fromTab: "915fae8e",
         inboundKind: "tab",
       }}
     />,
   );
-  assert((host.textContent ?? "").includes("915fae8e"), "blank current-pane label falls back to short Tab id");
+  assert((host.textContent ?? "").includes("915fae8e"), "blank current-tab label falls back to short Tab id");
 })();
 
-// pane-name fallback when unresolvable
+// tab-name fallback when unresolvable
 await (async () => {
   const host = await render(<SentMessageBubble inv={inv(`codeterm send --tab 915fae8e "hi"`)} />);
   assert((host.textContent ?? "").includes("tab 915fae8e"), "falls back to 'tab <ref>'");

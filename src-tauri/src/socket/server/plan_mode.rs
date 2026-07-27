@@ -87,8 +87,8 @@ pub(super) fn dispatch(
             let state = get_string_param(params, "state")?;
             let state =
                 PlanningState::parse(&state).ok_or_else(|| plan_rpc_err(PlanError::BadMode))?;
-            let by = match optional_string(params, "by_pane") {
-                Some(pane) => PlanningAuthor::Planner { pane_id: pane },
+            let by = match optional_string(params, "by_tab") {
+                Some(tab) => PlanningAuthor::Planner { tab_id: tab },
                 None => PlanningAuthor::User,
             };
             let note = optional_string(params, "note");

@@ -81,20 +81,20 @@ export function PlanListView({
   onRetry,
   planId,
   teamId,
-  orchestratorPaneId,
-  panes = {},
+  orchestratorTabId,
+  tabs = {},
   workspaceId,
   workspaces,
   teams,
-  onOpenPane,
+  onOpenTab,
   api,
   onClose,
 }: PlanViewSurfaceProps) {
   const { effectivePlans, switcherOptions, handleAction } = usePlanSwitcherActions(plans, api);
 
   const activeWork = useMemo(
-    () => selectActiveWork(effectivePlans, panes),
-    [effectivePlans, panes],
+    () => selectActiveWork(effectivePlans, tabs),
+    [effectivePlans, tabs],
   );
   const switcherWithInflight = useMemo(
     () => enrichSwitcherOptions(switcherOptions, activeWork),
@@ -104,19 +104,19 @@ export function PlanListView({
 
   const filteredPlans = useMemo(
     () => {
-      const active = filterPlansForBoard(effectivePlans, mode, { planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams });
+      const active = filterPlansForBoard(effectivePlans, mode, { planId, teamId, orchestratorTabId, tabs, workspaceId, workspaces, teams });
       if (!manualPlanId || active.some((p) => p.id === manualPlanId)) return active;
       const archivedPlan = plans.find((p) => p.id === manualPlanId && p.status === "archived");
       if (!archivedPlan || (mode === "focus" && planId && planId !== archivedPlan.id)) return active;
       return [...active, archivedPlan];
     },
-    [effectivePlans, manualPlanId, mode, planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams, plans],
+    [effectivePlans, manualPlanId, mode, planId, teamId, orchestratorTabId, tabs, workspaceId, workspaces, teams, plans],
   );
   const orderedPlans = useMemo(() => orderPlansByActivity(filteredPlans), [filteredPlans]);
 
   const defaultPlanId = useMemo(
-    () => selectDefaultPlanId(orderedPlans, { planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams }),
-    [orderedPlans, planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams],
+    () => selectDefaultPlanId(orderedPlans, { planId, teamId, orchestratorTabId, tabs, workspaceId, workspaces, teams }),
+    [orderedPlans, planId, teamId, orchestratorTabId, tabs, workspaceId, workspaces, teams],
   );
 
   const [navStack, setNavStack] = useState<NavStack>(EMPTY_NAV_STACK);
@@ -190,8 +190,8 @@ export function PlanListView({
   }, [selectedPlan, fixtureSpecSections, fetchedSpecSections]);
 
   const boardModel = useMemo(
-    () => (selectedPlan ? buildBoardPlanModel(selectedPlan, panes, selectedSpecSections) : null),
-    [selectedPlan, panes, selectedSpecSections],
+    () => (selectedPlan ? buildBoardPlanModel(selectedPlan, tabs, selectedSpecSections) : null),
+    [selectedPlan, tabs, selectedSpecSections],
   );
 
   const cancelledCount = useMemo(
@@ -200,8 +200,8 @@ export function PlanListView({
   );
 
   const rows = useMemo(
-    () => (selectedPlan ? buildPlanListRows(selectedPlan, { panes }) : []),
-    [selectedPlan, panes],
+    () => (selectedPlan ? buildPlanListRows(selectedPlan, { tabs }) : []),
+    [selectedPlan, tabs],
   );
 
   const visibleRows = useMemo(() => {
@@ -346,7 +346,7 @@ export function PlanListView({
                   ? () => setDetail({ kind: "spec", plan: selectedPlan, specSections: selectedSpecSections })
                   : undefined
               }
-              onOpenPane={onOpenPane}
+              onOpenTab={onOpenTab}
               planId={selectedPlan.id}
               plan={selectedPlan}
               api={api}
@@ -401,8 +401,8 @@ export function PlanListView({
           specSections={detail.kind === "spec" || detail.kind === "plan" ? detail.specSections : undefined}
           planId={detail.plan.id}
           api={api}
-          panes={panes}
-          onOpenPane={onOpenPane}
+          tabs={tabs}
+          onOpenTab={onOpenTab}
           onOpenTask={openDetailTask}
           onClose={closeDetail}
           onSectionClick={openDetailSection}

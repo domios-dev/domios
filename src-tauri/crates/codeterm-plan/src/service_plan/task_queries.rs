@@ -14,7 +14,7 @@ use crate::plan::{
 pub struct TaskListFilter {
     pub project_path: Option<String>,
     pub active_only: bool,
-    pub mine_panes: HashSet<String>,
+    pub mine_tabs: HashSet<String>,
     pub unassigned: bool,
     pub plan_id: Option<String>,
     pub status: Option<TaskStatus>,
@@ -97,7 +97,7 @@ fn include_task(filter: &TaskListFilter, task: &Task) -> bool {
     if filter.active_only && !is_active_task(&task.status) {
         return false;
     }
-    if filter.unassigned && task.assigned_pane_id.is_some() {
+    if filter.unassigned && task.assigned_tab_id.is_some() {
         return false;
     }
     if filter
@@ -107,11 +107,11 @@ fn include_task(filter: &TaskListFilter, task: &Task) -> bool {
     {
         return false;
     }
-    if !filter.mine_panes.is_empty() {
-        let Some(assigned) = task.assigned_pane_id.as_deref() else {
+    if !filter.mine_tabs.is_empty() {
+        let Some(assigned) = task.assigned_tab_id.as_deref() else {
             return false;
         };
-        if !filter.mine_panes.contains(assigned) {
+        if !filter.mine_tabs.contains(assigned) {
             return false;
         }
     }
@@ -244,7 +244,7 @@ impl PlanStore {
     pub fn set_task_assignment(
         &self,
         task_id: &str,
-        pane_id: Option<&str>,
+        tab_id: Option<&str>,
         taken_by_role: Option<&str>,
         now_ms: u64,
     ) -> Result<String, PlanError> {
@@ -265,11 +265,11 @@ impl PlanStore {
                 .iter()
                 .position(|task| task.id == canonical_task_id)
                 .ok_or(PlanError::TaskNotFound)?;
-            if let Some(pane) =
-                pane_id.filter(|_| p.tasks[task_index].status == TaskStatus::Pending)
+            if let Some(tab) =
+                tab_id.filter(|_| p.tasks[task_index].status == TaskStatus::Pending)
             {
                 let lane = super::TaskLaneUpdate {
-                    pane_id: Some(Some(pane.to_string())),
+                    tab_id: Some(Some(tab.to_string())),
                     ..Default::default()
                 };
                 super::mutations::validate_task_status_transition_with_lane(
@@ -282,27 +282,27 @@ impl PlanStore {
                 )?;
             }
             let task = &mut p.tasks[task_index];
-            task.assigned_pane_id = pane_id.map(str::to_string);
+            task.assigned_tab_id = tab_id.map(str::to_string);
             task.taken_by_role = taken_by_role.map(str::to_string);
-            if let Some(pane) = pane_id {
+            if let Some(tab) = tab_id {
                 let attempt = super::task_attempts::new_assignment_attempt(
                     task,
-                    pane,
+                    tab,
                     None,
                     taken_by_role,
                     now_ms,
                 );
                 task.execution_attempts.push(attempt);
             }
-            // Binding an executor pane IS the in_progress precondition — taking or
+            // Binding an executor tab IS the in_progress precondition — taking or
             // dispatching a task starts it, so a live worker never leaves the board
             // stuck at pending while it codes. Only pending advances; other states stay.
-            if pane_id.is_some() && task.status == TaskStatus::Pending {
+            if tab_id.is_some() && task.status == TaskStatus::Pending {
                 task.status = TaskStatus::InProgress;
                 task.status_changed_at = now_ms;
                 p.mode = PlanMode::Execution;
             }
-            if pane_id.is_none() {
+            if tab_id.is_none() {
                 task.peer = None;
             }
             task.updated_at = now_ms;
@@ -310,7 +310,7 @@ impl PlanStore {
         });
         pending_after_verified(
             write,
-            self.verify_task_assignment(&plan_id, &canonical_task_id, pane_id, taken_by_role),
+            self.verify_task_assignment(&plan_id, &canonical_task_id, tab_id, taken_by_role),
             Some(canonical_task_id),
         )?;
         Ok(plan_id)

@@ -1,6 +1,6 @@
-//! PromptDetector — state machine for per-pane prompt lifecycle.
+//! PromptDetector — state machine for per-tab prompt lifecycle.
 //!
-//! Owns per-pane prompt state (Idle → Active → Cooldown → Idle).
+//! Owns per-tab prompt state (Idle → Active → Cooldown → Idle).
 //! Does NOT hold any external locks — takes data by value, returns decisions.
 
 use std::collections::HashMap;
@@ -10,7 +10,7 @@ use std::time::Instant;
 use codeterm_types::pty::{PendingPrompt, PromptOption};
 
 #[derive(Debug)]
-enum PanePromptState {
+enum TabPromptState {
     Idle,
     Active {
         prompt: PendingPrompt,
@@ -33,25 +33,25 @@ enum PanePromptState {
 pub enum PromptDecision {
     None,
     NewPrompt {
-        pane_id: String,
+        tab_id: String,
         prompt: PendingPrompt,
     },
     PromptUpdated {
-        pane_id: String,
+        tab_id: String,
         prompt: PendingPrompt,
     },
     /// Prompt disappeared from screen (user answered in terminal) — clear pending_prompt.
     PromptCleared {
-        pane_id: String,
+        tab_id: String,
     },
 }
 
 pub type ParsedPrompt = Option<PendingPrompt>;
 
 /// Centralized prompt detection state machine.
-/// Keyed by pane_id.
+/// Keyed by tab_id.
 pub struct PromptDetector {
-    states: HashMap<String, PanePromptState>,
+    states: HashMap<String, TabPromptState>,
     cooldown_ms: u64,
 }
 
@@ -65,13 +65,13 @@ impl PromptDetector {
 
     /// Main entry point for PTY output path.
     ///
-    /// - `pane_id`: pane that produced output
+    /// - `tab_id`: tab that produced output
     /// - `has_markers`: quick check result — if false, skip expensive parsing
     /// - `clean_ring_text`: cleaned ring buffer text (only provided when has_markers)
     /// - `parse_fn`: closure that parses prompt from text, returns (question, options)
     pub fn evaluate_pty_output<F>(
         &mut self,
-        pane_id: &str,
+        tab_id: &str,
         has_markers: bool,
         clean_ring_text: Option<&str>,
         parse_fn: F,
@@ -79,10 +79,10 @@ impl PromptDetector {
     where
         F: FnOnce(&str) -> ParsedPrompt,
     {
-        // If pane has active prompt, always check screen (user may have answered in terminal)
+        // If tab has active prompt, always check screen (user may have answered in terminal)
         let is_active = matches!(
-            self.states.get(pane_id),
-            Some(PanePromptState::Active { .. })
+            self.states.get(tab_id),
+            Some(TabPromptState::Active { .. })
         );
 
         if !has_markers && !is_active {
@@ -95,19 +95,19 @@ impl PromptDetector {
         };
 
         let parsed = parse_prompt_safely(|| parse_fn(text));
-        self.transition_from_parsed(pane_id, parsed)
+        self.transition_from_parsed(tab_id, parsed)
     }
 
     pub fn evaluate_pty_output_parsed(
         &mut self,
-        pane_id: &str,
+        tab_id: &str,
         has_markers: bool,
         clean_ring_text_present: bool,
         parsed: ParsedPrompt,
     ) -> PromptDecision {
         let is_active = matches!(
-            self.states.get(pane_id),
-            Some(PanePromptState::Active { .. })
+            self.states.get(tab_id),
+            Some(TabPromptState::Active { .. })
         );
 
         if !has_markers && !is_active {
@@ -118,48 +118,48 @@ impl PromptDetector {
             return PromptDecision::None;
         }
 
-        self.transition_from_parsed(pane_id, parsed)
+        self.transition_from_parsed(tab_id, parsed)
     }
 
     /// Entry point for hook path (API endpoint).
     /// When an explicit PendingPrompt is provided, bypass parsing.
     pub fn hook_detected_explicit(
         &mut self,
-        pane_id: &str,
+        tab_id: &str,
         prompt: PendingPrompt,
     ) -> PromptDecision {
-        let state = self.states.get(pane_id);
+        let state = self.states.get(tab_id);
         match state {
-            Some(PanePromptState::Active {
+            Some(TabPromptState::Active {
                 prompt: existing, ..
             }) => {
                 if same_prompt(existing, &prompt) {
                     return PromptDecision::None;
                 }
                 self.states.insert(
-                    pane_id.to_string(),
-                    PanePromptState::Active {
+                    tab_id.to_string(),
+                    TabPromptState::Active {
                         prompt: prompt.clone(),
                         detected_at: Instant::now(),
                         explicit: true,
                     },
                 );
                 PromptDecision::PromptUpdated {
-                    pane_id: pane_id.to_string(),
+                    tab_id: tab_id.to_string(),
                     prompt,
                 }
             }
             _ => {
                 self.states.insert(
-                    pane_id.to_string(),
-                    PanePromptState::Active {
+                    tab_id.to_string(),
+                    TabPromptState::Active {
                         prompt: prompt.clone(),
                         detected_at: Instant::now(),
                         explicit: true,
                     },
                 );
                 PromptDecision::NewPrompt {
-                    pane_id: pane_id.to_string(),
+                    tab_id: tab_id.to_string(),
                     prompt,
                 }
             }
@@ -169,7 +169,7 @@ impl PromptDetector {
     /// Entry point for hook path that parses from ring buffer.
     pub fn hook_detected_parse<F>(
         &mut self,
-        pane_id: &str,
+        tab_id: &str,
         clean_ring_text: &str,
         parse_fn: F,
     ) -> PromptDecision
@@ -178,7 +178,7 @@ impl PromptDetector {
     {
         let parsed = parse_hook_prompt(clean_ring_text, parse_fn);
         self.hook_detected_parsed(
-            pane_id,
+            tab_id,
             clean_ring_text.len(),
             Some(utf8_tail(clean_ring_text, 300)),
             parsed,
@@ -186,20 +186,20 @@ impl PromptDetector {
     }
 
     /// Called when prompt is cleared via API (test cleanup) — resets to Idle.
-    pub fn clear(&mut self, pane_id: &str) {
-        self.states.remove(pane_id);
+    pub fn clear(&mut self, tab_id: &str) {
+        self.states.remove(tab_id);
     }
 
     pub fn hook_detected_parsed(
         &mut self,
-        pane_id: &str,
+        tab_id: &str,
         text_len: usize,
         text_tail: Option<&str>,
         parsed: ParsedPrompt,
     ) -> PromptDecision {
         log::info!(
             "[prompt] hook_detected_parse for {}: parsed={}, text_len={}",
-            pane_id,
+            tab_id,
             parsed.is_some(),
             text_len
         );
@@ -215,39 +215,39 @@ impl PromptDetector {
                     prompt.question,
                     prompt.options.len()
                 );
-                self.hook_detected_explicit(pane_id, prompt)
+                self.hook_detected_explicit(tab_id, prompt)
             }
             None => PromptDecision::None,
         }
     }
 
     /// Called when user clicks a prompt button — transitions to Cooldown.
-    pub fn mark_responded(&mut self, pane_id: &str) {
+    pub fn mark_responded(&mut self, tab_id: &str) {
         self.states.insert(
-            pane_id.to_string(),
-            PanePromptState::Cooldown {
+            tab_id.to_string(),
+            TabPromptState::Cooldown {
                 responded_at: Instant::now(),
             },
         );
     }
 
-    /// Get the current active prompt for a pane (if any).
+    /// Get the current active prompt for a tab (if any).
     #[allow(dead_code)]
-    pub fn active_prompt(&self, pane_id: &str) -> Option<&PendingPrompt> {
-        match self.states.get(pane_id) {
-            Some(PanePromptState::Active { prompt, .. }) => Some(prompt),
+    pub fn active_prompt(&self, tab_id: &str) -> Option<&PendingPrompt> {
+        match self.states.get(tab_id) {
+            Some(TabPromptState::Active { prompt, .. }) => Some(prompt),
             _ => None,
         }
     }
 
-    /// Remove state for a closed pane.
-    pub fn remove_pane(&mut self, pane_id: &str) {
-        self.states.remove(pane_id);
+    /// Remove state for a closed tab.
+    pub fn remove_tab(&mut self, tab_id: &str) {
+        self.states.remove(tab_id);
     }
 
-    fn transition_from_parsed(&mut self, pane_id: &str, parsed: ParsedPrompt) -> PromptDecision {
-        match self.states.get(pane_id) {
-            Some(PanePromptState::Active {
+    fn transition_from_parsed(&mut self, tab_id: &str, parsed: ParsedPrompt) -> PromptDecision {
+        match self.states.get(tab_id) {
+            Some(TabPromptState::Active {
                 prompt: existing,
                 explicit,
                 ..
@@ -259,15 +259,15 @@ impl PromptDetector {
                             PromptDecision::None
                         } else {
                             self.states.insert(
-                                pane_id.to_string(),
-                                PanePromptState::Active {
+                                tab_id.to_string(),
+                                TabPromptState::Active {
                                     prompt: new_prompt.clone(),
                                     detected_at: Instant::now(),
                                     explicit: false,
                                 },
                             );
                             PromptDecision::PromptUpdated {
-                                pane_id: pane_id.to_string(),
+                                tab_id: tab_id.to_string(),
                                 prompt: new_prompt,
                             }
                         }
@@ -275,40 +275,40 @@ impl PromptDetector {
                     None if explicit => PromptDecision::None,
                     None => {
                         self.states
-                            .insert(pane_id.to_string(), PanePromptState::Idle);
+                            .insert(tab_id.to_string(), TabPromptState::Idle);
                         PromptDecision::PromptCleared {
-                            pane_id: pane_id.to_string(),
+                            tab_id: tab_id.to_string(),
                         }
                     }
                 }
             }
 
-            Some(PanePromptState::Cooldown { responded_at }) => {
+            Some(TabPromptState::Cooldown { responded_at }) => {
                 if responded_at.elapsed().as_millis() < self.cooldown_ms as u128 {
                     return PromptDecision::None;
                 }
                 self.states
-                    .insert(pane_id.to_string(), PanePromptState::Idle);
-                self.try_apply_parsed(pane_id, parsed)
+                    .insert(tab_id.to_string(), TabPromptState::Idle);
+                self.try_apply_parsed(tab_id, parsed)
             }
 
-            Some(PanePromptState::Idle) | None => self.try_apply_parsed(pane_id, parsed),
+            Some(TabPromptState::Idle) | None => self.try_apply_parsed(tab_id, parsed),
         }
     }
 
-    fn try_apply_parsed(&mut self, pane_id: &str, parsed: ParsedPrompt) -> PromptDecision {
+    fn try_apply_parsed(&mut self, tab_id: &str, parsed: ParsedPrompt) -> PromptDecision {
         match parsed {
             Some(prompt) => {
                 self.states.insert(
-                    pane_id.to_string(),
-                    PanePromptState::Active {
+                    tab_id.to_string(),
+                    TabPromptState::Active {
                         prompt: prompt.clone(),
                         detected_at: Instant::now(),
                         explicit: false,
                     },
                 );
                 PromptDecision::NewPrompt {
-                    pane_id: pane_id.to_string(),
+                    tab_id: tab_id.to_string(),
                     prompt,
                 }
             }
@@ -434,10 +434,10 @@ mod tests {
     #[test]
     fn test_idle_to_active() {
         let mut det = PromptDetector::new();
-        let decision = det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
+        let decision = det.evaluate_pty_output("tab-1", true, Some("proceed"), parse_yes_no);
         assert!(matches!(decision, PromptDecision::NewPrompt { .. }));
-        if let PromptDecision::NewPrompt { pane_id, prompt } = &decision {
-            assert_eq!(pane_id, "pane-1");
+        if let PromptDecision::NewPrompt { tab_id, prompt } = &decision {
+            assert_eq!(tab_id, "tab-1");
             assert_eq!(prompt.options.len(), 2);
         }
     }
@@ -445,32 +445,32 @@ mod tests {
     #[test]
     fn test_active_same_prompt_returns_none() {
         let mut det = PromptDetector::new();
-        det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
-        let decision = det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
+        det.evaluate_pty_output("tab-1", true, Some("proceed"), parse_yes_no);
+        let decision = det.evaluate_pty_output("tab-1", true, Some("proceed"), parse_yes_no);
         assert!(matches!(decision, PromptDecision::None));
     }
 
     #[test]
     fn test_active_different_options_returns_updated() {
         let mut det = PromptDetector::new();
-        det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
-        let decision = det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_three_opts);
+        det.evaluate_pty_output("tab-1", true, Some("proceed"), parse_yes_no);
+        let decision = det.evaluate_pty_output("tab-1", true, Some("proceed"), parse_three_opts);
         assert!(matches!(decision, PromptDecision::PromptUpdated { .. }));
     }
 
     #[test]
     fn test_no_markers_returns_none() {
         let mut det = PromptDetector::new();
-        let decision = det.evaluate_pty_output("pane-1", false, None, parse_yes_no);
+        let decision = det.evaluate_pty_output("tab-1", false, None, parse_yes_no);
         assert!(matches!(decision, PromptDecision::None));
     }
 
     #[test]
     fn test_cooldown_suppresses_detection() {
         let mut det = PromptDetector::new();
-        det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
-        det.mark_responded("pane-1");
-        let decision = det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
+        det.evaluate_pty_output("tab-1", true, Some("proceed"), parse_yes_no);
+        det.mark_responded("tab-1");
+        let decision = det.evaluate_pty_output("tab-1", true, Some("proceed"), parse_yes_no);
         assert!(matches!(decision, PromptDecision::None));
     }
 
@@ -478,9 +478,9 @@ mod tests {
     fn test_cooldown_expires() {
         let mut det = PromptDetector::new();
         det.cooldown_ms = 0; // Expire immediately
-        det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
-        det.mark_responded("pane-1");
-        let decision = det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
+        det.evaluate_pty_output("tab-1", true, Some("proceed"), parse_yes_no);
+        det.mark_responded("tab-1");
+        let decision = det.evaluate_pty_output("tab-1", true, Some("proceed"), parse_yes_no);
         assert!(matches!(decision, PromptDecision::NewPrompt { .. }));
     }
 
@@ -488,7 +488,7 @@ mod tests {
     fn test_hook_explicit_new_prompt() {
         let mut det = PromptDetector::new();
         let prompt = make_prompt("Proceed?", &[("Yes", "1"), ("No", "2")]);
-        let decision = det.hook_detected_explicit("pane-1", prompt);
+        let decision = det.hook_detected_explicit("tab-1", prompt);
         assert!(matches!(decision, PromptDecision::NewPrompt { .. }));
     }
 
@@ -496,8 +496,8 @@ mod tests {
     fn test_hook_explicit_same_prompt_returns_none() {
         let mut det = PromptDetector::new();
         let prompt = make_prompt("Proceed?", &[("Yes", "1"), ("No", "2")]);
-        det.hook_detected_explicit("pane-1", prompt.clone());
-        let decision = det.hook_detected_explicit("pane-1", prompt);
+        det.hook_detected_explicit("tab-1", prompt.clone());
+        let decision = det.hook_detected_explicit("tab-1", prompt);
         assert!(matches!(decision, PromptDecision::None));
     }
 
@@ -505,43 +505,43 @@ mod tests {
     fn test_hook_bypasses_cooldown() {
         let mut det = PromptDetector::new();
         let prompt = make_prompt("Proceed?", &[("Yes", "1"), ("No", "2")]);
-        det.hook_detected_explicit("pane-1", prompt.clone());
-        det.mark_responded("pane-1");
+        det.hook_detected_explicit("tab-1", prompt.clone());
+        det.mark_responded("tab-1");
         let prompt2 = make_prompt("Allow?", &[("Yes", "1"), ("No", "2")]);
-        let decision = det.hook_detected_explicit("pane-1", prompt2);
+        let decision = det.hook_detected_explicit("tab-1", prompt2);
         assert!(matches!(decision, PromptDecision::NewPrompt { .. }));
     }
 
     #[test]
-    fn test_remove_pane() {
+    fn test_remove_tab() {
         let mut det = PromptDetector::new();
-        det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
-        det.remove_pane("pane-1");
-        assert!(det.active_prompt("pane-1").is_none());
+        det.evaluate_pty_output("tab-1", true, Some("proceed"), parse_yes_no);
+        det.remove_tab("tab-1");
+        assert!(det.active_prompt("tab-1").is_none());
     }
 
     #[test]
     fn test_no_parse_result_stays_idle() {
         let mut det = PromptDetector::new();
-        let decision = det.evaluate_pty_output("pane-1", true, Some("nothing here"), parse_yes_no);
+        let decision = det.evaluate_pty_output("tab-1", true, Some("nothing here"), parse_yes_no);
         assert!(matches!(decision, PromptDecision::None));
     }
 
     #[test]
     fn test_active_prompt_cleared_when_gone() {
         let mut det = PromptDetector::new();
-        det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
+        det.evaluate_pty_output("tab-1", true, Some("proceed"), parse_yes_no);
         // Prompt disappears from screen (user answered in terminal)
         let decision =
-            det.evaluate_pty_output("pane-1", true, Some("no prompt here"), parse_yes_no);
+            det.evaluate_pty_output("tab-1", true, Some("no prompt here"), parse_yes_no);
         assert!(matches!(decision, PromptDecision::PromptCleared { .. }));
-        assert!(det.active_prompt("pane-1").is_none());
+        assert!(det.active_prompt("tab-1").is_none());
     }
 
     #[test]
     fn test_hook_parse_from_ring_buffer() {
         let mut det = PromptDetector::new();
-        let decision = det.hook_detected_parse("pane-1", "proceed", parse_yes_no);
+        let decision = det.hook_detected_parse("tab-1", "proceed", parse_yes_no);
         assert!(matches!(decision, PromptDecision::NewPrompt { .. }));
     }
 
@@ -549,10 +549,10 @@ mod tests {
     fn test_explicit_prompt_survives_unrelated_pty_output() {
         let mut det = PromptDetector::new();
         let prompt = make_prompt("Allow probe?", &[("Yes", "1"), ("No", "2")]);
-        det.hook_detected_explicit("pane-1", prompt);
-        let decision = det.evaluate_pty_output("pane-1", true, Some("pw-rail-42"), |_| None);
+        det.hook_detected_explicit("tab-1", prompt);
+        let decision = det.evaluate_pty_output("tab-1", true, Some("pw-rail-42"), |_| None);
         assert!(matches!(decision, PromptDecision::None));
-        assert!(det.active_prompt("pane-1").is_some());
+        assert!(det.active_prompt("tab-1").is_some());
     }
 
     // The screen-parsed hook fallback (no JSON body — real agent hook firing)
@@ -560,37 +560,37 @@ mod tests {
     #[test]
     fn test_hook_parsed_prompt_survives_unrelated_pty_output() {
         let mut det = PromptDetector::new();
-        det.hook_detected_parse("pane-1", "proceed", parse_yes_no);
-        let decision = det.evaluate_pty_output("pane-1", true, Some("nothing here"), parse_yes_no);
+        det.hook_detected_parse("tab-1", "proceed", parse_yes_no);
+        let decision = det.evaluate_pty_output("tab-1", true, Some("nothing here"), parse_yes_no);
         assert!(matches!(decision, PromptDecision::None));
-        assert!(det.active_prompt("pane-1").is_some());
+        assert!(det.active_prompt("tab-1").is_some());
     }
 
     #[test]
     fn test_structured_prompt_still_clears_when_gone() {
         let mut det = PromptDetector::new();
-        det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
+        det.evaluate_pty_output("tab-1", true, Some("proceed"), parse_yes_no);
         let decision =
-            det.evaluate_pty_output("pane-1", true, Some("no prompt here"), parse_yes_no);
+            det.evaluate_pty_output("tab-1", true, Some("no prompt here"), parse_yes_no);
         assert!(matches!(decision, PromptDecision::PromptCleared { .. }));
-        assert!(det.active_prompt("pane-1").is_none());
+        assert!(det.active_prompt("tab-1").is_none());
     }
 
     #[test]
     fn test_structured_prompt_supersedes_explicit() {
         let mut det = PromptDetector::new();
         let prompt = make_prompt("Allow probe?", &[("Yes", "1"), ("No", "2")]);
-        det.hook_detected_explicit("pane-1", prompt);
-        let decision = det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
+        det.hook_detected_explicit("tab-1", prompt);
+        let decision = det.evaluate_pty_output("tab-1", true, Some("proceed"), parse_yes_no);
         assert!(matches!(decision, PromptDecision::PromptUpdated { .. }));
-        let active = det.active_prompt("pane-1").expect("prompt still active");
+        let active = det.active_prompt("tab-1").expect("prompt still active");
         assert_eq!(active.question, "Do you want to proceed?");
     }
 
     #[test]
     fn test_hook_parse_no_prompt_returns_none() {
         let mut det = PromptDetector::new();
-        let decision = det.hook_detected_parse("pane-1", "nothing", parse_yes_no);
+        let decision = det.hook_detected_parse("tab-1", "nothing", parse_yes_no);
         assert!(matches!(decision, PromptDecision::None));
     }
 
@@ -608,7 +608,7 @@ mod tests {
             "fixture must reproduce the invalid UTF-8 boundary"
         );
 
-        let decision = det.hook_detected_parse("pane-1", &text, parse_yes_no);
+        let decision = det.hook_detected_parse("tab-1", &text, parse_yes_no);
 
         assert!(matches!(decision, PromptDecision::None));
     }
@@ -616,7 +616,7 @@ mod tests {
     #[test]
     fn test_hook_parse_contains_parser_panic() {
         let mut det = PromptDetector::new();
-        let decision = det.hook_detected_parse("pane-1", "│ emoji 😀 cjk 漢字", |_| {
+        let decision = det.hook_detected_parse("tab-1", "│ emoji 😀 cjk 漢字", |_| {
             panic!("provider parser bug")
         });
 
@@ -634,12 +634,12 @@ mod tests {
         let decision =
             detector
                 .lock()
-                .hook_detected_parsed("pane-1", text.len(), Some(text), parsed);
+                .hook_detected_parsed("tab-1", text.len(), Some(text), parsed);
         assert!(matches!(decision, PromptDecision::None));
 
         let parsed = parse_prompt_safely(|| parse_yes_no("proceed"));
         let decision = detector.lock().hook_detected_parsed(
-            "pane-1",
+            "tab-1",
             "proceed".len(),
             Some("proceed"),
             parsed,
@@ -660,11 +660,11 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_panes_independent() {
+    fn test_multiple_tabs_independent() {
         let mut det = PromptDetector::new();
-        det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
-        det.mark_responded("pane-1");
-        let decision = det.evaluate_pty_output("pane-2", true, Some("proceed"), parse_yes_no);
+        det.evaluate_pty_output("tab-1", true, Some("proceed"), parse_yes_no);
+        det.mark_responded("tab-1");
+        let decision = det.evaluate_pty_output("tab-2", true, Some("proceed"), parse_yes_no);
         assert!(matches!(decision, PromptDecision::NewPrompt { .. }));
     }
 }

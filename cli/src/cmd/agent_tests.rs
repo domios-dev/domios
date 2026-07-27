@@ -91,15 +91,15 @@ fn task_file_round_trips_shell_metacharacters_byte_exact() {
 }
 
 #[test]
-fn pane_description_validation_accepts_200_and_rejects_201() {
-    let ok = "x".repeat(MAX_PANE_DESCRIPTION_CHARS);
-    let too_long = "x".repeat(MAX_PANE_DESCRIPTION_CHARS + 1);
+fn tab_description_validation_accepts_200_and_rejects_201() {
+    let ok = "x".repeat(MAX_TAB_DESCRIPTION_CHARS);
+    let too_long = "x".repeat(MAX_TAB_DESCRIPTION_CHARS + 1);
 
-    assert_eq!(normalize_pane_description(&ok).unwrap(), Some(ok));
-    assert!(normalize_pane_description(&too_long).is_err());
-    assert_eq!(normalize_pane_description("  ").unwrap(), None);
+    assert_eq!(normalize_tab_description(&ok).unwrap(), Some(ok));
+    assert!(normalize_tab_description(&too_long).is_err());
+    assert_eq!(normalize_tab_description("  ").unwrap(), None);
     assert_eq!(
-        normalize_pane_description("  running tests  ").unwrap(),
+        normalize_tab_description("  running tests  ").unwrap(),
         Some("running tests".into())
     );
 }

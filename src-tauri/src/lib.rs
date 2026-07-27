@@ -72,7 +72,7 @@ use session::SessionState;
 pub type PtyState = Arc<lock_hold::TimedMutex<PtyManager>>;
 pub type OutputBufferState = Arc<lock_hold::TimedMutex<OutputBuffer>>;
 pub type ScreenStateHandle = Arc<lock_hold::TimedMutex<ScreenState>>;
-pub type AgentTrackerState = Arc<lock_hold::TimedMutex<agent::status::PaneStatusTracker>>;
+pub type AgentTrackerState = Arc<lock_hold::TimedMutex<agent::status::TabStatusTracker>>;
 pub type ShellCapabilityState = Arc<Mutex<agent::command_detection::ShellCapabilityTracker>>;
 pub type ReportStoreState = Arc<Mutex<agent::reports::ReportStore>>;
 pub type PromptDetectorState = Arc<Mutex<agent::prompt::PromptDetector>>;
@@ -177,9 +177,9 @@ pub fn run() {
             commands::write_pty_string,
             commands::interrupt_agent,
             commands::write_pty_launch_command,
-            commands::get_pane_output,
-            commands::get_pane_history_raw,
-            commands::get_pane_text,
+            commands::get_tab_output,
+            commands::get_tab_history_raw,
+            commands::get_tab_text,
             commands::shell_command_snapshot,
             commands::list_agent_providers,
             commands::get_remote_workers,
@@ -197,8 +197,8 @@ pub fn run() {
             commands::get_rest_api_status,
             commands::rest_api_port_released,
             commands::restart_general_agent,
-            commands::restart_general_agent_pane,
-            commands::restart_agent_pane,
+            commands::restart_general_agent_tab,
+            commands::restart_agent_tab,
             commands::complete_general_agent_first_run,
             commands::get_network_info,
             commands::get_serve_status,
@@ -237,19 +237,19 @@ pub fn run() {
             commands::mux_commands::mux_set_active_tab,
             commands::mux_commands::mux_set_active_tab_and_workspace,
             commands::mux_commands::mux_rename_tab,
-            commands::mux_commands::mux_close_pane,
-            commands::mux_commands::mux_reopen_closed_pane,
+            commands::mux_commands::mux_close_tab,
+            commands::mux_commands::mux_reopen_closed_tab,
             commands::mux_commands::mux_reopen_closed_group,
-            commands::mux_commands::mux_restore_orphaned_pane,
-            commands::mux_commands::mux_set_focused_pane,
+            commands::mux_commands::mux_restore_orphaned_tab,
+            commands::mux_commands::mux_set_focused_tab,
             commands::mux_commands::mux_link_pty,
-            commands::mux_commands::mux_rename_pane,
-            commands::mux_commands::mux_update_pane_cwd,
-            commands::mux_commands::mux_set_pane_agent_type,
-            commands::mux_commands::mux_unlock_pane_agent_type,
+            commands::mux_commands::mux_rename_tab,
+            commands::mux_commands::mux_update_tab_cwd,
+            commands::mux_commands::mux_set_tab_agent_type,
+            commands::mux_commands::mux_unlock_tab_agent_type,
             commands::mux_commands::mux_set_chat_view,
             commands::mux_commands::detect_claude_session_id,
-            commands::mux_commands::detect_pane_session_id,
+            commands::mux_commands::detect_tab_session_id,
             commands::mux_commands::mux_set_claude_session_id,
             commands::chat_start,
             commands::session_transcript,
@@ -257,7 +257,7 @@ pub fn run() {
             commands::chat_backfill,
             commands::chat_send_text,
             commands::chat_send_status,
-            commands::open_chat_backend_pane,
+            commands::open_chat_backend_tab,
             commands::chatbackend_session_info,
             commands::chatbackend_switch_model,
             commands::transcribe_voice_attachment,
@@ -267,17 +267,17 @@ pub fn run() {
             commands::delayed_send_delete,
             commands::delayed_send_send_now,
             commands::check_cli_installed,
-            commands::install_provider_in_pane,
+            commands::install_provider_in_tab,
             commands::plugin_manager_snapshot,
             commands::plugin_manager_action,
             commands::plugin_glance,
             commands::plugin_bubble,
             commands::plugin_view_call,
             commands::mux_commands::build_agent_launch_command,
-            commands::mux_commands::mux_spawn_pane,
+            commands::mux_commands::mux_spawn_tab,
             commands::mux_commands::mux_create_orchestration_pair,
-            commands::mux_commands::mux_set_pane_role,
-            commands::mux_commands::mux_clear_pane_role,
+            commands::mux_commands::mux_set_tab_role,
+            commands::mux_commands::mux_clear_tab_role,
             commands::mux_commands::mux_make_orchestrator,
             commands::mux_commands::mux_make_planner,
             commands::mux_commands::mux_set_can_spawn,
@@ -667,9 +667,9 @@ pub fn run() {
                 .mux
                 .read()
                 .snapshot()
-                .panes
+                .tabs
                 .values()
-                .filter_map(|pane| pane.pending_delivery.as_ref())
+                .filter_map(|tab| tab.pending_delivery.as_ref())
                 .filter(|record| record.state() == crate::multiplexer::types::PendingDeliveryState::Pending)
                 .map(|record| record.content_digest.clone())
                 .collect();
@@ -746,7 +746,7 @@ pub fn run() {
                 bridge_outbound_rx: Arc::new(Mutex::new(Some(bridge_outbound_rx))),
                 bridge_supervisor: Arc::new(bridge::supervisor::BridgeSupervisor::new()),
                 restart_tracker: crate::service::agent_restart::new_restart_tracker(),
-                chat_registry: crate::service::pane_chat::ChatRegistry::new(),
+                chat_registry: crate::service::tab_chat::ChatRegistry::new(),
                 delayed_send,
                 secret_registry: secret_registry.clone(),
                 secrets,
@@ -767,7 +767,7 @@ pub fn run() {
                 pasteboard: crate::pasteboard::PasteboardState::new(),
                 input_parser,
                 usage_store,
-                usage_activity: crate::usage::PaneActivity::new(),
+                usage_activity: crate::usage::TabActivity::new(),
                 user_last_activity,
                 usage_poller: Arc::new(parking_lot::Mutex::new(None)),
                 plan_watchers: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
@@ -808,7 +808,7 @@ pub fn run() {
             crate::delayed_send::start_scheduler(service_state.clone());
             crate::service::start_plan_reminder_scheduler(service_state.clone());
 
-            // agent_type back already-set so no transition ever happens. Walk the restored panes once at boot.
+            // agent_type back already-set so no transition ever happens. Walk the restored tabs once at boot.
             service_state.kick_off_pollers_for_existing_agents();
             for cwd in service_state
                 .mux
@@ -975,7 +975,7 @@ pub fn run() {
 
             service::sync_watcher::start(crate::paths::data_dir(), service_state.agent_registry.clone());
             startup::start_background_tasks(&app_handle, &states);
-            // Pane-state reactor: classify parked panes and auto-advance via the provider's recommendation.
+            // Tab-state reactor: classify parked tabs and auto-advance via the provider's recommendation.
             agent::state_reactor::start(service_state.clone());
             // working→idle edge (no output to ride on when a turn settles).
             agent::live_state::start(service_state.clone());

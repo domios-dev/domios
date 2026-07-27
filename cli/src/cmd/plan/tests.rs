@@ -25,13 +25,13 @@ fn plan_transfer_params_require_agent_caller() {
         Some("source-manager"),
     )
     .unwrap();
-    assert_eq!(agent["caller_pane_id"], "source-manager");
-    assert_eq!(agent["to"]["pane_id"], "destination");
+    assert_eq!(agent["caller_tab_id"], "source-manager");
+    assert_eq!(agent["to"]["tab_id"], "destination");
     assert_eq!(agent["reason"], "handoff");
 
     let missing =
         plan_transfer_params("pl_1".into(), "destination".into(), None, None).unwrap_err();
-    assert!(missing.contains("CODETERM_PANE_ID"));
+    assert!(missing.contains("CODETERM_TAB_ID"));
 }
 
 #[test]
@@ -164,7 +164,7 @@ fn renders_unknown_loop_fix() {
 fn renders_unknown_heartbeat_plan_fix() {
     let msg = render_plan_error(
         &json!({ "type": "not_found" }),
-        &json!({ "plan_id": null, "pane_id": "pane_1", "session_id": "session_1" }),
+        &json!({ "plan_id": null, "tab_id": "tab_1", "session_id": "session_1" }),
     )
     .unwrap();
     assert!(msg.contains("✗ no heartbeat plan was found for this tab/session"));
@@ -237,7 +237,7 @@ fn renders_in_review_done_transition_fix() {
 }
 
 #[test]
-fn plan_tagged_pane_not_found_gets_cross_daemon_hint() {
+fn plan_tagged_tab_not_found_gets_cross_daemon_hint() {
     let err = crate::client::SocketCallError::Rpc(crate::client::RpcError {
         code: -32603,
         message: "Tab not found".into(),

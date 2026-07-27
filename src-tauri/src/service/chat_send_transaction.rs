@@ -17,7 +17,7 @@ pub enum ChatSendState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ChatSendStatus {
     pub send_id: String,
-    pub pane_id: String,
+    pub tab_id: String,
     pub state: ChatSendState,
     pub error: Option<String>,
     pub ledger_id: String,
@@ -29,8 +29,8 @@ struct ChatSendLedgerState {
     ledger_id: String,
     next_sequence: u64,
     by_id: HashMap<String, ChatSendStatus>,
-    latest_by_pane: HashMap<String, String>,
-    latest_failure_by_pane: HashMap<String, String>,
+    latest_by_tab: HashMap<String, String>,
+    latest_failure_by_tab: HashMap<String, String>,
     order: VecDeque<String>,
 }
 
@@ -40,8 +40,8 @@ impl Default for ChatSendLedgerState {
             ledger_id: uuid::Uuid::new_v4().to_string(),
             next_sequence: 1,
             by_id: HashMap::new(),
-            latest_by_pane: HashMap::new(),
-            latest_failure_by_pane: HashMap::new(),
+            latest_by_tab: HashMap::new(),
+            latest_failure_by_tab: HashMap::new(),
             order: VecDeque::new(),
         }
     }
@@ -53,7 +53,7 @@ pub(crate) struct ChatSendLedger {
 }
 
 impl ChatSendLedger {
-    pub(crate) fn try_start(&self, pane_id: &str) -> Result<ChatSendStatus, String> {
+    pub(crate) fn try_start(&self, tab_id: &str) -> Result<ChatSendStatus, String> {
         let mut state = self.state.lock();
         let in_flight = state
             .by_id
@@ -69,7 +69,7 @@ impl ChatSendLedger {
         state.next_sequence += 1;
         let status = ChatSendStatus {
             send_id: uuid::Uuid::new_v4().to_string(),
-            pane_id: pane_id.to_string(),
+            tab_id: tab_id.to_string(),
             state: ChatSendState::Pending,
             error: None,
             ledger_id: state.ledger_id.clone(),
@@ -77,8 +77,8 @@ impl ChatSendLedger {
             retained_from: sequence,
         };
         state
-            .latest_by_pane
-            .insert(pane_id.to_string(), status.send_id.clone());
+            .latest_by_tab
+            .insert(tab_id.to_string(), status.send_id.clone());
         state.order.push_back(status.send_id.clone());
         state.by_id.insert(status.send_id.clone(), status.clone());
         while state.order.len() > MAX_RESULTS {
@@ -96,10 +96,10 @@ impl ChatSendLedger {
                 .expect("the selected terminal result exists");
             state.by_id.remove(&expired);
             state
-                .latest_by_pane
+                .latest_by_tab
                 .retain(|_, send_id| send_id != &expired);
             state
-                .latest_failure_by_pane
+                .latest_failure_by_tab
                 .retain(|_, send_id| send_id != &expired);
         }
         Ok(Self::with_retention_window(&state, status))
@@ -111,7 +111,7 @@ impl ChatSendLedger {
         result: Result<(), String>,
     ) -> Option<ChatSendStatus> {
         let mut state = self.state.lock();
-        let failed_pane = {
+        let failed_tab = {
             let status = state.by_id.get_mut(send_id)?;
             match result {
                 Ok(()) => {
@@ -122,25 +122,25 @@ impl ChatSendLedger {
                 Err(error) => {
                     status.state = ChatSendState::Failed;
                     status.error = Some(error);
-                    Some(status.pane_id.clone())
+                    Some(status.tab_id.clone())
                 }
             }
         };
-        if let Some(pane_id) = failed_pane {
+        if let Some(tab_id) = failed_tab {
             state
-                .latest_failure_by_pane
-                .insert(pane_id, send_id.to_string());
+                .latest_failure_by_tab
+                .insert(tab_id, send_id.to_string());
         }
         let status = state.by_id.get(send_id).cloned()?;
         Some(Self::with_retention_window(&state, status))
     }
 
-    pub(crate) fn latest(&self, pane_id: &str) -> Option<ChatSendStatus> {
+    pub(crate) fn latest(&self, tab_id: &str) -> Option<ChatSendStatus> {
         let state = self.state.lock();
         let send_id = state
-            .latest_failure_by_pane
-            .get(pane_id)
-            .or_else(|| state.latest_by_pane.get(pane_id))?;
+            .latest_failure_by_tab
+            .get(tab_id)
+            .or_else(|| state.latest_by_tab.get(tab_id))?;
         state
             .by_id
             .get(send_id)
@@ -148,13 +148,13 @@ impl ChatSendLedger {
             .map(|status| Self::with_retention_window(&state, status))
     }
 
-    pub(crate) fn reconcile(&self, pane_id: &str) -> Vec<ChatSendStatus> {
+    pub(crate) fn reconcile(&self, tab_id: &str) -> Vec<ChatSendStatus> {
         let state = self.state.lock();
         let failures = state
             .order
             .iter()
             .filter_map(|send_id| state.by_id.get(send_id))
-            .filter(|status| status.pane_id == pane_id && status.state == ChatSendState::Failed)
+            .filter(|status| status.tab_id == tab_id && status.state == ChatSendState::Failed)
             .cloned()
             .map(|status| Self::with_retention_window(&state, status))
             .collect::<Vec<_>>();
@@ -162,8 +162,8 @@ impl ChatSendLedger {
             return failures;
         }
         state
-            .latest_by_pane
-            .get(pane_id)
+            .latest_by_tab
+            .get(tab_id)
             .and_then(|send_id| state.by_id.get(send_id))
             .cloned()
             .map(|status| Self::with_retention_window(&state, status))
@@ -199,23 +199,23 @@ pub(crate) fn run_chat_send(
 impl crate::service::ServiceContext {
     pub(crate) fn start_chat_send(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         text: String,
     ) -> Result<ChatSendStatus, String> {
-        let pending = self.chat_send_ledger.try_start(pane_id)?;
+        let pending = self.chat_send_ledger.try_start(tab_id)?;
         let response = pending.clone();
         let svc = self.clone();
-        let pane_id = pane_id.to_string();
+        let tab_id = tab_id.to_string();
         std::thread::spawn(move || {
             let status = run_chat_send(&svc.chat_send_ledger, pending, &text, |text| {
-                svc.send_text(&pane_id, text, true)
+                svc.send_text(&tab_id, text, true)
             });
             crate::api::events::emit_everywhere(&svc.app_handle, "chat-send-status", &status);
             if let Some(error) = status.error.as_deref() {
                 log::warn!(
-                    "[chat-send] send_id={} pane={} failed: {}",
+                    "[chat-send] send_id={} tab={} failed: {}",
                     status.send_id,
-                    status.pane_id,
+                    status.tab_id,
                     error
                 );
             }

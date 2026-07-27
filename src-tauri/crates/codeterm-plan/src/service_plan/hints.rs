@@ -91,15 +91,15 @@ pub fn maybe_orchestration_reminder() -> Option<String> {
 }
 
 /// Returns a one-line hint if `plan` has an open planning-kind task assigned to
-/// a pane other than `caller_pane_id`. Silent when the caller IS the planner or
-/// when no planning task has an assigned pane (nothing actionable to route to).
-pub fn planner_ownership_nudge(plan: &Plan, caller_pane_id: Option<&str>) -> Option<String> {
+/// a tab other than `caller_tab_id`. Silent when the caller IS the planner or
+/// when no planning task has an assigned tab (nothing actionable to route to).
+pub fn planner_ownership_nudge(plan: &Plan, caller_tab_id: Option<&str>) -> Option<String> {
     let task = plan.tasks.iter().find(|t| {
         t.kind == "planning"
             && !matches!(t.status, TaskStatus::Done | TaskStatus::Cancelled)
-            && t.assigned_pane_id
+            && t.assigned_tab_id
                 .as_deref()
-                .is_some_and(|pane| caller_pane_id.map_or(true, |caller| pane != caller))
+                .is_some_and(|tab| caller_tab_id.map_or(true, |caller| tab != caller))
     })?;
     let handle = task
         .handle
@@ -253,7 +253,7 @@ mod tests {
         kind: &str,
         status: TaskStatus,
         handle: Option<&str>,
-        pane: Option<&str>,
+        tab: Option<&str>,
     ) -> crate::plan::Task {
         crate::plan::Task {
             id: id.into(),
@@ -287,7 +287,7 @@ mod tests {
             intent: None,
             parent_task_id: None,
             depends_on: vec![],
-            assigned_pane_id: pane.map(str::to_string),
+            assigned_tab_id: tab.map(str::to_string),
             lane: crate::plan::TaskLaneMetadata::default(),
             taken_by_role: None,
             peer: None,
@@ -310,7 +310,7 @@ mod tests {
     }
 
     #[test]
-    fn nudge_fires_when_planner_assigned_to_different_pane() {
+    fn nudge_fires_when_planner_assigned_to_different_tab() {
         let plan = make_plan(
             "pl_1",
             vec![make_task(
@@ -318,10 +318,10 @@ mod tests {
                 "planning",
                 TaskStatus::InProgress,
                 Some("plan-wave"),
-                Some("pane-planner"),
+                Some("tab-planner"),
             )],
         );
-        let hint = planner_ownership_nudge(&plan, Some("pane-orchestrator"));
+        let hint = planner_ownership_nudge(&plan, Some("tab-orchestrator"));
         assert!(hint.is_some(), "should emit hint for non-planner caller");
         let hint = hint.unwrap();
         assert!(hint.contains("pl_1"), "should name the plan");
@@ -333,7 +333,7 @@ mod tests {
     }
 
     #[test]
-    fn nudge_silent_when_caller_is_the_planner_pane() {
+    fn nudge_silent_when_caller_is_the_planner_tab() {
         let plan = make_plan(
             "pl_1",
             vec![make_task(
@@ -341,11 +341,11 @@ mod tests {
                 "planning",
                 TaskStatus::InProgress,
                 None,
-                Some("pane-planner"),
+                Some("tab-planner"),
             )],
         );
         assert!(
-            planner_ownership_nudge(&plan, Some("pane-planner")).is_none(),
+            planner_ownership_nudge(&plan, Some("tab-planner")).is_none(),
             "planner calling its own mutations should not see the hint"
         );
     }
@@ -355,17 +355,17 @@ mod tests {
         for status in [TaskStatus::Done, TaskStatus::Cancelled] {
             let plan = make_plan(
                 "pl_1",
-                vec![make_task("t", "planning", status, None, Some("pane-x"))],
+                vec![make_task("t", "planning", status, None, Some("tab-x"))],
             );
             assert!(
-                planner_ownership_nudge(&plan, Some("pane-other")).is_none(),
+                planner_ownership_nudge(&plan, Some("tab-other")).is_none(),
                 "closed planning tasks must not trigger the hint"
             );
         }
     }
 
     #[test]
-    fn nudge_silent_when_no_planning_task_has_assigned_pane() {
+    fn nudge_silent_when_no_planning_task_has_assigned_tab() {
         let plan = make_plan(
             "pl_1",
             vec![make_task(
@@ -377,7 +377,7 @@ mod tests {
             )],
         );
         assert!(
-            planner_ownership_nudge(&plan, Some("pane-other")).is_none(),
+            planner_ownership_nudge(&plan, Some("tab-other")).is_none(),
             "unassigned planning task provides no routing target"
         );
     }
@@ -391,7 +391,7 @@ mod tests {
                 "planning",
                 TaskStatus::InProgress,
                 None,
-                Some("pane-planner"),
+                Some("tab-planner"),
             )],
         );
         let hint = planner_ownership_nudge(&plan, None).unwrap();

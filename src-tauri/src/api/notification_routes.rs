@@ -30,7 +30,7 @@ pub(crate) struct CreateNotifBody {
     level: Option<String>,
     actions: Option<serde_json::Value>,
     sticky: Option<bool>,
-    pane_id: Option<String>,
+    tab_id: Option<String>,
     workspace_id: Option<String>,
 }
 
@@ -46,7 +46,7 @@ pub async fn create_notification(
         body.level.as_deref(),
         body.actions,
         body.sticky,
-        body.pane_id,
+        body.tab_id,
         body.workspace_id,
     );
     Ok(Json(serde_json::json!({"id": id})))
@@ -54,7 +54,7 @@ pub async fn create_notification(
 
 #[derive(Deserialize)]
 pub(crate) struct InputRequestBody {
-    pane_id: String,
+    tab_id: String,
     session_id: String,
 }
 
@@ -66,7 +66,7 @@ pub async fn create_input_request_notification(
     check_auth(&state, &headers)?;
     let id = state
         .svc
-        .create_agent_input_request_notification(body.pane_id, body.session_id)
+        .create_agent_input_request_notification(body.tab_id, body.session_id)
         .map_err(|_| (StatusCode::CONFLICT, "Tab is not waiting for user input"))?;
     Ok(Json(serde_json::json!({"id": id})))
 }

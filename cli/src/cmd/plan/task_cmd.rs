@@ -8,7 +8,7 @@ use crate::cmd::hints::{
 };
 use crate::cmd::plan_linking::render_relink_report;
 
-use super::{call, lane_params, maybe_inject_caller_pane, resolve_text};
+use super::{call, lane_params, maybe_inject_caller_tab, resolve_text};
 
 /// Parent-free addressing: with one positional the ref is the task and the plan is inferred
 /// daemon-side; with two, the first is the plan ref and the second the task ref.
@@ -36,8 +36,8 @@ fn render_attempts(value: &Value) -> String {
             .get("attempt_id")
             .and_then(|v| v.as_str())
             .unwrap_or("?");
-        let pane = attempt
-            .get("executor_pane_id")
+        let tab = attempt
+            .get("executor_tab_id")
             .and_then(|v| v.as_str())
             .unwrap_or("-");
         let status = attempt
@@ -56,7 +56,7 @@ fn render_attempts(value: &Value) -> String {
             .unwrap_or(0);
         out.push_str(&format!(
             "{:<24} {:<24} {:<10} {:<10} {:<18} at={}\n",
-            id, pane, status, provider, model, when
+            id, tab, status, provider, model, when
         ));
     }
     out
@@ -67,7 +67,7 @@ fn render_attempt(value: &Value) -> String {
     let mut out = String::new();
     for key in [
         "attempt_id",
-        "executor_pane_id",
+        "executor_tab_id",
         "executor_title",
         "status",
         "provider",
@@ -75,8 +75,8 @@ fn render_attempt(value: &Value) -> String {
         "model",
         "session_id",
         "role",
-        "parent_pane_id",
-        "orchestrator_pane_id",
+        "parent_tab_id",
+        "orchestrator_tab_id",
         "mesh_peer",
         "branch",
         "worktree_path",
@@ -137,7 +137,7 @@ pub(super) fn run_task(
                 "mine": false,
                 "unassigned": false,
             });
-            maybe_inject_caller_pane(&mut params);
+            maybe_inject_caller_tab(&mut params);
             params["require_plan_id"] = json!(true);
             if let Some(plan_id) = plan_id {
                 params["plan_id"] = json!(plan_id);
@@ -176,7 +176,7 @@ pub(super) fn run_task(
             intent_file,
             parent,
             depends_on,
-            assign_pane,
+            assign_tab,
             workspace_id,
             workspace_name,
             worktree,
@@ -253,12 +253,12 @@ pub(super) fn run_task(
             if !depends_on.is_empty() {
                 params["depends_on"] = json!(depends_on);
             }
-            if let Some(p) = assign_pane {
-                params["assign_pane"] = json!(p);
+            if let Some(p) = assign_tab {
+                params["assign_tab"] = json!(p);
             }
             if let Some(lane) = lane_params(
                 params
-                    .get("assign_pane")
+                    .get("assign_tab")
                     .and_then(|v| v.as_str())
                     .map(str::to_string),
                 workspace_id,
@@ -287,7 +287,7 @@ pub(super) fn run_task(
             if let Some(handle) = handle {
                 params["handle"] = json!(handle);
             }
-            maybe_inject_caller_pane(&mut params);
+            maybe_inject_caller_tab(&mut params);
             let mut val = call(client, "plan.task.add", params)?;
             if let Some(task_id) = val
                 .get("task_id")
@@ -347,7 +347,7 @@ pub(super) fn run_task(
             parent,
             depends_on,
             clear_dependencies,
-            pane,
+            tab,
             workspace_id,
             workspace_name,
             worktree,
@@ -389,7 +389,7 @@ pub(super) fn run_task(
                 parent,
                 depends_on,
                 clear_dependencies,
-                pane,
+                tab,
                 workspace_id,
                 workspace_name,
                 worktree,
@@ -460,13 +460,13 @@ pub(super) fn run_task(
         PlanTaskAction::Assign {
             plan_id,
             task_id,
-            pane,
+            tab,
             mesh,
         } => {
             let (plan_ref, task_ref) = split_task_ref(Some(plan_id), task_id);
             let mut params = json!({
                 "task_id": task_ref,
-                "pane": pane,
+                "tab": tab,
             });
             if let Some(pid) = plan_ref {
                 params["plan_id"] = json!(pid);
@@ -501,7 +501,7 @@ pub(super) fn run_task(
                 params["reasoning_effort"] = json!(effort);
             }
             if let Some(parent) = parent {
-                params["parent_pane_id"] = json!(parent);
+                params["parent_tab_id"] = json!(parent);
             }
             if let Some(workspace) = workspace {
                 params["workspace_id"] = json!(workspace);
@@ -509,7 +509,7 @@ pub(super) fn run_task(
             if let Some(cwd) = cwd {
                 params["cwd"] = json!(cwd);
             }
-            maybe_inject_caller_pane(&mut params);
+            maybe_inject_caller_tab(&mut params);
             let val = call(client, "plan.task.dispatch", params)?;
             if json {
                 return Ok(Some(val));
@@ -519,9 +519,9 @@ pub(super) fn run_task(
                     eprintln!("warning: {w}");
                 }
             }
-            let pane = val.get("pane_id").and_then(|v| v.as_str()).unwrap_or("?");
+            let tab = val.get("tab_id").and_then(|v| v.as_str()).unwrap_or("?");
             let agent = val.get("agent").and_then(|v| v.as_str()).unwrap_or("agent");
-            println!("Dispatched {agent} worker Tab {pane}");
+            println!("Dispatched {agent} worker Tab {tab}");
             Ok(None)
         }
         PlanTaskAction::Attempts { plan_id, task_id } => {
@@ -584,10 +584,10 @@ pub(super) fn run_task(
                 params["model"] = json!(model);
             }
             if let Some(parent) = parent {
-                params["parent_pane_id"] = json!(parent);
-            } else if let Ok(parent) = std::env::var("CODETERM_PANE_ID") {
+                params["parent_tab_id"] = json!(parent);
+            } else if let Ok(parent) = std::env::var("CODETERM_TAB_ID") {
                 if !parent.trim().is_empty() {
-                    params["parent_pane_id"] = json!(parent);
+                    params["parent_tab_id"] = json!(parent);
                 }
             }
             if let Some(workspace) = workspace {
@@ -600,14 +600,14 @@ pub(super) fn run_task(
             if json {
                 return Ok(Some(val));
             }
-            let pane = val.get("pane_id").and_then(|v| v.as_str()).unwrap_or("?");
+            let tab = val.get("tab_id").and_then(|v| v.as_str()).unwrap_or("?");
             let attempt_id = val
                 .get("attempt")
                 .and_then(|v| v.get("attempt_id"))
                 .or_else(|| val.get("attempt").and_then(|v| v.get("id")))
                 .and_then(|v| v.as_str())
                 .unwrap_or("?");
-            println!("Respawned worker Tab {pane} (attempt {attempt_id})");
+            println!("Respawned worker Tab {tab} (attempt {attempt_id})");
             Ok(None)
         }
         PlanTaskAction::Link {

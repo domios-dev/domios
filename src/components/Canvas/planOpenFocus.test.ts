@@ -1,7 +1,7 @@
 // Run: npx tsx src/components/Canvas/planOpenFocus.test.ts
 
 import { FIXTURE_PLAN, FIXTURE_TASK } from "./cards/fixtures.testdata";
-import { assignedTaskIdsForPane, resolvePlanOpenCameraTarget } from "./planOpenFocus";
+import { assignedTaskIdsForTab, resolvePlanOpenCameraTarget } from "./planOpenFocus";
 import { TaskStatus } from "./types";
 
 type TestFn = () => void | Promise<void>;
@@ -16,31 +16,31 @@ function assert(condition: unknown, message: string): asserts condition {
 const plan = {
   ...FIXTURE_PLAN,
   tasks: [
-    { ...FIXTURE_TASK, id: "task-a", assigned_pane_id: "worker-1" },
-    { ...FIXTURE_TASK, id: "task-b", assigned_pane_id: "orch-1" },
+    { ...FIXTURE_TASK, id: "task-a", assigned_tab_id: "worker-1" },
+    { ...FIXTURE_TASK, id: "task-b", assigned_tab_id: "orch-1" },
   ],
 };
 
-test("assignedTaskIdsForPane returns tasks bound to the Tab", () => {
+test("assignedTaskIdsForTab returns tasks bound to the Tab", () => {
   assert(
-    assignedTaskIdsForPane([plan], "worker-1").join() === "task-a",
+    assignedTaskIdsForTab([plan], "worker-1").join() === "task-a",
     "worker task",
   );
-  assert(assignedTaskIdsForPane([plan], "unknown").length === 0, "none for unknown Tab");
+  assert(assignedTaskIdsForTab([plan], "unknown").length === 0, "none for unknown Tab");
 });
 
-test("assignedTaskIdsForPane ignores terminal and empty Tab bindings", () => {
+test("assignedTaskIdsForTab ignores terminal and empty Tab bindings", () => {
   const mixed = {
     ...FIXTURE_PLAN,
     tasks: [
-      { ...FIXTURE_TASK, id: "done", status: TaskStatus.Done, assigned_pane_id: "worker-1" },
-      { ...FIXTURE_TASK, id: "cancelled", status: TaskStatus.Cancelled, assigned_pane_id: "worker-1" },
-      { ...FIXTURE_TASK, id: "empty", assigned_pane_id: " " },
-      { ...FIXTURE_TASK, id: "active", status: TaskStatus.InReview, assigned_pane_id: " worker-1 " },
+      { ...FIXTURE_TASK, id: "done", status: TaskStatus.Done, assigned_tab_id: "worker-1" },
+      { ...FIXTURE_TASK, id: "cancelled", status: TaskStatus.Cancelled, assigned_tab_id: "worker-1" },
+      { ...FIXTURE_TASK, id: "empty", assigned_tab_id: " " },
+      { ...FIXTURE_TASK, id: "active", status: TaskStatus.InReview, assigned_tab_id: " worker-1 " },
     ],
   };
-  assert(assignedTaskIdsForPane([mixed], "worker-1").join() === "active", "only active trimmed binding remains");
-  assert(assignedTaskIdsForPane([mixed], " ").length === 0, "empty target Tab ignored");
+  assert(assignedTaskIdsForTab([mixed], "worker-1").join() === "active", "only active trimmed binding remains");
+  assert(assignedTaskIdsForTab([mixed], " ").length === 0, "empty target Tab ignored");
 });
 
 test("resolvePlanOpenCameraTarget prefers task focus in task context", () => {

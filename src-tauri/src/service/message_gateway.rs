@@ -1,4 +1,4 @@
-//! MessageGateway — the single submission seam for outbound pane traffic.
+//! MessageGateway — the single submission seam for outbound tab traffic.
 //!
 //! PHASE 1 is a PARITY WRAPPER: it classifies, dedups, and forwards to the
 //! existing delivery paths (`Messenger::deliver`, `send_text`,
@@ -21,11 +21,11 @@ pub const IDEMPOTENCY_CAPACITY: usize = 512;
 /// metadata only — it does not yet alter routing (parity is preserved).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeliveryClass {
-    /// A human-authored turn: the user's own prompt entering a pane.
+    /// A human-authored turn: the user's own prompt entering a tab.
     UserTurn,
-    /// Machine-authored traffic between agents (reports, cross-pane, mesh relays).
+    /// Machine-authored traffic between agents (reports, cross-tab, mesh relays).
     AgentTraffic,
-    /// A CodeTerm-originated notice or reminder injected into a pane.
+    /// A CodeTerm-originated notice or reminder injected into a tab.
     SystemNotice,
     /// Uninterpreted key/control bytes written straight to the PTY.
     RawKeys,
@@ -34,8 +34,8 @@ pub enum DeliveryClass {
 /// Where a submission entered the system — used for idempotency scoping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MessageOrigin {
-    /// Submitted by another local pane in this instance.
-    LocalPane,
+    /// Submitted by another local tab in this instance.
+    LocalTab,
     /// Arrived from a mesh peer over the flat peer network.
     MeshPeer,
     /// Presented a service token (external HTTP/CLI caller).
@@ -92,12 +92,12 @@ pub struct DeliveryReceipt {
 }
 
 /// Typed delivery failure. Adapter-friendly for the upstream taxonomy (BLACKSTAR
-/// task_7fei9d owns final naming); `DeliveredUnverified` and `PaneNotFound` are
+/// task_7fei9d owns final naming); `DeliveredUnverified` and `TabNotFound` are
 /// deliberately distinct so callers can retry-vs-abort correctly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeliveryError {
-    /// The target pane could not be resolved to a live pane/PTY.
-    PaneNotFound { target: String },
+    /// The target tab could not be resolved to a live tab/PTY.
+    TabNotFound { target: String },
     /// Bytes were written but submission could not be confirmed.
     DeliveredUnverified { detail: String },
     /// Any other failure from the underlying path, kept opaque for adapters.
@@ -107,7 +107,7 @@ pub enum DeliveryError {
 impl std::fmt::Display for DeliveryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::PaneNotFound { target } => write!(f, "Tab not found: {target}"),
+            Self::TabNotFound { target } => write!(f, "Tab not found: {target}"),
             Self::DeliveredUnverified { detail } => write!(f, "delivered unverified: {detail}"),
             Self::Transport { detail } => write!(f, "transport error: {detail}"),
         }
@@ -121,13 +121,13 @@ impl std::error::Error for DeliveryError {}
 pub trait DeliverySeam {
     fn deliver_enveloped(
         &self,
-        to_pane: &str,
+        to_tab: &str,
         envelope: MessageEnvelope,
         body: &str,
     ) -> Result<Delivery, String>;
-    fn deliver_text(&self, pane: &str, text: &str, enter: bool) -> Result<(), String>;
-    fn deliver_batch(&self, pane: &str, batch: Vec<SendBatchItem>) -> Result<(), String>;
-    fn deliver_keys(&self, pane: &str, text: &str, strokes: &[KeyStroke]) -> Result<(), String>;
+    fn deliver_text(&self, tab: &str, text: &str, enter: bool) -> Result<(), String>;
+    fn deliver_batch(&self, tab: &str, batch: Vec<SendBatchItem>) -> Result<(), String>;
+    fn deliver_keys(&self, tab: &str, text: &str, strokes: &[KeyStroke]) -> Result<(), String>;
 }
 
 /// Build the ordered PTY actions from gateway strokes, mirroring the HTTP route:
@@ -156,29 +156,29 @@ fn build_ordered(strokes: &[KeyStroke]) -> Result<Vec<OrderedPtyAction>, String>
 impl DeliverySeam for super::ServiceContext {
     fn deliver_enveloped(
         &self,
-        to_pane: &str,
+        to_tab: &str,
         envelope: MessageEnvelope,
         body: &str,
     ) -> Result<Delivery, String> {
-        Messenger::deliver(self, to_pane, envelope, body)
+        Messenger::deliver(self, to_tab, envelope, body)
     }
 
-    fn deliver_text(&self, pane: &str, text: &str, enter: bool) -> Result<(), String> {
-        self.send_text_detached(pane, text, enter);
+    fn deliver_text(&self, tab: &str, text: &str, enter: bool) -> Result<(), String> {
+        self.send_text_detached(tab, text, enter);
         Ok(())
     }
 
-    fn deliver_batch(&self, pane: &str, batch: Vec<SendBatchItem>) -> Result<(), String> {
-        self.send_text_batch(pane, batch)
+    fn deliver_batch(&self, tab: &str, batch: Vec<SendBatchItem>) -> Result<(), String> {
+        self.send_text_batch(tab, batch)
     }
 
-    fn deliver_keys(&self, pane: &str, text: &str, strokes: &[KeyStroke]) -> Result<(), String> {
+    fn deliver_keys(&self, tab: &str, text: &str, strokes: &[KeyStroke]) -> Result<(), String> {
         let ordered = build_ordered(strokes)?;
         execute_ordered_actions(
             text,
             &ordered,
-            |body, enter| self.send_text(pane, body, enter),
-            |bytes| self.write_raw(pane, bytes),
+            |body, enter| self.send_text(tab, body, enter),
+            |bytes| self.write_raw(tab, bytes),
             await_action_deadline,
         )
     }
@@ -218,10 +218,10 @@ impl super::ServiceContext {
         if result.is_ok() && class == DeliveryClass::AgentTraffic {
             let is_bound_worker = {
                 let mux = self.mux.read();
-                mux.get_pane(target).is_some_and(|pane| {
-                    pane.role == Some(crate::multiplexer::types::AgentRole::Worker)
+                mux.get_tab(target).is_some_and(|tab| {
+                    tab.role == Some(crate::multiplexer::types::AgentRole::Worker)
                 })
-            } && self.plan_store.task_binding_for_pane(target).is_some();
+            } && self.plan_store.task_binding_for_tab(target).is_some();
             if is_bound_worker {
                 self.gateway.require_worker_report(target);
             }
@@ -240,7 +240,7 @@ fn classify(target: &str, err: String) -> DeliveryError {
         || low.contains("did not start")
         || low.contains("closed before pty")
     {
-        DeliveryError::PaneNotFound {
+        DeliveryError::TabNotFound {
             target: target.to_string(),
         }
     } else if low.contains("submit not confirmed")

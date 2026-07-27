@@ -442,7 +442,7 @@ fn close_task_immediate_readback_is_consistent() {
             &plan.id,
             &task_id,
             Some("verified close"),
-            AgentRef::from_pane("worker"),
+            AgentRef::from_tab("worker"),
             3,
         )
         .unwrap();
@@ -595,7 +595,7 @@ fn locked_task_lane_update_succeeds_after_verified_commit() {
             &plan.id,
             &task_id,
             crate::service_plan::TaskLaneUpdate {
-                pane_id: Some(Some("pane_1".into())),
+                tab_id: Some(Some("tab_1".into())),
                 workspace_id: Some(Some("ws_1".into())),
                 worktree_path: Some(Some("/tmp/worktree".into())),
                 ..Default::default()
@@ -610,7 +610,7 @@ fn locked_task_lane_update_succeeds_after_verified_commit() {
         .into_iter()
         .find(|task| task.id == task_id)
         .unwrap();
-    assert_eq!(task.lane.pane_id.as_deref(), Some("pane_1"));
+    assert_eq!(task.lane.tab_id.as_deref(), Some("tab_1"));
     assert_eq!(task.lane.workspace_id.as_deref(), Some("ws_1"));
     assert_eq!(task.lane.worktree_path.as_deref(), Some("/tmp/worktree"));
     locker.join().unwrap();
@@ -648,7 +648,7 @@ fn locked_task_record_succeeds_after_verified_milestone() {
             &task_id,
             "decision",
             "recorded while plan index is locked",
-            AgentRef::from_pane("worker"),
+            AgentRef::from_tab("worker"),
             true,
             3,
         )
@@ -671,7 +671,7 @@ fn locked_task_record_succeeds_after_verified_milestone() {
 }
 
 #[test]
-fn assign_task_readback_sets_pane_lane_and_peer() {
+fn assign_task_readback_sets_tab_lane_and_peer() {
     let (root, store) = store_and_root();
     let plan = store
         .create_plan(
@@ -696,7 +696,7 @@ fn assign_task_readback_sets_pane_lane_and_peer() {
         .unwrap();
 
     store
-        .assign_task(&plan.id, &task_id, "pane_2", Some("mac"), 3)
+        .assign_task(&plan.id, &task_id, "tab_2", Some("mac"), 3)
         .unwrap();
 
     let task = store
@@ -706,8 +706,8 @@ fn assign_task_readback_sets_pane_lane_and_peer() {
         .into_iter()
         .find(|task| task.id == task_id)
         .unwrap();
-    assert_eq!(task.assigned_pane_id.as_deref(), Some("pane_2"));
-    assert_eq!(task.lane.pane_id.as_deref(), Some("pane_2"));
+    assert_eq!(task.assigned_tab_id.as_deref(), Some("tab_2"));
+    assert_eq!(task.lane.tab_id.as_deref(), Some("tab_2"));
     assert_eq!(task.peer.as_deref(), Some("mac"));
 }
 
@@ -738,7 +738,7 @@ fn locked_task_take_succeeds_after_verified_assignment() {
     let locker = hold_plan_index_lock(root.path());
 
     store
-        .set_task_assignment(&task_id, Some("pane_take"), Some("worker"), 3)
+        .set_task_assignment(&task_id, Some("tab_take"), Some("worker"), 3)
         .unwrap();
     let task = store
         .get(&plan.id)
@@ -747,7 +747,7 @@ fn locked_task_take_succeeds_after_verified_assignment() {
         .into_iter()
         .find(|task| task.id == task_id)
         .unwrap();
-    assert_eq!(task.assigned_pane_id.as_deref(), Some("pane_take"));
+    assert_eq!(task.assigned_tab_id.as_deref(), Some("tab_take"));
     assert_eq!(task.taken_by_role.as_deref(), Some("worker"));
     locker.join().unwrap();
 }
@@ -770,7 +770,7 @@ fn task_drop_readback_clears_assignment_role_and_peer() {
             NewTask {
                 name: "Drop me".into(),
                 kind: "fix".into(),
-                assigned_pane_id: Some("pane_drop".into()),
+                assigned_tab_id: Some("tab_drop".into()),
                 competition: None,
                 ..Default::default()
             },
@@ -778,7 +778,7 @@ fn task_drop_readback_clears_assignment_role_and_peer() {
         )
         .unwrap();
     store
-        .assign_task(&plan.id, &task_id, "pane_drop", Some("mac"), 3)
+        .assign_task(&plan.id, &task_id, "tab_drop", Some("mac"), 3)
         .unwrap();
 
     store.set_task_assignment(&task_id, None, None, 4).unwrap();
@@ -790,7 +790,7 @@ fn task_drop_readback_clears_assignment_role_and_peer() {
         .into_iter()
         .find(|task| task.id == task_id)
         .unwrap();
-    assert_eq!(task.assigned_pane_id, None);
+    assert_eq!(task.assigned_tab_id, None);
     assert_eq!(task.taken_by_role, None);
     assert_eq!(task.peer, None);
 }

@@ -17,7 +17,7 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-const key = "pane:session";
+const key = "tab:session";
 
 assert(!shouldRestoreChatViewport(true, false, 0, key, ""), "empty activation waits for messages");
 assert(!shouldRestoreChatViewport(true, true, 1, key, ""), "loading activation waits for the session");
@@ -110,7 +110,7 @@ assert(
 
 // --- persisted scroll state survives a remount ---
 
-const persistKey = "pane-1:session-1";
+const persistKey = "tab-1:session-1";
 clearPersistedChatScrollState(persistKey);
 assert(getPersistedChatScrollState(persistKey) === null, "an unset key has no persisted state");
 setPersistedChatScrollState(persistKey, { mode: "detached", anchor: capturedAnchor });

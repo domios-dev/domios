@@ -53,7 +53,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
             cwd,
             skill,
             description,
-            creator_pane,
+            creator_tab,
             once,
             jitter_max_ms,
             tz,
@@ -82,7 +82,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
                 model.as_deref(),
                 cwd.as_deref(),
                 description.as_deref(),
-                creator_pane.as_deref(),
+                creator_tab.as_deref(),
                 once,
                 jitter_max_ms,
                 tz.as_deref(),
@@ -213,7 +213,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
                     } else {
                         println!(
                             "Triggered: tab={}",
-                            val.get("pane_id").and_then(|v| v.as_str()).unwrap_or("?")
+                            val.get("tab_id").and_then(|v| v.as_str()).unwrap_or("?")
                         );
                     }
                 }
@@ -258,7 +258,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
                                 r.get("run_id").and_then(|v| v.as_str()).unwrap_or("?"),
                                 r.get("status").and_then(|v| v.as_str()).unwrap_or("?"),
                                 r.get("started_at").and_then(|v| v.as_u64()).unwrap_or(0),
-                                r.get("pane_id").and_then(|v| v.as_str()).unwrap_or("-"),
+                                r.get("tab_id").and_then(|v| v.as_str()).unwrap_or("-"),
                             );
                         }
                     }

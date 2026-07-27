@@ -5,7 +5,7 @@ assert.equal(
   terminalOwnsLivePty({
     isWeb: false,
     terminalVisible: true,
-    paneVisible: false,
+    tabVisible: false,
     ptyId: null,
   }),
   false,
@@ -16,7 +16,7 @@ assert.equal(
   terminalOwnsLivePty({
     isWeb: false,
     terminalVisible: true,
-    paneVisible: true,
+    tabVisible: true,
     ptyId: null,
   }),
   true,
@@ -27,7 +27,7 @@ assert.equal(
   terminalOwnsLivePty({
     isWeb: false,
     terminalVisible: true,
-    paneVisible: false,
+    tabVisible: false,
     ptyId: "pty-1",
   }),
   true,
@@ -35,7 +35,7 @@ assert.equal(
 );
 
 assert.equal(
-  terminalRenderEnabled({ terminalVisible: true, paneVisible: false }),
+  terminalRenderEnabled({ terminalVisible: true, tabVisible: false }),
   false,
   "hidden Tab must not render terminal output",
 );
@@ -44,7 +44,7 @@ assert.equal(
   terminalOwnsLivePty({
     isWeb: true,
     terminalVisible: false,
-    paneVisible: true,
+    tabVisible: true,
     ptyId: null,
   }),
   false,
@@ -55,7 +55,7 @@ assert.equal(
   terminalOwnsLivePty({
     isWeb: true,
     terminalVisible: true,
-    paneVisible: true,
+    tabVisible: true,
     ptyId: null,
   }),
   true,

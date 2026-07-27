@@ -449,7 +449,7 @@ export function buildDefaultCommands(actions: CommandActions): CommandItem[] {
   const defaultProvider = getAgentDescriptor(defaultSpawnProviderId());
   return [
     {
-      id: "new-pane",
+      id: "new-tab",
       label: "New Tab",
       icon: ICONS.tab,
       shortcut: "Ctrl+T",
@@ -457,7 +457,7 @@ export function buildDefaultCommands(actions: CommandActions): CommandItem[] {
       action: actions.newTab,
     },
     {
-      id: "close-pane",
+      id: "close-tab",
       label: "Close Tab",
       icon: ICONS.close,
       shortcut: "Ctrl+W",

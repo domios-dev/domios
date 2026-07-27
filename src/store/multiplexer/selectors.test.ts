@@ -1,22 +1,22 @@
 // Run: npx tsx src/store/multiplexer/selectors.test.ts
 
 import { strict as assert } from "node:assert";
-import type { Pane, Team } from "../../lib/types";
+import type { Tab, Team } from "../../lib/types";
 import {
-  paneFieldsEqual,
-  paneTitleMapEqual,
-  panesRecordEqual,
-  selectPaneTitleMap,
+  tabFieldsEqual,
+  tabTitleMapEqual,
+  tabsRecordEqual,
+  selectTabTitleMap,
   selectTeams,
   teamsEqual,
 } from "./selectors";
 import type { ExtendedState } from "./tree";
 
-function samplePane(id: string, elapsed?: number): Pane {
+function sampleTab(id: string, elapsed?: number): Tab {
   return {
     id,
     pty_id: "pty-1",
-    pane_type: "Terminal",
+    tab_type: "Terminal",
     title: "Agent",
     cwd: null,
     agent_type: "claude",
@@ -26,22 +26,22 @@ function samplePane(id: string, elapsed?: number): Pane {
   };
 }
 
-function sampleState(panes: Record<string, Pane>, teams: Team[] = []): ExtendedState {
-  const paneIds = Object.keys(panes);
+function sampleState(tabs: Record<string, Tab>, teams: Team[] = []): ExtendedState {
+  const tabIds = Object.keys(tabs);
   return {
     workspaces: [{
       id: "ws",
       name: "ws",
-      tabs: paneIds.map((pane_id) => ({ id: `tab-${pane_id}`, pane_id })),
-      active_tab_id: paneIds[0] ? `tab-${paneIds[0]}` : null,
+      tabs: tabIds.map((tab_id) => ({ id: `tab-${tab_id}`, tab_id })),
+      active_tab_id: tabIds[0] ? `tab-${tabIds[0]}` : null,
       cwd: null,
     }],
-    panes,
+    tabs,
     teams,
     active_workspace_id: "ws",
-    focused_pane_id: paneIds[0] ?? null,
+    focused_tab_id: tabIds[0] ?? null,
     notifications: [],
-    paneStatuses: {},
+    tabStatuses: {},
     toasts: [],
     activeTabIds: {},
     generation: 1,
@@ -50,33 +50,33 @@ function sampleState(panes: Record<string, Pane>, teams: Team[] = []): ExtendedS
 }
 
 assert.equal(
-  paneFieldsEqual(samplePane("a", 100), samplePane("a", 100)),
+  tabFieldsEqual(sampleTab("a", 100), sampleTab("a", 100)),
   true,
   "same Tab fields compare equal",
 );
 assert.equal(
-  paneFieldsEqual(samplePane("a", 100), samplePane("a", 200)),
+  tabFieldsEqual(sampleTab("a", 100), sampleTab("a", 200)),
   false,
   "elapsed_ms change is unequal",
 );
 assert.equal(
-  paneFieldsEqual(samplePane("a"), { ...samplePane("a"), title: "Renamed" }),
+  tabFieldsEqual(sampleTab("a"), { ...sampleTab("a"), title: "Renamed" }),
   false,
   "title change is unequal",
 );
 
-const panesA = { a: samplePane("a", 1), b: samplePane("b", 5) };
-const panesB = { a: samplePane("a", 2), b: samplePane("b", 5) };
-assert.equal(panesRecordEqual(panesA, panesB), false, "record differs when one Tab ticks");
+const tabsA = { a: sampleTab("a", 1), b: sampleTab("b", 5) };
+const tabsB = { a: sampleTab("a", 2), b: sampleTab("b", 5) };
+assert.equal(tabsRecordEqual(tabsA, tabsB), false, "record differs when one Tab ticks");
 assert.equal(
-  panesRecordEqual({ b: samplePane("b", 5) }, { b: samplePane("b", 5) }),
+  tabsRecordEqual({ b: sampleTab("b", 5) }, { b: sampleTab("b", 5) }),
   true,
   "unchanged Tab in record compares equal",
 );
 
-const titleMap1 = selectPaneTitleMap(sampleState({ x: { ...samplePane("x"), title: "✻ Worker" } }));
-const titleMap2 = selectPaneTitleMap(sampleState({ x: { ...samplePane("x"), title: "✻ Worker" } }));
-assert.equal(paneTitleMapEqual(titleMap1, titleMap2), true, "title map stable when titles match");
+const titleMap1 = selectTabTitleMap(sampleState({ x: { ...sampleTab("x"), title: "✻ Worker" } }));
+const titleMap2 = selectTabTitleMap(sampleState({ x: { ...sampleTab("x"), title: "✻ Worker" } }));
+assert.equal(tabTitleMapEqual(titleMap1, titleMap2), true, "title map stable when titles match");
 
 const formingTeam: Team = {
   id: "team-1",

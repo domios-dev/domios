@@ -233,7 +233,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
   }, []);
 
   return (
-    <div className="absolute inset-0 overflow-y-auto bg-[var(--ct-bg)]" data-testid="memory-dreams-pane">
+    <div className="absolute inset-0 overflow-y-auto bg-[var(--ct-bg)]" data-testid="memory-dreams-tab">
       <div
         className="pointer-events-none fixed inset-0 -z-0 opacity-25"
         style={{

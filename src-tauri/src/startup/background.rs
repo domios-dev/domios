@@ -410,10 +410,10 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                 let (changed, status_snapshots): (
                     Vec<(
                         String,
-                        crate::agent::status::PaneStatus,
-                        crate::agent::status::PaneStatus,
+                        crate::agent::status::TabStatus,
+                        crate::agent::status::TabStatus,
                     )>,
-                    Vec<(String, crate::agent::status::PaneStatus)>,
+                    Vec<(String, crate::agent::status::TabStatus)>,
                 ) = {
                     let mut t = tracker.lock();
                     let pty_ids = t.all_ids();
@@ -438,29 +438,29 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
 
                 for (pty_id, status) in status_snapshots {
                     seen_pty_ids.insert(pty_id.clone());
-                    let pane_id = mux.write().pane_id_for_pty(&pty_id);
-                    let Some(pane_id) = pane_id else {
+                    let tab_id = mux.write().tab_id_for_pty(&pty_id);
+                    let Some(tab_id) = tab_id else {
                         continue;
                     };
                     match status {
-                        crate::agent::status::PaneStatus::Idle => {
+                        crate::agent::status::TabStatus::Idle => {
                             let started_at = idle_since_by_pty.entry(pty_id.clone()).or_insert(now);
                             if now.saturating_sub(*started_at) >= idle_threshold {
                                 if let Some(service) =
                                     app_handle.try_state::<crate::service::ServiceState>()
                                 {
-                                    service.maybe_send_idle_plan_poke(&pane_id);
+                                    service.maybe_send_idle_plan_poke(&tab_id);
                                 }
                             }
                             was_idle_by_pty.insert(pty_id);
                         }
-                        crate::agent::status::PaneStatus::Working => {
+                        crate::agent::status::TabStatus::Working => {
                             idle_since_by_pty.remove(&pty_id);
                             if was_idle_by_pty.remove(&pty_id) {
                                 if let Some(service) =
                                     app_handle.try_state::<crate::service::ServiceState>()
                                 {
-                                    service.plan_turn_counter.reset_activity(&pane_id);
+                                    service.plan_turn_counter.reset_activity(&tab_id);
                                 }
                             }
                         }
@@ -475,10 +475,10 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                 was_idle_by_pty.retain(|pty_id| seen_pty_ids.contains(pty_id));
 
                 for (pty_id, raw_prev, raw_now) in changed {
-                    let pane_id = mux.write().pane_id_for_pty(&pty_id);
-                    if let Some(pid) = pane_id {
+                    let tab_id = mux.write().tab_id_for_pty(&pty_id);
+                    if let Some(pid) = tab_id {
                         log::info!(
-                            "[idle-poll] {} {:?} (pane={})",
+                            "[idle-poll] {} {:?} (tab={})",
                             &pty_id[..pty_id.len().min(8)],
                             raw_now,
                             pid
@@ -486,9 +486,9 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                         if let Some(service) =
                             app_handle.try_state::<crate::service::ServiceState>()
                         {
-                            let prev = service.reconciled_pane_status_for_id(&pid, raw_prev);
-                            let now = service.reconciled_pane_status_for_id(&pid, raw_now);
-                            service.emit_pane_status_if_changed(&pty_id, prev, now);
+                            let prev = service.reconciled_tab_status_for_id(&pid, raw_prev);
+                            let now = service.reconciled_tab_status_for_id(&pid, raw_now);
+                            service.emit_tab_status_if_changed(&pty_id, prev, now);
                         }
 
                         // Agent exits are handled in output.rs, not idle poll.

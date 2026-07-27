@@ -1,8 +1,8 @@
 //! Point the PTY fork at the bundled windowless ConPTY host (conpty.dll +
-//! OpenConsole.exe) so spawning panes doesn't flash an in-box conhost window.
+//! OpenConsole.exe) so spawning tabs doesn't flash an in-box conhost window.
 
 /// Export CODETERM_CONPTY_DIR for this arch's bundled host. Must run before the
-/// first pane/PTY spawn (the fork reads it on first CreatePseudoConsole).
+/// first tab/PTY spawn (the fork reads it on first CreatePseudoConsole).
 #[cfg(windows)]
 pub(crate) fn setup_conpty_host(app: &tauri::App) {
     use tauri::Manager;

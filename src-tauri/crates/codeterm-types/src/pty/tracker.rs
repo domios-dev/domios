@@ -2,26 +2,26 @@ use std::collections::HashMap;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use super::pane_status::PaneStatus;
+use super::tab_status::TabStatus;
 
-pub struct PaneStatusTracker {
-    statuses: HashMap<String, PaneStatusEntry>,
-    signals: HashMap<String, Arc<PaneStatusSignal>>,
+pub struct TabStatusTracker {
+    statuses: HashMap<String, TabStatusEntry>,
+    signals: HashMap<String, Arc<TabStatusSignal>>,
 }
 
 #[derive(Default)]
-struct PaneStatusSignalState {
+struct TabStatusSignalState {
     generation: u64,
     closed: bool,
 }
 
 #[derive(Default)]
-pub struct PaneStatusSignal {
-    state: Mutex<PaneStatusSignalState>,
+pub struct TabStatusSignal {
+    state: Mutex<TabStatusSignalState>,
     changed: Condvar,
 }
 
-impl PaneStatusSignal {
+impl TabStatusSignal {
     pub fn generation(&self) -> u64 {
         self.state.lock().unwrap().generation
     }
@@ -51,8 +51,8 @@ impl PaneStatusSignal {
     }
 }
 
-struct PaneStatusEntry {
-    status: PaneStatus,
+struct TabStatusEntry {
+    status: TabStatus,
     last_output_hash: [u8; 32],
     /// Semantic clock origin: reset only when the (status-bar-excluded) screen
     /// content changes. Feeds `semantic_idle_ms`.
@@ -63,7 +63,7 @@ struct PaneStatusEntry {
     last_check_time: Instant,
 }
 
-impl PaneStatusTracker {
+impl TabStatusTracker {
     pub fn new() -> Self {
         Self {
             statuses: HashMap::new(),
@@ -71,14 +71,14 @@ impl PaneStatusTracker {
         }
     }
 
-    pub fn arm_status_change_signal(&mut self, pty_id: &str) -> Arc<PaneStatusSignal> {
+    pub fn arm_status_change_signal(&mut self, pty_id: &str) -> Arc<TabStatusSignal> {
         self.signals
             .entry(pty_id.to_string())
-            .or_insert_with(|| Arc::new(PaneStatusSignal::default()))
+            .or_insert_with(|| Arc::new(TabStatusSignal::default()))
             .clone()
     }
 
-    fn notify_if_changed(&self, pty_id: &str, previous: PaneStatus, current: PaneStatus) {
+    fn notify_if_changed(&self, pty_id: &str, previous: TabStatus, current: TabStatus) {
         if previous != current {
             if let Some(signal) = self.signals.get(pty_id) {
                 signal.mark_changed();
@@ -96,8 +96,8 @@ impl PaneStatusTracker {
         let entry = self
             .statuses
             .entry(pty_id.to_string())
-            .or_insert_with(|| PaneStatusEntry {
-                status: PaneStatus::Working,
+            .or_insert_with(|| TabStatusEntry {
+                status: TabStatus::Working,
                 last_output_hash: [0u8; 32],
                 last_output_time: now,
                 last_byte_time: now,
@@ -110,7 +110,7 @@ impl PaneStatusTracker {
         let changed = if screen_hash != entry.last_output_hash {
             entry.last_output_hash = screen_hash;
             entry.last_output_time = now;
-            entry.status = PaneStatus::Working;
+            entry.status = TabStatus::Working;
             true
         } else {
             false
@@ -123,7 +123,7 @@ impl PaneStatusTracker {
     pub fn set_waiting(&mut self, pty_id: &str) {
         let previous = self.get_status(pty_id);
         if let Some(entry) = self.statuses.get_mut(pty_id) {
-            entry.status = PaneStatus::Waiting;
+            entry.status = TabStatus::Waiting;
         }
         self.notify_if_changed(pty_id, previous, self.get_status(pty_id));
     }
@@ -131,7 +131,7 @@ impl PaneStatusTracker {
     pub fn set_idle(&mut self, pty_id: &str) {
         let previous = self.get_status(pty_id);
         if let Some(entry) = self.statuses.get_mut(pty_id) {
-            entry.status = PaneStatus::Idle;
+            entry.status = TabStatus::Idle;
         }
         self.notify_if_changed(pty_id, previous, self.get_status(pty_id));
     }
@@ -139,7 +139,7 @@ impl PaneStatusTracker {
     pub fn set_dead(&mut self, pty_id: &str) {
         let previous = self.get_status(pty_id);
         if let Some(entry) = self.statuses.get_mut(pty_id) {
-            entry.status = PaneStatus::Dead;
+            entry.status = TabStatus::Dead;
         }
         self.notify_if_changed(pty_id, previous, self.get_status(pty_id));
     }
@@ -149,10 +149,10 @@ impl PaneStatusTracker {
         let now = Instant::now();
         if let Some(entry) = self.statuses.get_mut(pty_id) {
             entry.last_check_time = now;
-            if entry.status == PaneStatus::Working
+            if entry.status == TabStatus::Working
                 && now.duration_since(entry.last_output_time) > idle_timeout
             {
-                entry.status = PaneStatus::Idle;
+                entry.status = TabStatus::Idle;
             }
         }
         self.notify_if_changed(pty_id, previous, self.get_status(pty_id));
@@ -173,17 +173,17 @@ impl PaneStatusTracker {
         })
     }
 
-    pub fn get_status(&self, pty_id: &str) -> PaneStatus {
+    pub fn get_status(&self, pty_id: &str) -> TabStatus {
         self.statuses
             .get(pty_id)
             .map(|e| e.status)
-            .unwrap_or(PaneStatus::Dead)
+            .unwrap_or(TabStatus::Dead)
     }
 
     /// Like `get_status`, but `None` for an untracked pty instead of defaulting
     /// to `Dead` — lets snapshot hydration mirror exactly what a live
-    /// `pane-status-changed` event would have delivered (no event yet = no rail).
-    pub fn get_status_if_tracked(&self, pty_id: &str) -> Option<PaneStatus> {
+    /// `tab-status-changed` event would have delivered (no event yet = no rail).
+    pub fn get_status_if_tracked(&self, pty_id: &str) -> Option<TabStatus> {
         self.statuses.get(pty_id).map(|e| e.status)
     }
 

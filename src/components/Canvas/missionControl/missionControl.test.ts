@@ -1,6 +1,6 @@
 // Run: npx tsx src/components/Canvas/missionControl/missionControl.test.ts
 
-import type { Pane } from "../../../lib/types";
+import type { Tab } from "../../../lib/types";
 import { FIXTURE_MILESTONE, FIXTURE_PLAN, FIXTURE_TASK } from "../cards/fixtures.testdata";
 import { TaskStatus, type Plan, type Task, type TaskExecutionAttempt, type LoopSpec } from "../types";
 import {
@@ -21,25 +21,25 @@ function assert(condition: unknown, message: string): asserts condition {
 
 const NOW = 1_800_000_000_000;
 
-const LIVE_PANE: Pane = {
-  id: "pane-worker",
+const LIVE_TAB: Tab = {
+  id: "tab-worker",
   pty_id: "pty-1",
-  pane_type: "Terminal",
+  tab_type: "Terminal",
   title: "Puccini",
   cwd: "/repo",
 };
 
-const ORCH_PANE: Pane = {
+const ORCH_TAB: Tab = {
   id: "orch-1",
   pty_id: "pty-0",
-  pane_type: "Terminal",
+  tab_type: "Terminal",
   title: "Orchestrator",
   cwd: "/repo",
 };
 
-const PANES: Record<string, Pane> = {
-  [LIVE_PANE.id]: LIVE_PANE,
-  [ORCH_PANE.id]: ORCH_PANE,
+const TABS: Record<string, Tab> = {
+  [LIVE_TAB.id]: LIVE_TAB,
+  [ORCH_TAB.id]: ORCH_TAB,
 };
 
 function mkTask(over: Partial<Task>): Task {
@@ -62,8 +62,8 @@ test("empty plan produces all zones with no stations", () => {
   assert(model.planId === "plan-alpha", "planId");
   assert(model.planTitle === "Auth rollout", "planTitle");
   assert(model.activeCount === 0, "activeCount");
-  assert(model.deadPaneCount === 0, "deadPaneCount");
-  assert(model.presenceByPaneId.size === 0, "no presences");
+  assert(model.deadTabCount === 0, "deadTabCount");
+  assert(model.presenceByTabId.size === 0, "no presences");
   const zoneKeys = MISSION_ZONE_DEFS.map((d) => d.key);
   for (const key of zoneKeys) {
     assert(zoneStations(model, key).length === 0, `empty zone: ${key}`);
@@ -99,30 +99,30 @@ test("in_progress task with live Tab lands in work_floor with alive presence", (
       mkTask({
         id: "t-wip",
         status: TaskStatus.InProgress,
-        assigned_pane_id: LIVE_PANE.id,
+        assigned_tab_id: LIVE_TAB.id,
         status_changed_at: NOW - 60_000,
       }),
     ],
   });
-  const model = buildMissionControl(plan, PANES, NOW);
+  const model = buildMissionControl(plan, TABS, NOW);
   const stations = zoneStations(model, "work_floor");
   assert(stations.length === 1, "one station in work_floor");
   const st = stations[0];
   assert(st.presence !== null, "presence set");
   assert(st.presence!.alive === true, "Tab alive");
-  assert(st.presence!.paneId === LIVE_PANE.id, "paneId");
-  assert(st.deadPane === false, "not dead");
+  assert(st.presence!.tabId === LIVE_TAB.id, "tabId");
+  assert(st.deadTab === false, "not dead");
   assert(model.activeCount === 1, "activeCount 1");
-  assert(model.presenceByPaneId.has(LIVE_PANE.id), "in presenceByPaneId");
+  assert(model.presenceByTabId.has(LIVE_TAB.id), "in presenceByTabId");
 });
 
-test("in_progress task with dead Tab is dead_pane flagged", () => {
+test("in_progress task with dead Tab is dead_tab flagged", () => {
   const plan = mkPlan({
     tasks: [
       mkTask({
         id: "t-ghost",
         status: TaskStatus.InProgress,
-        assigned_pane_id: "pane-gone",
+        assigned_tab_id: "tab-gone",
         status_changed_at: NOW - 100,
       }),
     ],
@@ -130,10 +130,10 @@ test("in_progress task with dead Tab is dead_pane flagged", () => {
   const model = buildMissionControl(plan, {}, NOW);
   const stations = zoneStations(model, "work_floor");
   assert(stations.length === 1, "station present");
-  assert(stations[0].deadPane === true, "deadPane flag");
+  assert(stations[0].deadTab === true, "deadTab flag");
   assert(stations[0].presence === null, "no presence for dead Tab");
-  assert(model.deadPaneCount === 1, "deadPaneCount 1");
-  assert(model.presenceByPaneId.size === 0, "no live presences");
+  assert(model.deadTabCount === 1, "deadTabCount 1");
+  assert(model.presenceByTabId.size === 0, "no live presences");
 });
 
 test("in_review non-qa task lands in gate", () => {
@@ -143,12 +143,12 @@ test("in_review non-qa task lands in gate", () => {
         id: "t-review",
         status: TaskStatus.InReview,
         review_stage: "review",
-        assigned_pane_id: LIVE_PANE.id,
+        assigned_tab_id: LIVE_TAB.id,
         status_changed_at: NOW - 60_000,
       }),
     ],
   });
-  const model = buildMissionControl(plan, PANES, NOW);
+  const model = buildMissionControl(plan, TABS, NOW);
   assert(zoneStations(model, "gate").length === 1, "gate has one station");
   assert(zoneStations(model, "qa_bay").length === 0, "qa_bay empty");
   assert(model.activeCount === 1, "activeCount 1");
@@ -195,25 +195,25 @@ test("blocked and paused tasks land in blocked zone", () => {
 });
 
 test("busy active lanes: multiple in_progress with separate Tabs", () => {
-  const pane2: Pane = { ...LIVE_PANE, id: "pane-worker-2", title: "Verdi" };
+  const tab2: Tab = { ...LIVE_TAB, id: "tab-worker-2", title: "Verdi" };
   const plan = mkPlan({
     tasks: [
-      mkTask({ id: "t-a", status: TaskStatus.InProgress, assigned_pane_id: LIVE_PANE.id, status_changed_at: NOW - 1000 }),
-      mkTask({ id: "t-b", status: TaskStatus.InProgress, assigned_pane_id: pane2.id, status_changed_at: NOW - 2000 }),
+      mkTask({ id: "t-a", status: TaskStatus.InProgress, assigned_tab_id: LIVE_TAB.id, status_changed_at: NOW - 1000 }),
+      mkTask({ id: "t-b", status: TaskStatus.InProgress, assigned_tab_id: tab2.id, status_changed_at: NOW - 2000 }),
     ],
   });
-  const allPanes = { ...PANES, [pane2.id]: pane2 };
-  const model = buildMissionControl(plan, allPanes, NOW);
+  const allTabs = { ...TABS, [tab2.id]: tab2 };
+  const model = buildMissionControl(plan, allTabs, NOW);
   assert(zoneStations(model, "work_floor").length === 2, "two in work_floor");
-  assert(model.presenceByPaneId.size === 2, "two live presences");
+  assert(model.presenceByTabId.size === 2, "two live presences");
   assert(model.activeCount === 2, "activeCount 2");
-  assert(model.deadPaneCount === 0, "no dead Tabs");
+  assert(model.deadTabCount === 0, "no dead Tabs");
 });
 
 test("competition task surfaces competeBadge in work_floor", () => {
   const attempt: TaskExecutionAttempt = {
-    pane_id: LIVE_PANE.id,
-    pane_title: "Puccini",
+    tab_id: LIVE_TAB.id,
+    tab_title: "Puccini",
     competition_group_id: "grp-1",
     competition_lane: 0,
     closed_at: undefined,
@@ -223,14 +223,14 @@ test("competition task surfaces competeBadge in work_floor", () => {
       mkTask({
         id: "t-compete",
         status: TaskStatus.InProgress,
-        assigned_pane_id: LIVE_PANE.id,
+        assigned_tab_id: LIVE_TAB.id,
         status_changed_at: NOW - 100,
         competition: { enabled: true, attempts: 2 },
         execution_attempts: [attempt],
       }),
     ],
   });
-  const model = buildMissionControl(plan, PANES, NOW);
+  const model = buildMissionControl(plan, TABS, NOW);
   const st = zoneStations(model, "work_floor")[0];
   assert(st !== undefined, "station exists");
   assert(st.competeBadge !== null, "competeBadge set");
@@ -248,10 +248,10 @@ test("loop badge surfaces on tasks targeted by a running loop", () => {
     status: "running",
   };
   const plan = mkPlan({
-    tasks: [mkTask({ id: "t-loop", status: TaskStatus.InProgress, assigned_pane_id: LIVE_PANE.id, status_changed_at: NOW - 100 })],
+    tasks: [mkTask({ id: "t-loop", status: TaskStatus.InProgress, assigned_tab_id: LIVE_TAB.id, status_changed_at: NOW - 100 })],
     loops: [loop],
   });
-  const model = buildMissionControl(plan, PANES, NOW);
+  const model = buildMissionControl(plan, TABS, NOW);
   const st = zoneStations(model, "work_floor")[0];
   assert(st !== undefined, "station");
   assert(st.loopBadge !== null, "loopBadge set");
@@ -265,33 +265,33 @@ test("stale in_progress task is flagged stale", () => {
       mkTask({
         id: "t-stale",
         status: TaskStatus.InProgress,
-        assigned_pane_id: LIVE_PANE.id,
+        assigned_tab_id: LIVE_TAB.id,
         status_changed_at: NOW - STALE_MS,
         updated_at: NOW - STALE_MS,
         milestones: [],
       }),
     ],
   });
-  const model = buildMissionControl(plan, PANES, NOW);
+  const model = buildMissionControl(plan, TABS, NOW);
   const st = zoneStations(model, "work_floor")[0];
   assert(st.stale === true, "stale flag");
 });
 
-test("task without assigned Tab has null presence and no deadPane flag", () => {
+test("task without assigned Tab has null presence and no deadTab flag", () => {
   const plan = mkPlan({
-    tasks: [mkTask({ id: "t-free", status: TaskStatus.InProgress, assigned_pane_id: null, lane: undefined })],
+    tasks: [mkTask({ id: "t-free", status: TaskStatus.InProgress, assigned_tab_id: null, lane: undefined })],
   });
-  const model = buildMissionControl(plan, PANES, NOW);
+  const model = buildMissionControl(plan, TABS, NOW);
   const st = zoneStations(model, "work_floor")[0];
   assert(st.presence === null, "no presence");
-  assert(st.deadPane === false, "not deadPane — no Tab id at all");
+  assert(st.deadTab === false, "not deadTab — no Tab id at all");
 });
 
 test("latest milestone note surfaces as latestNote on the station", () => {
   const task = mkTask({
     id: "t-note",
     status: TaskStatus.InProgress,
-    assigned_pane_id: LIVE_PANE.id,
+    assigned_tab_id: LIVE_TAB.id,
     status_changed_at: NOW - 100,
     milestones: [
       { ...FIXTURE_MILESTONE, id: "m1", ts: NOW - 2000, text: "phase one done" },
@@ -299,7 +299,7 @@ test("latest milestone note surfaces as latestNote on the station", () => {
     ],
   });
   const plan = mkPlan({ tasks: [task] });
-  const model = buildMissionControl(plan, PANES, NOW);
+  const model = buildMissionControl(plan, TABS, NOW);
   const st = zoneStations(model, "work_floor")[0];
   assert(st.latestNote === "phase two done", "latest note is the newest milestone");
 });

@@ -1,13 +1,13 @@
 export interface TeamActions {
-  onRenameTeam: (teamId: string, name: string, managerPaneId: string) => Promise<void>;
+  onRenameTeam: (teamId: string, name: string, managerTabId: string) => Promise<void>;
   onAddTeamMember: (
     teamId: string,
     role: TeamMemberRole,
     providerId: string,
-    managerPaneId: string,
+    managerTabId: string,
     model?: string,
   ) => Promise<void>;
-  onCloseTeam: (teamId: string, managerPaneId: string) => Promise<void>;
+  onCloseTeam: (teamId: string, managerTabId: string) => Promise<void>;
 }
 
 export type TeamMemberRole = "planner" | "worker";
@@ -20,20 +20,20 @@ export function buildTeamActions({
   invoke: Invoke;
 }): TeamActions {
   return {
-    async onRenameTeam(teamId, name, managerPaneId) {
-      await invoke("mux_rename_team", { teamId, name, callerTabId: managerPaneId });
+    async onRenameTeam(teamId, name, managerTabId) {
+      await invoke("mux_rename_team", { teamId, name, callerTabId: managerTabId });
     },
-    async onAddTeamMember(teamId, role, providerId, managerPaneId, model) {
+    async onAddTeamMember(teamId, role, providerId, managerTabId, model) {
       await invoke("mux_add_team_member", {
         teamId,
         role,
         provider: providerId,
         ...(model ? { model } : {}),
-        callerTabId: managerPaneId,
+        callerTabId: managerTabId,
       });
     },
-    async onCloseTeam(teamId, managerPaneId) {
-      await invoke("mux_close_team", { teamId, callerTabId: managerPaneId });
+    async onCloseTeam(teamId, managerTabId) {
+      await invoke("mux_close_team", { teamId, callerTabId: managerTabId });
     },
   };
 }

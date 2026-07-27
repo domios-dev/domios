@@ -16,4 +16,4 @@ Strengthened tests:
 - `13-canvas/plan-card-metadata.spec.ts` now checks list rows after switching mode.
 - `15-extensions/extensions.spec.ts` now checks broken-channel error text.
 - `17-open-shell/lmstudio.spec.ts` now checks tool-result text.
-- `19-web-stability/web-stability.spec.ts` GRP-4 now checks the visible terminal belongs to the expected pane.
+- `19-web-stability/web-stability.spec.ts` GRP-4 now checks the visible terminal belongs to the expected tab.

@@ -1,5 +1,5 @@
 /**
- * Composer-row preset picker for chatBackend panes (mirrors {@link ChatModelBubble}).
+ * Composer-row preset picker for chatBackend tabs (mirrors {@link ChatModelBubble}).
  * Persists the pick as `activePreset` and, with a live `sessionId`, applies the
  * preset's bound model via the `switch_model` seam (persist-only without one).
  * Generalized — any chatBackend with presets, no hardcoded provider id.

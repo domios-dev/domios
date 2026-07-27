@@ -61,7 +61,7 @@ fn spawn_agent_params_for_registered_chatbackend_routes_to_chatbackend_config() 
         }),
     );
 
-    let spec = SpawnPaneSpec::from_agent_params_with_chatbackends(
+    let spec = SpawnTabSpec::from_agent_params_with_chatbackends(
         &registry,
         SpawnAgentParams {
             agent: Some("local-shell".into()),
@@ -73,7 +73,7 @@ fn spawn_agent_params_for_registered_chatbackend_routes_to_chatbackend_config() 
     );
 
     match spec.command {
-        PaneCommand::ChatBackend {
+        TabCommand::ChatBackend {
             plugin_id, config, ..
         } => {
             assert_eq!(plugin_id, "local-shell");
@@ -111,7 +111,7 @@ fn watcher_spawn_params_route_to_machine_watcher_config_and_spec() {
         }),
     );
 
-    let spec = SpawnPaneSpec::from_agent_params_with_chatbackends(
+    let spec = SpawnTabSpec::from_agent_params_with_chatbackends(
         &registry,
         SpawnAgentParams {
             agent: Some("local-shell".into()),
@@ -126,7 +126,7 @@ fn watcher_spawn_params_route_to_machine_watcher_config_and_spec() {
     );
 
     match spec.command {
-        PaneCommand::ChatBackend {
+        TabCommand::ChatBackend {
             plugin_id,
             config,
             role,
@@ -268,7 +268,7 @@ fn spawn_agent_params_for_non_spawnable_chatbackend_does_not_route_to_chatbacken
     let registry = crate::chatbackend::ChatBackendRegistry::new();
     registry.register("npc", Arc::new(BackendOnlyShell));
 
-    let spec = SpawnPaneSpec::from_agent_params_with_chatbackends(
+    let spec = SpawnTabSpec::from_agent_params_with_chatbackends(
         &registry,
         SpawnAgentParams {
             agent: Some("npc".into()),
@@ -277,7 +277,7 @@ fn spawn_agent_params_for_non_spawnable_chatbackend_does_not_route_to_chatbacken
     );
 
     match spec.command {
-        PaneCommand::Agent(agent) => assert_eq!(agent.provider, "npc"),
+        TabCommand::Agent(agent) => assert_eq!(agent.provider, "npc"),
         other => panic!("non-spawnable backend must not route to ChatBackend, got {other:?}"),
     }
 }
@@ -286,7 +286,7 @@ fn spawn_agent_params_for_non_spawnable_chatbackend_does_not_route_to_chatbacken
 fn spawn_agent_params_for_non_chatbackend_keeps_agent_path() {
     let registry = crate::chatbackend::ChatBackendRegistry::new();
 
-    let spec = SpawnPaneSpec::from_agent_params_with_chatbackends(
+    let spec = SpawnTabSpec::from_agent_params_with_chatbackends(
         &registry,
         SpawnAgentParams {
             agent: Some("pty-agent".into()),
@@ -297,7 +297,7 @@ fn spawn_agent_params_for_non_chatbackend_keeps_agent_path() {
     );
 
     match spec.command {
-        PaneCommand::Agent(agent) => {
+        TabCommand::Agent(agent) => {
             assert_eq!(agent.provider, "pty-agent");
             assert_eq!(agent.model, None);
         }

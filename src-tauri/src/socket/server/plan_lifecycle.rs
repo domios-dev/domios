@@ -62,7 +62,7 @@ pub(super) fn dispatch(
                     store,
                     &plan,
                     &tid,
-                    |pane_id| svc.pane_probe(pane_id).exists,
+                    |tab_id| svc.tab_probe(tab_id).exists,
                     now,
                 );
                 resp["cleanup"] = json!({ "status": outcome.status(), "reason": outcome.reason() });
@@ -77,7 +77,7 @@ pub(super) fn dispatch(
             if let Some(plan) = store.get(&id) {
                 let cleanup = crate::service::plan::cleanup_debt::detect_plan_cleanup_debt(
                     &plan,
-                    |pane_id| svc.pane_probe(pane_id).exists,
+                    |tab_id| svc.tab_probe(tab_id).exists,
                 );
                 let hints = crate::service::plan::cleanup_debt::cleanup_debt_hints(
                     &cleanup
@@ -100,7 +100,7 @@ pub(super) fn dispatch(
 fn from_param(p: Option<&Value>) -> AgentRef {
     p.and_then(|x| x.get("from"))
         .and_then(|v| serde_json::from_value(v.clone()).ok())
-        .unwrap_or_else(|| AgentRef::from_pane("unknown"))
+        .unwrap_or_else(|| AgentRef::from_tab("unknown"))
 }
 
 fn epoch_ms() -> u64 {

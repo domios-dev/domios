@@ -1,6 +1,6 @@
 import type { NormalizedChatMessage as ChatMessage, ToolEvent } from "@codeterm/chat-core";
 import { materializeToolEvent } from "@codeterm/chat-core";
-import type { PaneNameResolver } from "./codeterm/templates";
+import type { TabNameResolver } from "./codeterm/templates";
 import type { OpenPlan, ResolvedChatPlanRef } from "./codeterm/LinkedText";
 import { recognize } from "./codeterm/recognize";
 import { CodetermActionCard } from "./toolcard/CodetermActionCard";
@@ -20,8 +20,8 @@ interface ToolCallBubbleProps {
   message?: ChatMessage;
   expanded: boolean;
   onToggle: (next: boolean) => void;
-  resolvePaneName?: PaneNameResolver;
-  onFocusPane?: (paneRef: string) => void;
+  resolveTabName?: TabNameResolver;
+  onFocusTab?: (tabRef: string) => void;
   onOpenPlan?: OpenPlan;
   resolvePlanRef?: (planId: string, focusId?: string, focusKind?: PlanFocusKind) => ResolvedChatPlanRef | null;
   fontScale?: number;
@@ -36,8 +36,8 @@ export function ToolCallBubble({
   message,
   expanded,
   onToggle,
-  resolvePaneName,
-  onFocusPane,
+  resolveTabName,
+  onFocusTab,
   onOpenPlan,
   resolvePlanRef,
   fontScale,
@@ -52,8 +52,8 @@ export function ToolCallBubble({
       return recognize(commandText(event)) ? (
         <CodetermActionCard
           {...props}
-          resolvePaneName={resolvePaneName}
-          onFocusPane={onFocusPane}
+          resolveTabName={resolveTabName}
+          onFocusTab={onFocusTab}
           onOpenPlan={onOpenPlan}
           resolvePlanRef={resolvePlanRef}
           fontScale={fontScale}
@@ -63,8 +63,8 @@ export function ToolCallBubble({
       return (
         <CodetermActionCard
           {...props}
-          resolvePaneName={resolvePaneName}
-          onFocusPane={onFocusPane}
+          resolveTabName={resolveTabName}
+          onFocusTab={onFocusTab}
           onOpenPlan={onOpenPlan}
           resolvePlanRef={resolvePlanRef}
           fontScale={fontScale}

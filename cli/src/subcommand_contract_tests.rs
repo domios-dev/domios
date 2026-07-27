@@ -2,7 +2,7 @@ use super::*;
 use crate::args::agent::AgentAction;
 use crate::args::delayed::DelayedAction;
 use crate::args::mem::MemAction;
-use crate::args::misc::PaneAction;
+use crate::args::misc::TabAction;
 use crate::args::orchestrator::OrchestratorAction;
 use crate::args::task::TaskAction;
 use clap::{CommandFactory, Parser};
@@ -26,9 +26,9 @@ struct OrchestratorOnly {
 }
 
 #[derive(Parser)]
-struct PaneOnly {
+struct TabOnly {
     #[command(subcommand)]
-    action: PaneAction,
+    action: TabAction,
 }
 
 #[derive(Parser)]
@@ -54,7 +54,7 @@ struct SendOnly {
     #[arg(allow_hyphen_values = true)]
     text: Option<String>,
     #[arg(long = "tab")]
-    pane: Option<String>,
+    tab: Option<String>,
     #[arg(long, value_name = "PATH")]
     from_file: Option<String>,
     #[arg(long, visible_alias = "from-stdin", conflicts_with = "text")]
@@ -222,7 +222,7 @@ fn orchestrator_handoff_reseed_dry_run_parses() {
         OrchestratorAction::Handoff {
             plan,
             task,
-            pane,
+            tab,
             reseed,
             dry_run,
             mode,
@@ -231,7 +231,7 @@ fn orchestrator_handoff_reseed_dry_run_parses() {
         } => {
             assert_eq!(plan.as_deref(), Some("pl_1"));
             assert_eq!(task.as_deref(), Some("task_1"));
-            assert_eq!(pane.as_deref(), Some("tab_1"));
+            assert_eq!(tab.as_deref(), Some("tab_1"));
             assert!(reseed);
             assert!(dry_run);
             assert_eq!(mode, "new");
@@ -244,7 +244,7 @@ fn orchestrator_handoff_reseed_dry_run_parses() {
 #[test]
 fn tab_new_chat_backend_parses() {
     // entry point that opens a plugin-driven chat tab.
-    let parsed = PaneOnly::try_parse_from([
+    let parsed = TabOnly::try_parse_from([
         "tab",
         "new",
         "--chat-backend",
@@ -254,7 +254,7 @@ fn tab_new_chat_backend_parses() {
     ])
     .expect("tab new --chat-backend parses");
     match parsed.action {
-        PaneAction::New {
+        TabAction::New {
             chat_backend,
             config,
             ..
@@ -268,19 +268,19 @@ fn tab_new_chat_backend_parses() {
 
 #[test]
 fn tab_new_without_chat_backend_defaults_to_none() {
-    let parsed = PaneOnly::try_parse_from(["tab", "new"]).expect("plain tab new parses");
+    let parsed = TabOnly::try_parse_from(["tab", "new"]).expect("plain tab new parses");
     match parsed.action {
-        PaneAction::New { chat_backend, .. } => assert!(chat_backend.is_none()),
+        TabAction::New { chat_backend, .. } => assert!(chat_backend.is_none()),
         _ => panic!("expected tab new"),
     }
 }
 
 #[test]
 fn tab_list_defaults_to_compact_current_workspace_scope() {
-    let parsed = PaneOnly::try_parse_from(["tab", "list"]).expect("tab list parses");
+    let parsed = TabOnly::try_parse_from(["tab", "list"]).expect("tab list parses");
     assert!(matches!(
         parsed.action,
-        PaneAction::List {
+        TabAction::List {
             workspace: None,
             all_workspaces: false,
             agents: false,
@@ -290,41 +290,41 @@ fn tab_list_defaults_to_compact_current_workspace_scope() {
 
 #[test]
 fn tab_list_and_inspect_parse_explicit_scopes() {
-    let listed = PaneOnly::try_parse_from(["tab", "list", "--workspace", "ws_1", "--agents"])
+    let listed = TabOnly::try_parse_from(["tab", "list", "--workspace", "ws_1", "--agents"])
         .expect("scoped tab list parses");
     assert!(matches!(
         listed.action,
-        PaneAction::List {
+        TabAction::List {
             workspace: Some(ref workspace),
             all_workspaces: false,
             agents: true,
         } if workspace == "ws_1"
     ));
     let inspected =
-        PaneOnly::try_parse_from(["tab", "inspect", "tab_1", "tab_2"]).expect("tab inspect parses");
+        TabOnly::try_parse_from(["tab", "inspect", "tab_1", "tab_2"]).expect("tab inspect parses");
     assert!(matches!(
         inspected.action,
-        PaneAction::Inspect { tabs } if tabs == ["tab_1", "tab_2"]
+        TabAction::Inspect { tabs } if tabs == ["tab_1", "tab_2"]
     ));
-    let all = PaneOnly::try_parse_from(["tab", "list", "--all-workspaces"])
+    let all = TabOnly::try_parse_from(["tab", "list", "--all-workspaces"])
         .expect("all-workspaces tab list parses");
     assert!(matches!(
         all.action,
-        PaneAction::List {
+        TabAction::List {
             workspace: None,
             all_workspaces: true,
             agents: false,
         }
     ));
     assert!(
-        PaneOnly::try_parse_from(["tab", "list", "--workspace", "ws_1", "--all-workspaces"])
+        TabOnly::try_parse_from(["tab", "list", "--workspace", "ws_1", "--all-workspaces"])
             .is_err()
     );
 }
 
 #[test]
-fn pane_command_alias_is_rejected() {
-    assert!(Cli::try_parse_from(["codeterm", "pane", "list"]).is_err());
+fn tab_command_alias_is_rejected() {
+    assert!(Cli::try_parse_from(["codeterm", "tab", "list"]).is_err());
 }
 
 #[test]
@@ -333,7 +333,7 @@ fn tab_new_is_primary_command() {
     assert!(matches!(
         tab.command,
         Commands::Tab {
-            action: PaneAction::New { .. }
+            action: TabAction::New { .. }
         }
     ));
 }
@@ -350,7 +350,7 @@ fn send_stdin_without_positional_parses() {
 fn send_tab_target_parses() {
     let parsed = SendOnly::try_parse_from(["send", "--stdin", "--tab", "abc123"])
         .expect("send --tab parses");
-    assert_eq!(parsed.pane.as_deref(), Some("abc123"));
+    assert_eq!(parsed.tab.as_deref(), Some("abc123"));
 }
 
 #[test]

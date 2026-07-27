@@ -34,31 +34,31 @@ pub(super) fn resolve_plan(
         return store.resolve_plan_id(&reference).map_err(resolve_err);
     }
 
-    let caller_pane = params
+    let caller_tab = params
         .as_ref()
-        .and_then(|value| value.get("caller_pane_id"))
+        .and_then(|value| value.get("caller_tab_id"))
         .and_then(|value| value.as_str())
         .filter(|s| !s.is_empty())
         .unwrap_or("");
 
-    if let Some((plan_id, _)) = store.task_binding_for_pane(caller_pane) {
+    if let Some((plan_id, _)) = store.task_binding_for_tab(caller_tab) {
         return Ok(plan_id);
     }
-    if let Some(plan_id) = store.active_owned_plan_with_open_work_for_pane(caller_pane) {
+    if let Some(plan_id) = store.active_owned_plan_with_open_work_for_tab(caller_tab) {
         return Ok(plan_id);
     }
 
-    let message = if caller_pane.is_empty() {
+    let message = if caller_tab.is_empty() {
         "plan_id is required: pass it as an explicit positional arg".to_string()
     } else {
-        format!("no active plan bound to Tab '{caller_pane}'; pass the plan id explicitly",)
+        format!("no active plan bound to Tab '{caller_tab}'; pass the plan id explicitly",)
     };
     Err(JsonRpcError {
         code: -32602,
         message,
         data: Some(serde_json::json!({
             "type": "plan_binding_not_found",
-            "pane_id": caller_pane,
+            "tab_id": caller_tab,
         })),
     })
 }
@@ -93,7 +93,7 @@ mod tests {
             .create_plan_for_team(
                 title.into(),
                 dir.display().to_string(),
-                OrchestratorRef::from_pane(owner),
+                OrchestratorRef::from_tab(owner),
                 format!("team-{owner}"),
                 vec![],
                 1,
@@ -120,7 +120,7 @@ mod tests {
     }
 
     #[test]
-    fn explicit_plan_id_wins_for_pane_bound_context() {
+    fn explicit_plan_id_wins_for_tab_bound_context() {
         let dir = tempfile::tempdir().unwrap();
         let (store, explicit_id) = store_with_plan(
             dir.path(),
@@ -132,7 +132,7 @@ mod tests {
             .create_plan_for_team(
                 "Bound".into(),
                 dir.path().display().to_string(),
-                OrchestratorRef::from_pane("owner_bound"),
+                OrchestratorRef::from_tab("owner_bound"),
                 "team-owner-bound".into(),
                 vec![],
                 1,
@@ -142,12 +142,12 @@ mod tests {
         store.set_mode(&bound_id, PlanMode::Execution, 2).unwrap();
         let task_id = add_task(&store, &bound_id, "bound", "bound");
         store
-            .set_task_assignment(&task_id, Some("pane-bound"), None, 4)
+            .set_task_assignment(&task_id, Some("tab-bound"), None, 4)
             .unwrap();
 
         let params = json!({
             "plan_id": explicit_id,
-            "caller_pane_id": "pane-bound"
+            "caller_tab_id": "tab-bound"
         });
         let resolved = super::resolve_plan(&store, &Some(params))
             .unwrap_or_else(|err| panic!("{}", err.message));
@@ -155,23 +155,23 @@ mod tests {
     }
 
     #[test]
-    fn resolve_plan_uses_task_binding_for_pane() {
+    fn resolve_plan_uses_task_binding_for_tab() {
         let dir = tempfile::tempdir().unwrap();
         let (store, plan_id) =
             store_with_plan(dir.path(), "owner_task", "Task plan", PlanMode::Execution);
-        let task_id = add_task(&store, &plan_id, "pane-task", "pane-task");
+        let task_id = add_task(&store, &plan_id, "tab-task", "tab-task");
         store
-            .set_task_assignment(&task_id, Some("pane-task"), None, 4)
+            .set_task_assignment(&task_id, Some("tab-task"), None, 4)
             .unwrap();
 
-        let params = json!({ "caller_pane_id": "pane-task" });
+        let params = json!({ "caller_tab_id": "tab-task" });
         let resolved = super::resolve_plan(&store, &Some(params))
             .unwrap_or_else(|err| panic!("{}", err.message));
         assert_eq!(resolved, plan_id);
     }
 
     #[test]
-    fn resolve_plan_uses_owned_open_work_plan_for_pane() {
+    fn resolve_plan_uses_owned_open_work_plan_for_tab() {
         let dir = tempfile::tempdir().unwrap();
         let (store, plan_id) = store_with_plan(
             dir.path(),
@@ -181,7 +181,7 @@ mod tests {
         );
         let _task_id = add_task(&store, &plan_id, "open-work", "open-work");
 
-        let params = json!({ "caller_pane_id": "owner_active" });
+        let params = json!({ "caller_tab_id": "owner_active" });
         let resolved = super::resolve_plan(&store, &Some(params))
             .unwrap_or_else(|err| panic!("{}", err.message));
         assert_eq!(resolved, plan_id);
@@ -196,7 +196,7 @@ mod tests {
             "Owner plan",
             PlanMode::Execution,
         );
-        let params = json!({ "caller_pane_id": "unbound-pane" });
+        let params = json!({ "caller_tab_id": "unbound-tab" });
         let err = super::resolve_plan(&store, &Some(params)).unwrap_err();
         assert_eq!(err.code, -32602);
         assert!(err.message.contains("pass the plan id explicitly"));
@@ -204,7 +204,7 @@ mod tests {
             err.data,
             Some(serde_json::json!({
                 "type": "plan_binding_not_found",
-                "pane_id": "unbound-pane"
+                "tab_id": "unbound-tab"
             }))
         );
     }

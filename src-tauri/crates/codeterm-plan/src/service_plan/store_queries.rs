@@ -79,21 +79,21 @@ impl PlanStore {
         *self.turn_counter.write() = Some(counter);
     }
 
-    pub(super) fn reset_bound_panes(&self, plan: &Plan) {
+    pub(super) fn reset_bound_tabs(&self, plan: &Plan) {
         let Some(counter) = self.turn_counter.read().clone() else {
             return;
         };
-        for pane_id in plan
+        for tab_id in plan
             .tasks
             .iter()
-            .filter_map(|t| t.assigned_pane_id.as_deref())
+            .filter_map(|t| t.assigned_tab_id.as_deref())
         {
-            counter.reset(pane_id);
+            counter.reset(tab_id);
         }
     }
 
-    pub fn task_binding_for_pane(&self, pane_id: &str) -> Option<(String, String)> {
-        if pane_id.trim().is_empty() {
+    pub fn task_binding_for_tab(&self, tab_id: &str) -> Option<(String, String)> {
+        if tab_id.trim().is_empty() {
             return None;
         }
         for plan in self.plans.read().values() {
@@ -105,7 +105,7 @@ impl PlanStore {
                 .tasks
                 .iter()
                 .filter(|t| !matches!(t.status, TaskStatus::Done | TaskStatus::Cancelled))
-                .find(|t| t.assigned_pane_id.as_deref() == Some(pane_id))
+                .find(|t| t.assigned_tab_id.as_deref() == Some(tab_id))
             {
                 return Some((plan.id.clone(), task.id.clone()));
             }
@@ -113,8 +113,8 @@ impl PlanStore {
         None
     }
 
-    pub fn report_pending_task_binding_for_pane(&self, pane_id: &str) -> Option<(String, String)> {
-        if pane_id.trim().is_empty() {
+    pub fn report_pending_task_binding_for_tab(&self, tab_id: &str) -> Option<(String, String)> {
+        if tab_id.trim().is_empty() {
             return None;
         }
         for plan in self.plans.read().values() {
@@ -131,7 +131,7 @@ impl PlanStore {
                         TaskStatus::Pending | TaskStatus::InProgress | TaskStatus::Blocked
                     )
                 })
-                .find(|t| t.assigned_pane_id.as_deref() == Some(pane_id))
+                .find(|t| t.assigned_tab_id.as_deref() == Some(tab_id))
             {
                 return Some((plan.id.clone(), task.id.clone()));
             }
@@ -139,15 +139,15 @@ impl PlanStore {
         None
     }
 
-    pub fn active_owned_plan_with_open_work_for_pane(&self, pane_id: &str) -> Option<String> {
-        if pane_id.trim().is_empty() {
+    pub fn active_owned_plan_with_open_work_for_tab(&self, tab_id: &str) -> Option<String> {
+        if tab_id.trim().is_empty() {
             return None;
         }
         for plan in self.plans.read().values() {
             let plan = plan.lock();
             if plan.status != PlanStatus::Active
                 || plan.mode != PlanMode::Execution
-                || plan.owner.pane_id.as_deref() != Some(pane_id)
+                || plan.owner.tab_id.as_deref() != Some(tab_id)
             {
                 continue;
             }
@@ -158,18 +158,18 @@ impl PlanStore {
         None
     }
 
-    pub fn active_owned_plan_frontier_for_pane(
+    pub fn active_owned_plan_frontier_for_tab(
         &self,
-        pane_id: &str,
+        tab_id: &str,
     ) -> Option<(String, usize, usize)> {
-        if pane_id.trim().is_empty() {
+        if tab_id.trim().is_empty() {
             return None;
         }
         for plan in self.plans.read().values() {
             let plan = plan.lock();
             if plan.status != PlanStatus::Active
                 || plan.mode != PlanMode::Execution
-                || plan.owner.pane_id.as_deref() != Some(pane_id)
+                || plan.owner.tab_id.as_deref() != Some(tab_id)
             {
                 continue;
             }
@@ -191,8 +191,8 @@ impl PlanStore {
         None
     }
 
-    pub fn task_bindings_for_pane(&self, pane_id: &str) -> Vec<(String, String)> {
-        if pane_id.trim().is_empty() {
+    pub fn task_bindings_for_tab(&self, tab_id: &str) -> Vec<(String, String)> {
+        if tab_id.trim().is_empty() {
             return Vec::new();
         }
         self.list_full()
@@ -203,15 +203,15 @@ impl PlanStore {
                 plan.tasks
                     .into_iter()
                     .filter(|task| !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled))
-                    .filter(move |task| task.assigned_pane_id.as_deref() == Some(pane_id))
+                    .filter(move |task| task.assigned_tab_id.as_deref() == Some(tab_id))
                     .map(move |task| (plan_id.clone(), task.id))
             })
             .collect()
     }
 
-    /// Like `task_bindings_for_pane` but also returns the task name for error messages.
-    pub fn task_bindings_with_name_for_pane(&self, pane_id: &str) -> Vec<(String, String, String)> {
-        if pane_id.trim().is_empty() {
+    /// Like `task_bindings_for_tab` but also returns the task name for error messages.
+    pub fn task_bindings_with_name_for_tab(&self, tab_id: &str) -> Vec<(String, String, String)> {
+        if tab_id.trim().is_empty() {
             return Vec::new();
         }
         self.list_full()
@@ -222,7 +222,7 @@ impl PlanStore {
                 plan.tasks
                     .into_iter()
                     .filter(|task| !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled))
-                    .filter(move |task| task.assigned_pane_id.as_deref() == Some(pane_id))
+                    .filter(move |task| task.assigned_tab_id.as_deref() == Some(tab_id))
                     .map(move |task| (plan_id.clone(), task.id, task.name))
             })
             .collect()

@@ -10,7 +10,7 @@ fn submit_never_confirmed() -> InjectionError {
 }
 
 #[test]
-fn submit_failure_after_paste_is_never_reported_as_pane_not_found() {
+fn submit_failure_after_paste_is_never_reported_as_tab_not_found() {
     let err = DeliveryError::from_injection("53854ac8", submit_never_confirmed());
     assert_eq!(err.code(), "submit_unconfirmed");
     assert_ne!(
@@ -42,7 +42,7 @@ fn preflight_refusals_guarantee_zero_bytes() {
             waited: std::time::Duration::from_secs(1),
         },
     );
-    assert_eq!(booting.code(), "pane_busy_refused");
+    assert_eq!(booting.code(), "tab_busy_refused");
     assert!(!booting.bytes_written());
     assert_eq!(booting.status(), StatusCode::CONFLICT);
 
@@ -52,7 +52,7 @@ fn preflight_refusals_guarantee_zero_bytes() {
             pty_id: "pty1".into(),
         },
     );
-    assert_eq!(tui.code(), "pane_busy_refused");
+    assert_eq!(tui.code(), "tab_busy_refused");
     assert!(!tui.bytes_written());
 
     let stale_permit = DeliveryError::from_injection(
@@ -61,16 +61,16 @@ fn preflight_refusals_guarantee_zero_bytes() {
             pty_id: "pty1".into(),
         },
     );
-    assert_eq!(stale_permit.code(), "pane_busy_refused");
+    assert_eq!(stale_permit.code(), "tab_busy_refused");
     assert!(!stale_permit.bytes_written());
 }
 
 #[test]
-fn unresolvable_pane_is_the_only_not_found() {
-    let err = DeliveryError::PaneNotReachableOnPeer {
-        pane: "ghost".into(),
+fn unresolvable_tab_is_the_only_not_found() {
+    let err = DeliveryError::TabNotReachableOnPeer {
+        tab: "ghost".into(),
     };
-    assert_eq!(err.code(), "pane_not_reachable_on_peer");
+    assert_eq!(err.code(), "tab_not_reachable_on_peer");
     assert_eq!(err.status(), StatusCode::NOT_FOUND);
     assert!(!err.bytes_written());
 }
@@ -102,7 +102,7 @@ fn opaque_boot_refusal_is_recognised_as_zero_byte() {
         "p1",
         "Agent in Tab p1 is still booting — input would be lost",
     );
-    assert_eq!(err.code(), "pane_busy_refused");
+    assert_eq!(err.code(), "tab_busy_refused");
     assert!(!err.bytes_written());
 }
 
@@ -116,5 +116,5 @@ fn json_surface_carries_code_and_write_state() {
         serde_json::json!("submit_unconfirmed")
     );
     assert_eq!(json["error"]["bytes_written"], serde_json::json!(true));
-    assert_eq!(json["error"]["pane"], serde_json::json!("53854ac8"));
+    assert_eq!(json["error"]["tab"], serde_json::json!("53854ac8"));
 }

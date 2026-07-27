@@ -15,7 +15,7 @@ interface NotificationPanelProps {
   onMarkRead: (id: string) => void;
   onMarkAllRead: () => void;
   onDelete: (id: string) => void;
-  onJumpToPane: (paneId: string, workspaceId: string | null) => void;
+  onJumpToTab: (tabId: string, workspaceId: string | null) => void;
   onClose: () => void;
 }
 
@@ -24,7 +24,7 @@ export function NotificationPanel({
   onMarkRead,
   onMarkAllRead,
   onDelete,
-  onJumpToPane,
+  onJumpToTab,
   onClose,
 }: NotificationPanelProps) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
@@ -120,14 +120,14 @@ export function NotificationPanel({
                     )}
                   </>
                 )}
-                {notif.pane_id && (
+                {notif.tab_id && (
                   <button
                     type="button"
                     className="mt-1.5 rounded border border-[var(--ct-border)] px-2 py-1 text-[10px] text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
                     onClick={(event) => {
                       event.stopPropagation();
                       if (!notif.read) onMarkRead(notif.id);
-                      onJumpToPane(notif.pane_id!, notif.workspace_id);
+                      onJumpToTab(notif.tab_id!, notif.workspace_id);
                     }}
                   >
                     Show Tab

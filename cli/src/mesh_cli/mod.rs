@@ -202,30 +202,30 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
     // tab search needs local fuzzy ranking; relay-only output has no relevance ordering.
     // Fetch raw list then rank locally for predictable results.
     if let Commands::Tab {
-        action: super::PaneAction::Search { pattern },
+        action: super::TabAction::Search { pattern },
     } = &cli.command
     {
-        let panes =
-            relay::mesh_relay_fetch_json(&http, &base, &token, target, "GET", "/api/panes", None);
-        let arr = panes.as_array().cloned().unwrap_or_default();
-        crate::cmd::pane::print_pane_find_results(cli.json, pattern, &arr);
+        let tabs =
+            relay::mesh_relay_fetch_json(&http, &base, &token, target, "GET", "/api/tabs", None);
+        let arr = tabs.as_array().cloned().unwrap_or_default();
+        crate::cmd::tab::print_tab_find_results(cli.json, pattern, &arr);
         return;
     }
 
     // `tab list` reuses local formatter over the remote compact summary.
     if !cli.json {
         if let Commands::Tab {
-            action: super::PaneAction::List { .. },
+            action: super::TabAction::List { .. },
         } = &cli.command
         {
             let (_, path, _) = api_map::cli_command_to_api(&cli.command);
-            let panes =
+            let tabs =
                 relay::mesh_relay_fetch_json(&http, &base, &token, target, "GET", &path, None);
-            let arr = panes.as_array().cloned().unwrap_or_default();
+            let arr = tabs.as_array().cloned().unwrap_or_default();
             if arr.is_empty() {
                 println!("(no Tabs)");
             } else {
-                print!("{}", crate::cmd::pane::render_pane_tree(&arr));
+                print!("{}", crate::cmd::tab::render_tab_tree(&arr));
             }
             return;
         }
@@ -247,10 +247,10 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
         return;
     }
     if let Commands::Tab {
-        action: super::PaneAction::Close { id },
+        action: super::TabAction::Close { id },
     } = &cli.command
     {
-        relay::mesh_close_pane_and_forget_remote_worker(&http, &base, &token, target, id, cli.json);
+        relay::mesh_close_tab_and_forget_remote_worker(&http, &base, &token, target, id, cli.json);
         return;
     }
     let body = if matches!(cli.command, Commands::SendText { .. }) {
@@ -270,9 +270,9 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
     );
 }
 
-/// Look up the local source pane's display label + agent model and inject them
+/// Look up the local source tab's display label + agent model and inject them
 /// into a `send` body as `source_label` / `source_model`. The peer applies the
-/// canonical CtxPrefix with these (its own mux can't resolve a foreign pane id).
+/// canonical CtxPrefix with these (its own mux can't resolve a foreign tab id).
 fn enrich_send_body_with_local_source(
     http: &reqwest::blocking::Client,
     base: &str,
@@ -283,7 +283,7 @@ fn enrich_send_body_with_local_source(
         return body;
     };
     let Some(src) = v
-        .get("source_pane")
+        .get("source_tab")
         .and_then(|x| x.as_str())
         .map(str::to_string)
     else {
@@ -292,8 +292,8 @@ fn enrich_send_body_with_local_source(
     if src.is_empty() || src == "unknown" {
         return body;
     }
-    let panes = http
-        .get(format!("{}/api/panes", base))
+    let tabs = http
+        .get(format!("{}/api/tabs", base))
         .header(
             "Authorization",
             format!("Bearer {}", token.as_deref().unwrap_or("")),
@@ -301,27 +301,27 @@ fn enrich_send_body_with_local_source(
         .send()
         .ok()
         .and_then(|r| r.json::<serde_json::Value>().ok());
-    let Some(arr) = panes.as_ref().and_then(|p| p.as_array()) else {
+    let Some(arr) = tabs.as_ref().and_then(|p| p.as_array()) else {
         return body;
     };
-    let Some(pane) = arr.iter().find(|p| {
+    let Some(tab) = arr.iter().find(|p| {
         p.get("id")
             .and_then(|x| x.as_str())
             .is_some_and(|id| id == src || id.starts_with(&src))
     }) else {
         return body;
     };
-    let title = pane
+    let title = tab
         .get("title")
         .and_then(|x| x.as_str())
         .unwrap_or("")
         .trim();
-    let tab_title = pane
+    let tab_title = tab
         .get("tab_title")
         .and_then(|x| x.as_str())
         .unwrap_or("")
         .trim();
-    // Mirror display_label_for_pane: tab title wins only when it differs.
+    // Mirror display_label_for_tab: tab title wins only when it differs.
     let label = if !tab_title.is_empty() && tab_title != title {
         tab_title
     } else {
@@ -330,7 +330,7 @@ fn enrich_send_body_with_local_source(
     if !label.is_empty() {
         v["source_label"] = serde_json::json!(label);
     }
-    if let Some(model) = pane
+    if let Some(model) = tab
         .get("agent_session_model")
         .and_then(|x| x.as_str())
         .filter(|m| !m.is_empty())

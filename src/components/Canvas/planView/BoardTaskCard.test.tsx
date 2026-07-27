@@ -80,7 +80,7 @@ test("latest note is separate from status chip for decision milestones", async (
         milestones: [
           {
             id: "ms-old",
-            from: { pane_id: "p1", session_id: null, title: "Orchestrator" },
+            from: { tab_id: "p1", session_id: null, title: "Orchestrator" },
             kind: "status_update",
             text: "older update",
             ts: 1_000,
@@ -91,7 +91,7 @@ test("latest note is separate from status chip for decision milestones", async (
           },
           {
             id: "ms-new",
-            from: { pane_id: "p2", session_id: null, title: "Worker" },
+            from: { tab_id: "p2", session_id: null, title: "Worker" },
             kind: "decision",
             text: "Demote intent text to muted latest-note line",
             ts: 9_000,
@@ -114,14 +114,14 @@ test("latest note is separate from status chip for decision milestones", async (
   assert(ordered.indexOf("status-chip") < ordered.indexOf("latest-note"), "latest note follows status chip");
 });
 
-test("done card with stale pane id never renders pane-gone", async () => {
+test("done card with stale tab id never renders tab-gone", async () => {
   const plan: Plan = {
     ...FIXTURE_PLAN,
     tasks: [
       task({
         id: "t-done-ghost",
         status: TaskStatus.Done,
-        assigned_pane_id: "ghost-pane",
+        assigned_tab_id: "ghost-tab",
         lane: { branch: "lane/merged" },
         status_changed_at: 1_000,
       }),

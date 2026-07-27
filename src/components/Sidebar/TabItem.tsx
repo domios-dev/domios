@@ -1,11 +1,11 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Copy, Pencil, RefreshCw, RotateCcw, UserCog, X } from "lucide-react";
-import { usePaneProvider, useShellSessionModel } from "../../lib/usePaneProvider";
+import { useTabProvider, useShellSessionModel } from "../../lib/useTabProvider";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { ActivityDots } from "../shared/ActivityDots";
 import { TelegramIcon, TerminalIcon } from "../Icons";
 import { ProviderGlyph } from "../ProviderGlyph";
-import type { Pane, PaneStatus, Tab } from "../../lib/types";
+import type { Tab, TabStatus, Tab } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { SidebarModelBadge } from "./SidebarModelBadge";
@@ -13,19 +13,19 @@ import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RoleBadge } from "./RoleBadge";
 import { roleShieldLabel } from "./orchestrationSections";
 import { ActiveTabPill } from "./ActiveTabPill";
-import type { PaneTabActivity } from "../Canvas/paneTabActivity";
+import type { TabTabActivity } from "../Canvas/tabTabActivity";
 import {
   type ActiveWorkSnapshot,
 } from "../Canvas/planView/activeWork";
 import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { canMakeOrchestrator, makeOrchestrator, makePlanner } from "../../lib/orchestratorOnboard";
 import {
-  copyPaneSessionId,
-  paneSessionActionView,
-  PANE_SESSION_LABELS,
-  reconnectPaneSession,
-  restartPaneSession,
-} from "../Terminal/paneSessionActions";
+  copyTabSessionId,
+  tabSessionActionView,
+  TAB_SESSION_LABELS,
+  reconnectTabSession,
+  restartTabSession,
+} from "../Terminal/tabSessionActions";
 
 interface TabItemProps {
   tab: Tab;
@@ -36,16 +36,16 @@ interface TabItemProps {
   canClose: boolean;
   workspaceId: string;
   hasAgent?: boolean;
-  status?: PaneStatus | null;
+  status?: TabStatus | null;
   onRename?: (title: string) => void;
-  pane?: Pane | null;
-  orchestrators?: Pane[];
+  tab?: Tab | null;
+  orchestrators?: Tab[];
   isAppearing?: boolean;
   isClosing?: boolean;
   touchMode?: boolean;
   uiFontScale?: number;
   /** Plan-membership glance (resolved from the cheap index gate by the Sidebar). */
-  activity?: PaneTabActivity | null;
+  activity?: TabTabActivity | null;
   /** Bound in-flight tasks — drives worker subline activity dots. */
   activeWork?: ActiveWorkSnapshot | null;
   /** Agent report count badge (orchestration worker rows). */
@@ -116,7 +116,7 @@ function TabItemInner({
   hasAgent,
   status,
   onRename: _onRename,
-  pane,
+  tab,
   orchestrators: _orchestrators,
   isAppearing,
   isClosing,
@@ -131,19 +131,19 @@ function TabItemInner({
   collapsedSummary,
 }: TabItemProps) {
   // Unified identity for agent (agent_type) AND chatBackend shell (backing.plugin_id)
-  // panes — drives the icon, tooltip, and (for shells) the model badge.
-  const provider = usePaneProvider(pane);
-  const shellSessionModel = useShellSessionModel(pane);
+  // tabs — drives the icon, tooltip, and (for shells) the model badge.
+  const provider = useTabProvider(tab);
+  const shellSessionModel = useShellSessionModel(tab);
   const providerName = provider?.displayName || "Agent";
   // back to the live chatBackend session model (fetched/cached out of band).
-  const tabModel = pane?.agent_session_model ?? shellSessionModel;
+  const tabModel = tab?.agent_session_model ?? shellSessionModel;
   const tabModelBadge = tabModel ? formatModelBadge(tabModel) : null;
-  const roleShield = roleShieldLabel(pane);
-  const description = pane?.description ?? tab.description ?? null;
-  const canonicalTitle = displayTitleForTab(tab, pane);
+  const roleShield = roleShieldLabel(tab);
+  const description = tab?.description ?? tab.description ?? null;
+  const canonicalTitle = displayTitleForTab(tab, tab);
   const displayTitle = hasAgent ? canonicalTitle.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : canonicalTitle;
-  const isSubPane =
-    pane?.role !== "Orchestrator" && (Boolean(pane?.parent_pane_id) || (pane?.depth ?? 0) > 0);
+  const isSubTab =
+    tab?.role !== "Orchestrator" && (Boolean(tab?.parent_tab_id) || (tab?.depth ?? 0) > 0);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(canonicalTitle);
   const tabRef = useRef<HTMLDivElement>(null);
@@ -161,49 +161,49 @@ function TabItemInner({
 
   const menuItems: DropdownMenuItem[] = useMemo(() => {
     const items: DropdownMenuItem[] = [];
-    // Main (the protected GA pane) is the anchor — no rename.
-    if (!pane?.protected) {
+    // Main (the protected GA tab) is the anchor — no rename.
+    if (!tab?.protected) {
       items.push({
         label: "Rename",
         icon: <Pencil size={11} strokeWidth={2} />,
         onClick: () => { setEditName(canonicalTitle); setEditing(true); },
       });
     }
-    if (pane && canMakeOrchestrator(pane)) {
+    if (tab && canMakeOrchestrator(tab)) {
       items.push({
         label: "Make Orchestrator",
         icon: <UserCog size={11} strokeWidth={2} />,
-        onClick: () => { void makeOrchestrator(pane.id); },
+        onClick: () => { void makeOrchestrator(tab.id); },
       });
     }
     if (
-      pane
+      tab
       && activity?.kind === "worker"
-      && !(pane.role === "Manager" && pane.role_profile === "planner")
+      && !(tab.role === "Manager" && tab.role_profile === "planner")
     ) {
       items.push({
         label: "Make Planner",
         icon: <UserCog size={11} strokeWidth={2} />,
-        onClick: () => { void makePlanner(pane.id, activity.planId); },
+        onClick: () => { void makePlanner(tab.id, activity.planId); },
       });
     }
-    const sessionActions = pane ? paneSessionActionView(pane) : null;
-    if (pane && sessionActions?.canReconnect) {
+    const sessionActions = tab ? tabSessionActionView(tab) : null;
+    if (tab && sessionActions?.canReconnect) {
       items.push({
-        label: PANE_SESSION_LABELS.reconnect,
+        label: TAB_SESSION_LABELS.reconnect,
         icon: <RefreshCw size={11} strokeWidth={2} />,
-        onClick: () => { void reconnectPaneSession(pane.id).catch((error) => console.warn("Reconnect failed:", error)); },
+        onClick: () => { void reconnectTabSession(tab.id).catch((error) => console.warn("Reconnect failed:", error)); },
       });
     }
-    if (pane && sessionActions?.canRestart) {
+    if (tab && sessionActions?.canRestart) {
       items.push({
-        label: PANE_SESSION_LABELS.restart,
+        label: TAB_SESSION_LABELS.restart,
         icon: <RotateCcw size={11} strokeWidth={2} />,
-        onClick: () => { void restartPaneSession(pane.id).catch((error) => console.warn("Restart failed:", error)); },
+        onClick: () => { void restartTabSession(tab.id).catch((error) => console.warn("Restart failed:", error)); },
         "data-testid": "tab-menu-restart-session",
       });
     }
-    if (canClose && !pane?.protected) {
+    if (canClose && !tab?.protected) {
       items.push({
         label: hasAgent ? "Close Session" : "Close Tab",
         icon: <X size={11} strokeWidth={2} />,
@@ -213,9 +213,9 @@ function TabItemInner({
       });
     }
     return items;
-  }, [activity, canonicalTitle, pane, canClose, hasAgent, onClose]);
+  }, [activity, canonicalTitle, tab, canClose, hasAgent, onClose]);
 
-  const sessionActions = pane ? paneSessionActionView(pane) : null;
+  const sessionActions = tab ? tabSessionActionView(tab) : null;
   const sessionId = sessionActions?.sessionId ?? null;
   const sessionHeader = sessionActions?.canReconnect ? (
     <div className="mx-1 mb-1 flex min-w-48 items-center gap-1 border-b border-[var(--ct-border)] px-2 pb-1.5 pt-0.5">
@@ -226,12 +226,12 @@ function TabItemInner({
         type="button"
         role="menuitem"
         data-testid="tab-menu-copy-session-id"
-        aria-label={PANE_SESSION_LABELS.copy}
-        title={PANE_SESSION_LABELS.copy}
+        aria-label={TAB_SESSION_LABELS.copy}
+        title={TAB_SESSION_LABELS.copy}
         disabled={!sessionId}
         onClick={(event) => {
           event.stopPropagation();
-          if (sessionId) void copyPaneSessionId(sessionId).catch((error) => console.warn("Copy failed:", error));
+          if (sessionId) void copyTabSessionId(sessionId).catch((error) => console.warn("Copy failed:", error));
         }}
         className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)] disabled:cursor-not-allowed disabled:opacity-35"
       >
@@ -242,25 +242,25 @@ function TabItemInner({
 
   const animClass = isClosing
     ? closePhase === 2
-      ? "sidebar-pane-closing-2"
-      : "sidebar-pane-closing-1"
+      ? "sidebar-tab-closing-2"
+      : "sidebar-tab-closing-1"
     : isAppearing
-      ? "sidebar-pane-appear"
+      ? "sidebar-tab-appear"
       : "";
 
   return (
     <div
       ref={tabRef}
       data-testid="tab-item"
-      data-pane-id={tab.id}
-      data-pane-no-task-bubble="true"
+      data-tab-id={tab.id}
+      data-tab-no-task-bubble="true"
       title={description ? `${displayTitle}\n${description}` : displayTitle}
       className={`
-        sidebar-pane group flex items-center justify-between cursor-pointer transition-colors relative
-        ${touchMode ? "sidebar-pane-touch" : ""}
+        sidebar-tab group flex items-center justify-between cursor-pointer transition-colors relative
+        ${touchMode ? "sidebar-tab-touch" : ""}
         ${touchMode ? "min-h-11 pl-5 pr-2 py-2" : "pl-4 pr-2 py-1.5"}
         ${animClass}
-        ${isActive ? "text-[var(--ct-fg)]" : "sidebar-pane-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
+        ${isActive ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
       `}
     >
       {isActive && <ActiveTabPill />}
@@ -301,20 +301,20 @@ function TabItemInner({
         aria-label={`Open tab ${displayTitle}`}
         aria-current={isActive ? "page" : undefined}
         onClick={onClick}
-        className={`sidebar-pane-activation flex flex-1 items-center min-w-0 relative z-[1] border-0 bg-transparent p-0 text-left text-inherit font-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
+        className={`sidebar-tab-activation flex flex-1 items-center min-w-0 relative z-[1] border-0 bg-transparent p-0 text-left text-inherit font-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
       >
       <div className={`flex flex-1 items-center min-w-0 ${touchMode ? "gap-2.5" : "gap-2"}`}>
-        <span data-testid="tab-pane-icon" className="shrink-0 leading-none">
+        <span data-testid="tab-tab-icon" className="shrink-0 leading-none">
           {provider ? (
             <ProviderGlyph
               iconSvg={provider.iconSvg}
               iconColor={provider.iconColor}
               iconHint={provider.iconHint}
-              className={`leading-none ${touchMode ? "text-[15px]" : isSubPane ? "text-[10px]" : "text-[12px]"}`}
+              className={`leading-none ${touchMode ? "text-[15px]" : isSubTab ? "text-[10px]" : "text-[12px]"}`}
               title={status === "Working" ? `${providerName} working...` : status === "Waiting" ? `${providerName} — waiting for input` : providerName}
             />
           ) : (
-            <TerminalIcon className={`${touchMode ? "scale-110" : isSubPane ? "scale-90" : ""}`} />
+            <TerminalIcon className={`${touchMode ? "scale-110" : isSubTab ? "scale-90" : ""}`} />
           )}
         </span>
         <span className="min-w-0 flex-1">
@@ -323,7 +323,7 @@ function TabItemInner({
                 data-testid="tab-title"
                 className={`${touchMode ? tabTouchText : tabText} block truncate min-w-0 text-[var(--ct-fg)] ${isActive ? "font-medium" : ""}`}
                 onDoubleClick={(e) => {
-                  if (pane?.protected) return; // Main is unrenameable
+                  if (tab?.protected) return; // Main is unrenameable
                   e.stopPropagation();
                   setEditName(canonicalTitle);
                   setEditing(true);
@@ -345,17 +345,17 @@ function TabItemInner({
             )}
         </span>
         {/* Connected services */}
-        {pane?.connected_services?.includes("telegram") && (
+        {tab?.connected_services?.includes("telegram") && (
           <span className="shrink-0 text-[var(--ct-muted-fg)]/50">
             <TelegramIcon />
           </span>
         )}
         {/* Prompt/status indicator dot */}
-        {pane?.pending_prompt && (
+        {tab?.pending_prompt && (
           <span
             className="shrink-0 w-2 h-2 rounded-full"
             style={{ background: "var(--ct-yellow)" }}
-            title={pane.pending_prompt.question}
+            title={tab.pending_prompt.question}
           />
         )}
         {reportCount > 0 && (
@@ -387,7 +387,7 @@ function TabItemInner({
             className={
               touchMode
                 ? "flex h-11 w-11 items-center justify-center"
-                : "sidebar-pane-close absolute inset-y-0 right-0 flex items-center"
+                : "sidebar-tab-close absolute inset-y-0 right-0 flex items-center"
             }
             trigger={
               <button
@@ -407,10 +407,10 @@ function TabItemInner({
   );
 }
 
-function backingPluginId(p: Pane): string | undefined {
+function backingPluginId(p: Tab): string | undefined {
   return p.backing?.kind === "chat_backend" ? p.backing.plugin_id : undefined;
 }
-function backingSessionId(p: Pane): string | undefined {
+function backingSessionId(p: Tab): string | undefined {
   return p.backing?.kind === "chat_backend" ? p.backing.session_id : undefined;
 }
 
@@ -447,8 +447,8 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     pa.planCount !== na.planCount
   )) return false;
 
-  const pp = prev.pane;
-  const np = next.pane;
+  const pp = prev.tab;
+  const np = next.tab;
   if (pp === np) return true;
   if (!pp || !np) return false;
   return (
@@ -470,7 +470,7 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     pp.agent_session_model === np.agent_session_model &&
     pp.agent_state?.status_line === np.agent_state?.status_line &&
     pp.agent_state?.state === np.agent_state?.state &&
-    pp.parent_pane_id === np.parent_pane_id &&
+    pp.parent_tab_id === np.parent_tab_id &&
     pp.depth === np.depth &&
     JSON.stringify(pp.connected_services) === JSON.stringify(np.connected_services)
   );

@@ -42,14 +42,14 @@ fn resolve_remote_text(value: &Option<String>, file: &Option<String>) -> Option<
 
 pub(crate) fn send_text_to_api<R: std::io::Read>(
     text: &Option<String>,
-    pane: &Option<String>,
+    tab: &Option<String>,
     from_file: &Option<String>,
     from_stdin: bool,
     actions: &Option<String>,
     stdin: &mut R,
 ) -> (String, String, Option<String>) {
-    let p = pane.as_deref().unwrap_or("general");
-    let source = std::env::var("CODETERM_PANE_ID").unwrap_or_else(|_| "unknown".to_string());
+    let p = tab.as_deref().unwrap_or("general");
+    let source = std::env::var("CODETERM_TAB_ID").unwrap_or_else(|_| "unknown".to_string());
     let (body_text, input_source) =
         match resolve_send_text_input(text.clone(), from_file.clone(), from_stdin, stdin) {
             Ok(value) => value,
@@ -73,7 +73,7 @@ pub(crate) fn send_text_to_api<R: std::io::Read>(
         eprintln!("      to send a bare Enter, pass --actions enter.");
         std::process::exit(2);
     }
-    let mut body = serde_json::json!({"source_pane": source});
+    let mut body = serde_json::json!({"source_tab": source});
     if !body_text.is_empty() {
         body["text"] = serde_json::json!(body_text);
     }
@@ -85,21 +85,21 @@ pub(crate) fn send_text_to_api<R: std::io::Read>(
     }
     (
         "POST".into(),
-        format!("/api/panes/{}/send", p),
+        format!("/api/tabs/{}/send", p),
         Some(body.to_string()),
     )
 }
 
 pub(crate) fn delayed_create_to_api<R: std::io::Read>(
     text: &Option<String>,
-    pane: &Option<String>,
+    tab: &Option<String>,
     from_file: &Option<String>,
     from_stdin: bool,
     delay: &Option<String>,
     at: &Option<String>,
     stdin: &mut R,
 ) -> (String, String, Option<String>) {
-    let p = pane.as_deref().unwrap_or("general");
+    let p = tab.as_deref().unwrap_or("general");
     let (body_text, input_source) =
         match resolve_send_text_input(text.clone(), from_file.clone(), from_stdin, stdin) {
             Ok(value) => value,
@@ -125,7 +125,7 @@ pub(crate) fn delayed_create_to_api<R: std::io::Read>(
     });
     (
         "POST".into(),
-        format!("/api/panes/{}/delayed-messages", p),
+        format!("/api/tabs/{}/delayed-messages", p),
         Some(body.to_string()),
     )
 }

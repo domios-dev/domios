@@ -147,32 +147,32 @@ fn await_agent_ready(
     }
 }
 
-fn wait_for_pane_session(
+fn wait_for_tab_session(
     svc: &ServiceState,
-    pane_id: &str,
+    tab_id: &str,
     deadline: Instant,
 ) -> Result<String, String> {
     crate::service::general_agent::binding_wait::wait_for_session_binding(deadline, || {
         svc.mux
             .read()
-            .get_pane(pane_id)
-            .and_then(|pane| pane.agent_session_id.clone())
+            .get_tab(tab_id)
+            .and_then(|tab| tab.agent_session_id.clone())
             .filter(|session| !session.trim().is_empty())
     })
     .ok_or_else(|| {
-        if svc.mux.read().get_pane(pane_id).is_none() {
-            format!("spawned pane '{pane_id}' was removed before session binding")
+        if svc.mux.read().get_tab(tab_id).is_none() {
+            format!("spawned tab '{tab_id}' was removed before session binding")
         } else {
-            format!("spawned pane '{pane_id}' did not bind a session before the deadline")
+            format!("spawned tab '{tab_id}' did not bind a session before the deadline")
         }
     })
 }
 
-fn close_pane_if_present(svc: &ServiceState, pane_id: &str) -> Result<(), String> {
-    if svc.mux.read().get_pane(pane_id).is_none() {
+fn close_tab_if_present(svc: &ServiceState, tab_id: &str) -> Result<(), String> {
+    if svc.mux.read().get_tab(tab_id).is_none() {
         Ok(())
     } else {
-        svc.close_pane(pane_id)
+        svc.close_tab(tab_id)
     }
 }
 
@@ -184,12 +184,12 @@ struct DispatchEvidence {
 
 fn apply_dispatch_starting_contract(
     result: &mut Value,
-    pane_id: &str,
+    tab_id: &str,
     spawn: &crate::service::SpawnResult,
 ) {
     let mut spawn_metadata = json!(spawn);
     if let Some(fields) = spawn_metadata.as_object_mut() {
-        fields.remove("pane_id");
+        fields.remove("tab_id");
         fields.remove("tab_id");
     }
     result["accepted"] = json!(true);
@@ -198,15 +198,15 @@ fn apply_dispatch_starting_contract(
         "ready": false,
         "awaiting_event": "dispatch_ready",
     });
-    result["tab_id"] = json!(pane_id);
-    result["pane_id"] = json!(pane_id);
+    result["tab_id"] = json!(tab_id);
+    result["tab_id"] = json!(tab_id);
     result["spawn"] = spawn_metadata;
 }
 
 fn dispatch_ready_event(
     plan_id: &str,
     task_id: &str,
-    pane_id: &str,
+    tab_id: &str,
     attempt_id: &str,
     evidence: &DispatchEvidence,
 ) -> Value {
@@ -214,7 +214,7 @@ fn dispatch_ready_event(
         "kind": "dispatch_ready",
         "plan_id": plan_id,
         "task_id": task_id,
-        "tab_id": pane_id,
+        "tab_id": tab_id,
         "attempt_id": attempt_id,
         "session_id": evidence.session_id,
         "lane": {
@@ -235,8 +235,8 @@ fn epoch_ms() -> u64 {
 
 fn publish_startup_report(
     svc: &ServiceState,
-    parent_pane_id: &str,
-    worker_pane_id: &str,
+    parent_tab_id: &str,
+    worker_tab_id: &str,
     worker_title: &str,
     plan_id: &str,
     task_id: &str,
@@ -249,8 +249,8 @@ fn publish_startup_report(
         ..Default::default()
     };
     let report = svc.report_store.lock().add_detailed(
-        parent_pane_id,
-        worker_pane_id,
+        parent_tab_id,
+        worker_tab_id,
         worker_title,
         &message,
         details,
@@ -262,7 +262,7 @@ fn publish_startup_report(
     svc.events.broadcast(
         "agent.report",
         json!({
-            "target_pane_id": parent_pane_id,
+            "target_tab_id": parent_tab_id,
             "report": report.clone(),
         }),
     );
@@ -270,25 +270,25 @@ fn publish_startup_report(
         &svc.app_handle,
         "agent-report",
         json!({
-            "target_pane_id": parent_pane_id,
-            "from_pane_id": worker_pane_id,
+            "target_tab_id": parent_tab_id,
+            "from_tab_id": worker_tab_id,
             "from_title": worker_title,
             "message": message,
             "report": report.clone(),
         }),
     );
-    let envelope = crate::service::messenger::MessageEnvelope::report(worker_title, worker_pane_id);
+    let envelope = crate::service::messenger::MessageEnvelope::report(worker_title, worker_tab_id);
     if let Err(error) = svc.gateway_deliver(
-        parent_pane_id,
+        parent_tab_id,
         envelope,
         &report.inject_body(),
         crate::service::message_gateway::DeliveryClass::AgentTraffic,
     ) {
         svc.report_store.lock().release_delivery(&report.id);
         log::warn!(
-            "[dispatch-startup] parent delivery failed task={} pane={}: {}",
+            "[dispatch-startup] parent delivery failed task={} tab={}: {}",
             task_id,
-            worker_pane_id,
+            worker_tab_id,
             error
         );
     } else {
@@ -301,9 +301,9 @@ struct DispatchStartup {
     svc: ServiceState,
     plan_id: String,
     task_id: String,
-    pane_id: String,
+    tab_id: String,
     attempt_id: String,
-    parent_pane_id: String,
+    parent_tab_id: String,
     worker_title: String,
     original_task: Task,
     original_plan_mode: crate::plan::PlanMode,
@@ -318,7 +318,7 @@ impl DispatchStartup {
         let outcome: Result<DispatchEvidence, JsonRpcError> = (|| {
             await_agent_ready(ready_rx, deadline)
                 .map_err(|error| dispatch_failed("agent_ready", error))?;
-            let session_id = wait_for_pane_session(&self.svc, &self.pane_id, deadline)
+            let session_id = wait_for_tab_session(&self.svc, &self.tab_id, deadline)
                 .map_err(|error| dispatch_failed("session_binding", error))?;
             let lane = verify_worker_lane(
                 &self.provenance.canonical_cwd,
@@ -333,7 +333,7 @@ impl DispatchStartup {
                 .finish_task_dispatch(
                     &self.plan_id,
                     &self.task_id,
-                    &self.pane_id,
+                    &self.tab_id,
                     &self.attempt_id,
                     &session_id,
                     lane_metadata,
@@ -345,19 +345,19 @@ impl DispatchStartup {
 
         match outcome {
             Ok(evidence) => {
-                self.svc.gateway.require_worker_report(&self.pane_id);
+                self.svc.gateway.require_worker_report(&self.tab_id);
                 emit_plan_changed(&self.app, &self.plan_id);
                 publish_startup_report(
                     &self.svc,
-                    &self.parent_pane_id,
-                    &self.pane_id,
+                    &self.parent_tab_id,
+                    &self.tab_id,
                     &self.worker_title,
                     &self.plan_id,
                     &self.task_id,
                     dispatch_ready_event(
                         &self.plan_id,
                         &self.task_id,
-                        &self.pane_id,
+                        &self.tab_id,
                         &self.attempt_id,
                         &evidence,
                     ),
@@ -385,13 +385,13 @@ impl DispatchStartup {
                             )
                             .map_err(|error| error.to_string())
                     },
-                    || close_pane_if_present(&self.svc, &self.pane_id),
+                    || close_tab_if_present(&self.svc, &self.tab_id),
                 );
                 emit_plan_changed(&self.app, &self.plan_id);
                 publish_startup_report(
                     &self.svc,
-                    &self.parent_pane_id,
-                    &self.pane_id,
+                    &self.parent_tab_id,
+                    &self.tab_id,
                     &self.worker_title,
                     &self.plan_id,
                     &self.task_id,
@@ -399,7 +399,7 @@ impl DispatchStartup {
                         "kind": "dispatch_startup_failed",
                         "plan_id": self.plan_id,
                         "task_id": self.task_id,
-                        "tab_id": self.pane_id,
+                        "tab_id": self.tab_id,
                         "attempt_id": self.attempt_id,
                         "stage": stage,
                         "error": reason,
@@ -455,7 +455,7 @@ fn gate_keys(gates: &[RegressionGate]) -> String {
         .join(", ")
 }
 
-// Refuse the dispatch loudly, naming every blocking gate — no pane is spawned.
+// Refuse the dispatch loudly, naming every blocking gate — no tab is spawned.
 fn regression_blocked_error(gates: Vec<RegressionGate>) -> JsonRpcError {
     let names = gate_keys(&gates);
     JsonRpcError {
@@ -577,9 +577,9 @@ pub(super) fn resolve_dispatch_routing(
     }
 }
 
-/// Atomic: spawn a Worker pane, assign the task (in_progress + lane metadata),
+/// Atomic: spawn a Worker tab, assign the task (in_progress + lane metadata),
 /// then deliver the brief. Any post-spawn failure reverts the task and closes
-/// the pane, so a task is never left in_progress without a live pane.
+/// the tab, so a task is never left in_progress without a live tab.
 pub(super) fn dispatch(
     params: &Option<Value>,
     app: &AppHandle,
@@ -594,7 +594,7 @@ pub(super) fn dispatch(
         .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
 
     // Frontier policy: a non-blocker cannot spawn while regression gates are
-    // pending. Decide BEFORE any pane is created so a block leaves no orphan.
+    // pending. Decide BEFORE any tab is created so a block leaves no orphan.
     let plan = store
         .get(&plan_id)
         .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
@@ -606,17 +606,17 @@ pub(super) fn dispatch(
             return Err(regression_blocked_error(blocking));
         }
     }
-    // Same frontier policy for the review WIP gate: decide before any pane
+    // Same frontier policy for the review WIP gate: decide before any tab
     // exists. A task resuming after a bounce already holds its slot.
     if detail.task.status == crate::plan::TaskStatus::Pending {
         preflight_review_capacity(&plan, &detail.task).map_err(plan_rpc_err)?;
     }
 
-    // Parent defaults to the dispatching (caller) pane, resolved server-side.
-    let parent = owned_str(p, "parent_pane_id").or_else(|| owned_str(p, "caller_pane_id"));
-    let parent_pane_id = parent
+    // Parent defaults to the dispatching (caller) tab, resolved server-side.
+    let parent = owned_str(p, "parent_tab_id").or_else(|| owned_str(p, "caller_tab_id"));
+    let parent_tab_id = parent
         .clone()
-        .or_else(|| plan.owner.pane_id.clone())
+        .or_else(|| plan.owner.tab_id.clone())
         .ok_or_else(|| invalid_dispatch("dispatch requires a parent Orchestrator tab"))?;
     let routing = resolve_dispatch_routing(
         owned_str(p, "agent"),
@@ -648,7 +648,7 @@ pub(super) fn dispatch(
         ));
     }
 
-    // A personality is the executor persona: it names the pane and opens the brief.
+    // A personality is the executor persona: it names the tab and opens the brief.
     let (explicit_persona, title_provenance) = dispatch_worker_identity(&detail.task);
     let brief = build_brief(&detail.task, &detail.sections);
 
@@ -666,14 +666,14 @@ pub(super) fn dispatch(
         title: explicit_persona,
         title_provenance,
         role: Some("Worker".into()),
-        parent_pane_id: parent,
+        parent_tab_id: parent,
         plan_id: Some(plan_id.clone()),
         task_id: Some(task_id.clone()),
         workspace_id: owned_str(p, "workspace_id"),
         model: routing.model.clone(),
         planned_model: detail.task.model.clone(),
         reasoning_effort: owned_str(p, "reasoning_effort"),
-        spawned_by_pane_id: owned_str(p, "caller_pane_id"),
+        spawned_by_tab_id: owned_str(p, "caller_tab_id"),
         task: Some(brief),
         ..Default::default()
     };
@@ -721,7 +721,7 @@ pub(super) fn dispatch(
             return Err(dispatch_failed("agent_spawn", error));
         }
     };
-    let pane_id = spawn.pane_id.clone();
+    let tab_id = spawn.tab_id.clone();
     let original_task = detail.task.clone();
     let original_plan_mode = plan.mode.clone();
     let lane_for_commit = detail.task.lane.clone();
@@ -729,7 +729,7 @@ pub(super) fn dispatch(
     let attempt_id = match store.begin_task_dispatch(
         &plan_id,
         &task_id,
-        &pane_id,
+        &tab_id,
         &spawn.title,
         starting_lane,
         now,
@@ -739,7 +739,7 @@ pub(super) fn dispatch(
             let cleanup = rollback_failed_dispatch(
                 provisioned_lane,
                 || Ok(()),
-                || close_pane_if_present(svc, &pane_id),
+                || close_tab_if_present(svc, &tab_id),
             );
             emit_plan_changed(app, &plan_id);
             return Err(dispatch_failed(
@@ -757,9 +757,9 @@ pub(super) fn dispatch(
         svc: svc.clone(),
         plan_id: plan_id.clone(),
         task_id: task_id.clone(),
-        pane_id: pane_id.clone(),
+        tab_id: tab_id.clone(),
         attempt_id: attempt_id.clone(),
-        parent_pane_id,
+        parent_tab_id,
         worker_title: spawn.title.clone(),
         original_task,
         original_plan_mode,
@@ -786,7 +786,7 @@ pub(super) fn dispatch(
             "workspace_name": detail.task.lane.workspace_name,
         },
     });
-    apply_dispatch_starting_contract(&mut result, &pane_id, &spawn);
+    apply_dispatch_starting_contract(&mut result, &tab_id, &spawn);
     if !warnings.is_empty() {
         result["warnings"] = json!(warnings);
     }
@@ -805,7 +805,7 @@ pub(super) fn dispatch(
 fn rollback_failed_dispatch<R, C>(
     lane: Option<ProvisionedWorkerLane>,
     revert_task: R,
-    close_pane: C,
+    close_tab: C,
 ) -> Result<(), String>
 where
     R: FnOnce() -> Result<(), String>,
@@ -815,7 +815,7 @@ where
     if let Err(error) = revert_task() {
         errors.push(format!("task restore failed: {error}"));
     }
-    if let Err(error) = close_pane() {
+    if let Err(error) = close_tab() {
         errors.push(format!("Tab close failed: {error}"));
     }
     if let Some(lane) = lane {

@@ -37,18 +37,18 @@ pub fn start_watchdog(
                 continue;
             }
 
-            let pane_liveness = {
+            let tab_liveness = {
                 let m = mux.write();
-                m.resolve_pane_id(GENERAL_ALIAS).and_then(|pid| {
-                    let pane = m.get_pane(&pid)?;
-                    let in_grace = pane
+                m.resolve_tab_id(GENERAL_ALIAS).and_then(|pid| {
+                    let tab = m.get_tab(&pid)?;
+                    let in_grace = tab
                         .agent_set_at
                         .map(|t| t.elapsed().as_secs() < 30)
                         .unwrap_or(false);
-                    Some((in_grace, pane.pty_id.clone(), pane.agent_type.is_some()))
+                    Some((in_grace, tab.pty_id.clone(), tab.agent_type.is_some()))
                 })
             };
-            let needs_restart = pane_liveness.map(|(in_grace, pty_id, has_agent_type)| {
+            let needs_restart = tab_liveness.map(|(in_grace, pty_id, has_agent_type)| {
                 let pty_is_live = pty_id
                     .as_deref()
                     .is_some_and(|id| pty.lock().get_session(id).is_some());
@@ -70,9 +70,9 @@ pub fn start_watchdog(
                         consecutive_restarts,
                         general_config.max_restart_attempts
                     );
-                    let pid = mux.write().resolve_pane_id(GENERAL_ALIAS);
+                    let pid = mux.write().resolve_tab_id(GENERAL_ALIAS);
                     if let Some(pid) = pid {
-                        svc.clear_pane_agent_identity_for_lifecycle_exit(&pid);
+                        svc.clear_tab_agent_identity_for_lifecycle_exit(&pid);
                     }
                     std::thread::sleep(std::time::Duration::from_secs(
                         general_config.restart_delay_s as u64,

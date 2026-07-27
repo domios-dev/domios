@@ -101,18 +101,18 @@ pub struct BindingEvidence {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct BindingIdentity {
-    pub pane_id: String,
+    pub tab_id: String,
     pub agent_session_id: Option<String>,
 }
 
 impl BindingIdentity {
     pub fn healthy_lazy_restored(
-        pane_id: &str,
+        tab_id: &str,
         agent_session_id: Option<&str>,
         agent_state_seeded: bool,
     ) -> Option<Self> {
         agent_state_seeded.then(|| Self {
-            pane_id: pane_id.to_string(),
+            tab_id: tab_id.to_string(),
             agent_session_id: agent_session_id.map(str::to_string),
         })
     }
@@ -840,11 +840,11 @@ mod tests {
     fn health_requires_the_exact_restored_binding_identities() {
         let expected = vec![
             BindingIdentity {
-                pane_id: "orchestrator".into(),
+                tab_id: "orchestrator".into(),
                 agent_session_id: Some("session-a".into()),
             },
             BindingIdentity {
-                pane_id: "planner".into(),
+                tab_id: "planner".into(),
                 agent_session_id: Some("session-b".into()),
             },
         ];
@@ -857,7 +857,7 @@ mod tests {
         let wrong_sessions = vec![
             expected[0].clone(),
             BindingIdentity {
-                pane_id: "planner".into(),
+                tab_id: "planner".into(),
                 agent_session_id: Some("foreign-session".into()),
             },
         ];
@@ -883,7 +883,7 @@ mod tests {
             platform: "windows".into(),
         };
         let binding = BindingIdentity {
-            pane_id: "orchestrator".into(),
+            tab_id: "orchestrator".into(),
             agent_session_id: Some("session-a".into()),
         };
         let mut crash = classify_previous(previous_epoch(), &current, 1_000);
@@ -895,7 +895,7 @@ mod tests {
         });
 
         let replacement = BindingIdentity {
-            pane_id: "orchestrator".into(),
+            tab_id: "orchestrator".into(),
             agent_session_id: Some("replacement-session".into()),
         };
         assert!(!heal_crash_record(&mut crash, &[replacement], 1_002));
@@ -916,7 +916,7 @@ mod tests {
         assert_eq!(
             identity,
             Some(BindingIdentity {
-                pane_id: "orchestrator".into(),
+                tab_id: "orchestrator".into(),
                 agent_session_id: Some("restored-session".into()),
             })
         );

@@ -35,7 +35,7 @@ interface Props {
   api: ApiConfig;
   onClose: () => void;
   initialState?: MemoryInitialState;
-  onFocusPane?: (paneId: string) => void;
+  onFocusTab?: (tabId: string) => void;
   config?: AppConfig;
   onConfigUpdate?: (config: AppConfig) => Promise<void>;
 }
@@ -130,7 +130,7 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
     <div
       className="absolute inset-0 flex flex-col bg-[var(--ct-bg)] pt-[var(--ct-safe-top,0px)] pb-[var(--ct-safe-bottom,0px)]"
       data-testid="memory-panel"
-      data-memory-active-pane={activeTab}
+      data-memory-active-tab={activeTab}
     >
       {/* Header with tabs */}
       <div
@@ -165,7 +165,7 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
           {TABS.map((tab) => (
             <button
               key={tab}
-              data-testid={`memory-pane-${tab}`}
+              data-testid={`memory-tab-${tab}`}
               onClick={() => setActiveTab(tab)}
               className={tabClass(activeTab === tab, touchUi)}
               aria-pressed={activeTab === tab}

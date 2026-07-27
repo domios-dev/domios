@@ -98,7 +98,7 @@ test("does not infer looping from milestone text", () => {
     ...FIXTURE_TASK,
     milestones: [{
       id: "ms-loop",
-      from: { pane_id: "p1", session_id: null, title: "Worker" },
+      from: { tab_id: "p1", session_id: null, title: "Worker" },
       kind: "status_update",
       text: "loop iteration 9 recorded in milestone only",
       ts: 1,

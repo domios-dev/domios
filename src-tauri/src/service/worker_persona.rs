@@ -153,8 +153,8 @@ impl ServiceContext {
             let mux = self.mux.read();
             resolve_spawn_workspace_id(
                 params.workspace_id.clone(),
-                params.parent_pane_id.as_deref(),
-                |pid| mux.find_workspace_for_pane(pid),
+                params.parent_tab_id.as_deref(),
+                |pid| mux.find_workspace_for_tab(pid),
                 mux.get_active_workspace().map(|w| w.id.clone()),
                 mux.list_workspaces().first().map(|w| w.id.clone()),
             )?
@@ -180,8 +180,8 @@ impl ServiceContext {
         let mut names = {
             let mux = self.mux.read();
             let mut names = workspace_live_titles(&mux, &scope.workspace_id);
-            if let Some(parent_id) = params.parent_pane_id.as_deref() {
-                let title = mux.display_label_for_pane(parent_id);
+            if let Some(parent_id) = params.parent_tab_id.as_deref() {
+                let title = mux.display_label_for_tab(parent_id);
                 if !title.trim().is_empty() {
                     names.insert(title);
                 }
@@ -197,7 +197,7 @@ impl ServiceContext {
     }
 }
 
-/// Every non-empty display title of a live pane in `workspace_id`, regardless
+/// Every non-empty display title of a live tab in `workspace_id`, regardless
 /// of role or owning session.
 fn workspace_live_titles(
     mux: &crate::multiplexer::state::MultiplexerState,
@@ -206,9 +206,9 @@ fn workspace_live_titles(
     mux.list_workspaces()
         .into_iter()
         .filter(|ws| ws.id == workspace_id)
-        .flat_map(|ws| ws.pane_ids)
-        .filter(|pane_id| mux.get_pane(pane_id).is_some())
-        .map(|pane_id| mux.display_label_for_pane(&pane_id))
+        .flat_map(|ws| ws.tab_ids)
+        .filter(|tab_id| mux.get_tab(tab_id).is_some())
+        .map(|tab_id| mux.display_label_for_tab(&tab_id))
         .filter(|title| !title.trim().is_empty())
         .collect()
 }
@@ -322,8 +322,8 @@ fn seed_for_worker_persona(
     params.plan_id.hash(&mut hasher);
     params.task_id.hash(&mut hasher);
     params.plan_task.hash(&mut hasher);
-    params.parent_pane_id.hash(&mut hasher);
-    params.spawned_by_pane_id.hash(&mut hasher);
+    params.parent_tab_id.hash(&mut hasher);
+    params.spawned_by_tab_id.hash(&mut hasher);
     params.cwd.hash(&mut hasher);
     suggested_title.map(str::trim).hash(&mut hasher);
     hasher.finish()
@@ -424,20 +424,20 @@ mod tests {
         use crate::multiplexer::state::MultiplexerState;
         use crate::multiplexer::types::AgentRole;
 
-        let (mut mux, orch_pane) = MultiplexerState::new();
+        let (mut mux, orch_tab) = MultiplexerState::new();
         let ws_id = mux
-            .find_workspace_for_pane(&orch_pane)
+            .find_workspace_for_tab(&orch_tab)
             .expect("initial Tab has a workspace");
-        mux.rename_pane(&orch_pane, "Orchestrator-Prime")
+        mux.rename_tab(&orch_tab, "Orchestrator-Prime")
             .expect("rename orchestrator Tab");
 
-        let (_tab_id, plain_pane) = mux.create_tab(&ws_id).expect("create plain tab");
-        mux.rename_pane(&plain_pane, "Kai").expect("rename Tab");
+        let (_tab_id, plain_tab) = mux.create_tab(&ws_id).expect("create plain tab");
+        mux.rename_tab(&plain_tab, "Kai").expect("rename Tab");
 
-        let (_tab_id, worker_pane) = mux.create_tab(&ws_id).expect("create worker tab");
-        mux.set_pane_role(&worker_pane, AgentRole::Worker, Some(&orch_pane))
+        let (_tab_id, worker_tab) = mux.create_tab(&ws_id).expect("create worker tab");
+        mux.set_tab_role(&worker_tab, AgentRole::Worker, Some(&orch_tab))
             .expect("attach worker");
-        mux.rename_pane(&worker_pane, "Esme")
+        mux.rename_tab(&worker_tab, "Esme")
             .expect("rename worker");
 
         let titles = workspace_live_titles(&mux, &ws_id);
@@ -457,18 +457,18 @@ mod tests {
         use crate::multiplexer::state::MultiplexerState;
         use crate::multiplexer::types::AgentRole;
 
-        let (mut mux, orch_pane) = MultiplexerState::new();
-        let ws_id = mux.find_workspace_for_pane(&orch_pane).unwrap();
+        let (mut mux, orch_tab) = MultiplexerState::new();
+        let ws_id = mux.find_workspace_for_tab(&orch_tab).unwrap();
 
         let (_tab_id, other_session_worker) = mux.create_tab(&ws_id).unwrap();
-        mux.set_pane_role(&other_session_worker, AgentRole::Worker, Some(&orch_pane))
+        mux.set_tab_role(&other_session_worker, AgentRole::Worker, Some(&orch_tab))
             .unwrap();
-        mux.rename_pane(&other_session_worker, "Nora").unwrap();
-        if let Some(pane) = mux.get_pane_mut(&other_session_worker) {
-            pane.agent_session_id = Some("some-other-session".into());
+        mux.rename_tab(&other_session_worker, "Nora").unwrap();
+        if let Some(tab) = mux.get_tab_mut(&other_session_worker) {
+            tab.agent_session_id = Some("some-other-session".into());
         }
 
-        // The old scan filtered live panes to the caller's own session_id,
+        // The old scan filtered live tabs to the caller's own session_id,
         // so a Worker title claimed under a different session was invisible.
         let titles = workspace_live_titles(&mux, &ws_id);
         assert!(

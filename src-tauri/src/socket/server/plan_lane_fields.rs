@@ -23,7 +23,7 @@ pub(super) fn lane_update_field(p: Option<&Value>) -> Result<Option<TaskLaneUpda
         return Ok(None);
     };
     let mut update = TaskLaneUpdate {
-        pane_id: lane.get("pane_id").map(|v| v.as_str().map(str::to_string)),
+        tab_id: lane.get("tab_id").map(|v| v.as_str().map(str::to_string)),
         workspace_id: lane
             .get("workspace_id")
             .map(|v| v.as_str().map(str::to_string)),

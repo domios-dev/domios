@@ -126,13 +126,13 @@ fn numbered_prose_without_confirm_footer_is_not_question_visible_cursor() {
 
 use super::{
     classify_state, composer_cursor_ready, offline_picker_is_coherent, ClassifyInput, Motion,
-    PaneVerdict, TimelineState,
+    TabVerdict, TimelineState,
 };
 use crate::agent::attributed_screen::PickerDetection;
 use crate::agent::signal_extractor::StreamSignals;
 
-fn working() -> PaneVerdict {
-    PaneVerdict {
+fn working() -> TabVerdict {
+    TabVerdict {
         state: TimelineState::Working,
         subtype: None,
     }
@@ -520,7 +520,7 @@ fn claude_answered_question_with_stale_picker_below_composer_is_idle() {
     let mut input = quiescent_input(&screen);
     input.byte_idle_ms = 6000;
     input.semantic_idle_ms = 6000;
-    let previous = PaneVerdict {
+    let previous = TabVerdict {
         state: TimelineState::Question,
         subtype: Some(QuestionSubtype::Unknown),
     };
@@ -548,7 +548,7 @@ fn claude_active_question_picker_still_classifies_question() {
     input.semantic_idle_ms = 6000;
     let verdict = classify_state(
         &input,
-        PaneVerdict {
+        TabVerdict {
             state: TimelineState::Idle,
             subtype: None,
         },

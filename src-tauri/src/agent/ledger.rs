@@ -14,8 +14,8 @@ const CURRENT_LEDGER_SCHEMA_VERSION: u32 = 2;
 /// One worker's latest state under an orchestrator (structured report fields + identity + model).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct LedgerRow {
-    pub orchestrator_pane_id: String,
-    pub worker_pane_id: String,
+    pub orchestrator_tab_id: String,
+    pub worker_tab_id: String,
     pub title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan_id: Option<String>,
@@ -113,8 +113,8 @@ impl OrchestrationLedger {
         conn.execute_batch(
             r#"
             CREATE TABLE IF NOT EXISTS orchestration_ledger (
-                orchestrator_pane_id TEXT NOT NULL,
-                worker_pane_id       TEXT NOT NULL,
+                orchestrator_tab_id TEXT NOT NULL,
+                worker_tab_id       TEXT NOT NULL,
                 title                TEXT NOT NULL DEFAULT '',
                 branch               TEXT,
                 model                TEXT,
@@ -126,11 +126,11 @@ impl OrchestrationLedger {
                 test_result          TEXT,
                 skipped              TEXT,
                 updated_at           INTEGER NOT NULL DEFAULT 0,
-                PRIMARY KEY (orchestrator_pane_id, worker_pane_id)
+                PRIMARY KEY (orchestrator_tab_id, worker_tab_id)
             );
 
             CREATE INDEX IF NOT EXISTS idx_ledger_orchestrator
-                ON orchestration_ledger(orchestrator_pane_id);
+                ON orchestration_ledger(orchestrator_tab_id);
 
             PRAGMA user_version = 1;
             "#,
@@ -165,11 +165,11 @@ impl OrchestrationLedger {
         conn.execute(
             r#"
             INSERT INTO orchestration_ledger (
-                orchestrator_pane_id, worker_pane_id, title, plan_id, task_id, branch, model,
+                orchestrator_tab_id, worker_tab_id, title, plan_id, task_id, branch, model,
                 status, message, sha, changed_files_json, test_cmd,
                 test_result, skipped, updated_at
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
-            ON CONFLICT(orchestrator_pane_id, worker_pane_id) DO UPDATE SET
+            ON CONFLICT(orchestrator_tab_id, worker_tab_id) DO UPDATE SET
                 title = excluded.title,
                 plan_id = excluded.plan_id,
                 task_id = excluded.task_id,
@@ -185,8 +185,8 @@ impl OrchestrationLedger {
                 updated_at = excluded.updated_at
             "#,
             params![
-                row.orchestrator_pane_id,
-                row.worker_pane_id,
+                row.orchestrator_tab_id,
+                row.worker_tab_id,
                 row.title,
                 row.plan_id,
                 row.task_id,
@@ -209,23 +209,23 @@ impl OrchestrationLedger {
     /// All workers under an orchestrator, most-recently-seen first.
     pub fn list_for_orchestrator(
         &self,
-        orchestrator_pane_id: &str,
+        orchestrator_tab_id: &str,
     ) -> Result<Vec<LedgerRow>, String> {
         let conn = self.conn.lock();
         let mut stmt = conn
             .prepare(
                 r#"
-                SELECT orchestrator_pane_id, worker_pane_id, title, plan_id, task_id, branch, model,
+                SELECT orchestrator_tab_id, worker_tab_id, title, plan_id, task_id, branch, model,
                        status, message, sha, changed_files_json, test_cmd,
                        test_result, skipped, updated_at
                 FROM orchestration_ledger
-                WHERE orchestrator_pane_id = ?1
+                WHERE orchestrator_tab_id = ?1
                 ORDER BY updated_at DESC
                 "#,
             )
             .map_err(|e| format!("ledger list prepare: {}", e))?;
         let rows = stmt
-            .query_map(params![orchestrator_pane_id], Self::row_from_sql)
+            .query_map(params![orchestrator_tab_id], Self::row_from_sql)
             .map_err(|e| format!("ledger list query: {}", e))?
             .filter_map(Result::ok)
             .collect();
@@ -236,8 +236,8 @@ impl OrchestrationLedger {
         let status: Option<String> = r.get(7)?;
         let changed_files_json: Option<String> = r.get(10)?;
         Ok(LedgerRow {
-            orchestrator_pane_id: r.get(0)?,
-            worker_pane_id: r.get(1)?,
+            orchestrator_tab_id: r.get(0)?,
+            worker_tab_id: r.get(1)?,
             title: r.get(2)?,
             plan_id: r.get(3)?,
             task_id: r.get(4)?,
@@ -272,8 +272,8 @@ mod tests {
 
     fn row(orch: &str, worker: &str, status: ReportStatus, at: u64) -> LedgerRow {
         LedgerRow {
-            orchestrator_pane_id: orch.into(),
-            worker_pane_id: worker.into(),
+            orchestrator_tab_id: orch.into(),
+            worker_tab_id: worker.into(),
             title: "Worker".into(),
             plan_id: Some("pl_1".into()),
             task_id: Some("task_1".into()),
@@ -301,8 +301,8 @@ mod tests {
         conn.execute_batch(
             r#"
             CREATE TABLE orchestration_ledger (
-                orchestrator_pane_id TEXT NOT NULL,
-                worker_pane_id       TEXT NOT NULL,
+                orchestrator_tab_id TEXT NOT NULL,
+                worker_tab_id       TEXT NOT NULL,
                 title                TEXT NOT NULL DEFAULT '',
                 branch               TEXT,
                 model                TEXT,
@@ -314,7 +314,7 @@ mod tests {
                 test_result          TEXT,
                 skipped              TEXT,
                 updated_at           INTEGER NOT NULL DEFAULT 0,
-                PRIMARY KEY (orchestrator_pane_id, worker_pane_id)
+                PRIMARY KEY (orchestrator_tab_id, worker_tab_id)
             );
             "#,
         )
@@ -325,7 +325,7 @@ mod tests {
         conn.execute(
             r#"
             INSERT INTO orchestration_ledger (
-                orchestrator_pane_id, worker_pane_id, title, branch, model,
+                orchestrator_tab_id, worker_tab_id, title, branch, model,
                 status, message, sha, changed_files_json, test_cmd,
                 test_result, skipped, updated_at
             ) VALUES ('orch', 'w1', 'Worker', 'main', 'opus', 'done', 'msg',
@@ -385,9 +385,9 @@ mod tests {
         let listed = reopened.list_for_orchestrator("orch").unwrap();
         assert_eq!(listed.len(), 2, "ledger rows persist across reopen");
         // ORDER BY updated_at DESC: w2 first.
-        assert_eq!(listed[0].worker_pane_id, "w2");
+        assert_eq!(listed[0].worker_tab_id, "w2");
         assert_eq!(listed[0].status, Some(ReportStatus::Blocked));
-        assert_eq!(listed[1].worker_pane_id, "w1");
+        assert_eq!(listed[1].worker_tab_id, "w1");
         assert_eq!(listed[1].status, Some(ReportStatus::Done));
         let conn = Connection::open(&db).unwrap();
         assert_eq!(
@@ -471,7 +471,7 @@ mod tests {
         let ledger = OrchestrationLedger::open_at(&db).unwrap();
         let rows = ledger.list_for_orchestrator("orch").unwrap();
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].worker_pane_id, "w1");
+        assert_eq!(rows[0].worker_tab_id, "w1");
         assert_eq!(rows[0].plan_id, None);
         assert_eq!(rows[0].task_id, None);
         assert_eq!(rows[0].updated_at, 42);

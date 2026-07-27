@@ -10,7 +10,7 @@ import {
   chatSetupStageLabel,
   chatSetupView,
 } from "./ChatSetupState";
-import type { Pane } from "../../lib/types";
+import type { Tab } from "../../lib/types";
 
 const win = new Window({ url: "http://localhost/chat-setup" });
 Object.defineProperty(globalThis, "window", { value: win, configurable: true });
@@ -33,15 +33,15 @@ function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
 }
 
-function pane(stage: Pane["boot_stage"], reason?: string | null, protectedPane = true): Pane {
+function tab(stage: Tab["boot_stage"], reason?: string | null, protectedTab = true): Tab {
   return {
     id: "p-1",
     pty_id: null,
     title: "Agent",
     boot_stage: stage,
     boot_failure_reason: reason ?? null,
-    protected: protectedPane,
-  } as unknown as Pane;
+    protected: protectedTab,
+  } as unknown as Tab;
 }
 
 async function render(element: React.ReactElement): Promise<HTMLElement> {
@@ -65,33 +65,33 @@ async function main() {
   });
 
   await test("role identity takes precedence over provider during launch", () => {
-    const orchestrator = { ...pane("agent_launching"), role: "Orchestrator" } as Pane;
-    const planner = { ...pane("agent_launching"), role: "Manager", role_profile: "planner" } as Pane;
+    const orchestrator = { ...tab("agent_launching"), role: "Orchestrator" } as Tab;
+    const planner = { ...tab("agent_launching"), role: "Manager", role_profile: "planner" } as Tab;
     assert(chatSetupSubject(orchestrator, "Codex") === "Orchestrator", "orchestrator label");
     assert(chatSetupSubject(planner, "Claude Code") === "Planner", "planner label");
   });
 
   await test("view resolves ready to none and launching to starting", () => {
-    assert(chatSetupView(pane("agent_ready")).kind === "none", "ready is none");
-    assert(chatSetupView(pane("preparing_role_instructions")).kind === "starting", "preparing is starting");
-    assert(chatSetupView(pane("agent_launching")).kind === "starting", "launching is starting");
-    assert(chatSetupView(pane("delivering_instructions")).kind === "starting", "fallback delivery is starting");
-    assert(chatSetupView(pane("spawn_failed", "boom")).kind === "failed", "spawn_failed is failed");
-    assert(chatSetupView(pane("pty_reattached")).kind === "none", "a reattached live PTY is not booting");
+    assert(chatSetupView(tab("agent_ready")).kind === "none", "ready is none");
+    assert(chatSetupView(tab("preparing_role_instructions")).kind === "starting", "preparing is starting");
+    assert(chatSetupView(tab("agent_launching")).kind === "starting", "launching is starting");
+    assert(chatSetupView(tab("delivering_instructions")).kind === "starting", "fallback delivery is starting");
+    assert(chatSetupView(tab("spawn_failed", "boom")).kind === "failed", "spawn_failed is failed");
+    assert(chatSetupView(tab("pty_reattached")).kind === "none", "a reattached live PTY is not booting");
     assert(chatSetupView(null).kind === "none", "no Tab is none");
   });
 
   await test("an authoritative attached chat suppresses stale setup stages", () => {
-    const reserved = { ...pane(null), agent_booting: true } as Pane;
+    const reserved = { ...tab(null), agent_booting: true } as Tab;
     assert(chatSetupView(reserved, true).kind === "none", "reserved state is stale after hydration");
-    assert(chatSetupView(pane("pty_starting"), true).kind === "none", "early launch state is stale after hydration");
-    assert(chatSetupView(pane("shell_ready"), true).kind === "none", "ShellReady is stale after hydration");
+    assert(chatSetupView(tab("pty_starting"), true).kind === "none", "early launch state is stale after hydration");
+    assert(chatSetupView(tab("shell_ready"), true).kind === "none", "ShellReady is stale after hydration");
   });
 
   await test("starting renders the setup card with the stage label", async () => {
-    const p = { ...pane("preparing_role_instructions"), cwd: "/work/identity-card", role: "Worker", agent_session_model: "Focused" } as Pane;
+    const p = { ...tab("preparing_role_instructions"), cwd: "/work/identity-card", role: "Worker", agent_session_model: "Focused" } as Tab;
     const host = await render(
-      <ChatSetupState pane={p} view={chatSetupView(p)} providerName="Claude Code" providerIconSvg="<svg><path /></svg>" providerIconColor="#d97757" teamName="Launch Crew" projectName="identity-card" />,
+      <ChatSetupState tab={p} view={chatSetupView(p)} providerName="Claude Code" providerIconSvg="<svg><path /></svg>" providerIconColor="#d97757" teamName="Launch Crew" projectName="identity-card" />,
     );
     assert(host.querySelector('[data-testid="chat-setup-state"]'), "setup card rendered");
     const stage = host.querySelector('[data-testid="chat-setup-stage"]');
@@ -106,10 +106,10 @@ async function main() {
   });
 
   await test("project identity never exposes absolute paths", async () => {
-    const windows = { ...pane("agent_launching"), cwd: "D:\\Developer\\secret-project" } as Pane;
-    const posix = { ...pane("agent_launching"), cwd: "/Users/esme/secret-project" } as Pane;
-    const windowsHost = await render(<ChatSetupState pane={windows} view={chatSetupView(windows)} providerName="Codex" projectName="Workspace Display" />);
-    const posixHost = await render(<ChatSetupState pane={posix} view={chatSetupView(posix)} providerName="Codex" projectName="Workspace Display" />);
+    const windows = { ...tab("agent_launching"), cwd: "D:\\Developer\\secret-project" } as Tab;
+    const posix = { ...tab("agent_launching"), cwd: "/Users/esme/secret-project" } as Tab;
+    const windowsHost = await render(<ChatSetupState tab={windows} view={chatSetupView(windows)} providerName="Codex" projectName="Workspace Display" />);
+    const posixHost = await render(<ChatSetupState tab={posix} view={chatSetupView(posix)} providerName="Codex" projectName="Workspace Display" />);
     const rendered = `${windowsHost.textContent}\n${posixHost.textContent}`;
     assert(rendered.includes("Workspace Display"), "workspace display name is used");
     assert(!rendered.includes("D:\\Developer\\secret-project"), "Windows path is not rendered");
@@ -118,7 +118,7 @@ async function main() {
 
   await test("history can keep rendering while the compact boot status remains visible", async () => {
     const host = await render(
-      <ChatSetupStatusLine pane={pane("pty_spawned")} providerName="Codex" />,
+      <ChatSetupStatusLine tab={tab("pty_spawned")} providerName="Codex" />,
     );
     const status = host.querySelector('[data-testid="chat-setup-status-line"]');
     assert(status, "compact status rendered");
@@ -127,18 +127,18 @@ async function main() {
 
   await test("compact boot status disappears when the provider is ready", async () => {
     const host = await render(
-      <ChatSetupStatusLine pane={pane("agent_ready")} providerName="Codex" />,
+      <ChatSetupStatusLine tab={tab("agent_ready")} providerName="Codex" />,
     );
     assert(!host.querySelector('[data-testid="chat-setup-status-line"]'), "ready status hidden");
   });
 
   await test("failed renders plain language without raw backend failure text", async () => {
-    const p = pane("spawn_failed", "SYSTEM REMINDER: secret launch details");
+    const p = tab("spawn_failed", "SYSTEM REMINDER: secret launch details");
     let opened = false;
     let retried = false;
     const host = await render(
       <ChatSetupState
-        pane={p}
+        tab={p}
         view={chatSetupView(p)}
         providerName="Claude Code"
         onRetry={() => { retried = true; }}
@@ -161,17 +161,17 @@ async function main() {
   });
 
   await test("non-retryable failure never offers a retry action", async () => {
-    const p = pane("spawn_failed", "not restartable", false);
+    const p = tab("spawn_failed", "not restartable", false);
     const host = await render(
-      <ChatSetupState pane={p} view={chatSetupView(p)} providerName="Codex" onRetry={() => {}} />,
+      <ChatSetupState tab={p} view={chatSetupView(p)} providerName="Codex" onRetry={() => {}} />,
     );
     assert(!host.querySelector('[data-testid="chat-launch-retry"]'), "retry is hidden when the Tab cannot be restarted");
   });
 
   await test("a failed provisioned agent offers retry without a provider-specific branch", async () => {
-    const p = { ...pane("spawn_failed", "launch failed", false), agent_type: "provider-from-descriptor" } as Pane;
+    const p = { ...tab("spawn_failed", "launch failed", false), agent_type: "provider-from-descriptor" } as Tab;
     const host = await render(
-      <ChatSetupState pane={p} view={chatSetupView(p)} providerName="Agent" onRetry={() => {}} />,
+      <ChatSetupState tab={p} view={chatSetupView(p)} providerName="Agent" onRetry={() => {}} />,
     );
     assert(host.querySelector('[data-testid="chat-launch-retry"]'), "provisioned agent can retry");
   });
@@ -180,10 +180,10 @@ async function main() {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const root = createRoot(host);
-    const renderState = async (stage: Pane["boot_stage"]) => {
-      const current = pane(stage);
+    const renderState = async (stage: Tab["boot_stage"]) => {
+      const current = tab(stage);
       await act(async () => {
-        root.render(<ChatSetupState pane={current} view={chatSetupView(current)} providerName="Claude Code" onRetry={() => {}} onOpenTerminal={() => {}} />);
+        root.render(<ChatSetupState tab={current} view={chatSetupView(current)} providerName="Claude Code" onRetry={() => {}} onOpenTerminal={() => {}} />);
       });
     };
     await renderState("spawn_failed");
@@ -197,11 +197,11 @@ async function main() {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const root = createRoot(host);
-    const starting = pane("agent_launching");
-    const ready = pane("agent_ready");
-    const renderState = async (current: Pane) => {
+    const starting = tab("agent_launching");
+    const ready = tab("agent_ready");
+    const renderState = async (current: Tab) => {
       await act(async () => {
-        root.render(<><div data-testid="incoming-transcript">Transcript</div><ChatSetupState pane={current} view={chatSetupView(current)} providerName="Codex" /></>);
+        root.render(<><div data-testid="incoming-transcript">Transcript</div><ChatSetupState tab={current} view={chatSetupView(current)} providerName="Codex" /></>);
       });
     };
     await renderState(starting);
@@ -229,13 +229,13 @@ async function main() {
       const host = document.createElement("div");
       document.body.appendChild(host);
       const root = createRoot(host);
-      const starting = pane("agent_launching");
-      const ready = pane("agent_ready");
+      const starting = tab("agent_launching");
+      const ready = tab("agent_ready");
       await act(async () => {
-        root.render(<ChatSetupState pane={starting} view={chatSetupView(starting)} providerName="Codex" />);
+        root.render(<ChatSetupState tab={starting} view={chatSetupView(starting)} providerName="Codex" />);
       });
       await act(async () => {
-        root.render(<ChatSetupState pane={ready} view={chatSetupView(ready)} providerName="Codex" />);
+        root.render(<ChatSetupState tab={ready} view={chatSetupView(ready)} providerName="Codex" />);
       });
       assert(!host.querySelector('[data-testid="chat-setup-state"]'), "reduced motion skips exit overlap");
     } finally {
@@ -245,18 +245,18 @@ async function main() {
   });
 
   await test("ready renders nothing (empty-state text stays the caller's job)", async () => {
-    const p = pane("agent_ready");
+    const p = tab("agent_ready");
     const host = await render(
-      <ChatSetupState pane={p} view={chatSetupView(p)} providerName="Claude Code" />,
+      <ChatSetupState tab={p} view={chatSetupView(p)} providerName="Claude Code" />,
     );
     assert(!host.querySelector('[data-testid="chat-setup-state"]'), "no setup card");
     assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "no failed card");
   });
 
   await test("an attached chat is authoritative over a late failed boot stage", async () => {
-    const p = pane("spawn_failed", "stale launch result");
+    const p = tab("spawn_failed", "stale launch result");
     const host = await render(
-      <ChatSetupState pane={p} view={chatSetupView(p, true)} providerName="Codex" />,
+      <ChatSetupState tab={p} view={chatSetupView(p, true)} providerName="Codex" />,
     );
     assert(!host.querySelector('[data-testid="chat-launch-failed"]'), "attached chat is never covered by a stale failure");
     assert(!host.querySelector('[data-testid="chat-setup-state"]'), "attached chat has no launch overlay");

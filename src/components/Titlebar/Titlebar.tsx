@@ -31,7 +31,7 @@ interface TitlebarProps {
   onMarkAllNotificationsRead?: () => void;
   onDeleteNotification?: (id: string) => void;
   onDismissToast?: (id: string) => void;
-  onNavigateToast?: (paneId: string, workspaceId: string | null) => void;
+  onNavigateToast?: (tabId: string, workspaceId: string | null) => void;
   workspaceCanvasActive?: boolean;
 }
 

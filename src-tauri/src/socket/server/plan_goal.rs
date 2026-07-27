@@ -43,7 +43,7 @@ pub(super) fn dispatch(
                 message: "params required".to_string(),
                 data: None,
             })?;
-            let caller_pane = body.get("caller_pane_id").and_then(|v| v.as_str());
+            let caller_tab = body.get("caller_tab_id").and_then(|v| v.as_str());
             let goal = Goal {
                 vector: get_string_param(params, "vector")?.replace('\n', " "),
                 vision: body
@@ -64,8 +64,8 @@ pub(super) fn dispatch(
             let id = match super::plan_refs::resolve_plan(store, params) {
                 Ok(id) => id,
                 Err(_err)
-                    if caller_pane
-                        .map(|pane| svc.pane_has_pending_paired_planner(pane))
+                    if caller_tab
+                        .map(|tab| svc.tab_has_pending_paired_planner(tab))
                         .unwrap_or(false) =>
                 {
                     let title = body
@@ -83,7 +83,7 @@ pub(super) fn dispatch(
                                 .map(|d| d.display().to_string())
                                 .unwrap_or_default()
                         });
-                    let owner = OrchestratorRef::from_pane(caller_pane.unwrap_or("unknown"));
+                    let owner = OrchestratorRef::from_tab(caller_tab.unwrap_or("unknown"));
                     let outcome = svc
                         .create_first_plan_for_orchestrator(
                             title,
@@ -114,7 +114,7 @@ pub(super) fn dispatch(
             emit_plan_changed(app, &id);
             let mut resp = json!({ "ok": true });
             if let Some(nudge) = store.get(&id).as_ref().and_then(|plan| {
-                crate::service::plan::hints::planner_ownership_nudge(plan, caller_pane)
+                crate::service::plan::hints::planner_ownership_nudge(plan, caller_tab)
             }) {
                 resp["_planner_nudge"] = json!(nudge);
             }

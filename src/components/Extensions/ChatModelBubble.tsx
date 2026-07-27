@@ -1,5 +1,5 @@
 /**
- * Composer-row model picker for chatBackend shell panes. A shell resolves identity
+ * Composer-row model picker for chatBackend shell tabs. A shell resolves identity
  * from `backing.plugin_id` (not the agent registry); picking a model calls
  * `chatbackend_switch_model` and reflects the refreshed session info.
  * Generalized — any chatBackend shell with `available_models`, no hardcoded id.

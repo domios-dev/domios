@@ -6,15 +6,15 @@ pub enum OrchestratorAction {
     Status {
         #[arg(long, env = "CODETERM_PLAN_ID")]
         plan: Option<String>,
-        #[arg(long = "tab", value_name = "TAB", env = "CODETERM_PANE_ID")]
-        pane: Option<String>,
+        #[arg(long = "tab", value_name = "TAB", env = "CODETERM_TAB_ID")]
+        tab: Option<String>,
     },
     /// Show the full orchestration snapshot, including report bodies
     Inspect {
         #[arg(long, env = "CODETERM_PLAN_ID")]
         plan: Option<String>,
-        #[arg(long = "tab", value_name = "TAB", env = "CODETERM_PANE_ID")]
-        pane: Option<String>,
+        #[arg(long = "tab", value_name = "TAB", env = "CODETERM_TAB_ID")]
+        tab: Option<String>,
     },
     /// Append a persistent learning to this orchestrator's heartbeat
     Learn {
@@ -34,8 +34,8 @@ pub enum OrchestratorAction {
     Refresh {
         #[arg(long, env = "CODETERM_PLAN_ID")]
         plan: Option<String>,
-        #[arg(long = "tab", value_name = "TAB", env = "CODETERM_PANE_ID")]
-        pane: Option<String>,
+        #[arg(long = "tab", value_name = "TAB", env = "CODETERM_TAB_ID")]
+        tab: Option<String>,
     },
     /// Create an orchestrator handoff and optionally reseed this tab
     Handoff {
@@ -43,8 +43,8 @@ pub enum OrchestratorAction {
         plan: Option<String>,
         #[arg(long, env = "CODETERM_TASK_ID")]
         task: Option<String>,
-        #[arg(long = "tab", value_name = "TAB", env = "CODETERM_PANE_ID")]
-        pane: Option<String>,
+        #[arg(long = "tab", value_name = "TAB", env = "CODETERM_TAB_ID")]
+        tab: Option<String>,
         #[arg(long)]
         reseed: bool,
         #[arg(long, default_value = "new")]
@@ -80,7 +80,7 @@ mod tests {
     use super::OrchestratorAction;
 
     #[test]
-    fn status_parses_plan_and_pane() {
+    fn status_parses_plan_and_tab() {
         let parsed = Cli::try_parse_from([
             "codeterm",
             "orchestrator",
@@ -88,22 +88,22 @@ mod tests {
             "--plan",
             "pl_1",
             "--tab",
-            "pane1",
+            "tab1",
         ])
         .expect("orchestrator status parses");
         match parsed.command {
             Commands::Orchestrator {
-                action: OrchestratorAction::Status { plan, pane },
+                action: OrchestratorAction::Status { plan, tab },
             } => {
                 assert_eq!(plan.as_deref(), Some("pl_1"));
-                assert_eq!(pane.as_deref(), Some("pane1"));
+                assert_eq!(tab.as_deref(), Some("tab1"));
             }
             _ => panic!("expected orchestrator status"),
         }
     }
 
     #[test]
-    fn inspect_parses_plan_and_pane() {
+    fn inspect_parses_plan_and_tab() {
         let parsed = Cli::try_parse_from([
             "codeterm",
             "orchestrator",
@@ -111,22 +111,22 @@ mod tests {
             "--plan",
             "pl_1",
             "--tab",
-            "pane1",
+            "tab1",
         ])
         .expect("orchestrator inspect parses");
         match parsed.command {
             Commands::Orchestrator {
-                action: OrchestratorAction::Inspect { plan, pane },
+                action: OrchestratorAction::Inspect { plan, tab },
             } => {
                 assert_eq!(plan.as_deref(), Some("pl_1"));
-                assert_eq!(pane.as_deref(), Some("pane1"));
+                assert_eq!(tab.as_deref(), Some("tab1"));
             }
             _ => panic!("expected orchestrator inspect"),
         }
     }
 
     #[test]
-    fn refresh_parses_plan_and_pane() {
+    fn refresh_parses_plan_and_tab() {
         let parsed = Cli::try_parse_from([
             "codeterm",
             "orchestrator",
@@ -134,15 +134,15 @@ mod tests {
             "--plan",
             "pl_1",
             "--tab",
-            "pane1",
+            "tab1",
         ])
         .expect("orchestrator refresh parses");
         match parsed.command {
             Commands::Orchestrator {
-                action: OrchestratorAction::Refresh { plan, pane },
+                action: OrchestratorAction::Refresh { plan, tab },
             } => {
                 assert_eq!(plan.as_deref(), Some("pl_1"));
-                assert_eq!(pane.as_deref(), Some("pane1"));
+                assert_eq!(tab.as_deref(), Some("tab1"));
             }
             _ => panic!("expected orchestrator refresh"),
         }

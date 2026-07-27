@@ -1,6 +1,6 @@
 use crate::args::plan::PlanSectionAction;
 use crate::client::RpcClient;
-use crate::cmd::plan::{call_plan_rpc, maybe_inject_caller_pane, resolve_text};
+use crate::cmd::plan::{call_plan_rpc, maybe_inject_caller_tab, resolve_text};
 use serde_json::{json, Value};
 
 pub fn handle(
@@ -111,7 +111,7 @@ fn section_mutation(
             if let Some(handle) = handle {
                 params["handle"] = json!(handle);
             }
-            maybe_inject_caller_pane(&mut params);
+            maybe_inject_caller_tab(&mut params);
             call_plan_rpc(client, "plan.section.add", params)
         }
         PlanSectionAction::Update {
@@ -141,7 +141,7 @@ fn section_mutation(
             if let Some(handle) = handle {
                 params["handle"] = json!(handle);
             }
-            maybe_inject_caller_pane(&mut params);
+            maybe_inject_caller_tab(&mut params);
             call_plan_rpc(client, "plan.section.update", params)
         }
         PlanSectionAction::Rm {

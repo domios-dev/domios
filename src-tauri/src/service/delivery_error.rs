@@ -2,28 +2,28 @@ use axum::http::StatusCode;
 
 use crate::service::inject_verify::InjectionError;
 
-/// Structured outcome of a pane delivery, carried verbatim across the mesh relay
+/// Structured outcome of a tab delivery, carried verbatim across the mesh relay
 /// boundary. The `bytes_written` flag is the load-bearing part: a caller may
-/// never be told "not found" for a pane that already holds the text.
+/// never be told "not found" for a tab that already holds the text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeliveryError {
-    /// Target pane does not resolve on this host. Nothing was written.
-    PaneNotReachableOnPeer { pane: String },
-    /// Target pane resolved but refused the write (booting agent, live TUI).
+    /// Target tab does not resolve on this host. Nothing was written.
+    TabNotReachableOnPeer { tab: String },
+    /// Target tab resolved but refused the write (booting agent, live TUI).
     /// Preflight refusal — nothing was written.
-    PaneBusyRefused { pane: String, detail: String },
-    /// Pane resolved but has no usable PTY. Nothing was written.
-    PtyUnavailable { pane: String, detail: String },
+    TabBusyRefused { tab: String, detail: String },
+    /// Tab resolved but has no usable PTY. Nothing was written.
+    PtyUnavailable { tab: String, detail: String },
     /// Bytes reached the PTY but submission was never confirmed. The text may be
     /// parked in the composer — the only variant that admits a partial write.
-    SubmitUnconfirmed { pane: String, detail: String },
+    SubmitUnconfirmed { tab: String, detail: String },
 }
 
 impl DeliveryError {
     pub fn code(&self) -> &'static str {
         match self {
-            Self::PaneNotReachableOnPeer { .. } => "pane_not_reachable_on_peer",
-            Self::PaneBusyRefused { .. } => "pane_busy_refused",
+            Self::TabNotReachableOnPeer { .. } => "tab_not_reachable_on_peer",
+            Self::TabBusyRefused { .. } => "tab_busy_refused",
             Self::PtyUnavailable { .. } => "pty_unavailable",
             Self::SubmitUnconfirmed { .. } => "submit_unconfirmed",
         }
@@ -36,26 +36,26 @@ impl DeliveryError {
 
     pub fn status(&self) -> StatusCode {
         match self {
-            Self::PaneNotReachableOnPeer { .. } => StatusCode::NOT_FOUND,
-            Self::PaneBusyRefused { .. } => StatusCode::CONFLICT,
+            Self::TabNotReachableOnPeer { .. } => StatusCode::NOT_FOUND,
+            Self::TabBusyRefused { .. } => StatusCode::CONFLICT,
             Self::PtyUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::SubmitUnconfirmed { .. } => StatusCode::BAD_GATEWAY,
         }
     }
 
-    pub fn pane(&self) -> &str {
+    pub fn tab(&self) -> &str {
         match self {
-            Self::PaneNotReachableOnPeer { pane }
-            | Self::PaneBusyRefused { pane, .. }
-            | Self::PtyUnavailable { pane, .. }
-            | Self::SubmitUnconfirmed { pane, .. } => pane,
+            Self::TabNotReachableOnPeer { tab }
+            | Self::TabBusyRefused { tab, .. }
+            | Self::PtyUnavailable { tab, .. }
+            | Self::SubmitUnconfirmed { tab, .. } => tab,
         }
     }
 
     fn detail(&self) -> &str {
         match self {
-            Self::PaneNotReachableOnPeer { .. } => "",
-            Self::PaneBusyRefused { detail, .. }
+            Self::TabNotReachableOnPeer { .. } => "",
+            Self::TabBusyRefused { detail, .. }
             | Self::PtyUnavailable { detail, .. }
             | Self::SubmitUnconfirmed { detail, .. } => detail,
         }
@@ -66,7 +66,7 @@ impl DeliveryError {
             "ok": false,
             "error": {
                 "code": self.code(),
-                "pane": self.pane(),
+                "tab": self.tab(),
                 "bytes_written": self.bytes_written(),
                 "detail": self.detail(),
                 "message": self.to_string(),
@@ -78,34 +78,34 @@ impl DeliveryError {
     /// string. Zero-byte claims are never inferred here — an unrecognised
     /// failure is reported as `submit_unconfirmed` so the caller is warned the
     /// payload may have landed.
-    pub fn from_opaque(pane: &str, detail: impl Into<String>) -> Self {
+    pub fn from_opaque(tab: &str, detail: impl Into<String>) -> Self {
         let detail = detail.into();
         if detail.contains("still booting") {
-            return Self::PaneBusyRefused {
-                pane: pane.to_string(),
+            return Self::TabBusyRefused {
+                tab: tab.to_string(),
                 detail,
             };
         }
         Self::SubmitUnconfirmed {
-            pane: pane.to_string(),
+            tab: tab.to_string(),
             detail,
         }
     }
 
-    pub fn from_injection(pane: &str, err: InjectionError) -> Self {
-        let pane = pane.to_string();
+    pub fn from_injection(tab: &str, err: InjectionError) -> Self {
+        let tab = tab.to_string();
         let detail = err.to_string();
         match err {
             // Verification gates that run BEFORE the paste — nothing was written.
             InjectionError::PromptNeverReady { .. }
             | InjectionError::AgentTuiPresent { .. }
             | InjectionError::AgentInputUnavailable { .. } => {
-                Self::PaneBusyRefused { pane, detail }
+                Self::TabBusyRefused { tab, detail }
             }
-            InjectionError::PtyClosed { .. } => Self::PtyUnavailable { pane, detail },
+            InjectionError::PtyClosed { .. } => Self::PtyUnavailable { tab, detail },
             // Both fire only after the paste reached the PTY.
             InjectionError::EchoMismatch { .. } | InjectionError::SubmitNeverConfirmed { .. } => {
-                Self::SubmitUnconfirmed { pane, detail }
+                Self::SubmitUnconfirmed { tab, detail }
             }
         }
     }
@@ -114,19 +114,19 @@ impl DeliveryError {
 impl std::fmt::Display for DeliveryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::PaneNotReachableOnPeer { pane } => {
-                write!(f, "Tab {pane} does not resolve on this peer")
+            Self::TabNotReachableOnPeer { tab } => {
+                write!(f, "Tab {tab} does not resolve on this peer")
             }
-            Self::PaneBusyRefused { pane, detail } => {
-                write!(f, "Tab {pane} refused delivery (nothing written): {detail}")
+            Self::TabBusyRefused { tab, detail } => {
+                write!(f, "Tab {tab} refused delivery (nothing written): {detail}")
             }
-            Self::PtyUnavailable { pane, detail } => {
-                write!(f, "Tab {pane} has no usable PTY: {detail}")
+            Self::PtyUnavailable { tab, detail } => {
+                write!(f, "Tab {tab} has no usable PTY: {detail}")
             }
-            Self::SubmitUnconfirmed { pane, detail } => {
+            Self::SubmitUnconfirmed { tab, detail } => {
                 write!(
                     f,
-                    "Tab {pane} received the text but never confirmed submission: {detail}"
+                    "Tab {tab} received the text but never confirmed submission: {detail}"
                 )
             }
         }

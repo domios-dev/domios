@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import type {
-  Pane,
+  Tab,
   ProviderDescriptor,
   ThemeConfig,
 } from "../../lib/types";
@@ -77,12 +77,12 @@ const descriptor: ProviderDescriptor = {
   supports_chat_ui: true,
 };
 
-function boundPane(): Pane {
+function boundTab(): Tab {
   return {
-    id: "pane-live",
+    id: "tab-live",
     pty_id: "pty-live",
     backing: { kind: "pty" },
-    pane_type: "Terminal",
+    tab_type: "Terminal",
     title: "Planner",
     cwd: "D:\\work\\project",
     agent_type: descriptor.id,
@@ -100,21 +100,21 @@ function boundPane(): Pane {
   };
 }
 
-function stateFor(pane: Pane, generation: number): ExtendedState {
+function stateFor(tab: Tab, generation: number): ExtendedState {
   return {
     workspaces: [{
       id: "workspace",
       name: "Project",
       cwd: "D:\\work\\project",
-      tabs: [{ id: "tab", pane_id: pane.id }],
+      tabs: [{ id: "tab", tab_id: tab.id }],
       active_tab_id: "tab",
     }],
-    panes: { [pane.id]: pane },
+    tabs: { [tab.id]: tab },
     teams: [],
     active_workspace_id: "workspace",
-    focused_pane_id: pane.id,
+    focused_tab_id: tab.id,
     notifications: [],
-    paneStatuses: {},
+    tabStatuses: {},
     toasts: [],
     activeTabIds: { workspace: "tab" },
     generation,
@@ -134,7 +134,7 @@ function muxActions(): MultiplexerActionsContextType {
         };
       }
       if (property === "createWorkspace" || property === "createTab") return noopAsync;
-      if (property === "selectTabByPane") return noopAsync;
+      if (property === "selectTabByTab") return noopAsync;
       return noop;
     },
   }) as MultiplexerActionsContextType;
@@ -224,7 +224,7 @@ async function main(): Promise<void> {
 
   const server = new FakeBridge();
   server.install(bridgeModule as never);
-  let state = stateFor(boundPane(), 1);
+  let state = stateFor(boundTab(), 1);
   const store = createMuxStateStore(() => state);
   const host = document.createElement("main");
   document.body.appendChild(host);
@@ -236,9 +236,9 @@ async function main(): Promise<void> {
         <MuxStateStoreContext.Provider value={store}>
           <MultiplexerActionsContext.Provider value={muxActions()}>
             <TabContent
-              pane={state.panes["pane-live"]}
+              tab={state.tabs["tab-live"]}
               isFocused
-              onFocusPane={() => {}}
+              onFocusTab={() => {}}
               onPtySpawned={() => {}}
               theme={theme}
               isVisible
@@ -251,29 +251,29 @@ async function main(): Promise<void> {
   };
 
   await render();
-  const switchBeforeRefresh = host.querySelector('[data-testid="pane-mode-switch"]');
+  const switchBeforeRefresh = host.querySelector('[data-testid="tab-mode-switch"]');
   assert(switchBeforeRefresh, "bound provider did not expose the Terminal/Chat switch");
   assert(
     switchBeforeRefresh.querySelector('[data-value="chat"]')?.getAttribute("aria-selected") === "true",
     "chat-capable Tab did not start in Chat",
   );
   assert(server.starts.length === 1, `default Chat started ${server.starts.length} snapshots`);
-  assert(server.starts[0]?.agentSessionId === "sid-live", "default Chat lost the pane-owned session id");
+  assert(server.starts[0]?.agentSessionId === "sid-live", "default Chat lost the tab-owned session id");
   assert(Number(server.subscribers.size) === 1, "default Chat did not own one subscription");
 
-  state = stateFor({ ...boundPane() }, 2);
+  state = stateFor({ ...boundTab() }, 2);
   await act(async () => {
     store.notify();
   });
   await render();
   assert(
-    host.querySelector('[data-testid="pane-mode-switch"]'),
+    host.querySelector('[data-testid="tab-mode-switch"]'),
     "snapshot refresh lost the provider-owned Chat capability",
   );
   assert(Number(server.starts.length) === 1, "same-authority refresh restarted Chat");
   assert(
     server.starts[0]?.agentSessionId === "sid-live",
-    "same-authority refresh lost the pane-owned session id",
+    "same-authority refresh lost the tab-owned session id",
   );
   assert(Number(server.subscribers.size) === 1, "same-authority refresh duplicated the subscription");
   const rows = host.querySelectorAll('[data-testid="chat-message"]');
@@ -287,7 +287,7 @@ async function main(): Promise<void> {
   assert(agentState?.textContent?.includes("Bound Provider"), "provider identity was not preserved");
   assert(agentState?.textContent?.includes("model-live"), "model identity was not preserved");
   assert(
-    host.querySelector('[data-testid="pane-mode-switch"] [data-value="chat"]')
+    host.querySelector('[data-testid="tab-mode-switch"] [data-value="chat"]')
       ?.getAttribute("aria-selected") === "true",
     "same-authority refresh did not retain Chat mode",
   );

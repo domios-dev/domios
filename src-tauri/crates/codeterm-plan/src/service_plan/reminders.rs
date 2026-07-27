@@ -59,7 +59,7 @@ pub const IDLE_POKE_QUESTION_TEMPLATES: [&str; 3] = [
 const IDLE_POKE_BACKOFF_MAX_STEPS: u32 = 8;
 const SECONDS_PER_DAY: u64 = 86_400;
 
-// Consecutive coordinator polls of a worker pane before one anti-polling nudge fires.
+// Consecutive coordinator polls of a worker tab before one anti-polling nudge fires.
 pub const POLL_NUDGE_THRESHOLD: u32 = 3;
 pub const UNCHANGED_REMINDER_COOLDOWN_SECS: u64 = 300;
 
@@ -116,7 +116,7 @@ struct PollState {
 }
 
 /// Scheduler telemetry is deliberately independent from turn/activity state.
-/// A pane can be continuously active and still retain its time deadline.
+/// A tab can be continuously active and still retain its time deadline.
 #[derive(Debug, Default, Clone, Serialize, PartialEq, Eq)]
 pub struct TimeReminderTelemetry {
     pub last_tick: Option<u64>,
@@ -127,7 +127,7 @@ pub struct TimeReminderTelemetry {
 
 #[derive(Debug, Default)]
 pub struct TurnCounter {
-    panes: Mutex<HashMap<String, (u32, u32)>>,
+    tabs: Mutex<HashMap<String, (u32, u32)>>,
     timed: Mutex<HashMap<String, u64>>,
     time_telemetry: Mutex<HashMap<String, TimeReminderTelemetry>>,
     digest_rules: Mutex<HashMap<String, u64>>,
@@ -142,36 +142,36 @@ impl TurnCounter {
         Self::default()
     }
 
-    pub fn increment(&self, pane_id: &str) -> (u32, u32) {
-        let mut panes = self.panes.lock();
-        let entry = panes.entry(pane_id.to_string()).or_insert((0, 0));
+    pub fn increment(&self, tab_id: &str) -> (u32, u32) {
+        let mut tabs = self.tabs.lock();
+        let entry = tabs.entry(tab_id.to_string()).or_insert((0, 0));
         entry.0 = entry.0.saturating_add(1);
         *entry
     }
 
-    pub fn mark_nudged(&self, pane_id: &str, turns: u32) {
-        let mut panes = self.panes.lock();
-        let entry = panes.entry(pane_id.to_string()).or_insert((turns, 0));
+    pub fn mark_nudged(&self, tab_id: &str, turns: u32) {
+        let mut tabs = self.tabs.lock();
+        let entry = tabs.entry(tab_id.to_string()).or_insert((turns, 0));
         entry.0 = turns;
         entry.1 = turns;
     }
 
-    pub fn time_nudge_due(&self, pane_id: &str, now_secs: u64, interval_secs: u64) -> bool {
-        self.time_nudge_due_with_initial_state(pane_id, now_secs, interval_secs, false)
+    pub fn time_nudge_due(&self, tab_id: &str, now_secs: u64, interval_secs: u64) -> bool {
+        self.time_nudge_due_with_initial_state(tab_id, now_secs, interval_secs, false)
     }
 
     pub fn idle_owner_time_nudge_due(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         now_secs: u64,
         interval_secs: u64,
     ) -> bool {
-        self.time_nudge_due_with_initial_state(pane_id, now_secs, interval_secs, true)
+        self.time_nudge_due_with_initial_state(tab_id, now_secs, interval_secs, true)
     }
 
     fn time_nudge_due_with_initial_state(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         now_secs: u64,
         interval_secs: u64,
         initially_due: bool,
@@ -180,65 +180,65 @@ impl TurnCounter {
             return false;
         }
         let mut timed = self.timed.lock();
-        let Some(last_nudge) = timed.get(pane_id).copied() else {
+        let Some(last_nudge) = timed.get(tab_id).copied() else {
             let initial_deadline = if initially_due {
                 now_secs.saturating_sub(interval_secs)
             } else {
                 now_secs
             };
-            timed.insert(pane_id.to_string(), initial_deadline);
+            timed.insert(tab_id.to_string(), initial_deadline);
             return initially_due;
         };
         now_secs.saturating_sub(last_nudge) >= interval_secs
     }
 
-    pub fn mark_time_nudged(&self, pane_id: &str, now_secs: u64) {
-        self.timed.lock().insert(pane_id.to_string(), now_secs);
+    pub fn mark_time_nudged(&self, tab_id: &str, now_secs: u64) {
+        self.timed.lock().insert(tab_id.to_string(), now_secs);
     }
 
-    pub fn reminder_content_due(&self, pane_id: &str, state_key: &str, now_secs: u64) -> bool {
+    pub fn reminder_content_due(&self, tab_id: &str, state_key: &str, now_secs: u64) -> bool {
         self.reminder_content
             .lock()
-            .get(pane_id)
+            .get(tab_id)
             .is_none_or(|(last_key, last_at)| {
                 last_key != state_key
                     || now_secs.saturating_sub(*last_at) >= UNCHANGED_REMINDER_COOLDOWN_SECS
             })
     }
 
-    pub fn mark_reminder_content_delivered(&self, pane_id: &str, state_key: String, now_secs: u64) {
+    pub fn mark_reminder_content_delivered(&self, tab_id: &str, state_key: String, now_secs: u64) {
         self.reminder_content
             .lock()
-            .insert(pane_id.to_string(), (state_key, now_secs));
+            .insert(tab_id.to_string(), (state_key, now_secs));
     }
 
-    /// Reset counters coupled to normal pane activity, without touching the
+    /// Reset counters coupled to normal tab activity, without touching the
     /// independent time-reminder deadline. Use this for Idle->Working and
     /// ordinary reports.
-    pub fn reset_activity(&self, pane_id: &str) {
-        self.panes.lock().insert(pane_id.to_string(), (0, 0));
+    pub fn reset_activity(&self, tab_id: &str) {
+        self.tabs.lock().insert(tab_id.to_string(), (0, 0));
         self.digest_rules
             .lock()
-            .retain(|key, _| !key.starts_with(pane_id));
-        self.idle.lock().remove(pane_id);
-        self.polls.lock().remove(pane_id);
-        self.reminder_content.lock().remove(pane_id);
+            .retain(|key, _| !key.starts_with(tab_id));
+        self.idle.lock().remove(tab_id);
+        self.polls.lock().remove(tab_id);
+        self.reminder_content.lock().remove(tab_id);
     }
 
-    /// Clear all reminder state when a pane is no longer reminder-eligible.
-    pub fn reset(&self, pane_id: &str) {
-        self.reset_activity(pane_id);
-        self.timed.lock().remove(pane_id);
-        self.time_telemetry.lock().remove(pane_id);
+    /// Clear all reminder state when a tab is no longer reminder-eligible.
+    pub fn reset(&self, tab_id: &str) {
+        self.reset_activity(tab_id);
+        self.timed.lock().remove(tab_id);
+        self.time_telemetry.lock().remove(tab_id);
     }
 
-    pub fn retain_time_reminders(&self, eligible_panes: &HashSet<String>) {
+    pub fn retain_time_reminders(&self, eligible_tabs: &HashSet<String>) {
         self.timed
             .lock()
-            .retain(|pane_id, _| eligible_panes.contains(pane_id));
+            .retain(|tab_id, _| eligible_tabs.contains(tab_id));
         self.time_telemetry
             .lock()
-            .retain(|pane_id, _| eligible_panes.contains(pane_id));
+            .retain(|tab_id, _| eligible_tabs.contains(tab_id));
     }
 
     pub fn clear_time_reminders(&self) {
@@ -246,50 +246,50 @@ impl TurnCounter {
         self.time_telemetry.lock().clear();
     }
 
-    pub fn record_time_tick(&self, pane_id: &str, now_secs: u64) {
+    pub fn record_time_tick(&self, tab_id: &str, now_secs: u64) {
         self.time_telemetry
             .lock()
-            .entry(pane_id.to_string())
+            .entry(tab_id.to_string())
             .or_default()
             .last_tick = Some(now_secs);
     }
 
-    pub fn record_time_due(&self, pane_id: &str, now_secs: u64) {
+    pub fn record_time_due(&self, tab_id: &str, now_secs: u64) {
         self.time_telemetry
             .lock()
-            .entry(pane_id.to_string())
+            .entry(tab_id.to_string())
             .or_default()
             .last_due = Some(now_secs);
     }
 
-    pub fn record_time_delivery(&self, pane_id: &str, now_secs: u64) {
+    pub fn record_time_delivery(&self, tab_id: &str, now_secs: u64) {
         let mut telemetry = self.time_telemetry.lock();
-        let entry = telemetry.entry(pane_id.to_string()).or_default();
+        let entry = telemetry.entry(tab_id.to_string()).or_default();
         entry.last_delivery = Some(now_secs);
         entry.delivery_failure_retry_reason = None;
     }
 
-    pub fn record_time_failure(&self, pane_id: &str, reason: impl Into<String>) {
+    pub fn record_time_failure(&self, tab_id: &str, reason: impl Into<String>) {
         self.time_telemetry
             .lock()
-            .entry(pane_id.to_string())
+            .entry(tab_id.to_string())
             .or_default()
             .delivery_failure_retry_reason = Some(reason.into());
     }
 
-    pub fn time_reminder_telemetry(&self, pane_id: &str) -> TimeReminderTelemetry {
+    pub fn time_reminder_telemetry(&self, tab_id: &str) -> TimeReminderTelemetry {
         self.time_telemetry
             .lock()
-            .get(pane_id)
+            .get(tab_id)
             .cloned()
             .unwrap_or_default()
     }
 
-    // Count one poll by `pane_id`; return true exactly once when it crosses the
+    // Count one poll by `tab_id`; return true exactly once when it crosses the
     // threshold, then stay silent until `reset_polls` clears the streak.
-    pub fn record_poll(&self, pane_id: &str) -> bool {
+    pub fn record_poll(&self, tab_id: &str) -> bool {
         let mut polls = self.polls.lock();
-        let state = polls.entry(pane_id.to_string()).or_default();
+        let state = polls.entry(tab_id.to_string()).or_default();
         state.consecutive = state.consecutive.saturating_add(1);
         if state.consecutive >= POLL_NUDGE_THRESHOLD && !state.nudged {
             state.nudged = true;
@@ -299,17 +299,17 @@ impl TurnCounter {
         }
     }
 
-    pub fn reset_polls(&self, pane_id: &str) {
-        self.polls.lock().remove(pane_id);
+    pub fn reset_polls(&self, tab_id: &str) {
+        self.polls.lock().remove(tab_id);
     }
 
-    pub fn poll_streak(&self, pane_id: &str) -> u32 {
-        self.polls.lock().get(pane_id).map_or(0, |s| s.consecutive)
+    pub fn poll_streak(&self, tab_id: &str) -> u32 {
+        self.polls.lock().get(tab_id).map_or(0, |s| s.consecutive)
     }
 
     pub fn digest_rule_due(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         rule_id: &str,
         now_secs: u64,
         interval_secs: u64,
@@ -317,7 +317,7 @@ impl TurnCounter {
         if interval_secs == 0 {
             return false;
         }
-        let key = format!("{pane_id}:{rule_id}");
+        let key = format!("{tab_id}:{rule_id}");
         let last = self.digest_rules.lock().get(&key).copied();
         match last {
             None => true,
@@ -325,8 +325,8 @@ impl TurnCounter {
         }
     }
 
-    pub fn mark_digest_rule_fired(&self, pane_id: &str, rule_id: &str, now_secs: u64) {
-        let key = format!("{pane_id}:{rule_id}");
+    pub fn mark_digest_rule_fired(&self, tab_id: &str, rule_id: &str, now_secs: u64) {
+        let key = format!("{tab_id}:{rule_id}");
         self.digest_rules.lock().insert(key, now_secs);
     }
 
@@ -340,7 +340,7 @@ impl TurnCounter {
 
     pub fn idle_poke_due(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         now_secs: u64,
         max_per_day: u32,
         backoff_base_secs: u64,
@@ -350,7 +350,7 @@ impl TurnCounter {
         }
         let mut idle = self.idle.lock();
         let day = day_bucket(now_secs);
-        if let std::collections::hash_map::Entry::Vacant(vacant) = idle.entry(pane_id.to_string()) {
+        if let std::collections::hash_map::Entry::Vacant(vacant) = idle.entry(tab_id.to_string()) {
             let _ = vacant.insert(IdlePokeState {
                 last_nudge_at_secs: now_secs,
                 day_bucket: day,
@@ -358,7 +358,7 @@ impl TurnCounter {
             });
             return false;
         }
-        let state = idle.get_mut(pane_id).unwrap_or_else(|| unreachable!());
+        let state = idle.get_mut(tab_id).unwrap_or_else(|| unreachable!());
         if state.day_bucket != day {
             state.day_bucket = day;
             state.sent_today = 0;
@@ -370,10 +370,10 @@ impl TurnCounter {
         now_secs.saturating_sub(state.last_nudge_at_secs) >= required_interval
     }
 
-    pub fn mark_idle_nudged(&self, pane_id: &str, now_secs: u64) {
+    pub fn mark_idle_nudged(&self, tab_id: &str, now_secs: u64) {
         let mut idle = self.idle.lock();
         let day = day_bucket(now_secs);
-        let state = idle.entry(pane_id.to_string()).or_insert(IdlePokeState {
+        let state = idle.entry(tab_id.to_string()).or_insert(IdlePokeState {
             last_nudge_at_secs: now_secs,
             day_bucket: day,
             sent_today: 0,
@@ -386,16 +386,16 @@ impl TurnCounter {
         state.sent_today = state.sent_today.saturating_add(1);
     }
 
-    pub fn idle_phrase_index(&self, pane_id: &str) -> u32 {
+    pub fn idle_phrase_index(&self, tab_id: &str) -> u32 {
         self.idle
             .lock()
-            .get(pane_id)
+            .get(tab_id)
             .map(|state| state.sent_today)
             .unwrap_or(0)
     }
 
-    pub fn get(&self, pane_id: &str) -> (u32, u32) {
-        self.panes.lock().get(pane_id).copied().unwrap_or((0, 0))
+    pub fn get(&self, tab_id: &str) -> (u32, u32) {
+        self.tabs.lock().get(tab_id).copied().unwrap_or((0, 0))
     }
 }
 
@@ -633,11 +633,11 @@ mod tests {
     }
 
     #[test]
-    fn poll_streak_is_per_pane() {
+    fn poll_streak_is_per_tab() {
         let counter = TurnCounter::new();
         assert!(!counter.record_poll("a"));
         assert!(!counter.record_poll("a"));
-        // A different caller pane keeps its own independent streak.
+        // A different caller tab keeps its own independent streak.
         assert!(!counter.record_poll("b"));
         assert!(counter.record_poll("a"));
         assert_eq!(counter.poll_streak("b"), 1);

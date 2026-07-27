@@ -76,18 +76,18 @@ impl PlanStore {
         )
     }
 
-    pub fn resolve_planner_pane<F>(
+    pub fn resolve_planner_tab<F>(
         &self,
         plan_id: &str,
-        pane_probe: F,
+        tab_probe: F,
     ) -> crate::plan::peer::PeerResolution
     where
-        F: Fn(&str) -> crate::plan::reconcile::PaneProbe,
+        F: Fn(&str) -> crate::plan::reconcile::TabProbe,
     {
         let Some(plan) = self.get(plan_id) else {
             return crate::plan::peer::PeerResolution::Unbound;
         };
-        crate::plan::peer::resolve_planner_ref(&plan.planner, &plan.owner, pane_probe)
+        crate::plan::peer::resolve_planner_ref(&plan.planner, &plan.owner, tab_probe)
     }
 
     pub fn set_mode(&self, plan_id: &str, mode: PlanMode, now_ms: u64) -> Result<(), PlanError> {
@@ -242,7 +242,7 @@ impl PlanStore {
         self.record_committed_snapshot(&committed);
         let entry = Self::index_entry(&committed, path);
         self.index.write().insert(committed.id.clone(), entry);
-        self.reset_bound_panes(&committed);
+        self.reset_bound_tabs(&committed);
         Ok(out)
     }
 
@@ -289,13 +289,13 @@ impl PlanStore {
 
     pub fn add_task(&self, plan_id: &str, new: NewTask, now_ms: u64) -> Result<String, PlanError> {
         let tid = self.mint_id("task");
-        let assigned_pane_id = new
-            .assigned_pane_id
+        let assigned_tab_id = new
+            .assigned_tab_id
             .clone()
-            .or_else(|| new.lane.pane_id.clone());
+            .or_else(|| new.lane.tab_id.clone());
         let mut lane = normalize_lane_metadata(new.lane);
-        if lane.pane_id.is_none() {
-            lane.pane_id = assigned_pane_id.clone();
+        if lane.tab_id.is_none() {
+            lane.tab_id = assigned_tab_id.clone();
         }
         let mut task = Task {
             id: tid.clone(),
@@ -331,7 +331,7 @@ impl PlanStore {
             intent: new.intent,
             parent_task_id: new.parent_task_id,
             depends_on: normalized_dependency_ids(&new.depends_on),
-            assigned_pane_id,
+            assigned_tab_id,
             lane,
             taken_by_role: None,
             peer: None,
@@ -690,7 +690,7 @@ mod planning_state_tests {
         let mut plan = Plan::new(
             "Gate".into(),
             dir.path().display().to_string(),
-            OrchestratorRef::from_pane("orch"),
+            OrchestratorRef::from_tab("orch"),
         );
         s.save(&mut plan, 1).unwrap();
         (dir, s, plan.id)
@@ -738,7 +738,7 @@ mod planning_state_tests {
             &pid,
             PlanningState::StructureReady,
             PlanningAuthor::Planner {
-                pane_id: "pane_p".into(),
+                tab_id: "tab_p".into(),
             },
             Some("skeleton done"),
             3,
@@ -758,7 +758,7 @@ mod planning_state_tests {
         assert_eq!(
             plan.planning_log[0].by,
             PlanningAuthor::Planner {
-                pane_id: "pane_p".into()
+                tab_id: "tab_p".into()
             }
         );
         // StructureReady still locks execution tasks.
@@ -819,7 +819,7 @@ mod team_binding_tests {
         s.create_plan_for_team(
             title.into(),
             dir.path().display().to_string(),
-            OrchestratorRef::from_pane("orch"),
+            OrchestratorRef::from_tab("orch"),
             team.to_string(),
             vec![],
             now,
@@ -873,13 +873,13 @@ mod team_binding_tests {
             .adopt_plan_for_team(
                 &plan.id,
                 "team_new",
-                OrchestratorRef::from_pane("new-owner"),
+                OrchestratorRef::from_tab("new-owner"),
                 4,
             )
             .unwrap();
         assert_eq!(rebound.team_id.as_deref(), Some("team_new"));
         assert_eq!(rebound.status, PlanStatus::Active);
-        assert_eq!(rebound.owner.pane_id.as_deref(), Some("new-owner"));
+        assert_eq!(rebound.owner.tab_id.as_deref(), Some("new-owner"));
     }
 
     #[test]
@@ -958,7 +958,7 @@ mod team_binding_tests {
                 store.create_plan_for_team(
                     title.into(),
                     root,
-                    OrchestratorRef::from_pane(title),
+                    OrchestratorRef::from_tab(title),
                     "team_alpha".into(),
                     vec![],
                     now,
@@ -987,7 +987,7 @@ mod team_binding_tests {
         let mut teamless = crate::plan::Plan::new(
             "Existing".into(),
             dir.path().display().to_string(),
-            OrchestratorRef::from_pane("orch"),
+            OrchestratorRef::from_tab("orch"),
         );
         store.save(&mut teamless, 1).unwrap();
         let barrier = Arc::new(Barrier::new(3));
@@ -1006,7 +1006,7 @@ mod team_binding_tests {
             create_store.create_plan_for_team(
                 "New".into(),
                 root,
-                OrchestratorRef::from_pane("orch"),
+                OrchestratorRef::from_tab("orch"),
                 "team_alpha".into(),
                 vec![],
                 3,

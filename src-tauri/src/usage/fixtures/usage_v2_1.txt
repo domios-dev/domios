@@ -4,8 +4,8 @@ age                         Show session cost, plan usage, and activity stats
 /effortSeteffortlevelformodelusage
 /passesShareafreeweekofClaudeCodewithfriendsandearnextrausage
 /team-onboardingHelpteammatesramponClaudeCodewithaguidefromyourusage
-/codetermControlCodeTermfrominsideit—splitpanes,createworkspaces,sendcommands
-betweenpanes,spawnandcoordinateClaudeagentsinahierarchy(Orchestrator/L…
+/codetermControlCodeTermfrominsideit—splittabs,createworkspaces,sendcommands
+betweentabs,spawnandcoordinateClaudeagentsinahierarchy(Orchestrator/L…
 
 
 

@@ -223,14 +223,14 @@ fn socket_request(action: &MemAction) -> Option<(&'static str, Option<serde_json
         MemAction::LearnPromote { id } => {
             Some(("mem.learn_promote", Some(serde_json::json!({ "id": id }))))
         }
-        MemAction::Flush { pane, title } => {
-            let pane_id = pane
+        MemAction::Flush { tab, title } => {
+            let tab_id = tab
                 .clone()
-                .or_else(|| std::env::var("CODETERM_PANE_ID").ok())
+                .or_else(|| std::env::var("CODETERM_TAB_ID").ok())
                 .unwrap_or_else(|| "current".to_string());
             Some((
                 "mem.flush",
-                Some(serde_json::json!({ "pane": pane_id, "title": title })),
+                Some(serde_json::json!({ "tab": tab_id, "title": title })),
             ))
         }
         MemAction::Sync { path } => Some(("mem.sync", Some(serde_json::json!({ "path": path })))),
@@ -360,7 +360,7 @@ mod tests {
                 "mem.learn_promote",
             ),
             (
-                vec!["codeterm", "mem", "flush", "--tab", "pane1"],
+                vec!["codeterm", "mem", "flush", "--tab", "tab1"],
                 "mem.flush",
             ),
             (vec!["codeterm", "mem", "sync"], "mem.sync"),

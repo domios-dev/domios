@@ -4,7 +4,7 @@ use crate::shell::ShellSyntax;
 #[test]
 fn cross_mesh_worker_skips_local_role_assignment() {
     use crate::multiplexer::types::AgentRole;
-    // Regression: mesh `--role Worker` 500'd via set_pane_role(Worker, None).
+    // Regression: mesh `--role Worker` 500'd via set_tab_role(Worker, None).
     // A mesh report target + no local parent must skip local role assignment.
     assert!(skip_local_worker_role(
         &AgentRole::Worker,
@@ -19,7 +19,7 @@ fn local_and_orchestrator_roles_keep_local_assignment() {
     // Locally-parented worker → keep hierarchy.
     assert!(!skip_local_worker_role(
         &AgentRole::Worker,
-        Some("parent-pane"),
+        Some("parent-tab"),
         Some("Mac-Air")
     ));
     // Worker with no mesh peer (purely local) → keep (and let it error as before).
@@ -33,7 +33,7 @@ fn local_and_orchestrator_roles_keep_local_assignment() {
     ));
     assert!(!skip_local_worker_role(
         &AgentRole::Manager,
-        Some("parent-pane"),
+        Some("parent-tab"),
         Some("Mac-Air")
     ));
 }
@@ -151,7 +151,7 @@ fn explicit_orchestrator_task_still_starts_an_execution_turn() {
 }
 
 #[test]
-fn fresh_spawn_never_uses_existing_pane_promotion_delivery() {
+fn fresh_spawn_never_uses_existing_tab_promotion_delivery() {
     for source in [include_str!("spawn.rs"), include_str!("../spawn.rs")] {
         assert!(!source.contains("maybe_deliver_orchestrator_promotion_onboarding"));
         assert!(
@@ -191,17 +191,17 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         description: None,
         role: None,
         role_profile: None,
-        parent_pane_id: None,
+        parent_tab_id: None,
         plan_id: None,
         can_spawn: None,
         workspace_id: None,
         force_tab: None,
         existing_tab_id: None,
         skip_orchestrator_onboarding: None,
-        report_target_pane_id: None,
+        report_target_tab_id: None,
         report_target_mesh_peer: None,
         skip_permissions: None,
-        spawned_by_pane_id: None,
+        spawned_by_tab_id: None,
         model: None,
         planned_model: None,
         reasoning_effort: None,

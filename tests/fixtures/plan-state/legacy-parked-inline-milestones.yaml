@@ -2,9 +2,9 @@ id: task_inline_milestones
 name: Inline milestone comment fixture
 status: parked
 park_reason: null # retain the legacy field comment on rename
-assigned_pane_id: pane_inline
+assigned_tab_id: tab_inline
 lane:
-  pane_id: pane_inline
+  tab_id: tab_inline
 milestones: [] # keep this audit-list comment
 execution_attempts:
   - id: attempt_inline

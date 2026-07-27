@@ -7,10 +7,10 @@ import { recordPerfMetric } from "../../helpers/perf-metrics";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { API_BASE, expect, readDevToken, test, type Browser, type PaneCleanup, type Page } from "../../helpers/fixtures";
+import { API_BASE, expect, readDevToken, test, type Browser, type TabCleanup, type Page } from "../../helpers/fixtures";
 import { type ApiClient } from "../../helpers/api-client";
 
-const PANE_COUNT = 25;
+const TAB_COUNT = 25;
 // Cold web mount is out-of-band setup, not the measured composer window; bound
 // it so a stuck mount fails fast under the default per-test timeout instead of
 // consuming a 90s escalated budget.
@@ -39,7 +39,7 @@ interface PerfSummary {
   max: number;
   samples: number;
   composerRenders: number;
-  paneRenders: number;
+  tabRenders: number;
   longTasks: number;
   longTaskMax: number;
   longTaskTotalMs: number;
@@ -69,7 +69,7 @@ interface BackendEvidence {
 declare global {
   interface Window {
     __codetermTestChat?: {
-      pushMessages: (paneId: string, messages: TestChatMessage[]) => void;
+      pushMessages: (tabId: string, messages: TestChatMessage[]) => void;
     };
     __composerPerf?: {
       inputMarks: Array<{ id: number; at: number; inputType: string }>;
@@ -94,29 +94,29 @@ declare global {
     };
     __perfLongTasks?: number[];
     __perfChurnStop?: () => void;
-    __muxPerfChurnPane?: (paneId: string) => void;
+    __muxPerfChurnTab?: (tabId: string) => void;
   }
 }
 
-async function createFixture(api: ApiClient, paneCleanup: PaneCleanup): Promise<{ paneIds: string[]; tabIds: string[] }> {
-  const paneIds: string[] = [];
+async function createFixture(api: ApiClient, tabCleanup: TabCleanup): Promise<{ tabIds: string[]; tabIds: string[] }> {
   const tabIds: string[] = [];
-  for (let i = 0; i < PANE_COUNT; i += 1) {
-    const pane = await paneCleanup.createPane<{ id: string; tab_id?: string }>({
+  const tabIds: string[] = [];
+  for (let i = 0; i < TAB_COUNT; i += 1) {
+    const tab = await tabCleanup.createTab<{ id: string; tab_id?: string }>({
       title: `pw-composer-perf-${String(i).padStart(2, "0")}`,
     });
-    paneIds.push(pane.id);
-    if (pane.tab_id) tabIds.push(pane.tab_id);
-    await api.post(`/panes/${pane.id}/agent-type`, { agent_type: "claude" });
-    await api.post(`/panes/${pane.id}/chat-view`, { enabled: true });
+    tabIds.push(tab.id);
+    if (tab.tab_id) tabIds.push(tab.tab_id);
+    await api.post(`/tabs/${tab.id}/agent-type`, { agent_type: "claude" });
+    await api.post(`/tabs/${tab.id}/chat-view`, { enabled: true });
     if (i === 0) {
-      await api.post(`/panes/${pane.id}/role`, { role: "Orchestrator" }).catch(() => {});
+      await api.post(`/tabs/${tab.id}/role`, { role: "Orchestrator" }).catch(() => {});
     } else {
-      await api.post(`/panes/${pane.id}/role`, { role: "Worker", parent_pane_id: paneIds[0] }).catch(() => {});
+      await api.post(`/tabs/${tab.id}/role`, { role: "Worker", parent_tab_id: tabIds[0] }).catch(() => {});
     }
   }
-  await api.focusPane(paneIds[0]);
-  return { paneIds, tabIds };
+  await api.focusTab(tabIds[0]);
+  return { tabIds, tabIds };
 }
 
 async function openWebPage(browser: Browser): Promise<Page> {
@@ -135,13 +135,13 @@ async function openWebPage(browser: Browser): Promise<Page> {
   return page;
 }
 
-async function openFixturePage(page: Page, paneIds: string[], tabIds: string[]): Promise<void> {
+async function openFixturePage(page: Page, tabIds: string[], tabIds: string[]): Promise<void> {
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.waitForSelector("#root > *", { state: "attached", timeout: WEB_MOUNT_CAP_MS });
   if (tabIds[0]) {
     await page.locator(`[data-testid="tab-item"][data-tab-id="${tabIds[0]}"]`).first().click({ timeout: 30_000 });
   }
-  const chat = page.locator(`[data-testid="pane-session-chat"][data-pane-id="${paneIds[0]}"]`);
+  const chat = page.locator(`[data-testid="tab-session-chat"][data-tab-id="${tabIds[0]}"]`);
   await expect(chat).toBeVisible({ timeout: 30_000 });
   await expect(chat.locator('[data-testid="chat-composer"]')).toBeVisible({ timeout: 30_000 });
 }
@@ -163,14 +163,14 @@ async function installPerfCollectors(page: Page): Promise<void> {
   });
 }
 
-async function seedTranscript(page: Page, paneIds: string[]): Promise<void> {
+async function seedTranscript(page: Page, tabIds: string[]): Promise<void> {
   await page.evaluate(
     ({ ids, initialCount }) => {
       for (let i = 0; i < ids.length; i += 1) {
         const messages = Array.from({ length: initialCount }, (_, n) => ({
           id: `seed-${i}-${n}`,
           type: n % 11 === 0 ? "tool_call" : n % 5 === 0 ? "user" : "assistant",
-          content: `build pane ${String(i).padStart(2, "0")} chunk ${n}\n\n\`\`\`text\nCompiling crate_${n % 37}\nwarning: generated output ${n}\n\`\`\``,
+          content: `build tab ${String(i).padStart(2, "0")} chunk ${n}\n\n\`\`\`text\nCompiling crate_${n % 37}\nwarning: generated output ${n}\n\`\`\``,
           timestamp: String(1_700_003_000_000 + i * 100_000 + n),
           provider: "perf",
         }));
@@ -183,34 +183,34 @@ async function seedTranscript(page: Page, paneIds: string[]): Promise<void> {
         }
       }
     },
-    { ids: paneIds, initialCount: INITIAL_MESSAGES },
+    { ids: tabIds, initialCount: INITIAL_MESSAGES },
   );
 }
 
-async function startSustainedLoad(page: Page, paneIds: string[]): Promise<void> {
+async function startSustainedLoad(page: Page, tabIds: string[]): Promise<void> {
   await page.evaluate(
     ({ ids, batchSize, intervalMs }) => {
       let batch = 0;
       const push = () => {
-        for (let paneIndex = 0; paneIndex < ids.length; paneIndex += 1) {
+        for (let tabIndex = 0; tabIndex < ids.length; tabIndex += 1) {
           const messages = Array.from({ length: batchSize }, (_, i) => {
             const n = batch * batchSize + i;
             return {
-              id: `live-${paneIndex}-${n}`,
+              id: `live-${tabIndex}-${n}`,
               type: n % 11 === 0 ? "tool_result" : n % 5 === 0 ? "user" : "assistant",
-              content: `live build output pane=${paneIndex} n=${n}\n\n\`\`\`text\n${"warning: output ".repeat(20)}${n}\n\`\`\``,
-              timestamp: String(1_700_004_000_000 + paneIndex * 100_000 + n),
+              content: `live build output tab=${tabIndex} n=${n}\n\n\`\`\`text\n${"warning: output ".repeat(20)}${n}\n\`\`\``,
+              timestamp: String(1_700_004_000_000 + tabIndex * 100_000 + n),
               provider: "perf",
             };
           });
-          window.__codetermTestChat?.pushMessages(ids[paneIndex], messages as TestChatMessage[]);
+          window.__codetermTestChat?.pushMessages(ids[tabIndex], messages as TestChatMessage[]);
           if (window.__outputStreamPerf) {
             window.__outputStreamPerf.frames += messages.length;
             window.__outputStreamPerf.batches += 1;
             window.__outputStreamPerf.bytes += messages.reduce((sum, message) => sum + message.content.length, 0);
             window.__outputStreamPerf.lastFrameAt = performance.now();
           }
-          window.__muxPerfChurnPane?.(ids[paneIndex]);
+          window.__muxPerfChurnTab?.(ids[tabIndex]);
         }
         batch += 1;
       };
@@ -218,7 +218,7 @@ async function startSustainedLoad(page: Page, paneIds: string[]): Promise<void> 
       const id = window.setInterval(push, intervalMs);
       window.__perfChurnStop = () => window.clearInterval(id);
     },
-    { ids: paneIds, batchSize: LIVE_BATCH_SIZE, intervalMs: LIVE_INTERVAL_MS },
+    { ids: tabIds, batchSize: LIVE_BATCH_SIZE, intervalMs: LIVE_INTERVAL_MS },
   );
 }
 
@@ -233,8 +233,8 @@ function backendEvidence(): BackendEvidence {
   };
 }
 
-async function exerciseInput(page: Page, paneId: string): Promise<{ cpuStart: number; cpuEnd: number }> {
-  const composer = page.locator(`[data-testid="pane-session-chat"][data-pane-id="${paneId}"] [data-testid="chat-composer"]`);
+async function exerciseInput(page: Page, tabId: string): Promise<{ cpuStart: number; cpuEnd: number }> {
+  const composer = page.locator(`[data-testid="tab-session-chat"][data-tab-id="${tabId}"] [data-testid="chat-composer"]`);
   await composer.focus();
   await composer.press("ArrowLeft");
   await composer.press("ArrowRight");
@@ -269,7 +269,7 @@ async function exerciseInput(page: Page, paneId: string): Promise<{ cpuStart: nu
   await composer.press(process.platform === "darwin" ? "Meta+V" : "Control+V");
   await expect(composer).toHaveValue(`ime-safeかな${PASTED_TEXT}`);
 
-  const input = page.locator(`[data-testid="pane-session-chat"][data-pane-id="${paneId}"] [data-testid="composer-attach-input"]`);
+  const input = page.locator(`[data-testid="tab-session-chat"][data-tab-id="${tabId}"] [data-testid="composer-attach-input"]`);
   await input.setInputFiles({
     name: "composer-perf-attachment.txt",
     mimeType: "text/plain",
@@ -284,10 +284,10 @@ async function exerciseInput(page: Page, paneId: string): Promise<{ cpuStart: nu
   return { cpuStart, cpuEnd };
 }
 
-async function summarize(page: Page, mode: PerfSummary["mode"], paneIds: string[], cpuStart: number, cpuEnd: number): Promise<PerfSummary> {
+async function summarize(page: Page, mode: PerfSummary["mode"], tabIds: string[], cpuStart: number, cpuEnd: number): Promise<PerfSummary> {
   const variant = process.env.CT_PERF_VARIANT ?? "after";
   const summary = await page.evaluate(
-    ({ targetPaneId, openPaneCount, start, end, runMode, runVariant }) => {
+    ({ targetTabId, openTabCount, start, end, runMode, runVariant }) => {
       const latencies = window.__composerPerf?.paintLatencies ?? [];
       const sorted = [...latencies].sort((a, b) => a - b);
       const pick = (p: number) => sorted[Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * p))] ?? 0;
@@ -295,7 +295,7 @@ async function summarize(page: Page, mode: PerfSummary["mode"], paneIds: string[
       const ipc = window.__ipcPerf ?? { invokes: 0, events: 0, invokeMs: 0 };
       const output = window.__outputStreamPerf ?? { frames: 0, bytes: 0, batches: 0 };
       const wallSeconds = Math.max(0.001, (end - start) / 1000);
-      const messages = Array.from(document.querySelectorAll(`[data-testid="pane-session-chat"][data-pane-id="${targetPaneId}"] [data-testid="chat-message"]`));
+      const messages = Array.from(document.querySelectorAll(`[data-testid="tab-session-chat"][data-tab-id="${targetTabId}"] [data-testid="chat-message"]`));
       return {
         variant: runVariant,
         mode: runMode,
@@ -303,8 +303,8 @@ async function summarize(page: Page, mode: PerfSummary["mode"], paneIds: string[
         p95: pick(0.95),
         max: sorted[sorted.length - 1] ?? 0,
         samples: latencies.length,
-        composerRenders: window.__composerPerf?.renderCounts[targetPaneId] ?? 0,
-        paneRenders: window.__renderCounts?.[targetPaneId] ?? 0,
+        composerRenders: window.__composerPerf?.renderCounts[targetTabId] ?? 0,
+        tabRenders: window.__renderCounts?.[targetTabId] ?? 0,
         longTasks: longTasks.length,
         longTaskMax: Math.max(0, ...longTasks),
         longTaskTotalMs: longTasks.reduce((sum, value) => sum + value, 0),
@@ -319,13 +319,13 @@ async function summarize(page: Page, mode: PerfSummary["mode"], paneIds: string[
         transcriptMessages: messages.length,
         transcriptFirst: (messages[0] as HTMLElement | undefined)?.innerText?.slice(0, 80) ?? "",
         transcriptLast: (messages[messages.length - 1] as HTMLElement | undefined)?.innerText?.slice(0, 80) ?? "",
-        openTabs: document.querySelectorAll('[data-testid="tab-item"]').length || openPaneCount,
+        openTabs: document.querySelectorAll('[data-testid="tab-item"]').length || openTabCount,
         scenarioWallMs: end - start,
         cpuMainThreadBusyRatio: longTasks.reduce((sum, value) => sum + value, 0) / Math.max(1, end - start),
         backendEvidence: { lockHoldLines: [], slowIpcLines: [], queueWaitLines: [] },
       } satisfies PerfSummary;
     },
-    { targetPaneId: paneIds[0], openPaneCount: paneIds.length, start: cpuStart, end: cpuEnd, runMode: mode, runVariant: variant },
+    { targetTabId: tabIds[0], openTabCount: tabIds.length, start: cpuStart, end: cpuEnd, runMode: mode, runVariant: variant },
   );
   summary.backendEvidence = backendEvidence();
   return summary;
@@ -337,16 +337,16 @@ async function writeArtifact(testInfo: { outputPath: (...pathSegments: string[])
   console.log(`COMPOSER_PERF_${summary.mode.toUpperCase()} ${JSON.stringify(summary)}`);
 }
 
-async function runScenario(page: Page, mode: PerfSummary["mode"], paneIds: string[], tabIds: string[], testInfo: { outputPath: (...pathSegments: string[]) => string }): Promise<void> {
-  await openFixturePage(page, paneIds, tabIds);
+async function runScenario(page: Page, mode: PerfSummary["mode"], tabIds: string[], tabIds: string[], testInfo: { outputPath: (...pathSegments: string[]) => string }): Promise<void> {
+  await openFixturePage(page, tabIds, tabIds);
   const hasTestHook = await page.evaluate(() => typeof window.__codetermTestChat !== "undefined");
   test.skip(!hasTestHook, "VITE_CODETERM_TEST hooks are required for deterministic transcript churn");
   await installPerfCollectors(page);
-  await seedTranscript(page, paneIds);
-  await startSustainedLoad(page, paneIds);
-  const { cpuStart, cpuEnd } = await exerciseInput(page, paneIds[0]);
+  await seedTranscript(page, tabIds);
+  await startSustainedLoad(page, tabIds);
+  const { cpuStart, cpuEnd } = await exerciseInput(page, tabIds[0]);
   await page.evaluate(() => window.__perfChurnStop?.());
-  const summary = await summarize(page, mode, paneIds, cpuStart, cpuEnd);
+  const summary = await summarize(page, mode, tabIds, cpuStart, cpuEnd);
   await writeArtifact(testInfo, summary);
   recordPerfMetric({
     name: "composer-keystroke",
@@ -357,13 +357,13 @@ async function runScenario(page: Page, mode: PerfSummary["mode"], paneIds: strin
     max: summary.max,
     budget: 32,
   });
-  expect(summary.openTabs).toBeGreaterThanOrEqual(PANE_COUNT);
+  expect(summary.openTabs).toBeGreaterThanOrEqual(TAB_COUNT);
   expect(summary.samples).toBeGreaterThanOrEqual(30);
   expect(summary.transcriptMessages).toBeGreaterThan(200);
   // Capped/virtualized history rotates the absolute first message out under
   // sustained churn; assert the window still holds the seeded/churn family.
-  expect(summary.transcriptFirst).toMatch(/build pane|live build output/);
-  expect(summary.transcriptLast).toMatch(/live build output|warning: output|build pane/);
+  expect(summary.transcriptFirst).toMatch(/build tab|live build output/);
+  expect(summary.transcriptLast).toMatch(/live build output|warning: output|build tab/);
   expect(summary.p95).toBeLessThanOrEqual(32);
   expect(summary.max).toBeLessThanOrEqual(100);
 }
@@ -371,29 +371,29 @@ async function runScenario(page: Page, mode: PerfSummary["mode"], paneIds: strin
 test("@perf composer stays next-frame under 25-tab WebView2 load", async ({
   api,
   ui,
-  paneCleanup,
+  tabCleanup,
 }, testInfo) => {
   await ui.reconnect();
   await ui.page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
     origin: new URL(API_BASE).origin,
   });
-  const { paneIds, tabIds } = await createFixture(api, paneCleanup);
-  expect(paneIds).toHaveLength(PANE_COUNT);
-  expect(tabIds).toHaveLength(PANE_COUNT);
-  await runScenario(ui.page, "webview2", paneIds, tabIds, testInfo);
+  const { tabIds, tabIds } = await createFixture(api, tabCleanup);
+  expect(tabIds).toHaveLength(TAB_COUNT);
+  expect(tabIds).toHaveLength(TAB_COUNT);
+  await runScenario(ui.page, "webview2", tabIds, tabIds, testInfo);
 });
 
 test("@perf composer stays next-frame under 25-tab web-mode load", async ({
   api,
   webBrowser,
-  paneCleanup,
+  tabCleanup,
 }, testInfo) => {
-  const { paneIds, tabIds } = await createFixture(api, paneCleanup);
-  expect(paneIds).toHaveLength(PANE_COUNT);
-  expect(tabIds).toHaveLength(PANE_COUNT);
+  const { tabIds, tabIds } = await createFixture(api, tabCleanup);
+  expect(tabIds).toHaveLength(TAB_COUNT);
+  expect(tabIds).toHaveLength(TAB_COUNT);
   const page = await openWebPage(webBrowser);
   try {
-    await runScenario(page, "web", paneIds, tabIds, testInfo);
+    await runScenario(page, "web", tabIds, tabIds, testInfo);
   } finally {
     await page.context().close();
   }

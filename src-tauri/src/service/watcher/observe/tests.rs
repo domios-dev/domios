@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::agent::chat_types::ChatMsg;
 use crate::agent::reports::{AgentReport, ReportStatus};
-use crate::agent::status::{PaneStatus, PaneStatusTracker};
+use crate::agent::status::{TabStatus, TabStatusTracker};
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
 
@@ -13,35 +13,35 @@ use super::{
 
 fn fixture_mux() -> (MultiplexerState, WatchFixtureIds) {
     let (mut mux, orch) = MultiplexerState::new();
-    mux.rename_pane(&orch, "Orchestrator").unwrap();
+    mux.rename_tab(&orch, "Orchestrator").unwrap();
 
-    let planner = mux.create_pane();
-    mux.set_pane_role(&planner, AgentRole::Manager, Some(&orch))
+    let planner = mux.create_tab();
+    mux.set_tab_role(&planner, AgentRole::Manager, Some(&orch))
         .unwrap();
-    mux.rename_pane(&planner, "Planner").unwrap();
-    mux.get_pane_mut(&planner).unwrap().role_profile = Some("planner".into());
+    mux.rename_tab(&planner, "Planner").unwrap();
+    mux.get_tab_mut(&planner).unwrap().role_profile = Some("planner".into());
 
-    let watcher = mux.create_pane();
-    mux.set_pane_role(&watcher, AgentRole::Manager, Some(&orch))
+    let watcher = mux.create_tab();
+    mux.set_tab_role(&watcher, AgentRole::Manager, Some(&orch))
         .unwrap();
-    mux.rename_pane(&watcher, "Watcher-1").unwrap();
-    mux.get_pane_mut(&watcher).unwrap().role_profile = Some("watcher".into());
+    mux.rename_tab(&watcher, "Watcher-1").unwrap();
+    mux.get_tab_mut(&watcher).unwrap().role_profile = Some("watcher".into());
 
-    let watcher2 = mux.create_pane();
-    mux.set_pane_role(&watcher2, AgentRole::Manager, Some(&orch))
+    let watcher2 = mux.create_tab();
+    mux.set_tab_role(&watcher2, AgentRole::Manager, Some(&orch))
         .unwrap();
-    mux.rename_pane(&watcher2, "Watcher-2").unwrap();
-    mux.get_pane_mut(&watcher2).unwrap().role_profile = Some("watcher".into());
+    mux.rename_tab(&watcher2, "Watcher-2").unwrap();
+    mux.get_tab_mut(&watcher2).unwrap().role_profile = Some("watcher".into());
 
-    let worker_a = mux.create_pane();
-    mux.set_pane_role(&worker_a, AgentRole::Worker, Some(&orch))
+    let worker_a = mux.create_tab();
+    mux.set_tab_role(&worker_a, AgentRole::Worker, Some(&orch))
         .unwrap();
-    mux.rename_pane(&worker_a, "Worker-A").unwrap();
+    mux.rename_tab(&worker_a, "Worker-A").unwrap();
 
-    let worker_b = mux.create_pane();
-    mux.set_pane_role(&worker_b, AgentRole::Worker, Some(&orch))
+    let worker_b = mux.create_tab();
+    mux.set_tab_role(&worker_b, AgentRole::Worker, Some(&orch))
         .unwrap();
-    mux.rename_pane(&worker_b, "Worker-B").unwrap();
+    mux.rename_tab(&worker_b, "Worker-B").unwrap();
 
     (
         mux,
@@ -66,7 +66,7 @@ struct WatchFixtureIds {
 }
 
 fn snapshot_with_idle(mux: &MultiplexerState) -> crate::multiplexer::state::MultiplexerSnapshot {
-    let tracker = PaneStatusTracker::new();
+    let tracker = TabStatusTracker::new();
     mux.snapshot_with_status(&tracker)
 }
 
@@ -76,7 +76,7 @@ fn group_excludes_self_and_other_watchers() {
     let snap = snapshot_with_idle(&mux);
     let group = collect_watch_group(&snap, &ids.watcher).expect("group");
     assert_eq!(group.orchestrator_id, ids.orch);
-    let set: std::collections::HashSet<_> = group.pane_ids.iter().cloned().collect();
+    let set: std::collections::HashSet<_> = group.tab_ids.iter().cloned().collect();
     assert!(set.contains(&ids.orch));
     assert!(set.contains(&ids.planner));
     assert!(set.contains(&ids.worker_a));
@@ -103,22 +103,22 @@ fn parent_chain_resolves_orchestrator() {
 fn is_manager_watcher_matches_profile_only() {
     let (mux, ids) = fixture_mux();
     let snap = snapshot_with_idle(&mux);
-    assert!(is_manager_watcher(snap.panes.get(&ids.watcher).unwrap()));
-    assert!(!is_manager_watcher(snap.panes.get(&ids.planner).unwrap()));
+    assert!(is_manager_watcher(snap.tabs.get(&ids.watcher).unwrap()));
+    assert!(!is_manager_watcher(snap.tabs.get(&ids.planner).unwrap()));
 }
 
 #[test]
-fn build_observation_includes_expected_panes() {
+fn build_observation_includes_expected_tabs() {
     let (mux, ids) = fixture_mux();
     let mut snap = snapshot_with_idle(&mux);
-    snap.pane_statuses
-        .insert(ids.worker_a.clone(), PaneStatus::Working);
+    snap.tab_statuses
+        .insert(ids.worker_a.clone(), TabStatus::Working);
 
     let chat_store: HashMap<String, Vec<ChatMsg>> = HashMap::new();
     let activity = HashMap::from([(ids.worker_a.clone(), 9_000u64)]);
-    let chat_tail = |pane_id: &str, n: usize| {
+    let chat_tail = |tab_id: &str, n: usize| {
         chat_store
-            .get(pane_id)
+            .get(tab_id)
             .map(|v| v.iter().rev().take(n).rev().cloned().collect())
             .unwrap_or_default()
     };
@@ -128,22 +128,22 @@ fn build_observation_includes_expected_panes() {
         last_activity_ms: &activity,
     };
     let obs = build_observation(&snap, &ids.watcher, &ObservationConfig::default(), &sources);
-    let panes = obs["panes"].as_array().expect("Tabs array");
-    let pane_ids: Vec<_> = panes
+    let tabs = obs["tabs"].as_array().expect("Tabs array");
+    let tab_ids: Vec<_> = tabs
         .iter()
-        .filter_map(|p| p.get("pane_id").and_then(|v| v.as_str()))
+        .filter_map(|p| p.get("tab_id").and_then(|v| v.as_str()))
         .collect();
-    assert_eq!(pane_ids.len(), 4);
-    assert!(pane_ids.contains(&ids.orch.as_str()));
-    assert!(pane_ids.contains(&ids.planner.as_str()));
-    assert!(pane_ids.contains(&ids.worker_a.as_str()));
-    assert!(pane_ids.contains(&ids.worker_b.as_str()));
-    assert!(!pane_ids.contains(&ids.watcher.as_str()));
-    assert!(!pane_ids.contains(&ids.watcher2.as_str()));
+    assert_eq!(tab_ids.len(), 4);
+    assert!(tab_ids.contains(&ids.orch.as_str()));
+    assert!(tab_ids.contains(&ids.planner.as_str()));
+    assert!(tab_ids.contains(&ids.worker_a.as_str()));
+    assert!(tab_ids.contains(&ids.worker_b.as_str()));
+    assert!(!tab_ids.contains(&ids.watcher.as_str()));
+    assert!(!tab_ids.contains(&ids.watcher2.as_str()));
 
-    let worker = panes
+    let worker = tabs
         .iter()
-        .find(|p| p["pane_id"] == ids.worker_a)
+        .find(|p| p["tab_id"] == ids.worker_a)
         .expect("worker row");
     assert_eq!(worker["status"], "Working");
     assert_eq!(worker["last_activity_ms"], 9_000);
@@ -176,9 +176,9 @@ fn chat_tail_attaches_last_n_messages() {
             },
         ],
     )]);
-    let chat_tail = |pane_id: &str, n: usize| {
+    let chat_tail = |tab_id: &str, n: usize| {
         chat_store
-            .get(pane_id)
+            .get(tab_id)
             .map(|msgs| {
                 let start = msgs.len().saturating_sub(n);
                 msgs[start..].to_vec()
@@ -196,11 +196,11 @@ fn chat_tail_attaches_last_n_messages() {
         reports: false,
     };
     let obs = build_observation(&snap, &ids.watcher, &config, &sources);
-    let worker = obs["panes"]
+    let worker = obs["tabs"]
         .as_array()
         .unwrap()
         .iter()
-        .find(|p| p["pane_id"] == ids.worker_a)
+        .find(|p| p["tab_id"] == ids.worker_a)
         .expect("worker");
     let tail = worker["chatTail"].as_array().expect("chatTail");
     assert_eq!(tail.len(), 2);
@@ -214,7 +214,7 @@ fn reports_included_when_configured() {
     let snap = snapshot_with_idle(&mux);
     let reports = vec![AgentReport {
         id: "r1".into(),
-        from_pane_id: ids.worker_a.clone(),
+        from_tab_id: ids.worker_a.clone(),
         from_title: "Worker-A".into(),
         message: "done".into(),
         timestamp: 42,
@@ -248,7 +248,7 @@ fn reports_included_when_configured() {
         reports: true,
     };
     let obs = build_observation(&snap, &ids.watcher, &config, &sources);
-    assert!(obs.get("panes").is_none());
+    assert!(obs.get("tabs").is_none());
     let rows = obs["reports"].as_array().expect("reports");
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0]["message"], "done");

@@ -192,13 +192,13 @@ mod tests {
                 2,
             )
             .unwrap();
-        // A pane must exist before in_progress (write-time invariant); set it,
+        // A tab must exist before in_progress (write-time invariant); set it,
         // then flip status — this also exercises the lane fields in the yaml.
         store
             .fill_task_lane_if_empty(
                 &plan.id,
                 &task_id,
-                Some("pane-x"),
+                Some("tab-x"),
                 Some("lane/first"),
                 None,
                 3,

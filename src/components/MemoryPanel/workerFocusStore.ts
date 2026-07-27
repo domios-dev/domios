@@ -8,17 +8,17 @@ function notify() {
 }
 
 export const workerFocusStore = {
-  isFocused(paneId: string): boolean {
-    return focused.has(paneId);
+  isFocused(tabId: string): boolean {
+    return focused.has(tabId);
   },
-  focus(paneId: string) {
-    if (focused.has(paneId)) return;
-    focused.add(paneId);
+  focus(tabId: string) {
+    if (focused.has(tabId)) return;
+    focused.add(tabId);
     notify();
   },
-  unfocus(paneId: string) {
-    if (!focused.has(paneId)) return;
-    focused.delete(paneId);
+  unfocus(tabId: string) {
+    if (!focused.has(tabId)) return;
+    focused.delete(tabId);
     notify();
   },
   snapshot(): ReadonlySet<string> {
@@ -32,12 +32,12 @@ export const workerFocusStore = {
   },
 };
 
-export function isPaneVisible(
-  pane: { hidden?: boolean; id: string } | null | undefined,
+export function isTabVisible(
+  tab: { hidden?: boolean; id: string } | null | undefined,
 ): boolean {
-  if (!pane) return false;
-  if (!pane.hidden) return true;
-  return workerFocusStore.isFocused(pane.id);
+  if (!tab) return false;
+  if (!tab.hidden) return true;
+  return workerFocusStore.isFocused(tab.id);
 }
 
 export function useWorkerFocusVersion(): number {
