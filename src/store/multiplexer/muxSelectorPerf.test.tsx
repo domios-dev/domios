@@ -101,10 +101,14 @@ async function main() {
 
   const tabA = "tab-a-churn";
   const tabB = "tab-b-hidden";
+  const testWindow = window as typeof window & {
+    __renderCounts?: Record<string, number>;
+    __muxPerfChurnTab?: (tabId: string) => void;
+  };
 
   function Boot() {
     useLayoutEffect(() => {
-      window.__renderCounts = {};
+      testWindow.__renderCounts = {};
     }, []);
     return (
       <MultiplexerProvider>
@@ -132,21 +136,21 @@ async function main() {
     throw new Error("VITE_CODETERM_TEST not visible to isCodeTermFrontendTestMode");
   }
 
-  if (!window.__muxPerfChurnTab) {
+  if (!testWindow.__muxPerfChurnTab) {
     throw new Error("__muxPerfChurnTab hook missing — VITE_CODETERM_TEST path broken");
   }
 
-  const beforeB = window.__renderCounts?.[tabB] ?? 0;
-  const beforeA = window.__renderCounts?.[tabA] ?? 0;
+  const beforeB = testWindow.__renderCounts?.[tabB] ?? 0;
+  const beforeA = testWindow.__renderCounts?.[tabA] ?? 0;
 
   for (let i = 0; i < 60; i += 1) {
     await act(async () => {
-      window.__muxPerfChurnTab?.(tabA);
+      testWindow.__muxPerfChurnTab?.(tabA);
     });
   }
 
-  const afterB = window.__renderCounts?.[tabB] ?? 0;
-  const afterA = window.__renderCounts?.[tabA] ?? 0;
+  const afterB = testWindow.__renderCounts?.[tabB] ?? 0;
+  const afterA = testWindow.__renderCounts?.[tabA] ?? 0;
   const deltaB = afterB - beforeB;
   const deltaA = afterA - beforeA;
 

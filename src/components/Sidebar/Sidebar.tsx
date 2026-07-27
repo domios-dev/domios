@@ -23,7 +23,7 @@ import {
   WS_PREFIX,
 } from "./sortable";
 import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
-import { Segmented } from "../shared/Segmented";
+import { LiquidFlip } from "../shared/LiquidToggle";
 import type { MeshPresence } from "./meshPresenceHeader";
 import { flattenSidebarTabs, isSidebarTabVisible, tabsInWorkspace } from "./workspaceTabs";
 import { aggregateTabStatuses } from "./tabStatuses";
@@ -846,14 +846,12 @@ export function Sidebar({
                   {!isCompact && <span className={touchMode ? sidebarNavTouchText : sidebarNavText}>Mesh</span>}
                 </button>
                 {!isCompact && (
-                  <Segmented
+                  <LiquidFlip
                     data-testid="mesh-presence-toggle"
-                    aria-label="Mesh on/off"
+                    aria-label="Mesh presence"
                     className="shrink-0 text-[10px]"
-                    height={24}
-                    value={meshPresence === "online" ? "on" : "off"}
-                    options={[{ value: "off", label: "off" }, { value: "on", label: "on" }]}
-                    onChange={(next) => setMeshEnabled(next === "on")}
+                    checked={meshPresence === "online"}
+                    onCheckedChange={setMeshEnabled}
                   />
                 )}
               </div>

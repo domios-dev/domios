@@ -48,18 +48,26 @@ async function main() {
   if (chat?.tagName !== "BUTTON" || terminal?.tagName !== "BUTTON") throw new Error("segments are keyboard-operable buttons");
 
   const segmentedSource = readFileSync(resolve(import.meta.dirname, "Segmented.tsx"), "utf8");
-  assert.match(segmentedSource, /font-semibold text-\[var\(--ct-on-accent,#fff\)\]/);
+  assert.match(segmentedSource, /"--sx-from"/);
+  assert.match(segmentedSource, /"--sx-to"/);
+  assert.match(segmentedSource, /ct-liquid-segmented__thumb--travel/);
+  assert.match(segmentedSource, /onAnimationEnd/);
   assert.doesNotMatch(segmentedSource, /text-\[var\(--ct-bg\)\]/);
-  assert.match(segmentedSource, /transition: "left var\(--ct-duration-liquid-hover\) var\(--ct-ease-liquid-settle\)"/);
   assert.doesNotMatch(segmentedSource, /duration-200|ease-out/);
 
   const globals = readFileSync(resolve(import.meta.dirname, "../../styles/globals.css"), "utf8");
-  assert.match(globals, /\.ct-segmented-option:focus-visible/);
+  assert.match(globals, /\.ct-liquid-segmented__option\[aria-selected="true"\]\s*\{[^}]*color:\s*var\(--ct-fg\)/s);
+  assert.doesNotMatch(globals, /\.ct-liquid-segmented__option\[aria-selected="true"\]\s*\{[^}]*var\(--ct-bg\)/s);
+  assert.match(globals, /\.ct-liquid-segmented__option:focus-visible/);
+  const travelKeyframes = globals.match(/@keyframes ct-liquid-control-x\s*\{[\s\S]*?\n\}/)?.[0] ?? "";
+  for (const stop of ["0%", "38%", "60%", "78%", "100%"]) assert.match(travelKeyframes, new RegExp(stop.replace("%", "%")));
+  assert.match(travelKeyframes, /scale\(1\.3,\s*0\.82\)/);
+  assert.match(travelKeyframes, /scale\(0\.86,\s*1\.09\)/);
   const reducedMotionBlocks = globals.match(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n\}/g) ?? [];
-  assert(reducedMotionBlocks.some((block) => /\.ct-segmented-thumb/.test(block) && /transition: none/.test(block)));
+  assert(reducedMotionBlocks.some((block) => /\.ct-liquid-segmented__thumb/.test(block) && /animation: none !important/.test(block)));
 
   await act(async () => root.unmount());
-  console.log("ok - segmented accessibility contract");
+  console.log("ok - liquid segmented accessibility and motion contract");
 }
 
 void main();
