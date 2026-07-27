@@ -1,4 +1,10 @@
-import type { ReactNode } from "react";
+import {
+  useCallback,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 
 export interface SegmentedOption<T extends string> {
   value: T;
@@ -11,7 +17,6 @@ interface SegmentedProps<T extends string> {
   value: T;
   options: SegmentedOption<T>[];
   onChange: (value: T) => void;
-  /** Track height in px — every segment and the thumb share it. */
   height?: number;
   className?: string;
   "data-testid"?: string;
@@ -19,13 +24,6 @@ interface SegmentedProps<T extends string> {
   "aria-label"?: string;
 }
 
-/**
- * Two-or-more-way pill switch with a sliding thumb. Theme-driven (derives every
- * color from --ct tokens so it reads on any palette). Uses an equal-column grid
- * (`grid-auto-columns: 1fr`) so every segment is the SAME width regardless of
- * label length — flex `flex-1` would let the longest label claim more than its
- * share (min-content), throwing the half-width thumb off-centre.
- */
 export function Segmented<T extends string>({
   value,
   options,
@@ -34,65 +32,66 @@ export function Segmented<T extends string>({
   className = "",
   ...rest
 }: SegmentedProps<T>) {
-  const count = options.length;
-  const activeIndex = Math.max(0, options.findIndex((o) => o.value === value));
+  const [travelKey, setTravelKey] = useState(0);
+  const from = useRef<number | null>(null);
+  const activeIndex = Math.max(0, options.findIndex((option) => option.value === value));
+  const select = useCallback(
+    (index: number) => {
+      if (index !== activeIndex) {
+        from.current = activeIndex;
+        setTravelKey((key) => key + 1);
+      }
+      onChange(options[index].value);
+    },
+    [activeIndex, onChange, options],
+  );
+  const traveling = from.current !== null;
+  const style = {
+    height,
+    "--seg-count": options.length,
+    "--seg-index": activeIndex,
+  } as CSSProperties;
+  const thumbStyle = traveling
+    ? {
+        "--sx-from": `${from.current! * 100}%`,
+        "--sx-to": `${activeIndex * 100}%`,
+      } as CSSProperties
+    : undefined;
+
   return (
     <div
       role="tablist"
+      aria-label={rest["aria-label"]}
       data-testid={rest["data-testid"]}
       data-tab-id={rest["data-tab-id"]}
-      aria-label={rest["aria-label"]}
-      className={`relative inline-grid select-none rounded-full p-[2px] ${className}`}
-      style={{
-        height,
-        gridAutoFlow: "column",
-        gridAutoColumns: "1fr",
-        background: "var(--ct-bg)",
-        border: "1px solid var(--ct-border)",
-      }}
+      className={`ct-liquid-segmented ${className}`}
+      style={style}
     >
       <span
+        key={travelKey}
         aria-hidden
-        className="ct-segmented-thumb absolute rounded-full"
-        style={{
-          top: 2,
-          bottom: 2,
-          // Same basis as the equal grid columns (containing-block padding box).
-          left: `calc(2px + ${activeIndex} * (100% - 4px) / ${count})`,
-          width: `calc((100% - 4px) / ${count})`,
-          background: "var(--ct-accent)",
-          transition: "left var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle)",
+        className={`ct-liquid-segmented__thumb${traveling ? " ct-liquid-segmented__thumb--travel" : ""}`}
+        style={thumbStyle}
+        onAnimationEnd={() => {
+          from.current = null;
         }}
       />
-      {options.map((o) => {
-        const active = o.value === value;
-        return (
-          <button
-            key={o.value}
-            type="button"
-            role="tab"
-            data-value={o.value}
-            aria-selected={active}
-            title={o.title ?? o.label}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onChange(o.value)}
-            className={`ct-segmented-option relative z-[1] flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-[11px] transition-colors ${
-              active
-                ? "font-semibold text-[var(--ct-on-accent,#fff)]"
-                : "font-medium text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
-            }`}
-            style={{ lineHeight: 1 }}
-          >
-            {o.icon && (
-              <span className="inline-flex shrink-0 transition-colors">
-
-                {o.icon}
-              </span>
-            )}
-            <span>{o.label}</span>
-          </button>
-        );
-      })}
+      {options.map((option, index) => (
+        <button
+          key={option.value}
+          type="button"
+          role="tab"
+          className="ct-liquid-segmented__option"
+          data-value={option.value}
+          aria-selected={index === activeIndex}
+          title={option.title ?? option.label}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => select(index)}
+        >
+          {option.icon && <span className="ct-liquid-segmented__icon">{option.icon}</span>}
+          <span>{option.label}</span>
+        </button>
+      ))}
     </div>
   );
 }
