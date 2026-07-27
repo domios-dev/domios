@@ -1,5 +1,5 @@
 import { invoke } from "../../lib/bridge";
-import type { Tab, TabStatus, Tab } from "../../lib/types";
+import type { Tab, TabStatus } from "../../lib/types";
 import type { Plan } from "../Canvas/types";
 import type { ActiveWorkSnapshot } from "../Canvas/planView/activeWork";
 import type { TabTabActivity } from "../Canvas/tabTabActivity";
@@ -24,7 +24,7 @@ export function resolvePlannerPeerTabContext(
   const peerPair = resolvePlanPeerPair(orchestratorTab.id, plans, tabs);
   const plannerPeerId = peerPair?.plannerTabId ?? null;
   const plannerTab =
-    plannerPeerId != null ? childTabs.find((t) => t.tab_id === plannerPeerId) ?? null : null;
+    plannerPeerId != null ? childTabs.find((tab) => tab.id === plannerPeerId) ?? null : null;
   const peerExclude =
     plannerTab && plannerPeerId ? new Set<string>([plannerPeerId]) : undefined;
   return { plannerTab, peerExclude };
@@ -33,7 +33,6 @@ export function resolvePlannerPeerTabContext(
 export interface SidebarTabItemRowProps {
   tab: Tab;
   index: number;
-  tab: Tab | null;
   activity: TabTabActivity | null;
   activeWork?: ActiveWorkSnapshot | null;
   reportCount?: number;
@@ -59,7 +58,6 @@ export interface SidebarTabItemRowProps {
 function SidebarTabItemRow({
   tab,
   index,
-  tab,
   activity,
   activeWork = null,
   reportCount = 0,
@@ -95,10 +93,9 @@ function SidebarTabItemRow({
       onClose={() => onCloseTab(tab.id)}
       canClose={true}
       workspaceId={workspaceId}
-      hasAgent={Boolean(tab?.agent_type)}
-      status={tab ? tabStatuses[tab.id] ?? null : null}
+      hasAgent={Boolean(tab.agent_type)}
+      status={tabStatuses[tab.id] ?? null}
       onRename={(title) => onRenameTab(tab.id, title)}
-      tab={tab}
       orchestrators={orchestrators}
       isAppearing={isAppearing}
       isClosing={isClosing}
@@ -127,16 +124,15 @@ export function SidebarSingleTabRow({
   groupKey,
   items,
   pinnedIds,
-  tab,
   ...rowProps
 }: SidebarSingleTabRowProps) {
   return (
     <SortableRow
       id={`${TAB_PREFIX}${rowProps.tab.id}`}
-      disabled={tab?.protected}
+      disabled={rowProps.tab.protected}
       data={{ group, groupKey, items, pinnedIds }}
     >
-      <SidebarTabItemRow tab={tab} {...rowProps} />
+      <SidebarTabItemRow {...rowProps} />
     </SortableRow>
   );
 }

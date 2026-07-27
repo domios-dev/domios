@@ -16,7 +16,7 @@ export function resolveTabNavigationTarget(
   if (!tabId) return null;
 
   const workspace = workspaces.find((candidate) =>
-    candidate.tabs.some((tab) => tab.tab_id === tabId),
+    candidate.tabs.includes(tabId),
   );
   return workspace ? { tabId, workspaceId: workspace.id } : null;
 }

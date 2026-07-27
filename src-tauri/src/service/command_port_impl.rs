@@ -78,11 +78,11 @@ impl CommandPort for ServiceContext {
         &self,
         ws_id: &str,
         index: Option<usize>,
-    ) -> Result<(String, String), String> {
+    ) -> Result<String, String> {
         ServiceContext::reopen_closed_tab(self, ws_id, index)
     }
 
-    fn reopen_closed_group(&self, group_id: &str) -> Result<(String, String, String), String> {
+    fn reopen_closed_group(&self, group_id: &str) -> Result<(String, String), String> {
         ServiceContext::reopen_closed_group(self, group_id)
     }
 

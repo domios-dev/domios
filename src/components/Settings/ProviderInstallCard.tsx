@@ -7,7 +7,6 @@ import { Chip } from "../shared/Chip";
 
 interface InstallTabResult {
   tab_id: string;
-  tab_id: string;
 }
 
 type Status = "checking" | "installed" | "missing";

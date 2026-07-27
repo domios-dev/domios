@@ -26,8 +26,8 @@ function workspaceByTab(workspaces: readonly Workspace[]): Map<string, Workspace
     const id = clean(workspace.id);
     const label = clean(workspace.name) ?? id;
     if (!label) continue;
-    for (const tab of workspace.tabs) {
-      byTab.set(tab.tab_id, { id, label });
+    for (const tabId of workspace.tabs) {
+      byTab.set(tabId, { id, label });
     }
   }
   return byTab;

@@ -293,27 +293,27 @@ impl ServiceContext {
     /// Reopen a recently-closed tab (browser-style). `index` picks the ring
     /// entry (newest = 0, default). Re-materializes the tab with its original
     /// backing in a fresh, activated tab; the restore path then resumes a PTY
-    /// agent or lazily reloads a chatBackend transcript. Returns (tab_id, tab_id).
+    /// agent or lazily reloads a chatBackend transcript.
     pub fn reopen_closed_tab(
         &self,
         workspace_id: &str,
         index: Option<usize>,
-    ) -> Result<(String, String), String> {
-        let (tab_id, tab_id) = {
+    ) -> Result<String, String> {
+        let tab_id = {
             let mut mux = self.mux.write();
             let result = mux.reopen_closed_tab(workspace_id, index)?;
-            let _ = mux.set_active_tab(workspace_id, &result.0);
+            let _ = mux.set_active_tab(workspace_id, &result);
             result
         };
         self.emit_state_changed();
-        Ok((tab_id, tab_id))
+        Ok(tab_id)
     }
 
     /// Reopen a whole closed group (single / cascade subtree / workspace) by id.
     /// Recreates the workspace if needed, restores every tab in the group,
     /// relinks the hierarchy, and activates the resulting tab/workspace.
-    /// Returns (workspace_id, tab_id, first_tab_id).
-    pub fn reopen_closed_group(&self, group_id: &str) -> Result<(String, String, String), String> {
+    /// Returns (workspace_id, tab_id).
+    pub fn reopen_closed_group(&self, group_id: &str) -> Result<(String, String), String> {
         let result = {
             let mut mux = self.mux.write();
             let r = mux.reopen_closed_group(group_id)?;
@@ -326,8 +326,8 @@ impl ServiceContext {
     }
 
     /// Reopen a tab from the orphaned ring. Recreates the workspace and
-    /// activates it. Returns (workspace_id, tab_id, tab_id).
-    pub fn reopen_orphaned_tab(&self, tab_id: &str) -> Result<(String, String, String), String> {
+    /// activates it. Returns (workspace_id, tab_id).
+    pub fn reopen_orphaned_tab(&self, tab_id: &str) -> Result<(String, String), String> {
         let result = {
             let mut mux = self.mux.write();
             let r = mux.reopen_orphaned_tab(tab_id)?;

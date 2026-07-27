@@ -63,11 +63,8 @@ const workspace: Workspace = {
   id: "ws-1",
   name: "Hub",
   cwd: "/repo/hub",
-  active_tab_id: "tab-1",
-  tabs: [
-    { id: "tab-1", tab_id: "orch-1" },
-    { id: "tab-2", tab_id: "worker-1" },
-  ],
+  active_tab_id: "orch-1",
+  tabs: ["orch-1", "worker-1"],
 };
 
 function indexEntry(overrides: Partial<PlanIndexEntry> = {}): PlanIndexEntry {

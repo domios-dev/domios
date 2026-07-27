@@ -226,7 +226,6 @@ export interface Team {
 export interface AtomicSpawn {
   snapshot: MultiplexerState;
   tab_id: string;
-  tab_id: string;
   workspace_id: string;
   launch_command?: string;
   warning?: string;
@@ -366,7 +365,6 @@ export interface CronRunInfo {
   started_at: number;
   finished_at: number | null;
   status: CronRunStatus;
-  tab_id: string | null;
   tab_id: string | null;
   session_id?: string | null;
   cwd?: string | null;

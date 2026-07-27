@@ -295,8 +295,11 @@ function AppInner() {
   );
 
   const activeTab = useMemo(
-    () => activeWs?.tabs.find((t) => t.id === state.activeTabIds[activeWs.id]),
-    [activeWs, state.activeTabIds],
+    () => {
+      const activeTabId = activeWs ? state.activeTabIds[activeWs.id] : null;
+      return activeTabId ? state.tabs[activeTabId] : undefined;
+    },
+    [activeWs, state.activeTabIds, state.tabs],
   );
   const activePluginViewScope = useMemo(
     () => pluginViewScope(state.active_workspace_id, state.activeTabIds),
@@ -314,9 +317,7 @@ function AppInner() {
   }, [activePluginViewScope, closePluginView, pluginViewId, pluginViewOwner]);
   const prewarmBackendTab = useCallback(async (tabId: string) => {
     const current = stateRef.current;
-    const tab = current.workspaces.flatMap((ws) => ws.tabs).find((candidate) => candidate.id === tabId);
-    if (!tab) return;
-    const tab = current.tabs[tab.tab_id];
+    const tab = current.tabs[tabId];
     if (!tab || tab.backing?.kind === "chat_backend" || !tab.agent_type) return;
     await invoke("spawn_pty", {
       tabId: tab.id,
@@ -332,12 +333,12 @@ function AppInner() {
     activeTabId: activeTab?.id ?? null,
     tabIds:
       activeWs?.tabs
-        .filter((tab) => {
-          const tab = state.tabs[tab.tab_id];
+        .filter((tabId) => {
+          const tab = state.tabs[tabId];
           return tab && !(activeWs.protected === true && tab.protected === true);
         })
-        .map((tab) => tab.id) ?? [],
-    liveTabIds: state.workspaces.flatMap((ws) => ws.tabs.map((tab) => tab.id)),
+        ?? [],
+    liveTabIds: state.workspaces.flatMap((ws) => ws.tabs),
     prewarmTab: prewarmBackendTab,
   });
   const showWorkspaceCanvas =
@@ -658,17 +659,19 @@ function AppInner() {
           )}
           {state.workspaces.length > 0 ? (
             state.workspaces.flatMap((ws) =>
-              ws.tabs.map((tab) => {
-                const isActiveTab = ws.id === state.active_workspace_id && tab.id === state.activeTabIds[ws.id];
+              ws.tabs.map((tabId) => {
+                const tab = state.tabs[tabId];
+                if (!tab) return null;
+                const isActiveTab = ws.id === state.active_workspace_id && tabId === state.activeTabIds[ws.id];
                 // lazy — mount it on boot so its chat/SSE state is live.
                 const isMainTab =
-                  ws.protected === true && state.tabs[tab.tab_id]?.protected === true;
-                const shouldMountTab = isActiveTab || isMainTab || prewarmTabIds.has(tab.id);
+                  ws.protected === true && tab.protected === true;
+                const shouldMountTab = isActiveTab || isMainTab || prewarmTabIds.has(tabId);
                 if (!shouldMountTab) return null;
                 const isVisible = mainView === "workspace" && !pluginViewId && isActiveTab;
                 return (
               <div
-                key={tab.id}
+                key={tabId}
                 className="absolute inset-0"
                 inert={!isVisible || undefined}
                 style={{
@@ -679,8 +682,8 @@ function AppInner() {
                 }}
               >
                 <MemoizedTabContent
-                  tab={state.tabs[tab.tab_id]}
-                  isFocused={state.focused_tab_id === tab.tab_id}
+                  tab={tab}
+                  isFocused={state.focused_tab_id === tabId}
                   onFocusTab={setFocusedTab}
                   onPtySpawned={handlePtySpawned}
                   theme={stableTheme}

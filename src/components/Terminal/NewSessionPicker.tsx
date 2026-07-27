@@ -112,7 +112,7 @@ export function NewSessionPicker({
   const handleInstallProvider = useCallback((providerId: string) => {
     void (async () => {
       try {
-        const res = await invoke<{ tab_id: string; tab_id: string }>(
+        const res = await invoke<{ tab_id: string }>(
           "install_provider_in_tab",
           { providerId },
         );
@@ -175,15 +175,13 @@ export function NewSessionPicker({
   }, [newWorkspaceName, createWorkspace]);
 
   const finishSpawn = useCallback(async (
-    runner: () => Promise<{ workspaceId: string; tabId: string; tabId?: string } | null>,
+    runner: () => Promise<{ workspaceId: string; tabId: string } | null>,
   ) => {
     setBusy(true);
     try {
       const created = await runner();
       if (created) {
-        if (!created.tabId) {
-          await selectTabByTab(created.workspaceId, created.tabId).catch(() => {});
-        }
+        await selectTabByTab(created.workspaceId, created.tabId).catch(() => {});
         onClose();
       }
     } catch (e) {

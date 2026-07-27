@@ -2,7 +2,7 @@
 
 import type { Workspace } from "../../lib/types";
 import { canvasFocusStore } from "./canvasFocusStore";
-import { findTabTabContext, revealAssignedAgentTab } from "./planRevealAgentTab";
+import { findTabContext, revealAssignedAgentTab } from "./planRevealAgentTab";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -17,27 +17,24 @@ const workspace: Workspace = {
   id: "ws-1",
   name: "Hub",
   cwd: "/repo/hub",
-  active_tab_id: "tab-1",
-  tabs: [
-    { id: "tab-1", tab_id: "orch-1" },
-    { id: "tab-2", tab_id: "worker-1" },
-  ],
+  active_tab_id: "orch-1",
+  tabs: ["orch-1", "worker-1"],
 };
 
-test("findTabTabContext resolves tab for Tab id", () => {
-  const ctx = findTabTabContext([workspace], "worker-1");
+test("findTabContext resolves workspace for Tab id", () => {
+  const ctx = findTabContext([workspace], "worker-1");
   assert(ctx?.workspaceId === "ws-1", "workspace id");
-  assert(ctx?.tabId === "tab-2", "tab id");
+  assert(ctx?.tabId === "worker-1", "tab id");
 });
 
-test("findTabTabContext trims Tab id", () => {
-  const ctx = findTabTabContext([workspace], " worker-1 ");
-  assert(ctx?.tabId === "tab-2", "trimmed Tab resolves");
+test("findTabContext trims Tab id", () => {
+  const ctx = findTabContext([workspace], " worker-1 ");
+  assert(ctx?.tabId === "worker-1", "trimmed Tab resolves");
 });
 
-test("findTabTabContext returns null for unknown Tab", () => {
-  assert(findTabTabContext([workspace], "missing") === null, "unknown Tab");
-  assert(findTabTabContext([workspace], "  ") === null, "blank Tab");
+test("findTabContext returns null for unknown Tab", () => {
+  assert(findTabContext([workspace], "missing") === null, "unknown Tab");
+  assert(findTabContext([workspace], "  ") === null, "blank Tab");
 });
 
 test("revealAssignedAgentTab closes canvas overlays and activates tab", () => {

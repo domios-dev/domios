@@ -77,7 +77,7 @@ function workspace(id: string, tabIds: string[]): Workspace {
   return {
     id,
     name: id,
-    tabs: tabIds.map((tab_id, i) => ({ id: `${id}-tab-${i}`, tab_id })),
+    tabs: tabIds,
     active_tab_id: null,
     cwd: null,
   };

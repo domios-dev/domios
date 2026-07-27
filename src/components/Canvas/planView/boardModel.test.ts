@@ -328,8 +328,8 @@ test("selectDefaultPlanId prefers a plan with real work over a fresh junk 0-task
 const WS_CURRENT = "ws-current";
 const WS_OTHER = "ws-other";
 const scopeWorkspaces: Workspace[] = [
-  { id: WS_CURRENT, name: WS_CURRENT, tabs: [{ id: "t-cur", tab_id: "orch-current" }], active_tab_id: null, cwd: null },
-  { id: WS_OTHER, name: WS_OTHER, tabs: [{ id: "t-oth", tab_id: "orch-other" }], active_tab_id: null, cwd: null },
+  { id: WS_CURRENT, name: WS_CURRENT, tabs: ["orch-current"], active_tab_id: null, cwd: null },
+  { id: WS_OTHER, name: WS_OTHER, tabs: ["orch-other"], active_tab_id: null, cwd: null },
 ];
 const scopeTeams: Team[] = [
   { id: "team-other", lifecycle: "active", created_at: 0, workspace_id: WS_OTHER },

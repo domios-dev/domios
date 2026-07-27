@@ -24,7 +24,7 @@ import {
 } from "./sortable";
 import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
 import type { MeshPresence } from "./meshPresenceHeader";
-import { flattenSidebarTabs, isSidebarTabVisible } from "./workspaceTabs";
+import { flattenSidebarTabs, isSidebarTabVisible, tabsInWorkspace } from "./workspaceTabs";
 import { aggregateTabStatuses } from "./tabStatuses";
 import { useFullPlansOptional, usePlanIndexOptional } from "../Canvas/PlansProvider";
 import { selectActiveWork } from "../Canvas/planView/activeWork";
@@ -386,7 +386,7 @@ export function Sidebar({
   const allTabIds = useMemo(() => {
     const ids = new Set<string>();
     for (const ws of state.workspaces) {
-      for (const tab of ws.tabs) ids.add(tab.id);
+      for (const tabId of ws.tabs) ids.add(tabId);
     }
     return ids;
   }, [state.workspaces]);
@@ -439,8 +439,8 @@ export function Sidebar({
   const requestTeamClose = useCallback((wsId: string, teamId: string, managerTabId: string) => {
     const ws = state.workspaces.find((workspace) => workspace.id === wsId);
     if (!ws) return;
-    const teamTabs = ws.tabs.filter(
-      (tab) => (state.tabs[tab.tab_id] as (typeof state.tabs)[string] & { team_id?: string | null })?.team_id === teamId,
+    const teamTabs = tabsInWorkspace(ws.tabs, state.tabs).filter(
+      (tab) => (tab as typeof tab & { team_id?: string | null }).team_id === teamId,
     );
     const team = state.teams.find((candidate) => candidate.id === teamId);
     setPendingTeamClose({
@@ -448,12 +448,11 @@ export function Sidebar({
       managerTabId,
       teamName: team?.name?.trim() || "Team",
       members: teamTabs.map((tab) => {
-        const tab = state.tabs[tab.tab_id];
         return {
-          tabId: tab.tab_id,
-          title: tab?.title || "Tab",
-          role: tab?.role ?? null,
-          roleProfile: tab?.role_profile ?? null,
+          tabId: tab.id,
+          title: tab.title || "Tab",
+          role: tab.role ?? null,
+          roleProfile: tab.role_profile ?? null,
         };
       }),
     });
@@ -508,9 +507,9 @@ export function Sidebar({
   const workspaceStatuses = useMemo(() => Object.fromEntries(ordinaryWorkspaces.map((workspace) => [
     workspace.id,
     aggregateTabStatuses(
-      workspace.tabs
-        .filter((tab) => isSidebarTabVisible(tab, state.tabs))
-        .map((tab) => tab.tab_id),
+      tabsInWorkspace(workspace.tabs, state.tabs)
+        .filter(isSidebarTabVisible)
+        .map((tab) => tab.id),
       state.tabStatuses,
     ),
   ])), [ordinaryWorkspaces, state.tabStatuses, state.tabs]);
@@ -545,9 +544,9 @@ export function Sidebar({
               {!isCompact && generalWorkspace && (() => {
                 const generalExpanded = expandedWorkspaces.has(generalWorkspace.id);
                 const generalActive = generalWorkspace.id === state.active_workspace_id && isWorkspaceMode;
-                const generalTabs = sortByOrder(generalWorkspace.tabs);
+                const generalTabs = tabsInWorkspace(generalWorkspace.tabs, state.tabs);
                 const generalFirstRunActive = generalTabs.some((tab) =>
-                  isFirstRunGeneralTab(state.tabs[tab.tab_id]),
+                  isFirstRunGeneralTab(tab),
                 );
                 const generalOrchestrators = Object.values(state.tabs).filter((tab) => tab.role === "Orchestrator");
                 return (
@@ -644,7 +643,6 @@ export function Sidebar({
                         {isExpanded && (
                           <>
                             {flattenSidebarTabs(ws.tabs, state.tabs).map((tab) => {
-                          const tab = state.tabs[tab.tab_id];
                           const isTabActive = isWorkspaceTabActive(
                             isActiveVisual,
                             workspaceCanvasActive,
@@ -660,8 +658,8 @@ export function Sidebar({
                                   ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
                                   : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-muted-fg)]"
                               }`}
-                              aria-label={`Open tab ${displayTitleForTab(tab, state.tabs[tab.tab_id])}`}
-                              title={displayTitleForTab(tab, state.tabs[tab.tab_id])}
+                              aria-label={`Open tab ${displayTitleForTab(tab, tab)}`}
+                              title={displayTitleForTab(tab, tab)}
                             >
                               {tab?.agent_type ? (
                                 <AgentIcon providerId={tab.agent_type} className="text-[12px]" />
@@ -693,7 +691,7 @@ export function Sidebar({
                     onCreate={handleNewWorkspace}
                   />
                   {ordinaryWorkspaces.map((ws) => {
-                    const sortedTabs = sortByOrder(ws.tabs);
+                    const sortedTabs = tabsInWorkspace(ws.tabs, state.tabs);
                     const selected = ws.id === selectedWorkspaceId;
                     const isActiveVisual = ws.id === state.active_workspace_id && isWorkspaceMode;
                     const wsOrchestrators = Object.values(state.tabs).filter((tab) => tab.role === "Orchestrator");

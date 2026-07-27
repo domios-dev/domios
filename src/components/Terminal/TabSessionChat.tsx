@@ -117,7 +117,7 @@ export function TabSessionChat({
   }, [tabId]);
   const teamName = useMuxSelector(teamNameSelector);
   const projectNameSelector = useCallback((state: Parameters<typeof selectTab>[0]) => {
-    const workspace = state.workspaces.find((candidate) => candidate.tabs.some((tab) => tab.tab_id === tabId));
+    const workspace = state.workspaces.find((candidate) => candidate.tabs.includes(tabId));
     return workspace?.name ?? null;
   }, [tabId]);
   const projectName = useMuxSelector(projectNameSelector);
