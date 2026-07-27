@@ -87,6 +87,7 @@ function planIndexEntry(planId = "plan-team", teamId: string | null = TEAM.id): 
   return {
     plan_id: planId,
     file_path: "/workspace/.codeterm/plans/active/plan-team/plan.json",
+    canonical_project_path: "/workspace",
     owner: { pane_id: "orch", session_id: null, title: null },
     title: "Sidebar team effort",
     status: "active",

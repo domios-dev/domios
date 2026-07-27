@@ -247,6 +247,10 @@ const HTTP_MAP: Record<string, Mapper> = {
     webJson("DELETE", `/api/panes/${enc(s(a, "paneId"))}/role`),
   mux_make_orchestrator: (a) =>
     webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/make-orchestrator`),
+  mux_make_planner: (a) =>
+    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/make-planner`, {
+      plan_id: s(a, "planId"),
+    }),
   mux_set_chat_view: async (a) => {
     setClientPaneUiMode(s(a, "paneId"), a.chatView ?? a.enabled ? "chat" : "terminal");
     return { ok: true };

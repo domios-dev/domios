@@ -11,6 +11,5 @@ export function canMakeOrchestrator(pane: Pane | null | undefined): boolean {
   if (!isAgentCapablePane(pane)) return false;
   if (pane.protected) return false;
   if (pane.role === "Orchestrator") return false;
-  if (pane.parent_pane_id) return false;
   return true;
 }

@@ -49,12 +49,12 @@ test("ineligible: already orchestrator", () => {
   );
 });
 
-test("ineligible: worker in hierarchy", () => {
+test("eligible: worker can atomically transition out of hierarchy", () => {
   assert(
-    !canMakeOrchestrator(
+    canMakeOrchestrator(
       mkPane({ agent_type: "claude", role: "Worker", parent_pane_id: "orch-1" }),
     ),
-    "nested worker blocked",
+    "nested worker can become an orchestrator",
   );
 });
 

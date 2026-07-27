@@ -14,6 +14,7 @@
 
 pub mod activity;
 pub mod agent_restart;
+mod agent_transition;
 pub mod boot_stage;
 mod boot_wait;
 pub(crate) mod chat_send_transaction;
@@ -104,6 +105,7 @@ use crate::{
 };
 
 // Re-export public types used by callers.
+pub(crate) use agent_transition::{AgentPlacement, AgentTransitionRequest};
 pub(crate) use hierarchy::FirstPlanTeamError;
 pub use hierarchy::PaneStatusInfo;
 pub use inject_verify::{

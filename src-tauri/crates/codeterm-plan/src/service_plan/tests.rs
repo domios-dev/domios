@@ -1031,3 +1031,31 @@ fn public_task_add_lands_in_archived_inbox_artifact() {
     assert_eq!(plan.tasks[0].id, task_id);
     assert_eq!(plan.tasks[0].name, "standalone");
 }
+#[test]
+fn index_projection_keeps_canonical_ownership_separate_from_central_storage() {
+    let storage = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let database_path = storage.path().join("plans.db");
+    let canonical_project_path = std::fs::canonicalize(project.path())
+        .unwrap()
+        .display()
+        .to_string();
+    let plan = Plan::new(
+        "Central ownership projection".into(),
+        canonical_project_path.clone(),
+        OrchestratorRef::from_pane("owner-pane"),
+    );
+    let database = store_db::PlanDatabase::open(database_path.clone()).unwrap();
+    let stored_path = database.persist_plan(&plan, None).unwrap();
+    let entry = PlanStore::index_entry(&plan, stored_path);
+
+    assert_eq!(entry.file_path, database_path);
+    assert_eq!(entry.canonical_project_path, canonical_project_path);
+    let projection = serde_json::to_value(&entry).unwrap();
+    assert_eq!(
+        projection["canonical_project_path"],
+        entry.canonical_project_path
+    );
+    assert!(!entry.file_path.starts_with(project.path()));
+    assert!(!project.path().join(".codeterm").join("plans").exists());
+}

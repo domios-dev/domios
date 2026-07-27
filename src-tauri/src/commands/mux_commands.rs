@@ -631,6 +631,23 @@ pub fn mux_make_orchestrator(svc: State<'_, ServiceState>, pane_id: String) -> R
     svc.make_orchestrator(&pane_id)
 }
 
+#[tauri::command]
+pub fn mux_make_planner(
+    svc: State<'_, ServiceState>,
+    pane_id: String,
+    plan_id: String,
+) -> Result<(), String> {
+    svc.transition_plan_planner(
+        &plan_id,
+        Some(crate::plan::PlannerRef::Pane {
+            pane_id,
+            session_id: None,
+            title: None,
+        }),
+    )?;
+    Ok(())
+}
+
 /// Toggle whether a pane can spawn child agents.
 #[tauri::command]
 pub fn mux_set_can_spawn(

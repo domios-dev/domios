@@ -19,7 +19,7 @@ import {
 import { usePaneProvider, useShellSessionModel } from "../../lib/usePaneProvider";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { usePlanIndexOptional } from "../Canvas/PlansProvider";
-import { findPlanOwnerWorkspace, openPlanDeepLink } from "../Canvas/workspacePlanEntry";
+import { openPlanDeepLink } from "../Canvas/workspacePlanEntry";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { ApiConfig, PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
@@ -35,7 +35,7 @@ import { WatcherReadOnlyBar } from "./WatcherReadOnlyBar";
 import { ChatSetupState, ChatSetupStatusLine, chatSetupView } from "./ChatSetupState";
 import { usePlanRefResolver } from "./usePlanRefResolver";
 import { reattachPaneChat } from "./chatReattach";
-import { planRefViewState } from "./planRefViewState";
+import { chatPlanRefView } from "./chatPlanRef";
 import { useChatScroll } from "./useChatScroll";
 import { resolveTabNavigationTarget } from "./tabNavigation";
 import { observeChatSendStatus } from "./chatSendStatus";
@@ -361,17 +361,12 @@ export function PaneSessionChat({
       const key = `${kind}:${planId}:${targetId ?? ""}`;
       const found = resolvedPlanRefs.refs.get(key);
       if (found) {
-        const ownerWorkspace = findPlanOwnerWorkspace(planId, planIndex, planNav.workspaces);
-        const state = planRefViewState(found.state, ownerWorkspace != null, resolvedPlanRefs.unreachable);
-        return {
-          title: found.title,
-          planTitle: found.plan_title,
-          taskTitle: found.task_title,
-          sectionTitle: found.section_title,
-          state,
-          rawLabel: targetId ?? planId,
-          fullRef: targetId ? `${planId}/${targetId}` : planId,
-        };
+        return chatPlanRefView(
+          found,
+          planIndex,
+          planNav.workspaces,
+          resolvedPlanRefs.unreachable,
+        );
       }
       return {
         title: targetId ?? planId,
@@ -385,16 +380,19 @@ export function PaneSessionChat({
   );
 
   const onOpenPlan = useCallback(
-    (planId: string, taskId?: string) => {
+    (planId: string, taskId?: string, targetKind?: "plan" | "task" | "section") => {
+      const kind = targetKind ?? (taskId ? "task" : "plan");
+      const resolved = resolvedPlanRefs.refs.get(`${kind}:${planId}:${taskId ?? ""}`);
       openPlanDeepLink(planId, taskId, {
         index: planIndex,
         workspaces: planNav.workspaces,
         activeWorkspaceId: planNav.activeWorkspaceId,
+        canonicalProjectPath: resolved?.canonical_project_path,
         setActiveWorkspace,
         onMissing: undefined,
       });
     },
-    [planIndex, planNav.workspaces, planNav.activeWorkspaceId, setActiveWorkspace],
+    [planIndex, planNav.workspaces, planNav.activeWorkspaceId, resolvedPlanRefs.refs, setActiveWorkspace],
   );
 
   const resolveFocusTab = useCallback((ref: string) => {

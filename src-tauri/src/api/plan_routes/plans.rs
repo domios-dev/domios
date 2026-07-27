@@ -214,6 +214,7 @@ struct ResolvedRef {
     task_title: Option<String>,
     section_title: Option<String>,
     file_path: Option<String>,
+    canonical_project_path: Option<String>,
     status: Option<PlanStatus>,
     owner_pane_id: Option<String>,
     owner_session_id: Option<String>,
@@ -253,6 +254,9 @@ fn resolve_ref(state: &AppState, index: &[IndexEntry], item: ResolveRefRequest) 
     let file_path = index_entry
         .as_ref()
         .map(|entry| entry.file_path.display().to_string());
+    let canonical_project_path = index_entry
+        .as_ref()
+        .map(|entry| entry.canonical_project_path.clone());
     let status = index_entry.as_ref().map(|entry| entry.status.clone());
     let owner_pane_id = index_entry
         .as_ref()
@@ -284,6 +288,7 @@ fn resolve_ref(state: &AppState, index: &[IndexEntry], item: ResolveRefRequest) 
             task_title: None,
             section_title: None,
             file_path,
+            canonical_project_path,
             status,
             owner_pane_id,
             owner_session_id,
@@ -308,6 +313,7 @@ fn resolve_ref(state: &AppState, index: &[IndexEntry], item: ResolveRefRequest) 
             task_title: None,
             section_title: None,
             file_path,
+            canonical_project_path,
             status,
             owner_pane_id,
             owner_session_id,
@@ -337,6 +343,7 @@ fn resolve_ref(state: &AppState, index: &[IndexEntry], item: ResolveRefRequest) 
                 task_title,
                 section_title: None,
                 file_path,
+                canonical_project_path,
                 status,
                 owner_pane_id,
                 owner_session_id,
@@ -370,6 +377,7 @@ fn resolve_ref(state: &AppState, index: &[IndexEntry], item: ResolveRefRequest) 
                 task_title: None,
                 section_title,
                 file_path,
+                canonical_project_path,
                 status,
                 owner_pane_id,
                 owner_session_id,
@@ -467,6 +475,7 @@ mod tests {
         IndexEntry {
             plan_id: plan_id.to_string(),
             file_path,
+            canonical_project_path: "/repo".into(),
             owner: OrchestratorRef::default(),
             team_id: None,
             title: "Indexed plan".into(),
@@ -737,9 +746,8 @@ pub async fn update(
             .map_err(|e| text_err(StatusCode::UNPROCESSABLE_ENTITY, e))?;
         state
             .svc
-            .plan_store
-            .set_planner_ref(&id, planner_ref, now)
-            .map_err(plan_err)?;
+            .transition_plan_planner(&id, planner_ref)
+            .map_err(|error| text_err(StatusCode::CONFLICT, error))?;
     }
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({ "ok": true })))

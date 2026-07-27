@@ -341,51 +341,6 @@ impl ServiceContext {
             })
             .ok_or_else(|| "planner request not found".into())
     }
-    pub fn set_pane_role(
-        &self,
-        pane_id: &str,
-        role_str: &str,
-        parent_pane_id: Option<&str>,
-        can_spawn: Option<bool>,
-    ) -> Result<(), String> {
-        let role = Self::parse_role(role_str)?;
-        let mut mux = self.mux.write();
-        mux.set_pane_role(pane_id, role, parent_pane_id)?;
-        if let Some(cs) = can_spawn {
-            if let Err(e) = mux.set_can_spawn(pane_id, cs) {
-                log::warn!("[hierarchy] set_can_spawn({}) failed: {}", pane_id, e);
-            }
-        }
-        drop(mux);
-        self.emit_state_changed();
-        Ok(())
-    }
-
-    pub fn clear_pane_role(&self, pane_id: &str) -> Result<(), String> {
-        match self.mux.write().clear_pane_role(pane_id) {
-            Ok(()) => {
-                self.emit_state_changed();
-                Ok(())
-            }
-            Err(e) if e.contains("not found") => {
-                // Cross-mesh workers live only in RemoteWorkerRegistry — their
-                // The foreign tab id is what `agent unlink --tab` passes.
-                let touched = self
-                    .remote_workers
-                    .forget_by_remote_pane(pane_id, None, None);
-                if touched.is_empty() {
-                    Err(e)
-                } else {
-                    for orch in touched {
-                        self.emit_remote_workers_changed(&orch);
-                    }
-                    Ok(())
-                }
-            }
-            Err(e) => Err(e),
-        }
-    }
-
     pub fn set_can_spawn(&self, pane_id: &str, can_spawn: bool) -> Result<(), String> {
         self.mux.write().set_can_spawn(pane_id, can_spawn)?;
         self.emit_state_changed();
