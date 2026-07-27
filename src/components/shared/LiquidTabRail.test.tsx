@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -38,6 +40,11 @@ async function main() {
   assert.equal(indicator?.style.getPropertyValue("--sx-from"), "0%");
   assert.equal(indicator?.style.getPropertyValue("--sx-to"), "300%");
   assert.equal(host.querySelector('[role="tablist"]')?.getAttribute("aria-label"), "Memory sections");
+  const css = readFileSync(resolve(import.meta.dirname, "../../styles/globals.css"), "utf8");
+  const mobileStart = css.indexOf("@media (max-width: 640px)");
+  const mobile = css.slice(mobileStart, css.indexOf(".ct-liquid-toggle", mobileStart));
+  assert.match(mobile, /\.ct-section-toolbar__tabs[\s\S]*flex:\s*0 0 100%/);
+  assert.match(mobile, /\.ct-liquid-tab-rail[\s\S]*min-width:\s*0/);
 
   await act(async () => root.unmount());
   console.log("liquid tab rail tests: passed");
