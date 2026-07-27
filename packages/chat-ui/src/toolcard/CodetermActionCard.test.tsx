@@ -47,26 +47,26 @@ await act(async () => showTask.click());
 if (planCalls[0]?.join("|") !== `${PLAN}|${TASK}|task`) throw new Error("plan navigation callback regression");
 
 const focusCalls: string[] = [];
-const sendHost = await render(<CodetermActionCard event={event('codeterm send --pane e3fa0754 "hello"')} expanded onToggle={() => {}} resolvePaneName={(ref) => ref === "e3fa0754" ? "Hugo" : undefined} onFocusPane={(ref) => focusCalls.push(ref)} />);
+const sendHost = await render(<CodetermActionCard event={event('codeterm send --tab e3fa0754 "hello"')} expanded onToggle={() => {}} resolvePaneName={(ref) => ref === "e3fa0754" ? "Hugo" : undefined} onFocusPane={(ref) => focusCalls.push(ref)} />);
 const focusTab = sendHost.host.querySelector<HTMLButtonElement>('[data-testid="codeterm-focus-pane"]');
 if (!focusTab || focusTab.textContent !== "Show Tab" || focusTab.textContent.includes("e3fa0754")) throw new Error("tab navigation label regression");
 await act(async () => focusTab.click());
 if (focusCalls[0] !== "e3fa0754") throw new Error("tab focus callback regression");
-const successfulSendHost = await render(<CodetermActionCard event={{ ...event('codeterm send --pane e3fa0754 "hello"'), result: "OK (sent)\nOK" }} expanded onToggle={() => {}} />);
+const successfulSendHost = await render(<CodetermActionCard event={{ ...event('codeterm send --tab e3fa0754 "hello"'), result: "OK (sent)\nOK" }} expanded onToggle={() => {}} />);
 if (successfulSendHost.host.querySelector('[data-testid="toolcard-result"]') || successfulSendHost.host.textContent?.includes("OK (sent)")) throw new Error("successful send result must stay hidden");
-const failedSendHost = await render(<CodetermActionCard event={{ ...event('codeterm send --pane e3fa0754 "hello"'), status: "error", result: "error: tab not found" }} expanded onToggle={() => {}} />);
+const failedSendHost = await render(<CodetermActionCard event={{ ...event('codeterm send --tab e3fa0754 "hello"'), status: "error", result: "error: tab not found" }} expanded onToggle={() => {}} />);
 if (!failedSendHost.host.querySelector('[data-testid="toolcard-result"]') || !failedSendHost.host.textContent?.includes("tab not found")) throw new Error("failed send result must remain visible");
-const resolvedSendHost = await render(<CodetermActionCard event={{ ...event('codeterm send --pane e3fa0754 "$VAR"'), result: 'OK (sent)\nCODETERM_RESOLVED_TEXT="expanded ***REDACTED*** text"' }} expanded onToggle={() => {}} />);
+const resolvedSendHost = await render(<CodetermActionCard event={{ ...event('codeterm send --tab e3fa0754 "$VAR"'), result: 'OK (sent)\nCODETERM_RESOLVED_TEXT="expanded ***REDACTED*** text"' }} expanded onToggle={() => {}} />);
 if (!resolvedSendHost.host.textContent?.includes("Delivered text")) throw new Error("resolved send must label delivered text");
 if (!resolvedSendHost.host.textContent.includes("expanded REDACTED text")) throw new Error("resolved send must render redacted text");
 if (resolvedSendHost.host.textContent.includes("expanded-secret")) throw new Error("resolved send must not reveal secret text");
-const typedSendHost = await render(<CodetermActionCard event={event('codeterm send --pane e3fa0754 "$VAR"')} expanded onToggle={() => {}} />);
+const typedSendHost = await render(<CodetermActionCard event={event('codeterm send --tab e3fa0754 "$VAR"')} expanded onToggle={() => {}} />);
 if (!typedSendHost.host.textContent?.includes("Source as typed") || !typedSendHost.host.textContent.includes("$VAR")) throw new Error("missing resolved output must honestly show source as typed");
 const sendHelpHost = await render(<CodetermActionCard event={event("codeterm send --help; codeterm docs ROUTING")} expanded={false} onToggle={() => {}} />);
 if (!sendHelpHost.host.textContent?.includes("help") || !sendHelpHost.host.textContent?.includes("send") || sendHelpHost.host.textContent?.includes("current tab")) throw new Error("send help must not look like an outgoing message");
 const docsHost = await render(<CodetermActionCard event={{ ...event("codeterm docs ORCHESTRATION"), result: "one two\nthree" }} expanded={false} onToggle={() => {}} />);
 if (!docsHost.host.textContent?.includes("3 words") || docsHost.host.textContent.includes("chars")) throw new Error("docs metric must count words");
-const unresolvedFocusHost = await render(<CodetermActionCard event={event('codeterm send --pane unknown-ref "hi"')} expanded onToggle={() => {}} onFocusPane={(ref) => focusCalls.push(ref)} />);
+const unresolvedFocusHost = await render(<CodetermActionCard event={event('codeterm send --tab unknown-ref "hi"')} expanded onToggle={() => {}} onFocusPane={(ref) => focusCalls.push(ref)} />);
 if (!unresolvedFocusHost.host.querySelector('[data-testid="codeterm-focus-pane"]')) throw new Error("tab focus should not require name resolver");
 
 const closeHost = await render(<CodetermActionCard event={event("codeterm tab close tab_x99ab")} expanded={false} onToggle={() => {}} resolvePaneName={(ref) => (ref === "tab_x99ab" ? "Research board" : undefined)} />);
@@ -133,7 +133,7 @@ const descriptorCases: Array<[string, string]> = [
   ["codeterm plan task add pl_d17yp2 --name \"Implement card\"", "plan task"],
   ["codeterm plan record pl_d17yp2 --task task_4orgnd --step \"decision\"", "decision"],
   ["codeterm agent report --status in_review --sha abc123", "report"],
-  ["codeterm send --pane e3fa0754 \"hello\"", "send"],
+  ["codeterm send --tab e3fa0754 \"hello\"", "send"],
   ["codeterm mem save --kind fact \"remember this\"", "mem save"],
   ["codeterm tab list", "tab list"],
   ["codeterm workspace focus ws_codeterm", "workspace"],
@@ -156,7 +156,7 @@ const reportCard = await render(<CodetermActionCard event={event('codeterm agent
 if (!reportCard.host.textContent?.includes("in_review") || !reportCard.host.textContent.includes("979a8683e")) throw new Error("report header regression");
 if (!reportCard.host.textContent.includes("changes") || !reportCard.host.textContent.includes("Added cards") || !reportCard.host.textContent.includes("tests") || !reportCard.host.textContent.includes("12 passed")) throw new Error("report fields regression");
 
-const tabOutputHost = await render(<CodetermActionCard event={event("codeterm tab get-text --pane e3fa0754")} expanded={false} onToggle={() => {}} resolvePaneName={() => "Hugo"} />);
+const tabOutputHost = await render(<CodetermActionCard event={event("codeterm tab get-text --tab e3fa0754")} expanded={false} onToggle={() => {}} resolvePaneName={() => "Hugo"} />);
 if (!tabOutputHost.host.textContent?.includes("tab get-text") || !tabOutputHost.host.textContent.includes("Hugo")) throw new Error("tab get-text descriptor regression");
 if (!tabOutputHost.host.querySelector(".lucide-scroll-text") || tabOutputHost.host.querySelector(".lucide-terminal")) throw new Error("tab get-text icon must differ from shell command");
 const wrappedTabList = await render(<CodetermActionCard event={{
@@ -195,7 +195,7 @@ const catalogVisuals: Array<[string, string]> = [
   ["codeterm agent spawn codex --role Worker", "lucide-bot"],
   ["codeterm agent report --status in_review", "lucide-message-square-text"],
   ["codeterm orchestrator status", "lucide-users"],
-  ['codeterm send --pane e3fa0754 "hi"', "lucide-send"],
+  ['codeterm send --tab e3fa0754 "hi"', "lucide-send"],
   ['codeterm send --mesh host "go"', "lucide-radio-tower"],
   ["codeterm mesh peers", "lucide-network"],
   ['codeterm mem save "fact"', "lucide-brain"],

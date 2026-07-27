@@ -98,7 +98,7 @@ pub fn render_lanes(val: &Value, stale_only: bool) -> String {
         };
     }
 
-    let headers = ["TASK", "STATUS", "PANE", "BRANCH", "WORKTREE", "CLEANUP"];
+    let headers = ["TASK", "STATUS", "TAB", "BRANCH", "WORKTREE", "CLEANUP"];
     let mut w = headers.map(|h| h.len());
     for r in &rows {
         let cells = [

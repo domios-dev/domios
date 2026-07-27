@@ -500,9 +500,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         && !explicit.starts_with(own.as_str());
                     if differs {
                         eprintln!(
-                            "Error: `agent report --pane {explicit}` reports AS that tab, not TO it.\n\
-                             Reports route to your parent automatically — drop --pane to report up the hierarchy.\n\
-                             To send a message to a specific tab, use `codeterm send --pane {explicit}`."
+                            "Error: `agent report --tab {explicit}` reports AS that tab, not TO it.\n\
+                             Reports route to your parent automatically — drop --tab to report up the hierarchy.\n\
+                             To send a message to a specific tab, use `codeterm send --tab {explicit}`."
                         );
                         std::process::exit(1);
                     }

@@ -87,7 +87,7 @@ mod tests {
             "status",
             "--plan",
             "pl_1",
-            "--pane",
+            "--tab",
             "pane1",
         ])
         .expect("orchestrator status parses");
@@ -110,7 +110,7 @@ mod tests {
             "inspect",
             "--plan",
             "pl_1",
-            "--pane",
+            "--tab",
             "pane1",
         ])
         .expect("orchestrator inspect parses");
@@ -133,7 +133,7 @@ mod tests {
             "refresh",
             "--plan",
             "pl_1",
-            "--pane",
+            "--tab",
             "pane1",
         ])
         .expect("orchestrator refresh parses");

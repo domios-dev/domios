@@ -295,11 +295,11 @@ mod tests {
             let text = std::fs::read_to_string(path).expect("read agent instruction source");
             assert!(
                 !text.contains("codeterm pane "),
-                "{path} teaches the removed `codeterm pane` namespace"
+                "{path} teaches the removed legacy command namespace"
             );
             assert!(
-                !text.contains(" --pane "),
-                "{path} teaches the removed `--pane` flag"
+                !text.contains(" --tab "),
+                "{path} teaches the removed `--tab` flag"
             );
         }
     }

@@ -395,7 +395,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         let expected = lane.clone();
-        // Explicit --pane overwrites the executor binding; fill-if-empty is only for implicit capture.
+        // Explicit --tab overwrites the executor binding; fill-if-empty is only for implicit capture.
         let pane_explicit = lane.pane_id.is_some();
         let write = self.with_plan(plan_id, now_ms, |p| {
             let task = p
