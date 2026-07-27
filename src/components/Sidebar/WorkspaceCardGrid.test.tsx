@@ -87,10 +87,13 @@ async function run() {
   );
   const workingIndicator = host.querySelector('[role="status"][aria-label="team_smoke has working tabs"]');
   assert(workingIndicator, "unselected working workspace exposes accessible activity");
+  const workingDots = workingIndicator.querySelector('.activity-dots');
+  assert(workingDots?.classList.contains("activity-dots--micro"), "working workspace uses micro activity dots");
+  assert(workingDots?.classList.contains("activity-dots--muted"), "working workspace uses muted activity dots");
   assert.equal(
     workingIndicator.querySelector('[aria-hidden="true"]')?.children.length,
-    3,
-    "working workspace uses a three-dot activity indicator",
+    1,
+    "working workspace uses the compact single-dot activity indicator",
   );
   assert(host.textContent?.includes("CT") && host.textContent.includes("TS"), "derived initials render");
 
