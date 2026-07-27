@@ -6,7 +6,6 @@ import type { PaneTabActivity } from "../Canvas/paneTabActivity";
 import { resolvePlanPeerPair } from "../shared/PairAffordance";
 import { SortableRow, TAB_PREFIX } from "./sortable";
 import { TabItem } from "./TabItem";
-import { aggregateTabStatus } from "./sidebarTabStatus";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 
 export interface PlannerPeerTabContext {
@@ -35,7 +34,6 @@ export interface SidebarTabItemRowProps {
   tab: Tab;
   index: number;
   pane: Pane | null;
-  paneIds: string[];
   activity: PaneTabActivity | null;
   activeWork?: ActiveWorkSnapshot | null;
   reportCount?: number;
@@ -45,7 +43,6 @@ export interface SidebarTabItemRowProps {
   activeTabId: string | null;
   isActiveVisual: boolean;
   workspaceCanvasActive: boolean;
-  panes: Record<string, Pane>;
   paneStatuses: Record<string, PaneStatus>;
   orchestrators: Pane[];
   touchMode: boolean;
@@ -63,7 +60,6 @@ function SidebarTabItemRow({
   tab,
   index,
   pane,
-  paneIds,
   activity,
   activeWork = null,
   reportCount = 0,
@@ -73,7 +69,6 @@ function SidebarTabItemRow({
   activeTabId,
   isActiveVisual,
   workspaceCanvasActive,
-  panes,
   paneStatuses,
   orchestrators,
   touchMode,
@@ -99,10 +94,9 @@ function SidebarTabItemRow({
       onClick={() => onActivateTab(tab.id)}
       onClose={() => onCloseTab(tab.id)}
       canClose={true}
-      paneCount={paneIds.length}
       workspaceId={workspaceId}
-      hasAgent={paneIds.some((pid) => !!panes[pid]?.agent_type)}
-      status={aggregateTabStatus(paneIds, paneStatuses)}
+      hasAgent={Boolean(pane?.agent_type)}
+      status={pane ? paneStatuses[pane.id] ?? null : null}
       onRename={(title) => onRenameTab(tab.id, title)}
       pane={pane}
       orchestrators={orchestrators}

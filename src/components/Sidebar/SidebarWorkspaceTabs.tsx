@@ -16,12 +16,10 @@ import { resolvePaneTabActivity } from "../Canvas/paneTabActivity";
 import { openTeamPlanCanvas } from "../Canvas/workspacePlanEntry";
 import { RemoteWorkerRow } from "./RemoteWorkerRow";
 import { SortableContext, verticalListSortingStrategy, TAB_PREFIX } from "./sortable";
-import { collectPaneIds } from "./workspaceTabs";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import { persistTabRename, SidebarSingleTabRow } from "./SidebarPlanPeerPair";
 import { sortTeamManagers } from "./orchestrationSections";
 import { TabItem } from "./TabItem";
-import { aggregateTabStatus } from "./sidebarTabStatus";
 import {
   TeamUnit,
   type TeamMemberRole,
@@ -151,7 +149,6 @@ export function SidebarWorkspaceTabs({
     activeTabId: wsActiveTabId,
     isActiveVisual,
     workspaceCanvasActive,
-    panes,
     paneStatuses,
     orchestrators,
     touchMode,
@@ -173,7 +170,6 @@ export function SidebarWorkspaceTabs({
         tab={member.tab}
         index={member.index}
         pane={member.pane}
-        paneIds={collectPaneIds(member.tab, panes)}
         activity={resolvePaneTabActivity(planIndex, member.pane.id, panes)}
         activeWork={activeWork}
         isClosing={closingTabIds.has(member.tab.id)}
@@ -209,7 +205,6 @@ export function SidebarWorkspaceTabs({
           tab={tab}
           index={index}
           pane={pane ?? null}
-          paneIds={collectPaneIds(tab, panes)}
           activity={pane ? resolvePaneTabActivity(planIndex, pane.id, panes) : null}
           activeWork={activeWork}
           isClosing={closingTabIds.has(tab.id)}
@@ -348,9 +343,8 @@ export function SidebarCollapsedActiveTab({
   if (!activeTabId) return null;
   const activeTab = ws.tabs.find((tab) => tab.id === activeTabId);
   if (!activeTab) return null;
-  const paneIds = collectPaneIds(activeTab, panes);
-  const firstPane = paneIds[0] ? panes[paneIds[0]] : null;
-  const activity = firstPane ? resolvePaneTabActivity(planIndex, firstPane.id, panes) : null;
+  const pane = panes[activeTab.pane_id] ?? null;
+  const activity = pane ? resolvePaneTabActivity(planIndex, pane.id, panes) : null;
 
   return (
     <TabItem
@@ -365,15 +359,14 @@ export function SidebarCollapsedActiveTab({
       onClick={() => onActivateTab(activeTab.id)}
       onClose={() => onCloseTab(activeTab.id)}
       canClose={true}
-      paneCount={paneIds.length}
       workspaceId={ws.id}
-      hasAgent={paneIds.some((paneId) => Boolean(panes[paneId]?.agent_type))}
-      status={aggregateTabStatus(paneIds, paneStatuses)}
+      hasAgent={Boolean(pane?.agent_type)}
+      status={pane ? paneStatuses[pane.id] ?? null : null}
       onRename={(title) => {
         onRenameTab(activeTab.id, title);
         persistTabRename(ws.id, activeTab.id, title);
       }}
-      pane={firstPane}
+      pane={pane}
       orchestrators={orchestrators}
       touchMode={touchMode}
       uiFontScale={uiFontScale}

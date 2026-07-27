@@ -9,14 +9,6 @@ export function isSidebarTabVisible(tab: Tab, panes: Record<string, Pane>): bool
   return Boolean(pane) && pane.hidden !== true;
 }
 
-export function collectPaneIds(tab: Tab, panes?: Record<string, Pane>): string[] {
-  if (panes) {
-    if (!isSidebarTabVisible(tab, panes)) return [];
-    return [tab.pane_id];
-  }
-  return [tab.pane_id];
-}
-
 /** Pane ids that have a tab row in this workspace (regardless of visibility). */
 export function tabPaneIdsInWorkspace(tabs: Tab[]): Set<string> {
   return new Set(tabs.map((t) => t.pane_id));

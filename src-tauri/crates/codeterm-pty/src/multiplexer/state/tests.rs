@@ -109,6 +109,22 @@ fn test_claim_existing_tab_rejects_tab_with_agent_already_attached() {
         result.is_err(),
         "an already-spawned tab must not be claimable"
     );
+    assert_eq!(
+        state.get_pane(&pane_id).unwrap().agent_type.as_deref(),
+        Some("claude"),
+        "the rejected attach must preserve the original agent"
+    );
+    assert_eq!(
+        state
+            .get_workspace(&ws_id)
+            .unwrap()
+            .tabs
+            .iter()
+            .filter(|tab| tab.id == tab_id)
+            .count(),
+        1,
+        "the rejected attach must leave exactly one Tab record"
+    );
 }
 
 #[test]
