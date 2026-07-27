@@ -24,6 +24,41 @@
         "Does not use `--status done`",
         "States that the Orchestrator reviews and closes the task"
       ]
+    },
+    {
+      "id": 3,
+      "name": "changed-work-commits-before-review",
+      "prompt": "Dry-run only: tools are unavailable. You finished a bounded code change and its focused tests in a git worktree. Unrelated files from another task are also dirty. Write the exact final preparation and handoff you would perform.",
+      "expected_output": "Commits only owned changes before reporting in_review and reports the resulting HEAD without absorbing unrelated work.",
+      "expectations": [
+        "Commits only the files owned by the assigned task before reporting `in_review`",
+        "Leaves unrelated dirty files unstaged and uncommitted",
+        "Verifies the reported SHA equals the resulting git HEAD",
+        "Uses `partial` with the exact blocker instead of `in_review` if a safe owned commit cannot be created"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "read-only-review-needs-no-commit",
+      "prompt": "Dry-run only: tools are unavailable. You completed an assigned read-only source audit. The checkout has no changes from your task. Write the exact handoff you would perform.",
+      "expected_output": "Reports the read-only task in_review without inventing a commit.",
+      "expectations": [
+        "Uses `codeterm agent report --status in_review`",
+        "States that no commit is required because the task produced no changes",
+        "Does not invent, create, amend, or request an empty commit"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "unsafe-owned-commit-reports-partial",
+      "prompt": "Dry-run only: tools are unavailable. Your change to src/service/worker.rs overlaps unresolved foreign edits in that same file in a shared checkout, so you cannot isolate a safe owned commit. Write the exact handoff you would perform.",
+      "expected_output": "Reports partial with the conflicting paths instead of staging broadly or claiming review readiness.",
+      "expectations": [
+        "Uses `codeterm agent report --status partial` with the exact conflicting paths and blocker",
+        "Does not use `git add -A`, `git add .`, or otherwise stage unrelated changes",
+        "Does not report `in_review`",
+        "Does not create or amend a commit"
+      ]
     }
   ]
 }
