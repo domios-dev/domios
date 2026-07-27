@@ -1,7 +1,7 @@
 import type { HTMLAttributes } from "react";
 
 export type ActivityDotsSize = "micro" | "small" | "medium";
-export type ActivityDotsTone = "accent" | "thinking" | "muted";
+export type ActivityDotsTone = "accent" | "thinking" | "muted" | "on-accent";
 export type ActivityDotsRhythm = "work" | "thinking" | "streaming";
 
 export interface ActivityDotsProps extends Omit<HTMLAttributes<HTMLSpanElement>, "children"> {

@@ -150,7 +150,7 @@ export interface Tab {
   pty_id: string | null;
   /** Defaults to `{ kind: "pty" }` when absent (pre-field snapshots). */
   backing?: TabBacking;
-  tab_type: "Terminal";
+  tab_type: "Terminal" | "Choice";
   title: string;
   description?: string | null;
   cwd: string | null;

@@ -1,6 +1,7 @@
 //! First-run General Agent provider picker — tab marker + completion flow.
 
 use tauri::AppHandle;
+use crate::multiplexer::types::TabType;
 
 use super::workspace::{default_chat_view_for_provider, ensure_general_workspace};
 use super::{generate_instructions, start_general_agent, GENERAL_ALIAS};
@@ -55,6 +56,7 @@ pub fn ensure_first_run_tab(mux: &mut crate::multiplexer::state::MultiplexerStat
             let _ = mux.rename_tab(&tab_id, FIRST_RUN_TAB_TITLE);
             let _ = mux.set_tab_description(&tab_id, Some(FIRST_RUN_TAB_MARKER.to_string()));
             if let Some(tab) = mux.get_tab_mut(&tab_id) {
+                tab.tab_type = TabType::Choice;
                 // Picker is ephemeral — must not survive a daemon restart as a ghost tab.
                 tab.skip_snapshot = true;
                 // In a protected (sole-content) workspace the picker can't be closed

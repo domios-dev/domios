@@ -3,7 +3,7 @@ import { Copy, Pencil, RefreshCw, RotateCcw, UserCog, X } from "lucide-react";
 import { useTabProvider, useShellSessionModel } from "../../lib/useTabProvider";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { ActivityDots } from "../shared/ActivityDots";
-import { TelegramIcon, TerminalIcon } from "../Icons";
+import { ChoiceIcon, TelegramIcon, TerminalIcon } from "../Icons";
 import { ProviderGlyph } from "../ProviderGlyph";
 import type { Tab, TabStatus } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
@@ -311,6 +311,8 @@ function TabItemInner({
               className={`leading-none ${touchMode ? "text-[15px]" : isSubTab ? "text-[10px]" : "text-[12px]"}`}
               title={status === "Working" ? `${providerName} working...` : status === "Waiting" ? `${providerName} — waiting for input` : providerName}
             />
+          ) : tab.tab_type === "Choice" ? (
+            <ChoiceIcon className={`${touchMode ? "scale-110" : isSubTab ? "scale-90" : ""}`} />
           ) : (
             <TerminalIcon className={`${touchMode ? "scale-110" : isSubTab ? "scale-90" : ""}`} />
           )}

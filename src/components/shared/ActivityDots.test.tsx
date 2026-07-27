@@ -64,14 +64,20 @@ async function run() {
   }
   assert.equal((css.match(/@keyframes ct-dots-squash-jump/g) ?? []).length, 1, "one shared dot keyframe family");
   assert.match(css, /animation:\s*ct-dots-squash-jump[^;]*var\(--ct-ease-squash-jump\)/);
+  for (const stop of ["0%, 70%, 100%", "10%", "24%", "42%", "54%"]) {
+    assert(css.includes(stop), `richer shipped squash-jump stop ${stop} is retained`);
+  }
+  assert.doesNotMatch(phaseDots[1], /--activity-dot-(?:size|gap|jump):/, "ct-phase-dots cannot win geometry by source order");
 
   const globalsCss = readFileSync(new URL("../../styles/globals.css", import.meta.url), "utf8");
   const workspaceCardSource = readFileSync(new URL("../Sidebar/WorkspaceCardGrid.tsx", import.meta.url), "utf8");
   assert.match(
     workspaceCardSource,
-    /className="sidebar-workspace-card-working"[\s\S]*?<ActivityDots size="micro" tone="muted" \/>/,
-    "workspace-card badge selects shared micro geometry",
+    /className="sidebar-workspace-card-working"[\s\S]*?<ActivityDots size="micro" tone="on-accent" \/>/,
+    "workspace-card badge selects the shared on-accent tone",
   );
+  assert.match(css, /\.activity-dots--on-accent\s*\{\s*color:\s*var\(--ct-on-accent, #fff\);\s*\}/);
+  assert.doesNotMatch(workspaceCardSource, /tone="muted"/, "filled workspace bubble never mixes toward page foreground");
   assert.doesNotMatch(
     globalsCss,
     /\.sidebar-workspace-card-working\s+\.activity-dots\s*\{[^}]*--activity-dot-(?:size|gap|jump)\s*:/s,
@@ -98,6 +104,8 @@ async function run() {
   assert(microSize <= badgeWidth, "shared micro dot fits the workspace badge width");
   assert(microSize + microJump <= badgeHeight, "shared micro jump fits the workspace badge height");
   assert(badgeTop + badgeHeight < (cardHeight - initialsHeight) / 2, "workspace badge stays above centered initials");
+  const cubeRules = [".sidebar-workspace-card {", ".sidebar-workspace-card[data-selected=\"true\"]", ".sidebar-workspace-card-select:hover"];
+  for (const rule of cubeRules) assert(globalsCss.includes(rule), `cube-grid surface ${rule} remains owned by globals`);
   for (const keyframe of [
     "sidebar-hierarchy-breathe",
     "sidebar-hierarchy-drift",

@@ -553,8 +553,7 @@ impl Tab {
 pub enum TabType {
     #[default]
     Terminal,
-    /// Legacy — old snapshots only.
-    Browser,
+    Choice,
 }
 
 #[cfg(test)]

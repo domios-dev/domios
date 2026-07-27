@@ -137,6 +137,7 @@
 .activity-dots--accent { color: color-mix(in srgb, var(--ct-accent) 72%, var(--ct-fg)); }
 .activity-dots--thinking { color: color-mix(in srgb, var(--ct-thinking, #a371f7) 72%, var(--ct-fg)); }
 .activity-dots--muted { color: color-mix(in srgb, currentColor 72%, var(--ct-fg)); }
+.activity-dots--on-accent { color: var(--ct-on-accent, #fff); }
 .activity-dots i:nth-child(2) { animation-delay: var(--activity-dot-delay); }
 .activity-dots i:nth-child(3) { animation-delay: calc(var(--activity-dot-delay) * 2); }
 .activity-dots--thinking {
