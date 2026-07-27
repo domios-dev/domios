@@ -161,6 +161,7 @@ export function AgentStateIndicator({
   providerName,
   model,
   className,
+  questionGeneration,
   onStop,
   onCancel,
   onOpenTerminal,
@@ -169,6 +170,7 @@ export function AgentStateIndicator({
   providerName?: string | null;
   model?: string | null;
   className?: string;
+  questionGeneration?: number | null;
   /** Interrupt the working agent (PTY panes only). Renders a Stop control while
    *  working when provided. */
   onStop?: () => void;
@@ -181,15 +183,21 @@ export function AgentStateIndicator({
 }) {
   const isWorking = state.state === "working";
   const summary = state.last_turn_summary?.trim();
+  const [dismissedQuestionGeneration, setDismissedQuestionGeneration] = useState<number | null>(null);
   // Hook runs every render (rules of hooks); only meaningful while working.
   const phase = useStablePhase(isWorking ? workPhaseOf(state.phase) : "work");
 
   if (state.state === "question") {
+    if (
+      dismissedQuestionGeneration === (questionGeneration ?? -1)
+    ) {
+      return null;
+    }
     const copy = questionCopy(state.subtype);
     const color = toneColor(copy.tone);
     return (
       <div
-        className={`ct-agent-question-in mt-2 flex items-start gap-2.5 rounded-lg px-3 py-2.5 ${className ?? ""}`}
+        className={`ct-agent-question-in relative mt-2 flex items-start gap-2.5 rounded-lg px-3 py-2.5 ${className ?? ""}`}
         data-testid="agent-state"
         data-agent-state="question"
         data-agent-subtype={state.subtype ?? "unknown"}
@@ -208,7 +216,16 @@ export function AgentStateIndicator({
         >
           {copy.icon}
         </span>
-        <div className="min-w-0 flex-1">
+        <button
+          type="button"
+          onClick={() => setDismissedQuestionGeneration(questionGeneration ?? -1)}
+          aria-label="Dismiss waiting card"
+          title="Dismiss waiting card"
+          className="ct-agent-dismiss-question absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-md"
+        >
+          <X size={14} strokeWidth={2} aria-hidden />
+        </button>
+        <div className="min-w-0 flex-1 pr-6">
           <div className="flex items-center gap-1.5">
             <span className="text-sm font-semibold leading-tight" style={{ color: "var(--ct-fg)" }}>
               {copy.title}

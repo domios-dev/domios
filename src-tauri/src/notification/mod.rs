@@ -5,7 +5,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use tauri::State;
 
-use store::{Notification, NotificationLevel, NotificationStore};
+use store::{Notification, NotificationStore};
 
 /// Shared notification state, thread-safe.
 pub type NotifState = Arc<Mutex<NotificationStore>>;
@@ -13,22 +13,22 @@ pub type NotifState = Arc<Mutex<NotificationStore>>;
 /// Create a notification.
 #[tauri::command]
 pub fn notify(
-    store: State<'_, NotifState>,
+    svc: State<'_, crate::service::ServiceState>,
     title: String,
     body: Option<String>,
     level: Option<String>,
     pane_id: Option<String>,
     workspace_id: Option<String>,
 ) -> Result<String, String> {
-    let level = match level.as_deref() {
-        Some("warning") | Some("Warning") => NotificationLevel::Warning,
-        Some("error") | Some("Error") => NotificationLevel::Error,
-        _ => NotificationLevel::Info,
-    };
-
-    let mut s = store.lock();
-    let id = s.add(title, body, level, pane_id, workspace_id);
-    Ok(id)
+    Ok(svc.create_notification_ext(
+        title,
+        body,
+        level.as_deref(),
+        None,
+        None,
+        pane_id,
+        workspace_id,
+    ))
 }
 
 /// List notifications, optionally filtered to unread only.

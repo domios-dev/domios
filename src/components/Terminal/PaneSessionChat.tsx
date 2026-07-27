@@ -39,6 +39,7 @@ import { chatPlanRefView } from "./chatPlanRef";
 import { useChatScroll } from "./useChatScroll";
 import { resolveTabNavigationTarget } from "./tabNavigation";
 import { observeChatSendStatus } from "./chatSendStatus";
+import { waitingQuestionTracker } from "./waitingQuestionTracker";
 
 interface Props {
   paneId: string;
@@ -120,6 +121,14 @@ export function PaneSessionChat({
     return workspace?.name ?? null;
   }, [paneId]);
   const projectName = useMuxSelector(projectNameSelector);
+  const workspaceIdSelector = useCallback(
+    (state: Parameters<typeof selectPane>[0]) =>
+      state.workspaces.find((candidate) =>
+        candidate.tabs.some((tab) => tab.pane_id === paneId)
+      )?.id ?? null,
+    [paneId],
+  );
+  const workspaceId = useMuxSelector(workspaceIdSelector);
   const paneTitleMap = useMuxSelector(selectPaneTitleMap, paneTitleMapEqual);
   const planNav = useMuxSelector(selectPlanNavContext, planNavContextEqual);
   const paneAgentTypes = useMuxSelector(selectPaneAgentTypes, paneAgentTypesEqual);
@@ -132,6 +141,7 @@ export function PaneSessionChat({
   const agentSessionId = pane?.agent_session_id ?? null;
   const currentPtyId = pane?.pty_id ?? null;
   const backendState = pane?.agent_state ?? null;
+  const [waitingGeneration, setWaitingGeneration] = useState<number | null>(null);
   const chatBacking = pane?.backing?.kind === "chat_backend" ? pane.backing : null;
   const effectiveChatBackend = chatBackend || chatBacking !== null;
   const watcherSpec = pane?.watcher ?? null;
@@ -450,6 +460,26 @@ export function PaneSessionChat({
     [paneId],
   );
 
+  useEffect(() => {
+    const generation = waitingQuestionTracker.observeAndNotify(
+      paneId,
+      agentSessionId,
+      backendState?.state ?? null,
+      () => {
+        void invoke("notify", {
+          title: "Waiting for you",
+          body: "Open this pane and answer the agent to continue.",
+          level: "warning",
+          paneId,
+          workspaceId,
+        }).catch((error) => {
+          console.warn("Failed to create waiting-for-input notification:", error);
+        });
+      },
+    );
+    setWaitingGeneration(generation);
+  }, [agentSessionId, backendState?.state, paneId, workspaceId]);
+
   // subtype); it arrives via the mux snapshot and events, no local polling needed.
   const liveAgentState: AgentState = useMemo(() => {
     const kind = backendState?.state ?? "idle";
@@ -638,6 +668,7 @@ export function PaneSessionChat({
           <div className="w-full max-w-4xl min-w-0 mx-auto">
             <AgentStateIndicator
               state={liveAgentState}
+              questionGeneration={waitingGeneration}
               providerName={provider?.displayName ?? null}
               model={workingModelBadge}
               onStop={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}

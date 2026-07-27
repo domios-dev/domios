@@ -1,18 +1,14 @@
 //! `notification.*` JSON-RPC handlers.
 
+use crate::service::ServiceState;
 use serde_json::Value;
-use tauri::{AppHandle, Manager};
-
-use crate::notification::store::NotificationLevel;
-use crate::notification::NotifState;
 
 use super::{get_string_param, JsonRpcError};
 
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
-    notif: &NotifState,
-    app: &AppHandle,
+    svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     match method {
         "notification.create" => {
@@ -27,51 +23,25 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("level"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("info");
-            let level = match level_str {
-                "warning" => NotificationLevel::Warning,
-                "error" => NotificationLevel::Error,
-                _ => NotificationLevel::Info,
-            };
             let pane_id = params
                 .as_ref()
                 .and_then(|p| p.get("pane_id"))
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
-
-            let emit_level = match &level {
-                NotificationLevel::Warning => "Warning",
-                NotificationLevel::Error => "Error",
-                _ => "Info",
-            };
-            let emit_title = title.clone();
-            let emit_body = body.clone();
-            let emit_pane = pane_id.clone();
-
-            let mut store = notif.lock();
-            let id = store.add(title, body, level, pane_id, None);
-
-            {
-                let h = app.clone();
-                let p = serde_json::json!({"id": id, "title": emit_title, "body": emit_body, "level": emit_level, "pane_id": emit_pane, "workspace_id": Value::Null});
-                std::thread::spawn(move || {
-                    crate::api::events::emit_everywhere(&h, "notification-created", p);
-                });
-            }
-
-            {
-                let is_focused = app
-                    .get_webview_window("main")
-                    .and_then(|w| w.is_focused().ok())
-                    .unwrap_or(true);
-                if !is_focused {
-                    use tauri_plugin_notification::NotificationExt;
-                    let mut builder = app.notification().builder().title(&emit_title);
-                    if let Some(ref b) = emit_body {
-                        builder = builder.body(b);
-                    }
-                    let _ = builder.show();
-                }
-            }
+            let workspace_id = params
+                .as_ref()
+                .and_then(|p| p.get("workspace_id"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let id = svc.create_notification_ext(
+                title,
+                body,
+                Some(level_str),
+                None,
+                None,
+                pane_id,
+                workspace_id,
+            );
 
             Ok(serde_json::json!({"id": id}))
         }
@@ -83,7 +53,7 @@ pub(super) fn dispatch(
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
 
-            let store = notif.lock();
+            let store = svc.notif.lock();
             let notifications: Vec<&crate::notification::store::Notification> =
                 store.list(unread_only);
             serde_json::to_value(&notifications).map_err(|e| JsonRpcError {
@@ -99,7 +69,7 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("id"))
                 .and_then(|v| v.as_str());
 
-            let mut store = notif.lock();
+            let mut store = svc.notif.lock();
             store.clear(id);
             Ok(serde_json::json!({"ok": true}))
         }
