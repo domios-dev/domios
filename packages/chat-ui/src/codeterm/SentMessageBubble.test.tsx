@@ -52,7 +52,7 @@ const SECTION = "sec_vecy77";
 await (async () => {
   const host = await render(
     <SentMessageBubble
-      inv={inv(`codeterm send --pane 915fae8e "## Update\n- done"`)}
+      inv={inv(`codeterm send --tab 915fae8e "## Update\n- done"`)}
       resolvePaneName={(r) => (r === "915fae8e" ? "Puccini" : undefined)}
     />,
   );
@@ -108,7 +108,7 @@ await (async () => {
 // Outbound messages stay compact while inbound messages use an activity card.
 await (async () => {
   const outboundHost = await render(
-    <SentMessageBubble inv={inv(`codeterm send --pane bda "hello outbound"`)} />,
+    <SentMessageBubble inv={inv(`codeterm send --tab bda "hello outbound"`)} />,
   );
   const inboundHost = await render(
     <MessageBubble
@@ -174,14 +174,14 @@ await (async () => {
 
 // pane-name fallback when unresolvable
 await (async () => {
-  const host = await render(<SentMessageBubble inv={inv(`codeterm send --pane 915fae8e "hi"`)} />);
+  const host = await render(<SentMessageBubble inv={inv(`codeterm send --tab 915fae8e "hi"`)} />);
   assert((host.textContent ?? "").includes("tab 915fae8e"), "falls back to 'tab <ref>'");
 })();
 
 // long body collapses past 8 lines, expands on click
 await (async () => {
   const body = Array.from({ length: 20 }, (_, i) => `line ${i}`).join("\n");
-  const host = await render(<SentMessageBubble inv={inv(`codeterm send --pane bda "${body}"`)} />);
+  const host = await render(<SentMessageBubble inv={inv(`codeterm send --tab bda "${body}"`)} />);
   const expand = host.querySelector('[data-testid="chat-sent-expand"]') as HTMLButtonElement | null;
   assert(expand != null, "shows expand affordance past threshold");
   assert(!(host.textContent ?? "").includes("line 15"), "collapsed body hides later lines");
@@ -194,14 +194,14 @@ await (async () => {
 // failed send shows failure glyph
 await (async () => {
   const host = await render(
-    <SentMessageBubble inv={inv(`codeterm send --pane bda "x"`)} result="error: Tab not found" />,
+    <SentMessageBubble inv={inv(`codeterm send --tab bda "x"`)} result="error: Tab not found" />,
   );
   assert((host.textContent ?? "").includes("✗"), "failed send shows failure glyph");
 })();
 
 // mesh send shows peer
 await (async () => {
-  const host = await render(<SentMessageBubble inv={inv(`codeterm send --pane bda --mesh mini "hi"`)} />);
+  const host = await render(<SentMessageBubble inv={inv(`codeterm send --tab bda --mesh mini "hi"`)} />);
   assert((host.textContent ?? "").includes("mini"), "mesh send renders peer");
 })();
 
@@ -210,7 +210,7 @@ await (async () => {
   let opened: [string, string | undefined] | null = null;
   const host = await render(
     <SentMessageBubble
-      inv={inv(`codeterm send --pane bda "see ${TASK} in ${PLAN}"`)}
+      inv={inv(`codeterm send --tab bda "see ${TASK} in ${PLAN}"`)}
       onOpenPlan={(p, t) => {
         opened = [p, t];
       }}

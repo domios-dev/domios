@@ -172,7 +172,7 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("enter"))
                 .and_then(|v| v.as_bool())
                 .unwrap_or(true);
-            // Resolve target via alias-aware lookup so short ids (`--pane ce9bce56`) and labels work.
+            // Resolve target via alias-aware lookup so short ids (`--tab ce9bce56`) and labels work.
             let resolved_target = {
                 let m = mux.write();
                 m.resolve_pane_id(&raw_pane_id)

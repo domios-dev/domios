@@ -160,7 +160,9 @@ pub fn handle_update(
                 // Persist current tab ids so the continuation target survives restart.
                 let save_url = format!("{}/api/session/save", base_url);
                 if let Err(e) = http.post(&save_url).send() {
-                    eprintln!("[install --from-file] WARN: session save failed ({e}) — Tab id may rotate");
+                    eprintln!(
+                        "[install --from-file] WARN: session save failed ({e}) — Tab id may rotate"
+                    );
                 }
                 crate::cmd::install::run_install_from_file(
                     &path,

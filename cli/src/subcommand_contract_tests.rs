@@ -208,7 +208,7 @@ fn orchestrator_handoff_reseed_dry_run_parses() {
         "pl_1",
         "--task",
         "task_1",
-        "--pane",
+        "--tab",
         "tab_1",
         "--reseed",
         "--dry-run",
@@ -340,7 +340,7 @@ fn tab_new_is_primary_command() {
 
 #[test]
 fn send_stdin_without_positional_parses() {
-    let parsed = SendOnly::try_parse_from(["send", "--stdin", "--pane", "abc123"])
+    let parsed = SendOnly::try_parse_from(["send", "--stdin", "--tab", "abc123"])
         .expect("send --stdin parses");
     assert!(parsed.text.is_none());
     assert!(parsed.stdin);
@@ -348,14 +348,14 @@ fn send_stdin_without_positional_parses() {
 
 #[test]
 fn send_tab_target_parses() {
-    let parsed = SendOnly::try_parse_from(["send", "--stdin", "--pane", "abc123"])
-        .expect("send --pane parses");
+    let parsed = SendOnly::try_parse_from(["send", "--stdin", "--tab", "abc123"])
+        .expect("send --tab parses");
     assert_eq!(parsed.pane.as_deref(), Some("abc123"));
 }
 
 #[test]
 fn send_actions_without_text_parses() {
-    let parsed = SendOnly::try_parse_from(["send", "--actions", "enter", "--pane", "abc123"])
+    let parsed = SendOnly::try_parse_from(["send", "--actions", "enter", "--tab", "abc123"])
         .expect("send --actions parses");
     assert!(parsed.text.is_none());
     assert_eq!(parsed.actions.as_deref(), Some("enter"));
@@ -369,7 +369,7 @@ fn send_actions_conflicts_with_delay() {
         "enter",
         "--delay",
         "10m",
-        "--pane",
+        "--tab",
         "abc123",
     ]);
     assert!(parsed.is_err());

@@ -45,10 +45,10 @@ impl Counterpart {
     }
 }
 
-/// The exact reach command a member uses to message its counterpart. `--pane`
+/// The exact reach command a member uses to message its counterpart. `--tab`
 /// accepts the pane id (see prompts/codeterm_rule.md).
 pub(crate) fn reach_command(pane_id: &str) -> String {
-    format!("codeterm send \"…\" --pane {pane_id}")
+    format!("codeterm send \"…\" --tab {pane_id}")
 }
 
 /// The body one member reads about its counterpart: names it, its pane id, and
@@ -115,7 +115,7 @@ mod tests {
     fn reach_command_uses_tab_flag_with_pane_id() {
         assert_eq!(
             reach_command("abc-123"),
-            "codeterm send \"…\" --pane abc-123"
+            "codeterm send \"…\" --tab abc-123"
         );
     }
 

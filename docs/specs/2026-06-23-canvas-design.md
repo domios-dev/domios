@@ -301,7 +301,7 @@ codeterm plan disown   <plan_id>                       # release ownership → u
 codeterm plan claim    <plan_id>                       # caller's orchestrator takes an unowned/stale plan
 codeterm plan list --unowned                           # plans with no live owner, claimable
 
-codeterm plan task add    <plan_id> --name <n> --type <kind> [--sections <id,id,...>] [--model <m>] [--why <text>|--why-file <p>] [--body/--body-file ...] [--intent <text>|--intent-file <p>] [--assign-pane <id>] [--loop-from <task_id>]
+codeterm plan task add    <plan_id> --name <n> --type <kind> [--sections <id,id,...>] [--model <m>] [--why <text>|--why-file <p>] [--body/--body-file ...] [--intent <text>|--intent-file <p>] [--assign-tab <id>] [--loop-from <task_id>]
 codeterm plan task update <plan_id> <task_id> [--name|--type|--model|--why|--status|--status-label|--body ...]
 codeterm plan task close  <plan_id> <task_id> [--result/--result-file ...] [--mesh <peer>]   # worker closes their section; remote close routes home via mesh
 codeterm plan task assign <plan_id> <task_id> --tab <id> [--mesh <peer>]   # --mesh/--peer: spawn/target on another machine, daemon brokers over mesh
@@ -379,7 +379,6 @@ Canvas content is a nested cascade, laid out without overlap, stable across live
 Every layout parameter lives in one typed abstraction, not scattered as inline magic numbers, so the whole canvas can be tuned live and frozen later.
 ```
 
-<!-- revision: 1 -->
 CanvasLayoutSettings {
   cardWidth, cardMinHeight, cardMaxHeight,
   sectionGapY, taskGapY, laneWidth, laneGapX,
@@ -454,3 +453,5 @@ Spec covers everything; the implementation plan sequences it:
 - **Reviews:** `opus` code-review pass per phase.
 - Isolation: worktree per worker; orchestrator integrates into the warm checkout and runs incremental `./build.sh check`.
 ```
+
+<!-- revision: 2 -->
