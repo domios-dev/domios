@@ -1,5 +1,6 @@
 
 import React from "react";
+import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 
 export type CardVariant = "default" | "soft";
 
@@ -26,8 +27,9 @@ export function Card({
   "data-testid": testId,
   ...rest
 }: CardProps) {
+  const touchMode = useTouchOptimizedUi();
   const interactiveCls = interactive
-    ? "cursor-pointer transition-colors hover:border-[var(--ct-accent)]/50 hover:bg-[var(--ct-hover)]"
+    ? "ct-liquid-interactive cursor-pointer transition-colors hover:border-[var(--ct-accent)]/50 hover:bg-[var(--ct-hover)]"
     : "";
   const cls = [VARIANT_CLASS[variant], interactiveCls, className].filter(Boolean).join(" ");
   return (
@@ -38,6 +40,7 @@ export function Card({
       onClick={onClick}
       role={interactive ? "button" : undefined}
       tabIndex={interactive ? 0 : undefined}
+      data-touch-mode={interactive && touchMode ? "true" : undefined}
       onKeyDown={interactive && onClick ? (e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();

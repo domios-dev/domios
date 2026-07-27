@@ -420,14 +420,58 @@ button,
   transition-timing-function: var(--ct-ease-liquid-settle);
 }
 
-.ct-liquid-interactive:focus-visible {
-  outline: revert;
+.ct-liquid-interactive:focus-visible,
+.sidebar-tab-activation:focus-visible,
+.sidebar-team-card-activation:focus-visible {
+  outline: 2px solid var(--ct-accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--ct-bg), 0 0 0 4px var(--ct-accent);
+}
+
+.sidebar-tab-activation,
+.sidebar-team-card-activation {
+  --ct-liquid-base-transform: translateZ(0);
+  transform: var(--ct-liquid-base-transform) scale(1);
+  transform-origin: center;
+  transition:
+    transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell),
+    color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    border-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+
+.sidebar-tab-activation:hover,
+.sidebar-team-card-activation:hover {
+  transform: var(--ct-liquid-base-transform) scale(1.0075);
+}
+
+.sidebar-tab-activation:active,
+.sidebar-team-card-activation:active {
+  transform: var(--ct-liquid-base-transform) scale(0.975);
+  transition-duration: var(--ct-duration-liquid-press);
+  transition-timing-function: var(--ct-ease-liquid-settle);
+}
+
+.ct-liquid-interactive[data-touch-mode="true"]:not(:disabled):hover {
+  transform: var(--ct-liquid-base-transform) scale(1.0075);
+}
+
+.ct-liquid-interactive[data-touch-mode="true"]:not(:disabled):active,
+[data-touch-mode="true"] .sidebar-tab-activation:active,
+[data-touch-mode="true"] .sidebar-team-card-activation:active {
+  transform: var(--ct-liquid-base-transform) scale(0.965);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .ct-liquid-interactive,
   .ct-liquid-interactive:not(:disabled):hover,
-  .ct-liquid-interactive:not(:disabled):active {
+  .ct-liquid-interactive:not(:disabled):active,
+  .sidebar-tab-activation,
+  .sidebar-tab-activation:hover,
+  .sidebar-tab-activation:active,
+  .sidebar-team-card-activation,
+  .sidebar-team-card-activation:hover,
+  .sidebar-team-card-activation:active {
     transform: var(--ct-liquid-base-transform);
     transition: none;
     animation: none;
@@ -1037,22 +1081,6 @@ button,
   container-type: inline-size;
 }
 
-.sidebar-tab-activation {
-  transform-origin: center;
-  transition: transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell);
-}
-
-.sidebar-tab-activation:hover { transform: scale(1.01); }
-.sidebar-tab-activation:active {
-  transform: scale(.978);
-  transition-duration: var(--ct-duration-instant);
-}
-
-.sidebar-tab-activation:focus-visible {
-  outline: 1px solid var(--ct-accent);
-  outline-offset: 2px;
-}
-
 /* Model badge — visible by default, fades out on tab hover so the
    3-dot menu can take its slot without shifting layout. */
 .sidebar-tab-badge {
@@ -1592,17 +1620,6 @@ button,
   color: inherit;
   cursor: pointer;
   text-align: left;
-  transform-origin: center;
-  transition: transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell);
-}
-
-.sidebar-team-card-activation:hover { transform: scale(1.01); }
-.sidebar-team-card-activation:active {
-  transform: scale(.978);
-  transition-duration: var(--ct-duration-instant);
-}
-
-.sidebar-team-card-activation:focus-visible,
 .sidebar-disclosure:focus-visible {
   outline: 1px solid var(--ct-accent);
   outline-offset: 2px;
