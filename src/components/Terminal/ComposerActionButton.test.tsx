@@ -1,9 +1,12 @@
 // Run: npx tsx src/components/Terminal/ComposerActionButton.test.tsx
 
+import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { ComposerActionButton } from "./ComposerActionButton";
+import { ComposerAttachButton } from "./ComposerAttachButton";
+import { ComposerInputShell } from "./ComposerInputShell";
 import type { ComposerVoiceHandle } from "./voice/useComposerVoice";
 
 type TestFn = () => void | Promise<void>;
@@ -68,6 +71,30 @@ async function renderButton(
   return { button: host.querySelector("button") as HTMLButtonElement, root };
 }
 
+async function renderAttachButton(props: { uploading?: boolean; onClick?: () => void } = {}): Promise<{ button: HTMLButtonElement; root: Root }> {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(<ComposerAttachButton uploading={props.uploading ?? false} onClick={props.onClick ?? (() => undefined)} />);
+  });
+  return { button: host.querySelector("button") as HTMLButtonElement, root };
+}
+
+async function renderScheduleButton(onSchedule: () => void): Promise<{ button: HTMLButtonElement; root: Root }> {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(
+      <ComposerInputShell voiceUi={voiceHandle()} onSchedule={onSchedule}>
+        <span>Message</span>
+      </ComposerInputShell>,
+    );
+  });
+  return { button: host.querySelector('[data-testid="composer-schedule-button"]') as HTMLButtonElement, root };
+}
+
 test("send preserves label, callback, type, and interaction class", async () => {
   let sends = 0;
   const { button } = await renderButton(voiceHandle(), { onSend: () => { sends++; } });
@@ -78,6 +105,36 @@ test("send preserves label, callback, type, and interaction class", async () => 
   assert(!button.className.includes("transition-all"), "transition-all must be removed");
   await act(async () => button.dispatchEvent(new PointerEvent("pointerup", { bubbles: true })));
   assert(sends === 1, "send callback did not fire exactly once");
+});
+
+test("composer icon actions remain round and preserve their callbacks", async () => {
+  let attaches = 0;
+  const { button: attach } = await renderAttachButton({ onClick: () => { attaches++; } });
+  assert(attach.className.includes("ct-composer-round-button"), "attach icon action must remain round");
+  assert(attach.className.includes("ct-liquid-interactive"), "attach must use shared liquid interaction");
+  await act(async () => attach.click());
+  assert(attaches === 1, "attach callback did not fire exactly once");
+
+  const { button: disabledAttach } = await renderAttachButton({ uploading: true });
+  assert(disabledAttach.disabled, "uploading attach must remain disabled");
+
+  let schedules = 0;
+  const { button: schedule } = await renderScheduleButton(() => { schedules++; });
+  assert(schedule.className.includes("ct-composer-round-button"), "schedule icon action must remain round");
+  assert(schedule.className.includes("ct-liquid-interactive"), "schedule must use shared liquid interaction");
+  await act(async () => schedule.click());
+  assert(schedules === 1, "schedule callback did not fire exactly once");
+});
+
+test("composer buttons inherit the liquid press, focus, and reduced-motion contract", () => {
+  const css = readFileSync(new URL("../../styles/globals.css", import.meta.url), "utf8");
+  assert(/\.ct-liquid-interactive\s*\{[^}]*--ct-duration-liquid-hover/s.test(css), "hover must use the liquid hover token");
+  assert(/\.ct-liquid-interactive:not\(:disabled\):active\s*\{[^}]*--ct-duration-liquid-press/s.test(css), "press must use the liquid press token");
+  assert(/\.ct-liquid-interactive:focus-visible,[^}]*\{[^}]*outline:\s*2px solid var\(--ct-accent\)[^}]*box-shadow:/s.test(css), "focus-visible ring missing");
+  assert(/\.ct-liquid-interactive:not\(:disabled\):active/.test(css), "disabled buttons must not receive a press transform");
+  const reduced = css.match(/@media \(prefers-reduced-motion: reduce\)\s*\{[^]*?\.ct-liquid-interactive[^]*?\n\}/)?.[0] ?? "";
+  assert(/transition:\s*none/.test(reduced), "reduced motion must remove transitions");
+  assert(/transform:\s*var\(--ct-liquid-base-transform\)/.test(reduced), "reduced motion must remove transform feedback");
 });
 
 test("send scheduling and disabled state remain unchanged", async () => {
@@ -105,7 +162,9 @@ test("voice hold starts recording and exposes lock affordance", async () => {
   const { button } = await renderButton(voiceUi);
   assert(button.title === "Hold to record voice note", "voice label changed");
   assert(button.dataset.testid === "composer-voice-button", "voice test id changed");
-  assert(document.querySelector('[data-testid="composer-voice-lock-pill"]'), "hold lock affordance missing");
+  const lockPill = document.querySelector('[data-testid="composer-voice-lock-pill"]');
+  assert(lockPill, "hold lock affordance missing");
+  assert(!lockPill.classList.contains("ct-composer-round-button"), "grouped lock affordance must remain a pill");
   await act(async () => button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
   assert(starts === 1, "voice start callback did not fire");
 });
