@@ -54,7 +54,7 @@ export const CanvasWorldDecorations = memo(function CanvasWorldDecorations({
         const box = nodeById.get(id)?.box;
         if (!box || !nodeIds.has(id)) return null;
         return (
-          <div key={`pulse-${id}`} data-testid="canvas-change-pulse" className="ct-canvas-pulse pointer-events-none absolute" style={boxStyle(box, "var(--ct-radius-lg)")} />
+          <div key={`pulse-${id}`} data-testid="canvas-change-pulse" className="ct-canvas-hovered pointer-events-none absolute" style={boxStyle(box, "var(--ct-radius-lg)")} />
         );
       })}
     </>

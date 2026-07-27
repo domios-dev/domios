@@ -2443,19 +2443,6 @@ button,
   background: color-mix(in srgb, var(--ct-accent, #6366f1) 6%, transparent);
 }
 
-.sidebar-workspace-plan-pulse {
-  animation: ct-plan-sidebar-pulse 1.1s ease-in-out 1;
-}
-
-@keyframes ct-plan-sidebar-pulse {
-  0%, 100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ct-accent, #6366f1) 0%, transparent);
-  }
-  50% {
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ct-accent, #6366f1) 24%, transparent);
-  }
-}
-
 /* =========================================================================
    Split Pane Animations
    ========================================================================= */
@@ -2506,34 +2493,6 @@ button,
 
 /* Premium divider — all styles handled inline for reliability */
 
-/* =========================================================================
-   Memory graph pulse animations
-   ========================================================================= */
-@keyframes mem-pulse {
-  0%   { transform: scale(0.8); opacity: 0.9; }
-  100% { transform: scale(2.2); opacity: 0;   }
-}
-@keyframes mem-pulse-card {
-  0%   { transform: scale(1);    opacity: 0.9; }
-  100% { transform: scale(1.06); opacity: 0;   }
-}
-
-.ct-plan-button-pulse {
-  animation: ct-plan-button-pulse 0.85s ease-in-out 3;
-  box-shadow: 0 0 0 0 color-mix(in srgb, var(--ct-accent) 55%, transparent);
-}
-
-@keyframes ct-plan-button-pulse {
-  0%, 100% {
-    transform: scale(1);
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ct-accent) 45%, transparent);
-  }
-  50% {
-    transform: scale(1.06);
-    box-shadow: 0 0 0 6px color-mix(in srgb, var(--ct-accent) 0%, transparent);
-  }
-}
-
 /* Canvas focus blink: an OUTER ring + glow (box-shadow only, no fill/border over
    the card) so a highlighted node's text stays fully readable. */
 .ct-canvas-blink {
@@ -2563,56 +2522,14 @@ button,
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--ct-border-focus) 65%, transparent), 0 0 14px 2px color-mix(in srgb, var(--ct-border-focus) 30%, transparent);
 }
 
+.ct-presence-live {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ct-presence-color, var(--ct-border-focus)) 60%, transparent);
+}
+
 /* Content-LOD body reveal (§26.2): section/task bodies fade in + 4px rise on zoom
    approach. NO geometry reflow — opacity + transform only (§25.4 crossfade). */
 .ct-canvas-fade-in { animation: ct-canvas-fade-in 0.22s var(--ct-ease-decel) both; }
 @keyframes ct-canvas-fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-
-/* §31 in-place change pulse: a live-changed plan that's on-screen pulses gently —
-   ring/glow only, NEVER a camera move. */
-.ct-canvas-pulse { animation: ct-canvas-pulse 1.1s var(--ct-ease-decel) 3; }
-@keyframes ct-canvas-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ct-border-focus) 0%, transparent); }
-  40% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ct-border-focus) 55%, transparent), 0 0 18px 3px color-mix(in srgb, var(--ct-border-focus) 35%, transparent); }
-}
-
-/* §24.5/§25.6 live status: an in_progress task at W0 pulses its accent ring as a
-   far-board eye-magnet (ATTRACT, never hijack the wheel / pan). */
-.ct-canvas-live { animation: ct-canvas-live 2s ease-in-out infinite; }
-@keyframes ct-canvas-live {
-  0%, 100% { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--ct-border-focus) 80%, transparent), 0 6px 22px -8px color-mix(in srgb, var(--ct-border-focus) 35%, transparent); }
-  50% { box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--ct-border-focus) 95%, transparent), 0 8px 26px -6px color-mix(in srgb, var(--ct-border-focus) 60%, transparent); }
-}
-
-/* EMERGENCE: a presence token whose agent is actively executing pulses an
-   in-identity ring (uses the circle's own --ct-presence-color). Reduced-motion
-   keeps a static ring so the "who is here" read survives without animation. */
-.ct-presence-live { animation: ct-presence-live 2.4s ease-in-out infinite; }
-@keyframes ct-presence-live {
-  0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--ct-presence-color, var(--ct-border-focus)) 50%, transparent); }
-  50% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--ct-presence-color, var(--ct-border-focus)) 70%, transparent); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .ct-presence-live { animation: none; }
-}
-
-/* Plan heartbeat / running-loop dot — a gentle live pulse on the orchestrator's
-   "now" strip. Reduced-motion drops to a static dot. */
-.ct-canvas-heartbeat-dot { animation: ct-canvas-heartbeat-dot 1.8s ease-in-out infinite; }
-@keyframes ct-canvas-heartbeat-dot {
-  0%, 100% { opacity: 0.55; transform: scale(0.85); }
-  50% { opacity: 1; transform: scale(1.15); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .ct-canvas-heartbeat-dot { animation: none; }
-}
-
-/* Freshest step dot pulses (constellation / thread) — the live report. */
-.ct-canvas-step-live { animation: ct-canvas-step-live 1.8s ease-in-out infinite; }
-@keyframes ct-canvas-step-live {
-  0%, 100% { transform: scale(1); filter: brightness(1); }
-  50% { transform: scale(1.35); filter: brightness(1.25); }
-}
 
 /* §31 off-screen change marker: a clickable directional dot at the viewport edge. */
 .ct-canvas-edge-marker {
@@ -2621,7 +2538,6 @@ button,
   background: var(--ct-border-focus);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--ct-border-focus) 45%, transparent), 0 0 14px 3px color-mix(in srgb, var(--ct-border-focus) 45%, transparent);
   cursor: pointer; padding: 0;
-  animation: ct-canvas-pulse 1.4s var(--ct-ease-decel) infinite;
 }
 
 /* Composer plan/activity chip — same h-7 baseline as attachment/model bubbles. */
@@ -3550,17 +3466,12 @@ button.plan-peer-chip:focus-visible {
   border: 2px solid var(--ct-bg);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--ct-fg) 22%, transparent);
 }
-.plan-companion-presence.is-live {
-  animation: plan-companion-presence-pulse 1.8s ease-in-out infinite;
-}
-@keyframes plan-companion-presence-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ct-accent) 55%, transparent);
-  }
-  50% {
-    box-shadow: 0 0 0 4px color-mix(in srgb, var(--ct-accent) 0%, transparent);
-  }
+.plan-companion-presence.activity-dots {
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
 }
 
 /* List v3 — task-first alignment grid */

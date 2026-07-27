@@ -7,6 +7,7 @@ import type { Plan } from "../types";
 import { orderPlansByActivity, selectDefaultPlanId } from "./boardModel";
 import { resolveCompanionPane, type CompanionKind } from "./companionResolver";
 import { resolvePlannerPaneIdFromPlan } from "../../shared/resolvePlanPeerPair";
+import { ActivityDots } from "../../shared/ActivityDots";
 
 interface PlanCompanionBubbleProps {
   plans: Plan[];
@@ -180,12 +181,23 @@ export function PlanCompanionBubble({
         }}
       >
         <MessageCircle size={22} strokeWidth={2} aria-hidden style={{ color: "var(--ct-fg)" }} />
-        <span
-          data-testid="plan-companion-presence"
-          data-live={working ? "true" : "false"}
-          className={`plan-companion-presence${working ? " is-live" : ""}`}
-          style={{ background: color }}
-        />
+        {working ? (
+          <ActivityDots
+            data-testid="plan-companion-presence"
+            data-live="true"
+            size="micro"
+            tone="muted"
+            className="plan-companion-presence"
+            style={{ color }}
+          />
+        ) : (
+          <span
+            data-testid="plan-companion-presence"
+            data-live="false"
+            className="plan-companion-presence"
+            style={{ background: color }}
+          />
+        )}
       </button>
     </div>
   );
