@@ -227,7 +227,7 @@
 
 /* Question banner: a one-shot settle as the agent lands on a blocker. */
 .ct-agent-question-in {
-  animation: ct-agent-question-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: ct-agent-question-in 220ms var(--ct-ease-liquid-settle);
 }
 @keyframes ct-agent-question-in {
   from { opacity: 0; transform: translateY(3px); }
