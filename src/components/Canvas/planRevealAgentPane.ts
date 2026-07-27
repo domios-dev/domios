@@ -24,7 +24,7 @@ export function findPaneTabContext(
 
 export interface RevealAgentPaneDeps {
   workspaces: readonly Workspace[];
-  setActivepane: (workspaceId: string, tabId: string) => void;
+  setActiveTab: (workspaceId: string, tabId: string) => void;
   setFocusedPane: (paneId: string) => void;
 }
 

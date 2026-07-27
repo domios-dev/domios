@@ -45,16 +45,16 @@ test("revealAssignedAgentPane closes canvas overlays and activates tab", () => {
   canvasFocusStore.openWorkspace({ planId: "pl-1" });
 
   const activeTabs: Array<{ workspaceId: string; tabId: string }> = [];
-  let focused: string | null = null;
+  const focusedPanes: string[] = [];
 
   const ok = revealAssignedAgentPane(
     {
       workspaces: [workspace],
-      setActivepane: (workspaceId, tabId) => {
+      setActiveTab: (workspaceId, tabId) => {
         activeTabs.push({ workspaceId, tabId });
       },
       setFocusedPane: (paneId) => {
-        focused = paneId;
+        focusedPanes.push(paneId);
       },
     },
     "worker-1",
@@ -64,9 +64,10 @@ test("revealAssignedAgentPane closes canvas overlays and activates tab", () => {
   assert(!canvasFocusStore.isOpen(), "focus canvas closed");
   assert(!canvasFocusStore.isWorkspaceOpen(), "workspace canvas closed");
   const activeTab = activeTabs[0];
-  assert(activeTab, "tab activated once");
+  assert(activeTabs.length === 1, `tab activated ${activeTabs.length} times`);
   assert(activeTab?.workspaceId === "ws-1" && activeTab?.tabId === "tab-2", "tab activated");
-  assert(focused === "worker-1", "Tab focused");
+  assert(focusedPanes.length === 1, `Tab focused ${focusedPanes.length} times`);
+  assert(focusedPanes[0] === "worker-1", "target Tab focused");
 });
 
 test("revealAssignedAgentPane still focuses when tab context is missing", () => {
@@ -74,7 +75,7 @@ test("revealAssignedAgentPane still focuses when tab context is missing", () => 
   const ok = revealAssignedAgentPane(
     {
       workspaces: [],
-      setActivepane: () => {},
+      setActiveTab: () => {},
       setFocusedPane: (paneId) => {
         focused = paneId;
       },

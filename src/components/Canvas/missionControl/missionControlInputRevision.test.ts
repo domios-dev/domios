@@ -42,7 +42,7 @@ test("revision changes when task status changes", () => {
   );
 });
 
-test("revision changes when Tab title changes", () => {
+test("revision is stable for identical inputs and changes when assigned Tab presence changes", () => {
   const plan = mkPlan([
     {
       ...FIXTURE_TASK,
@@ -52,11 +52,15 @@ test("revision changes when Tab title changes", () => {
       milestones: [],
     },
   ]);
-  const panesA = { [PANE.id]: PANE };
-  const panesB = { [PANE.id]: { ...PANE, title: "Renamed" } };
+  const panes = { [PANE.id]: PANE };
+  const revision = missionControlInputRevision(plan, panes);
   assert(
-    missionControlInputRevision(plan, panesA) !== missionControlInputRevision(plan, panesB),
-    "Tab title",
+    missionControlInputRevision(plan, panes) === revision,
+    "identical inputs produce a stable revision",
+  );
+  assert(
+    missionControlInputRevision(plan, {}) !== revision,
+    "assigned Tab presence changes the revision",
   );
 });
 
