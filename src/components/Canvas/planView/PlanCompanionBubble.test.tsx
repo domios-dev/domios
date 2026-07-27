@@ -1,6 +1,7 @@
 // Run: npx tsx src/components/Canvas/planView/PlanCompanionBubble.test.tsx
 
 import { act, type ReactElement } from "react";
+import { readFileSync } from "node:fs";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { __setInvokeForTest, __setListenForTest } from "../../../lib/bridge";
@@ -140,6 +141,18 @@ test("bubble face is a chat icon with an edge presence dot, name in tooltip", as
   // Name lives in the tooltip (title), not painted on the face.
   const title = bubble.getAttribute("title") ?? "";
   assert(title.includes("Planner"), `name should be in tooltip, got: ${title}`);
+  await act(async () => root.unmount());
+});
+
+test("working companion presence uses quiet micro activity dots", async () => {
+  const { host, root } = await render(
+    <PlanCompanionBubble plans={[plan({ kind: "pane", pane_id: "planner-1" })]} panes={LIVE_PANES} renderChat={renderChatStub} />,
+  );
+  const dots = host.querySelector('[data-testid="plan-companion-presence"].activity-dots');
+  assert(dots?.classList.contains("activity-dots--micro"), "working presence uses micro dots");
+  assert(dots?.classList.contains("activity-dots--muted"), "working presence uses the quiet tone");
+  const activityCss = readFileSync(new URL("../../../styles/agent-state.css", import.meta.url), "utf8");
+  assert(/@media \(prefers-reduced-motion: reduce\)[\s\S]*\.activity-dots i\s*\{[^}]*animation:\s*none !important;/s.test(activityCss), "activity dots retain a static reduced-motion cue");
   await act(async () => root.unmount());
 });
 

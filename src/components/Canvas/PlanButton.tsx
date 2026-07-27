@@ -3,6 +3,7 @@ import { Map } from "lucide-react";
 import { listen } from "../../lib/bridge";
 import type { Pane } from "../../lib/types";
 import { PANE_BAR_CONTROL_H } from "../Terminal/paneBarConstants";
+import { ActivityDots } from "../shared/ActivityDots";
 import {
   canvasFocusStore,
   usePlanPulseVersion,
@@ -71,7 +72,7 @@ export function PlanButton({ paneId, panes }: PlanButtonProps) {
       data-testid="plan-button"
       onClick={open}
       title="Open plan canvas"
-      className={`flex shrink-0 items-center gap-1 rounded border px-2 text-[11px] font-medium cursor-pointer ${pulsing ? "ct-plan-button-pulse" : ""}`}
+      className="flex shrink-0 items-center gap-1 rounded border px-2 text-[11px] font-medium cursor-pointer"
       style={{
         height: PANE_BAR_CONTROL_H,
         background: "var(--ct-bg)",
@@ -81,6 +82,8 @@ export function PlanButton({ paneId, panes }: PlanButtonProps) {
     >
       <Map size={13} />
       Plan
+      {pulsing && <ActivityDots data-testid="plan-button-activity" size="small" tone="muted" />}
+      {pulsing && <span className="sr-only" role="status" aria-live="polite">Plan updated</span>}
     </button>
   );
 }
