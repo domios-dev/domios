@@ -324,7 +324,7 @@ prepare_local_install_target() {
 }
 
 parse_local_install_continuation() {
-  LOCAL_INSTALL_CONTINUE_TAB="${CODETERM_PANE_ID:-}"
+  LOCAL_INSTALL_CONTINUE_TAB="${CODETERM_TAB_ID:-}"
   LOCAL_INSTALL_CONTINUE_PROMPT=""
   LOCAL_INSTALL_CONTINUE_ENABLED=1
 
@@ -336,7 +336,7 @@ parse_local_install_continuation() {
         shift 2
         ;;
       --continue-tab)
-        [ "$#" -ge 2 ] || { echo "ERROR: --continue-tab requires a pane id" >&2; exit 2; }
+        [ "$#" -ge 2 ] || { echo "ERROR: --continue-tab requires a Tab id" >&2; exit 2; }
         LOCAL_INSTALL_CONTINUE_TAB="$2"
         shift 2
         ;;
@@ -359,7 +359,7 @@ parse_local_install_continuation() {
 
   if [ -z "$LOCAL_INSTALL_CONTINUE_TAB" ]; then
     if [ -n "$LOCAL_INSTALL_CONTINUE_PROMPT" ]; then
-      echo "ERROR: install-local continuation needs --continue-tab or CODETERM_PANE_ID" >&2
+      echo "ERROR: install-local continuation needs --continue-tab or CODETERM_TAB_ID" >&2
       exit 2
     fi
     LOCAL_INSTALL_CONTINUE_ENABLED=0
@@ -960,9 +960,9 @@ case "$CMD" in
     INSTALL_ARGS=(update install --from-file "$(cygpath -w "$INSTALLER")")
     if [ "$LOCAL_INSTALL_CONTINUE_ENABLED" = "1" ]; then
       INSTALL_ARGS+=(--continue-prompt "$LOCAL_INSTALL_CONTINUE_PROMPT" --continue-tab "$LOCAL_INSTALL_CONTINUE_TAB")
-      echo "Post-install continuation: pane $LOCAL_INSTALL_CONTINUE_TAB"
+      echo "Post-install continuation: Tab $LOCAL_INSTALL_CONTINUE_TAB"
     else
-      echo "Post-install continuation: disabled (no calling CodeTerm pane)"
+      echo "Post-install continuation: disabled (no calling CodeTerm Tab)"
     fi
     env \
       -u CODETERM_INSTANCE \

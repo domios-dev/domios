@@ -3,7 +3,7 @@
 
 import { reducer } from "./reducer";
 import type { ExtendedState } from "./tree";
-import type { MultiplexerState, Notification, Workspace, Tab, Tab, Team } from "../../lib/types";
+import type { MultiplexerState, Notification, Workspace, Tab, Team } from "../../lib/types";
 import { TitleLevel } from "../../lib/types";
 
 let failures = 0;
@@ -77,11 +77,7 @@ test("SET_STATE removes orphaned and duplicate tabs before the sidebar can count
   const workspace = {
     id: "w-clean",
     name: "Clean",
-    tabs: [
-      { id: "tab-live", tab_id: "tab-live" },
-      { id: "tab-duplicate-tab", tab_id: "tab-live" },
-      { id: "tab-orphan", tab_id: "tab-closed" },
-    ],
+    tabs: ["tab-live", "tab-live", "tab-closed"],
     active_tab_id: "tab-orphan",
     cwd: null,
   } as unknown as Workspace;
@@ -95,7 +91,7 @@ test("SET_STATE removes orphaned and duplicate tabs before the sidebar can count
   };
 
   const next = reducer(base(), { type: "SET_STATE", state: incoming });
-  assert(next.workspaces[0].tabs.map((tab) => tab.id).join(",") === "tab-live", "only the live tab survives");
+  assert(next.workspaces[0].tabs.join(",") === "tab-live", "only the live tab survives");
   assert(next.workspaces[0].active_tab_id === "tab-live", "active tab falls back to the surviving tab");
 });
 
@@ -203,11 +199,10 @@ test("snapshots without a generation still apply (back-compat)", () => {
 
 test("peer switch reset removes every old-peer Tab and selection immediately", () => {
   const oldTab = { id: "blackstar-tab", title: "Planner" } as unknown as Tab;
-  const oldTab = { id: "blackstar-tab", tab_id: oldTab.id } as unknown as Tab;
   const oldWorkspace = {
     id: "blackstar-workspace",
     name: "BLACKSTAR",
-    tabs: [oldTab],
+    tabs: [oldTab.id],
     active_tab_id: oldTab.id,
     cwd: null,
   } as unknown as Workspace;
@@ -685,16 +680,13 @@ test("without RESET_GENERATION a low post-restart snapshot would be rejected (sa
 });
 
 test("CLOSE_TAB removes every tab whose Tab is in the removed cascade", () => {
-  const orch: Tab = { id: "tab-orch", tab_id: "tab-orch" } as unknown as Tab;
-  const planner: Tab = { id: "tab-planner", tab_id: "tab-planner" } as unknown as Tab;
-  const worker: Tab = { id: "tab-worker", tab_id: "tab-worker" } as unknown as Tab;
   const start: ExtendedState = {
     ...base(),
     workspaces: [
       {
         id: "w1",
         name: "W",
-        tabs: [orch, planner, worker],
+        tabs: ["tab-orch", "tab-planner", "tab-worker"],
         active_tab_id: "tab-worker",
         cwd: null,
       } as unknown as Workspace,
@@ -735,16 +727,13 @@ test("CLOSE_TAB removes every tab whose Tab is in the removed cascade", () => {
 });
 
 test("CLOSE_TAB removes a manager-root subtree", () => {
-  const orch: Tab = { id: "tab-orch", tab_id: "tab-orch" } as unknown as Tab;
-  const manager: Tab = { id: "tab-manager", tab_id: "tab-manager" } as unknown as Tab;
-  const worker: Tab = { id: "tab-worker", tab_id: "tab-worker" } as unknown as Tab;
   const start: ExtendedState = {
     ...base(),
     workspaces: [
       {
         id: "w1",
         name: "W",
-        tabs: [orch, manager, worker],
+        tabs: ["tab-orch", "tab-manager", "tab-worker"],
         active_tab_id: "tab-worker",
         cwd: null,
       } as unknown as Workspace,
@@ -778,7 +767,7 @@ test("CLOSE_TAB removes a manager-root subtree", () => {
     removedTabIds: ["tab-manager", "tab-worker"],
   });
   const ws = after.workspaces.find((w) => w.id === "w1")!;
-  assert(ws.tabs.map((t) => t.id).join(",") === "tab-orch", "only orchestrator remains");
+  assert(ws.tabs.join(",") === "tab-orch", "only orchestrator remains");
   assert(ws.active_tab_id === "tab-orch", "active tab falls back to orchestrator");
   assert(after.activeTabIds.w1 === "tab-orch", "activeTabIds falls back to orchestrator");
   assert(after.tabs["tab-orch"], "orchestrator Tab remains");
@@ -797,8 +786,8 @@ function snapWithTabs(
       {
         id: "w1",
         name: "W",
-        tabs: pairs.map(([id, tab_id]) => ({ id, tab_id })),
-        active_tab_id: pairs[0]?.[0] ?? null,
+        tabs: pairs.map(([, tabId]) => tabId),
+        active_tab_id: pairs[0]?.[1] ?? null,
         cwd: null,
       } as unknown as Workspace,
     ],
@@ -810,7 +799,7 @@ function snapWithTabs(
 }
 
 function tabIds(state: ExtendedState): string {
-  return state.workspaces[0]?.tabs.map((t) => t.id).join(",") ?? "";
+  return state.workspaces[0]?.tabs.join(",") ?? "";
 }
 
 test("SET_STATE masks a tombstoned Tab from an accepted snapshot", () => {
@@ -819,7 +808,7 @@ test("SET_STATE masks a tombstoned Tab from an accepted snapshot", () => {
     type: "SET_STATE",
     state: snapWithTabs(6, [["A", "tab-A"], ["B", "tab-B"]]),
   });
-  assert(tabIds(next) === "A", "closed tab B masked out of the accepted snapshot");
+  assert(tabIds(next) === "tab-A", "closed tab B masked out of the accepted snapshot");
   assert(!next.tabs["tab-B"], "masked Tab removed from Tabs map");
   assert(next.pendingCloses.join(",") === "tab-B", "tombstone retained while the Tab is reported");
 });
@@ -830,7 +819,7 @@ test("SET_STATE self-clears a tombstone when the accepted snapshot omits the Tab
     type: "SET_STATE",
     state: snapWithTabs(6, [["A", "tab-A"]]),
   });
-  assert(tabIds(next) === "A", "only the live tab remains");
+  assert(tabIds(next) === "tab-A", "only the live tab remains");
   assert(next.pendingCloses.length === 0, "tombstone cleared once the accepted snapshot omits the Tab");
 });
 
@@ -846,7 +835,7 @@ test("SET_STATE does NOT clear a tombstone on a rejected stale snapshot that omi
     type: "SET_STATE",
     state: snapWithTabs(11, [["A", "tab-A"], ["B", "tab-B"]]),
   });
-  assert(tabIds(later) === "A", "surviving tombstone still masks B on a later accepted snapshot");
+  assert(tabIds(later) === "tab-A", "surviving tombstone still masks B on a later accepted snapshot");
 });
 
 test("no time-based expiry: repeated accepted snapshots listing the Tab keep masking", () => {
@@ -856,7 +845,7 @@ test("no time-based expiry: repeated accepted snapshots listing the Tab keep mas
       type: "SET_STATE",
       state: snapWithTabs(gen, [["A", "tab-A"], ["B", "tab-B"]]),
     });
-    assert(tabIds(state) === "A", `gen ${gen}: B stays masked`);
+    assert(tabIds(state) === "tab-A", `gen ${gen}: B stays masked`);
     assert(state.pendingCloses.join(",") === "tab-B", `gen ${gen}: tombstone never self-expires`);
   }
   const omitted = reducer(state, {
@@ -874,22 +863,22 @@ test("REMOVE_PENDING_CLOSE drops the tombstone so a later snapshot restores the 
     type: "SET_STATE",
     state: snapWithTabs(6, [["A", "tab-A"], ["B", "tab-B"]]),
   });
-  assert(tabIds(restored) === "A,B", "with no tombstone the authoritative Tab reappears");
+  assert(tabIds(restored) === "tab-A,tab-B", "with no tombstone the authoritative Tab reappears");
 });
 
 test("CLOSE_TAB records a tombstone for the removed Tab", () => {
   const start: ExtendedState = {
     ...base(),
     workspaces: [
-      { id: "w1", name: "W", tabs: [{ id: "A", tab_id: "tab-A" }], active_tab_id: "A", cwd: null } as unknown as Workspace,
+      { id: "w1", name: "W", tabs: ["tab-A"], active_tab_id: "tab-A", cwd: null } as Workspace,
     ],
     tabs: { "tab-A": { id: "tab-A", title: "A" } as unknown as Tab },
-    activeTabIds: { w1: "A" },
+    activeTabIds: { w1: "tab-A" },
   };
   const next = reducer(start, {
     type: "CLOSE_TAB",
     workspaceId: "w1",
-    tabId: "A",
+    tabId: "tab-A",
     removedTabIds: ["tab-A"],
   });
   assert(next.pendingCloses.join(",") === "tab-A", "closing a tab tombstones its Tab");

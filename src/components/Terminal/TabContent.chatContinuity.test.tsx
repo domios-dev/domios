@@ -106,7 +106,7 @@ function stateFor(tab: Tab, generation: number): ExtendedState {
       id: "workspace",
       name: "Project",
       cwd: "D:\\work\\project",
-      tabs: [{ id: "tab", tab_id: tab.id }],
+      tabs: [tab.id],
       active_tab_id: "tab",
     }],
     tabs: { [tab.id]: tab },

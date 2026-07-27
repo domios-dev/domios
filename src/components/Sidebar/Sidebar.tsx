@@ -658,8 +658,8 @@ export function Sidebar({
                                   ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
                                   : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-muted-fg)]"
                               }`}
-                              aria-label={`Open tab ${displayTitleForTab(tab, tab)}`}
-                              title={displayTitleForTab(tab, tab)}
+                              aria-label={`Open tab ${displayTitleForTab(tab)}`}
+                              title={displayTitleForTab(tab)}
                             >
                               {tab?.agent_type ? (
                                 <AgentIcon providerId={tab.agent_type} className="text-[12px]" />

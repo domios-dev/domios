@@ -3,16 +3,22 @@
 import { readFileSync } from "node:fs";
 import { Window } from "happy-dom";
 import type { Root } from "react-dom/client";
-import type { Tab, TabStatus, ProviderDescriptor, Tab, Team, Workspace } from "../../lib/types";
+import type { Tab, TabStatus, ProviderDescriptor, Workspace } from "../../lib/types";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
-import { FIXTURE_PLAN, FIXTURE_TASK } from "../Canvas/cards/fixtures.testdata";
-import { TaskStatus, type Plan, type Task } from "../Canvas/types";
+import { TaskStatus, type Plan } from "../Canvas/types";
 import { PLAN_STATUS_COLORS } from "../shared/SegmentedDonut";
 import { SidebarDnd } from "./sortable";
 import { canvasFocusStore } from "../Canvas/canvasFocusStore";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
 import { forwardTerminalFallback } from "../../lib/terminalFallbackInput";
 import { __setInvokeForTest } from "../../lib/bridge";
+import {
+  plan,
+  planIndexEntry,
+  tab,
+  task,
+  TEAM,
+} from "./SidebarWorkspaceTabs.fixtures.testdata";
 
 let act: typeof import("react").act;
 let useState: typeof import("react").useState;
@@ -62,58 +68,9 @@ async function openTabActionsMenu(tabRow: Element): Promise<void> {
   });
 }
 
-function tab(overrides: Partial<Tab> & { team_id?: string | null }): Tab {
-  return {
-    id: "tab",
-    pty_id: null,
-    tab_type: "Terminal",
-    title: "Tab",
-    cwd: null,
-    role: null,
-    role_profile: null,
-    parent_tab_id: null,
-    ...overrides,
-  } as Tab;
-}
-
-function tab(id: string, tabId: string, sortOrder: number): Tab {
-  return { id, tab_id: tabId, sort_order: sortOrder };
-}
-
-function task(id: string, status: Task["status"]): Task {
-  return { ...FIXTURE_TASK, id, name: id, status };
-}
-
-function plan(tasks: Task[]): Plan {
-  return { ...FIXTURE_PLAN, id: "plan-team", title: "Sidebar team effort", team_id: "team-one", tasks } as Plan;
-}
-
-function planIndexEntry(planId = "plan-team", teamId: string | null = TEAM.id): PlanIndexEntry {
-  return {
-    plan_id: planId,
-    file_path: "/workspace/.codeterm/plans/active/plan-team/plan.json",
-    canonical_project_path: "/workspace",
-    owner: { tab_id: "orch", session_id: null, title: null },
-    title: "Sidebar team effort",
-    status: "active",
-    updated_at: 1,
-    team_id: teamId,
-    assigned_tab_ids: ["orch"],
-    task_count: 1,
-  };
-}
-
-const TEAM: Team = {
-  id: "team-one",
-  name: "Sidebar team",
-  lifecycle: "active",
-  created_at: 1,
-  workspace_id: "workspace",
-};
-
 async function renderSidebar({
   tabs,
-  tabs,
+  sortedTabs = Object.values(tabs).map((item) => item.id),
   plans = [],
   planIndex = [],
   statuses = {},
@@ -128,7 +85,7 @@ async function renderSidebar({
   newSessionDisabled = false,
 }: {
   tabs: Record<string, Tab>;
-  tabs: Tab[];
+  sortedTabs?: string[];
   plans?: Plan[];
   planIndex?: PlanIndexEntry[];
   statuses?: Record<string, "Working" | "Waiting" | "Idle" | "Dead">;
@@ -155,8 +112,8 @@ async function renderSidebar({
   const workspace: Workspace = {
     id: "workspace",
     name: "Workspace",
-    tabs,
-    active_tab_id: activeTabId ?? tabs[0]?.id ?? null,
+    tabs: sortedTabs,
+    active_tab_id: activeTabId ?? sortedTabs[0] ?? null,
     cwd: "/workspace",
   };
   const host = document.createElement("div");
@@ -168,7 +125,7 @@ async function renderSidebar({
         <SidebarWorkspaceTabs
           workspace={workspace}
           activeTabId={workspace.active_tab_id}
-          sortedTabs={tabs}
+          sortedTabs={sortedTabs.map((tabId) => tabs[tabId]).filter(Boolean)}
           tabs={tabs}
           tabStatuses={statuses}
           teams={[TEAM]}
@@ -207,7 +164,7 @@ setupDom();
 test("new session stays disabled until Get started is complete", async () => {
   const { host, root } = await renderSidebar({
     tabs: {},
-    tabs: [],
+    sortedTabs: [],
     newSessionDisabled: true,
   });
   const button = host.querySelector('[data-testid="sidebar-new-session"]') as HTMLButtonElement;
@@ -227,7 +184,7 @@ test("hidden service Tabs never render in the sidebar", async () => {
       [visibleTab.id]: visibleTab,
       [hiddenTab.id]: hiddenTab,
     },
-    tabs: [
+    sortedTabs: [
       tab("visible-tab", visibleTab.id, 0),
       tab("probe-tab", hiddenTab.id, 1),
     ],
@@ -248,8 +205,8 @@ test("team_renders_flat_sections", async () => {
     workerThree: tab({ id: "workerThree", title: "Worker Three", role: "Worker", team_id: TEAM.id, parent_tab_id: "orchTwo" }),
   };
   const ids = Object.keys(tabs);
-  const tabs = ids.map((id, index) => tab(`tab-${id}`, id, index));
-  const { host, root } = await renderSidebar({ tabs, tabs });
+  const sortedTabs = ids.map((id, index) => tab(`tab-${id}`, id, index));
+  const { host, root } = await renderSidebar({ tabs, sortedTabs });
 
   const team = host.querySelector('[data-testid="team-unit"]');
   const managers = team?.querySelector('[data-testid="managers-section"]');
@@ -271,11 +228,11 @@ test("plans have only a Team-owned sidebar home", async () => {
   const tabs = {
     orch: tab({ id: "orch", title: "Orchestrator", role: "Orchestrator", team_id: TEAM.id }),
   };
-  const tabs = [tab("tab-orch", "orch", 0)];
+  const sortedTabs = [tab("tab-orch", "orch", 0)];
   const bound = plan([]);
   const detached = { ...bound, team_id: null } as Plan;
   const { host, root, rerender } = await renderSidebar({
-    tabs,
+    sortedTabs,
     tabs,
     plans: [bound],
     planIndex: [planIndexEntry()],
@@ -302,7 +259,7 @@ test("team menu enables staffing only for a Team with a manager", async () => {
   canvasFocusStore.closeWorkspace();
   const { host, root } = await renderSidebar({
     tabs,
-    tabs: [tab("tab-manager", "manager", 0)],
+    sortedTabs: [tab("tab-manager", "manager", 0)],
     onRenameTeam: () => {},
     onAddTeamMember: () => {},
     onCloseTeam: (teamId) => closed.push(teamId),
@@ -382,7 +339,7 @@ test("managerless Team hides staffing and makes no request", async () => {
   };
   const { host, root } = await renderSidebar({
     tabs,
-    tabs: [tab("tab-worker", "worker", 0)],
+    sortedTabs: [tab("tab-worker", "worker", 0)],
     onAddTeamMember: (...args) => requests.push(args),
   });
   const trigger = host.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement | null;
@@ -415,7 +372,7 @@ test("staffing selects the first eligible manager in visible Orchestrator-first 
   }] as ProviderDescriptor[];
   const { host, root } = await renderSidebar({
     tabs,
-    tabs: [tab("tab-unrelated", "unrelated", 0), tab("tab-O1", "z-O1", 1), tab("tab-O2", "a-O2", 2), tab("tab-P1", "p-P1", 3)],
+    sortedTabs: [tab("tab-unrelated", "unrelated", 0), tab("tab-O1", "z-O1", 1), tab("tab-O2", "a-O2", 2), tab("tab-P1", "p-P1", 3)],
     activeTabId: "tab-unrelated",
     providers,
     onAddTeamMember: (teamId, role, providerId, managerTabId) => {
@@ -453,7 +410,7 @@ test("staffing selects a planner when no Orchestrator is eligible", async () => 
   const providers = [{ id: "registry-provider", display_name: "Registry provider", transport: "pty" }] as ProviderDescriptor[];
   const { host, root } = await renderSidebar({
     tabs,
-    tabs: [tab("tab-watcher", "watcher", 0), tab("tab-planner", "planner", 1)],
+    sortedTabs: [tab("tab-watcher", "watcher", 0), tab("tab-planner", "planner", 1)],
     providers,
     onAddTeamMember: (teamId, role, providerId, managerTabId) => requests.push([teamId, role, providerId, managerTabId]),
   });
@@ -499,7 +456,7 @@ test("staffing picker uses descriptor icons and requires a descriptor model choi
   }] as ProviderDescriptor[];
   const { host, root } = await renderSidebar({
     tabs,
-    tabs: [tab("tab-manager", "manager", 0)],
+    sortedTabs: [tab("tab-manager", "manager", 0)],
     providers,
     onAddTeamMember: (teamId, role, providerId, managerTabId, model) => requests.push([teamId, role, providerId, managerTabId, model]),
   });
@@ -564,7 +521,7 @@ test("staffing failure stays visible without local mutation or refetch", async (
   try {
     const { host, root } = await renderSidebar({
       tabs,
-      tabs: [tab("tab-manager", "manager", 0)],
+      sortedTabs: [tab("tab-manager", "manager", 0)],
       providers,
       onAddTeamMember: async () => {
         throw new Error("Team manager permission denied (403)");
@@ -599,7 +556,7 @@ test("staffing provider action ignores an immediate double click", async () => {
   const providers = [{ id: "registry-provider", display_name: "Registry provider", transport: "pty" }] as ProviderDescriptor[];
   const { host, root } = await renderSidebar({
     tabs,
-    tabs: [tab("tab-manager", "manager", 0)],
+    sortedTabs: [tab("tab-manager", "manager", 0)],
     providers,
     onAddTeamMember: () => {
       invocations += 1;
@@ -632,8 +589,8 @@ test("teamless_tabs_render_plain", async () => {
     looseOne: tab({ id: "looseOne", title: "Loose terminal" }),
     looseTwo: tab({ id: "looseTwo", title: "Quick fix", role: "Worker" }),
   };
-  const tabs = [tab("tab-loose-one", "looseOne", 0), tab("tab-loose-two", "looseTwo", 1)];
-  const { host, root } = await renderSidebar({ tabs, tabs });
+  const sortedTabs = [tab("tab-loose-one", "looseOne", 0), tab("tab-loose-two", "looseTwo", 1)];
+  const { host, root } = await renderSidebar({ tabs, sortedTabs });
 
   assert(!host.querySelector('[data-testid="team-unit"]'), "teamless tabs have no team wrapper");
   assert(host.querySelectorAll('[data-testid="tab-item"]').length === 2, "both loose tabs render plainly");
@@ -657,7 +614,7 @@ test("team header renders the live compact status tally", async () => {
   ]);
   const { host, root, rerender } = await renderSidebar({
     tabs,
-    tabs: [tab("tab-orchestrator", "orchestrator", 0), tab("tab-worker", "worker", 1)],
+    sortedTabs: [tab("tab-orchestrator", "orchestrator", 0), tab("tab-worker", "worker", 1)],
     plans: [currentPlan],
     statuses: { worker: "Working" },
   });
@@ -731,7 +688,7 @@ test("Team card keeps plan activation separate from collapse and menu controls",
   canvasFocusStore.closeWorkspace();
   const { host, root } = await renderSidebar({
     tabs,
-    tabs: [tab("tab-orchestrator", "orchestrator", 0)],
+    sortedTabs: [tab("tab-orchestrator", "orchestrator", 0)],
     plans: [currentPlan],
     onRenameTeam: () => {},
   });
@@ -806,7 +763,7 @@ test("Team card keeps plan activation separate from collapse and menu controls",
 
   const unbound = await renderSidebar({
     tabs,
-    tabs: [tab("tab-orchestrator", "orchestrator", 0)],
+    sortedTabs: [tab("tab-orchestrator", "orchestrator", 0)],
     onRenameTeam: () => {},
   });
   const unboundHeader = unbound.host.querySelector('.sidebar-team-header') as HTMLElement;
@@ -827,9 +784,9 @@ test("workers_collapse_summary", async () => {
     workerTwo: tab({ id: "workerTwo", title: "Worker Two", role: "Worker", team_id: TEAM.id }),
     workerThree: tab({ id: "workerThree", title: "Worker Three", role: "Worker", team_id: TEAM.id }),
   };
-  const tabs = Object.keys(tabs).map((id, index) => tab(`tab-${id}`, id, index));
+  const sortedTabs = Object.keys(tabs).map((id, index) => tab(`tab-${id}`, id, index));
   const { host, root } = await renderSidebar({
-    tabs,
+    sortedTabs,
     tabs,
     statuses: { workerOne: "Working", workerTwo: "Working", workerThree: "Idle" },
   });
@@ -852,17 +809,17 @@ test("team worker rows follow tab sort order", async () => {
     workerTwo: tab({ id: "workerTwo", title: "Worker Two", role: "Worker", team_id: TEAM.id }),
     workerOne: tab({ id: "workerOne", title: "Worker One", role: "Worker", team_id: TEAM.id }),
   };
-  const tabs = [
+  const sortedTabs = [
     tab("tab-orchestrator", "orchestrator", 0),
     tab("tab-worker-one", "workerOne", 1),
     tab("tab-worker-two", "workerTwo", 2),
   ];
-  const { host, root } = await renderSidebar({ tabs, tabs });
+  const { host, root } = await renderSidebar({ tabs, sortedTabs });
   const workerSection = host.querySelector('[data-testid="workers-section"]');
   const rendered = Array.from(workerSection?.querySelectorAll("[data-tab-id]") ?? []).map(
     (element) => element.getAttribute("data-tab-id"),
   );
-  assert(rendered.join(",") === "tab-worker-one,tab-worker-two", "worker DOM order follows tab order");
+  assert(rendered.join(",") === "workerOne,workerTwo", "worker DOM order follows tab order");
   await act(async () => root.unmount());
 });
 
@@ -871,14 +828,14 @@ test("clicking a team worker activates it", async () => {
     orchestrator: tab({ id: "orchestrator", title: "Orchestrator", role: "Orchestrator", team_id: TEAM.id }),
     worker: tab({ id: "worker", title: "Worker", role: "Worker", team_id: TEAM.id }),
   };
-  const tabs = [tab("tab-orchestrator", "orchestrator", 0), tab("tab-worker", "worker", 1)];
-  const workspace: Workspace = { id: "workspace", name: "Workspace", tabs, active_tab_id: "tab-orchestrator", cwd: null };
+  const sortedTabs = [tab("tab-orchestrator", "orchestrator", 0), tab("tab-worker", "worker", 1)];
+  const workspace: Workspace = { id: "workspace", name: "Workspace", tabs: sortedTabs, active_tab_id: "orchestrator", cwd: null };
 
   const activations: string[] = [];
   let updateManagerStatus = (_status: TabStatus) => {};
 
   function Harness() {
-    const [activeTabId, setActiveTabId] = useState("tab-orchestrator");
+    const [activeTabId, setActiveTabId] = useState("orchestrator");
     const [managerStatus, setManagerStatus] = useState<TabStatus>("Working");
     updateManagerStatus = setManagerStatus;
     return (
@@ -886,7 +843,7 @@ test("clicking a team worker activates it", async () => {
         <SidebarWorkspaceTabs
           workspace={workspace}
           activeTabId={activeTabId}
-          sortedTabs={tabs}
+          sortedTabs={sortedTabs.map((tabId) => tabs[tabId]).filter(Boolean)}
           tabs={tabs}
           tabStatuses={{ orchestrator: managerStatus, worker: "Idle" }}
           teams={[TEAM]}
@@ -917,7 +874,7 @@ test("clicking a team worker activates it", async () => {
   document.body.appendChild(host);
   const root = createRoot(host);
   await act(async () => root.render(<Harness />));
-  const managerRow = host.querySelector('[data-tab-id="tab-orchestrator"]');
+  const managerRow = host.querySelector('[data-tab-id="orchestrator"]');
   const managerButton = managerRow?.querySelector('button[aria-label="Open tab Orchestrator"]');
   assert(managerButton, "active manager remains an accessible named button");
   assert(managerButton.getAttribute("aria-current") === "page", "active manager exposes aria-current");
@@ -937,17 +894,17 @@ test("clicking a team worker activates it", async () => {
   );
   assert(!managerButton.querySelector(".active-tab-pill"), "active fill cannot cover manager content");
   assert(managerButton.textContent?.includes("Orchestrator"), "active manager title remains readable");
-  const workerRow = host.querySelector('[data-tab-id="tab-worker"]') as HTMLElement | null;
+  const workerRow = host.querySelector('[data-tab-id="worker"]') as HTMLElement | null;
   assert(workerRow, "worker row rendered");
   assert(workerRow.className.includes("sidebar-tab-dimmed"), "worker starts inactive");
   const workerButton = workerRow.querySelector('button[aria-label="Open tab Worker"]') as HTMLButtonElement | null;
   assert(workerButton, "worker exposes its open action");
   await act(async () => workerButton.click());
-  assert(JSON.stringify(activations) === JSON.stringify(["tab-worker"]), "activation receives the tab id exactly once");
+  assert(JSON.stringify(activations) === JSON.stringify(["worker"]), "activation receives the tab id exactly once");
   assert(workerButton.getAttribute("aria-current") === "page", "activated worker exposes aria-current");
   assert(managerButton.getAttribute("aria-current") === null, "inactive manager clears aria-current");
   assert(
-    !host.querySelector('[data-tab-id="tab-worker"]')?.className.includes("sidebar-tab-dimmed"),
+    !host.querySelector('[data-tab-id="worker"]')?.className.includes("sidebar-tab-dimmed"),
     "worker receives active chrome after click",
   );
   await act(async () => root.unmount());
@@ -973,14 +930,14 @@ test("waiting team worker keeps prompt pill without status rail", async () => {
       },
     }),
   };
-  const tabs = [tab("tab-orchestrator", "orchestrator", 0), tab("tab-attention", "attention", 1)];
+  const sortedTabs = [tab("tab-orchestrator", "orchestrator", 0), tab("tab-attention", "attention", 1)];
   const { host, root } = await renderSidebar({
-    tabs,
+    sortedTabs,
     tabs,
     statuses: { attention: "Waiting" },
-    activeTabId: "tab-attention",
+    activeTabId: "attention",
   });
-  const row = host.querySelector('[data-tab-id="tab-attention"]');
+  const row = host.querySelector('[data-tab-id="attention"]');
   assert(row?.querySelector('span[title="Allow team action?"]'), "prompt pill remains visible");
   assert(!row?.querySelector('[data-testid="tab-status-rail"]'), "waiting worker has no left status rail");
   await act(async () => root.unmount());
@@ -1002,14 +959,14 @@ test("working team worker keeps activity dots without status rail", async () => 
       agent_type: "claude",
     }),
   };
-  const tabs = [tab("tab-orchestrator", "orchestrator", 0), tab("tab-worker", "worker", 1)];
+  const sortedTabs = [tab("tab-orchestrator", "orchestrator", 0), tab("tab-worker", "worker", 1)];
   const { host, root } = await renderSidebar({
-    tabs,
+    sortedTabs,
     tabs,
     statuses: { worker: "Working" },
-    activeTabId: "tab-worker",
+    activeTabId: "worker",
   });
-  const row = host.querySelector('[data-tab-id="tab-worker"]');
+  const row = host.querySelector('[data-tab-id="worker"]');
   const dots = row?.querySelector('[data-testid="tab-working-activity"] .activity-dots');
   assert(dots?.classList.contains("activity-dots--small"), "working worker uses small activity dots");
   assert(dots?.classList.contains("activity-dots--muted"), "working worker uses muted activity dots");
@@ -1041,14 +998,14 @@ test("team worker and manager descriptions do not add row lines", async () => {
       team_id: TEAM.id,
     }),
   };
-  const tabs = [
+  const sortedTabs = [
     tab("tab-orchestrator", "orchestrator", 0),
     tab("tab-manager", "manager", 1),
     tab("tab-worker", "worker", 2),
   ];
-  const { host, root } = await renderSidebar({ tabs, tabs });
-  const managerRow = host.querySelector('[data-tab-id="tab-manager"]');
-  const workerRow = host.querySelector('[data-tab-id="tab-worker"]');
+  const { host, root } = await renderSidebar({ tabs, sortedTabs });
+  const managerRow = host.querySelector('[data-tab-id="manager"]');
+  const workerRow = host.querySelector('[data-tab-id="worker"]');
   assert(!managerRow?.textContent?.includes("manager description"), "manager description is not a row line");
   assert(!workerRow?.textContent?.includes("worker description"), "worker description is not a row line");
   assert(!workerRow?.querySelector('[data-testid="tab-subline"]'), "worker remains a single-line row");
@@ -1073,15 +1030,15 @@ test("team worker close control calls onCloseTab", async () => {
       agent_type: "claude",
     }),
   };
-  const tabs = [tab("tab-orchestrator", "orchestrator", 0), tab("tab-worker", "worker", 1)];
-  const { host, root } = await renderSidebar({ tabs, tabs, onCloseTab: (id) => closed.push(id) });
-  const row = host.querySelector('[data-tab-id="tab-worker"]');
+  const sortedTabs = [tab("tab-orchestrator", "orchestrator", 0), tab("tab-worker", "worker", 1)];
+  const { host, root } = await renderSidebar({ tabs, sortedTabs, onCloseTab: (id) => closed.push(id) });
+  const row = host.querySelector('[data-tab-id="worker"]');
   assert(row, "worker row rendered");
   await openTabActionsMenu(row);
   const close = document.querySelector('[data-testid="tab-menu-close"]') as HTMLButtonElement | null;
   assert(close && !close.disabled, "worker close control enabled");
   await act(async () => close.click());
-  assert(JSON.stringify(closed) === JSON.stringify(["tab-worker"]), "worker close receives the tab id exactly once");
+  assert(JSON.stringify(closed) === JSON.stringify(["worker"]), "worker close receives the tab id exactly once");
   await act(async () => root.unmount());
 });
 
@@ -1089,8 +1046,8 @@ test("Team disclosure stays user-owned across rerenders and remounts", async () 
   const tabs = {
     orchestrator: tab({ id: "orchestrator", title: "Orchestrator", role: "Orchestrator", team_id: TEAM.id }),
   };
-  const tabs = [tab("tab-orchestrator", "orchestrator", 0)];
-  const first = await renderSidebar({ tabs, tabs });
+  const sortedTabs = [tab("tab-orchestrator", "orchestrator", 0)];
+  const first = await renderSidebar({ tabs, sortedTabs });
   const firstHandle = first.host.querySelector('[data-testid="team-collapse-toggle"]') as HTMLButtonElement;
   await act(async () => firstHandle.click());
   assert(firstHandle.getAttribute("aria-expanded") === "false", "user collapse takes effect");
@@ -1098,14 +1055,14 @@ test("Team disclosure stays user-owned across rerenders and remounts", async () 
   assert(firstHandle.getAttribute("aria-expanded") === "false", "data refresh cannot expand a collapsed Team");
   await act(async () => first.root.unmount());
 
-  const refreshed = await renderSidebar({ tabs, tabs });
+  const refreshed = await renderSidebar({ tabs, sortedTabs });
   const refreshedHandle = refreshed.host.querySelector('[data-testid="team-collapse-toggle"]') as HTMLButtonElement;
   assert(refreshedHandle.getAttribute("aria-expanded") === "false", "frontend remount restores the collapsed Team state");
   assert(!refreshed.host.querySelector('[data-testid="managers-section"]'), "collapsed Team body stays hidden after remount");
   await act(async () => refreshedHandle.click());
   await act(async () => refreshed.root.unmount());
 
-  const expandedAgain = await renderSidebar({ tabs, tabs });
+  const expandedAgain = await renderSidebar({ tabs, sortedTabs });
   assert(
     expandedAgain.host.querySelector('[data-testid="team-collapse-toggle"]')?.getAttribute("aria-expanded") === "true",
     "only a user expansion changes the persisted Team state",
@@ -1129,8 +1086,8 @@ test("tab rich menu opens from right click and exposes session actions", async (
   const tabs: Record<string, Tab> = {
     worker: tab({ id: "worker", title: "Worker", role: "Worker", team_id: TEAM.id, agent_type: "claude", agent_session_id: "session-42" }),
   };
-  const { host, root } = await renderSidebar({ tabs, tabs: [tab("tab-worker", "worker", 0)], onRenameTab: (tabId, title) => renamed.push([tabId, title]) });
-  const row = host.querySelector('[data-tab-id="tab-worker"]');
+  const { host, root } = await renderSidebar({ tabs, sortedTabs: [tab("tab-worker", "worker", 0)], onRenameTab: (tabId, title) => renamed.push([tabId, title]) });
+  const row = host.querySelector('[data-tab-id="worker"]');
   assert(row, "worker row rendered");
   await act(async () => {
     row.dispatchEvent(new MouseEvent("contextmenu", {
@@ -1177,7 +1134,7 @@ test("tab rich menu opens from right click and exposes session actions", async (
   const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
   await act(async () => { setter?.call(input, "Renamed Worker"); input.dispatchEvent(new Event("input", { bubbles: true })); });
   await act(async () => input.blur());
-  assert(JSON.stringify(renamed) === JSON.stringify([["tab-worker", "Renamed Worker"]]), "rename receives the tab id and title exactly once");
+  assert(JSON.stringify(renamed) === JSON.stringify([["worker", "Renamed Worker"]]), "rename receives the tab id and title exactly once");
   await act(async () => root.unmount());
 });
 
@@ -1199,15 +1156,15 @@ test("team manager close control calls onCloseTab", async () => {
       agent_type: "claude",
     }),
   };
-  const tabs = [tab("tab-orchestrator", "orchestrator", 0), tab("tab-manager", "manager", 1)];
-  const { host, root } = await renderSidebar({ tabs, tabs, onCloseTab: (id) => closed.push(id) });
-  const row = host.querySelector('[data-tab-id="tab-manager"]');
+  const sortedTabs = [tab("tab-orchestrator", "orchestrator", 0), tab("tab-manager", "manager", 1)];
+  const { host, root } = await renderSidebar({ tabs, sortedTabs, onCloseTab: (id) => closed.push(id) });
+  const row = host.querySelector('[data-tab-id="manager"]');
   assert(row, "manager row rendered");
   await openTabActionsMenu(row);
   const close = document.querySelector('[data-testid="tab-menu-close"]') as HTMLButtonElement | null;
   assert(close && !close.disabled, "manager close control enabled");
   await act(async () => close.click());
-  assert(JSON.stringify(closed) === JSON.stringify(["tab-manager"]), "manager close receives the tab id exactly once");
+  assert(JSON.stringify(closed) === JSON.stringify(["manager"]), "manager close receives the tab id exactly once");
   await act(async () => root.unmount());
 });
 

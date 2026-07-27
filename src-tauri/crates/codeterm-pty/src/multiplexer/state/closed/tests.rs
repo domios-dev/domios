@@ -16,15 +16,15 @@ fn ws_id(state: &MultiplexerState) -> String {
 fn close_tab_records_tab_into_history_with_backing() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
-    let (tab_id, tab_id) = state.create_tab(&wsid).unwrap();
+    let tab_id = state.create_tab(&wsid).unwrap();
     if let Some(p) = state.get_tab_mut(&tab_id) {
         p.backing = TabBacking::ChatBackend {
             plugin_id: "lmstudio".into(),
             session_id: "s1".into(),
         };
     }
-    state.rename_tab(&wsid, &tab_id, "My Chat").unwrap();
-    state.close_tab(&wsid, &tab_id).unwrap();
+    state.rename_tab(&tab_id, "My Chat").unwrap();
+    state.close_tab(&tab_id).unwrap();
 
     let list = state.list_recently_closed(&wsid);
     assert_eq!(list.len(), 1, "closed tab recorded");
@@ -47,7 +47,7 @@ fn close_tab_detaches_children_without_closing_them() {
     state
         .set_tab_role(&orchestrator_id, AgentRole::Orchestrator, None)
         .unwrap();
-    let (_worker_tab, worker_id) = state.create_tab(&workspace_id).unwrap();
+    let worker_id = state.create_tab(&workspace_id).unwrap();
     state
         .set_tab_role(&worker_id, AgentRole::Worker, Some(&orchestrator_id))
         .unwrap();
@@ -56,7 +56,7 @@ fn close_tab_detaches_children_without_closing_them() {
         .unwrap()
         .report_target_tab_id = Some(orchestrator_id.clone());
 
-    state.close_tab(&workspace_id, &orchestrator_tab).unwrap();
+    state.close_tab(&orchestrator_tab).unwrap();
 
     let worker = state.get_tab(&worker_id).expect("worker remains open");
     assert_eq!(worker.parent_tab_id, None);
@@ -68,7 +68,7 @@ fn close_tab_detaches_children_without_closing_them() {
 fn close_tab_records_agent_identity() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
-    let (_tab_id, tab_id) = state.create_tab(&wsid).unwrap();
+    let tab_id = state.create_tab(&wsid).unwrap();
     if let Some(p) = state.get_tab_mut(&tab_id) {
         p.agent_type = Some("claude".into());
         p.agent_session_id = Some("sess-42".into());
@@ -91,17 +91,17 @@ fn close_tab_records_agent_identity() {
 fn reopen_recreates_tab_with_same_backing() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
-    let (tab_id, tab_id) = state.create_tab(&wsid).unwrap();
+    let tab_id = state.create_tab(&wsid).unwrap();
     if let Some(p) = state.get_tab_mut(&tab_id) {
         p.backing = TabBacking::ChatBackend {
             plugin_id: "lmstudio".into(),
             session_id: "s7".into(),
         };
     }
-    state.rename_tab(&wsid, &tab_id, "Restored Chat").unwrap();
-    state.close_tab(&wsid, &tab_id).unwrap();
+    state.rename_tab(&tab_id, "Restored Chat").unwrap();
+    state.close_tab(&tab_id).unwrap();
 
-    let (new_tab, new_tab) = state.reopen_closed_tab(&wsid, None).unwrap();
+    let new_tab = state.reopen_closed_tab(&wsid, None).unwrap();
     assert_ne!(new_tab, tab_id, "fresh tab id");
     let tab = state.get_tab(&new_tab).expect("reopened Tab exists");
     assert_eq!(
@@ -123,17 +123,17 @@ fn reopen_recreates_tab_with_same_backing() {
 fn reopen_chatbackend_tab_opens_in_chat() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
-    let (tab_id, tab_id) = state.create_tab(&wsid).unwrap();
+    let tab_id = state.create_tab(&wsid).unwrap();
     if let Some(p) = state.get_tab_mut(&tab_id) {
         p.backing = TabBacking::ChatBackend {
             plugin_id: "lmstudio".into(),
             session_id: "s1".into(),
         };
     }
-    state.rename_tab(&wsid, &tab_id, "Chat").unwrap();
-    state.close_tab(&wsid, &tab_id).unwrap();
+    state.rename_tab(&tab_id, "Chat").unwrap();
+    state.close_tab(&tab_id).unwrap();
 
-    let (_t, new_tab) = state.reopen_closed_tab(&wsid, None).unwrap();
+    let new_tab = state.reopen_closed_tab(&wsid, None).unwrap();
     let tab = state.get_tab(&new_tab).unwrap();
     assert!(tab.is_chat_backend(), "backing preserved on reopen");
     assert!(
@@ -147,16 +147,16 @@ fn reopen_cascade_group_activates_root_not_leaf() {
     // first, but the focused tab on reopen must be the cascade ROOT.
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
-    let (orch_tab, orch_tab) = state.create_tab(&wsid).unwrap();
-    state.rename_tab(&wsid, &orch_tab, "Orchestrator").unwrap();
-    let (w1_tab, worker1) = state.create_tab(&wsid).unwrap();
-    state.rename_tab(&wsid, &w1_tab, "Worker").unwrap();
-    state.get_tab_mut(&worker1).unwrap().parent_tab_id = Some(orch_tab.clone());
+    let orch_tab = state.create_tab(&wsid).unwrap();
+    state.rename_tab(&orch_tab, "Orchestrator").unwrap();
+    let w1_tab = state.create_tab(&wsid).unwrap();
+    state.rename_tab(&w1_tab, "Worker").unwrap();
+    state.get_tab_mut(&w1_tab).unwrap().parent_tab_id = Some(orch_tab.clone());
 
     state.close_tab_for_team_close(&orch_tab).unwrap();
     let group_id = state.recent_closed_view()[0].group_id.clone();
 
-    let (_ws, _tab, activated) = state.reopen_closed_group(&group_id).unwrap();
+    let (_ws, activated) = state.reopen_closed_group(&group_id).unwrap();
     let tab = state.get_tab(&activated).expect("activated Tab exists");
     assert_eq!(
         tab.title, "Orchestrator",
@@ -172,14 +172,14 @@ fn reopen_cascade_group_activates_root_not_leaf() {
 fn reopen_agent_tab_marks_for_resume() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
-    let (_tab_id, tab_id) = state.create_tab(&wsid).unwrap();
+    let tab_id = state.create_tab(&wsid).unwrap();
     if let Some(p) = state.get_tab_mut(&tab_id) {
         p.agent_type = Some("codex".into());
         p.agent_session_id = Some("cx-1".into());
     }
     state.close_tab(&tab_id).unwrap();
 
-    let (_t, new_tab) = state.reopen_closed_tab(&wsid, None).unwrap();
+    let new_tab = state.reopen_closed_tab(&wsid, None).unwrap();
     let tab = state.get_tab(&new_tab).unwrap();
     assert_eq!(tab.agent_type.as_deref(), Some("codex"));
     assert!(tab.agent_type_locked);
@@ -192,14 +192,14 @@ fn reopen_agent_tab_marks_for_resume() {
 fn reopen_agent_tab_preserves_terminal_mode() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
-    let (_tab_id, tab_id) = state.create_tab(&wsid).unwrap();
+    let tab_id = state.create_tab(&wsid).unwrap();
     if let Some(p) = state.get_tab_mut(&tab_id) {
         p.agent_type = Some("claude".into());
         p.chat_view = false;
     }
     state.close_tab(&tab_id).unwrap();
 
-    let (_t, new_tab) = state.reopen_closed_tab(&wsid, None).unwrap();
+    let new_tab = state.reopen_closed_tab(&wsid, None).unwrap();
     assert!(
         !state.get_tab(&new_tab).unwrap().chat_view,
         "history restore must preserve terminal mode instead of reapplying chat default"
@@ -210,14 +210,14 @@ fn reopen_agent_tab_preserves_terminal_mode() {
 fn reopen_agent_tab_preserves_chat_mode() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
-    let (_tab_id, tab_id) = state.create_tab(&wsid).unwrap();
+    let tab_id = state.create_tab(&wsid).unwrap();
     if let Some(p) = state.get_tab_mut(&tab_id) {
         p.agent_type = Some("claude".into());
         p.chat_view = true;
     }
     state.close_tab(&tab_id).unwrap();
 
-    let (_t, new_tab) = state.reopen_closed_tab(&wsid, None).unwrap();
+    let new_tab = state.reopen_closed_tab(&wsid, None).unwrap();
     assert!(
         state.get_tab(&new_tab).unwrap().chat_view,
         "history restore must preserve chat mode"
@@ -228,14 +228,14 @@ fn reopen_agent_tab_preserves_chat_mode() {
 fn reopen_unsupported_provider_preserves_chat_mode_too() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
-    let (_tab_id, tab_id) = state.create_tab(&wsid).unwrap();
+    let tab_id = state.create_tab(&wsid).unwrap();
     if let Some(p) = state.get_tab_mut(&tab_id) {
         p.agent_type = Some("aider".into());
         p.chat_view = true;
     }
     state.close_tab(&tab_id).unwrap();
 
-    let (_t, new_tab) = state.reopen_closed_tab(&wsid, None).unwrap();
+    let new_tab = state.reopen_closed_tab(&wsid, None).unwrap();
     assert!(
         state.get_tab(&new_tab).unwrap().chat_view,
         "history restore preserves the Tab's stored mode, not provider capability defaults"
@@ -246,16 +246,16 @@ fn reopen_unsupported_provider_preserves_chat_mode_too() {
 fn reopen_cascade_group_preserves_each_tab_mode() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
-    let (orch_tab, orch_tab) = state.create_tab(&wsid).unwrap();
-    state.rename_tab(&wsid, &orch_tab, "Orchestrator").unwrap();
+    let orch_tab = state.create_tab(&wsid).unwrap();
+    state.rename_tab(&orch_tab, "Orchestrator").unwrap();
     {
         let tab = state.get_tab_mut(&orch_tab).unwrap();
         tab.agent_type = Some("claude".into());
         tab.chat_view = false;
     }
-    let (w1_tab, worker1) = state.create_tab(&wsid).unwrap();
-    state.rename_tab(&wsid, &w1_tab, "Worker").unwrap();
-    let w = state.get_tab_mut(&worker1).unwrap();
+    let w1_tab = state.create_tab(&wsid).unwrap();
+    state.rename_tab(&w1_tab, "Worker").unwrap();
+    let w = state.get_tab_mut(&w1_tab).unwrap();
     w.parent_tab_id = Some(orch_tab.clone());
     w.agent_type = Some("codex".into());
     w.chat_view = true;
@@ -278,7 +278,7 @@ fn reopen_cascade_group_preserves_each_tab_mode() {
         "cascade history must store each child Tab mode"
     );
 
-    let (_ws, _tab, _first) = state.reopen_closed_group(&group_id).unwrap();
+    let (_ws, _first) = state.reopen_closed_group(&group_id).unwrap();
     let restored: Vec<String> = state
         .list_workspaces()
         .iter()
@@ -301,8 +301,8 @@ fn history_is_bounded_at_cap() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
     for _ in 0..(RECENTLY_CLOSED_CAP + 5) {
-        let (tab_id, _tab_id) = state.create_tab(&wsid).unwrap();
-        state.close_tab(&wsid, &tab_id).unwrap();
+        let tab_id = state.create_tab(&wsid).unwrap();
+        state.close_tab(&tab_id).unwrap();
     }
     let list = state.list_recently_closed(&wsid);
     assert_eq!(list.len(), RECENTLY_CLOSED_CAP, "history bounded at cap");
@@ -312,12 +312,12 @@ fn history_is_bounded_at_cap() {
 fn history_is_newest_first() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
-    let (t1, _p1) = state.create_tab(&wsid).unwrap();
-    state.rename_tab(&wsid, &t1, "first").unwrap();
-    state.close_tab(&wsid, &t1).unwrap();
-    let (t2, _p2) = state.create_tab(&wsid).unwrap();
-    state.rename_tab(&wsid, &t2, "second").unwrap();
-    state.close_tab(&wsid, &t2).unwrap();
+    let t1 = state.create_tab(&wsid).unwrap();
+    state.rename_tab(&t1, "first").unwrap();
+    state.close_tab(&t1).unwrap();
+    let t2 = state.create_tab(&wsid).unwrap();
+    state.rename_tab(&t2, "second").unwrap();
+    state.close_tab(&t2).unwrap();
 
     let list = state.list_recently_closed(&wsid);
     assert_eq!(list[0].title, "second", "newest first");
@@ -328,15 +328,15 @@ fn history_is_newest_first() {
 fn reopen_by_index_selects_older_entry() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
-    let (t1, _p1) = state.create_tab(&wsid).unwrap();
-    state.rename_tab(&wsid, &t1, "older").unwrap();
-    state.close_tab(&wsid, &t1).unwrap();
-    let (t2, _p2) = state.create_tab(&wsid).unwrap();
-    state.rename_tab(&wsid, &t2, "newer").unwrap();
-    state.close_tab(&wsid, &t2).unwrap();
+    let t1 = state.create_tab(&wsid).unwrap();
+    state.rename_tab(&t1, "older").unwrap();
+    state.close_tab(&t1).unwrap();
+    let t2 = state.create_tab(&wsid).unwrap();
+    state.rename_tab(&t2, "newer").unwrap();
+    state.close_tab(&t2).unwrap();
 
     // index 1 = the older "first"-closed entry.
-    let (_t, new_tab) = state.reopen_closed_tab(&wsid, Some(1)).unwrap();
+    let new_tab = state.reopen_closed_tab(&wsid, Some(1)).unwrap();
     assert_eq!(state.get_tab(&new_tab).unwrap().title, "older");
     // The remaining entry is the newer one.
     let list = state.list_recently_closed(&wsid);
@@ -356,8 +356,8 @@ fn reopen_empty_history_errors() {
 fn reopen_out_of_range_index_errors() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
-    let (tab_id, _p) = state.create_tab(&wsid).unwrap();
-    state.close_tab(&wsid, &tab_id).unwrap();
+    let tab_id = state.create_tab(&wsid).unwrap();
+    state.close_tab(&tab_id).unwrap();
     let err = state.reopen_closed_tab(&wsid, Some(5)).unwrap_err();
     assert!(err.contains("index 5"));
 }
@@ -371,11 +371,11 @@ fn ring_cap_is_1000() {
 fn hidden_tab_is_not_recorded() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
-    let (tab_id, tab_id) = state.create_tab(&wsid).unwrap();
+    let tab_id = state.create_tab(&wsid).unwrap();
     if let Some(p) = state.get_tab_mut(&tab_id) {
         p.hidden = true;
     }
-    state.close_tab(&wsid, &tab_id).unwrap();
+    state.close_tab(&tab_id).unwrap();
     assert!(
         state.list_recently_closed(&wsid).is_empty(),
         "hidden worker Tab must not pollute the history"
@@ -389,14 +389,14 @@ fn cascade_close_records_one_group_with_hierarchy() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
 
-    let (orch_tab, orch_tab) = state.create_tab(&wsid).unwrap();
-    state.rename_tab(&wsid, &orch_tab, "Orchestrator").unwrap();
-    let (w1_tab, worker1) = state.create_tab(&wsid).unwrap();
-    state.rename_tab(&wsid, &w1_tab, "Worker 1").unwrap();
-    state.get_tab_mut(&worker1).unwrap().parent_tab_id = Some(orch_tab.clone());
-    let (w2_tab, worker2) = state.create_tab(&wsid).unwrap();
-    state.rename_tab(&wsid, &w2_tab, "Worker 2").unwrap();
-    state.get_tab_mut(&worker2).unwrap().parent_tab_id = Some(orch_tab.clone());
+    let orch_tab = state.create_tab(&wsid).unwrap();
+    state.rename_tab(&orch_tab, "Orchestrator").unwrap();
+    let w1_tab = state.create_tab(&wsid).unwrap();
+    state.rename_tab(&w1_tab, "Worker 1").unwrap();
+    state.get_tab_mut(&w1_tab).unwrap().parent_tab_id = Some(orch_tab.clone());
+    let w2_tab = state.create_tab(&wsid).unwrap();
+    state.rename_tab(&w2_tab, "Worker 2").unwrap();
+    state.get_tab_mut(&w2_tab).unwrap().parent_tab_id = Some(orch_tab.clone());
 
     state.close_tab_for_team_close(&orch_tab).unwrap();
 
@@ -426,16 +426,16 @@ fn reopen_cascade_group_restores_subtree_and_relinks_parents() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
 
-    let (orch_tab, orch_tab) = state.create_tab(&wsid).unwrap();
-    state.rename_tab(&wsid, &orch_tab, "Orchestrator").unwrap();
-    let (w1_tab, worker1) = state.create_tab(&wsid).unwrap();
-    state.rename_tab(&wsid, &w1_tab, "Worker").unwrap();
-    state.get_tab_mut(&worker1).unwrap().parent_tab_id = Some(orch_tab.clone());
+    let orch_tab = state.create_tab(&wsid).unwrap();
+    state.rename_tab(&orch_tab, "Orchestrator").unwrap();
+    let w1_tab = state.create_tab(&wsid).unwrap();
+    state.rename_tab(&w1_tab, "Worker").unwrap();
+    state.get_tab_mut(&w1_tab).unwrap().parent_tab_id = Some(orch_tab.clone());
 
     state.close_tab_for_team_close(&orch_tab).unwrap();
 
     let group_id = state.recent_closed_view()[0].group_id.clone();
-    let (ws, _tab, first_tab) = state.reopen_closed_group(&group_id).unwrap();
+    let (ws, first_tab) = state.reopen_closed_group(&group_id).unwrap();
     assert_eq!(ws, wsid, "cascade reopens into origin workspace");
 
     // Two tabs restored, parent link rebuilt across the new ids.
@@ -470,10 +470,10 @@ fn reopen_cascade_group_restores_subtree_and_relinks_parents() {
 fn close_workspace_records_a_workspace_group_with_all_tabs() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
-    let (t1, _p1) = state.create_tab(&wsid).unwrap();
-    state.rename_tab(&wsid, &t1, "Tab A").unwrap();
-    let (t2, _p2) = state.create_tab(&wsid).unwrap();
-    state.rename_tab(&wsid, &t2, "Tab B").unwrap();
+    let t1 = state.create_tab(&wsid).unwrap();
+    state.rename_tab(&t1, "Tab A").unwrap();
+    let t2 = state.create_tab(&wsid).unwrap();
+    state.rename_tab(&t2, "Tab B").unwrap();
 
     state.close_workspace(&wsid).unwrap();
 
@@ -493,15 +493,15 @@ fn reopen_workspace_group_recreates_workspace_with_tabs() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
     state.rename_workspace(&wsid, "Project").unwrap();
-    let (t1, _p1) = state.create_tab(&wsid).unwrap();
-    state.rename_tab(&wsid, &t1, "Tab A").unwrap();
-    let (t2, _p2) = state.create_tab(&wsid).unwrap();
-    state.rename_tab(&wsid, &t2, "Tab B").unwrap();
+    let t1 = state.create_tab(&wsid).unwrap();
+    state.rename_tab(&t1, "Tab A").unwrap();
+    let t2 = state.create_tab(&wsid).unwrap();
+    state.rename_tab(&t2, "Tab B").unwrap();
 
     state.close_workspace(&wsid).unwrap();
     let group_id = state.recent_closed_view()[0].group_id.clone();
 
-    let (new_ws, _tab, _tab) = state.reopen_closed_group(&group_id).unwrap();
+    let (new_ws, _tab) = state.reopen_closed_group(&group_id).unwrap();
     let info = state
         .list_workspaces()
         .into_iter()
@@ -523,12 +523,12 @@ fn reopen_orphaned_tab_recreates_workspace() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
     state.rename_workspace(&wsid, "Gone").unwrap();
-    let (t1, tab1) = state.create_tab(&wsid).unwrap();
-    state.rename_tab(&wsid, &t1, "Lonely").unwrap();
+    let t1 = state.create_tab(&wsid).unwrap();
+    state.rename_tab(&t1, "Lonely").unwrap();
 
     state.close_workspace(&wsid).unwrap();
 
-    let (new_ws, _tab, new_tab) = state.reopen_orphaned_tab(&tab1).unwrap();
+    let (new_ws, new_tab) = state.reopen_orphaned_tab(&t1).unwrap();
     assert_ne!(new_ws, wsid);
     assert_eq!(state.get_tab(&new_tab).unwrap().title, "Lonely");
 }
@@ -540,8 +540,8 @@ fn reopen_workspace_group_matches_existing_workspace_by_path() {
     let wsid = state
         .create_workspace("Proj".into(), Some("/tmp/proj".into()))
         .id;
-    let (t1, _p1) = state.create_tab(&wsid).unwrap();
-    state.rename_tab(&wsid, &t1, "Tab A").unwrap();
+    let t1 = state.create_tab(&wsid).unwrap();
+    state.rename_tab(&t1, "Tab A").unwrap();
     state.close_workspace(&wsid).unwrap();
     let group_id = state.recent_closed_view()[0].group_id.clone();
 
@@ -551,7 +551,7 @@ fn reopen_workspace_group_matches_existing_workspace_by_path() {
         .id;
     let count_before = state.list_workspaces().len();
 
-    let (target_ws, _tab, _tab) = state.reopen_closed_group(&group_id).unwrap();
+    let (target_ws, _tab) = state.reopen_closed_group(&group_id).unwrap();
     assert_eq!(
         target_ws, live_id,
         "restore into the live same-path workspace, not a duplicate"
@@ -583,9 +583,9 @@ fn reopen_workspace_group_matches_existing_workspace_by_path() {
 fn single_close_still_works_alongside_groups() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
-    let (tab_id, _p) = state.create_tab(&wsid).unwrap();
-    state.rename_tab(&wsid, &tab_id, "Solo").unwrap();
-    state.close_tab(&wsid, &tab_id).unwrap();
+    let tab_id = state.create_tab(&wsid).unwrap();
+    state.rename_tab(&tab_id, "Solo").unwrap();
+    state.close_tab(&tab_id).unwrap();
 
     let view = state.recent_closed_view();
     assert_eq!(view.len(), 1);

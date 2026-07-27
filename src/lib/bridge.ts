@@ -249,7 +249,6 @@ const HTTP_MAP: Record<string, Mapper> = {
     }),
   mux_set_focused_tab: (a) =>
     webJson("POST", `/api/tabs/${enc(s(a, "tabId"))}/focus`),
-  mux_close_tab: (a) => webJson("POST", `/api/tabs/${enc(s(a, "tabId"))}/close`),
   mux_respond_prompt: (a) =>
     webJson("POST", `/api/tabs/${enc(s(a, "tabId"))}/prompt/respond`, a),
   mux_set_tab_agent_type: (a) =>

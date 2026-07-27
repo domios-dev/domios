@@ -1,5 +1,4 @@
 import { createContext, useContext } from "react";
-import { TitleLevel } from "../../lib/types";
 import type {
   Notification,
   TabStatus,
@@ -12,7 +11,6 @@ import type { MuxStateStore } from "./selectorStore";
 export interface SpawnedTab {
   workspaceId: string;
   tabId: string;
-  tabId?: string;
 }
 
 export interface MultiplexerActionsContextType {
@@ -27,7 +25,7 @@ export interface MultiplexerActionsContextType {
   reorderTabs: (args: { workspaceId?: string; parentTabId?: string; orderedTabIds: string[] }) => void;
   /** Reorder the workspace list to the given order. */
   reorderWorkspaces: (orderedWorkspaceIds: string[]) => void;
-  createTab: (workspaceId: string, cwd?: string) => Promise<{ id: string; tab_id: string } | void>;
+  createTab: (workspaceId: string, cwd?: string) => Promise<{ id: string } | void>;
   closeTab: (workspaceId: string, tabId: string) => void;
   /** Reopen a recently-closed tab (index 0 = most recent). */
   reopenClosed: (workspaceId: string, index?: number) => void;
@@ -40,7 +38,6 @@ export interface MultiplexerActionsContextType {
    *  when the tab isn't in local state yet). Used to jump to a just-spawned
    *  agent or orchestration pair. */
   selectTabByTab: (workspaceId: string, tabId: string) => Promise<void>;
-  closeTab: (tabId: string) => void;
   setFocusedTab: (tabId: string) => void;
   setTabPty: (tabId: string, ptyId: string) => void;
   addNotification: (notif: Omit<Notification, "id" | "timestamp" | "read">) => void;
@@ -50,7 +47,6 @@ export interface MultiplexerActionsContextType {
   deleteNotification: (id: string) => void;
   clearNotifications: () => void;
   dismissToast: (id: string) => void;
-  setTabTitle: (tabId: string, title: string, level?: TitleLevel) => void;
   setTabTitle: (workspaceId: string, tabId: string, title: string) => void;
   setAgentType: (tabId: string, agentType: string | null) => void;
   updateTabStatus: (tabId: string, status: TabStatus) => void;

@@ -81,10 +81,10 @@ function shallowRecordEqual(
 export function selectTabTitleMap(state: ExtendedState): Map<string, string> {
   const byShort = new Map<string, string>();
   for (const ws of state.workspaces) {
-    for (const tab of ws.tabs) {
-      const tab = state.tabs[tab.tab_id];
+    for (const tabId of ws.tabs) {
+      const tab = state.tabs[tabId];
       const name = stripTabTitleSpinner(tab?.title);
-      if (name && tab.tab_id) byShort.set(tab.tab_id.slice(0, 8), name);
+      if (name) byShort.set(tabId.slice(0, 8), name);
     }
   }
   return byShort;
@@ -153,7 +153,7 @@ export function planNavContextEqual(a: PlanNavContext, b: PlanNavContext): boole
       return false;
     }
     for (let j = 0; j < aw.tabs.length; j += 1) {
-      if (aw.tabs[j].id !== bw.tabs[j].id || aw.tabs[j].tab_id !== bw.tabs[j].tab_id) {
+      if (aw.tabs[j] !== bw.tabs[j]) {
         return false;
       }
     }
