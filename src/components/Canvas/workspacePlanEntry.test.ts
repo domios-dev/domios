@@ -101,6 +101,21 @@ test("deriveWorkspacePlanEntries matches project-local plans", () => {
   assert(entries[0].plan_id === FIXTURE_PLAN.id, "fixture plan id");
 });
 
+test("deriveWorkspacePlanEntries reaches file-backed fallback when canonical ownership is omitted", () => {
+  const { canonical_project_path: _canonicalProjectPath, ...legacyEntry } = indexEntry();
+  const entries = deriveWorkspacePlanEntries([legacyEntry], workspace, panes);
+  assert(entries.length === 1, "omitted canonical ownership reaches legacy file-backed matching");
+});
+
+test("deriveWorkspacePlanEntries reaches file-backed fallback when canonical ownership is blank", () => {
+  const entries = deriveWorkspacePlanEntries(
+    [indexEntry({ canonical_project_path: "  " })],
+    workspace,
+    panes,
+  );
+  assert(entries.length === 1, "blank canonical ownership reaches legacy file-backed matching");
+});
+
 test("deriveWorkspacePlanEntries matches Windows verbatim canonical ownership", () => {
   const windowsWorkspace = { ...workspace, cwd: "D:\\Developer\\codeterm" };
   const entries = deriveWorkspacePlanEntries(
@@ -133,6 +148,35 @@ test("deriveWorkspacePlanEntries never treats a shared database path as ownershi
   });
   const entries = deriveWorkspacePlanEntries([centralDatabase], workspace, panes);
   assert(entries.length === 0, "shared plans.db location is storage, not ownership");
+});
+
+test("projected legacy centralized ownership resolves only in its current workspace", () => {
+  const currentWorkspace = { ...workspace, id: "ws-current", cwd: "/repo/hub" };
+  const foreignWorkspace = { ...workspace, id: "ws-foreign", cwd: "/repo/foreign" };
+  const currentEntry = indexEntry({
+    plan_id: "pl-legacy-current",
+    file_path: "/home/user/.codeterm/plans.db",
+    canonical_project_path: "/repo/hub",
+  });
+  const foreignEntry = indexEntry({
+    plan_id: "pl-legacy-foreign",
+    file_path: "/home/user/.codeterm/plans.db",
+    canonical_project_path: "/repo/foreign",
+  });
+
+  const currentOwner = findPlanOwnerWorkspace(
+    currentEntry.plan_id,
+    [currentEntry],
+    [currentWorkspace, foreignWorkspace],
+  );
+  const foreignOwner = findPlanOwnerWorkspace(
+    foreignEntry.plan_id,
+    [foreignEntry],
+    [currentWorkspace],
+  );
+
+  assert(currentOwner?.workspace.id === currentWorkspace.id, "legacy current-workspace plan resolves");
+  assert(foreignOwner === null, "legacy foreign-workspace plan does not resolve in the current workspace");
 });
 
 test("canonical ownership overrides a misleading legacy file path", () => {

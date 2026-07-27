@@ -40,7 +40,7 @@ function compareWorkspacePlanEntries(a: PlanIndexEntry, b: PlanIndexEntry): numb
 
 function planBelongsToWorkspacePath(entry: PlanIndexEntry, workspace: Workspace): boolean {
   if (!workspace.cwd) return false;
-  const canonicalProjectPath = entry.canonical_project_path.trim();
+  const canonicalProjectPath = entry.canonical_project_path?.trim();
   if (canonicalProjectPath) {
     return projectPathBelongsToWorkspace(canonicalProjectPath, workspace.cwd);
   }

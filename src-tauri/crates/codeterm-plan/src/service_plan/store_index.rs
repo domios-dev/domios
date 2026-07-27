@@ -5,7 +5,11 @@ impl PlanStore {
         IndexEntry {
             plan_id: plan.id.clone(),
             file_path,
-            canonical_project_path: plan.canonical_project_path.clone(),
+            canonical_project_path: if plan.canonical_project_path.trim().is_empty() {
+                plan.project_path.clone()
+            } else {
+                plan.canonical_project_path.clone()
+            },
             owner: plan.owner.clone(),
             team_id: plan.team_id.clone(),
             title: plan.title.clone(),
