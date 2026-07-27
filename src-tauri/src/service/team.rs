@@ -281,7 +281,7 @@ impl ServiceContext {
         now_ms: u64,
     ) -> Result<crate::plan::Plan, TeamPlanError> {
         let mut mux = self.mux.write();
-        let (plan, relinked) = transfer_team_plan_core(
+        let plan = transfer_team_plan_core(
             &mut mux,
             &self.plan_store,
             plan_id,
@@ -291,9 +291,7 @@ impl ServiceContext {
             now_ms,
         )?;
         drop(mux);
-        if relinked > 0 {
-            self.emit_state_changed();
-        }
+        self.emit_state_changed();
         self.emit_plan_changed(plan_id);
         Ok(plan)
     }
@@ -364,22 +362,24 @@ fn adopt_plan_for_team_core(
     caller: TeamMutationCaller,
     now_ms: u64,
 ) -> Result<crate::plan::Plan, TeamPlanError> {
-    authorize_team_mutation(mux, team_id, caller).map_err(TeamPlanError::Team)?;
+    authorize_team_mutation(mux, team_id, caller).map_err(|error| {
+        TeamPlanError::Team(format!(
+            "Plan adoption requires manager authority in destination Team {team_id}: {error}. \
+Safe recovery: old-team member transfers ownership, then new owner adopts."
+        ))
+    })?;
     let owner_pane_id = live_team_orchestrator(mux, team_id)?;
-    let plan = plan_store
-        .adopt_plan_for_team(
-            plan_id,
-            team_id,
-            crate::plan::OrchestratorRef::from_pane(&owner_pane_id),
-            now_ms,
-        )
-        .map_err(TeamPlanError::Plan)?;
-    crate::service::plan::relink_to_owner(
-        &mut crate::service::plan::lane_port_impl::LaneStatePort(mux),
-        &plan,
-        &owner_pane_id,
-    );
-    Ok(plan)
+    crate::service::agent_transition::transition_plan_to_orchestrator_core(
+        mux,
+        plan_store,
+        plan_id,
+        crate::plan::OrchestratorRef::from_pane(&owner_pane_id),
+        team_id,
+        &format!("adopted by Team {team_id}"),
+        true,
+        now_ms,
+    )
+    .map_err(TeamPlanError::Team)
 }
 
 fn transfer_team_plan_core(
@@ -390,7 +390,7 @@ fn transfer_team_plan_core(
     reason: &str,
     caller: TeamMutationCaller,
     now_ms: u64,
-) -> Result<(crate::plan::Plan, usize), TeamPlanError> {
+) -> Result<crate::plan::Plan, TeamPlanError> {
     let source_plan = plan_store
         .get(plan_id)
         .ok_or(TeamPlanError::Plan(PlanError::NotFound))?;
@@ -403,8 +403,6 @@ fn transfer_team_plan_core(
                 plan_id: plan_id.into(),
             })
         })?;
-    authorize_team_mutation(mux, source_team_id, caller).map_err(TeamPlanError::Team)?;
-
     let pane_id = to
         .pane_id
         .as_deref()
@@ -431,15 +429,43 @@ fn transfer_team_plan_core(
             ))
         })?
         .to_string();
-    let plan = plan_store
-        .transfer_plan_to_team(plan_id, &destination_team_id, to, reason, now_ms)
-        .map_err(TeamPlanError::Plan)?;
-    let relinked = crate::service::plan::relink_to_owner(
-        &mut crate::service::plan::lane_port_impl::LaneStatePort(mux),
-        &plan,
-        &pane_id,
-    );
-    Ok((plan, relinked))
+    authorize_plan_transfer(mux, source_team_id, &destination_team_id, &pane_id, caller)
+        .map_err(TeamPlanError::Team)?;
+    crate::service::agent_transition::transition_plan_to_orchestrator_core(
+        mux,
+        plan_store,
+        plan_id,
+        to,
+        &destination_team_id,
+        reason,
+        false,
+        now_ms,
+    )
+    .map_err(TeamPlanError::Team)
+}
+
+fn authorize_plan_transfer(
+    mux: &MultiplexerState,
+    source_team_id: &str,
+    destination_team_id: &str,
+    destination_owner_pane_id: &str,
+    caller: TeamMutationCaller,
+) -> Result<(), String> {
+    if authorize_team_mutation(mux, source_team_id, caller.clone()).is_ok() {
+        return Ok(());
+    }
+    match caller {
+        TeamMutationCaller::TrustedDirectUser => Ok(()),
+        TeamMutationCaller::AgentPane(pane_id) if pane_id == destination_owner_pane_id => {
+            authorize_team_manager(mux, destination_team_id, Some(&pane_id))
+        }
+        TeamMutationCaller::AgentPane(pane_id) => Err(format!(
+            "Caller pane {pane_id} lacks plan rebind authority: a source Team {source_team_id} \
+manager or destination Orchestrator {destination_owner_pane_id} in Team \
+{destination_team_id} must authorize the transfer. Safe recovery: old-team member \
+transfers ownership, then new owner adopts."
+        )),
+    }
 }
 
 fn live_team_orchestrator(mux: &MultiplexerState, team_id: &str) -> Result<String, TeamPlanError> {

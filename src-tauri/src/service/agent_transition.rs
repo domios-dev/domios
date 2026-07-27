@@ -2,7 +2,7 @@ use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{AgentRole, Pane};
 use crate::plan::PlannerRef;
 use crate::service::plan::mutations::agent_lifecycle::{
-    AgentLifecyclePlanChange, AgentLifecyclePlanTransaction,
+    AgentLifecyclePlanChange, AgentLifecyclePlanRebind, AgentLifecyclePlanTransaction,
 };
 use crate::service::ServiceContext;
 
@@ -30,6 +30,7 @@ pub(crate) struct AgentTransitionRequest {
     pub destination: AgentPlacement,
     pub require_verified_session: bool,
     pub planner_replacement: Option<(String, Option<PlannerRef>)>,
+    pub plan_rebind: Option<AgentLifecyclePlanRebind>,
 }
 
 impl AgentTransitionRequest {
@@ -39,6 +40,7 @@ impl AgentTransitionRequest {
             destination: AgentPlacement::Roleless,
             require_verified_session: false,
             planner_replacement: None,
+            plan_rebind: None,
         }
     }
 }
@@ -47,11 +49,13 @@ impl AgentTransitionRequest {
 enum TransitionFailurePoint {
     None,
     AfterPlanCommit,
+    SkipPlanRebind,
 }
 
 struct PreparedTransition {
     staged_mux: crate::multiplexer::state::TeamCloseTransaction,
     plan_changes: Vec<AgentLifecyclePlanChange>,
+    expected_rebind: Option<AgentLifecyclePlanRebind>,
 }
 
 impl ServiceContext {
@@ -83,6 +87,7 @@ impl ServiceContext {
             destination,
             require_verified_session: false,
             planner_replacement: None,
+            plan_rebind: None,
         })?;
         Ok(())
     }
@@ -141,6 +146,7 @@ impl ServiceContext {
                 },
                 require_verified_session: true,
                 planner_replacement: None,
+                plan_rebind: None,
             });
         }
 
@@ -160,6 +166,7 @@ impl ServiceContext {
                     destination: AgentPlacement::Roleless,
                     require_verified_session: false,
                     planner_replacement: Some((plan_id.to_string(), planner)),
+                    plan_rebind: None,
                 });
             }
         }
@@ -170,7 +177,7 @@ impl ServiceContext {
             preserve_owned_plans: true,
             preserve_task_bindings_for_owner: None,
             planner_binding: Some((plan_id.to_string(), planner)),
-            planner_team_binding: None,
+            plan_rebind: None,
         };
         let transaction = self
             .plan_store
@@ -185,18 +192,78 @@ impl ServiceContext {
     }
 }
 
+pub(crate) fn transition_plan_to_orchestrator_core(
+    mux: &mut MultiplexerState,
+    plan_store: &crate::service::plan::PlanStore,
+    plan_id: &str,
+    owner: crate::plan::OrchestratorRef,
+    team_id: &str,
+    reason: &str,
+    activate: bool,
+    now_ms: u64,
+) -> Result<crate::plan::Plan, String> {
+    let pane_id = owner
+        .pane_id
+        .as_deref()
+        .filter(|pane_id| !pane_id.trim().is_empty())
+        .ok_or_else(|| "plan rebind requires a destination Orchestrator pane".to_string())?
+        .to_string();
+    let rebind = AgentLifecyclePlanRebind {
+        plan_id: plan_id.to_string(),
+        owner,
+        team_id: team_id.to_string(),
+        reason: reason.to_string(),
+        activate,
+        clear_planner: true,
+    };
+    execute_transition_at(
+        mux,
+        plan_store,
+        AgentTransitionRequest {
+            pane_id,
+            destination: AgentPlacement::Orchestrator { can_spawn: true },
+            require_verified_session: false,
+            planner_replacement: None,
+            plan_rebind: Some(rebind.clone()),
+        },
+        TransitionFailurePoint::None,
+        now_ms,
+    )?;
+    verify_persisted_plan_rebind(plan_store, &rebind)
+}
+
 fn execute_transition(
     mux: &mut MultiplexerState,
     plan_store: &crate::service::plan::PlanStore,
     request: AgentTransitionRequest,
     failure: TransitionFailurePoint,
 ) -> Result<Vec<String>, String> {
-    let prepared = prepare_transition(mux, plan_store, &request)?;
+    execute_transition_at(mux, plan_store, request, failure, epoch_ms())
+}
+
+fn execute_transition_at(
+    mux: &mut MultiplexerState,
+    plan_store: &crate::service::plan::PlanStore,
+    request: AgentTransitionRequest,
+    failure: TransitionFailurePoint,
+    now_ms: u64,
+) -> Result<Vec<String>, String> {
+    let mut prepared = prepare_transition(mux, plan_store, &request)?;
+    if failure == TransitionFailurePoint::SkipPlanRebind {
+        for change in &mut prepared.plan_changes {
+            change.plan_rebind = None;
+        }
+    }
     let plan_transaction = plan_store
-        .apply_agent_lifecycle_changes(prepared.plan_changes, epoch_ms())
+        .apply_agent_lifecycle_changes(prepared.plan_changes, now_ms)
         .map_err(|error| error.to_string())?;
     if failure == TransitionFailurePoint::AfterPlanCommit {
         return compensate_injected_failure(plan_store, plan_transaction);
+    }
+    if let Some(rebind) = &prepared.expected_rebind {
+        if let Err(error) = verify_persisted_plan_rebind(plan_store, rebind) {
+            return compensate_failed_postcondition(plan_store, plan_transaction, error);
+        }
     }
     let changed_plan_ids = plan_transaction.changed_plan_ids().to_vec();
     prepared.staged_mux.commit(mux, &[]);
@@ -219,6 +286,7 @@ fn prepare_transition(
     let mut staged_mux = mux.begin_team_close_transaction();
     let staged = staged_mux.state_mut();
     let mut plan_changes = Vec::new();
+    let plan_rebind = destination_plan_rebind(mux, plan_store, request, &source)?;
     let preserve_owned_plans = matches!(request.destination, AgentPlacement::Orchestrator { .. })
         && source.role == Some(AgentRole::Orchestrator)
         && source.parent_pane_id.is_none();
@@ -232,42 +300,48 @@ fn prepare_transition(
         _ => None,
     };
 
-    let incumbent = planner_incumbent(plan_store, &request.destination, &request.pane_id);
+    let incumbent = planner_incumbent(
+        plan_store,
+        &request.destination,
+        plan_rebind.as_ref(),
+        &request.pane_id,
+    );
     if let Some(incumbent_id) = incumbent.as_deref() {
         for affected_id in clear_lifecycle(staged, incumbent_id)? {
             plan_changes.push(revocation_change(affected_id));
         }
     }
 
-    let affected = apply_destination(staged, plan_store, request, preserve_owned_plans)?;
+    let affected = apply_destination(staged, request, preserve_owned_plans, plan_rebind.as_ref())?;
     for affected_id in affected
         .into_iter()
         .filter(|pane_id| pane_id != &request.pane_id)
     {
         plan_changes.push(revocation_change(affected_id));
     }
-    let planner_binding = planner_binding(staged, plan_store, request)?;
-    let planner_team_binding = planner_team_binding(staged, request)?;
+    relink_plan_members(staged, plan_store, plan_rebind.as_ref())?;
+    let planner_binding = planner_binding(staged, request, plan_rebind.as_ref())?;
     plan_changes.push(AgentLifecyclePlanChange {
         pane_id: request.pane_id.clone(),
         preserve_owned_plans,
         preserve_task_bindings_for_owner,
         planner_binding: request.planner_replacement.clone().or(planner_binding),
-        planner_team_binding,
+        plan_rebind: plan_rebind.clone(),
     });
-    verify_destination(staged, plan_store, request)?;
+    verify_destination(staged, request, plan_rebind.as_ref())?;
 
     Ok(PreparedTransition {
         staged_mux,
         plan_changes,
+        expected_rebind: plan_rebind,
     })
 }
 
 fn apply_destination(
     mux: &mut MultiplexerState,
-    plan_store: &crate::service::plan::PlanStore,
     request: &AgentTransitionRequest,
     preserve_owned_plans: bool,
+    plan_rebind: Option<&AgentLifecyclePlanRebind>,
 ) -> Result<Vec<String>, String> {
     if preserve_owned_plans {
         normalize_orchestrator(mux, &request.pane_id)?;
@@ -293,7 +367,7 @@ fn apply_destination(
             pane.report_target_pane_id = Some(parent_pane_id.clone());
         }
         AgentPlacement::Planner { plan_id } => {
-            let owner = plan_owner(plan_store, plan_id)?;
+            let owner = rebind_owner_pane(plan_rebind, plan_id)?;
             mux.set_pane_role(&request.pane_id, AgentRole::Manager, Some(&owner))?;
             let pane = mux
                 .get_pane_mut(&request.pane_id)
@@ -354,7 +428,7 @@ fn revocation_change(pane_id: String) -> AgentLifecyclePlanChange {
         preserve_owned_plans: false,
         preserve_task_bindings_for_owner: None,
         planner_binding: None,
-        planner_team_binding: None,
+        plan_rebind: None,
     }
 }
 
@@ -417,10 +491,149 @@ fn plan_owner(
         .ok_or_else(|| format!("Plan {plan_id} has no live Orchestrator owner"))
 }
 
-fn planner_binding(
+fn destination_plan_rebind(
     mux: &MultiplexerState,
     plan_store: &crate::service::plan::PlanStore,
     request: &AgentTransitionRequest,
+    source: &Pane,
+) -> Result<Option<AgentLifecyclePlanRebind>, String> {
+    if let Some(rebind) = &request.plan_rebind {
+        if !matches!(request.destination, AgentPlacement::Orchestrator { .. }) {
+            return Err("plan rebind requires an Orchestrator destination".into());
+        }
+        verify_live_rebind_destination(mux, &request.pane_id, rebind)?;
+        verify_rebind_team_available(plan_store, rebind)?;
+        return Ok(Some(rebind.clone()));
+    }
+    let AgentPlacement::Planner { plan_id } = &request.destination else {
+        return Ok(None);
+    };
+    let placed_owner = source
+        .parent_pane_id
+        .as_deref()
+        .filter(|pane_id| {
+            mux.get_pane(pane_id)
+                .is_some_and(|pane| pane.role == Some(AgentRole::Orchestrator))
+        })
+        .map(str::to_string);
+    let owner_pane_id = match placed_owner {
+        Some(owner) => owner,
+        None => plan_owner(plan_store, plan_id)?,
+    };
+    let owner = orchestrator_ref(mux, &owner_pane_id)?;
+    let team_id = live_orchestrator_team(mux, &owner_pane_id)?;
+    let rebind = AgentLifecyclePlanRebind {
+        plan_id: plan_id.clone(),
+        owner,
+        team_id,
+        reason: "Planner lifecycle rebind".into(),
+        activate: false,
+        clear_planner: false,
+    };
+    verify_rebind_team_available(plan_store, &rebind)?;
+    Ok(Some(rebind))
+}
+
+fn verify_live_rebind_destination(
+    mux: &MultiplexerState,
+    pane_id: &str,
+    rebind: &AgentLifecyclePlanRebind,
+) -> Result<(), String> {
+    if rebind.owner.pane_id.as_deref() != Some(pane_id) {
+        return Err("plan rebind owner does not match the destination pane".into());
+    }
+    let team_id = live_orchestrator_team(mux, pane_id)?;
+    if team_id != rebind.team_id {
+        return Err("plan rebind Team does not match the destination Orchestrator".into());
+    }
+    Ok(())
+}
+
+fn verify_rebind_team_available(
+    plan_store: &crate::service::plan::PlanStore,
+    rebind: &AgentLifecyclePlanRebind,
+) -> Result<(), String> {
+    if let Some((existing_plan_id, existing_title)) =
+        plan_store.active_plan_for_team(&rebind.team_id)
+    {
+        if existing_plan_id != rebind.plan_id {
+            return Err(crate::service::plan::PlanError::TeamAlreadyHasActivePlan {
+                team_id: rebind.team_id.clone(),
+                existing_plan_id,
+                existing_title,
+            }
+            .to_string());
+        }
+    }
+    Ok(())
+}
+
+fn orchestrator_ref(
+    mux: &MultiplexerState,
+    pane_id: &str,
+) -> Result<crate::plan::OrchestratorRef, String> {
+    let pane = mux
+        .get_pane(pane_id)
+        .filter(|pane| pane.role == Some(AgentRole::Orchestrator))
+        .ok_or_else(|| format!("Destination pane {pane_id} is not an Orchestrator"))?;
+    Ok(crate::plan::OrchestratorRef {
+        pane_id: Some(pane_id.to_string()),
+        session_id: pane.agent_session_id.clone(),
+        title: Some(pane.title.clone()),
+    })
+}
+
+fn live_orchestrator_team(mux: &MultiplexerState, pane_id: &str) -> Result<String, String> {
+    let pane = mux
+        .get_pane(pane_id)
+        .filter(|pane| pane.role == Some(AgentRole::Orchestrator))
+        .ok_or_else(|| format!("Destination pane {pane_id} is not an Orchestrator"))?;
+    pane.team_id
+        .as_deref()
+        .filter(|team_id| mux.get_team(team_id).is_some())
+        .map(str::to_string)
+        .ok_or_else(|| format!("Destination Orchestrator {pane_id} does not belong to a live Team"))
+}
+
+fn rebind_owner_pane(
+    rebind: Option<&AgentLifecyclePlanRebind>,
+    plan_id: &str,
+) -> Result<String, String> {
+    rebind
+        .filter(|rebind| rebind.plan_id == plan_id)
+        .and_then(|rebind| rebind.owner.pane_id.clone())
+        .ok_or_else(|| format!("Plan {plan_id} has no lifecycle rebind destination"))
+}
+
+fn relink_plan_members(
+    mux: &mut MultiplexerState,
+    plan_store: &crate::service::plan::PlanStore,
+    rebind: Option<&AgentLifecyclePlanRebind>,
+) -> Result<(), String> {
+    let Some(rebind) = rebind else {
+        return Ok(());
+    };
+    let owner_pane_id = rebind
+        .owner
+        .pane_id
+        .as_deref()
+        .ok_or_else(|| "plan rebind requires a destination Orchestrator pane".to_string())?;
+    let mut plan = plan_store
+        .get(&rebind.plan_id)
+        .ok_or_else(|| format!("Plan {} not found", rebind.plan_id))?;
+    plan.planner = None;
+    crate::service::plan::relink_to_owner(
+        &mut crate::service::plan::lane_port_impl::LaneStatePort(mux),
+        &plan,
+        owner_pane_id,
+    );
+    Ok(())
+}
+
+fn planner_binding(
+    mux: &MultiplexerState,
+    request: &AgentTransitionRequest,
+    plan_rebind: Option<&AgentLifecyclePlanRebind>,
 ) -> Result<Option<(String, Option<PlannerRef>)>, String> {
     let AgentPlacement::Planner { plan_id } = &request.destination else {
         return Ok(None);
@@ -429,9 +642,9 @@ fn planner_binding(
         .get_pane(&request.pane_id)
         .ok_or_else(|| format!("Pane {} not found", request.pane_id))?;
     let (session_id, _) = verified_session(pane)?;
-    let owner = plan_owner(plan_store, plan_id)?;
+    let owner = rebind_owner_pane(plan_rebind, plan_id)?;
     if pane.parent_pane_id.as_deref() != Some(owner.as_str()) {
-        return Err("planner parent does not match the current plan owner".into());
+        return Err("planner parent does not match the destination plan owner".into());
     }
     Ok(Some((
         plan_id.clone(),
@@ -443,27 +656,19 @@ fn planner_binding(
     )))
 }
 
-fn planner_team_binding(
-    mux: &MultiplexerState,
-    request: &AgentTransitionRequest,
-) -> Result<Option<(String, String)>, String> {
-    let AgentPlacement::Planner { plan_id } = &request.destination else {
-        return Ok(None);
-    };
-    let team_id = mux
-        .get_pane(&request.pane_id)
-        .and_then(|pane| pane.team_id.clone())
-        .ok_or_else(|| "Planner transition did not establish Team membership".to_string())?;
-    Ok(Some((plan_id.clone(), team_id)))
-}
-
 fn planner_incumbent(
     plan_store: &crate::service::plan::PlanStore,
     destination: &AgentPlacement,
+    plan_rebind: Option<&AgentLifecyclePlanRebind>,
     target_pane_id: &str,
 ) -> Option<String> {
-    let AgentPlacement::Planner { plan_id } = destination else {
-        return None;
+    let plan_id = match destination {
+        AgentPlacement::Planner { plan_id } => plan_id,
+        AgentPlacement::Orchestrator { .. } => {
+            let rebind = plan_rebind.filter(|rebind| rebind.clear_planner)?;
+            &rebind.plan_id
+        }
+        _ => return None,
     };
     let Some(PlannerRef::Pane { pane_id, .. }) = plan_store.get(plan_id)?.planner else {
         return None;
@@ -473,8 +678,8 @@ fn planner_incumbent(
 
 fn verify_destination(
     mux: &MultiplexerState,
-    plan_store: &crate::service::plan::PlanStore,
     request: &AgentTransitionRequest,
+    plan_rebind: Option<&AgentLifecyclePlanRebind>,
 ) -> Result<(), String> {
     let pane = mux
         .get_pane(&request.pane_id)
@@ -504,7 +709,7 @@ fn verify_destination(
             mux,
         )?,
         AgentPlacement::Planner { plan_id } => {
-            let owner = plan_owner(plan_store, plan_id)?;
+            let owner = rebind_owner_pane(plan_rebind, plan_id)?;
             verify_leaf(pane, AgentRole::Manager, Some("planner"), &owner, mux)?;
             verified_session(pane)?;
         }
@@ -545,6 +750,28 @@ fn verify_leaf(
     Ok(())
 }
 
+fn verify_persisted_plan_rebind(
+    plan_store: &crate::service::plan::PlanStore,
+    rebind: &AgentLifecyclePlanRebind,
+) -> Result<crate::plan::Plan, String> {
+    let plan = plan_store
+        .get(&rebind.plan_id)
+        .ok_or_else(|| format!("Plan {} not found after lifecycle rebind", rebind.plan_id))?;
+    if plan.owner != rebind.owner || plan.team_id.as_deref() != Some(rebind.team_id.as_str()) {
+        return Err(format!(
+            "plan lifecycle rebind post-condition failed for {}",
+            rebind.plan_id
+        ));
+    }
+    if rebind.activate && plan.status != crate::plan::PlanStatus::Active {
+        return Err(format!(
+            "plan lifecycle rebind did not activate {}",
+            rebind.plan_id
+        ));
+    }
+    Ok(plan)
+}
+
 fn compensate_injected_failure(
     plan_store: &crate::service::plan::PlanStore,
     transaction: AgentLifecyclePlanTransaction,
@@ -553,6 +780,17 @@ fn compensate_injected_failure(
         .rollback_agent_lifecycle_change(transaction)
         .map_err(|error| format!("transition failed and compensation failed: {error}"))?;
     Err("injected agent transition failure".into())
+}
+
+fn compensate_failed_postcondition(
+    plan_store: &crate::service::plan::PlanStore,
+    transaction: AgentLifecyclePlanTransaction,
+    error: String,
+) -> Result<Vec<String>, String> {
+    plan_store
+        .rollback_agent_lifecycle_change(transaction)
+        .map_err(|rollback| format!("{error}; compensation failed: {rollback}"))?;
+    Err(error)
 }
 
 fn epoch_ms() -> u64 {

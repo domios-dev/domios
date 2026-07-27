@@ -407,7 +407,7 @@ fn transfer_requires_source_team_manager_before_atomic_owner_change() {
         .set_planner_ref(
             &plan.id,
             Some(crate::plan::PlannerRef::Pane {
-                pane_id: source_planner,
+                pane_id: source_planner.clone(),
                 session_id: None,
                 title: None,
             }),
@@ -431,11 +431,14 @@ fn transfer_requires_source_team_manager_before_atomic_owner_change() {
         let TeamPlanError::Team(message) = error else {
             panic!("unauthorized transfer returned a storage error");
         };
-        assert!(message.contains("not authorized") || message.contains("not a member"));
+        assert!(message.contains("authority"));
+        assert!(message.contains("plan rebind authority"));
+        assert!(message.contains("old-team member transfers ownership, then new owner adopts"));
+        assert!(!message.to_ascii_lowercase().contains("close"));
         assert_eq!(store.get(&plan.id).unwrap(), before);
     }
 
-    let (transferred, _) = transfer_team_plan_core(
+    let transferred = transfer_team_plan_core(
         &mut mux,
         &store,
         &plan.id,
@@ -464,6 +467,112 @@ fn transfer_requires_source_team_manager_before_atomic_owner_change() {
         Some(source_owner.as_str())
     );
     assert_eq!(transferred.planner, None);
+    let retired_planner = mux.get_pane(&source_planner).unwrap();
+    assert_eq!(retired_planner.role, None);
+    assert_eq!(retired_planner.team_id, None);
+    assert_eq!(retired_planner.report_target_pane_id, None);
+}
+
+#[test]
+fn rebind_from_foreign_orchestrator_is_not_circularly_blocked() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = crate::service::plan::PlanStore::new_for_test(dir.path());
+    let (mut mux, source_team, source_owner, _, _) = team_members();
+    let workspace_id = mux.find_workspace_for_pane(&source_owner).unwrap();
+    let destination_owner = mux.create_tab(&workspace_id).unwrap().1;
+    mux.set_pane_role(&destination_owner, AgentRole::Orchestrator, None)
+        .unwrap();
+    let destination_team = mux
+        .resolve_or_mint_team_for_parent(&destination_owner)
+        .unwrap()
+        .team_id;
+    let plan = store
+        .create_plan_for_team(
+            "Foreign destination rebind".into(),
+            dir.path().display().to_string(),
+            crate::plan::OrchestratorRef::from_pane(&source_owner),
+            source_team,
+            vec![],
+            1,
+        )
+        .unwrap();
+
+    let rebound = transfer_team_plan_core(
+        &mut mux,
+        &store,
+        &plan.id,
+        crate::plan::OrchestratorRef::from_pane(&destination_owner),
+        "destination owner recovery",
+        TeamMutationCaller::AgentPane(destination_owner.clone()),
+        2,
+    )
+    .unwrap();
+
+    assert_eq!(
+        rebound.owner.pane_id.as_deref(),
+        Some(destination_owner.as_str())
+    );
+    assert_eq!(rebound.team_id.as_deref(), Some(destination_team.as_str()));
+}
+
+#[test]
+fn adopt_plan_destination_owner_avoids_both_team_gate() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = crate::service::plan::PlanStore::new_for_test(dir.path());
+    let (mut mux, source_team, source_owner, _, _) = team_members();
+    let workspace_id = mux.find_workspace_for_pane(&source_owner).unwrap();
+    let destination_owner = mux.create_tab(&workspace_id).unwrap().1;
+    mux.set_pane_role(&destination_owner, AgentRole::Orchestrator, None)
+        .unwrap();
+    let destination_team = mux
+        .resolve_or_mint_team_for_parent(&destination_owner)
+        .unwrap()
+        .team_id;
+    let plan = store
+        .create_plan_for_team(
+            "Adopt across Teams".into(),
+            dir.path().display().to_string(),
+            crate::plan::OrchestratorRef::from_pane(&source_owner),
+            source_team,
+            vec![],
+            1,
+        )
+        .unwrap();
+    let before = store.get(&plan.id).unwrap();
+
+    let error = adopt_plan_for_team_core(
+        &mut mux,
+        &store,
+        &destination_team,
+        &plan.id,
+        TeamMutationCaller::AgentPane(source_owner),
+        2,
+    )
+    .unwrap_err();
+    let TeamPlanError::Team(message) = error else {
+        panic!("destination Team authorization returned a storage error");
+    };
+    assert!(message.contains("not a member of Team"));
+    assert!(message.contains(&destination_team));
+    assert!(message.contains("manager authority in destination Team"));
+    assert!(message.contains("old-team member transfers ownership, then new owner adopts"));
+    assert!(!message.to_ascii_lowercase().contains("close"));
+    assert_eq!(store.get(&plan.id).unwrap(), before);
+
+    let adopted = adopt_plan_for_team_core(
+        &mut mux,
+        &store,
+        &destination_team,
+        &plan.id,
+        TeamMutationCaller::AgentPane(destination_owner.clone()),
+        3,
+    )
+    .unwrap();
+    assert_eq!(
+        adopted.owner.pane_id.as_deref(),
+        Some(destination_owner.as_str())
+    );
+    assert_eq!(adopted.team_id.as_deref(), Some(destination_team.as_str()));
 }
 
 #[test]

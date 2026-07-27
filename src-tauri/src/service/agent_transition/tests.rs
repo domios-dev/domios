@@ -25,11 +25,14 @@ impl Fixture {
             .unwrap();
         mux.set_pane_role(&other_owner, AgentRole::Orchestrator, None)
             .unwrap();
+        mux.resolve_or_mint_team_for_parent(&owner).unwrap();
+        mux.resolve_or_mint_team_for_parent(&other_owner).unwrap();
         let mut plan = Plan::new(
             "Lifecycle".into(),
             root.display().to_string(),
             OrchestratorRef::from_pane(&owner),
         );
+        plan.team_id = mux.get_pane(&owner).unwrap().team_id.clone();
         store.save(&mut plan, 1).unwrap();
         Self {
             mux,
@@ -50,6 +53,7 @@ impl Fixture {
                 destination,
                 require_verified_session: true,
                 planner_replacement: None,
+                plan_rebind: None,
             },
             TransitionFailurePoint::None,
         )
@@ -241,7 +245,7 @@ fn agent_transition_matrix_oracle() {
     worker_to_planner.transition(AgentPlacement::Planner {
         plan_id: worker_to_planner.plan_id.clone(),
     });
-    assert_planner_tuple(&worker_to_planner, &worker_to_planner.owner);
+    assert_planner_tuple(&worker_to_planner, &worker_to_planner.other_owner);
     let task = worker_to_planner
         .store
         .get(&worker_to_planner.plan_id)
@@ -354,6 +358,52 @@ fn regression_orchestrator_to_planner_single_command_sets_role_and_report_owner(
 }
 
 #[test]
+fn rebind_moves_owner_and_team_atomically() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut fixture = Fixture::new(dir.path());
+    fixture
+        .mux
+        .set_pane_role(
+            &fixture.target,
+            AgentRole::Worker,
+            Some(&fixture.other_owner),
+        )
+        .unwrap();
+    let old_team = fixture
+        .mux
+        .get_pane(&fixture.owner)
+        .unwrap()
+        .team_id
+        .clone()
+        .unwrap();
+    let destination_team = fixture
+        .mux
+        .get_pane(&fixture.other_owner)
+        .unwrap()
+        .team_id
+        .clone()
+        .unwrap();
+
+    fixture.transition(AgentPlacement::Planner {
+        plan_id: fixture.plan_id.clone(),
+    });
+
+    assert_planner_tuple(&fixture, &fixture.other_owner);
+    let plan = fixture.store.get(&fixture.plan_id).unwrap();
+    assert_eq!(
+        plan.owner.pane_id.as_deref(),
+        Some(fixture.other_owner.as_str())
+    );
+    assert_eq!(plan.team_id.as_deref(), Some(destination_team.as_str()));
+    assert!(!fixture
+        .store
+        .list_full()
+        .iter()
+        .any(|candidate| candidate.id == fixture.plan_id
+            && candidate.team_id.as_deref() == Some(old_team.as_str())));
+}
+
+#[test]
 fn stale_or_foreign_nonce_rejects_transition_without_mutation() {
     let dir = tempfile::tempdir().unwrap();
     let mut fixture = Fixture::new(dir.path());
@@ -375,6 +425,7 @@ fn stale_or_foreign_nonce_rejects_transition_without_mutation() {
             },
             require_verified_session: true,
             planner_replacement: None,
+            plan_rebind: None,
         },
         TransitionFailurePoint::None,
     )
@@ -406,6 +457,7 @@ fn planner_waiver_revokes_live_planner_placement_atomically() {
                     note: "Intentional solo execution".into(),
                 }),
             )),
+            plan_rebind: None,
         },
         TransitionFailurePoint::None,
     )
@@ -422,7 +474,7 @@ fn planner_waiver_revokes_live_planner_placement_atomically() {
 }
 
 #[test]
-fn injected_mid_transition_failure_restores_exact_prior_state() {
+fn rebind_rolls_back_on_injected_failure() {
     let dir = tempfile::tempdir().unwrap();
     let mut fixture = Fixture::new(dir.path());
     fixture
@@ -451,6 +503,7 @@ fn injected_mid_transition_failure_restores_exact_prior_state() {
             },
             require_verified_session: true,
             planner_replacement: None,
+            plan_rebind: None,
         },
         TransitionFailurePoint::AfterPlanCommit,
     )
@@ -462,9 +515,18 @@ fn injected_mid_transition_failure_restores_exact_prior_state() {
 }
 
 #[test]
-fn replayed_and_concurrent_planner_transition_has_one_binding_and_owner() {
+fn rebind_is_idempotent_and_single_owner() {
     let dir = tempfile::tempdir().unwrap();
-    let fixture = Fixture::new(dir.path());
+    let mut fixture = Fixture::new(dir.path());
+    fixture
+        .mux
+        .set_pane_role(
+            &fixture.target,
+            AgentRole::Worker,
+            Some(&fixture.other_owner),
+        )
+        .unwrap();
+    let destination_owner = fixture.other_owner.clone();
     let mux = Arc::new(parking_lot::Mutex::new(fixture.mux));
     let store = fixture.store.clone();
     let target = fixture.target.clone();
@@ -485,6 +547,7 @@ fn replayed_and_concurrent_planner_transition_has_one_binding_and_owner() {
                     destination: AgentPlacement::Planner { plan_id },
                     require_verified_session: true,
                     planner_replacement: None,
+                    plan_rebind: None,
                 },
                 TransitionFailurePoint::None,
             )
@@ -508,17 +571,57 @@ fn replayed_and_concurrent_planner_transition_has_one_binding_and_owner() {
     assert_eq!(
         plans
             .iter()
-            .filter(|plan| plan.owner.pane_id.as_deref() == Some(fixture.owner.as_str()))
+            .filter(|plan| plan.owner.pane_id.as_deref() == Some(destination_owner.as_str()))
             .count(),
         1
     );
     let mux = mux.lock();
     assert_eq!(effective_role(mux.get_pane(&target).unwrap()), "Planner");
     assert_eq!(
-        mux.get_children_ids(&fixture.owner)
+        mux.get_children_ids(&destination_owner)
             .into_iter()
             .filter(|pane_id| pane_id == &target)
             .count(),
         1
     );
+}
+
+#[test]
+fn transfer_reporting_success_without_moving_ownership_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut fixture = Fixture::new(dir.path());
+    let before_mux = mux_state_without_generation(&fixture.mux);
+    let before_plan = fixture.store.get(&fixture.plan_id).unwrap();
+    let destination_team = fixture
+        .mux
+        .get_pane(&fixture.other_owner)
+        .unwrap()
+        .team_id
+        .clone()
+        .unwrap();
+
+    let error = execute_transition(
+        &mut fixture.mux,
+        &fixture.store,
+        AgentTransitionRequest {
+            pane_id: fixture.other_owner.clone(),
+            destination: AgentPlacement::Orchestrator { can_spawn: true },
+            require_verified_session: false,
+            planner_replacement: None,
+            plan_rebind: Some(AgentLifecyclePlanRebind {
+                plan_id: fixture.plan_id.clone(),
+                owner: OrchestratorRef::from_pane(&fixture.other_owner),
+                team_id: destination_team,
+                reason: "forced no-op transfer".into(),
+                activate: false,
+                clear_planner: true,
+            }),
+        },
+        TransitionFailurePoint::SkipPlanRebind,
+    )
+    .unwrap_err();
+
+    assert!(error.contains("post-condition failed"));
+    assert_eq!(fixture.store.get(&fixture.plan_id).unwrap(), before_plan);
+    assert_eq!(mux_state_without_generation(&fixture.mux), before_mux);
 }

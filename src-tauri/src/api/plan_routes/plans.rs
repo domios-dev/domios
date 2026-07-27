@@ -930,7 +930,9 @@ fn team_plan_err(error: TeamPlanError) -> (StatusCode, Json<Value>) {
     match error {
         TeamPlanError::Plan(error) => plan_err(error),
         TeamPlanError::Team(message)
-            if message.contains("not authorized") || message.contains("not a member") =>
+            if message.contains("not authorized")
+                || message.contains("not a member")
+                || message.contains("authority") =>
         {
             text_err(StatusCode::FORBIDDEN, message)
         }

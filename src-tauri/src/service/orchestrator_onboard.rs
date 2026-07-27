@@ -190,6 +190,7 @@ impl ServiceContext {
             destination: crate::service::AgentPlacement::Orchestrator { can_spawn: true },
             require_verified_session: true,
             planner_replacement: None,
+            plan_rebind: None,
         })?;
         self.maybe_deliver_orchestrator_promotion_onboarding(pane_id, was_orchestrator);
 
