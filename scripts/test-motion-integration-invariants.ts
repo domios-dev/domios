@@ -1,8 +1,18 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { extname, join, relative, resolve } from "node:path";
+import { homedir } from "node:os";
+import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
+const isInsideRepository = (path: string) => {
+  const pathFromRoot = relative(root, path);
+  return (
+    pathFromRoot === "" ||
+    (!isAbsolute(pathFromRoot) &&
+      pathFromRoot !== ".." &&
+      !pathFromRoot.startsWith(`..${sep}`))
+  );
+};
 const srcRoot = join(root, "src");
 const globalsPath = join(srcRoot, "styles", "globals.css");
 const agentStatePath = join(srcRoot, "styles", "agent-state.css");
@@ -186,8 +196,22 @@ for (const sourceRoot of [join(root, "src"), join(root, "packages")]) {
 }
 assert.deepEqual(playgroundImports, [], "src and packages must not import playground modules");
 
+const repoLocalPlanDirectory = join(root, ".codeterm", "plans");
+assert.equal(
+  existsSync(repoLocalPlanDirectory),
+  false,
+  "repo-local plan artifact directory must not exist",
+);
+
+const centralizedPlanDatabase = resolve(homedir(), ".codeterm", "plans.db");
+assert.equal(
+  isInsideRepository(centralizedPlanDatabase),
+  false,
+  "centralized plan database must stay outside the repository",
+);
+
 const repoLocalPlanArtifacts = [
-  join(root, ".codeterm", "plans"),
+  repoLocalPlanDirectory,
   join(root, ".codeterm", "plans.db"),
   join(root, ".codeterm", "plan-index.json"),
 ].filter(existsSync).map(repoRelative);
