@@ -45,6 +45,9 @@ async function main() {
   const mobile = css.slice(mobileStart, css.indexOf(".ct-liquid-toggle", mobileStart));
   assert.match(mobile, /\.ct-section-toolbar__tabs[\s\S]*flex:\s*0 0 100%/);
   assert.match(mobile, /\.ct-liquid-tab-rail[\s\S]*min-width:\s*0/);
+  assert.match(css, /\.ct-liquid-tab-rail\s*\{[^}]*overflow:\s*hidden/s);
+  assert.match(css, /\.ct-liquid-tab-rail__indicator\s*\{[^}]*bottom:\s*3px[^}]*height:\s*2px/s);
+  assert.match(css, /\.ct-liquid-tab-rail__tab\s*\{[^}]*font-size:\s*0\.75rem/s);
 
   await act(async () => root.unmount());
   console.log("liquid tab rail tests: passed");
