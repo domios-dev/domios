@@ -3804,7 +3804,7 @@
         },
         {
           "name": "worker",
-          "about": "Graph-worker operations (hidden mem tabl agents)",
+          "about": "Graph-worker operations (hidden mem panel agents)",
           "aliases": [],
           "args": [],
           "subcommands": [
