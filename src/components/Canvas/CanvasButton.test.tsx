@@ -39,6 +39,8 @@ test("CanvasButton renders in toolbar", async () => {
   const button = host.querySelector('[data-testid="canvas-toolbar-button"]');
   assert(button, "button present");
   assert(button.getAttribute("aria-label") === "Open workspace canvas", "button has an accessible action name");
+  assert(button.getAttribute("aria-pressed") === "false", "closed canvas is not pressed");
+  assert(button.className.includes("ct-liquid-interactive"), "tray uses shared interaction class");
   await act(async () => root.unmount());
 });
 
@@ -56,6 +58,8 @@ test("CanvasButton toggles workspace canvas open state", async () => {
   await act(async () => {
     root.render(<CanvasButton active={true} />);
   });
+  assert(btn().getAttribute("aria-label") === "Close workspace canvas", "open canvas exposes close action");
+  assert(btn().getAttribute("aria-pressed") === "true", "open canvas is pressed");
   await act(async () => btn().click());
   assert(canvasFocusStore.isWorkspaceDismissed(), "workspace canvas dismissed after second click");
   canvasFocusStore.closeWorkspace();

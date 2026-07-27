@@ -17,14 +17,32 @@ pub(crate) fn role_onboarding_task(
     role: Option<&str>,
     role_profile: Option<&str>,
 ) -> Option<String> {
-    match (role, role_profile) {
+    let role_task = match (role, role_profile) {
         (Some("Manager"), Some("planner")) => {
             task.map(|t| format!("{}{}", t, crate::prompts::planner_suffix()))
         }
         (Some("Manager"), _) => task.map(str::to_string),
         (Some("Worker"), _) => task.map(|t| format!("{}{}", t, crate::prompts::worker_suffix())),
-        (Some("Orchestrator"), _) => task.map(str::to_string),
+        (Some("Orchestrator"), _) => {
+            let suffix = crate::prompts::orchestrator_suffix();
+            Some(match task {
+                Some(task) => format!("{task}\n\n{suffix}"),
+                None => suffix,
+            })
+        }
         _ => task.map(str::to_string),
+    };
+    Some(agent_system_prompt(role_task.as_deref()))
+}
+
+pub(crate) fn agent_system_prompt(assignment: Option<&str>) -> String {
+    match assignment.filter(|text| !text.trim().is_empty()) {
+        Some(assignment) => format!(
+            "{}\n\n## Assignment\n\n{}",
+            crate::prompts::AGENT_CODETERM_PRIMER.trim(),
+            assignment
+        ),
+        None => crate::prompts::AGENT_CODETERM_PRIMER.trim().to_string(),
     }
 }
 
@@ -34,13 +52,6 @@ pub(crate) fn spawn_onboarding_task(params: &SpawnAgentParams) -> Option<String>
         params.role.as_deref(),
         params.role_profile.as_deref(),
     )
-}
-
-pub(crate) fn should_deliver_spawn_preferences(
-    is_planner: bool,
-    onboarding_task: Option<&str>,
-) -> bool {
-    is_planner && onboarding_task.is_some()
 }
 
 pub(crate) use crate::agent::{provider::AgentLaunchParams, registry::AgentRegistry};

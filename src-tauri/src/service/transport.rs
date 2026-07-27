@@ -5,7 +5,6 @@
 //! pane and kicks launch async, returning a snapshot the client applies once.
 
 use serde::{Deserialize, Serialize};
-use tauri::Manager;
 
 use super::spawn::{should_default_agent_pane_to_chat, PaneVisibility};
 use super::ServiceContext;
@@ -242,14 +241,7 @@ impl ServiceContext {
     }
 
     fn default_agent_chat_view(&self, provider: &str) -> bool {
-        let default_enabled = self
-            .app_handle
-            .state::<crate::config::ConfigState>()
-            .lock()
-            .ui
-            .default_new_agent_pane_chat;
         should_default_agent_pane_to_chat(
-            default_enabled,
             PaneVisibility::Visible,
             self.agent_registry
                 .with_provider(provider, |p| p.supports_chat_ui())

@@ -12,10 +12,10 @@ Every system-level prompt in CodeTerm is a plain `.md` file compiled into the bi
 
 Provider-specific prompt wrappers and synced skill copies may exist under user home directories at runtime, but they are generated artifacts, not source prompts. If you find a project-owned prompt source anywhere else in this repo, that is a bug — move it into `src-tauri/prompts/` and expose it from the module that owns its runtime use.
 
-Prompts reach the model through six pathways:
+Prompts reach the model through these pathways:
 
-1. **System prompt of the General Agent** — written to `~/.codeterm/general/AGENT.md` (and `CLAUDE.md`/`AGENTS.md` wrappers) on every GA start.
-2. **Role suffixes appended at spawn time** — Worker / Orchestrator / cron tasks get extra instructions glued onto the task string.
+1. **System prompt of the General Agent** — composed from `general_agent.md`, the bounded L0/L1 wake-up snapshot, `codeterm_rule.md`, and `bridge_mem.md`. Native PTY providers load the generated `CLAUDE.md`/`AGENTS.md` startup channel exactly once; providers declaring `External` receive the identical text through durable confirmed fallback.
+2. **System prompt of spawned agents** — `agent_codeterm_primer.md` is prepended once, followed by the assignment and applicable Worker, Planner, or Orchestrator contract. Native providers use their declared system-prompt capability; `External` providers use durable confirmed fallback. ChatBackend sessions receive the same composition through `openSession.systemPrompt`.
 3. **Bridge rules installed per provider** — `codeterm_rule.md` and `bridge_mem.md` are copied into `~/.claude/rules/` (Claude) or inlined into `AGENTS.md` (Codex) so the provider auto-injects them on every session.
 4. **Headless memory workers** — extraction and REM dreaming spawn a hidden agent with a wrapped task. `worker_task_preamble.md` is the wrapper, the inner task body comes from `mem_extraction.md` or `dreaming_rem.md`.
 5. **Plugin-spawned agents** — plugins that spawn agents wrap their task with `plugin_agent_task_preamble.md`, so they act through plugin verbs instead of the memory-worker protocol.
@@ -29,6 +29,7 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 |---|---|---|---|---|
 | `general_agent.md` | `GENERAL_AGENT_TEMPLATE` | GA system prompt | `{version}` `{platform}` `{hostname}` `{provider_name}` `{general_dir}` `{secrets_dir}` `{skills_dir}` `{identity}` `{soul}` `{wake_up}` `{codeterm_cli}` | `service/general_agent/instructions.rs` — substituted, written to `AGENT.md` on every GA start |
 | `bootstrap_instructions.md` | `BOOTSTRAP_INSTRUCTIONS_TEMPLATE` | First-run onboarding | — | `service/general_agent/instructions.rs` — written to `bootstrap.md` once, deleted after GA completes onboarding |
+| `agent_codeterm_primer.md` | `AGENT_CODETERM_PRIMER` | Spawned-agent system primer | — | `service/orchestrator/launch.rs` — prepended once before assignment and role contract for PTY and ChatBackend launches |
 | `worker_suffix.md` | `WORKER_SUFFIX` | Role suffix | — | `service/orchestrator.rs` and `service/spawn.rs` — appended when spawned with `--role Worker` |
 | `testing_discipline.md` | `TESTING_DISCIPLINE` | Role suffix fragment | — | `service_plan/prompts_plan.rs` — prepended to Worker tasks before `worker_suffix.md` |
 | `qa_pipeline_discipline.md` | `QA_PIPELINE_DISCIPLINE` | Role suffix fragment | — | `service_plan/prompts_plan.rs` — prepended to Worker tasks before `worker_suffix.md` |
@@ -40,6 +41,8 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | `team_bootstrap_starter.md` | `TEAM_BOOTSTRAP_STARTER` | Provider-visible team wake-up turn | — | `codeterm-plugin` host injects one shared starter into every provider launch |
 | `cron_report_hint.md` | `CRON_REPORT_HINT` | Cron suffix | — | `service/cron.rs` — appended when a cron job has a `creator_pane_id` |
 | `cron_complete_suffix.md` | `CRON_COMPLETE_SUFFIX` | Cron suffix | `{}` (run_id) | `service/cron.rs`, `cron/scheduler.rs` — always appended |
+| `cron_skill_hint.md` | `CRON_SKILL_HINT` | Cron skill instruction | `{skill_path}` `{skill_slug}` | `commands/skills.rs` — points a cron agent at the resolved skill |
+| `cron_skill_missing.md` | `CRON_SKILL_MISSING` | Cron skill failure instruction | `{skill_slug}` | `commands/skills.rs` — provides a bounded failure handoff when the requested skill is absent |
 | `codeterm_rule.md` | `CODETERM_RULE` | Framework rule | — | App loader: `service/general_agent/instructions.rs`; plugin loader: `codeterm-plugin/src/agent_claude/provider/integration.rs` writes `~/.claude/rules/codeterm.md` |
 | `codeterm_cli.md` | `CODETERM_CLI` | Framework rule | — | `service/general_agent/instructions.rs` — injected into the GA prompt via `{codeterm_cli}`; also mirrored into the codeterm skill |
 | `bridge_mem.md` | `BRIDGE_MEM` | Memory protocol rule | — | `service/sync_watcher.rs:18` installs per provider; inlined into Codex `AGENTS.md` |
@@ -160,4 +163,4 @@ Behavioral prompt changes are gated by `evals/cli-agent` (baseline vs after)
 with sandboxes OUTSIDE the repo — in-repo sandboxes feed agents the repo's
 checked-in AGENTS.md instead of the generated one and invalidate the run.
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->

@@ -47,7 +47,6 @@ export function GalleryDetail({ id }: { id: string }) {
   if (!specimen) return <GalleryShell><main className="portal-inner gallery-empty"><p className="portal-kicker">Component Gallery</p><h1>Specimen not found</h1><a className="portal-back" href="#gallery">← gallery</a></main></GalleryShell>;
   const state = specimen.states.find((entry) => entry.id === stateId) ?? specimen.states[0];
   if (!state) return <GalleryShell activeId={id}><main className="portal-inner gallery-empty"><h1>{specimen.title}</h1><p className="portal-lede">This specimen has no states.</p></main></GalleryShell>;
-  const Component = specimen.Component;
   return <GalleryShell activeId={id}><main className="portal-inner gallery-detail">
       <p className="portal-kicker">{specimen.where}</p>
       <h1>{specimen.title}</h1>
@@ -55,7 +54,7 @@ export function GalleryDetail({ id }: { id: string }) {
       <section className="gallery-state-board" aria-label={`${specimen.title} states`}>
         {specimen.states.map((entry) => <button key={entry.id} className={`gallery-state-stage${entry.id === state.id ? " is-focused" : ""}`} type="button" onClick={() => setStateId(entry.id)} aria-pressed={entry.id === state.id}>
           <span className="gallery-state-label">{entry.label}</span>
-          <span className="gallery-stage-instance" ref={entry.id === state.id ? stage : undefined}><Component {...entry.props} /></span>
+          <span className="gallery-stage-instance" ref={entry.id === state.id ? stage : undefined}>{entry.render()}</span>
         </button>)}
       </section>
       {specimen.motion === "static"

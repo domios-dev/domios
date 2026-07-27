@@ -625,9 +625,6 @@ export interface MemoryConfig {
 export interface UiConfig {
   memory_tab_enabled?: boolean;
   mesh_tab_enabled?: boolean;
-  default_new_agent_pane_chat?: boolean;
-  // persist via the Rust UiConfig flatten map (mirrors ProviderConfig).
-  chat_ui_default_prompted?: boolean;
   keepawake_display?: boolean;
   usage_intro_hint_opens?: number;
   [key: string]: unknown;

@@ -12,7 +12,7 @@ export const UI_BUTTON = {
 
 // Square ghost icon button for the titlebar tray (settings, keep-awake, extensions).
 export const UI_TRAY_BTN =
-  "flex items-center justify-center w-7 h-7 rounded-md transition-colors text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]";
+  "ct-liquid-interactive flex items-center justify-center w-7 h-7 rounded-md text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]";
 
 export const UI_TRAY_DIVIDER =
   "mx-1 h-4 shrink-0 border-l-[1.5px] border-[var(--ct-tray-divider)] opacity-50";

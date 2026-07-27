@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type AnimationEvent as ReactAnimationEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ChevronRight, ClipboardList, LogOut, UsersRound } from "lucide-react";
 import type { Pane, ProviderDescriptor, Team } from "../../lib/types";
@@ -9,6 +9,7 @@ import { BOARD_COLUMN_DEFS, groupTasksIntoColumns } from "../Canvas/planView/boa
 import { summarizeWorkers } from "./orchestrationSections";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { clampFloatingPosition } from "../shared/floatingPosition";
+import { ActivityDots } from "../shared/ActivityDots";
 import { loadTeamDisclosureState, persistTeamDisclosureState } from "./teamDisclosureState";
 
 export type TeamMemberRole = "planner" | "worker";
@@ -71,6 +72,34 @@ export function teamDonutBackground(buckets: TeamTaskBucket[]): string {
     return [`${bucket.color} ${start}% ${(offset / total) * 100}%`];
   });
   return `conic-gradient(${stops.join(", ")})`;
+}
+
+export function useTeamPlanMotion(buckets: TeamTaskBucket[]) {
+  const signature = buckets.map((bucket) => bucket.count).join(":");
+  const total = buckets.reduce((sum, bucket) => sum + bucket.count, 0);
+  const complete = total > 0 && buckets.find((bucket) => bucket.key === "done")?.count === total;
+  const previous = useRef({ signature, complete, total });
+  const [revision, setRevision] = useState(0);
+  const [reacting, setReacting] = useState(false);
+  const [completionSweep, setCompletionSweep] = useState(false);
+
+  useEffect(() => {
+    if (signature === previous.current.signature) return;
+    const shouldSweep = previous.current.total > 0 && !previous.current.complete && complete;
+    previous.current = { signature, complete, total };
+    setRevision((current) => current + 1);
+    setReacting(true);
+    setCompletionSweep(shouldSweep);
+  }, [complete, signature, total]);
+
+  const onAnimationEnd = useCallback((event: ReactAnimationEvent<HTMLElement>) => {
+    if (event.animationName === "sidebar-team-donut-grow" || event.animationName === "sidebar-team-count-pop") {
+      setReacting(false);
+    }
+    if (event.animationName === "sidebar-team-completion-sweep") setCompletionSweep(false);
+  }, []);
+
+  return { revision, reacting, completionSweep, onAnimationEnd };
 }
 
 interface TeamMenuProps {
@@ -366,6 +395,7 @@ export function TeamUnit({
     () => (plan ? deriveTeamTaskBuckets(plan, panes) : EMPTY_BUCKETS),
     [plan, panes],
   );
+  const planMotion = useTeamPlanMotion(buckets);
 
   useEffect(() => setName(team.name?.trim() || "Team"), [team.name]);
 
@@ -425,8 +455,9 @@ export function TeamUnit({
   const cardContents = <>
     {plan ? (
       <span
+        key={`donut-${planMotion.revision}`}
         data-testid="team-donut"
-        className="sidebar-team-donut"
+        className={`sidebar-team-donut${planMotion.reacting ? " sidebar-team-donut-reaction" : ""}`}
         aria-label="Task status composition"
         style={{ background: teamDonutBackground(buckets) }}
       ><span data-testid="team-donut-hole" className="sidebar-team-donut-hole" /></span>
@@ -459,10 +490,10 @@ export function TeamUnit({
           {workingWorkerCount > 0 && (
             <span
               data-testid="team-working-indicator"
-              className="sidebar-hierarchy-typing-dots"
+              className="sidebar-team-working-indicator"
               role="status"
               aria-label={`${displayTitle} has working members`}
-            ><span /><span /><span /></span>
+            ><ActivityDots size="small" tone="muted" /></span>
           )}
         </span>
       )}
@@ -476,10 +507,11 @@ export function TeamUnit({
       data-team-id={team.id}
       data-expanded={expanded ? "true" : "false"}
       className="sidebar-team-unit"
+      onAnimationEnd={planMotion.onAnimationEnd}
     >
       <div
         ref={headerRef}
-        className={`sidebar-team-header${plan && !editing ? " sidebar-team-header-active" : ""}`}
+        className={`sidebar-team-header${plan && !editing ? " sidebar-team-header-active" : ""}${planMotion.completionSweep ? " sidebar-team-header-completion" : ""}`}
         data-menu-dismissed={menuDismissed ? "true" : undefined}
       >
         {plan && !editing ? (
@@ -516,7 +548,11 @@ export function TeamUnit({
         </span>
       </div>
       {plan && (
-        <span data-testid="team-status-tally" className="sidebar-team-readout">
+        <span
+          key={`tally-${planMotion.revision}`}
+          data-testid="team-status-tally"
+          className={`sidebar-team-readout${planMotion.reacting ? " sidebar-team-count-reaction" : ""}`}
+        >
           {buckets.map((bucket, index) => (
             <span key={bucket.key} className="sidebar-team-readout-segment">
               {index > 0 && <span className="sidebar-team-readout-separator" aria-hidden> · </span>}
@@ -551,7 +587,7 @@ export function TeamUnit({
                 <div data-testid="workers-collapse-summary" className="sidebar-team-workers-summary">
                   {summarizeWorkers(workerCount, workingWorkerCount)}
                   {workingWorkerCount > 0 && (
-                    <span className="sidebar-hierarchy-typing-dots" aria-hidden><span /><span /><span /></span>
+                    <ActivityDots size="small" tone="muted" />
                   )}
                   <span className="sidebar-team-summary-kebab">⋮</span>
                 </div>

@@ -87,7 +87,11 @@ async function run() {
   );
   const workingIndicator = host.querySelector('[role="status"][aria-label="team_smoke has working tabs"]');
   assert(workingIndicator, "unselected working workspace exposes accessible activity");
-  assert.equal(workingIndicator.children.length, 3, "working workspace uses a three-dot activity indicator");
+  assert.equal(
+    workingIndicator.querySelector('[aria-hidden="true"]')?.children.length,
+    3,
+    "working workspace uses a three-dot activity indicator",
+  );
   assert(host.textContent?.includes("CT") && host.textContent.includes("TS"), "derived initials render");
 
   await act(async () => (host.querySelector('[aria-label="Select workspace team_smoke"]') as HTMLButtonElement).click());

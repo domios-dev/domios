@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Copy, Pencil, RefreshCw, RotateCcw, UserCog, X } from "lucide-react";
 import { usePaneProvider, useShellSessionModel } from "../../lib/usePaneProvider";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
+import { ActivityDots } from "../shared/ActivityDots";
 import { TelegramIcon, TerminalIcon } from "../Icons";
 import { ProviderGlyph } from "../ProviderGlyph";
 import type { Pane, PaneStatus, Tab } from "../../lib/types";
@@ -89,15 +90,7 @@ function TabWorkingActivity() {
       data-testid="tab-working-activity"
       className="inline-flex items-center shrink-0"
     >
-      <span
-        data-hierarchy-typing="true"
-        className="sidebar-hierarchy-typing-dots inline-flex items-center gap-[2px] align-middle shrink-0"
-        aria-hidden
-      >
-        <span />
-        <span />
-        <span />
-      </span>
+      <ActivityDots size="small" tone="muted" />
     </span>
   );
 }
@@ -299,7 +292,7 @@ function TabItemInner({
         aria-label={`Open tab ${displayTitle}`}
         aria-current={isActive ? "page" : undefined}
         onClick={onClick}
-        className={`flex flex-1 items-center min-w-0 relative z-[1] border-0 bg-transparent p-0 text-left text-inherit font-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
+        className={`sidebar-tab-activation flex flex-1 items-center min-w-0 relative z-[1] border-0 bg-transparent p-0 text-left text-inherit font-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
       >
       <div className={`flex flex-1 items-center min-w-0 ${touchMode ? "gap-2.5" : "gap-2"}`}>
         <span data-testid="tab-pane-icon" className="shrink-0 leading-none">

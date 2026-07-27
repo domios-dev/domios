@@ -171,8 +171,11 @@ fn production_driver_uses_typed_terminal_causes() {
 }
 
 #[test]
-fn plain_orchestrator_no_task_spawn_submits_nothing() {
-    assert_eq!(spawn_onboarding_task(&orchestrator_params(None)), None);
+fn plain_orchestrator_no_task_spawn_receives_the_system_contract() {
+    let prompt =
+        spawn_onboarding_task(&orchestrator_params(None)).expect("orchestrator system prompt");
+    assert!(prompt.starts_with(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
+    assert!(prompt.contains(crate::prompts::ORCHESTRATOR_SUFFIX.trim()));
 }
 
 #[test]
@@ -302,9 +305,14 @@ fn provider_binding_with_a_wrong_nonce_is_ignored() {
 
 #[test]
 fn explicit_orchestrator_task_is_submitted_exactly_once() {
+    let prompt = spawn_onboarding_task(&orchestrator_params(Some("inspect launch")))
+        .expect("orchestrator system prompt");
+    assert_eq!(prompt.matches("inspect launch").count(), 1);
     assert_eq!(
-        spawn_onboarding_task(&orchestrator_params(Some("inspect launch"))),
-        Some("inspect launch".into())
+        prompt
+            .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+            .count(),
+        1
     );
 }
 
@@ -368,9 +376,10 @@ impl ChatBackendProvider for SpawnableChatBackend {
 }
 
 #[test]
-fn transport_capability_paths_receive_no_task_for_plain_orchestrator() {
+fn transport_capability_paths_receive_the_primer_for_plain_orchestrator() {
     let params = orchestrator_params(None);
-    assert_eq!(spawn_onboarding_task(&params), None);
+    let prompt = spawn_onboarding_task(&params).expect("orchestrator system prompt");
+    assert!(prompt.contains(crate::prompts::ORCHESTRATOR_SUFFIX.trim()));
     match SpawnPaneSpec::from_agent_params(params.clone()).command {
         PaneCommand::Agent(agent) => assert_eq!(agent.task, None),
         other => panic!("expected PTY agent route, got {other:?}"),

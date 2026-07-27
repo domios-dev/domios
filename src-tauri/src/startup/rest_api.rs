@@ -351,12 +351,13 @@ fn probe_address(address: SocketAddr) -> SocketAddr {
 }
 
 async fn prove_health(address: SocketAddr) -> Result<(), String> {
+    const HEALTH_PROOF_DEADLINE: Duration = Duration::from_secs(5);
     let client = reqwest::Client::builder()
         .no_proxy()
         .build()
         .map_err(|error| error.to_string())?;
     let url = format!("http://{}/api/health", probe_address(address));
-    let status = tokio::time::timeout(Duration::from_secs(1), async {
+    let status = tokio::time::timeout(HEALTH_PROOF_DEADLINE, async {
         let response = client
             .get(url)
             .header(reqwest::header::CONNECTION, "close")
@@ -374,6 +375,20 @@ async fn prove_health(address: SocketAddr) -> Result<(), String> {
     } else {
         Err(format!("health proof returned {status}"))
     }
+}
+
+async fn bind_listener(bind_addr: &str) -> std::io::Result<tokio::net::TcpListener> {
+    let address = bind_addr
+        .parse::<SocketAddr>()
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
+    let socket = if address.is_ipv4() {
+        tokio::net::TcpSocket::new_v4()?
+    } else {
+        tokio::net::TcpSocket::new_v6()?
+    };
+    socket.set_reuseaddr(true)?;
+    socket.bind(address)?;
+    socket.listen(1024)
 }
 
 fn listener_exit_message(result: Result<(), std::io::Error>) -> String {
@@ -523,7 +538,7 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
 
     loop {
         let generation = control.begin_generation();
-        let listener = match tokio::net::TcpListener::bind(&bind_addr).await {
+        let listener = match bind_listener(&bind_addr).await {
             Ok(listener) => listener,
             Err(error) => {
                 let message =
@@ -602,12 +617,13 @@ pub(crate) async fn start(control: RestApiControlState, bind_addr: String, route
         };
         control.listener_bound(generation);
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
-        let server = axum::serve(listener, router.clone())
-            .with_graceful_shutdown(async {
-                let _ = shutdown_rx.await;
-            })
-            .into_future();
-        tokio::pin!(server);
+        let mut server = Box::pin(
+            axum::serve(listener, router.clone())
+                .with_graceful_shutdown(async {
+                    let _ = shutdown_rx.await;
+                })
+                .into_future(),
+        );
         let health = prove_health(local_addr);
         tokio::pin!(health);
 

@@ -40,19 +40,24 @@ fn local_and_orchestrator_roles_keep_local_assignment() {
 
 #[test]
 fn roleless_spawn_task_stays_plain() {
+    let task = role_onboarding_task(Some("inspect"), None, None).unwrap();
+    assert!(task.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
+    assert!(task.ends_with("inspect"));
     assert_eq!(
-        role_onboarding_task(Some("inspect"), None, None).as_deref(),
-        Some("inspect")
+        role_onboarding_task(None, None, None).as_deref(),
+        Some(crate::prompts::AGENT_CODETERM_PRIMER.trim())
     );
-    assert_eq!(role_onboarding_task(None, None, None), None);
 }
 
 #[test]
-fn worker_onboarding_requires_a_task_body() {
+fn worker_without_assignment_still_receives_the_codeterm_primer() {
     assert!(role_onboarding_task(Some("fix it"), Some("Worker"), None)
         .unwrap()
         .contains(crate::prompts::WORKER_SUFFIX));
-    assert_eq!(role_onboarding_task(None, Some("Worker"), None), None);
+    assert_eq!(
+        role_onboarding_task(None, Some("Worker"), None).as_deref(),
+        Some(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+    );
 }
 
 #[test]
@@ -60,29 +65,74 @@ fn planner_profile_uses_planner_suffix() {
     let task = role_onboarding_task(Some("plan it"), Some("Manager"), Some("planner")).unwrap();
     assert!(task.contains(&crate::prompts::planner_suffix()));
     assert!(!task.contains(crate::prompts::WORKER_SUFFIX));
+    assert_eq!(
+        task.matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+            .count(),
+        1
+    );
+    assert!(
+        task.find(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+            .unwrap()
+            < task.find("plan it").unwrap()
+    );
+}
+
+#[test]
+fn worker_prompt_orders_primer_assignment_and_worker_contract_once() {
+    let task = role_onboarding_task(Some("repair delivery"), Some("Worker"), None).unwrap();
+    let primer = task
+        .find(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+        .unwrap();
+    let assignment = task.find("## Assignment").unwrap();
+    let brief = task.find("repair delivery").unwrap();
+    let contract = task.find(crate::prompts::WORKER_SUFFIX.trim()).unwrap();
+    assert!(primer < assignment && assignment < brief && brief < contract);
+    assert_eq!(
+        task.matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+            .count(),
+        1
+    );
 }
 
 #[test]
 fn manager_watcher_does_not_get_worker_suffix() {
     let task = role_onboarding_task(Some("watch it"), Some("Manager"), Some("watcher")).unwrap();
-    assert_eq!(task, "watch it");
+    assert!(task.ends_with("watch it"));
+    assert!(!task.contains(crate::prompts::WORKER_SUFFIX));
 }
 
 #[test]
-fn plain_orchestrator_no_task_spawn_submits_nothing() {
-    assert_eq!(role_onboarding_task(None, Some("Orchestrator"), None), None);
+fn plain_orchestrator_no_task_spawn_receives_primer_and_role_contract() {
+    let prompt =
+        role_onboarding_task(None, Some("Orchestrator"), None).expect("orchestrator prompt");
+    assert!(prompt.starts_with(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
+    assert!(prompt.contains(crate::prompts::ORCHESTRATOR_SUFFIX.trim()));
+    assert_eq!(
+        prompt
+            .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+            .count(),
+        1
+    );
 
     let mut params = make_params("codex", None);
     params.role = Some("Orchestrator".into());
-    assert_eq!(spawn_onboarding_task(&params), None);
+    let spawned = spawn_onboarding_task(&params).expect("orchestrator system prompt");
+    assert_eq!(
+        spawned
+            .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+            .count(),
+        1
+    );
+    assert!(spawned.contains(crate::prompts::ORCHESTRATOR_SUFFIX.trim()));
 }
 
 #[test]
-fn paired_orchestrator_starts_idle_without_a_synthetic_turn() {
+fn paired_orchestrator_starts_with_system_contract_without_a_synthetic_turn() {
     let mut params = make_params("codex", None);
     params.role = Some("Orchestrator".into());
     params.skip_orchestrator_onboarding = Some(true);
-    assert_eq!(spawn_onboarding_task(&params), None);
+    let prompt = spawn_onboarding_task(&params).expect("orchestrator system prompt");
+    assert!(prompt.contains(crate::prompts::ORCHESTRATOR_SUFFIX.trim()));
 }
 
 #[test]
@@ -91,17 +141,13 @@ fn explicit_orchestrator_task_still_starts_an_execution_turn() {
     params.role = Some("Orchestrator".into());
     params.skip_orchestrator_onboarding = Some(true);
     let task = spawn_onboarding_task(&params).expect("explicit task");
-    assert_eq!(task, "inspect the launch path");
-}
-
-#[test]
-fn idle_planner_does_not_receive_a_preferences_turn() {
-    assert!(!should_deliver_spawn_preferences(true, None));
-    assert!(should_deliver_spawn_preferences(
-        true,
-        Some("plan this goal")
-    ));
-    assert!(!should_deliver_spawn_preferences(false, Some("execute")));
+    assert_eq!(task.matches("inspect the launch path").count(), 1);
+    assert!(
+        task.find("inspect the launch path").unwrap()
+            < task
+                .find(crate::prompts::ORCHESTRATOR_SUFFIX.trim())
+                .unwrap()
+    );
 }
 
 #[test]
