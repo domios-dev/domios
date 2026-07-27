@@ -9,34 +9,24 @@ pub const PLAN_SKILL_REGISTRY_POINTER: &str =
 // Cap the slug list rendered into the single-line heartbeat block.
 const REGISTRY_LINE_MAX_SLUGS: usize = 8;
 
-/// Sidecar plan directory without the dir-creating side effects of `paths::plan_dir`.
-/// None for synthetic plans (empty project) — callers fall back to a zero count.
-fn plan_sidecar_dir(plan: &Plan) -> Option<PathBuf> {
-    let root = super::paths::plan_sidecar_root(plan);
-    if root.as_os_str().is_empty() {
+fn plan_skill_state_dir(plan: &Plan) -> Option<PathBuf> {
+    if plan.id.trim().is_empty() {
         return None;
     }
-    let stem = if plan.id == crate::plan::INBOX_PLAN_ID {
-        crate::plan::INBOX_PLAN_FILE_STEM
-    } else {
-        plan.id.as_str()
-    };
-    Some(
-        root.join(".codeterm")
-            .join("plans")
-            .join(super::paths::plan_bucket(&plan.status))
-            .join(stem),
-    )
+    Some(super::paths::plan_state_dir_unchecked(
+        &plan.status,
+        &plan.id,
+    ))
 }
 
 pub fn count_plan_skills_for(plan: &Plan) -> usize {
-    plan_sidecar_dir(plan)
+    plan_skill_state_dir(plan)
         .map(|dir| count_plan_skills(&dir))
         .unwrap_or(0)
 }
 
 pub fn list_plan_skill_slugs(plan: &Plan) -> Vec<String> {
-    let Some(skills_dir) = plan_sidecar_dir(plan).map(|dir| dir.join("skills")) else {
+    let Some(skills_dir) = plan_skill_state_dir(plan).map(|dir| dir.join("skills")) else {
         return Vec::new();
     };
     let Ok(entries) = std::fs::read_dir(&skills_dir) else {

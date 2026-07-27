@@ -2,7 +2,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use super::paths::{plan_dir, plan_sidecar_root};
+use super::paths::plan_state_dir;
 use crate::service_plan::PlanError;
 use crate::service_plan::PlanStore;
 
@@ -191,8 +191,7 @@ fn scaffold(slug: &str, title: &str, area: &str, check: Option<&str>) -> String 
 
 fn plan_dir_for(store: &PlanStore, plan_id: &str) -> Result<std::path::PathBuf, PlanError> {
     let plan = store.get(plan_id).ok_or(PlanError::NotFound)?;
-    let root = plan_sidecar_root(&plan);
-    plan_dir(root, &plan.status, &plan.id).map_err(|e| PlanError::Io(e.to_string()))
+    plan_state_dir(&plan.status, &plan.id).map_err(|e| PlanError::Io(e.to_string()))
 }
 
 fn io_error(context: &str, error: impl std::fmt::Display) -> PlanError {
@@ -405,7 +404,33 @@ pub fn show_plan_skill(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plan::{OrchestratorRef, PlanStatus};
+    use crate::plan::OrchestratorRef;
+    use std::io::Write;
+
+    struct ExternalPlanCleanup(std::path::PathBuf);
+
+    impl Drop for ExternalPlanCleanup {
+        fn drop(&mut self) {
+            if self.0.is_dir() {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+    }
+
+    fn database_fingerprint() -> Option<(u64, std::time::SystemTime)> {
+        let metadata =
+            std::fs::metadata(crate::service_plan::paths::global_plan_database_path()).ok()?;
+        Some((metadata.len(), metadata.modified().ok()?))
+    }
+
+    fn external_plan_dir(plan: &crate::plan::Plan) -> std::path::PathBuf {
+        crate::service_plan::paths::global_plan_database_path()
+            .parent()
+            .unwrap()
+            .join("plans")
+            .join(crate::service_plan::paths::plan_bucket(&plan.status))
+            .join(&plan.id)
+    }
 
     fn write_skill(plan_dir: &Path, slug: &str, md: &str) {
         let dir = plan_dir.join("skills").join(slug);
@@ -437,7 +462,8 @@ mod tests {
                 1,
             )
             .unwrap();
-        let dir = plan_dir(tmp.path(), &PlanStatus::Active, &plan.id).unwrap();
+        let _cleanup = ExternalPlanCleanup(external_plan_dir(&plan));
+        let dir = plan_state_dir(&plan.status, &plan.id).unwrap();
         write_skill(
             &dir,
             "deploy",
@@ -473,6 +499,7 @@ mod tests {
                 1,
             )
             .unwrap();
+        let _cleanup = ExternalPlanCleanup(external_plan_dir(&plan));
         let created = create_plan_skill(
             &store,
             &plan.id,
@@ -539,7 +566,8 @@ mod tests {
                 1,
             )
             .unwrap();
-        let dir = plan_dir(tmp.path(), &PlanStatus::Active, &plan.id).unwrap();
+        let _cleanup = ExternalPlanCleanup(external_plan_dir(&plan));
+        let dir = plan_state_dir(&plan.status, &plan.id).unwrap();
         std::fs::write(dir.join("skills"), "blocked").unwrap();
 
         let error = create_plan_skill(
@@ -558,5 +586,158 @@ mod tests {
         assert!(dir.join("skills").is_file());
         assert!(!dir.join("skills").join("deploy").exists());
         assert!(!dir.join("skills").join("ledger.jsonl").exists());
+    }
+
+    #[test]
+    fn active_plan_coordination_never_creates_repo_local_plans() {
+        let project = tempfile::tempdir().unwrap();
+        let store = PlanStore::new_for_test(project.path());
+        let plan = store
+            .create_plan(
+                "External coordination".into(),
+                project.path().display().to_string(),
+                OrchestratorRef::from_pane("orch"),
+                vec![],
+                1,
+            )
+            .unwrap();
+        let plan_dir = external_plan_dir(&plan);
+        let _cleanup = ExternalPlanCleanup(plan_dir.clone());
+        assert!(plan_dir.join("plan.yaml").is_file());
+
+        let created = create_plan_skill(
+            &store,
+            &plan.id,
+            NewPlanSkill {
+                slug: "coordinate".into(),
+                title: None,
+                area: None,
+                check: None,
+                rationale: Some("captured from live coordination".into()),
+            },
+        )
+        .unwrap();
+        assert_eq!(list_plan_skills(&store, &plan.id).unwrap().len(), 1);
+        let detail = show_plan_skill(&store, &plan.id, &created.slug).unwrap();
+        assert_eq!(detail.ledger.len(), 1);
+        assert_eq!(
+            detail.ledger[0].rationale,
+            "captured from live coordination"
+        );
+        assert!(
+            !project.path().join(".codeterm").join("plans").exists(),
+            "live coordination must not create repo-local plan state"
+        );
+    }
+
+    #[test]
+    fn plan_skills_resolve_against_external_root() {
+        let database_before = database_fingerprint();
+        let project = tempfile::tempdir().unwrap();
+        let store = PlanStore::new_for_test(project.path());
+        let plan = store
+            .create_plan(
+                "External skills".into(),
+                project.path().display().to_string(),
+                OrchestratorRef::from_pane("orch"),
+                vec![],
+                1,
+            )
+            .unwrap();
+        let plan_dir = external_plan_dir(&plan);
+        let _cleanup = ExternalPlanCleanup(plan_dir.clone());
+
+        let created = create_plan_skill(
+            &store,
+            &plan.id,
+            NewPlanSkill {
+                slug: "external-state".into(),
+                title: Some("External State".into()),
+                area: Some("planning".into()),
+                check: None,
+                rationale: Some("initial verdict".into()),
+            },
+        )
+        .unwrap();
+        let skill_dir = plan_dir.join("skills").join("external-state");
+        let ledger_path = plan_dir.join("skills").join("ledger.jsonl");
+        assert_eq!(Path::new(&created.skill_md), skill_dir.join("SKILL.md"));
+        assert!(skill_dir.join("SKILL.md").is_file());
+        assert!(ledger_path.is_file());
+
+        let mut ledger = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&ledger_path)
+            .unwrap();
+        writeln!(
+            ledger,
+            "{}",
+            serde_json::json!({
+                "seq": 2,
+                "kind": "skill",
+                "slug": "external-state",
+                "verdict": "revise",
+                "rationale": "history remains external",
+            })
+        )
+        .unwrap();
+        drop(ledger);
+
+        let listed = list_plan_skills(&store, &plan.id).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].verdict, "revise");
+        assert_eq!(
+            crate::service_plan::skill_registry::count_plan_skills_for(&plan),
+            1
+        );
+        assert_eq!(
+            crate::service_plan::skill_registry::list_plan_skill_slugs(&plan),
+            ["external-state"]
+        );
+        let detail = show_plan_skill(&store, &plan.id, "external-state").unwrap();
+        assert_eq!(detail.ledger.len(), 2);
+        assert_eq!(detail.ledger[1].rationale, "history remains external");
+        assert_eq!(database_fingerprint(), database_before);
+    }
+
+    #[test]
+    fn no_legacy_repo_local_fallback_remains() {
+        let project = tempfile::tempdir().unwrap();
+        let store = PlanStore::new_for_test(project.path());
+        let plan = store
+            .create_plan(
+                "Ignore legacy state".into(),
+                project.path().display().to_string(),
+                OrchestratorRef::from_pane("orch"),
+                vec![],
+                1,
+            )
+            .unwrap();
+        let _cleanup = ExternalPlanCleanup(external_plan_dir(&plan));
+        let legacy_skill = project
+            .path()
+            .join(".codeterm")
+            .join("plans")
+            .join("active")
+            .join(&plan.id)
+            .join("skills")
+            .join("legacy");
+        std::fs::create_dir_all(&legacy_skill).unwrap();
+        std::fs::write(
+            legacy_skill.join("SKILL.md"),
+            "---\ntitle: Legacy\n---\n\nMust not be adopted.\n",
+        )
+        .unwrap();
+
+        assert!(list_plan_skills(&store, &plan.id).unwrap().is_empty());
+        assert!(matches!(
+            show_plan_skill(&store, &plan.id, "legacy"),
+            Err(PlanError::NotFound)
+        ));
+        let paths_source = include_str!("paths.rs");
+        assert!(
+            !paths_source.contains("project.join(\".codeterm\").join(\"plans\")"),
+            "plan state paths must not join .codeterm/plans beneath a project"
+        );
     }
 }
