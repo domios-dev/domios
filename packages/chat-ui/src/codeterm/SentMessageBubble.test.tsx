@@ -69,6 +69,26 @@ await (async () => {
   assert(text.includes("Update") && text.includes("done"), "renders markdown body content");
 })();
 
+for (const [command, expectedBody] of [
+  [`codeterm send --tab recipient "inline message"`, "inline message"],
+  [`codeterm send --tab recipient --from-file update.md`, "update.md"],
+  [`codeterm send --tab recipient --stdin`, ""],
+  [`codeterm send --tab recipient`, ""],
+] as const) {
+  const host = await render(
+    <SentMessageBubble
+      inv={inv(command)}
+      result="OK (sent)"
+      resolvePaneName={(ref) => (ref === "recipient" ? "Recipient" : undefined)}
+    />,
+  );
+  const text = host.textContent ?? "";
+  const bubble = host.querySelector('[data-testid="chat-sent-message"]');
+  assert(bubble != null && bubble.textContent!.trim().length > 0, `${command} renders a non-blank outgoing row`);
+  assert(text.includes("Recipient") && text.includes("✓"), `${command} retains recipient and delivered status`);
+  if (expectedBody) assert(text.includes(expectedBody), `${command} retains its body descriptor`);
+}
+
 // section-id mention in normal chat renders a deep-link card with the shared selector contract.
 await (async () => {
   let opened: [string, string | undefined, string | undefined] | null = null;
@@ -144,14 +164,14 @@ await (async () => {
         type: "user",
         content: "hello self",
       }}
-      origin={{ kind: "pane", title: "CURRENT Tab", paneIdShort: "915fae8e", model: "codex" }}
+      origin={{ kind: "pane", title: "CURRENT Pane", paneIdShort: "915fae8e", model: "codex" }}
       resolvePaneName={(r) => (r === "915fae8e" ? "Puccini" : undefined)}
     />,
   );
   const header = host.querySelector('[data-testid="chat-inbound-message"]') as HTMLElement | null;
   const text = header?.textContent ?? "";
   assert(text.includes("Puccini"), "current-pane marker renders resolved recipient name");
-  assert(!text.includes("CURRENT Tab"), "current-pane marker placeholder is replaced");
+  assert(!text.includes("CURRENT Pane"), "current-pane marker placeholder is replaced");
 })();
 
 // inbound current-pane structured metadata falls back to pane id when label is blank
