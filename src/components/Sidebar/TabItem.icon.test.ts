@@ -11,5 +11,6 @@ assert.match(source, /tab\.tab_type === "Choice"[\s\S]*?<ChoiceIcon/);
 assert.doesNotMatch(source, /tab\.title\s*===|tab\.title\.includes|tab\.title\.startsWith/);
 assert.match(icons, /export function ChoiceIcon[\s\S]*MousePointerClick/);
 assert.match(styles, /\.sidebar-tab:focus-within \.sidebar-tab-close/);
+assert.match(styles, /\.sidebar-tab:focus-within \.sidebar-tab-badge/);
 assert.match(styles, /\.sidebar-tab:focus-within \.sidebar-leadership-badge/);
 console.log("tab icon and fixed-slot contracts: passed");

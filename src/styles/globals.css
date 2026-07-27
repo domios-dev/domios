@@ -1177,10 +1177,11 @@ button,
   overflow: hidden;
   opacity: 1;
   text-overflow: ellipsis;
-  transition: opacity 150ms ease;
+  transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
   white-space: nowrap;
 }
-.sidebar-tab:hover .sidebar-tab-badge {
+.sidebar-tab:hover .sidebar-tab-badge,
+.sidebar-tab:focus-within .sidebar-tab-badge {
   opacity: 0;
 }
 

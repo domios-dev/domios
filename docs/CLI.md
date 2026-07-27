@@ -989,7 +989,7 @@ Print L0+L1 wake-up context (GA init injection)
 
 #### `codeterm mem worker`
 
-Graph-worker operations (hidden mem tabl agents)
+Graph-worker operations (hidden mem panel agents)
 
 #### `codeterm mem worker get`
 
