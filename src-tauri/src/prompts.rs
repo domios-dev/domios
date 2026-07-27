@@ -217,6 +217,9 @@ mod tests {
     #[test]
     fn operational_prompts_keep_clarity_fixes() {
         assert!(WORKER_SUFFIX.contains("STATUS: in_review"));
+        assert!(WORKER_SUFFIX.contains("commit only this task's owned changes"));
+        assert!(WORKER_SUFFIX.contains("--sha $(git rev-parse HEAD)"));
+        assert!(WORKER_SUFFIX.contains("Read-only tasks need no commit"));
         assert!(WORKER_SUFFIX.contains("TESTS RUN:"));
         assert!(WORKER_SUFFIX.contains("GATES REQUESTED:"));
         assert!(!TESTING_DISCIPLINE.trim().is_empty());
