@@ -7,7 +7,7 @@ pub use codeterm_types::pty::{AgentRole, PendingPrompt, PromptOption, PromptSect
 pub struct Workspace {
     pub id: String,
     pub name: String,
-    pub tabs: Vec<Tab>,
+    pub tabs: Vec<String>,
     pub active_tab_id: Option<String>,
     #[serde(default)]
     pub cwd: Option<String>,
@@ -108,20 +108,6 @@ impl From<&Tab> for ClosedTab {
             workspace_name: String::new(),
         }
     }
-}
-
-/// A tab holds exactly one tab.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Tab {
-    pub id: String,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub description: Option<String>,
-    pub tab_id: String,
-    /// Sibling ordinal within this tab's group (top-level tabs of a workspace,
-    /// or children sharing a parent tab). Only relative order within the group
-    /// matters; cross-group values may collide. Legacy snapshots default to 0.
-    #[serde(default)]
-    pub sort_order: i32,
 }
 
 /// Legacy — kept only for old snapshot deserialization.
@@ -342,6 +328,9 @@ impl PendingDeliveryProvenance {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tab {
     pub id: String,
+    /// Sibling ordinal within a workspace or orchestration group.
+    #[serde(default)]
+    pub sort_order: i32,
     /// Linked PTY ID, if this tab has a running terminal.
     pub pty_id: Option<String>,
     /// What backs this tab's I/O (PTY by default, or a plugin chatBackend).

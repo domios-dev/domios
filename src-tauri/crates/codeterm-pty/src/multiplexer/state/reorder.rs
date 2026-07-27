@@ -24,7 +24,14 @@ impl MultiplexerState {
         self.workspaces
             .iter()
             .find(|w| w.id == workspace_id)
-            .map(|w| w.tabs.iter().map(|t| t.sort_order).max().unwrap_or(-1) + 1)
+            .map(|w| {
+                w.tabs
+                    .iter()
+                    .filter_map(|tab_id| self.tabs.get(tab_id).map(|tab| tab.sort_order))
+                    .max()
+                    .unwrap_or(-1)
+                    + 1
+            })
             .unwrap_or(0)
     }
 
@@ -55,23 +62,19 @@ impl MultiplexerState {
             .find(|w| w.id == workspace_id)
             .ok_or_else(|| format!("Workspace not found: {}", workspace_id))?;
         for id in ordered_tab_ids {
-            let tab = ws
-                .tabs
-                .iter()
-                .find(|t| &t.id == id)
-                .ok_or_else(|| format!("Tab not in workspace: {}", id))?;
-            if parent_of
-                .get(&tab.tab_id)
-                .and_then(|p| p.clone())
-                .is_some()
-            {
+            if !ws.tabs.contains(id) {
+                return Err(format!("Tab not in workspace: {}", id));
+            }
+            if parent_of.get(id).and_then(|parent| parent.clone()).is_some() {
                 return Err(format!("Tab {} is a child, not a top-level tab", id));
             }
         }
-        apply_order(
-            ws,
-            &pin_protected_tabs_first(ws, ordered_tab_ids, &protected_tabs),
-        );
+        let final_order = pin_protected_tabs_first(ws, ordered_tab_ids, &protected_tabs);
+        for (index, tab_id) in final_order.iter().enumerate() {
+            if let Some(tab) = self.tabs.get_mut(tab_id) {
+                tab.sort_order = index as i32;
+            }
+        }
         Ok(())
     }
 
@@ -91,16 +94,14 @@ impl MultiplexerState {
         let ws = self
             .workspaces
             .iter_mut()
-            .find(|w| w.tabs.iter().any(|t| ordered_tab_ids.contains(&t.id)))
+            .find(|w| w.tabs.iter().any(|tab_id| ordered_tab_ids.contains(tab_id)))
             .ok_or_else(|| "No workspace owns the given tabs".to_string())?;
         for id in ordered_tab_ids {
-            let tab = ws
-                .tabs
-                .iter()
-                .find(|t| &t.id == id)
-                .ok_or_else(|| format!("Tab not in workspace: {}", id))?;
+            if !ws.tabs.contains(id) {
+                return Err(format!("Tab not in workspace: {}", id));
+            }
             let is_child = parent_of
-                .get(&tab.tab_id)
+                .get(id)
                 .and_then(|p| p.as_deref())
                 .map(|p| p == parent_tab_id)
                 .unwrap_or(false);
@@ -111,7 +112,11 @@ impl MultiplexerState {
                 ));
             }
         }
-        apply_order(ws, ordered_tab_ids);
+        for (index, tab_id) in ordered_tab_ids.iter().enumerate() {
+            if let Some(tab) = self.tabs.get_mut(tab_id) {
+                tab.sort_order = index as i32;
+            }
+        }
         Ok(())
     }
 
@@ -161,23 +166,11 @@ fn pin_protected_tabs_first(
     protected_tabs: &std::collections::HashSet<String>,
 ) -> Vec<String> {
     let is_pinned = |id: &String| {
-        ws.tabs
-            .iter()
-            .find(|t| &t.id == id)
-            .map(|t| protected_tabs.contains(&t.tab_id))
-            .unwrap_or(false)
+        ws.tabs.contains(id) && protected_tabs.contains(id)
     };
     let pinned = ordered_tab_ids.iter().filter(|id| is_pinned(id)).cloned();
     let rest = ordered_tab_ids.iter().filter(|id| !is_pinned(id)).cloned();
     pinned.chain(rest).collect()
-}
-
-fn apply_order(ws: &mut crate::multiplexer::types::Workspace, ordered_tab_ids: &[String]) {
-    for (idx, id) in ordered_tab_ids.iter().enumerate() {
-        if let Some(tab) = ws.tabs.iter_mut().find(|t| &t.id == id) {
-            tab.sort_order = idx as i32;
-        }
-    }
 }
 
 #[cfg(test)]

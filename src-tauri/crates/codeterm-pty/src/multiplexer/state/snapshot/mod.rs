@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::{MultiplexerSnapshot, MultiplexerState};
-use crate::multiplexer::types::{Tab, TabBacking, TabType, Tab, TitleLevel, Workspace};
+use crate::multiplexer::types::{Tab, TabBacking, TabType, TitleLevel, Workspace};
 
 fn derive_agent_type_from_title(title: Option<&str>) -> Option<String> {
     let t = title?.to_ascii_lowercase();
@@ -30,27 +30,25 @@ fn should_seed_from_legacy_tab_title(
 impl MultiplexerState {
     fn live_workspace_tabs(&self) -> Vec<Workspace> {
         let mut claimed_tab_ids = HashSet::new();
-        let mut claimed_tab_ids = HashSet::new();
 
         self.workspaces
             .iter()
             .map(|workspace| {
-                let tabs: Vec<Tab> = workspace
+                let tabs: Vec<String> = workspace
                     .tabs
                     .iter()
-                    .filter(|tab| {
-                        self.tabs.contains_key(&tab.tab_id)
-                            && claimed_tab_ids.insert(tab.id.clone())
-                            && claimed_tab_ids.insert(tab.tab_id.clone())
+                    .filter(|tab_id| {
+                        self.tabs.contains_key(*tab_id)
+                            && claimed_tab_ids.insert((*tab_id).clone())
                     })
                     .cloned()
                     .collect();
                 let active_tab_id = workspace
                     .active_tab_id
                     .as_ref()
-                    .filter(|active| tabs.iter().any(|tab| &tab.id == *active))
+                    .filter(|active| tabs.iter().any(|tab_id| tab_id == *active))
                     .cloned()
-                    .or_else(|| tabs.first().map(|tab| tab.id.clone()));
+                    .or_else(|| tabs.first().cloned());
                 Workspace {
                     tabs,
                     active_tab_id,
@@ -201,20 +199,20 @@ impl MultiplexerState {
                     tabs: ws
                         .tabs
                         .iter()
-                        .filter(|tab| {
+                        .filter(|tab_id| {
                             // Exclude hidden worker tabs and ephemeral picker tabs from persisting across restarts.
-                            let tab = self.tabs.get(&tab.tab_id);
+                            let tab = self.tabs.get(*tab_id);
                             !tab.map(|p| p.hidden || p.skip_snapshot).unwrap_or(false)
                         })
-                        .map(|tab| TabSnapshot {
-                            id: tab.id.clone(),
-                            title: self.display_label_for_tab(&tab.tab_id),
+                        .map(|tab_id| TabSnapshot {
+                            id: tab_id.clone(),
+                            title: self.display_label_for_tab(tab_id),
                             description: self
                                 .tabs
-                                .get(&tab.tab_id)
+                                .get(tab_id)
                                 .and_then(|tab| tab.description.clone()),
-                            split_tree: tab_to_leaf_snapshot(&tab.tab_id, &self.tabs),
-                            sort_order: tab.sort_order,
+                            split_tree: tab_to_leaf_snapshot(tab_id, &self.tabs),
+                            sort_order: self.tabs.get(tab_id).map(|tab| tab.sort_order).unwrap_or(0),
                         })
                         .collect(),
                 }
@@ -353,6 +351,7 @@ impl MultiplexerState {
                 tab_id.clone(),
                 Tab {
                     id: tab_id.clone(),
+                    sort_order: 0,
                     pty_id: None,
                     backing: restored_backing,
                     tab_type: TabType::Terminal,
@@ -434,14 +433,13 @@ impl MultiplexerState {
                             tab.id,
                         );
                     }
-                    Some(Tab {
-                        id: tab.id.clone(),
-                        description: tabs
-                            .get(&tab_id)
-                            .and_then(|tab| tab.description.clone()),
-                        tab_id,
-                        sort_order: tab.sort_order,
-                    })
+                    if let Some(restored_tab) = tabs.get_mut(&tab_id) {
+                        restored_tab.sort_order = tab.sort_order;
+                        if restored_tab.description.is_none() {
+                            restored_tab.description = tab.description.clone();
+                        }
+                    }
+                    Some(tab_id)
                 }).collect(),
                 cwd: ws.cwd.clone(),
                 protected: ws.protected,
