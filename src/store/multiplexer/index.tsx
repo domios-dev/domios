@@ -510,8 +510,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     const message = e instanceof Error ? e.message : typeof e === "string" ? e : String(e);
     const providerMissing = message.includes("Provider not installed:");
     dispatch({
-      type: "ADD_NOTIFICATION",
-      notification: {
+      type: "UPSERT_TOAST",
+      toast: {
         id: uid(),
         pane_id: null,
         workspace_id: workspaceId,
@@ -717,8 +717,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const addNotification = useCallback(
     (notif: Omit<Notification, "id" | "timestamp" | "read">) => {
       dispatch({
-        type: "ADD_NOTIFICATION",
-        notification: {
+        type: "UPSERT_TOAST",
+        toast: {
           ...notif,
           id: uid(),
           timestamp: Date.now(),

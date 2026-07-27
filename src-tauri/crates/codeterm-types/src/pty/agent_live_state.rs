@@ -43,6 +43,8 @@ pub struct AgentLiveState {
     pub elapsed_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_turn_summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub question: Option<String>,
 }
 
 impl From<AgentLiveState> for PaneVerdict {
@@ -63,6 +65,7 @@ impl From<PaneVerdict> for AgentLiveState {
             phase: None,
             elapsed_ms: None,
             last_turn_summary: None,
+            question: None,
         }
     }
 }

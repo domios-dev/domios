@@ -574,6 +574,50 @@ fn classify_text_question(screen_lines: &[String]) -> Option<QuestionSubtype> {
     }
 }
 
+pub fn extract_question_message(
+    screen_lines: &[String],
+    subtype: Option<QuestionSubtype>,
+) -> Option<String> {
+    let phrases: &[&str] = match subtype {
+        Some(QuestionSubtype::RateLimit) => &[
+            "rate limit reached",
+            "usage limit reached",
+            "reached your usage limit",
+            "too many requests",
+            "429 too many requests",
+        ],
+        Some(QuestionSubtype::Auth) => &[
+            "please log in",
+            "please sign in",
+            "you are not logged in",
+            "not signed in",
+            "authentication required",
+            "log in to continue",
+            "sign in to continue",
+        ],
+        _ => return None,
+    };
+    let index = screen_lines.iter().rposition(|line| {
+        let lower = line.to_lowercase();
+        phrases.iter().any(|phrase| lower.contains(phrase))
+    })?;
+    let mut start = index;
+    while start > 0 && !screen_lines[start - 1].trim().is_empty() {
+        start -= 1;
+    }
+    let mut end = index + 1;
+    while end < screen_lines.len() && !screen_lines[end].trim().is_empty() {
+        end += 1;
+    }
+    let message = screen_lines[start..end]
+        .iter()
+        .map(|line| line.trim())
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    (!message.is_empty()).then_some(message)
+}
+
 fn contains_any(text: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| text.contains(needle))
 }

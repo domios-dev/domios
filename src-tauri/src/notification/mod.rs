@@ -31,6 +31,15 @@ pub fn notify(
     ))
 }
 
+#[tauri::command]
+pub fn notify_agent_input_request(
+    svc: State<'_, crate::service::ServiceState>,
+    pane_id: String,
+    session_id: String,
+) -> Result<String, String> {
+    svc.create_agent_input_request_notification(pane_id, session_id)
+}
+
 /// List notifications, optionally filtered to unread only.
 #[tauri::command]
 pub fn list_notifications(

@@ -14,10 +14,15 @@ function run(): void {
   const observe = (
     state: "working" | "idle" | "question" | null,
     session: string | null = sessionId,
+    hasCompleteMessage = true,
   ) =>
-    tracker.observeAndNotify(paneId, session, state, () => {
+    tracker.observeAndNotify(paneId, session, state, hasCompleteMessage, () => {
       notifyCalls += 1;
     });
+
+  const awaitingMessage = observe("question", sessionId, false);
+  assert(awaitingMessage === 1, "authoritative question starts generation before its message arrives");
+  assert(notifyCalls === 0, "incomplete message is never admitted to the inbox");
 
   const first = observe("question");
   assert(first === 1, "first authoritative question starts generation one");

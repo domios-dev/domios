@@ -133,6 +133,11 @@ const HTTP_MAP: Record<string, Mapper> = {
       pane_id: a.paneId,
       workspace_id: a.workspaceId,
     }),
+  notify_agent_input_request: (a) =>
+    webJson("POST", "/api/notifications/input-request", {
+      pane_id: a.paneId,
+      session_id: a.sessionId,
+    }),
   mark_notification_read: (a) =>
     webJson("POST", `/api/notifications/${enc(s(a, "id"))}/read`),
   clear_notifications: (a) =>

@@ -278,6 +278,10 @@ pub fn create_router(state: AppState) -> Router {
                 .post(notification_routes::create_notification),
         )
         .route(
+            "/api/notifications/input-request",
+            post(notification_routes::create_input_request_notification),
+        )
+        .route(
             "/api/notifications/clear",
             post(notification_routes::clear_notifications),
         )

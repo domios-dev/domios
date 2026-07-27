@@ -20,7 +20,7 @@ interface ToastItemProps {
   notification: Notification;
   onDismiss: (id: string) => void;
   onMarkRead?: (id: string) => void;
-  onNavigate?: (paneId: string) => void;
+  onNavigate?: (paneId: string, workspaceId: string | null) => void;
   embedded?: boolean;
 }
 
@@ -166,7 +166,7 @@ function ToastItem({ notification, onDismiss, onMarkRead, onNavigate, embedded }
                     <button
                       type="button"
                       className="rounded border border-[var(--ct-border)] px-2 py-1 text-[10px] text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
-                      onClick={() => onNavigate(notification.pane_id!)}
+                      onClick={() => onNavigate(notification.pane_id!, notification.workspace_id)}
                     >
                       Show Tab
                     </button>
@@ -233,7 +233,7 @@ interface NotificationToastContainerProps {
   toasts: Notification[];
   onDismiss: (id: string) => void;
   onMarkRead?: (id: string) => void;
-  onNavigate?: (paneId: string) => void;
+  onNavigate?: (paneId: string, workspaceId: string | null) => void;
   embedded?: boolean;
 }
 
