@@ -45,11 +45,11 @@ async function setupHappyDom() {
     }
     (globalThis as { ResizeObserver: unknown }).ResizeObserver = StubResizeObserver;
   }
-  return { act, useLayoutEffect, React, createRoot };
+  return { act, useLayoutEffect, React, createRoot, window };
 }
 
 async function main() {
-  const { act, useLayoutEffect, React, createRoot } = await setupHappyDom();
+  const { act, useLayoutEffect, React, createRoot, window } = await setupHappyDom();
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
   const { MultiplexerProvider } = await import("./index");
   const { TabSessionChat } = await import("../../components/Terminal/TabSessionChat");
@@ -64,11 +64,8 @@ async function main() {
         workspaces: [{
           id: "ws",
           name: "ws",
-          tabs: [
-            { id: "tab-a", tab_id: tabA },
-            { id: "tab-b", tab_id: tabB },
-          ],
-          active_tab_id: "tab-a",
+          tabs: [tabA, tabB],
+          active_tab_id: tabA,
           cwd: null,
         }],
         tabs: {
@@ -156,6 +153,8 @@ async function main() {
   await act(async () => root.unmount());
   __setInvokeForTest(null);
   __setListenForTest(null);
+  await window.happyDOM.abort();
+  window.close();
 
   if (deltaB > 3) {
     throw new Error(`hidden Tab B render delta ${deltaB} exceeds budget (pre-fix ~60)`);
@@ -164,6 +163,7 @@ async function main() {
     throw new Error(`churn owner Tab A did not re-render (delta=${deltaA})`);
   }
   console.log(`PASS mux selector render isolation: tabA delta=${deltaA}, tabB delta=${deltaB}`);
+  process.exit(0);
 }
 
 void main().catch((e) => {

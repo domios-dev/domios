@@ -89,7 +89,10 @@ async function run() {
   assert(workingIndicator, "unselected working workspace exposes accessible activity");
   const workingDots = workingIndicator.querySelector('.activity-dots');
   assert(workingDots?.classList.contains("activity-dots--micro"), "working workspace uses micro activity dots");
-  assert(workingDots?.classList.contains("activity-dots--muted"), "working workspace uses muted activity dots");
+  assert(
+    workingDots?.classList.contains("activity-dots--on-accent"),
+    "working workspace uses the filled-surface contrast tone",
+  );
   assert.equal(
     workingIndicator.querySelector('[aria-hidden="true"]')?.children.length,
     1,

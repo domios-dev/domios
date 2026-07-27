@@ -35,6 +35,13 @@ fi
 log_dir="$(mktemp -d)"
 trap 'rm -rf "$log_dir"' EXIT
 
+tsx_cli="$ROOT/node_modules/tsx/dist/cli.mjs"
+if [ ! -f "$tsx_cli" ]; then
+    echo "TS unit runner: local tsx CLI is missing at $tsx_cli" >&2
+    echo "Install workspace dependencies before running unit tests." >&2
+    exit 2
+fi
+
 pids=()
 test_names=()
 log_files=()
@@ -142,7 +149,7 @@ reap_one() {
 for i in "${!tests[@]}"; do
     t="${tests[$i]}"
     log="$log_dir/$i.log"
-    run_with_timeout "$test_timeout" npx tsx "$t" >"$log" 2>&1 &
+    run_with_timeout "$test_timeout" node "$tsx_cli" "$t" >"$log" 2>&1 &
     pid=$!
     pids+=("$pid")
     test_names+=("$t")

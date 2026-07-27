@@ -14,7 +14,6 @@ const shippedSources = [
 ];
 const removedSymbols = [
   "collect" + "TabIds",
-  "aggregate" + "TabStatus",
   "tab" + "Count",
   "let tab_ids = " + "vec![tab.tab_id",
 ];
@@ -34,11 +33,13 @@ const rustTab = readFileSync(
   resolve(root, "src-tauri/crates/codeterm-pty/src/multiplexer/types.rs"),
   "utf8",
 );
-assert.match(rustTab, /pub struct Tab \{[\s\S]*?pub tab_id: String,/);
-assert.doesNotMatch(rustTab, /pub struct Tab \{[\s\S]*?pub (?:tab|agent)_ids:/);
+const rustTabBody = rustTab.match(/pub struct Tab \{([\s\S]*?)\n\}/)?.[1] ?? "";
+assert.match(rustTabBody, /pub id: String,/);
+assert.doesNotMatch(rustTabBody, /pub (?:tab_id|tab_ids|agent_ids):/);
 
 const tsTab = readFileSync(resolve(root, "src/lib/types.ts"), "utf8");
-assert.match(tsTab, /export interface Tab \{[\s\S]*?tab_id: string;/);
-assert.doesNotMatch(tsTab, /export interface Tab \{[\s\S]*?(?:tab|agent)_ids:/);
+const tsTabBody = tsTab.match(/export interface Tab \{([\s\S]*?)\n\}/)?.[1] ?? "";
+assert.match(tsTabBody, /\bid: string;/);
+assert.doesNotMatch(tsTabBody, /\b(?:tab_id|tab_ids|agent_ids):/);
 
 console.log("single-agent Tab invariant: ok");

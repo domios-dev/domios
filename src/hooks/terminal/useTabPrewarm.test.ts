@@ -94,7 +94,7 @@ test("App provider key invokes the hook prewarm callback exactly once", async ()
   assert.match(appSource, /prewarmTab:\s*prewarmBackendTab/);
   assert.match(
     appSource,
-    /shouldMountTab\s*=\s*isActiveTab\s*\|\|\s*isMainTab\s*\|\|\s*prewarmTabIds\.has\(tab\.id\)/,
+    /shouldMountTab\s*=\s*isActiveTab\s*\|\|\s*isMainTab\s*\|\|\s*prewarmTabIds\.has\(tabId\)/,
   );
 
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

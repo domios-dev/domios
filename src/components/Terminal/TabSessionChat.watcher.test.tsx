@@ -49,6 +49,7 @@ function setupDom() {
     disconnect(): void {}
   }
   Object.defineProperty(globalThis, "ResizeObserver", { configurable: true, value: StubResizeObserver });
+  return window;
 }
 
 function tabBase(id: string, overrides: Partial<Tab> = {}): Tab {
@@ -180,7 +181,7 @@ async function renderTabSessionChat(
   };
 }
 
-setupDom();
+const testWindow = setupDom();
 
 test("store Tab action doubles preserve invocation contracts", async () => {
   const activations: Array<[string, string]> = [];
@@ -666,6 +667,14 @@ async function main() {
     }
   }
   if (failed > 0) throw new Error(`${failed} test(s) failed`);
+  const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
+  __setInvokeForTest(null);
+  __setListenForTest(null);
+  await testWindow.happyDOM.abort();
+  testWindow.close();
 }
 
-void main();
+main().then(() => process.exit(0)).catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
