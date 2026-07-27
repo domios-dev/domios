@@ -179,6 +179,7 @@ function AppInner() {
     reopenClosed,
     setActiveTab,
     setFocusedPane,
+    selectTabByPane,
     setPanePty,
     markRead,
     markAllRead,
@@ -187,6 +188,16 @@ function AppInner() {
     spawnClaudeTab,
   } = useMultiplexer();
   const state = useMuxState();
+  const navigateToNotificationTab = useCallback(
+    (paneId: string, workspaceId: string | null) => {
+      if (workspaceId) {
+        void selectTabByPane(workspaceId, paneId);
+        return;
+      }
+      setFocusedPane(paneId);
+    },
+    [selectTabByPane, setFocusedPane],
+  );
 
   const lastFocusedRef = useRef(state.focused_pane_id);
   useEffect(() => {
@@ -504,7 +515,7 @@ function AppInner() {
         onMarkAllNotificationsRead={markAllRead}
         onDeleteNotification={deleteNotification}
         onDismissToast={dismissToast}
-        onNavigateToast={setFocusedPane}
+        onNavigateToast={navigateToNotificationTab}
         workspaceCanvasActive={workspaceCanvasVisible}
       />
       <PlansProvider api={stableApiConfig}>

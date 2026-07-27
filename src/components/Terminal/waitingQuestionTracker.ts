@@ -3,6 +3,7 @@ import type { AgentStateKind } from "./AgentStateIndicator";
 interface WaitingQuestionEntry {
   generation: number;
   question: boolean;
+  notified: boolean;
 }
 
 export interface WaitingQuestionObservation {
@@ -17,9 +18,10 @@ export class WaitingQuestionTracker {
     paneId: string,
     sessionId: string | null,
     state: AgentStateKind | null,
+    notificationReady: boolean,
     notify: () => void,
   ): number | null {
-    const observation = this.observe(paneId, sessionId, state);
+    const observation = this.observe(paneId, sessionId, state, notificationReady);
     if (observation?.shouldNotify) notify();
     return observation?.generation ?? null;
   }
@@ -28,6 +30,7 @@ export class WaitingQuestionTracker {
     paneId: string,
     sessionId: string | null,
     state: AgentStateKind | null,
+    notificationReady = true,
   ): WaitingQuestionObservation | null {
     if (!sessionId) return null;
     const key = `${paneId}\0${sessionId}`;
@@ -39,16 +42,21 @@ export class WaitingQuestionTracker {
         : null;
     }
     if (state !== "question") {
-      if (entry) entry.question = false;
+      if (entry) {
+        entry.question = false;
+        entry.notified = false;
+      }
       return null;
     }
     if (entry?.question) {
-      return { generation: entry.generation, shouldNotify: false };
+      const shouldNotify = notificationReady && !entry.notified;
+      if (shouldNotify) entry.notified = true;
+      return { generation: entry.generation, shouldNotify };
     }
 
     const generation = (entry?.generation ?? 0) + 1;
-    this.entries.set(key, { generation, question: true });
-    return { generation, shouldNotify: true };
+    this.entries.set(key, { generation, question: true, notified: notificationReady });
+    return { generation, shouldNotify: notificationReady };
   }
 }
 

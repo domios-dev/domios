@@ -207,17 +207,12 @@ fn schedule_resume(svc: &ServiceState, pane_id: &str, resume: &super::pane_state
     }
 }
 
-/// Surface a verdict to the user: a notification + a chat-card event (clarifying questions, limit notices, auth guard).
+/// Surface a verdict to the user as a chat-card event.
 fn surface_to_user(svc: &ServiceState, pane_id: &str, surface: Option<Surface>) {
     let (kind, payload) = match &surface {
         Some(s) => (s.kind.clone(), s.payload.clone()),
         None => ("pane_state".to_string(), serde_json::Value::Null),
     };
-    svc.create_notification(
-        format!("Agent needs attention: {kind}"),
-        Some(format!("Pane {pane_id}")),
-        Some("warning"),
-    );
     crate::api::events::emit_everywhere(
         &svc.app_handle,
         "pane-state-surface",

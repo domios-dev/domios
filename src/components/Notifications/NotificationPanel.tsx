@@ -1,6 +1,6 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import type { Notification } from "../../lib/types";
-import { Bell, Trash2, X } from "lucide-react";
+import { Bell, ChevronDown, Trash2, X } from "lucide-react";
 import { timeAgo } from "../../lib/formatters";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
 
@@ -27,6 +27,7 @@ export function NotificationPanel({
   onJumpToPane,
   onClose,
 }: NotificationPanelProps) {
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const sorted = [...notifications].sort((a, b) => b.timestamp - a.timestamp);
 
   const handleClick = useCallback(
@@ -89,9 +90,35 @@ export function NotificationPanel({
                   </span>
                 </div>
                 {notif.body && (
-                  <div className="mt-1 whitespace-pre-wrap break-words text-[12px] leading-5 text-[var(--ct-muted-fg)]">
-                    {notif.body}
-                  </div>
+                  <>
+                    <button
+                      type="button"
+                      aria-label={`${expandedIds.has(notif.id) ? "Hide" : "Show"} complete message for ${notif.title}`}
+                      aria-expanded={expandedIds.has(notif.id)}
+                      className="mt-1 inline-flex items-center gap-1 text-[11px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setExpandedIds((current) => {
+                          const next = new Set(current);
+                          if (next.has(notif.id)) next.delete(notif.id);
+                          else next.add(notif.id);
+                          return next;
+                        });
+                      }}
+                    >
+                      <ChevronDown
+                        size={12}
+                        aria-hidden
+                        className={expandedIds.has(notif.id) ? "rotate-180" : ""}
+                      />
+                      {expandedIds.has(notif.id) ? "Hide message" : "Show message"}
+                    </button>
+                    {expandedIds.has(notif.id) && (
+                      <div className="mt-1 whitespace-pre-wrap break-words text-[12px] leading-5 text-[var(--ct-muted-fg)]">
+                        {notif.body}
+                      </div>
+                    )}
+                  </>
                 )}
                 {notif.pane_id && (
                   <button

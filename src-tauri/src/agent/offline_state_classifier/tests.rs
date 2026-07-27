@@ -1,7 +1,23 @@
-use super::{classify_terminal_menu_question, QuestionSubtype};
+use super::{classify_terminal_menu_question, extract_question_message, QuestionSubtype};
 
 fn lines(rows: &[&str]) -> Vec<String> {
     rows.iter().map(|row| (*row).to_string()).collect()
+}
+
+#[test]
+fn extracts_complete_authoritative_auth_message() {
+    let screen = lines(&[
+        "unrelated output",
+        "",
+        "Authentication required.",
+        "Sign in to continue with this session.",
+        "",
+        "footer",
+    ]);
+    assert_eq!(
+        extract_question_message(&screen, Some(QuestionSubtype::Auth)).as_deref(),
+        Some("Authentication required.\nSign in to continue with this session.")
+    );
 }
 
 #[test]

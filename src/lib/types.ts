@@ -112,6 +112,8 @@ export interface PaneAgentState {
   status_line?: string | null;
   /** Provider-rendered completed-turn summary shown while idle. */
   last_turn_summary?: string | null;
+  /** Complete authoritative input request shown while questioning. */
+  question?: string | null;
   /** Provider-derived work phase, e.g. thinking/streaming/tool, when known. */
   phase?: string | null;
   /** Parsed elapsed time for the provider status line, in milliseconds. */

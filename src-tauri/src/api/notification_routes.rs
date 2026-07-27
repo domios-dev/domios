@@ -52,6 +52,25 @@ pub async fn create_notification(
     Ok(Json(serde_json::json!({"id": id})))
 }
 
+#[derive(Deserialize)]
+pub(crate) struct InputRequestBody {
+    pane_id: String,
+    session_id: String,
+}
+
+pub async fn create_input_request_notification(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<InputRequestBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let id = state
+        .svc
+        .create_agent_input_request_notification(body.pane_id, body.session_id)
+        .map_err(|_| (StatusCode::CONFLICT, "Tab is not waiting for user input"))?;
+    Ok(Json(serde_json::json!({"id": id})))
+}
+
 pub async fn clear_notifications(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,

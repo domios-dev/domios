@@ -121,14 +121,6 @@ export function PaneSessionChat({
     return workspace?.name ?? null;
   }, [paneId]);
   const projectName = useMuxSelector(projectNameSelector);
-  const workspaceIdSelector = useCallback(
-    (state: Parameters<typeof selectPane>[0]) =>
-      state.workspaces.find((candidate) =>
-        candidate.tabs.some((tab) => tab.pane_id === paneId)
-      )?.id ?? null,
-    [paneId],
-  );
-  const workspaceId = useMuxSelector(workspaceIdSelector);
   const paneTitleMap = useMuxSelector(selectPaneTitleMap, paneTitleMapEqual);
   const planNav = useMuxSelector(selectPlanNavContext, planNavContextEqual);
   const paneAgentTypes = useMuxSelector(selectPaneAgentTypes, paneAgentTypesEqual);
@@ -461,24 +453,33 @@ export function PaneSessionChat({
   );
 
   useEffect(() => {
+    const completeQuestion = pendingPrompt?.question.trim() || backendState?.question?.trim() || "";
+    const isActionableInputRequest = backendState?.state === "question"
+      && backendState.subtype !== "rate_limit"
+      && backendState.subtype !== "error";
     const generation = waitingQuestionTracker.observeAndNotify(
       paneId,
       agentSessionId,
       backendState?.state ?? null,
+      isActionableInputRequest && completeQuestion.length > 0,
       () => {
-        void invoke("notify", {
-          title: "Waiting for you",
-          body: "Open this Tab and answer the agent to continue.",
-          level: "warning",
+        void invoke("notify_agent_input_request", {
           paneId,
-          workspaceId,
+          sessionId: agentSessionId,
         }).catch((error) => {
           console.warn("Failed to create waiting-for-input notification:", error);
         });
       },
     );
     setWaitingGeneration(generation);
-  }, [agentSessionId, backendState?.state, paneId, workspaceId]);
+  }, [
+    agentSessionId,
+    backendState?.question,
+    backendState?.state,
+    backendState?.subtype,
+    paneId,
+    pendingPrompt?.question,
+  ]);
 
   // subtype); it arrives via the mux snapshot and events, no local polling needed.
   const liveAgentState: AgentState = useMemo(() => {

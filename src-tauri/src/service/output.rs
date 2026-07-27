@@ -294,8 +294,8 @@ impl ServiceContext {
     /// scoped and dropped before the next; nothing held across the emit.
     pub(crate) fn recompute_agent_state(&self, pty_id: &str) {
         use crate::agent::offline_state_classifier::{
-            classify_state, extract_completion_summary, extract_status_line, AgentLiveState,
-            ClassifyInput, PaneVerdict, TimelineState,
+            classify_state, extract_completion_summary, extract_question_message,
+            extract_status_line, AgentLiveState, ClassifyInput, PaneVerdict, TimelineState,
         };
         use crate::agent::signal_extractor::Motion;
 
@@ -387,7 +387,11 @@ impl ServiceContext {
                     new_state.last_turn_summary = Some(summary.line);
                 }
             }
-            TimelineState::Question => {}
+            TimelineState::Question => {
+                new_state.question = prompt_question
+                    .clone()
+                    .or_else(|| extract_question_message(&lines, new_state.subtype));
+            }
         }
 
         // mux (1): store if changed.

@@ -2,7 +2,14 @@
 
 use super::ServiceContext;
 use crate::notification::{store::NotificationLevel, NotifState};
+use codeterm_types::pty::{QuestionSubtype, TimelineState};
 use tauri::AppHandle;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NotificationAdmission {
+    Diagnostic,
+    AgentInputRequest,
+}
 
 fn notification_level(level: Option<&str>) -> NotificationLevel {
     match level {
@@ -13,6 +20,7 @@ fn notification_level(level: Option<&str>) -> NotificationLevel {
 }
 
 fn create_notification_with_delivery(
+    admission: NotificationAdmission,
     store: &NotifState,
     app: &AppHandle,
     title: String,
@@ -24,6 +32,9 @@ fn create_notification_with_delivery(
     workspace_id: Option<String>,
     emit: impl FnOnce(serde_json::Value),
 ) -> String {
+    if admission == NotificationAdmission::Diagnostic {
+        return uuid::Uuid::new_v4().to_string();
+    }
     let parsed_level = notification_level(level);
     let level_str = match &parsed_level {
         NotificationLevel::Warning => "Warning",
@@ -83,6 +94,7 @@ impl ServiceContext {
         workspace_id: Option<String>,
     ) -> String {
         create_notification_with_delivery(
+            NotificationAdmission::Diagnostic,
             &self.notif,
             &self.app_handle,
             title,
@@ -94,6 +106,70 @@ impl ServiceContext {
             workspace_id,
             |payload| self.notify_event("notification-created", payload),
         )
+    }
+
+    pub fn create_agent_input_request_notification(
+        &self,
+        pane_id: String,
+        session_id: String,
+    ) -> Result<String, String> {
+        let (title, body, workspace_id) = {
+            let mux = self.mux.read();
+            let pane = mux
+                .get_pane(&pane_id)
+                .ok_or_else(|| "Tab not found".to_string())?;
+            if pane.agent_session_id.as_deref() != Some(session_id.as_str()) {
+                return Err("Tab session is no longer authoritative".to_string());
+            }
+            let state = pane
+                .agent_state
+                .as_ref()
+                .ok_or_else(|| "Tab is not waiting for input".to_string())?;
+            if state.state != TimelineState::Question
+                || matches!(
+                    state.subtype,
+                    Some(QuestionSubtype::RateLimit | QuestionSubtype::Error)
+                )
+            {
+                return Err("Tab is not waiting for user input".to_string());
+            }
+            let body = pane
+                .pending_prompt
+                .as_ref()
+                .map(|prompt| prompt.question.trim())
+                .filter(|message| !message.is_empty())
+                .or_else(|| {
+                    state
+                        .question
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|message| !message.is_empty())
+                })
+                .ok_or_else(|| "Complete input request is not available".to_string())?
+                .to_string();
+            let workspace_id = mux
+                .find_workspace_for_pane(&pane_id)
+                .ok_or_else(|| "Owning workspace not found".to_string())?;
+            (
+                format!("Input needed in Tab {}", pane.title),
+                body,
+                workspace_id,
+            )
+        };
+
+        Ok(create_notification_with_delivery(
+            NotificationAdmission::AgentInputRequest,
+            &self.notif,
+            &self.app_handle,
+            title,
+            Some(body),
+            Some("warning"),
+            None,
+            None,
+            Some(pane_id),
+            Some(workspace_id),
+            |payload| self.notify_event("notification-created", payload),
+        ))
     }
 }
 
@@ -117,10 +193,11 @@ mod tests {
         let native_before = crate::api::os_notify::os_notification_test_count();
 
         let id = create_notification_with_delivery(
+            NotificationAdmission::AgentInputRequest,
             &store,
             app.handle(),
-            "Waiting for you".into(),
-            Some("Your agent needs input to continue.".into()),
+            "Input needed in Tab Review".into(),
+            Some("Which deployment region should I use?\nInclude the failover region.".into()),
             Some("warning"),
             None,
             None,
@@ -149,5 +226,62 @@ mod tests {
         assert_eq!(events[0]["id"], id);
         assert_eq!(events[0]["pane_id"], "pane-owned");
         assert_eq!(events[0]["workspace_id"], "workspace-owned");
+        assert_eq!(
+            events[0]["body"],
+            "Which deployment region should I use?\nInclude the failover region."
+        );
+        assert!(
+            !events[0]["title"].as_str().unwrap().contains("Pane"),
+            "user-visible notification copy uses Tab wording"
+        );
+    }
+
+    #[test]
+    fn diagnostic_callers_never_enter_the_agent_input_inbox() {
+        let builder = tauri::Builder::default();
+        #[cfg(windows)]
+        let builder = builder.any_thread();
+        let app = builder
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let store = Arc::new(Mutex::new(NotificationStore::new(20)));
+        let emitted = Mutex::new(Vec::new());
+        let native_before = crate::api::os_notify::os_notification_test_count();
+        let sources = [
+            "service/spawn.rs:289",
+            "service/spawn.rs:703",
+            "cron/notify.rs",
+            "cron/scheduler.rs",
+            "service/orchestrator/refresh/driver.rs",
+            "service/orchestrator/batch.rs",
+            "api/notification_routes.rs",
+            "service/output.rs",
+            "service/pane.rs",
+            "service/spawn_chatbackend.rs",
+            "socket/server/notification.rs",
+        ];
+
+        for source in sources {
+            create_notification_with_delivery(
+                NotificationAdmission::Diagnostic,
+                &store,
+                app.handle(),
+                format!("Diagnostic from {source}"),
+                Some("warning or error detail".into()),
+                Some("warning"),
+                None,
+                None,
+                None,
+                None,
+                |payload| emitted.lock().push(payload),
+            );
+        }
+
+        assert_eq!(store.lock().list(false).len(), 0);
+        assert_eq!(emitted.lock().len(), 0);
+        assert_eq!(
+            crate::api::os_notify::os_notification_test_count(),
+            native_before
+        );
     }
 }
