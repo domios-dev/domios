@@ -1,5 +1,6 @@
 
 import React from "react";
+import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 
 export interface FormRowProps extends React.HTMLAttributes<HTMLDivElement> {
   label: string;
@@ -20,8 +21,14 @@ export function FormRow({
   "data-testid": testId,
   ...rest
 }: FormRowProps) {
+  const touchMode = useTouchOptimizedUi();
   return (
-    <div {...rest} className={`flex flex-col gap-1 ${className ?? ""}`} data-testid={testId}>
+    <div
+      {...rest}
+      className={`ct-liquid-interactive flex flex-col gap-1 ${className ?? ""}`}
+      data-touch-mode={touchMode ? "true" : undefined}
+      data-testid={testId}
+    >
       <label
         htmlFor={htmlFor}
         className="text-[11px] font-medium text-[var(--ct-muted-fg)] uppercase tracking-wide select-none"
