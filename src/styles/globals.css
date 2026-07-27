@@ -246,7 +246,7 @@ body {
 
 /* ── Voice composer (Telegram-style capture) ───────────────────────── */
 .ct-voice-fade-in {
-  animation: ct-voice-fade-in 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: ct-voice-fade-in 160ms var(--ct-ease-liquid-settle);
 }
 @keyframes ct-voice-fade-in {
   from { opacity: 0; transform: translateY(4px); }
@@ -270,7 +270,7 @@ body {
 }
 
 .ct-voice-lock-pill {
-  animation: ct-voice-lock-pop 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: ct-voice-lock-pop 200ms var(--ct-ease-liquid-settle);
 }
 @keyframes ct-voice-lock-pop {
   from { opacity: 0; transform: translate(-50%, 8px) scale(0.9); }
@@ -297,14 +297,14 @@ body {
 /* Composer action bubble — grows on hold-to-record, glows while active */
 .ct-composer-action-shell {
   transition:
-    width 320ms cubic-bezier(0.34, 1.56, 0.64, 1),
-    height 320ms cubic-bezier(0.34, 1.56, 0.64, 1);
+    width 320ms var(--ct-ease-out-back),
+    height 320ms var(--ct-ease-out-back);
 }
 
 .ct-composer-voice-bubble {
   transition:
-    width 320ms cubic-bezier(0.34, 1.56, 0.64, 1),
-    height 320ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    width 320ms var(--ct-ease-out-back),
+    height 320ms var(--ct-ease-out-back),
     transform 90ms cubic-bezier(0.22, 1, 0.36, 1);
   box-shadow: none;
 }
@@ -345,7 +345,7 @@ body {
     max-width: min(85vw, calc(100vw - 1rem));
     transform: translateX(-100%);
     pointer-events: none;
-    transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1);
+    transition: transform 300ms var(--ct-ease-liquid-settle);
     will-change: transform;
   }
   .ct-sidebar-drawer.is-open {
@@ -1136,7 +1136,7 @@ button,
 }
 
 .sidebar-tab-appear {
-  animation: sidebar-tab-appear 200ms cubic-bezier(0.175, 0.885, 0.32, 1.1) both;
+  animation: sidebar-tab-appear 200ms var(--ct-ease-spring) both;
 }
 
 /* Tab close animation — Phase 1: visual exit */
@@ -1313,7 +1313,7 @@ button,
   color: var(--ct-accent);
   opacity: 0;
   transform: scaleX(0.4);
-  transition: opacity 250ms cubic-bezier(0.16, 1, 0.3, 1), transform 250ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition: opacity 250ms var(--ct-ease-liquid-settle), transform 250ms var(--ct-ease-liquid-settle);
 }
 .picker-mode-glyph-pair--assembled .picker-mode-glyph-bracket {
   opacity: 0.75;
@@ -2532,7 +2532,7 @@ button,
 }
 
 .pane-materialize {
-  animation: pane-materialize 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: pane-materialize 280ms var(--ct-ease-liquid-settle) both;
 }
 
 /* Focused pane outline pulse */
@@ -2552,7 +2552,7 @@ button,
 }
 
 .pane-focus-pulse {
-  animation: pane-focus-pulse 400ms cubic-bezier(0.16, 1, 0.3, 1) 1;
+  animation: pane-focus-pulse 400ms var(--ct-ease-liquid-settle) 1;
 }
 
 /* Pane close collapse */
