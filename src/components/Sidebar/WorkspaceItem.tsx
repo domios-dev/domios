@@ -21,6 +21,7 @@ interface WorkspaceItemProps {
   onRename: (name: string) => void;
   onNewTerminal: () => void;
   onNewSession: () => void;
+  newSessionDisabled?: boolean;
   onNewAgent: (agentId: string) => void;
   canClose: boolean;
   status: TabStatus | null;
@@ -40,6 +41,7 @@ function WorkspaceItemInner({
   onRename,
   onNewTerminal,
   onNewSession,
+  newSessionDisabled = false,
   onNewAgent,
   canClose: _canClose,
   status: _status,
@@ -87,12 +89,17 @@ function WorkspaceItemInner({
     ].map(({ id, label }) => {
       const provider = providers.find((candidate) => candidate.id === id);
       const visible = agentsConfig[id]?.visible_in_menu !== false;
+      const available = Boolean(provider && visible && !newSessionDisabled);
       return {
         label,
         icon: <AgentIcon providerId={id} className="text-[12px]" />,
-        disabled: !provider || !visible,
-        title: !provider || !visible ? `${label} is unavailable` : undefined,
-        onClick: provider && visible ? () => onNewAgent(id) : undefined,
+        disabled: !available,
+        title: newSessionDisabled
+          ? "Finish Get started before creating another session"
+          : !provider || !visible
+            ? `${label} is unavailable`
+            : undefined,
+        onClick: available ? () => onNewAgent(id) : undefined,
         "data-testid": `workspace-quick-spawn-${id}`,
       } satisfies DropdownMenuItem;
     });
@@ -100,12 +107,16 @@ function WorkspaceItemInner({
       {
         label: "New session",
         icon: <SquarePlus size={11} strokeWidth={1.6} />,
-        onClick: onNewSession,
+        disabled: newSessionDisabled,
+        title: newSessionDisabled ? "Finish Get started before creating another session" : undefined,
+        onClick: newSessionDisabled ? undefined : onNewSession,
         "data-testid": "workspace-new-session",
       },
       {
         label: "Quick spawn",
         icon: <Sparkles size={11} strokeWidth={1.6} />,
+        disabled: newSessionDisabled,
+        title: newSessionDisabled ? "Finish Get started before creating another session" : undefined,
         submenu: {
           label: "Quick spawn",
           description: "Spawns a default Worker",
@@ -137,7 +148,7 @@ function WorkspaceItemInner({
       });
     }
     return items;
-  }, [onNewTerminal, onNewSession, onNewAgent, onClose, workspace.protected, workspace.cwd, agentsConfig, providers]);
+  }, [onNewTerminal, onNewSession, newSessionDisabled, onNewAgent, onClose, workspace.protected, workspace.cwd, agentsConfig, providers]);
 
   return (
     <div

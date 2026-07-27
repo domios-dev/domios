@@ -103,4 +103,12 @@ assert.deepEqual(
   "hidden tab does not surface",
 );
 
+const tabbarHidden = tab("tabbar-hidden");
+tabbarHidden.show_in_tabbar = false;
+assert.deepEqual(
+  topLevelTabsInWorkspace(["tabbar-hidden"], records(tabbarHidden)).map((item) => item.id),
+  [],
+  "tab with show_in_tabbar=false does not surface",
+);
+
 console.log("workspaceTabs.test.ts: ok");

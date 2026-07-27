@@ -5,7 +5,7 @@ function sortByOrder(items: Tab[]): Tab[] {
 }
 
 export function isSidebarTabVisible(tab: Tab): boolean {
-  return tab.hidden !== true;
+  return tab.hidden !== true && tab.show_in_tabbar !== false;
 }
 
 export function tabsInWorkspace(

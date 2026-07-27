@@ -84,6 +84,30 @@ fn is_current_codeterm_hook(hook_entry: &Json) -> bool {
         .unwrap_or(false)
 }
 
+fn is_current_session_start_hook(hook_entry: &Json) -> bool {
+    hook_entry
+        .get("hooks")
+        .and_then(|hooks| hooks.as_array())
+        .map(|hooks| {
+            hooks.iter().any(|hook| {
+                let current_marker = hook.get("_source").and_then(|source| source.as_str())
+                    == Some(CODETERM_HOOK_MARKER);
+                let current_command = hook
+                    .get("command")
+                    .and_then(|command| command.as_str())
+                    .map(|command| {
+                        command.contains("CODETERM_TAB_ID")
+                            && command.contains("CODETERM_SESSION_BINDING_NONCE")
+                            && !command.contains("CODETERM_PANE_ID")
+                            && !command.contains("/api/panes/")
+                    })
+                    .unwrap_or(false);
+                current_marker && current_command
+            })
+        })
+        .unwrap_or(false)
+}
+
 /// Returns JSON shaped like the legacy `ClaudeHooksStatus` struct so the
 /// frontend SchemaRenderer's Badge mapper picks up `hooks_installed`
 /// unchanged. New consumers can also look at the per-hook fields.
@@ -131,13 +155,11 @@ pub fn check_integration() -> Json {
         .and_then(|v| v.as_array())
         .map(|arr| arr.iter().any(is_current_codeterm_hook))
         .unwrap_or(false);
-    // Require the binding-nonce header so a pre-nonce session_start hook reads as stale and gets force-upgraded on startup.
     let session_start_hook = json
         .pointer("/hooks/SessionStart")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().any(is_current_codeterm_hook))
-        .unwrap_or(false)
-        && content.contains("CODETERM_SESSION_BINDING_NONCE");
+        .map(|arr| arr.iter().any(is_current_session_start_hook))
+        .unwrap_or(false);
 
     serde_json::json!({
         "settings_exists": true,
@@ -401,5 +423,30 @@ mod tests {
 
         assert!(!is_current_codeterm_hook(&stale));
         assert!(is_current_codeterm_hook(&current));
+    }
+
+    #[test]
+    fn session_start_nonce_must_be_in_the_current_hook_command() {
+        let stale = serde_json::json!({
+            "hooks": [{
+                "type": "command",
+                "command": "curl http://localhost:7686/api/tabs/$CODETERM_TAB_ID/hook/session_start",
+                "_source": CODETERM_HOOK_MARKER
+            }, {
+                "type": "command",
+                "command": "echo $CODETERM_SESSION_BINDING_NONCE",
+                "_source": "other"
+            }]
+        });
+        let current = serde_json::json!({
+            "hooks": [{
+                "type": "command",
+                "command": "curl http://localhost:7686/api/tabs/$CODETERM_TAB_ID/hook/session_start -H \"X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}\"",
+                "_source": CODETERM_HOOK_MARKER
+            }]
+        });
+
+        assert!(!is_current_session_start_hook(&stale));
+        assert!(is_current_session_start_hook(&current));
     }
 }

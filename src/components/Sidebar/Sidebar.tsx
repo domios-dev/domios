@@ -221,9 +221,19 @@ export function Sidebar({
     });
   }, [addNotification, createOrchestrationPair, orchestrationModal, selectTabByTab]);
 
+  const firstRunActive = useMemo(
+    () => Object.values(state.tabs).some(isFirstRunGeneralTab),
+    [state.tabs],
+  );
+
   const handleNewSession = useCallback((workspaceId: string, workspaceCwd: string | null) => {
+    if (firstRunActive) return;
     setSessionPicker({ workspaceId, workspaceCwd });
-  }, []);
+  }, [firstRunActive]);
+
+  useEffect(() => {
+    if (firstRunActive) setSessionPicker(null);
+  }, [firstRunActive]);
 
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(
     () => initialSidebarExpanded(state.workspaces, state.active_workspace_id),
@@ -546,9 +556,6 @@ export function Sidebar({
                 const generalExpanded = expandedWorkspaces.has(generalWorkspace.id);
                 const generalActive = generalWorkspace.id === state.active_workspace_id && isWorkspaceMode;
                 const generalTabs = tabsInWorkspace(generalWorkspace.tabs, state.tabs);
-                const generalFirstRunActive = generalTabs.some((tab) =>
-                  isFirstRunGeneralTab(tab),
-                );
                 const generalOrchestrators = Object.values(state.tabs).filter((tab) => tab.role === "Orchestrator");
                 return (
                   <section
@@ -595,7 +602,7 @@ export function Sidebar({
                       onCloseTab={(tabId) => animatedCloseTab(generalWorkspace.id, tabId)}
                       onRenameTab={(tabId, title) => setTabTitle(generalWorkspace.id, tabId, title)}
                       onNewSession={() => handleNewSession(generalWorkspace.id, generalWorkspace.cwd ?? null)}
-                      newSessionDisabled={generalFirstRunActive}
+                      newSessionDisabled={firstRunActive}
                       onRenameTeam={teamActions?.onRenameTeam}
                       onAddTeamMember={teamActions?.onAddTeamMember}
                       onCloseTeam={teamActions?.onCloseTeam
@@ -715,6 +722,7 @@ export function Sidebar({
                       onRename={(name) => renameWorkspace(ws.id, name)}
                       onNewTerminal={() => createTab(ws.id)}
                       onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
+                      newSessionDisabled={firstRunActive}
                       onNewAgent={(agentId) => handleAgentSpawn(agentId, ws.id, ws.cwd ?? null)}
                       canClose={true}
                       status={workspaceStatuses[ws.id]}
@@ -756,6 +764,7 @@ export function Sidebar({
                           onCloseTab={(tabId) => animatedCloseTab(ws.id, tabId)}
                           onRenameTab={(tabId, title) => setTabTitle(ws.id, tabId, title)}
                           onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
+                          newSessionDisabled={firstRunActive}
                           onRenameTeam={teamActions?.onRenameTeam}
                           onAddTeamMember={teamActions?.onAddTeamMember}
                           onCloseTeam={teamActions?.onCloseTeam

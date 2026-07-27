@@ -38,8 +38,7 @@ pub fn install_provider_in_tab_core(
             .ok_or("No workspace found")?
     };
 
-    let tab_id = svc.create_tab(&ws_id)?;
-    let _ = svc.rename_tab(&tab_id, &format!("Install {}", provider_id));
+    let tab_id = svc.create_named_tab(&ws_id, &format!("Install {}", provider_id))?;
 
     let svc_clone = svc.clone();
     let tab_id_clone = tab_id.clone();
