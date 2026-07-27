@@ -831,7 +831,7 @@ The config is saved to disk and a `config-changed` Tauri event is emitted.
 **Channels.** Channel switching is intentionally disabled for now; use the default channel. Manifests are signed with ed25519 — the public key is embedded in `tauri.conf.json`; signature verification is handled by `tauri-plugin-updater` and a wrong-key signature aborts the install before any binary is touched.
 
 **Auto install flow (`method=auto`).** The daemon spawns a background tokio runtime that calls `update::apply::check_and_apply`. This:
-1. Picks the manifest URL from `updater.channel` (or `manifest_url` query override — only honored when the binary is built with `dev-updater-allowlocal` for non-https schemes; release builds reject it).
+1. Discovers the stable release with a no-cache GitHub request, then pins the install to that tag's immutable manifest. A `manifest_url` query override still takes precedence; non-HTTPS overrides require `dev-updater-allowlocal`.
 2. Downloads the platform asset, verifies the ed25519 signature, performs the platform-specific install (atomic binary swap on Windows, rsync into `.app` on macOS).
 3. Performs the 9-step graceful shutdown: tabs are signaled to exit, the mem WAL is checkpointed, the supervisor is stopped, then the app restarts.
 4. After restart, tabs with valid recorded provider sessions resume; stale or missing sessions launch fresh.
@@ -1390,4 +1390,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 92 -->
+<!-- revision: 93 -->
