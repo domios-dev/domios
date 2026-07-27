@@ -39,6 +39,19 @@ pub fn default_endpoints_for_install_method(c: Channel, method: &InstallMethod) 
     )]
 }
 
+pub fn immutable_endpoint_for_release(
+    tag: &str,
+    channel: Channel,
+    method: &InstallMethod,
+) -> String {
+    format!(
+        "https://github.com/{}/releases/download/{}/{}",
+        GITHUB_REPO,
+        tag,
+        manifest_filename_for_install_method(channel, method)
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -89,6 +102,18 @@ mod tests {
         assert_eq!(
             deb[0],
             "https://github.com/rollacode/codeterm-releases/releases/latest/download/latest-deb.json"
+        );
+    }
+
+    #[test]
+    fn immutable_endpoint_pins_the_discovered_release() {
+        assert_eq!(
+            immutable_endpoint_for_release("v1.7.7", Channel::Stable, &InstallMethod::Nsis),
+            "https://github.com/rollacode/codeterm-releases/releases/download/v1.7.7/latest.json"
+        );
+        assert_eq!(
+            immutable_endpoint_for_release("v1.7.7", Channel::Stable, &InstallMethod::Deb),
+            "https://github.com/rollacode/codeterm-releases/releases/download/v1.7.7/latest-deb.json"
         );
     }
 }
