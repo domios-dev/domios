@@ -395,7 +395,9 @@ var RESUME_BUFFER_MS = 60 * 1e3;
 function classifyClaudePaneState(snapshot) {
   const screen = String(snapshot && snapshot.screenText || "").replace(/\r\n?/g, "\n");
   if (!screen.trim()) return null;
-  const authConfidence = scoreAuthPrompt(screen);
+  if (looksBusy(screen)) return { state: "working", confidence: 0 };
+  const activeChoice = activeTerminalChoiceBlock(screen);
+  const authConfidence = activeChoice ? scoreAuthPrompt(activeChoice.options.map((option) => option.label).join("\n")) : 0;
   if (authConfidence >= CLASSIFY_THRESHOLD) {
     return {
       state: "waiting_on_auth",
@@ -403,7 +405,6 @@ function classifyClaudePaneState(snapshot) {
       action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } }
     };
   }
-  if (looksBusy(screen)) return { state: "working", confidence: 0 };
   const rl = scoreRateLimit(screen, host.unixNowMs());
   if (rl.confidence >= CLASSIFY_THRESHOLD && rl.waitKeys && rl.waitKeys.length > 0) {
     const action = { keys: rl.waitKeys };
@@ -513,21 +514,31 @@ function scoreClarifyingQuestion(screen) {
   if (confidence > 1) confidence = 1;
   return { confidence, questions };
 }
-function activeClarifyingPromptBlock(screen) {
+function activeTerminalChoiceBlock(screen) {
   const lines = String(screen || "").split("\n");
   for (let footerIdx = lines.length - 1; footerIdx >= 0; footerIdx--) {
-    if (!isClarifyingConfirmFooter(lines[footerIdx])) continue;
-    const lastContentIdx = lastMeaningfulLineIndex(lines);
-    if (lastContentIdx > footerIdx) {
-      return null;
-    }
+    if (!isActiveChoiceFooter(lines[footerIdx])) continue;
+    if (lastMeaningfulLineIndex(lines) > footerIdx) return null;
     const options = contiguousOptionsAbove(lines, footerIdx);
-    if (options.length < 2) continue;
-    const questions = questionsAbove(lines, footerIdx);
-    if (questions.length === 0) continue;
-    return { questions, options };
+    if (options.length >= 2 && options.some((option) => option.highlighted)) {
+      return { footerIdx, options };
+    }
   }
   return null;
+}
+function activeClarifyingPromptBlock(screen) {
+  const lines = String(screen || "").split("\n");
+  const choice = activeTerminalChoiceBlock(screen);
+  if (!choice || !isClarifyingConfirmFooter(lines[choice.footerIdx])) return null;
+  const questions = questionsAbove(lines, choice.footerIdx);
+  if (questions.length === 0) {
+    const prompt = promptAboveOptions(lines, choice.footerIdx);
+    if (prompt) questions.push(prompt);
+  }
+  return questions.length > 0 ? { questions, options: choice.options } : null;
+}
+function isActiveChoiceFooter(line) {
+  return /\b(?:press\s+)?enter\s+to\b/i.test(line);
 }
 function isClarifyingConfirmFooter(line) {
   return /\bto (?:confirm|submit|select)\b/i.test(line);
@@ -561,6 +572,14 @@ function contiguousOptionsAbove(lines, footerIdx) {
     options.push({ highlighted: !!m[1], label: m[3] });
   }
   return options.reverse();
+}
+function promptAboveOptions(lines, footerIdx) {
+  for (let i = footerIdx - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line || CLAUDE_MENU_OPTION_RE.test(lines[i]) || isDividerLine(line)) continue;
+    return line;
+  }
+  return null;
 }
 function questionsAbove(lines, footerIdx) {
   const out = [];

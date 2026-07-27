@@ -1,0 +1,8 @@
+● A decision is required before work can continue.
+
+  Which deployment region should be used?
+
+> 1. North
+  2. South
+
+  Enter to confirm · Esc to cancel

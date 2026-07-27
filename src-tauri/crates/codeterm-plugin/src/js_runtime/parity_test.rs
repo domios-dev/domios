@@ -420,6 +420,7 @@ Prose after."#;
 // Claude parity.
 
 mod claude;
+mod classifier;
 
 // Loader behaviour.
 
