@@ -1,6 +1,12 @@
 import type { LaunchParams, ModelInfo, ParsedPrompt, PluginModule } from "@codeterm/plugin-sdk";
 import { discoverCodexModels } from "./models";
-import { parseCodexPrompt, parseMenuOptions, responseKeysForIndex, type MenuOption } from "./prompt";
+import {
+  parseActiveTerminalChoice,
+  parseCodexPrompt,
+  parseMenuOptions,
+  responseKeysForIndex,
+  type MenuOption,
+} from "./prompt";
 import { readSessionMeta, SESSION_MODEL_TAIL_BYTES } from "./sessionMeta";
 import { parseCodexUsage } from "./usage";
 import { unwrapShellCommand } from "./execWrapper";
@@ -588,8 +594,13 @@ const plugin: PluginModule = {
     const screen = String((snapshot && snapshot.screenText) || "").replace(/\r\n?/g, "\n");
     if (!screen.trim()) return null;
 
-    // Auth first — sacred, takes precedence over any update-looking menu.
-    const authConfidence = scoreAuthPrompt(screen);
+    // Busy veto: a streaming pane is never parked at an input request.
+    if (looksBusy(screen)) return { state: "working", confidence: 0 };
+
+    const activeChoice = parseActiveTerminalChoice(screen);
+    const authConfidence = activeChoice
+      ? scoreAuthPrompt(activeChoice.options.map((option) => option.label).join("\n"))
+      : 0;
     if (authConfidence >= CLASSIFY_THRESHOLD) {
       return {
         state: "waiting_on_auth",
@@ -597,9 +608,6 @@ const plugin: PluginModule = {
         action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } },
       };
     }
-
-    // Busy veto: a streaming pane is never parked at a limit screen.
-    if (looksBusy(screen)) return { state: "working", confidence: 0 };
 
     // Model/effort picker veto: numbered menus without a limit notice must not schedule a resume.
     if (looksLikeModelPicker(screen)) return { state: "working", confidence: 0 };
@@ -634,6 +642,20 @@ const plugin: PluginModule = {
         confidence: rl.confidence,
         data: rl.resetAtMs !== null ? data : undefined,
         action: action,
+      };
+    }
+
+    if (activeChoice) {
+      return {
+        state: "clarifying_question",
+        confidence: 1,
+        data: { questions: [activeChoice.question] },
+        action: {
+          surface: {
+            kind: "clarifying_question",
+            payload: { questions: [activeChoice.question] },
+          },
+        },
       };
     }
 
@@ -810,7 +832,7 @@ function codexParseTodayClock(s: string, nowMs: number): number | null {
   return cand.getTime();
 }
 
-// Auth ensemble, weighted so no lone casual mention fires. Leans inclusive: a false positive only surfaces, never auto-acts.
+// Auth prose is scored only inside the structurally active choice labels.
 function scoreAuthPrompt(screen: string): number {
   const s = String(screen || "");
   let score = 0;

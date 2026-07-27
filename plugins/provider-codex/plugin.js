@@ -134,6 +134,21 @@ function parseMenuOptions(screen) {
   }
   return options;
 }
+function parseActiveTerminalChoice(screen) {
+  const lines = normalizeLines(screen);
+  const options = activeMenuOptions(screen);
+  if (options.length < 2 || !options.some((option) => option.highlighted)) return null;
+  const lastOptionLine = options[options.length - 1].line;
+  let footerLine = -1;
+  for (let i = lastOptionLine + 1; i < Math.min(lines.length, lastOptionLine + 5); i++) {
+    if (/\b(?:press\s+)?enter\s+to\b/i.test(lines[i])) {
+      footerLine = i;
+      break;
+    }
+  }
+  if (footerLine === -1 || lastMeaningfulLineIndex(lines) > footerLine) return null;
+  return { question: questionForMenu(lines, options[0].line), options };
+}
 function parseCodexPromptShape(screen) {
   return parseCodexNumberedMenu(screen) || parseCodexLetteredPrompt(screen) || parseCodexNumberedQuestion(screen);
 }
@@ -251,6 +266,14 @@ function groupOptions(lines, starts, kind) {
 }
 function normalizeLines(text) {
   return String(text || "").replace(/\r\n?/g, "\n").split("\n");
+}
+function lastMeaningfulLineIndex(lines) {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line || /^[-─━═]{8,}$/.test(line.replace(/\s/g, ""))) continue;
+    return i;
+  }
+  return -1;
 }
 function prosePromptLines(text) {
   const lines = normalizeLines(text);
@@ -1105,7 +1128,9 @@ var plugin = {
   classifyPaneState(snapshot) {
     const screen = String(snapshot && snapshot.screenText || "").replace(/\r\n?/g, "\n");
     if (!screen.trim()) return null;
-    const authConfidence = scoreAuthPrompt(screen);
+    if (looksBusy(screen)) return { state: "working", confidence: 0 };
+    const activeChoice = parseActiveTerminalChoice(screen);
+    const authConfidence = activeChoice ? scoreAuthPrompt(activeChoice.options.map((option) => option.label).join("\n")) : 0;
     if (authConfidence >= CLASSIFY_THRESHOLD) {
       return {
         state: "waiting_on_auth",
@@ -1113,7 +1138,6 @@ var plugin = {
         action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } }
       };
     }
-    if (looksBusy(screen)) return { state: "working", confidence: 0 };
     if (looksLikeModelPicker(screen)) return { state: "working", confidence: 0 };
     const upd = scoreUpdatePrompt(screen);
     if (upd.confidence >= CLASSIFY_THRESHOLD && upd.skipKeys && upd.skipKeys.length > 0) {
@@ -1142,6 +1166,19 @@ var plugin = {
         confidence: rl.confidence,
         data: rl.resetAtMs !== null ? data : void 0,
         action
+      };
+    }
+    if (activeChoice) {
+      return {
+        state: "clarifying_question",
+        confidence: 1,
+        data: { questions: [activeChoice.question] },
+        action: {
+          surface: {
+            kind: "clarifying_question",
+            payload: { questions: [activeChoice.question] }
+          }
+        }
       };
     }
     const partial = rl.confidence > upd.confidence ? rl.confidence : upd.confidence;

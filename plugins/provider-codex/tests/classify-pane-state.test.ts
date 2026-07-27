@@ -65,6 +65,18 @@ function classify(plugin: any, screenText: string) {
   });
 }
 
+function assertNoInputRequest(r: any, name: string) {
+  assert(r?.state !== "waiting_on_auth", `${name}: not Auth`, JSON.stringify(r));
+  assert(r?.state !== "clarifying_question", `${name}: not Question`, JSON.stringify(r));
+  assert(r?.action?.surface?.kind !== "auth_prompt", `${name}: no auth surface`, JSON.stringify(r));
+  assert(r?.action?.surface?.kind !== "clarifying_question", `${name}: no question surface`, JSON.stringify(r));
+}
+
+function assertSingleInputSurface(r: any, kind: string, name: string) {
+  eq(r?.action?.surface?.kind, kind, `${name}: carries one ${kind} surface`);
+  assert(!r?.action?.keys, `${name}: carries no key action`, JSON.stringify(r?.action));
+}
+
 const plugin = loadCodex();
 
 assert(typeof plugin.classifyPaneState === "function", "classifyPaneState is exported");
@@ -98,7 +110,23 @@ console.log("\n--- auth guard: login screen → waiting_on_auth, NEVER auto-acte
 {
   const r = classify(plugin, fixture("auth-login.txt"));
   eq(r?.state, "waiting_on_auth", "auth/login classified as waiting_on_auth");
-  assert(!r?.action?.keys, "auth prompt carries NO key action (never auto-pressed)", JSON.stringify(r?.action));
+  assertSingleInputSurface(r, "auth_prompt", "auth/login");
+}
+
+console.log("\n--- positive: structural pending prompt and active terminal choice surface once ---\n");
+for (const f of ["structured-pending-prompt.txt", "active-terminal-choice.txt"]) {
+  const r = classify(plugin, fixture(f));
+  eq(r?.state, "clarifying_question", `${f}: state is clarifying_question`);
+  assertSingleInputSurface(r, "clarifying_question", f);
+}
+
+console.log("\n--- stale auth prose at ready or streaming tail is neither Question nor Auth ---\n");
+for (const f of ["stale-auth-ready-composer.txt", "stale-auth-streaming.txt"]) {
+  assertNoInputRequest(classify(plugin, fixture(f)), f);
+}
+{
+  const prose = "We discussed sign in, login, OAuth authentication, API keys, and authorization codes.";
+  assertNoInputRequest(classify(plugin, prose), "prose similarity alone");
 }
 
 console.log("\n--- positive: usage limit notice → rate_limited + scheduled resume ---\n");

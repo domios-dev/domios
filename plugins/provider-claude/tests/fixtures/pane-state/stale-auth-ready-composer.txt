@@ -1,0 +1,9 @@
+● The provider discussion covered sign in, login, OAuth authentication,
+  API key setup, and pasting an authorization code.
+
+● The explanation is complete and the pane is ready for another turn.
+
+────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle)
