@@ -84,6 +84,26 @@ pub(super) fn clear_session_id() {
     }
 }
 
+pub(super) fn require_fresh_session() -> Result<(), String> {
+    let path = fresh_session_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    std::fs::write(path, b"fresh").map_err(|error| error.to_string())
+}
+
+pub(super) fn take_fresh_session_requirement() -> bool {
+    let path = fresh_session_path();
+    match std::fs::remove_file(path) {
+        Ok(()) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => {
+            log::warn!("[general-agent] failed to consume fresh-session intent: {error}");
+            false
+        }
+    }
+}
+
 pub(super) fn detect_owned_session_id(
     registry: &crate::agent::registry::AgentRegistry,
     provider_name: &str,
@@ -135,6 +155,10 @@ fn session_state_path() -> std::path::PathBuf {
         .join("general-agent-session.json")
 }
 
+fn fresh_session_path() -> std::path::PathBuf {
+    general_dir().join("state").join("force-fresh-session")
+}
+
 fn session_matches_cwd(session_cwd: Option<&str>, cwd: &str) -> bool {
     session_cwd
         .map(|p| crate::paths::canonical_cwd(p) == crate::paths::canonical_cwd(cwd))
@@ -170,7 +194,6 @@ fn is_general_agent_session_file(path: &Path) -> bool {
         "# CodeTerm General Agent",
         "You are the General Agent",
         "always-on system brain",
-        "init [Orient yourself:",
         "<!-- bootstrap: true -->",
     ];
     markers.iter().any(|marker| text.contains(marker))

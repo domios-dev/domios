@@ -5,18 +5,14 @@ use crate::agent::registry::AgentRegistry;
 use crate::service::spawn::{should_default_agent_pane_to_chat, PaneVisibility};
 
 pub fn default_chat_view_for_provider(
-    config: &crate::config::schema::AppConfig,
+    _config: &crate::config::schema::AppConfig,
     registry: &AgentRegistry,
     provider_id: &str,
 ) -> bool {
     let supports_chat_ui = registry
         .with_provider(provider_id, |provider| provider.supports_chat_ui())
         .unwrap_or(false);
-    should_default_agent_pane_to_chat(
-        config.ui.default_new_agent_pane_chat,
-        PaneVisibility::Visible,
-        supports_chat_ui,
-    )
+    should_default_agent_pane_to_chat(PaneVisibility::Visible, supports_chat_ui)
 }
 
 pub fn apply_general_chat_view_default(
@@ -228,8 +224,7 @@ mod tests {
         registry.register_provider(Box::new(
             crate::agent::test_provider::MockProvider::with_chat_ui("community-chat"),
         ));
-        let mut config = crate::config::schema::AppConfig::default();
-        config.ui.default_new_agent_pane_chat = true;
+        let config = crate::config::schema::AppConfig::default();
 
         assert!(super::default_chat_view_for_provider(
             &config,
@@ -244,8 +239,7 @@ mod tests {
         registry.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
             "community-terminal",
         )));
-        let mut config = crate::config::schema::AppConfig::default();
-        config.ui.default_new_agent_pane_chat = true;
+        let config = crate::config::schema::AppConfig::default();
 
         assert!(!super::default_chat_view_for_provider(
             &config,

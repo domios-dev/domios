@@ -105,6 +105,23 @@ pub(super) fn render_agent_md(provider_name: &str, wake_up_section: &str) -> Str
         .replace("{codeterm_cli}", crate::prompts::CODETERM_CLI)
 }
 
+pub(super) fn render_system_prompt(
+    provider_name: &str,
+    mem: Option<&std::sync::Arc<crate::mem::MemManager>>,
+) -> String {
+    let agent = render_agent_md(provider_name, &render_wake_up_section(mem));
+    compose_system_prompt(&agent)
+}
+
+fn compose_system_prompt(agent: &str) -> String {
+    format!(
+        "{}\n\n---\n\n{}\n\n---\n\n{}",
+        agent,
+        crate::prompts::CODETERM_RULE,
+        crate::prompts::BRIDGE_MEM,
+    )
+}
+
 /// Render the L0+L1 wake-up payload as a markdown section, or empty when
 /// mem is unavailable / failed. On error we log and substitute empty so GA
 /// bootstrap never fails because of memory.
@@ -129,6 +146,14 @@ pub(super) fn render_bootstrap_instructions() -> String {
         .replace("{general_dir}", &general_dir().to_string_lossy())
 }
 
+pub(super) fn ensure_bootstrap_instructions() -> Result<(), String> {
+    let path = general_dir().join("bootstrap.md");
+    if path.exists() {
+        return Ok(());
+    }
+    std::fs::write(path, render_bootstrap_instructions()).map_err(|error| error.to_string())
+}
+
 pub fn generate_instructions(
     provider_name: &str,
     mem: Option<&std::sync::Arc<crate::mem::MemManager>>,
@@ -148,19 +173,9 @@ pub fn generate_instructions(
         log::error!("[general-agent] Failed to write CLAUDE.md: {}", e);
     }
 
-    let agents_content = format!(
-        "{}\n\n---\n\n{}\n\n---\n\n{}",
-        agent_content,
-        crate::prompts::CODETERM_RULE,
-        crate::prompts::BRIDGE_MEM,
-    );
+    let agents_content = compose_system_prompt(&agent_content);
     if let Err(e) = std::fs::write(dir.join("AGENTS.md"), agents_content) {
         log::error!("[general-agent] Failed to write AGENTS.md: {}", e);
-    }
-
-    let bootstrap = dir.join("bootstrap.md");
-    if !bootstrap.exists() {
-        let _ = std::fs::write(&bootstrap, render_bootstrap_instructions());
     }
 }
 
@@ -226,6 +241,24 @@ mod tests {
         assert!(!rendered.contains("{wake_up}"));
         assert!(!rendered.contains("L0 — Identity"));
         assert!(!rendered.contains("L1 — Critical context"));
+    }
+
+    #[test]
+    fn general_system_prompt_composes_each_runtime_contract_once_without_bootstrap() {
+        let rendered = render_system_prompt("codex", None);
+        assert_eq!(
+            rendered
+                .matches(crate::prompts::CODETERM_RULE.trim())
+                .count(),
+            1
+        );
+        assert_eq!(
+            rendered.matches(crate::prompts::BRIDGE_MEM.trim()).count(),
+            1
+        );
+        assert!(rendered.contains("You are the General Agent"));
+        assert!(!rendered.contains("<!-- bootstrap: true -->"));
+        assert!(!rendered.contains("first-ever boot"));
     }
 
     /// Reproduces the GA-auto-resume regression: when something else holds

@@ -19,7 +19,6 @@ import {
 import logoUrl from "../../assets/logo.png";
 import { Toggle, InfoRow, AboutLink, SettingsPage, SettingsCard } from "./shared";
 import { KeybindGroup } from "./KeybindGroup";
-import { setDefaultNewAgentPaneToChat } from "../../lib/chatUiMode";
 import { UpdateSection } from "./UpdateSection";
 import { ShellDiagnosticsBanner } from "./ShellDiagnosticsBanner";
 import { AgentsOverview, AgentProviderScreen } from "./AgentsTab";
@@ -91,7 +90,6 @@ export function SettingsPanel({
   const [themes, setThemes] = useState<string[]>([]);
   const [themesDir, setThemesDir] = useState<string>("");
   const [autostartEnabled, setAutostartEnabled] = useState<boolean | null>(null);
-  const chatUiDefault = localConfig.ui?.default_new_agent_pane_chat ?? false;
 
   const builtinThemes = ["github-dark", "dracula", "catppuccin-mocha", "one-dark", "nord", "github-light", "solarized-light", "pip-boy"];
 
@@ -367,21 +365,6 @@ export function SettingsPanel({
                     label="Copy on select"
                     checked={localConfig.terminal.copy_on_select}
                     onChange={(v) => update("terminal", { copy_on_select: v })}
-                  />
-                  <Toggle
-                    label="Use chat as the default view for new agent tabs"
-                    checked={chatUiDefault}
-                    onChange={async (v) => {
-                      setLocalConfig((prev) => ({
-                        ...prev,
-                        ui: {
-                          ...prev.ui,
-                          default_new_agent_pane_chat: v,
-                          chat_ui_default_prompted: true,
-                        },
-                      }));
-                      await setDefaultNewAgentPaneToChat(v);
-                    }}
                   />
                 </SettingsCard>
 

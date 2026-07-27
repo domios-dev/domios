@@ -1,8 +1,7 @@
 import { memo, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke, IS_WEB } from "./lib/bridge";
 import { buildTeamActions } from "./lib/teamActions";
-import { getCurrentPaneUiMode, listenPaneUiModeDefaultChanged } from "./lib/clientPaneUiMode";
-import { isChatDefaultEnabled } from "./lib/chatUiMode";
+import { getCurrentPaneUiMode } from "./lib/clientPaneUiMode";
 import { pruneOrphanComposerDrafts } from "./lib/composerDraftGc";
 import { Titlebar } from "./components/Titlebar/Titlebar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
@@ -160,7 +159,7 @@ function AppInner() {
       return open ? "extensions" : "workspace";
     });
   }, []);
-  const { config, updateConfig, theme, loading: configLoading } = useConfig();
+  const { config, updateConfig, theme } = useConfig();
   const stableTheme = useStableJsonValue(theme);
   const stableFontConfig = useStableJsonValue(config.font);
   const stableTerminalConfig = useStableJsonValue(config.terminal);
@@ -172,17 +171,6 @@ function AppInner() {
     return usageTrackingOverrides(config.agents ?? {});
   }, [config.agents]);
   const usageEnabledByProvider = useStableJsonValue(computedUsageEnabledByProvider);
-
-  // PaneTopBar/ChatDefaultSuggestion never run a per-pane useConfig (froze switches).
-  const configChatPaneDefault = config.ui?.default_new_agent_pane_chat === true;
-  const [chatPaneDefaultOverride, setChatPaneDefaultOverride] = useState<boolean | null>(null);
-  useEffect(() => {
-    if (!configLoading) setChatPaneDefaultOverride(null);
-  }, [configChatPaneDefault, configLoading]);
-  useEffect(() => listenPaneUiModeDefaultChanged(setChatPaneDefaultOverride), []);
-  const chatPaneDefault =
-    chatPaneDefaultOverride ?? (configLoading ? isChatDefaultEnabled() : configChatPaneDefault);
-  const chatDefaultPrompted = config.ui?.chat_ui_default_prompted === true;
 
   const {
     createWorkspace,
@@ -692,8 +680,6 @@ function AppInner() {
                   workspaceCwd={ws.cwd ?? null}
                   uiFontScale={uiFontScale}
                   isVisible={isVisible}
-                  chatFirst={chatPaneDefault}
-                  chatDefaultPrompted={chatDefaultPrompted}
                 />
               </div>
                 );

@@ -19,7 +19,6 @@ import {
 import { mountWebLifecycle } from "../../lib/lifecycle";
 import { uid } from "../../lib/uid";
 import { setPendingCommand, setPendingCwd } from "../../lib/pendingCommands";
-import { loadDefaultNewAgentPaneChat } from "../../lib/chatUiMode";
 import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
 import { TitleLevel } from "../../lib/types";
 import type {
@@ -176,7 +175,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   useEffect(() => mountWebLifecycle(), []);
 
   useEffect(() => {
-    loadDefaultNewAgentPaneChat().catch(() => {});
     const unlisteners: (() => void)[] = [];
 
     listen<{

@@ -1,8 +1,4 @@
 import {
-  clearTerminalClientPaneUiModeOverrides,
-  getClientPaneUiMode,
-  normalizeTerminalPaneUiModeOverridesForChatDefault,
-  resetTerminalPaneUiModeOverrideNormalization,
   resolveInitialPaneUiMode,
   setClientPaneUiMode,
 } from "./clientPaneUiMode";
@@ -67,69 +63,28 @@ function installWindow(): void {
   globalThis.window = win as unknown as Window & typeof globalThis;
 }
 
-function mode(paneId: string, chatDefault: boolean) {
+function mode(paneId: string) {
   return resolveInitialPaneUiMode(paneId, {
     chatCapable: true,
-    chatDefault,
   });
 }
 
-test("terminal override wins when there is no chat default", () => {
+test("new chat-capable panes open directly in chat", () => {
   installWindow();
-  setClientPaneUiMode("no-default", "terminal");
-  assert(mode("no-default", false) === "terminal", "terminal override should be honored");
+  assert(mode("new-agent") === "chat", "chat capability should select chat");
 });
 
-test("clearing stale terminal overrides lets chat default select chat", () => {
+test("an explicit terminal choice remains scoped to that pane", () => {
   installWindow();
-  setClientPaneUiMode("stale-terminal", "terminal");
-  setClientPaneUiMode("explicit-chat", "chat");
-  window.localStorage.setItem("codeterm:pane-ui-mode:local-only", "terminal");
-  window.sessionStorage.setItem("codeterm:pane-ui-mode:session-only", "terminal");
-  window.localStorage.setItem("codeterm:other", "terminal");
-
-  const cleared = clearTerminalClientPaneUiModeOverrides();
-
-  assert(cleared.includes("stale-terminal"), "current terminal override should be cleared");
-  assert(cleared.includes("local-only"), "localStorage terminal override should be cleared");
-  assert(cleared.includes("session-only"), "sessionStorage terminal override should be cleared");
-  assert(getClientPaneUiMode("stale-terminal") === null, "stale terminal override should be removed");
-  assert(getClientPaneUiMode("explicit-chat") === "chat", "chat override should be preserved");
-  assert(window.localStorage.getItem("codeterm:other") === "terminal", "unrelated keys should be preserved");
-  assert(mode("stale-terminal", true) === "chat", "chat default should apply after clearing");
+  setClientPaneUiMode("manual-terminal", "terminal");
+  assert(mode("manual-terminal") === "terminal", "manual terminal choice should be honored");
+  assert(mode("another-agent") === "chat", "terminal choice must not change the product default");
 });
 
-test("normalization is one-time so later terminal choices remain explicit exceptions", () => {
-  installWindow();
-  setClientPaneUiMode("old-terminal", "terminal");
-  assert(normalizeTerminalPaneUiModeOverridesForChatDefault().includes("old-terminal"), "old terminal cleared");
-  assert(mode("old-terminal", true) === "chat", "chat default applies after first normalization");
-
-  setClientPaneUiMode("new-terminal", "terminal");
-  assert(normalizeTerminalPaneUiModeOverridesForChatDefault().length === 0, "second normalization should no-op");
-  assert(mode("new-terminal", true) === "terminal", "new terminal override should persist as exception");
-});
-
-test("resetting normalization makes the next chat-default enable clear terminal overrides again", () => {
-  installWindow();
-  normalizeTerminalPaneUiModeOverridesForChatDefault();
-  setClientPaneUiMode("disabled-then-enabled", "terminal");
-
-  resetTerminalPaneUiModeOverrideNormalization();
-  assert(
-    normalizeTerminalPaneUiModeOverridesForChatDefault().includes("disabled-then-enabled"),
-    "terminal override created while default was off should be cleared on next enable",
-  );
-  assert(mode("disabled-then-enabled", true) === "chat", "chat default should apply after re-enable clear");
-});
-
-test("chat default never selects chat for a non-chat-capable pane", () => {
+test("non-chat-capable panes stay in terminal", () => {
   installWindow();
   const resolved = resolveInitialPaneUiMode("plain-terminal", {
     chatCapable: false,
-    chatDefault: true,
-    chatViewFlag: true,
-    mobileDefault: true,
   });
   assert(resolved === "terminal", "non-chat-capable pane should stay terminal");
 });

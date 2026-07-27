@@ -397,7 +397,41 @@ button,
   padding-left: 0.75rem;
   padding-right: 0.75rem;
   border-radius: var(--ct-radius-sm);
-  transition: all var(--ct-duration-fast) var(--ct-ease-out-expo);
+}
+
+.ct-liquid-interactive {
+  --ct-liquid-base-transform: translateZ(0);
+  transform: var(--ct-liquid-base-transform) scale(1);
+  transform-origin: center;
+  transition:
+    transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell),
+    color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    border-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+
+.ct-liquid-interactive:not(:disabled):hover {
+  transform: var(--ct-liquid-base-transform) scale(1.015);
+}
+
+.ct-liquid-interactive:not(:disabled):active {
+  transform: var(--ct-liquid-base-transform) scale(0.975);
+  transition-duration: var(--ct-duration-liquid-press);
+  transition-timing-function: var(--ct-ease-liquid-settle);
+}
+
+.ct-liquid-interactive:focus-visible {
+  outline: revert;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-liquid-interactive,
+  .ct-liquid-interactive:not(:disabled):hover,
+  .ct-liquid-interactive:not(:disabled):active {
+    transform: var(--ct-liquid-base-transform);
+    transition: none;
+    animation: none;
+  }
 }
 
 .ct-btn-compact {
@@ -1003,6 +1037,22 @@ button,
   container-type: inline-size;
 }
 
+.sidebar-tab-activation {
+  transform-origin: center;
+  transition: transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell);
+}
+
+.sidebar-tab-activation:hover { transform: scale(1.01); }
+.sidebar-tab-activation:active {
+  transform: scale(.978);
+  transition-duration: var(--ct-duration-instant);
+}
+
+.sidebar-tab-activation:focus-visible {
+  outline: 1px solid var(--ct-accent);
+  outline-offset: 2px;
+}
+
 /* Model badge — visible by default, fades out on tab hover so the
    3-dot menu can take its slot without shifting layout. */
 .sidebar-tab-badge {
@@ -1542,6 +1592,14 @@ button,
   color: inherit;
   cursor: pointer;
   text-align: left;
+  transform-origin: center;
+  transition: transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell);
+}
+
+.sidebar-team-card-activation:hover { transform: scale(1.01); }
+.sidebar-team-card-activation:active {
+  transform: scale(.978);
+  transition-duration: var(--ct-duration-instant);
 }
 
 .sidebar-team-card-activation:focus-visible,
@@ -1559,6 +1617,32 @@ button,
   flex: 0 0 auto;
   border-radius: 50%;
 }
+
+.sidebar-team-donut-reaction {
+  animation: sidebar-team-donut-grow var(--ct-duration-liquid-donut) var(--ct-ease-squash-jump);
+  transform-origin: center;
+}
+
+.sidebar-team-count-reaction .sidebar-team-readout-count {
+  animation: sidebar-team-count-pop var(--ct-duration-liquid-press) var(--ct-ease-squash-jump);
+  transform-origin: center;
+}
+
+.sidebar-team-header-completion { overflow: hidden; }
+
+.sidebar-team-header-completion::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 35%, color-mix(in srgb, var(--ct-on-accent) 30%, transparent) 50%, transparent 65%);
+  content: "";
+  pointer-events: none;
+  transform: translateX(-120%);
+  animation: sidebar-team-completion-sweep var(--ct-duration-liquid-sweep) var(--ct-ease-liquid-settle);
+}
+
+@keyframes sidebar-team-donut-grow{0%{transform:scale(.955)}58%{transform:scale(1.02)}100%{transform:scale(1)}}
+@keyframes sidebar-team-count-pop{0%{transform:scale(.955)}55%{transform:scale(1.02)}100%{transform:scale(1)}}
+@keyframes sidebar-team-completion-sweep{to{transform:translateX(120%)}}
 
 .sidebar-structural-header {
   display: flex;
@@ -1674,6 +1758,14 @@ button,
   padding: 4px;
   background: transparent;
   color: var(--ct-muted-fg);
+  transform-origin: center;
+  transition: transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell);
+}
+
+.sidebar-workspace-card-select:hover { transform: scale(1.02); }
+.sidebar-workspace-card-select:active {
+  transform: scale(.955);
+  transition-duration: var(--ct-duration-instant);
 }
 
 .sidebar-workspace-card-initials {
@@ -1770,16 +1862,11 @@ button,
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--ct-accent) 22%, transparent);
 }
 
-.sidebar-workspace-card-working > span {
-  width: 1.75px;
-  height: 1.75px;
-  border-radius: 50%;
-  background: currentColor;
-  animation: sidebar-workspace-working-pulse 1.2s ease-in-out infinite;
+.sidebar-workspace-card-working .activity-dots {
+  --activity-dot-size: 2.5px;
+  --activity-dot-gap: 1.25px;
+  --activity-dot-jump: 1.25px;
 }
-
-.sidebar-workspace-card-working > span:nth-child(2) { animation-delay: 120ms; }
-.sidebar-workspace-card-working > span:nth-child(3) { animation-delay: 240ms; }
 
 .sidebar-workspace-card-create {
   display: flex;
@@ -1791,7 +1878,8 @@ button,
   border-radius: 7px;
   background: transparent;
   color: var(--ct-muted-fg);
-  transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
+  transform-origin: center;
+  transition: border-color 140ms ease, background 140ms ease, color 140ms ease, transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell);
 }
 
 .sidebar-workspace-card-create:hover,
@@ -1799,15 +1887,12 @@ button,
   border-color: var(--ct-accent);
   background: color-mix(in srgb, var(--ct-accent) 9%, transparent);
   color: var(--ct-accent);
+  transform: scale(1.02);
 }
 
-@keyframes sidebar-workspace-working-pulse {
-  0%, 100% { opacity: .35; transform: translateY(0); }
-  50% { opacity: 1; transform: translateY(-1px); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .sidebar-workspace-card-working > span { animation: none; }
+.sidebar-workspace-card-create:active {
+  transform: scale(.955);
+  transition-duration: var(--ct-duration-instant);
 }
 
 [data-testid="workspace-group"] + [data-testid="workspace-group"] {
@@ -1866,6 +1951,7 @@ button,
 
 .sidebar-team-title-row {
   display: inline-flex;
+  flex-wrap: nowrap;
   min-width: 0;
   align-items: center;
   gap: 5px;
@@ -1873,6 +1959,17 @@ button,
 
 .sidebar-team-title-row .sidebar-team-name {
   min-width: 0;
+}
+
+.sidebar-team-title-row .activity-dots {
+  flex: 0 0 auto;
+  --activity-dot-size: 3px;
+  --activity-dot-gap: 2px;
+}
+
+.sidebar-team-working-indicator {
+  display: inline-flex;
+  flex: 0 0 auto;
 }
 
 .sidebar-team-controls {
@@ -2103,6 +2200,30 @@ button,
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-team-donut-reaction,
+  .sidebar-team-count-reaction .sidebar-team-readout-count,
+  .sidebar-team-header-completion::after {
+    animation: none;
+  }
+
+  .sidebar-team-card-activation,
+  .sidebar-team-card-activation:hover,
+  .sidebar-team-card-activation:active,
+  .sidebar-tab-activation,
+  .sidebar-tab-activation:hover,
+  .sidebar-tab-activation:active,
+  .sidebar-workspace-card-select,
+  .sidebar-workspace-card-select:hover,
+  .sidebar-workspace-card-select:active,
+  .sidebar-workspace-card-create,
+  .sidebar-workspace-card-create:hover,
+  .sidebar-workspace-card-create:active {
+    transform: none;
+    transition: none;
+  }
+}
+
 .sidebar-team-no-plan {
   display: flex;
   max-width: calc(100% - 22px);
@@ -2242,39 +2363,12 @@ button,
   50% { background-position: 100% 50%; opacity: 1; }
 }
 
-.sidebar-hierarchy-typing-dots span {
-  display: inline-block;
-  width: 2px;
-  height: 2px;
-  border-radius: 50%;
-  background: var(--ct-muted-fg, #8b949e);
-  animation: sidebar-hierarchy-dot 1.2s ease-in-out infinite;
-}
-
-.sidebar-hierarchy-typing-dots span:nth-child(2) {
-  animation-delay: 0.15s;
-}
-
-.sidebar-hierarchy-typing-dots span:nth-child(3) {
-  animation-delay: 0.3s;
-}
-
-@keyframes sidebar-hierarchy-dot {
-  0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
-  40% { opacity: 1; transform: translateY(-1px); }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .sidebar-hierarchy-working--aurora::before,
   .sidebar-hierarchy-working--drift::before,
   .sidebar-hierarchy-working--halo::before {
     animation: none;
     opacity: 0.85;
-  }
-
-  .sidebar-hierarchy-typing-dots span {
-    animation: none;
-    opacity: 0.9;
   }
 
   .sidebar-hierarchy-row {
