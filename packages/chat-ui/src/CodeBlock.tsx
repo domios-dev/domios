@@ -100,7 +100,7 @@ function midpointBetween(a: PointLike, b: PointLike): PointLike {
   };
 }
 
-function findScrollableContainer(start: HTMLElement | null): HTMLElement | null {
+export function findScrollableContainer(start: HTMLElement | null): HTMLElement | null {
   if (typeof window === "undefined" || !start) {
     return null;
   }

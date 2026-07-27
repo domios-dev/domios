@@ -18,6 +18,8 @@
     "lucide-react": "^1.7.0",
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^16.1.1",
+    "rehype-raw": "^7.0.0",
+    "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.1"
   }
 }

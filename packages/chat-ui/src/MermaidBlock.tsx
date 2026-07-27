@@ -122,9 +122,10 @@ export function ensureMermaidInitialized() {
   if (typeof window === "undefined") return false;
   const mermaid = (window as { mermaid?: { initialize?: (...args: unknown[]) => unknown; render?: (...args: unknown[]) => unknown } }).mermaid;
   if (!mermaid || mermaidInitialized) return true;
+  // Rendered SVG is injected via innerHTML, so label sanitization must stay on.
   mermaid.initialize?.({
     startOnLoad: false,
-    securityLevel: "loose",
+    securityLevel: "strict",
     theme: "neutral",
   });
   mermaidInitialized = true;
