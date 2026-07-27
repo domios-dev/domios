@@ -1,7 +1,7 @@
 // Run: npx tsx src/store/multiplexer/pendingTabGuard.test.ts
 
 import { applyPendingTabGuard, type TabGuards } from "./pendingTabGuard";
-import type { MultiplexerState, Workspace, Tab } from "../../lib/types";
+import type { MultiplexerState, Workspace } from "../../lib/types";
 
 let failures = 0;
 function test(name: string, fn: () => void) {
@@ -17,18 +17,14 @@ function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
 }
 
-function tab(id: string): Tab {
-  return { id, tab_id: `tab-${id}` } as unknown as Tab;
-}
-
 function ws(id: string, activeTabId: string | null, tabIds: string[]): Workspace {
   return {
     id,
     name: id,
-    tabs: tabIds.map(tab),
+    tabs: tabIds,
     active_tab_id: activeTabId,
     cwd: null,
-  } as unknown as Workspace;
+  };
 }
 
 function snap(workspaces: Workspace[]): MultiplexerState {

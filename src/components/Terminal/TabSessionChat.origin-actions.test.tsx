@@ -38,6 +38,7 @@ function setupDom() {
   Object.defineProperty(globalThis, "cancelAnimationFrame", { configurable: true, value: () => {} });
   class StubResizeObserver { observe(): void {} unobserve(): void {} disconnect(): void {} }
   Object.defineProperty(globalThis, "ResizeObserver", { configurable: true, value: StubResizeObserver });
+  return window;
 }
 
 function tabBase(id: string): Tab {
@@ -67,7 +68,7 @@ function originReport(id: string, shortId: string, seq: number) {
 }
 
 async function main() {
-  setupDom();
+  const testWindow = setupDom();
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
   const { TabSessionChat } = await import("./TabSessionChat");
 
@@ -130,6 +131,14 @@ async function main() {
     catch (error) { failed += 1; console.error(`FAIL ${name}`, error); }
   }
   if (failed > 0) throw new Error(`${failed} test(s) failed`);
+  __setInvokeForTest(null);
+  __setListenForTest(null);
+  listeners.clear();
+  await testWindow.happyDOM.abort();
+  testWindow.close();
 }
 
-void main();
+main().then(() => process.exit(0)).catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

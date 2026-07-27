@@ -19,7 +19,7 @@ function assert(condition: unknown, label: string): asserts condition {
   if (!condition) throw new Error(label);
 }
 
-function setupDom(): void {
+function setupDom(): Window {
   const hookWindow = new Window({ url: "http://localhost/" });
   Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", {
     configurable: true,
@@ -59,6 +59,7 @@ function setupDom(): void {
     configurable: true,
     value: StubResizeObserver,
   });
+  return hookWindow;
 }
 
 const descriptor: ProviderDescriptor = {
@@ -107,7 +108,7 @@ function stateFor(tab: Tab, generation: number): ExtendedState {
       name: "Project",
       cwd: "D:\\work\\project",
       tabs: [tab.id],
-      active_tab_id: "tab",
+      active_tab_id: tab.id,
     }],
     tabs: { [tab.id]: tab },
     teams: [],
@@ -116,7 +117,7 @@ function stateFor(tab: Tab, generation: number): ExtendedState {
     notifications: [],
     tabStatuses: {},
     toasts: [],
-    activeTabIds: { workspace: "tab" },
+    activeTabIds: { workspace: tab.id },
     generation,
     pendingCloses: [],
   } as ExtendedState;
@@ -211,7 +212,7 @@ async function flush(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  setupDom();
+  const hookWindow = setupDom();
   const bridgeModule = await import("../../lib/bridge");
   const { setAgentDescriptors } = await import("../../lib/agentDescriptorCache");
   const { __resetPluginSnapshotStoreForTest } = await import("../../lib/pluginSnapshotStore");
@@ -296,11 +297,16 @@ async function main(): Promise<void> {
     root.unmount();
   });
   await flush();
+  bridgeModule.__setInvokeForTest(null);
+  bridgeModule.__setListenForTest(null);
+  await hookWindow.happyDOM.abort();
+  hookWindow.close();
   assert(Number(server.subscribers.size) === 0, "unmount retained the Chat subscription");
   assert(server.stops.length === 1, "unmount did not stop exactly one subscription");
   console.log(
     "PASS TabContent continuity: default Chat provider/model + one transcript/subscription survived refresh",
   );
+  process.exit(0);
 }
 
 main().catch((error) => {
