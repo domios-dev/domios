@@ -7,8 +7,8 @@ import { createRoot, type Root } from "react-dom/client";
 import type { Pane, PaneStatus, ProviderDescriptor, Tab, Team, Workspace } from "../../lib/types";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "../Canvas/cards/fixtures.testdata";
-import { TASK_STATUS_COLORS } from "../Canvas/settings";
 import { TaskStatus, type Plan, type Task } from "../Canvas/types";
+import { PLAN_STATUS_COLORS } from "../shared/SegmentedDonut";
 import { SidebarDnd } from "./sortable";
 import { canvasFocusStore } from "../Canvas/canvasFocusStore";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
@@ -276,7 +276,7 @@ test("team menu enables staffing only for a Team with a manager", async () => {
   assert(sidebarStyles.includes("right: calc(50% - 0.5px);") && sidebarStyles.includes("left: calc(50% - 0.5px);"), "Team disclosure overlaps its two segments at the joint");
   assert(sidebarStyles.includes("transform: rotate(-8deg);"), "Team disclosure uses a gentle arrow transition");
   assert(/\.sidebar-team-disclosure-label,\s*\.sidebar-team-disclosure-count\s*\{[^}]*left:\s*calc\(50% \+ 24px\);/.test(sidebarStyles), "Team disclosure text cannot shift the centered glyph");
-  assert(/@container \(max-width:\s*159px\)/.test(sidebarStyles), "compact tally threshold preserves the 160px Team matrix after inset reclaim");
+  assert(/\.ct-plan-status-breakdown\s*\{[^}]*flex-wrap:\s*nowrap;[^}]*white-space:\s*nowrap;/.test(sidebarStyles), "status breakdown stays on one line");
   const header = host.querySelector('.sidebar-team-header') as HTMLDivElement | null;
   const chevron = host.querySelector('[data-testid="team-collapse-toggle"]') as HTMLButtonElement | null;
   assert(!header?.hasAttribute("role") && header?.tabIndex === -1, "Team header is a non-interactive control container");
@@ -292,7 +292,7 @@ test("team menu enables staffing only for a Team with a manager", async () => {
   await act(async () => chevron?.click());
   assert(chevron?.getAttribute("aria-expanded") === "true", "bottom handle click expands Team");
   assert(/\.sidebar-team-progress-slot\s*\{[^}]*width:\s*24px;[^}]*height:\s*20px;/.test(sidebarStyles), "done/total and kebab share one fixed slot");
-  assert(/\.sidebar-team-readout-label\s*\{[^}]*margin-left:\s*3px;/.test(sidebarStyles), "full tally labels have explicit count spacing");
+  assert(/\.ct-plan-status-breakdown-separator\s*\{[^}]*margin:\s*0 2px;/.test(sidebarStyles), "status separators have explicit spacing");
   assert(/\.sidebar-team-menu-root \.sidebar-team-kebab\s*\{[^}]*opacity:\s*0;/.test(sidebarStyles), "kebab hides by opacity without removing its slot");
   assert(/\.sidebar-team-menu-root \.sidebar-team-kebab\s*\{[^}]*opacity:\s*0;[^}]*pointer-events:\s*none;/.test(sidebarStyles), "hidden kebab ignores accidental pointer clicks");
   assert(sidebarStyles.includes(".sidebar-team-header:hover .sidebar-team-menu-root .sidebar-team-kebab"), "CSS hover swaps the kebab into the fixed slot");
@@ -629,14 +629,13 @@ test("team header renders the live compact status tally", async () => {
   );
   const items = Array.from(tally?.querySelectorAll('[data-testid^="team-status-"]') ?? []) as HTMLElement[];
   assert(items.map((item) => item.style.color).join(",") === [
-    TASK_STATUS_COLORS.in_progress,
-    TASK_STATUS_COLORS.in_review,
-    TASK_STATUS_COLORS.blocked,
-    TASK_STATUS_COLORS.done,
-  ].join(","), "tally colors use the status tokens in board order");
+    PLAN_STATUS_COLORS.todo,
+    PLAN_STATUS_COLORS.review,
+    PLAN_STATUS_COLORS.blocked,
+    PLAN_STATUS_COLORS.done,
+  ].join(","), "tally colors use runtime theme variables in board order");
   assert(items.length === 4, "tally exposes all four status buckets");
-  assert(items.every((item) => item.querySelector(".sidebar-team-readout-compact-dot")), "every bucket emits compact dot markup");
-  assert(items.map((item) => item.querySelector(".sidebar-team-readout-label")?.textContent?.trim()).join(",") === "todo,review,blocked,done", "full labels remain available when the title column fits");
+  assert(items.map((item) => item.querySelector(".ct-plan-status-breakdown-label")?.textContent?.trim()).join(",") === "todo,review,blocked,done", "all four labels remain visible");
   assert(tally?.textContent?.replace(/\s+/g, " ").trim() === "3 todo · 1 review · 1 blocked · 3 done", "tally uses middle-dot separators");
   const managers = host.querySelector('[data-testid="managers-section"]');
   const disclosure = host.querySelector('[data-testid="team-collapse-toggle"]');

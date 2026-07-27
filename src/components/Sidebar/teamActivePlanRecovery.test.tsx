@@ -264,7 +264,7 @@ function assertCurrentProjection(host: HTMLElement) {
     "persistent Team identity does not override an active effort title");
   assert(!host.textContent?.includes("Old active effort"), "the archived effort is absent");
   const taskCount = ["todo", "review", "blocked", "done"]
-    .map((bucket) => host.querySelector(`[data-testid="team-status-${bucket}"] .sidebar-team-readout-count`))
+    .map((bucket) => host.querySelector(`[data-testid="team-status-${bucket}"] .ct-plan-status-breakdown-count`))
     .reduce((sum, element) => sum + Number(element?.textContent ?? Number.NaN), 0);
   assert(taskCount === 0, "all stale task buckets are zero");
 }
@@ -289,7 +289,7 @@ async function main() {
   assert(host.querySelector('[data-testid="team-card-activation"]')
     ?.getAttribute("aria-label") === "Open Old active effort",
   "precondition: old active plan is visible");
-  assert(host.querySelector('[data-testid="team-status-todo"] .sidebar-team-readout-count')
+  assert(host.querySelector('[data-testid="team-status-todo"] .ct-plan-status-breakdown-count')
     ?.textContent === "35", "precondition: 35 stale tasks are visible");
   await act(async () => {
     (host.querySelector('[data-testid="team-menu-trigger"]') as HTMLButtonElement).click();
