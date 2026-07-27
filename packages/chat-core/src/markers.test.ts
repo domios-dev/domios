@@ -41,7 +41,7 @@ const bracketedPaste = parseMarker(
 eq(bracketedPaste?.kind, "tab", "parseMarker unwraps bracketed paste start");
 eq(bracketedPaste?.payload, "hello", "parseMarker strips bracketed paste end from payload");
 
-eq(isPaneMarkerPlaceholderLabel("CURRENT Tab"), true, "CURRENT Tab is a pane label placeholder");
+eq(isPaneMarkerPlaceholderLabel("CURRENT Pane"), true, "CURRENT Pane is a pane label placeholder");
 eq(isPaneMarkerPlaceholderLabel(""), true, "blank pane label is a placeholder");
 eq(isPaneMarkerPlaceholderLabel("Puccini"), false, "real pane label is not a placeholder");
 eq(shortPaneRef("915fae8effffffff"), "915fae8e", "shortPaneRef keeps display-safe Tab id");

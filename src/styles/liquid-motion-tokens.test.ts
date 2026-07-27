@@ -56,13 +56,13 @@ const substitutedDeclarations = [
   ],
   [
     globalsCss,
-    "animation: ct-voice-fade-in 160ms cubic-bezier(0.16, 1, 0.3, 1);",
-    "animation: ct-voice-fade-in 160ms var(--ct-ease-liquid-settle);",
+    "animation: ct-voice-fade-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both;",
+    "animation: ct-voice-fade-in var(--ct-duration-normal) var(--ct-ease-liquid-settle) both;",
   ],
   [
     globalsCss,
-    "animation: ct-voice-lock-pop 200ms cubic-bezier(0.16, 1, 0.3, 1);",
-    "animation: ct-voice-lock-pop 200ms var(--ct-ease-liquid-settle);",
+    "animation: ct-voice-lock-pop 200ms cubic-bezier(.22, .9, .25, 1) both;",
+    "animation: ct-voice-lock-pop var(--ct-duration-normal) var(--ct-ease-squash-jump) both;",
   ],
   [
     globalsCss,
@@ -81,8 +81,8 @@ const substitutedDeclarations = [
   ],
   [
     globalsCss,
-    "animation: sidebar-pane-appear 200ms cubic-bezier(0.175, 0.885, 0.32, 1.1) both;",
-    "animation: sidebar-pane-appear 200ms var(--ct-ease-spring) both;",
+    "animation: sidebar-tab-appear 200ms cubic-bezier(0.175, 0.885, 0.32, 1.1) both;",
+    "animation: sidebar-tab-appear 200ms var(--ct-ease-spring) both;",
   ],
   [
     globalsCss,
@@ -98,7 +98,7 @@ const substitutedDeclarations = [
 
 for (const [css, before, after] of substitutedDeclarations) {
   assert(css.includes(after), `missing inert substitution: ${after}`);
-  const resolved = after.replaceAll(/var\((--ct-ease-[\w-]+)\)/g, (_, name: string) => {
+  const resolved = after.replaceAll(/var\((--ct-(?:duration|ease)-[\w-]+)\)/g, (_, name: string) => {
     const values = declarations.get(name);
     assert.equal(values?.length, 1, `${name} must resolve uniquely`);
     return values[0];
