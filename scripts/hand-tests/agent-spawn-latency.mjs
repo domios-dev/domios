@@ -86,8 +86,8 @@ async function eventStream() {
   return { waitFor, close: () => controller.abort() };
 }
 
-function bootEvent(event, paneId) {
-  return event?.event_type === "pane-boot-stage" && event.data?.pane_id === paneId;
+function bootEvent(event, tabId) {
+  return event?.event_type === "pane-boot-stage" && event.data?.pane_id === tabId;
 }
 
 const health = await request("/api/health");

@@ -13,9 +13,9 @@ mksec(){ post /api/plans/$PID/sections "{\"title\":\"$1\",\"body\":\"$2\"}" | jq
 S1=$(mksec "Layout redesign" "Compact sectioned plan node + separate spec node + satellite task nodes joined by curved edges to section-row anchors + milestone (Step) bubble clusters grouped by kind + orchestrator groups. Covered sections fill-tinted; uncovered pop. Replaces the v1 frame-with-bands model.")
 S2=$(mksec "Navigation" "Figma-grade trackpad: two-finger scroll pans both axes; Cmd/Ctrl+scroll zooms around pointer; pinch zoom; middle+space drag; smooth RAF; non-passive wheel. No manual node dragging — deterministic auto-pack.")
 S3=$(mksec "Workspace isolation" "Canvas shows ONLY plans whose project_path == this workspace's git toplevel. One workspace = one .codeterm/plans. Daemon must re-scan plans on restart (persisted plans survive).")
-S4=$(mksec "Standalone tasks (Inbox)" "Tasks may exist without a plan — reserved per-project Inbox plan (id inbox), reusing all plan machinery. Takeable by worker OR orchestrator; link chip opens that pane.")
+S4=$(mksec "Standalone tasks (Inbox)" "Tasks may exist without a plan — reserved per-project Inbox plan (id inbox), reusing all plan machinery. Takeable by worker OR orchestrator; link chip opens that tab.")
 S5=$(mksec "Graph / Task CLI + canvas focus" "codeterm task list/show/take/drop/add, plan gaps, codeterm canvas focus (camera+blink) over emit_everywhere.")
-S6=$(mksec "Plan-as-mode + composer + activity bubble" "Plan as third pane mode (Chat|Terminal|Plan), highlighted; returns via Chat/Terminal. Composer clears on send. Non-modal activity bubble shows the addressed orchestrator's live status.")
+S6=$(mksec "Plan-as-mode + composer + activity bubble" "Plan as third tab mode (Chat|Terminal|Plan), highlighted; returns via Chat/Terminal. Composer clears on send. Non-modal activity bubble shows the addressed orchestrator's live status.")
 
 T(){ local n=$1 ty=$2 mo=$3 wy=$4 bo=$5 secs=$6 st=$7; shift 7
   local tid; tid=$(post /api/plans/$PID/tasks "{\"name\":\"$n\",\"type\":\"$ty\",\"model\":\"$mo\",\"why\":\"$wy\",\"body\":\"$bo\",\"sections\":\"$secs\"}" | jq -r '.task_id // .id')
