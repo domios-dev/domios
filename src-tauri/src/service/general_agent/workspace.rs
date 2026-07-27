@@ -63,26 +63,30 @@ pub fn ensure_general_workspace(
             let _ = mux.rename_workspace(&ws_id, GENERAL_WORKSPACE_NAME);
         }
         mux.move_workspace_to_front(&ws_id);
-        let tab_id =
-            protected_ws[0]
-                .tab_ids
-                .first()
-                .cloned()
-                .or_else(|| match mux.create_tab(&ws_id) {
-                    Ok(tab_id) => {
-                        let _ = mux.rename_tab(&tab_id, GENERAL_TAB_TITLE);
-                        log::info!(
-                            "[general-agent] Repaired empty General workspace {} with Tab {}",
-                            ws_id,
-                            tab_id
-                        );
-                        Some(tab_id)
-                    }
-                    Err(e) => {
-                        log::error!("[general-agent] Failed to repair General tab: {}", e);
-                        None
-                    }
-                });
+        let tab_id = protected_ws[0]
+            .tab_ids
+            .iter()
+            .find(|tab_id| {
+                mux.get_tab(tab_id)
+                    .map(|tab| !tab.hidden && tab.show_in_tabbar)
+                    .unwrap_or(false)
+            })
+            .cloned()
+            .or_else(|| match mux.create_tab(&ws_id) {
+                Ok(tab_id) => {
+                    let _ = mux.rename_tab(&tab_id, GENERAL_TAB_TITLE);
+                    log::info!(
+                        "[general-agent] Repaired empty General workspace {} with Tab {}",
+                        ws_id,
+                        tab_id
+                    );
+                    Some(tab_id)
+                }
+                Err(e) => {
+                    log::error!("[general-agent] Failed to repair General tab: {}", e);
+                    None
+                }
+            });
         if let Some(pid) = tab_id {
             let pid = pid.clone();
             let _ = mux.rename_tab(&pid, GENERAL_TAB_TITLE);
@@ -91,6 +95,8 @@ pub fn ensure_general_workspace(
                 tab.role = Some(crate::multiplexer::types::AgentRole::Orchestrator);
                 tab.can_spawn = true;
                 tab.cwd = Some(general_cwd);
+                tab.hidden = false;
+                tab.show_in_tabbar = true;
                 if default_chat_view && !tab.chat_view {
                     tab.chat_view = true;
                 }
@@ -211,6 +217,32 @@ mod tests {
         assert_eq!(tab.title, GENERAL_TAB_TITLE);
         assert!(tab.protected);
         assert!(tab.chat_view);
+    }
+
+    #[test]
+    fn general_workspace_does_not_adopt_a_hidden_service_tab() {
+        let mut mux = MultiplexerState::empty();
+        let ws = mux.create_workspace(GENERAL_WORKSPACE_NAME.to_string(), None);
+        mux.set_workspace_protected(&ws.id, true);
+        let service_tab_id = mux.create_tab(&ws.id).expect("service Tab");
+        if let Some(tab) = mux.get_tab_mut(&service_tab_id) {
+            tab.hidden = true;
+            tab.show_in_tabbar = false;
+        }
+
+        super::ensure_general_workspace(&mut mux, true);
+
+        let general_tab_id = mux
+            .resolve_tab_id(crate::service::general_agent::GENERAL_ALIAS)
+            .expect("General alias");
+        assert_ne!(general_tab_id, service_tab_id);
+        let general_tab = mux.get_tab(&general_tab_id).expect("General Tab");
+        assert_eq!(general_tab.title, GENERAL_TAB_TITLE);
+        assert!(!general_tab.hidden);
+        assert!(general_tab.show_in_tabbar);
+        let service_tab = mux.get_tab(&service_tab_id).expect("service Tab remains");
+        assert!(service_tab.hidden);
+        assert!(!service_tab.show_in_tabbar);
     }
 
     #[test]
