@@ -452,6 +452,50 @@ button,
   transition-timing-function: var(--ct-ease-liquid-settle);
 }
 
+.agent-provider-card {
+  overflow: hidden;
+  transition:
+    transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell),
+    color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    border-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    box-shadow var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+
+.agent-provider-card[data-selected="yes"] {
+  --ct-liquid-base-transform: translate3d(0, -3px, 0);
+  border-color: var(--ct-accent);
+  background: color-mix(in srgb, var(--ct-accent) 16%, var(--ct-panel));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--ct-accent) 75%, transparent),
+    0 10px 28px color-mix(in srgb, var(--ct-accent) 22%, transparent);
+}
+
+.agent-provider-card-selection {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  display: grid;
+  width: 1.125rem;
+  height: 1.125rem;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--ct-on-accent, #fff);
+  background: var(--ct-accent);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  opacity: 0;
+  transform: scale(0.5);
+  transition:
+    opacity var(--ct-duration-liquid-press) var(--ct-ease-liquid-settle),
+    transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell);
+}
+
+.agent-provider-card[data-selected="yes"] .agent-provider-card-selection {
+  opacity: 1;
+  transform: scale(1);
+}
+
 .ct-liquid-interactive:focus-visible,
 .sidebar-tab-activation:focus-visible,
 .sidebar-team-card-activation:focus-visible {
@@ -539,8 +583,9 @@ button,
 
 .ct-btn-primary {
   background: var(--ct-accent);
-  color: var(--ct-bg);
+  color: var(--ct-on-accent, #fff);
   border: 1px solid transparent;
+  font-weight: 600;
 }
 
 .ct-btn-primary:hover {

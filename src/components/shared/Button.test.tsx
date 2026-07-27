@@ -49,6 +49,12 @@ test("Button primary has ct-btn-primary class", async () => {
   const btn = host.querySelector("button")!;
   assert(btn.className.includes("ct-btn-primary"), `expected ct-btn-primary in ${btn.className}`);
   assert(btn.className.includes("ct-liquid-interactive"), "shared interaction class missing");
+  assert(
+    /\.ct-btn-primary\s*\{[^}]*color:\s*var\(--ct-on-accent,\s*#fff\)[^}]*font-weight:\s*600/s.test(
+      globalsCss,
+    ),
+    "primary buttons must use the theme's strong on-accent text",
+  );
 });
 
 test("liquid interaction contract is bounded, explicit, and motion-safe", () => {

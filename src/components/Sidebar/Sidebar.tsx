@@ -40,6 +40,7 @@ import type { OrchestrationGroupMember } from "./orchestrationGroupClose";
 import { hydrateProtectedExpanded, initialSidebarExpanded, partitionSidebarWorkspaces } from "./sidebarSections";
 import { NewSessionPicker } from "../Terminal/NewSessionPicker";
 import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
+import { isFirstRunGeneralPane } from "../AgentPicker";
 
 export { buildHierarchyTree, buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 
@@ -545,6 +546,9 @@ export function Sidebar({
                 const generalExpanded = expandedWorkspaces.has(generalWorkspace.id);
                 const generalActive = generalWorkspace.id === state.active_workspace_id && isWorkspaceMode;
                 const generalTabs = sortByOrder(generalWorkspace.tabs);
+                const generalFirstRunActive = generalTabs.some((tab) =>
+                  isFirstRunGeneralPane(state.panes[tab.pane_id]),
+                );
                 const generalOrchestrators = Object.values(state.panes).filter((pane) => pane.role === "Orchestrator");
                 return (
                   <section
@@ -591,6 +595,7 @@ export function Sidebar({
                       onCloseTab={(tabId) => animatedCloseTab(generalWorkspace.id, tabId)}
                       onRenameTab={(tabId, title) => setTabTitle(generalWorkspace.id, tabId, title)}
                       onNewSession={() => handleNewSession(generalWorkspace.id, generalWorkspace.cwd ?? null)}
+                      newSessionDisabled={generalFirstRunActive}
                       onRenameTeam={teamActions?.onRenameTeam}
                       onAddTeamMember={teamActions?.onAddTeamMember}
                       onCloseTeam={teamActions?.onCloseTeam

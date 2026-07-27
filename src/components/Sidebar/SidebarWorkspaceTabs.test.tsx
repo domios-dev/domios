@@ -125,6 +125,7 @@ async function renderSidebar({
   onRenameTeam,
   onAddTeamMember,
   onCloseTeam = () => {},
+  newSessionDisabled = false,
 }: {
   panes: Record<string, Pane>;
   tabs: Tab[];
@@ -145,6 +146,7 @@ async function renderSidebar({
     model?: string,
   ) => void;
   onCloseTeam?: (teamId: string) => void;
+  newSessionDisabled?: boolean;
 }): Promise<{
   host: HTMLDivElement;
   root: Root;
@@ -188,6 +190,7 @@ async function renderSidebar({
           onCloseTab={onCloseTab}
           onRenameTab={onRenameTab}
           onNewSession={() => {}}
+          newSessionDisabled={newSessionDisabled}
           onRenameTeam={onRenameTeam}
           onAddTeamMember={onAddTeamMember}
           onCloseTeam={onCloseTeam}
@@ -200,6 +203,39 @@ async function renderSidebar({
 }
 
 setupDom();
+
+test("new session stays disabled until Get started is complete", async () => {
+  const { host, root } = await renderSidebar({
+    panes: {},
+    tabs: [],
+    newSessionDisabled: true,
+  });
+  const button = host.querySelector('[data-testid="sidebar-new-session"]') as HTMLButtonElement;
+  assert(button.disabled, "first-run General workspace must disable New session");
+  assert(
+    button.title === "Finish Get started before creating another session",
+    "disabled action explains how to unlock it",
+  );
+  await act(async () => root.unmount());
+});
+
+test("hidden service Tabs never render in the sidebar", async () => {
+  const visiblePane = pane({ id: "visible-pane", title: "Get started" });
+  const hiddenPane = { ...pane({ id: "probe-pane", title: "Puccini" }), hidden: true };
+  const { host, root } = await renderSidebar({
+    panes: {
+      [visiblePane.id]: visiblePane,
+      [hiddenPane.id]: hiddenPane,
+    },
+    tabs: [
+      tab("visible-tab", visiblePane.id, 0),
+      tab("probe-tab", hiddenPane.id, 1),
+    ],
+  });
+  assert(host.textContent?.includes("Get started"), "visible onboarding Tab remains rendered");
+  assert(!host.textContent?.includes("Puccini"), "hidden usage probe must not leak into the sidebar");
+  await act(async () => root.unmount());
+});
 
 test("team_renders_flat_sections", async () => {
   const panes: Record<string, Pane> = {
