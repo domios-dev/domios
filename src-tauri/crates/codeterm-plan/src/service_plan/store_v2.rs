@@ -16,19 +16,9 @@ use std::path::{Path, PathBuf};
 /// Bumped only by an explicit one-off conversion; older code refuses a newer store.
 pub const STORE_VERSION: u32 = 2;
 
-/// The plan's yaml store lives IN the project, tracked by git normally:
-/// `<project>/.codeterm/plans/<bucket>/<plan_id>/`. This is the existing
-/// sidecar location — v2 changes the FORMAT inside it (one yaml per entity,
-/// no plan.json, no frontmatter), not the location. The search cache already
-/// lives outside the repo in ~/.codeterm/plan-indexes and is unaffected.
+/// The plan's yaml store lives beside the global plan database.
 pub fn plan_state_dir(plan: &Plan) -> io::Result<PathBuf> {
-    let project = if plan.canonical_project_path.trim().is_empty() {
-        plan.project_path.as_str()
-    } else {
-        plan.canonical_project_path.as_str()
-    };
-    let root = super::paths::project_root(Path::new(project));
-    super::paths::plan_dir(&root, &plan.status, &plan.id)
+    super::paths::plan_state_dir(&plan.status, &plan.id)
 }
 
 fn task_stem(task: &Task) -> String {
