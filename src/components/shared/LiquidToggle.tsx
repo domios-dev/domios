@@ -12,15 +12,22 @@ export interface LiquidToggleProps
   onCheckedChange: (checked: boolean) => void;
 }
 
+interface LiquidTravel {
+  key: number;
+  from: boolean;
+  to: boolean;
+}
+
 function useLiquidTravel(checked: boolean, onCheckedChange: (checked: boolean) => void) {
-  const [travelKey, setTravelKey] = useState(0);
-  const traveling = useRef(false);
+  const nextKey = useRef(0);
+  const [travel, setTravel] = useState<LiquidTravel | null>(null);
   const flip = useCallback(() => {
-    traveling.current = true;
-    setTravelKey((key) => key + 1);
-    onCheckedChange(!checked);
+    const nextChecked = !checked;
+    nextKey.current += 1;
+    setTravel({ key: nextKey.current, from: checked, to: nextChecked });
+    onCheckedChange(nextChecked);
   }, [checked, onCheckedChange]);
-  return { flip, traveling, travelKey };
+  return { flip, travel, finishTravel: () => setTravel(null) };
 }
 
 export function LiquidToggle({
@@ -29,11 +36,11 @@ export function LiquidToggle({
   className,
   ...props
 }: LiquidToggleProps) {
-  const { flip, traveling, travelKey } = useLiquidTravel(checked, onCheckedChange);
-  const knobStyle = traveling.current
+  const { flip, travel, finishTravel } = useLiquidTravel(checked, onCheckedChange);
+  const knobStyle = travel
     ? {
-        "--kx-from": checked ? "0rem" : "1.55rem",
-        "--kx-to": checked ? "1.55rem" : "0rem",
+        "--kx-from": travel.from ? "1.55rem" : "0rem",
+        "--kx-to": travel.to ? "1.55rem" : "0rem",
       } as CSSProperties
     : undefined;
   return (
@@ -46,13 +53,11 @@ export function LiquidToggle({
       onClick={flip}
     >
       <span
-        key={travelKey}
+        key={travel?.key ?? 0}
         aria-hidden
-        className={`ct-liquid-toggle__knob${traveling.current ? " ct-liquid-toggle__knob--travel" : ""}`}
+        className={`ct-liquid-toggle__knob${travel ? " ct-liquid-toggle__knob--travel" : ""}`}
         style={knobStyle}
-        onAnimationEnd={() => {
-          traveling.current = false;
-        }}
+        onAnimationEnd={finishTravel}
       />
     </button>
   );
@@ -60,11 +65,11 @@ export function LiquidToggle({
 
 export function LiquidFlip(props: LiquidToggleProps) {
   const { checked, onCheckedChange, className, ...buttonProps } = props;
-  const { flip, traveling, travelKey } = useLiquidTravel(checked, onCheckedChange);
-  const chipStyle = traveling.current
+  const { flip, travel, finishTravel } = useLiquidTravel(checked, onCheckedChange);
+  const chipStyle = travel
     ? {
-        "--sx-from": checked ? "0%" : "100%",
-        "--sx-to": checked ? "100%" : "0%",
+        "--sx-from": travel.from ? "100%" : "0%",
+        "--sx-to": travel.to ? "100%" : "0%",
       } as CSSProperties
     : undefined;
   return (
@@ -77,13 +82,11 @@ export function LiquidFlip(props: LiquidToggleProps) {
       onClick={flip}
     >
       <span
-        key={travelKey}
+        key={travel?.key ?? 0}
         aria-hidden
-        className={`ct-liquid-flip__chip${traveling.current ? " ct-liquid-flip__chip--travel" : ""}`}
+        className={`ct-liquid-flip__chip${travel ? " ct-liquid-flip__chip--travel" : ""}`}
         style={chipStyle}
-        onAnimationEnd={() => {
-          traveling.current = false;
-        }}
+        onAnimationEnd={finishTravel}
       />
       <span className="ct-liquid-flip__word" data-active={!checked}>off</span>
       <span className="ct-liquid-flip__word" data-active={checked}>on</span>

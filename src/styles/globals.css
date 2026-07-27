@@ -303,6 +303,8 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .ct-liquid-segmented__thumb,
+  .ct-liquid-tab-rail__indicator,
+  .ct-liquid-tab-rail__tab,
   .ct-liquid-toggle,
   .ct-liquid-toggle__knob,
   .ct-liquid-flip__chip,
@@ -1246,6 +1248,50 @@ button,
 }
 .ct-liquid-segmented__icon { display: inline-flex; flex: 0 0 auto; }
 
+.ct-liquid-tab-rail {
+  --rail-count: 1;
+  --rail-index: 0;
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--rail-count), minmax(0, 1fr));
+  min-width: 25rem;
+}
+.ct-liquid-tab-rail__indicator {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: calc(100% / var(--rail-count));
+  height: 3px;
+  border-radius: 999px 999px 0 0;
+  background: var(--ct-accent);
+  box-shadow: 0 -1px 8px color-mix(in srgb, var(--ct-accent) 45%, transparent);
+  transform: translateX(calc(var(--rail-index) * 100%));
+  transform-origin: center bottom;
+  pointer-events: none;
+}
+.ct-liquid-tab-rail__indicator--travel {
+  animation: ct-liquid-control-x var(--ct-duration-liquid-segmented) both;
+}
+.ct-liquid-tab-rail__tab {
+  position: relative;
+  z-index: 1;
+  min-height: 3rem;
+  padding: 0.75rem 1rem;
+  border: 0;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  text-transform: capitalize;
+  cursor: pointer;
+  transition: color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+.ct-liquid-tab-rail__tab[aria-selected="true"] {
+  color: var(--ct-fg);
+  font-weight: 600;
+}
+.ct-liquid-tab-rail__tab--touch {
+  min-height: 3.25rem;
+}
+
 .ct-liquid-toggle {
   position: relative;
   width: 3.4rem;
@@ -1321,6 +1367,7 @@ button,
 .ct-liquid-flip__word[data-active="true"] { color: var(--ct-fg); }
 
 .ct-liquid-segmented__option:focus-visible,
+.ct-liquid-tab-rail__tab:focus-visible,
 .ct-liquid-toggle:focus-visible,
 .ct-liquid-flip:focus-visible {
   outline: none;

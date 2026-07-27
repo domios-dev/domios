@@ -3,14 +3,12 @@
 
 import React, { act } from "react";
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { FormRow } from "./FormRow";
 
 const componentSource = readFileSync(fileURLToPath(import.meta.url).replace(/\.test\.tsx$/, ".tsx"), "utf8");
-const globalsCss = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../styles/globals.css"), "utf8");
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -80,13 +78,9 @@ test("FormRow data-testid propagates", async () => {
   assert(host.querySelector('[data-testid="my-row"]'), "testid not found");
 });
 
-test("FormRow exposes the shared press, hover, and focus contract", () => {
-  assert(componentSource.includes("ct-liquid-interactive"), "FormRow must use the shared interaction class");
-  assert(/\.ct-liquid-interactive:not\(:disabled\):active\s*\{[^}]*--ct-duration-liquid-press/s.test(globalsCss), "press must use the liquid press token");
-  assert(/\.ct-liquid-interactive:focus-visible,[^}]*\{[^}]*outline:/s.test(globalsCss), "focus-visible ring missing");
-  assert(/\.ct-liquid-interactive\s*\{[^}]*--ct-duration-liquid-hover/s.test(globalsCss), "hover must use the liquid hover token");
-  assert(!/@keyframes\s+ct-liquid-interactive/.test(globalsCss), "hover must not be keyframe-driven");
-  assert(componentSource.includes("useTouchOptimizedUi"), "FormRow must use the shared touch-mode path");
+test("FormRow keeps form controls spatially stable", () => {
+  assert(!componentSource.includes("ct-liquid-interactive"), "form fields must not scale on hover or press");
+  assert(!componentSource.includes("useTouchOptimizedUi"), "static form layout needs no motion mode");
 });
 
 async function main() {

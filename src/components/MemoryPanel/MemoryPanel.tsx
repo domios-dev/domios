@@ -11,7 +11,8 @@ import { useActivityPulses } from "./useActivityPulses";
 import { fetchStats, type MemStats } from "./memoryApi";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { ApiConfig, AppConfig } from "../../lib/types";
-import { tabClass, UI_BUTTON, UI_PANEL, UI_TEXT } from "../shared/design";
+import { UI_BUTTON, UI_PANEL, UI_TEXT } from "../shared/design";
+import { LiquidTabRail } from "../shared/LiquidTabRail";
 
 export type MemoryTab = "dreams" | "inspect" | "activity" | "settings";
 
@@ -161,18 +162,15 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
           )}
         </div>
 
-        <div className="flex items-center gap-1 border-l border-[var(--ct-border)] pl-3">
-          {TABS.map((tab) => (
-            <button
-              key={tab}
-              data-testid={`memory-tab-${tab}`}
-              onClick={() => setActiveTab(tab)}
-              className={tabClass(activeTab === tab, touchUi)}
-              aria-pressed={activeTab === tab}
-            >
-              {tab}
-            </button>
-          ))}
+        <div className="border-l border-[var(--ct-border)] pl-3">
+          <LiquidTabRail
+            value={activeTab}
+            options={TABS}
+            onChange={setActiveTab}
+            label="Memory sections"
+            touch={touchUi}
+            testIdPrefix="memory-tab"
+          />
         </div>
       </div>
 
