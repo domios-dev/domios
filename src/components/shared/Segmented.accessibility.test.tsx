@@ -37,7 +37,7 @@ async function main() {
   const switcher = host.querySelector('[data-testid="pane-mode-switch"]');
   if (switcher?.getAttribute("role") !== "tablist") throw new Error("switch is a tablist");
   if (switcher?.getAttribute("aria-label") !== "Tab view") throw new Error("switch is named");
-  if (switcher?.getAttribute("data-pane-id") !== "pane-a") throw new Error("switch exposes pane scope");
+  if (switcher?.getAttribute("data-pane-id") !== "pane-a") throw new Error("switch exposes Tab scope");
   const chat = host.querySelector('[role="tab"][data-value="chat"]');
   const terminal = host.querySelector('[role="tab"][data-value="terminal"]');
   if (chat?.getAttribute("aria-selected") !== "true") throw new Error("active view is exposed");

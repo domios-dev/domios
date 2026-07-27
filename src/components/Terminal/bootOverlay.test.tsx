@@ -95,7 +95,7 @@ async function main() {
         onRetry={() => {}}
       />,
     );
-    assert(host.querySelector("button") === null, "retry hidden for unprotected pane");
+    assert(host.querySelector("button") === null, "retry hidden for unprotected Tab");
   });
 
   console.log(`bootOverlay tests: ${failures === 0 ? "all passed" : `${failures} failed`}`);

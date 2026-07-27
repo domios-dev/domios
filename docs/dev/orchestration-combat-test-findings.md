@@ -16,8 +16,8 @@ resolving contradictory role signals.
 state (planner_ref, plan ownership) over incoming text; treat briefs as
 input material. — *open (prompt change, needs eval run)*
 
-### F2. Dead parent edge on planner pane
-`CODETERM_PARENT_PANE_ID` pointed at a pane id that no longer exists
+### F2. Dead parent edge on planner Tab
+`CODETERM_PARENT_PANE_ID` pointed at a Tab id that no longer exists
 (pre-restart id). Hierarchy env vars go stale across daemon restarts.
 **Fix direction:** covered by the runtime-relink work (their t11) +
 spawn-time parent resolution (F6). — *open*
@@ -41,29 +41,29 @@ ORCHESTRATION requires `codeterm usage latest` before heavy spawning; the
 orchestrator dispatched 11 opus lanes without it (headroom happened to be
 fine). Doc guidance loses to momentum.
 **Fix direction:** move the rule into orchestrator_suffix (short line) or a
-mechanical pre-spawn hint when N panes spawn within M minutes. — *open*
+mechanical pre-spawn hint when N Tabs spawn within M minutes. — *open*
 
 ### F6. Worker parentage attached to the wrong orchestrator
 Workers spawned by the orchestrator got `parent_pane_id` /
-`report_target_pane_id` pointing at ANOTHER orchestrator-role pane in the
+`report_target_pane_id` pointing at ANOTHER orchestrator-role Tab in the
 workspace (spawn fallback picked the senior orchestrator, not the caller).
 Report ROUTING still reached the true spawner via the hierarchy service —
 so the UI tree lied while the loop worked: three disagreeing sources of
-parent truth (pane.parent, pane.report_target, hierarchy edges).
-**Live remediation:** panes re-parented via `agent link`. 
-**Fix direction:** spawn parent defaults to the CALLER pane; single source
+parent truth (Tab.parent, Tab.report_target, hierarchy edges).
+**Live remediation:** Tabs re-parented via `agent link`.
+**Fix direction:** spawn parent defaults to the CALLER Tab; single source
 of truth audit. — *open (task filed)*
 
 ### F7. ENOSPC silent stall — the worst one
 11 lane worktrees × cargo targets filled the disk. Two workers stalled
 alive-but-idle; one tried to send its blocked-report and THE REPORT WRITE
 ITSELF failed on ENOSPC — the orchestrator stayed blind, the system looked
-“running” indefinitely. Distinct failure mode from pane-GONE (their t9
+“running” indefinitely. Distinct failure mode from tab-GONE (their t9
 watchdog would not have caught it).
 **Fix direction:** (a) `agent report` must fail LOUDLY and retry;
 (b) pre-spawn free-disk guard + reclaim finished-lane targets between waves
 (orchestrator learning already recorded by Elgar); (c) alive-but-stalled
-detection: no report AND no pane output progress over a window. — *open
+detection: no report AND no Tab output progress over a window. — *open
 (tasks filed)*
 
 ### F8. Reminders/nudges gated on `mode == Execution`; nothing flips it
@@ -84,4 +84,4 @@ recorded as strides; follow-ups become backlog notes, not scope creep;
 8/13 tasks done with zero bounces in the first ~2h; lane isolation
 (worktrees + lane/* branches) flawless; report format discipline exact.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

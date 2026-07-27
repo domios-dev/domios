@@ -353,7 +353,7 @@ export function planLink(inv: CodetermInvocation, result?: string): PlanLink | u
 
 function pane(inv: CodetermInvocation, resolve?: PaneNameResolver): string {
   const p = inv.flags.tab ?? inv.flags.pane;
-  if (typeof p !== "string") return "current pane";
+  if (typeof p !== "string") return "current Tab";
   return resolve?.(p) ?? p;
 }
 

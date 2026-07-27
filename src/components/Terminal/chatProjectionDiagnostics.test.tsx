@@ -116,21 +116,21 @@ function testMonotonicAndBounded(): void {
 
   monitor.ingest(arrival("a", [{ id: "x", content: "x" }]));
   monitor.ingest(arrival("b", [{ id: "y", content: "y" }]));
-  assert(monitor.trackedPaneCount() === 2, "tracked panes capped at bound");
+  assert(monitor.trackedPaneCount() === 2, "tracked Tabs capped at bound");
   monitor.ingest(arrival(TAB_ID, [{ id: "z", content: "z" }])); // touch pane -> evicts the LRU pane ("a")
   assert(monitor.trackedPaneCount() === 2, "adding beyond the cap evicts, stays bounded");
-  assert(monitor.snapshot("a") === null, "least-recently-used pane evicted");
-  assert(monitor.snapshot(TAB_ID) !== null && monitor.snapshot("b") !== null, "recently-used panes retained");
+  assert(monitor.snapshot("a") === null, "least-recently-used Tab evicted");
+  assert(monitor.snapshot(TAB_ID) !== null && monitor.snapshot("b") !== null, "recently-used Tabs retained");
 }
 
 // ── Unit: lifecycle cleanup — records do not outlive their pane ──────────────
 function testForgetLifecycle(): void {
   const monitor = new ChatProjectionMonitor();
   monitor.ingest(arrival(TAB_ID, [{ id: "m0", content: "hi" }]));
-  assert(monitor.trackedPaneCount() === 1, "pane tracked after ingest");
+  assert(monitor.trackedPaneCount() === 1, "Tab tracked after ingest");
   monitor.forget(TAB_ID);
-  assert(monitor.snapshot(TAB_ID) === null, "forget drops the pane record");
-  assert(monitor.trackedPaneCount() === 0, "forget shrinks the tracked pane count, not just evicts on cap");
+  assert(monitor.snapshot(TAB_ID) === null, "forget drops the Tab record");
+  assert(monitor.trackedPaneCount() === 0, "forget shrinks the tracked Tab count, not just evicts on cap");
 }
 
 // ── Unit: painted-tail probe fires after paint (double rAF), not at commit ───
@@ -265,12 +265,12 @@ function testActivationReconcileOracle(): void {
     const monitor = new ChatProjectionMonitor();
     const loaded: EvMsg[] = [{ id: "m0", content: "hello" }, { id: "a1", content: "start-xxxxx" }];
     bringToSteadyState(monitor, TAB_ID, loaded); // committed/painted tail "a1#11"
-    assert(monitor.activationRecovery(TAB_ID) === "no_prior", "a live pane never torn down has no prior activation");
+    assert(monitor.activationRecovery(TAB_ID) === "no_prior", "a live Tab never torn down has no prior activation");
 
     monitor.forget(TAB_ID); // Terminal switch: unmount
     assert(monitor.snapshot(TAB_ID) === null, "forget drops the live record");
-    assert(monitor.trackedPaneCount() === 0, "torn-down pane is not counted as live");
-    assert(monitor.firstStalledEdge(TAB_ID) === null, "a forgotten pane reports no live stall");
+    assert(monitor.trackedPaneCount() === 0, "torn-down Tab is not counted as live");
+    assert(monitor.firstStalledEdge(TAB_ID) === null, "a forgotten Tab reports no live stall");
     const prior = monitor.priorActivation(TAB_ID)!;
     assert(prior.committedTail === "a1#11", "prior committed tail is preserved across teardown");
     assert(prior.snapshotCursor === "c0", "prior recovery cursor is preserved across teardown");

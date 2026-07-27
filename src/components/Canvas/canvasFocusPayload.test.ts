@@ -38,7 +38,7 @@ test("legacy node_ids and plan_ids still work", () => {
 
 test("pane_id resolves to tasks assigned to that pane", () => {
   const ids = resolveCanvasFocusNodeIds({ pane_id: "pane-worker" }, [planWithPaneTask]);
-  assert(ids.length === 1 && ids[0] === "task-dante", `pane assignment, got ${ids.join()}`);
+  assert(ids.length === 1 && ids[0] === "task-dante", `Tab assignment, got ${ids.join()}`);
 });
 
 test("pane_id resolves trimmed active bindings and ignores blank payloads", () => {
@@ -46,8 +46,8 @@ test("pane_id resolves trimmed active bindings and ignores blank payloads", () =
     ...FIXTURE_PLAN,
     tasks: [{ ...FIXTURE_TASK, assigned_pane_id: " pane-worker " }],
   };
-  assert(resolveCanvasFocusNodeIds({ pane_id: " pane-worker " }, [plan]).join() === "task-dante", "trimmed pane binding");
-  assert(resolveCanvasFocusNodeIds({ pane_id: " " }, [plan]).length === 0, "blank pane payload ignored");
+  assert(resolveCanvasFocusNodeIds({ pane_id: " pane-worker " }, [plan]).join() === "task-dante", "trimmed Tab binding");
+  assert(resolveCanvasFocusNodeIds({ pane_id: " " }, [plan]).length === 0, "blank Tab payload ignored");
 });
 
 test("pane_id ignores terminal stale bindings", () => {

@@ -36,7 +36,7 @@ pub(crate) struct SearchSessionsQuery {
 
 /// Cross-provider session search: walks every registered `AgentProvider`,
 /// collects past sessions from disk, and returns matches ranked by recency.
-/// Each hit carries its `provider` so callers can route a "resume in new pane"
+/// Each hit carries its `provider` so callers can route a "resume in new Tab"
 /// action to the correct launcher.
 pub async fn search_sessions_api(
     AxumState(state): AxumState<AppState>,

@@ -57,13 +57,13 @@ const exclusive = resolvePlanExclusivePaneTasks(plan);
 
 const presence = buildTaskPresence(plan, task, panes, exclusive);
 assert(presence?.paneId === "pane-42", `pane id derived, got ${presence?.paneId}`);
-assert(presence?.label === "Puccini", `pane title preferred, got ${presence?.label}`);
+assert(presence?.label === "Puccini", `Tab title preferred, got ${presence?.label}`);
 assert(presence?.focus === "Implement presence chip", `active-lane focus attached, got ${presence?.focus}`);
-assert(presence?.latest?.authorLabel === "Puccini", `latest author falls back to pane title, got ${presence?.latest?.authorLabel}`);
+assert(presence?.latest?.authorLabel === "Puccini", `latest author falls back to Tab title, got ${presence?.latest?.authorLabel}`);
 assert(presence?.latest?.kindLabel === "status update", `kind label humanized, got ${presence?.latest?.kindLabel}`);
 assert(presence?.branch === "feat/login-endpoint", `branch surfaced, got ${presence?.branch}`);
 assert(presence?.agents.length === 3, `lead + 2 peers resolved, got ${presence?.agents.length}`);
-assert(presence?.agents[0].label === "Puccini", `lead prefers pane title, got ${presence?.agents[0].label}`);
+assert(presence?.agents[0].label === "Puccini", `lead prefers Tab title, got ${presence?.agents[0].label}`);
 assert(presence?.agents[0].role === "backend-dev", `lead carries role, got ${presence?.agents[0].role}`);
 assert(presence?.agents[1].isPeer === true, "comma-list peer flagged as peer");
 assert(presence?.agents[1].label === "claude-sonnet", `first peer parsed, got ${presence?.agents[1].label}`);
@@ -90,7 +90,7 @@ const closedAssigned = buildTaskPresence(
     tasks: [{ ...task, status: "done", assigned_pane_id: "pane-42", lane: { pane_id: "pane-42", branch: "feat/closed" } }],
   }),
 );
-assert(closedAssigned === null, "done task with stale pane binding has no active presence marker");
+assert(closedAssigned === null, "done task with stale Tab binding has no active presence marker");
 
 const stalePlan: Plan = {
   ...plan,
@@ -100,7 +100,7 @@ const stalePlan: Plan = {
   ],
 };
 const staleExclusive = resolvePlanExclusivePaneTasks(stalePlan);
-assert(staleExclusive.get("pane-42") === "task-wip", "in_progress task wins exclusive pane binding");
+assert(staleExclusive.get("pane-42") === "task-wip", "in_progress task wins exclusive Tab binding");
 assert(buildTaskPresence(stalePlan, stalePlan.tasks[1], panes, staleExclusive) === null, "stale bound task loses presence");
 
 const looseFocusPlan: Plan = {

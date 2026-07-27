@@ -130,8 +130,8 @@ test("renders as an inline composer-row pill", async () => {
   const wrap = b.parentElement as HTMLDivElement | null;
   assert(wrap, "bubble should have an inline wrapper");
   assert(wrap.classList.contains("inline-flex"), "bubble should fit in the composer pill row");
-  assert(wrap.style.right === "", `bubble should not use pane right edge, got: ${wrap.style.right}`);
-  assert(wrap.style.left === "", `bubble should not use pane left edge, got: ${wrap.style.left}`);
+  assert(wrap.style.right === "", `bubble should not use Tab right edge, got: ${wrap.style.right}`);
+  assert(wrap.style.left === "", `bubble should not use Tab left edge, got: ${wrap.style.left}`);
 
   __setChatModelBubbleApiForTest(null);
   await act(async () => root.unmount());

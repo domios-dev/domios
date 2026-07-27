@@ -427,12 +427,12 @@ mod tests {
         let (mut mux, orch_pane) = MultiplexerState::new();
         let ws_id = mux
             .find_workspace_for_pane(&orch_pane)
-            .expect("initial pane has a workspace");
+            .expect("initial Tab has a workspace");
         mux.rename_pane(&orch_pane, "Orchestrator-Prime")
-            .expect("rename orchestrator pane");
+            .expect("rename orchestrator Tab");
 
         let (_tab_id, plain_pane) = mux.create_tab(&ws_id).expect("create plain tab");
-        mux.rename_pane(&plain_pane, "Kai").expect("rename pane");
+        mux.rename_pane(&plain_pane, "Kai").expect("rename Tab");
 
         let (_tab_id, worker_pane) = mux.create_tab(&ws_id).expect("create worker tab");
         mux.set_pane_role(&worker_pane, AgentRole::Worker, Some(&orch_pane))
@@ -443,7 +443,7 @@ mod tests {
         let titles = workspace_live_titles(&mux, &ws_id);
         assert!(
             titles.contains("Orchestrator-Prime"),
-            "the parent Orchestrator's own tab title must count as used, not just Worker panes: {titles:?}"
+            "the parent Orchestrator's own tab title must count as used, not just Worker Tabs: {titles:?}"
         );
         assert!(
             titles.contains("Kai"),
@@ -473,7 +473,7 @@ mod tests {
         let titles = workspace_live_titles(&mux, &ws_id);
         assert!(
             titles.contains("Nora"),
-            "a title held by a pane from a different session must still be excluded: {titles:?}"
+            "a title held by a Tab from a different session must still be excluded: {titles:?}"
         );
     }
 

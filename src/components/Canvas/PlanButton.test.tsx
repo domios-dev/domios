@@ -90,13 +90,13 @@ async function renderButton(paneId: string): Promise<{ host: HTMLDivElement; roo
   return { host, root };
 }
 
-test("PlanButton hidden when pane has no matching plan", async () => {
+test("PlanButton hidden when Tab has no matching plan", async () => {
   const { host, root } = await renderButton("unknown-pane");
   assert(!host.querySelector('[data-testid="plan-button"]'), "no button");
   await act(async () => root.unmount());
 });
 
-test("PlanButton visible for plan owner pane id", async () => {
+test("PlanButton visible for plan owner Tab id", async () => {
   const { host, root } = await renderButton("orch-1");
   assert(host.querySelector('[data-testid="plan-button"]'), "button visible for owner");
   await act(async () => root.unmount());
@@ -110,7 +110,7 @@ test("PlanButton opens canvas focus store on click", async () => {
   await act(async () => btn.click());
   assert(canvasFocusStore.isOpen(), "focus overlay open");
   assert(canvasFocusStore.getTarget()?.planId === FIXTURE_PLAN.id, "focuses fixture plan");
-  assert(canvasFocusStore.getTarget()?.focusPaneId === "orch-1", "carries opening pane for camera routing");
+  assert(canvasFocusStore.getTarget()?.focusPaneId === "orch-1", "carries opening Tab for camera routing");
   canvasFocusStore.close();
   await act(async () => root.unmount());
 });

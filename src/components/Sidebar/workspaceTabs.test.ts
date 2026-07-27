@@ -57,7 +57,7 @@ assert.deepEqual(
     "moved-pane": pane("moved-pane", "parent-pane"),
   }).map((t) => t.id),
   ["tab-moved"],
-  "cross-workspace child surfaces at top level after move-tab",
+  "cross-workspace child surfaces at top level after move-pane",
 );
 
 assert.equal(
@@ -109,7 +109,7 @@ assert.deepEqual(
     "parent-pane": pane("parent-pane"),
   }).map((t) => t.id),
   ["tab-parent"],
-  "tab without a pane record does not surface at top level",
+  "tab without a Tab record does not surface at top level",
 );
 
 assert.deepEqual(

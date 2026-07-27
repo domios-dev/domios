@@ -223,7 +223,7 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
                 relay::mesh_relay_fetch_json(&http, &base, &token, target, "GET", &path, None);
             let arr = panes.as_array().cloned().unwrap_or_default();
             if arr.is_empty() {
-                println!("(no panes)");
+                println!("(no Tabs)");
             } else {
                 print!("{}", crate::cmd::pane::render_pane_tree(&arr));
             }

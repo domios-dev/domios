@@ -430,7 +430,7 @@ fn inspect_planner_pairing(path: &Path, plan: &Value) -> Option<Finding> {
         "planner_unpaired",
         "orchestrator has no attached Planner",
         &format!(
-            "choose an available provider and model for planning, then spawn: codeterm agent spawn <provider> [--model <model>] --parent <orch-pane> --role Planner --plan {plan_id_str}; or waive: codeterm plan update {plan_id_str} --planner none --note \"<why>\""
+            "choose an available provider and model for planning, then spawn: codeterm agent spawn <provider> [--model <model>] --parent <orch-tab> --role Planner --plan {plan_id_str}; or waive: codeterm plan update {plan_id_str} --planner none --note \"<why>\""
         ),
     ))
 }

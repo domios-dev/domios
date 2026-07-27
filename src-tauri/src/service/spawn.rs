@@ -965,7 +965,7 @@ impl ServiceContext {
                             task_text,
                         ) {
                             log::error!(
-                                "[spawn.hidden] task delivery failed for pane {}: {}",
+                                "[spawn.hidden] task delivery failed for Tab {}: {}",
                                 pane_id_outer,
                                 e
                             );
@@ -981,7 +981,7 @@ impl ServiceContext {
                         svc_outer.run_watcher.arm(&pty_id);
                     }
                 }
-                Err(e) => log::error!("[spawn.hidden] no pty for pane {}: {}", pane_id_outer, e),
+                Err(e) => log::error!("[spawn.hidden] no pty for Tab {}: {}", pane_id_outer, e),
             }
             log::debug!(
                 "[spawn.hidden] agent launched pane={} provider={}",

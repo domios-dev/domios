@@ -91,7 +91,7 @@ pub async fn list_agent_providers(
 }
 
 /// Orchestrator-side remote (cross-mesh) workers, as `{ pane_id: [...] }`.
-/// Drives the "remote pane" ghost nodes in the sidebar; live updates arrive via
+/// Drives the "remote Tab" ghost nodes in the sidebar; live updates arrive via
 /// the `remote-workers-changed` event.
 #[tauri::command]
 pub async fn get_remote_workers(
@@ -111,7 +111,7 @@ pub async fn wait_shell_ready(
         let m = mux.write();
         m.get_pane(&pane_id)
             .and_then(|p| p.pty_id.clone())
-            .ok_or_else(|| "Pane not found or has no PTY".to_string())?
+            .ok_or_else(|| "Tab not found or has no PTY".to_string())?
     };
     let timeout = std::time::Duration::from_millis(timeout_ms.unwrap_or(10_000));
     let ss = screen_state.inner().clone();
@@ -150,12 +150,12 @@ fn read_session_jsonl_core(
         let m = mux.write();
         let pane = m
             .get_pane(&pane_id)
-            .ok_or_else(|| "Pane not found".to_string())?;
+            .ok_or_else(|| "Tab not found".to_string())?;
         let sid = pane.agent_session_id.clone();
         let cwd = pane
             .cwd
             .clone()
-            .ok_or_else(|| "Pane has no CWD".to_string())?;
+            .ok_or_else(|| "Tab has no CWD".to_string())?;
         let at = pane
             .agent_type
             .clone()
@@ -163,8 +163,7 @@ fn read_session_jsonl_core(
         (sid, cwd, at)
     };
 
-    let session_id =
-        session_id.ok_or_else(|| "No agent session linked to this pane".to_string())?;
+    let session_id = session_id.ok_or_else(|| "No agent session linked to this Tab".to_string())?;
 
     let jsonl_path = svc
         .agent_registry
@@ -318,7 +317,7 @@ pub fn chat_start_core(
     let (provider_id, cwd, mut session_id, mux_ms) = {
         let t = std::time::Instant::now();
         let m = svc.mux.write();
-        let pane = m.get_pane(&pane_id).ok_or("pane not found")?;
+        let pane = m.get_pane(&pane_id).ok_or("Tab not found")?;
         let Some(provider) = pane.agent_type.clone() else {
             if pane.agent_booting || pane.boot_stage.is_some() {
                 return Ok(ChatStartResult {
@@ -333,7 +332,7 @@ pub fn chat_start_core(
                     subscription_id: None,
                 });
             }
-            return Err("pane has no agent_type".into());
+            return Err("Tab has no agent_type".into());
         };
         let cwd = pane.cwd.clone().unwrap_or_default();
         let Some(sid) = pane.agent_session_id.clone() else {
@@ -396,7 +395,7 @@ pub fn chat_start_core(
         };
         if claimed {
             log::info!(
-                "[chat_start] rolled pane {} from {} -> {} ({})",
+                "[chat_start] rolled Tab {} from {} -> {} ({})",
                 pane_id,
                 session_id,
                 active_sid,
@@ -706,7 +705,7 @@ pub fn chat_backfill_core(
 ) -> Result<ChatBackfillResult, String> {
     let (provider_id, cwd, session_id, session_binding_nonce) = {
         let m = svc.mux.write();
-        let pane = m.get_pane(&pane_id).ok_or("pane not found")?;
+        let pane = m.get_pane(&pane_id).ok_or("Tab not found")?;
         (
             pane.agent_type.clone().ok_or("no agent_type")?,
             pane.cwd.clone().unwrap_or_default(),

@@ -81,8 +81,8 @@ const substitutedDeclarations = [
   ],
   [
     globalsCss,
-    "animation: sidebar-tab-appear 200ms cubic-bezier(0.175, 0.885, 0.32, 1.1) both;",
-    "animation: sidebar-tab-appear 200ms var(--ct-ease-spring) both;",
+    "animation: sidebar-pane-appear 200ms cubic-bezier(0.175, 0.885, 0.32, 1.1) both;",
+    "animation: sidebar-pane-appear 200ms var(--ct-ease-spring) both;",
   ],
   [
     globalsCss,

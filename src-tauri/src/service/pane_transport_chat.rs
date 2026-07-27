@@ -308,7 +308,7 @@ impl ServiceContext {
             let mut mux = self.mux.write();
             let pane = mux
                 .get_pane_mut(pane_id)
-                .ok_or_else(|| "chatBackend pane disappeared".to_string())?;
+                .ok_or_else(|| "chatBackend Tab disappeared".to_string())?;
             authenticate_chatbackend_pane(pane, plugin_id, session_id, &nonce)?;
         }
         self.bind_planner_session(pane_id);
@@ -394,8 +394,7 @@ impl ServiceContext {
     ) -> Result<(), String> {
         if self.chatbackend_session_is_watcher(plugin_id, session_id) {
             return Err(
-                "this pane is a watcher (read-only); its inputs come from the tick scheduler"
-                    .into(),
+                "this Tab is a watcher (read-only); its inputs come from the tick scheduler".into(),
             );
         }
         self.chatbackend_provider(plugin_id)?
@@ -424,7 +423,7 @@ impl ServiceContext {
         self.chatbackend_reopen_if_restored(pane_id)?;
         let (plugin_id, session_id) = self
             .pane_chat_backing(pane_id)
-            .ok_or("chatBackend pane lost its backing")?;
+            .ok_or("chatBackend Tab lost its backing")?;
         self.chatbackend_send(&plugin_id, &session_id, text)
     }
 
@@ -752,7 +751,7 @@ mod tests {
         // Pane closed mid-openSession.
         assert!(
             !super::chatbackend_reopen_still_valid(None, true, "lmstudio", "old"),
-            "a vanished pane must not commit the migrate/poll-loop"
+            "a vanished Tab must not commit the migrate/poll-loop"
         );
         // Session id respawned during openSession.
         assert!(
@@ -778,7 +777,7 @@ mod tests {
                 "lmstudio",
                 "old",
             ),
-            "an already-committed pane must not re-open again"
+            "an already-committed Tab must not re-open again"
         );
         assert!(!super::chatbackend_reopen_still_valid(
             Some(&PaneBacking::Pty),
@@ -794,7 +793,7 @@ mod tests {
                 "lmstudio",
                 "old",
             ),
-            "an unchanged restored pane commits the reopen"
+            "an unchanged restored Tab commits the reopen"
         );
     }
 
@@ -815,7 +814,7 @@ mod tests {
             Some("new".into())
         };
 
-        assert_eq!(result, None, "a dead pane reopens to None");
+        assert_eq!(result, None, "a dead Tab reopens to None");
         assert_eq!(
             closed.load(Ordering::SeqCst),
             1,
@@ -825,7 +824,7 @@ mod tests {
         assert_eq!(
             spawned.load(Ordering::SeqCst),
             0,
-            "no poll loop spawned for a dead pane"
+            "no poll loop spawned for a dead Tab"
         );
     }
 

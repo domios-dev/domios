@@ -1,4 +1,4 @@
-// Event boundary for "a pane's pty_id was (re)linked". Replaces the 100ms poll in
+// Event boundary for "a Tab's pty_id was (re)linked". Replaces the 100ms poll in
 // `await_replacement_pty`: linkers bump a generation and wake waiters; a waiter
 // blocks on the condvar until its own predicate holds or a deadline passes — no
 // timer-based sequencing. The predicate is evaluated OUTSIDE this lock so the

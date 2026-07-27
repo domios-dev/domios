@@ -88,7 +88,7 @@ function identityChurnPlan(plan: Plan): Plan {
   };
 }
 
-test("MissionControlLiveView skips expensive builders when plan/panes identity churns but revision is stable", async () => {
+test("MissionControlLiveView skips expensive builders when plan/Tabs identity churns but revision is stable", async () => {
   const plan = FIXTURE_PLAN;
   const panes = {};
   const { rerender, unmount } = await render(

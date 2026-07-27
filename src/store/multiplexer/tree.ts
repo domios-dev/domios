@@ -30,7 +30,7 @@ export function makeTab(pane: Pane): Tab {
   };
 }
 
-/** Keep client state aligned with the daemon's one-pane-per-tab invariant.
+/** Keep client state aligned with the daemon's one-pane-per-pane invariant.
  * A stale restore snapshot must never make closed history look like live tabs. */
 export function reconcileBackendWorkspaceTabs(
   workspaces: MultiplexerState["workspaces"],

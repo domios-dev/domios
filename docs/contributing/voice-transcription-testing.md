@@ -75,7 +75,7 @@ codeterm bridge restart
 ```
 
 Send any voice message to the bot — the line that lands in the
-General Agent's pane should read `[voice transcribed] hello from fake
+General Agent's Tab should read `[voice transcribed] hello from fake
 whisper` instead of the raw `[voice]` placeholder.
 
 ## Health-check cache

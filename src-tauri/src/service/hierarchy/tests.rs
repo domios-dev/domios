@@ -26,7 +26,7 @@ fn build_orchestrator_with_worker(worker_title: &str) -> (MultiplexerState, Stri
     mux.set_pane_role(&worker, AgentRole::Worker, Some(&orch))
         .expect("attach worker to orchestrator");
     mux.rename_pane(&worker, worker_title)
-        .expect("rename worker pane");
+        .expect("rename worker Tab");
     (mux, orch, worker)
 }
 
@@ -36,7 +36,7 @@ fn build_orchestrator_with_manager(manager_title: &str) -> (MultiplexerState, St
     mux.set_pane_role(&manager, AgentRole::Manager, Some(&orch))
         .expect("attach manager to orchestrator");
     mux.rename_pane(&manager, manager_title)
-        .expect("rename manager pane");
+        .expect("rename manager Tab");
     (mux, orch, manager)
 }
 
@@ -150,8 +150,7 @@ fn report_title_uses_user_pinned_pane_identity_not_provider_default() {
     let (_tab_id, worker) = mux.create_tab(&ws).expect("create worker tab");
     mux.set_pane_role(&worker, AgentRole::Worker, Some(&orch))
         .expect("attach worker");
-    mux.rename_pane(&worker, "Euler")
-        .expect("set pane identity");
+    mux.rename_pane(&worker, "Euler").expect("set Tab identity");
     mux.rename_pane_at_level(
         &worker,
         "claude",
@@ -566,7 +565,7 @@ fn spawned_by_used_only_when_parent_and_report_target_missing() {
 fn unknown_pane_id_is_rejected() {
     let (mux, _orch) = MultiplexerState::new();
     let err = resolve_report_target(&mux, "nonexistent").unwrap_err();
-    assert!(err.contains("Pane not found"), "got: {}", err);
+    assert!(err.contains("Tab not found"), "got: {}", err);
 }
 
 // ── Worker-death watchdog ──
@@ -621,7 +620,7 @@ fn dead_non_hierarchy_pane_gets_no_synthetic() {
 
     assert!(
         worker_death_report(&mux, &store, &plain).is_none(),
-        "a non-hierarchy pane must NOT get a synthetic dead-report"
+        "a non-hierarchy Tab must NOT get a synthetic dead-report"
     );
 }
 

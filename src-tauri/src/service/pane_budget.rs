@@ -40,7 +40,7 @@ pub fn evaluate_pane_budget(count: usize) -> Option<PaneBudgetNotice> {
             workspace_pane_count: count,
             level: PaneBudgetLevel::Strong,
             message: format!(
-                "Workspace now has {count} panes. Are you sure you did not forget to close finished panes?"
+                "Workspace now has {count} Tabs. Are you sure you did not forget to close finished Tabs?"
             ),
         })
     } else if count > SOFT_PANE_BUDGET {
@@ -48,7 +48,7 @@ pub fn evaluate_pane_budget(count: usize) -> Option<PaneBudgetNotice> {
             workspace_pane_count: count,
             level: PaneBudgetLevel::Soft,
             message: format!(
-                "Workspace now has {count} panes — consider closing finished panes you no longer need."
+                "Workspace now has {count} Tabs — consider closing finished Tabs you no longer need."
             ),
         })
     } else {

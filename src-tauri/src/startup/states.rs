@@ -208,7 +208,7 @@ pub(crate) fn init_states() -> AppStates {
     #[allow(unused_mut)]
     let mut mux_state_inner = mux_state_inner;
 
-    // Attach the durable closed-tab history store so reopen survives restarts.
+    // Attach the durable closed-pane history store so reopen survives restarts.
     // On failure keep the in-memory default (history just won't persist).
     match crate::multiplexer::state::ClosedPanesStore::open(&crate::paths::data_dir()) {
         Ok(store) => mux_state_inner.attach_closed_store(store),

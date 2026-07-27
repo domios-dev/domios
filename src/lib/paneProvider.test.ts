@@ -57,7 +57,7 @@ function pane(overrides: Partial<Pane>): Pane {
   };
 }
 
-test("resolves an agent pane from the descriptor cache", () => {
+test("resolves an agent Tab from the descriptor cache", () => {
   seed();
   const r = resolvePaneProvider(pane({ agent_type: "claude" }));
   assert(r, "expected a resolved provider");
@@ -69,7 +69,7 @@ test("resolves an agent pane from the descriptor cache", () => {
   assert(r.iconHint === "C", "agent icon hint from descriptor");
 });
 
-test("resolves a shell pane from the plugin snapshot cache", () => {
+test("resolves a shell Tab from the plugin snapshot cache", () => {
   seed();
   const r = resolvePaneProvider(
     pane({ backing: { kind: "chat_backend", plugin_id: "lmstudio", session_id: "s1" } }),
@@ -82,7 +82,7 @@ test("resolves a shell pane from the plugin snapshot cache", () => {
   assert(r.iconColor === "#ff6600", "shell icon color from plugin snapshot");
 });
 
-test("shell pane still resolves as shell before its meta is cached", () => {
+test("shell Tab still resolves as shell before its meta is cached", () => {
   setAgentDescriptors([claudeDescriptor]);
   setPluginProviderMeta([]); // snapshot not loaded yet
   const r = resolvePaneProvider(
@@ -95,12 +95,12 @@ test("shell pane still resolves as shell before its meta is cached", () => {
   assert(!r.iconSvg, "no icon svg until snapshot loads");
 });
 
-test("returns null for a plain terminal pane", () => {
+test("returns null for a plain terminal Tab", () => {
   seed();
-  assert(resolvePaneProvider(pane({})) === null, "plain pty pane has no provider");
+  assert(resolvePaneProvider(pane({})) === null, "plain pty Tab has no provider");
 });
 
-test("agent pane resolves before descriptor cache loads", () => {
+test("agent Tab resolves before descriptor cache loads", () => {
   seed();
   setAgentDescriptors([]);
   const r = resolvePaneProvider(pane({ agent_type: "codex" }));
@@ -120,9 +120,9 @@ test("unknown agent still resolves as an agent identity", () => {
   assert(r.iconHint === "MY", "unknown agent fallback uses id initials");
 });
 
-test("returns null for a missing pane", () => {
-  assert(resolvePaneProvider(null) === null, "null pane -> null");
-  assert(resolvePaneProvider(undefined) === null, "undefined pane -> null");
+test("returns null for a missing Tab", () => {
+  assert(resolvePaneProvider(null) === null, "null Tab -> null");
+  assert(resolvePaneProvider(undefined) === null, "undefined Tab -> null");
 });
 
 let failed = 0;

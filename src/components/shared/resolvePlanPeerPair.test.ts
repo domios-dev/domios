@@ -43,12 +43,12 @@ function mkPlan(over: Partial<Plan> = {}): Plan {
   const plan = mkPlan({
     planner: { kind: "pane", pane_id: "peer-planner", session_id: null, title: null },
   });
-  assert(resolvePlannerPaneIdFromPlan(plan) === "peer-planner", "planner pane id comes from planner ref");
+  assert(resolvePlannerPaneIdFromPlan(plan) === "peer-planner", "planner Tab id comes from planner ref");
 }
 
 {
   const plan = mkPlan({ planner: { kind: "waived", note: "solo" } });
-  assert(resolvePlannerPaneIdFromPlan(plan) === null, "waived → no pane");
+  assert(resolvePlannerPaneIdFromPlan(plan) === null, "waived → no Tab");
 }
 
 {

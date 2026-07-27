@@ -360,7 +360,7 @@ mod tests {
                 "mem.learn_promote",
             ),
             (
-                vec!["codeterm", "mem", "flush", "--tab", "pane1"],
+                vec!["codeterm", "mem", "flush", "--pane", "pane1"],
                 "mem.flush",
             ),
             (vec!["codeterm", "mem", "sync"], "mem.sync"),

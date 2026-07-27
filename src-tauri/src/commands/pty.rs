@@ -63,16 +63,16 @@ pub async fn spawn_pty_core(
             let alive = state.lock().get_session(&existing).is_some();
             if alive {
                 let selected = svc.link_pty_with_claim(
-                    pty_claim.as_ref().expect("pane claim"),
+                    pty_claim.as_ref().expect("Tab claim"),
                     pid,
                     existing,
                     false,
                 );
                 if !selected.linked {
-                    return Err(format!("Pane {} closed before PTY link", pid));
+                    return Err(format!("Tab {} closed before PTY link", pid));
                 }
                 log::info!(
-                    "[spawn_pty] pane {} already has live pty {} — reusing",
+                    "[spawn_pty] Tab {} already has live pty {} — reusing",
                     pid,
                     selected.pty_id,
                 );
@@ -87,12 +87,12 @@ pub async fn spawn_pty_core(
                 svc_wait.await_pty_link_blocking(&pane_wait, std::time::Duration::from_secs(5))
             })
             .await
-            .map_err(|error| format!("protected pane relink waiter failed: {error}"))?;
+            .map_err(|error| format!("protected Tab relink waiter failed: {error}"))?;
             if let Ok(existing) = relinked {
                 return Ok(existing);
             }
             log::warn!(
-                "[spawn_pty] protected pane {} still has no backend pty after 5s — falling through",
+                "[spawn_pty] protected Tab {} still has no backend pty after 5s — falling through",
                 pid,
             );
             pty_claim = Some(svc.pty_ownership.acquire_async(pid.clone()).await?);
@@ -163,9 +163,9 @@ pub async fn spawn_pty_core(
 
     let reader_pty_id = if let Some(ref pid) = pane_id {
         let selected =
-            svc.link_pty_with_claim(pty_claim.as_ref().expect("pane claim"), pid, pty_id, false);
+            svc.link_pty_with_claim(pty_claim.as_ref().expect("Tab claim"), pid, pty_id, false);
         if !selected.linked {
-            return Err(format!("Pane {} closed before PTY link", pid));
+            return Err(format!("Tab {} closed before PTY link", pid));
         }
         let reader_pty_id = selected.reader_pty_id().map(str::to_string);
         pty_id = selected.pty_id;
@@ -214,7 +214,7 @@ pub async fn spawn_pty_core(
 
             if !session_valid {
                 log::info!(
-                    "[resume] session {} for pane {} has no backing file under {:?} — clearing, will try fresh launch",
+                    "[resume] session {} for Tab {} has no backing file under {:?} — clearing, will try fresh launch",
                     session_id, pid, pane_cwd
                 );
                 svc.set_agent_session_id(pid, None);
@@ -373,7 +373,7 @@ pub async fn spawn_pty_core(
                     should_fresh_launch = false;
                 } else {
                     log::warn!(
-                        "[resume] provider {} has no resume command for pane {}; starting fresh",
+                        "[resume] provider {} has no resume command for Tab {}; starting fresh",
                         provider_id,
                         pid
                     );
@@ -519,7 +519,7 @@ pub async fn spawn_pty_core(
                 });
             } else {
                 log::error!(
-                    "[restore-fresh] provider {} has no launch command for pane {}",
+                    "[restore-fresh] provider {} has no launch command for Tab {}",
                     provider_id,
                     pid
                 );
@@ -741,7 +741,7 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
                                 &job_id,
                             );
                         }
-                        log::info!("Cron pane exited: job={}, run={}", job_id, run_id);
+                        log::info!("Cron Tab exited: job={}, run={}", job_id, run_id);
                         crate::api::events::emit_everywhere(&app, "cron-run-finished", ());
                     }
                 }
@@ -898,7 +898,7 @@ fn parse_pty_input(
     }
     if let Some(provider_id) = svc.input_parser.process(&pane_id, bytes) {
         log::info!(
-            "[input-parser] detected '{}' launch in pane {} — locking agent_type",
+            "[input-parser] detected '{}' launch in Tab {} — locking agent_type",
             provider_id,
             pane_id,
         );
@@ -987,7 +987,7 @@ pub async fn kill_pty(
     };
     if owned_by_protected {
         log::info!(
-            "[kill_pty] {} is owned by a protected pane - ignoring frontend kill",
+            "[kill_pty] {} is owned by a protected Tab - ignoring frontend kill",
             pty_id,
         );
         return Ok(());

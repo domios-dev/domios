@@ -47,7 +47,7 @@ export function missionControlInputRevision(plan: Plan, panes: Record<string, Pa
     parts.push(s.id, s.title.trim());
   }
 
-  return `${parts.join("\0")}\x1e${buildTaskPresenceFingerprint([plan], panes)}`;
+  return `${parts.join("\0")}\x1e${buildTaskPresenceFingerprint([plan], Tabs)}`;
 }
 
 function clean(value?: string | null): string {

@@ -745,7 +745,7 @@ mod tests {
     #[test]
     fn peer_relay_stamps_delivery_id_only_on_sends() {
         let id = relay_send_delivery_id("POST", "/api/panes/abc/send")
-            .expect("a forwarded pane send carries a delivery id");
+            .expect("a forwarded Tab send carries a delivery id");
         assert!(uuid::Uuid::parse_str(&id).is_ok(), "a v4 uuid: {id}");
         assert!(
             relay_send_delivery_id("POST", "/api/panes/abc/send?x=1").is_some(),

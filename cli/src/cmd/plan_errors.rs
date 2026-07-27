@@ -351,7 +351,7 @@ fn append_cross_daemon_hint(message: String, params: &Value, raw_error: &str) ->
         return message;
     }
     let lower = raw_error.to_ascii_lowercase();
-    if lower.contains("pane not found")
+    if lower.contains("Tab not found")
         || lower.contains("plan not found")
         || lower.contains("task not found")
     {
@@ -363,7 +363,7 @@ fn append_cross_daemon_hint(message: String, params: &Value, raw_error: &str) ->
 fn with_cross_daemon_hint(message: String) -> String {
     format!(
         "{message}\n\
-hint: if this plan lives on the dev daemon but this pane is in prod, rerun with the dev daemon selected:\n  env -u CODETERM_API_TOKEN CODETERM_API_PORT=7686 codeterm ..."
+hint: if this plan lives on the dev daemon but this Tab is in prod, rerun with the dev daemon selected:\n  env -u CODETERM_API_TOKEN CODETERM_API_PORT=7686 codeterm ..."
     )
 }
 

@@ -576,7 +576,7 @@ pub(crate) fn launch_agent_in_background(
                 Err(failure) => {
                     let error = failure.reason();
                     log::error!(
-                        "launch_agent: backend PTY spawn failed for pane {}: {}",
+                        "launch_agent: backend PTY spawn failed for Tab {}: {}",
                         pane_id,
                         error
                     );
@@ -651,7 +651,7 @@ pub(crate) fn launch_agent_in_background(
             provider_tui_visible,
         ) {
             log::info!(
-                "launch_agent: pane {} already owns live {} TUI on PTY {}; preserving ready state",
+                "launch_agent: Tab {} already owns live {} TUI on PTY {}; preserving ready state",
                 pane_id,
                 agent_cmd,
                 pty_id
@@ -728,7 +728,7 @@ pub(crate) fn launch_agent_in_background(
                 ) {
                     Some(replacement) => {
                         log::warn!(
-                            "launch_agent: retrying launch for pane {} on replacement pty {} after pty {} closed",
+                            "launch_agent: retrying launch for Tab {} on replacement pty {} after pty {} closed",
                             pane_id, replacement, pty_id
                         );
                         pty_id = replacement;
@@ -801,7 +801,7 @@ pub(crate) fn launch_agent_in_background(
         };
         if let Err(e) = launch_result {
             log::error!(
-                "launch_agent: launch_cmd failed for pane {} (pty {}): {}",
+                "launch_agent: launch_cmd failed for Tab {} (pty {}): {}",
                 pane_id,
                 pty_id,
                 e
@@ -841,7 +841,7 @@ pub(crate) fn launch_agent_in_background(
         }
         if !provider_hook_ready {
             log::warn!(
-                "launch_agent: pane {} accepted live {} TUI before session binding",
+                "launch_agent: Tab {} accepted live {} TUI before session binding",
                 pane_id,
                 agent_cmd
             );
@@ -861,7 +861,7 @@ pub(crate) fn launch_agent_in_background(
                 set_booting(false);
                 {
                     let mut mux = svc.mux.write();
-                    let pane = mux.get_pane_mut(&pane_id).expect("launch pane exists");
+                    let pane = mux.get_pane_mut(&pane_id).expect("launch Tab exists");
                     pane.pending_delivery.get_or_insert_with(|| {
                         crate::service::launch_delivery::pending_record_for_spec(spec.clone())
                     });
@@ -891,7 +891,7 @@ pub(crate) fn launch_agent_in_background(
                     cleanup_error.or_else(|| consumption.err().map(|error| error.to_string()));
                 if let Some(e) = delivery_error {
                     log::error!(
-                        "launch_agent: task delivery failed for pane {} (pty {}): {}",
+                        "launch_agent: task delivery failed for Tab {} (pty {}): {}",
                         pane_id,
                         pty_id,
                         e
@@ -916,7 +916,7 @@ pub(crate) fn launch_agent_in_background(
         }
         LAUNCH_REGISTRY.lock().finish(&launch);
         log::info!(
-            "launch_agent: agent ready in pane {} after {}ms",
+            "launch_agent: agent ready in Tab {} after {}ms",
             pane_id,
             launch_started.elapsed().as_millis()
         );

@@ -54,7 +54,7 @@ top-level module would drag app wiring back into domain crates.
 | `codeterm-plan` | `plan/**`, `service/plan/**`, `service/hierarchy/plan_reminder_nudge.rs` | `codeterm-types`, `codeterm-util`; app supplies event/mem/agent ports | Blocked by `service/plan` calling app event emitters, mem search, provider skills, and socket plan read paths. |
 | `codeterm-mem` | `mem/**` | `codeterm-types`, `codeterm-util`; optional app worker/event ports | Blocked by `mem -> cron`, `mem -> service`, `mem -> api`, and `mem -> pty` edges. |
 | `codeterm-mesh` | `mesh/**` | `codeterm-types`, `codeterm-util` | Small blockers: `mesh -> api` event emission and `mesh -> user_last_activity`. |
-| `codeterm-bridge` | `bridge/**`, `transcribe/**`, `chatpipeline/**` | `codeterm-types`, `codeterm-util`; app supplies outbound pane/service ports | Blocked by `bridge -> service/startup` and plugin capability registration edges. |
+| `codeterm-bridge` | `bridge/**`, `transcribe/**`, `chatpipeline/**` | `codeterm-types`, `codeterm-util`; app supplies outbound tab/service ports | Blocked by `bridge -> service/startup` and plugin capability registration edges. |
 | `codeterm-pty` | `pty/**`, `multiplexer/**`, `session/**`, `dispatch/**`, `resize_owner.rs` | `codeterm-types`, `codeterm-util` | Blocked by `multiplexer/dispatch -> service/api` command execution and provider status reads. |
 | `codeterm-plugin` | `plugin/**`, `chatpreprocessor/**`, `view.rs`, `view_host/**`, `glance/**`, `bubble/**`, `agent_commands/**` | `codeterm-types`, `codeterm-util`; app supplies host ports | Blocked by `plugin -> api/service/socket/mem/secrets` host API calls and tests. |
 | app crate (`src-tauri`) | `api/**`, `commands/**`, `socket/**`, `startup/**`, non-plan `service/**`, `cron/**`, `logs/**`, `notification/**`, `update/**`, `liveness.rs`, `keepawake.rs`, `crash/**`, app state wiring | all domain crates | Remains the only Tauri crate and owns runtime wiring/events. |
@@ -67,7 +67,7 @@ Initial aggregation by the final map above:
 | --- | --- | ---: | --- |
 | app | `codeterm-types` | 368 | Expected after DTO extraction. |
 | app | `codeterm-plan` | 294 | Mostly app/socket/service plan APIs. |
-| app | `codeterm-pty` | 230 | Expected command and pane routing. |
+| app | `codeterm-pty` | 230 | Expected command and Tab routing. |
 | app | `codeterm-util` | 173 | Paths/process helpers used everywhere. |
 | app | `codeterm-mesh` | 135 | Mesh REST/CLI surface. |
 | `codeterm-plugin` | `codeterm-types` | 121 | Provider capability types. |
@@ -95,7 +95,7 @@ Every bidirectional crate edge below blocks a clean Cargo cut.
 | app <-> `codeterm-pty` | app/socket/commands call pty/mux/dispatch; `multiplexer -> service` 12, `dispatch -> service/api` 4 | Move command execution adapters out of `dispatch` into app. PTY/mux emits typed events; app consumes them and calls services. |
 | app <-> `codeterm-plugin` | app commands/startup call plugin; `plugin -> api` 8, `plugin -> service` 11, `plugin -> socket` 1, `plugin -> mem` 4 | Define plugin host traits in `codeterm-plugin` for events, service context, socket path, compute/mem host APIs. App implements; plugin tests use fake hosts. |
 | `codeterm-plugin` <-> `codeterm-types` | plugin imports provider types 121; `agent/chatbackend/usage -> plugin` 4 | Move `CapabilityRegistry`-touching implementations out of type modules into plugin/app adapters. Types crate must not know plugin. |
-| `codeterm-pty` <-> `codeterm-types` | `multiplexer/pty -> agent` 13; `agent -> multiplexer/pty` 9 | Move shared pane/session/status DTOs to types. Keep prompt/screen-state logic in pty or app, not in agent types. |
+| `codeterm-pty` <-> `codeterm-types` | `multiplexer/pty -> agent` 13; `agent -> multiplexer/pty` 9 | Move shared tab/session/status DTOs to types. Keep prompt/screen-state logic in pty or app, not in agent types. |
 | `codeterm-bridge` <-> `codeterm-plugin` | plugin tests call chatpipeline/transcribe 12; chatpipeline/transcribe register plugin capabilities 4 | Put capability registration in app/plugin adapter modules; bridge exposes plain processors. |
 | `codeterm-types` <-> `codeterm-util` | `secrets -> config` 10; `config/agent -> paths` 3 | `secrets` is not util. Move secret storage to app/plugin host or a later `codeterm-secrets`; keep util std-only. |
 

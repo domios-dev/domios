@@ -103,7 +103,7 @@ fn reopen_recreates_pane_with_same_backing() {
 
     let (new_tab, new_pane) = state.reopen_closed_pane(&wsid, None).unwrap();
     assert_ne!(new_tab, tab_id, "fresh tab id");
-    let pane = state.get_pane(&new_pane).expect("reopened pane exists");
+    let pane = state.get_pane(&new_pane).expect("reopened Tab exists");
     assert_eq!(
         pane.backing,
         PaneBacking::ChatBackend {
@@ -138,7 +138,7 @@ fn reopen_chatbackend_pane_opens_in_chat() {
     assert!(pane.is_chat_backend(), "backing preserved on reopen");
     assert!(
         pane.chat_view,
-        "a chatBackend pane reopens in chat regardless of the chat-default pref"
+        "a chatBackend Tab reopens in chat regardless of the chat-default pref"
     );
 }
 
@@ -157,14 +157,14 @@ fn reopen_cascade_group_activates_root_not_leaf() {
     let group_id = state.recent_closed_view()[0].group_id.clone();
 
     let (_ws, _tab, activated) = state.reopen_closed_group(&group_id).unwrap();
-    let pane = state.get_pane(&activated).expect("activated pane exists");
+    let pane = state.get_pane(&activated).expect("activated Tab exists");
     assert_eq!(
         pane.title, "Orchestrator",
         "the cascade root is activated, not a leaf worker"
     );
     assert!(
         pane.parent_pane_id.is_none(),
-        "activated pane is the subtree root"
+        "activated Tab is the subtree root"
     );
 }
 
@@ -238,7 +238,7 @@ fn reopen_unsupported_provider_preserves_chat_mode_too() {
     let (_t, new_pane) = state.reopen_closed_pane(&wsid, None).unwrap();
     assert!(
         state.get_pane(&new_pane).unwrap().chat_view,
-        "history restore preserves the pane's stored mode, not provider capability defaults"
+        "history restore preserves the Tab's stored mode, not provider capability defaults"
     );
 }
 
@@ -275,7 +275,7 @@ fn reopen_cascade_group_preserves_each_pane_mode() {
         .collect();
     assert!(
         closed_modes.contains(&("codex".to_string(), true)),
-        "cascade history must store each child pane mode"
+        "cascade history must store each child Tab mode"
     );
 
     let (_ws, _tab, _first) = state.reopen_closed_group(&group_id).unwrap();
@@ -292,7 +292,7 @@ fn reopen_cascade_group_preserves_each_pane_mode() {
         .map(|p| (p.agent_type.as_deref().unwrap_or(""), p.chat_view))
         .collect();
     agent_panes.sort_by_key(|(provider, _)| *provider);
-    assert_eq!(agent_panes.len(), 2, "both agent panes restored");
+    assert_eq!(agent_panes.len(), 2, "both agent Tabs restored");
     assert_eq!(agent_panes, vec![("claude", false), ("codex", true)]);
 }
 
@@ -378,7 +378,7 @@ fn hidden_pane_is_not_recorded() {
     state.close_tab(&wsid, &tab_id).unwrap();
     assert!(
         state.list_recently_closed(&wsid).is_empty(),
-        "hidden worker pane must not pollute the history"
+        "hidden worker Tab must not pollute the history"
     );
 }
 

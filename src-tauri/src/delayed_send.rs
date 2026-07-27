@@ -399,7 +399,7 @@ pub fn start_scheduler(svc: ServiceState) {
             for msg in due {
                 let pane_id = msg.pane_id.clone();
                 if let Err(e) = deliver_claimed(&svc, msg).await {
-                    log::warn!("[delayed_send] delivery failed for pane {}: {}", pane_id, e);
+                    log::warn!("[delayed_send] delivery failed for Tab {}: {}", pane_id, e);
                 }
                 emit_changed(&svc, &pane_id);
             }
@@ -455,7 +455,7 @@ fn resolve_pane_id(svc: &ServiceState, id_or_alias: &str) -> Result<String, Stri
     svc.mux
         .write()
         .resolve_pane_id(id_or_alias)
-        .ok_or_else(|| "Pane not found".to_string())
+        .ok_or_else(|| "Tab not found".to_string())
 }
 
 fn pane_context(svc: &ServiceState, pane_id: &str) -> (Option<String>, Option<String>) {
@@ -630,7 +630,7 @@ mod tests {
                 ReminderCreator::default(),
             )
             .unwrap();
-        queue.mark_failed(&msg.id, "missing pane".into()).unwrap();
+        queue.mark_failed(&msg.id, "missing Tab".into()).unwrap();
         let updated = queue
             .update(&msg.id, Some("new".into()), Some(200), None)
             .unwrap();

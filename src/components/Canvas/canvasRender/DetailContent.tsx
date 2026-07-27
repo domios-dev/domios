@@ -207,7 +207,7 @@ function LanePanel({ lane, panes, onOpenPane }: { lane?: TaskLaneMetadata; panes
               style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 9px", borderRadius: 999, border: "1px solid var(--ct-border-subtle)", background: canFocus ? "color-mix(in srgb, var(--ct-accent) 9%, transparent)" : "color-mix(in srgb, var(--ct-fg) 5%, transparent)", color: canFocus ? "var(--ct-accent)" : "var(--ct-fg)", fontSize: 12, fontWeight: 600, cursor: canFocus ? "pointer" : "default" }}
             >
               <span style={{ width: 7, height: 7, borderRadius: "50%", background: tab.alive ? GLYPH_ACCENT.progress : "color-mix(in srgb, var(--ct-fg) 35%, transparent)" }} />
-              <span data-testid="task-lane-tab-title">{tabLabel}</span>
+              <span data-testid="task-lane-pane-title">{tabLabel}</span>
             </button>
             {tab.title && <span data-testid="task-lane-pane-id" title="Tab id" style={{ ...monoValue, fontSize: 11, color: "color-mix(in srgb, var(--ct-fg) 45%, transparent)" }}>{tab.paneId}</span>}
             {!tab.alive && <span data-testid="task-lane-pane-dead" style={{ fontSize: 11, fontStyle: "italic", color: "color-mix(in srgb, var(--ct-fg) 50%, transparent)" }}>closed</span>}

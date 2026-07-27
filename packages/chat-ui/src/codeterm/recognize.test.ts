@@ -20,9 +20,9 @@ function ok(c: boolean, name: string) {
 
 console.log("\n--- recognize ---\n");
 
-const inv = recognize('codeterm send --tab bda0e267 "Понял, буду"');
+const inv = recognize('codeterm send --pane bda0e267 "Понял, буду"');
 eq(inv?.path, ["send"], "send path");
-eq(inv?.flags.tab, "bda0e267", "send --tab flag");
+eq(inv?.flags.tab, "bda0e267", "send --pane flag");
 eq(inv?.positionals, ["Понял, буду"], "send positional payload");
 
 eq(recognize('codeterm agent spawn claude --task "go"')?.path, ["agent", "spawn"], "agent spawn path");
@@ -47,26 +47,26 @@ ok(recognize("codeterm tabs") === null, "legacy tabs command stays unknown");
 ok(recognize("codeterm tabs list") === null, "legacy tabs list stays unknown");
 eq(recognize("codeterm cron list --json")?.path, ["cron", "list"], "known depth-2 subcommand");
 eq(recognize("codeterm agent spawn claude")?.positionals, ["claude"], "trailing word stays positional");
-eq(recognize("codeterm tab get-text --tab abc")?.path, ["tab", "get-text"], "tab get-text path");
+eq(recognize("codeterm tab get-text --pane abc")?.path, ["tab", "get-text"], "tab get-text path");
 eq(recognize("codeterm plan task update task_1 --status done")?.path, ["plan", "task", "update"], "depth-3 plan path");
 eq(recognize("codeterm spec link add pl_1 --spec sp_1")?.path, ["spec", "link", "add"], "depth-3 spec path");
 
 console.log("\n--- templates ---\n");
 import { describeAction, renderTemplate } from "./templates";
 
-const sent = recognize('codeterm send --tab bda0e267 "hi there"')!;
+const sent = recognize('codeterm send --pane bda0e267 "hi there"')!;
 eq(renderTemplate(sent).title, "Sent to tab bda0e267", "send title");
 eq(renderTemplate(sent, "OK (sent)").status, { ok: true, label: "delivered" }, "send status from result");
 
-const sendAlias = recognize('codeterm send --tab keats "Привет от send"')!;
+const sendAlias = recognize('codeterm send --pane keats "Привет от send"')!;
 eq(renderTemplate(sendAlias).title, "Sent to tab keats", "send title from renamed command");
 eq(renderTemplate(sendAlias, "OK").status, { ok: true, label: "delivered" }, "send status from result");
 
 const resolveName = (ref: string) => (ref.slice(0, 8) === "45509574" ? "qa-lat" : undefined);
-const sentResolvable = recognize('codeterm send --tab 45509574 "yo"')!;
-eq(renderTemplate(sentResolvable, undefined, resolveName).title, "Sent to qa-lat", "send title resolves pane id to tab name");
+const sentResolvable = recognize('codeterm send --pane 45509574 "yo"')!;
+eq(renderTemplate(sentResolvable, undefined, resolveName).title, "Sent to qa-lat", "send title resolves Tab id to tab name");
 eq(renderTemplate(sentResolvable).title, "Sent to tab 45509574", "send title keeps id when no resolver");
-const sentUnknown = recognize('codeterm send --tab deadbeef "yo"')!;
+const sentUnknown = recognize('codeterm send --pane deadbeef "yo"')!;
 eq(renderTemplate(sentUnknown, undefined, resolveName).title, "Sent to tab deadbeef", "send title falls back to id when unresolved");
 
 const spawn = recognize('codeterm agent spawn claude --task "do x" --workspace ws1')!;

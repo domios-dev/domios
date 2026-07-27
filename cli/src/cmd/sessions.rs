@@ -205,7 +205,7 @@ pub fn handle_sessions(
                     let cwd = val.get("cwd").and_then(|v| v.as_str()).unwrap_or("?");
                     println!("Resumed [{}] {}", provider, session_id);
                     println!("  workspace: {}", ws);
-                    println!("  pane:      {}", pane);
+                    println!("  tab:       {}", pane);
                     println!("  cwd:       {}", cwd);
                 }
                 Err(e) => {

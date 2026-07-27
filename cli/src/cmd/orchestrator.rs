@@ -581,7 +581,7 @@ mod tests {
             "pane1",
             SocketCallError::Rpc(RpcError {
                 code: -32603,
-                message: "Pane not found".into(),
+                message: "Tab not found".into(),
                 data: None,
             }),
         );

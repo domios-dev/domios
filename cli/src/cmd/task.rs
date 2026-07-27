@@ -142,7 +142,7 @@ fn run_task(
         }),
         TaskAction::Take { task_id } => {
             let caller = caller_pane(client).ok_or(
-                "task take requires a pane on the target machine and is unavailable over mesh",
+                "task take requires a Tab on the target machine and is unavailable over mesh",
             )?;
             call(
                 client,

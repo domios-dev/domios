@@ -20,7 +20,7 @@ const workspaces: Workspace[] = [
   },
 ];
 
-test("resolves an exact pane to its owning workspace", () => {
+test("resolves an exact Tab to its owning workspace", () => {
   assert.deepEqual(
     resolveTabNavigationTarget("other-pane", ["58ffb596-full", "other-pane"], workspaces),
     { paneId: "other-pane", workspaceId: "workspace-b" },
@@ -34,7 +34,7 @@ test("resolves a unique short ref to its owning workspace", () => {
   );
 });
 
-test("rejects missing, ambiguous, and detached pane refs", () => {
+test("rejects missing, ambiguous, and detached Tab refs", () => {
   assert.equal(resolveTabNavigationTarget("missing", ["58ffb596-full"], workspaces), null);
   assert.equal(
     resolveTabNavigationTarget("58", ["58ffb596-full", "58-second"], workspaces),

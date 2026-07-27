@@ -31,7 +31,7 @@ export function GroupCloseConfirmDialog({
         <div data-testid="group-close-summary" className="px-4 py-1 text-[12px] text-[var(--ct-muted-fg)]">
           {isTeam
             ? `This closes all ${members.length} Team tabs:`
-            : `This closes ${members.length + 1} panes — the orchestrator${bySection ? ` + ${bySection}` : ""}:`}
+            : `This closes ${members.length + 1} Tabs — the orchestrator${bySection ? ` + ${bySection}` : ""}:`}
         </div>
         <ul className="px-4 py-2 flex flex-col gap-1 text-[12px] text-[var(--ct-fg)]">
           {!isTeam && <li>{orchestratorTitle} (Orchestrator)</li>}

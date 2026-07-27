@@ -81,7 +81,7 @@ const PLUGIN_PREAMBLE: &str = r#"
   };
   host.workspace = {
     ensure: function (opts) { return parseJson(host.workspaceEnsure(JSON.stringify(opts))); },
-    panes:  function (workspaceId) { return parseJson(host.workspacePanes(workspaceId)) || []; },
+    panes: function (workspaceId) { return parseJson(host.workspacePanes(workspaceId)) || []; },
   };
   host.worker = {
     start: function (opts) { return parseJson(host.workerStart(JSON.stringify(opts))); },

@@ -969,7 +969,7 @@ mod tests {
             title: None,
         });
         let json = serde_json::to_string(&p).unwrap();
-        assert!(json.contains("\"kind\":\"pane\""));
+        assert!(json.contains("\"kind\":\"Pane\""));
         assert!(json.contains("\"pane_id\":\"pane_plan\""));
         let back: Plan = serde_json::from_str(&json).unwrap();
         assert_eq!(back.planner, p.planner);

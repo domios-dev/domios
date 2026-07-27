@@ -78,7 +78,7 @@ async function main() {
     assert(chatSetupView(pane("delivering_instructions")).kind === "starting", "fallback delivery is starting");
     assert(chatSetupView(pane("spawn_failed", "boom")).kind === "failed", "spawn_failed is failed");
     assert(chatSetupView(pane("pty_reattached")).kind === "none", "a reattached live PTY is not booting");
-    assert(chatSetupView(null).kind === "none", "no pane is none");
+    assert(chatSetupView(null).kind === "none", "no Tab is none");
   });
 
   await test("an authoritative attached chat suppresses stale setup stages", () => {
@@ -165,7 +165,7 @@ async function main() {
     const host = await render(
       <ChatSetupState pane={p} view={chatSetupView(p)} providerName="Codex" onRetry={() => {}} />,
     );
-    assert(!host.querySelector('[data-testid="chat-launch-retry"]'), "retry is hidden when the pane cannot be restarted");
+    assert(!host.querySelector('[data-testid="chat-launch-retry"]'), "retry is hidden when the Tab cannot be restarted");
   });
 
   await test("a failed provisioned agent offers retry without a provider-specific branch", async () => {

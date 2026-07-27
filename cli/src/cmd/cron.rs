@@ -212,7 +212,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
                         println!("{}", serde_json::to_string_pretty(&val).unwrap());
                     } else {
                         println!(
-                            "Triggered: pane={}",
+                            "Triggered: tab={}",
                             val.get("pane_id").and_then(|v| v.as_str()).unwrap_or("?")
                         );
                     }
@@ -254,7 +254,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
                         }
                         for r in arr {
                             println!(
-                                "{} {} started={} pane={}",
+                                "{} {} started={} tab={}",
                                 r.get("run_id").and_then(|v| v.as_str()).unwrap_or("?"),
                                 r.get("status").and_then(|v| v.as_str()).unwrap_or("?"),
                                 r.get("started_at").and_then(|v| v.as_u64()).unwrap_or(0),

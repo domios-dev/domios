@@ -31,9 +31,9 @@ console.log("detectChatPrefix");
   eq(
     r?.origin,
     { kind: "pane", title: "Main", paneIdShort: "12e450b4", model: "Sonnet" },
-    "ct pane marker parses",
+    "ct Tab marker parses",
   );
-  eq(r?.body, "Hey", "ct pane marker body stripped");
+  eq(r?.body, "Hey", "ct Tab marker body stripped");
 }
 
 {
@@ -48,7 +48,7 @@ console.log("detectChatPrefix");
   eq(
     r?.origin,
     { kind: "pane", title: "CURRENT TAB", paneIdShort: "915fae8e", model: "codex" },
-    "ct current-pane marker keeps pane id for render-time name resolution",
+    "ct current-pane marker keeps Tab id for render-time name resolution",
   );
   eq(r?.body, "Hey self", "ct current-pane marker body stripped");
 }
@@ -106,7 +106,7 @@ console.log("detectChatPrefix");
     "-=-codeterm:tab label=Main tab=12e450b4 model=Sonnet-=-Hey" +
     "-=-codeterm:tab label=Claude tab=e8a0ac20-=-Rollo online",
   );
-  assert(r?.length === 2, "splits adjacent ct pane markers");
+  assert(r?.length === 2, "splits adjacent ct Tab markers");
   eq(r?.[0].body, "Hey", "adjacent ct split first body");
   eq(r?.[1].origin, { kind: "pane", title: "Claude", paneIdShort: "e8a0ac20" }, "adjacent ct split second origin");
 }
@@ -119,7 +119,7 @@ console.log("detectChatPrefix");
   eq(r2, null, "old square codeterm prefix is plain text");
 
   const r3 = detectChatPrefix("from Main pane=12e450b4 model Sonnet old");
-  eq(r3, null, "old bare pane prefix is plain text");
+  eq(r3, null, "old bare Tab prefix is plain text");
 
   const r4 = detectChatPrefix("[Telegram: 12345] old");
   eq(r4, null, "old bridge prefix is plain text");

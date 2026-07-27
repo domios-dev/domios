@@ -84,8 +84,8 @@ fn print_result(value: &Value) {
         .and_then(|v| v.as_str())
         .unwrap_or("?");
     println!("Plan: {plan_id}");
-    println!("Orchestrator: pane {orch_pane}");
-    println!("Planner: pane {planner_pane}");
+    println!("Orchestrator: Tab {orch_pane}");
+    println!("Planner: Tab {planner_pane}");
     if let Some(warning) = value.get("warning").and_then(|v| v.as_str()) {
         eprintln!("Warning: {warning}");
     }

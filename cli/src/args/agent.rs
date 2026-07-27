@@ -124,7 +124,7 @@ pub enum AgentAction {
     /// Link a tab as worker under a parent
     Link {
         /// Parent tab ID (orchestrator)
-        #[arg(long = "parent-tab")]
+        #[arg(long = "parent-pane")]
         parent: String,
         /// Tab ID to link (default: current focused tab)
         #[arg(long = "tab", value_name = "TAB")]
@@ -217,7 +217,7 @@ pub enum AgentAction {
         #[arg(long)]
         role: Option<SpawnRole>,
         /// Parent tab ID (for Workers)
-        #[arg(long = "parent-tab")]
+        #[arg(long = "parent-pane")]
         parent: Option<String>,
         /// Plan id to bind — required for `--role Planner` to auto-bind
         /// Plan.planner and deliver the peer prompt naming the Orchestrator.
@@ -392,7 +392,7 @@ mod tests {
 
     #[test]
     fn ledger_parses_pane_and_global_json() {
-        let cli = Cli::try_parse_from(["codeterm", "--json", "agent", "ledger", "--tab", "orch-1"])
+        let cli = Cli::try_parse_from(["codeterm", "--json", "agent", "ledger", "--pane", "orch-1"])
             .expect("ledger should parse");
         assert!(cli.json, "global --json applies to ledger output");
         match cli.command {

@@ -9,7 +9,7 @@ assert.equal(
     ptyId: null,
   }),
   false,
-  "hidden restored desktop pane without pty must not spawn a shell",
+  "hidden restored desktop Tab without pty must not spawn a shell",
 );
 
 assert.equal(
@@ -20,7 +20,7 @@ assert.equal(
     ptyId: null,
   }),
   true,
-  "visible desktop pane may spawn its first shell",
+  "visible desktop Tab may spawn its first shell",
 );
 
 assert.equal(
@@ -31,13 +31,13 @@ assert.equal(
     ptyId: "pty-1",
   }),
   true,
-  "hidden pane with an existing pty may keep its reader alive",
+  "hidden Tab with an existing pty may keep its reader alive",
 );
 
 assert.equal(
   terminalRenderEnabled({ terminalVisible: true, paneVisible: false }),
   false,
-  "hidden pane must not render terminal output",
+  "hidden Tab must not render terminal output",
 );
 
 assert.equal(

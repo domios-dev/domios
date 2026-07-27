@@ -930,7 +930,7 @@ pub(crate) fn resolve_pane(
 ) -> Result<String, (StatusCode, &'static str)> {
     let mux = state.svc.mux.write();
     mux.resolve_pane_id(raw_id)
-        .ok_or((StatusCode::NOT_FOUND, "Pane not found"))
+        .ok_or((StatusCode::NOT_FOUND, "Tab not found"))
 }
 
 /// Auth + access check handled by auth_middleware layer.

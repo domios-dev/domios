@@ -82,9 +82,9 @@ export interface SidebarWorkspaceTabsProps {
   sidebarActionText: string;
   orchestrators: Pane[];
   onBeforeOpenPlan: () => void;
-  onActivateTab: (tabId: string) => void;
-  onCloseTab: (tabId: string) => void;
-  onRenameTab: (tabId: string, title: string) => void;
+  onActivatepane: (tabId: string) => void;
+  onClosepane: (tabId: string) => void;
+  onRenamepane: (tabId: string, title: string) => void;
   onNewSession: () => void;
   onRenameTeam?: (teamId: string, name: string, managerPaneId: string) => void | Promise<void>;
   onAddTeamMember?: (
@@ -158,7 +158,7 @@ export function SidebarWorkspaceTabs({
     uiFontScale,
     onActivateTab,
     onCloseTab,
-    onRenameTab: (tabId: string, title: string) => {
+    onRenamepane: (tabId: string, title: string) => {
       onRenameTab(tabId, title);
       persistTabRename(ws.id, tabId, title);
     },
@@ -325,9 +325,9 @@ export interface SidebarCollapsedActiveTabProps {
   orchestrators: Pane[];
   touchMode: boolean;
   uiFontScale?: number;
-  onActivateTab: (tabId: string) => void;
-  onCloseTab: (tabId: string) => void;
-  onRenameTab: (tabId: string, title: string) => void;
+  onActivatepane: (tabId: string) => void;
+  onClosepane: (tabId: string) => void;
+  onRenamepane: (tabId: string, title: string) => void;
 }
 
 export function SidebarCollapsedActiveTab({

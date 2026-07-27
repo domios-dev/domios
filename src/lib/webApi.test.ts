@@ -57,7 +57,7 @@ async function run() {
 
   const stalePaneRequest = webFetch("/api/panes/blackstar-pane/chat-raw/start", { method: "POST" });
   invalidateWebRequestContext();
-  assert((requestSignal as AbortSignal | null)?.aborted, "peer switch aborts the old pane request");
+  assert((requestSignal as AbortSignal | null)?.aborted, "peer switch aborts the old Tab request");
   try {
     await stalePaneRequest;
     assert(false, "aborted old-pane request must reject");
@@ -75,7 +75,7 @@ async function run() {
   clearRelayTarget();
   saveStateSnapshot(state("blackstar"));
   setRelayTarget("mac-air-id", "Mac-Air");
-  assert(loadCachedStateSync() === null, "self-host pane cache is invisible under Mac-Air");
+  assert(loadCachedStateSync() === null, "self-host Tab cache is invisible under Mac-Air");
   saveStateSnapshot(state("mac-air"));
   clearRelayTarget();
   assert(loadCachedStateSync()?.active_workspace_id === "blackstar", "self cache survives peer round-trip");

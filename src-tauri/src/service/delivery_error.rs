@@ -115,21 +115,18 @@ impl std::fmt::Display for DeliveryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::PaneNotReachableOnPeer { pane } => {
-                write!(f, "pane {pane} does not resolve on this peer")
+                write!(f, "Tab {pane} does not resolve on this peer")
             }
             Self::PaneBusyRefused { pane, detail } => {
-                write!(
-                    f,
-                    "pane {pane} refused delivery (nothing written): {detail}"
-                )
+                write!(f, "Tab {pane} refused delivery (nothing written): {detail}")
             }
             Self::PtyUnavailable { pane, detail } => {
-                write!(f, "pane {pane} has no usable PTY: {detail}")
+                write!(f, "Tab {pane} has no usable PTY: {detail}")
             }
             Self::SubmitUnconfirmed { pane, detail } => {
                 write!(
                     f,
-                    "pane {pane} received the text but never confirmed submission: {detail}"
+                    "Tab {pane} received the text but never confirmed submission: {detail}"
                 )
             }
         }

@@ -35,7 +35,7 @@ assert(resolveMilestoneAuthor(FIXTURE_MILESTONE, {}) === "Worker", "author from 
 assert(resolveMilestoneAuthor(
   { ...FIXTURE_MILESTONE, from: { pane_id: "pane-b", session_id: null, title: null } },
   { "pane-b": { id: "pane-b", title: "Puccini" } as never },
-) === "Puccini", "author from pane title");
+) === "Puccini", "author from Tab title");
 assert(resolveMilestoneAuthor(
   { ...FIXTURE_MILESTONE, from: { pane_id: "pane-x", session_id: null, title: null } },
   {},

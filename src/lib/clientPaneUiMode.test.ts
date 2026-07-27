@@ -69,24 +69,24 @@ function mode(paneId: string) {
   });
 }
 
-test("new chat-capable panes open directly in chat", () => {
+test("new chat-capable Tabs open directly in chat", () => {
   installWindow();
   assert(mode("new-agent") === "chat", "chat capability should select chat");
 });
 
-test("an explicit terminal choice remains scoped to that pane", () => {
+test("an explicit terminal choice remains scoped to that Tab", () => {
   installWindow();
   setClientPaneUiMode("manual-terminal", "terminal");
   assert(mode("manual-terminal") === "terminal", "manual terminal choice should be honored");
   assert(mode("another-agent") === "chat", "terminal choice must not change the product default");
 });
 
-test("non-chat-capable panes stay in terminal", () => {
+test("non-chat-capable Tabs stay in terminal", () => {
   installWindow();
   const resolved = resolveInitialPaneUiMode("plain-terminal", {
     chatCapable: false,
   });
-  assert(resolved === "terminal", "non-chat-capable pane should stay terminal");
+  assert(resolved === "terminal", "non-chat-capable Tab should stay terminal");
 });
 
 let failed = 0;

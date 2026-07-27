@@ -100,20 +100,20 @@ fn every_delivery_class_dispatches_optimistically() {
 fn worker_report_requirement_is_consumed_exactly_once() {
     let gateway = MessageGateway::new();
 
-    gateway.require_worker_report("worker-tab");
+    gateway.require_worker_report("worker-pane");
 
-    assert!(gateway.take_worker_report_requirement("worker-tab"));
-    assert!(!gateway.take_worker_report_requirement("worker-tab"));
+    assert!(gateway.take_worker_report_requirement("worker-pane"));
+    assert!(!gateway.take_worker_report_requirement("worker-pane"));
 }
 
 #[test]
 fn explicit_worker_report_clears_the_requirement() {
     let gateway = MessageGateway::new();
-    gateway.require_worker_report("worker-tab");
+    gateway.require_worker_report("worker-pane");
 
-    gateway.clear_worker_report_requirement("worker-tab");
+    gateway.clear_worker_report_requirement("worker-pane");
 
-    assert!(!gateway.take_worker_report_requirement("worker-tab"));
+    assert!(!gateway.take_worker_report_requirement("worker-pane"));
 }
 
 fn text_msg(target: &str, body: &str, key: Option<&str>) -> OutboundMessage {
@@ -271,7 +271,7 @@ fn distinct_origin_or_key_is_not_deduped() {
 #[test]
 fn cached_error_replays_without_second_delivery() {
     let gateway = MessageGateway::new();
-    let fake = FakeSeam::failing("Pane p9 not found or has no PTY");
+    let fake = FakeSeam::failing("Tab p9 not found or has no PTY");
 
     let first = gateway
         .submit(&fake, text_msg("p9", "hi", Some("k1")))
@@ -290,7 +290,7 @@ fn pane_not_found_and_delivered_unverified_are_distinct() {
 
     let not_found = gateway
         .submit(
-            &FakeSeam::failing("Pane p9 not found or has no PTY"),
+            &FakeSeam::failing("Tab p9 not found or has no PTY"),
             text_msg("p9", "hi", None),
         )
         .unwrap_err();
@@ -317,11 +317,11 @@ fn pane_not_found_and_delivered_unverified_are_distinct() {
 #[test]
 fn classify_maps_structural_markers() {
     assert!(matches!(
-        classify("p", "Pane p not found or has no PTY".to_string()),
+        classify("p", "Tab p not found or has no PTY".to_string()),
         DeliveryError::PaneNotFound { .. }
     ));
     assert!(matches!(
-        classify("p", "Pane p closed before PTY link".to_string()),
+        classify("p", "Tab p closed before PTY link".to_string()),
         DeliveryError::PaneNotFound { .. }
     ));
     assert!(matches!(

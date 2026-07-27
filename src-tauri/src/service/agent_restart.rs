@@ -136,7 +136,7 @@ impl ServiceContext {
 
     /// The protected General `Main` pane below `AgentReady` has no live agent to
     /// `/exit`, so the generic restart path can only report "no agent in this
-    /// pane". Route it to the guarded General Agent relaunch instead — the one
+    /// Tab". Route it to the guarded General Agent relaunch instead — the one
     /// recovery that rebuilds the PTY. Rate limiting still applies, and the
     /// relaunch claim is what prevents a second launch, so this cannot storm.
     fn recover_general_agent_pane(
@@ -192,7 +192,7 @@ impl ServiceContext {
         });
 
         log::info!(
-            "[agent_restart] pane {} recovered via General Agent relaunch",
+            "[agent_restart] Tab {} recovered via General Agent relaunch",
             target
         );
         Ok(Some(RestartOutcome {
@@ -226,19 +226,19 @@ impl ServiceContext {
         let mux = self.mux.write();
         let resolved = mux
             .resolve_pane_id(pane_id)
-            .ok_or_else(|| AgentRestartError::NotFound(format!("pane {} not found", pane_id)))?;
+            .ok_or_else(|| AgentRestartError::NotFound(format!("Tab {} not found", pane_id)))?;
         let pane = mux
             .get_pane(&resolved)
-            .ok_or_else(|| AgentRestartError::NotFound(format!("pane {} not found", pane_id)))?;
+            .ok_or_else(|| AgentRestartError::NotFound(format!("Tab {} not found", pane_id)))?;
 
         let provider = pane
             .agent_type
             .clone()
-            .ok_or_else(|| AgentRestartError::BadRequest("no agent in this pane".to_string()))?;
+            .ok_or_else(|| AgentRestartError::BadRequest("no agent in this Tab".to_string()))?;
         let pty_id = pane
             .pty_id
             .clone()
-            .ok_or_else(|| AgentRestartError::BadRequest("pane has no PTY".to_string()))?;
+            .ok_or_else(|| AgentRestartError::BadRequest("Tab has no PTY".to_string()))?;
 
         if self
             .agent_registry
@@ -412,14 +412,14 @@ async fn drive_restart(
         log::error!(
             "[agent_restart] pane={} agent TUI still on screen after exit + Ctrl-C escalation — \
              aborting relaunch to avoid piping launch command into the TUI's input box. \
-             User can re-run restart with force=true or close the pane manually.",
+             User can re-run restart with force=true or close the Tab manually.",
             snap.pane_id
         );
         crate::logs::record(
             crate::logs::LogLevel::Warn,
             "agent.restart",
             format!(
-                "restart aborted on pane {} — agent did not exit cleanly; re-run with force=true",
+                "restart aborted on Tab {} — agent did not exit cleanly; re-run with force=true",
                 snap.pane_id
             ),
             Some(serde_json::json!({

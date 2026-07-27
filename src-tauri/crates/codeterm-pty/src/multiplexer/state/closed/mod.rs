@@ -244,12 +244,12 @@ impl MultiplexerState {
         }
         let count = self.closed_store.count_for_workspace(workspace_id);
         if count == 0 {
-            return Err("No recently closed panes".to_string());
+            return Err("No recently closed Tabs".to_string());
         }
         let idx = index.unwrap_or(0);
         if idx >= count {
             return Err(format!(
-                "No recently closed pane at index {} (ring has {})",
+                "No recently closed Tab at index {} (ring has {})",
                 idx, count
             ));
         }
@@ -257,12 +257,12 @@ impl MultiplexerState {
         let (row_id, record) = self
             .closed_store
             .peek_in_workspace(workspace_id, idx)
-            .ok_or("No recently closed pane")?;
+            .ok_or("No recently closed Tab")?;
         let res = self.materialize_closed_pane(workspace_id, &record)?;
         if let Err(e) = self.closed_store.delete_pane_row(row_id) {
             // History delete failed after materialize: a retry would duplicate. Surface it.
             log::warn!(
-                "reopen_closed_pane: reopened pane {} but failed to delete closed entry (row {row_id}): {e}",
+                "reopen_closed_pane: reopened Tab {} but failed to delete closed entry (row {row_id}): {e}",
                 res.1
             );
         }
@@ -295,7 +295,7 @@ impl MultiplexerState {
         let (tab_id, new_pane_id) = self.materialize_closed_pane(&workspace_id, &record)?;
         if let Err(e) = self.closed_store.delete_pane_row(row_id) {
             log::warn!(
-                "reopen_orphaned_pane: reopened pane {new_pane_id} but failed to delete closed entry (row {row_id}): {e}"
+                "reopen_orphaned_pane: reopened Tab {new_pane_id} but failed to delete closed entry (row {row_id}): {e}"
             );
         }
         Ok((workspace_id, tab_id, new_pane_id))
@@ -313,7 +313,7 @@ impl MultiplexerState {
             .peek_group(group_id)
             .ok_or_else(|| format!("No closed group: {}", group_id))?;
         if panes.is_empty() {
-            return Err("Closed group has no panes".to_string());
+            return Err("Closed group has no Tabs".to_string());
         }
 
         let workspace_id = match group.kind {
@@ -378,7 +378,7 @@ impl MultiplexerState {
             .find(|r| r.parent_pane_id.is_none())
             .and_then(|r| tabs_by_pane.get(&r.pane_id).cloned())
             .or(first)
-            .ok_or("Closed group has no panes")?;
+            .ok_or("Closed group has no Tabs")?;
         Ok((workspace_id, tab_id, pane_id))
     }
 }

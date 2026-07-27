@@ -42,7 +42,7 @@ test("revision changes when task status changes", () => {
   );
 });
 
-test("revision changes when pane title changes", () => {
+test("revision changes when Tab title changes", () => {
   const plan = mkPlan([
     {
       ...FIXTURE_TASK,
@@ -56,7 +56,7 @@ test("revision changes when pane title changes", () => {
   const panesB = { [PANE.id]: { ...PANE, title: "Renamed" } };
   assert(
     missionControlInputRevision(plan, panesA) !== missionControlInputRevision(plan, panesB),
-    "pane title",
+    "Tab title",
   );
 });
 

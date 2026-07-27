@@ -13,7 +13,7 @@ pub(super) fn deliver_hidden_pty_task(
 ) -> Result<(), String> {
     if !svc.await_agent_tui_on_screen(pty_id, provider, std::time::Duration::from_secs(15)) {
         log::warn!(
-            "[spawn.hidden] timed out waiting for agent TUI before task delivery in pane {}",
+            "[spawn.hidden] timed out waiting for agent TUI before task delivery in Tab {}",
             pane_id
         );
     }

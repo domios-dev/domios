@@ -35,7 +35,7 @@ function findAnchorOffsetTop(container: HTMLElement, elementId: string): number 
 }
 
 export interface UseChatScrollOptions {
-  /** Identifies the transcript this viewport is anchored to (pane + agent session). */
+  /** Identifies the transcript this viewport is anchored to (Tab + agent session). */
   sessionKey: string;
   active: boolean;
   loading: boolean;
@@ -53,12 +53,12 @@ export interface UseChatScrollResult {
 
 /**
  * The single scroll authority for the chat viewport. Every scrollTop write for
- * this pane's chat lives here: no other module may assign `.scrollTop`.
+ * this Tab's chat lives here: no other module may assign `.scrollTop`.
  *
  * Detached mode stores an explicit anchor (a message element id + its pixel
  * offset from the viewport top) instead of a bare "detached" flag, so the
  * reader's visual position survives height changes, history prepends, and a
- * full remount (panes genuinely unmount on tab switch) by re-resolving the
+ * full remount (Tabs genuinely unmount on tab switch) by re-resolving the
  * anchor element's new position rather than re-deriving a scrollTop delta.
  */
 export function useChatScroll({ sessionKey, active, loading, messageCount }: UseChatScrollOptions): UseChatScrollResult {

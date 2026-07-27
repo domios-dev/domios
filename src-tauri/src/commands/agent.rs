@@ -56,7 +56,7 @@ pub fn install_provider_in_pane_core(
             }
             if std::time::Instant::now() > frontend_deadline {
                 log::warn!(
-                    "install_provider_in_pane: PTY didn't appear for pane {}",
+                    "install_provider_in_pane: PTY didn't appear for Tab {}",
                     pane_id_clone
                 );
                 return;

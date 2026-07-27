@@ -93,7 +93,7 @@ test("pending tasks land in dispatch", () => {
   assert(model.activeCount === 0, "pending not active");
 });
 
-test("in_progress task with live pane lands in work_floor with alive presence", () => {
+test("in_progress task with live Tab lands in work_floor with alive presence", () => {
   const plan = mkPlan({
     tasks: [
       mkTask({
@@ -109,14 +109,14 @@ test("in_progress task with live pane lands in work_floor with alive presence", 
   assert(stations.length === 1, "one station in work_floor");
   const st = stations[0];
   assert(st.presence !== null, "presence set");
-  assert(st.presence!.alive === true, "pane alive");
+  assert(st.presence!.alive === true, "Tab alive");
   assert(st.presence!.paneId === LIVE_PANE.id, "paneId");
   assert(st.deadPane === false, "not dead");
   assert(model.activeCount === 1, "activeCount 1");
   assert(model.presenceByPaneId.has(LIVE_PANE.id), "in presenceByPaneId");
 });
 
-test("in_progress task with dead pane is dead_pane flagged", () => {
+test("in_progress task with dead Tab is dead_pane flagged", () => {
   const plan = mkPlan({
     tasks: [
       mkTask({
@@ -131,7 +131,7 @@ test("in_progress task with dead pane is dead_pane flagged", () => {
   const stations = zoneStations(model, "work_floor");
   assert(stations.length === 1, "station present");
   assert(stations[0].deadPane === true, "deadPane flag");
-  assert(stations[0].presence === null, "no presence for dead pane");
+  assert(stations[0].presence === null, "no presence for dead Tab");
   assert(model.deadPaneCount === 1, "deadPaneCount 1");
   assert(model.presenceByPaneId.size === 0, "no live presences");
 });
@@ -194,7 +194,7 @@ test("blocked and paused tasks land in blocked zone", () => {
   assert(model.activeCount === 0, "blocked/paused not active");
 });
 
-test("busy active lanes: multiple in_progress with separate panes", () => {
+test("busy active lanes: multiple in_progress with separate Tabs", () => {
   const pane2: Pane = { ...LIVE_PANE, id: "pane-worker-2", title: "Verdi" };
   const plan = mkPlan({
     tasks: [
@@ -207,7 +207,7 @@ test("busy active lanes: multiple in_progress with separate panes", () => {
   assert(zoneStations(model, "work_floor").length === 2, "two in work_floor");
   assert(model.presenceByPaneId.size === 2, "two live presences");
   assert(model.activeCount === 2, "activeCount 2");
-  assert(model.deadPaneCount === 0, "no dead panes");
+  assert(model.deadPaneCount === 0, "no dead Tabs");
 });
 
 test("competition task surfaces competeBadge in work_floor", () => {
@@ -277,14 +277,14 @@ test("stale in_progress task is flagged stale", () => {
   assert(st.stale === true, "stale flag");
 });
 
-test("task without assigned pane has null presence and no deadPane flag", () => {
+test("task without assigned Tab has null presence and no deadPane flag", () => {
   const plan = mkPlan({
     tasks: [mkTask({ id: "t-free", status: TaskStatus.InProgress, assigned_pane_id: null, lane: undefined })],
   });
   const model = buildMissionControl(plan, PANES, NOW);
   const st = zoneStations(model, "work_floor")[0];
   assert(st.presence === null, "no presence");
-  assert(st.deadPane === false, "not deadPane — no pane id at all");
+  assert(st.deadPane === false, "not deadPane — no Tab id at all");
 });
 
 test("latest milestone note surfaces as latestNote on the station", () => {

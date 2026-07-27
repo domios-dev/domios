@@ -102,14 +102,14 @@ test("resolveDisplayPlanningState omits chip on complete plans with drafting def
   assert(resolveDisplayPlanningState(plan) === null, "complete hides drafting lie");
 });
 
-test("deriveBoardPlanSummary labels remote planner when pane is not local", () => {
+test("deriveBoardPlanSummary labels remote planner when Tab is not local", () => {
   const plan: Plan = {
     ...FIXTURE_PLAN,
     planner: { kind: "pane", pane_id: "planner-prod-99", title: null },
   };
   const summary = deriveBoardPlanSummary(plan, PANES);
   assert(summary.plannerLabel === "planner- (remote)", "remote short id label");
-  assert(summary.plannerPaneId === "planner-prod-99", "pane id preserved");
+  assert(summary.plannerPaneId === "planner-prod-99", "Tab id preserved");
 });
 
 test("deriveBoardPlanSummary prefers bound planner title over remote fallback", () => {
@@ -118,7 +118,7 @@ test("deriveBoardPlanSummary prefers bound planner title over remote fallback", 
     planner: { kind: "pane", pane_id: "planner-prod-99", title: "Prod planner" },
   };
   const summary = deriveBoardPlanSummary(plan, {});
-  assert(summary.plannerLabel === "Prod planner", "ref title when pane absent");
+  assert(summary.plannerLabel === "Prod planner", "ref title when Tab absent");
 });
 
 test("groupTasksIntoColumns folds paused tasks into pending column", () => {
@@ -156,7 +156,7 @@ test("groupTasksIntoColumns places tasks by status in planned execution order", 
     "created order wins over recent activity, with unsequenced tasks last",
   );
   const live = columns.find((c) => c.key === "in_progress")!;
-  assert(live.cards[0]?.presenceLabel === "Puccini", "presence from pane title");
+  assert(live.cards[0]?.presenceLabel === "Puccini", "presence from Tab title");
   assert(!live.cards[0]?.historicalExecutorSummary, "active task has no historical summary");
 });
 
@@ -207,7 +207,7 @@ test("done task shows historical executor without active presence label", () => 
   };
   const card = groupTasksIntoColumns(plan, PANES).columns.find((c) => c.key === "done")!.cards[0]!;
   assert(card.presenceLabel === null, "done task has no active presence");
-  assert(card.historicalExecutorSummary?.includes("Puccini"), "historical summary uses pane title");
+  assert(card.historicalExecutorSummary?.includes("Puccini"), "historical summary uses Tab title");
   assert(card.historicalExecutorSummary?.includes("backend-dev"), "historical summary includes role");
 });
 

@@ -68,7 +68,7 @@ const LIVE_PANES: Record<string, Pane> = {
   "orch-1": pane({ id: "orch-1", title: "Orchestrator", agent_state: { state: "idle" } }),
 };
 
-test("renders planner bubble when planner pane is live", async () => {
+test("renders planner bubble when planner Tab is live", async () => {
   const { host, root } = await render(
     <PlanCompanionBubble plans={[plan({ kind: "pane", pane_id: "planner-1" })]} panes={LIVE_PANES} renderChat={renderChatStub} />,
   );

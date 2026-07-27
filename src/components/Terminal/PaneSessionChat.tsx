@@ -468,7 +468,7 @@ export function PaneSessionChat({
       () => {
         void invoke("notify", {
           title: "Waiting for you",
-          body: "Open this pane and answer the agent to continue.",
+          body: "Open this Tab and answer the agent to continue.",
           level: "warning",
           paneId,
           workspaceId,

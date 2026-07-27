@@ -92,7 +92,7 @@ test("surfaces pane label and milestone on active assigned task", () => {
     ],
   };
   const taskRow = buildPlanListRows(plan, { panes }).find((r) => r.taskId === FIXTURE_TASK.id);
-  assert(taskRow?.paneLabel === "Puccini", "pane title");
+  assert(taskRow?.paneLabel === "Puccini", "Tab title");
   assert(!taskRow?.historicalExecutorSummary, "active task has no historical summary");
   assert(taskRow?.milestoneKind === "status update", "milestone kind label");
 });

@@ -178,7 +178,7 @@ function formatRangeDate(ms: number): string {
 
 function RangeTabs({ range, onChange }: { range: Range; onChange: (r: Range) => void }) {
   return (
-    <div className="ct-usage-tabs" role="tablist">
+    <div className="ct-usage-panes" role="tablist">
       {(["week", "month", "year"] as Range[]).map((r) => (
         <button
           key={r}

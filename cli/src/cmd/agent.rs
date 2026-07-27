@@ -500,9 +500,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         && !explicit.starts_with(own.as_str());
                     if differs {
                         eprintln!(
-                            "Error: `agent report --tab {explicit}` reports AS that tab, not TO it.\n\
-                             Reports route to your parent automatically — drop --tab to report up the hierarchy.\n\
-                             To send a message to a specific tab, use `codeterm send --tab {explicit}`."
+                            "Error: `agent report --pane {explicit}` reports AS that tab, not TO it.\n\
+                             Reports route to your parent automatically — drop --pane to report up the hierarchy.\n\
+                             To send a message to a specific tab, use `codeterm send --pane {explicit}`."
                         );
                         std::process::exit(1);
                     }
@@ -796,7 +796,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         .unwrap_or_else(|| agent_str.to_string());
                     let warning = val.get("warning").and_then(|v| v.as_str());
                     if let Some(pid) = pid {
-                        println!("Spawned {resolved}: {title_str} (pane {pid})");
+                        println!("Spawned {resolved}: {title_str} (Tab {pid})");
                     } else if let Some(err) = val.get("error").or_else(|| val.get("message")) {
                         eprintln!("Error: {}", err);
                     } else {
@@ -917,7 +917,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                             _ => "fresh session".to_string(),
                         };
                         println!(
-                            "Restarting pane {}: {}, profile={} (same pane id, same session unless stale)",
+                            "Restarting Tab {}: {}, profile={} (same Tab id, same session unless stale)",
                             pane_id, session, profile
                         );
                     }
@@ -948,7 +948,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 });
             if matches!(agent_type.as_deref(), Some("codex")) {
                 eprintln!("Error: Codex /model is an interactive picker, not scriptable.");
-                eprintln!("hint: kill the pane and respawn with the model:");
+                eprintln!("hint: kill the Tab and respawn with the model:");
                 eprintln!("      codeterm agent spawn codex --model {}", name);
                 std::process::exit(1);
             }

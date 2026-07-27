@@ -643,6 +643,6 @@ fn pane_task_env_uses_live_attempt_base_and_leaves_plain_pane_clean() {
     let plain = pane_task_env(&store, "plain-pane");
     assert!(
         plain.is_empty(),
-        "unbound panes must not inherit plan/task/lane env"
+        "unbound Tabs must not inherit plan/task/lane env"
     );
 }

@@ -61,7 +61,7 @@ pub(crate) fn resolve_pane(client: &mut SocketClient, id: Option<String>) -> Str
                     return id.to_string();
                 }
             }
-            eprintln!("Error: no panes found");
+            eprintln!("Error: no Tabs found");
             std::process::exit(1);
         }
         Err(e) => {

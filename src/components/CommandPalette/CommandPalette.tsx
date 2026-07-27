@@ -434,8 +434,8 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
 // Default command definitions (factory)
 
 interface CommandActions {
-  newTab: () => void;
-  closeTab: () => void;
+  newpane: () => void;
+  closepane: () => void;
   newWorkspace: () => void;
   openSettings: () => void;
   toggleSidebar: () => void;
@@ -449,7 +449,7 @@ export function buildDefaultCommands(actions: CommandActions): CommandItem[] {
   const defaultProvider = getAgentDescriptor(defaultSpawnProviderId());
   return [
     {
-      id: "new-tab",
+      id: "new-pane",
       label: "New Tab",
       icon: ICONS.tab,
       shortcut: "Ctrl+T",
@@ -457,7 +457,7 @@ export function buildDefaultCommands(actions: CommandActions): CommandItem[] {
       action: actions.newTab,
     },
     {
-      id: "close-tab",
+      id: "close-pane",
       label: "Close Tab",
       icon: ICONS.close,
       shortcut: "Ctrl+W",

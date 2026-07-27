@@ -50,4 +50,4 @@ export const UI_PANEL = {
 } as const;
 
 export const tabClass = (active: boolean, touch: boolean) =>
-  `ct-panel-tab ${active ? "ct-panel-tab--active" : "ct-panel-tab--idle"} ${touch ? "ct-panel-tab--touch px-3.5" : "px-3 py-2"} shrink-0 border-b-2 bg-transparent cursor-pointer capitalize`;
+  `ct-panel-pane ${active ? "ct-panel-pane--active" : "ct-panel-pane--idle"} ${touch ? "ct-panel-pane--touch px-3.5" : "px-3 py-2"} shrink-0 border-b-2 bg-transparent cursor-pointer capitalize`;

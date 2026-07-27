@@ -21,8 +21,8 @@ below serves this law.
 Before any code: write one sentence — *what observable fact proves the
 behavior, and how does the test read that fact?* If you cannot name the
 oracle, you are not ready to write the test. "The page looks right" is not
-an oracle; "the board card for task X renders chip 'pane gone' within 2s of
-the pane dying" is.
+an oracle; "the board card for task X renders chip 'Tab gone' within 2s of
+the Tab dying" is.
 
 Order-sensitive systems get **order oracles**: assert the sequence of
 transcript/log markers (`s1 < compact < reorient < resumed`), not just the
@@ -47,7 +47,7 @@ itself, bounded:
   `waitForTimeout`.
 - Shell/drill: poll for the log marker / file / health endpoint with a
   timeout loop (`until <check> || deadline; sleep 1`).
-- Agents: **spawned is not ready.** A pane existing does not mean the agent
+- Agents: **spawned is not ready.** A Tab existing does not mean the agent
   accepts input. Poll readiness (`tab status`, the launch-ready log line)
   before the first injection. Case study: a drill triggered its scenario 8s
   after spawn; the agent took 15s to become ready; every injection bounced
@@ -84,7 +84,7 @@ re-deriving timing and cleanup in each spec.
 
 The hardest class. Rules:
 
-- **A bare agent is not a role.** A freshly spawned pane with no prompt will
+- **A bare agent is not a role.** A freshly spawned Tab with no prompt will
   not write handoffs, resume work, or answer injections meaningfully. Either
   charge the test agent with a *minimal role contract* (the few lines that
   make it respond to what the test exercises) or use a structural fake at
@@ -94,7 +94,7 @@ The hardest class. Rules:
   hung phase, the dead resumption, the timeout → alert path. In agentic
   systems the failure branch usually IS the safety property.
 - **Determinism over liveness where timing doesn't matter**: seeded
-  fixtures (known plan, known pane tree, canned transcript) beat live setup
+  fixtures (known plan, known Tab tree, canned transcript) beat live setup
   — faster, exact oracles, no flake. Go live only when liveness is the thing
   under test.
 
@@ -154,4 +154,4 @@ Keeping the repo path in the role_guidance still matters for local contributors;
 the embedded copy gives spawned agents a stable recovery path when they are
 outside this checkout.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

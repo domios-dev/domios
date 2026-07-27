@@ -394,7 +394,7 @@ fn mem_flush(
     let pty_id = {
         let mux = svc.mux.write();
         mux.resolve_pane_id(&b.pane)
-            .ok_or_else(|| not_found(format!("pane not found: {}", b.pane)))?
+            .ok_or_else(|| not_found(format!("Tab not found: {}", b.pane)))?
     };
     let pty_id_for_buffer = svc.resolve_pty_id(&pty_id).map_err(not_found)?;
     let body = {
@@ -655,7 +655,7 @@ fn mem_worker_report(
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
         if let Err(e) = svc_close.close_pane(&pane_id) {
-            log::warn!("[graph-workers] auto-close pane {}: {}", pane_id, e);
+            log::warn!("[graph-workers] auto-close Tab {}: {}", pane_id, e);
         }
     });
     Ok(serde_json::json!({ "ok": true, "info": info }))
@@ -668,7 +668,7 @@ fn mem_worker_kill(
     let id = get_string_param(&params, "id")?;
     let info = svc.workers.kill(&id).map_err(not_found)?;
     if let Err(e) = svc.close_pane(&info.pane_id) {
-        log::warn!("[graph-workers] kill pane {}: {}", info.pane_id, e);
+        log::warn!("[graph-workers] kill Tab {}: {}", info.pane_id, e);
     }
     crate::api::events::emit_everywhere(&svc.app_handle, "graph-worker-done", &info);
     Ok(serde_json::json!({ "ok": true }))

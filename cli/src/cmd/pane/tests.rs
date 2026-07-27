@@ -76,7 +76,7 @@ fn render_tree_falls_back_to_agent_type_without_model() {
     // No model + no agent_type → bare id + name (no trailing junk).
     assert!(
         out.contains("eeee plain\n"),
-        "plain pane is id + name only:\n{}",
+        "plain Tab is id + name only:\n{}",
         out
     );
     // agent_type fills in when the session model is absent.
@@ -99,7 +99,7 @@ fn render_tree_includes_description() {
     let out = render_pane_tree(&panes);
     assert!(
         out.contains("eeee plain - running tests\n"),
-        "description missing from pane list:\n{}",
+        "description missing from Tab list:\n{}",
         out
     );
 }

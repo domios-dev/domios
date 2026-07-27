@@ -132,7 +132,7 @@ export function buildPlanWithKnownTasksFixturePlans(): Plan[] {
       assigned_pane_id: "pane-known-impl",
       taken_by_role: "frontend-dev",
       name: "Implement fixture-backed plan controls",
-      body: "Stable in-progress task with a bound pane and predictable title.",
+      body: "Stable in-progress task with a bound Tab and predictable title.",
       acceptance_criteria: ["Board card opens detail", "List row preserves scroll"],
       milestones: [milestone("known_impl_m0", "status_update", null)],
     }),
@@ -164,7 +164,7 @@ export function buildPlanWithKnownTasksFixturePlans(): Plan[] {
     ],
     goal: {
       vector: "Known task plan for deterministic board/list/canvas Playwright tests.",
-      postulates: ["Task ids, statuses, and pane bindings remain stable across runs"],
+      postulates: ["Task ids, statuses, and Tab bindings remain stable across runs"],
     },
     heartbeat: {
       current_focus: "Migrating canvas tests away from live setup.",
@@ -182,16 +182,16 @@ export function buildPaneTreeWithStatusesFixturePlans(): Plan[] {
   return [{
     ...p,
     id: "fixture_pane_tree_plan",
-    title: "Pane tree with statuses",
+    title: "Tab tree with statuses",
     tasks: p.tasks.map((t, i) => ({
       ...t,
       assigned_pane_id: ["pane-orch", "pane-worker-active", "pane-worker-waiting", "pane-worker-idle"][i] ?? t.assigned_pane_id,
       parent_task_id: i > 1 ? "known_impl" : t.parent_task_id,
     })),
     heartbeat: {
-      current_focus: "Validate pane status badges and assigned-agent affordances.",
+      current_focus: "Validate Tab status badges and assigned-agent affordances.",
       active_lanes: ["pane-orch", "pane-worker-active", "pane-worker-waiting"],
-      rules: ["Working, Waiting, Idle, and Dead panes are represented"],
+      rules: ["Working, Waiting, Idle, and Dead Tabs are represented"],
       learnings: [],
     },
   }];
@@ -211,7 +211,7 @@ export function buildMidStreamChatTranscriptFixturePlans(): Plan[] {
       status_label: i === 1 ? "streaming reply" : t.status_label,
       name: i === 1 ? "Assistant reply is mid-stream" : t.name,
       body: i === 1
-        ? "Fixture represents a chat pane with user prompt, partial assistant response, and tool output in flight."
+        ? "Fixture represents a chat Tab with user prompt, partial assistant response, and tool output in flight."
         : t.body,
     })),
     heartbeat: {

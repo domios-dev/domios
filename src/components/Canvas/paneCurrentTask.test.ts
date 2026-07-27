@@ -58,7 +58,7 @@ function plan(tasks: Task[], over: Partial<Plan> = {}): Plan {
   };
 }
 
-ok("null pane → null", resolvePaneCurrentTask([plan([task({ assigned_pane_id: "p1" })])], null) === null);
+ok("null Tab → null", resolvePaneCurrentTask([plan([task({ assigned_pane_id: "p1" })])], null) === null);
 ok("no match → null", resolvePaneCurrentTask([plan([task({ assigned_pane_id: "p1" })])], "pX") === null);
 
 const byAssign = resolvePaneCurrentTask(

@@ -103,7 +103,7 @@ npx tsx src/lib/colors.test.ts
 
 ### Chat attach/hydration lifecycle
 
-Use the deterministic hook oracle for Terminal → Chat activation, pane-owned
+Use the deterministic hook oracle for Terminal → Chat activation, tab-owned
 authority, bounded hydration, resync, and subscription cleanup:
 
 ```bash
@@ -112,15 +112,15 @@ npx tsx src/components/Terminal/TabContent.chatContinuity.test.tsx
 npx tsx src/components/Terminal/ChatSetupState.test.tsx
 ```
 
-The harness starts hidden with null pane authority, activates into
+The harness starts hidden with null Tab authority, activates into
 `awaiting_session`, and proves a global/foreign candidate cannot create Chat
-authority. It then commits the pane's own session id and binding nonce while
+authority. It then commits the Tab's own session id and binding nonce while
 hidden, reactivates, and requires the pre-existing transcript exactly once with
 one subscription. Its resync replaces the subscription without duplicating
-rows; wrong-pane, wrong-session, wrong-nonce, cancelled-generation, and
+rows; wrong-tab, wrong-session, wrong-nonce, cancelled-generation, and
 prior-lifecycle inputs remain rejected. The setup-state oracle proves a
 hydrated current-authority transcript suppresses stale `shell_ready` and earlier
-launch overlays. The `TabContent` oracle refreshes the mux with a new pane
+launch overlays. The `TabContent` oracle refreshes the mux with a new Tab
 snapshot carrying the same provider, model, session id, and binding nonce, then
 drives Terminal → Chat and requires one pre-existing row and one subscription
 without losing the mode switch or identity labels.
@@ -352,11 +352,11 @@ The permission prompt detection pipeline detects when AI agents show interactive
 
 ### Pipeline
 
-1. **PTY output arrives** -- `OutputBuffer` appends raw bytes and feeds them into a per-pane VT100 parser (`vt100` crate).
+1. **PTY output arrives** -- `OutputBuffer` appends raw bytes and feeds them into a per-tab VT100 parser (`vt100` crate).
 2. **`process_pty_output()`** (`src-tauri/src/service/output.rs`) calls `has_event_markers()` on the cleaned chunk text. This is a cheap string check that gates the expensive path.
 3. **If markers found** -- `get_screen_text()` on `OutputBuffer` returns the actual terminal screen content (what the user sees), correctly handling cursor positioning, alternate screen, and TUI overlays.
 4. **`PromptDetector.evaluate_pty_output()`** (`src-tauri/src/agent/prompt.rs`) runs the state machine. It delegates to `parse_permission_prompt()` for structural fingerprint detection.
-5. **If prompt found** -- returns a `PromptDecision::NewPrompt` or `PromptDecision::PromptUpdated`. `apply_prompt_decision()` sets `pending_prompt` on the pane and emits `mux-state-changed`.
+5. **If prompt found** -- returns a `PromptDecision::NewPrompt` or `PromptDecision::PromptUpdated`. `apply_prompt_decision()` sets `pending_prompt` on the Tab and emits `mux-state-changed`.
 6. **Frontend** (`ChatView.tsx`) polls mux state, sees the pending prompt, and renders Yes/No buttons. User clicks a button, which calls `mux_respond_prompt()` and sends the chosen keystroke to the PTY.
 
 ### Key source files
@@ -365,7 +365,7 @@ The permission prompt detection pipeline detects when AI agents show interactive
 |------|------|
 | `src-tauri/src/agent/prompt.rs` | `PromptDetector` state machine (Idle -> Active -> Cooldown -> Idle) |
 | `src-tauri/src/agent/detector.rs` | Structural fingerprint detection (`detect_interactive_prompt`, `parse_permission_prompt`) + event detection (`detect_claude_events`) |
-| `src-tauri/src/pty/manager.rs` | `OutputBuffer` with per-pane VT100 parser, `get_screen_text()` |
+| `src-tauri/src/pty/manager.rs` | `OutputBuffer` with per-tab VT100 parser, `get_screen_text()` |
 | `src-tauri/src/service/output.rs` | `process_pty_output()` orchestration + `apply_prompt_decision()` |
 | `src/components/ChatView/ChatView.tsx` | Frontend polling + button rendering |
 
@@ -416,7 +416,7 @@ The status tracker (`agent_tracker`) determines whether an agent is Working, Wai
 
 | Path | Entry point | When used |
 |------|-------------|-----------|
-| **PTY auto-detect** | `process_pty_output()` -> `PromptDetector.evaluate_pty_output()` | Always runs for agent panes; reliable fallback |
+| **PTY auto-detect** | `process_pty_output()` -> `PromptDetector.evaluate_pty_output()` | Always runs for agent Tabs; reliable fallback |
 | **Hook (API)** | `POST /api/panes/{id}/hook/permission` -> `PromptDetector.hook_detected_explicit()` | Claude Code hooks call this; faster, bypasses cooldown |
 
 Both paths converge on the same `PromptDetector` state machine and `apply_prompt_decision()`.
@@ -453,4 +453,4 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 
 Before approving a PR, use **`docs/contributing/review-checklist.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
 
-<!-- revision: 24 -->
+<!-- revision: 25 -->

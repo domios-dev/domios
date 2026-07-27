@@ -177,9 +177,9 @@ async function renderSidebar({
           sidebarActionText="text-xs"
           orchestrators={Object.values(panes).filter((member) => member.role === "Orchestrator")}
           onBeforeOpenPlan={() => {}}
-          onActivateTab={onActivateTab}
-          onCloseTab={onCloseTab}
-          onRenameTab={() => {}}
+          onActivatepane={onActivateTab}
+          onClosepane={onCloseTab}
+          onRenamepane={() => {}}
           onNewSession={() => {}}
           onRenameTeam={onRenameTeam}
           onAddTeamMember={onAddTeamMember}
@@ -356,7 +356,7 @@ test("managerless Team hides staffing and makes no request", async () => {
 test("staffing selects the first eligible manager in visible Orchestrator-first order", async () => {
   const requests: Array<[string, "planner" | "worker", string, string]> = [];
   const panes = {
-    unrelated: pane({ id: "unrelated", title: "Unrelated pane", role: "Worker" }),
+    unrelated: pane({ id: "unrelated", title: "Unrelated Tab", role: "Worker" }),
     "a-O2": pane({ id: "a-O2", title: "Orchestrator Two", role: "Orchestrator", team_id: TEAM.id }),
     "p-P1": pane({ id: "p-P1", title: "Planner One", role: "Manager", role_profile: "planner", team_id: TEAM.id }),
     "z-O1": pane({ id: "z-O1", title: "Orchestrator One", role: "Orchestrator", team_id: TEAM.id }),
@@ -539,7 +539,7 @@ test("staffing failure stays visible without local mutation or refetch", async (
       document.querySelector('[data-testid="team-menu-error"]')?.textContent?.includes("403"),
       "403 staffing rejection is shown inline",
     );
-    assert(JSON.stringify(panes) === panesBefore, "staffing rejection does not mutate local pane state");
+    assert(JSON.stringify(panes) === panesBefore, "staffing rejection does not mutate local Tab state");
     assert(fetches === 0, "staffing rejection does not refetch or poll");
     await act(async () => root.unmount());
   } finally {
@@ -817,8 +817,8 @@ test("team worker rows follow tab sort order", async () => {
   ];
   const { host, root } = await renderSidebar({ panes, tabs });
   const workerSection = host.querySelector('[data-testid="workers-section"]');
-  const rendered = Array.from(workerSection?.querySelectorAll("[data-tab-id]") ?? []).map(
-    (element) => element.getAttribute("data-tab-id"),
+  const rendered = Array.from(workerSection?.querySelectorAll("[data-pane-id]") ?? []).map(
+    (element) => element.getAttribute("data-pane-id"),
   );
   assert(rendered.join(",") === "tab-worker-one,tab-worker-two", "worker DOM order follows tab order");
   await act(async () => root.unmount());
@@ -872,9 +872,9 @@ test("clicking a team worker activates it", async () => {
           sidebarActionText="text-xs"
           orchestrators={[panes.orchestrator]}
           onBeforeOpenPlan={() => {}}
-          onActivateTab={setActiveTabId}
-          onCloseTab={() => {}}
-          onRenameTab={() => {}}
+          onActivatepane={setActiveTabId}
+          onClosepane={() => {}}
+          onRenamepane={() => {}}
           onNewSession={() => {}}
         />
       </SidebarDnd>
@@ -885,7 +885,7 @@ test("clicking a team worker activates it", async () => {
   document.body.appendChild(host);
   const root = createRoot(host);
   await act(async () => root.render(<Harness />));
-  const managerRow = host.querySelector('[data-tab-id="tab-orchestrator"]');
+  const managerRow = host.querySelector('[data-pane-id="tab-orchestrator"]');
   const managerButton = managerRow?.querySelector('button[aria-label="Open tab Orchestrator"]');
   assert(managerButton, "active manager remains an accessible named button");
   assert(managerButton.getAttribute("aria-current") === "page", "active manager exposes aria-current");
@@ -900,21 +900,21 @@ test("clicking a team worker activates it", async () => {
     "idle transition updates the assistive status",
   );
   assert(
-    managerRow?.querySelector(":scope > .active-tab-pill"),
+    managerRow?.querySelector(":scope > .active-pane-pill"),
     "active fill is owned by the row behind the manager button",
   );
-  assert(!managerButton.querySelector(".active-tab-pill"), "active fill cannot cover manager content");
+  assert(!managerButton.querySelector(".active-pane-pill"), "active fill cannot cover manager content");
   assert(managerButton.textContent?.includes("Orchestrator"), "active manager title remains readable");
-  const workerRow = host.querySelector('[data-tab-id="tab-worker"]') as HTMLElement | null;
+  const workerRow = host.querySelector('[data-pane-id="tab-worker"]') as HTMLElement | null;
   assert(workerRow, "worker row rendered");
-  assert(workerRow.className.includes("sidebar-tab-dimmed"), "worker starts inactive");
+  assert(workerRow.className.includes("sidebar-pane-dimmed"), "worker starts inactive");
   const workerButton = workerRow.querySelector('button[aria-label="Open tab Worker"]') as HTMLButtonElement | null;
   assert(workerButton, "worker exposes its open action");
   await act(async () => workerButton.click());
   assert(workerButton.getAttribute("aria-current") === "page", "activated worker exposes aria-current");
   assert(managerButton.getAttribute("aria-current") === null, "inactive manager clears aria-current");
   assert(
-    !host.querySelector('[data-tab-id="tab-worker"]')?.className.includes("sidebar-tab-dimmed"),
+    !host.querySelector('[data-pane-id="tab-worker"]')?.className.includes("sidebar-pane-dimmed"),
     "worker receives active chrome after click",
   );
   await act(async () => root.unmount());
@@ -947,7 +947,7 @@ test("waiting team worker keeps prompt pill without status rail", async () => {
     statuses: { attention: "Waiting" },
     activeTabId: "tab-attention",
   });
-  const row = host.querySelector('[data-tab-id="tab-attention"]');
+  const row = host.querySelector('[data-pane-id="tab-attention"]');
   assert(row?.querySelector('span[title="Allow team action?"]'), "prompt pill remains visible");
   assert(!row?.querySelector('[data-testid="tab-status-rail"]'), "waiting worker has no left status rail");
   await act(async () => root.unmount());
@@ -976,7 +976,7 @@ test("working team worker keeps activity dots without status rail", async () => 
     statuses: { worker: "Working" },
     activeTabId: "tab-worker",
   });
-  const row = host.querySelector('[data-tab-id="tab-worker"]');
+  const row = host.querySelector('[data-pane-id="tab-worker"]');
   const dots = row?.querySelector('[data-testid="tab-working-activity"] .activity-dots');
   assert(dots?.classList.contains("activity-dots--small"), "working worker uses small activity dots");
   assert(dots?.classList.contains("activity-dots--muted"), "working worker uses muted activity dots");
@@ -1014,8 +1014,8 @@ test("team worker and manager descriptions do not add row lines", async () => {
     tab("tab-worker", "worker", 2),
   ];
   const { host, root } = await renderSidebar({ panes, tabs });
-  const managerRow = host.querySelector('[data-tab-id="tab-manager"]');
-  const workerRow = host.querySelector('[data-tab-id="tab-worker"]');
+  const managerRow = host.querySelector('[data-pane-id="tab-manager"]');
+  const workerRow = host.querySelector('[data-pane-id="tab-worker"]');
   assert(!managerRow?.textContent?.includes("manager description"), "manager description is not a row line");
   assert(!workerRow?.textContent?.includes("worker description"), "worker description is not a row line");
   assert(!workerRow?.querySelector('[data-testid="tab-subline"]'), "worker remains a single-line row");
@@ -1041,8 +1041,8 @@ test("team worker close control calls onCloseTab", async () => {
     }),
   };
   const tabs = [tab("tab-orchestrator", "orchestrator", 0), tab("tab-worker", "worker", 1)];
-  const { host, root } = await renderSidebar({ panes, tabs, onCloseTab: (id) => closed.push(id) });
-  const row = host.querySelector('[data-tab-id="tab-worker"]');
+  const { host, root } = await renderSidebar({ panes, tabs, onClosepane: (id) => closed.push(id) });
+  const row = host.querySelector('[data-pane-id="tab-worker"]');
   assert(row, "worker row rendered");
   await openTabActionsMenu(row);
   const close = document.querySelector('[data-testid="tab-menu-close"]') as HTMLButtonElement | null;
@@ -1103,7 +1103,7 @@ test("tab rich menu opens from right click and exposes session actions", async (
     }),
   };
   const { host, root } = await renderSidebar({ panes, tabs: [tab("tab-worker", "worker", 0)] });
-  const row = host.querySelector('[data-tab-id="tab-worker"]');
+  const row = host.querySelector('[data-pane-id="tab-worker"]');
   assert(row, "worker row rendered");
   await act(async () => {
     row.dispatchEvent(new MouseEvent("contextmenu", {
@@ -1165,8 +1165,8 @@ test("team manager close control calls onCloseTab", async () => {
     }),
   };
   const tabs = [tab("tab-orchestrator", "orchestrator", 0), tab("tab-manager", "manager", 1)];
-  const { host, root } = await renderSidebar({ panes, tabs, onCloseTab: (id) => closed.push(id) });
-  const row = host.querySelector('[data-tab-id="tab-manager"]');
+  const { host, root } = await renderSidebar({ panes, tabs, onClosepane: (id) => closed.push(id) });
+  const row = host.querySelector('[data-pane-id="tab-manager"]');
   assert(row, "manager row rendered");
   await openTabActionsMenu(row);
   const close = document.querySelector('[data-testid="tab-menu-close"]') as HTMLButtonElement | null;

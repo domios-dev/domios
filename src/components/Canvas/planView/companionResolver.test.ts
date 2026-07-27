@@ -29,12 +29,12 @@ function plan(input: Partial<CompanionPlanInput>): CompanionPlanInput {
   return { owner: owner("orch"), ...input };
 }
 
-test("live planner pane wins over orchestrator", () => {
+test("live planner Tab wins over orchestrator", () => {
   const r = resolveCompanionPane(plan({ planner: plannerPane("plan-pane") }), live("plan-pane", "orch"));
   assert(r?.kind === "planner" && r.paneId === "plan-pane", "expected planner resolution");
 });
 
-test("falls back to orchestrator when planner pane is dead", () => {
+test("falls back to orchestrator when planner Tab is dead", () => {
   const r = resolveCompanionPane(plan({ planner: plannerPane("plan-pane") }), live("orch"));
   assert(r?.kind === "orchestrator" && r.paneId === "orch", "expected orchestrator fallback");
 });
@@ -54,9 +54,9 @@ test("resolves nothing when neither planner nor orchestrator is live", () => {
   assert(r === null, "expected null when nothing live resolves");
 });
 
-test("resolves nothing when orchestrator pane is unset", () => {
+test("resolves nothing when orchestrator Tab is unset", () => {
   const r = resolveCompanionPane({ owner: owner(null), planner: null }, live("orch"));
-  assert(r === null, "expected null when owner pane is unset");
+  assert(r === null, "expected null when owner Tab is unset");
 });
 
 let failed = 0;

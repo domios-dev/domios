@@ -24,34 +24,34 @@ const TASK = "task_" + "b".repeat(32);
 
 // --- send detection + parse ---
 {
-  assert(isSend(inv(`codeterm send --tab bda "hi"`)), "isSend true for send");
+  assert(isSend(inv(`codeterm send --pane bda "hi"`)), "isSend true for send");
   assert(!isSend(inv("codeterm send --help")), "send help is not an outgoing message");
   assert(isHelp(inv("codeterm send --help")), "long help flag detected");
   assert(isHelp(inv("codeterm send -h")), "short help flag detected");
   assert(!isSend(inv(`codeterm mem search "x"`)), "isSend false for mem");
 
-  const m = parseSend(inv(`codeterm send --tab 915fae8e "hello"`), undefined, undefined);
+  const m = parseSend(inv(`codeterm send --pane 915fae8e "hello"`), undefined, undefined);
   assert(m.recipient === "tab 915fae8e", "recipient falls back to tab <ref>");
   assert(m.body === "hello", "body is positional");
   assert(m.mesh === undefined, "no mesh for local send");
 
-  const named = parseSend(inv(`codeterm send --tab 915fae8e "hi"`), undefined, (r) => (r === "915fae8e" ? "Puccini" : undefined));
+  const named = parseSend(inv(`codeterm send --pane 915fae8e "hi"`), undefined, (r) => (r === "915fae8e" ? "Puccini" : undefined));
   assert(named.recipient === "Puccini", "recipient resolves to tab name");
 
-  const mesh = parseSend(inv(`codeterm send --tab bda --mesh mini "yo"`), undefined, undefined);
+  const mesh = parseSend(inv(`codeterm send --pane bda --mesh mini "yo"`), undefined, undefined);
   assert(mesh.mesh === "mini", "mesh peer parsed");
 
-  const ok = parseSend(inv(`codeterm send --tab bda "x"`), "OK (sent)", undefined);
+  const ok = parseSend(inv(`codeterm send --pane bda "x"`), "OK (sent)", undefined);
   assert(ok.status?.ok === true && ok.status.label === "delivered", "delivered status");
-  const resolved = parseSend(inv(`codeterm send --tab bda "$VAR"`), 'OK (sent)\nCODETERM_RESOLVED_TEXT="expanded ***REDACTED*** text"', undefined);
+  const resolved = parseSend(inv(`codeterm send --pane bda "$VAR"`), 'OK (sent)\nCODETERM_RESOLVED_TEXT="expanded ***REDACTED*** text"', undefined);
   assert(resolved.body === "expanded ***REDACTED*** text" && resolved.bodySource === "resolved", "resolved output overrides raw source");
-  const typed = parseSend(inv(`codeterm send --tab bda "$VAR"`), "OK (sent)", undefined);
+  const typed = parseSend(inv(`codeterm send --pane bda "$VAR"`), "OK (sent)", undefined);
   assert(typed.body === "$VAR" && typed.bodySource === "typed", "missing resolved output is explicitly source as typed");
-  const fail = parseSend(inv(`codeterm send --tab bda "x"`), "error: pane not found", undefined);
+  const fail = parseSend(inv(`codeterm send --pane bda "x"`), "error: Tab not found", undefined);
   assert(fail.status?.ok === false && fail.status.label === "failed", "failed status");
 
   const none = parseSend(inv(`codeterm send "x"`), undefined, undefined);
-  assert(none.recipient === "current tab", "current tab when no --tab");
+  assert(none.recipient === "current tab", "current tab when no --pane");
 }
 
 // --- plan templates + link extraction ---

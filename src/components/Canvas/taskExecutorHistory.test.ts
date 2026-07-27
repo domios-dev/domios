@@ -62,12 +62,12 @@ assert(historicalExecutorForTask(activeTask, panes, true) === null, "active pres
 
 const attempts = resolveTaskExecutionAttempts(doneTask, panes);
 assert(attempts.length === 1, "legacy done task synthesizes one attempt");
-assert(attempts[0].pane_id === "pane-42", "attempt keeps pane id");
+assert(attempts[0].pane_id === "pane-42", "attempt keeps Tab id");
 assert(attempts[0].model === "gpt-5.5", "attempt keeps model");
 
 const historical = buildHistoricalExecutorView(doneTask, panes);
 assert(historical?.label === "Puccini", `historical label=${historical?.label}`);
-assert(historical?.summary.includes("Puccini"), "summary includes pane title");
+assert(historical?.summary.includes("Puccini"), "summary includes Tab title");
 assert(historical?.summary.includes("backend-dev"), "summary includes role");
 assert(historical?.summary.includes("gpt-5.5"), "summary includes model");
 

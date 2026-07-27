@@ -43,7 +43,7 @@ interface TabPrewarmInput {
   activeTabId: string | null;
   tabIds: readonly string[];
   liveTabIds: readonly string[];
-  prewarmTab: (tabId: string) => Promise<void>;
+  prewarmpane: (tabId: string) => Promise<void>;
 }
 
 interface FrameScheduler {

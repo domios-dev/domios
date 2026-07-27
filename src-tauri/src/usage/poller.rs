@@ -284,7 +284,7 @@ async fn run_probe_with_retry(
                     return Err(e);
                 }
                 log::warn!(
-                    "[usage.poller] probe {:?} attempt {}/{} failed ({}); retrying with fresh pane",
+                    "[usage.poller] probe {:?} attempt {}/{} failed ({}); retrying with fresh Tab",
                     key.provider,
                     attempt,
                     PROBE_MAX_ATTEMPTS,
@@ -576,10 +576,10 @@ mod tests {
 
     #[test]
     fn tui_provider_needs_a_visible_pane() {
-        assert!(super::provider_pollable(false, false), "has pane → poll");
+        assert!(super::provider_pollable(false, false), "has Tab → poll");
         assert!(
             !super::provider_pollable(true, false),
-            "TUI provider with no pane → skip (nothing to drive /usage)"
+            "TUI provider with no Tab → skip (nothing to drive /usage)"
         );
     }
 
@@ -587,11 +587,11 @@ mod tests {
     fn fetch_provider_polls_without_a_pane() {
         assert!(
             super::provider_pollable(true, true),
-            "fetch-based provider needs no terminal → poll even with no pane"
+            "fetch-based provider needs no terminal → poll even with no Tab"
         );
         assert!(
             super::provider_pollable(false, true),
-            "pane present → still poll"
+            "Tab present → still poll"
         );
     }
 }

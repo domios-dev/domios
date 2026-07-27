@@ -62,7 +62,7 @@ assert(roleBadgeLabel(pane({ role: "Worker" })) === null, "plain worker has no l
 assert(roleShieldLabel(pane({ role: "Worker" })) === null, "workers have no role shield");
 assert(roleShieldLabel(pane({ role: "Orchestrator" })) === "ORCHESTRATOR", "orchestrator shield");
 assert(roleShieldLabel(pane({ role: "Manager", role_profile: "planner" })) === "PLANNER", "planner shield");
-assert(roleShieldLabel(null) === null, "null pane → no shield");
+assert(roleShieldLabel(null) === null, "null Tab → no shield");
 assert(roleBadgeTestId("ORCHESTRATOR") === "role-badge-orchestrator", "orchestrator testid");
 assert(roleBadgeTestId("PLANNER") === "role-badge-planner", "planner testid");
 

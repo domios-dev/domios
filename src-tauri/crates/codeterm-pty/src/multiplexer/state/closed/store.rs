@@ -308,7 +308,7 @@ impl ClosedPanesStore {
             "#,
             params![cap as i64],
         )
-        .map_err(|e| format!("trim groups panes: {}", e))?;
+        .map_err(|e| format!("trim groups Tabs: {}", e))?;
         conn.execute(
             r#"
             DELETE FROM closed_group
@@ -419,11 +419,11 @@ impl ClosedPanesStore {
     pub fn delete_pane_row(&self, row_id: i64) -> Result<(), String> {
         let conn = self.conn.lock();
         let affected =
-            Self::delete_pane(&conn, row_id).map_err(|e| format!("delete closed pane row: {e}"))?;
+            Self::delete_pane(&conn, row_id).map_err(|e| format!("delete closed Tab row: {e}"))?;
         Self::prune_empty_groups(&conn).ok();
         if affected == 0 {
             return Err(format!(
-                "closed pane row {row_id} was already gone (no row deleted)"
+                "closed Tab row {row_id} was already gone (no row deleted)"
             ));
         }
         Ok(())
@@ -529,7 +529,7 @@ impl ClosedPanesStore {
             "DELETE FROM closed_pane WHERE group_id = ?1",
             params![group_id],
         )
-        .map_err(|e| format!("delete group panes: {e}"))?;
+        .map_err(|e| format!("delete group Tabs: {e}"))?;
         tx.execute(
             "DELETE FROM closed_group WHERE group_id = ?1",
             params![group_id],
@@ -725,7 +725,7 @@ mod tests {
         assert_eq!(
             store.list_for_workspace("w").len(),
             2,
-            "both panes remain in history until delete"
+            "both Tabs remain in history until delete"
         );
 
         // Only an explicit delete (after a fully successful materialize) drops it.
@@ -751,7 +751,7 @@ mod tests {
         assert_eq!(
             store.list_for_workspace("w").len(),
             1,
-            "peek leaves the pane in history"
+            "peek leaves the Tab in history"
         );
         store.delete_pane_row(row_id).expect("row deleted");
         assert!(

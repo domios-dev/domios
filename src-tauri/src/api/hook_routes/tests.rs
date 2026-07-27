@@ -372,7 +372,7 @@ fn reconnect_full_sequence_hook_accepted_with_chat_metadata() {
         "fresh-session",
         Some("fresh-launch"),
     )
-    .expect("fresh launch hook must retain and bind pane identity");
+    .expect("fresh launch hook must retain and bind Tab identity");
 
     let snapshot = mux.read().snapshot();
     let pane = snapshot.panes.get(&pane_id).unwrap();

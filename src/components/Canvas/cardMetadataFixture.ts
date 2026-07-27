@@ -88,7 +88,7 @@ export function buildCardMetadataFixturePlans(): Plan[] {
       status_changed_at: NOW - 90_000,
     }),
     task(CARD_METADATA_TASK_IDS.noPane, [SEC], {
-      name: "No pane recorded",
+      name: "No Tab recorded",
       status: TaskStatus.InProgress,
       model: "gpt-5.5",
       assigned_pane_id: null,
@@ -96,7 +96,7 @@ export function buildCardMetadataFixturePlans(): Plan[] {
       status_changed_at: NOW - 30_000,
     }),
     task(CARD_METADATA_TASK_IDS.paneGone, [SEC], {
-      name: "Pane gone",
+      name: "Tab gone",
       status: TaskStatus.InReview,
       assigned_pane_id: "ghost-pane",
       peer: null,

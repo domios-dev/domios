@@ -133,7 +133,7 @@ pub fn render_state(val: &Value) -> String {
         match kind {
             "live" => {
                 let pane = res.get("pane_id").and_then(|v| v.as_str()).unwrap_or("?");
-                out.push_str(&format!("planner: {pane} (live)\n"));
+                out.push_str(&format!("planner tab: {pane} (live)\n"));
             }
             "fallback_orchestrator" => {
                 let bound = res

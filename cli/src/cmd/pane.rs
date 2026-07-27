@@ -547,7 +547,7 @@ fn print_pane_chat(v: &serde_json::Value) {
 
 /// Rank and print pane-find results. Shared between the local socket path
 /// (handle_pane) and the mesh-relayed path (main.rs intercepts `--mesh
-/// pane find` so the ranker runs over the peer's list).
+/// Tab find` so the ranker runs over the peer's list).
 pub fn print_pane_find_results(json: bool, pattern: &str, panes: &[serde_json::Value]) {
     let scored = rank_panes(pattern, panes);
     if json {
@@ -694,8 +694,8 @@ fn score_field(
     0
 }
 
-/// One-line human row used by both `pane list` (when we switch off the
-/// default kv printer) and `pane find`. Shows id  tab/title  [provider/model]
+/// One-line human row used by both `Tab list` (when we switch off the
+/// default kv printer) and `Tab find`. Shows id  tab/title  [provider/model]
 /// so the user gets the same info they see in the sidebar.
 pub fn format_pane_row(p: &serde_json::Value) -> String {
     let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("?");
@@ -736,7 +736,7 @@ pub fn format_pane_row(p: &serde_json::Value) -> String {
     )
 }
 
-/// Human `pane list`: workspaces as headers, panes as `<id> <name> <model>`
+/// Human `Tab list`: workspaces as headers, panes as `<id> <name> <model>`
 /// rows, sub-agents nested under their parent by `parent_pane_id`. Compact
 /// on purpose — this output is read by agents too, so every line costs tokens.
 pub fn render_pane_tree(panes: &[serde_json::Value]) -> String {

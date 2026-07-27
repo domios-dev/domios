@@ -112,7 +112,7 @@ impl MultiplexerState {
 
     pub fn set_focused_pane(&mut self, id: &str) -> Result<(), String> {
         if !self.panes.contains_key(id) {
-            return Err(format!("Pane not found: {}", id));
+            return Err(format!("Tab not found: {}", id));
         }
         self.focused_pane_id = Some(id.to_string());
         Ok(())
@@ -152,7 +152,7 @@ impl MultiplexerState {
         let pane = self
             .panes
             .get_mut(pane_id)
-            .ok_or_else(|| format!("Pane not found: {}", pane_id))?;
+            .ok_or_else(|| format!("Tab not found: {}", pane_id))?;
         if level < pane.title_level {
             return Ok(());
         }
@@ -169,7 +169,7 @@ impl MultiplexerState {
         let pane = self
             .panes
             .get_mut(pane_id)
-            .ok_or_else(|| format!("Pane not found: {}", pane_id))?;
+            .ok_or_else(|| format!("Tab not found: {}", pane_id))?;
         pane.description = description.clone();
         for ws in &mut self.workspaces {
             if let Some(tab) = ws.tabs.iter_mut().find(|t| t.pane_id == pane_id) {
@@ -251,7 +251,7 @@ impl MultiplexerState {
     fn close_pane_inner(&mut self, pane_id: &str) -> Result<Vec<String>, String> {
         if let Some(pane) = self.panes.get(pane_id) {
             if pane.protected {
-                return Err("Cannot close protected pane".to_string());
+                return Err("Cannot close protected Tab".to_string());
             }
         }
 
@@ -294,7 +294,7 @@ impl MultiplexerState {
         Ok(pty_ids)
     }
 
-    /// Remove the tab that owns a given pane. Single-pane-per-tab makes this
+    /// Remove the tab that owns a given pane. Single-pane-per-pane makes this
     /// a direct delete with no tree walking.
     fn remove_pane_from_tree(&mut self, pane_id: &str) -> Result<(), String> {
         for ws in &mut self.workspaces {
@@ -307,7 +307,7 @@ impl MultiplexerState {
                 return Ok(());
             }
         }
-        Err(format!("Pane {} not found in any tab", pane_id))
+        Err(format!("Tab {} not found in any tab", pane_id))
     }
 }
 
@@ -398,7 +398,7 @@ mod display_label_tests {
         );
         assert_ne!(
             final_title, provider_id,
-            "the raw provider id must never become the pane title"
+            "the raw provider id must never become the Tab title"
         );
     }
 

@@ -24,20 +24,20 @@ const workspace: Workspace = {
   ],
 };
 
-test("findPaneTabContext resolves tab for pane id", () => {
+test("findPaneTabContext resolves tab for Tab id", () => {
   const ctx = findPaneTabContext([workspace], "worker-1");
   assert(ctx?.workspaceId === "ws-1", "workspace id");
   assert(ctx?.tabId === "tab-2", "tab id");
 });
 
-test("findPaneTabContext trims pane id", () => {
+test("findPaneTabContext trims Tab id", () => {
   const ctx = findPaneTabContext([workspace], " worker-1 ");
-  assert(ctx?.tabId === "tab-2", "trimmed pane resolves");
+  assert(ctx?.tabId === "tab-2", "trimmed Tab resolves");
 });
 
-test("findPaneTabContext returns null for unknown pane", () => {
-  assert(findPaneTabContext([workspace], "missing") === null, "unknown pane");
-  assert(findPaneTabContext([workspace], "  ") === null, "blank pane");
+test("findPaneTabContext returns null for unknown Tab", () => {
+  assert(findPaneTabContext([workspace], "missing") === null, "unknown Tab");
+  assert(findPaneTabContext([workspace], "  ") === null, "blank Tab");
 });
 
 test("revealAssignedAgentPane closes canvas overlays and activates tab", () => {
@@ -50,7 +50,7 @@ test("revealAssignedAgentPane closes canvas overlays and activates tab", () => {
   const ok = revealAssignedAgentPane(
     {
       workspaces: [workspace],
-      setActiveTab: (workspaceId, tabId) => {
+      setActivepane: (workspaceId, tabId) => {
         activeTabs.push({ workspaceId, tabId });
       },
       setFocusedPane: (paneId) => {
@@ -66,7 +66,7 @@ test("revealAssignedAgentPane closes canvas overlays and activates tab", () => {
   const activeTab = activeTabs[0];
   assert(activeTab, "tab activated once");
   assert(activeTab?.workspaceId === "ws-1" && activeTab?.tabId === "tab-2", "tab activated");
-  assert(focused === "worker-1", "pane focused");
+  assert(focused === "worker-1", "Tab focused");
 });
 
 test("revealAssignedAgentPane still focuses when tab context is missing", () => {
@@ -74,7 +74,7 @@ test("revealAssignedAgentPane still focuses when tab context is missing", () => 
   const ok = revealAssignedAgentPane(
     {
       workspaces: [],
-      setActiveTab: () => {},
+      setActivepane: () => {},
       setFocusedPane: (paneId) => {
         focused = paneId;
       },
@@ -82,7 +82,7 @@ test("revealAssignedAgentPane still focuses when tab context is missing", () => 
     "orphan-pane",
   );
   assert(ok, "revealed without tab");
-  assert(focused === "orphan-pane", "pane still focused");
+  assert(focused === "orphan-pane", "Tab still focused");
 });
 
 async function main() {

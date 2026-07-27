@@ -13,7 +13,7 @@ The `codeterm` CLI **does not** read `CODETERM_API_URL` / `CODETERM_API_TOKEN`. 
 1. `CODETERM_SOCKET_PATH` env var — if it contains `codeterm-dev`, use dev (`~/.codeterm-dev/config.toml` → port 7686).
 2. Otherwise → **prod** (`~/.codeterm/config.toml` → port 7685).
 
-Plain `codeterm cron create / trigger / mem save` from a regular shell will hit your **prod CodeTerm** desktop daemon and spawn panes inside the user's running app. **This is destructive — visible to the user, mutates their prod state, may burn API quota under their account.**
+Plain `codeterm cron create / trigger / mem save` from a regular shell will hit your **prod CodeTerm** desktop daemon and spawn tabs inside the user's running app. **This is destructive — visible to the user, mutates their prod state, may burn API quota under their account.**
 
 **Always do dev testing via raw `curl` to `http://127.0.0.1:7686` with the dev token from `~/.codeterm-dev/config.toml`.** Use the `$API` / `$H` setup below — every command in this skill assumes them.
 

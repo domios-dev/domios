@@ -45,10 +45,10 @@ impl Counterpart {
     }
 }
 
-/// The exact reach command a member uses to message its counterpart. `--tab`
+/// The exact reach command a member uses to message its counterpart. `--pane`
 /// accepts the pane id (see prompts/codeterm_rule.md).
 pub(crate) fn reach_command(pane_id: &str) -> String {
-    format!("codeterm send \"…\" --tab {pane_id}")
+    format!("codeterm send \"…\" --pane {pane_id}")
 }
 
 /// The body one member reads about its counterpart: names it, its pane id, and
@@ -87,7 +87,7 @@ mod tests {
         let to_planner = introduction_body(&p, &o);
 
         // Orchestrator learns the planner's pane id + reach command.
-        assert!(to_orch.contains(&p.pane_id), "names planner pane id");
+        assert!(to_orch.contains(&p.pane_id), "names planner Tab id");
         assert!(to_orch.contains("Euler"), "names planner");
         assert!(
             to_orch.contains(&reach_command(&p.pane_id)),
@@ -95,7 +95,7 @@ mod tests {
         );
 
         // Planner learns the orchestrator's pane id + reach command.
-        assert!(to_planner.contains(&o.pane_id), "names orch pane id");
+        assert!(to_planner.contains(&o.pane_id), "names orch Tab id");
         assert!(to_planner.contains("Kepler"), "names orchestrator");
         assert!(
             to_planner.contains(&reach_command(&o.pane_id)),
@@ -115,7 +115,7 @@ mod tests {
     fn reach_command_uses_tab_flag_with_pane_id() {
         assert_eq!(
             reach_command("abc-123"),
-            "codeterm send \"…\" --tab abc-123"
+            "codeterm send \"…\" --pane abc-123"
         );
     }
 

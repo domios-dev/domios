@@ -22,7 +22,7 @@ async function run() {
       name: "Renamed team",
       callerTabId: "O1",
     }),
-    "rename passes exact team id, name, and acting pane identity",
+    "rename passes exact team id, name, and acting Tab identity",
   );
   assert(!JSON.stringify(calls[0]?.args).includes("focused_pane_id"), "rename never sends focus state");
   assert(actions.onAddTeamMember, "staffing is enabled when the bridge is available");
@@ -52,7 +52,7 @@ async function run() {
     }),
     "model is absent when the descriptor does not require one",
   );
-  assert(!JSON.stringify(noModelCall?.args).includes("parentPaneId"), "staffing payload omits parent pane ids");
+  assert(!JSON.stringify(noModelCall?.args).includes("parentPaneId"), "staffing payload omits parent Tab ids");
   assert(!JSON.stringify(noModelCall?.args).includes("providerId"), "staffing payload uses only the bridge provider key");
   const callsBeforeClose = calls.length;
   await actions.onCloseTeam("team-1", "O1");

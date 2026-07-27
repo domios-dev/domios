@@ -23,23 +23,23 @@ function mkPane(overrides: Partial<Pane> = {}): Pane {
   };
 }
 
-test("ineligible: plain shell pane", () => {
+test("ineligible: plain shell Tab", () => {
   assert(!isAgentCapablePane(mkPane()), "plain shell is not agent-capable");
   assert(!canMakeOrchestrator(mkPane()), "plain shell cannot be made orchestrator");
 });
 
-test("eligible: PTY agent pane", () => {
+test("eligible: PTY agent Tab", () => {
   const pane = mkPane({ agent_type: "claude" });
   assert(isAgentCapablePane(pane), "agent_type marks agent-capable");
-  assert(canMakeOrchestrator(pane), "agent pane is eligible");
+  assert(canMakeOrchestrator(pane), "agent Tab is eligible");
 });
 
-test("eligible: chatBackend pane", () => {
+test("eligible: chatBackend Tab", () => {
   const pane = mkPane({
     backing: { kind: "chat_backend", plugin_id: "lmstudio", session_id: "s1" },
   });
   assert(isAgentCapablePane(pane), "chat_backend marks agent-capable");
-  assert(canMakeOrchestrator(pane), "chatBackend pane is eligible");
+  assert(canMakeOrchestrator(pane), "chatBackend Tab is eligible");
 });
 
 test("ineligible: already orchestrator", () => {
@@ -58,14 +58,14 @@ test("eligible: worker can atomically transition out of hierarchy", () => {
   );
 });
 
-test("ineligible: protected pane", () => {
+test("ineligible: protected Tab", () => {
   assert(
     !canMakeOrchestrator(mkPane({ agent_type: "claude", protected: true })),
     "protected blocked",
   );
 });
 
-test("ineligible: null pane", () => {
+test("ineligible: null Tab", () => {
   assert(!canMakeOrchestrator(null), "null blocked");
 });
 

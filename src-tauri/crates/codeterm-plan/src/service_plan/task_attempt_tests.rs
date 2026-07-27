@@ -455,7 +455,7 @@ fn compete_commit_revalidates_debt_after_preflight_interleaving() {
         worker_store.record_task_compete_attempt(
             &worker_plan_id,
             &worker_task_id,
-            "spawned-tab",
+            "spawned-pane",
             &draft,
             Some("worker"),
             4,
@@ -522,7 +522,7 @@ fn respawn_commit_revalidates_wip_after_preflight_interleaving() {
         )
         .unwrap();
     store
-        .assign_task(&plan.id, &task_id, "source-tab", None, 2)
+        .assign_task(&plan.id, &task_id, "source-pane", None, 2)
         .unwrap();
     let source_attempt = store.list_task_attempts(&plan.id, &task_id).unwrap()[0]
         .attempt_id
@@ -562,7 +562,7 @@ fn respawn_commit_revalidates_wip_after_preflight_interleaving() {
         worker_store.record_task_respawn_attempt(
             &worker_plan_id,
             &worker_task_id,
-            "spawned-tab",
+            "spawned-pane",
             &draft,
             Some("worker"),
             4,

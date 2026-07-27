@@ -20,7 +20,7 @@ const WORKSPACES: Workspace[] = [
   { id: "ws-ui", name: "UI Lane", tabs: [{ id: "tab-ui", pane_id: "pane-ui" }], active_tab_id: null, cwd: "/repo/ui" },
 ];
 
-test("derivePlanWorkspaceScope identifies owner workspace from owner pane", () => {
+test("derivePlanWorkspaceScope identifies owner workspace from owner Tab", () => {
   const scope = derivePlanWorkspaceScope(FIXTURE_PLAN, WORKSPACES);
   assert(scope.ownerWorkspaceLabel === "Canvas Hub", `owner workspace label, got ${scope.ownerWorkspaceLabel}`);
   assert(scope.isCrossWorkspace === false, "single owner workspace is not cross-workspace");
@@ -45,7 +45,7 @@ test("derivePlanWorkspaceScope marks cross-workspace when task lanes span worksp
   const scope = derivePlanWorkspaceScope(plan, WORKSPACES);
   assert(scope.isCrossWorkspace === true, "multiple task workspaces make plan cross-workspace");
   assert(scope.ownerWorkspaceLabel === "Canvas Hub", "owner workspace remains the owner label");
-  assert(scope.participantWorkspaceLabels.includes("API Lane"), "assigned pane workspace included");
+  assert(scope.participantWorkspaceLabels.includes("API Lane"), "assigned Tab workspace included");
   assert(scope.participantWorkspaceLabels.includes("UI Lane"), "lane workspace included");
 });
 

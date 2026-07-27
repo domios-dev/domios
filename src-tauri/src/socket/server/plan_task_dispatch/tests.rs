@@ -785,13 +785,13 @@ fn brief_includes_body_acceptance_and_report_command() {
         "type": "code",
         "status": "pending",
         "body": "Compose spawn, assign, send.",
-        "acceptance_criteria": ["atomic", "returns pane id"],
+        "acceptance_criteria": ["atomic", "returns Tab id"],
     }));
     let brief = build_brief(&t, &[]);
     assert!(brief.contains("# Wire dispatch RPC"));
     assert!(brief.contains("Compose spawn, assign, send."));
     assert!(brief.contains("- atomic"));
-    assert!(brief.contains("- returns pane id"));
+    assert!(brief.contains("- returns Tab id"));
     // The report command is mandatory so the worker can report back.
     assert!(brief.contains("codeterm agent report"));
     assert!(!brief.contains("--base "));

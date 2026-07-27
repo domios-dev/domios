@@ -63,7 +63,7 @@ resetTestChatClockForCodeTerm();
 const first = testChatReplyPayload({ paneId: "pane-a", content: "deterministic reply" });
 const second = testChatReplyPayload({ paneId: "pane-a", content: "next reply" });
 
-assert(first.pane_id === "pane-a", "payload targets pane");
+assert(first.pane_id === "pane-a", "payload targets Tab");
 assert(first.messages[0]?.type === "assistant", "default reply is assistant");
 assert(first.messages[0]?.content === "deterministic reply", "reply content preserved");
 assert(first.messages[0]?.timestamp === "1700000000000", "first timestamp is deterministic");
@@ -98,7 +98,7 @@ const unlistenLate = listenForTestChatReplies(
 const drainedStructured = structured as NormalizedChatMessage[] | null;
 assert(
   drainedStructured?.some((message) => message.id === "queued-after-reload" && message.clientOrder === 0),
-  "queued test chat message drains when pane listener mounts after reload",
+  "queued test chat message drains when Tab listener mounts after reload",
 );
 unlistenLate?.();
 
@@ -281,7 +281,7 @@ async function runChatSessionHookTests(): Promise<void> {
     const session = await mountSession("resumed-from", true, "old-launch-nonce");
     assert(
       session.latest().messages.length === 0,
-      "chat_start cannot replace the pane's current session authority",
+      "chat_start cannot replace the Tab's current session authority",
     );
     await session.render("resumed-rollout", true, "new-launch-nonce");
     await act(async () => handler?.({ payload: chatEvent("resumed-rollout", [{
@@ -295,7 +295,7 @@ async function runChatSessionHookTests(): Promise<void> {
       "only the pane-confirmed session and binding nonce can update the transcript",
     );
     await act(async () => session.root.unmount());
-    console.log("PASS pane authority gates snapshot handoff and nonce rotation");
+    console.log("PASS Tab authority gates snapshot handoff and nonce rotation");
   }
 
   {
@@ -351,7 +351,7 @@ async function runChatSessionHookTests(): Promise<void> {
     assert(session.latest().messages[0]?.content === "attached" && !session.latest().recovering, "T2 event attaches and renders messages");
     await act(async () => session.root.unmount());
     restoreTimers();
-    console.log("PASS T2 pane event completes an awaiting-store attach");
+    console.log("PASS T2 Tab event completes an awaiting-store attach");
   }
 
   {
@@ -371,9 +371,9 @@ async function runChatSessionHookTests(): Promise<void> {
       content: "materialized without remount",
       timestamp: "1",
     }]) }));
-    assert(session.latest().messages.length === 0, "an unbound pane rejects a global live delta");
+    assert(session.latest().messages.length === 0, "an unbound Tab rejects a global live delta");
     await act(async () => session.root.unmount());
-    console.log("PASS unbound pane has no global transcript authority");
+    console.log("PASS unbound Tab has no global transcript authority");
   }
 
   {

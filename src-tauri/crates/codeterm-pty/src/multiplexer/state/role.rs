@@ -18,7 +18,7 @@ impl MultiplexerState {
         let existing = self
             .panes
             .get(parent_id)
-            .ok_or_else(|| format!("Pane {parent_id} not found"))?
+            .ok_or_else(|| format!("Tab {parent_id} not found"))?
             .team_id
             .clone();
         if let Some(id) = existing {
@@ -33,7 +33,7 @@ impl MultiplexerState {
         self.upsert_team(team);
         self.panes
             .get_mut(parent_id)
-            .expect("pane checked before team mint")
+            .expect("Tab checked before team mint")
             .team_id = Some(team_id.clone());
         Ok(TeamResolution {
             team_id,
@@ -50,7 +50,7 @@ impl MultiplexerState {
         if is_current {
             self.panes
                 .get_mut(parent_id)
-                .expect("pane checked before team rollback")
+                .expect("Tab checked before team rollback")
                 .team_id = None;
             self.remove_team(team_id);
         }
@@ -64,7 +64,7 @@ impl MultiplexerState {
         parent_pane_id: Option<&str>,
     ) -> Result<(), String> {
         if !self.panes.contains_key(pane_id) {
-            return Err(format!("Pane {} not found", pane_id));
+            return Err(format!("Tab {} not found", pane_id));
         }
 
         match role {
@@ -75,14 +75,14 @@ impl MultiplexerState {
                 let existing = self
                     .panes
                     .get(pane_id)
-                    .ok_or_else(|| format!("Pane {} not found", pane_id))?;
+                    .ok_or_else(|| format!("Tab {} not found", pane_id))?;
                 if existing.parent_pane_id.is_some() {
                     return Err("Cannot become Orchestrator — already in a hierarchy".to_string());
                 }
                 let pane = self
                     .panes
                     .get_mut(pane_id)
-                    .ok_or_else(|| format!("Pane {} not found", pane_id))?;
+                    .ok_or_else(|| format!("Tab {} not found", pane_id))?;
                 pane.role = Some(AgentRole::Orchestrator);
                 pane.role_profile = None;
                 pane.parent_pane_id = None;
@@ -94,7 +94,7 @@ impl MultiplexerState {
                 let parent = self
                     .panes
                     .get(parent_id)
-                    .ok_or(format!("Parent pane {} not found", parent_id))?;
+                    .ok_or(format!("Parent Tab {} not found", parent_id))?;
                 if parent.role != Some(AgentRole::Orchestrator) {
                     return Err("Manager requires an Orchestrator parent".to_string());
                 }
@@ -106,7 +106,7 @@ impl MultiplexerState {
                 let pane = self
                     .panes
                     .get_mut(pane_id)
-                    .ok_or_else(|| format!("Pane {} not found", pane_id))?;
+                    .ok_or_else(|| format!("Tab {} not found", pane_id))?;
                 pane.role = Some(AgentRole::Manager);
                 pane.parent_pane_id = Some(parent_id.to_string());
                 pane.can_spawn = false;
@@ -119,7 +119,7 @@ impl MultiplexerState {
                     let parent = self
                         .panes
                         .get(parent_id)
-                        .ok_or(format!("Parent pane {} not found", parent_id))?;
+                        .ok_or(format!("Parent Tab {} not found", parent_id))?;
                     (
                         parent.role,
                         parent.parent_pane_id.is_some(),
@@ -142,7 +142,7 @@ impl MultiplexerState {
                     let parent = self
                         .panes
                         .get_mut(parent_id)
-                        .ok_or_else(|| format!("Parent pane {} not found", parent_id))?;
+                        .ok_or_else(|| format!("Parent Tab {} not found", parent_id))?;
                     parent.role = Some(AgentRole::Orchestrator);
                     parent.role_profile = None;
                     parent.parent_pane_id = None;
@@ -156,7 +156,7 @@ impl MultiplexerState {
                 let pane = self
                     .panes
                     .get_mut(pane_id)
-                    .ok_or_else(|| format!("Pane {} not found", pane_id))?;
+                    .ok_or_else(|| format!("Tab {} not found", pane_id))?;
                 pane.role = Some(AgentRole::Worker);
                 pane.parent_pane_id = Some(parent_id.to_string());
                 pane.can_spawn = false;
@@ -176,7 +176,7 @@ impl MultiplexerState {
         let pane = self
             .panes
             .get_mut(pane_id)
-            .ok_or(format!("Pane {} not found", pane_id))?;
+            .ok_or(format!("Tab {} not found", pane_id))?;
         pane.role = None;
         pane.role_profile = None;
         pane.parent_pane_id = None;
@@ -207,9 +207,9 @@ impl MultiplexerState {
         let pane = self
             .panes
             .get_mut(pane_id)
-            .ok_or(format!("Pane {} not found", pane_id))?;
+            .ok_or(format!("Tab {} not found", pane_id))?;
         if pane.role.is_none() {
-            return Err("Pane has no role".to_string());
+            return Err("Tab has no role".to_string());
         }
         match pane.role {
             Some(AgentRole::Orchestrator) => {
@@ -227,7 +227,7 @@ impl MultiplexerState {
         let pane = self
             .panes
             .get_mut(pane_id)
-            .ok_or(format!("Pane {} not found", pane_id))?;
+            .ok_or(format!("Tab {} not found", pane_id))?;
         pane.spawned_by_pane_id = Some(spawned_by.to_string());
         Ok(())
     }
@@ -441,11 +441,11 @@ mod tests {
     fn no_team_before_first_spawn() {
         let (mut mux, _root) = MultiplexerState::new();
         let pane = mux.create_pane();
-        assert_eq!(mux.team_count(), 0, "a roleless pane mints no team");
+        assert_eq!(mux.team_count(), 0, "a roleless Tab mints no team");
         assert_eq!(
             mux.get_pane(&pane).unwrap().team_id,
             None,
-            "roleless pane carries no team membership"
+            "roleless Tab carries no team membership"
         );
     }
 

@@ -255,7 +255,7 @@ async function main(): Promise<void> {
   assert(switchBeforeRefresh, "bound provider did not expose the Terminal/Chat switch");
   assert(
     switchBeforeRefresh.querySelector('[data-value="chat"]')?.getAttribute("aria-selected") === "true",
-    "chat-capable pane did not start in Chat",
+    "chat-capable Tab did not start in Chat",
   );
   assert(server.starts.length === 1, `default Chat started ${server.starts.length} snapshots`);
   assert(server.starts[0]?.agentSessionId === "sid-live", "default Chat lost the pane-owned session id");

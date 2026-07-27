@@ -30,7 +30,7 @@ function mkPane(id: string, over: Partial<Pane> = {}): Pane {
   return { id, pty_id: null, pane_type: "Terminal", title: id, cwd: null, ...over } as Pane;
 }
 
-test("owner pane → orchestrator activity (plan title + task count)", () => {
+test("owner Tab → orchestrator activity (plan title + task count)", () => {
   const index = [mkEntry({ assigned_pane_ids: ["w1"] })];
   const panes = { "orch-1": mkPane("orch-1", { agent_session_id: "sess-orch", can_spawn: true }) };
   const a = resolvePaneTabActivity(index, "orch-1", panes);
@@ -39,20 +39,20 @@ test("owner pane → orchestrator activity (plan title + task count)", () => {
   assert(a.planTitle.includes("Figma-grade"), "carries plan title for hover");
 });
 
-test("directly-assigned pane → worker activity", () => {
+test("directly-assigned Tab → worker activity", () => {
   const index = [mkEntry({ assigned_pane_ids: ["w1"] })];
   const panes = {
     "orch-1": mkPane("orch-1", { agent_session_id: "sess-orch" }),
     w1: mkPane("w1", { parent_pane_id: "orch-1", agent_session_id: "sess-w1" }),
   };
   const a = resolvePaneTabActivity(index, "w1", panes);
-  assert(a?.kind === "worker", `assigned pane classified worker (got ${a?.kind})`);
+  assert(a?.kind === "worker", `assigned Tab classified worker (got ${a?.kind})`);
   assert(a.planId === "plan-1", "worker carries its plan id");
 });
 
-test("idle / unrelated pane → no activity (honest)", () => {
+test("idle / unrelated Tab → no activity (honest)", () => {
   const index = [mkEntry({ assigned_pane_ids: ["w1"] })];
-  assert(resolvePaneTabActivity(index, "stranger", {}) === null, "unrelated pane shows nothing");
+  assert(resolvePaneTabActivity(index, "stranger", {}) === null, "unrelated Tab shows nothing");
   assert(resolvePaneTabActivity([], "w1", {}) === null, "empty index → nothing");
 });
 
@@ -62,7 +62,7 @@ test("worker nested under orchestrator but NOT assigned → no activity", () => 
     "orch-1": mkPane("orch-1", { agent_session_id: "sess-orch" }),
     w1: mkPane("w1", { parent_pane_id: "orch-1", agent_session_id: "sess-w1" }),
   };
-  assert(resolvePaneTabActivity(index, "w1", panes) === null, "nested-only pane stays bare");
+  assert(resolvePaneTabActivity(index, "w1", panes) === null, "nested-only Tab stays bare");
 });
 
 test("session-id ownership survives a pane-id change", () => {

@@ -89,10 +89,7 @@ fn test_claim_existing_tab_reuses_blank_pane_in_place() {
 
     let (claimed_tab_id, claimed_pane_id) = state.claim_existing_tab(&ws_id, &tab_id).unwrap();
     assert_eq!(claimed_tab_id, tab_id, "claim must not mint a new tab id");
-    assert_eq!(
-        claimed_pane_id, pane_id,
-        "claim must not mint a new pane id"
-    );
+    assert_eq!(claimed_pane_id, pane_id, "claim must not mint a new Tab id");
     assert_eq!(
         state.get_workspace(&ws_id).unwrap().tabs.len(),
         tabs_before,
@@ -118,7 +115,7 @@ fn test_claim_existing_tab_rejects_tab_with_agent_already_attached() {
 fn test_claim_existing_tab_rejects_unknown_tab() {
     let (mut state, _) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
-    let result = state.claim_existing_tab(&ws_id, "nonexistent-tab");
+    let result = state.claim_existing_tab(&ws_id, "nonexistent-pane");
     assert!(result.is_err());
 }
 
@@ -130,7 +127,7 @@ fn test_claim_existing_tab_rejects_protected_pane() {
     state.get_pane_mut(&pane_id).unwrap().protected = true;
 
     let result = state.claim_existing_tab(&ws_id, &tab_id);
-    assert!(result.is_err(), "a protected pane must not be claimable");
+    assert!(result.is_err(), "a protected Tab must not be claimable");
 }
 
 #[test]
@@ -147,7 +144,7 @@ fn test_create_tab_generates_unique_titles() {
     for tab in &ws.tabs {
         let title = state.get_pane(&tab.pane_id).unwrap().title.as_str();
         assert_ne!(title, "Terminal");
-        assert!(titles.insert(title), "duplicate pane title: {}", title);
+        assert!(titles.insert(title), "duplicate Tab title: {}", title);
     }
 }
 
@@ -686,9 +683,9 @@ fn test_rename_pane_pins_title() {
 fn test_rename_pane_changes_canonical_title() {
     let (mut state, pane_id) = MultiplexerState::new();
 
-    state.rename_pane(&pane_id, "My Pane").unwrap();
+    state.rename_pane(&pane_id, "My Tab").unwrap();
 
-    assert_eq!(state.display_label_for_pane(&pane_id), "My Pane");
+    assert_eq!(state.display_label_for_pane(&pane_id), "My Tab");
 }
 
 #[test]
@@ -1085,7 +1082,7 @@ fn test_protected_pane_cannot_close() {
 
     let result = state.close_pane(&new_pane_id);
     assert!(result.is_err());
-    assert_eq!(result.unwrap_err(), "Cannot close protected pane");
+    assert_eq!(result.unwrap_err(), "Cannot close protected Tab");
     assert!(state.get_pane(&new_pane_id).is_some());
 }
 

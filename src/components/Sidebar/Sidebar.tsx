@@ -582,9 +582,9 @@ export function Sidebar({
                       sidebarActionText={sidebarActionText}
                       orchestrators={generalOrchestrators}
                       onBeforeOpenPlan={() => { setActiveWorkspace(generalWorkspace.id); onNavigateToTab?.(); }}
-                      onActivateTab={(tabId) => { setActiveTab(generalWorkspace.id, tabId); onNavigateToTab?.(); }}
-                      onCloseTab={(tabId) => animatedCloseTab(generalWorkspace.id, tabId)}
-                      onRenameTab={(tabId, title) => setTabTitle(generalWorkspace.id, tabId, title)}
+                      onActivatepane={(tabId) => { setActiveTab(generalWorkspace.id, tabId); onNavigateToTab?.(); }}
+                      onClosepane={(tabId) => animatedCloseTab(generalWorkspace.id, tabId)}
+                      onRenamepane={(tabId, title) => setTabTitle(generalWorkspace.id, tabId, title)}
                       onNewSession={() => handleNewSession(generalWorkspace.id, generalWorkspace.cwd ?? null)}
                       onRenameTeam={teamActions?.onRenameTeam}
                       onAddTeamMember={teamActions?.onAddTeamMember}
@@ -744,12 +744,12 @@ export function Sidebar({
                             setActiveWorkspace(ws.id);
                             onNavigateToTab?.();
                           }}
-                          onActivateTab={(tabId) => {
+                          onActivatepane={(tabId) => {
                             setActiveTab(ws.id, tabId);
                             onNavigateToTab?.();
                           }}
-                          onCloseTab={(tabId) => animatedCloseTab(ws.id, tabId)}
-                          onRenameTab={(tabId, title) => setTabTitle(ws.id, tabId, title)}
+                          onClosepane={(tabId) => animatedCloseTab(ws.id, tabId)}
+                          onRenamepane={(tabId, title) => setTabTitle(ws.id, tabId, title)}
                           onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
                           onRenameTeam={teamActions?.onRenameTeam}
                           onAddTeamMember={teamActions?.onAddTeamMember}

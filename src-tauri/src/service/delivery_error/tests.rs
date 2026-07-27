@@ -100,7 +100,7 @@ fn opaque_failure_defaults_to_admitting_the_write() {
 fn opaque_boot_refusal_is_recognised_as_zero_byte() {
     let err = DeliveryError::from_opaque(
         "p1",
-        "Agent in pane p1 is still booting — input would be lost",
+        "Agent in Tab p1 is still booting — input would be lost",
     );
     assert_eq!(err.code(), "pane_busy_refused");
     assert!(!err.bytes_written());

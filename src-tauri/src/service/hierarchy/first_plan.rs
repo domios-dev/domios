@@ -80,17 +80,17 @@ pub(crate) fn create_first_plan_for_orchestrator(
         .as_deref()
         .filter(|pane_id| !pane_id.is_empty())
         .ok_or_else(|| {
-            FirstPlanTeamError::Team("first-plan creation requires an owner pane".into())
+            FirstPlanTeamError::Team("first-plan creation requires an owner Tab".into())
         })?
         .to_string();
     let mut state = mux.write();
     let owner_role = state
         .get_pane(&owner_pane_id)
-        .ok_or_else(|| FirstPlanTeamError::Team(format!("Pane {owner_pane_id} not found")))?
+        .ok_or_else(|| FirstPlanTeamError::Team(format!("Tab {owner_pane_id} not found")))?
         .role;
     if owner_role != Some(AgentRole::Orchestrator) {
         return Err(FirstPlanTeamError::Team(format!(
-            "Pane {owner_pane_id} is not an Orchestrator"
+            "Tab {owner_pane_id} is not an Orchestrator"
         )));
     }
     let team = state

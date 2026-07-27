@@ -158,10 +158,10 @@ async function main() {
   __setListenForTest(null);
 
   if (deltaB > 3) {
-    throw new Error(`hidden pane B render delta ${deltaB} exceeds budget (pre-fix ~60)`);
+    throw new Error(`hidden Tab B render delta ${deltaB} exceeds budget (pre-fix ~60)`);
   }
   if (deltaA <= 0) {
-    throw new Error(`churn owner pane A did not re-render (delta=${deltaA})`);
+    throw new Error(`churn owner Tab A did not re-render (delta=${deltaA})`);
   }
   console.log(`PASS mux selector render isolation: paneA delta=${deltaA}, paneB delta=${deltaB}`);
 }

@@ -783,7 +783,7 @@ where
         errors.push(format!("task restore failed: {error}"));
     }
     if let Err(error) = close_pane() {
-        errors.push(format!("pane close failed: {error}"));
+        errors.push(format!("Tab close failed: {error}"));
     }
     if let Some(lane) = lane {
         if let Err(error) = lane.cleanup() {

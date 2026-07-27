@@ -51,7 +51,7 @@ pub(super) fn resolve_plan(
     let message = if caller_pane.is_empty() {
         "plan_id is required: pass it as an explicit positional arg".to_string()
     } else {
-        format!("no active plan bound to pane '{caller_pane}'; pass the plan id explicitly",)
+        format!("no active plan bound to Tab '{caller_pane}'; pass the plan id explicitly",)
     };
     Err(JsonRpcError {
         code: -32602,

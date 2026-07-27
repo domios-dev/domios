@@ -104,7 +104,7 @@ impl UsageProbe {
             Some(id) => id,
             None => {
                 let _ = svc.close_pane(&pane_id);
-                return Err(ProbeError::Internal("pane has no pty".into()));
+                return Err(ProbeError::Internal("Tab has no pty".into()));
             }
         };
 
