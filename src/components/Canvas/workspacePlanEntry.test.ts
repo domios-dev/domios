@@ -73,7 +73,8 @@ const workspace: Workspace = {
 function indexEntry(overrides: Partial<PlanIndexEntry> = {}): PlanIndexEntry {
   return {
     plan_id: FIXTURE_PLAN.id,
-    file_path: "/repo/hub/.codeterm/plans/active/plan/plan.json",
+    file_path: `/repo/hub/.codeterm/plans/active/${FIXTURE_PLAN.id}/plan.json`,
+    canonical_project_path: "",
     owner: FIXTURE_PLAN.owner,
     title: FIXTURE_PLAN.title,
     status: "active",
@@ -100,18 +101,55 @@ test("deriveWorkspacePlanEntries matches project-local plans", () => {
   assert(entries[0].plan_id === FIXTURE_PLAN.id, "fixture plan id");
 });
 
-test("deriveWorkspacePlanEntries matches Windows verbatim plan paths", () => {
+test("deriveWorkspacePlanEntries matches Windows verbatim canonical ownership", () => {
   const windowsWorkspace = { ...workspace, cwd: "D:\\Developer\\codeterm" };
   const entries = deriveWorkspacePlanEntries(
-    [indexEntry({ file_path: "\\\\?\\D:\\Developer\\codeterm\\.codeterm\\plans\\active\\pl_as7ty5\\plan.yaml" })],
+    [indexEntry({
+      file_path: "C:\\Users\\User\\.codeterm\\plans.db",
+      canonical_project_path: "\\\\?\\D:\\Developer\\codeterm",
+    })],
     windowsWorkspace,
     panes,
   );
-  assert(entries.length === 1, "verbatim Windows path belongs to workspace");
+  assert(entries.length === 1, "verbatim Windows ownership belongs to workspace");
+});
+
+test("deriveWorkspacePlanEntries matches Unix canonical ownership", () => {
+  const entries = deriveWorkspacePlanEntries(
+    [indexEntry({
+      file_path: "/home/user/.codeterm/plans.db",
+      canonical_project_path: "/repo/hub",
+    })],
+    workspace,
+    panes,
+  );
+  assert(entries.length === 1, "Unix canonical ownership belongs to workspace");
+});
+
+test("deriveWorkspacePlanEntries never treats a shared database path as ownership", () => {
+  const centralDatabase = indexEntry({
+    file_path: "/repo/hub/.codeterm/plans.db",
+    canonical_project_path: "",
+  });
+  const entries = deriveWorkspacePlanEntries([centralDatabase], workspace, panes);
+  assert(entries.length === 0, "shared plans.db location is storage, not ownership");
+});
+
+test("canonical ownership overrides a misleading legacy file path", () => {
+  const foreign = indexEntry({
+    file_path: `/repo/hub/.codeterm/plans/active/${FIXTURE_PLAN.id}/plan.json`,
+    canonical_project_path: "/repo/other",
+  });
+  const entries = deriveWorkspacePlanEntries([foreign], workspace, panes);
+  assert(entries.length === 0, "foreign canonical owner cannot fall back to a local file path");
 });
 
 test("deriveWorkspacePlanEntries ignores archived plans", () => {
-  const archived = indexEntry({ status: "archived" });
+  const archived = indexEntry({
+    status: "archived",
+    file_path: "/home/user/.codeterm/plans.db",
+    canonical_project_path: "/repo/hub",
+  });
   const entries = deriveWorkspacePlanEntries([archived], workspace, panes);
   assert(entries.length === 0, "archived hidden");
 });
@@ -292,10 +330,11 @@ test("openPlanDeepLink switches to the indexed owner workspace and focuses the t
   const ownerWorkspace = { ...workspace, id: "ws-owner", cwd: "/repo/owner" };
   const foreignWorkspace = { ...workspace, id: "ws-current", cwd: "/repo/current" };
   const entry = indexEntry({
-    file_path: `/repo/owner/.codeterm/plans/active/${FIXTURE_PLAN.id}/plan.json`,
+    file_path: "/home/user/.codeterm/plans.db",
+    canonical_project_path: "/repo/owner",
   });
   const owner = findPlanOwnerWorkspace(FIXTURE_PLAN.id, [entry], [foreignWorkspace, ownerWorkspace]);
-  assert(owner?.workspace.id === ownerWorkspace.id, "owner comes from indexed file path");
+  assert(owner?.workspace.id === ownerWorkspace.id, "owner comes from canonical project ownership");
 
   let switchedTo: string | null = null;
   canvasFocusStore.closeWorkspace();
@@ -310,6 +349,23 @@ test("openPlanDeepLink switches to the indexed owner workspace and focuses the t
   const target = canvasFocusStore.getWorkspaceTarget();
   assert(target?.planId === FIXTURE_PLAN.id, "plan view targets indexed plan");
   assert(target?.nodeIds?.[0] === FIXTURE_TASK.id, "task focus is retained");
+  canvasFocusStore.closeWorkspace();
+});
+
+test("openPlanDeepLink accepts resolved canonical ownership before the index refreshes", () => {
+  const ownerWorkspace = { ...workspace, id: "ws-owner", cwd: "/repo/owner" };
+  let switchedTo: string | null = null;
+  canvasFocusStore.closeWorkspace();
+  const opened = openPlanDeepLink(FIXTURE_PLAN.id, FIXTURE_TASK.id, {
+    index: [],
+    workspaces: [workspace, ownerWorkspace],
+    activeWorkspaceId: workspace.id,
+    canonicalProjectPath: "/repo/owner",
+    setActiveWorkspace: (id) => { switchedTo = id; },
+  });
+  assert(opened, "backend-resolved canonical ownership opens without an index entry");
+  assert(switchedTo === ownerWorkspace.id, "resolved ownership selects the owner workspace");
+  assert(canvasFocusStore.getWorkspaceTarget()?.planId === FIXTURE_PLAN.id, "resolved plan opens");
   canvasFocusStore.closeWorkspace();
 });
 

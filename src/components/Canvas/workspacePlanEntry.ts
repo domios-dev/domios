@@ -40,14 +40,41 @@ function compareWorkspacePlanEntries(a: PlanIndexEntry, b: PlanIndexEntry): numb
 
 function planBelongsToWorkspacePath(entry: PlanIndexEntry, workspace: Workspace): boolean {
   if (!workspace.cwd) return false;
-  const root = normalizePath(workspace.cwd);
-  const file = normalizePath(entry.file_path);
-  const underRoot = file === root || file.startsWith(`${root}/`);
-  return underRoot && file.includes("/.codeterm/plans/");
+  const canonicalProjectPath = entry.canonical_project_path.trim();
+  if (canonicalProjectPath) {
+    return projectPathBelongsToWorkspace(canonicalProjectPath, workspace.cwd);
+  }
+  const legacyProjectPath = legacyPlanProjectPath(entry);
+  return legacyProjectPath != null
+    && projectPathBelongsToWorkspace(legacyProjectPath, workspace.cwd);
 }
 
 function normalizePath(path: string): string {
   return path.replace(/\\/g, "/").replace(/^\/\/\?\//, "").replace(/\/+$/, "");
+}
+
+function comparablePath(path: string): string {
+  const normalized = normalizePath(path);
+  return /^[a-z]:\//i.test(normalized) ? normalized.toLowerCase() : normalized;
+}
+
+function projectPathBelongsToWorkspace(projectPath: string, workspacePath: string): boolean {
+  const project = comparablePath(projectPath);
+  const root = comparablePath(workspacePath);
+  return project === root || project.startsWith(`${root}/`);
+}
+
+function legacyPlanProjectPath(entry: PlanIndexEntry): string | null {
+  const file = normalizePath(entry.file_path);
+  const marker = "/.codeterm/plans/";
+  const markerIndex = file.lastIndexOf(marker);
+  if (markerIndex < 0) return null;
+  const parts = file.slice(markerIndex + marker.length).split("/");
+  if (parts.length !== 3) return null;
+  const [bucket, planId, fileName] = parts;
+  if ((bucket !== "active" && bucket !== "archive") || planId !== entry.plan_id) return null;
+  if (fileName !== "plan.json" && fileName !== "plan.yaml") return null;
+  return file.slice(0, markerIndex);
 }
 
 function hasWorkspacePlanContent(entry: PlanIndexEntry): boolean {
@@ -136,18 +163,23 @@ export function openWorkspacePlanForEntries(entries: readonly PlanIndexEntry[]):
   });
 }
 
-/** Workspace whose cwd owns this plan's file path, or null when unknown. */
+/** Workspace whose cwd owns this plan's canonical project, or null when unknown. */
 export function findPlanOwnerWorkspace(
   planId: string,
   index: readonly PlanIndexEntry[],
   workspaces: readonly Workspace[],
-): { workspace: Workspace; entry: PlanIndexEntry } | null {
+  canonicalProjectPath?: string,
+): { workspace: Workspace; entry?: PlanIndexEntry } | null {
   const entry = index.find((e) => e.plan_id === planId);
-  if (!entry) return null;
-  let best: { workspace: Workspace; entry: PlanIndexEntry } | null = null;
+  const authoritativePath = canonicalProjectPath?.trim();
+  if (!entry && !authoritativePath) return null;
+  let best: { workspace: Workspace; entry?: PlanIndexEntry } | null = null;
   let bestLen = -1;
   for (const workspace of workspaces) {
-    if (!planBelongsToWorkspacePath(entry, workspace)) continue;
+    const belongs = authoritativePath
+      ? workspace.cwd != null && projectPathBelongsToWorkspace(authoritativePath, workspace.cwd)
+      : entry != null && planBelongsToWorkspacePath(entry, workspace);
+    if (!belongs) continue;
     const len = workspace.cwd ? normalizePath(workspace.cwd).length : 0;
     if (len > bestLen) {
       best = { workspace, entry };
@@ -161,13 +193,19 @@ export interface OpenPlanDeepLinkCtx {
   index: readonly PlanIndexEntry[];
   workspaces: readonly Workspace[];
   activeWorkspaceId: string | null;
+  canonicalProjectPath?: string;
   setActiveWorkspace: (id: string) => void;
   onMissing?: (planId: string) => void;
 }
 
 /** Deep-link from chat: switch to the owning workspace and open the plan focused on a task. */
 export function openPlanDeepLink(planId: string, taskId: string | undefined, ctx: OpenPlanDeepLinkCtx): boolean {
-  const owner = findPlanOwnerWorkspace(planId, ctx.index, ctx.workspaces);
+  const owner = findPlanOwnerWorkspace(
+    planId,
+    ctx.index,
+    ctx.workspaces,
+    ctx.canonicalProjectPath,
+  );
   if (!owner) {
     ctx.onMissing?.(planId);
     return false;

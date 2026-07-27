@@ -155,3 +155,13 @@ fn missing_task_file_reports_unreadable() {
 fn neither_task_nor_task_file_is_none() {
     assert_eq!(resolve_spawn_task(None, None, &mut &b""[..]).unwrap(), None);
 }
+
+#[test]
+fn failed_agent_transition_response_is_not_reported_as_success() {
+    let error = parse_agent_mutation_response(
+        reqwest::StatusCode::CONFLICT,
+        r#"{"error":"transition rolled back"}"#.into(),
+    )
+    .unwrap_err();
+    assert_eq!(error, "transition rolled back");
+}

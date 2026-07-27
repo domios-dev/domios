@@ -18,7 +18,7 @@ import {
   type ActiveWorkSnapshot,
 } from "../Canvas/planView/activeWork";
 import { displayTitleForTab } from "../../store/multiplexer/tree";
-import { canMakeOrchestrator, makeOrchestrator } from "../../lib/orchestratorOnboard";
+import { canMakeOrchestrator, makeOrchestrator, makePlanner } from "../../lib/orchestratorOnboard";
 import {
   copyPaneSessionId,
   paneSessionActionView,
@@ -124,7 +124,7 @@ function TabItemInner({
   isClosing,
   touchMode = false,
   uiFontScale,
-  activity: _activity,
+  activity,
   activeWork: _activeWork = null,
   reportCount = 0,
   groupCollapsible = false,
@@ -178,6 +178,17 @@ function TabItemInner({
         onClick: () => { void makeOrchestrator(pane.id); },
       });
     }
+    if (
+      pane
+      && activity?.kind === "worker"
+      && !(pane.role === "Manager" && pane.role_profile === "planner")
+    ) {
+      items.push({
+        label: "Make Planner",
+        icon: <UserCog size={11} strokeWidth={2} />,
+        onClick: () => { void makePlanner(pane.id, activity.planId); },
+      });
+    }
     const sessionActions = pane ? paneSessionActionView(pane) : null;
     if (pane && sessionActions?.canReconnect) {
       items.push({
@@ -204,7 +215,7 @@ function TabItemInner({
       });
     }
     return items;
-  }, [canonicalTitle, pane, canClose, hasAgent, onClose]);
+  }, [activity, canonicalTitle, pane, canClose, hasAgent, onClose]);
 
   const sessionActions = pane ? paneSessionActionView(pane) : null;
   const sessionId = sessionActions?.sessionId ?? null;

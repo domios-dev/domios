@@ -403,10 +403,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 .json(&serde_json::json!({"role": "Orchestrator"}))
                 .send()
             {
-                Ok(resp) => {
-                    let v: serde_json::Value = resp.json().unwrap_or_default();
-                    println!("{}", serde_json::to_string_pretty(&v).unwrap());
-                }
+                Ok(resp) => print_agent_mutation_response(resp),
                 Err(e) => {
                     eprintln!("Error: {}", e);
                     std::process::exit(1);
@@ -439,10 +436,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 .json(&serde_json::json!({"role": role, "parent_pane_id": parent}))
                 .send()
             {
-                Ok(resp) => {
-                    let v: serde_json::Value = resp.json().unwrap_or_default();
-                    println!("{}", serde_json::to_string_pretty(&v).unwrap());
-                }
+                Ok(resp) => print_agent_mutation_response(resp),
                 Err(e) => {
                     eprintln!("Error: {}", e);
                     std::process::exit(1);
@@ -455,10 +449,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 .delete(format!("{}/api/panes/{}/role", base, pane_id))
                 .send()
             {
-                Ok(resp) => {
-                    let v: serde_json::Value = resp.json().unwrap_or_default();
-                    println!("{}", serde_json::to_string_pretty(&v).unwrap());
-                }
+                Ok(resp) => print_agent_mutation_response(resp),
                 Err(e) => {
                     eprintln!("Error: {}", e);
                     std::process::exit(1);
@@ -979,6 +970,45 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
         }
     }
+}
+
+fn print_agent_mutation_response(resp: reqwest::blocking::Response) {
+    let status = resp.status();
+    let text = resp.text().unwrap_or_default();
+    match parse_agent_mutation_response(status, text) {
+        Ok(value) => println!("{}", serde_json::to_string_pretty(&value).unwrap()),
+        Err(message) => {
+            eprintln!("Error: {message}");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn parse_agent_mutation_response(
+    status: reqwest::StatusCode,
+    text: String,
+) -> Result<serde_json::Value, String> {
+    let value = serde_json::from_str::<serde_json::Value>(&text).unwrap_or_else(|_| {
+        let message = if text.is_empty() {
+            status.to_string()
+        } else {
+            text
+        };
+        if status.is_success() {
+            serde_json::json!({ "ok": true, "message": message })
+        } else {
+            serde_json::json!({ "error": message })
+        }
+    });
+    if !status.is_success() {
+        let message = value
+            .get("error")
+            .and_then(|error| error.as_str())
+            .unwrap_or_else(|| value.as_str().unwrap_or("agent transition failed"))
+            .to_string();
+        return Err(message);
+    }
+    Ok(value)
 }
 
 #[cfg(test)]

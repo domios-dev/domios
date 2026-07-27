@@ -379,6 +379,8 @@ pub(crate) struct SetRoleBody {
     role: String,
     #[serde(default)]
     role_profile: Option<String>,
+    #[serde(default)]
+    plan_id: Option<String>,
     parent_pane_id: Option<String>,
     can_spawn: Option<bool>,
 }
@@ -407,16 +409,47 @@ pub async fn set_pane_role(
             .map(|p| p.role == Some(AgentRole::Orchestrator))
             .unwrap_or(false)
     };
+    let destination = match parsed_role {
+        AgentRole::Orchestrator => crate::service::AgentPlacement::Orchestrator {
+            can_spawn: body.can_spawn.unwrap_or(true),
+        },
+        AgentRole::Worker => crate::service::AgentPlacement::Worker {
+            parent_pane_id: body.parent_pane_id.ok_or_else(|| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    "Worker requires a parent_pane_id".to_string(),
+                )
+            })?,
+        },
+        AgentRole::Manager if role_probe.role_profile.as_deref() == Some("planner") => {
+            crate::service::AgentPlacement::Planner {
+                plan_id: body.plan_id.ok_or_else(|| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        "Planner requires a plan_id".to_string(),
+                    )
+                })?,
+            }
+        }
+        AgentRole::Manager => crate::service::AgentPlacement::Manager {
+            parent_pane_id: body.parent_pane_id.ok_or_else(|| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    "Manager requires a parent_pane_id".to_string(),
+                )
+            })?,
+            role_profile: role_probe.role_profile,
+        },
+    };
     state
         .svc
-        .set_pane_role(&id, &role, body.parent_pane_id.as_deref(), body.can_spawn)
+        .transition_agent(crate::service::AgentTransitionRequest {
+            pane_id: id.clone(),
+            destination,
+            require_verified_session: true,
+            planner_replacement: None,
+        })
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    if let Some(profile) = role_probe.role_profile {
-        if let Some(pane) = state.svc.mux.write().get_pane_mut(&id) {
-            pane.role_profile = Some(profile);
-        }
-        state.svc.emit_state_changed();
-    }
     if parsed_role == AgentRole::Orchestrator {
         state
             .svc
@@ -448,6 +481,32 @@ pub async fn make_orchestrator(
         .svc
         .make_orchestrator(&id)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct MakePlannerBody {
+    plan_id: String,
+}
+
+pub async fn make_planner(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<MakePlannerBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    state
+        .svc
+        .transition_plan_planner(
+            &body.plan_id,
+            Some(crate::plan::PlannerRef::Pane {
+                pane_id: id,
+                session_id: None,
+                title: None,
+            }),
+        )
+        .map_err(|error| (StatusCode::CONFLICT, error))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 

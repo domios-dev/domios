@@ -90,6 +90,7 @@ function indexEntry(value: Plan): PlanIndexEntry {
   return {
     plan_id: value.id,
     file_path: `/workspace/.codeterm/plans/active/${value.id}/plan.json`,
+    canonical_project_path: "/workspace",
     owner: value.owner,
     title: value.title,
     status: value.status,

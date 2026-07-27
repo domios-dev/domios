@@ -504,6 +504,7 @@ impl TaskLaneUpdate {
 pub struct IndexEntry {
     pub plan_id: String,
     pub file_path: PathBuf,
+    pub canonical_project_path: String,
     pub owner: OrchestratorRef,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub team_id: Option<String>,

@@ -15,6 +15,7 @@ function mkEntry(over: Partial<PlanIndexEntry> = {}): PlanIndexEntry {
   return {
     plan_id: "plan-1",
     file_path: "/tmp/plan-1.json",
+    canonical_project_path: "/tmp",
     owner: { pane_id: "orch-1", session_id: "sess-orch", title: "Orchestrator" },
     title: "Canvas rendering substrate — Figma-grade migration",
     status: "active",

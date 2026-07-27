@@ -386,6 +386,7 @@ pub(super) fn validate_task_status_transition_with_lane(
     Ok(())
 }
 
+pub mod agent_lifecycle;
 mod plan_ops;
 mod task_ops;
 #[cfg(test)]

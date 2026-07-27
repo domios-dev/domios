@@ -13,6 +13,10 @@ assert(
   "permission backend refs must not be rewritten to unowned",
 );
 assert(
+  planRefViewState("unreachable", true, false) === "unreachable",
+  "unreachable backend refs take precedence over ownership data",
+);
+assert(
   planRefViewState("resolved", false, false) === "unowned",
   "resolved refs without an owner workspace remain workspace unavailable",
 );

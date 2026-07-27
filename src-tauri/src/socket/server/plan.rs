@@ -274,9 +274,12 @@ pub(super) fn dispatch(
                     message: format!("invalid planner: {e}"),
                     data: None,
                 })?;
-                store
-                    .set_planner_ref(&id, planner_ref, now)
-                    .map_err(plan_rpc_err)?;
+                svc.transition_plan_planner(&id, planner_ref)
+                    .map_err(|message| JsonRpcError {
+                        code: -32603,
+                        message,
+                        data: None,
+                    })?;
             }
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true, "plan_id": id }))

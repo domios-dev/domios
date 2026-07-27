@@ -279,6 +279,7 @@ pub fn run() {
             commands::mux_commands::mux_set_pane_role,
             commands::mux_commands::mux_clear_pane_role,
             commands::mux_commands::mux_make_orchestrator,
+            commands::mux_commands::mux_make_planner,
             commands::mux_commands::mux_set_can_spawn,
             commands::mux_commands::mux_respond_prompt,
             commands::mux_commands::mux_batch,

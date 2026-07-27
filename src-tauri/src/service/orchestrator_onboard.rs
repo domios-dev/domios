@@ -68,12 +68,6 @@ pub fn validate_make_orchestrator(pane: &Pane) -> Result<(), String> {
     if pane.protected {
         return Err("Protected pane cannot become Orchestrator".into());
     }
-    if pane.role == Some(AgentRole::Orchestrator) {
-        return Err("Pane is already an Orchestrator".into());
-    }
-    if pane.parent_pane_id.is_some() {
-        return Err("Cannot become Orchestrator — already in a hierarchy".into());
-    }
     if !pane_is_agent_capable(pane) {
         return Err(
             "Only agent or chatBackend panes can use Make Orchestrator (plain shells cannot)"
@@ -182,16 +176,22 @@ impl ServiceContext {
     }
 
     pub fn make_orchestrator(&self, pane_id: &str) -> Result<(), String> {
-        {
+        let was_orchestrator = {
             let mux = self.mux.read();
             let pane = mux
                 .get_pane(pane_id)
                 .ok_or_else(|| format!("Pane {pane_id} not found"))?;
             validate_make_orchestrator(pane)?;
-        }
+            pane.role == Some(AgentRole::Orchestrator)
+        };
 
-        self.set_pane_role(pane_id, "Orchestrator", None, Some(true))?;
-        self.deliver_orchestrator_onboarding(pane_id);
+        self.transition_agent(crate::service::AgentTransitionRequest {
+            pane_id: pane_id.to_string(),
+            destination: crate::service::AgentPlacement::Orchestrator { can_spawn: true },
+            require_verified_session: true,
+            planner_replacement: None,
+        })?;
+        self.maybe_deliver_orchestrator_promotion_onboarding(pane_id, was_orchestrator);
 
         Ok(())
     }
@@ -295,17 +295,17 @@ mod tests {
     }
 
     #[test]
-    fn worker_child_and_protected_still_blocked() {
+    fn worker_child_can_transition_but_protected_stays_blocked() {
         let mut worker = mk_pane("w1");
         worker.agent_type = Some("claude".into());
         worker.role = Some(AgentRole::Worker);
         worker.parent_pane_id = Some("orch-1".into());
-        assert!(validate_make_orchestrator(&worker).is_err());
+        assert!(validate_make_orchestrator(&worker).is_ok());
 
         let mut orch = mk_pane("o1");
         orch.agent_type = Some("claude".into());
         orch.role = Some(AgentRole::Orchestrator);
-        assert!(validate_make_orchestrator(&orch).is_err());
+        assert!(validate_make_orchestrator(&orch).is_ok());
 
         let mut protected = mk_pane("p1");
         protected.agent_type = Some("claude".into());
