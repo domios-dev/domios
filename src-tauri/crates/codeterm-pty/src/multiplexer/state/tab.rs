@@ -104,19 +104,12 @@ impl MultiplexerState {
             .ok_or_else(|| format!("Tab not found: {}", tab_id))?;
 
         let tab = workspace.tabs.remove(tab_idx);
-        let pane_ids = vec![tab.pane_id.clone()];
-
-        let pty_ids: Vec<String> = pane_ids
-            .iter()
-            .filter_map(|pid| self.panes.get(pid))
-            .filter_map(|pane| pane.pty_id.clone())
-            .collect();
-
-        for pid in &pane_ids {
-            if let Some(pane) = self.panes.remove(pid) {
-                if let Some(pty_id) = &pane.pty_id {
-                    self.pty_to_pane.remove(pty_id);
-                }
+        let pane_id = tab.pane_id;
+        let mut pty_ids = Vec::new();
+        if let Some(pane) = self.panes.remove(&pane_id) {
+            if let Some(pty_id) = pane.pty_id {
+                self.pty_to_pane.remove(&pty_id);
+                pty_ids.push(pty_id);
             }
         }
 
@@ -124,11 +117,9 @@ impl MultiplexerState {
             workspace.active_tab_id = workspace.tabs.last().map(|t| t.id.clone());
         }
 
-        if let Some(ref focused) = self.focused_pane_id {
-            if pane_ids.contains(focused) {
-                self.focused_pane_id = None;
-                self.fallback_focus_to_general();
-            }
+        if self.focused_pane_id.as_deref() == Some(&pane_id) {
+            self.focused_pane_id = None;
+            self.fallback_focus_to_general();
         }
 
         Ok(pty_ids)

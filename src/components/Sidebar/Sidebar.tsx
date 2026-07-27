@@ -24,8 +24,8 @@ import {
 } from "./sortable";
 import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
 import type { MeshPresence } from "./meshPresenceHeader";
-import { flattenSidebarTabs, collectPaneIds } from "./workspaceTabs";
-import { aggregateTabStatus } from "./sidebarTabStatus";
+import { flattenSidebarTabs, isSidebarTabVisible } from "./workspaceTabs";
+import { aggregatePaneStatuses } from "./paneStatuses";
 import { useFullPlansOptional, usePlanIndexOptional } from "../Canvas/PlansProvider";
 import { selectActiveWork } from "../Canvas/planView/activeWork";
 import { isWorkspaceTabActive } from "./sidebarSelection";
@@ -506,7 +506,12 @@ export function Sidebar({
   }, [ordinaryWorkspaces, selectedWorkspaceId, state.active_workspace_id]);
   const workspaceStatuses = useMemo(() => Object.fromEntries(ordinaryWorkspaces.map((workspace) => [
     workspace.id,
-    aggregateTabStatus(workspace.tabs.flatMap((tab) => collectPaneIds(tab, state.panes)), state.paneStatuses),
+    aggregatePaneStatuses(
+      workspace.tabs
+        .filter((tab) => isSidebarTabVisible(tab, state.panes))
+        .map((tab) => tab.pane_id),
+      state.paneStatuses,
+    ),
   ])), [ordinaryWorkspaces, state.paneStatuses, state.panes]);
   const workspaceSortIds = useMemo(
     () => ordinaryWorkspaces.map((ws) => `${WS_PREFIX}${ws.id}`),
@@ -634,7 +639,7 @@ export function Sidebar({
                         {isExpanded && (
                           <>
                             {flattenSidebarTabs(ws.tabs, state.panes).map((tab) => {
-                          const tabPaneIds = collectPaneIds(tab, state.panes);
+                          const pane = state.panes[tab.pane_id];
                           const isTabActive = isWorkspaceTabActive(
                             isActiveVisual,
                             workspaceCanvasActive,
@@ -653,15 +658,11 @@ export function Sidebar({
                               aria-label={`Open tab ${displayTitleForTab(tab, state.panes[tab.pane_id])}`}
                               title={displayTitleForTab(tab, state.panes[tab.pane_id])}
                             >
-                              {(() => {
-                                const agentPid = tabPaneIds.find((pid) => !!state.panes[pid]?.agent_type);
-                                const agentType = agentPid ? state.panes[agentPid]?.agent_type : undefined;
-                                return agentType ? (
-                                  <AgentIcon providerId={agentType} className="text-[12px]" />
-                                ) : (
-                                  <TerminalIcon size={11} />
-                                );
-                              })()}
+                              {pane?.agent_type ? (
+                                <AgentIcon providerId={pane.agent_type} className="text-[12px]" />
+                              ) : (
+                                <TerminalIcon size={11} />
+                              )}
                             </button>
                           );
                             })}

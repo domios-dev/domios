@@ -34,7 +34,6 @@ interface TabItemProps {
   onClick: () => void;
   onClose: () => void;
   canClose: boolean;
-  paneCount: number;
   workspaceId: string;
   hasAgent?: boolean;
   status?: PaneStatus | null;
@@ -113,7 +112,6 @@ function TabItemInner({
   onClick,
   onClose,
   canClose,
-  paneCount,
   workspaceId: _workspaceId,
   hasAgent,
   status,
@@ -360,22 +358,6 @@ function TabItemInner({
             title={pane.pending_prompt.question}
           />
         )}
-        {paneCount > 1 && (
-          <span className="flex items-center gap-0.5 text-[var(--ct-muted)]" title={`${paneCount} Tabs`}>
-            <svg width="12" height="10" viewBox="0 0 14 10" fill="none" stroke="currentColor" strokeWidth="1">
-              {paneCount === 2 ? (
-                /* Two panes side by side */
-                <><rect x="0.5" y="0.5" width="13" height="9" rx="1" /><line x1="7" y1="0.5" x2="7" y2="9.5" /></>
-              ) : paneCount === 3 ? (
-                /* Three panes: one left, two right stacked */
-                <><rect x="0.5" y="0.5" width="13" height="9" rx="1" /><line x1="7" y1="0.5" x2="7" y2="9.5" /><line x1="7" y1="5" x2="13.5" y2="5" /></>
-              ) : (
-                /* Four+ panes: grid */
-                <><rect x="0.5" y="0.5" width="13" height="9" rx="1" /><line x1="7" y1="0.5" x2="7" y2="9.5" /><line x1="0.5" y1="5" x2="13.5" y2="5" /></>
-              )}
-            </svg>
-          </span>
-        )}
         {reportCount > 0 && (
           <span className="inline-flex shrink-0 items-center justify-center min-w-[14px] h-3.5 px-0.5 rounded-full bg-[var(--ct-accent)]/20 text-[var(--ct-accent)] text-[9px] font-bold leading-none">
             {reportCount}
@@ -437,7 +419,6 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     prev.isActive !== next.isActive ||
     prev.status !== next.status ||
     prev.canClose !== next.canClose ||
-    prev.paneCount !== next.paneCount ||
     prev.hasAgent !== next.hasAgent ||
     prev.isAppearing !== next.isAppearing ||
     prev.isClosing !== next.isClosing ||
