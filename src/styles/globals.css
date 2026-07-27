@@ -1219,7 +1219,7 @@ button,
   pointer-events: none;
 }
 .ct-liquid-segmented__thumb--travel {
-  animation: ct-liquid-control-x var(--ct-duration-liquid-dots) both;
+  animation: ct-liquid-control-x var(--ct-duration-liquid-segmented) both;
 }
 .ct-liquid-segmented__option {
   position: relative;
@@ -1279,7 +1279,7 @@ button,
   transform: translate(1.55rem, -50%);
 }
 .ct-liquid-toggle__knob--travel {
-  animation: ct-liquid-control-knob var(--ct-duration-liquid-dots) both;
+  animation: ct-liquid-control-knob var(--ct-duration-liquid-toggle) both;
 }
 
 .ct-liquid-flip {
@@ -1309,7 +1309,7 @@ button,
 }
 .ct-liquid-flip[aria-checked="true"] .ct-liquid-flip__chip { transform: translateX(100%); }
 .ct-liquid-flip__chip--travel {
-  animation: ct-liquid-control-x var(--ct-duration-liquid-dots) both;
+  animation: ct-liquid-control-x var(--ct-duration-liquid-flip) both;
 }
 .ct-liquid-flip__word {
   position: relative;

@@ -429,6 +429,7 @@ export function useChatSession({
     sessionBindingNonce: sessionBindingNonce ?? null,
   });
   const requestedSubscriptionIdRef = useRef<string | null>(null);
+  const recoveryDeadlineRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rotationQueuedRef = useRef(false);
   const backfillInFlightRef = useRef(false);
   /** Backfilled pages get negative descending seq so equal-second boundary
@@ -478,7 +479,34 @@ export function useChatSession({
     setOptimistic([]);
   }, [tabId]);
 
+  const clearRecoveryDeadline = useCallback(() => {
+    if (recoveryDeadlineRef.current == null) return;
+    clearTimeout(recoveryDeadlineRef.current);
+    recoveryDeadlineRef.current = null;
+  }, []);
+
+  const armRecoveryDeadline = useCallback((
+    lifecycle: number,
+    generation: number,
+    message: string,
+  ) => {
+    clearRecoveryDeadline();
+    recoveryDeadlineRef.current = setTimeout(() => {
+      recoveryDeadlineRef.current = null;
+      if (
+        lifecycleRef.current !== lifecycle
+        || attachGenerationRef.current !== generation
+      ) return;
+      setAttachmentState("failed");
+      setRecovering(false);
+      setLoading(false);
+      setError(message);
+      onErrorRef.current?.(message);
+    }, 15_000);
+  }, [clearRecoveryDeadline]);
+
   const requestAttach = useCallback(() => {
+    clearRecoveryDeadline();
     const nextSessionId = agentSessionIdRef.current;
     attachmentSourceSessionIdRef.current = nextSessionId;
     requestedSubscriptionIdRef.current = newChatSubscriptionId(tabId);
@@ -489,16 +517,18 @@ export function useChatSession({
       attachGenerationRef.current = nextGeneration;
       return nextGeneration;
     });
-  }, [tabId]);
+  }, [clearRecoveryDeadline, tabId]);
 
   const markAttached = useCallback(() => {
+    clearRecoveryDeadline();
     setAttachmentState("attached");
     setRecovering(false);
     setLoading(false);
-  }, []);
+  }, [clearRecoveryDeadline]);
 
   useEffect(() => {
     if (!active) {
+      clearRecoveryDeadline();
       setListenerReady(false);
       setLoading(false);
       setAttachmentState("idle");
@@ -579,6 +609,7 @@ export function useChatSession({
       }
     })();
     return () => {
+      clearRecoveryDeadline();
       lifecycleRef.current += 1;
       unlisten?.();
       if (unlisten) emitDiagnostic({ edge: "listener_released", tabId });
@@ -588,6 +619,7 @@ export function useChatSession({
     };
   }, [
     active,
+    clearRecoveryDeadline,
     emitDiagnostic,
     markAttached,
     nextClientOrder,
@@ -651,6 +683,11 @@ export function useChatSession({
             setAttachmentState("awaiting_session");
             setRecovering(true);
             setLoading(false);
+            armRecoveryDeadline(
+              lifecycle,
+              generation,
+              "Chat history recovery timed out while waiting for the agent session.",
+            );
           }
           return;
         }
@@ -677,6 +714,11 @@ export function useChatSession({
         if (res.pending) {
           setAttachmentState("awaiting_store");
           setRecovering(true);
+          armRecoveryDeadline(
+            lifecycle,
+            generation,
+            "Chat history recovery timed out while waiting for the message store.",
+          );
           return;
         }
         markAttached();
@@ -702,6 +744,7 @@ export function useChatSession({
       } catch (e) {
         if (cancelled || lifecycleRef.current !== lifecycle || attachGenerationRef.current !== generation) return;
         const msg = e instanceof Error ? e.message : String(e);
+        clearRecoveryDeadline();
         setAttachmentState("failed");
         setRecovering(false);
         setError(msg);
@@ -714,7 +757,9 @@ export function useChatSession({
     };
   }, [
     active,
+    armRecoveryDeadline,
     attachGeneration,
+    clearRecoveryDeadline,
     emitDiagnostic,
     listenerReady,
     markAttached,

@@ -179,18 +179,25 @@ test("new session stays disabled until Get started is complete", async () => {
 test("hidden service Tabs never render in the sidebar", async () => {
   const visibleTab = tab({ id: "visible-tab", title: "Get started" });
   const hiddenTab = { ...tab({ id: "probe-tab", title: "Puccini" }), hidden: true };
+  const unpublishedTab = {
+    ...tab({ id: "unpublished-tab", title: "Rossini" }),
+    show_in_tabbar: false,
+  };
   const { host, root } = await renderSidebar({
     tabs: {
       [visibleTab.id]: visibleTab,
       [hiddenTab.id]: hiddenTab,
+      [unpublishedTab.id]: unpublishedTab,
     },
     sortedTabs: [
       tab("visible-tab", visibleTab.id, 0),
       tab("probe-tab", hiddenTab.id, 1),
+      tab("unpublished-tab", unpublishedTab.id, 2),
     ],
   });
   assert(host.textContent?.includes("Get started"), "visible onboarding Tab remains rendered");
   assert(!host.textContent?.includes("Puccini"), "hidden usage probe must not leak into the sidebar");
+  assert(!host.textContent?.includes("Rossini"), "unpublished service Tab must not leak into the sidebar");
   await act(async () => root.unmount());
 });
 

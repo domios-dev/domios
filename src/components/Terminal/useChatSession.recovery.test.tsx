@@ -15,6 +15,18 @@ Object.defineProperty(globalThis, "Event", { value: window.Event, configurable: 
 Object.defineProperty(globalThis, "CustomEvent", { value: window.CustomEvent, configurable: true });
 
 async function main() {
+  let recoveryDeadline: (() => void) | null = null;
+  const nativeSetTimeout = globalThis.setTimeout;
+  Object.defineProperty(globalThis, "setTimeout", {
+    value: ((callback: () => void, delay?: number) => {
+      if (delay === 15_000) {
+        recoveryDeadline = callback;
+        return 1;
+      }
+      return nativeSetTimeout(callback, delay);
+    }) as typeof setTimeout,
+    configurable: true,
+  });
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
   let starts = 0;
   let stops = 0;
@@ -39,10 +51,22 @@ async function main() {
     return {};
   }) as never);
 
-  let latest = { recovering: false, messages: [] as string[] };
+  let latest = {
+    attachmentState: "idle",
+    error: null as string | null,
+    recovering: false,
+    messages: [] as string[],
+    retry: () => {},
+  };
   function Harness() {
     const session = useChatSession({ tabId: "tab", agentSessionId: "bound-session", sessionBindingNonce: null });
-    latest = { recovering: session.recovering, messages: session.allMessages.map((message) => message.content) };
+    latest = {
+      attachmentState: session.attachmentState,
+      error: session.error,
+      recovering: session.recovering,
+      messages: session.allMessages.map((message) => message.content),
+      retry: session.retry,
+    };
     return null;
   }
 
@@ -61,8 +85,21 @@ async function main() {
   }));
   if (latest.recovering) throw new Error("chat stayed in recovering state");
   if (latest.messages[0] !== "history restored") throw new Error("history was not restored");
+
+  await act(async () => latest.retry());
+  if (Number(starts) !== 2) throw new Error("retry did not request a fresh snapshot");
+  if (!recoveryDeadline) throw new Error("pending recovery did not arm a failure deadline");
+  await act(async () => recoveryDeadline?.());
+  if (latest.attachmentState !== "failed") throw new Error("deadline did not fail the attachment");
+  if (latest.recovering) throw new Error("deadline left the chat recovering");
+  if (!latest.error?.includes("timed out")) throw new Error("deadline did not surface a retryable error");
+
   await act(async () => root.unmount());
-  console.log("PASS bound-session pending snapshot waits for an event and restores history");
+  Object.defineProperty(globalThis, "setTimeout", {
+    value: nativeSetTimeout,
+    configurable: true,
+  });
+  console.log("PASS pending recovery restores on event and fails on a bounded deadline");
 }
 
 void main();

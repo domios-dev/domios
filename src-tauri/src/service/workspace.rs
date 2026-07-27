@@ -111,8 +111,8 @@ impl ServiceContext {
     ) -> Result<(), String> {
         let refuse = match caller_tab_id {
             Some(caller) => {
-                let owns_it = self.mux.read().find_workspace_for_tab(caller).as_deref()
-                    == Some(workspace_id);
+                let owns_it =
+                    self.mux.read().find_workspace_for_tab(caller).as_deref() == Some(workspace_id);
                 owns_it && self.is_self_close_protected(caller)
             }
             None => self.workspace_has_protected_tab(workspace_id),
@@ -197,6 +197,20 @@ impl ServiceContext {
 
     pub fn create_tab(&self, workspace_id: &str) -> Result<String, String> {
         self.create_tab_with_activate(workspace_id, true)
+    }
+
+    pub fn create_named_tab(&self, workspace_id: &str, title: &str) -> Result<String, String> {
+        let tab_id = {
+            let mut mux = self.mux.write();
+            let tab_id = mux.create_tab(workspace_id)?;
+            mux.rename_tab(&tab_id, title)?;
+            let _ = mux.set_active_tab(workspace_id, &tab_id);
+            tab_id
+        };
+        self.emit_tab_title_pinned(&tab_id, title);
+        self.emit_state_changed();
+        session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt)?;
+        Ok(tab_id)
     }
 
     pub fn create_tab_with_activate(
