@@ -977,7 +977,9 @@ test("working team worker keeps activity dots without status rail", async () => 
     activeTabId: "tab-worker",
   });
   const row = host.querySelector('[data-tab-id="tab-worker"]');
-  assert(row?.querySelector('[data-testid="tab-working-activity"]'), "working dots remain visible");
+  const dots = row?.querySelector('[data-testid="tab-working-activity"] .activity-dots');
+  assert(dots?.classList.contains("activity-dots--small"), "working worker uses small activity dots");
+  assert(dots?.classList.contains("activity-dots--muted"), "working worker uses muted activity dots");
   assert(!row?.querySelector('[data-testid="tab-status-rail"]'), "working worker has no left status rail");
   await act(async () => root.unmount());
 });

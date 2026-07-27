@@ -57,6 +57,18 @@ async function run() {
   assert.equal((css.match(/@keyframes ct-dots-squash-jump/g) ?? []).length, 1, "one shared dot keyframe family");
   assert.match(css, /animation:\s*ct-dots-squash-jump[^;]*var\(--ct-ease-squash-jump\)/);
 
+  const globalsCss = readFileSync(new URL("../../styles/globals.css", import.meta.url), "utf8");
+  for (const keyframe of [
+    "sidebar-hierarchy-breathe",
+    "sidebar-hierarchy-drift",
+    "pane-focus-pulse",
+    "breathing-bar",
+    "agent-icon-working-spin",
+    "ct-spin",
+  ]) {
+    assert.equal(globalsCss.includes(keyframe), false, `${keyframe} is fully removed from globals.css`);
+  }
+
   await act(async () => root.unmount());
   console.log("activity dots tests: passed");
 }

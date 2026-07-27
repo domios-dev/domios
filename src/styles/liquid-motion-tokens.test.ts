@@ -94,11 +94,6 @@ const substitutedDeclarations = [
     "animation: pane-materialize 280ms cubic-bezier(0.16, 1, 0.3, 1) both;",
     "animation: pane-materialize 280ms var(--ct-ease-liquid-settle) both;",
   ],
-  [
-    globalsCss,
-    "animation: pane-focus-pulse 400ms cubic-bezier(0.16, 1, 0.3, 1) 1;",
-    "animation: pane-focus-pulse 400ms var(--ct-ease-liquid-settle) 1;",
-  ],
 ] as const;
 
 for (const [css, before, after] of substitutedDeclarations) {

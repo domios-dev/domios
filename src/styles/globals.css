@@ -2313,64 +2313,7 @@ button,
   color: color-mix(in srgb, var(--ct-red, #f85149) 42%, var(--ct-muted-fg, #8b949e));
 }
 
-/* Working-row treatments — prototype variants (aurora default, drift, halo) */
-.sidebar-hierarchy-row--working::before {
-  content: "";
-  position: absolute;
-  inset: 1px 2px;
-  border-radius: 0.2rem;
-  pointer-events: none;
-  z-index: 0;
-}
-
-.sidebar-hierarchy-row--working > * {
-  position: relative;
-  z-index: 1;
-}
-
-.sidebar-hierarchy-working--aurora::before {
-  background: radial-gradient(
-    ellipse 120% 80% at 30% 50%,
-    color-mix(in srgb, var(--ct-hierarchy-presence, var(--ct-accent)) 7%, transparent),
-    transparent 70%
-  );
-  animation: sidebar-hierarchy-breathe 3s ease-in-out infinite;
-}
-
-.sidebar-hierarchy-working--drift::before {
-  background: linear-gradient(
-    100deg,
-    transparent 0%,
-    color-mix(in srgb, var(--ct-hierarchy-presence, var(--ct-accent)) 6%, transparent) 45%,
-    transparent 90%
-  );
-  background-size: 200% 100%;
-  animation: sidebar-hierarchy-drift 4.5s ease-in-out infinite;
-}
-
-.sidebar-hierarchy-working--halo::before {
-  box-shadow: inset 0 0 12px color-mix(in srgb, var(--ct-hierarchy-presence, var(--ct-accent)) 8%, transparent);
-  animation: sidebar-hierarchy-breathe 2.8s ease-in-out infinite;
-}
-
-@keyframes sidebar-hierarchy-breathe {
-  0%, 100% { opacity: 0.45; }
-  50% { opacity: 1; }
-}
-
-@keyframes sidebar-hierarchy-drift {
-  0%, 100% { background-position: 0% 50%; opacity: 0.5; }
-  50% { background-position: 100% 50%; opacity: 1; }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .sidebar-hierarchy-working--aurora::before,
-  .sidebar-hierarchy-working--drift::before,
-  .sidebar-hierarchy-working--halo::before {
-    animation: none;
-    opacity: 0.85;
-  }
-
   .sidebar-hierarchy-row {
     transition: none;
   }
@@ -2535,26 +2478,6 @@ button,
   animation: pane-materialize 280ms var(--ct-ease-liquid-settle) both;
 }
 
-/* Focused pane outline pulse */
-@keyframes pane-focus-pulse {
-  0% {
-    outline-offset: -1.5px;
-    outline-color: rgba(99, 102, 241, 0.5);
-  }
-  50% {
-    outline-offset: 1.5px;
-    outline-color: rgba(99, 102, 241, 0.35);
-  }
-  100% {
-    outline-offset: -1.5px;
-    outline-color: rgba(99, 102, 241, 0.5);
-  }
-}
-
-.pane-focus-pulse {
-  animation: pane-focus-pulse 400ms var(--ct-ease-liquid-settle) 1;
-}
-
 /* Pane close collapse */
 @keyframes pane-collapse-content {
   from {
@@ -2577,27 +2500,8 @@ button,
   }
 }
 
-/* Breathing bar at bottom center */
-@keyframes breathing-bar {
-  0%, 100% {
-    width: 24px;
-    opacity: 0.4;
-  }
-  50% {
-    width: 48px;
-    opacity: 0.8;
-  }
-}
-
 .terminal-loading-overlay {
   animation: terminal-loading-bg 2s ease-in-out infinite;
-}
-
-.terminal-breathing-bar {
-  height: 2px;
-  border-radius: 1px;
-  background: var(--ct-accent, #6366f1);
-  animation: breathing-bar 1000ms ease-in-out infinite;
 }
 
 /* Premium divider — all styles handled inline for reliability */
@@ -2793,10 +2697,6 @@ button,
   color: var(--ct-muted-fg, #8b949e);
 }
 
-/* Composer activity bubble spinner. */
-.ct-spin { animation: ct-spin 0.9s linear infinite; }
-@keyframes ct-spin { to { transform: rotate(360deg); } }
-
 /* §32.6 selectable canvas text: text islands opt back IN to selection (the board
    container + body default to user-select:none for pan). Pan uses middle/space
    drag, so a left-drag over these islands selects + copies normally. */
@@ -2853,29 +2753,6 @@ button,
 .ct-canvas-scroll::-webkit-scrollbar-thumb:hover {
   background: color-mix(in srgb, var(--ct-fg) 40%, transparent);
   background-clip: padding-box;
-}
-
-/* =========================================================================
-   Agent icon working-state animations
-   Each provider has its own visual language: Claude rotates + breathes,
-   Codex twinkles (main + accent sparkles offset by 50%), OpenCode draws
-   its hexagon outline like a stroke being traced. All run via SMIL-free
-   pure-CSS keyframes so they survive every render with zero JS overhead.
-   ========================================================================= */
-
-/* Universal working-state animation for any agent-icon. Provider-agnostic:
-   third-party plugins get the same breathing rotation for free. Plugins
-   that want their own animation can ship a <style> block inside their
-   `icon_svg` markup — those styles will scope to that SVG only and won't
-   conflict with this default. */
-.agent-icon-working > svg {
-  transform-origin: 50% 50%;
-  animation: agent-icon-working-spin 2.4s ease-in-out infinite;
-}
-@keyframes agent-icon-working-spin {
-  0%   { transform: rotate(0deg)   scale(1);    opacity: 1;   }
-  50%  { transform: rotate(180deg) scale(0.88); opacity: 0.75; }
-  100% { transform: rotate(360deg) scale(1);    opacity: 1;   }
 }
 
 /* Mobile terminal sheet */
