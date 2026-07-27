@@ -1183,6 +1183,12 @@ button,
   transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle), transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell), background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
 }
 
+.ct-liquid-toggle { display: inline-flex; width: 2.25rem; height: 1.25rem; align-items: center; padding: 0.125rem; border-radius: 999px; color: var(--ct-on-accent, #fff); background: var(--ct-border); transition: background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle); }
+.ct-liquid-toggle--checked { background: var(--ct-accent); }
+.ct-liquid-toggle__knob { width: 0.875rem; height: 0.875rem; border-radius: 999px; background: currentColor; transform: translateX(0); transition: transform var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle); }
+.ct-liquid-toggle--checked .ct-liquid-toggle__knob { transform: translateX(1rem); }
+.ct-liquid-toggle:focus-visible { outline: 2px solid var(--ct-accent); outline-offset: 2px; }
+
 .sidebar-tab:hover .sidebar-tab-close,
 .sidebar-tab:focus-within .sidebar-tab-close {
   opacity: 0.6;
