@@ -6,7 +6,17 @@ pub struct AgentLifecyclePlanChange {
     pub preserve_owned_plans: bool,
     pub preserve_task_bindings_for_owner: Option<String>,
     pub planner_binding: Option<(String, Option<PlannerRef>)>,
-    pub planner_team_binding: Option<(String, String)>,
+    pub plan_rebind: Option<AgentLifecyclePlanRebind>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AgentLifecyclePlanRebind {
+    pub plan_id: String,
+    pub owner: OrchestratorRef,
+    pub team_id: String,
+    pub reason: String,
+    pub activate: bool,
+    pub clear_planner: bool,
 }
 
 #[derive(Debug)]
@@ -123,7 +133,14 @@ impl PlanStore {
 
 fn apply_change(plan: &mut Plan, change: &AgentLifecyclePlanChange, now_ms: u64) {
     let pane_id = change.pane_id.as_str();
-    if !change.preserve_owned_plans && plan.owner.pane_id.as_deref() == Some(pane_id) {
+    let rebound_here = change
+        .plan_rebind
+        .as_ref()
+        .is_some_and(|rebind| rebind.plan_id == plan.id);
+    if !change.preserve_owned_plans
+        && !rebound_here
+        && plan.owner.pane_id.as_deref() == Some(pane_id)
+    {
         plan.owner = OrchestratorRef::default();
         plan.team_id = None;
         plan.planner = None;
@@ -166,6 +183,29 @@ fn apply_change(plan: &mut Plan, change: &AgentLifecyclePlanChange, now_ms: u64)
         }
     }
 
+    if let Some(rebind) = &change.plan_rebind {
+        if plan.id == rebind.plan_id {
+            let ownership_changed =
+                plan.owner != rebind.owner || plan.team_id.as_deref() != Some(&rebind.team_id);
+            if ownership_changed {
+                plan.owner_history.push(TransferRecord {
+                    from: plan.owner.clone(),
+                    to: rebind.owner.clone(),
+                    ts: now_ms,
+                    reason: rebind.reason.clone(),
+                });
+                plan.owner = rebind.owner.clone();
+                plan.team_id = Some(rebind.team_id.clone());
+            }
+            if rebind.clear_planner && plan.planner.is_some() {
+                plan.planner = None;
+                clear_planner_delivery_provenance(plan);
+            }
+            if rebind.activate {
+                plan.status = PlanStatus::Active;
+            }
+        }
+    }
     if let Some((plan_id, planner)) = &change.planner_binding {
         if plan.id == *plan_id {
             let changed = plan.planner != *planner;
@@ -173,11 +213,6 @@ fn apply_change(plan: &mut Plan, change: &AgentLifecyclePlanChange, now_ms: u64)
             if changed {
                 clear_planner_delivery_provenance(plan);
             }
-        }
-    }
-    if let Some((plan_id, team_id)) = &change.planner_team_binding {
-        if plan.id == *plan_id {
-            plan.team_id = Some(team_id.clone());
         }
     }
 }

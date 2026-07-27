@@ -448,6 +448,7 @@ pub async fn set_pane_role(
             destination,
             require_verified_session: true,
             planner_replacement: None,
+            plan_rebind: None,
         })
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     if parsed_role == AgentRole::Orchestrator {
