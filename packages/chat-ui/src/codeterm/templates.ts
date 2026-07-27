@@ -392,13 +392,21 @@ export function parseSend(
   else recipient = resolve?.(p) ?? `tab ${p}`;
   const mesh = typeof inv.flags.mesh === "string" ? inv.flags.mesh : undefined;
   const resolved = resolvedSendText(result);
+  const typed = decodeCliMessageText(inv.positionals[0] ?? "");
   return {
     recipient,
     mesh,
-    body: resolved ?? decodeCliMessageText(inv.positionals[0] ?? ""),
+    body: resolved || typed || sendBodyDescriptor(inv),
     bodySource: resolved == null ? "typed" : "resolved",
     status: deliveredStatus(result),
   };
+}
+
+function sendBodyDescriptor(inv: CodetermInvocation): string {
+  const fromFile = inv.flags["from-file"];
+  if (typeof fromFile === "string") return `Message sent from file: ${fromFile}`;
+  if (inv.flags.stdin === true) return "Message sent from standard input.";
+  return "Message content unavailable.";
 }
 
 function resolvedSendText(result?: string): string | undefined {
