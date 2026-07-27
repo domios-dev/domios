@@ -125,6 +125,14 @@ const HTTP_MAP: Record<string, Mapper> = {
     }),
   get_config: () => webJson("GET", "/api/config"),
   list_notifications: () => webJson("GET", "/api/notifications"),
+  notify: (a) =>
+    webJson("POST", "/api/notifications", {
+      title: a.title,
+      body: a.body,
+      level: a.level,
+      pane_id: a.paneId,
+      workspace_id: a.workspaceId,
+    }),
   mark_notification_read: (a) =>
     webJson("POST", `/api/notifications/${enc(s(a, "id"))}/read`),
   clear_notifications: (a) =>

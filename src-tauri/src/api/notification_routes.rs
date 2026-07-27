@@ -30,6 +30,8 @@ pub(crate) struct CreateNotifBody {
     level: Option<String>,
     actions: Option<serde_json::Value>,
     sticky: Option<bool>,
+    pane_id: Option<String>,
+    workspace_id: Option<String>,
 }
 
 pub async fn create_notification(
@@ -44,6 +46,8 @@ pub async fn create_notification(
         body.level.as_deref(),
         body.actions,
         body.sticky,
+        body.pane_id,
+        body.workspace_id,
     );
     Ok(Json(serde_json::json!({"id": id})))
 }

@@ -35,6 +35,78 @@ async function render(ui: React.ReactElement): Promise<{ host: HTMLDivElement; r
   return { host, root };
 }
 
+test("question close is accessible and only dismisses the current generation", async () => {
+  let cancelCalls = 0;
+  let stopCalls = 0;
+  let terminalCalls = 0;
+  const { host, root } = await render(
+    <AgentStateIndicator
+      state={{ state: "question" }}
+      questionGeneration={1}
+      onCancel={() => { cancelCalls += 1; }}
+      onStop={() => { stopCalls += 1; }}
+      onOpenTerminal={() => { terminalCalls += 1; }}
+    />,
+  );
+
+  const close = host.querySelector<HTMLButtonElement>(
+    'button[aria-label="Dismiss waiting card"]',
+  );
+  assert(close, "visible close control has an accessible name");
+  close.focus();
+  assert(document.activeElement === close, "close control is keyboard focusable");
+  await act(async () => {
+    close.click();
+  });
+  assert(!host.querySelector('[data-agent-state="question"]'), "current waiting card is hidden");
+  assert(cancelCalls === 0, "dismiss does not cancel");
+  assert(stopCalls === 0, "dismiss does not stop");
+  assert(terminalCalls === 0, "dismiss does not open or mutate the terminal");
+
+  await act(async () => {
+    root.render(
+      <AgentStateIndicator
+        state={{ state: "question" }}
+        questionGeneration={1}
+        onCancel={() => { cancelCalls += 1; }}
+        onStop={() => { stopCalls += 1; }}
+        onOpenTerminal={() => { terminalCalls += 1; }}
+      />,
+    );
+  });
+  assert(!host.querySelector('[data-agent-state="question"]'), "same generation stays dismissed");
+
+  await act(async () => {
+    root.render(
+      <AgentStateIndicator
+        state={{ state: "question" }}
+        questionGeneration={2}
+        onCancel={() => { cancelCalls += 1; }}
+        onStop={() => { stopCalls += 1; }}
+        onOpenTerminal={() => { terminalCalls += 1; }}
+      />,
+    );
+  });
+  assert(host.querySelector('[data-agent-state="question"]'), "new waiting generation resurfaces the card");
+});
+
+test("explicit question cancel keeps its existing handler", async () => {
+  let cancelCalls = 0;
+  const { host } = await render(
+    <AgentStateIndicator
+      state={{ state: "question" }}
+      questionGeneration={1}
+      onCancel={() => { cancelCalls += 1; }}
+    />,
+  );
+  const cancel = host.querySelector<HTMLButtonElement>('[data-testid="agent-cancel-question"]');
+  assert(cancel, "explicit Cancel control renders");
+  await act(async () => {
+    cancel.click();
+  });
+  assert(cancelCalls === 1, "explicit Cancel invokes its handler exactly once");
+});
+
 test("working line enriches status with provider and model", async () => {
   const { host } = await render(
     <AgentStateIndicator

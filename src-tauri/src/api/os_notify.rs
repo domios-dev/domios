@@ -1,5 +1,14 @@
 //! OS-level toast notification helpers.
 //! Used by other handlers to surface notifications to the user via tauri-plugin-notification.
+#[cfg(test)]
+static OS_NOTIFICATION_TEST_COUNT: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+#[cfg(test)]
+pub(crate) fn os_notification_test_count() -> usize {
+    OS_NOTIFICATION_TEST_COUNT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Send an OS-level toast notification if the CodeTerm window is not focused.
 pub fn _send_os_notification_if_unfocused(app: &tauri::AppHandle, title: &str, body: Option<&str>) {
     use tauri::Manager;
@@ -15,7 +24,15 @@ pub fn _send_os_notification_if_unfocused(app: &tauri::AppHandle, title: &str, b
 
 /// Single notification popup via system notification API.
 /// Uses tauri-plugin-notification on all platforms — clicking focuses the app.
+#[cfg_attr(test, allow(unreachable_code))]
 pub fn _send_os_notification(app: &tauri::AppHandle, title: &str, body: Option<&str>) {
+    #[cfg(test)]
+    {
+        let _ = (app, title, body);
+        OS_NOTIFICATION_TEST_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        return;
+    }
+
     {
         use tauri_plugin_notification::NotificationExt;
         let mut notif = app.notification().builder().title(title);
