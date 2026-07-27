@@ -4,6 +4,10 @@ import { parseMarker } from "@codeterm/chat-core";
 import { File, Image, Info, Mic, Settings } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
+import { CHAT_HTML_SANITIZE_SCHEMA, containsHtmlMarkup, rehypeScrubInlineStyles } from "./htmlSanitize";
+import { HtmlPreviewBlock } from "./HtmlPreviewBlock";
 import { Prism as SyntaxHighlighter, createElement } from "react-syntax-highlighter";
 import { CodeBlock, ChevronIcon, CODE_BLOCK_DEFAULT_MAX_HEIGHT, LONG_CODE_PREVIEW_LINES, MERMAID_BLOCK_MAX_HEIGHT, PRE_WRAP_CLASS, lineCount } from "./CodeBlock";
 import { looksLikeMermaidSource } from "./MermaidBlock";
@@ -40,19 +44,36 @@ function resolveCodeLanguage(className: string | undefined, children: unknown): 
   return looksLikeMermaidSource(source) ? "mermaid" : null;
 }
 
+function wrapsCodeElement(node: unknown): boolean {
+  const children = (node as { children?: Array<{ type?: string; tagName?: string }> } | undefined)?.children;
+  if (!children) return true;
+  return children.some((child) => child.type === "element" && child.tagName === "code");
+}
+
 function isBlockCodeNode(node: unknown): boolean {
   if (!node || typeof node !== "object" || !("position" in node)) return false;
   const position = (node as { position?: { start?: { line?: number }; end?: { line?: number } } }).position;
   return position?.start?.line !== position?.end?.line;
 }
 
+type RehypePlugins = React.ComponentProps<typeof ReactMarkdown>["rehypePlugins"];
+
+/** Raw-HTML parsing only pays for itself on messages that actually carry tags. */
+const HTML_REHYPE_PLUGINS = [
+  rehypeRaw,
+  [rehypeSanitize, CHAT_HTML_SANITIZE_SCHEMA],
+  rehypeScrubInlineStyles,
+] as unknown as RehypePlugins;
+
 export function RichMarkdown({ text, fontScale }: { text: string; fontScale?: number }) {
   const h1Text = pickUiFontScaleValue(fontScale, ["text-sm", "text-base", "text-lg", "text-xl"]);
   const h2Text = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
   const h3Text = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
+  const rehypePlugins = useMemo(() => (containsHtmlMarkup(text) ? HTML_REHYPE_PLUGINS : undefined), [text]);
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
+      rehypePlugins={rehypePlugins}
       components={{
         h1: ({ node: _node, ...props }) => (
           <h1 className={`${h1Text} font-bold mt-3 mb-1`} style={{ color: "var(--ct-fg)" }} {...props} />
@@ -132,6 +153,9 @@ export function RichMarkdown({ text, fontScale }: { text: string; fontScale?: nu
               </code>
             );
           }
+          if (language === "html") {
+            return <HtmlPreviewBlock text={plainCode} />;
+          }
           return (
             <CodeBlock
               text={plainCode}
@@ -142,7 +166,54 @@ export function RichMarkdown({ text, fontScale }: { text: string; fontScale?: nu
             />
           );
         },
-        pre: ({ node: _node, children }) => <>{children}</>,
+        pre: ({ node, children, ...props }: React.ComponentProps<"pre"> & { node?: unknown }) => {
+          if (wrapsCodeElement(node)) {
+            return <>{children}</>;
+          }
+          return (
+            <pre
+              className="my-2 max-w-full overflow-x-auto rounded-md border p-3 font-mono text-xs leading-[1.4]"
+              style={{
+                background: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 7%, transparent)",
+                borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
+                color: "var(--ct-fg, #c9d1d9)",
+              }}
+              {...props}
+            >
+              {children}
+            </pre>
+          );
+        },
+        details: ({ node: _node, ...props }) => (
+          <details
+            className="my-2 rounded-md border px-2 py-1.5"
+            style={{ borderColor: "color-mix(in srgb, var(--ct-muted-fg) 25%, transparent)" }}
+            {...props}
+          />
+        ),
+        summary: ({ node: _node, ...props }) => (
+          <summary className="cursor-pointer select-none font-medium" style={{ color: "var(--ct-fg)" }} {...props} />
+        ),
+        kbd: ({ node: _node, ...props }) => (
+          <kbd
+            className="rounded border px-1 py-0.5 font-mono text-[0.85em]"
+            style={{
+              borderColor: "color-mix(in srgb, var(--ct-muted-fg) 35%, transparent)",
+              background: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 14%, transparent)",
+            }}
+            {...props}
+          />
+        ),
+        mark: ({ node: _node, ...props }) => (
+          <mark
+            className="rounded px-0.5"
+            style={{ background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 32%, transparent)", color: "inherit" }}
+            {...props}
+          />
+        ),
+        img: ({ node: _node, ...props }) => (
+          <img className="my-1 inline-block max-w-full rounded" loading="lazy" {...props} />
+        ),
         a: ({ node: _node, ...props }) => (
           <a
             target="_blank"

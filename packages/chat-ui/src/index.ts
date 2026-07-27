@@ -1,6 +1,8 @@
 export { formatAgentWorkingLine, AGENT_WORKING_LINE_SEP } from "./formatAgentWorkingLine";
 export { MessageBubble } from "./MessageBubble";
 export { RichMarkdown } from "./MarkdownBody";
+export { HtmlPreviewBlock, buildHtmlPreviewDocument } from "./HtmlPreviewBlock";
+export { CHAT_HTML_SANITIZE_SCHEMA, containsHtmlMarkup, sanitizeStyleValue } from "./htmlSanitize";
 export { AttachedDiscussionDocView } from "./AttachedDiscussionDoc";
 export { parseAttachedDiscussionDoc } from "./discussionDoc";
 export type { AttachedDiscussionDoc } from "./discussionDoc";
