@@ -32,7 +32,7 @@ pub async fn tab_focus(
     Path((workspace_id, tab_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let tab_id = state
+    let exists = state
         .svc
         .mux
         .read()
@@ -40,30 +40,30 @@ pub async fn tab_focus(
         .workspaces
         .into_iter()
         .find(|ws| ws.id == workspace_id)
-        .and_then(|ws| ws.tabs.into_iter().find(|tab| tab.id == tab_id))
-        .map(|tab| tab.tab_id);
+        .is_some_and(|ws| ws.tabs.contains(&tab_id));
+    if !exists {
+        return Err((StatusCode::NOT_FOUND, "Tab not found".to_string()));
+    }
     state
         .svc
         .set_active_tab(&workspace_id, &tab_id)
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
-    if let Some(tab_id) = tab_id {
-        state
-            .svc
-            .focus_tab(&tab_id)
-            .map_err(|e| (StatusCode::NOT_FOUND, e))?;
-    }
+    state
+        .svc
+        .focus_tab(&tab_id)
+        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
 pub async fn tab_close(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path((workspace_id, tab_id)): Path<(String, String)>,
+    Path((_workspace_id, tab_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     state
         .svc
-        .close_tab(&workspace_id, &tab_id)
+        .close_tab(&tab_id)
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -864,7 +864,7 @@ pub async fn open_chat_backend_tab(
     Json(req): Json<OpenChatBackendTabReq>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    use crate::service::spawn::{TabCommand, TabVisibility, SpawnTabSpec};
+    use crate::service::spawn::{SpawnTabSpec, TabCommand, TabVisibility};
     let mut config = req.config.unwrap_or(serde_json::Value::Null);
     let overrides = crate::service::spawn::chatbackend_spawn_config(
         req.system_prompt.as_deref(),
@@ -920,13 +920,7 @@ pub async fn session_transcript(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
     let (messages, total) = tokio::task::spawn_blocking(move || {
-        crate::service::tab_chat::session_chat_snapshot(
-            &svc,
-            &q.provider,
-            &q.cwd,
-            &q.session_id,
-            0,
-        )
+        crate::service::tab_chat::session_chat_snapshot(&svc, &q.provider, &q.cwd, &q.session_id, 0)
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
@@ -943,10 +937,7 @@ pub async fn chat_raw_stop(
     Json(body): Json<ChatSubscriptionBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    state
-        .svc
-        .chat_registry
-        .stop(&tab_id, &body.subscription_id);
+    state.svc.chat_registry.stop(&tab_id, &body.subscription_id);
     Ok(Json(serde_json::json!({"ok": true})))
 }
 

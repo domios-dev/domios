@@ -190,7 +190,6 @@ fn apply_dispatch_starting_contract(
     let mut spawn_metadata = json!(spawn);
     if let Some(fields) = spawn_metadata.as_object_mut() {
         fields.remove("tab_id");
-        fields.remove("tab_id");
     }
     result["accepted"] = json!(true);
     result["state"] = json!("awaiting_dispatch_ready");
@@ -198,7 +197,6 @@ fn apply_dispatch_starting_contract(
         "ready": false,
         "awaiting_event": "dispatch_ready",
     });
-    result["tab_id"] = json!(tab_id);
     result["tab_id"] = json!(tab_id);
     result["spawn"] = spawn_metadata;
 }

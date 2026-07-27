@@ -17,10 +17,11 @@ pub(crate) use super::spawn_params::{
 mod spawn_model;
 pub use spawn_model::ModelFallbackNotice;
 pub(crate) use spawn_model::{
-    attach_planned_model, compatible_background_model, model_fallback_notice_title,
-    persist_model_launch_identity, resolve_fresh_agent_model,
-    resolve_fresh_agent_model_with_notice, CatalogBackgroundModelPort,
+    attach_planned_model, model_fallback_notice_title, persist_model_launch_identity,
+    resolve_fresh_agent_model, resolve_fresh_agent_model_with_notice, CatalogBackgroundModelPort,
 };
+#[cfg(test)]
+pub(crate) use spawn_model::compatible_background_model;
 
 #[path = "spawn_hidden_delivery.rs"]
 mod spawn_hidden_delivery;
@@ -156,7 +157,6 @@ pub(crate) fn should_default_agent_tab_to_chat(
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TabHandle {
-    pub tab_id: String,
     pub tab_id: String,
     pub pty_id: Option<String>,
     pub workspace_id: String,
@@ -312,58 +312,58 @@ impl ServiceContext {
                 .unwrap_or(false),
         );
 
-        let (tab_id, tab_id) = {
+        let tab_id = {
             let mut mux = self.mux.write();
             let result = mux.create_tab(&ws_id)?;
             if let Some(ref t) = spec.title {
                 if !t.trim().is_empty() {
                     let _ = mux.rename_tab_at_level(
-                        &result.1,
+                        &result,
                         t,
                         crate::multiplexer::types::TitleLevel::User,
                     );
                 }
             }
             if let Some(ref dir) = resolved_cwd {
-                if let Some(tab) = mux.get_tab_mut(&result.1) {
+                if let Some(tab) = mux.get_tab_mut(&result) {
                     tab.cwd = Some(dir.clone());
                 }
             }
             if let Some(ref provisioned_cwd) = agent.provisioned_cwd {
-                if let Some(tab) = mux.get_tab_mut(&result.1) {
+                if let Some(tab) = mux.get_tab_mut(&result) {
                     tab.provisioned_cwd = Some(provisioned_cwd.clone());
                 }
             }
-            if let Some(tab) = mux.get_tab_mut(&result.1) {
+            if let Some(tab) = mux.get_tab_mut(&result) {
                 tab.role_profile = agent.role_profile.clone();
             }
             if let Some(ref description) = spec.description {
-                let _ = mux.set_tab_description(&result.1, Some(description.clone()));
+                let _ = mux.set_tab_description(&result, Some(description.clone()));
             }
             if let Some(ref rtid) = agent.report_target_tab_id {
-                if let Some(tab) = mux.get_tab_mut(&result.1) {
+                if let Some(tab) = mux.get_tab_mut(&result) {
                     tab.report_target_tab_id = Some(rtid.clone());
                 }
             }
             if let Some(ref sb) = agent.spawned_by_tab_id {
                 if !sb.is_empty() {
-                    if let Some(tab) = mux.get_tab_mut(&result.1) {
+                    if let Some(tab) = mux.get_tab_mut(&result) {
                         tab.spawned_by_tab_id = Some(sb.clone());
                     }
                 }
             }
             if let Some(ref wid) = agent.worker_id {
-                if let Some(tab) = mux.get_tab_mut(&result.1) {
+                if let Some(tab) = mux.get_tab_mut(&result) {
                     tab.worker_id = Some(wid.clone());
                 }
             }
             if agent.auto_approve {
-                if let Some(tab) = mux.get_tab_mut(&result.1) {
+                if let Some(tab) = mux.get_tab_mut(&result) {
                     tab.auto_approve = true;
                 }
             }
             if default_chat_view {
-                if let Some(tab) = mux.get_tab_mut(&result.1) {
+                if let Some(tab) = mux.get_tab_mut(&result) {
                     tab.chat_view = true;
                 }
             }
@@ -372,12 +372,12 @@ impl ServiceContext {
                 spec.title.as_deref(),
                 agent.agent_name.as_deref(),
             ) {
-                if let Err(e) = mux.rename_tab_at_level(&result.1, &title, level) {
+                if let Err(e) = mux.rename_tab_at_level(&result, &title, level) {
                     log::warn!("[spawn] rename_tab failed: {}", e);
                 }
             }
             if agent.activate.unwrap_or(false) {
-                let _ = mux.set_active_tab(&ws_id, &result.0);
+                let _ = mux.set_active_tab(&ws_id, &result);
             }
             result
         };
@@ -390,14 +390,14 @@ impl ServiceContext {
                 spec.parent_tab_id.as_deref(),
                 agent.can_spawn,
             ) {
-                let _ = self.mux.write().close_tab(&ws_id, &tab_id);
+                let _ = self.mux.write().close_tab(&tab_id);
                 self.emit_state_changed();
                 return Err(e);
             }
             if role_str == "Worker" || role_str == "Manager" {
                 if let Some(ref parent) = spec.parent_tab_id {
                     if let Err(e) = self.expect_spawn_parent_link(&tab_id, parent) {
-                        let _ = self.mux.write().close_tab(&ws_id, &tab_id);
+                        let _ = self.mux.write().close_tab(&tab_id);
                         self.emit_state_changed();
                         return Err(e);
                     }
@@ -470,7 +470,7 @@ impl ServiceContext {
                 crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
                 task,
             ) {
-                let _ = self.mux.write().close_tab(&ws_id, &tab_id);
+                let _ = self.mux.write().close_tab(&tab_id);
                 self.emit_state_changed();
                 return Err(error.to_string());
             }
@@ -485,8 +485,6 @@ impl ServiceContext {
         launch_agent_in_background(
             self.clone(),
             tab_id.clone(),
-            tab_id.clone(),
-            ws_id.clone(),
             launch_cmd,
             agent_cmd.clone(),
             role_suffixed_task,
@@ -496,7 +494,6 @@ impl ServiceContext {
 
         let budget_notice = self.workspace_tab_budget_notice(&ws_id);
         Ok(TabHandle {
-            tab_id,
             tab_id,
             pty_id: None,
             workspace_id: ws_id,
@@ -526,19 +523,19 @@ impl ServiceContext {
         };
         let (resolved_cwd, warning) = Self::resolve_agent_cwd(&spec.cwd, &ws_cwd);
 
-        let (tab_id, tab_id) = {
+        let tab_id = {
             let mut mux = self.mux.write();
             let result = mux.create_tab(&ws_id)?;
             if let Some(ref dir) = resolved_cwd {
-                if let Some(tab) = mux.get_tab_mut(&result.1) {
+                if let Some(tab) = mux.get_tab_mut(&result) {
                     tab.cwd = Some(dir.clone());
                 }
             }
             if let Some(ref description) = spec.description {
-                let _ = mux.set_tab_description(&result.1, Some(description.clone()));
+                let _ = mux.set_tab_description(&result, Some(description.clone()));
             }
             if let Some(ref title) = spec.title {
-                if let Err(e) = mux.rename_tab(&result.1, title) {
+                if let Err(e) = mux.rename_tab(&result, title) {
                     log::warn!("[spawn.shell] rename_tab failed: {}", e);
                 }
             }
@@ -558,7 +555,6 @@ impl ServiceContext {
 
         let budget_notice = self.workspace_tab_budget_notice(&ws_id);
         Ok(TabHandle {
-            tab_id,
             tab_id,
             pty_id,
             workspace_id: ws_id,
@@ -590,10 +586,10 @@ impl ServiceContext {
         };
         let resolved_cwd = spec.cwd.clone().or(ws_cwd);
 
-        let (tab_id, tab_id) = {
+        let tab_id = {
             let mut mux = self.mux.write();
             let result = mux.create_tab(&ws_id)?;
-            if let Some(tab) = mux.get_tab_mut(&result.1) {
+            if let Some(tab) = mux.get_tab_mut(&result) {
                 tab.hidden = true;
                 tab.show_in_tabbar = false;
                 if let Some(ref dir) = resolved_cwd {
@@ -656,7 +652,6 @@ impl ServiceContext {
         let budget_notice = self.workspace_tab_budget_notice(&ws_id);
         Ok(TabHandle {
             tab_id,
-            tab_id,
             pty_id: Some(pty_id),
             workspace_id: ws_id,
             description: spec.description,
@@ -717,10 +712,10 @@ impl ServiceContext {
         };
         let resolved_cwd = spec.cwd.clone().or(ws_cwd);
 
-        let (tab_id, tab_id) = {
+        let tab_id = {
             let mut mux = self.mux.write();
             let result = mux.create_tab(&ws_id)?;
-            if let Some(tab) = mux.get_tab_mut(&result.1) {
+            if let Some(tab) = mux.get_tab_mut(&result) {
                 tab.hidden = true;
                 tab.show_in_tabbar = false;
                 tab.role_profile = agent.role_profile.clone();
@@ -992,7 +987,6 @@ impl ServiceContext {
 
         let budget_notice = self.workspace_tab_budget_notice(&ws_id);
         Ok(TabHandle {
-            tab_id,
             tab_id,
             pty_id: Some(pty_id),
             workspace_id: ws_id,

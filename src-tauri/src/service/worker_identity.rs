@@ -116,7 +116,7 @@ mod tests {
             .write()
             .create_workspace("Respawn".into(), Some(dir.path().display().to_string()))
             .id;
-        let (_tab_id, tab_id) = mux.write().create_tab(&ws).unwrap();
+        let tab_id = mux.write().create_tab(&ws).unwrap();
         mux.write().get_tab_mut(&tab_id).unwrap().agent_session_id = Some("sess-1".into());
         store
             .record_task_respawn_attempt(&plan.id, &task_id, &tab_id, &draft, Some("worker"), 3)

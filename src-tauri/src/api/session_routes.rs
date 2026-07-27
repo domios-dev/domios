@@ -138,16 +138,12 @@ pub async fn resume_session_api(
         let existing_tab = mux.tab_ids_with_session(&session_id).into_iter().next();
         if let Some(tab_id) = existing_tab {
             let snap = mux.snapshot();
-            let (ws_id, tab_id) = snap
+            let ws_id = snap
                 .workspaces
                 .iter()
-                .find_map(|w| {
-                    let tab = w.tabs.iter().find(|t| t.tab_id == tab_id)?;
-                    Some((w.id.clone(), tab.id.clone()))
-                })
+                .find_map(|w| w.tabs.contains(&tab_id).then(|| w.id.clone()))
                 .unwrap_or_default();
             return Ok(Json(serde_json::json!({
-                "tab_id": tab_id,
                 "tab_id": tab_id,
                 "workspace_id": ws_id,
                 "provider": meta.provider,
@@ -257,7 +253,6 @@ pub async fn resume_session_api(
     state.svc.emit_state_changed();
 
     Ok(Json(serde_json::json!({
-        "tab_id": spawned.tab_id,
         "tab_id": spawned.tab_id,
         "workspace_id": ws_id,
         "provider": meta.provider,

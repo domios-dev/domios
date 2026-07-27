@@ -272,13 +272,11 @@ impl ServiceContext {
         });
     }
 
-    pub(crate) fn restored_tab_context(&self, tab_id: &str) -> Option<(String, String)> {
+    pub(crate) fn restored_tab_context(&self, tab_id: &str) -> Option<String> {
         let mux = self.mux.read();
         for ws in &mux.snapshot().workspaces {
-            for tab in &ws.tabs {
-                if tab.tab_id == tab_id {
-                    return Some((ws.id.clone(), tab.id.clone()));
-                }
+            if ws.tabs.iter().any(|id| id == tab_id) {
+                return Some(ws.id.clone());
             }
         }
         None
@@ -383,7 +381,7 @@ impl ServiceContext {
                     .unwrap_or(false)
             })
             .unwrap_or(false);
-        let (ws_id, tab_id) = self.restored_tab_context(tab_id).ok_or_else(|| {
+        let _workspace_id = self.restored_tab_context(tab_id).ok_or_else(|| {
             format!(
                 "Tab {} is a restored agent Tab but has no tab context for materialization",
                 tab_id
@@ -422,8 +420,6 @@ impl ServiceContext {
                 crate::service::orchestrator::launch_agent_in_background(
                     self.clone(),
                     tab_id.to_string(),
-                    tab_id,
-                    ws_id,
                     launch_cmd,
                     launch.provider_id,
                     restored_task,

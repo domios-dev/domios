@@ -22,7 +22,8 @@ use std::sync::{Arc, Barrier};
 
 fn build_orchestrator_with_worker(worker_title: &str) -> (MultiplexerState, String, String) {
     let (mut mux, orch) = MultiplexerState::new();
-    let worker = mux.create_tab();
+    let workspace_id = mux.find_workspace_for_tab(&orch).unwrap();
+    let worker = mux.create_tab(&workspace_id).unwrap();
     mux.set_tab_role(&worker, AgentRole::Worker, Some(&orch))
         .expect("attach worker to orchestrator");
     mux.rename_tab(&worker, worker_title)
@@ -32,7 +33,8 @@ fn build_orchestrator_with_worker(worker_title: &str) -> (MultiplexerState, Stri
 
 fn build_orchestrator_with_manager(manager_title: &str) -> (MultiplexerState, String, String) {
     let (mut mux, orch) = MultiplexerState::new();
-    let manager = mux.create_tab();
+    let workspace_id = mux.find_workspace_for_tab(&orch).unwrap();
+    let manager = mux.create_tab(&workspace_id).unwrap();
     mux.set_tab_role(&manager, AgentRole::Manager, Some(&orch))
         .expect("attach manager to orchestrator");
     mux.rename_tab(&manager, manager_title)
@@ -147,7 +149,7 @@ fn report_title_uses_user_pinned_tab_identity_not_provider_default() {
     let ws = mux
         .find_workspace_for_tab(&orch)
         .expect("orchestrator lives in a workspace");
-    let (_tab_id, worker) = mux.create_tab(&ws).expect("create worker tab");
+    let worker = mux.create_tab(&ws).expect("create worker tab");
     mux.set_tab_role(&worker, AgentRole::Worker, Some(&orch))
         .expect("attach worker");
     mux.rename_tab(&worker, "Euler").expect("set Tab identity");
@@ -467,7 +469,8 @@ fn report_status_policy_rejects_worker_done() {
 #[test]
 fn cron_report_target_is_used_when_no_parent() {
     let (mut mux, orch) = MultiplexerState::new();
-    let cron_tab = mux.create_tab();
+    let workspace_id = mux.find_workspace_for_tab(&orch).unwrap();
+    let cron_tab = mux.create_tab(&workspace_id).unwrap();
     // Cron-spawned tabs carry an explicit report_target_tab_id but no role.
     if let Some(tab) = mux.get_tab_mut(&cron_tab) {
         tab.report_target_tab_id = Some(orch.clone());
@@ -482,8 +485,9 @@ fn cron_report_target_is_used_when_no_parent() {
 #[test]
 fn parent_tab_id_takes_priority_over_other_targets() {
     let (mut mux, orch, worker) = build_orchestrator_with_worker("Worker-Pri");
-    let other = mux.create_tab();
-    let spawner = mux.create_tab();
+    let workspace_id = mux.find_workspace_for_tab(&orch).unwrap();
+    let other = mux.create_tab(&workspace_id).unwrap();
+    let spawner = mux.create_tab(&workspace_id).unwrap();
     if let Some(tab) = mux.get_tab_mut(&worker) {
         tab.report_target_tab_id = Some(other.clone());
         tab.spawned_by_tab_id = Some(spawner.clone());
@@ -501,7 +505,8 @@ fn parent_tab_id_takes_priority_over_other_targets() {
 fn orchestrator_falls_back_to_spawned_by_when_no_parent() {
     let (mut mux, orch) = MultiplexerState::new();
     // Simulate the spawning agent — it lives in its own tab elsewhere.
-    let spawner = mux.create_tab();
+    let workspace_id = mux.find_workspace_for_tab(&orch).unwrap();
+    let spawner = mux.create_tab(&workspace_id).unwrap();
     // Top-level orchestrator has no parent and no report_target, but `agent spawn` recorded who asked for it.
     if let Some(tab) = mux.get_tab_mut(&orch) {
         tab.spawned_by_tab_id = Some(spawner.clone());
@@ -547,8 +552,9 @@ fn never_routes_back_to_self_even_when_targets_point_at_self() {
 #[test]
 fn spawned_by_used_only_when_parent_and_report_target_missing() {
     let (mut mux, orch) = MultiplexerState::new();
-    let spawner = mux.create_tab();
-    let report_target = mux.create_tab();
+    let workspace_id = mux.find_workspace_for_tab(&orch).unwrap();
+    let spawner = mux.create_tab(&workspace_id).unwrap();
+    let report_target = mux.create_tab(&workspace_id).unwrap();
     if let Some(tab) = mux.get_tab_mut(&orch) {
         tab.report_target_tab_id = Some(report_target.clone());
         tab.spawned_by_tab_id = Some(spawner.clone());
@@ -614,8 +620,9 @@ fn dead_worker_that_already_reported_gets_no_synthetic() {
 #[test]
 fn dead_non_hierarchy_tab_gets_no_synthetic() {
     // Plain tab: no parent/report_target/spawner → no routing target → no synthetic report.
-    let (mut mux, _orch) = MultiplexerState::new();
-    let plain = mux.create_tab();
+    let (mut mux, orch) = MultiplexerState::new();
+    let workspace_id = mux.find_workspace_for_tab(&orch).unwrap();
+    let plain = mux.create_tab(&workspace_id).unwrap();
     let store = ReportStore::new(100);
 
     assert!(
@@ -627,9 +634,10 @@ fn dead_non_hierarchy_tab_gets_no_synthetic() {
 #[test]
 fn dead_worker_routes_via_spawned_by_when_no_parent() {
     // A top-level tab spawned by another agent still routes its death to whoever spawned it.
-    let (mut mux, _orch) = MultiplexerState::new();
-    let spawner = mux.create_tab();
-    let worker = mux.create_tab();
+    let (mut mux, orch) = MultiplexerState::new();
+    let workspace_id = mux.find_workspace_for_tab(&orch).unwrap();
+    let spawner = mux.create_tab(&workspace_id).unwrap();
+    let worker = mux.create_tab(&workspace_id).unwrap();
     if let Some(tab) = mux.get_tab_mut(&worker) {
         tab.spawned_by_tab_id = Some(spawner.clone());
     }
@@ -694,8 +702,9 @@ fn report_format_message_with_special_chars() {
 #[test]
 fn mesh_target_resolves_when_peer_and_tab_set() {
     // both fields; it must resolve to a Mesh target, never a local tab.
-    let (mut mux, _orch) = MultiplexerState::new();
-    let worker = mux.create_tab();
+    let (mut mux, orch) = MultiplexerState::new();
+    let workspace_id = mux.find_workspace_for_tab(&orch).unwrap();
+    let worker = mux.create_tab(&workspace_id).unwrap();
     if let Some(tab) = mux.get_tab_mut(&worker) {
         tab.report_target_mesh_peer = Some("Mac-Air".into());
         tab.report_target_tab_id = Some("main".into());
@@ -904,7 +913,7 @@ impl FirstPlanHarness {
 fn teamless_orchestrator(mux: &MuxState) -> (String, String) {
     let mut mux = mux.write();
     let workspace_id = mux.list_workspaces()[0].id.clone();
-    let (_tab_id, owner_tab_id) = mux.create_tab(&workspace_id).unwrap();
+    let owner_tab_id = mux.create_tab(&workspace_id).unwrap();
     mux.set_tab_role(&owner_tab_id, AgentRole::Orchestrator, None)
         .unwrap();
     (workspace_id, owner_tab_id)
@@ -946,7 +955,7 @@ fn concurrent_first_plan_and_first_child_converge() {
     let dir = tempfile::tempdir().unwrap();
     let harness = FirstPlanHarness::new(dir.path());
     let (workspace_id, owner_tab_id) = teamless_orchestrator(&harness.mux);
-    let child_tab_id = harness.mux.write().create_tab(&workspace_id).unwrap().1;
+    let child_tab_id = harness.mux.write().create_tab(&workspace_id).unwrap();
     let barrier = Arc::new(Barrier::new(3));
     let plan_mux = harness.mux.clone();
     let plan_store = harness.plan_store.clone();

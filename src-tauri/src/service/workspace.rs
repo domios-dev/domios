@@ -93,7 +93,7 @@ impl ServiceContext {
         let tab_ids: Vec<String> = {
             let mux = self.mux.read();
             match mux.get_workspace(workspace_id) {
-                Some(ws) => ws.tabs.iter().map(|t| t.tab_id.clone()).collect(),
+                Some(ws) => ws.tabs.clone(),
                 None => return false,
             }
         };
@@ -195,7 +195,7 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub fn create_tab(&self, workspace_id: &str) -> Result<(String, String), String> {
+    pub fn create_tab(&self, workspace_id: &str) -> Result<String, String> {
         self.create_tab_with_activate(workspace_id, true)
     }
 
@@ -203,53 +203,17 @@ impl ServiceContext {
         &self,
         workspace_id: &str,
         activate: bool,
-    ) -> Result<(String, String), String> {
+    ) -> Result<String, String> {
         let result = {
             let mut mux = self.mux.write();
-            let (tab_id, tab_id) = mux.create_tab(workspace_id)?;
+            let tab_id = mux.create_tab(workspace_id)?;
             if activate {
                 let _ = mux.set_active_tab(workspace_id, &tab_id);
             }
-            (tab_id, tab_id)
+            tab_id
         };
         self.emit_state_changed();
         Ok(result)
-    }
-
-    pub fn close_tab(&self, workspace_id: &str, tab_id: &str) -> Result<(), String> {
-        let pending_digest = {
-            let mux = self.mux.read();
-            mux.get_workspace(workspace_id)
-                .and_then(|workspace| {
-                    workspace
-                        .tabs
-                        .iter()
-                        .find(|tab| tab.id == tab_id)
-                        .and_then(|tab| mux.get_tab(&tab.tab_id))
-                })
-                .and_then(|tab| tab.pending_delivery.as_ref())
-                .map(|record| record.content_digest.clone())
-        };
-        let pre_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
-        let pty_ids = self.mux.write().close_tab(workspace_id, tab_id)?;
-        let post_focus = self.mux.read().get_focused_tab_id().map(str::to_string);
-        self.kill_ptys(&pty_ids);
-        if let Some(digest) = pending_digest {
-            if let Err(error) = self.pending_delivery_payloads.delete(&digest) {
-                log::warn!(
-                    "[pending-delivery] tab-close cleanup failed for digest {}: {}",
-                    digest,
-                    error
-                );
-            }
-        }
-        self.emit_state_changed();
-        if pre_focus != post_focus {
-            if let Some(new) = post_focus {
-                self.emit_tab_focus_changed(&new);
-            }
-        }
-        Ok(())
     }
 
     pub fn set_active_tab(&self, workspace_id: &str, tab_id: &str) -> Result<(), String> {
@@ -275,13 +239,6 @@ impl ServiceContext {
         self.emit_state_changed();
         let _ =
             session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
-        Ok(())
-    }
-
-    pub fn rename_tab(&self, workspace_id: &str, tab_id: &str, title: &str) -> Result<(), String> {
-        self.mux.write().rename_tab(workspace_id, tab_id, title)?;
-        self.emit_state_changed();
-        session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt)?;
         Ok(())
     }
 

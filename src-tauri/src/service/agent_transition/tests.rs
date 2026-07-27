@@ -16,8 +16,9 @@ impl Fixture {
     fn new(root: &std::path::Path) -> Self {
         let store = Arc::new(crate::service::plan::PlanStore::new_for_test(root));
         let (mut mux, owner) = MultiplexerState::new();
-        let other_owner = mux.create_tab();
-        let target = mux.create_tab();
+        let workspace_id = mux.find_workspace_for_tab(&owner).unwrap();
+        let other_owner = mux.create_tab(&workspace_id).unwrap();
+        let target = mux.create_tab(&workspace_id).unwrap();
         arm_session(mux.get_tab_mut(&owner).unwrap(), "owner");
         arm_session(mux.get_tab_mut(&other_owner).unwrap(), "other-owner");
         arm_session(mux.get_tab_mut(&target).unwrap(), "target");
@@ -163,7 +164,14 @@ fn agent_transition_matrix_oracle() {
             None,
         )
         .unwrap();
-    let child = orchestrator_to_planner.mux.create_tab();
+    let workspace_id = orchestrator_to_planner
+        .mux
+        .find_workspace_for_tab(&orchestrator_to_planner.target)
+        .unwrap();
+    let child = orchestrator_to_planner
+        .mux
+        .create_tab(&workspace_id)
+        .unwrap();
     orchestrator_to_planner
         .mux
         .set_tab_role(

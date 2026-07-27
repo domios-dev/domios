@@ -295,16 +295,16 @@ impl ServiceContext {
         };
         let resolved_cwd = spec.cwd.clone().or(ws_cwd);
 
-        let (tab_id, tab_id) = {
+        let tab_id = {
             let mut mux = self.mux.write();
             let result = mux.create_tab(&ws_id)?;
             if let Some(ref title) = spec.title {
-                if let Err(e) = mux.rename_tab(&result.1, title) {
+                if let Err(e) = mux.rename_tab(&result, title) {
                     log::warn!("[spawn.chatbackend] rename_tab failed: {}", e);
                 }
             }
             if let Some(ref description) = spec.description {
-                let _ = mux.set_tab_description(&result.1, Some(description.clone()));
+                let _ = mux.set_tab_description(&result, Some(description.clone()));
             }
             result
         };
@@ -341,7 +341,7 @@ impl ServiceContext {
                 Ok(())
             };
             if let Err(e) = role_result {
-                let _ = self.mux.write().close_tab(&ws_id, &tab_id);
+                let _ = self.mux.write().close_tab(&tab_id);
                 if emit_state_change {
                     self.emit_state_changed();
                 }
@@ -355,15 +355,12 @@ impl ServiceContext {
         self.chatbackend_launch_async(
             plugin_id,
             tab_id.clone(),
-            tab_id.clone(),
-            ws_id.clone(),
             config,
             history_meta,
         );
 
         let budget_notice = self.workspace_tab_budget_notice(&ws_id);
         Ok(TabHandle {
-            tab_id,
             tab_id,
             pty_id: None,
             workspace_id: ws_id,
@@ -382,8 +379,6 @@ impl ServiceContext {
         &self,
         plugin_id: String,
         tab_id: String,
-        tab_id: String,
-        ws_id: String,
         config: serde_json::Value,
         history_meta: serde_json::Value,
     ) {
@@ -403,7 +398,7 @@ impl ServiceContext {
                         tab_id,
                         e
                     );
-                    let _ = svc.mux.write().close_tab(&ws_id, &tab_id);
+                    let _ = svc.mux.write().close_tab(&tab_id);
                     svc.emit_state_changed();
                     svc.create_notification(
                         format!("Failed to open {} session", plugin_id),
@@ -414,7 +409,7 @@ impl ServiceContext {
                 }
                 Err(e) => {
                     log::warn!("[spawn.chatbackend] openSession task join error: {}", e);
-                    let _ = svc.mux.write().close_tab(&ws_id, &tab_id);
+                    let _ = svc.mux.write().close_tab(&tab_id);
                     svc.emit_state_changed();
                     return;
                 }
@@ -440,7 +435,7 @@ impl ServiceContext {
                     error
                 );
                 let _ = svc.chatbackend_close(&plugin_id, &session_id);
-                let _ = svc.mux.write().close_tab(&ws_id, &tab_id);
+                let _ = svc.mux.write().close_tab(&tab_id);
                 svc.emit_state_changed();
                 return;
             }

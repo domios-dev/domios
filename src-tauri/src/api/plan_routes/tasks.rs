@@ -688,7 +688,7 @@ mod tests {
             .write()
             .create_workspace("REST".into(), Some(dir.path().display().to_string()))
             .id;
-        let (_tab_id, tab_id) = mux.write().create_tab(&ws).unwrap();
+        let tab_id = mux.write().create_tab(&ws).unwrap();
         mux.write().get_tab_mut(&tab_id).unwrap().agent_session_id = Some("rest-session".into());
         let draft = store
             .build_task_respawn_draft(

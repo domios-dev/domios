@@ -278,7 +278,6 @@ pub async fn spawn_agent(
     let mut resp = serde_json::json!({
         "id": result.tab_id,
         "tab_id": result.tab_id,
-        "tab_id": result.tab_id,
         "pty_id": result.pty_id,
         "agent": result.agent,
         "model": result.model,

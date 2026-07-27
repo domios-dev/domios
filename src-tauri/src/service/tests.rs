@@ -308,7 +308,11 @@ fn focus_tab_hot_path_does_not_refresh_agent_model_inline() {
     use std::sync::Arc;
 
     let mux: MuxState = Arc::new(TimedRwLock::new("mux", MultiplexerState::empty()));
-    let tab_id = mux.write().create_tab();
+    let tab_id = {
+        let mut mux = mux.write();
+        let workspace_id = mux.create_workspace("Test".into(), None).id;
+        mux.create_tab(&workspace_id).unwrap()
+    };
     let emitted = Arc::new(parking_lot::Mutex::new(Vec::<String>::new()));
     let scheduled = Arc::new(AtomicUsize::new(0));
 

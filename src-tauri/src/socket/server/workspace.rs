@@ -66,8 +66,7 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("eager"))
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
-            let (tab_id, tab_id) =
-                svc.create_tab_with_activate(&workspace_id, false)
+            let tab_id = svc.create_tab_with_activate(&workspace_id, false)
                     .map_err(|e| JsonRpcError {
                         code: -32602,
                         message: e,
@@ -88,7 +87,6 @@ pub(super) fn dispatch(
                 None
             };
             Ok(serde_json::json!({
-                "tab_id": tab_id,
                 "tab_id": tab_id,
                 "pty_id": pty_id
             }))

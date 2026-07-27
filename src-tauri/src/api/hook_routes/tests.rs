@@ -157,13 +157,14 @@ fn reported_session_rebinds_same_tab_for_new_conversation() {
 fn reported_session_rejects_cross_tab_duplicate_claim() {
     let (mux, tab_a) = shared_mux();
     mux.write().get_tab_mut(&tab_a).unwrap().cwd = Some("/tmp/project".into());
-    let tab_b = mux.write().create_tab();
+    let workspace_id = mux.read().find_workspace_for_tab(&tab_a).unwrap();
+    let tab_b = mux.write().create_tab(&workspace_id).unwrap();
     mux.write().get_tab_mut(&tab_b).unwrap().cwd = Some("/tmp/project".into());
     let registry = registry(&["opencode"]);
 
     bind_reported_session(&mux, &registry, &tab_a, "opencode", "ses_shared", None).unwrap();
-    let err = bind_reported_session(&mux, &registry, &tab_b, "opencode", "ses_shared", None)
-        .unwrap_err();
+    let err =
+        bind_reported_session(&mux, &registry, &tab_b, "opencode", "ses_shared", None).unwrap_err();
     assert_eq!(err.0, StatusCode::CONFLICT);
     assert_eq!(
         mux.read()
@@ -230,15 +231,8 @@ fn reported_session_enforces_binding_nonce() {
     );
 
     // Matching nonce → bound.
-    let claim = bind_reported_session(
-        &mux,
-        &registry,
-        &tab_id,
-        "claude",
-        "sid-b",
-        Some("nonce-1"),
-    )
-    .unwrap();
+    let claim = bind_reported_session(&mux, &registry, &tab_id, "claude", "sid-b", Some("nonce-1"))
+        .unwrap();
     assert!(claim.changed);
     assert_eq!(
         mux.read()
@@ -417,8 +411,8 @@ fn tab_with_nonce_but_nonceless_report_rejects_unpersisted_session() {
     }
     let registry = registry_with_sessions(vec![("claude", vec![])]);
 
-    let err = bind_reported_session(&mux, &registry, &tab_id, "claude", "unknown-sid", None)
-        .unwrap_err();
+    let err =
+        bind_reported_session(&mux, &registry, &tab_id, "claude", "unknown-sid", None).unwrap_err();
     assert_eq!(err.0, StatusCode::CONFLICT);
     assert_eq!(
         mux.read()
@@ -528,7 +522,8 @@ fn fresh_launch_with_matching_nonce_still_rejects_already_claimed_sid() {
     // still fire — two tabs cannot own the same live session.
     let (mux, tab_a) = shared_mux();
     mux.write().get_tab_mut(&tab_a).unwrap().cwd = Some("/tmp/project".into());
-    let tab_b = mux.write().create_tab();
+    let workspace_id = mux.read().find_workspace_for_tab(&tab_a).unwrap();
+    let tab_b = mux.write().create_tab(&workspace_id).unwrap();
     {
         let mut g = mux.write();
         let tab = g.get_tab_mut(&tab_b).unwrap();

@@ -109,8 +109,6 @@ fn derive_planner_name<'a>(
 
 struct ReservedPairTabs {
     orchestrator_tab_id: String,
-    orchestrator_tab_id: String,
-    planner_tab_id: String,
     planner_tab_id: String,
     planner_name: String,
 }
@@ -120,7 +118,7 @@ fn reserve_pair_tabs(
     workspace_id: &str,
     existing_orchestrator_tab_id: Option<&str>,
 ) -> Result<ReservedPairTabs, String> {
-    let (orchestrator_tab_id, orchestrator_tab_id) = match existing_orchestrator_tab_id {
+    let orchestrator_tab_id = match existing_orchestrator_tab_id {
         Some(tab_id) => mux.claim_existing_tab(workspace_id, tab_id)?,
         None => mux.create_tab(workspace_id)?,
     };
@@ -129,13 +127,13 @@ fn reserve_pair_tabs(
         .get_workspace(workspace_id)
         .into_iter()
         .flat_map(|workspace| workspace.tabs.iter())
-        .filter_map(|tab| mux.get_tab(&tab.tab_id).map(|tab| tab.title.clone()))
+        .filter_map(|tab_id| mux.get_tab(tab_id).map(|tab| tab.title.clone()))
         .collect();
     let planner_name = derive_planner_name(
         existing_titles.iter().map(String::as_str),
         &orchestrator_label,
     );
-    let (planner_tab_id, planner_tab_id) = mux.create_tab(workspace_id)?;
+    let planner_tab_id = mux.create_tab(workspace_id)?;
     mux.rename_tab_at_level(
         &planner_tab_id,
         &planner_name,
@@ -153,8 +151,6 @@ fn reserve_pair_tabs(
     }
     Ok(ReservedPairTabs {
         orchestrator_tab_id,
-        orchestrator_tab_id,
-        planner_tab_id,
         planner_tab_id,
         planner_name,
     })
@@ -473,7 +469,7 @@ impl ServiceContext {
                 let _ = self
                     .mux
                     .write()
-                    .close_tab(&workspace_id, &reserved.planner_tab_id);
+                    .close_tab(&reserved.planner_tab_id);
                 self.emit_state_changed();
                 return Err(format!(
                     "Failed to spawn Orchestrator ({error}); no plan was created. Retry with: {pair_fix_command}"
@@ -586,8 +582,8 @@ impl ServiceContext {
                     let mut mux = self.mux.write();
                     let orch_tab = mux
                         .get_workspace(&workspace_id)
-                        .and_then(|ws| ws.tabs.iter().find(|t| t.tab_id == orch_tab_id))
-                        .map(|t| t.id.clone());
+                        .and_then(|ws| ws.tabs.iter().find(|tab_id| *tab_id == &orch_tab_id))
+                        .cloned();
                     let _ = mux.set_active_workspace(&workspace_id);
                     if let Some(tab_id) = orch_tab {
                         let _ = mux.set_active_tab(&workspace_id, &tab_id);
