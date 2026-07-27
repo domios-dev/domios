@@ -6,6 +6,7 @@ const root = resolve(import.meta.dirname, "..");
 const srcRoot = join(root, "src");
 const globalsPath = join(srcRoot, "styles", "globals.css");
 const agentStatePath = join(srcRoot, "styles", "agent-state.css");
+const stylesRoot = join(srcRoot, "styles");
 const activityDotsPath = join(srcRoot, "components", "shared", "ActivityDots.tsx");
 const segmentedDonutPath = join(srcRoot, "components", "shared", "SegmentedDonut.tsx");
 const globalsCss = readFileSync(globalsPath, "utf8");
@@ -119,10 +120,37 @@ for (const path of implementationFiles.filter((path) => path !== agentStatePath)
   if (/animation(?:-name)?\s*:[^;]*ct-dots-squash-jump/.test(source)) {
     consumerSquashViolations.push(`${repoRelative(path)} overrides the shared dot keyframe`);
   }
-  if (/--activity-dot-jump\s*:/.test(source)) {
-    consumerSquashViolations.push(`${repoRelative(path)} re-tunes squash amplitude locally`);
+}
+
+const sharedDotGeometrySelectors = new Set([
+  ".activity-dots--micro",
+  ".activity-dots--small",
+  ".activity-dots--medium",
+]);
+const consumerDotGeometryViolations: string[] = [];
+for (const path of filesUnder(stylesRoot).filter((candidate) => candidate.endsWith(".css"))) {
+  const source = readFileSync(path, "utf8");
+  for (const rule of source.matchAll(/([^{}]+)\{([^{}]*)\}/gs)) {
+    const selector = rule[1].trim();
+    for (const declaration of rule[2].matchAll(/--activity-dot-(size|gap|jump)\s*:/g)) {
+      if (path === agentStatePath && sharedDotGeometrySelectors.has(selector)) continue;
+      const offset = rule.index + rule[0].indexOf(declaration[0]);
+      const line = source.slice(0, offset).split("\n").length;
+      consumerDotGeometryViolations.push(
+        `${repoRelative(path)}:${line} ${selector} declares --activity-dot-${declaration[1]}`,
+      );
+    }
   }
 }
+assert.deepEqual(
+  consumerDotGeometryViolations,
+  [],
+  [
+    "only shared ActivityDots size variants may declare dot geometry",
+    "regression case: src/styles/globals.css:1924",
+    ...consumerDotGeometryViolations,
+  ].join("\n"),
+);
 
 const sweepName = "sidebar-plan-entry-completion-sweep";
 assert.equal(

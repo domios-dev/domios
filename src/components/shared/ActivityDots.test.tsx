@@ -39,11 +39,19 @@ async function run() {
   assert.equal(host.querySelector(".activity-dots--micro")?.children.length, 1, "micro renders one breathing dot");
 
   const css = readFileSync(new URL("../../styles/agent-state.css", import.meta.url), "utf8");
-  assert.match(css, /\.activity-dots--micro\s*\{[^}]*--activity-dot-size:\s*2\.5px;[^}]*--activity-dot-gap:\s*1\.25px;/s);
+  const microRule = css.match(/\.activity-dots--micro\s*\{([^}]*)\}/s);
+  assert(microRule, "micro geometry rule exists");
+  assert.match(microRule[1], /--activity-dot-size:\s*2\.5px;/);
+  assert.match(microRule[1], /--activity-dot-gap:\s*1\.25px;/);
+  assert.match(microRule[1], /--activity-dot-jump:\s*1\.25px;/);
   assert.match(css, /\.activity-dots--small\s*\{[^}]*--activity-dot-size:\s*3px;[^}]*--activity-dot-gap:\s*2px;/s);
   assert.match(css, /\.activity-dots--medium\s*\{[^}]*--activity-dot-size:\s*5px;[^}]*--activity-dot-gap:\s*3px;/s);
   const reducedMotion = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"));
-  assert.match(reducedMotion, /\.activity-dots i\s*\{[^}]*animation:\s*none !important;[^}]*opacity:\s*0\.85;/s);
+  assert.match(
+    reducedMotion,
+    /\.activity-dots i\s*\{[^}]*animation:\s*none !important;[^}]*opacity:\s*0\.85;[^}]*transform:\s*scale\(1\);/s,
+    "reduced motion keeps the static dot cue",
+  );
   const phaseDots = css.match(/\.ct-phase-dots\s*\{([^}]*)\}/s);
   assert(phaseDots, "legacy phase dots rule exists");
   assert(!/--activity-dot-[\w-]+\s*:/.test(phaseDots[1]), "legacy phase dots do not own geometry vars");
@@ -58,6 +66,38 @@ async function run() {
   assert.match(css, /animation:\s*ct-dots-squash-jump[^;]*var\(--ct-ease-squash-jump\)/);
 
   const globalsCss = readFileSync(new URL("../../styles/globals.css", import.meta.url), "utf8");
+  const workspaceCardSource = readFileSync(new URL("../Sidebar/WorkspaceCardGrid.tsx", import.meta.url), "utf8");
+  assert.match(
+    workspaceCardSource,
+    /className="sidebar-workspace-card-working"[\s\S]*?<ActivityDots size="micro" tone="muted" \/>/,
+    "workspace-card badge selects shared micro geometry",
+  );
+  assert.doesNotMatch(
+    globalsCss,
+    /\.sidebar-workspace-card-working\s+\.activity-dots\s*\{[^}]*--activity-dot-(?:size|gap|jump)\s*:/s,
+    "workspace-card badge must not re-tune shared micro geometry",
+  );
+  const workspaceCardRule = globalsCss.match(/\.sidebar-workspace-card\s*\{([^}]*)\}/s);
+  const workspaceSelectRule = globalsCss.match(/\.sidebar-workspace-card-select\s*\{([^}]*)\}/s);
+  const workspaceInitialsRule = globalsCss.match(/\.sidebar-workspace-card-initials\s*\{([^}]*)\}/s);
+  const workspaceBadgeRule = globalsCss.match(/\.sidebar-workspace-card-working\s*\{([^}]*)\}/s);
+  assert(workspaceCardRule && workspaceSelectRule && workspaceInitialsRule && workspaceBadgeRule);
+  assert.match(workspaceSelectRule[1], /align-items:\s*center;[^}]*justify-content:\s*center;/s);
+  const px = (rule: string, property: string) => {
+    const match = rule.match(new RegExp(`${property}:\\s*([\\d.]+)px;`));
+    assert(match, `${property} pixel value exists`);
+    return Number(match[1]);
+  };
+  const cardHeight = px(workspaceCardRule[1], "height");
+  const initialsHeight = px(workspaceInitialsRule[1], "font-size");
+  const badgeTop = px(workspaceBadgeRule[1], "top");
+  const badgeWidth = px(workspaceBadgeRule[1], "width");
+  const badgeHeight = px(workspaceBadgeRule[1], "height");
+  const microSize = px(microRule[1], "--activity-dot-size");
+  const microJump = px(microRule[1], "--activity-dot-jump");
+  assert(microSize <= badgeWidth, "shared micro dot fits the workspace badge width");
+  assert(microSize + microJump <= badgeHeight, "shared micro jump fits the workspace badge height");
+  assert(badgeTop + badgeHeight < (cardHeight - initialsHeight) / 2, "workspace badge stays above centered initials");
   for (const keyframe of [
     "sidebar-hierarchy-breathe",
     "sidebar-hierarchy-drift",
