@@ -1254,7 +1254,7 @@ button,
   position: relative;
   display: grid;
   grid-template-columns: repeat(var(--rail-count), minmax(0, 1fr));
-  min-width: 25rem;
+  min-width: calc(var(--rail-count) * 5.5rem);
 }
 .ct-liquid-tab-rail__indicator {
   position: absolute;
@@ -1290,6 +1290,40 @@ button,
 }
 .ct-liquid-tab-rail__tab--touch {
   min-height: 3.25rem;
+}
+
+@media (max-width: 640px) {
+  .ct-section-toolbar {
+    height: auto;
+    min-height: 3.25rem;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    padding: 0.5rem 0.75rem 0;
+  }
+  .ct-section-toolbar__identity {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  .ct-section-toolbar__identity .ct-meta {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ct-section-toolbar__tabs {
+    order: 10;
+    flex: 0 0 100%;
+    width: 100%;
+    padding-left: 0;
+    border-left: 0;
+  }
+  .ct-liquid-tab-rail {
+    width: 100%;
+    min-width: 0;
+  }
+  .ct-liquid-tab-rail__tab {
+    min-height: 2.75rem;
+    padding: 0.625rem 0.25rem;
+    font-size: 0.75rem;
+  }
 }
 
 .ct-liquid-toggle {
