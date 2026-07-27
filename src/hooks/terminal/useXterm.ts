@@ -28,7 +28,7 @@ export interface UseXtermOptions {
   theme?: ThemeConfig;
   fontConfig?: FontConfig;
   terminalConfig?: TerminalConfigSettings;
-  // Visible/focused panes init ahead of backgrounded ones in the stagger queue.
+  // Visible/focused tabs init ahead of backgrounded ones in the stagger queue.
   priority?: boolean;
   renderEnabled?: boolean;
 }
@@ -65,7 +65,7 @@ export function useXterm({
     }
   }, []);
 
-  // staggered one-per-frame so parallel pane mounts don't stack into one long task.
+  // staggered one-per-frame so parallel tab mounts don't stack into one long task.
   useEffect(() => {
     if (!containerRef.current) return;
     if (initialized.current) return;

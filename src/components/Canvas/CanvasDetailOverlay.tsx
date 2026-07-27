@@ -1,4 +1,4 @@
-import type { ApiConfig, Pane } from "../../lib/types";
+import type { ApiConfig, Tab } from "../../lib/types";
 import type { LaidOutNode } from "./layout";
 import type { SectionNavArgs } from "./nodeRegistry";
 import type { Plan } from "./types";
@@ -9,10 +9,10 @@ export interface CanvasDetailOverlayProps {
   nodeId: string | null;
   nodeById: Map<string, LaidOutNode>;
   resolveModel: (node: LaidOutNode) => unknown;
-  panes?: Record<string, Pane>;
+  tabs?: Record<string, Tab>;
   api?: ApiConfig;
   onClose: () => void;
-  onOpenPane?: (paneId: string) => void;
+  onOpenTab?: (tabId: string) => void;
   onOpenTask?: (taskId: string) => void;
   onCopyLink?: (id: string) => void;
   onFocusStride?: (milestoneId: string) => void;
@@ -24,10 +24,10 @@ export function CanvasDetailOverlay({
   nodeId,
   nodeById,
   resolveModel,
-  panes,
+  tabs,
   api,
   onClose,
-  onOpenPane,
+  onOpenTab,
   onOpenTask,
   onSectionClick,
   onSectionFrame,
@@ -56,9 +56,9 @@ export function CanvasDetailOverlay({
       spec={spec}
       planId={node.planId}
       api={api}
-      panes={panes}
+      tabs={tabs}
       onClose={onClose}
-      onOpenPane={onOpenPane}
+      onOpenTab={onOpenTab}
       onOpenTask={onOpenTask}
       onSectionClick={onSectionClick}
       onSectionFrame={onSectionFrame}

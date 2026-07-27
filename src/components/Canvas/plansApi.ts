@@ -12,7 +12,7 @@ export interface PlanIndexEntry {
   status: PlanStatus;
   updated_at: number;
   team_id?: string | null;
-  assigned_pane_ids: string[];
+  assigned_tab_ids: string[];
   task_count?: number;
   open_task_count?: number;
   section_count?: number;
@@ -49,7 +49,7 @@ export interface ResolvedPlanRef {
   file_path?: string;
   canonical_project_path?: string;
   status?: PlanStatus;
-  owner_pane_id?: string;
+  owner_tab_id?: string;
   owner_session_id?: string;
 }
 

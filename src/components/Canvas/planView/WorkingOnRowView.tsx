@@ -12,7 +12,7 @@ const TONE_CLASS: Record<WorkingOnChip["tone"], string> = {
 function ChipIcon({ kind }: { kind: WorkingOnChipKind }) {
   const size = 10;
   if (kind === "model") return <Bot size={size} />;
-  if (kind === "pane") return <MonitorSmartphone size={size} />;
+  if (kind === "tab") return <MonitorSmartphone size={size} />;
   if (kind === "peer") return <Radio size={size} />;
   if (kind === "branch") return <GitBranch size={size} />;
   if (kind === "age") return <Clock size={size} />;

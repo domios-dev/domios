@@ -15,7 +15,7 @@ pub use codeterm_plugin::glance;
 pub use codeterm_plugin::host_traits;
 pub use codeterm_plugin::js_runtime;
 pub use codeterm_plugin::model_catalog;
-pub use codeterm_plugin::pane_state;
+pub use codeterm_plugin::tab_state;
 pub use codeterm_plugin::plugin_manager;
 pub use codeterm_plugin::prompt;
 pub use codeterm_plugin::provider;

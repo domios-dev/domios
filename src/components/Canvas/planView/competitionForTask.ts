@@ -1,6 +1,6 @@
-import type { Pane } from "../../../lib/types";
+import type { Tab } from "../../../lib/types";
 import type { Task, TaskExecutionAttempt } from "../types";
-import { attemptPaneId, attemptPaneTitle } from "../taskExecutorHistory";
+import { attemptTabId, attemptTabTitle } from "../taskExecutorHistory";
 
 export interface CompetitionForTaskResult {
   count: number;
@@ -31,14 +31,14 @@ export function liveCompetitionAttemptCount(task: Task): number {
   return liveCompetitionAttempts(task).length;
 }
 
-function attemptLabel(attempt: TaskExecutionAttempt, panes: Record<string, Pane>): string {
-  const paneId = attemptPaneId(attempt);
-  return attemptPaneTitle(attempt) ?? (paneId ? clean(panes[paneId]?.title) ?? paneId.slice(0, 8) : "unknown");
+function attemptLabel(attempt: TaskExecutionAttempt, tabs: Record<string, Tab>): string {
+  const tabId = attemptTabId(attempt);
+  return attemptTabTitle(attempt) ?? (tabId ? clean(tabs[tabId]?.title) ?? tabId.slice(0, 8) : "unknown");
 }
 
 export function competitionForTask(
   task: Task,
-  panes: Record<string, Pane> = {},
+  tabs: Record<string, Tab> = {},
 ): CompetitionForTaskResult | null {
   if (!isCompetitiveTask(task)) return null;
 
@@ -56,7 +56,7 @@ export function competitionForTask(
     lines.push("no live attempts");
   } else {
     for (const attempt of live) {
-      const label = attemptLabel(attempt, panes);
+      const label = attemptLabel(attempt, tabs);
       const model = clean(attempt.model);
       const lane = attempt.competition_lane != null ? ` lane ${attempt.competition_lane}` : "";
       lines.push(`live: ${label}${lane}${model ? ` · ${model}` : ""}`);

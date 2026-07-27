@@ -1,5 +1,5 @@
 use super::*;
-use crate::multiplexer::types::Pane;
+use crate::multiplexer::types::Tab;
 use crate::plan::{OrchestratorRef, Plan};
 use std::sync::Arc;
 
@@ -16,23 +16,23 @@ impl Fixture {
     fn new(root: &std::path::Path) -> Self {
         let store = Arc::new(crate::service::plan::PlanStore::new_for_test(root));
         let (mut mux, owner) = MultiplexerState::new();
-        let other_owner = mux.create_pane();
-        let target = mux.create_pane();
-        arm_session(mux.get_pane_mut(&owner).unwrap(), "owner");
-        arm_session(mux.get_pane_mut(&other_owner).unwrap(), "other-owner");
-        arm_session(mux.get_pane_mut(&target).unwrap(), "target");
-        mux.set_pane_role(&owner, AgentRole::Orchestrator, None)
+        let other_owner = mux.create_tab();
+        let target = mux.create_tab();
+        arm_session(mux.get_tab_mut(&owner).unwrap(), "owner");
+        arm_session(mux.get_tab_mut(&other_owner).unwrap(), "other-owner");
+        arm_session(mux.get_tab_mut(&target).unwrap(), "target");
+        mux.set_tab_role(&owner, AgentRole::Orchestrator, None)
             .unwrap();
-        mux.set_pane_role(&other_owner, AgentRole::Orchestrator, None)
+        mux.set_tab_role(&other_owner, AgentRole::Orchestrator, None)
             .unwrap();
         mux.resolve_or_mint_team_for_parent(&owner).unwrap();
         mux.resolve_or_mint_team_for_parent(&other_owner).unwrap();
         let mut plan = Plan::new(
             "Lifecycle".into(),
             root.display().to_string(),
-            OrchestratorRef::from_pane(&owner),
+            OrchestratorRef::from_tab(&owner),
         );
-        plan.team_id = mux.get_pane(&owner).unwrap().team_id.clone();
+        plan.team_id = mux.get_tab(&owner).unwrap().team_id.clone();
         store.save(&mut plan, 1).unwrap();
         Self {
             mux,
@@ -49,7 +49,7 @@ impl Fixture {
             &mut self.mux,
             &self.store,
             AgentTransitionRequest {
-                pane_id: self.target.clone(),
+                tab_id: self.target.clone(),
                 destination,
                 require_verified_session: true,
                 planner_replacement: None,
@@ -60,20 +60,20 @@ impl Fixture {
         .unwrap();
     }
 
-    fn target(&self) -> &Pane {
-        self.mux.get_pane(&self.target).unwrap()
+    fn target(&self) -> &Tab {
+        self.mux.get_tab(&self.target).unwrap()
     }
 }
 
-fn arm_session(pane: &mut Pane, suffix: &str) {
-    pane.agent_type = Some("codex".into());
-    pane.agent_session_id = Some(format!("session-{suffix}"));
-    pane.session_binding_nonce = Some(format!("nonce-{suffix}"));
-    pane.reported_session_binding_nonce = Some(format!("nonce-{suffix}"));
+fn arm_session(tab: &mut Tab, suffix: &str) {
+    tab.agent_type = Some("codex".into());
+    tab.agent_session_id = Some(format!("session-{suffix}"));
+    tab.session_binding_nonce = Some(format!("nonce-{suffix}"));
+    tab.reported_session_binding_nonce = Some(format!("nonce-{suffix}"));
 }
 
-fn effective_role(pane: &Pane) -> &'static str {
-    match (pane.role, pane.role_profile.as_deref()) {
+fn effective_role(tab: &Tab) -> &'static str {
+    match (tab.role, tab.role_profile.as_deref()) {
         (Some(AgentRole::Manager), Some("planner")) => "Planner",
         (Some(AgentRole::Orchestrator), _) => "Orchestrator",
         (Some(AgentRole::Worker), _) => "Worker",
@@ -88,65 +88,65 @@ fn mux_state_without_generation(mux: &MultiplexerState) -> serde_json::Value {
 }
 
 fn assert_planner_tuple(fixture: &Fixture, owner: &str) {
-    let pane = fixture.target();
-    let owner_pane = fixture.mux.get_pane(owner).unwrap();
-    assert_eq!(effective_role(pane), "Planner");
-    assert_eq!(pane.parent_pane_id.as_deref(), Some(owner));
-    assert_eq!(pane.team_id, owner_pane.team_id);
-    assert!(!pane.can_spawn);
-    assert_eq!(pane.report_target_pane_id.as_deref(), Some(owner));
+    let tab = fixture.target();
+    let owner_tab = fixture.mux.get_tab(owner).unwrap();
+    assert_eq!(effective_role(tab), "Planner");
+    assert_eq!(tab.parent_tab_id.as_deref(), Some(owner));
+    assert_eq!(tab.team_id, owner_tab.team_id);
+    assert!(!tab.can_spawn);
+    assert_eq!(tab.report_target_tab_id.as_deref(), Some(owner));
     assert_eq!(
-        pane.session_binding_nonce,
-        pane.reported_session_binding_nonce
+        tab.session_binding_nonce,
+        tab.reported_session_binding_nonce
     );
     assert_eq!(
         fixture.mux.get_children_ids(&fixture.target),
         Vec::<String>::new()
     );
     let plan = fixture.store.get(&fixture.plan_id).unwrap();
-    assert_eq!(plan.owner.pane_id.as_deref(), Some(owner));
-    assert_eq!(plan.team_id, pane.team_id);
+    assert_eq!(plan.owner.tab_id.as_deref(), Some(owner));
+    assert_eq!(plan.team_id, tab.team_id);
     assert!(matches!(
         plan.planner,
-        Some(PlannerRef::Pane {
-            pane_id,
+        Some(PlannerRef::Tab {
+            tab_id,
             session_id: Some(session_id),
             ..
-        }) if pane_id == fixture.target && session_id == "session-target"
+        }) if tab_id == fixture.target && session_id == "session-target"
     ));
 }
 
 fn assert_orchestrator_tuple(fixture: &Fixture) {
-    let pane = fixture.target();
-    assert_eq!(effective_role(pane), "Orchestrator");
-    assert_eq!(pane.parent_pane_id, None);
-    assert!(pane.can_spawn);
-    assert_eq!(pane.report_target_pane_id, None);
-    assert_eq!(pane.depth, 1);
+    let tab = fixture.target();
+    assert_eq!(effective_role(tab), "Orchestrator");
+    assert_eq!(tab.parent_tab_id, None);
+    assert!(tab.can_spawn);
+    assert_eq!(tab.report_target_tab_id, None);
+    assert_eq!(tab.depth, 1);
     assert_eq!(
-        pane.session_binding_nonce,
-        pane.reported_session_binding_nonce
+        tab.session_binding_nonce,
+        tab.reported_session_binding_nonce
     );
     assert!(!fixture.store.list_full().iter().any(|plan| {
         matches!(
             &plan.planner,
-            Some(PlannerRef::Pane { pane_id, .. }) if pane_id == &fixture.target
+            Some(PlannerRef::Tab { tab_id, .. }) if tab_id == &fixture.target
         )
     }));
 }
 
 fn assert_worker_tuple(fixture: &Fixture, owner: &str) {
-    let pane = fixture.target();
-    let owner_pane = fixture.mux.get_pane(owner).unwrap();
-    assert_eq!(effective_role(pane), "Worker");
-    assert_eq!(pane.parent_pane_id.as_deref(), Some(owner));
-    assert_eq!(pane.team_id, owner_pane.team_id);
-    assert!(!pane.can_spawn);
-    assert_eq!(pane.report_target_pane_id.as_deref(), Some(owner));
-    assert_eq!(pane.depth, 2);
+    let tab = fixture.target();
+    let owner_tab = fixture.mux.get_tab(owner).unwrap();
+    assert_eq!(effective_role(tab), "Worker");
+    assert_eq!(tab.parent_tab_id.as_deref(), Some(owner));
+    assert_eq!(tab.team_id, owner_tab.team_id);
+    assert!(!tab.can_spawn);
+    assert_eq!(tab.report_target_tab_id.as_deref(), Some(owner));
+    assert_eq!(tab.depth, 2);
     assert_eq!(
-        pane.session_binding_nonce,
-        pane.reported_session_binding_nonce
+        tab.session_binding_nonce,
+        tab.reported_session_binding_nonce
     );
 }
 
@@ -157,16 +157,16 @@ fn agent_transition_matrix_oracle() {
     let mut orchestrator_to_planner = Fixture::new(dir.path());
     orchestrator_to_planner
         .mux
-        .set_pane_role(
+        .set_tab_role(
             &orchestrator_to_planner.target,
             AgentRole::Orchestrator,
             None,
         )
         .unwrap();
-    let child = orchestrator_to_planner.mux.create_pane();
+    let child = orchestrator_to_planner.mux.create_tab();
     orchestrator_to_planner
         .mux
-        .set_pane_role(
+        .set_tab_role(
             &child,
             AgentRole::Worker,
             Some(&orchestrator_to_planner.target),
@@ -197,9 +197,9 @@ fn agent_transition_matrix_oracle() {
         plan_id: orchestrator_to_planner.plan_id.clone(),
     });
     assert_planner_tuple(&orchestrator_to_planner, &orchestrator_to_planner.owner);
-    let orphan = orchestrator_to_planner.mux.get_pane(&child).unwrap();
+    let orphan = orchestrator_to_planner.mux.get_tab(&child).unwrap();
     assert_eq!(orphan.role, None);
-    assert_eq!(orphan.parent_pane_id, None);
+    assert_eq!(orphan.parent_tab_id, None);
     assert_eq!(orphan.team_id, None);
     let child_task = orchestrator_to_planner
         .store
@@ -209,13 +209,13 @@ fn agent_transition_matrix_oracle() {
         .into_iter()
         .find(|task| task.id == child_task)
         .unwrap();
-    assert_eq!(child_task.assigned_pane_id, None);
-    assert_eq!(child_task.lane.pane_id, None);
+    assert_eq!(child_task.assigned_tab_id, None);
+    assert_eq!(child_task.lane.tab_id, None);
 
     let mut worker_to_planner = Fixture::new(dir.path());
     worker_to_planner
         .mux
-        .set_pane_role(
+        .set_tab_role(
             &worker_to_planner.target,
             AgentRole::Worker,
             Some(&worker_to_planner.other_owner),
@@ -254,8 +254,8 @@ fn agent_transition_matrix_oracle() {
         .into_iter()
         .find(|task| task.id == task_id)
         .unwrap();
-    assert_eq!(task.assigned_pane_id, None);
-    assert_eq!(task.lane.pane_id, None);
+    assert_eq!(task.assigned_tab_id, None);
+    assert_eq!(task.lane.tab_id, None);
 
     let mut planner_to_orchestrator = Fixture::new(dir.path());
     planner_to_orchestrator.transition(AgentPlacement::Planner {
@@ -267,20 +267,20 @@ fn agent_transition_matrix_oracle() {
     let mut worker_reparent = Fixture::new(dir.path());
     worker_reparent
         .mux
-        .set_pane_role(
+        .set_tab_role(
             &worker_reparent.target,
             AgentRole::Worker,
             Some(&worker_reparent.owner),
         )
         .unwrap();
     worker_reparent.transition(AgentPlacement::Worker {
-        parent_pane_id: worker_reparent.other_owner.clone(),
+        parent_tab_id: worker_reparent.other_owner.clone(),
     });
     assert_worker_tuple(&worker_reparent, &worker_reparent.other_owner);
 
     let mut roleless_to_worker = Fixture::new(dir.path());
     roleless_to_worker.transition(AgentPlacement::Worker {
-        parent_pane_id: roleless_to_worker.owner.clone(),
+        parent_tab_id: roleless_to_worker.owner.clone(),
     });
     assert_worker_tuple(&roleless_to_worker, &roleless_to_worker.owner);
 
@@ -299,15 +299,15 @@ fn agent_transition_matrix_oracle() {
         plan_id: planner_to_roleless.plan_id.clone(),
     });
     planner_to_roleless.transition(AgentPlacement::Roleless);
-    let pane = planner_to_roleless.target();
-    assert_eq!(effective_role(pane), "Roleless");
-    assert_eq!(pane.parent_pane_id, None);
-    assert_eq!(pane.team_id, None);
-    assert!(!pane.can_spawn);
-    assert_eq!(pane.report_target_pane_id, None);
+    let tab = planner_to_roleless.target();
+    assert_eq!(effective_role(tab), "Roleless");
+    assert_eq!(tab.parent_tab_id, None);
+    assert_eq!(tab.team_id, None);
+    assert!(!tab.can_spawn);
+    assert_eq!(tab.report_target_tab_id, None);
     assert_eq!(
-        pane.session_binding_nonce,
-        pane.reported_session_binding_nonce
+        tab.session_binding_nonce,
+        tab.reported_session_binding_nonce
     );
     assert_eq!(
         planner_to_roleless
@@ -325,19 +325,19 @@ fn regression_orchestrator_to_planner_single_command_sets_role_and_report_owner(
     let mut fixture = Fixture::new(dir.path());
     fixture
         .mux
-        .set_pane_role(&fixture.target, AgentRole::Orchestrator, None)
+        .set_tab_role(&fixture.target, AgentRole::Orchestrator, None)
         .unwrap();
     fixture
         .mux
-        .get_pane_mut(&fixture.target)
+        .get_tab_mut(&fixture.target)
         .unwrap()
-        .report_target_pane_id = Some("stale-owner".into());
+        .report_target_tab_id = Some("stale-owner".into());
     fixture
         .store
         .set_planner_ref(
             &fixture.plan_id,
-            Some(PlannerRef::Pane {
-                pane_id: fixture.target.clone(),
+            Some(PlannerRef::Tab {
+                tab_id: fixture.target.clone(),
                 session_id: None,
                 title: None,
             }),
@@ -352,7 +352,7 @@ fn regression_orchestrator_to_planner_single_command_sets_role_and_report_owner(
     assert_planner_tuple(&fixture, &fixture.owner);
     assert_eq!(effective_role(fixture.target()), "Planner");
     assert_eq!(
-        fixture.target().report_target_pane_id.as_deref(),
+        fixture.target().report_target_tab_id.as_deref(),
         Some(fixture.owner.as_str())
     );
 }
@@ -363,7 +363,7 @@ fn rebind_moves_owner_and_team_atomically() {
     let mut fixture = Fixture::new(dir.path());
     fixture
         .mux
-        .set_pane_role(
+        .set_tab_role(
             &fixture.target,
             AgentRole::Worker,
             Some(&fixture.other_owner),
@@ -371,14 +371,14 @@ fn rebind_moves_owner_and_team_atomically() {
         .unwrap();
     let old_team = fixture
         .mux
-        .get_pane(&fixture.owner)
+        .get_tab(&fixture.owner)
         .unwrap()
         .team_id
         .clone()
         .unwrap();
     let destination_team = fixture
         .mux
-        .get_pane(&fixture.other_owner)
+        .get_tab(&fixture.other_owner)
         .unwrap()
         .team_id
         .clone()
@@ -391,7 +391,7 @@ fn rebind_moves_owner_and_team_atomically() {
     assert_planner_tuple(&fixture, &fixture.other_owner);
     let plan = fixture.store.get(&fixture.plan_id).unwrap();
     assert_eq!(
-        plan.owner.pane_id.as_deref(),
+        plan.owner.tab_id.as_deref(),
         Some(fixture.other_owner.as_str())
     );
     assert_eq!(plan.team_id.as_deref(), Some(destination_team.as_str()));
@@ -409,7 +409,7 @@ fn stale_or_foreign_nonce_rejects_transition_without_mutation() {
     let mut fixture = Fixture::new(dir.path());
     fixture
         .mux
-        .get_pane_mut(&fixture.target)
+        .get_tab_mut(&fixture.target)
         .unwrap()
         .reported_session_binding_nonce = Some("foreign".into());
     let before = mux_state_without_generation(&fixture.mux);
@@ -419,7 +419,7 @@ fn stale_or_foreign_nonce_rejects_transition_without_mutation() {
         &mut fixture.mux,
         &fixture.store,
         AgentTransitionRequest {
-            pane_id: fixture.target.clone(),
+            tab_id: fixture.target.clone(),
             destination: AgentPlacement::Planner {
                 plan_id: fixture.plan_id.clone(),
             },
@@ -448,7 +448,7 @@ fn planner_waiver_revokes_live_planner_placement_atomically() {
         &mut fixture.mux,
         &fixture.store,
         AgentTransitionRequest {
-            pane_id: fixture.target.clone(),
+            tab_id: fixture.target.clone(),
             destination: AgentPlacement::Roleless,
             require_verified_session: false,
             planner_replacement: Some((
@@ -464,9 +464,9 @@ fn planner_waiver_revokes_live_planner_placement_atomically() {
     .unwrap();
 
     assert_eq!(effective_role(fixture.target()), "Roleless");
-    assert_eq!(fixture.target().parent_pane_id, None);
+    assert_eq!(fixture.target().parent_tab_id, None);
     assert_eq!(fixture.target().team_id, None);
-    assert_eq!(fixture.target().report_target_pane_id, None);
+    assert_eq!(fixture.target().report_target_tab_id, None);
     assert!(matches!(
         fixture.store.get(&fixture.plan_id).unwrap().planner,
         Some(PlannerRef::Waived { .. })
@@ -479,7 +479,7 @@ fn rebind_rolls_back_on_injected_failure() {
     let mut fixture = Fixture::new(dir.path());
     fixture
         .mux
-        .set_pane_role(
+        .set_tab_role(
             &fixture.target,
             AgentRole::Worker,
             Some(&fixture.other_owner),
@@ -487,9 +487,9 @@ fn rebind_rolls_back_on_injected_failure() {
         .unwrap();
     fixture
         .mux
-        .get_pane_mut(&fixture.target)
+        .get_tab_mut(&fixture.target)
         .unwrap()
-        .report_target_pane_id = Some("stale-owner".into());
+        .report_target_tab_id = Some("stale-owner".into());
     let before_mux = mux_state_without_generation(&fixture.mux);
     let before_plans = fixture.store.list_full();
 
@@ -497,7 +497,7 @@ fn rebind_rolls_back_on_injected_failure() {
         &mut fixture.mux,
         &fixture.store,
         AgentTransitionRequest {
-            pane_id: fixture.target.clone(),
+            tab_id: fixture.target.clone(),
             destination: AgentPlacement::Planner {
                 plan_id: fixture.plan_id.clone(),
             },
@@ -520,7 +520,7 @@ fn rebind_is_idempotent_and_single_owner() {
     let mut fixture = Fixture::new(dir.path());
     fixture
         .mux
-        .set_pane_role(
+        .set_tab_role(
             &fixture.target,
             AgentRole::Worker,
             Some(&fixture.other_owner),
@@ -543,7 +543,7 @@ fn rebind_is_idempotent_and_single_owner() {
                 &mut mux.lock(),
                 &store,
                 AgentTransitionRequest {
-                    pane_id: target,
+                    tab_id: target,
                     destination: AgentPlacement::Planner { plan_id },
                     require_verified_session: true,
                     planner_replacement: None,
@@ -563,7 +563,7 @@ fn rebind_is_idempotent_and_single_owner() {
         .filter(|plan| {
             matches!(
                 &plan.planner,
-                Some(PlannerRef::Pane { pane_id, .. }) if pane_id == &target
+                Some(PlannerRef::Tab { tab_id, .. }) if tab_id == &target
             )
         })
         .count();
@@ -571,16 +571,16 @@ fn rebind_is_idempotent_and_single_owner() {
     assert_eq!(
         plans
             .iter()
-            .filter(|plan| plan.owner.pane_id.as_deref() == Some(destination_owner.as_str()))
+            .filter(|plan| plan.owner.tab_id.as_deref() == Some(destination_owner.as_str()))
             .count(),
         1
     );
     let mux = mux.lock();
-    assert_eq!(effective_role(mux.get_pane(&target).unwrap()), "Planner");
+    assert_eq!(effective_role(mux.get_tab(&target).unwrap()), "Planner");
     assert_eq!(
         mux.get_children_ids(&destination_owner)
             .into_iter()
-            .filter(|pane_id| pane_id == &target)
+            .filter(|tab_id| tab_id == &target)
             .count(),
         1
     );
@@ -594,7 +594,7 @@ fn transfer_reporting_success_without_moving_ownership_fails() {
     let before_plan = fixture.store.get(&fixture.plan_id).unwrap();
     let destination_team = fixture
         .mux
-        .get_pane(&fixture.other_owner)
+        .get_tab(&fixture.other_owner)
         .unwrap()
         .team_id
         .clone()
@@ -604,13 +604,13 @@ fn transfer_reporting_success_without_moving_ownership_fails() {
         &mut fixture.mux,
         &fixture.store,
         AgentTransitionRequest {
-            pane_id: fixture.other_owner.clone(),
+            tab_id: fixture.other_owner.clone(),
             destination: AgentPlacement::Orchestrator { can_spawn: true },
             require_verified_session: false,
             planner_replacement: None,
             plan_rebind: Some(AgentLifecyclePlanRebind {
                 plan_id: fixture.plan_id.clone(),
-                owner: OrchestratorRef::from_pane(&fixture.other_owner),
+                owner: OrchestratorRef::from_tab(&fixture.other_owner),
                 team_id: destination_team,
                 reason: "forced no-op transfer".into(),
                 activate: false,

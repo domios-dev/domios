@@ -4,7 +4,7 @@ pub mod projection;
 pub mod store;
 mod suspicious;
 
-pub use poller::{PaneActivity, UsagePoller};
+pub use poller::{TabActivity, UsagePoller};
 pub use probe::{ProbeError, UsageProbe, UsageProbeOutcome};
 pub use projection::{ProjectionResponse, SessionProjection, WeeklyProjection};
 pub use store::{DailyRollup, UsageSnapshotRow, UsageStore, UsageStoreHandle};

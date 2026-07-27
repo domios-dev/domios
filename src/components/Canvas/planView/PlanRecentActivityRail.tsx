@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { Pane } from "../../../lib/types";
+import type { Tab } from "../../../lib/types";
 import { milestoneColorMap } from "../milestoneColors";
 import type { Plan } from "../types";
 import {
@@ -12,7 +12,7 @@ import {
 
 export interface PlanRecentActivityRailProps {
   plan: Plan;
-  panes?: Record<string, Pane>;
+  tabs?: Record<string, Tab>;
   onOpenTask?: (taskId: string) => void;
   now?: number;
   limit?: number;
@@ -20,7 +20,7 @@ export interface PlanRecentActivityRailProps {
 
 export function PlanRecentActivityRail({
   plan,
-  panes = {},
+  tabs = {},
   onOpenTask,
   now = Date.now(),
   limit = 10,
@@ -34,7 +34,7 @@ export function PlanRecentActivityRail({
       <div className="plan-recent-activity-label">Recent activity</div>
       <div className="plan-recent-activity-rail">
         {items.map(({ taskId, taskLabel, milestone }) => {
-          const author = resolveMilestoneAuthor(milestone, panes);
+          const author = resolveMilestoneAuthor(milestone, tabs);
           const kind = milestoneKindLabel(milestone.kind);
           const color = colors.get(milestone.kind);
           const snippet = milestone.text.replace(/\s+/g, " ").trim().slice(0, 72);

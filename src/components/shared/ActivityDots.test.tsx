@@ -101,7 +101,7 @@ async function run() {
   for (const keyframe of [
     "sidebar-hierarchy-breathe",
     "sidebar-hierarchy-drift",
-    "pane-focus-pulse",
+    "tab-focus-pulse",
     "breathing-bar",
     "agent-icon-working-spin",
     "ct-spin",

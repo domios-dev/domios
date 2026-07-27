@@ -107,10 +107,10 @@ function result(id: string, toolId: string, detail: string, patch: Partial<Norma
 {
   const items = reduceToolEvents([
     call("internal", "internal-call", { toolName: "send_message", toolSummary: "send_message" }),
-    call("send", "send-call", { toolName: "exec_command", toolSummary: 'codeterm send --tab pane "hello"' }),
+    call("send", "send-call", { toolName: "exec_command", toolSummary: 'codeterm send --tab tab "hello"' }),
   ]);
   assert(items.length === 1, "internal orchestration calls do not enter the chat timeline");
-  assert(items[0].kind === "tool" && items[0].event.summary === 'codeterm send --tab pane "hello"', "real codeterm send remains visible");
+  assert(items[0].kind === "tool" && items[0].event.summary === 'codeterm send --tab tab "hello"', "real codeterm send remains visible");
 }
 
 {

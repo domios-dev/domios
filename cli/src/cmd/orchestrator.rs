@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 use crate::args::orchestrator::{OrchestratorAction, OrchestratorHeartbeatAction};
 use crate::client::{SocketCallError, SocketClient};
 use crate::cmd::plan::{call_plan_rpc, owner_from_env, resolve_text};
-use crate::resolve_pane;
+use crate::resolve_tab;
 
 pub fn handle(
     client: &mut SocketClient,
@@ -11,19 +11,19 @@ pub fn handle(
     action: OrchestratorAction,
 ) -> Result<Option<Value>, String> {
     match action {
-        OrchestratorAction::Status { plan, pane } => status(client, json_output, plan, pane),
-        OrchestratorAction::Inspect { plan, pane } => inspect(client, json_output, plan, pane),
+        OrchestratorAction::Status { plan, tab } => status(client, json_output, plan, tab),
+        OrchestratorAction::Inspect { plan, tab } => inspect(client, json_output, plan, tab),
         OrchestratorAction::Learn { text, plan, tag } => {
             learn(client, json_output, text, plan, tag)
         }
         OrchestratorAction::Heartbeat { action } => match action {
             OrchestratorHeartbeatAction::Show { plan } => heartbeat_show(client, json_output, plan),
         },
-        OrchestratorAction::Refresh { plan, pane } => refresh(client, json_output, plan, pane),
+        OrchestratorAction::Refresh { plan, tab } => refresh(client, json_output, plan, tab),
         OrchestratorAction::Handoff {
             plan,
             task,
-            pane,
+            tab,
             reseed,
             mode,
             dry_run,
@@ -36,7 +36,7 @@ pub fn handle(
             json_output,
             plan,
             task,
-            pane,
+            tab,
             reseed,
             mode,
             dry_run,
@@ -52,18 +52,18 @@ fn refresh(
     client: &mut SocketClient,
     json_output: bool,
     plan: Option<String>,
-    pane: Option<String>,
+    tab: Option<String>,
 ) -> Result<Option<Value>, String> {
     let plan_id = plan.ok_or("--plan or CODETERM_PLAN_ID is required")?;
-    let pane_id = resolve_pane(client, pane);
+    let tab_id = resolve_tab(client, tab);
     let result = client
         .call_detailed(
             "orchestrator.refresh",
-            Some(json!({ "pane_id": pane_id, "plan_id": plan_id })),
+            Some(json!({ "tab_id": tab_id, "plan_id": plan_id })),
         )
         .map_err(|err| {
             format!(
-                "cannot start orchestrator refresh for tab {pane_id}.\nfix: run `codeterm tab list --agents` and pass an agent tab with `--tab <tab-id>`.\ncause: {}",
+                "cannot start orchestrator refresh for tab {tab_id}.\nfix: run `codeterm tab list --agents` and pass an agent tab with `--tab <tab-id>`.\ncause: {}",
                 concise_socket_error(err)
             )
         })?;
@@ -74,14 +74,14 @@ fn refresh(
         .get("status")
         .and_then(|v| v.as_str())
         .unwrap_or("started");
-    println!("orchestrator refresh {status} for {plan_id} (pane {pane_id})");
+    println!("orchestrator refresh {status} for {plan_id} (tab {tab_id})");
     Ok(None)
 }
 
 fn heartbeat_params(plan: Option<String>) -> Value {
     json!({
         "plan_id": plan,
-        "pane_id": std::env::var("CODETERM_PANE_ID").ok(),
+        "tab_id": std::env::var("CODETERM_TAB_ID").ok(),
         "session_id": std::env::var("CODETERM_SESSION_ID").ok(),
     })
 }
@@ -119,9 +119,9 @@ fn status(
     client: &mut SocketClient,
     json_output: bool,
     plan: Option<String>,
-    pane: Option<String>,
+    tab: Option<String>,
 ) -> Result<Option<Value>, String> {
-    let out = status_snapshot(client, plan, pane)?;
+    let out = status_snapshot(client, plan, tab)?;
     let compact = compact_status(&out);
     if json_output {
         return Ok(Some(compact));
@@ -134,9 +134,9 @@ fn inspect(
     client: &mut SocketClient,
     json_output: bool,
     plan: Option<String>,
-    pane: Option<String>,
+    tab: Option<String>,
 ) -> Result<Option<Value>, String> {
-    let out = status_snapshot(client, plan, pane)?;
+    let out = status_snapshot(client, plan, tab)?;
     if json_output {
         return Ok(Some(out));
     }
@@ -150,14 +150,14 @@ fn inspect(
 fn status_snapshot(
     client: &mut SocketClient,
     plan: Option<String>,
-    pane: Option<String>,
+    tab: Option<String>,
 ) -> Result<Value, String> {
     let plan_id = plan.ok_or("--plan or CODETERM_PLAN_ID is required")?;
-    let pane_id = resolve_pane(client, pane);
+    let tab_id = resolve_tab(client, tab);
     let state = call_plan_rpc(client, "plan.state", json!({ "plan_id": plan_id }))?;
     let out = json!({
         "plan_id": plan_id,
-        "pane_id": pane_id,
+        "tab_id": tab_id,
         "live_lanes": {
             "open": state.get("open_lanes").cloned().unwrap_or_else(|| json!([])),
             "blocked": state.get("blocked_lanes").cloned().unwrap_or_else(|| json!([])),
@@ -200,7 +200,7 @@ fn compact_status(value: &Value) -> Value {
         .collect();
     json!({
         "plan_id": value.get("plan_id").cloned().unwrap_or(Value::Null),
-        "pane_id": value.get("pane_id").cloned().unwrap_or(Value::Null),
+        "tab_id": value.get("tab_id").cloned().unwrap_or(Value::Null),
         "live_lanes": {
             "open": count(&["live_lanes", "open"]),
             "blocked": count(&["live_lanes", "blocked"]),
@@ -215,7 +215,7 @@ fn compact_status(value: &Value) -> Value {
 
 fn render_status(value: &Value) -> String {
     let plan_id = value.get("plan_id").and_then(|v| v.as_str()).unwrap_or("?");
-    let pane_id = value.get("pane_id").and_then(|v| v.as_str()).unwrap_or("?");
+    let tab_id = value.get("tab_id").and_then(|v| v.as_str()).unwrap_or("?");
     let drift = value.get("drift").and_then(Value::as_u64).unwrap_or(0);
     let actions = value
         .get("next_actions")
@@ -242,7 +242,7 @@ fn render_status(value: &Value) -> String {
         .and_then(Value::as_u64)
         .unwrap_or(0);
 
-    let mut out = format!("Orchestrator status for {plan_id} (pane {pane_id})\n");
+    let mut out = format!("Orchestrator status for {plan_id} (tab {tab_id})\n");
     out.push_str(&format!(
         "live_lanes: open={open} blocked={blocked} agents={live_agents}\n"
     ));
@@ -374,7 +374,7 @@ fn handoff(
     json_output: bool,
     plan: Option<String>,
     task: Option<String>,
-    pane: Option<String>,
+    tab: Option<String>,
     reseed: bool,
     mode: String,
     dry_run: bool,
@@ -384,11 +384,11 @@ fn handoff(
     from_file: Option<String>,
 ) -> Result<Option<Value>, String> {
     let plan_id = plan.ok_or("--plan or CODETERM_PLAN_ID is required")?;
-    let pane_id = resolve_pane(client, pane);
+    let tab_id = resolve_tab(client, tab);
     let source_session_id = if dry_run {
-        pane_session_id(client, &pane_id).unwrap_or_else(|_| "<dry-run-source-session>".into())
+        tab_session_id(client, &tab_id).unwrap_or_else(|_| "<dry-run-source-session>".into())
     } else {
-        pane_session_id(client, &pane_id)?
+        tab_session_id(client, &tab_id)?
     };
     let narrative = resolve_text(None, from_file)?;
     let seed = format!(
@@ -412,7 +412,7 @@ fn handoff(
             "ok": true,
             "dry_run": true,
             "plan_id": plan_id,
-            "pane_id": pane_id,
+            "tab_id": tab_id,
             "source_session_id": source_session_id,
             "mode": mode,
             "would_create_handoff": true,
@@ -455,7 +455,7 @@ fn handoff(
         json!({
             "plan_id": plan_id,
             "selector": handoff_id,
-            "pane_id": pane_id,
+            "tab_id": tab_id,
             "source_session_id": source_session_id,
             "mode": mode,
             "force": force,
@@ -464,34 +464,34 @@ fn handoff(
     .map(Some)
 }
 
-fn pane_session_id(client: &mut SocketClient, pane_id: &str) -> Result<String, String> {
-    let panes = client
-        .call_detailed("pane.list", None)
-        .map_err(|err| render_reseed_pane_lookup_error(pane_id, err))?;
-    let pane = panes
+fn tab_session_id(client: &mut SocketClient, tab_id: &str) -> Result<String, String> {
+    let tabs = client
+        .call_detailed("tab.list", None)
+        .map_err(|err| render_reseed_tab_lookup_error(tab_id, err))?;
+    let tab = tabs
         .as_array()
         .and_then(|items| {
             items
                 .iter()
-                .find(|item| item.get("id").and_then(|v| v.as_str()) == Some(pane_id))
+                .find(|item| item.get("id").and_then(|v| v.as_str()) == Some(tab_id))
         })
-        .ok_or_else(|| render_reseed_pane_session_error(pane_id))?;
-    pane.get("agent_session_id")
+        .ok_or_else(|| render_reseed_tab_session_error(tab_id))?;
+    tab.get("agent_session_id")
         .and_then(|v| v.as_str())
         .map(str::to_string)
-        .ok_or_else(|| render_reseed_pane_session_error(pane_id))
+        .ok_or_else(|| render_reseed_tab_session_error(tab_id))
 }
 
-fn render_reseed_pane_lookup_error(pane_id: &str, err: SocketCallError) -> String {
+fn render_reseed_tab_lookup_error(tab_id: &str, err: SocketCallError) -> String {
     format!(
-        "cannot inspect tab {pane_id} for handoff reseed.\nfix: run `codeterm tab list --agents` and pass an agent tab with `--tab <tab-id>`.\ncause: {}",
+        "cannot inspect tab {tab_id} for handoff reseed.\nfix: run `codeterm tab list --agents` and pass an agent tab with `--tab <tab-id>`.\ncause: {}",
         concise_socket_error(err)
     )
 }
 
-fn render_reseed_pane_session_error(pane_id: &str) -> String {
+fn render_reseed_tab_session_error(tab_id: &str) -> String {
     format!(
-        "cannot reseed because tab {pane_id} is not an agent or has no session.\nfix: run `codeterm tab list --agents` and pass an agent tab with `--tab <tab-id>`."
+        "cannot reseed because tab {tab_id} is not an agent or has no session.\nfix: run `codeterm tab list --agents` and pass an agent tab with `--tab <tab-id>`."
     )
 }
 
@@ -507,8 +507,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        action_command, compact_status, render_reseed_pane_lookup_error,
-        render_reseed_pane_session_error, render_status,
+        action_command, compact_status, render_reseed_tab_lookup_error,
+        render_reseed_tab_session_error, render_status,
     };
     use crate::client::{RpcError, SocketCallError};
 
@@ -516,11 +516,11 @@ mod tests {
     fn status_renderer_includes_exact_commands() {
         let rendered = render_status(&compact_status(&json!({
             "plan_id": "pl_1",
-            "pane_id": "pane1",
+            "tab_id": "tab1",
             "live_lanes": {
                 "open": [{"task_id": "task_a"}],
                 "blocked": [],
-                "agents": [{"pane_id": "worker1"}],
+                "agents": [{"tab_id": "worker1"}],
                 "heartbeat": {"active_lanes": ["L2"]}
             },
             "drift": {"total": 2, "items": []},
@@ -542,11 +542,11 @@ mod tests {
     fn compact_status_omits_lane_bodies() {
         let compact = compact_status(&json!({
             "plan_id": "pl_1",
-            "pane_id": "pane1",
+            "tab_id": "tab1",
             "live_lanes": {
                 "open": [{"task_id": "task_a", "large": "payload"}],
                 "blocked": [],
-                "agents": [{"pane_id": "worker1", "transcript": "large"}]
+                "agents": [{"tab_id": "worker1", "transcript": "large"}]
             },
             "drift": {"items": [{"reason": "drift body"}]},
             "next_actions": [{"kind": "dispatch", "task_id": "task_a", "message": "very long action body"}],
@@ -576,9 +576,9 @@ mod tests {
     }
 
     #[test]
-    fn reseed_pane_lookup_error_includes_agent_recovery_command() {
-        let msg = render_reseed_pane_lookup_error(
-            "pane1",
+    fn reseed_tab_lookup_error_includes_agent_recovery_command() {
+        let msg = render_reseed_tab_lookup_error(
+            "tab1",
             SocketCallError::Rpc(RpcError {
                 code: -32603,
                 message: "Tab not found".into(),
@@ -586,7 +586,7 @@ mod tests {
             }),
         );
 
-        assert!(msg.contains("cannot inspect tab pane1 for handoff reseed"));
+        assert!(msg.contains("cannot inspect tab tab1 for handoff reseed"));
         assert!(msg.contains("codeterm tab list --agents"));
         assert!(msg.contains("--tab <tab-id>"));
         assert!(!msg.contains("RPC error"));
@@ -595,9 +595,9 @@ mod tests {
 
     #[test]
     fn reseed_session_error_includes_agent_recovery_command() {
-        let msg = render_reseed_pane_session_error("pane1");
+        let msg = render_reseed_tab_session_error("tab1");
 
-        assert!(msg.contains("cannot reseed because tab pane1 is not an agent or has no session"));
+        assert!(msg.contains("cannot reseed because tab tab1 is not an agent or has no session"));
         assert!(msg.contains("codeterm tab list --agents"));
         assert!(msg.contains("--tab <tab-id>"));
     }

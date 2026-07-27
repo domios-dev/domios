@@ -13,7 +13,7 @@ pub struct TaskRespawnRequest {
     pub attempt_id: String,
     pub provider: Option<String>,
     pub model: Option<String>,
-    pub parent_pane_id: Option<String>,
+    pub parent_tab_id: Option<String>,
     pub workspace_id: Option<String>,
     pub title: Option<String>,
 }
@@ -23,7 +23,7 @@ pub struct TaskCompeteRequest {
     pub attempts: Option<u32>,
     pub provider: Option<String>,
     pub models: Vec<String>,
-    pub parent_pane_id: Option<String>,
+    pub parent_tab_id: Option<String>,
     pub workspace_id: Option<String>,
 }
 
@@ -52,7 +52,7 @@ pub struct TaskRespawnDraft {
     pub provider: String,
     pub planned_model: Option<String>,
     pub model: Option<String>,
-    pub parent_pane_id: Option<String>,
+    pub parent_tab_id: Option<String>,
     pub workspace_id: Option<String>,
     pub title: Option<String>,
     pub explicit_title: bool,
@@ -70,7 +70,7 @@ pub struct TaskCompeteDraft {
     pub provider: String,
     pub planned_model: Option<String>,
     pub model: Option<String>,
-    pub parent_pane_id: Option<String>,
+    pub parent_tab_id: Option<String>,
     pub workspace_id: Option<String>,
     pub title: Option<String>,
     pub cwd: String,
@@ -123,10 +123,10 @@ pub fn task_report_command(plan_id: &str, task_id: &str) -> String {
     )
 }
 
-fn latest_milestone_report(task: &Task, pane_id: &str) -> Option<(String, Option<String>, u64)> {
+fn latest_milestone_report(task: &Task, tab_id: &str) -> Option<(String, Option<String>, u64)> {
     task.milestones
         .iter()
-        .filter(|milestone| milestone.from.pane_id.as_deref() == Some(pane_id))
+        .filter(|milestone| milestone.from.tab_id.as_deref() == Some(tab_id))
         .max_by_key(|milestone| milestone.ts)
         .map(|milestone| {
             let status = milestone
@@ -150,7 +150,7 @@ fn last_report_for_attempt(
     task: &Task,
     attempt: &TaskExecutionAttempt,
 ) -> (Option<String>, Option<String>, Option<u64>) {
-    let milestone = latest_milestone_report(task, &attempt.executor_pane_id);
+    let milestone = latest_milestone_report(task, &attempt.executor_tab_id);
     if let Some((text, status, ts)) = milestone {
         return (
             Some(text),
@@ -247,9 +247,9 @@ fn build_prompt(
     }
     out.push_str("\nPrior attempt:\n");
     out.push_str(&format!(
-        "- attempt_id: {}\n- executor_pane_id: {}\n- status: {}\n",
+        "- attempt_id: {}\n- executor_tab_id: {}\n- status: {}\n",
         source.id,
-        source.executor_pane_id,
+        source.executor_tab_id,
         attempt_status(source)
     ));
     if let Some(status) = last_status {
@@ -331,7 +331,7 @@ fn build_compete_prompt(
 
 pub fn new_assignment_attempt(
     task: &Task,
-    pane_id: &str,
+    tab_id: &str,
     peer: Option<&str>,
     role: Option<&str>,
     now_ms: u64,
@@ -339,7 +339,7 @@ pub fn new_assignment_attempt(
     let (provider, model) = split_provider_model(task.model.as_deref());
     TaskExecutionAttempt {
         id: gen_attempt_id(),
-        executor_pane_id: pane_id.to_string(),
+        executor_tab_id: tab_id.to_string(),
         provider,
         agent_type: provider_name_from_model(task.model.as_deref()),
         model,
@@ -354,17 +354,17 @@ pub fn new_assignment_attempt(
     }
 }
 
-pub fn mark_task_assignment_closed(task: &mut Task, pane: Option<&str>, now_ms: u64) {
-    let pane = pane.and_then(|value| {
+pub fn mark_task_assignment_closed(task: &mut Task, tab: Option<&str>, now_ms: u64) {
+    let tab = tab.and_then(|value| {
         let trimmed = value.trim();
         (!trimmed.is_empty()).then_some(trimmed)
     });
-    if let Some(pane) = pane {
+    if let Some(tab) = tab {
         if let Some(attempt) = task
             .execution_attempts
             .iter_mut()
             .rev()
-            .find(|attempt| attempt.executor_pane_id == pane && attempt.closed_at.is_none())
+            .find(|attempt| attempt.executor_tab_id == tab && attempt.closed_at.is_none())
         {
             attempt.closed_at = Some(now_ms);
             return;
@@ -461,7 +461,7 @@ impl PlanStore {
         &self,
         plan_id: &str,
         task_id: &str,
-        pane_id: &str,
+        tab_id: &str,
         title: Option<&str>,
         session_id: Option<&str>,
         now_ms: u64,
@@ -478,7 +478,7 @@ impl PlanStore {
                 .execution_attempts
                 .iter_mut()
                 .rev()
-                .find(|attempt| attempt.executor_pane_id == pane_id)
+                .find(|attempt| attempt.executor_tab_id == tab_id)
                 .ok_or(PlanError::TaskNotFound)?;
             attempt.executor_title = title.map(str::to_string);
             attempt.session_id = session_id.map(str::to_string);
@@ -559,10 +559,10 @@ impl PlanStore {
                 provider,
                 planned_model: task.model.clone(),
                 model,
-                parent_pane_id: request
-                    .parent_pane_id
+                parent_tab_id: request
+                    .parent_tab_id
                     .clone()
-                    .or(plan.owner.pane_id.clone()),
+                    .or(plan.owner.tab_id.clone()),
                 workspace_id: request
                     .workspace_id
                     .clone()
@@ -673,10 +673,10 @@ impl PlanStore {
             provider,
             planned_model: task.model.clone(),
             model,
-            parent_pane_id: request
-                .parent_pane_id
-                .or(source.parent_pane_id.clone())
-                .or(plan.owner.pane_id),
+            parent_tab_id: request
+                .parent_tab_id
+                .or(source.parent_tab_id.clone())
+                .or(plan.owner.tab_id),
             workspace_id: request.workspace_id.or(task.lane.workspace_id.clone()),
             title: request.title,
             explicit_title,
@@ -690,7 +690,7 @@ impl PlanStore {
         &self,
         plan_id: &str,
         task_id: &str,
-        pane_id: &str,
+        tab_id: &str,
         draft: &TaskRespawnDraft,
         role: Option<&str>,
         now_ms: u64,
@@ -713,17 +713,17 @@ impl PlanStore {
                 task.status = TaskStatus::InProgress;
                 task.status_changed_at = now_ms;
             }
-            task.assigned_pane_id = Some(pane_id.into());
-            task.lane.pane_id = Some(pane_id.into());
+            task.assigned_tab_id = Some(tab_id.into());
+            task.lane.tab_id = Some(tab_id.into());
             task.taken_by_role = role.map(str::to_string);
             task.peer = None;
             task.updated_at = now_ms;
-            let mut attempt = new_assignment_attempt(task, pane_id, None, role, now_ms);
+            let mut attempt = new_assignment_attempt(task, tab_id, None, role, now_ms);
             attempt.provider = Some(draft.provider.clone());
             attempt.agent_type = Some(draft.provider.clone());
             attempt.model = draft.model.clone();
             attempt.executor_title = draft.title.clone();
-            attempt.parent_pane_id = draft.parent_pane_id.clone();
+            attempt.parent_tab_id = draft.parent_tab_id.clone();
             task.execution_attempts.push(attempt.clone());
             created = Some(attempt);
             Ok(())
@@ -739,7 +739,7 @@ impl PlanStore {
         &self,
         plan_id: &str,
         task_id: &str,
-        pane_id: &str,
+        tab_id: &str,
         draft: &TaskCompeteDraft,
         role: Option<&str>,
         now_ms: u64,
@@ -764,12 +764,12 @@ impl PlanStore {
             }
             task.status_label = Some("competitive".into());
             task.updated_at = now_ms;
-            let mut attempt = new_assignment_attempt(task, pane_id, None, role, now_ms);
+            let mut attempt = new_assignment_attempt(task, tab_id, None, role, now_ms);
             attempt.provider = Some(draft.provider.clone());
             attempt.agent_type = Some(draft.provider.clone());
             attempt.model = draft.model.clone();
             attempt.executor_title = draft.title.clone();
-            attempt.parent_pane_id = draft.parent_pane_id.clone();
+            attempt.parent_tab_id = draft.parent_tab_id.clone();
             attempt.competition_group_id = Some(draft.competition_group_id.clone());
             attempt.competition_lane = Some(draft.lane);
             task.execution_attempts.push(attempt.clone());
@@ -833,7 +833,7 @@ impl PlanStore {
         status: Option<ReportStatus>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        let Some(reporter_pane) = from.pane_id.as_deref() else {
+        let Some(reporter_tab) = from.tab_id.as_deref() else {
             return Ok(());
         };
         self.with_plan(plan_id, now_ms, |plan| {
@@ -844,27 +844,27 @@ impl PlanStore {
                 .ok_or(PlanError::TaskNotFound)?;
             // Reports attach to the assigned executor's live attempt.
             // They never create or rebind an attempt.
-            let executor_pane = task.assigned_pane_id.clone();
-            let target_idx = executor_pane
+            let executor_tab = task.assigned_tab_id.clone();
+            let target_idx = executor_tab
                 .as_deref()
                 .and_then(|executor| {
                     task.execution_attempts.iter().rposition(|attempt| {
-                        attempt.executor_pane_id == executor && attempt.closed_at.is_none()
+                        attempt.executor_tab_id == executor && attempt.closed_at.is_none()
                     })
                 })
                 .or_else(|| {
                     task.execution_attempts
                         .iter()
-                        .rposition(|attempt| attempt.executor_pane_id == reporter_pane)
+                        .rposition(|attempt| attempt.executor_tab_id == reporter_tab)
                 });
             if let Some(attempt) = target_idx.map(|idx| &mut task.execution_attempts[idx]) {
-                let reporter_pane_id =
-                    (attempt.executor_pane_id != reporter_pane).then(|| reporter_pane.to_string());
+                let reporter_tab_id =
+                    (attempt.executor_tab_id != reporter_tab).then(|| reporter_tab.to_string());
                 attempt.report = Some(TaskExecutionReportSnapshot {
                     id: format!("report_{now_ms}"),
                     message: Some(message.into()),
                     status: status.map(report_status_key),
-                    reporter_pane_id,
+                    reporter_tab_id,
                     ..Default::default()
                 });
                 attempt.reported_at = Some(now_ms);
@@ -884,7 +884,7 @@ impl PlanStore {
         report: BoundWorkerReport,
         now_ms: u64,
     ) -> Result<bool, PlanError> {
-        let Some(reporter_pane) = from.pane_id.as_deref() else {
+        let Some(reporter_tab) = from.tab_id.as_deref() else {
             return Ok(false);
         };
         let committed_review = report.status == Some(ReportStatus::InReview);
@@ -894,13 +894,13 @@ impl PlanStore {
                 .iter()
                 .position(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
-            if plan.tasks[task_index].assigned_pane_id.as_deref() != Some(reporter_pane) {
+            if plan.tasks[task_index].assigned_tab_id.as_deref() != Some(reporter_tab) {
                 return Ok(false);
             }
             if plan.tasks[task_index]
                 .execution_attempts
                 .iter()
-                .filter(|attempt| attempt.executor_pane_id == reporter_pane)
+                .filter(|attempt| attempt.executor_tab_id == reporter_tab)
                 .filter_map(|attempt| attempt.reported_at)
                 .any(|reported_at| reported_at >= now_ms)
             {
@@ -945,7 +945,7 @@ impl PlanStore {
                 .execution_attempts
                 .iter_mut()
                 .rposition(|attempt| {
-                    attempt.executor_pane_id == reporter_pane && attempt.closed_at.is_none()
+                    attempt.executor_tab_id == reporter_tab && attempt.closed_at.is_none()
                 })
                 .map(|index| &mut task.execution_attempts[index])
             {
@@ -954,7 +954,7 @@ impl PlanStore {
                     message: Some(report.message),
                     status: report.status.map(report_status_key),
                     sha: report.sha,
-                    reporter_pane_id: None,
+                    reporter_tab_id: None,
                     changed_files: report.changed_files,
                     test_cmd: report.test_cmd,
                     test_result: report.test_result,

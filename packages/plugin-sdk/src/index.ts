@@ -13,7 +13,7 @@ export type {
   FetchStreamPoll,
   HostFetch,
   Backend,
-  PaneRef,
+  TabRef,
   UsageSnapshot,
   HostWorker,
   HostWorkspace,

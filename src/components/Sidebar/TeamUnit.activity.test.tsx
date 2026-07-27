@@ -30,7 +30,7 @@ async function main() {
     <TeamUnit
       team={{ id: "team-1", name: "Constrained Team Title", lifecycle: "active", created_at: 0, workspace_id: "ws" }}
       plan={null}
-      panes={{}}
+      tabs={{}}
       managers={null}
       managerCount={0}
       workers={null}

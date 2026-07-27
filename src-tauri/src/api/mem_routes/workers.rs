@@ -74,7 +74,7 @@ pub async fn workers_spawn(
     let info = state.svc.workers.get(&worker_id);
     Ok(Json(serde_json::json!({
         "worker_id": worker_id,
-        "pane_id": info.as_ref().map(|i| &i.pane_id),
+        "tab_id": info.as_ref().map(|i| &i.tab_id),
         "info": info,
     })))
 }
@@ -123,16 +123,16 @@ pub async fn workers_report(
     Json(b): Json<WorkerReportBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let worker_pane_id = state.svc.workers.get(&id).map(|w| w.pane_id.clone());
-    let (pty_id, session_id, run_cwd) = worker_pane_id
+    let worker_tab_id = state.svc.workers.get(&id).map(|w| w.tab_id.clone());
+    let (pty_id, session_id, run_cwd) = worker_tab_id
         .as_ref()
         .map(|pid| {
             let mux = state.svc.mux.write();
-            let pane = mux.get_pane(pid);
+            let tab = mux.get_tab(pid);
             (
-                pane.and_then(|p| p.pty_id.clone()),
-                pane.and_then(|p| p.agent_session_id.clone()),
-                pane.and_then(|p| p.cwd.clone()),
+                tab.and_then(|p| p.pty_id.clone()),
+                tab.and_then(|p| p.agent_session_id.clone()),
+                tab.and_then(|p| p.cwd.clone()),
             )
         })
         .unwrap_or((None, None, None));
@@ -170,11 +170,11 @@ pub async fn workers_report(
     crate::api::events::emit_everywhere(&state.svc.app_handle, "graph-worker-reported", &info);
 
     let svc = state.svc.clone();
-    let pane_id = info.pane_id.clone();
+    let tab_id = info.tab_id.clone();
     tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-        if let Err(e) = svc.close_pane(&pane_id) {
-            log::warn!("[graph-workers] auto-close Tab {}: {}", pane_id, e);
+        if let Err(e) = svc.close_tab(&tab_id) {
+            log::warn!("[graph-workers] auto-close Tab {}: {}", tab_id, e);
         }
     });
 
@@ -192,8 +192,8 @@ pub async fn workers_kill(
         .workers
         .kill(&id)
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
-    if let Err(e) = state.svc.close_pane(&info.pane_id) {
-        log::warn!("[graph-workers] kill Tab {}: {}", info.pane_id, e);
+    if let Err(e) = state.svc.close_tab(&info.tab_id) {
+        log::warn!("[graph-workers] kill Tab {}: {}", info.tab_id, e);
     }
     crate::api::events::emit_everywhere(&state.svc.app_handle, "graph-worker-done", &info);
     Ok(Json(serde_json::json!({ "ok": true })))
@@ -224,7 +224,7 @@ pub async fn workers_log(
             .svc
             .mux
             .write()
-            .get_pane(&worker.pane_id)
+            .get_tab(&worker.tab_id)
             .and_then(|p| p.pty_id.clone());
         if let Some(pty_id) = pty_id {
             let output = state

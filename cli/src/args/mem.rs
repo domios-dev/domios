@@ -274,9 +274,9 @@ pub enum MemAction {
     /// Flush a tab's PTY scrollback as a kind=conversation mem_item
     /// (called by PreCompact hook before context summarization).
     Flush {
-        /// Tab id (default: $CODETERM_PANE_ID)
+        /// Tab id (default: $CODETERM_TAB_ID)
         #[arg(long = "tab", value_name = "TAB")]
-        pane: Option<String>,
+        tab: Option<String>,
         /// Optional title hint
         #[arg(long)]
         title: Option<String>,

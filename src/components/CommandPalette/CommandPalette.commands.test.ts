@@ -21,13 +21,13 @@ const commands = buildDefaultCommands({
   spawnClaude: () => {},
 });
 
-const newTab = commands.find((command) => command.id === "new-pane");
+const newTab = commands.find((command) => command.id === "new-tab");
 assert(newTab, "New Tab command exists");
 newTab.action();
 assert(newTabCalls === 1, `New Tab action called ${newTabCalls} times`);
 assert(closeTabCalls === 0, "New Tab action does not close a Tab");
 
-const closeTab = commands.find((command) => command.id === "close-pane");
+const closeTab = commands.find((command) => command.id === "close-tab");
 assert(closeTab, "Close Tab command exists");
 closeTab.action();
 assert(closeTabCalls === 1, `Close Tab action called ${closeTabCalls} times`);

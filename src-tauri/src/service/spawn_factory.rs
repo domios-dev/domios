@@ -27,40 +27,40 @@ pub(crate) fn forming_identity(role: &str, project: String) -> ManagerBootstrapI
 }
 
 /// A member of a freshly-formed pairing — the minimal identity another member
-/// needs to reach it: display name (tab title), pane id, and human role.
+/// needs to reach it: display name (tab title), tab id, and human role.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Counterpart {
     pub label: String,
-    pub pane_id: String,
+    pub tab_id: String,
     pub role: String,
 }
 
 impl Counterpart {
-    pub(crate) fn new(role: &str, label: impl Into<String>, pane_id: impl Into<String>) -> Self {
+    pub(crate) fn new(role: &str, label: impl Into<String>, tab_id: impl Into<String>) -> Self {
         Self {
             label: label.into(),
-            pane_id: pane_id.into(),
+            tab_id: tab_id.into(),
             role: role.into(),
         }
     }
 }
 
 /// The exact reach command a member uses to message its counterpart. `--tab`
-/// accepts the pane id (see prompts/codeterm_rule.md).
-pub(crate) fn reach_command(pane_id: &str) -> String {
-    format!("codeterm send \"…\" --tab {pane_id}")
+/// accepts the tab id (see prompts/codeterm_rule.md).
+pub(crate) fn reach_command(tab_id: &str) -> String {
+    format!("codeterm send \"…\" --tab {tab_id}")
 }
 
-/// The body one member reads about its counterpart: names it, its pane id, and
+/// The body one member reads about its counterpart: names it, its tab id, and
 /// the reach command, and forbids spawning a duplicate of an already-live pair.
 pub(crate) fn introduction_body(me: &Counterpart, other: &Counterpart) -> String {
     format!(
-        "You are the {my_role} of this team. Your {other_role} counterpart is {other_label} (tab {other_pane}) — reach it with `{reach}`. It already exists: coordinate through it, never spawn a duplicate.",
+        "You are the {my_role} of this team. Your {other_role} counterpart is {other_label} (tab {other_tab}) — reach it with `{reach}`. It already exists: coordinate through it, never spawn a duplicate.",
         my_role = me.role,
         other_role = other.role,
         other_label = other.label,
-        other_pane = other.pane_id,
-        reach = reach_command(&other.pane_id),
+        other_tab = other.tab_id,
+        reach = reach_command(&other.tab_id),
     )
 }
 
@@ -69,36 +69,36 @@ mod tests {
     use super::*;
 
     fn orch() -> Counterpart {
-        Counterpart::new("Orchestrator", "Kepler", "orch-pane-1111")
+        Counterpart::new("Orchestrator", "Kepler", "orch-tab-1111")
     }
 
     fn planner() -> Counterpart {
-        Counterpart::new("Planner", "Euler", "planner-pane-2222")
+        Counterpart::new("Planner", "Euler", "planner-tab-2222")
     }
 
     // Byron regression: a formed pairing must yield BOTH directions, and each
-    // body must name the counterpart's pane id AND the reach command. The
+    // body must name the counterpart's tab id AND the reach command. The
     // pre-factory shape delivered only a one-directional display greeting that
-    // named the counterpart by label with no pane id — the duplicate-spawn bug.
+    // named the counterpart by label with no tab id — the duplicate-spawn bug.
     #[test]
-    fn pair_introductions_name_both_counterpart_pane_ids_and_reach_commands() {
+    fn pair_introductions_name_both_counterpart_tab_ids_and_reach_commands() {
         let (o, p) = (orch(), planner());
         let to_orch = introduction_body(&o, &p);
         let to_planner = introduction_body(&p, &o);
 
-        // Orchestrator learns the planner's pane id + reach command.
-        assert!(to_orch.contains(&p.pane_id), "names planner Tab id");
+        // Orchestrator learns the planner's tab id + reach command.
+        assert!(to_orch.contains(&p.tab_id), "names planner Tab id");
         assert!(to_orch.contains("Euler"), "names planner");
         assert!(
-            to_orch.contains(&reach_command(&p.pane_id)),
+            to_orch.contains(&reach_command(&p.tab_id)),
             "carries the reach command for the planner"
         );
 
-        // Planner learns the orchestrator's pane id + reach command.
-        assert!(to_planner.contains(&o.pane_id), "names orch Tab id");
+        // Planner learns the orchestrator's tab id + reach command.
+        assert!(to_planner.contains(&o.tab_id), "names orch Tab id");
         assert!(to_planner.contains("Kepler"), "names orchestrator");
         assert!(
-            to_planner.contains(&reach_command(&o.pane_id)),
+            to_planner.contains(&reach_command(&o.tab_id)),
             "carries the reach command for the orchestrator"
         );
 
@@ -112,7 +112,7 @@ mod tests {
     }
 
     #[test]
-    fn reach_command_uses_tab_flag_with_pane_id() {
+    fn reach_command_uses_tab_flag_with_tab_id() {
         assert_eq!(
             reach_command("abc-123"),
             "codeterm send \"…\" --tab abc-123"

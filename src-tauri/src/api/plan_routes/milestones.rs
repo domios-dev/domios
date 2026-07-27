@@ -28,7 +28,7 @@ pub async fn milestone_add(
     Json(body): Json<MilestoneAddBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    let from = body.from.unwrap_or_else(|| AgentRef::from_pane("unknown"));
+    let from = body.from.unwrap_or_else(|| AgentRef::from_tab("unknown"));
     let mid = state
         .svc
         .plan_store

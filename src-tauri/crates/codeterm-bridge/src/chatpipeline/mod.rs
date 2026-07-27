@@ -97,10 +97,10 @@ pub fn run_text_stages(
 /// Whether a send at a user-facing seam should run the send-time text stages.
 pub fn is_user_turn_send(
     is_service_push: bool,
-    has_source_pane: bool,
-    is_agent_pane: bool,
+    has_source_tab: bool,
+    is_agent_tab: bool,
 ) -> bool {
-    is_agent_pane && !is_service_push && !has_source_pane
+    is_agent_tab && !is_service_push && !has_source_tab
 }
 
 /// Compose-time voice stage: resolve the active transcriber and turn an audio file

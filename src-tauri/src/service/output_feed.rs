@@ -1,8 +1,8 @@
 use super::ServiceContext;
-use crate::agent::status::PaneStatus;
+use crate::agent::status::TabStatus;
 
 impl ServiceContext {
-    pub(crate) fn feed_pty_output(&self, pty_id: &str, data: &[u8]) -> (PaneStatus, PaneStatus) {
+    pub(crate) fn feed_pty_output(&self, pty_id: &str, data: &[u8]) -> (TabStatus, TabStatus) {
         self.feed_pty_output_inner(pty_id, None, data)
     }
 
@@ -11,7 +11,7 @@ impl ServiceContext {
         pty_id: &str,
         generation: u64,
         data: &[u8],
-    ) -> (PaneStatus, PaneStatus) {
+    ) -> (TabStatus, TabStatus) {
         self.feed_pty_output_inner(pty_id, Some(generation), data)
     }
 
@@ -20,7 +20,7 @@ impl ServiceContext {
         pty_id: &str,
         generation: Option<u64>,
         data: &[u8],
-    ) -> (PaneStatus, PaneStatus) {
+    ) -> (TabStatus, TabStatus) {
         if data.is_empty() {
             let status = self.agent_tracker.lock().get_status(pty_id);
             return (status, status);
@@ -65,22 +65,22 @@ impl ServiceContext {
         statuses
     }
 
-    pub(crate) fn emit_pane_status_if_changed(
+    pub(crate) fn emit_tab_status_if_changed(
         &self,
         pty_id: &str,
-        prev: PaneStatus,
-        now: PaneStatus,
+        prev: TabStatus,
+        now: TabStatus,
     ) {
         if now == prev {
             return;
         }
-        let pane_id = self.mux.read().pane_id_for_pty(pty_id);
-        if let Some(ref pid) = pane_id {
+        let tab_id = self.mux.read().tab_id_for_pty(pty_id);
+        if let Some(ref pid) = tab_id {
             crate::api::events::emit_everywhere(
                 &self.app_handle,
-                "pane-status-changed",
+                "tab-status-changed",
                 serde_json::json!({
-                    "pane_id": pid,
+                    "tab_id": pid,
                     "status": format!("{:?}", now),
                 }),
             );

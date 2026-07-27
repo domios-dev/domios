@@ -289,7 +289,7 @@ fn integration_install_replaces_stale_codeterm_entries_not_user_hooks() {
                 "hooks":{
                     "Notification":[
                         {"matcher":"perm","hooks":[{"type":"command","command":"my-user-script","timeout":1}]},
-                        {"matcher":"perm","hooks":[{"type":"command","command":"curl http://localhost:7686/api/panes/$X/hook/permission","_source":"codeterm"}]}
+                        {"matcher":"perm","hooks":[{"type":"command","command":"curl http://localhost:7686/api/tabs/$X/hook/permission","_source":"codeterm"}]}
                     ]
                 }
             }"#,

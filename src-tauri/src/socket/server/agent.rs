@@ -38,7 +38,7 @@ pub(super) fn dispatch(
             svc.emit_mux_state_changed_empty();
 
             let mut resp = serde_json::json!({
-                "pane_id": result.pane_id,
+                "tab_id": result.tab_id,
                 "tab_id": result.tab_id,
                 "agent": result.agent,
                 "model": result.model,
@@ -59,7 +59,7 @@ pub(super) fn dispatch(
         }
 
         "agent.report" => {
-            let pane_id = get_string_param(params, "pane_id")?;
+            let tab_id = get_string_param(params, "tab_id")?;
             let message = get_string_param(params, "message")?;
             let plan_id = params
                 .as_ref()
@@ -84,7 +84,7 @@ pub(super) fn dispatch(
             let svc_ref = &**svc;
             let result = svc_ref
                 .submit_report(
-                    &pane_id,
+                    &tab_id,
                     &message,
                     details,
                     plan_id.as_deref(),
@@ -101,7 +101,7 @@ pub(super) fn dispatch(
                 "accepted": true,
                 "state": "recorded",
                 "report_id": result.report_id,
-                "target_tab_id": result.orchestrator_pane_id,
+                "target_tab_id": result.orchestrator_tab_id,
             });
             if !result.notices.is_empty() {
                 resp["notices"] = serde_json::json!(result.notices);
@@ -110,9 +110,9 @@ pub(super) fn dispatch(
         }
 
         "agent.ledger" => {
-            let pane_id = get_string_param(params, "pane_id")?;
+            let tab_id = get_string_param(params, "tab_id")?;
             let svc_ref = &**svc;
-            let rows = svc_ref.get_ledger(&pane_id);
+            let rows = svc_ref.get_ledger(&tab_id);
             serde_json::to_value(&rows).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),

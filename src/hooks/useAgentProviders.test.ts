@@ -67,7 +67,7 @@ test("sync allows empty registry after a completed load", () => {
 test("models-updated refresh is wired alongside contributions changes", () => {
   assert(shouldRefreshAgentProviders("contributions-changed"), "contribution event should refresh");
   assert(shouldRefreshAgentProviders("models-updated"), "models-updated should refresh");
-  assert(!shouldRefreshAgentProviders("pane-focused"), "irrelevant events must not refresh");
+  assert(!shouldRefreshAgentProviders("tab-focused"), "irrelevant events must not refresh");
 });
 
 test("models-updated listener refetches while mounted", () => {

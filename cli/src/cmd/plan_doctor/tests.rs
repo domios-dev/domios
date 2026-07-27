@@ -878,7 +878,7 @@ fn planner_pairing_base_plan(planner: Option<Value>) -> Value {
         "mode": "approved",
         "goal": {"vector": "ship"},
         "primary_spec_id": "sp_1",
-        "owner": {"pane_id": "orch-1"},
+        "owner": {"tab_id": "orch-1"},
         "sections": [{"id": "sec_1", "title": "Execution", "body": "section"}],
         "tasks": []
     });
@@ -935,8 +935,8 @@ fn planner_unpaired_escalates_to_error_at_approval() {
 #[test]
 fn planner_unpaired_clean_when_paired() {
     let plan = planner_pairing_base_plan(Some(json!({
-        "kind": "pane",
-        "pane_id": "planner-1"
+        "kind": "tab",
+        "tab_id": "planner-1"
     })));
     let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
     assert!(!findings.iter().any(|f| f.kind == "planner_unpaired"));

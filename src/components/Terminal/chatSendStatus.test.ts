@@ -16,7 +16,7 @@ function failedStatus(
 ): ChatSendStatus {
   return {
     send_id: sendId,
-    pane_id: "tab-1",
+    tab_id: "tab-1",
     state: "failed",
     error: `failure-${sequence}`,
     ledger_id: "ledger-1",

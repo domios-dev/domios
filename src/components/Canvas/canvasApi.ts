@@ -34,8 +34,8 @@ export async function spawnOrchestrator(api: ApiConfig, opts: SpawnOrchestratorO
     }),
   });
   if (!res.ok) throw new Error(`spawn failed: ${res.status}`);
-  const body = (await res.json()) as { id?: string; pane_id?: string };
-  return body.id ?? body.pane_id ?? null;
+  const body = (await res.json()) as { id?: string; tab_id?: string };
+  return body.id ?? body.tab_id ?? null;
 }
 
 export async function createCanvasPlanRequest(api: ApiConfig, params: CreatePlanParams): Promise<unknown> {

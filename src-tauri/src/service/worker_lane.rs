@@ -122,8 +122,8 @@ impl ServiceContext {
         let mux = self.mux.read();
         let id = crate::service::spawn::resolve_spawn_workspace_id(
             params.workspace_id.clone(),
-            params.parent_pane_id.as_deref(),
-            |pane_id| mux.find_workspace_for_pane(pane_id),
+            params.parent_tab_id.as_deref(),
+            |tab_id| mux.find_workspace_for_tab(tab_id),
             mux.get_active_workspace()
                 .map(|workspace| workspace.id.clone()),
             mux.list_workspaces()

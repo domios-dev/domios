@@ -90,7 +90,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         }
         Commands::SendText {
             text,
-            pane,
+            tab,
             from_file,
             stdin: use_stdin,
             actions,
@@ -99,30 +99,30 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         } => {
             let mut stdin = std::io::stdin();
             if delay.is_some() || at.is_some() {
-                delayed_create_to_api(text, pane, from_file, *use_stdin, delay, at, &mut stdin)
+                delayed_create_to_api(text, tab, from_file, *use_stdin, delay, at, &mut stdin)
             } else {
-                send_text_to_api(text, pane, from_file, *use_stdin, actions, &mut stdin)
+                send_text_to_api(text, tab, from_file, *use_stdin, actions, &mut stdin)
             }
         }
         Commands::Delayed { action } => match action {
-            crate::DelayedAction::List { pane } => {
-                let p = pane.as_deref().unwrap_or("general");
+            crate::DelayedAction::List { tab } => {
+                let p = tab.as_deref().unwrap_or("general");
                 (
                     "GET".into(),
-                    format!("/api/panes/{}/delayed-messages", p),
+                    format!("/api/tabs/{}/delayed-messages", p),
                     None,
                 )
             }
             crate::DelayedAction::Create {
                 text,
-                pane,
+                tab,
                 delay,
                 at,
                 from_file,
                 stdin: use_stdin,
             } => {
                 let mut stdin = std::io::stdin();
-                delayed_create_to_api(text, pane, from_file, *use_stdin, delay, at, &mut stdin)
+                delayed_create_to_api(text, tab, from_file, *use_stdin, delay, at, &mut stdin)
             }
             crate::DelayedAction::Edit {
                 id,
@@ -204,7 +204,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             _ => ("GET".into(), "/api/workspaces".into(), None),
         },
         Commands::Tab { action } => match action {
-            crate::PaneAction::List {
+            crate::TabAction::List {
                 workspace,
                 all_workspaces,
                 agents,
@@ -217,23 +217,23 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 (
                     "GET".into(),
-                    format!("/api/panes?{}", query.join("&")),
+                    format!("/api/tabs?{}", query.join("&")),
                     None,
                 )
             }
-            crate::PaneAction::Inspect { tabs } => (
+            crate::TabAction::Inspect { tabs } => (
                 "GET".into(),
                 format!(
-                    "/api/panes/inspect?pane_ids={}",
+                    "/api/tabs/inspect?tab_ids={}",
                     tabs.iter()
-                        .map(|pane| urlencoding::encode(pane).into_owned())
+                        .map(|tab| urlencoding::encode(tab).into_owned())
                         .collect::<Vec<_>>()
                         .join(",")
                 ),
                 None,
             ),
-            crate::PaneAction::Current { .. } => ("GET".into(), "/api/panes".into(), None),
-            crate::PaneAction::New {
+            crate::TabAction::Current { .. } => ("GET".into(), "/api/tabs".into(), None),
+            crate::TabAction::New {
                 workspace,
                 cwd,
                 title,
@@ -266,52 +266,52 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                         }
                     }
                 }
-                ("POST".into(), "/api/panes".into(), Some(body.to_string()))
+                ("POST".into(), "/api/tabs".into(), Some(body.to_string()))
             }
-            crate::PaneAction::Focus { id } => {
-                ("POST".into(), format!("/api/panes/{}/focus", id), None)
+            crate::TabAction::Focus { id } => {
+                ("POST".into(), format!("/api/tabs/{}/focus", id), None)
             }
-            crate::PaneAction::Close { id } => {
-                ("POST".into(), format!("/api/panes/{}/close", id), None)
+            crate::TabAction::Close { id } => {
+                ("POST".into(), format!("/api/tabs/{}/close", id), None)
             }
-            crate::PaneAction::Rename { title, pane } => {
-                let p = pane.as_deref().unwrap_or("general");
+            crate::TabAction::Rename { title, tab } => {
+                let p = tab.as_deref().unwrap_or("general");
                 (
                     "POST".into(),
-                    format!("/api/panes/{}/rename", p),
+                    format!("/api/tabs/{}/rename", p),
                     Some(serde_json::json!({"title": title}).to_string()),
                 )
             }
-            crate::PaneAction::Describe { summary, pane } => {
-                let p = pane.as_deref().unwrap_or("general");
-                let description = match crate::cmd::agent::normalize_pane_description(summary) {
+            crate::TabAction::Describe { summary, tab } => {
+                let p = tab.as_deref().unwrap_or("general");
+                let description = match crate::cmd::agent::normalize_tab_description(summary) {
                     Ok(Some(d)) => d,
                     Ok(None) => String::new(),
                     Err(e) => return unsupported(&e),
                 };
                 (
                     "POST".into(),
-                    format!("/api/panes/{}/describe", p),
+                    format!("/api/tabs/{}/describe", p),
                     Some(serde_json::json!({"description": description}).to_string()),
                 )
             }
-            crate::PaneAction::GetText { pane, formatted } => {
-                let p = pane.as_deref().unwrap_or("general");
+            crate::TabAction::GetText { tab, formatted } => {
+                let p = tab.as_deref().unwrap_or("general");
                 (
                     "GET".into(),
-                    format!("/api/panes/{}/text?formatted={}", p, formatted),
+                    format!("/api/tabs/{}/text?formatted={}", p, formatted),
                     None,
                 )
             }
-            crate::PaneAction::Exec {
+            crate::TabAction::Exec {
                 command,
-                pane,
+                tab,
                 timeout,
             } => {
-                let p = pane.as_deref().unwrap_or("general");
+                let p = tab.as_deref().unwrap_or("general");
                 (
                     "POST".into(),
-                    format!("/api/panes/{}/exec", p),
+                    format!("/api/tabs/{}/exec", p),
                     Some(
                         serde_json::json!({
                             "command": command,
@@ -322,45 +322,45 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     ),
                 )
             }
-            crate::PaneAction::Status { pane } => {
-                let p = pane.as_deref().unwrap_or("general");
-                ("GET".into(), format!("/api/panes/{}/status", p), None)
+            crate::TabAction::Status { tab } => {
+                let p = tab.as_deref().unwrap_or("general");
+                ("GET".into(), format!("/api/tabs/{}/status", p), None)
             }
-            crate::PaneAction::Search { .. } => {
-                // pane search runs local CLI-side; peer only supplies raw list.
+            crate::TabAction::Search { .. } => {
+                // tab search runs local CLI-side; peer only supplies raw list.
                 // Local ranking keeps `Tab list` output stable.
-                ("GET".into(), "/api/panes".into(), None)
+                ("GET".into(), "/api/tabs".into(), None)
             }
-            crate::PaneAction::Stop { pane } => {
-                let p = pane.as_deref().unwrap_or("general");
+            crate::TabAction::Stop { tab } => {
+                let p = tab.as_deref().unwrap_or("general");
                 (
                     "POST".into(),
-                    format!("/api/panes/{}/stop", p),
+                    format!("/api/tabs/{}/stop", p),
                     Some("{}".into()),
                 )
             }
-            crate::PaneAction::Chat { pane, since } => {
-                let p = pane.as_deref().unwrap_or("general");
+            crate::TabAction::Chat { tab, since } => {
+                let p = tab.as_deref().unwrap_or("general");
                 (
                     "GET".into(),
-                    format!("/api/panes/{}/chat?since={}", p, since),
+                    format!("/api/tabs/{}/chat?since={}", p, since),
                     None,
                 )
             }
-            crate::PaneAction::Capture { action } => match action {
-                crate::args::misc::PaneCaptureAction::Start { pane, out } => {
-                    let p = pane.as_deref().unwrap_or("general");
+            crate::TabAction::Capture { action } => match action {
+                crate::args::misc::TabCaptureAction::Start { tab, out } => {
+                    let p = tab.as_deref().unwrap_or("general");
                     (
                         "POST".into(),
-                        format!("/api/panes/{}/capture/start", p),
+                        format!("/api/tabs/{}/capture/start", p),
                         Some(serde_json::json!({ "out": out }).to_string()),
                     )
                 }
-                crate::args::misc::PaneCaptureAction::Stop { pane } => {
-                    let p = pane.as_deref().unwrap_or("general");
+                crate::args::misc::TabCaptureAction::Stop { tab } => {
+                    let p = tab.as_deref().unwrap_or("general");
                     (
                         "POST".into(),
-                        format!("/api/panes/{}/capture/stop", p),
+                        format!("/api/tabs/{}/capture/stop", p),
                         None,
                     )
                 }
@@ -427,7 +427,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 ("DELETE".into(), format!("/api/pasteboard/{}", id), None)
             }
         },
-        Commands::Report(_) => ("GET".into(), "/api/panes".into(), None),
+        Commands::Report(_) => ("GET".into(), "/api/tabs".into(), None),
         Commands::Agent { action } => match action {
             crate::AgentAction::Spawn {
                 agent,
@@ -481,7 +481,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     "task": task,
                 });
                 if let Some(d) = crate::cmd::agent::join_cli_words(description.clone()) {
-                    match crate::cmd::agent::normalize_pane_description(&d) {
+                    match crate::cmd::agent::normalize_tab_description(&d) {
                         Ok(Some(d)) => body["description"] = serde_json::json!(d),
                         Ok(None) => body["description"] = serde_json::json!(""),
                         Err(e) => return unsupported(&e),
@@ -494,13 +494,13 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     }
                 }
                 if let Some(p) = parent {
-                    body["parent_pane_id"] = serde_json::json!(p);
+                    body["parent_tab_id"] = serde_json::json!(p);
                 }
                 if let Some(pl) = plan {
                     body["plan_id"] = serde_json::json!(pl);
                 }
                 let report_to = report_to.clone().or_else(|| {
-                    std::env::var("CODETERM_PANE_ID")
+                    std::env::var("CODETERM_TAB_ID")
                         .ok()
                         .filter(|s| !s.is_empty())
                 });
@@ -572,7 +572,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             crate::AgentAction::Providers | crate::AgentAction::Models { .. } => {
                 ("GET".into(), "/api/agents/providers".into(), None)
             }
-            _ => ("GET".into(), "/api/panes".into(), None),
+            _ => ("GET".into(), "/api/tabs".into(), None),
         },
         Commands::Notifications { unread, .. } => {
             let qs = if *unread { "?unread=true" } else { "" };
@@ -590,7 +590,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 cwd,
                 skill,
                 description,
-                creator_pane,
+                creator_tab,
                 once,
                 jitter_max_ms,
                 tz,
@@ -605,7 +605,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     model.as_deref(),
                     cwd.as_deref(),
                     description.as_deref(),
-                    creator_pane.as_deref(),
+                    creator_tab.as_deref(),
                     *once,
                     *jitter_max_ms,
                     tz.as_deref(),

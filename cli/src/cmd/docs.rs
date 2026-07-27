@@ -39,12 +39,12 @@ const DOCS: &[(&str, &str)] = &[
     ),
 ];
 
-const CODETERM_PANE_PREVIEW_LINES: usize = 120;
+const CODETERM_TAB_PREVIEW_LINES: usize = 120;
 
 pub fn handle(name: Option<String>, full: bool, head: Option<usize>) {
     match name {
         None => list_docs(),
-        Some(n) => match render_doc(&n, full, head, is_codeterm_pane()) {
+        Some(n) => match render_doc(&n, full, head, is_codeterm_tab()) {
             Ok(rendered) => print!("{}", rendered),
             Err(available) => {
                 eprintln!("No doc named '{}'. Available:", n);
@@ -88,7 +88,7 @@ fn render_doc(
     name: &str,
     full: bool,
     head: Option<usize>,
-    in_codeterm_pane: bool,
+    in_codeterm_tab: bool,
 ) -> Result<String, Vec<&'static str>> {
     let upper = name.to_ascii_uppercase();
     for (n, body) in DOCS {
@@ -96,7 +96,7 @@ fn render_doc(
             let limit = if full {
                 None
             } else {
-                head.or_else(|| in_codeterm_pane.then_some(CODETERM_PANE_PREVIEW_LINES))
+                head.or_else(|| in_codeterm_tab.then_some(CODETERM_TAB_PREVIEW_LINES))
             };
             return Ok(render_body(n, body, limit));
         }
@@ -134,8 +134,8 @@ fn first_heading(body: &str) -> Option<&str> {
         .map(|l| l.trim_start().trim_start_matches('#').trim())
 }
 
-fn is_codeterm_pane() -> bool {
-    std::env::var_os("CODETERM_PANE_ID").is_some()
+fn is_codeterm_tab() -> bool {
+    std::env::var_os("CODETERM_TAB_ID").is_some()
 }
 
 #[cfg(test)]
@@ -143,7 +143,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn codeterm_pane_preview_caps_secrets_doc() {
+    fn codeterm_tab_preview_caps_secrets_doc() {
         let rendered = render_doc("SECRETS", false, None, true).expect("SECRETS doc exists");
 
         assert!(

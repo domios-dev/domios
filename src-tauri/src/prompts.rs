@@ -37,7 +37,7 @@ pub const ORCHESTRATOR_ONBOARDING: &str = include_str!("../prompts/orchestrator_
 /// role-identity builder before launch delivery chooses a provider channel.
 pub const MANAGER_BOOTSTRAP_TEMPLATE: &str = include_str!("../prompts/manager_bootstrap.md");
 
-/// Appended to cron tasks when creator_pane_id is set.
+/// Appended to cron tasks when creator_tab_id is set.
 pub const CRON_REPORT_HINT: &str = include_str!("../prompts/cron_report_hint.md");
 
 /// Appended to every cron task — completion instruction. `{}` is replaced with run_id.
@@ -95,7 +95,7 @@ pub const PEER_ORCH_DEFERENCE_LINE: &str =
     "The Orchestrator is the single owner of the plan and the execution authority: \
      delegate planning work to the Planner, then accept, revise, or reject it.";
 
-/// Planner-pairing mandate block. `{spawn_cmd}` is replaced at runtime with the pane-spawn command.
+/// Planner-pairing mandate block. `{spawn_cmd}` is replaced at runtime with the tab-spawn command.
 pub const PEER_PAIRING_MANDATE_BLOCK: &str = "\
 ## Planner attachment
 
@@ -123,7 +123,7 @@ First read `codeterm docs PLANNER` for your role. Planner can EXECUTE: `codeterm
 }
 
 /// Pair-spawn Planner onboarding before any plan exists. The first
-/// Orchestrator goal/plan create binds this pane to the resulting plan.
+/// Orchestrator goal/plan create binds this tab to the resulting plan.
 pub fn planner_onboarding_task_no_plan(
     orchestrator_label: &str,
     orchestrator_tab_id: &str,

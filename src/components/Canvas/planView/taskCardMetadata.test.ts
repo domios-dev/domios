@@ -27,14 +27,14 @@ function cardFor(plan: Plan, taskId: string) {
   throw new Error(`card not found: ${taskId}`);
 }
 
-test("done task with ghost pane never shows working-on or pane-gone", () => {
+test("done task with ghost tab never shows working-on or tab-gone", () => {
   const plan: Plan = {
     ...FIXTURE_PLAN,
     tasks: [
       task({
         id: "t-done",
         status: TaskStatus.Done,
-        assigned_pane_id: "ghost-pane",
+        assigned_tab_id: "ghost-tab",
         lane: { branch: "lane/merged" },
         status_changed_at: 1_000,
       }),
@@ -67,7 +67,7 @@ test("in_progress uses working-on not metadata rows", () => {
       task({
         id: "t-live",
         status: TaskStatus.InProgress,
-        assigned_pane_id: "p1",
+        assigned_tab_id: "p1",
         lane: { branch: "lane/x" },
       }),
     ],

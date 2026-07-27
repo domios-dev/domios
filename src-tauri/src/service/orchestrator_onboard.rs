@@ -1,8 +1,8 @@
-//! Promote a pane to Orchestrator and inject the onboarding cheat-sheet.
+//! Promote a tab to Orchestrator and inject the onboarding cheat-sheet.
 
 use super::ServiceContext;
 use crate::mem::{SearchHit, SearchQuery};
-use crate::multiplexer::types::{AgentRole, Pane};
+use crate::multiplexer::types::{AgentRole, Tab};
 use crate::service::messenger::MessageEnvelope;
 
 const PREF_QUERY: &str = "CodeTerm orchestration and planning preferences";
@@ -60,70 +60,70 @@ pub fn format_orchestration_preferences(hits: &[SearchHit]) -> Option<String> {
     }
 }
 
-pub fn pane_is_agent_capable(pane: &Pane) -> bool {
-    pane.agent_type.is_some() || pane.is_chat_backend()
+pub fn tab_is_agent_capable(tab: &Tab) -> bool {
+    tab.agent_type.is_some() || tab.is_chat_backend()
 }
 
-pub fn validate_make_orchestrator(pane: &Pane) -> Result<(), String> {
-    if pane.protected {
-        return Err("Protected pane cannot become Orchestrator".into());
+pub fn validate_make_orchestrator(tab: &Tab) -> Result<(), String> {
+    if tab.protected {
+        return Err("Protected tab cannot become Orchestrator".into());
     }
-    if !pane_is_agent_capable(pane) {
+    if !tab_is_agent_capable(tab) {
         return Err(
-            "Only agent or chatBackend panes can use Make Orchestrator (plain shells cannot)"
+            "Only agent or chatBackend tabs can use Make Orchestrator (plain shells cannot)"
                 .into(),
         );
     }
     Ok(())
 }
 
-pub fn should_deliver_orchestrator_onboarding(pane: Option<&Pane>, was_orchestrator: bool) -> bool {
+pub fn should_deliver_orchestrator_onboarding(tab: Option<&Tab>, was_orchestrator: bool) -> bool {
     if was_orchestrator {
         return false;
     }
-    pane.map(|pane| pane.role == Some(AgentRole::Orchestrator) && pane_is_agent_capable(pane))
+    tab.map(|tab| tab.role == Some(AgentRole::Orchestrator) && tab_is_agent_capable(tab))
         .unwrap_or(false)
 }
 
-pub fn orchestrator_onboarding_body(pane_id: &str) -> String {
+pub fn orchestrator_onboarding_body(tab_id: &str) -> String {
     let spawn_cmd =
-        crate::service::plan::peer_mandate::planner_spawn_cmd_hint(Some(pane_id), "PLAN_ID");
+        crate::service::plan::peer_mandate::planner_spawn_cmd_hint(Some(tab_id), "PLAN_ID");
     crate::prompts::orchestrator_onboarding(&spawn_cmd)
 }
 
 impl ServiceContext {
-    pub fn deliver_orchestrator_onboarding(&self, pane_id: &str) {
-        let body = orchestrator_onboarding_body(pane_id);
+    pub fn deliver_orchestrator_onboarding(&self, tab_id: &str) {
+        let body = orchestrator_onboarding_body(tab_id);
         // Raw chat startup must see the full onboarding even before delivery lands.
-        if let Some(pane) = self.mux.write().get_pane_mut(pane_id) {
-            pane.pending_greeting = Some(body.clone());
+        if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
+            tab.pending_greeting = Some(body.clone());
         }
         self.emit_state_changed();
         // Deliver as a message FROM CodeTerm (same marker the Planner gets), not a
         // reminder — the onboarding should read as CodeTerm introducing the role.
         let envelope = MessageEnvelope::from_codeterm();
         if let Err(e) = self.gateway_deliver(
-            pane_id,
+            tab_id,
             envelope,
             &body,
             crate::service::message_gateway::DeliveryClass::SystemNotice,
         ) {
-            log::warn!("[orchestrator-onboard] deliver to {pane_id} failed: {e}");
+            log::warn!("[orchestrator-onboard] deliver to {tab_id} failed: {e}");
         }
-        self.deliver_orchestration_preferences(pane_id);
+        self.deliver_orchestration_preferences(tab_id);
     }
 
     /// Off-hot-path pull of machine-local area=orchestration preferences,
     /// injected as a delta reminder. mem search is blocking (FTS + embeddings)
     /// so it runs on a blocking thread; empty result is a clean no-op.
-    pub fn deliver_orchestration_preferences(&self, pane_id: &str) {
+    pub fn deliver_orchestration_preferences(&self, tab_id: &str) {
         let svc = self.clone();
-        let pane_id = pane_id.to_string();
+        let tab_id = tab_id.to_string();
         let job = move || {
             let hits = match svc.mem.search(&orchestration_preference_query()) {
                 Ok(hits) => hits,
                 Err(e) => {
-                    log::warn!("[orchestration-prefs] mem search failed for {pane_id}: {e}");
+                    log::warn!("[orchestration-prefs] mem search failed for {tab_id}: {e}");
                     return;
                 }
             };
@@ -132,12 +132,12 @@ impl ServiceContext {
             };
             let envelope = MessageEnvelope::codeterm_reminder("orchestration-prefs");
             if let Err(e) = svc.gateway_deliver(
-                &pane_id,
+                &tab_id,
                 envelope,
                 &body,
                 crate::service::message_gateway::DeliveryClass::SystemNotice,
             ) {
-                log::warn!("[orchestration-prefs] deliver to {pane_id} failed: {e}");
+                log::warn!("[orchestration-prefs] deliver to {tab_id} failed: {e}");
             }
         };
         if tokio::runtime::Handle::try_current().is_ok() {
@@ -147,52 +147,52 @@ impl ServiceContext {
         }
     }
 
-    pub fn maybe_deliver_orchestrator_onboarding(&self, pane_id: &str) {
+    pub fn maybe_deliver_orchestrator_onboarding(&self, tab_id: &str) {
         let should_deliver = {
             let mux = self.mux.read();
-            mux.get_pane(pane_id)
-                .map(|pane| {
-                    pane.role == Some(AgentRole::Orchestrator) && pane_is_agent_capable(pane)
+            mux.get_tab(tab_id)
+                .map(|tab| {
+                    tab.role == Some(AgentRole::Orchestrator) && tab_is_agent_capable(tab)
                 })
                 .unwrap_or(false)
         };
         if should_deliver {
-            self.deliver_orchestrator_onboarding(pane_id);
+            self.deliver_orchestrator_onboarding(tab_id);
         }
     }
 
     pub fn maybe_deliver_orchestrator_promotion_onboarding(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         was_orchestrator: bool,
     ) {
         let should_deliver = {
             let mux = self.mux.read();
-            should_deliver_orchestrator_onboarding(mux.get_pane(pane_id), was_orchestrator)
+            should_deliver_orchestrator_onboarding(mux.get_tab(tab_id), was_orchestrator)
         };
         if should_deliver {
-            self.deliver_orchestrator_onboarding(pane_id);
+            self.deliver_orchestrator_onboarding(tab_id);
         }
     }
 
-    pub fn make_orchestrator(&self, pane_id: &str) -> Result<(), String> {
+    pub fn make_orchestrator(&self, tab_id: &str) -> Result<(), String> {
         let was_orchestrator = {
             let mux = self.mux.read();
-            let pane = mux
-                .get_pane(pane_id)
-                .ok_or_else(|| format!("Pane {pane_id} not found"))?;
-            validate_make_orchestrator(pane)?;
-            pane.role == Some(AgentRole::Orchestrator)
+            let tab = mux
+                .get_tab(tab_id)
+                .ok_or_else(|| format!("Tab {tab_id} not found"))?;
+            validate_make_orchestrator(tab)?;
+            tab.role == Some(AgentRole::Orchestrator)
         };
 
         self.transition_agent(crate::service::AgentTransitionRequest {
-            pane_id: pane_id.to_string(),
+            tab_id: tab_id.to_string(),
             destination: crate::service::AgentPlacement::Orchestrator { can_spawn: true },
             require_verified_session: true,
             planner_replacement: None,
             plan_rebind: None,
         })?;
-        self.maybe_deliver_orchestrator_promotion_onboarding(pane_id, was_orchestrator);
+        self.maybe_deliver_orchestrator_promotion_onboarding(tab_id, was_orchestrator);
 
         Ok(())
     }
@@ -201,14 +201,14 @@ impl ServiceContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::multiplexer::types::{PaneBacking, PaneType, TitleLevel};
+    use crate::multiplexer::types::{TabBacking, TabType, TitleLevel};
 
-    fn mk_pane(id: &str) -> Pane {
-        Pane {
+    fn mk_tab(id: &str) -> Tab {
+        Tab {
             id: id.to_string(),
             pty_id: None,
-            backing: PaneBacking::default(),
-            pane_type: PaneType::Terminal,
+            backing: TabBacking::default(),
+            tab_type: TabType::Terminal,
             pending_delivery: None,
             title: "Terminal".to_string(),
             description: None,
@@ -235,13 +235,13 @@ mod tests {
             role_profile: None,
             team_id: None,
             watcher: None,
-            parent_pane_id: None,
-            pending_paired_planner_pane_id: None,
+            parent_tab_id: None,
+            pending_paired_planner_tab_id: None,
             can_spawn: false,
             depth: 0,
-            report_target_pane_id: None,
+            report_target_tab_id: None,
             report_target_mesh_peer: None,
-            spawned_by_pane_id: None,
+            spawned_by_tab_id: None,
             title_level: TitleLevel::Default,
             chat_view: false,
             pending_prompt: None,
@@ -262,53 +262,53 @@ mod tests {
 
     #[test]
     fn onboarding_body_is_bounded_and_fully_rendered() {
-        let msg = orchestrator_onboarding_body("pane-abc");
+        let msg = orchestrator_onboarding_body("tab-abc");
         assert!(msg.split_whitespace().count() < 800);
-        assert!(msg.contains("--parent pane-abc --role Planner --plan PLAN_ID"));
+        assert!(msg.contains("--parent tab-abc --role Planner --plan PLAN_ID"));
         assert!(!msg.contains("{planner_spawn_cmd}"));
         assert!(!msg.contains("{orchestrator_suffix}"));
     }
 
     #[test]
     fn plain_shell_is_ineligible() {
-        let pane = mk_pane("shell-1");
-        assert!(!pane_is_agent_capable(&pane));
-        assert!(validate_make_orchestrator(&pane).is_err());
+        let tab = mk_tab("shell-1");
+        assert!(!tab_is_agent_capable(&tab));
+        assert!(validate_make_orchestrator(&tab).is_err());
     }
 
     #[test]
     fn pty_agent_is_eligible() {
-        let mut pane = mk_pane("agent-1");
-        pane.agent_type = Some("claude".into());
-        assert!(pane_is_agent_capable(&pane));
-        assert!(validate_make_orchestrator(&pane).is_ok());
+        let mut tab = mk_tab("agent-1");
+        tab.agent_type = Some("claude".into());
+        assert!(tab_is_agent_capable(&tab));
+        assert!(validate_make_orchestrator(&tab).is_ok());
     }
 
     #[test]
     fn chat_backend_is_eligible() {
-        let mut pane = mk_pane("chat-1");
-        pane.backing = PaneBacking::ChatBackend {
+        let mut tab = mk_tab("chat-1");
+        tab.backing = TabBacking::ChatBackend {
             plugin_id: "lmstudio".into(),
             session_id: "sess-1".into(),
         };
-        assert!(pane_is_agent_capable(&pane));
-        assert!(validate_make_orchestrator(&pane).is_ok());
+        assert!(tab_is_agent_capable(&tab));
+        assert!(validate_make_orchestrator(&tab).is_ok());
     }
 
     #[test]
     fn worker_child_can_transition_but_protected_stays_blocked() {
-        let mut worker = mk_pane("w1");
+        let mut worker = mk_tab("w1");
         worker.agent_type = Some("claude".into());
         worker.role = Some(AgentRole::Worker);
-        worker.parent_pane_id = Some("orch-1".into());
+        worker.parent_tab_id = Some("orch-1".into());
         assert!(validate_make_orchestrator(&worker).is_ok());
 
-        let mut orch = mk_pane("o1");
+        let mut orch = mk_tab("o1");
         orch.agent_type = Some("claude".into());
         orch.role = Some(AgentRole::Orchestrator);
         assert!(validate_make_orchestrator(&orch).is_ok());
 
-        let mut protected = mk_pane("p1");
+        let mut protected = mk_tab("p1");
         protected.agent_type = Some("claude".into());
         protected.protected = true;
         assert!(validate_make_orchestrator(&protected).is_err());
@@ -372,13 +372,13 @@ mod tests {
 
     #[test]
     fn onboarding_delivery_predicate_requires_first_agent_orchestrator() {
-        let mut pane = mk_pane("agent-1");
-        pane.agent_type = Some("claude".into());
-        pane.role = Some(AgentRole::Orchestrator);
-        assert!(should_deliver_orchestrator_onboarding(Some(&pane), false));
-        assert!(!should_deliver_orchestrator_onboarding(Some(&pane), true));
+        let mut tab = mk_tab("agent-1");
+        tab.agent_type = Some("claude".into());
+        tab.role = Some(AgentRole::Orchestrator);
+        assert!(should_deliver_orchestrator_onboarding(Some(&tab), false));
+        assert!(!should_deliver_orchestrator_onboarding(Some(&tab), true));
 
-        let mut shell = mk_pane("shell-1");
+        let mut shell = mk_tab("shell-1");
         shell.role = Some(AgentRole::Orchestrator);
         assert!(!should_deliver_orchestrator_onboarding(Some(&shell), false));
         assert!(!should_deliver_orchestrator_onboarding(None, false));

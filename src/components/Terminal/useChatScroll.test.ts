@@ -86,7 +86,7 @@ function setGeometry(el: HTMLElement, geometry: Geometry): void {
 let hookResult: UseChatScrollResult | null = null;
 
 function Fixture({ loading, messageCount }: { loading: boolean; messageCount: number }) {
-  const scroll = useChatScroll({ sessionKey: "pane:sess", active: true, loading, messageCount });
+  const scroll = useChatScroll({ sessionKey: "tab:sess", active: true, loading, messageCount });
   hookResult = scroll;
   const messageIds = useRef(["m-1", "m-2", "m-3"]);
   if (loading) return createElement("div", null, "loading");
@@ -115,10 +115,10 @@ function observerFor(el: Element): FakeResizeObserver | undefined {
 
 async function main(): Promise<void> {
 // --- 1. observer attaches even when the transcript mounts behind a loading gate ---
-// (PaneSessionChat's first render always has loading=true and early-returns, so
+// (TabSessionChat's first render always has loading=true and early-returns, so
 // the scroll/content nodes do not exist when the hook's effects first run.)
 {
-  clearPersistedChatScrollState("pane:sess");
+  clearPersistedChatScrollState("tab:sess");
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
@@ -196,7 +196,7 @@ async function main(): Promise<void> {
 
 // --- 4. detached anchor resolution is synchronous too ---
 {
-  clearPersistedChatScrollState("pane:sess");
+  clearPersistedChatScrollState("tab:sess");
   FakeResizeObserver.instances.length = 0;
   const host = document.createElement("div");
   document.body.appendChild(host);

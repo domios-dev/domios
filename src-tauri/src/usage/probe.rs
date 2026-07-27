@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use crate::service::spawn::{AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec};
+use crate::service::spawn::{AgentSpawnSpec, TabCommand, TabVisibility, SpawnTabSpec};
 use crate::service::ServiceContext;
 
 #[derive(Debug, Clone)]
@@ -80,15 +80,15 @@ impl UsageProbe {
         let svc_for_spawn = svc.clone();
         let provider_for_spawn = provider_owned.clone();
         let handle = tokio::task::spawn_blocking(move || {
-            svc_for_spawn.spawn_pane(SpawnPaneSpec {
+            svc_for_spawn.spawn_tab(SpawnTabSpec {
                 workspace_id: None,
-                parent_pane_id: None,
+                parent_tab_id: None,
                 cwd: None,
                 title: Some(format!("[usage-probe] {}", provider_for_spawn)),
                 description: None,
-                visibility: PaneVisibility::Hidden,
+                visibility: TabVisibility::Hidden,
                 eager: false,
-                command: PaneCommand::Agent(AgentSpawnSpec {
+                command: TabCommand::Agent(AgentSpawnSpec {
                     provider: provider_for_spawn,
                     auto_approve: true,
                     ..Default::default()
@@ -97,25 +97,25 @@ impl UsageProbe {
         })
         .await
         .map_err(|e| ProbeError::Internal(format!("spawn join: {}", e)))?
-        .map_err(|e| ProbeError::Internal(format!("spawn pane: {}", e)))?;
+        .map_err(|e| ProbeError::Internal(format!("spawn tab: {}", e)))?;
 
-        let pane_id = handle.pane_id.clone();
+        let tab_id = handle.tab_id.clone();
         let pty_id = match handle.pty_id.clone() {
             Some(id) => id,
             None => {
-                let _ = svc.close_pane(&pane_id);
+                let _ = svc.close_tab(&tab_id);
                 return Err(ProbeError::Internal("Tab has no pty".into()));
             }
         };
 
         let outcome = self
-            .probe_inner(&pane_id, &pty_id, &provider_owned, started)
+            .probe_inner(&tab_id, &pty_id, &provider_owned, started)
             .await;
 
         let svc_for_close = svc.clone();
-        let pane_for_close = pane_id.clone();
+        let tab_for_close = tab_id.clone();
         let _ = tokio::task::spawn_blocking(move || {
-            let _ = svc_for_close.close_pane(&pane_for_close);
+            let _ = svc_for_close.close_tab(&tab_for_close);
         })
         .await;
 
@@ -124,7 +124,7 @@ impl UsageProbe {
 
     async fn probe_inner(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         pty_id: &str,
         provider: &str,
         started: Instant,
@@ -168,7 +168,7 @@ impl UsageProbe {
 
         let _ = write_slash_command(&svc, pty_id, "/exit").await;
 
-        let _ = pane_id;
+        let _ = tab_id;
         Ok(UsageProbeOutcome {
             raw_text,
             elapsed_ms: started.elapsed().as_millis() as u64,
@@ -276,7 +276,7 @@ fn screen_has_tui_input(text: &str) -> bool {
 /// How long to wait for the agent TUI input box to render before giving up.
 /// Windows agent boot (node + provider) is meaningfully slower, so allow more
 /// headroom; a genuine dead launch still fails honestly within this bound and
-/// the poller retries with a fresh pane.
+/// the poller retries with a fresh tab.
 #[cfg(windows)]
 const TUI_READY_TIMEOUT: Duration = Duration::from_secs(45);
 #[cfg(not(windows))]

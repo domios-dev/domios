@@ -204,7 +204,7 @@ pub struct ChatMsg {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub from_label: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub from_pane: Option<String>,
+    pub from_tab: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub from_model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]

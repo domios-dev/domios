@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 pub enum CleanupDebtKind {
     PendingStatus,
     DeferredStatus,
-    LivePane,
+    LiveTab,
     WorktreePresent,
 }
 
@@ -36,8 +36,8 @@ pub struct CleanupDebtInput<'a> {
     pub is_terminal: bool,
     pub cleanup_status: Option<&'a str>,
     pub cleanup_hints: &'a [String],
-    pub pane_id: Option<&'a str>,
-    pub pane_live: bool,
+    pub tab_id: Option<&'a str>,
+    pub tab_live: bool,
     pub worktree_path: Option<&'a str>,
     pub worktree_exists: bool,
     pub branch: Option<&'a str>,
@@ -55,7 +55,7 @@ pub fn detect_cleanup_debt(input: &CleanupDebtInput<'_>) -> Option<CleanupDebtTa
     let done = cleanup_status
         .as_deref()
         .is_some_and(|status| status.eq_ignore_ascii_case("done"));
-    let pane_id = normalized(input.pane_id);
+    let tab_id = normalized(input.tab_id);
     let worktree_path = normalized(input.worktree_path);
     let branch = normalized(input.branch);
     let has_cleanup_hints = input
@@ -63,7 +63,7 @@ pub fn detect_cleanup_debt(input: &CleanupDebtInput<'_>) -> Option<CleanupDebtTa
         .iter()
         .any(|hint| !hint.trim().is_empty());
     let has_lane_residue =
-        pane_id.is_some() || worktree_path.is_some() || branch.is_some() || has_cleanup_hints;
+        tab_id.is_some() || worktree_path.is_some() || branch.is_some() || has_cleanup_hints;
 
     let mut issues = Vec::new();
     if deferred {
@@ -79,12 +79,12 @@ pub fn detect_cleanup_debt(input: &CleanupDebtInput<'_>) -> Option<CleanupDebtTa
             command: Some(mark_done_command(input.plan_id, input.task_id)),
         });
     }
-    if input.pane_live {
-        if let Some(pane_id) = pane_id.as_deref() {
+    if input.tab_live {
+        if let Some(tab_id) = tab_id.as_deref() {
             issues.push(CleanupDebtIssue {
-                kind: CleanupDebtKind::LivePane,
-                detail: format!("worker pane {pane_id} is still live"),
-                command: Some(format!("codeterm tab close {}", shell_quote(pane_id))),
+                kind: CleanupDebtKind::LiveTab,
+                detail: format!("worker tab {tab_id} is still live"),
+                command: Some(format!("codeterm tab close {}", shell_quote(tab_id))),
             });
         }
     }
@@ -227,8 +227,8 @@ mod tests {
             is_terminal: true,
             cleanup_status: None,
             cleanup_hints: &cleanup_hints,
-            pane_id: Some("pane-1"),
-            pane_live: true,
+            tab_id: Some("tab-1"),
+            tab_live: true,
             worktree_path: Some("/tmp/wt"),
             worktree_exists: true,
             branch: Some("lane/x"),
@@ -242,7 +242,7 @@ mod tests {
         assert!(item
             .issues
             .iter()
-            .any(|issue| issue.kind == CleanupDebtKind::LivePane));
+            .any(|issue| issue.kind == CleanupDebtKind::LiveTab));
         assert!(item.commands.iter().any(|command| command
             .contains("codeterm plan task update 'pl_1' 'task_1' --cleanup-status done")));
         assert!(item
@@ -262,8 +262,8 @@ mod tests {
             is_terminal: true,
             cleanup_status: Some("deferred"),
             cleanup_hints: &cleanup_hints,
-            pane_id: None,
-            pane_live: false,
+            tab_id: None,
+            tab_live: false,
             worktree_path: None,
             worktree_exists: false,
             branch: None,

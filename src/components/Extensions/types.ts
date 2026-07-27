@@ -8,7 +8,7 @@ export interface PluginCapabilities {
   glance_view?: boolean;
   status_bubble?: boolean;
   view?: boolean;
-  /** Drives a non-PTY chat pane (e.g. LM Studio). Surfaces an "Open chat" action. */
+  /** Drives a non-PTY chat tab (e.g. LM Studio). Surfaces an "Open chat" action. */
   chat_backend?: boolean;
   /** Send-time outbound text stage (`chatPreprocess`). */
   chat_preprocessor?: boolean;

@@ -12,7 +12,7 @@ export interface PlanRiverProps {
   lod?: MissionControlLodLevel;
   reducedMotion?: boolean;
   onTaskClick?: (taskId: string) => void;
-  onAgentClick?: (paneId: string) => void;
+  onAgentClick?: (tabId: string) => void;
   onOpenPlan?: (planId: string) => void;
 }
 

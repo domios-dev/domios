@@ -23,9 +23,9 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("level"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("info");
-            let pane_id = params
+            let tab_id = params
                 .as_ref()
-                .and_then(|p| p.get("pane_id"))
+                .and_then(|p| p.get("tab_id"))
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
             let workspace_id = params
@@ -39,7 +39,7 @@ pub(super) fn dispatch(
                 Some(level_str),
                 None,
                 None,
-                pane_id,
+                tab_id,
                 workspace_id,
             );
 

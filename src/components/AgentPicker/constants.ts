@@ -1,9 +1,9 @@
-export const FIRST_RUN_GA_PANE_MARKER = "codeterm:first-run-general-agent";
+export const FIRST_RUN_GA_TAB_MARKER = "codeterm:first-run-general-agent";
 
 export const PREFERRED_GENERAL_PROVIDER_ID = "claude";
 
-export function isFirstRunGeneralPane(
-  pane: { description?: string | null } | undefined,
+export function isFirstRunGeneralTab(
+  tab: { description?: string | null } | undefined,
 ): boolean {
-  return pane?.description === FIRST_RUN_GA_PANE_MARKER;
+  return tab?.description === FIRST_RUN_GA_TAB_MARKER;
 }

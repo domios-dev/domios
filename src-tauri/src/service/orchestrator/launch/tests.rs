@@ -7,8 +7,8 @@ use crate::chatbackend::{ChatBackendError, ChatBackendProvider, ChatBackendRegis
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
 use crate::service::orchestrator::types::SpawnAgentParams;
-use crate::service::pty_io::pane_identity_env;
-use crate::service::spawn::{PaneCommand, SpawnPaneSpec};
+use crate::service::pty_io::tab_identity_env;
+use crate::service::spawn::{TabCommand, SpawnTabSpec};
 use std::sync::Arc;
 use std::sync::Barrier;
 
@@ -122,7 +122,7 @@ fn production_driver_reports_reused_reader_eof_for_its_current_pty() {
     let terminated = driver
         .take_for_pty("binding-reader-live")
         .expect("registered reader");
-    assert_eq!(terminated.pane_id, "binding-reader");
+    assert_eq!(terminated.tab_id, "binding-reader");
     assert_eq!(terminated.generation, launch.generation);
     assert!(!driver.owns(&launch));
     assert_eq!(LaunchFailure::PtyEof.reason(), "PtyEof");
@@ -180,10 +180,10 @@ fn plain_orchestrator_no_task_spawn_receives_the_system_contract() {
 
 #[test]
 fn plain_orchestrator_no_task_attaches_nothing() {
-    let spec = SpawnPaneSpec::from_agent_params(orchestrator_params(None));
-    assert_eq!(spec.parent_pane_id, None);
+    let spec = SpawnTabSpec::from_agent_params(orchestrator_params(None));
+    assert_eq!(spec.parent_tab_id, None);
     match spec.command {
-        PaneCommand::Agent(agent) => {
+        TabCommand::Agent(agent) => {
             assert_eq!(agent.role.as_deref(), Some("Orchestrator"));
             assert_eq!(agent.task, None);
             assert_eq!(agent.worker_id, None);
@@ -196,12 +196,12 @@ fn plain_orchestrator_no_task_attaches_nothing() {
 fn plain_orchestrator_role_metadata_uses_the_non_task_channel() {
     let (mut mux, _) = MultiplexerState::new();
     let workspace_id = mux.list_workspaces()[0].id.clone();
-    let pane_id = mux.create_tab(&workspace_id).unwrap().1;
-    mux.set_pane_role(&pane_id, AgentRole::Orchestrator, None)
+    let tab_id = mux.create_tab(&workspace_id).unwrap().1;
+    mux.set_tab_role(&tab_id, AgentRole::Orchestrator, None)
         .unwrap();
-    let pane = mux.get_pane(&pane_id).unwrap();
+    let tab = mux.get_tab(&tab_id).unwrap();
     assert_eq!(
-        pane_identity_env(pane).get("CODETERM_ROLE"),
+        tab_identity_env(tab).get("CODETERM_ROLE"),
         Some(&"Orchestrator".to_string())
     );
 }
@@ -380,8 +380,8 @@ fn transport_capability_paths_receive_the_primer_for_plain_orchestrator() {
     let params = orchestrator_params(None);
     let prompt = spawn_onboarding_task(&params).expect("orchestrator system prompt");
     assert!(prompt.contains(crate::prompts::ORCHESTRATOR_SUFFIX.trim()));
-    match SpawnPaneSpec::from_agent_params(params.clone()).command {
-        PaneCommand::Agent(agent) => assert_eq!(agent.task, None),
+    match SpawnTabSpec::from_agent_params(params.clone()).command {
+        TabCommand::Agent(agent) => assert_eq!(agent.task, None),
         other => panic!("expected PTY agent route, got {other:?}"),
     }
     let chatbackends = ChatBackendRegistry::new();
@@ -390,8 +390,8 @@ fn transport_capability_paths_receive_the_primer_for_plain_orchestrator() {
         agent: Some("test-chat".into()),
         ..params
     };
-    match SpawnPaneSpec::from_agent_params_with_chatbackends(&chatbackends, chat_params).command {
-        PaneCommand::ChatBackend { config, role, .. } => {
+    match SpawnTabSpec::from_agent_params_with_chatbackends(&chatbackends, chat_params).command {
+        TabCommand::ChatBackend { config, role, .. } => {
             assert!(config.as_object().unwrap().is_empty());
             assert_eq!(role.as_deref(), Some("Orchestrator"));
         }

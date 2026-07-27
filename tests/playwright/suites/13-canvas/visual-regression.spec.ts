@@ -126,7 +126,7 @@ test("@golden @visual-regression canvas fit zoom matches golden", async ({ api, 
 
 test("@golden @visual-regression sidebar seeded pair tree matches golden", async ({ api, webBrowser }) => {
   test.setTimeout(120_000);
-  const canvas = await seedWorldStateAndOpenInlineCanvas(webBrowser, api as ApiClient, worldStates.paneTreeWithStatuses);
+  const canvas = await seedWorldStateAndOpenInlineCanvas(webBrowser, api as ApiClient, worldStates.tabTreeWithStatuses);
   try {
     const { page } = canvas;
     await page.setViewportSize(VIEWPORT);

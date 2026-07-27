@@ -48,7 +48,7 @@ impl ReasoningEffortProvenance {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SpawnResult {
-    pub pane_id: String,
+    pub tab_id: String,
     pub tab_id: String,
     pub pty_id: String,
     pub agent: String,
@@ -80,10 +80,10 @@ pub struct SpawnResult {
     pub warning: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_fallback: Option<crate::service::spawn::ModelFallbackNotice>,
-    /// Advisory workspace pane-budget nudge (task_4d649dfd), computed via the
-    /// shared `ServiceContext::workspace_pane_budget_notice` helper. Never blocks.
+    /// Advisory workspace tab-budget nudge (task_4d649dfd), computed via the
+    /// shared `ServiceContext::workspace_tab_budget_notice` helper. Never blocks.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub budget_notice: Option<crate::service::pane_budget::PaneBudgetNotice>,
+    pub budget_notice: Option<crate::service::tab_budget::TabBudgetNotice>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -101,9 +101,9 @@ pub struct SpawnAgentParams {
     pub description: Option<String>,
     pub role: Option<String>,
     pub role_profile: Option<String>,
-    pub parent_pane_id: Option<String>,
+    pub parent_tab_id: Option<String>,
     /// Plan id to bind — when `role_profile` is `planner`, binds
-    /// `Plan.planner` to the spawned pane and delivers the peer prompt
+    /// `Plan.planner` to the spawned tab and delivers the peer prompt
     /// naming the Orchestrator (task_aa01c0db).
     pub plan_id: Option<String>,
     pub can_spawn: Option<bool>,
@@ -115,7 +115,7 @@ pub struct SpawnAgentParams {
     /// Named plan task to bind when spawning `--role Worker` (`--plan-task`).
     pub plan_task: Option<String>,
     pub workspace_id: Option<String>,
-    /// Force creation as a new tab instead of split pane (even with parent).
+    /// Force creation as a new tab instead of split tab (even with parent).
     pub force_tab: Option<bool>,
     /// Claim this existing blank tab instead of creating a new one — used by
     /// the new-session picker's in-place spawn so confirming transforms the
@@ -124,18 +124,18 @@ pub struct SpawnAgentParams {
     /// Skip legacy onboarding work for a paired Orchestrator. Its complete
     /// identity and counterpart context travel in the single launch payload.
     pub skip_orchestrator_onboarding: Option<bool>,
-    /// Report target pane ID — for cron agents to report without joining hierarchy.
-    /// With `report_target_mesh_peer` set, this is a pane id / `main` / `general`
+    /// Report target tab ID — for cron agents to report without joining hierarchy.
+    /// With `report_target_mesh_peer` set, this is a tab id / `main` / `general`
     /// alias on that remote peer.
-    pub report_target_pane_id: Option<String>,
+    pub report_target_tab_id: Option<String>,
     /// Paired mesh peer the report target lives on. Set (un-spoofably, from the
     /// authenticated relay sender) when `agent spawn --mesh PEER` lands here, so
     /// the spawned worker reports back across the mesh.
     pub report_target_mesh_peer: Option<String>,
     /// Default true; set false to spawn an agent that asks for permission.
     pub skip_permissions: Option<bool>,
-    /// CODETERM_PANE_ID of the caller — recorded for report routing fallback.
-    pub spawned_by_pane_id: Option<String>,
+    /// CODETERM_TAB_ID of the caller — recorded for report routing fallback.
+    pub spawned_by_tab_id: Option<String>,
     /// Provider decides flag syntax via `AgentProvider::model_launch_args`.
     pub model: Option<String>,
     /// Plan/task routing model before a launch-time model override.

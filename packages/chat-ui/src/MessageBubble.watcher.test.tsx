@@ -60,7 +60,7 @@ test("watcher_verdict renders status card with actions", async () => {
   const content = JSON.stringify({
     status: "stalled",
     summary: "Orchestrator idle",
-    actions: [{ kind: "nudge", pane: "worker-1", message: "Resume task" }],
+    actions: [{ kind: "nudge", tab: "worker-1", message: "Resume task" }],
   });
   const { host, root } = await renderMessage(baseMessage("watcher_verdict", content));
   assert(host.querySelector('[data-testid="chat-watcher-verdict-card"]'), "verdict card");

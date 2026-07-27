@@ -1,7 +1,7 @@
 /**
  * WHAT: Open-shell LM Studio flow exposes chatBackend setup and launch surfaces.
  * WHY: Local chat backends are non-PTY providers and need coverage separate from terminal agents.
- * ORACLE: Plugin/provider setup, browser UI state, and spawned pane metadata match the LM Studio path.
+ * ORACLE: Plugin/provider setup, browser UI state, and spawned tab metadata match the LM Studio path.
  */
 import { execFileSync } from "node:child_process";
 import path from "node:path";
@@ -12,7 +12,7 @@ import {
   test,
   type Browser,
   type Page,
-  type PaneCleanup,
+  type TabCleanup,
 } from "../../helpers/fixtures";
 import { devDataDir } from "../../helpers/reset";
 import { REPO_ROOT } from "../../helpers/dev-console";
@@ -36,9 +36,9 @@ interface TestChatMessage {
   toolResult?: string;
 }
 
-interface OpenShellPane {
+interface OpenShellTab {
   id: string;
-  pane_id: string;
+  tab_id: string;
   tab_id: string;
   pty_id: string | null;
 }
@@ -46,7 +46,7 @@ interface OpenShellPane {
 declare global {
   interface Window {
     __codetermTestChat?: {
-      pushMessages: (paneId: string, messages: TestChatMessage[]) => void;
+      pushMessages: (tabId: string, messages: TestChatMessage[]) => void;
       resetClock: () => void;
     };
   }
@@ -74,41 +74,41 @@ async function expectLmStudioShellProvider(api: ApiClient): Promise<void> {
   expect(shell?.supports_chat_ui).toBe(true);
 }
 
-async function openLmStudioPane(
+async function openLmStudioTab(
   api: ApiClient,
-  paneCleanup: PaneCleanup,
+  tabCleanup: TabCleanup,
   page: Page,
   systemPrompt: string,
-): Promise<OpenShellPane> {
+): Promise<OpenShellTab> {
   await expectLmStudioShellProvider(api);
-  const pane = await paneCleanup.createPane<OpenShellPane>({
+  const tab = await tabCleanup.createTab<OpenShellTab>({
     title: "pw-lmstudio-open-shell",
     chat_backend: PLUGIN_ID,
     system_prompt: systemPrompt,
     config: { model: "" },
   });
-  expect(pane.pty_id, "open shell must not allocate a PTY").toBeNull();
-  await api.focusPane(pane.id);
-  await page.locator('[data-testid="tab-item"][data-tab-id="' + pane.tab_id + '"]').click();
-  const shell = page.locator('[data-pane-id="' + pane.id + '"] [data-testid="pane-session-chat"]');
+  expect(tab.pty_id, "open shell must not allocate a PTY").toBeNull();
+  await api.focusTab(tab.id);
+  await page.locator('[data-testid="tab-item"][data-tab-id="' + tab.tab_id + '"]').click();
+  const shell = page.locator('[data-tab-id="' + tab.id + '"] [data-testid="tab-session-chat"]');
   await expect(shell).toBeVisible({ timeout: 30_000 });
   await expect(shell.locator('[data-testid="chat-composer"]')).toBeVisible();
-  return pane;
+  return tab;
 }
 
-async function pushMessages(page: Page, paneId: string, messages: TestChatMessage[]): Promise<void> {
+async function pushMessages(page: Page, tabId: string, messages: TestChatMessage[]): Promise<void> {
   await page.evaluate(
-    ({ targetPaneId, targetMessages }) => {
+    ({ targetTabId, targetMessages }) => {
       const testChat = window.__codetermTestChat;
       if (!testChat) throw new Error("window.__codetermTestChat is not installed");
-      testChat.pushMessages(targetPaneId, targetMessages);
+      testChat.pushMessages(targetTabId, targetMessages);
     },
-    { targetPaneId: paneId, targetMessages: messages },
+    { targetTabId: tabId, targetMessages: messages },
   );
 }
 
-function paneChat(page: Page, paneId: string) {
-  return page.locator('[data-pane-id="' + paneId + '"] [data-testid="pane-session-chat"]');
+function tabChat(page: Page, tabId: string) {
+  return page.locator('[data-tab-id="' + tabId + '"] [data-testid="tab-session-chat"]');
 }
 
 function devCli(args: string[]): string {
@@ -139,17 +139,17 @@ test.beforeEach(async ({ api }) => {
 test("@smoke lmstudio open shell spawns through the web mirror", async ({
   api,
   webBrowser,
-  paneCleanup,
+  tabCleanup,
 }) => {
   const page = await newWebPage(webBrowser);
   try {
-    const pane = await openLmStudioPane(api, paneCleanup, page, "You are a terse local shell.");
-    const chat = paneChat(page, pane.id);
+    const tab = await openLmStudioTab(api, tabCleanup, page, "You are a terse local shell.");
+    const chat = tabChat(page, tab.id);
     await expect(chat.locator('[data-testid="chat-composer"]')).toBeVisible();
 
-    const paneState = (await api.panes()).find((candidate) => candidate.id === pane.id);
-    expect(paneState?.pty_id).toBeNull();
-    expect(paneState?.agent_type ?? null).toBeNull();
+    const tabState = (await api.tabs()).find((candidate) => candidate.id === tab.id);
+    expect(tabState?.pty_id).toBeNull();
+    expect(tabState?.agent_type ?? null).toBeNull();
   } finally {
     await page.context().close();
   }
@@ -158,14 +158,14 @@ test("@smoke lmstudio open shell spawns through the web mirror", async ({
 test("@smoke lmstudio system prompt marker renders as a collapsible card", async ({
   api,
   webBrowser,
-  paneCleanup,
+  tabCleanup,
 }) => {
   const page = await newWebPage(webBrowser);
   try {
     const systemPrompt = "Prefer concise replies.\nNever contact a live model during this test.";
-    const pane = await openLmStudioPane(api, paneCleanup, page, systemPrompt);
-    const chat = paneChat(page, pane.id);
-    await pushMessages(page, pane.id, [
+    const tab = await openLmStudioTab(api, tabCleanup, page, systemPrompt);
+    const chat = tabChat(page, tab.id);
+    await pushMessages(page, tab.id, [
       {
         id: "pw-lmstudio-system-prompt",
         type: "user",
@@ -191,15 +191,15 @@ test("@smoke lmstudio system prompt marker renders as a collapsible card", async
 test("@smoke lmstudio mocked streaming assistant reply updates in place", async ({
   api,
   webBrowser,
-  paneCleanup,
+  tabCleanup,
 }) => {
   const page = await newWebPage(webBrowser);
   try {
-    const pane = await openLmStudioPane(api, paneCleanup, page, "Stream in place.");
-    const chat = paneChat(page, pane.id);
+    const tab = await openLmStudioTab(api, tabCleanup, page, "Stream in place.");
+    const chat = tabChat(page, tab.id);
     const replyId = "pw-lmstudio-stream-reply";
 
-    await pushMessages(page, pane.id, [
+    await pushMessages(page, tab.id, [
       {
         id: replyId,
         type: "assistant",
@@ -213,7 +213,7 @@ test("@smoke lmstudio mocked streaming assistant reply updates in place", async 
       .filter({ hasText: "partial reply" });
     await expect(reply).toHaveCount(1);
 
-    await pushMessages(page, pane.id, [
+    await pushMessages(page, tab.id, [
       {
         id: replyId,
         type: "assistant",
@@ -237,12 +237,12 @@ test("@smoke lmstudio mocked streaming assistant reply updates in place", async 
   }
 });
 
-test("@smoke lmstudio mocked tool result renders", async ({ api, webBrowser, paneCleanup }) => {
+test("@smoke lmstudio mocked tool result renders", async ({ api, webBrowser, tabCleanup }) => {
   const page = await newWebPage(webBrowser);
   try {
-    const pane = await openLmStudioPane(api, paneCleanup, page, "Render tool results.");
-    const chat = paneChat(page, pane.id);
-    await pushMessages(page, pane.id, [
+    const tab = await openLmStudioTab(api, tabCleanup, page, "Render tool results.");
+    const chat = tabChat(page, tab.id);
+    await pushMessages(page, tab.id, [
       {
         id: "pw-lmstudio-tool-result",
         type: "tool_result",
@@ -266,17 +266,17 @@ test("@smoke lmstudio mocked tool result renders", async ({ api, webBrowser, pan
 test("@smoke lmstudio config edit preserves open shell transcript", async ({
   api,
   webBrowser,
-  paneCleanup,
+  tabCleanup,
 }) => {
   test.setTimeout(120_000);
   const page = await newWebPage(webBrowser);
   try {
-    const pane = await openLmStudioPane(api, paneCleanup, page, "Survive config reload.");
-    const chat = paneChat(page, pane.id);
+    const tab = await openLmStudioTab(api, tabCleanup, page, "Survive config reload.");
+    const chat = tabChat(page, tab.id);
     const beforeMarker = "CONFIG-PRESERVED-" + Date.now();
     const afterMarker = "CONFIG-STILL-WORKS-" + Date.now();
 
-    await pushMessages(page, pane.id, [
+    await pushMessages(page, tab.id, [
       {
         id: "pw-lmstudio-before-config",
         type: "assistant",
@@ -296,7 +296,7 @@ test("@smoke lmstudio config edit preserves open shell transcript", async ({
     ]);
 
     await expect(chat).toContainText(beforeMarker);
-    await pushMessages(page, pane.id, [
+    await pushMessages(page, tab.id, [
       {
         id: "pw-lmstudio-after-config",
         type: "assistant",

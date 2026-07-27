@@ -48,9 +48,9 @@ async function main() {
   function sampleState(active: string) {
     return {
       workspaces: [{ id: active, name: "W", tabs: [], active_tab_id: null, cwd: null }],
-      panes: {},
+      tabs: {},
       active_workspace_id: active,
-      focused_pane_id: null,
+      focused_tab_id: null,
       generation: 7,
     } as Parameters<typeof saveStateSnapshot>[0];
   }

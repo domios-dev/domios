@@ -7,10 +7,10 @@ use crate::service::ServiceState;
 use super::plan_fields::optional_string_field;
 use super::{get_string_param, JsonRpcError};
 
-pub(super) fn planner_role_for_pane(svc: &ServiceState, pane_id: &str) -> Option<&'static str> {
-    svc.mux.read().get_pane(pane_id).and_then(|pane| {
-        (pane.role == Some(crate::multiplexer::types::AgentRole::Manager)
-            && pane.role_profile.as_deref() == Some("planner"))
+pub(super) fn planner_role_for_tab(svc: &ServiceState, tab_id: &str) -> Option<&'static str> {
+    svc.mux.read().get_tab(tab_id).and_then(|tab| {
+        (tab.role == Some(crate::multiplexer::types::AgentRole::Manager)
+            && tab.role_profile.as_deref() == Some("planner"))
         .then_some("planner")
     })
 }
@@ -48,7 +48,7 @@ pub(super) fn record_spawned_attempt<T>(
     tab_id: &str,
     record: impl FnOnce() -> Result<T, PlanError>,
 ) -> Result<T, JsonRpcError> {
-    compensate_failed_attempt(record(), || svc.close_pane(tab_id))
+    compensate_failed_attempt(record(), || svc.close_tab(tab_id))
 }
 
 pub(super) fn update_role_guidance_if_present(
@@ -115,14 +115,14 @@ pub(super) fn assign_task_with_profile(
     now: u64,
 ) -> Result<String, JsonRpcError> {
     let (id, tid) = super::plan_refs::resolve_task(store, params)?;
-    let pane = get_string_param(params, "pane")?;
+    let tab = get_string_param(params, "tab")?;
     store
         .assign_task_with_role(
             &id,
             &tid,
-            &pane,
+            &tab,
             body.and_then(|x| x.get("peer")).and_then(|v| v.as_str()),
-            planner_role_for_pane(svc, &pane),
+            planner_role_for_tab(svc, &tab),
             now,
         )
         .map_err(plan_rpc_err)?;
@@ -134,7 +134,7 @@ pub(super) trait RespawnAttemptRoleExt {
         &self,
         plan_id: &str,
         task_id: &str,
-        pane_id: &str,
+        tab_id: &str,
         draft: &TaskRespawnDraft,
         svc: &ServiceState,
         now: u64,
@@ -146,7 +146,7 @@ impl RespawnAttemptRoleExt for PlanStore {
         &self,
         plan_id: &str,
         task_id: &str,
-        pane_id: &str,
+        tab_id: &str,
         draft: &TaskRespawnDraft,
         svc: &ServiceState,
         now: u64,
@@ -154,9 +154,9 @@ impl RespawnAttemptRoleExt for PlanStore {
         self.record_task_respawn_attempt(
             plan_id,
             task_id,
-            pane_id,
+            tab_id,
             draft,
-            planner_role_for_pane(svc, pane_id).or(Some("worker")),
+            planner_role_for_tab(svc, tab_id).or(Some("worker")),
             now,
         )
     }

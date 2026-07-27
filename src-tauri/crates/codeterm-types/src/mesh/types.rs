@@ -241,8 +241,8 @@ impl Default for AccessLevel {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum Permission {
-    ReadPanes,
-    WritePanes,
+    ReadTabs,
+    WriteTabs,
     SpawnAgents,
     ManageWorkspaces,
     ReadOutput,
@@ -350,7 +350,7 @@ pub struct RelayCommand {
     /// API method: GET, POST, PUT, DELETE, PATCH.
     #[serde(default = "default_method")]
     pub method: String,
-    /// API path (e.g. "/api/panes", "/api/agents/spawn").
+    /// API path (e.g. "/api/tabs", "/api/agents/spawn").
     pub path: String,
     /// Request body (for POST/PUT/PATCH).
     #[serde(default)]

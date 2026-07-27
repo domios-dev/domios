@@ -45,9 +45,9 @@ function provider(id: string, displayName: string): ProviderDescriptor {
 
 const worker: GraphWorkerInfo = {
   worker_id: "worker-1",
-  pane_id: "pane-1",
+  tab_id: "tab-1",
   intent: "extract: provider metadata",
-  spawned_by: "pane-parent",
+  spawned_by: "tab-parent",
   spawned_at: Date.now(),
   status: "done",
   progress_text: null,

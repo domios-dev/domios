@@ -29,8 +29,8 @@ impl MultiplexerState {
     }
 
     /// Reorder top-level tabs of a workspace. `ordered_tab_ids` is the full new
-    /// order of that group; every id must be a top-level tab (its pane has no
-    /// `parent_pane_id`) of this workspace. Assigns `sort_order = index`.
+    /// order of that group; every id must be a top-level tab (its tab has no
+    /// `parent_tab_id`) of this workspace. Assigns `sort_order = index`.
     /// The General (protected) tab is clamped to index 0 — nothing reorders
     /// above it.
     pub fn reorder_tabs(
@@ -39,12 +39,12 @@ impl MultiplexerState {
         ordered_tab_ids: &[String],
     ) -> Result<(), String> {
         let parent_of: std::collections::HashMap<String, Option<String>> = self
-            .panes
+            .tabs
             .iter()
-            .map(|(id, p)| (id.clone(), p.parent_pane_id.clone()))
+            .map(|(id, p)| (id.clone(), p.parent_tab_id.clone()))
             .collect();
-        let protected_panes: std::collections::HashSet<String> = self
-            .panes
+        let protected_tabs: std::collections::HashSet<String> = self
+            .tabs
             .iter()
             .filter(|(_, p)| p.protected)
             .map(|(id, _)| id.clone())
@@ -61,7 +61,7 @@ impl MultiplexerState {
                 .find(|t| &t.id == id)
                 .ok_or_else(|| format!("Tab not in workspace: {}", id))?;
             if parent_of
-                .get(&tab.pane_id)
+                .get(&tab.tab_id)
                 .and_then(|p| p.clone())
                 .is_some()
             {
@@ -70,23 +70,23 @@ impl MultiplexerState {
         }
         apply_order(
             ws,
-            &pin_protected_tabs_first(ws, ordered_tab_ids, &protected_panes),
+            &pin_protected_tabs_first(ws, ordered_tab_ids, &protected_tabs),
         );
         Ok(())
     }
 
-    /// Reorder the children of a parent pane. `ordered_tab_ids` is the full new
-    /// order of that sibling group; every id must be a tab whose pane's
-    /// `parent_pane_id` equals `parent_pane_id`. Assigns `sort_order = index`.
+    /// Reorder the children of a parent tab. `ordered_tab_ids` is the full new
+    /// order of that sibling group; every id must be a tab whose tab's
+    /// `parent_tab_id` equals `parent_tab_id`. Assigns `sort_order = index`.
     pub fn reorder_children(
         &mut self,
-        parent_pane_id: &str,
+        parent_tab_id: &str,
         ordered_tab_ids: &[String],
     ) -> Result<(), String> {
         let parent_of: std::collections::HashMap<String, Option<String>> = self
-            .panes
+            .tabs
             .iter()
-            .map(|(id, p)| (id.clone(), p.parent_pane_id.clone()))
+            .map(|(id, p)| (id.clone(), p.parent_tab_id.clone()))
             .collect();
         let ws = self
             .workspaces
@@ -100,14 +100,14 @@ impl MultiplexerState {
                 .find(|t| &t.id == id)
                 .ok_or_else(|| format!("Tab not in workspace: {}", id))?;
             let is_child = parent_of
-                .get(&tab.pane_id)
+                .get(&tab.tab_id)
                 .and_then(|p| p.as_deref())
-                .map(|p| p == parent_pane_id)
+                .map(|p| p == parent_tab_id)
                 .unwrap_or(false);
             if !is_child {
                 return Err(format!(
                     "Tab {} is not a child of Tab {}",
-                    id, parent_pane_id
+                    id, parent_tab_id
                 ));
             }
         }
@@ -158,13 +158,13 @@ impl MultiplexerState {
 fn pin_protected_tabs_first(
     ws: &crate::multiplexer::types::Workspace,
     ordered_tab_ids: &[String],
-    protected_panes: &std::collections::HashSet<String>,
+    protected_tabs: &std::collections::HashSet<String>,
 ) -> Vec<String> {
     let is_pinned = |id: &String| {
         ws.tabs
             .iter()
             .find(|t| &t.id == id)
-            .map(|t| protected_panes.contains(&t.pane_id))
+            .map(|t| protected_tabs.contains(&t.tab_id))
             .unwrap_or(false)
     };
     let pinned = ordered_tab_ids.iter().filter(|id| is_pinned(id)).cloned();
@@ -223,9 +223,9 @@ mod tests {
     fn reorder_tabs_rejects_a_child_tab() {
         let (mut state, _root) = MultiplexerState::new();
         let ws = state.list_workspaces()[0].id.clone();
-        let (parent_tab, parent_pane) = state.create_tab(&ws).unwrap();
-        let (child_tab, child_pane) = state.create_tab(&ws).unwrap();
-        state.get_pane_mut(&child_pane).unwrap().parent_pane_id = Some(parent_pane.clone());
+        let (parent_tab, parent_tab) = state.create_tab(&ws).unwrap();
+        let (child_tab, child_tab) = state.create_tab(&ws).unwrap();
+        state.get_tab_mut(&child_tab).unwrap().parent_tab_id = Some(parent_tab.clone());
         // The child tab is not a top-level tab → rejected, no reorder applied.
         let err = state.reorder_tabs(&ws, &[child_tab.clone(), parent_tab.clone()]);
         assert!(err.is_err(), "a child tab must not pass the top-level op");
@@ -235,13 +235,13 @@ mod tests {
     fn reorder_children_orders_only_same_parent_siblings() {
         let (mut state, _root) = MultiplexerState::new();
         let ws = state.list_workspaces()[0].id.clone();
-        let (_pt, parent_pane) = state.create_tab(&ws).unwrap();
-        let (c1, c1_pane) = state.create_tab(&ws).unwrap();
-        let (c2, c2_pane) = state.create_tab(&ws).unwrap();
-        state.get_pane_mut(&c1_pane).unwrap().parent_pane_id = Some(parent_pane.clone());
-        state.get_pane_mut(&c2_pane).unwrap().parent_pane_id = Some(parent_pane.clone());
+        let (_pt, parent_tab) = state.create_tab(&ws).unwrap();
+        let (c1, c1_tab) = state.create_tab(&ws).unwrap();
+        let (c2, c2_tab) = state.create_tab(&ws).unwrap();
+        state.get_tab_mut(&c1_tab).unwrap().parent_tab_id = Some(parent_tab.clone());
+        state.get_tab_mut(&c2_tab).unwrap().parent_tab_id = Some(parent_tab.clone());
         state
-            .reorder_children(&parent_pane, &[c2.clone(), c1.clone()])
+            .reorder_children(&parent_tab, &[c2.clone(), c1.clone()])
             .unwrap();
         assert_eq!(order_of(&state, &ws, &c2), 0);
         assert_eq!(order_of(&state, &ws, &c1), 1);
@@ -251,10 +251,10 @@ mod tests {
     fn reorder_children_rejects_foreign_parent() {
         let (mut state, _root) = MultiplexerState::new();
         let ws = state.list_workspaces()[0].id.clone();
-        let (_pt, parent_pane) = state.create_tab(&ws).unwrap();
-        let (top, _top_pane) = state.create_tab(&ws).unwrap();
-        // `top` is top-level, not a child of parent_pane → must be rejected.
-        assert!(state.reorder_children(&parent_pane, &[top]).is_err());
+        let (_pt, parent_tab) = state.create_tab(&ws).unwrap();
+        let (top, _top_tab) = state.create_tab(&ws).unwrap();
+        // `top` is top-level, not a child of parent_tab → must be rejected.
+        assert!(state.reorder_children(&parent_tab, &[top]).is_err());
     }
 
     #[test]
@@ -314,10 +314,10 @@ mod tests {
     fn reorder_cannot_place_a_tab_above_the_general_tab() {
         let (mut state, _root) = MultiplexerState::new();
         let ws = state.list_workspaces()[0].id.clone();
-        // The first tab's pane is the General (protected) tab.
+        // The first tab's tab is the General (protected) tab.
         let general_tab = state.get_workspace(&ws).unwrap().tabs[0].id.clone();
-        let general_pane = state.get_workspace(&ws).unwrap().tabs[0].pane_id.clone();
-        state.get_pane_mut(&general_pane).unwrap().protected = true;
+        let general_tab = state.get_workspace(&ws).unwrap().tabs[0].tab_id.clone();
+        state.get_tab_mut(&general_tab).unwrap().protected = true;
         let (t1, _) = state.create_tab(&ws).unwrap();
         let (t2, _) = state.create_tab(&ws).unwrap();
         // Try to drag t1 and t2 above the General tab.

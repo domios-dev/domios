@@ -5,7 +5,7 @@ use std::time::Instant;
 use parking_lot::Mutex;
 
 use crate::agent::provider::VerifySubmitStrategy;
-use crate::agent::status::PaneStatus;
+use crate::agent::status::TabStatus;
 use crate::pty::screen_state::ScreenChangeSignal;
 use crate::service::inject_verify::{
     screen_echo_evidence_count, InjectionError, InjectionResult, VerifyOpts,
@@ -153,7 +153,7 @@ impl SubmitTransport for PtySubmitTransport<'_> {
                 .agent_tracker
                 .lock()
                 .get_status_if_tracked(self.pty_id),
-            Some(PaneStatus::Working | PaneStatus::Waiting)
+            Some(TabStatus::Working | TabStatus::Waiting)
         )
     }
 

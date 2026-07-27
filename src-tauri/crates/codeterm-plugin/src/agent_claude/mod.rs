@@ -35,7 +35,7 @@ impl AgentClaudePlugin {
             },
             capabilities: PluginCapabilities {
                 agent_providers: vec![PROVIDER_ID.into()],
-                hooks: vec!["mux-state-changed".into(), "pane-title-pinned".into()],
+                hooks: vec!["mux-state-changed".into(), "tab-title-pinned".into()],
                 ..Default::default()
             },
             permissions: PluginPermissions::default(),

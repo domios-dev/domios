@@ -43,7 +43,7 @@ async function loadingCardBundle(): Promise<string> {
           document.documentElement.style.setProperty("--ct-border", palette.border);
           document.documentElement.style.setProperty("--ct-accent", palette.accent);
           document.body.innerHTML = '<div id="loading-card-root"></div>';
-          const pane = {
+          const tab = {
             id: "loading-card-fixture",
             type: "agent",
             title: "Planner",
@@ -60,8 +60,8 @@ async function loadingCardBundle(): Promise<string> {
             <main className="flex h-full items-center justify-center">
               <div className="h-[420px] w-[640px] overflow-hidden border" style={{ borderColor: palette.border, background: palette.bg }}>
                 <ChatSetupState
-                  pane={pane}
-                  view={chatSetupView(pane)}
+                  tab={tab}
+                  view={chatSetupView(tab)}
                   providerName="Codex"
                   providerIconColor={palette.accent}
                   providerIconHint="C"
@@ -89,7 +89,7 @@ async function loadingCardBundle(): Promise<string> {
               <TeamUnit
                 team={{ id: "team-picker-fixture", name: "Release 1.7.2" }}
                 plan={null}
-                panes={{}}
+                tabs={{}}
                 managers={<div className="px-2 py-1 text-xs">Planner · Idle</div>}
                 managerCount={1}
                 workers={<div />}

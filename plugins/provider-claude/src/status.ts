@@ -1,5 +1,5 @@
 /**
- * Map a single Claude ProviderEvent to a coarse PaneStatus the host
+ * Map a single Claude ProviderEvent to a coarse TabStatus the host
  * needs for badges and notifications.
  *
  * Returning `null` means "no status change — keep whatever the host
@@ -7,9 +7,9 @@
  * mid-conversation doesn't flip status).
  */
 
-import type { PaneStatus, ProviderEvent } from "../../../src/lib/plugins/types";
+import type { TabStatus, ProviderEvent } from "../../../src/lib/plugins/types";
 
-export function statusOf(event: ProviderEvent): PaneStatus | null {
+export function statusOf(event: ProviderEvent): TabStatus | null {
   switch (event.kind) {
     case "user_message":
       // User just sent input — agent is about to work.

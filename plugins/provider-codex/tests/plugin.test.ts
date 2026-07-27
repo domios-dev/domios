@@ -113,7 +113,7 @@ console.log("\n--- task instructions launch ---\n");
   const cmd = p.buildLaunchCommand({ task: hostileTask, args: ["--model", "gpt-5.5"] });
   assert(cmd.includes("System.Web.Script.Serialization.JavaScriptSerializer"), "Windows serializes instructions without native argv interpolation");
   assert(cmd.includes("$ctTaskInstructions = Get-Content -Raw -Encoding UTF8 'C:\\Temp\\codeterm task.md'"), "Windows loads developer instructions from the task file");
-  assert(cmd.includes("$env:CODETERM_PANE_ID -replace '[^A-Za-z0-9_-]', '-'"), "Windows scopes the temporary profile to the pane lifecycle");
+  assert(cmd.includes("$env:CODETERM_TAB_ID -replace '[^A-Za-z0-9_-]', '-'"), "Windows scopes the temporary profile to the tab lifecycle");
   assert(cmd.includes("Set-Content -LiteralPath $ctProfilePath"), "Windows writes a temporary Codex profile");
   assert(cmd.includes("Remove-Item -LiteralPath 'C:\\Temp\\codeterm task.md'"), "Windows removes the copied task file before Codex starts");
   assert(cmd.includes("--profile $ctProfileName --"), "Windows passes only the short profile name through native argv");
@@ -758,7 +758,7 @@ console.log("\n--- discoverModels ---\n");
 
 console.log("\n--- binding nonce (install + outdated detection) ---\n");
 
-// session-start report can prove pane ownership (release/1.4.6 binding-nonce).
+// session-start report can prove tab ownership (release/1.4.6 binding-nonce).
 {
   let writtenJson: any = null;
   let writtenScript = "";
@@ -785,7 +785,7 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
     writtenScript.includes("codeterm-profile-cleanup-v1") &&
       writtenScript.includes('codeterm-$profileSuffix.config.toml') &&
       writtenScript.includes("Remove-Item -LiteralPath $profilePath"),
-    "Windows session_start removes the pane-scoped profile after Codex loads it",
+    "Windows session_start removes the tab-scoped profile after Codex loads it",
     writtenScript,
   );
 }
@@ -828,7 +828,7 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
       },
     });
   const preNonce =
-    "curl -s -X POST http://localhost:7686/api/panes/$CODETERM_PANE_ID/hook/session_start " +
+    "curl -s -X POST http://localhost:7686/api/tabs/$CODETERM_TAB_ID/hook/session_start " +
     "-H 'X-CodeTerm-Agent-Provider: codex' --data-binary @-";
   const old = loadCodexWithHost(sessionStartHook(preNonce));
   assert(
@@ -852,7 +852,7 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
       SessionStart: [{
         hooks: [{
           command:
-            "curl -s -X POST http://localhost:7686/api/panes/$CODETERM_PANE_ID/hook/session_start " +
+            "curl -s -X POST http://localhost:7686/api/tabs/$CODETERM_TAB_ID/hook/session_start " +
             "-H 'X-CodeTerm-Agent-Provider: codex' " +
             '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}" --data-binary @-',
         }],

@@ -20,7 +20,7 @@ Object.defineProperty(globalThis, "PointerEvent", { value: window.PointerEvent, 
 
 const item: Notification = {
   id: "notice-1",
-  pane_id: "tab-pane-1",
+  tab_id: "tab-tab-1",
   workspace_id: "workspace-1",
   title: "Agent needs input",
   body: "First line\nSecond line",
@@ -47,7 +47,7 @@ async function run() {
         onMarkRead={(id) => calls.read.push(id)}
         onMarkAllRead={() => calls.readAll++}
         onDelete={(id) => calls.deleted.push(id)}
-        onNavigate={(paneId, workspaceId) => calls.navigated.push([paneId, workspaceId])}
+        onNavigate={(tabId, workspaceId) => calls.navigated.push([tabId, workspaceId])}
       />,
     );
   });
@@ -79,7 +79,7 @@ async function run() {
   assert(calls.deleted.join() === item.id, "Delete should remove only the selected notification");
   assert(
     calls.navigated.length === 1
-      && calls.navigated[0][0] === item.pane_id
+      && calls.navigated[0][0] === item.tab_id
       && calls.navigated[0][1] === item.workspace_id,
     "Show Tab should navigate through the owning workspace and tab",
   );

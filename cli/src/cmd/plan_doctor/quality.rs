@@ -127,7 +127,7 @@ pub(super) fn inspect_task_lifecycle(
         }
     }
     let staffed = task
-        .get("assigned_pane_id")
+        .get("assigned_tab_id")
         .and_then(Value::as_str)
         .is_some_and(|s| !s.trim().is_empty());
     let changed_at = task
@@ -413,7 +413,7 @@ fn strip_sidecar_frontmatter(text: &str) -> &str {
 fn inspect_planner_pairing(path: &Path, plan: &Value) -> Option<Finding> {
     let has_orchestrator = plan
         .get("owner")
-        .and_then(|o| o.get("pane_id"))
+        .and_then(|o| o.get("tab_id"))
         .and_then(Value::as_str)
         .is_some_and(|s| !s.trim().is_empty());
     if !has_orchestrator {

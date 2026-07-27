@@ -420,7 +420,7 @@ mod tests {
         let mut plan = Plan::new(
             "Global plan".into(),
             "D:/project".into(),
-            OrchestratorRef::from_pane("orch"),
+            OrchestratorRef::from_tab("orch"),
         );
         plan.team_id = Some("team_one".into());
         plan.updated_at = 7;
@@ -454,7 +454,7 @@ mod tests {
             .create_plan(
                 "Restart searchable plan".into(),
                 directory.path().display().to_string(),
-                OrchestratorRef::from_pane("orch"),
+                OrchestratorRef::from_tab("orch"),
                 vec![],
                 11,
             )
@@ -486,7 +486,7 @@ mod tests {
         let mut legacy_plan = Plan::new(
             "Imported title".into(),
             directory.path().display().to_string(),
-            OrchestratorRef::from_pane("orch"),
+            OrchestratorRef::from_tab("orch"),
         );
         legacy_plan.updated_at = 10;
         let legacy_dir = crate::service_plan::paths::plan_dir(
@@ -528,7 +528,7 @@ mod tests {
             .create_plan(
                 "Delete searchable plan".into(),
                 directory.path().display().to_string(),
-                OrchestratorRef::from_pane("orch"),
+                OrchestratorRef::from_tab("orch"),
                 vec![],
                 11,
             )

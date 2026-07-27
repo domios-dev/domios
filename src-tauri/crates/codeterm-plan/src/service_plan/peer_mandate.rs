@@ -10,7 +10,7 @@ use crate::plan::PlanningState;
 /// Used wherever planning work is delegated by name.
 pub fn planner_peer_label(resolution: &PeerResolution) -> String {
     match resolution {
-        PeerResolution::Planner { pane_id } => format!("the Planner specialist (tab {pane_id})"),
+        PeerResolution::Planner { tab_id } => format!("the Planner specialist (tab {tab_id})"),
         PeerResolution::OrchestratorFallback { .. } => {
             "the Planner specialist (currently down — respawn it)".into()
         }
@@ -41,8 +41,8 @@ pub fn planning_structure_nudge(
 /// with a real orchestrator tab id when known (falls back to a placeholder
 /// token otherwise, matching the `PLAN_ID`-style placeholders used elsewhere
 /// in onboarding text).
-pub fn planner_spawn_cmd_hint(orchestrator_pane_id: Option<&str>, plan_id: &str) -> String {
-    let parent = orchestrator_pane_id.unwrap_or("<orch-pane>");
+pub fn planner_spawn_cmd_hint(orchestrator_tab_id: Option<&str>, plan_id: &str) -> String {
+    let parent = orchestrator_tab_id.unwrap_or("<orch-tab>");
     format!(
         "Choose an available provider and model appropriate for this planning task, then run: codeterm agent spawn <provider> [--model <model>] --parent {parent} --role Planner --plan {plan_id}"
     )
@@ -50,8 +50,8 @@ pub fn planner_spawn_cmd_hint(orchestrator_pane_id: Option<&str>, plan_id: &str)
 
 /// One-line onboarding text delivered to a freshly-spawned Planner naming the
 /// Orchestrator, so the Planner knows who owns final structure decisions.
-pub fn planner_peer_intro_line(plan_id: &str, orchestrator_pane_id: Option<&str>) -> String {
-    let orch = orchestrator_pane_id.unwrap_or("unknown");
+pub fn planner_peer_intro_line(plan_id: &str, orchestrator_tab_id: Option<&str>) -> String {
+    let orch = orchestrator_tab_id.unwrap_or("unknown");
     format!(
         "You are the Planner specialist for plan {plan_id}; the Orchestrator owner is tab {orch}. {} First read `codeterm docs PLANNER` — it covers your role, the planning toolset (codeterm spec/plan/section, `codeterm plan task add`, `plan doctor`), and that YOU cut the tasks (the Orchestrator dispatches and accepts, it does not create them). The full CLI reference is the `codeterm` skill — if it is not loaded, `codeterm mem search \"codeterm skill\"` and read the returned SKILL.md. A fresh pairing starts empty: if no goal or planning request has been delegated yet, reply that you are ready and WAIT — do not explore the project or read other plans.",
         super::prompts_plan::PEER_PLANNER_CHARTER_LINE
@@ -60,7 +60,7 @@ pub fn planner_peer_intro_line(plan_id: &str, orchestrator_pane_id: Option<&str>
 
 /// Compact prefix to prepend to an Orchestrator's plan reminder while the
 /// plan has no live Planner. `None` once attached or explicitly waived —
-/// the nudge must stop immediately in both cases. A dead planner pane
+/// the nudge must stop immediately in both cases. A dead planner tab
 /// (`OrchestratorFallback`) still nudges, since attachment has effectively
 /// lapsed.
 pub fn planner_pairing_nudge_prefix(resolution: &PeerResolution) -> Option<&'static str> {
@@ -82,13 +82,13 @@ mod tests {
         assert!(planner_pairing_nudge_prefix(&PeerResolution::Unbound).is_some());
         assert!(
             planner_pairing_nudge_prefix(&PeerResolution::OrchestratorFallback {
-                bound_pane_id: "orch-1".into(),
-                reason: "planner pane gone".into(),
+                bound_tab_id: "orch-1".into(),
+                reason: "planner tab gone".into(),
             })
             .is_some()
         );
         assert!(planner_pairing_nudge_prefix(&PeerResolution::Planner {
-            pane_id: "p-1".into()
+            tab_id: "p-1".into()
         })
         .is_none());
         assert!(planner_pairing_nudge_prefix(&PeerResolution::Waived {
@@ -112,7 +112,7 @@ mod tests {
     #[test]
     fn spawn_cmd_hint_falls_back_to_placeholder_without_a_real_tab() {
         let hint = planner_spawn_cmd_hint(None, "PLAN_ID");
-        assert!(hint.contains("--parent <orch-pane>"));
+        assert!(hint.contains("--parent <orch-tab>"));
         assert!(hint.contains("--plan PLAN_ID"));
     }
 
@@ -126,21 +126,21 @@ mod tests {
     }
 
     #[test]
-    fn planner_label_names_the_bound_pane() {
+    fn planner_label_names_the_bound_tab() {
         let label = planner_peer_label(&PeerResolution::Planner {
-            pane_id: "pane_p".into(),
+            tab_id: "tab_p".into(),
         });
-        assert!(label.contains("pane_p"));
+        assert!(label.contains("tab_p"));
     }
 
     #[test]
     fn structure_nudge_fires_only_while_unapproved_and_not_waived() {
         let live = PeerResolution::Planner {
-            pane_id: "pane_p".into(),
+            tab_id: "tab_p".into(),
         };
         // Unapproved + bound planner → nudge names the planner.
         let n = planning_structure_nudge(PlanningState::Drafting, &live).unwrap();
-        assert!(n.contains("pane_p"));
+        assert!(n.contains("tab_p"));
         assert!(n.contains("delegate"));
         // Approved → silent (execution unlocked, structure owned).
         assert!(planning_structure_nudge(PlanningState::Approved, &live).is_none());

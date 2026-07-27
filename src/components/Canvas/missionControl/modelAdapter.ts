@@ -1,4 +1,4 @@
-import type { Pane } from "../../../lib/types";
+import type { Tab } from "../../../lib/types";
 import { displayTaskTitle } from "../planView/activeWork";
 import { isCompetitiveTask } from "../planView/competitionForTask";
 import { TaskStatus, type Plan, type Task } from "../types";
@@ -39,8 +39,8 @@ function taskHadRecentQaFail(task: Task): boolean {
   return kind.includes("refused") || kind.includes("qa_fail") || kind.includes("qa-fail");
 }
 
-function inferProvider(pane?: Pane): AgentProvider {
-  const t = (pane?.agent_type ?? "").toLowerCase();
+function inferProvider(tab?: Tab): AgentProvider {
+  const t = (tab?.agent_type ?? "").toLowerCase();
   if (t.includes("claude")) return "claude";
   if (t.includes("opencode")) return "opencode";
   return "codex";
@@ -78,15 +78,15 @@ function toMissionTask(
 
 function toMissionAgent(
   station: TaskStation,
-  panes: Record<string, Pane>,
+  tabs: Record<string, Tab>,
   laneId: string,
 ): MissionAgent | undefined {
   if (!station.presence) return undefined;
-  const pane = panes[station.presence.paneId];
+  const tab = tabs[station.presence.tabId];
   return {
-    id: station.presence.paneId,
+    id: station.presence.tabId,
     name: station.presence.label,
-    provider: inferProvider(pane),
+    provider: inferProvider(tab),
     state: stationState(station),
     laneId,
   };
@@ -95,11 +95,11 @@ function toMissionAgent(
 function laneKey(station: TaskStation): string {
   const branch = clean(station.task.lane?.branch);
   if (branch) return `branch:${branch}`;
-  const paneId =
-    station.presence?.paneId ??
-    clean(station.task.assigned_pane_id) ??
-    clean(station.task.lane?.pane_id);
-  if (paneId) return `pane:${paneId}`;
+  const tabId =
+    station.presence?.tabId ??
+    clean(station.task.assigned_tab_id) ??
+    clean(station.task.lane?.tab_id);
+  if (tabId) return `tab:${tabId}`;
   return `task:${station.task.id}`;
 }
 
@@ -121,7 +121,7 @@ function stationsInZone(model: MissionControlModel, key: MissionZoneKey): TaskSt
 
 function buildLanes(
   workStations: TaskStation[],
-  panes: Record<string, Pane>,
+  tabs: Record<string, Tab>,
   sectionTitleOf: (sectionId: string) => string | null,
 ): MissionLane[] {
   const byKey = new Map<string, { name: string; branch: string; stations: TaskStation[] }>();
@@ -143,7 +143,7 @@ function buildLanes(
   for (const [id, bucket] of byKey) {
     const tasks = bucket.stations.map((s) => toMissionTask(s, sectionTitleOf));
     const agents = bucket.stations
-      .map((s) => toMissionAgent(s, panes, id))
+      .map((s) => toMissionAgent(s, tabs, id))
       .filter((a): a is MissionAgent => a != null);
     const primary = bucket.stations[0];
     lanes.push({
@@ -246,14 +246,14 @@ export function missionControlHealth(snapshot: MissionControlSnapshot): {
 export interface ModelToSnapshotInput {
   plan: Plan;
   model: MissionControlModel;
-  panes?: Record<string, Pane>;
+  tabs?: Record<string, Tab>;
   sectionTitleOf?: (sectionId: string) => string | null;
 }
 
 export function modelToSnapshot({
   plan,
   model,
-  panes = {},
+  tabs = {},
   sectionTitleOf = () => null,
 }: ModelToSnapshotInput): MissionControlSnapshot {
   const titleOf = (sectionId: string) => sectionTitleOf(sectionId);
@@ -269,7 +269,7 @@ export function modelToSnapshot({
   const blocked = mapStations("blocked").filter((_, i) => blockedStations[i]?.task.status === TaskStatus.Blocked);
 
   const doneTasks = mapStations("done_shelf");
-  const lanes = buildLanes(stationsInZone(model, "work_floor"), panes, titleOf);
+  const lanes = buildLanes(stationsInZone(model, "work_floor"), tabs, titleOf);
   const goal = clean(plan.goal?.vector) ?? clean(plan.goal?.vision) ?? "";
 
   return {

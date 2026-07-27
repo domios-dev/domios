@@ -44,7 +44,7 @@ pub(in crate::service_plan) struct TaskAddExpectation {
     intent: Option<String>,
     parent_task_id: Option<String>,
     pub(in crate::service_plan) depends_on: Vec<String>,
-    assigned_pane_id: Option<String>,
+    assigned_tab_id: Option<String>,
     lane: TaskLaneMetadata,
     group: Option<String>,
     priority: TaskPriority,
@@ -90,7 +90,7 @@ impl PlanStore {
             intent: task.intent.clone(),
             parent_task_id: task.parent_task_id.clone(),
             depends_on: task.depends_on.clone(),
-            assigned_pane_id: task.assigned_pane_id.clone(),
+            assigned_tab_id: task.assigned_tab_id.clone(),
             lane: task.lane.clone(),
             group: task.group.clone(),
             priority: task.priority.clone(),
@@ -244,8 +244,8 @@ impl PlanStore {
         if task.depends_on != expected.depends_on {
             return Err(fail("depends_on"));
         }
-        if task.assigned_pane_id != expected.assigned_pane_id {
-            return Err(fail("assigned_pane_id"));
+        if task.assigned_tab_id != expected.assigned_tab_id {
+            return Err(fail("assigned_tab_id"));
         }
         if task.lane != expected.lane {
             return Err(fail("lane"));
@@ -424,10 +424,10 @@ impl PlanStore {
                 format!("{field} did not match for {}", task.id),
             )
         };
-        if let Some(value) = &expected.pane_id {
+        if let Some(value) = &expected.tab_id {
             let expected = normalized_lane_value(value);
-            if task.lane.pane_id != expected {
-                return Err(fail("lane.pane_id"));
+            if task.lane.tab_id != expected {
+                return Err(fail("lane.tab_id"));
             }
         }
         if let Some(value) = &expected.workspace_id {
@@ -479,10 +479,10 @@ impl PlanStore {
                 return Err(fail("lane.cleanup_hints"));
             }
         }
-        if let Some(value) = &expected.pane_id {
+        if let Some(value) = &expected.tab_id {
             let expected = normalized_lane_value(value);
-            if task.assigned_pane_id.is_none() && expected.is_some() {
-                return Err(fail("assigned_pane_id"));
+            if task.assigned_tab_id.is_none() && expected.is_some() {
+                return Err(fail("assigned_tab_id"));
             }
         }
         Ok(())
@@ -571,20 +571,20 @@ impl PlanStore {
         &self,
         plan_id: &str,
         task_id: &str,
-        pane: &str,
+        tab: &str,
         peer: Option<&str>,
     ) -> Result<(), PlanError> {
         let task = self.read_task_for_verification(plan_id, task_id)?;
-        if task.assigned_pane_id.as_deref() != Some(pane) {
+        if task.assigned_tab_id.as_deref() != Some(tab) {
             return Err(Self::task_readback_error(
                 "task_assign",
-                format!("assigned_pane_id did not match for {}", task.id),
+                format!("assigned_tab_id did not match for {}", task.id),
             ));
         }
-        if task.lane.pane_id.as_deref() != Some(pane) {
+        if task.lane.tab_id.as_deref() != Some(tab) {
             return Err(Self::task_readback_error(
                 "task_assign",
-                format!("lane.pane_id did not match for {}", task.id),
+                format!("lane.tab_id did not match for {}", task.id),
             ));
         }
         if task.peer.as_deref() != peer {
@@ -600,14 +600,14 @@ impl PlanStore {
         &self,
         plan_id: &str,
         task_id: &str,
-        pane_id: Option<&str>,
+        tab_id: Option<&str>,
         taken_by_role: Option<&str>,
     ) -> Result<(), PlanError> {
         let task = self.read_task_for_verification(plan_id, task_id)?;
-        if task.assigned_pane_id.as_deref() != pane_id {
+        if task.assigned_tab_id.as_deref() != tab_id {
             return Err(Self::task_readback_error(
                 "task_assignment",
-                format!("assigned_pane_id did not match for {}", task.id),
+                format!("assigned_tab_id did not match for {}", task.id),
             ));
         }
         if task.taken_by_role.as_deref() != taken_by_role {
@@ -616,7 +616,7 @@ impl PlanStore {
                 format!("taken_by_role did not match for {}", task.id),
             ));
         }
-        if pane_id.is_none() && task.peer.is_some() {
+        if tab_id.is_none() && task.peer.is_some() {
             return Err(Self::task_readback_error(
                 "task_assignment",
                 format!("peer was not cleared for {}", task.id),

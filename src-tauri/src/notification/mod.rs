@@ -17,7 +17,7 @@ pub fn notify(
     title: String,
     body: Option<String>,
     level: Option<String>,
-    pane_id: Option<String>,
+    tab_id: Option<String>,
     workspace_id: Option<String>,
 ) -> Result<String, String> {
     Ok(svc.create_notification_ext(
@@ -26,7 +26,7 @@ pub fn notify(
         level.as_deref(),
         None,
         None,
-        pane_id,
+        tab_id,
         workspace_id,
     ))
 }
@@ -34,10 +34,10 @@ pub fn notify(
 #[tauri::command]
 pub fn notify_agent_input_request(
     svc: State<'_, crate::service::ServiceState>,
-    pane_id: String,
+    tab_id: String,
     session_id: String,
 ) -> Result<String, String> {
-    svc.create_agent_input_request_notification(pane_id, session_id)
+    svc.create_agent_input_request_notification(tab_id, session_id)
 }
 
 /// List notifications, optionally filtered to unread only.

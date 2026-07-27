@@ -57,12 +57,12 @@ pub struct AgentIdentitySnapshot {
 #[serde(tag = "type")]
 pub enum SplitNodeSnapshot {
     Leaf {
-        pane_id: String,
+        tab_id: String,
         cwd: Option<String>,
-        /// Pane title.
+        /// Tab title.
         #[serde(skip_serializing_if = "Option::is_none", default)]
         title: Option<String>,
-        /// Short pane description shown as tab tooltip/subtitle.
+        /// Short tab description shown as tab tooltip/subtitle.
         #[serde(skip_serializing_if = "Option::is_none", default)]
         description: Option<String>,
         /// Title priority level.
@@ -71,7 +71,7 @@ pub enum SplitNodeSnapshot {
         #[serde(skip_serializing_if = "Option::is_none")]
         agent_type: Option<String>,
         /// Whether `agent_type` was set via explicit intent (spawn or typed launch
-        /// command). Locked panes ignore output-based detection. Defaults false
+        /// command). Locked tabs ignore output-based detection. Defaults false
         /// so legacy snapshots deserialize cleanly; restore code upgrades them
         /// in-place when an `agent_type` was present.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -90,22 +90,22 @@ pub enum SplitNodeSnapshot {
         /// Team membership id. `None` for teamless / legacy snapshots.
         #[serde(skip_serializing_if = "Option::is_none", default)]
         team_id: Option<String>,
-        /// Parent pane ID in hierarchy.
+        /// Parent tab ID in hierarchy.
         #[serde(skip_serializing_if = "Option::is_none", default)]
-        parent_pane_id: Option<String>,
-        /// Agent that ran `agent spawn` for this pane. Persisted so a restarted
+        parent_tab_id: Option<String>,
+        /// Agent that ran `agent spawn` for this tab. Persisted so a restarted
         /// orchestrator keeps its parent/child map and reports still route to
         /// the spawner even with no role parent. `None` for legacy snapshots.
         #[serde(skip_serializing_if = "Option::is_none", default)]
-        spawned_by_pane_id: Option<String>,
+        spawned_by_tab_id: Option<String>,
         /// Non-hierarchy report target (cron / mem worker). Persisted alongside
-        /// `spawned_by_pane_id` so report routing survives restart. `None` for
+        /// `spawned_by_tab_id` so report routing survives restart. `None` for
         /// legacy snapshots.
         #[serde(skip_serializing_if = "Option::is_none", default)]
-        report_target_pane_id: Option<String>,
+        report_target_tab_id: Option<String>,
         /// Paired mesh peer the report target lives on (remote worker). Persisted
         /// so a restarted remote worker still relays its reports back across the
-        /// mesh. `None` for local panes / legacy snapshots.
+        /// mesh. `None` for local tabs / legacy snapshots.
         #[serde(skip_serializing_if = "Option::is_none", default)]
         report_target_mesh_peer: Option<String>,
         /// Can spawn children.
@@ -114,7 +114,7 @@ pub enum SplitNodeSnapshot {
         /// Hierarchy depth (0=none, 1=orchestrator, 2=lead/worker, 3=worker).
         #[serde(default)]
         depth: u8,
-        /// Whether this pane should restore in Chat UI mode. `None` means
+        /// Whether this tab should restore in Chat UI mode. `None` means
         /// legacy snapshot from before this field existed.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         chat_view: Option<bool>,
@@ -124,7 +124,7 @@ pub enum SplitNodeSnapshot {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         auto_approve: bool,
         /// Model family on the live session. Persisted so resume re-applies it
-        /// instead of dropping the pane to the provider default.
+        /// instead of dropping the tab to the provider default.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         agent_session_model: Option<String>,
         /// Plan/task routing model before a dispatch override.
@@ -142,14 +142,14 @@ pub enum SplitNodeSnapshot {
         /// Provider runtime proved the actual model differs from the request.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model_identity_mismatch: Option<crate::multiplexer::types::ModelIdentityMismatch>,
-        /// chatBackend (shell) pane backing — persisted so the pane restores as a
+        /// chatBackend (shell) tab backing — persisted so the tab restores as a
         /// chatBackend (not a PTY) and can lazily re-open its plugin session on
-        /// first send. `None` for ordinary PTY panes.
+        /// first send. `None` for ordinary PTY tabs.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         chatbackend_plugin_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         chatbackend_session_id: Option<String>,
-        /// Watcher-mode machine state for chatBackend panes.
+        /// Watcher-mode machine state for chatBackend tabs.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         watcher: Option<crate::multiplexer::types::WatcherSpec>,
         #[serde(default, skip_serializing_if = "Option::is_none")]

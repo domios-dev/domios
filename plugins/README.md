@@ -157,7 +157,7 @@ interface ProviderPlugin {
 
   detect(sample: { bytes: string; title?: string }): boolean;
   parseLine(line: string): ProviderEvent[];
-  statusOf(event: ProviderEvent): PaneStatus | null;
+  statusOf(event: ProviderEvent): TabStatus | null;
   Renderer: (props: RendererProps) => ReactNode;
   actions: ProviderAction[];
 
@@ -306,7 +306,7 @@ Each plugin ships per-module tests in `tests/`:
 plugins/provider-claude/tests/
 ├── parser.test.ts    ← JSONL → ChatMessage conversion
 ├── detect.test.ts    ← title regex + PTY fingerprint + noise patterns
-├── status.test.ts    ← event → PaneStatus mapping
+├── status.test.ts    ← event → TabStatus mapping
 └── plugin.test.ts    ← ProviderPlugin contract surface (meta/parseLine/
                         actions/imageSend/titlePattern/noisePatterns)
 ```
@@ -396,7 +396,7 @@ plugins/
     │   ├── index.ts                    ← ProviderPlugin default export
     │   ├── detect.ts                   ← title regex + PTY fingerprint
     │   ├── parser.ts                   ← JSONL → ChatMessage parser
-    │   ├── status.ts                   ← event → PaneStatus mapping
+    │   ├── status.ts                   ← event → TabStatus mapping
     │   ├── renderer.tsx                ← React renderer
     │   └── MessageBubble.tsx           ← per-message component
     └── tests/

@@ -9,7 +9,7 @@ fn store_with_group() -> (TempDir, PlanStore, String, Vec<String>) {
     let mut plan = Plan::new(
         "Reflect plan".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("orch"),
+        OrchestratorRef::from_tab("orch"),
     );
     plan.task_groups = vec![TaskGroup {
         key: "wave-1".into(),
@@ -240,7 +240,7 @@ fn bounce_milestones_count_honestly_in_window_and_cadence() {
                 &pid,
                 BOUNCE_MILESTONE_KIND,
                 &format!("bounce {i}"),
-                crate::plan::AgentRef::from_pane("orch"),
+                crate::plan::AgentRef::from_tab("orch"),
                 10 + i,
             )
             .unwrap();

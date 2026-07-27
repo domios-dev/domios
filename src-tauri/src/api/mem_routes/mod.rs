@@ -172,8 +172,8 @@ mod actor_sanitizer_tests {
 }
 
 pub(super) fn emit_activity(state: &AppState, headers: &HeaderMap, op: &str, mem_ids: Vec<String>) {
-    let pane_id = headers
-        .get("x-codeterm-pane-id")
+    let tab_id = headers
+        .get("x-codeterm-tab-id")
         .and_then(|v| v.to_str().ok())
         .map(String::from);
     let worker_id = headers
@@ -192,7 +192,7 @@ pub(super) fn emit_activity(state: &AppState, headers: &HeaderMap, op: &str, mem
         mem_ids,
         source: MemActivitySource {
             kind,
-            pane_id,
+            tab_id,
             worker_id,
             agent_provider: None,
         },

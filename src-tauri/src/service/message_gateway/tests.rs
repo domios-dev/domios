@@ -30,12 +30,12 @@ impl FakeSeam {
 impl DeliverySeam for FakeSeam {
     fn deliver_enveloped(
         &self,
-        to_pane: &str,
+        to_tab: &str,
         envelope: MessageEnvelope,
         body: &str,
     ) -> Result<Delivery, String> {
         self.enveloped.borrow_mut().push((
-            to_pane.to_string(),
+            to_tab.to_string(),
             Messenger::pty_prefix(&envelope),
             body.to_string(),
         ));
@@ -45,24 +45,24 @@ impl DeliverySeam for FakeSeam {
         })
     }
 
-    fn deliver_text(&self, pane: &str, text: &str, enter: bool) -> Result<(), String> {
+    fn deliver_text(&self, tab: &str, text: &str, enter: bool) -> Result<(), String> {
         self.texts
             .borrow_mut()
-            .push((pane.to_string(), text.to_string(), enter));
+            .push((tab.to_string(), text.to_string(), enter));
         self.guard()
     }
 
-    fn deliver_batch(&self, pane: &str, batch: Vec<SendBatchItem>) -> Result<(), String> {
+    fn deliver_batch(&self, tab: &str, batch: Vec<SendBatchItem>) -> Result<(), String> {
         self.batches
             .borrow_mut()
-            .push((pane.to_string(), batch.len()));
+            .push((tab.to_string(), batch.len()));
         self.guard()
     }
 
-    fn deliver_keys(&self, pane: &str, text: &str, strokes: &[KeyStroke]) -> Result<(), String> {
+    fn deliver_keys(&self, tab: &str, text: &str, strokes: &[KeyStroke]) -> Result<(), String> {
         self.keys
             .borrow_mut()
-            .push((pane.to_string(), text.to_string(), strokes.to_vec()));
+            .push((tab.to_string(), text.to_string(), strokes.to_vec()));
         self.guard()
     }
 }
@@ -100,20 +100,20 @@ fn every_delivery_class_dispatches_optimistically() {
 fn worker_report_requirement_is_consumed_exactly_once() {
     let gateway = MessageGateway::new();
 
-    gateway.require_worker_report("worker-pane");
+    gateway.require_worker_report("worker-tab");
 
-    assert!(gateway.take_worker_report_requirement("worker-pane"));
-    assert!(!gateway.take_worker_report_requirement("worker-pane"));
+    assert!(gateway.take_worker_report_requirement("worker-tab"));
+    assert!(!gateway.take_worker_report_requirement("worker-tab"));
 }
 
 #[test]
 fn explicit_worker_report_clears_the_requirement() {
     let gateway = MessageGateway::new();
-    gateway.require_worker_report("worker-pane");
+    gateway.require_worker_report("worker-tab");
 
-    gateway.clear_worker_report_requirement("worker-pane");
+    gateway.clear_worker_report_requirement("worker-tab");
 
-    assert!(!gateway.take_worker_report_requirement("worker-pane"));
+    assert!(!gateway.take_worker_report_requirement("worker-tab"));
 }
 
 fn text_msg(target: &str, body: &str, key: Option<&str>) -> OutboundMessage {
@@ -134,7 +134,7 @@ fn text_msg(target: &str, body: &str, key: Option<&str>) -> OutboundMessage {
 fn enveloped_submit_forwards_envelope_and_body_byte_identical() {
     let gateway = MessageGateway::new();
     let fake = FakeSeam::default();
-    let envelope = MessageEnvelope::pane("Edison", "e8a0ac20");
+    let envelope = MessageEnvelope::tab("Edison", "e8a0ac20");
     let expected_prefix = Messenger::pty_prefix(&envelope);
 
     let msg = OutboundMessage {
@@ -145,7 +145,7 @@ fn enveloped_submit_forwards_envelope_and_body_byte_identical() {
         },
         envelope: Some(envelope.clone()),
         class: DeliveryClass::AgentTraffic,
-        origin: MessageOrigin::LocalPane,
+        origin: MessageOrigin::LocalTab,
         idempotency_key: None,
     };
 
@@ -219,7 +219,7 @@ fn keys_submit_forwards_strokes() {
         },
         envelope: None,
         class: DeliveryClass::RawKeys,
-        origin: MessageOrigin::LocalPane,
+        origin: MessageOrigin::LocalTab,
         idempotency_key: None,
     };
 
@@ -285,7 +285,7 @@ fn cached_error_replays_without_second_delivery() {
 }
 
 #[test]
-fn pane_not_found_and_delivered_unverified_are_distinct() {
+fn tab_not_found_and_delivered_unverified_are_distinct() {
     let gateway = MessageGateway::new();
 
     let not_found = gateway
@@ -294,7 +294,7 @@ fn pane_not_found_and_delivered_unverified_are_distinct() {
             text_msg("p9", "hi", None),
         )
         .unwrap_err();
-    assert!(matches!(not_found, DeliveryError::PaneNotFound { .. }));
+    assert!(matches!(not_found, DeliveryError::TabNotFound { .. }));
 
     let unverified = gateway
         .submit(
@@ -318,11 +318,11 @@ fn pane_not_found_and_delivered_unverified_are_distinct() {
 fn classify_maps_structural_markers() {
     assert!(matches!(
         classify("p", "Tab p not found or has no PTY".to_string()),
-        DeliveryError::PaneNotFound { .. }
+        DeliveryError::TabNotFound { .. }
     ));
     assert!(matches!(
         classify("p", "Tab p closed before PTY link".to_string()),
-        DeliveryError::PaneNotFound { .. }
+        DeliveryError::TabNotFound { .. }
     ));
     assert!(matches!(
         classify("p", "submit not confirmed after 5s".to_string()),

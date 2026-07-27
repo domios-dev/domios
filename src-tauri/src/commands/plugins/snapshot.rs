@@ -145,7 +145,7 @@ fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
         if let Some(default_model) = m.get("defaultModel") {
             obj.insert("default_model".into(), default_model.clone());
         }
-        // Doc surface for the detail pane: description/homepage strings + a bounded README markdown blob.
+        // Doc surface for the detail tab: description/homepage strings + a bounded README markdown blob.
         if let Some(desc) = m.get("description").and_then(|v| v.as_str()) {
             obj.insert("description".into(), serde_json::json!(desc));
         }

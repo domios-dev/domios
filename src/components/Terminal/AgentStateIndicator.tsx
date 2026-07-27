@@ -33,7 +33,7 @@ export interface AgentState {
   last_turn_summary?: string | null;
   phase?: string | null;
   elapsed_ms?: number | null;
-  /** Idle for long enough that the pane reads as dormant rather than just done. */
+  /** Idle for long enough that the tab reads as dormant rather than just done. */
   longIdle?: boolean;
 }
 
@@ -171,10 +171,10 @@ export function AgentStateIndicator({
   model?: string | null;
   className?: string;
   questionGeneration?: number | null;
-  /** Interrupt the working agent (PTY panes only). Renders a Stop control while
+  /** Interrupt the working agent (PTY tabs only). Renders a Stop control while
    *  working when provided. */
   onStop?: () => void;
-  /** Cancel a terminal-side question/picker (PTY panes only). */
+  /** Cancel a terminal-side question/picker (PTY tabs only). */
   onCancel?: () => void;
   /** Reveal the live terminal — the only place to answer a structural question
    *  that has no inline card. Renders an 'Open terminal' control while

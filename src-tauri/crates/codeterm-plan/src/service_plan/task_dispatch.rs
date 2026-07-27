@@ -8,7 +8,7 @@ impl PlanStore {
         &self,
         plan_id: &str,
         task_id: &str,
-        pane_id: &str,
+        tab_id: &str,
         executor_title: &str,
         mut lane: crate::plan::TaskLaneMetadata,
         now_ms: u64,
@@ -20,9 +20,9 @@ impl PlanStore {
                 .iter()
                 .position(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
-            lane.pane_id = Some(pane_id.to_string());
+            lane.tab_id = Some(tab_id.to_string());
             let lane_update = super::TaskLaneUpdate {
-                pane_id: Some(Some(pane_id.to_string())),
+                tab_id: Some(Some(tab_id.to_string())),
                 ..Default::default()
             };
             super::mutations::validate_task_status_transition_with_lane(
@@ -35,12 +35,12 @@ impl PlanStore {
             )?;
             let task = &mut plan.tasks[task_index];
             task.lane = normalize_lane_metadata(lane);
-            task.assigned_pane_id = Some(pane_id.to_string());
+            task.assigned_tab_id = Some(tab_id.to_string());
             task.taken_by_role = Some("worker".into());
             task.peer = None;
             let mut attempt = super::task_attempts::new_assignment_attempt(
                 task,
-                pane_id,
+                tab_id,
                 None,
                 Some("worker"),
                 now_ms,
@@ -69,9 +69,9 @@ impl PlanStore {
                 })?;
             if task.status != crate::plan::TaskStatus::InProgress
                 || task.status_label.as_deref() != Some("starting")
-                || task.assigned_pane_id.as_deref() != Some(pane_id)
-                || task.lane.pane_id.as_deref() != Some(pane_id)
-                || attempt.executor_pane_id != pane_id
+                || task.assigned_tab_id.as_deref() != Some(tab_id)
+                || task.lane.tab_id.as_deref() != Some(tab_id)
+                || attempt.executor_tab_id != tab_id
                 || attempt.executor_title.as_deref() != Some(executor_title)
                 || attempt.session_id.is_some()
             {
@@ -91,7 +91,7 @@ impl PlanStore {
         &self,
         plan_id: &str,
         task_id: &str,
-        pane_id: &str,
+        tab_id: &str,
         attempt_id: &str,
         session_id: &str,
         mut lane: crate::plan::TaskLaneMetadata,
@@ -103,23 +103,23 @@ impl PlanStore {
                 .iter_mut()
                 .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
-            if task.assigned_pane_id.as_deref() != Some(pane_id) {
+            if task.assigned_tab_id.as_deref() != Some(tab_id) {
                 return Err(Self::task_readback_error(
                     "task_dispatch_finish",
-                    "assigned pane changed before readiness",
+                    "assigned tab changed before readiness",
                 ));
             }
-            lane.pane_id = Some(pane_id.to_string());
+            lane.tab_id = Some(tab_id.to_string());
             task.lane = normalize_lane_metadata(lane);
             let attempt = task
                 .execution_attempts
                 .iter_mut()
                 .find(|attempt| attempt.id == attempt_id)
                 .ok_or(PlanError::TaskNotFound)?;
-            if attempt.executor_pane_id != pane_id || attempt.closed_at.is_some() {
+            if attempt.executor_tab_id != tab_id || attempt.closed_at.is_some() {
                 return Err(Self::task_readback_error(
                     "task_dispatch_finish",
-                    "starting attempt no longer owns the pane",
+                    "starting attempt no longer owns the tab",
                 ));
             }
             attempt.session_id = Some(session_id.to_string());
@@ -144,7 +144,7 @@ impl PlanStore {
                 })?;
             if task.status != crate::plan::TaskStatus::InProgress
                 || task.status_label.as_deref() == Some("starting")
-                || task.assigned_pane_id.as_deref() != Some(pane_id)
+                || task.assigned_tab_id.as_deref() != Some(tab_id)
                 || attempt.session_id.as_deref() != Some(session_id)
                 || attempt.worktree_path != task.lane.worktree_path
                 || attempt.branch != task.lane.branch
@@ -166,7 +166,7 @@ impl PlanStore {
         &self,
         plan_id: &str,
         task_id: &str,
-        pane_id: &str,
+        tab_id: &str,
         executor_title: &str,
         session_id: &str,
         mut lane: crate::plan::TaskLaneMetadata,
@@ -178,9 +178,9 @@ impl PlanStore {
                 .iter()
                 .position(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
-            lane.pane_id = Some(pane_id.to_string());
+            lane.tab_id = Some(tab_id.to_string());
             let lane_update = super::TaskLaneUpdate {
-                pane_id: Some(Some(pane_id.to_string())),
+                tab_id: Some(Some(tab_id.to_string())),
                 ..Default::default()
             };
             super::mutations::validate_task_status_transition_with_lane(
@@ -193,12 +193,12 @@ impl PlanStore {
             )?;
             let task = &mut plan.tasks[task_index];
             task.lane = normalize_lane_metadata(lane);
-            task.assigned_pane_id = Some(pane_id.to_string());
+            task.assigned_tab_id = Some(tab_id.to_string());
             task.taken_by_role = Some("worker".into());
             task.peer = None;
             let mut attempt = super::task_attempts::new_assignment_attempt(
                 task,
-                pane_id,
+                tab_id,
                 None,
                 Some("worker"),
                 now_ms,
@@ -219,9 +219,9 @@ impl PlanStore {
                 .last()
                 .ok_or_else(|| Self::task_readback_error("task_dispatch", "attempt missing"))?;
             if task.status != crate::plan::TaskStatus::InProgress
-                || task.assigned_pane_id.as_deref() != Some(pane_id)
-                || task.lane.pane_id.as_deref() != Some(pane_id)
-                || attempt.executor_pane_id != pane_id
+                || task.assigned_tab_id.as_deref() != Some(tab_id)
+                || task.lane.tab_id.as_deref() != Some(tab_id)
+                || attempt.executor_tab_id != tab_id
                 || attempt.executor_title.as_deref() != Some(executor_title)
                 || attempt.session_id.as_deref() != Some(session_id)
                 || attempt.worktree_path != task.lane.worktree_path

@@ -13,9 +13,9 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-const planWithPaneTask: Plan = {
+const planWithTabTask: Plan = {
   ...FIXTURE_PLAN,
-  tasks: [{ ...FIXTURE_TASK, assigned_pane_id: "pane-worker" }],
+  tasks: [{ ...FIXTURE_TASK, assigned_tab_id: "tab-worker" }],
 };
 
 test("task_id from POST /api/canvas/focus resolves to a focus target", () => {
@@ -36,35 +36,35 @@ test("legacy node_ids and plan_ids still work", () => {
   assert(ids.join() === "n1,plan-beta", `legacy ids merged, got ${ids.join()}`);
 });
 
-test("pane_id resolves to tasks assigned to that pane", () => {
-  const ids = resolveCanvasFocusNodeIds({ pane_id: "pane-worker" }, [planWithPaneTask]);
+test("tab_id resolves to tasks assigned to that tab", () => {
+  const ids = resolveCanvasFocusNodeIds({ tab_id: "tab-worker" }, [planWithTabTask]);
   assert(ids.length === 1 && ids[0] === "task-dante", `Tab assignment, got ${ids.join()}`);
 });
 
-test("pane_id resolves trimmed active bindings and ignores blank payloads", () => {
+test("tab_id resolves trimmed active bindings and ignores blank payloads", () => {
   const plan = {
     ...FIXTURE_PLAN,
-    tasks: [{ ...FIXTURE_TASK, assigned_pane_id: " pane-worker " }],
+    tasks: [{ ...FIXTURE_TASK, assigned_tab_id: " tab-worker " }],
   };
-  assert(resolveCanvasFocusNodeIds({ pane_id: " pane-worker " }, [plan]).join() === "task-dante", "trimmed Tab binding");
-  assert(resolveCanvasFocusNodeIds({ pane_id: " " }, [plan]).length === 0, "blank Tab payload ignored");
+  assert(resolveCanvasFocusNodeIds({ tab_id: " tab-worker " }, [plan]).join() === "task-dante", "trimmed Tab binding");
+  assert(resolveCanvasFocusNodeIds({ tab_id: " " }, [plan]).length === 0, "blank Tab payload ignored");
 });
 
-test("pane_id ignores terminal stale bindings", () => {
+test("tab_id ignores terminal stale bindings", () => {
   const plan = {
     ...FIXTURE_PLAN,
     tasks: [
-      { ...FIXTURE_TASK, id: "done", status: TaskStatus.Done, assigned_pane_id: "pane-worker" },
-      { ...FIXTURE_TASK, id: "cancelled", status: TaskStatus.Cancelled, assigned_pane_id: "pane-worker" },
+      { ...FIXTURE_TASK, id: "done", status: TaskStatus.Done, assigned_tab_id: "tab-worker" },
+      { ...FIXTURE_TASK, id: "cancelled", status: TaskStatus.Cancelled, assigned_tab_id: "tab-worker" },
     ],
   };
-  const ids = resolveCanvasFocusNodeIds({ pane_id: "pane-worker" }, [plan]);
+  const ids = resolveCanvasFocusNodeIds({ tab_id: "tab-worker" }, [plan]);
   assert(ids.length === 0, `terminal assignments ignored, got ${ids.join()}`);
 });
 
 test("null fields are ignored", () => {
   const ids = resolveCanvasFocusNodeIds(
-    { task_id: null, plan_id: null, pane_id: null },
+    { task_id: null, plan_id: null, tab_id: null },
     [FIXTURE_PLAN],
   );
   assert(ids.length === 0, `expected empty, got ${ids.join()}`);

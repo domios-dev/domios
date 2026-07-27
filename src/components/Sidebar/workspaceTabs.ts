@@ -1,103 +1,103 @@
-import type { Pane, Tab } from "../../lib/types";
+import type { Tab, Tab } from "../../lib/types";
 
 function sortByOrder<T extends { sort_order?: number }>(items: T[]): T[] {
   return [...items].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
 }
 
-export function isSidebarTabVisible(tab: Tab, panes: Record<string, Pane>): boolean {
-  const pane = panes[tab.pane_id];
-  return Boolean(pane) && pane.hidden !== true;
+export function isSidebarTabVisible(tab: Tab, tabs: Record<string, Tab>): boolean {
+  const tab = tabs[tab.tab_id];
+  return Boolean(tab) && tab.hidden !== true;
 }
 
-/** Pane ids that have a tab row in this workspace (regardless of visibility). */
-export function tabPaneIdsInWorkspace(tabs: Tab[]): Set<string> {
-  return new Set(tabs.map((t) => t.pane_id));
+/** Tab ids that have a tab row in this workspace (regardless of visibility). */
+export function tabTabIdsInWorkspace(tabs: Tab[]): Set<string> {
+  return new Set(tabs.map((t) => t.tab_id));
 }
 
-export function paneIdsInWorkspace(tabs: Tab[], panes: Record<string, Pane>): Set<string> {
+export function tabIdsInWorkspace(tabs: Tab[], tabs: Record<string, Tab>): Set<string> {
   const ids = new Set<string>();
   for (const tab of tabs) {
-    if (isSidebarTabVisible(tab, panes)) ids.add(tab.pane_id);
+    if (isSidebarTabVisible(tab, tabs)) ids.add(tab.tab_id);
   }
   return ids;
 }
 
-export function childPaneIdsInWorkspace(tabs: Tab[], panes: Record<string, Pane>): Set<string> {
+export function childTabIdsInWorkspace(tabs: Tab[], tabs: Record<string, Tab>): Set<string> {
   const sortedTabs = sortByOrder(tabs);
-  const tabPaneIds = tabPaneIdsInWorkspace(sortedTabs);
-  const visiblePaneIds = paneIdsInWorkspace(sortedTabs, panes);
-  const childPaneIds = new Set<string>();
+  const tabTabIds = tabTabIdsInWorkspace(sortedTabs);
+  const visibleTabIds = tabIdsInWorkspace(sortedTabs, tabs);
+  const childTabIds = new Set<string>();
   for (const tab of sortedTabs) {
-    if (!isSidebarTabVisible(tab, panes)) continue;
-    const pane = panes[tab.pane_id];
-    const parentId = pane?.parent_pane_id;
+    if (!isSidebarTabVisible(tab, tabs)) continue;
+    const tab = tabs[tab.tab_id];
+    const parentId = tab?.parent_tab_id;
     if (
       parentId &&
-      tabPaneIds.has(parentId) &&
-      visiblePaneIds.has(parentId)
+      tabTabIds.has(parentId) &&
+      visibleTabIds.has(parentId)
     ) {
-      childPaneIds.add(tab.pane_id);
+      childTabIds.add(tab.tab_id);
     }
   }
-  return childPaneIds;
+  return childTabIds;
 }
 
-function reachableNestedTabIds(tabs: Tab[], panes: Record<string, Pane>): Set<string> {
+function reachableNestedTabIds(tabs: Tab[], tabs: Record<string, Tab>): Set<string> {
   const sortedTabs = sortByOrder(tabs);
-  const childPaneIds = childPaneIdsInWorkspace(sortedTabs, panes);
+  const childTabIds = childTabIdsInWorkspace(sortedTabs, tabs);
   const reached = new Set<string>();
 
   const visit = (tab: Tab) => {
     if (reached.has(tab.id)) return;
     reached.add(tab.id);
-    const pane = panes[tab.pane_id];
-    if (!pane) return;
-    for (const child of childTabsForParent(sortedTabs, panes, pane.id)) {
+    const tab = tabs[tab.tab_id];
+    if (!tab) return;
+    for (const child of childTabsForParent(sortedTabs, tabs, tab.id)) {
       visit(child);
     }
   };
 
   for (const tab of sortedTabs) {
-    if (!isSidebarTabVisible(tab, panes)) continue;
-    if (childPaneIds.has(tab.pane_id)) continue;
+    if (!isSidebarTabVisible(tab, tabs)) continue;
+    if (childTabIds.has(tab.tab_id)) continue;
     visit(tab);
   }
   return reached;
 }
 
-export function topLevelTabsInWorkspace(tabs: Tab[], panes: Record<string, Pane>): Tab[] {
+export function topLevelTabsInWorkspace(tabs: Tab[], tabs: Record<string, Tab>): Tab[] {
   const sortedTabs = sortByOrder(tabs);
-  const childPaneIds = childPaneIdsInWorkspace(sortedTabs, panes);
-  const reached = reachableNestedTabIds(sortedTabs, panes);
+  const childTabIds = childTabIdsInWorkspace(sortedTabs, tabs);
+  const reached = reachableNestedTabIds(sortedTabs, tabs);
 
   return sortedTabs.filter((tab) => {
-    if (!isSidebarTabVisible(tab, panes)) return false;
-    if (!childPaneIds.has(tab.pane_id)) return true;
+    if (!isSidebarTabVisible(tab, tabs)) return false;
+    if (!childTabIds.has(tab.tab_id)) return true;
     return !reached.has(tab.id);
   });
 }
 
 export function childTabsForParent(
   tabs: Tab[],
-  panes: Record<string, Pane>,
-  parentPaneId: string,
+  tabs: Record<string, Tab>,
+  parentTabId: string,
 ): Tab[] {
   return sortByOrder(tabs).filter((tab) => {
-    if (!isSidebarTabVisible(tab, panes)) return false;
-    return panes[tab.pane_id]?.parent_pane_id === parentPaneId;
+    if (!isSidebarTabVisible(tab, tabs)) return false;
+    return tabs[tab.tab_id]?.parent_tab_id === parentTabId;
   });
 }
 
 /** Depth-first sidebar tab order (top-level roots, then nested children). */
-export function flattenSidebarTabs(tabs: Tab[], panes: Record<string, Pane>): Tab[] {
+export function flattenSidebarTabs(tabs: Tab[], tabs: Record<string, Tab>): Tab[] {
   const sortedTabs = sortByOrder(tabs);
-  const topLevel = topLevelTabsInWorkspace(sortedTabs, panes);
+  const topLevel = topLevelTabsInWorkspace(sortedTabs, tabs);
   const flat: Tab[] = [];
   const visit = (tab: Tab) => {
     flat.push(tab);
-    const pane = panes[tab.pane_id];
-    if (!pane) return;
-    for (const child of childTabsForParent(sortedTabs, panes, pane.id)) {
+    const tab = tabs[tab.tab_id];
+    if (!tab) return;
+    for (const child of childTabsForParent(sortedTabs, tabs, tab.id)) {
       visit(child);
     }
   };

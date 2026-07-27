@@ -2,7 +2,7 @@ use super::*;
 
 #[derive(Debug, Clone)]
 pub struct AgentLifecyclePlanChange {
-    pub pane_id: String,
+    pub tab_id: String,
     pub preserve_owned_plans: bool,
     pub preserve_task_bindings_for_owner: Option<String>,
     pub planner_binding: Option<(String, Option<PlannerRef>)>,
@@ -126,20 +126,20 @@ impl PlanStore {
         self.index
             .write()
             .insert(staged.id.clone(), Self::index_entry(staged, path));
-        self.reset_bound_panes(staged);
+        self.reset_bound_tabs(staged);
         Ok(())
     }
 }
 
 fn apply_change(plan: &mut Plan, change: &AgentLifecyclePlanChange, now_ms: u64) {
-    let pane_id = change.pane_id.as_str();
+    let tab_id = change.tab_id.as_str();
     let rebound_here = change
         .plan_rebind
         .as_ref()
         .is_some_and(|rebind| rebind.plan_id == plan.id);
     if !change.preserve_owned_plans
         && !rebound_here
-        && plan.owner.pane_id.as_deref() == Some(pane_id)
+        && plan.owner.tab_id.as_deref() == Some(tab_id)
     {
         plan.owner = OrchestratorRef::default();
         plan.team_id = None;
@@ -147,16 +147,16 @@ fn apply_change(plan: &mut Plan, change: &AgentLifecyclePlanChange, now_ms: u64)
         plan.status = PlanStatus::Archived;
     }
 
-    let planner_is_pane = matches!(
+    let planner_is_tab = matches!(
         &plan.planner,
-        Some(PlannerRef::Pane { pane_id: bound, .. }) if bound == pane_id
+        Some(PlannerRef::Tab { tab_id: bound, .. }) if bound == tab_id
     );
     let replacement_is_unchanged = change
         .planner_binding
         .as_ref()
         .filter(|(plan_id, _)| plan_id == &plan.id)
         .is_some_and(|(_, planner)| plan.planner == *planner);
-    if planner_is_pane && !replacement_is_unchanged {
+    if planner_is_tab && !replacement_is_unchanged {
         plan.planner = None;
         clear_planner_delivery_provenance(plan);
     }
@@ -164,15 +164,15 @@ fn apply_change(plan: &mut Plan, change: &AgentLifecyclePlanChange, now_ms: u64)
     let task_binding_remains_valid = change
         .preserve_task_bindings_for_owner
         .as_deref()
-        .is_some_and(|owner| plan.owner.pane_id.as_deref() == Some(owner));
+        .is_some_and(|owner| plan.owner.tab_id.as_deref() == Some(owner));
     if !task_binding_remains_valid {
         for task in &mut plan.tasks {
-            let assigned_here = task.assigned_pane_id.as_deref() == Some(pane_id)
-                || task.lane.pane_id.as_deref() == Some(pane_id);
+            let assigned_here = task.assigned_tab_id.as_deref() == Some(tab_id)
+                || task.lane.tab_id.as_deref() == Some(tab_id);
             if !assigned_here {
                 continue;
             }
-            let assigned = task.assigned_pane_id.clone();
+            let assigned = task.assigned_tab_id.clone();
             task_attempts::mark_task_assignment_closed(task, assigned.as_deref(), now_ms);
             clear_task_assignment(task);
             if task.status == TaskStatus::InProgress {
@@ -220,7 +220,7 @@ fn apply_change(plan: &mut Plan, change: &AgentLifecyclePlanChange, now_ms: u64)
 fn clear_planner_delivery_provenance(plan: &mut Plan) {
     for entry in &mut plan.planner_inbox {
         entry.phase = crate::plan::PlannerDeliveryPhase::PreSend;
-        entry.pane_id = None;
+        entry.tab_id = None;
         entry.session_id = None;
         entry.binding_nonce = None;
         entry.transport = None;
@@ -236,7 +236,7 @@ fn clear_planner_delivery_provenance(plan: &mut Plan) {
             request.accepted_at = None;
             request.lease_expires_at = None;
         }
-        request.delivered_to_pane_id = None;
+        request.delivered_to_tab_id = None;
         request.delivered_to_session_id = None;
         request.delivered_with_binding_nonce = None;
     }

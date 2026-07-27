@@ -1,9 +1,9 @@
 use super::*;
 use crate::session::store::{SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot};
 
-fn chatbackend_leaf(pane_id: &str, plugin_id: &str, session_id: &str) -> SplitNodeSnapshot {
+fn chatbackend_leaf(tab_id: &str, plugin_id: &str, session_id: &str) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
-        pane_id: pane_id.into(),
+        tab_id: tab_id.into(),
         cwd: None,
         title: Some("LM Studio".into()),
         description: None,
@@ -15,9 +15,9 @@ fn chatbackend_leaf(pane_id: &str, plugin_id: &str, session_id: &str) -> SplitNo
         role: None,
         role_profile: None,
         team_id: None,
-        parent_pane_id: None,
-        spawned_by_pane_id: None,
-        report_target_pane_id: None,
+        parent_tab_id: None,
+        spawned_by_tab_id: None,
+        report_target_tab_id: None,
         report_target_mesh_peer: None,
         can_spawn: false,
         depth: 0,
@@ -78,8 +78,8 @@ fn team_snapshot_roundtrip() {
 
     let (_t1, m1) = state.create_tab(&wsid).unwrap();
     let (_t2, m2) = state.create_tab(&wsid).unwrap();
-    state.get_pane_mut(&m1).unwrap().team_id = Some(team.id.clone());
-    state.get_pane_mut(&m2).unwrap().team_id = Some(team.id.clone());
+    state.get_tab_mut(&m1).unwrap().team_id = Some(team.id.clone());
+    state.get_tab_mut(&m2).unwrap().team_id = Some(team.id.clone());
 
     let snap = state.to_session_snapshot();
     let restored = MultiplexerState::from_session_snapshot(&snap);
@@ -91,12 +91,12 @@ fn team_snapshot_roundtrip() {
     );
     assert_eq!(restored.team_count(), 1, "exactly one team survives");
     assert_eq!(
-        restored.panes.get(&m1).unwrap().team_id.as_deref(),
+        restored.tabs.get(&m1).unwrap().team_id.as_deref(),
         Some("team_abc123"),
         "member Tab team_id must survive the round-trip"
     );
     assert_eq!(
-        restored.panes.get(&m2).unwrap().team_id.as_deref(),
+        restored.tabs.get(&m2).unwrap().team_id.as_deref(),
         Some("team_abc123"),
         "second member Tab team_id must survive too"
     );
@@ -108,7 +108,7 @@ fn pending_record_snapshot_round_trip() {
         DeliveryAttemptProvenance, PendingDeliveryChannel, PendingDeliveryRecord,
     };
 
-    let (mut state, pane_id) = MultiplexerState::new();
+    let (mut state, tab_id) = MultiplexerState::new();
     let mut pending = PendingDeliveryRecord::new(
         "e8b7be43c6c1de318beb5c4a99e5406d2d1861f55ad8c03b2b4591f8ac44d784".into(),
         PendingDeliveryChannel::InteractiveInput,
@@ -119,7 +119,7 @@ fn pending_record_snapshot_round_trip() {
             started_at_ms: 1_700_000_000_000,
         })
         .unwrap();
-    state.get_pane_mut(&pane_id).unwrap().pending_delivery = Some(pending);
+    state.get_tab_mut(&tab_id).unwrap().pending_delivery = Some(pending);
 
     let snapshot = state.to_session_snapshot();
     let before = serde_json::to_vec(&snapshot.workspaces[0].tabs[0].split_tree).unwrap();
@@ -132,12 +132,12 @@ fn pending_record_snapshot_round_trip() {
 
 #[test]
 fn pending_record_absent_round_trips_absent() {
-    let (state, pane_id) = MultiplexerState::new();
-    assert_eq!(state.get_pane(&pane_id).unwrap().pending_delivery, None);
+    let (state, tab_id) = MultiplexerState::new();
+    assert_eq!(state.get_tab(&tab_id).unwrap().pending_delivery, None);
 
     let snapshot = state.to_session_snapshot();
     let restored = MultiplexerState::from_session_snapshot(&snapshot);
-    assert_eq!(restored.get_pane(&pane_id).unwrap().pending_delivery, None);
+    assert_eq!(restored.get_tab(&tab_id).unwrap().pending_delivery, None);
 }
 
 #[test]
@@ -151,7 +151,7 @@ fn legacy_snapshot_without_field_deserializes() {
             "tabs": [{
                 "id": "tab",
                 "title": "tab",
-                "split_tree": { "type": "Leaf", "pane_id": "pane", "cwd": null }
+                "split_tree": { "type": "Leaf", "tab_id": "tab", "cwd": null }
             }],
             "active_tab_id": "tab"
         }],
@@ -160,7 +160,7 @@ fn legacy_snapshot_without_field_deserializes() {
     .unwrap();
 
     let restored = MultiplexerState::from_session_snapshot(&snapshot);
-    assert_eq!(restored.get_pane("pane").unwrap().pending_delivery, None);
+    assert_eq!(restored.get_tab("tab").unwrap().pending_delivery, None);
 }
 
 #[test]
@@ -170,7 +170,7 @@ fn manager_close_survives_snapshot_restore_without_resurrection() {
     let (mut state, root_id) = MultiplexerState::new();
     let workspace_id = state.list_workspaces()[0].id.clone();
     state
-        .set_pane_role(&root_id, AgentRole::Orchestrator, None)
+        .set_tab_role(&root_id, AgentRole::Orchestrator, None)
         .unwrap();
     let team_id = state
         .resolve_or_mint_team_for_parent(&root_id)
@@ -178,20 +178,20 @@ fn manager_close_survives_snapshot_restore_without_resurrection() {
         .team_id;
     let (_tab, manager_id) = state.create_tab(&workspace_id).unwrap();
     state
-        .set_pane_role(&manager_id, AgentRole::Manager, Some(&root_id))
+        .set_tab_role(&manager_id, AgentRole::Manager, Some(&root_id))
         .unwrap();
     let (_tab, worker_id) = state.create_tab(&workspace_id).unwrap();
     state
-        .set_pane_role(&worker_id, AgentRole::Worker, Some(&root_id))
+        .set_tab_role(&worker_id, AgentRole::Worker, Some(&root_id))
         .unwrap();
     state.repoint_parent(&worker_id, &manager_id);
 
-    state.close_pane(&manager_id).unwrap();
+    state.close_tab(&manager_id).unwrap();
     let restored = MultiplexerState::from_session_snapshot(&state.to_session_snapshot());
 
-    assert!(restored.get_pane(&manager_id).is_none());
-    let worker = restored.get_pane(&worker_id).expect("worker restores");
-    assert!(worker.parent_pane_id.is_none());
+    assert!(restored.get_tab(&manager_id).is_none());
+    let worker = restored.get_tab(&worker_id).expect("worker restores");
+    assert!(worker.parent_tab_id.is_none());
     assert_eq!(worker.team_id.as_deref(), Some(team_id.as_str()));
     assert!(restored.get_team(&team_id).is_some());
 }
@@ -205,12 +205,12 @@ fn snapshot_includes_teams() {
     let team = Team::new(&workspace_id, 1);
     let team_id = team.id.clone();
     state.upsert_team(team);
-    let (_tab_id, pane_id) = state.create_tab(&workspace_id).unwrap();
-    state.get_pane_mut(&pane_id).unwrap().team_id = Some(team_id.clone());
+    let (_tab_id, tab_id) = state.create_tab(&workspace_id).unwrap();
+    state.get_tab_mut(&tab_id).unwrap().team_id = Some(team_id.clone());
 
     let snapshot = serde_json::to_value(state.snapshot()).unwrap();
     assert_eq!(snapshot["teams"][0]["id"], team_id);
-    assert_eq!(snapshot["panes"][pane_id]["team_id"], team_id);
+    assert_eq!(snapshot["tabs"][tab_id]["team_id"], team_id);
 }
 
 #[test]
@@ -220,7 +220,7 @@ fn legacy_snapshot_no_team_fields_restores() {
     // snapshot, then prove it still restores cleanly and teamless.
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
-    let (_t, pane_id) = state.create_tab(&wsid).unwrap();
+    let (_t, tab_id) = state.create_tab(&wsid).unwrap();
 
     let snap = state.to_session_snapshot();
     let mut json = serde_json::to_value(&snap).unwrap();
@@ -241,11 +241,11 @@ fn legacy_snapshot_no_team_fields_restores() {
 
     assert_eq!(restored.team_count(), 0, "legacy snapshot mints no teams");
     assert!(
-        restored.panes.contains_key(&pane_id),
+        restored.tabs.contains_key(&tab_id),
         "legacy Tab must restore"
     );
     assert_eq!(
-        restored.panes.get(&pane_id).unwrap().team_id,
+        restored.tabs.get(&tab_id).unwrap().team_id,
         None,
         "legacy Tab restores teamless"
     );
@@ -257,7 +257,7 @@ fn watcher_spec_round_trips_through_snapshot() {
 
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
-    let (_, pane_id) = state.create_tab(&wsid).unwrap();
+    let (_, tab_id) = state.create_tab(&wsid).unwrap();
     let spec = WatcherSpec {
         charter: "Observe this orchestration.".into(),
         policy: WatcherPolicy::clamped(Some(90), Some(120), Some(2)),
@@ -268,13 +268,13 @@ fn watcher_spec_round_trips_through_snapshot() {
         last_status: Some("attention".into()),
         tick_inflight_since_ms: Some(1_700_000_000_100),
     };
-    state.get_pane_mut(&pane_id).unwrap().watcher = Some(spec.clone());
+    state.get_tab_mut(&tab_id).unwrap().watcher = Some(spec.clone());
 
     let snap = state.to_session_snapshot();
     let restored = MultiplexerState::from_session_snapshot(&snap);
-    let pane = restored.panes.get(&pane_id).expect("Tab restored");
+    let tab = restored.tabs.get(&tab_id).expect("Tab restored");
     assert_eq!(
-        pane.watcher,
+        tab.watcher,
         Some(spec.clone()),
         "WatcherSpec must survive session snapshot round-trip"
     );
@@ -282,7 +282,7 @@ fn watcher_spec_round_trips_through_snapshot() {
     let round = restored.to_session_snapshot();
     let again = MultiplexerState::from_session_snapshot(&round);
     assert_eq!(
-        again.panes.get(&pane_id).unwrap().watcher,
+        again.tabs.get(&tab_id).unwrap().watcher,
         Some(spec),
         "second round-trip must preserve WatcherSpec identically"
     );
@@ -292,18 +292,18 @@ fn watcher_spec_round_trips_through_snapshot() {
 fn chatbackend_backing_restores_from_snapshot() {
     let snap = snapshot_with(chatbackend_leaf("p1", "lmstudio", "sess-7"));
     let state = MultiplexerState::from_session_snapshot(&snap);
-    let pane = state.panes.get("p1").expect("Tab restored");
+    let tab = state.tabs.get("p1").expect("Tab restored");
     assert_eq!(
-        pane.backing,
-        PaneBacking::ChatBackend {
+        tab.backing,
+        TabBacking::ChatBackend {
             plugin_id: "lmstudio".into(),
             session_id: "sess-7".into(),
         },
         "restored as chatBackend, not Pty"
     );
     // never mounts a terminal — the "comes back as a terminal" guard.
-    assert!(pane.is_chat_backend(), "renders chat, not terminal");
-    assert!(pane.restored_from_snapshot, "marked for lazy re-open");
+    assert!(tab.is_chat_backend(), "renders chat, not terminal");
+    assert!(tab.restored_from_snapshot, "marked for lazy re-open");
 }
 
 #[test]
@@ -328,10 +328,10 @@ fn chatbackend_backing_round_trips_through_snapshot() {
 }
 
 #[test]
-fn pty_pane_round_trips_without_chatbackend_fields() {
+fn pty_tab_round_trips_without_chatbackend_fields() {
     // backing on round-trip.
     let leaf = SplitNodeSnapshot::Leaf {
-        pane_id: "p2".into(),
+        tab_id: "p2".into(),
         cwd: None,
         title: Some("claude".into()),
         description: None,
@@ -343,9 +343,9 @@ fn pty_pane_round_trips_without_chatbackend_fields() {
         role: None,
         role_profile: None,
         team_id: None,
-        parent_pane_id: None,
-        spawned_by_pane_id: None,
-        report_target_pane_id: None,
+        parent_tab_id: None,
+        spawned_by_tab_id: None,
+        report_target_tab_id: None,
         report_target_mesh_peer: None,
         can_spawn: false,
         depth: 0,
@@ -363,14 +363,14 @@ fn pty_pane_round_trips_without_chatbackend_fields() {
         pending_delivery: None,
     };
     let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
-    let pane = state.panes.get("p2").expect("Tab restored");
-    assert_eq!(pane.backing, PaneBacking::Pty);
+    let tab = state.tabs.get("p2").expect("Tab restored");
+    assert_eq!(tab.backing, TabBacking::Pty);
 }
 
 #[test]
-fn pane_description_round_trips_through_snapshot() {
+fn tab_description_round_trips_through_snapshot() {
     let leaf = SplitNodeSnapshot::Leaf {
-        pane_id: "p-desc".into(),
+        tab_id: "p-desc".into(),
         cwd: None,
         title: Some("Worker".into()),
         description: Some("running focused tests".into()),
@@ -382,9 +382,9 @@ fn pane_description_round_trips_through_snapshot() {
         role: Some("Worker".into()),
         role_profile: Some("planner".into()),
         team_id: None,
-        parent_pane_id: None,
-        spawned_by_pane_id: None,
-        report_target_pane_id: None,
+        parent_tab_id: None,
+        spawned_by_tab_id: None,
+        report_target_tab_id: None,
         report_target_mesh_peer: None,
         can_spawn: false,
         depth: 2,
@@ -402,9 +402,9 @@ fn pane_description_round_trips_through_snapshot() {
         pending_delivery: None,
     };
     let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
-    let pane = state.panes.get("p-desc").expect("Tab restored");
-    assert_eq!(pane.description.as_deref(), Some("running focused tests"));
-    assert_eq!(pane.role_profile.as_deref(), Some("planner"));
+    let tab = state.tabs.get("p-desc").expect("Tab restored");
+    assert_eq!(tab.description.as_deref(), Some("running focused tests"));
+    assert_eq!(tab.role_profile.as_deref(), Some("planner"));
     assert_eq!(
         state.workspaces[0].tabs[0].description.as_deref(),
         Some("running focused tests")
@@ -426,7 +426,7 @@ fn pane_description_round_trips_through_snapshot() {
 #[test]
 fn spawned_by_and_report_target_restore_intact_not_none() {
     let leaf = SplitNodeSnapshot::Leaf {
-        pane_id: "worker-1".into(),
+        tab_id: "worker-1".into(),
         cwd: None,
         title: Some("Worker".into()),
         description: None,
@@ -438,9 +438,9 @@ fn spawned_by_and_report_target_restore_intact_not_none() {
         role: Some("Worker".into()),
         role_profile: None,
         team_id: None,
-        parent_pane_id: Some("orch-1".into()),
-        spawned_by_pane_id: Some("spawner-1".into()),
-        report_target_pane_id: Some("target-1".into()),
+        parent_tab_id: Some("orch-1".into()),
+        spawned_by_tab_id: Some("spawner-1".into()),
+        report_target_tab_id: Some("target-1".into()),
         report_target_mesh_peer: None,
         can_spawn: false,
         depth: 2,
@@ -458,24 +458,24 @@ fn spawned_by_and_report_target_restore_intact_not_none() {
         pending_delivery: None,
     };
     let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
-    let pane = state.panes.get("worker-1").expect("Tab restored");
+    let tab = state.tabs.get("worker-1").expect("Tab restored");
     assert_eq!(
-        pane.spawned_by_pane_id.as_deref(),
+        tab.spawned_by_tab_id.as_deref(),
         Some("spawner-1"),
         "spawned_by must survive restore, not reset to None"
     );
     assert_eq!(
-        pane.report_target_pane_id.as_deref(),
+        tab.report_target_tab_id.as_deref(),
         Some("target-1"),
         "report_target must survive restore, not reset to None"
     );
-    assert_eq!(pane.parent_pane_id.as_deref(), Some("orch-1"));
+    assert_eq!(tab.parent_tab_id.as_deref(), Some("orch-1"));
 }
 
 #[test]
-fn legacy_tab_title_seeds_default_provider_pane_title() {
+fn legacy_tab_title_seeds_default_provider_tab_title() {
     let leaf = SplitNodeSnapshot::Leaf {
-        pane_id: "legacy-worker".into(),
+        tab_id: "legacy-worker".into(),
         cwd: None,
         title: Some("claude".into()),
         description: None,
@@ -487,9 +487,9 @@ fn legacy_tab_title_seeds_default_provider_pane_title() {
         role: Some("Worker".into()),
         role_profile: None,
         team_id: None,
-        parent_pane_id: None,
-        spawned_by_pane_id: None,
-        report_target_pane_id: None,
+        parent_tab_id: None,
+        spawned_by_tab_id: None,
+        report_target_tab_id: None,
         report_target_mesh_peer: None,
         can_spawn: false,
         depth: 2,
@@ -510,9 +510,9 @@ fn legacy_tab_title_seeds_default_provider_pane_title() {
     snap.workspaces[0].tabs[0].title = "Euler".into();
 
     let state = MultiplexerState::from_session_snapshot(&snap);
-    let pane = state.panes.get("legacy-worker").expect("Tab restored");
-    assert_eq!(pane.title, "Euler");
-    assert_eq!(pane.title_level, TitleLevel::Default);
+    let tab = state.tabs.get("legacy-worker").expect("Tab restored");
+    assert_eq!(tab.title, "Euler");
+    assert_eq!(tab.title_level, TitleLevel::Default);
 }
 
 #[test]
@@ -520,17 +520,17 @@ fn remote_report_target_round_trips_through_snapshot() {
     // restarted worker still relays its reports back across the mesh.
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
-    let (_tab, pane_id) = state.create_tab(&wsid).unwrap();
-    if let Some(p) = state.get_pane_mut(&pane_id) {
-        p.report_target_pane_id = Some("main".into());
+    let (_tab, tab_id) = state.create_tab(&wsid).unwrap();
+    if let Some(p) = state.get_tab_mut(&tab_id) {
+        p.report_target_tab_id = Some("main".into());
         p.report_target_mesh_peer = Some("Mac-Air".into());
     }
     let snap = state.to_session_snapshot();
     let restored = MultiplexerState::from_session_snapshot(&snap);
-    let pane = restored.panes.get(&pane_id).expect("Tab restored");
-    assert_eq!(pane.report_target_pane_id.as_deref(), Some("main"));
+    let tab = restored.tabs.get(&tab_id).expect("Tab restored");
+    assert_eq!(tab.report_target_tab_id.as_deref(), Some("main"));
     assert_eq!(
-        pane.report_target_mesh_peer.as_deref(),
+        tab.report_target_mesh_peer.as_deref(),
         Some("Mac-Air"),
         "remote report peer must survive restore"
     );
@@ -541,7 +541,7 @@ fn session_snapshot_no_longer_carries_closed_history() {
     // session snapshot must stay lean and not round-trip it.
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
-    let (tab_a, _pane_a) = state.create_tab(&wsid).unwrap();
+    let (tab_a, _tab_a) = state.create_tab(&wsid).unwrap();
     state.close_tab(&wsid, &tab_a).unwrap();
     assert_eq!(
         state.list_recently_closed(&wsid).len(),
@@ -557,81 +557,81 @@ fn session_snapshot_no_longer_carries_closed_history() {
     );
 }
 
-/// A chatBackend pane stays chatBackend after a save + restore cycle.
-/// `pane_chat_backing` returning `Some` is what gates the send path into the
+/// A chatBackend tab stays chatBackend after a save + restore cycle.
+/// `tab_chat_backing` returning `Some` is what gates the send path into the
 /// plugin route instead of the PTY route — this invariant must hold after
 /// /new triggers a snapshot re-save (simulated as a full round-trip here).
 #[test]
-fn chatbackend_pane_stays_chat_backend_after_snapshot_resave() {
-    // Start with a live chatBackend pane (simulates post-spawn state).
+fn chatbackend_tab_stays_chat_backend_after_snapshot_resave() {
+    // Start with a live chatBackend tab (simulates post-spawn state).
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
-    let (_, pane_id) = state.create_tab(&wsid).unwrap();
+    let (_, tab_id) = state.create_tab(&wsid).unwrap();
     {
-        let pane = state.get_pane_mut(&pane_id).unwrap();
-        pane.backing = PaneBacking::ChatBackend {
+        let tab = state.get_tab_mut(&tab_id).unwrap();
+        tab.backing = TabBacking::ChatBackend {
             plugin_id: "lmstudio".into(),
             session_id: "sess-abc".into(),
         };
-        pane.chat_view = true;
+        tab.chat_view = true;
     }
 
     // Save → restore (what happens after /new triggers the 30s save + restart).
     let snap = state.to_session_snapshot();
     let restored = MultiplexerState::from_session_snapshot(&snap);
-    let pane = restored.panes.get(&pane_id).expect("Tab survived restore");
+    let tab = restored.tabs.get(&tab_id).expect("Tab survived restore");
 
     // Backing must still be ChatBackend — not Pty — after the round-trip.
     assert!(
-        pane.is_chat_backend(),
-        "chatBackend pane must stay chatBackend after save+restore; \
-         pane_chat_backing() returns None when backing=Pty, causing the \
-         send path to mis-route to PTY and throw 'Pane has no PTY'"
+        tab.is_chat_backend(),
+        "chatBackend tab must stay chatBackend after save+restore; \
+         tab_chat_backing() returns None when backing=Pty, causing the \
+         send path to mis-route to PTY and throw 'Tab has no PTY'"
     );
     assert_eq!(
-        pane.backing,
-        PaneBacking::ChatBackend {
+        tab.backing,
+        TabBacking::ChatBackend {
             plugin_id: "lmstudio".into(),
             session_id: "sess-abc".into(),
         }
     );
     // Routing invariant: only a ChatBackend backing routes to the plugin.
-    // A Pty backing would fall through to ensure_pane_pty_for_send and fail.
-    let routes_to_plugin = matches!(pane.backing, PaneBacking::ChatBackend { .. });
+    // A Pty backing would fall through to ensure_tab_pty_for_send and fail.
+    let routes_to_plugin = matches!(tab.backing, TabBacking::ChatBackend { .. });
     assert!(routes_to_plugin, "send must route to plugin, not PTY path");
 }
 
 #[test]
 fn snapshot_with_status_mirrors_tracked_pty_status_only() {
-    use codeterm_types::pty::{PaneStatus, PaneStatusTracker};
+    use codeterm_types::pty::{TabStatus, TabStatusTracker};
 
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
-    let (_tab, waiting_pane) = state.create_tab(&wsid).unwrap();
-    let (_tab2, working_pane) = state.create_tab(&wsid).unwrap();
-    let (_tab3, untracked_pane) = state.create_tab(&wsid).unwrap();
-    state.get_pane_mut(&waiting_pane).unwrap().pty_id = Some("pty-waiting".into());
-    state.get_pane_mut(&working_pane).unwrap().pty_id = Some("pty-working".into());
-    state.get_pane_mut(&untracked_pane).unwrap().pty_id = Some("pty-untracked".into());
+    let (_tab, waiting_tab) = state.create_tab(&wsid).unwrap();
+    let (_tab2, working_tab) = state.create_tab(&wsid).unwrap();
+    let (_tab3, untracked_tab) = state.create_tab(&wsid).unwrap();
+    state.get_tab_mut(&waiting_tab).unwrap().pty_id = Some("pty-waiting".into());
+    state.get_tab_mut(&working_tab).unwrap().pty_id = Some("pty-working".into());
+    state.get_tab_mut(&untracked_tab).unwrap().pty_id = Some("pty-untracked".into());
 
-    let mut tracker = PaneStatusTracker::new();
+    let mut tracker = TabStatusTracker::new();
     tracker.update_output("pty-waiting", [1u8; 32]);
     tracker.set_waiting("pty-waiting");
     tracker.update_output("pty-working", [2u8; 32]);
 
     let snap = state.snapshot_with_status(&tracker);
     assert_eq!(
-        snap.pane_statuses.get(&waiting_pane),
-        Some(&PaneStatus::Waiting),
+        snap.tab_statuses.get(&waiting_tab),
+        Some(&TabStatus::Waiting),
         "tracked pending_prompt pty's status must be mirrored into the snapshot"
     );
     assert_eq!(
-        snap.pane_statuses.get(&working_pane),
-        Some(&PaneStatus::Working),
+        snap.tab_statuses.get(&working_tab),
+        Some(&TabStatus::Working),
         "tracked working pty's status must be mirrored into the snapshot too"
     );
     assert!(
-        !snap.pane_statuses.contains_key(&untracked_pane),
+        !snap.tab_statuses.contains_key(&untracked_tab),
         "a pty the tracker has never seen must be absent, not defaulted to Dead"
     );
 }
@@ -639,23 +639,23 @@ fn snapshot_with_status_mirrors_tracked_pty_status_only() {
 #[test]
 fn snapshot_status_resolver_distinguishes_repaint_from_long_turn() {
     use codeterm_types::pty::{
-        reconcile_status, BootStage, PaneStatus, PaneStatusTracker, PaneVerdict, TimelineState,
+        reconcile_status, BootStage, TabStatus, TabStatusTracker, TabVerdict, TimelineState,
     };
 
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
-    let (_tab, idle_pane) = state.create_tab(&wsid).unwrap();
-    let (_tab2, working_pane) = state.create_tab(&wsid).unwrap();
-    for (pane_id, pty_id, agent_state) in [
-        (&idle_pane, "pty-idle", TimelineState::Idle),
-        (&working_pane, "pty-working", TimelineState::Working),
+    let (_tab, idle_tab) = state.create_tab(&wsid).unwrap();
+    let (_tab2, working_tab) = state.create_tab(&wsid).unwrap();
+    for (tab_id, pty_id, agent_state) in [
+        (&idle_tab, "pty-idle", TimelineState::Idle),
+        (&working_tab, "pty-working", TimelineState::Working),
     ] {
-        let pane = state.get_pane_mut(pane_id).unwrap();
-        pane.pty_id = Some(pty_id.into());
-        pane.agent_type = Some("fixture".into());
-        pane.boot_stage = Some(BootStage::AgentReady);
-        pane.agent_state = Some(
-            PaneVerdict {
+        let tab = state.get_tab_mut(tab_id).unwrap();
+        tab.pty_id = Some(pty_id.into());
+        tab.agent_type = Some("fixture".into());
+        tab.boot_stage = Some(BootStage::AgentReady);
+        tab.agent_state = Some(
+            TabVerdict {
                 state: agent_state,
                 subtype: None,
             }
@@ -663,23 +663,23 @@ fn snapshot_status_resolver_distinguishes_repaint_from_long_turn() {
         );
     }
 
-    let mut tracker = PaneStatusTracker::new();
+    let mut tracker = TabStatusTracker::new();
     tracker.update_output("pty-idle", [1u8; 32]);
     tracker.update_output("pty-working", [2u8; 32]);
 
-    let snap = state.snapshot_with_status_resolver(&tracker, |pane, raw| {
+    let snap = state.snapshot_with_status_resolver(&tracker, |tab, raw| {
         reconcile_status(
             raw,
-            pane.boot_stage,
-            pane.agent_state.as_ref().map(|state| state.state),
+            tab.boot_stage,
+            tab.agent_state.as_ref().map(|state| state.state),
             true,
-            pane.pending_prompt.is_some(),
+            tab.pending_prompt.is_some(),
         )
     });
-    assert_eq!(snap.pane_statuses.get(&idle_pane), Some(&PaneStatus::Idle));
+    assert_eq!(snap.tab_statuses.get(&idle_tab), Some(&TabStatus::Idle));
     assert_eq!(
-        snap.pane_statuses.get(&working_pane),
-        Some(&PaneStatus::Working)
+        snap.tab_statuses.get(&working_tab),
+        Some(&TabStatus::Working)
     );
 }
 
@@ -699,43 +699,43 @@ fn test_pending_prompt() -> crate::multiplexer::types::PendingPrompt {
 
 #[test]
 fn snapshot_with_status_derives_waiting_from_pending_prompt_over_working() {
-    use codeterm_types::pty::{PaneStatus, PaneStatusTracker};
+    use codeterm_types::pty::{TabStatus, TabStatusTracker};
 
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
-    let (_tab, pane_id) = state.create_tab(&wsid).unwrap();
+    let (_tab, tab_id) = state.create_tab(&wsid).unwrap();
     {
-        let pane = state.get_pane_mut(&pane_id).unwrap();
-        pane.pty_id = Some("pty-prompted".into());
-        pane.pending_prompt = Some(test_pending_prompt());
+        let tab = state.get_tab_mut(&tab_id).unwrap();
+        tab.pty_id = Some("pty-prompted".into());
+        tab.pending_prompt = Some(test_pending_prompt());
     }
 
-    let mut tracker = PaneStatusTracker::new();
+    let mut tracker = TabStatusTracker::new();
     tracker.update_output("pty-prompted", [3u8; 32]);
-    assert_eq!(tracker.get_status("pty-prompted"), PaneStatus::Working);
+    assert_eq!(tracker.get_status("pty-prompted"), TabStatus::Working);
 
     let snap = state.snapshot_with_status(&tracker);
     assert_eq!(
-        snap.pane_statuses.get(&pane_id),
-        Some(&PaneStatus::Waiting),
+        snap.tab_statuses.get(&tab_id),
+        Some(&TabStatus::Waiting),
         "pending_prompt must win over a raw Working tracker status in the snapshot"
     );
 }
 
 #[test]
 fn snapshot_with_status_derives_waiting_from_pending_prompt_when_untracked() {
-    use codeterm_types::pty::{PaneStatus, PaneStatusTracker};
+    use codeterm_types::pty::{TabStatus, TabStatusTracker};
 
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
-    let (_tab, pane_id) = state.create_tab(&wsid).unwrap();
-    state.get_pane_mut(&pane_id).unwrap().pending_prompt = Some(test_pending_prompt());
+    let (_tab, tab_id) = state.create_tab(&wsid).unwrap();
+    state.get_tab_mut(&tab_id).unwrap().pending_prompt = Some(test_pending_prompt());
 
-    let tracker = PaneStatusTracker::new();
+    let tracker = TabStatusTracker::new();
     let snap = state.snapshot_with_status(&tracker);
     assert_eq!(
-        snap.pane_statuses.get(&pane_id),
-        Some(&PaneStatus::Waiting),
+        snap.tab_statuses.get(&tab_id),
+        Some(&TabStatus::Waiting),
         "untracked/no-pty Tab with a pending_prompt must still hydrate as Waiting"
     );
 }
@@ -743,25 +743,25 @@ fn snapshot_with_status_derives_waiting_from_pending_prompt_when_untracked() {
 #[test]
 fn snapshot_with_status_keeps_dead_over_stale_pending_prompt() {
     // pending_prompt that never got cleared on exit — Dead is terminal.
-    use codeterm_types::pty::{PaneStatus, PaneStatusTracker};
+    use codeterm_types::pty::{TabStatus, TabStatusTracker};
 
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
-    let (_tab, pane_id) = state.create_tab(&wsid).unwrap();
+    let (_tab, tab_id) = state.create_tab(&wsid).unwrap();
     {
-        let pane = state.get_pane_mut(&pane_id).unwrap();
-        pane.pty_id = Some("pty-dead".into());
-        pane.pending_prompt = Some(test_pending_prompt());
+        let tab = state.get_tab_mut(&tab_id).unwrap();
+        tab.pty_id = Some("pty-dead".into());
+        tab.pending_prompt = Some(test_pending_prompt());
     }
 
-    let mut tracker = PaneStatusTracker::new();
+    let mut tracker = TabStatusTracker::new();
     tracker.update_output("pty-dead", [4u8; 32]);
     tracker.set_dead("pty-dead");
 
     let snap = state.snapshot_with_status(&tracker);
     assert_eq!(
-        snap.pane_statuses.get(&pane_id),
-        Some(&PaneStatus::Dead),
+        snap.tab_statuses.get(&tab_id),
+        Some(&TabStatus::Dead),
         "a confirmed-dead pty must stay Dead even with a stale pending_prompt"
     );
 }
@@ -770,7 +770,7 @@ fn snapshot_with_status_keeps_dead_over_stale_pending_prompt() {
 fn spawned_by_round_trips_through_snapshot() {
     // state → snapshot → state preserves the hierarchy linkage fields.
     let leaf = SplitNodeSnapshot::Leaf {
-        pane_id: "w".into(),
+        tab_id: "w".into(),
         cwd: None,
         title: Some("Worker".into()),
         description: None,
@@ -782,9 +782,9 @@ fn spawned_by_round_trips_through_snapshot() {
         role: Some("Worker".into()),
         role_profile: None,
         team_id: None,
-        parent_pane_id: Some("orch".into()),
-        spawned_by_pane_id: Some("spawner".into()),
-        report_target_pane_id: None,
+        parent_tab_id: Some("orch".into()),
+        spawned_by_tab_id: Some("spawner".into()),
+        report_target_tab_id: None,
         report_target_mesh_peer: None,
         can_spawn: false,
         depth: 2,
@@ -805,12 +805,12 @@ fn spawned_by_round_trips_through_snapshot() {
     let round = state.to_session_snapshot();
     match &round.workspaces[0].tabs[0].split_tree {
         SplitNodeSnapshot::Leaf {
-            spawned_by_pane_id,
-            report_target_pane_id,
+            spawned_by_tab_id,
+            report_target_tab_id,
             ..
         } => {
-            assert_eq!(spawned_by_pane_id.as_deref(), Some("spawner"));
-            assert_eq!(report_target_pane_id.as_deref(), None);
+            assert_eq!(spawned_by_tab_id.as_deref(), Some("spawner"));
+            assert_eq!(report_target_tab_id.as_deref(), None);
         }
         _ => panic!("expected a leaf"),
     }
@@ -820,7 +820,7 @@ fn spawned_by_round_trips_through_snapshot() {
 fn requested_and_actual_model_identity_round_trips_through_snapshot() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
-    let (_, pane_id) = state.create_tab(&wsid).unwrap();
+    let (_, tab_id) = state.create_tab(&wsid).unwrap();
     let mismatch = crate::multiplexer::types::ModelIdentityMismatch {
         planned_model: Some("codex/gpt-5.6-luna".into()),
         requested_model: "gpt-5.6-luna".into(),
@@ -836,46 +836,46 @@ fn requested_and_actual_model_identity_round_trips_through_snapshot() {
         reason: "runtime_session_model_mismatch".into(),
     };
     {
-        let pane = state.get_pane_mut(&pane_id).unwrap();
-        pane.agent_type = Some("codex".into());
-        pane.agent_session_model = Some("gpt-5.6-terra".into());
-        pane.agent_planned_model = Some("codex/gpt-5.6-luna".into());
-        pane.agent_requested_model = Some("gpt-5.6-luna".into());
-        pane.agent_provider_resolved_model = Some("gpt-5.6-luna".into());
-        pane.model_fallback = Some(fallback.clone());
-        pane.model_identity_mismatch = Some(mismatch.clone());
+        let tab = state.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("codex".into());
+        tab.agent_session_model = Some("gpt-5.6-terra".into());
+        tab.agent_planned_model = Some("codex/gpt-5.6-luna".into());
+        tab.agent_requested_model = Some("gpt-5.6-luna".into());
+        tab.agent_provider_resolved_model = Some("gpt-5.6-luna".into());
+        tab.model_fallback = Some(fallback.clone());
+        tab.model_identity_mismatch = Some(mismatch.clone());
     }
 
     let snap = state.to_session_snapshot();
     let restored = MultiplexerState::from_session_snapshot(&snap);
-    let pane = restored.panes.get(&pane_id).expect("Tab restored");
+    let tab = restored.tabs.get(&tab_id).expect("Tab restored");
 
-    assert_eq!(pane.agent_session_model.as_deref(), Some("gpt-5.6-terra"));
+    assert_eq!(tab.agent_session_model.as_deref(), Some("gpt-5.6-terra"));
     assert_eq!(
-        pane.agent_planned_model.as_deref(),
+        tab.agent_planned_model.as_deref(),
         Some("codex/gpt-5.6-luna")
     );
-    assert_eq!(pane.agent_requested_model.as_deref(), Some("gpt-5.6-luna"));
+    assert_eq!(tab.agent_requested_model.as_deref(), Some("gpt-5.6-luna"));
     assert_eq!(
-        pane.agent_provider_resolved_model.as_deref(),
+        tab.agent_provider_resolved_model.as_deref(),
         Some("gpt-5.6-luna")
     );
-    assert_eq!(pane.model_fallback, Some(fallback));
-    assert_eq!(pane.model_identity_mismatch, Some(mismatch));
+    assert_eq!(tab.model_fallback, Some(fallback));
+    assert_eq!(tab.model_identity_mismatch, Some(mismatch));
 }
 
-// ── Ghost-pane repro harness ───────────────────────────────────────────────
+// ── Ghost-tab repro harness ───────────────────────────────────────────────
 
-/// Repro: a pane marked skip_snapshot (first-run picker or any ephemeral
-/// onboarding pane) must be absent from the serialised session snapshot.
+/// Repro: a tab marked skip_snapshot (first-run picker or any ephemeral
+/// onboarding tab) must be absent from the serialised session snapshot.
 /// Without the fix this test fails — the tab IS included, then restores as
 /// a ghost after a daemon restart.
 #[test]
-fn ghost_repro_skip_snapshot_pane_excluded_from_snapshot() {
+fn ghost_repro_skip_snapshot_tab_excluded_from_snapshot() {
     let mut state = MultiplexerState::empty();
     let wsid = state.create_workspace("Test".to_string(), None).id;
-    let (_tab, pane_id) = state.create_tab(&wsid).unwrap();
-    state.get_pane_mut(&pane_id).unwrap().skip_snapshot = true;
+    let (_tab, tab_id) = state.create_tab(&wsid).unwrap();
+    state.get_tab_mut(&tab_id).unwrap().skip_snapshot = true;
 
     let snap = state.to_session_snapshot();
     assert_eq!(
@@ -886,14 +886,14 @@ fn ghost_repro_skip_snapshot_pane_excluded_from_snapshot() {
     );
 }
 
-/// Happy path: a regular (non-ephemeral) pane must survive the round-trip
-/// and not be accidentally dropped by the ghost-pane fix.
+/// Happy path: a regular (non-ephemeral) tab must survive the round-trip
+/// and not be accidentally dropped by the ghost-tab fix.
 #[test]
-fn ghost_repro_normal_pane_survives_snapshot_round_trip() {
+fn ghost_repro_normal_tab_survives_snapshot_round_trip() {
     let mut state = MultiplexerState::empty();
     let wsid = state.create_workspace("Test".to_string(), None).id;
-    let (_tab, pane_id) = state.create_tab(&wsid).unwrap();
-    state.get_pane_mut(&pane_id).unwrap().title = "My session".to_string();
+    let (_tab, tab_id) = state.create_tab(&wsid).unwrap();
+    state.get_tab_mut(&tab_id).unwrap().title = "My session".to_string();
     // skip_snapshot defaults to false
 
     let snap = state.to_session_snapshot();
@@ -905,22 +905,22 @@ fn ghost_repro_normal_pane_survives_snapshot_round_trip() {
 
     let restored = MultiplexerState::from_session_snapshot(&snap);
     assert!(
-        restored.panes.contains_key(&pane_id),
+        restored.tabs.contains_key(&tab_id),
         "restored state must include the regular Tab"
     );
 }
 
-/// Mixed workspace: only the ephemeral pane is dropped; the real pane survives.
+/// Mixed workspace: only the ephemeral tab is dropped; the real tab survives.
 #[test]
 fn ghost_repro_mixed_workspace_drops_only_ephemeral() {
     let mut state = MultiplexerState::empty();
     let wsid = state.create_workspace("Test".to_string(), None).id;
 
-    let (_tab_real, pane_real) = state.create_tab(&wsid).unwrap();
-    state.get_pane_mut(&pane_real).unwrap().title = "Real session".to_string();
+    let (_tab_real, tab_real) = state.create_tab(&wsid).unwrap();
+    state.get_tab_mut(&tab_real).unwrap().title = "Real session".to_string();
 
-    let (_tab_picker, pane_picker) = state.create_tab(&wsid).unwrap();
-    state.get_pane_mut(&pane_picker).unwrap().skip_snapshot = true;
+    let (_tab_picker, tab_picker) = state.create_tab(&wsid).unwrap();
+    state.get_tab_mut(&tab_picker).unwrap().skip_snapshot = true;
 
     let snap = state.to_session_snapshot();
     assert_eq!(
@@ -930,8 +930,8 @@ fn ghost_repro_mixed_workspace_drops_only_ephemeral() {
     );
     let surviving_leaf = &snap.workspaces[0].tabs[0].split_tree;
     match surviving_leaf {
-        crate::session::store::SplitNodeSnapshot::Leaf { pane_id, .. } => {
-            assert_eq!(pane_id, &pane_real, "surviving tab must be the real Tab");
+        crate::session::store::SplitNodeSnapshot::Leaf { tab_id, .. } => {
+            assert_eq!(tab_id, &tab_real, "surviving tab must be the real Tab");
         }
         _ => panic!("expected a leaf"),
     }
@@ -941,25 +941,25 @@ fn ghost_repro_mixed_workspace_drops_only_ephemeral() {
 fn snapshots_exclude_orphaned_and_duplicate_live_tabs() {
     let mut state = MultiplexerState::empty();
     let workspace_id = state.create_workspace("Clean".to_string(), None).id;
-    let (tab_id, pane_id) = state.create_tab(&workspace_id).unwrap();
+    let (tab_id, tab_id) = state.create_tab(&workspace_id).unwrap();
     let workspace = state
         .workspaces
         .iter_mut()
         .find(|workspace| workspace.id == workspace_id)
         .unwrap();
     workspace.tabs.push(crate::multiplexer::types::Tab {
-        id: "duplicate-pane".to_string(),
+        id: "duplicate-tab".to_string(),
         description: None,
-        pane_id: pane_id.clone(),
+        tab_id: tab_id.clone(),
         sort_order: 1,
     });
     workspace.tabs.push(crate::multiplexer::types::Tab {
-        id: "orphaned-pane".to_string(),
+        id: "orphaned-tab".to_string(),
         description: None,
-        pane_id: "closed-pane".to_string(),
+        tab_id: "closed-tab".to_string(),
         sort_order: 2,
     });
-    workspace.active_tab_id = Some("orphaned-pane".to_string());
+    workspace.active_tab_id = Some("orphaned-tab".to_string());
 
     let live = state.snapshot();
     assert_eq!(live.workspaces[0].tabs.len(), 1);

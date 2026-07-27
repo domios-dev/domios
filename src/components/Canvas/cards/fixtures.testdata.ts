@@ -39,7 +39,7 @@ export const FIXTURE_TASK: Task = {
   body: "Implement the **login** endpoint.",
   intent: null,
   parent_task_id: null,
-  assigned_pane_id: null,
+  assigned_tab_id: null,
   peer: null,
   tags: ["area:nav", "pan-zoom"],
   canvas: emptyCanvas,
@@ -48,7 +48,7 @@ export const FIXTURE_TASK: Task = {
 
 export const FIXTURE_MILESTONE: Milestone = {
   id: "ms-1",
-  from: { pane_id: "p1", session_id: null, title: "Worker" },
+  from: { tab_id: "p1", session_id: null, title: "Worker" },
   kind: "status_update",
   text: "Initial scaffold **landed**.",
   ts: 1_700_000_000_000,
@@ -61,7 +61,7 @@ export const FIXTURE_MILESTONE: Milestone = {
 export const FIXTURE_DRIFT: DriftItem = {
   task_id: "task-dante",
   plan_id: "plan-alpha",
-  kind: "in_progress_pane_gone",
+  kind: "in_progress_tab_gone",
   detail: "Task is in progress but the worker Tab is gone.",
   suggested_fix: "Move it back to pending or spawn a replacement worker.",
   not_mine: false,
@@ -69,7 +69,7 @@ export const FIXTURE_DRIFT: DriftItem = {
 
 export const FIXTURE_NOT_MINE_DRIFT: DriftItem = {
   ...FIXTURE_DRIFT,
-  kind: "bound_to_closed_pane",
+  kind: "bound_to_closed_tab",
   detail: "Task is bound to a closed Tab owned by another orchestrator.",
   suggested_fix: "Ask that orchestrator to reconcile the task.",
   not_mine: true,
@@ -80,7 +80,7 @@ export const FIXTURE_PLAN: Plan = {
   title: "Auth rollout",
   sections: [FIXTURE_SECTION],
   status: "active",
-  owner: { pane_id: "orch-1", session_id: "sess-1", title: "Orchestrator" },
+  owner: { tab_id: "orch-1", session_id: "sess-1", title: "Orchestrator" },
   project_path: "/tmp/project",
   created_at: 1_700_000_000_000,
   updated_at: 1_700_000_100_000,

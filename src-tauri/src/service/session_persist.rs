@@ -112,10 +112,10 @@ mod tests {
         let store = Arc::new(Mutex::new(test_store(&dir)));
         let mux: MuxState = Arc::new(TimedRwLock::new("mux", MultiplexerState::empty()));
         let ws = mux.write().create_workspace("ws".to_string(), None);
-        let (tab_id, _pane_id) = mux.write().create_tab(&ws.id).unwrap();
+        let (tab_id, _tab_id) = mux.write().create_tab(&ws.id).unwrap();
 
         mux.write()
-            .rename_tab(&ws.id, &tab_id, "renamed-pane")
+            .rename_tab(&ws.id, &tab_id, "renamed-tab")
             .unwrap();
         let snapshot = mux.read().to_session_snapshot();
         store.lock().save(&snapshot).unwrap();
@@ -123,6 +123,6 @@ mod tests {
         let loaded = store.lock().load_last().unwrap().expect("snapshot on disk");
         let ws_snap = loaded.workspaces.iter().find(|w| w.id == ws.id).unwrap();
         let tab = ws_snap.tabs.iter().find(|t| t.id == tab_id).unwrap();
-        assert_eq!(tab.title, "renamed-pane");
+        assert_eq!(tab.title, "renamed-tab");
     }
 }

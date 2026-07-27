@@ -54,7 +54,7 @@ interface StartResult {
 type StartFactory = (subscriptionId: string) => Promise<StartResult> | StartResult;
 type ChatHandler = (event: {
   payload: {
-    pane_id: string;
+    tab_id: string;
     messages: NormalizedChatMessage[];
     source_session_id: string | null;
     session_binding_nonce: string | null;
@@ -115,11 +115,11 @@ class FakeChatServer {
     messages: NormalizedChatMessage[],
     sourceSessionId: string | null,
     sessionBindingNonce: string | null,
-    paneId = "pane",
+    tabId = "tab",
   ): void {
     this.handler?.({
       payload: {
-        pane_id: paneId,
+        tab_id: tabId,
         messages,
         source_session_id: sourceSessionId,
         session_binding_nonce: sessionBindingNonce,
@@ -159,7 +159,7 @@ async function mount(server: FakeChatServer): Promise<Mounted> {
     active: boolean;
   }) {
     const chat = useChatSession({
-      paneId: "pane",
+      tabId: "tab",
       agentSessionId: sessionId,
       sessionBindingNonce: nonce,
       active,
@@ -255,7 +255,7 @@ async function main(): Promise<void> {
   assert(Number(server.subscribers.size) === 1, "visible Chat did not own exactly one subscription");
 
   await act(async () => {
-    server.emit([message("wrong-pane")], "sid-live", "nonce-live", "foreign-pane");
+    server.emit([message("wrong-tab")], "sid-live", "nonce-live", "foreign-tab");
     server.emit([message("wrong-session")], "sid-foreign", "nonce-live");
     server.emit([message("wrong-nonce")], "sid-live", "nonce-stale");
     server.emit([message("current-delta")], "sid-live", "nonce-live");
@@ -320,7 +320,7 @@ async function main(): Promise<void> {
   await act(async () => {
     lateHandler?.({
       payload: {
-        pane_id: "pane",
+        tab_id: "tab",
         messages: [message("late-event")],
         source_session_id: "sid-live",
         session_binding_nonce: "nonce-live",

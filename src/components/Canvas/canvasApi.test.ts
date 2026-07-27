@@ -25,7 +25,7 @@ async function run() {
   const payloads: unknown[] = [];
   globalThis.fetch = (async (_input, init) => {
     payloads.push(JSON.parse(String(init?.body)));
-    return new Response(JSON.stringify({ pane_id: "orchestrator-1" }), { status: 200 });
+    return new Response(JSON.stringify({ tab_id: "orchestrator-1" }), { status: 200 });
   }) as typeof fetch;
   try {
     const selected = resolveCanvasSpawnProvider("ui-selected", [provider("ui-selected", "pty")]);

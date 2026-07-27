@@ -18,22 +18,22 @@ use crate::plugin::activity::PluginActivity;
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum SystemEvent {
     MuxStateChanged,
-    PaneTitlePinned {
-        pane_id: String,
+    TabTitlePinned {
+        tab_id: String,
         title: String,
     },
-    PaneFocused {
-        pane_id: String,
+    TabFocused {
+        tab_id: String,
     },
-    PaneClosed {
-        pane_id: String,
+    TabClosed {
+        tab_id: String,
     },
     AgentStarted {
-        pane_id: String,
+        tab_id: String,
         provider: String,
     },
     AgentIdle {
-        pane_id: String,
+        tab_id: String,
         duration_secs: u64,
     },
     ConfigChanged {
@@ -42,7 +42,7 @@ pub enum SystemEvent {
     },
     /// A plugin contribution map changed (provider added/removed, etc.).
     /// `kind` identifies which contribution type changed: "agent_provider",
-    /// "skill", "command", "pane_renderer", etc. Frontend hooks filter by kind
+    /// "skill", "command", "tab_renderer", etc. Frontend hooks filter by kind
     /// and refetch the matching list. Generic on purpose so future contribution
     /// types reuse the same channel without churn.
     ContributionsChanged {
@@ -61,9 +61,9 @@ impl SystemEvent {
     pub fn type_name(&self) -> &'static str {
         match self {
             Self::MuxStateChanged => "mux-state-changed",
-            Self::PaneTitlePinned { .. } => "pane-title-pinned",
-            Self::PaneFocused { .. } => "pane-focused",
-            Self::PaneClosed { .. } => "pane-closed",
+            Self::TabTitlePinned { .. } => "tab-title-pinned",
+            Self::TabFocused { .. } => "tab-focused",
+            Self::TabClosed { .. } => "tab-closed",
             Self::AgentStarted { .. } => "agent-started",
             Self::AgentIdle { .. } => "agent-idle",
             Self::ConfigChanged { .. } => "config-changed",
@@ -187,7 +187,7 @@ pub struct WebhookRegistration {
     pub events: Vec<String>,
     #[serde(default)]
     pub headers: HashMap<String, String>,
-    pub pane_id: Option<String>,
+    pub tab_id: Option<String>,
     #[serde(default)]
     pub once: bool,
     #[serde(default)]
@@ -300,9 +300,9 @@ impl EventBroadcaster {
                 if !hook.events.is_empty() && !hook.events.contains(&event_type.to_string()) {
                     continue;
                 }
-                if let Some(ref filter_pane) = hook.pane_id {
-                    if let Some(event_pane) = data.get("pane_id").and_then(|v| v.as_str()) {
-                        if filter_pane != event_pane {
+                if let Some(ref filter_tab) = hook.tab_id {
+                    if let Some(event_tab) = data.get("tab_id").and_then(|v| v.as_str()) {
+                        if filter_tab != event_tab {
                             continue;
                         }
                     }
@@ -382,13 +382,13 @@ mod tests {
     async fn publish_carries_payload() {
         let bc = EventBroadcaster::new();
         let mut rx = bc.subscribe();
-        bc.publish(SystemEvent::PaneTitlePinned {
-            pane_id: "p1".into(),
+        bc.publish(SystemEvent::TabTitlePinned {
+            tab_id: "p1".into(),
             title: "hello".into(),
         });
         match rx.recv().await.unwrap().event {
-            SystemEvent::PaneTitlePinned { pane_id, title } => {
-                assert_eq!(pane_id, "p1");
+            SystemEvent::TabTitlePinned { tab_id, title } => {
+                assert_eq!(tab_id, "p1");
                 assert_eq!(title, "hello");
             }
             _ => panic!("wrong variant"),
@@ -400,16 +400,16 @@ mod tests {
         let bc = EventBroadcaster::new();
         let mut rx1 = bc.subscribe();
         let mut rx2 = bc.subscribe();
-        bc.publish(SystemEvent::PaneFocused {
-            pane_id: "p".into(),
+        bc.publish(SystemEvent::TabFocused {
+            tab_id: "p".into(),
         });
         assert!(matches!(
             rx1.recv().await.unwrap().event,
-            SystemEvent::PaneFocused { .. }
+            SystemEvent::TabFocused { .. }
         ));
         assert!(matches!(
             rx2.recv().await.unwrap().event,
-            SystemEvent::PaneFocused { .. }
+            SystemEvent::TabFocused { .. }
         ));
     }
 
@@ -419,7 +419,7 @@ mod tests {
         let mut rx = bc.subscribe();
         for i in 0..300u64 {
             bc.publish(SystemEvent::AgentIdle {
-                pane_id: "p".into(),
+                tab_id: "p".into(),
                 duration_secs: i,
             });
         }
@@ -431,7 +431,7 @@ mod tests {
     fn flood(bc: &EventBroadcaster, n: u64) {
         for i in 0..n {
             bc.send_bus(SystemEvent::AgentIdle {
-                pane_id: "p".into(),
+                tab_id: "p".into(),
                 duration_secs: i,
             });
         }
@@ -571,12 +571,12 @@ mod tests {
             "mux-state-changed"
         );
         assert_eq!(
-            SystemEvent::PaneTitlePinned {
-                pane_id: "a".into(),
+            SystemEvent::TabTitlePinned {
+                tab_id: "a".into(),
                 title: "b".into()
             }
             .type_name(),
-            "pane-title-pinned",
+            "tab-title-pinned",
         );
         assert_eq!(
             SystemEvent::PluginActivity(PluginActivity {
@@ -633,7 +633,7 @@ mod tests {
         let frontend = Path::new(manifest).join("../src");
         let backend = Path::new(manifest).join("src");
 
-        // Frontend static listen() names (dynamic per-pane `${…}` names excluded).
+        // Frontend static listen() names (dynamic per-tab `${…}` names excluded).
         let listen_re =
             regex::Regex::new(r#"listen\w*\s*(?:<[^>]*>)?\s*\(\s*["']([a-zA-Z0-9:_-]+)["']"#)
                 .unwrap();

@@ -141,7 +141,7 @@ mod tests {
     fn milestone(id: &str, ts: u64, text: &str) -> Milestone {
         Milestone {
             id: id.into(),
-            from: AgentRef::from_pane("pane-1"),
+            from: AgentRef::from_tab("tab-1"),
             kind: "stride".into(),
             text: text.into(),
             ts,

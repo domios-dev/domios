@@ -19,10 +19,10 @@ use super::{
     emit_plan_changed, epoch_ms, optional_string_field, plan_err, text_err, PlanRouteResult,
 };
 
-fn planner_role_for_pane(state: &AppState, pane_id: &str) -> Option<&'static str> {
-    state.svc.mux.read().get_pane(pane_id).and_then(|pane| {
-        (pane.role == Some(crate::multiplexer::types::AgentRole::Manager)
-            && pane.role_profile.as_deref() == Some("planner"))
+fn planner_role_for_tab(state: &AppState, tab_id: &str) -> Option<&'static str> {
+    state.svc.mux.read().get_tab(tab_id).and_then(|tab| {
+        (tab.role == Some(crate::multiplexer::types::AgentRole::Manager)
+            && tab.role_profile.as_deref() == Some("planner"))
         .then_some("planner")
     })
 }
@@ -31,7 +31,7 @@ fn record_respawn_attempt_and_persist_identity(
     state: &AppState,
     plan_id: &str,
     task_id: &str,
-    pane_id: &str,
+    tab_id: &str,
     draft: &crate::service::plan::task_attempts::TaskRespawnDraft,
     title: &str,
     now_ms: u64,
@@ -40,10 +40,10 @@ fn record_respawn_attempt_and_persist_identity(
     record_respawn_attempt_and_persist_identity_for(
         &state.svc.plan_store,
         &state.svc.mux,
-        planner_role_for_pane(state, pane_id).or(Some("worker")),
+        planner_role_for_tab(state, tab_id).or(Some("worker")),
         plan_id,
         task_id,
-        pane_id,
+        tab_id,
         draft,
         title,
         now_ms,
@@ -56,7 +56,7 @@ fn record_respawn_attempt_and_persist_identity_for(
     executor_role: Option<&str>,
     plan_id: &str,
     task_id: &str,
-    pane_id: &str,
+    tab_id: &str,
     draft: &crate::service::plan::task_attempts::TaskRespawnDraft,
     title: &str,
     now_ms: u64,
@@ -65,13 +65,13 @@ fn record_respawn_attempt_and_persist_identity_for(
     let created = store.record_task_respawn_attempt(
         plan_id,
         task_id,
-        pane_id,
+        tab_id,
         draft,
         executor_role,
         now_ms,
     )?;
     persist_attempt_executor_identity_for_mux(
-        store, mux, plan_id, task_id, pane_id, title, now_ms,
+        store, mux, plan_id, task_id, tab_id, title, now_ms,
     )?;
     Ok(created)
 }
@@ -81,7 +81,7 @@ fn lane_update_field(body: &Value) -> Result<Option<TaskLaneUpdate>, String> {
         return Ok(None);
     };
     let mut update = TaskLaneUpdate::default();
-    update.pane_id = lane.get("pane_id").map(|v| v.as_str().map(str::to_string));
+    update.tab_id = lane.get("tab_id").map(|v| v.as_str().map(str::to_string));
     update.workspace_id = lane
         .get("workspace_id")
         .map(|v| v.as_str().map(str::to_string));
@@ -208,7 +208,7 @@ pub(crate) struct TaskAddBody {
     #[serde(default, alias = "dependency_task_ids")]
     depends_on: Vec<String>,
     #[serde(default)]
-    assign_pane: Option<String>,
+    assign_tab: Option<String>,
     #[serde(default)]
     lane: TaskLaneMetadata,
     #[serde(default)]
@@ -294,7 +294,7 @@ pub async fn task_add(
                 intent: body.intent,
                 parent_task_id: body.parent,
                 depends_on: body.depends_on,
-                assigned_pane_id: body.assign_pane,
+                assigned_tab_id: body.assign_tab,
                 lane: body.lane,
                 group: body.group,
                 priority: body.priority,
@@ -435,8 +435,8 @@ pub async fn task_update(
     }
     // (orchestrator) directly, so a separate `agent report` isn't needed.
     if body.get("status").and_then(|v| v.as_str()) == Some("in_review") {
-        let by_pane = headers
-            .get("X-CodeTerm-Pane-Id")
+        let by_tab = headers
+            .get("X-CodeTerm-Tab-Id")
             .and_then(|v| v.to_str().ok());
         let intent = body
             .get("intent")
@@ -444,7 +444,7 @@ pub async fn task_update(
             .or_else(|| body.get("status_label").and_then(|v| v.as_str()));
         state
             .svc
-            .notify_owner_task_in_review(&id, &tid, by_pane, intent);
+            .notify_owner_task_in_review(&id, &tid, by_tab, intent);
     }
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({ "ok": true })))
@@ -465,7 +465,7 @@ pub async fn task_close(
     Json(body): Json<TaskCloseBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    let from = body.from.unwrap_or_else(|| AgentRef::from_pane("unknown"));
+    let from = body.from.unwrap_or_else(|| AgentRef::from_tab("unknown"));
     state
         .svc
         .plan_store
@@ -474,8 +474,8 @@ pub async fn task_close(
     emit_plan_changed(&state, &id);
     let mut resp = serde_json::json!({ "ok": true });
     if let Some(plan) = state.svc.plan_store.get(&id) {
-        let cleanup = crate::service::plan::cleanup_debt::detect_plan_cleanup_debt(&plan, |pane| {
-            state.svc.pane_probe(pane).exists
+        let cleanup = crate::service::plan::cleanup_debt::detect_plan_cleanup_debt(&plan, |tab| {
+            state.svc.tab_probe(tab).exists
         });
         let hints = crate::service::plan::cleanup_debt::cleanup_debt_hints(
             &cleanup
@@ -490,7 +490,7 @@ pub async fn task_close(
 
 #[derive(Deserialize)]
 pub(crate) struct TaskAssignBody {
-    pane: String,
+    tab: String,
     #[serde(default)]
     peer: Option<String>,
 }
@@ -508,9 +508,9 @@ pub async fn task_assign(
         .assign_task_with_role(
             &id,
             &tid,
-            &body.pane,
+            &body.tab,
             body.peer.as_deref(),
-            planner_role_for_pane(&state, &body.pane),
+            planner_role_for_tab(&state, &body.tab),
             epoch_ms(),
         )
         .map_err(plan_err)?;
@@ -575,10 +575,10 @@ pub async fn task_respawn(
                 title: draft.title.clone(),
                 title_provenance: Some(respawn_title_provenance(draft.explicit_title)),
                 role: Some("Worker".into()),
-                parent_pane_id: draft.parent_pane_id.clone(),
+                parent_tab_id: draft.parent_tab_id.clone(),
                 task: Some(draft.task_prompt.clone()),
                 workspace_id: draft.workspace_id.clone(),
-                spawned_by_pane_id: draft.parent_pane_id.clone(),
+                spawned_by_tab_id: draft.parent_tab_id.clone(),
                 model: draft.model.clone(),
                 planned_model: draft.planned_model.clone(),
                 ..Default::default()
@@ -591,7 +591,7 @@ pub async fn task_respawn(
         &state,
         &id,
         &tid,
-        &spawn.pane_id,
+        &spawn.tab_id,
         &draft,
         &spawn.title,
         epoch_ms(),
@@ -602,7 +602,7 @@ pub async fn task_respawn(
         "ok": true,
         "plan_id": id,
         "task_id": tid,
-        "pane_id": spawn.pane_id,
+        "tab_id": spawn.tab_id,
         "spawn": spawn,
         "attempt": created.attempt,
         "draft": draft
@@ -641,7 +641,7 @@ mod tests {
         let mut plan = Plan::new(
             "Respawn".into(),
             dir.path().display().to_string(),
-            OrchestratorRef::from_pane("orch"),
+            OrchestratorRef::from_tab("orch"),
         );
         store.save(&mut plan, 1).unwrap();
         let task_id = store
@@ -666,7 +666,7 @@ mod tests {
             provider: "test-provider".into(),
             planned_model: None,
             model: None,
-            parent_pane_id: None,
+            parent_tab_id: None,
             workspace_id: Some("ws-rest".into()),
             title: None,
             explicit_title: false,
@@ -678,7 +678,7 @@ mod tests {
             .record_task_respawn_attempt(
                 &plan.id,
                 &task_id,
-                "source-pane",
+                "source-tab",
                 &source_draft,
                 Some("worker"),
                 3,
@@ -688,8 +688,8 @@ mod tests {
             .write()
             .create_workspace("REST".into(), Some(dir.path().display().to_string()))
             .id;
-        let (_tab_id, pane_id) = mux.write().create_tab(&ws).unwrap();
-        mux.write().get_pane_mut(&pane_id).unwrap().agent_session_id = Some("rest-session".into());
+        let (_tab_id, tab_id) = mux.write().create_tab(&ws).unwrap();
+        mux.write().get_tab_mut(&tab_id).unwrap().agent_session_id = Some("rest-session".into());
         let draft = store
             .build_task_respawn_draft(
                 &plan.id,
@@ -698,7 +698,7 @@ mod tests {
                     attempt_id: created.attempt.id.clone(),
                     provider: None,
                     model: None,
-                    parent_pane_id: None,
+                    parent_tab_id: None,
                     workspace_id: Some("ws-rest".into()),
                     title: Some("Exact User Title".into()),
                 },
@@ -710,7 +710,7 @@ mod tests {
             Some("worker"),
             &plan.id,
             &task_id,
-            &pane_id,
+            &tab_id,
             &draft,
             "Exact User Title",
             4,

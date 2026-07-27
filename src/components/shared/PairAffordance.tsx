@@ -38,9 +38,9 @@ export function PairAffordance({
 
 export {
   findOwnedPlanForOrchestrator,
-  isPlannerPeerPane,
+  isPlannerPeerTab,
   resolvePlanPeerPair,
-  resolvePlannerPaneIdFromPlan,
-  resolvePlannerPaneIdFromRef,
+  resolvePlannerTabIdFromPlan,
+  resolvePlannerTabIdFromRef,
   type PlanPeerPair,
 } from "./resolvePlanPeerPair";

@@ -510,7 +510,7 @@ mod tests {
             .create_plan(
                 title.into(),
                 dir.display().to_string(),
-                OrchestratorRef::from_pane("p"),
+                OrchestratorRef::from_tab("p"),
                 vec![],
                 1000,
             )
@@ -565,7 +565,7 @@ mod tests {
             intent: None,
             parent_task_id: None,
             depends_on: vec![],
-            assigned_pane_id: None,
+            assigned_tab_id: None,
             lane: Default::default(),
             taken_by_role: None,
             executor_role: None,
@@ -690,7 +690,7 @@ mod tests {
         let mut plan = Plan::new(
             "Legacy".into(),
             dir.path().display().to_string(),
-            OrchestratorRef::from_pane("p"),
+            OrchestratorRef::from_tab("p"),
         );
         plan.id = long_plan.into();
         plan.tasks

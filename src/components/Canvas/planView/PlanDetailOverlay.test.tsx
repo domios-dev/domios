@@ -236,34 +236,34 @@ test("focus trap wraps Tab within panel", async () => {
   assert(document.activeElement === closeBtn, "tab wraps from last focusable to first");
 });
 
-test("open-pane action invokes callback", async () => {
+test("open-tab action invokes callback", async () => {
   let opened: string | null = null;
-  const task: Task = { ...FIXTURE_TASK, assigned_pane_id: "pane-worker" };
+  const task: Task = { ...FIXTURE_TASK, assigned_tab_id: "tab-worker" };
   const { host } = await render(
     <PlanDetailOverlay
       kind="task"
       task={task}
-      panes={{ "pane-worker": { id: "pane-worker", title: "Puccini" } as never }}
-      onOpenPane={(id) => { opened = id; }}
+      tabs={{ "tab-worker": { id: "tab-worker", title: "Puccini" } as never }}
+      onOpenTab={(id) => { opened = id; }}
       onClose={() => {}}
     />,
   );
-  const btn = host.querySelector('[data-testid="plan-detail-open-pane"]') as HTMLButtonElement;
+  const btn = host.querySelector('[data-testid="plan-detail-open-tab"]') as HTMLButtonElement;
   assert(btn?.textContent?.includes("Open tab"), "open tab button visible");
   await act(async () => {
     btn.click();
   });
-  assert(opened === "pane-worker", "onOpenPane called with Tab id");
+  assert(opened === "tab-worker", "onOpenTab called with Tab id");
 });
 
 test("agent identity shows tab title, provider and model from Tab state", async () => {
-  const task: Task = { ...FIXTURE_TASK, assigned_pane_id: "pane-worker" };
+  const task: Task = { ...FIXTURE_TASK, assigned_tab_id: "tab-worker" };
   const { host } = await render(
     <PlanDetailOverlay
       kind="task"
       task={task}
-      panes={{ "pane-worker": { id: "pane-worker", title: "Elgar", agent_type: "claude", agent_session_model: "opus-4.8" } as never }}
-      onOpenPane={() => {}}
+      tabs={{ "tab-worker": { id: "tab-worker", title: "Elgar", agent_type: "claude", agent_session_model: "opus-4.8" } as never }}
+      onOpenTab={() => {}}
       onClose={() => {}}
     />,
   );
@@ -276,13 +276,13 @@ test("agent identity shows tab title, provider and model from Tab state", async 
 });
 
 test("personality field renders prominently and overrides the live tab title", async () => {
-  const task: Task = { ...FIXTURE_TASK, personality: "Ada", assigned_pane_id: "pane-worker" };
+  const task: Task = { ...FIXTURE_TASK, personality: "Ada", assigned_tab_id: "tab-worker" };
   const { host } = await render(
     <PlanDetailOverlay
       kind="task"
       task={task}
-      panes={{ "pane-worker": { id: "pane-worker", title: "Elgar", agent_type: "claude" } as never }}
-      onOpenPane={() => {}}
+      tabs={{ "tab-worker": { id: "tab-worker", title: "Elgar", agent_type: "claude" } as never }}
+      onOpenTab={() => {}}
       onClose={() => {}}
     />,
   );
@@ -293,33 +293,33 @@ test("personality field renders prominently and overrides the live tab title", a
 test("lane block shows tab title with Tab id demoted to secondary", async () => {
   const task: Task = {
     ...FIXTURE_TASK,
-    lane: { pane_id: "pane-lane", branch: "lane/x" } as never,
+    lane: { tab_id: "tab-lane", branch: "lane/x" } as never,
   };
   const { host } = await render(
     <PlanDetailOverlay
       kind="task"
       task={task}
-      panes={{ "pane-lane": { id: "pane-lane", title: "ws-scaffold" } as never }}
-      onOpenPane={() => {}}
+      tabs={{ "tab-lane": { id: "tab-lane", title: "ws-scaffold" } as never }}
+      onOpenTab={() => {}}
       onClose={() => {}}
     />,
   );
   assert(host.querySelector('[data-testid="task-lane-panel"]'), "lane panel visible");
-  assert(host.querySelector('[data-testid="task-lane-pane-title"]')?.textContent === "ws-scaffold", "lane shows live tab title");
-  assert(host.querySelector('[data-testid="task-lane-pane-id"]')?.textContent === "pane-lane", "hex Tab id demoted to secondary");
-  assert(!host.querySelector('[data-testid="task-lane-pane-dead"]'), "live tab not marked closed");
+  assert(host.querySelector('[data-testid="task-lane-tab-title"]')?.textContent === "ws-scaffold", "lane shows live tab title");
+  assert(host.querySelector('[data-testid="task-lane-tab-id"]')?.textContent === "tab-lane", "hex Tab id demoted to secondary");
+  assert(!host.querySelector('[data-testid="task-lane-tab-dead"]'), "live tab not marked closed");
 });
 
 test("lane block marks a closed tab with last known id", async () => {
   const task: Task = {
     ...FIXTURE_TASK,
-    lane: { pane_id: "pane-gone", branch: "lane/x" } as never,
+    lane: { tab_id: "tab-gone", branch: "lane/x" } as never,
   };
   const { host } = await render(
-    <PlanDetailOverlay kind="task" task={task} panes={{}} onOpenPane={() => {}} onClose={() => {}} />,
+    <PlanDetailOverlay kind="task" task={task} tabs={{}} onOpenTab={() => {}} onClose={() => {}} />,
   );
-  assert(host.querySelector('[data-testid="task-lane-pane-title"]')?.textContent === "pane-gone", "closed tab falls back to last known id");
-  assert(host.querySelector('[data-testid="task-lane-pane-dead"]')?.textContent === "closed", "closed tab marked closed");
+  assert(host.querySelector('[data-testid="task-lane-tab-title"]')?.textContent === "tab-gone", "closed tab falls back to last known id");
+  assert(host.querySelector('[data-testid="task-lane-tab-dead"]')?.textContent === "closed", "closed tab marked closed");
 });
 
 test("task detail renders linked plan sections as navigable links", async () => {
@@ -380,7 +380,7 @@ test("task detail renders milestone activity timeline", async () => {
       kind: "decision",
       ts: now - 60_000,
       text: "Chose slide-over layout",
-      from: { pane_id: "pane-a", session_id: null, title: "Puccini" },
+      from: { tab_id: "tab-a", session_id: null, title: "Puccini" },
     }],
   };
   const { host } = await render(
@@ -402,7 +402,7 @@ test("task detail renders Description above Activity", async () => {
       kind: "status_update",
       ts: Date.now() - 60_000,
       text: "Working point",
-      from: { pane_id: "pane-a", session_id: null, title: "Puccini" },
+      from: { tab_id: "tab-a", session_id: null, title: "Puccini" },
     }],
   };
   const { host } = await render(
@@ -430,7 +430,7 @@ test("plan document renders recent activity rail with click-through", async () =
       kind: "status_update",
       ts: 1_700_000_000_000,
       text: "Worker reported in_review",
-      from: { pane_id: "pane-a", session_id: null, title: "Puccini" },
+      from: { tab_id: "tab-a", session_id: null, title: "Puccini" },
     }],
   };
   const plan: Plan = { ...FIXTURE_PLAN, tasks: [task] };

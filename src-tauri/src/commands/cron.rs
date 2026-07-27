@@ -47,7 +47,7 @@ pub fn cron_create(
         cwd,
         role: None,
         skill: None,
-        creator_pane_id: None,
+        creator_tab_id: None,
         enabled: Some(true),
         max_history: None,
         oneshot,
@@ -150,16 +150,16 @@ pub fn cron_read_log(
         return Ok(text);
     }
 
-    let pane_id = cron
+    let tab_id = cron
         .lock()
         .get_history(&job_id)
         .iter()
         .find(|r| r.run_id == run_id)
-        .and_then(|r| r.pane_id.clone());
+        .and_then(|r| r.tab_id.clone());
 
-    if let Some(pane_id) = pane_id {
+    if let Some(tab_id) = tab_id {
         let cmd = crate::dispatch::Command::GetOutput {
-            pane_id,
+            tab_id,
             offset: None,
             max_bytes: None,
             strip_ansi: true,

@@ -92,11 +92,11 @@ impl PlanStore {
             }
             let task = &mut p.tasks[task_index];
             if let Some(lane) = lane {
-                let pane_explicit = lane.pane_id.is_some();
+                let tab_explicit = lane.tab_id.is_some();
                 apply_lane_update(&mut task.lane, lane);
                 task.lane = normalize_lane_metadata(std::mem::take(&mut task.lane));
-                if pane_explicit || task.assigned_pane_id.is_none() {
-                    task.assigned_pane_id = task.lane.pane_id.clone();
+                if tab_explicit || task.assigned_tab_id.is_none() {
+                    task.assigned_tab_id = task.lane.tab_id.clone();
                 }
             }
             if let Some(n) = name {
@@ -129,7 +129,7 @@ impl PlanStore {
                     task.pause_reason = None;
                 }
                 if is_terminal_task_status(&task.status) {
-                    let assigned = task.assigned_pane_id.clone();
+                    let assigned = task.assigned_tab_id.clone();
                     super::task_attempts::mark_task_assignment_closed(
                         task,
                         assigned.as_deref(),
@@ -331,20 +331,20 @@ impl PlanStore {
     /// Recording discipline: at report / status-to-active time, capture lane
     /// truth from the caller's live context — but only into EMPTY fields, never
     /// overwriting an explicit prior value. This is the fix for tasks going
-    /// in_progress with no pane/branch/peer recorded.
+    /// in_progress with no tab/branch/peer recorded.
     pub fn fill_task_lane_if_empty(
         &self,
         plan_id: &str,
         task_id: &str,
-        pane_id: Option<&str>,
+        tab_id: Option<&str>,
         branch: Option<&str>,
         peer: Option<&str>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        let pane_id = non_empty_arg(pane_id);
+        let tab_id = non_empty_arg(tab_id);
         let branch = non_empty_arg(branch);
         let peer = non_empty_arg(peer);
-        if pane_id.is_none() && branch.is_none() && peer.is_none() {
+        if tab_id.is_none() && branch.is_none() && peer.is_none() {
             return Ok(());
         }
         self.with_plan(plan_id, now_ms, |p| {
@@ -357,13 +357,13 @@ impl PlanStore {
                 return Ok(());
             }
             let mut touched = false;
-            if let Some(pane) = pane_id {
-                if task.lane.pane_id.as_deref().unwrap_or("").is_empty() {
-                    task.lane.pane_id = Some(pane.to_string());
+            if let Some(tab) = tab_id {
+                if task.lane.tab_id.as_deref().unwrap_or("").is_empty() {
+                    task.lane.tab_id = Some(tab.to_string());
                     touched = true;
                 }
-                if task.assigned_pane_id.as_deref().unwrap_or("").is_empty() {
-                    task.assigned_pane_id = Some(pane.to_string());
+                if task.assigned_tab_id.as_deref().unwrap_or("").is_empty() {
+                    task.assigned_tab_id = Some(tab.to_string());
                     touched = true;
                 }
             }
@@ -396,7 +396,7 @@ impl PlanStore {
     ) -> Result<(), PlanError> {
         let expected = lane.clone();
         // Explicit --tab overwrites the executor binding; fill-if-empty is only for implicit capture.
-        let pane_explicit = lane.pane_id.is_some();
+        let tab_explicit = lane.tab_id.is_some();
         let write = self.with_plan(plan_id, now_ms, |p| {
             let task = p
                 .tasks
@@ -406,15 +406,15 @@ impl PlanStore {
             apply_lane_update(&mut task.lane, lane);
             task.lane = normalize_lane_metadata(std::mem::take(&mut task.lane));
             if is_terminal_task_status(&task.status) {
-                let assigned = task.assigned_pane_id.clone();
+                let assigned = task.assigned_tab_id.clone();
                 super::task_attempts::mark_task_assignment_closed(
                     task,
                     assigned.as_deref(),
                     now_ms,
                 );
                 clear_task_assignment(task);
-            } else if pane_explicit || task.assigned_pane_id.is_none() {
-                task.assigned_pane_id = task.lane.pane_id.clone();
+            } else if tab_explicit || task.assigned_tab_id.is_none() {
+                task.assigned_tab_id = task.lane.tab_id.clone();
             }
             task.updated_at = now_ms;
             Ok(())
@@ -459,18 +459,18 @@ impl PlanStore {
         &self,
         plan_id: &str,
         task_id: &str,
-        pane: &str,
+        tab: &str,
         peer: Option<&str>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.assign_task_with_role(plan_id, task_id, pane, peer, None, now_ms)
+        self.assign_task_with_role(plan_id, task_id, tab, peer, None, now_ms)
     }
 
     pub fn assign_task_with_role(
         &self,
         plan_id: &str,
         task_id: &str,
-        pane: &str,
+        tab: &str,
         peer: Option<&str>,
         role: Option<&str>,
         now_ms: u64,
@@ -481,25 +481,25 @@ impl PlanStore {
                 .iter_mut()
                 .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
-            task.assigned_pane_id = Some(pane.into());
-            task.lane.pane_id = Some(pane.into());
+            task.assigned_tab_id = Some(tab.into());
+            task.lane.tab_id = Some(tab.into());
             task.taken_by_role = role.map(str::to_string);
             task.peer = peer.map(|s| s.into());
             task.updated_at = now_ms;
             let attempt =
-                super::task_attempts::new_assignment_attempt(task, pane, peer, role, now_ms);
+                super::task_attempts::new_assignment_attempt(task, tab, peer, role, now_ms);
             task.execution_attempts.push(attempt);
             Ok(())
         });
         pending_after_verified(
             write,
-            self.verify_task_assigned(plan_id, task_id, pane, peer),
+            self.verify_task_assigned(plan_id, task_id, tab, peer),
             Some(task_id.to_string()),
         )
     }
 
     /// Undo an optimistic dispatch (assign + in_progress) when a later pipeline
-    /// step fails — clears the pane and returns the task to pending.
+    /// step fails — clears the tab and returns the task to pending.
     pub fn revert_task_dispatch(
         &self,
         plan_id: &str,
@@ -512,7 +512,7 @@ impl PlanStore {
                 .iter_mut()
                 .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
-            let assigned = task.assigned_pane_id.clone();
+            let assigned = task.assigned_tab_id.clone();
             super::task_attempts::mark_task_assignment_closed(task, assigned.as_deref(), now_ms);
             clear_task_assignment(task);
             task.status = crate::plan::TaskStatus::Pending;
@@ -617,15 +617,15 @@ mod fill_lane_tests {
     }
 
     #[test]
-    fn fills_empty_pane_branch_and_mirrors_assigned() {
+    fn fills_empty_tab_branch_and_mirrors_assigned() {
         let (_d, store, plan, task) = setup();
         store
-            .fill_task_lane_if_empty(&plan, &task, Some("pane-1"), Some("lane/x"), None, 5)
+            .fill_task_lane_if_empty(&plan, &task, Some("tab-1"), Some("lane/x"), None, 5)
             .unwrap();
         let p = store.get(&plan).unwrap();
         let t = p.tasks.iter().find(|t| t.id == task).unwrap();
-        assert_eq!(t.lane.pane_id.as_deref(), Some("pane-1"));
-        assert_eq!(t.assigned_pane_id.as_deref(), Some("pane-1"));
+        assert_eq!(t.lane.tab_id.as_deref(), Some("tab-1"));
+        assert_eq!(t.assigned_tab_id.as_deref(), Some("tab-1"));
         assert_eq!(t.lane.branch.as_deref(), Some("lane/x"));
     }
 
@@ -640,15 +640,15 @@ mod fill_lane_tests {
             .unwrap();
         let p = store.get(&plan).unwrap();
         let t = p.tasks.iter().find(|t| t.id == task).unwrap();
-        assert_eq!(t.assigned_pane_id.as_deref(), Some("first"));
+        assert_eq!(t.assigned_tab_id.as_deref(), Some("first"));
         assert_eq!(t.lane.branch.as_deref(), Some("branch-a"));
     }
 
     #[test]
-    fn revert_dispatch_clears_pane_and_returns_pending() {
+    fn revert_dispatch_clears_tab_and_returns_pending() {
         let (_d, store, plan, task) = setup();
         store
-            .assign_task_with_role(&plan, &task, "worker-pane", None, Some("worker"), 5)
+            .assign_task_with_role(&plan, &task, "worker-tab", None, Some("worker"), 5)
             .unwrap();
         store
             .update_task(
@@ -676,8 +676,8 @@ mod fill_lane_tests {
         store.revert_task_dispatch(&plan, &task, 7).unwrap();
         let p = store.get(&plan).unwrap();
         let t = p.tasks.iter().find(|t| t.id == task).unwrap();
-        assert!(t.assigned_pane_id.is_none());
-        assert!(t.lane.pane_id.is_none());
+        assert!(t.assigned_tab_id.is_none());
+        assert!(t.lane.tab_id.is_none());
         assert_eq!(t.status, crate::plan::TaskStatus::Pending);
     }
 
@@ -689,27 +689,27 @@ mod fill_lane_tests {
             .unwrap();
         let p = store.get(&plan).unwrap();
         let t = p.tasks.iter().find(|t| t.id == task).unwrap();
-        assert!(t.assigned_pane_id.is_none());
+        assert!(t.assigned_tab_id.is_none());
         assert!(t.lane.branch.is_none());
     }
 
     #[test]
-    fn explicit_pane_update_overwrites_assigned_pane() {
-        // #209 regression: an explicit lane pane update must rebind the executor,
-        // not silently no-op because assigned_pane_id was already set.
+    fn explicit_tab_update_overwrites_assigned_tab() {
+        // #209 regression: an explicit lane tab update must rebind the executor,
+        // not silently no-op because assigned_tab_id was already set.
         let (_d, store, plan, task) = setup();
         store
-            .fill_task_lane_if_empty(&plan, &task, Some("old-pane"), None, None, 5)
+            .fill_task_lane_if_empty(&plan, &task, Some("old-tab"), None, None, 5)
             .unwrap();
         let update = crate::service_plan::TaskLaneUpdate {
-            pane_id: Some(Some("new-pane".into())),
+            tab_id: Some(Some("new-tab".into())),
             ..Default::default()
         };
         store.update_task_lane(&plan, &task, update, 6).unwrap();
         let p = store.get(&plan).unwrap();
         let t = p.tasks.iter().find(|t| t.id == task).unwrap();
-        assert_eq!(t.lane.pane_id.as_deref(), Some("new-pane"));
-        assert_eq!(t.assigned_pane_id.as_deref(), Some("new-pane"));
+        assert_eq!(t.lane.tab_id.as_deref(), Some("new-tab"));
+        assert_eq!(t.assigned_tab_id.as_deref(), Some("new-tab"));
     }
 
     #[test]
@@ -725,7 +725,7 @@ mod fill_lane_tests {
         store.update_task_lane(&plan, &task, update, 6).unwrap();
         let p = store.get(&plan).unwrap();
         let t = p.tasks.iter().find(|t| t.id == task).unwrap();
-        assert_eq!(t.assigned_pane_id.as_deref(), Some("keeper"));
+        assert_eq!(t.assigned_tab_id.as_deref(), Some("keeper"));
         assert_eq!(t.lane.branch.as_deref(), Some("lane/x"));
     }
 
@@ -761,15 +761,15 @@ mod fill_lane_tests {
     }
 
     #[test]
-    fn in_progress_requires_pane_invariant() {
+    fn in_progress_requires_tab_invariant() {
         let (_d, store, plan, task) = setup();
         let err = set_status(&store, &plan, &task, "in_progress", None, 5).unwrap_err();
         assert!(matches!(
             err,
-            crate::service_plan::PlanError::InProgressRequiresPane
+            crate::service_plan::PlanError::InProgressRequiresTab
         ));
         store
-            .fill_task_lane_if_empty(&plan, &task, Some("pane-1"), None, None, 6)
+            .fill_task_lane_if_empty(&plan, &task, Some("tab-1"), None, None, 6)
             .unwrap();
         set_status(&store, &plan, &task, "in_progress", None, 7).unwrap();
     }
@@ -801,7 +801,7 @@ mod fill_lane_tests {
                 None,
                 None,
                 Some(TaskLaneUpdate {
-                    pane_id: Some(Some("worker-pane".into())),
+                    tab_id: Some(Some("worker-tab".into())),
                     ..Default::default()
                 }),
                 6,
@@ -810,8 +810,8 @@ mod fill_lane_tests {
 
         let task = store.show_task(&task).unwrap().task;
         assert_eq!(task.status, TaskStatus::InProgress);
-        assert_eq!(task.lane.pane_id.as_deref(), Some("worker-pane"));
-        assert_eq!(task.assigned_pane_id.as_deref(), Some("worker-pane"));
+        assert_eq!(task.lane.tab_id.as_deref(), Some("worker-tab"));
+        assert_eq!(task.assigned_tab_id.as_deref(), Some("worker-tab"));
     }
 
     #[test]
@@ -838,7 +838,7 @@ mod fill_lane_tests {
                 None,
                 None,
                 Some(TaskLaneUpdate {
-                    pane_id: Some(Some("must-not-commit".into())),
+                    tab_id: Some(Some("must-not-commit".into())),
                     ..Default::default()
                 }),
                 6,
@@ -849,8 +849,8 @@ mod fill_lane_tests {
             crate::service_plan::PlanError::BlockedRequiresLabel
         ));
         let task = store.show_task(&task).unwrap().task;
-        assert!(task.lane.pane_id.is_none());
-        assert!(task.assigned_pane_id.is_none());
+        assert!(task.lane.tab_id.is_none());
+        assert!(task.assigned_tab_id.is_none());
         assert_eq!(task.status, TaskStatus::Pending);
     }
 
@@ -878,7 +878,7 @@ mod fill_lane_tests {
                 None,
                 None,
                 Some(TaskLaneUpdate {
-                    pane_id: Some(Some("must-roll-back".into())),
+                    tab_id: Some(Some("must-roll-back".into())),
                     ..Default::default()
                 }),
                 6,
@@ -887,8 +887,8 @@ mod fill_lane_tests {
         assert!(matches!(error, crate::service_plan::PlanError::BadPriority));
         let task = store.show_task(&task).unwrap().task;
         assert_eq!(task.status, TaskStatus::Pending);
-        assert!(task.lane.pane_id.is_none());
-        assert!(task.assigned_pane_id.is_none());
+        assert!(task.lane.tab_id.is_none());
+        assert!(task.assigned_tab_id.is_none());
     }
 
     #[test]

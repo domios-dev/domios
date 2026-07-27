@@ -8,15 +8,15 @@ const shippedSources = [
   "src/components/Sidebar/SidebarPlanPeerPair.tsx",
   "src/components/Sidebar/SidebarWorkspaceTabs.tsx",
   "src/components/Sidebar/TabItem.tsx",
-  "src/components/Sidebar/paneStatuses.ts",
+  "src/components/Sidebar/tabStatuses.ts",
   "src/components/Sidebar/workspaceTabs.ts",
   "src-tauri/crates/codeterm-pty/src/multiplexer/state/tab.rs",
 ];
 const removedSymbols = [
-  "collect" + "PaneIds",
+  "collect" + "TabIds",
   "aggregate" + "TabStatus",
-  "pane" + "Count",
-  "let pane_ids = " + "vec![tab.pane_id",
+  "tab" + "Count",
+  "let tab_ids = " + "vec![tab.tab_id",
 ];
 
 for (const relativePath of shippedSources) {
@@ -34,11 +34,11 @@ const rustTab = readFileSync(
   resolve(root, "src-tauri/crates/codeterm-pty/src/multiplexer/types.rs"),
   "utf8",
 );
-assert.match(rustTab, /pub struct Tab \{[\s\S]*?pub pane_id: String,/);
-assert.doesNotMatch(rustTab, /pub struct Tab \{[\s\S]*?pub (?:pane|agent)_ids:/);
+assert.match(rustTab, /pub struct Tab \{[\s\S]*?pub tab_id: String,/);
+assert.doesNotMatch(rustTab, /pub struct Tab \{[\s\S]*?pub (?:tab|agent)_ids:/);
 
 const tsTab = readFileSync(resolve(root, "src/lib/types.ts"), "utf8");
-assert.match(tsTab, /export interface Tab \{[\s\S]*?pane_id: string;/);
-assert.doesNotMatch(tsTab, /export interface Tab \{[\s\S]*?(?:pane|agent)_ids:/);
+assert.match(tsTab, /export interface Tab \{[\s\S]*?tab_id: string;/);
+assert.doesNotMatch(tsTab, /export interface Tab \{[\s\S]*?(?:tab|agent)_ids:/);
 
 console.log("single-agent Tab invariant: ok");

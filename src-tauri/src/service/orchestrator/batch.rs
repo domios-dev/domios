@@ -25,7 +25,7 @@ impl ServiceContext {
             match result {
                 Ok(val) => {
                     if let Some(ref id) = cmd.id {
-                        if let Some(pid) = val.get("pane_id").and_then(|v| v.as_str()) {
+                        if let Some(pid) = val.get("tab_id").and_then(|v| v.as_str()) {
                             refs.insert(id.clone(), pid.to_string());
                         }
                     }
@@ -46,7 +46,7 @@ impl ServiceContext {
         let p = SpawnAgentParams::from_json(params)?;
         let result = self.spawn_agent(p, None).await?;
         Ok(serde_json::json!({
-            "pane_id": result.pane_id,
+            "tab_id": result.tab_id,
             "tab_id": result.tab_id,
             "pty_id": result.pty_id,
             "agent": result.agent,
@@ -56,31 +56,31 @@ impl ServiceContext {
     }
 
     fn batch_send(&self, params: &serde_json::Value) -> Result<serde_json::Value, String> {
-        let pane_id = json_str(params, "pane_id").ok_or("pane_id required")?;
+        let tab_id = json_str(params, "tab_id").ok_or("tab_id required")?;
         let text = json_str(params, "text").unwrap_or_default();
         let enter = params
             .get("enter")
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
-        self.send_text_detached(&pane_id, &text, enter);
+        self.send_text_detached(&tab_id, &text, enter);
         Ok(serde_json::json!({"ok": true}))
     }
 
     fn batch_rename(&self, params: &serde_json::Value) -> Result<serde_json::Value, String> {
-        let pane_id = json_str(params, "pane_id").ok_or("pane_id required")?;
+        let tab_id = json_str(params, "tab_id").ok_or("tab_id required")?;
         let title = json_str(params, "title").ok_or("title required")?;
-        self.rename_pane(&pane_id, &title)?;
+        self.rename_tab(&tab_id, &title)?;
         Ok(serde_json::json!({"ok": true}))
     }
 
     fn batch_close(&self, params: &serde_json::Value) -> Result<serde_json::Value, String> {
-        let pane_id = json_str(params, "pane_id").ok_or("pane_id required")?;
-        self.close_pane(&pane_id)?;
+        let tab_id = json_str(params, "tab_id").ok_or("tab_id required")?;
+        self.close_tab(&tab_id)?;
         Ok(serde_json::json!({"ok": true}))
     }
 
     fn batch_role(&self, params: &serde_json::Value) -> Result<serde_json::Value, String> {
-        let pane_id = json_str(params, "pane_id").ok_or("pane_id required")?;
+        let tab_id = json_str(params, "tab_id").ok_or("tab_id required")?;
         let role = json_str(params, "role").ok_or("role required")?;
         let mut role_probe = SpawnAgentParams {
             role: Some(role),
@@ -89,24 +89,24 @@ impl ServiceContext {
         };
         role_probe.normalize_role_profile()?;
         let role = role_probe.role.unwrap_or_else(|| "Worker".into());
-        let parent = json_str(params, "parent_pane_id");
+        let parent = json_str(params, "parent_tab_id");
         let can_spawn = params.get("can_spawn").and_then(|v| v.as_bool());
         let parsed_role = Self::parse_role(&role)?;
         let was_orchestrator = {
             let mux = self.mux.read();
-            mux.get_pane(&pane_id)
+            mux.get_tab(&tab_id)
                 .map(|p| p.role == Some(crate::multiplexer::types::AgentRole::Orchestrator))
                 .unwrap_or(false)
         };
-        self.set_pane_role(&pane_id, &role, parent.as_deref(), can_spawn)?;
+        self.set_tab_role(&tab_id, &role, parent.as_deref(), can_spawn)?;
         if let Some(profile) = role_probe.role_profile {
-            if let Some(pane) = self.mux.write().get_pane_mut(&pane_id) {
-                pane.role_profile = Some(profile);
+            if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
+                tab.role_profile = Some(profile);
             }
             self.emit_state_changed();
         }
         if parsed_role == crate::multiplexer::types::AgentRole::Orchestrator {
-            self.maybe_deliver_orchestrator_promotion_onboarding(&pane_id, was_orchestrator);
+            self.maybe_deliver_orchestrator_promotion_onboarding(&tab_id, was_orchestrator);
         }
         Ok(serde_json::json!({"ok": true}))
     }
@@ -120,20 +120,20 @@ impl ServiceContext {
     }
 
     fn batch_can_spawn(&self, params: &serde_json::Value) -> Result<serde_json::Value, String> {
-        let pane_id = json_str(params, "pane_id").ok_or("pane_id required")?;
+        let tab_id = json_str(params, "tab_id").ok_or("tab_id required")?;
         let can_spawn = params
             .get("can_spawn")
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
-        self.set_can_spawn(&pane_id, can_spawn)?;
+        self.set_can_spawn(&tab_id, can_spawn)?;
         Ok(serde_json::json!({"ok": true}))
     }
 
     fn batch_report(&self, params: &serde_json::Value) -> Result<serde_json::Value, String> {
-        let pane_id = json_str(params, "pane_id").ok_or("pane_id required")?;
+        let tab_id = json_str(params, "tab_id").ok_or("tab_id required")?;
         let message = json_str(params, "message").ok_or("message required")?;
         let details = serde_json::from_value(params.clone()).unwrap_or_default();
-        let result = self.submit_report(&pane_id, &message, details, None, None, None)?;
+        let result = self.submit_report(&tab_id, &message, details, None, None, None)?;
         Ok(serde_json::json!({"ok": true, "report_id": result.report_id}))
     }
 }

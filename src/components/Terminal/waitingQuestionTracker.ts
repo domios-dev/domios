@@ -15,25 +15,25 @@ export class WaitingQuestionTracker {
   private readonly entries = new Map<string, WaitingQuestionEntry>();
 
   observeAndNotify(
-    paneId: string,
+    tabId: string,
     sessionId: string | null,
     state: AgentStateKind | null,
     notificationReady: boolean,
     notify: () => void,
   ): number | null {
-    const observation = this.observe(paneId, sessionId, state, notificationReady);
+    const observation = this.observe(tabId, sessionId, state, notificationReady);
     if (observation?.shouldNotify) notify();
     return observation?.generation ?? null;
   }
 
   observe(
-    paneId: string,
+    tabId: string,
     sessionId: string | null,
     state: AgentStateKind | null,
     notificationReady = true,
   ): WaitingQuestionObservation | null {
     if (!sessionId) return null;
-    const key = `${paneId}\0${sessionId}`;
+    const key = `${tabId}\0${sessionId}`;
     const entry = this.entries.get(key);
 
     if (state == null) {

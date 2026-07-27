@@ -90,9 +90,9 @@ fn provenance() -> WorkerLaneProvenance {
     }
 }
 
-fn spawn_result(pane_id: &str, tab_id: &str) -> SpawnResult {
+fn spawn_result(tab_id: &str, tab_id: &str) -> SpawnResult {
     SpawnResult {
-        pane_id: pane_id.into(),
+        tab_id: tab_id.into(),
         tab_id: tab_id.into(),
         pty_id: String::new(),
         agent: "codex".into(),
@@ -113,27 +113,27 @@ fn spawn_result(pane_id: &str, tab_id: &str) -> SpawnResult {
     }
 }
 
-fn starting_response(pane_id: &str, spawn_tab_id: &str) -> serde_json::Value {
+fn starting_response(tab_id: &str, spawn_tab_id: &str) -> serde_json::Value {
     let mut response = json!({"ok": true});
-    apply_dispatch_starting_contract(&mut response, pane_id, &spawn_result(pane_id, spawn_tab_id));
+    apply_dispatch_starting_contract(&mut response, tab_id, &spawn_result(tab_id, spawn_tab_id));
     response
 }
 
-fn collect_tab_and_pane_ids(value: &serde_json::Value, ids: &mut HashSet<String>) {
+fn collect_tab_and_tab_ids(value: &serde_json::Value, ids: &mut HashSet<String>) {
     match value {
         serde_json::Value::Object(fields) => {
             for (key, value) in fields {
-                if matches!(key.as_str(), "tab_id" | "pane_id") {
+                if matches!(key.as_str(), "tab_id" | "tab_id") {
                     if let Some(id) = value.as_str() {
                         ids.insert(id.to_string());
                     }
                 }
-                collect_tab_and_pane_ids(value, ids);
+                collect_tab_and_tab_ids(value, ids);
             }
         }
         serde_json::Value::Array(values) => {
             for value in values {
-                collect_tab_and_pane_ids(value, ids);
+                collect_tab_and_tab_ids(value, ids);
             }
         }
         _ => {}
@@ -144,7 +144,7 @@ struct DispatchRuntime {
     mux: MultiplexerState,
     pty: PtyManager,
     workspace_id: String,
-    parent_pane_id: String,
+    parent_tab_id: String,
     baseline_tab_count: usize,
 }
 
@@ -152,22 +152,22 @@ impl DispatchRuntime {
     fn new() -> Self {
         let (mut mux, _) = MultiplexerState::new();
         let workspace = mux.list_workspaces().into_iter().next().unwrap();
-        let parent_pane_id = workspace.pane_ids.first().unwrap().clone();
-        mux.set_pane_role(&parent_pane_id, AgentRole::Orchestrator, None)
+        let parent_tab_id = workspace.tab_ids.first().unwrap().clone();
+        mux.set_tab_role(&parent_tab_id, AgentRole::Orchestrator, None)
             .unwrap();
         Self {
             baseline_tab_count: workspace.tab_count,
             workspace_id: workspace.id,
-            parent_pane_id,
+            parent_tab_id,
             mux,
             pty: PtyManager::new(),
         }
     }
 
     fn create_worker(&mut self) -> (String, String, String) {
-        let (tab_id, pane_id) = self.mux.create_tab(&self.workspace_id).unwrap();
+        let (tab_id, tab_id) = self.mux.create_tab(&self.workspace_id).unwrap();
         self.mux
-            .set_pane_role(&pane_id, AgentRole::Worker, Some(&self.parent_pane_id))
+            .set_tab_role(&tab_id, AgentRole::Worker, Some(&self.parent_tab_id))
             .unwrap();
         let (pty_id, _) = self
             .pty
@@ -179,9 +179,9 @@ impl DispatchRuntime {
                 HashMap::new(),
             )
             .unwrap();
-        self.mux.link_pty(&pane_id, pty_id.clone());
-        self.mux.get_pane_mut(&pane_id).unwrap().agent_session_id = Some("session-worker".into());
-        (tab_id, pane_id, pty_id)
+        self.mux.link_pty(&tab_id, pty_id.clone());
+        self.mux.get_tab_mut(&tab_id).unwrap().agent_session_id = Some("session-worker".into());
+        (tab_id, tab_id, pty_id)
     }
 
     fn close_worker(&mut self, tab_id: &str) -> Result<(), String> {
@@ -203,25 +203,25 @@ impl DispatchRuntime {
 
 #[test]
 fn dispatch_response_has_single_authoritative_tab_id() {
-    for (spawn_tab_id, authoritative_pane_id) in [
+    for (spawn_tab_id, authoritative_tab_id) in [
         ("0256a845", "d3d39cd2"),
         ("7064c401", "b46ee19a"),
         ("e1a0d44d", "5f3decc7"),
     ] {
-        let response = starting_response(authoritative_pane_id, spawn_tab_id);
+        let response = starting_response(authoritative_tab_id, spawn_tab_id);
         let mut ids = HashSet::new();
-        collect_tab_and_pane_ids(&response, &mut ids);
+        collect_tab_and_tab_ids(&response, &mut ids);
         assert_eq!(
             ids,
-            HashSet::from([authoritative_pane_id.to_string()]),
-            "spawn identity {spawn_tab_id} conflicted with {authoritative_pane_id}"
+            HashSet::from([authoritative_tab_id.to_string()]),
+            "spawn identity {spawn_tab_id} conflicted with {authoritative_tab_id}"
         );
     }
 }
 
 #[test]
 fn dispatch_response_never_claims_ready_before_event() {
-    let response = starting_response("pane-worker", "phantom-tab");
+    let response = starting_response("tab-worker", "phantom-tab");
     assert_eq!(response["accepted"], true);
     assert_eq!(response["state"], "awaiting_dispatch_ready");
     assert_eq!(response["readiness"]["ready"], false);
@@ -232,7 +232,7 @@ fn dispatch_response_never_claims_ready_before_event() {
     let event = dispatch_ready_event(
         "plan",
         "task",
-        "pane-worker",
+        "tab-worker",
         "attempt",
         &DispatchEvidence {
             session_id: "session-worker".into(),
@@ -240,13 +240,13 @@ fn dispatch_response_never_claims_ready_before_event() {
         },
     );
     assert_eq!(event["kind"], "dispatch_ready");
-    assert_eq!(event["tab_id"], "pane-worker");
+    assert_eq!(event["tab_id"], "tab-worker");
 }
 
 #[test]
 fn one_dispatch_creates_exactly_one_tab() {
     let runtime = RefCell::new(DispatchRuntime::new());
-    let (tab_id, pane_id, pty_id) = runtime.borrow_mut().create_worker();
+    let (tab_id, tab_id, pty_id) = runtime.borrow_mut().create_worker();
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     ready_tx.send(Ok(())).unwrap();
 
@@ -257,8 +257,8 @@ fn one_dispatch_creates_exactly_one_tab() {
             Ok(runtime
                 .borrow()
                 .mux
-                .get_pane(&pane_id)
-                .and_then(|pane| pane.agent_session_id.clone())
+                .get_tab(&tab_id)
+                .and_then(|tab| tab.agent_session_id.clone())
                 .expect("session record"))
         },
         || Ok(provenance()),
@@ -272,7 +272,7 @@ fn one_dispatch_creates_exactly_one_tab() {
     let (event_tx, event_rx) = std::sync::mpsc::channel();
     event_tx
         .send(dispatch_ready_event(
-            "plan", "task", &pane_id, "attempt", &evidence,
+            "plan", "task", &tab_id, "attempt", &evidence,
         ))
         .unwrap();
     let ready_event = event_rx.recv().unwrap();
@@ -281,13 +281,13 @@ fn one_dispatch_creates_exactly_one_tab() {
     let runtime_ref = runtime.borrow();
     assert_eq!(runtime_ref.tab_count(), runtime_ref.baseline_tab_count + 1);
     assert_eq!(
-        runtime_ref.mux.find_workspace_for_pane(&pane_id),
+        runtime_ref.mux.find_workspace_for_tab(&tab_id),
         Some(runtime_ref.workspace_id.clone())
     );
-    let worker = runtime_ref.mux.get_pane(&pane_id).unwrap();
+    let worker = runtime_ref.mux.get_tab(&tab_id).unwrap();
     let parent = runtime_ref
         .mux
-        .get_pane(&runtime_ref.parent_pane_id)
+        .get_tab(&runtime_ref.parent_tab_id)
         .unwrap();
     assert!(parent.team_id.is_some());
     assert_eq!(worker.team_id, parent.team_id);
@@ -295,8 +295,8 @@ fn one_dispatch_creates_exactly_one_tab() {
     assert_eq!(worker.agent_session_id.as_deref(), Some("session-worker"));
     assert!(runtime_ref.pty.get_session(&pty_id).is_some());
     let mut response_ids = HashSet::new();
-    collect_tab_and_pane_ids(&starting_response(&pane_id, &tab_id), &mut response_ids);
-    assert_eq!(response_ids, HashSet::from([pane_id.clone()]));
+    collect_tab_and_tab_ids(&starting_response(&tab_id, &tab_id), &mut response_ids);
+    assert_eq!(response_ids, HashSet::from([tab_id.clone()]));
     drop(runtime_ref);
     runtime.borrow_mut().close_worker(&tab_id).unwrap();
 }
@@ -304,7 +304,7 @@ fn one_dispatch_creates_exactly_one_tab() {
 #[test]
 fn dispatch_failure_leaves_no_orphan() {
     let runtime = RefCell::new(DispatchRuntime::new());
-    let (tab_id, pane_id, pty_id) = runtime.borrow_mut().create_worker();
+    let (tab_id, tab_id, pty_id) = runtime.borrow_mut().create_worker();
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     ready_tx
         .send(Err("injected startup failure".into()))
@@ -329,7 +329,7 @@ fn dispatch_failure_leaves_no_orphan() {
     assert_eq!(error.data.unwrap()["stage"], "agent_ready");
     let runtime = runtime.borrow();
     assert_eq!(runtime.tab_count(), runtime.baseline_tab_count);
-    assert!(runtime.mux.get_pane(&pane_id).is_none());
+    assert!(runtime.mux.get_tab(&tab_id).is_none());
     assert!(runtime.pty.get_session(&pty_id).is_none());
 }
 
@@ -393,7 +393,7 @@ fn git_worktree_count(project: &Path) -> usize {
 }
 
 #[test]
-fn dispatch_rollback_closes_pane_and_removes_provisioned_lane() {
+fn dispatch_rollback_closes_tab_and_removes_provisioned_lane() {
     let (_root, project) = git_project();
 
     let lane = provision_lane_for_test(project.to_str().unwrap(), "dispatch_failure").unwrap();
@@ -405,7 +405,7 @@ fn dispatch_rollback_closes_pane_and_removes_provisioned_lane() {
         .unwrap();
     let branch = String::from_utf8(branch.stdout).unwrap().trim().to_string();
     let mut task_reverted = false;
-    let mut pane_closed = false;
+    let mut tab_closed = false;
 
     rollback_failed_dispatch(
         Some(lane),
@@ -414,14 +414,14 @@ fn dispatch_rollback_closes_pane_and_removes_provisioned_lane() {
             Ok(())
         },
         || {
-            pane_closed = true;
+            tab_closed = true;
             Ok(())
         },
     )
     .unwrap();
 
     assert!(task_reverted);
-    assert!(pane_closed);
+    assert!(tab_closed);
     assert!(!lane_path.exists());
     let branch_exists = Command::new("git")
         .current_dir(&project)
@@ -456,7 +456,7 @@ fn omitted_cwd_provisions_one_lane_and_persists_matching_attempt_provenance() {
         .create_plan_for_team(
             "Dispatch".into(),
             project.display().to_string(),
-            OrchestratorRef::from_pane("orch"),
+            OrchestratorRef::from_tab("orch"),
             "team".into(),
             vec![],
             1,
@@ -485,7 +485,7 @@ fn omitted_cwd_provisions_one_lane_and_persists_matching_attempt_provenance() {
         .begin_task_dispatch(
             &plan.id,
             &task_id,
-            "pane-worker",
+            "tab-worker",
             "Ada",
             lane_metadata_for_dispatch(&original.lane, &actual),
             4,
@@ -502,7 +502,7 @@ fn omitted_cwd_provisions_one_lane_and_persists_matching_attempt_provenance() {
         .finish_task_dispatch(
             &plan.id,
             &task_id,
-            "pane-worker",
+            "tab-worker",
             &attempt_id,
             "session-worker",
             lane_metadata_for_dispatch(&original.lane, &actual),
@@ -529,7 +529,7 @@ fn omitted_cwd_provisions_one_lane_and_persists_matching_attempt_provenance() {
 }
 
 #[test]
-fn launch_delivery_readiness_and_same_pane_binding_precede_commit() {
+fn launch_delivery_readiness_and_same_tab_binding_precede_commit() {
     let order = RefCell::new(Vec::new());
     let evidence = complete_dispatch_transaction(
         Instant::now() + Duration::from_secs(1),
@@ -538,7 +538,7 @@ fn launch_delivery_readiness_and_same_pane_binding_precede_commit() {
             Ok(())
         },
         |_| {
-            order.borrow_mut().push("same_pane_session");
+            order.borrow_mut().push("same_tab_session");
             Ok("session-worker".into())
         },
         || {
@@ -559,7 +559,7 @@ fn launch_delivery_readiness_and_same_pane_binding_precede_commit() {
     assert_eq!(evidence.session_id, "session-worker");
     assert_eq!(
         order.into_inner(),
-        vec!["agent_ready", "same_pane_session", "provenance", "commit"]
+        vec!["agent_ready", "same_tab_session", "provenance", "commit"]
     );
 }
 
@@ -567,9 +567,9 @@ fn launch_delivery_readiness_and_same_pane_binding_precede_commit() {
 fn every_transaction_stage_failure_runs_compensation() {
     for (failure, expected_stage) in [
         ("agent_ready", "agent_ready"),
-        ("pane_removed", "session_binding"),
+        ("tab_removed", "session_binding"),
         ("missing_session", "session_binding"),
-        ("wrong_pane_session", "session_binding"),
+        ("wrong_tab_session", "session_binding"),
         ("provenance", "provenance_readback"),
         ("task_commit", "task_commit"),
     ] {
@@ -586,7 +586,7 @@ fn every_transaction_stage_failure_runs_compensation() {
             |_| {
                 if matches!(
                     failure,
-                    "pane_removed" | "missing_session" | "wrong_pane_session"
+                    "tab_removed" | "missing_session" | "wrong_tab_session"
                 ) {
                     Err(failure.into())
                 } else {
@@ -653,7 +653,7 @@ fn launch_delivery_failure_restores_exact_original_task_and_attempt_state() {
         .create_plan_for_team(
             "Rollback".into(),
             project.display().to_string(),
-            OrchestratorRef::from_pane("orch"),
+            OrchestratorRef::from_tab("orch"),
             "team".into(),
             vec![],
             1,
@@ -693,7 +693,7 @@ fn launch_delivery_failure_restores_exact_original_task_and_attempt_state() {
                 .commit_task_dispatch(
                     &plan.id,
                     &task_id,
-                    "pane-worker",
+                    "tab-worker",
                     "Ada",
                     session,
                     lane_metadata_for_dispatch(&original.lane, provenance),
@@ -991,7 +991,7 @@ fn socket_dispatch_requires_daemon_owned_capacity_provenance() {
     let mut plan = Plan::new(
         "review debt".into(),
         "/repo".into(),
-        OrchestratorRef::from_pane("orch"),
+        OrchestratorRef::from_tab("orch"),
     );
     plan.review_policy.credit = -(plan.review_policy.wip_limit as i64);
     let review = task(json!({
@@ -1017,7 +1017,7 @@ fn socket_dispatch_requires_daemon_owned_capacity_provenance() {
         .push(crate::plan::ReviewCapacityGrant {
             task_id: review.id.clone(),
             class: crate::plan::ReviewCapacityClass::Review,
-            granted_by: crate::plan::AgentRef::from_pane("orch"),
+            granted_by: crate::plan::AgentRef::from_tab("orch"),
             granted_at: 1,
         });
     preflight_review_capacity(&plan, &review).unwrap();

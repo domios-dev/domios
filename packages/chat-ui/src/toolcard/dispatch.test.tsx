@@ -26,9 +26,9 @@ for (const kind of Object.keys(expectedLabels) as ToolEventKind[]) {
 }
 
 const codetermHost = await render(
-  <ToolCallBubble event={tool("command", 'codeterm send --tab e3fa0754 "hello"')} expanded onToggle={() => {}} onFocusPane={() => {}} />,
+  <ToolCallBubble event={tool("command", 'codeterm send --tab e3fa0754 "hello"')} expanded onToggle={() => {}} onFocusTab={() => {}} />,
 );
-if (!codetermHost.querySelector('[data-testid="codeterm-focus-pane"]')) throw new Error("recognized codeterm command did not use CodetermActionCard");
+if (!codetermHost.querySelector('[data-testid="codeterm-focus-tab"]')) throw new Error("recognized codeterm command did not use CodetermActionCard");
 
 const focusCalls: string[] = [];
 const resolverHost = await render(
@@ -36,15 +36,15 @@ const resolverHost = await render(
     event={tool("codeterm", 'codeterm send --tab e3fa0754 "hello"')}
     expanded
     onToggle={() => {}}
-    resolvePaneName={(ref) => ref === "e3fa0754" ? "Hugo" : undefined}
-    onFocusPane={(ref) => focusCalls.push(ref)}
+    resolveTabName={(ref) => ref === "e3fa0754" ? "Hugo" : undefined}
+    onFocusTab={(ref) => focusCalls.push(ref)}
   />,
 );
-const focusButton = resolverHost.querySelector<HTMLButtonElement>('[data-testid="codeterm-focus-pane"]');
+const focusButton = resolverHost.querySelector<HTMLButtonElement>('[data-testid="codeterm-focus-tab"]');
 if (!focusButton) throw new Error("CodetermActionCard did not receive the tab resolver");
 await act(async () => focusButton.click());
 if (focusCalls.join() !== "e3fa0754") throw new Error("tab focus resolver did not fire");
-if (!resolverHost.textContent?.includes("Hugo")) throw new Error("pane-name resolver did not reach the CodetermActionCard");
+if (!resolverHost.textContent?.includes("Hugo")) throw new Error("tab-name resolver did not reach the CodetermActionCard");
 
 const commandEvent = tool("command", "echo hidden");
 function ToggleProvider() {

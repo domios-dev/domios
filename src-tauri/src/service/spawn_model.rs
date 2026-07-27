@@ -23,19 +23,19 @@ pub(crate) fn attach_planned_model(
 }
 
 pub(crate) fn persist_model_launch_identity(
-    pane: &mut crate::multiplexer::types::Pane,
+    tab: &mut crate::multiplexer::types::Tab,
     planned_model: Option<&str>,
     resolution: &FreshAgentModelResolution,
 ) {
-    pane.agent_planned_model = planned_model
+    tab.agent_planned_model = planned_model
         .map(str::trim)
         .filter(|model| !model.is_empty())
         .map(str::to_string);
-    pane.agent_requested_model = resolution.requested_model.clone();
-    pane.agent_provider_resolved_model = resolution.model.clone();
-    pane.agent_session_model = None;
-    pane.model_fallback = resolution.fallback_notice.clone();
-    pane.model_identity_mismatch = None;
+    tab.agent_requested_model = resolution.requested_model.clone();
+    tab.agent_provider_resolved_model = resolution.model.clone();
+    tab.agent_session_model = None;
+    tab.model_fallback = resolution.fallback_notice.clone();
+    tab.model_identity_mismatch = None;
 }
 
 pub(crate) fn model_fallback_notice_title(notice: &ModelFallbackNotice) -> String {

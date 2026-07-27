@@ -1,14 +1,14 @@
-import type { Pane, Team } from "../../lib/types";
+import type { Tab, Team } from "../../lib/types";
 import type { ExtendedState } from "./tree";
 
 const TITLE_SPINNER_PREFIX = /^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u;
 
-export function stripPaneTitleSpinner(title: string | undefined): string | undefined {
+export function stripTabTitleSpinner(title: string | undefined): string | undefined {
   return title?.replace(TITLE_SPINNER_PREFIX, "").trim();
 }
 
-export function selectPane(state: ExtendedState, paneId: string): Pane | undefined {
-  return state.panes[paneId];
+export function selectTab(state: ExtendedState, tabId: string): Tab | undefined {
+  return state.tabs[tabId];
 }
 
 export function selectTeams(state: ExtendedState): Team[] {
@@ -28,10 +28,10 @@ export function teamsEqual(a: Team[], b: Team[]): boolean {
   });
 }
 
-export function paneFieldsEqual(a: Pane | undefined, b: Pane | undefined): boolean {
+export function tabFieldsEqual(a: Tab | undefined, b: Tab | undefined): boolean {
   if (a === b) return true;
   if (!a || !b) return !a && !b;
-  const keys = new Set([...Object.keys(a), ...Object.keys(b)] as (keyof Pane)[]);
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)] as (keyof Tab)[]);
   for (const key of keys) {
     const av = a[key];
     const bv = b[key];
@@ -78,19 +78,19 @@ function shallowRecordEqual(
   return true;
 }
 
-export function selectPaneTitleMap(state: ExtendedState): Map<string, string> {
+export function selectTabTitleMap(state: ExtendedState): Map<string, string> {
   const byShort = new Map<string, string>();
   for (const ws of state.workspaces) {
     for (const tab of ws.tabs) {
-      const pane = state.panes[tab.pane_id];
-      const name = stripPaneTitleSpinner(pane?.title);
-      if (name && tab.pane_id) byShort.set(tab.pane_id.slice(0, 8), name);
+      const tab = state.tabs[tab.tab_id];
+      const name = stripTabTitleSpinner(tab?.title);
+      if (name && tab.tab_id) byShort.set(tab.tab_id.slice(0, 8), name);
     }
   }
   return byShort;
 }
 
-export function paneTitleMapEqual(a: Map<string, string>, b: Map<string, string>): boolean {
+export function tabTitleMapEqual(a: Map<string, string>, b: Map<string, string>): boolean {
   if (a === b) return true;
   if (a.size !== b.size) return false;
   for (const [key, value] of a) {
@@ -99,15 +99,15 @@ export function paneTitleMapEqual(a: Map<string, string>, b: Map<string, string>
   return true;
 }
 
-export function selectPaneAgentTypes(state: ExtendedState): Record<string, string | null | undefined> {
+export function selectTabAgentTypes(state: ExtendedState): Record<string, string | null | undefined> {
   const out: Record<string, string | null | undefined> = {};
-  for (const [id, pane] of Object.entries(state.panes)) {
-    out[id] = pane.agent_type;
+  for (const [id, tab] of Object.entries(state.tabs)) {
+    out[id] = tab.agent_type;
   }
   return out;
 }
 
-export function paneAgentTypesEqual(
+export function tabAgentTypesEqual(
   a: Record<string, string | null | undefined>,
   b: Record<string, string | null | undefined>,
 ): boolean {
@@ -131,14 +131,14 @@ export function selectPlanNavContext(state: ExtendedState): PlanNavContext {
   };
 }
 
-export function panesRecordEqual(
-  a: Record<string, Pane>,
-  b: Record<string, Pane>,
+export function tabsRecordEqual(
+  a: Record<string, Tab>,
+  b: Record<string, Tab>,
 ): boolean {
   if (a === b) return true;
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
   for (const key of keys) {
-    if (!paneFieldsEqual(a[key], b[key])) return false;
+    if (!tabFieldsEqual(a[key], b[key])) return false;
   }
   return true;
 }
@@ -153,7 +153,7 @@ export function planNavContextEqual(a: PlanNavContext, b: PlanNavContext): boole
       return false;
     }
     for (let j = 0; j < aw.tabs.length; j += 1) {
-      if (aw.tabs[j].id !== bw.tabs[j].id || aw.tabs[j].pane_id !== bw.tabs[j].pane_id) {
+      if (aw.tabs[j].id !== bw.tabs[j].id || aw.tabs[j].tab_id !== bw.tabs[j].tab_id) {
         return false;
       }
     }

@@ -15,7 +15,7 @@ pub mod host_traits;
 pub mod js_runtime;
 pub mod jsonl_window;
 pub mod model_catalog;
-pub mod pane_state;
+pub mod tab_state;
 pub mod plugin_manager;
 pub mod prompt;
 pub mod prompts;

@@ -6,7 +6,7 @@
 //!
 //! Sub-modules group operations by domain:
 //! - `workspace` — workspace & tab CRUD
-//! - `pane` — pane lifecycle, split, rename, focus, browser
+//! - `tab` — tab lifecycle, split, rename, focus, browser
 //! - `pty_io` — send text, batch send, PTY helpers
 //! - `hierarchy` — agent roles, reports, status queries
 //! - `orchestrator` — agent spawn, batch commands
@@ -39,11 +39,11 @@ pub mod orchestrator_digests;
 mod orchestrator_onboard;
 mod output;
 mod output_feed;
-pub(crate) mod pane;
-pub mod pane_budget;
-pub mod pane_chat;
-pub mod pane_transport;
-pub mod pane_transport_chat;
+pub(crate) mod tab;
+pub mod tab_budget;
+pub mod tab_chat;
+pub mod tab_transport;
+pub mod tab_transport_chat;
 pub(crate) mod pending_delivery_payloads;
 pub mod plan;
 mod plan_reconcile;
@@ -107,7 +107,7 @@ use crate::{
 // Re-export public types used by callers.
 pub(crate) use agent_transition::{AgentPlacement, AgentTransitionRequest};
 pub(crate) use hierarchy::FirstPlanTeamError;
-pub use hierarchy::PaneStatusInfo;
+pub use hierarchy::TabStatusInfo;
 pub use inject_verify::{
     screen_contains_echo, snapshot_prompt_line, wait_for_submit_shell, InjectionError,
     InjectionResult, VerifyOpts,
@@ -120,8 +120,8 @@ pub use orchestrator::{
     BatchOp, RefreshOutcome, RefreshRequest, RefreshTrigger, RefreshTuning, SpawnAgentParams,
     SpawnIdentityProvenance, SpawnResult,
 };
-pub use pane::{normalize_pane_description, MAX_PANE_DESCRIPTION_CHARS};
-pub use pane_budget::{evaluate_pane_budget, PaneBudgetLevel, PaneBudgetNotice};
+pub use tab::{normalize_tab_description, MAX_TAB_DESCRIPTION_CHARS};
+pub use tab_budget::{evaluate_tab_budget, TabBudgetLevel, TabBudgetNotice};
 pub(crate) use team::TeamMutationCaller;
 pub(crate) use team::TeamPlanError;
 pub(crate) use team::{AddTeamMemberParams, AddTeamMemberResult};
@@ -158,7 +158,7 @@ pub struct ServiceContext {
     pub worker_pool: Arc<crate::mem::worker_pool::WorkerPool>,
     pub prompt_detector: PromptDetectorState,
     pub(crate) pty_ownership: pty_ownership::PtyOwnership,
-    // Stable pane→pty map for hidden agent runs; survives close_pane so the unified AgentRun log endpoints can read closed-worker output.
+    // Stable tab→pty map for hidden agent runs; survives close_tab so the unified AgentRun log endpoints can read closed-worker output.
     pub agent_run_pty_map: Arc<parking_lot::Mutex<std::collections::HashMap<String, String>>>,
     // codeterm cron complete / mem worker report itself.
     pub run_watcher: Arc<crate::agent::run_watcher::RunWatcherRegistry>,
@@ -175,10 +175,10 @@ pub struct ServiceContext {
     >,
     /// Supervisor for the messaging bridge — owns task handle, cancel signal, runtime state.
     pub bridge_supervisor: Arc<crate::bridge::supervisor::BridgeSupervisor>,
-    /// Per-pane last-restart timestamp for `agent_restart` rate limiting.
+    /// Per-tab last-restart timestamp for `agent_restart` rate limiting.
     pub restart_tracker: agent_restart::RestartTracker,
-    /// Per-pane JSONL chat tailers — populated when a pane enters UI mode.
-    pub chat_registry: Arc<crate::service::pane_chat::ChatRegistry>,
+    /// Per-tab JSONL chat tailers — populated when a tab enters UI mode.
+    pub chat_registry: Arc<crate::service::tab_chat::ChatRegistry>,
     pub delayed_send: crate::delayed_send::DelayedSendQueue,
     /// Active secret-store backend. Built-ins via factory; plugin backends
     /// (e.g. Bitwarden) come from `secret_registry`.
@@ -192,17 +192,17 @@ pub struct ServiceContext {
     /// plugins render their popover from here.
     pub glance_registry: crate::glance::GlanceRegistryHandle,
     /// Registry of status-bubble providers (plugins with `statusBubble`). The
-    /// pane-footer bubble row polls these per pane context.
+    /// tab-footer bubble row polls these per tab context.
     pub bubble_registry: crate::bubble::BubbleRegistryHandle,
     /// Registry of view providers (plugins with `view`). The iframe bridge
     /// (`ct.invoke`) routes here, gated by the plugin's permissions.
     pub view_registry: crate::view_host::ViewRegistryHandle,
     /// Registry of chatBackend providers (plugins with `chatBackend`). Non-PTY
-    /// panes route their I/O here via the `PaneTransport` seam.
+    /// tabs route their I/O here via the `TabTransport` seam.
     pub chatbackend_registry: crate::chatbackend::ChatBackendRegistryHandle,
-    /// Per-pane locks serializing the chatBackend restore→reopen transition so a
-    /// concurrent send/deliver can't double-open one pane's plugin session.
-    pub chatbackend_reopen_guards: Arc<pane_transport_chat::PaneReopenGuards>,
+    /// Per-tab locks serializing the chatBackend restore→reopen transition so a
+    /// concurrent send/deliver can't double-open one tab's plugin session.
+    pub chatbackend_reopen_guards: Arc<tab_transport_chat::TabReopenGuards>,
     /// Unified facade over the agent + chat-backend stores. Listing and
     /// spawn-classify go through this so call-sites stop touching two registries.
     pub provider_registry: Arc<crate::provider::ProviderRegistry>,
@@ -226,10 +226,10 @@ pub struct ServiceContext {
     /// all pastes. 20-entry cap, oldest-first eviction, TTL≤24h. (#98)
     pub pasteboard: crate::pasteboard::PasteboardState,
     /// Watches bytes about to be written to PTYs; promotes typed `claude/codex/
-    /// opencode ...<Enter>` lines to a locked `agent_type` on the pane.
+    /// opencode ...<Enter>` lines to a locked `agent_type` on the tab.
     pub input_parser: Arc<input_parser::InputParser>,
     pub usage_store: crate::usage::UsageStoreHandle,
-    pub usage_activity: crate::usage::PaneActivity,
+    pub usage_activity: crate::usage::TabActivity,
     pub user_last_activity: Arc<crate::user_last_activity::UserLastActivity>,
     pub usage_poller: Arc<parking_lot::Mutex<Option<crate::usage::UsagePoller>>>,
     /// Global plan store with project-scoped queries. Sole writer.
@@ -289,7 +289,7 @@ pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
 impl ServiceContext {
     pub(crate) fn create_pending_delivery(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         channel: crate::multiplexer::types::PendingDeliveryChannel,
         payload: &str,
     ) -> Result<String, pending_delivery_payloads::PayloadStoreError> {
@@ -298,19 +298,19 @@ impl ServiceContext {
         let previous_digest = self
             .mux
             .read()
-            .get_pane(pane_id)
-            .and_then(|pane| pane.pending_delivery.as_ref())
+            .get_tab(tab_id)
+            .and_then(|tab| tab.pending_delivery.as_ref())
             .map(|record| record.content_digest.clone());
         self.pending_delivery_payloads
             .replace(previous_digest.as_deref(), &digest, payload)?;
         let mut mux = self.mux.write();
-        let pane = mux.get_pane_mut(pane_id).ok_or_else(|| {
+        let tab = mux.get_tab_mut(tab_id).ok_or_else(|| {
             pending_delivery_payloads::PayloadStoreError::Io {
                 digest: digest.clone(),
-                message: format!("pane {pane_id} vanished while creating pending delivery"),
+                message: format!("tab {tab_id} vanished while creating pending delivery"),
             }
         })?;
-        pane.pending_delivery = Some(crate::multiplexer::types::PendingDeliveryRecord::new(
+        tab.pending_delivery = Some(crate::multiplexer::types::PendingDeliveryRecord::new(
             digest.clone(),
             channel,
         ));
@@ -328,14 +328,14 @@ impl ServiceContext {
 
     pub(crate) fn resolve_pending_delivery(
         &self,
-        pane_id: &str,
+        tab_id: &str,
     ) -> Result<Option<String>, pending_delivery_payloads::PayloadStoreError> {
         use crate::multiplexer::types::{PendingDeliveryChannel, PendingDeliveryState};
         let pending = self
             .mux
             .read()
-            .get_pane(pane_id)
-            .and_then(|pane| pane.pending_delivery.clone());
+            .get_tab(tab_id)
+            .and_then(|tab| tab.pending_delivery.clone());
         match pending {
             Some(record)
                 if record.state() == PendingDeliveryState::Pending
@@ -351,25 +351,25 @@ impl ServiceContext {
 
     pub(crate) fn confirm_pending_delivery(
         &self,
-        pane_id: &str,
+        tab_id: &str,
     ) -> Result<(), pending_delivery_payloads::PayloadStoreError> {
         use crate::multiplexer::types::{PendingDeliveryChannel, PendingDeliveryState};
         let digest = self
             .mux
             .read()
-            .get_pane(pane_id)
-            .and_then(|pane| pane.pending_delivery.as_ref())
+            .get_tab(tab_id)
+            .and_then(|tab| tab.pending_delivery.as_ref())
             .filter(|record| record.channel == PendingDeliveryChannel::InteractiveInput)
             .map(|record| record.content_digest.clone());
         let Some(digest) = digest else { return Ok(()) };
         let mut mux = self.mux.write();
-        let pane = mux.get_pane_mut(pane_id).ok_or_else(|| {
+        let tab = mux.get_tab_mut(tab_id).ok_or_else(|| {
             pending_delivery_payloads::PayloadStoreError::Io {
                 digest: digest.clone(),
                 message: "Tab vanished while confirming pending delivery".into(),
             }
         })?;
-        if let Some(record) = pane.pending_delivery.as_mut() {
+        if let Some(record) = tab.pending_delivery.as_mut() {
             if record.state() == PendingDeliveryState::Pending {
                 record.confirm().map_err(|error| {
                     pending_delivery_payloads::PayloadStoreError::Io {
@@ -396,13 +396,13 @@ impl ServiceContext {
     /// Notify the UI that an orchestrator's remote (cross-mesh) workers changed.
     /// One payload shape for every mutation site (spawn registration, UI relay
     /// hook, inbound report) so the sidebar refreshes consistently.
-    pub(crate) fn emit_remote_workers_changed(&self, orchestrator_pane: &str) {
+    pub(crate) fn emit_remote_workers_changed(&self, orchestrator_tab: &str) {
         // SSE bus, so the web mirror updates live too — not only on next remount.
         crate::api::events::emit_everywhere(
             &self.app_handle,
             "remote-workers-changed",
             serde_json::json!({
-                "orchestrator_pane_id": orchestrator_pane,
+                "orchestrator_tab_id": orchestrator_tab,
                 "workers": self.remote_workers.snapshot(),
             }),
         );
@@ -487,8 +487,8 @@ impl ServiceContext {
     /// that landed during the window are captured by reading last.
     ///
     /// Uses `snapshot_with_status` (not the plain `snapshot`) — this is the
-    /// ONLY path that keeps a browser tab's `paneStatuses` fresh between page
-    /// loads. Without it, `pane_statuses` here is always empty and the
+    /// ONLY path that keeps a browser tab's `tabStatuses` fresh between page
+    /// loads. Without it, `tab_statuses` here is always empty and the
     /// reducer's merge (`incoming ?? keep-stale`) leaves a synthetic `Waiting`
     /// (set by `/prompt/clear`'s pending_prompt-derived override) stuck
     /// forever once the underlying PTY stops transitioning Idle/Working.
@@ -504,34 +504,34 @@ impl ServiceContext {
         status_reconciliation::snapshot_with_reconciled_status(mux, agent_tracker, agent_registry)
     }
 
-    pub(crate) fn emit_pane_title_pinned(&self, pane_id: &str, title: &str) {
+    pub(crate) fn emit_tab_title_pinned(&self, tab_id: &str, title: &str) {
         self.events
-            .publish(crate::api::events::SystemEvent::PaneTitlePinned {
-                pane_id: pane_id.to_string(),
+            .publish(crate::api::events::SystemEvent::TabTitlePinned {
+                tab_id: tab_id.to_string(),
                 title: title.to_string(),
             });
         let handle = self.app_handle.clone();
-        let payload = serde_json::json!({"pane_id": pane_id, "title": title});
+        let payload = serde_json::json!({"tab_id": tab_id, "title": title});
         std::thread::spawn(move || {
-            let _ = handle.emit("pane-title-pinned", payload);
+            let _ = handle.emit("tab-title-pinned", payload);
         });
     }
 
     /// Emit a focus-change event to the frontend. Delayed 75 ms so it always
     /// arrives AFTER the coalesced 50 ms `mux-state-changed` window — this way
     /// the frontend's structural state is up to date before it tries to apply
-    /// focus to (potentially newly created) panes. Frontend listener also has a
+    /// focus to (potentially newly created) tabs. Frontend listener also has a
     /// short retry as defense-in-depth.
-    pub(crate) fn emit_pane_focus_changed(&self, pane_id: &str) {
+    pub(crate) fn emit_tab_focus_changed(&self, tab_id: &str) {
         self.events
-            .publish(crate::api::events::SystemEvent::PaneFocused {
-                pane_id: pane_id.to_string(),
+            .publish(crate::api::events::SystemEvent::TabFocused {
+                tab_id: tab_id.to_string(),
             });
         let handle = self.app_handle.clone();
-        let payload = serde_json::json!({"pane_id": pane_id});
+        let payload = serde_json::json!({"tab_id": tab_id});
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(75));
-            let _ = handle.emit("pane-focused", payload);
+            let _ = handle.emit("tab-focused", payload);
         });
     }
 
@@ -623,7 +623,7 @@ pub(crate) fn publish_mux_state_changed(events: &crate::api::events::EventBroadc
 #[derive(Debug, Clone, Serialize)]
 pub struct ReportResult {
     pub report_id: String,
-    pub orchestrator_pane_id: String,
+    pub orchestrator_tab_id: String,
     /// Non-fatal notices from plan/task resolution (stale env ids, auto-resolution).
     pub notices: Vec<String>,
 }
@@ -633,7 +633,7 @@ pub(crate) fn json_str(v: &serde_json::Value, key: &str) -> Option<String> {
     v.get(key).and_then(|v| v.as_str()).map(|s| s.to_string())
 }
 
-/// Replace "$ref" strings in params with actual pane_ids from previous results.
+/// Replace "$ref" strings in params with actual tab_ids from previous results.
 pub(crate) fn resolve_refs(
     params: &serde_json::Value,
     refs: &std::collections::HashMap<String, String>,

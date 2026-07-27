@@ -8,7 +8,7 @@ interface VariantProps {
   snapshot: MissionControlSnapshot;
   lod: MissionControlLodLevel;
   onTaskClick?: (taskId: string) => void;
-  onAgentClick?: (paneId: string) => void;
+  onAgentClick?: (tabId: string) => void;
   dispatchGap?: boolean;
   qaBottleneck?: boolean;
   showEvents?: boolean;

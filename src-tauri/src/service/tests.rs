@@ -26,13 +26,13 @@ fn test_parse_role() {
 #[test]
 fn test_resolve_refs_simple() {
     let mut refs = std::collections::HashMap::new();
-    refs.insert("boss".to_string(), "pane-123".to_string());
+    refs.insert("boss".to_string(), "tab-123".to_string());
 
-    let params = serde_json::json!({"parent_pane_id": "$boss", "role": "Worker"});
+    let params = serde_json::json!({"parent_tab_id": "$boss", "role": "Worker"});
     let resolved = resolve_refs(&params, &refs);
     assert_eq!(
-        resolved.get("parent_pane_id").unwrap().as_str().unwrap(),
-        "pane-123"
+        resolved.get("parent_tab_id").unwrap().as_str().unwrap(),
+        "tab-123"
     );
     assert_eq!(resolved.get("role").unwrap().as_str().unwrap(), "Worker");
 }
@@ -40,10 +40,10 @@ fn test_resolve_refs_simple() {
 #[test]
 fn test_resolve_refs_no_match() {
     let refs = std::collections::HashMap::new();
-    let params = serde_json::json!({"parent_pane_id": "$nonexistent"});
+    let params = serde_json::json!({"parent_tab_id": "$nonexistent"});
     let resolved = resolve_refs(&params, &refs);
     assert_eq!(
-        resolved.get("parent_pane_id").unwrap().as_str().unwrap(),
+        resolved.get("parent_tab_id").unwrap().as_str().unwrap(),
         "$nonexistent"
     );
 }
@@ -179,9 +179,9 @@ fn unknown_role_is_rejected() {
 
 #[test]
 fn test_spawn_agent_params_parent_alias() {
-    let json = serde_json::json!({"parent": "pane-abc"});
+    let json = serde_json::json!({"parent": "tab-abc"});
     let params = SpawnAgentParams::from_json(&json).unwrap();
-    assert_eq!(params.parent_pane_id.as_deref(), Some("pane-abc"));
+    assert_eq!(params.parent_tab_id.as_deref(), Some("tab-abc"));
 }
 
 #[test]
@@ -194,35 +194,35 @@ fn test_spawn_agent_params_normalizes_msys_converted_title() {
 }
 
 #[test]
-fn pane_description_validation_accepts_200_and_rejects_201() {
-    let ok = "x".repeat(crate::service::MAX_PANE_DESCRIPTION_CHARS);
-    let too_long = "x".repeat(crate::service::MAX_PANE_DESCRIPTION_CHARS + 1);
+fn tab_description_validation_accepts_200_and_rejects_201() {
+    let ok = "x".repeat(crate::service::MAX_TAB_DESCRIPTION_CHARS);
+    let too_long = "x".repeat(crate::service::MAX_TAB_DESCRIPTION_CHARS + 1);
 
     assert_eq!(
-        crate::service::normalize_pane_description(&ok).unwrap(),
+        crate::service::normalize_tab_description(&ok).unwrap(),
         Some(ok)
     );
-    assert!(crate::service::normalize_pane_description(&too_long).is_err());
+    assert!(crate::service::normalize_tab_description(&too_long).is_err());
     assert_eq!(
-        crate::service::normalize_pane_description("  \t  ").unwrap(),
+        crate::service::normalize_tab_description("  \t  ").unwrap(),
         None
     );
     assert_eq!(
-        crate::service::normalize_pane_description("  running tests  ").unwrap(),
+        crate::service::normalize_tab_description("  running tests  ").unwrap(),
         Some("running tests".into())
     );
 }
 
 #[test]
 fn spawn_agent_params_from_json_validates_description() {
-    let ok = "x".repeat(crate::service::MAX_PANE_DESCRIPTION_CHARS);
+    let ok = "x".repeat(crate::service::MAX_TAB_DESCRIPTION_CHARS);
     let params = SpawnAgentParams::from_json(&serde_json::json!({
         "description": format!("  {}  ", ok)
     }))
     .unwrap();
     assert_eq!(params.description.as_deref(), Some(ok.as_str()));
 
-    let too_long = "x".repeat(crate::service::MAX_PANE_DESCRIPTION_CHARS + 1);
+    let too_long = "x".repeat(crate::service::MAX_TAB_DESCRIPTION_CHARS + 1);
     let err = SpawnAgentParams::from_json(&serde_json::json!({
         "description": too_long
     }))
@@ -256,7 +256,7 @@ fn test_batch_op_no_id() {
 
 #[test]
 fn coalesce_snapshot_reflects_latest_mutation_in_window() {
-    use crate::agent::status::PaneStatusTracker;
+    use crate::agent::status::TabStatusTracker;
     use crate::lock_hold::{TimedMutex, TimedRwLock};
     use crate::multiplexer::state::MultiplexerState;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -265,7 +265,7 @@ fn coalesce_snapshot_reflects_latest_mutation_in_window() {
 
     let mux: MuxState = Arc::new(TimedRwLock::new("mux", MultiplexerState::empty()));
     let agent_tracker: AgentTrackerState =
-        Arc::new(TimedMutex::new("agent_tracker", PaneStatusTracker::new()));
+        Arc::new(TimedMutex::new("agent_tracker", TabStatusTracker::new()));
     let pending = Arc::new(AtomicBool::new(true));
     let agent_registry = Arc::new(crate::agent::registry::AgentRegistry::new());
 
@@ -301,20 +301,20 @@ fn coalesce_snapshot_reflects_latest_mutation_in_window() {
 }
 
 #[test]
-fn focus_pane_hot_path_does_not_refresh_agent_model_inline() {
+fn focus_tab_hot_path_does_not_refresh_agent_model_inline() {
     use crate::lock_hold::TimedRwLock;
     use crate::multiplexer::state::MultiplexerState;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
     let mux: MuxState = Arc::new(TimedRwLock::new("mux", MultiplexerState::empty()));
-    let pane_id = mux.write().create_pane();
+    let tab_id = mux.write().create_tab();
     let emitted = Arc::new(parking_lot::Mutex::new(Vec::<String>::new()));
     let scheduled = Arc::new(AtomicUsize::new(0));
 
-    crate::service::pane::focus_pane_hot_path(
+    crate::service::tab::focus_tab_hot_path(
         &mux,
-        &pane_id,
+        &tab_id,
         {
             let emitted = emitted.clone();
             move |focused| emitted.lock().push(focused.to_string())
@@ -328,7 +328,7 @@ fn focus_pane_hot_path_does_not_refresh_agent_model_inline() {
     )
     .unwrap();
 
-    assert_eq!(mux.read().get_focused_pane_id(), Some(pane_id.as_str()));
-    assert_eq!(*emitted.lock(), vec![pane_id.clone()]);
+    assert_eq!(mux.read().get_focused_tab_id(), Some(tab_id.as_str()));
+    assert_eq!(*emitted.lock(), vec![tab_id.clone()]);
     assert_eq!(scheduled.load(Ordering::SeqCst), 1);
 }

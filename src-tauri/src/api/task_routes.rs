@@ -26,7 +26,7 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::BadPriority
         | PlanError::TaskCreationRequiresApproval
         | PlanError::HeartbeatRequiresExecution
-        | PlanError::InProgressRequiresPane
+        | PlanError::InProgressRequiresTab
         | PlanError::BlockedRequiresLabel
         | PlanError::TaskPauseRequiresReason
         | PlanError::PauseRequiresReason
@@ -72,20 +72,20 @@ fn epoch_ms() -> u64 {
         .unwrap_or(0)
 }
 
-fn header_pane(headers: &HeaderMap) -> Option<String> {
+fn header_tab(headers: &HeaderMap) -> Option<String> {
     headers
-        .get("X-CodeTerm-Pane-Id")
+        .get("X-CodeTerm-Tab-Id")
         .and_then(|v| v.to_str().ok())
         .map(str::to_string)
 }
 
-fn pane_role(state: &AppState, pane_id: &str) -> Option<&'static str> {
+fn tab_role(state: &AppState, tab_id: &str) -> Option<&'static str> {
     state
         .svc
         .mux
         .read()
-        .get_pane(pane_id)
-        .and_then(|pane| pane.role)
+        .get_tab(tab_id)
+        .and_then(|tab| tab.role)
         .map(|role| match role {
             AgentRole::Orchestrator => "orchestrator",
             AgentRole::Manager => "manager",
@@ -93,17 +93,17 @@ fn pane_role(state: &AppState, pane_id: &str) -> Option<&'static str> {
         })
 }
 
-fn pane_and_ancestors(state: &AppState, pane_id: &str) -> std::collections::HashSet<String> {
+fn tab_and_ancestors(state: &AppState, tab_id: &str) -> std::collections::HashSet<String> {
     let mux = state.svc.mux.read();
     let mut out = std::collections::HashSet::new();
-    let mut current = Some(pane_id.to_string());
+    let mut current = Some(tab_id.to_string());
     while let Some(id) = current {
         if !out.insert(id.clone()) {
             break;
         }
         current = mux
-            .get_pane(&id)
-            .and_then(|pane| pane.parent_pane_id.clone());
+            .get_tab(&id)
+            .and_then(|tab| tab.parent_tab_id.clone());
     }
     out
 }
@@ -124,7 +124,7 @@ pub async fn list(
     headers: HeaderMap,
     Query(q): Query<ListTasksQuery>,
 ) -> TaskRouteResult {
-    let caller = header_pane(&headers);
+    let caller = header_tab(&headers);
     let mine = q.mine == Some(true);
     let status = q
         .status
@@ -136,10 +136,10 @@ pub async fn list(
     let tasks = state.svc.plan_store.list_tasks(TaskListFilter {
         project_path: q.project,
         active_only: status.is_none() && (q.all != Some(true) || q.active == Some(true)),
-        mine_panes: if mine {
+        mine_tabs: if mine {
             caller
                 .as_deref()
-                .map(|id| pane_and_ancestors(&state, id))
+                .map(|id| tab_and_ancestors(&state, id))
                 .unwrap_or_default()
         } else {
             Default::default()
@@ -165,16 +165,16 @@ pub async fn take(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> TaskRouteResult {
-    let pane_id = header_pane(&headers).ok_or_else(|| {
+    let tab_id = header_tab(&headers).ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "X-CodeTerm-Pane-Id is required" })),
+            Json(json!({ "error": "X-CodeTerm-Tab-Id is required" })),
         )
     })?;
     let plan_id = state
         .svc
         .plan_store
-        .set_task_assignment(&id, Some(&pane_id), pane_role(&state, &pane_id), epoch_ms())
+        .set_task_assignment(&id, Some(&tab_id), tab_role(&state, &tab_id), epoch_ms())
         .map_err(plan_err)?;
     crate::api::events::emit_everywhere(
         &state.svc.app_handle,
@@ -216,15 +216,15 @@ pub struct AddTaskBody {
     correctness: Option<String>,
     body: Option<String>,
     intent: Option<String>,
-    assign_pane: Option<String>,
+    assign_tab: Option<String>,
     owner: Option<OrchestratorRef>,
 }
 
 pub async fn add(State(state): State<AppState>, Json(body): Json<AddTaskBody>) -> TaskRouteResult {
     let assign_role = body
-        .assign_pane
+        .assign_tab
         .as_deref()
-        .and_then(|pane| pane_role(&state, pane));
+        .and_then(|tab| tab_role(&state, tab));
     let has_model = body.model.as_deref().is_some_and(|s| !s.trim().is_empty());
     let has_why = body.why.as_deref().is_some_and(|s| !s.trim().is_empty());
     let has_criteria = body
@@ -239,7 +239,7 @@ pub async fn add(State(state): State<AppState>, Json(body): Json<AddTaskBody>) -
         .correctness
         .as_deref()
         .is_some_and(|s| !s.trim().is_empty());
-    let assign_pane = body.assign_pane.clone();
+    let assign_tab = body.assign_tab.clone();
     let (plan_id, task_id) = state
         .svc
         .plan_store
@@ -257,17 +257,17 @@ pub async fn add(State(state): State<AppState>, Json(body): Json<AddTaskBody>) -
                 body: body.body.unwrap_or_default(),
                 competition: None,
                 intent: body.intent,
-                assigned_pane_id: body.assign_pane,
+                assigned_tab_id: body.assign_tab,
                 ..Default::default()
             },
             epoch_ms(),
         )
         .map_err(plan_err)?;
-    if let Some(pane) = assign_pane.as_deref() {
+    if let Some(tab) = assign_tab.as_deref() {
         state
             .svc
             .plan_store
-            .set_task_assignment(&task_id, Some(pane), assign_role, epoch_ms())
+            .set_task_assignment(&task_id, Some(tab), assign_role, epoch_ms())
             .map_err(plan_err)?;
     }
     crate::api::events::emit_everywhere(
@@ -294,7 +294,7 @@ pub async fn add(State(state): State<AppState>, Json(body): Json<AddTaskBody>) -
 #[derive(Debug, Deserialize)]
 pub struct CanvasFocusBody {
     task_id: Option<String>,
-    pane_id: Option<String>,
+    tab_id: Option<String>,
     plan_id: Option<String>,
 }
 
@@ -304,7 +304,7 @@ pub async fn canvas_focus(
 ) -> TaskRouteResult {
     let payload = json!({
         "task_id": body.task_id,
-        "pane_id": body.pane_id,
+        "tab_id": body.tab_id,
         "plan_id": body.plan_id,
     });
     crate::api::events::emit_everywhere(&state.svc.app_handle, "canvas-focus", payload.clone());

@@ -17,18 +17,18 @@ fn execute_pty_batch<E>(
 impl ServiceContext {
     pub fn send_text_batch(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         batch: Vec<super::SendBatchItem>,
     ) -> Result<(), String> {
-        if let Some((plugin_id, session_id)) = self.pane_chat_backing(pane_id) {
+        if let Some((plugin_id, session_id)) = self.tab_chat_backing(tab_id) {
             for item in batch {
                 self.chatbackend_send(&plugin_id, &session_id, &item.text)?;
             }
             return Ok(());
         }
-        self.ensure_pane_pty_for_send(pane_id)?;
-        self.await_agent_boot_blocking(pane_id, std::time::Duration::from_secs(90))?;
-        let pty_id = self.await_pty_link_blocking(pane_id, std::time::Duration::from_secs(15))?;
+        self.ensure_tab_pty_for_send(tab_id)?;
+        self.await_agent_boot_blocking(tab_id, std::time::Duration::from_secs(90))?;
+        let pty_id = self.await_pty_link_blocking(tab_id, std::time::Duration::from_secs(15))?;
         execute_pty_batch(batch, super::await_action_deadline, |text, enter| {
             self.send_text_to_pty_smart(&pty_id, text, enter)
         })

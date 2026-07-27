@@ -68,8 +68,8 @@ pub enum PlanTaskAction {
             help = "Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle (see --handle)"
         )]
         depends_on: Vec<String>,
-        #[arg(long = "assign-pane", value_name = "TAB")]
-        assign_pane: Option<String>,
+        #[arg(long = "assign-tab", value_name = "TAB")]
+        assign_tab: Option<String>,
         #[arg(long)]
         workspace_id: Option<String>,
         #[arg(long)]
@@ -170,7 +170,7 @@ pub enum PlanTaskAction {
         #[arg(long = "clear-dependencies")]
         clear_dependencies: bool,
         #[arg(long = "tab", value_name = "TAB")]
-        pane: Option<String>,
+        tab: Option<String>,
         #[arg(long)]
         workspace_id: Option<String>,
         #[arg(long)]
@@ -235,7 +235,7 @@ pub enum PlanTaskAction {
         plan_id: String,
         task_id: Option<String>,
         #[arg(long = "tab", value_name = "TAB")]
-        pane: String,
+        tab: String,
         #[arg(long, alias = "peer")]
         mesh: Option<String>,
     },
@@ -253,7 +253,7 @@ pub enum PlanTaskAction {
         )]
         reasoning_effort: Option<String>,
         #[arg(
-            long = "parent-pane",
+            long = "parent-tab",
             help = "Parent tab override (defaults to the caller tab)"
         )]
         parent: Option<String>,

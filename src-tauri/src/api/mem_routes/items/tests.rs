@@ -237,7 +237,7 @@ fn wake_up_workspace_param_propagates_to_options() {
 }
 
 #[test]
-fn wake_up_inherits_calling_pane_workspace_when_not_overridden() {
+fn wake_up_inherits_calling_tab_workspace_when_not_overridden() {
     let opts = wake_up_options_from_params(
         &WakeUpParams {
             budget: None,

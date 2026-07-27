@@ -113,7 +113,7 @@ impl PtySession {
     }
 }
 
-/// Ring buffer storing last N bytes of PTY output per pane.
+/// Ring buffer storing last N bytes of PTY output per tab.
 /// Also maintains a full history (capped at MAX_FULL_SIZE) for chat view parsing.
 ///
 /// Screen parsing (VT100) lives in `ScreenState` behind a separate lock
@@ -339,7 +339,7 @@ pub struct BuiltSession {
 
 /// Build a new PTY + child process without touching any manager state.
 /// Safe to call from `spawn_blocking` — does blocking I/O (ConPTY + CreateProcess on Windows).
-/// Env vars removed from every interactive pane PTY (see build_session for why).
+/// Env vars removed from every interactive tab PTY (see build_session for why).
 pub const STRIPPED_PTY_ENV: &[&str] = &[
     "CLAUDECODE",
     "CLAUDE_CODE_SESSION_ID",
@@ -421,7 +421,7 @@ pub fn build_session(
         cmd.env(key, value);
     }
 
-    // Env vars stripped from every interactive pane PTY. CLAUDECODE / CLAUDE_CODE_*:
+    // Env vars stripped from every interactive tab PTY. CLAUDECODE / CLAUDE_CODE_*:
     for key in STRIPPED_PTY_ENV {
         cmd.env_remove(key);
     }
@@ -1128,7 +1128,7 @@ mod tests {
         assert!(result.is_err(), "kill on unknown id must return Err");
     }
 
-    /// Interactive panes must never look like a CI job: an inherited CI=true makes
+    /// Interactive tabs must never look like a CI job: an inherited CI=true makes
     /// cursor-agent (and other is-ci-aware TUIs) go non-interactive and hide their
     /// input bar even with a real TTY. Guard against the strip list regressing.
     #[test]

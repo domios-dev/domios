@@ -91,8 +91,8 @@ const substitutedDeclarations = [
   ],
   [
     globalsCss,
-    "animation: pane-materialize 280ms cubic-bezier(0.16, 1, 0.3, 1) both;",
-    "animation: pane-materialize 280ms var(--ct-ease-liquid-settle) both;",
+    "animation: tab-materialize 280ms cubic-bezier(0.16, 1, 0.3, 1) both;",
+    "animation: tab-materialize 280ms var(--ct-ease-liquid-settle) both;",
   ],
 ] as const;
 

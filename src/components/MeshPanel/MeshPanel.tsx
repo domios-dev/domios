@@ -194,7 +194,7 @@ function WebUiModal({
     }
   }, [config]);
 
-  // Not installed (or native enable failed) → spawn a Claude pane pre-loaded with the setup task and jump into it.
+  // Not installed (or native enable failed) → spawn a Claude tab pre-loaded with the setup task and jump into it.
   const spawnSetupChat = useCallback(async () => {
     const body = {
       agent: "claude",
@@ -622,7 +622,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
           {TABS.map((tab) => (
             <button
               key={tab}
-              data-testid={`mesh-pane-${tab}`}
+              data-testid={`mesh-tab-${tab}`}
               onClick={() => setActiveTab(tab)}
               className={tabClass(activeTab === tab, touchUi)}
             >

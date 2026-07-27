@@ -105,13 +105,13 @@ pub async fn close_workspace(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let caller_pane_id = crate::api::pane_routes::caller_pane_header(&headers);
+    let caller_tab_id = crate::api::tab_routes::caller_tab_header(&headers);
     let cmd = crate::dispatch::Command::WorkspaceClose {
         workspace_id: id,
-        caller_pane_id,
+        caller_tab_id,
     };
     let result = crate::dispatch::dispatch(&cmd, state.svc.as_ref())
-        .map_err(crate::api::pane_routes::map_close_error)?;
+        .map_err(crate::api::tab_routes::map_close_error)?;
     Ok(Json(result.into_json()))
 }
 
@@ -137,7 +137,7 @@ pub(crate) struct ReopenClosedBody {
     index: Option<usize>,
 }
 
-pub async fn reopen_closed_pane(
+pub async fn reopen_closed_tab(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
@@ -145,7 +145,7 @@ pub async fn reopen_closed_pane(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let index = body.and_then(|Json(b)| b.index);
-    let cmd = crate::dispatch::Command::WorkspaceReopenClosedPane {
+    let cmd = crate::dispatch::Command::WorkspaceReopenClosedTab {
         workspace_id: id,
         index,
     };
@@ -207,13 +207,13 @@ pub async fn reorder_tabs(
 pub async fn reorder_children(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(parent_pane_id): Path<String>,
+    Path(parent_tab_id): Path<String>,
     Json(body): Json<ReorderTabsBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     state
         .svc
-        .reorder_child(&parent_pane_id, &body.ordered_tab_ids)
+        .reorder_child(&parent_tab_id, &body.ordered_tab_ids)
         .map_err(|_| (StatusCode::BAD_REQUEST, "Failed to reorder children"))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -262,7 +262,7 @@ pub async fn create_tab(
     body: Option<Json<CreateTabBody>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let (tab_id, pane_id) = state
+    let (tab_id, tab_id) = state
         .svc
         .create_tab_with_activate(&workspace_id, false)
         .map_err(|_| (StatusCode::NOT_FOUND, "Workspace not found"))?;
@@ -270,22 +270,22 @@ pub async fn create_tab(
     let pty_id = if eager {
         state
             .svc
-            .ensure_pane_pty_for_send(&pane_id)
+            .ensure_tab_pty_for_send(&tab_id)
             .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to spawn PTY"))?;
         state
             .svc
             .mux
             .write()
-            .get_pane(&pane_id)
+            .get_tab(&tab_id)
             .and_then(|p| p.pty_id.clone())
     } else {
         None
     };
-    let title = state.svc.mux.read().display_label_for_pane(&pane_id);
+    let title = state.svc.mux.read().display_label_for_tab(&tab_id);
     Ok(Json(serde_json::json!({
         "id": tab_id.clone(),
         "title": title,
-        "pane_id": pane_id,
+        "tab_id": tab_id,
         "tab_id": tab_id,
         "pty_id": pty_id
     })))

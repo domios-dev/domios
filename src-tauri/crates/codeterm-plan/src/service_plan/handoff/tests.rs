@@ -9,7 +9,7 @@ fn store_with_task() -> (tempfile::TempDir, PlanStore, String, String) {
         .create_plan(
             "Canvas Handoff".into(),
             dir.path().display().to_string(),
-            OrchestratorRef::from_pane("orchestrator"),
+            OrchestratorRef::from_tab("orchestrator"),
             vec![MilestoneKind {
                 key: "decision".into(),
                 label: "decision".into(),
@@ -57,10 +57,10 @@ fn create_handoff_adds_element_milestone_history_and_sidecar() {
                 task: Some(task_id.clone()),
                 goal: Some("Land backend handoff".into()),
                 next_actions: vec!["Run handoff show first".into()],
-                foundational_rules: vec!["Never reseed parent pane".into()],
+                foundational_rules: vec!["Never reseed parent tab".into()],
                 open_decisions: vec!["Choose reseed ack source".into()],
                 narrative: Some("Overlay body\n".into()),
-                from: Some(AgentRef::from_pane("worker")),
+                from: Some(AgentRef::from_tab("worker")),
             },
             30,
         )
@@ -163,7 +163,7 @@ fn reseed_records_pending_row_and_session_start_sends_once() {
             &plan_id,
             &HandoffReseedRequest {
                 selector: Some(created.handoff_id.clone()),
-                pane_id: "pane-a".into(),
+                tab_id: "tab-a".into(),
                 source_session_id: "old-session".into(),
                 mode: "new".into(),
                 force: false,
@@ -178,7 +178,7 @@ fn reseed_records_pending_row_and_session_start_sends_once() {
     assert_eq!(result.sends[0].text, "/new");
 
     let resume = store
-        .observe_handoff_session_start("pane-a", "new-session", 50)
+        .observe_handoff_session_start("tab-a", "new-session", 50)
         .unwrap()
         .unwrap();
     // always injected); the authored seed remains the trailing payload.
@@ -186,7 +186,7 @@ fn reseed_records_pending_row_and_session_start_sends_once() {
     assert!(resume.text.trim_end().ends_with("resume seed"));
     assert_eq!(resume.handoff_id, created.handoff_id);
     assert!(store
-        .observe_handoff_session_start("pane-a", "new-session-2", 60)
+        .observe_handoff_session_start("tab-a", "new-session-2", 60)
         .unwrap()
         .is_none());
     let detail = store.show_handoff(&plan_id, None).unwrap();
@@ -223,7 +223,7 @@ fn reseed_rejects_active_pending_row_without_force() {
         .unwrap();
     let request = HandoffReseedRequest {
         selector: None,
-        pane_id: "pane-a".into(),
+        tab_id: "tab-a".into(),
         source_session_id: "old-session".into(),
         mode: "new".into(),
         force: false,
@@ -264,7 +264,7 @@ fn compact_reseed_sequence_is_seed_then_compact() {
             &plan_id,
             &HandoffReseedRequest {
                 selector: None,
-                pane_id: "pane-a".into(),
+                tab_id: "tab-a".into(),
                 source_session_id: "old-session".into(),
                 mode: "compact".into(),
                 force: false,

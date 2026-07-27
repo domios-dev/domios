@@ -35,11 +35,11 @@ fn actor(params: Option<&Value>) -> AgentRef {
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .or_else(|| {
             params
-                .and_then(|x| x.get("caller_pane_id"))
+                .and_then(|x| x.get("caller_tab_id"))
                 .and_then(|v| v.as_str())
-                .map(AgentRef::from_pane)
+                .map(AgentRef::from_tab)
         })
-        .unwrap_or_else(|| AgentRef::from_pane("unknown"))
+        .unwrap_or_else(|| AgentRef::from_tab("unknown"))
 }
 
 fn unauthorized(message: &str) -> JsonRpcError {
@@ -52,7 +52,7 @@ fn unauthorized(message: &str) -> JsonRpcError {
 
 fn validate_bound_orchestrator_identity(
     plan: &Plan,
-    pane_id: &str,
+    tab_id: &str,
     session_id: &str,
     claimed_nonce: &str,
     live_session_id: Option<&str>,
@@ -60,13 +60,13 @@ fn validate_bound_orchestrator_identity(
     reported_nonce: Option<&str>,
     role: Option<AgentRole>,
 ) -> Result<(), JsonRpcError> {
-    let owner_matches = plan.owner.pane_id.as_deref() == Some(pane_id)
+    let owner_matches = plan.owner.tab_id.as_deref() == Some(tab_id)
         && plan.owner.session_id.as_deref() == Some(session_id);
     let live_matches = live_session_id == Some(session_id)
         && configured_nonce == Some(claimed_nonce)
         && reported_nonce == Some(claimed_nonce)
         && role == Some(AgentRole::Orchestrator);
-    if pane_id.is_empty()
+    if tab_id.is_empty()
         || session_id.is_empty()
         || claimed_nonce.is_empty()
         || !owner_matches
@@ -84,7 +84,7 @@ fn authorized_orchestrator_actor(
     plan_id: &str,
     params: Option<&Value>,
 ) -> Result<AgentRef, JsonRpcError> {
-    let pane_id = str_field(params, "caller_pane_id");
+    let tab_id = str_field(params, "caller_tab_id");
     let session_id = str_field(params, "session_id");
     let nonce = str_field(params, "session_binding_nonce");
     let plan = svc
@@ -92,23 +92,23 @@ fn authorized_orchestrator_actor(
         .get(plan_id)
         .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
     let mux = svc.mux.read();
-    let pane = mux
-        .get_pane(pane_id)
+    let tab = mux
+        .get_tab(tab_id)
         .ok_or_else(|| unauthorized("the claimed Orchestrator tab is not live"))?;
     validate_bound_orchestrator_identity(
         &plan,
-        pane_id,
+        tab_id,
         session_id,
         nonce,
-        pane.agent_session_id.as_deref(),
-        pane.session_binding_nonce.as_deref(),
-        pane.reported_session_binding_nonce.as_deref(),
-        pane.role,
+        tab.agent_session_id.as_deref(),
+        tab.session_binding_nonce.as_deref(),
+        tab.reported_session_binding_nonce.as_deref(),
+        tab.role,
     )?;
     Ok(AgentRef {
-        pane_id: Some(pane.id.clone()),
-        session_id: pane.agent_session_id.clone(),
-        title: Some(pane.title.clone()),
+        tab_id: Some(tab.id.clone()),
+        session_id: tab.agent_session_id.clone(),
+        title: Some(tab.title.clone()),
     })
 }
 
@@ -220,7 +220,7 @@ pub(super) fn dispatch(
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &plan_id);
             svc.record_kpi_review_verdict(
-                from.pane_id.as_deref().unwrap_or("unknown"),
+                from.tab_id.as_deref().unwrap_or("unknown"),
                 &plan_id,
                 &task_id,
                 crate::agent::kpi_ledger::KpiEventKind::Accept,
@@ -249,7 +249,7 @@ pub(super) fn dispatch(
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &plan_id);
             svc.record_kpi_review_verdict(
-                from.pane_id.as_deref().unwrap_or("unknown"),
+                from.tab_id.as_deref().unwrap_or("unknown"),
                 &plan_id,
                 &task_id,
                 crate::agent::kpi_ledger::KpiEventKind::Bounce,
@@ -280,7 +280,7 @@ mod tests {
             "review auth".into(),
             "/repo".into(),
             OrchestratorRef {
-                pane_id: Some("owner".into()),
+                tab_id: Some("owner".into()),
                 session_id: Some("session".into()),
                 title: Some("Owner".into()),
             },

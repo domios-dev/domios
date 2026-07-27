@@ -32,7 +32,7 @@ interface ServerLog {
   unlistens: number;
 }
 
-/** Minimal fake of the daemon seam: registry semantics for one pane. */
+/** Minimal fake of the daemon seam: registry semantics for one tab. */
 class FakeChatServer {
   log: ServerLog = { starts: [], stops: [], listens: 0, unlistens: 0 };
   handler: ChatHandler | null = null;
@@ -80,11 +80,11 @@ class FakeChatServer {
     });
   }
 
-  /** Emit a live delta exactly like the daemon sink: pane event with authority stamp. */
+  /** Emit a live delta exactly like the daemon sink: tab event with authority stamp. */
   emit(messages: NormalizedChatMessage[], sourceSessionId: string | null = this.sessionId): void {
     this.handler?.({
       payload: {
-        pane_id: "pane",
+        tab_id: "tab",
         messages,
         source_session_id: sourceSessionId,
         session_binding_nonce: "nonce-1",
@@ -125,7 +125,7 @@ async function main(): Promise<void> {
     server.install(bridge as never);
     function Harness({ sid, active }: { sid: string | null; active: boolean }) {
       const session = useChatSession({
-        paneId: "pane",
+        tabId: "tab",
         agentSessionId: sid,
         sessionBindingNonce: "nonce-1",
         active,

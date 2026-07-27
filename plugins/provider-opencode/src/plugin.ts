@@ -357,7 +357,7 @@ const plugin: PluginModule = {
   },
 
   // the model recorded against this session_id. No "latest model in cwd"
-  // fallback — that would hand the pane a SIBLING agent's model. Unknown → null.
+  // fallback — that would hand the tab a SIBLING agent's model. Unknown → null.
   detectSessionModel(_cwd: string, sessionId: string): string | null {
     const db = opencodeDbPath();
     if (!db || !host.fs.fileExists(db)) return null;
@@ -830,12 +830,12 @@ function opencodeBindingPluginSource(apiPort: number): string {
     "const FALLBACK_PORT = \"" + String(apiPort || 7686) + "\";",
     "",
     "function endpoint() {",
-    "  const pane = process.env.CODETERM_PANE_ID;",
-    "  if (!pane) return null;",
+    "  const tab = process.env.CODETERM_TAB_ID;",
+    "  if (!tab) return null;",
     "  const base =",
     "    process.env.CODETERM_API_URL ||",
     "    `http://127.0.0.1:${process.env.CODETERM_API_PORT || FALLBACK_PORT}`;",
-    "  return `${base}/api/panes/${encodeURIComponent(pane)}/hook/session_start`;",
+    "  return `${base}/api/tabs/${encodeURIComponent(tab)}/hook/session_start`;",
     "}",
     "",
     "function normalizeSessionID(value) {",

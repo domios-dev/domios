@@ -294,7 +294,7 @@ mod tests {
         for path in [PROMPT_PATH, SKILL_PATH] {
             let text = std::fs::read_to_string(path).expect("read agent instruction source");
             assert!(
-                !text.contains("codeterm pane "),
+                !text.contains("codeterm tab "),
                 "{path} teaches the removed legacy command namespace"
             );
             assert!(

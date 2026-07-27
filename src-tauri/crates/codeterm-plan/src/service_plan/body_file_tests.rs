@@ -36,7 +36,7 @@ fn section_and_task_bodies_roundtrip_through_markdown_files() {
     let mut plan = Plan::new(
         "External".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("owner"),
+        OrchestratorRef::from_tab("owner"),
     );
     store.save(&mut plan, 1).unwrap();
     store
@@ -85,7 +85,7 @@ fn executor_role_persists_across_json_frontmatter_and_reload() {
     let mut plan = Plan::new(
         "Role".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("owner"),
+        OrchestratorRef::from_tab("owner"),
     );
     store.save(&mut plan, 1).unwrap();
     let task_id = store
@@ -120,7 +120,7 @@ fn personality_persists_across_yaml_sidecar_and_reload() {
     let mut plan = Plan::new(
         "Persona".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("owner"),
+        OrchestratorRef::from_tab("owner"),
     );
     store.save(&mut plan, 1).unwrap();
     let task_id = store
@@ -157,7 +157,7 @@ fn corrupt_markdown_sidecar_keeps_plan_indexed_with_json_body() {
     let mut plan = Plan::new(
         "Corrupt sidecar".into(),
         project.display().to_string(),
-        OrchestratorRef::from_pane("owner"),
+        OrchestratorRef::from_tab("owner"),
     );
     plan.sections.push(crate::plan::Section {
         id: "sec_spec".into(),
@@ -201,7 +201,7 @@ fn corrupt_markdown_sidecar_keeps_plan_indexed_with_json_body() {
         intent: None,
         parent_task_id: None,
         depends_on: vec![],
-        assigned_pane_id: None,
+        assigned_tab_id: None,
         lane: Default::default(),
         taken_by_role: None,
         peer: None,
@@ -246,7 +246,7 @@ fn empty_markdown_sidecars_do_not_end_with_blank_lines() {
     let mut plan = Plan::new(
         "Empty sidecars".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("owner"),
+        OrchestratorRef::from_tab("owner"),
     );
     store.save(&mut plan, 1).unwrap();
     store
@@ -298,7 +298,7 @@ fn milestone_and_note_bodies_roundtrip_through_markdown_files() {
     let mut plan = Plan::new(
         "External prose".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("owner"),
+        OrchestratorRef::from_tab("owner"),
     );
     store.save(&mut plan, 1).unwrap();
     let task_id = store
@@ -320,7 +320,7 @@ fn milestone_and_note_bodies_roundtrip_through_markdown_files() {
             &task_id,
             "status_update",
             &milestone_text,
-            AgentRef::from_pane("worker"),
+            AgentRef::from_tab("worker"),
             true,
             3,
         )
@@ -376,7 +376,7 @@ fn task_stride_log_hydrates_when_inline_milestones_are_missing() {
     let mut plan = Plan::new(
         "Stride hydrate".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("owner"),
+        OrchestratorRef::from_tab("owner"),
     );
     store.save(&mut plan, 1).unwrap();
     let task_id = store
@@ -397,7 +397,7 @@ fn task_stride_log_hydrates_when_inline_milestones_are_missing() {
             &task_id,
             "testing",
             "sidecar-only",
-            AgentRef::from_pane("worker"),
+            AgentRef::from_tab("worker"),
             true,
             3,
         )
@@ -430,7 +430,7 @@ fn inline_and_stride_log_milestones_dedupe_deterministically() {
     let mut plan = Plan::new(
         "Stride dedupe".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("owner"),
+        OrchestratorRef::from_tab("owner"),
     );
     store.save(&mut plan, 1).unwrap();
     let task_id = store
@@ -451,7 +451,7 @@ fn inline_and_stride_log_milestones_dedupe_deterministically() {
             &task_id,
             "status_update",
             "inline duplicate",
-            AgentRef::from_pane("worker"),
+            AgentRef::from_tab("worker"),
             true,
             30,
         )
@@ -490,7 +490,7 @@ fn save_preserves_existing_sidecar_only_stride_entries() {
     let mut plan = Plan::new(
         "Stride merge save".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("owner"),
+        OrchestratorRef::from_tab("owner"),
     );
     store.save(&mut plan, 1).unwrap();
     let task_id = store
@@ -511,7 +511,7 @@ fn save_preserves_existing_sidecar_only_stride_entries() {
             &task_id,
             "status_update",
             "first in-memory stride",
-            AgentRef::from_pane("worker"),
+            AgentRef::from_tab("worker"),
             true,
             3,
         )
@@ -532,7 +532,7 @@ fn save_preserves_existing_sidecar_only_stride_entries() {
             &task_id,
             "status_update",
             "second in-memory stride",
-            AgentRef::from_pane("worker"),
+            AgentRef::from_tab("worker"),
             true,
             5,
         )
@@ -568,7 +568,7 @@ fn ordinary_save_preserves_external_stride_append_after_stale_snapshot() {
     let mut plan = Plan::new(
         "Stride race save".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("owner"),
+        OrchestratorRef::from_tab("owner"),
     );
     store.save(&mut plan, 1).unwrap();
     let task_id = store
@@ -589,7 +589,7 @@ fn ordinary_save_preserves_external_stride_append_after_stale_snapshot() {
             &task_id,
             "status_update",
             "first in-memory stride",
-            AgentRef::from_pane("worker"),
+            AgentRef::from_tab("worker"),
             true,
             3,
         )
@@ -629,7 +629,7 @@ fn inline_milestone_and_canvas_markdown_migrates_to_files_on_load() {
     let mut plan = Plan::new(
         "Legacy prose".into(),
         project.display().to_string(),
-        OrchestratorRef::from_pane("owner"),
+        OrchestratorRef::from_tab("owner"),
     );
     plan.tasks.push(crate::plan::Task {
         id: "task_legacy".into(),
@@ -663,7 +663,7 @@ fn inline_milestone_and_canvas_markdown_migrates_to_files_on_load() {
         intent: None,
         parent_task_id: None,
         depends_on: vec![],
-        assigned_pane_id: None,
+        assigned_tab_id: None,
         lane: Default::default(),
         taken_by_role: None,
         peer: None,
@@ -672,7 +672,7 @@ fn inline_milestone_and_canvas_markdown_migrates_to_files_on_load() {
         attachments: vec![],
         milestones: vec![crate::plan::Milestone {
             id: "ms_legacy".into(),
-            from: AgentRef::from_pane("worker"),
+            from: AgentRef::from_tab("worker"),
             kind: "decision".into(),
             text: "legacy milestone\n\nbody".into(),
             ts: 1,
@@ -737,7 +737,7 @@ fn legacy_inline_only_milestones_load_then_save_to_stride_log_and_stripped_json(
     let mut plan = Plan::new(
         "Legacy inline strides".into(),
         project.display().to_string(),
-        OrchestratorRef::from_pane("owner"),
+        OrchestratorRef::from_tab("owner"),
     );
     plan.tasks.push(crate::plan::Task {
         id: "task_legacy".into(),
@@ -771,7 +771,7 @@ fn legacy_inline_only_milestones_load_then_save_to_stride_log_and_stripped_json(
         intent: None,
         parent_task_id: None,
         depends_on: vec![],
-        assigned_pane_id: None,
+        assigned_tab_id: None,
         lane: Default::default(),
         taken_by_role: None,
         peer: None,
@@ -780,7 +780,7 @@ fn legacy_inline_only_milestones_load_then_save_to_stride_log_and_stripped_json(
         attachments: vec![],
         milestones: vec![crate::plan::Milestone {
             id: "ms_legacy".into(),
-            from: AgentRef::from_pane("worker"),
+            from: AgentRef::from_tab("worker"),
             kind: "status_update".into(),
             text: "legacy short milestone".into(),
             ts: 1,
@@ -826,7 +826,7 @@ fn plan_file_manifest_lists_milestone_and_canvas_body_paths() {
     let mut plan = Plan::new(
         "Manifest prose".into(),
         dir.path().display().to_string(),
-        OrchestratorRef::from_pane("owner"),
+        OrchestratorRef::from_tab("owner"),
     );
     store.save(&mut plan, 1).unwrap();
     let task_id = store
@@ -847,7 +847,7 @@ fn plan_file_manifest_lists_milestone_and_canvas_body_paths() {
             &task_id,
             "review",
             &"review notes ".repeat(30),
-            AgentRef::from_pane("worker"),
+            AgentRef::from_tab("worker"),
             true,
             3,
         )

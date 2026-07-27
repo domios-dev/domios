@@ -19,7 +19,7 @@
 ### 03-agents
 
 - [tests/playwright/suites/03-agents/agents.spec.ts](../../tests/playwright/suites/03-agents/agents.spec.ts) - agents covers its Playwright acceptance contract.
-- [tests/playwright/suites/03-agents/cross-pane-chat.spec.ts](../../tests/playwright/suites/03-agents/cross-pane-chat.spec.ts) - cross pane chat covers its Playwright acceptance contract.
+- [tests/playwright/suites/03-agents/cross-tab-chat.spec.ts](../../tests/playwright/suites/03-agents/cross-tab-chat.spec.ts) - cross tab chat covers its Playwright acceptance contract.
 
 ### 04-mesh
 
@@ -35,7 +35,7 @@
 
 ### 10-restore
 
-- [tests/playwright/suites/10-restore/restore-matrix.spec.ts](../../tests/playwright/suites/10-restore/restore-matrix.spec.ts) - Restore-matrix verifies provider pane identity and visible markers after restart.
+- [tests/playwright/suites/10-restore/restore-matrix.spec.ts](../../tests/playwright/suites/10-restore/restore-matrix.spec.ts) - Restore-matrix verifies provider tab identity and visible markers after restart.
 
 ### 11-api
 
@@ -109,8 +109,8 @@
 - [tests/playwright/suites/16-chat-view/composer-focus-steal.spec.ts](../../tests/playwright/suites/16-chat-view/composer-focus-steal.spec.ts) - composer focus steal covers its Playwright acceptance contract.
 - [tests/playwright/suites/16-chat-view/cursor-new-rebinds-session.spec.ts](../../tests/playwright/suites/16-chat-view/cursor-new-rebinds-session.spec.ts) - cursor new rebinds session covers its Playwright acceptance contract.
 - [tests/playwright/suites/16-chat-view/opencode-assistant-replies.spec.ts](../../tests/playwright/suites/16-chat-view/opencode-assistant-replies.spec.ts) - opencode assistant replies covers its Playwright acceptance contract.
-- [tests/playwright/suites/16-chat-view/send-on-fresh-pane.spec.ts](../../tests/playwright/suites/16-chat-view/send-on-fresh-pane.spec.ts) - send on fresh pane covers its Playwright acceptance contract.
-- [tests/playwright/suites/16-chat-view/watcher-pane.spec.ts](../../tests/playwright/suites/16-chat-view/watcher-pane.spec.ts) - watcher pane covers its Playwright acceptance contract.
+- [tests/playwright/suites/16-chat-view/send-on-fresh-tab.spec.ts](../../tests/playwright/suites/16-chat-view/send-on-fresh-tab.spec.ts) - send on fresh tab covers its Playwright acceptance contract.
+- [tests/playwright/suites/16-chat-view/watcher-tab.spec.ts](../../tests/playwright/suites/16-chat-view/watcher-tab.spec.ts) - watcher tab covers its Playwright acceptance contract.
 
 ### 17-open-shell
 

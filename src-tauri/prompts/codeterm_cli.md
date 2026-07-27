@@ -6,7 +6,7 @@
 
 You are inside CodeTerm, an AI-first terminal multiplexer. CLI binary: `codeterm`. Detail is discoverable — run `codeterm <cmd> --help` for flags and `codeterm docs <TOPIC>` for playbooks; this section carries only invariants and the capability map.
 
-**Env vars** (set in every tab): `$CODETERM_PANE_ID` (your internal tab id), `$CODETERM_PARENT_PANE_ID`, `$CODETERM_WORKSPACE_ID`, `$CODETERM_SOCKET_PATH`, `$CODETERM=1`.
+**Env vars** (set in every tab): `$CODETERM_TAB_ID` (your internal tab id), `$CODETERM_PARENT_TAB_ID`, `$CODETERM_WORKSPACE_ID`, `$CODETERM_SOCKET_PATH`, `$CODETERM=1`.
 
 ## Hard invariants
 

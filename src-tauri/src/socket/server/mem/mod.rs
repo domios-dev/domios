@@ -135,7 +135,7 @@ fn emit_activity(svc: &ServiceState, op: &str, mem_ids: Vec<String>) {
         mem_ids,
         source: MemActivitySource {
             kind: "cli".to_string(),
-            pane_id: None,
+            tab_id: None,
             worker_id: None,
             agent_provider: None,
         },
@@ -393,15 +393,15 @@ fn mem_flush(
     let b: FlushBody = parse_params(params)?;
     let pty_id = {
         let mux = svc.mux.write();
-        mux.resolve_pane_id(&b.pane)
-            .ok_or_else(|| not_found(format!("Tab not found: {}", b.pane)))?
+        mux.resolve_tab_id(&b.tab)
+            .ok_or_else(|| not_found(format!("Tab not found: {}", b.tab)))?
     };
     let pty_id_for_buffer = svc.resolve_pty_id(&pty_id).map_err(not_found)?;
     let body = {
         let buf = svc.output_buf.lock();
         buf.get_full_text(&pty_id_for_buffer).unwrap_or_default()
     };
-    let id = learnings::flush_pane(&svc.mem, &b.pane, b.title.as_deref().unwrap_or(""), body)
+    let id = learnings::flush_tab(&svc.mem, &b.tab, b.title.as_deref().unwrap_or(""), body)
         .map_err(invalid_params)?;
     Ok(serde_json::json!({ "id": id }))
 }
@@ -565,7 +565,7 @@ fn mem_worker_spawn(
     let info = svc.workers.get(&worker_id);
     Ok(serde_json::json!({
         "worker_id": worker_id,
-        "pane_id": info.as_ref().map(|i| &i.pane_id),
+        "tab_id": info.as_ref().map(|i| &i.tab_id),
         "info": info,
     }))
 }
@@ -618,16 +618,16 @@ fn mem_worker_report(
 ) -> Result<serde_json::Value, JsonRpcError> {
     let id = get_string_param(&params, "id")?;
     let summary = get_string_param(&params, "summary")?;
-    let worker_pane_id = svc.workers.get(&id).map(|w| w.pane_id.clone());
-    let (pty_id, session_id, run_cwd) = worker_pane_id
+    let worker_tab_id = svc.workers.get(&id).map(|w| w.tab_id.clone());
+    let (pty_id, session_id, run_cwd) = worker_tab_id
         .as_ref()
         .map(|pid| {
             let mux = svc.mux.write();
-            let pane = mux.get_pane(pid);
+            let tab = mux.get_tab(pid);
             (
-                pane.and_then(|p| p.pty_id.clone()),
-                pane.and_then(|p| p.agent_session_id.clone()),
-                pane.and_then(|p| p.cwd.clone()),
+                tab.and_then(|p| p.pty_id.clone()),
+                tab.and_then(|p| p.agent_session_id.clone()),
+                tab.and_then(|p| p.cwd.clone()),
             )
         })
         .unwrap_or((None, None, None));
@@ -651,11 +651,11 @@ fn mem_worker_report(
     let info = svc.workers.complete(&id, summary).map_err(not_found)?;
     crate::api::events::emit_everywhere(&svc.app_handle, "graph-worker-reported", &info);
     let svc_close = svc.clone();
-    let pane_id = info.pane_id.clone();
+    let tab_id = info.tab_id.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-        if let Err(e) = svc_close.close_pane(&pane_id) {
-            log::warn!("[graph-workers] auto-close Tab {}: {}", pane_id, e);
+        if let Err(e) = svc_close.close_tab(&tab_id) {
+            log::warn!("[graph-workers] auto-close Tab {}: {}", tab_id, e);
         }
     });
     Ok(serde_json::json!({ "ok": true, "info": info }))
@@ -667,8 +667,8 @@ fn mem_worker_kill(
 ) -> Result<serde_json::Value, JsonRpcError> {
     let id = get_string_param(&params, "id")?;
     let info = svc.workers.kill(&id).map_err(not_found)?;
-    if let Err(e) = svc.close_pane(&info.pane_id) {
-        log::warn!("[graph-workers] kill Tab {}: {}", info.pane_id, e);
+    if let Err(e) = svc.close_tab(&info.tab_id) {
+        log::warn!("[graph-workers] kill Tab {}: {}", info.tab_id, e);
     }
     crate::api::events::emit_everywhere(&svc.app_handle, "graph-worker-done", &info);
     Ok(serde_json::json!({ "ok": true }))

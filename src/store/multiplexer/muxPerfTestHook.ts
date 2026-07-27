@@ -5,7 +5,7 @@ import type { Action } from "./reducer";
 
 declare global {
   interface Window {
-    __muxPerfChurnPane?: (paneId: string) => void;
+    __muxPerfChurnTab?: (tabId: string) => void;
     __renderCounts?: Record<string, number>;
   }
 }
@@ -17,13 +17,13 @@ export function mountMuxPerfTestHook(
 ): () => void {
   if (!enabled || typeof window === "undefined") return () => {};
 
-  window.__muxPerfChurnPane = (paneId: string) => {
+  window.__muxPerfChurnTab = (tabId: string) => {
     const current = getState();
-    const pane = current.panes[paneId];
-    if (!pane) return;
-    const prevMs = pane.agent_state?.elapsed_ms ?? 0;
+    const tab = current.tabs[tabId];
+    if (!tab) return;
+    const prevMs = tab.agent_state?.elapsed_ms ?? 0;
     const agent_state = {
-      ...(pane.agent_state ?? { state: "working" as const }),
+      ...(tab.agent_state ?? { state: "working" as const }),
       elapsed_ms: prevMs + 50,
       status_line: `Perf churn ${prevMs + 50}ms`,
       phase: "work",
@@ -32,20 +32,20 @@ export function mountMuxPerfTestHook(
       (typeof current.generation === "number" ? current.generation : 0) + 1;
     const snapshot: MultiplexerState = {
       workspaces: current.workspaces,
-      panes: {
-        ...current.panes,
-        [paneId]: { ...pane, agent_state },
+      tabs: {
+        ...current.tabs,
+        [tabId]: { ...tab, agent_state },
       },
       active_workspace_id: current.active_workspace_id,
-      focused_pane_id: current.focused_pane_id,
+      focused_tab_id: current.focused_tab_id,
       recently_closed: current.recently_closed,
       generation: nextGen,
-      pane_statuses: current.paneStatuses,
+      tab_statuses: current.tabStatuses,
     };
     dispatch({ type: "SET_STATE", state: snapshot });
   };
 
   return () => {
-    delete window.__muxPerfChurnPane;
+    delete window.__muxPerfChurnTab;
   };
 }

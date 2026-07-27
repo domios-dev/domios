@@ -34,7 +34,7 @@ const INVENTORY: ForkSite[] = [
   { file: "src/components/Sidebar/Sidebar.tsx", line: 565, cls: "platform-adaptation", note: "web-only peer picker lives in the General sidebar header" },
   { file: "src/components/StaleBuildBanner.tsx", line: 18, cls: "transport-shim", note: "build-check API base: window.location.origin vs local dev daemon" },
   { file: "src/components/Terminal/composerFiles.ts", line: 27, cls: "platform-adaptation", note: "browser DOM drag/drop vs native Tauri webview drag/drop" },
-  { file: "src/components/Terminal/terminalOwnership.ts", line: 9, cls: "capability-gate", note: "background-pane PTY suspension only applies where tabs can background (web)" },
+  { file: "src/components/Terminal/terminalOwnership.ts", line: 9, cls: "capability-gate", note: "background-tab PTY suspension only applies where tabs can background (web)" },
   { file: "src/components/Terminal/voice/audio.ts", line: 180, cls: "platform-adaptation", note: "native macOS/iOS codec preference vs web codec order" },
   { file: "src/components/Terminal/voice/audio.ts", line: 222, cls: "transport-shim", note: "persist voice blob: webUpload vs Tauri save_temp_file" },
   { file: "src/components/Terminal/voice/useVoiceRecorder.ts", line: 271, cls: "platform-adaptation", note: "different mic-unavailable guidance text per host" },

@@ -2,7 +2,7 @@ import { invoke, listen } from "../../lib/bridge";
 
 export type ChatSendStatus = {
   send_id: string;
-  pane_id: string;
+  tab_id: string;
   state: "pending" | "sent" | "failed";
   error: string | null;
   ledger_id: string;
@@ -39,14 +39,14 @@ function surfaceFailure(status: ChatSendStatus | null, onFailure: (error: string
 }
 
 export function observeChatSendStatus(
-  paneId: string,
+  tabId: string,
   onFailure: (error: string) => void,
 ): () => void {
   let disposed = false;
   let unlisten: (() => void) | null = null;
 
   const reconcile = () => {
-    void invoke<ChatSendStatus[]>("chat_send_status", { paneId })
+    void invoke<ChatSendStatus[]>("chat_send_status", { tabId })
       .then((statuses) => {
         if (!disposed) {
           for (const status of statuses) surfaceFailure(status, onFailure);
@@ -55,7 +55,7 @@ export function observeChatSendStatus(
       .catch(() => {});
   };
   void listen<ChatSendStatus>("chat-send-status", (event) => {
-    if (!disposed && event.payload.pane_id === paneId) {
+    if (!disposed && event.payload.tab_id === tabId) {
       surfaceFailure(event.payload, onFailure);
     }
   }).then(

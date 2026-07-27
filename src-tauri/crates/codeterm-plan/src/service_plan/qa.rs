@@ -16,7 +16,7 @@ pub struct QaQueueEntry {
     pub position: Option<usize>,
     pub started_at: Option<u64>,
     pub age_ms: Option<u64>,
-    pub assigned_pane_id: Option<String>,
+    pub assigned_tab_id: Option<String>,
     pub test_plan: Option<String>,
 }
 
@@ -35,7 +35,7 @@ pub struct QaTransitionResult {
     pub milestone_id: String,
     pub task_name: String,
     pub test_plan: Option<String>,
-    pub nudged_pane_id: Option<String>,
+    pub nudged_tab_id: Option<String>,
 }
 
 fn max_running_qa_per_plan() -> usize {
@@ -99,7 +99,7 @@ fn qa_entry(task: &Task, position: Option<usize>, now_ms: u64) -> QaQueueEntry {
         position,
         started_at,
         age_ms: started_at.map(|ts| now_ms.saturating_sub(ts)),
-        assigned_pane_id: task.assigned_pane_id.clone(),
+        assigned_tab_id: task.assigned_tab_id.clone(),
         test_plan: task.test_plan.clone(),
     }
 }
@@ -178,7 +178,7 @@ impl PlanStore {
                 milestone_id: mid,
                 task_name: task.name.clone(),
                 test_plan: task.test_plan.clone(),
-                nudged_pane_id: None,
+                nudged_tab_id: None,
             });
             Ok(())
         })?;
@@ -190,7 +190,7 @@ impl PlanStore {
         plan_id: &str,
         note: &str,
         from: AgentRef,
-        tester_pane_id: Option<&str>,
+        tester_tab_id: Option<&str>,
         now_ms: u64,
     ) -> Result<Option<QaTransitionResult>, PlanError> {
         let note = require_note(note)?;
@@ -210,7 +210,7 @@ impl PlanStore {
             let task = &mut p.tasks[idx];
             task.qa_state = Some(QaState::Running);
             task.status_changed_at = now_ms;
-            task.assigned_pane_id = tester_pane_id.map(str::to_string);
+            task.assigned_tab_id = tester_tab_id.map(str::to_string);
             task.updated_at = now_ms;
             task.milestones.push(qa_milestone(
                 mid.clone(),
@@ -224,7 +224,7 @@ impl PlanStore {
                 milestone_id: mid,
                 task_name: task.name.clone(),
                 test_plan: task.test_plan.clone(),
-                nudged_pane_id: None,
+                nudged_tab_id: None,
             });
             Ok(())
         })?;
@@ -255,7 +255,7 @@ impl PlanStore {
             task.review_stage = ReviewStage::Review;
             task.qa_state = None;
             task.status_changed_at = now_ms;
-            let assigned = task.assigned_pane_id.clone();
+            let assigned = task.assigned_tab_id.clone();
             super::task_attempts::mark_task_assignment_closed(task, assigned.as_deref(), now_ms);
             clear_task_assignment(task);
             task.updated_at = now_ms;
@@ -281,7 +281,7 @@ impl PlanStore {
                 milestone_id: mid,
                 task_name: task.name.clone(),
                 test_plan: task.test_plan.clone(),
-                nudged_pane_id: None,
+                nudged_tab_id: None,
             });
             Ok(())
         })?;
@@ -312,18 +312,18 @@ impl PlanStore {
                 .rev()
                 .find_map(|attempt| {
                     (attempt.report.as_ref().and_then(|r| r.status.as_deref()) == Some("in_review"))
-                        .then(|| attempt.executor_pane_id.clone())
+                        .then(|| attempt.executor_tab_id.clone())
                 })
-                .or_else(|| p.tasks[idx].lane.pane_id.clone())
-                .or_else(|| p.tasks[idx].assigned_pane_id.clone());
+                .or_else(|| p.tasks[idx].lane.tab_id.clone())
+                .or_else(|| p.tasks[idx].assigned_tab_id.clone());
             let task = &mut p.tasks[idx];
             task.status = TaskStatus::InProgress;
             task.review_stage = ReviewStage::Review;
             task.qa_state = None;
             task.status_label = Some("QA failed".into());
             task.status_changed_at = now_ms;
-            task.assigned_pane_id = implementer.clone();
-            task.lane.pane_id = implementer.clone();
+            task.assigned_tab_id = implementer.clone();
+            task.lane.tab_id = implementer.clone();
             task.updated_at = now_ms;
             task.review_round += 1;
             task.review_evidence.push(ReviewEvidence {
@@ -348,7 +348,7 @@ impl PlanStore {
                 milestone_id: mid,
                 task_name: task.name.clone(),
                 test_plan: task.test_plan.clone(),
-                nudged_pane_id: implementer,
+                nudged_tab_id: implementer,
             });
             Ok(())
         })?;

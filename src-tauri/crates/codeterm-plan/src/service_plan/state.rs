@@ -5,7 +5,7 @@ use serde::Serialize;
 use crate::plan::cleanup_debt::CleanupDebtTask;
 use crate::plan::coverage::CoverageReport;
 use crate::plan::peer::{resolve_planner_ref, PeerResolution};
-use crate::plan::reconcile::{DriftItem, PaneProbe};
+use crate::plan::reconcile::{DriftItem, TabProbe};
 use crate::plan::{
     Goal, LoopStatus, OrchestratorRef, Plan, PlanMode, PlanStatus, PlannerRef, PlanningState,
     QaState, RegressionGateOverride, ReviewStage, TaskStatus,
@@ -125,7 +125,7 @@ pub(crate) fn task_presentation(
 pub struct LiveAgent {
     pub task_id: String,
     pub name: String,
-    pub pane_id: String,
+    pub tab_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -373,24 +373,24 @@ pub fn build_plan_state_snapshot(
     drift: Vec<DriftItem>,
     cleanup_debt: Vec<CleanupDebtTask>,
     lanes: Vec<lane_rows::LaneRow>,
-    live_agent_panes: &HashSet<String>,
+    live_agent_tabs: &HashSet<String>,
     resolved_planner: Option<PeerResolution>,
     now_ms: u64,
 ) -> PlanStateSnapshot {
     let bound_session_id = match &plan.planner {
-        Some(PlannerRef::Pane { session_id, .. }) => session_id.clone(),
+        Some(PlannerRef::Tab { session_id, .. }) => session_id.clone(),
         _ => None,
     };
     let planner_resolution = resolved_planner.unwrap_or_else(|| {
-        resolve_planner_ref(&plan.planner, &plan.owner, |pane_id| PaneProbe {
+        resolve_planner_ref(&plan.planner, &plan.owner, |tab_id| TabProbe {
             exists: true,
-            live_agent: live_agent_panes.contains(pane_id),
+            live_agent: live_agent_tabs.contains(tab_id),
             agent_session_id: bound_session_id.clone(),
-            session_binding_valid: live_agent_panes.contains(pane_id),
-            chat_delivery_target: live_agent_panes.contains(pane_id),
-            agent_accepting_work: live_agent_panes.contains(pane_id),
+            session_binding_valid: live_agent_tabs.contains(tab_id),
+            chat_delivery_target: live_agent_tabs.contains(tab_id),
+            agent_accepting_work: live_agent_tabs.contains(tab_id),
             role: None,
-            parent_pane_id: None,
+            parent_tab_id: None,
         })
     });
     let counts = task_counts(plan);
@@ -481,11 +481,11 @@ pub fn build_plan_state_snapshot(
         .iter()
         .filter(|t| !matches!(t.status, TaskStatus::Done | TaskStatus::Cancelled))
         .filter_map(|t| {
-            let pane = t.assigned_pane_id.as_deref()?;
-            live_agent_panes.contains(pane).then(|| LiveAgent {
+            let tab = t.assigned_tab_id.as_deref()?;
+            live_agent_tabs.contains(tab).then(|| LiveAgent {
                 task_id: t.id.clone(),
                 name: t.name.clone(),
-                pane_id: pane.to_string(),
+                tab_id: tab.to_string(),
             })
         })
         .collect();
@@ -628,7 +628,7 @@ mod tests {
             intent: None,
             parent_task_id: None,
             depends_on: vec![],
-            assigned_pane_id: None,
+            assigned_tab_id: None,
             lane: Default::default(),
             taken_by_role: None,
             peer: None,
@@ -667,10 +667,10 @@ mod tests {
         let mut done = task("t_done", TaskStatus::Done, &["s1"]);
         done.milestones = vec![milestone("m1", 100), milestone("m2", 300)];
         let mut in_review = task("t_review", TaskStatus::InReview, &["s1"]);
-        in_review.assigned_pane_id = Some("pane_live".into());
+        in_review.assigned_tab_id = Some("tab_live".into());
         in_review.milestones = vec![milestone("m3", 200)];
         let mut in_prog = task("t_prog", TaskStatus::InProgress, &["s2"]);
-        in_prog.assigned_pane_id = Some("pane_dead".into());
+        in_prog.assigned_tab_id = Some("tab_dead".into());
         let pending = task("t_pending", TaskStatus::Pending, &[]);
         let cancelled = task("t_cancel", TaskStatus::Cancelled, &["s2"]);
 
@@ -685,12 +685,12 @@ mod tests {
         let drift = vec![DriftItem {
             task_id: "t_prog".into(),
             plan_id: plan.id.clone(),
-            kind: DriftKind::InProgressPaneGone,
+            kind: DriftKind::InProgressTabGone,
             detail: "gone".into(),
             suggested_fix: "needs-reassign".into(),
             not_mine: false,
         }];
-        let live: HashSet<String> = ["pane_live".to_string()].into_iter().collect();
+        let live: HashSet<String> = ["tab_live".to_string()].into_iter().collect();
 
         let snap =
             build_plan_state_snapshot(&plan, coverage, drift, vec![], vec![], &live, None, 1);
@@ -715,10 +715,10 @@ mod tests {
 
         assert_eq!(snap.live_agents.len(), 1);
         assert_eq!(snap.live_agents[0].task_id, "t_review");
-        assert_eq!(snap.live_agents[0].pane_id, "pane_live");
+        assert_eq!(snap.live_agents[0].tab_id, "tab_live");
 
         assert_eq!(snap.drift.total, 1);
-        assert_eq!(snap.drift.by_kind.get("in_progress_pane_gone"), Some(&1));
+        assert_eq!(snap.drift.by_kind.get("in_progress_tab_gone"), Some(&1));
 
         assert_eq!(snap.loops.len(), 1);
         assert_eq!(snap.loops[0].budget, 5);
@@ -943,8 +943,8 @@ mod tests {
     #[test]
     fn queued_request_marks_stale_planner_dead_with_recovery_action() {
         let mut plan = fixture();
-        plan.planner = Some(crate::plan::PlannerRef::Pane {
-            pane_id: "dead-planner".into(),
+        plan.planner = Some(crate::plan::PlannerRef::Tab {
+            tab_id: "dead-planner".into(),
             session_id: None,
             title: None,
         });
@@ -952,7 +952,7 @@ mod tests {
             request_id: "req-1".into(),
             payload: "audit".into(),
             payload_blob: None,
-            caller_pane_id: Some("caller".into()),
+            caller_tab_id: Some("caller".into()),
             caller_session_id: Some("caller-session".into()),
             state: crate::plan::PlannerRequestState::Queued,
             created_at: 1,
@@ -961,7 +961,7 @@ mod tests {
             delivery_attempts: 0,
             completed_at: None,
             failed_at: None,
-            delivered_to_pane_id: None,
+            delivered_to_tab_id: None,
             delivered_to_session_id: None,
             delivered_with_binding_nonce: None,
         });

@@ -99,10 +99,10 @@ impl PlanStore {
             }
             task.status = TaskStatus::Paused;
             task.pause_reason = Some(reason.to_string());
-            let assigned = task.assigned_pane_id.clone();
+            let assigned = task.assigned_tab_id.clone();
             super::task_attempts::mark_task_assignment_closed(task, assigned.as_deref(), now_ms);
-            task.assigned_pane_id = None;
-            task.lane.pane_id = None;
+            task.assigned_tab_id = None;
+            task.lane.tab_id = None;
             task.milestones.push(Milestone {
                 id: mid.clone(),
                 from,

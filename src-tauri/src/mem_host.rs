@@ -87,7 +87,7 @@ impl MemSchedulerPort for CronSchedulerPort<'_> {
                 cwd: params.cwd,
                 role: params.role,
                 skill: None,
-                creator_pane_id: params.creator_pane_id,
+                creator_tab_id: params.creator_tab_id,
                 enabled: params.enabled,
                 max_history: params.max_history,
                 oneshot: params.oneshot,
@@ -230,13 +230,13 @@ pub fn spawn_headless_worker(
         let intent_title = intent_for_spawn.clone();
         let spawn_result = tokio::task::spawn_blocking(move || {
             use crate::service::spawn::{
-                AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec,
+                AgentSpawnSpec, TabCommand, TabVisibility, SpawnTabSpec,
             };
-            let spec = SpawnPaneSpec {
-                visibility: PaneVisibility::Hidden,
+            let spec = SpawnTabSpec {
+                visibility: TabVisibility::Hidden,
                 title: Some(format!("mem:{}", intent_title)),
                 description: None,
-                command: PaneCommand::Agent(AgentSpawnSpec {
+                command: TabCommand::Agent(AgentSpawnSpec {
                     provider: agent_for_spawn,
                     planned_model: None,
                     model: if model_for_spawn.is_empty() {
@@ -252,7 +252,7 @@ pub fn spawn_headless_worker(
                 }),
                 ..Default::default()
             };
-            svc_blocking.spawn_pane(spec)
+            svc_blocking.spawn_tab(spec)
         })
         .await;
 
@@ -260,7 +260,7 @@ pub fn spawn_headless_worker(
             Ok(Ok(h)) => h,
             Ok(Err(e)) => {
                 log::error!(
-                    "[worker] {}/{} spawn_pane failed: {}",
+                    "[worker] {}/{} spawn_tab failed: {}",
                     intent_for_spawn,
                     worker_id_task,
                     e
@@ -288,11 +288,11 @@ pub fn spawn_headless_worker(
 
         svc_task
             .workers
-            .set_pane_id(&worker_id_task, handle.pane_id.clone());
+            .set_tab_id(&worker_id_task, handle.tab_id.clone());
         log::info!(
-            "[worker] headless {} pane={} pty={}",
+            "[worker] headless {} tab={} pty={}",
             worker_id_task,
-            handle.pane_id,
+            handle.tab_id,
             handle.pty_id.as_deref().unwrap_or("?")
         );
 
@@ -314,7 +314,7 @@ pub fn spawn_headless_worker(
                 let _ = svc_task
                     .workers
                     .update_status(&worker_id_task, WorkerStatus::Orphaned);
-                let _ = svc_task.close_pane(&handle.pane_id);
+                let _ = svc_task.close_tab(&handle.tab_id);
                 break;
             }
         }

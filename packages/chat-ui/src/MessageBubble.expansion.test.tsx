@@ -41,7 +41,7 @@ async function run() {
   const root = createRoot(host);
   const messages = [
     command("expanded-send", "codeterm send --tab worker-1 \"Please review the change\""),
-    command("collapsed-pane-list", "codeterm tab list --workspace codeterm"),
+    command("collapsed-tab-list", "codeterm tab list --workspace codeterm"),
   ];
 
   await act(async () => {

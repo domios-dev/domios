@@ -139,7 +139,7 @@ fn render_task_lane(task: &Value, depth: usize, out: &mut String) {
     };
     let indent = "  ".repeat(depth + 1);
     let mut parts = vec![];
-    push_lane_part(&mut parts, lane.get("pane_id"), "pane");
+    push_lane_part(&mut parts, lane.get("tab_id"), "tab");
     push_lane_part(&mut parts, lane.get("workspace_id"), "workspace");
     push_lane_part(&mut parts, lane.get("workspace_name"), "workspace name");
     push_lane_part(&mut parts, lane.get("worktree_path"), "worktree");

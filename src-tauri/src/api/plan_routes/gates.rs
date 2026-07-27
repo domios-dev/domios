@@ -10,12 +10,12 @@ use crate::plan::peer::{resolve_planner_ref, PeerResolution};
 
 use super::{emit_plan_changed, epoch_ms, plan_err, text_err, PlanRouteResult};
 
-fn resolve_routed_pane(state: &AppState, plan_id: &str) -> Option<String> {
+fn resolve_routed_tab(state: &AppState, plan_id: &str) -> Option<String> {
     let plan = state.svc.plan_store.get(plan_id)?;
     let resolution =
-        resolve_planner_ref(&plan.planner, &plan.owner, |pid| state.svc.pane_probe(pid));
+        resolve_planner_ref(&plan.planner, &plan.owner, |pid| state.svc.tab_probe(pid));
     match resolution {
-        PeerResolution::Planner { pane_id } => Some(pane_id),
+        PeerResolution::Planner { tab_id } => Some(tab_id),
         PeerResolution::OrchestratorFallback { .. }
         | PeerResolution::Waived { .. }
         | PeerResolution::Unbound => None,
@@ -30,7 +30,7 @@ pub(crate) struct GateAskBody {
     #[serde(default)]
     blocking_task_ids: Vec<String>,
     #[serde(default)]
-    asked_by_pane_id: Option<String>,
+    asked_by_tab_id: Option<String>,
 }
 
 pub async fn gate_ask(
@@ -40,14 +40,14 @@ pub async fn gate_ask(
     Json(body): Json<GateAskBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    let routed_to = resolve_routed_pane(&state, &id);
-    let caller_session_id = body.asked_by_pane_id.as_deref().and_then(|pane_id| {
+    let routed_to = resolve_routed_tab(&state, &id);
+    let caller_session_id = body.asked_by_tab_id.as_deref().and_then(|tab_id| {
         state
             .svc
             .mux
             .read()
-            .get_pane(pane_id)
-            .and_then(|pane| pane.agent_session_id.clone())
+            .get_tab(tab_id)
+            .and_then(|tab| tab.agent_session_id.clone())
     });
     let (gate, request) = state
         .svc
@@ -58,17 +58,17 @@ pub async fn gate_ask(
             &body.context,
             &body.blocking_task_ids,
             routed_to.clone(),
-            body.asked_by_pane_id.as_deref(),
+            body.asked_by_tab_id.as_deref(),
             caller_session_id.as_deref(),
             epoch_ms(),
         )
         .map_err(plan_err)?;
     let request_id = request.request_id.clone();
-    if let Some(pane_id) = routed_to.as_deref() {
+    if let Some(tab_id) = routed_to.as_deref() {
         let svc = state.svc.clone();
-        let pane_id = pane_id.to_string();
+        let tab_id = tab_id.to_string();
         let _ =
-            tokio::task::spawn_blocking(move || svc.replay_planner_requests_if_routable(&pane_id))
+            tokio::task::spawn_blocking(move || svc.replay_planner_requests_if_routable(&tab_id))
                 .await;
     }
     let request = state
@@ -87,8 +87,8 @@ pub async fn gate_ask(
     ) {
         let plan = state.svc.plan_store.get(&id);
         let resolution = plan.as_ref().map(|plan| {
-            resolve_planner_ref(&plan.planner, &plan.owner, |pane_id| {
-                state.svc.pane_probe(pane_id)
+            resolve_planner_ref(&plan.planner, &plan.owner, |tab_id| {
+                state.svc.tab_probe(tab_id)
             })
         });
         let delivery = plan.as_ref().and_then(|plan| {
@@ -151,7 +151,7 @@ pub async fn gate_list(
 pub(crate) struct GateAnswerBody {
     answer: String,
     #[serde(default)]
-    answered_by_pane_id: Option<String>,
+    answered_by_tab_id: Option<String>,
 }
 
 pub async fn gate_answer(
@@ -168,13 +168,13 @@ pub async fn gate_answer(
             &id,
             &gid,
             &body.answer,
-            body.answered_by_pane_id.as_deref(),
+            body.answered_by_tab_id.as_deref(),
             epoch_ms(),
         )
         .map_err(plan_err)?;
     state
         .svc
-        .nudge_gate_asker(&id, &gid, &body.answer, body.answered_by_pane_id.as_deref());
+        .nudge_gate_asker(&id, &gid, &body.answer, body.answered_by_tab_id.as_deref());
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::to_value(&gate).unwrap_or_default()))
 }

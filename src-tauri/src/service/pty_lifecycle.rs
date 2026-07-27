@@ -1,12 +1,12 @@
-//! Backend PTY read loop — reads PTY output without requiring a frontend TerminalPane.
+//! Backend PTY read loop — reads PTY output without requiring a frontend TerminalTab.
 //!
-//! The General Agent (and any headless pane) needs its PTY read even when no
+//! The General Agent (and any headless tab) needs its PTY read even when no
 //! frontend component is mounted. This module provides `start_backend_reader`
 //! which spawns a tokio task that continuously reads from a cloned PTY reader,
 //! feeds data into `OutputBuffer` + `ScreenState`, and runs `process_pty_output`
 //! for agent/prompt detection — exactly the same pipeline as `read_pty` in commands.rs.
 //!
-//! The loop exits gracefully on EOF (PTY closed) and marks the pane as Dead.
+//! The loop exits gracefully on EOF (PTY closed) and marks the tab as Dead.
 
 use std::io::Read;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -29,8 +29,8 @@ fn epoch_ms() -> u64 {
 /// clone/read the raw PTY master in parallel.
 ///
 /// Returns a `JoinHandle` that the caller can use to track or abort the task.
-/// `headless` = no frontend xterm will attach (API/`ensure_pane_pty_for_send`
-/// spawns). Such panes have nobody to answer PowerShell's CSI 6n cursor query,
+/// `headless` = no frontend xterm will attach (API/`ensure_tab_pty_for_send`
+/// spawns). Such tabs have nobody to answer PowerShell's CSI 6n cursor query,
 /// so the reader must answer it itself or PowerShell blocks forever at init.
 pub struct PreparedBackendReader {
     reader: Box<dyn Read + Send>,
@@ -39,7 +39,7 @@ pub struct PreparedBackendReader {
 }
 
 /// Synchronously claim the PTY stream: clone the reader AND register the
-/// frontend channel in one step. Doing this BEFORE the pane becomes visible
+/// frontend channel in one step. Doing this BEFORE the tab becomes visible
 /// closes the race where read_pty attaches first, clones a second raw reader,
 /// and the two readers split the byte stream (eaten prompts, blank terminals).
 /// Returns Ok(None) when a backend reader is already active.
@@ -264,7 +264,7 @@ fn process_pty_feed(
                 started.elapsed().as_micros(),
             );
         }
-        svc.emit_pane_status_if_changed(&pty_id, prev, now);
+        svc.emit_tab_status_if_changed(&pty_id, prev, now);
     }
 }
 
@@ -288,7 +288,7 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str, generation: u64) {
         return;
     }
     crate::service::orchestrator::record_reader_termination(svc, pty_id);
-    let pane_id = svc.mux.read().pane_id_for_pty(pty_id);
+    let tab_id = svc.mux.read().tab_id_for_pty(pty_id);
     let raw_prev = {
         let mut tracker = svc.agent_tracker.lock();
         let prev = tracker.get_status(pty_id);
@@ -297,11 +297,11 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str, generation: u64) {
     };
     svc.shell_caps.lock().remove(pty_id);
 
-    if let Some(ref pid) = pane_id {
-        svc.clear_pane_agent_identity_for_lifecycle_exit(pid);
-        svc.flag_bound_tasks_for_gone_pane(pid, epoch_ms());
-        let prev = svc.reconciled_pane_status_for_id(pid, raw_prev);
-        svc.emit_pane_status_if_changed(pty_id, prev, crate::agent::status::PaneStatus::Dead);
+    if let Some(ref pid) = tab_id {
+        svc.clear_tab_agent_identity_for_lifecycle_exit(pid);
+        svc.flag_bound_tasks_for_gone_tab(pid, epoch_ms());
+        let prev = svc.reconciled_tab_status_for_id(pid, raw_prev);
+        svc.emit_tab_status_if_changed(pty_id, prev, crate::agent::status::TabStatus::Dead);
 
         // Cron fallback: if agent died without calling cron complete, mark as failed.
         use tauri::Manager;
@@ -310,7 +310,7 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str, generation: u64) {
             let owner = {
                 // Hold the cron lock ACROSS owner-lookup and the read/write below.
                 let mut store = cron_state.lock();
-                let owner = store.get_pane_owner(pid).cloned();
+                let owner = store.get_tab_owner(pid).cloned();
                 if let Some((ref job_id, ref run_id)) = owner {
                     if store.read_log(job_id, run_id).is_none() {
                         let text = svc.output_buf.lock().get_text(pty_id).unwrap_or_default();
@@ -324,7 +324,7 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str, generation: u64) {
                             )
                             .unwrap_or(false);
                     }
-                    store.unregister_pane(pid);
+                    store.unregister_tab(pid);
                 }
                 owner
             };
@@ -367,7 +367,7 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str, generation: u64) {
         let leaf_role = svc
             .mux
             .read()
-            .get_pane(pid)
+            .get_tab(pid)
             .and_then(|p| match p.role {
                 Some(crate::multiplexer::types::AgentRole::Manager) => Some("manager"),
                 Some(crate::multiplexer::types::AgentRole::Worker) => Some("worker"),
@@ -375,7 +375,7 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str, generation: u64) {
             })
             .map(str::to_string);
         if let Some(role_label) = leaf_role {
-            if let Err(e) = svc.close_pane(pid) {
+            if let Err(e) = svc.close_tab(pid) {
                 log::warn!(
                     "[{}-death] prune of dead {} {} failed: {}",
                     role_label,
@@ -495,7 +495,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_queries_are_answered_for_headless_panes() {
+    fn terminal_queries_are_answered_for_headless_tabs() {
         assert_eq!(
             super::terminal_query_replies(b"\x1b[c\x1b[6n", true),
             vec![b"\x1b[?1;2c".as_slice(), b"\x1b[1;1R".as_slice()]

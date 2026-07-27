@@ -25,7 +25,7 @@ import {
 import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
 import type { MeshPresence } from "./meshPresenceHeader";
 import { flattenSidebarTabs, isSidebarTabVisible } from "./workspaceTabs";
-import { aggregatePaneStatuses } from "./paneStatuses";
+import { aggregateTabStatuses } from "./tabStatuses";
 import { useFullPlansOptional, usePlanIndexOptional } from "../Canvas/PlansProvider";
 import { selectActiveWork } from "../Canvas/planView/activeWork";
 import { isWorkspaceTabActive } from "./sidebarSelection";
@@ -40,7 +40,7 @@ import type { OrchestrationGroupMember } from "./orchestrationGroupClose";
 import { hydrateProtectedExpanded, initialSidebarExpanded, partitionSidebarWorkspaces } from "./sidebarSections";
 import { NewSessionPicker } from "../Terminal/NewSessionPicker";
 import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
-import { isFirstRunGeneralPane } from "../AgentPicker";
+import { isFirstRunGeneralTab } from "../AgentPicker";
 
 export { buildHierarchyTree, buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 
@@ -109,7 +109,7 @@ export function Sidebar({
     setTabTitle,
     spawnAgentTab,
     createOrchestrationPair,
-    selectTabByPane,
+    selectTabByTab,
     addNotification,
   } = useMultiplexer();
   const state = useMuxState();
@@ -130,8 +130,8 @@ export function Sidebar({
   const { index: planIndex } = usePlanIndexOptional();
   const fullPlans = useFullPlansOptional();
   const activeWork = useMemo(
-    () => selectActiveWork(fullPlans.plans, state.panes),
-    [fullPlans.plans, state.panes],
+    () => selectActiveWork(fullPlans.plans, state.tabs),
+    [fullPlans.plans, state.tabs],
   );
   const remoteWorkers = useRemoteWorkers();
   const agentsConfig = config?.agents;
@@ -207,10 +207,10 @@ export function Sidebar({
     const workspaceId = orchestrationModal.workspaceId;
     setOrchestrationModal(null);
     createOrchestrationPair({ ...result, workspaceId }).then((created) => {
-      void selectTabByPane(workspaceId, created.orchestrator_pane_id);
+      void selectTabByTab(workspaceId, created.orchestrator_tab_id);
     }).catch((e) => {
       addNotification({
-        pane_id: null,
+        tab_id: null,
         workspace_id: workspaceId,
         title: "Orchestration pair failed",
         body: e instanceof Error ? e.message : String(e),
@@ -218,7 +218,7 @@ export function Sidebar({
         sticky: true,
       });
     });
-  }, [addNotification, createOrchestrationPair, orchestrationModal, selectTabByPane]);
+  }, [addNotification, createOrchestrationPair, orchestrationModal, selectTabByTab]);
 
   const handleNewSession = useCallback((workspaceId: string, workspaceCwd: string | null) => {
     setSessionPicker({ workspaceId, workspaceCwd });
@@ -411,7 +411,7 @@ export function Sidebar({
   }, [appearingTabs]);
   const [pendingTeamClose, setPendingTeamClose] = useState<{
     teamId: string;
-    managerPaneId: string;
+    managerTabId: string;
     teamName: string;
     members: OrchestrationGroupMember[];
   } | null>(null);
@@ -436,28 +436,28 @@ export function Sidebar({
     performCloseTab(wsId, tabId);
   }, [performCloseTab]);
 
-  const requestTeamClose = useCallback((wsId: string, teamId: string, managerPaneId: string) => {
+  const requestTeamClose = useCallback((wsId: string, teamId: string, managerTabId: string) => {
     const ws = state.workspaces.find((workspace) => workspace.id === wsId);
     if (!ws) return;
     const teamTabs = ws.tabs.filter(
-      (tab) => (state.panes[tab.pane_id] as (typeof state.panes)[string] & { team_id?: string | null })?.team_id === teamId,
+      (tab) => (state.tabs[tab.tab_id] as (typeof state.tabs)[string] & { team_id?: string | null })?.team_id === teamId,
     );
     const team = state.teams.find((candidate) => candidate.id === teamId);
     setPendingTeamClose({
       teamId,
-      managerPaneId,
+      managerTabId,
       teamName: team?.name?.trim() || "Team",
       members: teamTabs.map((tab) => {
-        const pane = state.panes[tab.pane_id];
+        const tab = state.tabs[tab.tab_id];
         return {
-          paneId: tab.pane_id,
-          title: pane?.title || "Tab",
-          role: pane?.role ?? null,
-          roleProfile: pane?.role_profile ?? null,
+          tabId: tab.tab_id,
+          title: tab?.title || "Tab",
+          role: tab?.role ?? null,
+          roleProfile: tab?.role_profile ?? null,
         };
       }),
     });
-  }, [state.panes, state.teams, state.workspaces]);
+  }, [state.tabs, state.teams, state.workspaces]);
   useEffect(() => {
     const kb = config?.keybindings ?? {};
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -468,7 +468,7 @@ export function Sidebar({
       const ws = state.workspaces.find((w) => w.id === state.active_workspace_id);
       if (!ws) return;
 
-      const items = buildSidebarCycleItems(ws.tabs, state.panes, false);
+      const items = buildSidebarCycleItems(ws.tabs, state.tabs, false);
       if (items.length < 2) return;
 
       const direction = forward ? 1 : -1;
@@ -507,13 +507,13 @@ export function Sidebar({
   }, [ordinaryWorkspaces, selectedWorkspaceId, state.active_workspace_id]);
   const workspaceStatuses = useMemo(() => Object.fromEntries(ordinaryWorkspaces.map((workspace) => [
     workspace.id,
-    aggregatePaneStatuses(
+    aggregateTabStatuses(
       workspace.tabs
-        .filter((tab) => isSidebarTabVisible(tab, state.panes))
-        .map((tab) => tab.pane_id),
-      state.paneStatuses,
+        .filter((tab) => isSidebarTabVisible(tab, state.tabs))
+        .map((tab) => tab.tab_id),
+      state.tabStatuses,
     ),
-  ])), [ordinaryWorkspaces, state.paneStatuses, state.panes]);
+  ])), [ordinaryWorkspaces, state.tabStatuses, state.tabs]);
   const workspaceSortIds = useMemo(
     () => ordinaryWorkspaces.map((ws) => `${WS_PREFIX}${ws.id}`),
     [ordinaryWorkspaces],
@@ -547,9 +547,9 @@ export function Sidebar({
                 const generalActive = generalWorkspace.id === state.active_workspace_id && isWorkspaceMode;
                 const generalTabs = sortByOrder(generalWorkspace.tabs);
                 const generalFirstRunActive = generalTabs.some((tab) =>
-                  isFirstRunGeneralPane(state.panes[tab.pane_id]),
+                  isFirstRunGeneralTab(state.tabs[tab.tab_id]),
                 );
-                const generalOrchestrators = Object.values(state.panes).filter((pane) => pane.role === "Orchestrator");
+                const generalOrchestrators = Object.values(state.tabs).filter((tab) => tab.role === "Orchestrator");
                 return (
                   <section
                     data-testid="general-section"
@@ -572,8 +572,8 @@ export function Sidebar({
                       workspace={generalWorkspace}
                       activeTabId={state.activeTabIds[generalWorkspace.id] ?? null}
                       sortedTabs={generalTabs}
-                      panes={state.panes}
-                      paneStatuses={state.paneStatuses}
+                      tabs={state.tabs}
+                      tabStatuses={state.tabStatuses}
                       teams={state.teams}
                       planIndex={planIndex}
                       plans={fullPlans.plans}
@@ -599,7 +599,7 @@ export function Sidebar({
                       onRenameTeam={teamActions?.onRenameTeam}
                       onAddTeamMember={teamActions?.onAddTeamMember}
                       onCloseTeam={teamActions?.onCloseTeam
-                        ? (teamId, managerPaneId) => requestTeamClose(generalWorkspace.id, teamId, managerPaneId)
+                        ? (teamId, managerTabId) => requestTeamClose(generalWorkspace.id, teamId, managerTabId)
                         : undefined}
                     />}
                   </section>
@@ -643,8 +643,8 @@ export function Sidebar({
                         </button>
                         {isExpanded && (
                           <>
-                            {flattenSidebarTabs(ws.tabs, state.panes).map((tab) => {
-                          const pane = state.panes[tab.pane_id];
+                            {flattenSidebarTabs(ws.tabs, state.tabs).map((tab) => {
+                          const tab = state.tabs[tab.tab_id];
                           const isTabActive = isWorkspaceTabActive(
                             isActiveVisual,
                             workspaceCanvasActive,
@@ -660,11 +660,11 @@ export function Sidebar({
                                   ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
                                   : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-muted-fg)]"
                               }`}
-                              aria-label={`Open tab ${displayTitleForTab(tab, state.panes[tab.pane_id])}`}
-                              title={displayTitleForTab(tab, state.panes[tab.pane_id])}
+                              aria-label={`Open tab ${displayTitleForTab(tab, state.tabs[tab.tab_id])}`}
+                              title={displayTitleForTab(tab, state.tabs[tab.tab_id])}
                             >
-                              {pane?.agent_type ? (
-                                <AgentIcon providerId={pane.agent_type} className="text-[12px]" />
+                              {tab?.agent_type ? (
+                                <AgentIcon providerId={tab.agent_type} className="text-[12px]" />
                               ) : (
                                 <TerminalIcon size={11} />
                               )}
@@ -696,7 +696,7 @@ export function Sidebar({
                     const sortedTabs = sortByOrder(ws.tabs);
                     const selected = ws.id === selectedWorkspaceId;
                     const isActiveVisual = ws.id === state.active_workspace_id && isWorkspaceMode;
-                    const wsOrchestrators = Object.values(state.panes).filter((pane) => pane.role === "Orchestrator");
+                    const wsOrchestrators = Object.values(state.tabs).filter((tab) => tab.role === "Orchestrator");
                     return (
                       <div
                         key={ws.id}
@@ -728,8 +728,8 @@ export function Sidebar({
                           workspace={ws}
                           activeTabId={state.activeTabIds[ws.id] ?? null}
                           sortedTabs={sortedTabs}
-                          panes={state.panes}
-                          paneStatuses={state.paneStatuses}
+                          tabs={state.tabs}
+                          tabStatuses={state.tabStatuses}
                           teams={state.teams}
                           planIndex={planIndex}
                           plans={fullPlans.plans}
@@ -760,7 +760,7 @@ export function Sidebar({
                           onRenameTeam={teamActions?.onRenameTeam}
                           onAddTeamMember={teamActions?.onAddTeamMember}
                           onCloseTeam={teamActions?.onCloseTeam
-                            ? (teamId, managerPaneId) => requestTeamClose(ws.id, teamId, managerPaneId)
+                            ? (teamId, managerTabId) => requestTeamClose(ws.id, teamId, managerTabId)
                             : undefined}
                         />
                       </div>
@@ -777,8 +777,8 @@ export function Sidebar({
                 <RecentlyClosed
                   views={views}
                   showWorkspace={state.workspaces.length > 1 || hasOrphaned}
-                  onReopen={(wsId, idx, orphaned, paneId) => {
-                    if (orphaned) { restoreOrphaned(paneId); }
+                  onReopen={(wsId, idx, orphaned, tabId) => {
+                    if (orphaned) { restoreOrphaned(tabId); }
                     else { reopenClosed(wsId, idx); }
                   }}
                   onReopenGroup={reopenGroup}
@@ -981,7 +981,7 @@ export function Sidebar({
           onConfirm={() => {
             void teamActions?.onCloseTeam?.(
               pendingTeamClose.teamId,
-              pendingTeamClose.managerPaneId,
+              pendingTeamClose.managerTabId,
             );
             setPendingTeamClose(null);
           }}

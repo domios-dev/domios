@@ -68,14 +68,14 @@ test("C6 negative: zero pre-seed reset fails", () => {
   assert.equal(seedLifetimeOrdered(mutated), false, "zero pre-seed reset must fail");
 });
 
-const realBody = 'const { api } = perfSeed;\n  await focusTerminal(page, api, perfSeed.write.front);\n  await api.post(`/panes/${perfSeed.write.front}/send`, { text: "x" });';
+const realBody = 'const { api } = perfSeed;\n  await focusTerminal(page, api, perfSeed.write.front);\n  await api.post(`/tabs/${perfSeed.write.front}/send`, { text: "x" });';
 function specWithBody(body: string): string {
   return `test("@perf x", async ({ ui, perfSeed }) => {\n  ${body}\n  expect(1).toBe(1);\n});\ntest("@perf y", async ({ ui, perfSeed }) => { expect(1).toBe(1); });\ntest("@perf z", async ({ ui, perfSeed }) => { expect(1).toBe(1); });\ntest("@perf w", async ({ ui, perfSeed }) => { expect(1).toBe(1); });`;
 }
 
-test("C7 positive: real bodies (only measured pane send) pass", () => {
+test("C7 positive: real bodies (only measured tab send) pass", () => {
   assert.ok(byId("C7").pass, "real @perf bodies must pass C7");
-  assert.ok(c7Passes(specWithBody(realBody)), "measured /panes/<id>/send must be allowed");
+  assert.ok(c7Passes(specWithBody(realBody)), "measured /tabs/<id>/send must be allowed");
 });
 
 test("C7 negative: backtick-quoted topology create fails", () => {
@@ -86,8 +86,8 @@ test("C7 negative: single-quoted topology create fails", () => {
   assert.equal(c7Passes(specWithBody("await api.post('/workspaces', {});")), false, "single-quoted /workspaces must fail");
 });
 
-test("C7 negative: /tabs pane-create fails under any quote", () => {
-  assert.equal(c7Passes(specWithBody("await api.post(`/workspaces/${wsId}/tabs`, {});")), false, "/tabs pane-create must fail");
+test("C7 negative: /tabs tab-create fails under any quote", () => {
+  assert.equal(c7Passes(specWithBody("await api.post(`/workspaces/${wsId}/tabs`, {});")), false, "/tabs tab-create must fail");
   assert.equal(c7Passes(specWithBody("await api.post('/tabs', {});")), false, "single-quoted /tabs must fail");
 });
 
@@ -198,7 +198,7 @@ test("readiness/banner timeout THROWS (never active=false/skip)", async () => {
 });
 
 test("readiness guard is wired into spawn seeding (throw propagates through preparePerfSeed)", () => {
-  assert.match(realSeed, /await awaitStubBanner\(api, spawned\.pane_id, title\)/, "spawnStub must await the banner helper");
+  assert.match(realSeed, /await awaitStubBanner\(api, spawned\.tab_id, title\)/, "spawnStub must await the banner helper");
   assert.doesNotMatch(realSeed, /awaitStubBanner[\s\S]{0,60}\.catch/, "banner wait must not be swallowed");
 });
 

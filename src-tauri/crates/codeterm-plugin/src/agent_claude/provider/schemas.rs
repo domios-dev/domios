@@ -48,7 +48,7 @@ pub(super) fn notifications_schema() -> Vec<SettingField> {
         description: Some(
             "Get notified when Claude Code needs permission or finishes a task. \
              Installs PostToolUse / Stop hooks into ~/.claude/settings.json that POST \
-             back to CodeTerm so notifications fire on the right pane."
+             back to CodeTerm so notifications fire on the right tab."
                 .into(),
         ),
         fields: vec![

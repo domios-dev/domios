@@ -2,8 +2,8 @@ use super::*;
 
 fn base(now: u64) -> LaneInputs {
     LaneInputs {
-        has_assigned_pane: true,
-        pane_present_local: true,
+        has_assigned_tab: true,
+        tab_present_local: true,
         has_peer: false,
         peer_online: None,
         tracker_active: Some(true),
@@ -13,15 +13,15 @@ fn base(now: u64) -> LaneInputs {
 }
 
 #[test]
-fn no_pane_short_circuits() {
+fn no_tab_short_circuits() {
     let mut i = base(1000);
-    i.has_assigned_pane = false;
+    i.has_assigned_tab = false;
     assert_eq!(
         derive_lane_liveness(&i, &LaneThresholds::default()),
-        LaneLiveness::NoPane
+        LaneLiveness::NoTab
     );
-    // The watchdog invents no state for pane-less tasks.
-    let v = verdict_for(LaneLiveness::NoPane, &i);
+    // The watchdog invents no state for tab-less tasks.
+    let v = verdict_for(LaneLiveness::NoTab, &i);
     assert!(v.status_label.is_none() && !v.notify_orchestrator && v.stride.is_none());
 }
 
@@ -76,23 +76,23 @@ fn report_overdue_is_amber_not_gone() {
 }
 
 #[test]
-fn pane_gone_only_without_peer() {
+fn tab_gone_only_without_peer() {
     let mut i = base(1000);
-    i.pane_present_local = false;
+    i.tab_present_local = false;
     i.has_peer = false;
     assert_eq!(
         derive_lane_liveness(&i, &LaneThresholds::default()),
-        LaneLiveness::PaneGone
+        LaneLiveness::TabGone
     );
-    let v = verdict_for(LaneLiveness::PaneGone, &i);
+    let v = verdict_for(LaneLiveness::TabGone, &i);
     assert_eq!(v.status_label, Some(NEEDS_REASSIGN_LABEL));
     assert!(v.notify_orchestrator);
 }
 
 #[test]
-fn remote_pane_absent_locally_stays_working() {
+fn remote_tab_absent_locally_stays_working() {
     let mut i = base(1000);
-    i.pane_present_local = false;
+    i.tab_present_local = false;
     i.has_peer = true;
     i.peer_online = Some(true);
     assert_eq!(
@@ -104,7 +104,7 @@ fn remote_pane_absent_locally_stays_working() {
 #[test]
 fn peer_offline_parks_verdict_and_never_reassigns() {
     let mut i = base(1000);
-    i.pane_present_local = false;
+    i.tab_present_local = false;
     i.has_peer = true;
     i.peer_online = Some(false);
     assert_eq!(
@@ -124,7 +124,7 @@ fn watchdog_never_carries_status_transition() {
         LaneLiveness::Working,
         LaneLiveness::IdleStalled,
         LaneLiveness::ReportOverdue,
-        LaneLiveness::PaneGone,
+        LaneLiveness::TabGone,
         LaneLiveness::PeerOffline,
     ] {
         let v = verdict_for(liveness, &base(1000));

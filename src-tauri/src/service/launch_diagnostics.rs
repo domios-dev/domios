@@ -2,7 +2,7 @@ const TAIL_BYTES: usize = 4096;
 
 pub(crate) fn log_launch(
     context: &str,
-    pane_id: &str,
+    tab_id: &str,
     provider: &str,
     command: &str,
     task: Option<&str>,
@@ -10,9 +10,9 @@ pub(crate) fn log_launch(
     let task_bytes = task.map(|t| t.len()).unwrap_or(0);
     let transport = task_transport(command);
     log::info!(
-        "[launch-diagnostics] context={} pane={} provider={} command_bytes={} task_bytes={} task_transport={} child_exit=unavailable(pty) stderr=pty command={}",
+        "[launch-diagnostics] context={} tab={} provider={} command_bytes={} task_bytes={} task_transport={} child_exit=unavailable(pty) stderr=pty command={}",
         context,
-        pane_id,
+        tab_id,
         provider,
         command.len(),
         task_bytes,
@@ -22,7 +22,7 @@ pub(crate) fn log_launch(
 }
 
 pub(crate) fn log_shell_drop(
-    pane_id: &str,
+    tab_id: &str,
     pty_id: &str,
     output: &str,
     reason: &str,
@@ -31,8 +31,8 @@ pub(crate) fn log_shell_drop(
 ) {
     let tail = tail_bytes(&crate::pty::ansi::clean_terminal_output(output), TAIL_BYTES);
     log::warn!(
-        "[launch-diagnostics] shell-drop pane={} pty={} reason={} restarts={}/{} child_exit=unavailable(pty) stderr=pty last_output_bytes={} last_output_tail={:?}",
-        pane_id,
+        "[launch-diagnostics] shell-drop tab={} pty={} reason={} restarts={}/{} child_exit=unavailable(pty) stderr=pty last_output_bytes={} last_output_tail={:?}",
+        tab_id,
         pty_id,
         reason,
         restarts,

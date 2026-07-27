@@ -59,8 +59,8 @@ const WORKSPACES: Workspace[] = [
     id: WS_ID,
     name: "Test",
     tabs: [
-      { id: "tab-orch", pane_id: "orch-1" },
-      { id: "tab-perf", pane_id: "perf_orch" },
+      { id: "tab-orch", tab_id: "orch-1" },
+      { id: "tab-perf", tab_id: "perf_orch" },
     ],
     active_tab_id: null,
     cwd: null,

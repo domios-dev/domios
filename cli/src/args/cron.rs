@@ -38,9 +38,9 @@ pub enum CronAction {
         /// Description
         #[arg(long, allow_hyphen_values = true)]
         description: Option<String>,
-        /// Tab ID to receive reports from cron agent (default: $CODETERM_PANE_ID)
-        #[arg(long = "tab", value_name = "TAB", env = "CODETERM_PANE_ID")]
-        creator_pane: Option<String>,
+        /// Tab ID to receive reports from cron agent (default: $CODETERM_TAB_ID)
+        #[arg(long = "tab", value_name = "TAB", env = "CODETERM_TAB_ID")]
+        creator_tab: Option<String>,
         /// Oneshot: fire once at scheduled time, then auto-delete
         #[arg(long)]
         once: bool,
@@ -150,7 +150,7 @@ pub fn cron_create_body(
     model: Option<&str>,
     cwd: Option<&str>,
     description: Option<&str>,
-    creator_pane: Option<&str>,
+    creator_tab: Option<&str>,
     once: bool,
     jitter_max_ms: Option<u64>,
     tz: Option<&str>,
@@ -176,8 +176,8 @@ pub fn cron_create_body(
     if let Some(d) = description {
         body["description"] = serde_json::json!(d);
     }
-    if let Some(cp) = creator_pane {
-        body["creator_pane_id"] = serde_json::json!(cp);
+    if let Some(cp) = creator_tab {
+        body["creator_tab_id"] = serde_json::json!(cp);
     }
     if once {
         body["oneshot"] = serde_json::json!(true);

@@ -1,7 +1,7 @@
-//! Dev-only cast replay injection into a pane's OutputBuffer (P8 / verification infra).
+//! Dev-only cast replay injection into a tab's OutputBuffer (P8 / verification infra).
 //! Route is registered only under `cfg(debug_assertions)` — absent in release builds.
 //!
-//! Body: `{ pane_id, cast_path | cast_b64, instant?, speed?, apply_resize?, classify? }`.
+//! Body: `{ tab_id, cast_path | cast_b64, instant?, speed?, apply_resize?, classify? }`.
 //! `classify:true` is paced-only and feeds chunks through the live PTY status path.
 
 use axum::{
@@ -12,12 +12,12 @@ use axum::{
 use base64::Engine;
 use serde::Deserialize;
 
-use crate::api::routes::{check_auth, resolve_pane, AppState};
+use crate::api::routes::{check_auth, resolve_tab, AppState};
 use crate::pty::cast::{self, CastEvent, ParsedCast};
 
 #[derive(Deserialize)]
 pub(crate) struct InjectCastBody {
-    pane_id: String,
+    tab_id: String,
     /// Repo-relative path under `testbench/replays/`.
     cast_path: Option<String>,
     /// Inline asciinema v2 file (base64).
@@ -66,19 +66,19 @@ fn load_cast(body: &InjectCastBody) -> Result<ParsedCast, (StatusCode, String)> 
     }
 }
 
-fn resolve_target_pty(state: &AppState, raw_pane_id: &str) -> Result<String, (StatusCode, String)> {
-    if let Ok(pane_id) = resolve_pane(state, raw_pane_id) {
-        if let Ok(pty_id) = state.svc.resolve_pty_id(&pane_id) {
+fn resolve_target_pty(state: &AppState, raw_tab_id: &str) -> Result<String, (StatusCode, String)> {
+    if let Ok(tab_id) = resolve_tab(state, raw_tab_id) {
+        if let Ok(pty_id) = state.svc.resolve_pty_id(&tab_id) {
             return Ok(pty_id);
         }
-        if let Some(pty_id) = state.svc.agent_run_pty_map.lock().get(&pane_id).cloned() {
+        if let Some(pty_id) = state.svc.agent_run_pty_map.lock().get(&tab_id).cloned() {
             return Ok(pty_id);
         }
     }
-    if state.svc.pty.lock().get_session(raw_pane_id).is_some() {
-        return Ok(raw_pane_id.to_string());
+    if state.svc.pty.lock().get_session(raw_tab_id).is_some() {
+        return Ok(raw_tab_id.to_string());
     }
-    if let Some(pty_id) = state.svc.agent_run_pty_map.lock().get(raw_pane_id).cloned() {
+    if let Some(pty_id) = state.svc.agent_run_pty_map.lock().get(raw_tab_id).cloned() {
         return Ok(pty_id);
     }
     Err((
@@ -93,7 +93,7 @@ fn apply_output_chunk(state: &AppState, pty_id: &str, bytes: &[u8], classify: bo
     }
     if classify {
         let (prev, now) = state.svc.feed_pty_output(pty_id, bytes);
-        state.svc.emit_pane_status_if_changed(pty_id, prev, now);
+        state.svc.emit_tab_status_if_changed(pty_id, prev, now);
     } else {
         state.svc.output_buf.lock().append(pty_id, bytes);
     }
@@ -138,7 +138,7 @@ async fn inject_paced(
     }
 }
 
-/// POST /api/dev/inject-cast — replay cast output into a pane's OutputBuffer.
+/// POST /api/dev/inject-cast — replay cast output into a tab's OutputBuffer.
 pub async fn inject_cast(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -153,7 +153,7 @@ pub async fn inject_cast(
         ));
     }
     let cast = load_cast(&body)?;
-    let pty_id = resolve_target_pty(&state, &body.pane_id)?;
+    let pty_id = resolve_target_pty(&state, &body.tab_id)?;
     let planned = cast::output_byte_count(&cast.events);
     let start_offset = state.svc.output_buf.lock().total_written(&pty_id);
 

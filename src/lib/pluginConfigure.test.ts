@@ -33,14 +33,14 @@ assert("plugin attr round-trips", parsed?.attrs.plugin === "lmstudio");
 assert("name attr round-trips", parsed?.attrs.name === "LM Studio");
 assert("payload carries the wrapped help", parsed?.payload.includes("set the model") ?? false);
 
-// configureWithAI must bring the spawned Configure pane forward (Bug G fix):
-// it dispatches `codeterm:focus-pane` with the spawned pane id (App focuses it).
+// configureWithAI must bring the spawned Configure tab forward (Bug G fix):
+// it dispatches `codeterm:focus-tab` with the spawned tab id (App focuses it).
 async function asyncTests() {
   console.log("\nconfigureWithAI:");
-  const focusEvents: Array<{ type: string; detail?: { paneId?: string } }> = [];
+  const focusEvents: Array<{ type: string; detail?: { tabId?: string } }> = [];
   const g = globalThis as unknown as Record<string, unknown>;
   g.window = {
-    dispatchEvent: (e: { type: string; detail?: { paneId?: string } }) => (focusEvents.push(e), true),
+    dispatchEvent: (e: { type: string; detail?: { tabId?: string } }) => (focusEvents.push(e), true),
   };
   g.CustomEvent = class<T> {
     type: string;
@@ -50,10 +50,10 @@ async function asyncTests() {
       this.detail = init?.detail as T;
     }
   };
-  g.fetch = async () => ({ json: async () => ({ id: "pane-xyz" }) });
+  g.fetch = async () => ({ json: async () => ({ id: "tab-xyz" }) });
   await configureWithAI("lmstudio", "LM Studio", "help", { host: "127.0.0.1", port: 7686 });
-  const focus = focusEvents.find((e) => e.type === "codeterm:focus-pane");
-  assert("dispatches codeterm:focus-pane with the spawned Tab id", focus?.detail?.paneId === "pane-xyz");
+  const focus = focusEvents.find((e) => e.type === "codeterm:focus-tab");
+  assert("dispatches codeterm:focus-tab with the spawned Tab id", focus?.detail?.tabId === "tab-xyz");
 }
 
 asyncTests()

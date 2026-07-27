@@ -10,7 +10,7 @@ import { expect, test } from "../../helpers/fixtures";
 // so a stuck mount fails fast under the default per-test timeout instead of
 // consuming a 90s escalated budget.
 const WEB_MOUNT_CAP_MS = 20_000;
-const HIDDEN_PANE_RENDER_BUDGET = 3;
+const HIDDEN_TAB_RENDER_BUDGET = 3;
 
 type RenderCounts = Record<string, number>;
 
@@ -20,48 +20,48 @@ async function readRenderCounts(page: import("@playwright/test").Page): Promise<
 
 async function waitForRenderCounter(page: import("@playwright/test").Page): Promise<void> {
   await page.waitForFunction(
-    () => typeof window.__muxPerfChurnPane === "function",
+    () => typeof window.__muxPerfChurnTab === "function",
     undefined,
     { timeout: 30_000 },
   );
 }
 
-test("@perf hidden panes do not re-render on unrelated agent_state churn", async ({ ui, api, paneCleanup }) => {
+test("@perf hidden tabs do not re-render on unrelated agent_state churn", async ({ ui, api, tabCleanup }) => {
   const { page } = ui;
   const suffix = Date.now();
 
-  const paneA = await paneCleanup.createPane<{ id: string; tab_id?: string }>({
+  const tabA = await tabCleanup.createTab<{ id: string; tab_id?: string }>({
     title: `pw-perf-a-${suffix}`,
   });
-  await api.post(`/panes/${paneA.id}/agent-type`, { agent_type: "claude" });
-  await api.post(`/panes/${paneA.id}/chat-view`, { enabled: true });
+  await api.post(`/tabs/${tabA.id}/agent-type`, { agent_type: "claude" });
+  await api.post(`/tabs/${tabA.id}/chat-view`, { enabled: true });
 
-  const hiddenPanes: Array<{ id: string; tab_id?: string }> = [];
+  const hiddenTabs: Array<{ id: string; tab_id?: string }> = [];
   for (let i = 0; i < 3; i += 1) {
-    const pane = await paneCleanup.createPane<{ id: string; tab_id?: string }>({
+    const tab = await tabCleanup.createTab<{ id: string; tab_id?: string }>({
       title: `pw-perf-hidden-${i}-${suffix}`,
     });
-    await api.post(`/panes/${pane.id}/agent-type`, { agent_type: "claude" });
-    await api.post(`/panes/${pane.id}/chat-view`, { enabled: true });
-    hiddenPanes.push(pane);
+    await api.post(`/tabs/${tab.id}/agent-type`, { agent_type: "claude" });
+    await api.post(`/tabs/${tab.id}/chat-view`, { enabled: true });
+    hiddenTabs.push(tab);
   }
 
-  const paneB = hiddenPanes[0]!;
-  await api.focusPane(paneB.id);
+  const tabB = hiddenTabs[0]!;
+  await api.focusTab(tabB.id);
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.waitForSelector("#root > *", { state: "attached", timeout: WEB_MOUNT_CAP_MS });
   await waitForRenderCounter(page);
 
-  if (paneB.tab_id) {
-    const tabB = page.locator(`[data-testid="tab-item"][data-tab-id="${paneB.tab_id}"]`).first();
+  if (tabB.tab_id) {
+    const tabB = page.locator(`[data-testid="tab-item"][data-tab-id="${tabB.tab_id}"]`).first();
     await expect(tabB).toBeVisible({ timeout: 30_000 });
     await tabB.click();
   }
 
-  const visibleChat = page.locator(`[data-testid="pane-session-chat"][data-pane-id="${paneB.id}"]`);
+  const visibleChat = page.locator(`[data-testid="tab-session-chat"][data-tab-id="${tabB.id}"]`);
   await expect(visibleChat).toBeVisible({ timeout: 30_000 });
 
-  for (const hidden of hiddenPanes.slice(1)) {
+  for (const hidden of hiddenTabs.slice(1)) {
     if (!hidden.tab_id) continue;
     const tab = page.locator(`[data-testid="tab-item"][data-tab-id="${hidden.tab_id}"]`).first();
     await expect(tab).toBeAttached({ timeout: 30_000 });
@@ -74,77 +74,77 @@ test("@perf hidden panes do not re-render on unrelated agent_state churn", async
   const before = await readRenderCounts(page);
 
   await page.evaluate(
-    async ({ churnPaneId }) => {
-      const churn = window.__muxPerfChurnPane;
-      if (!churn) throw new Error("__muxPerfChurnPane test hook missing");
+    async ({ churnTabId }) => {
+      const churn = window.__muxPerfChurnTab;
+      if (!churn) throw new Error("__muxPerfChurnTab test hook missing");
       const end = Date.now() + 3_000;
       while (Date.now() < end) {
-        churn(churnPaneId);
+        churn(churnTabId);
         await new Promise((r) => setTimeout(r, 50)); // churn pacing: fixed-rate load generation
       }
     },
-    { churnPaneId: paneA.id },
+    { churnTabId: tabA.id },
   );
 
   const after = await readRenderCounts(page);
 
-  const hiddenIds = hiddenPanes.slice(1).map((p) => p.id);
+  const hiddenIds = hiddenTabs.slice(1).map((p) => p.id);
   const hiddenRenderDeltas = hiddenIds.map((id) => ({
     id,
     delta: (after[id] ?? 0) - (before[id] ?? 0),
   }));
   recordPerfSamples({
-    name: "hidden-pane-render-delta",
+    name: "hidden-tab-render-delta",
     unit: "count",
     samples: hiddenRenderDeltas.map(({ delta }) => delta),
-    budget: HIDDEN_PANE_RENDER_BUDGET,
+    budget: HIDDEN_TAB_RENDER_BUDGET,
     mode: "stub",
   });
   for (const { id, delta } of hiddenRenderDeltas) {
     expect(
       delta,
-      `hidden pane ${id} render delta during churn (pre-fix baseline ~60 over 3s)`,
-    ).toBeLessThanOrEqual(HIDDEN_PANE_RENDER_BUDGET);
+      `hidden tab ${id} render delta during churn (pre-fix baseline ~60 over 3s)`,
+    ).toBeLessThanOrEqual(HIDDEN_TAB_RENDER_BUDGET);
   }
 
-  // The churn owner is itself hidden here, so the hidden-pane optimization
+  // The churn owner is itself hidden here, so the hidden-tab optimization
   // rightly suppresses its re-renders too; the signal must not be LOST —
-  // surfacing the pane replays the churned state.
-  if (paneA.tab_id) {
-    const tabA = page.locator(`[data-testid="tab-item"][data-tab-id="${paneA.tab_id}"]`).first();
+  // surfacing the tab replays the churned state.
+  if (tabA.tab_id) {
+    const tabA = page.locator(`[data-testid="tab-item"][data-tab-id="${tabA.tab_id}"]`).first();
     await expect(tabA).toBeVisible({ timeout: 30_000 });
     await tabA.click();
   }
   await expect
-    .poll(async () => (await readRenderCounts(page))[paneA.id] ?? 0, { timeout: 15_000 })
-    .toBeGreaterThan(before[paneA.id] ?? 0);
+    .poll(async () => (await readRenderCounts(page))[tabA.id] ?? 0, { timeout: 15_000 })
+    .toBeGreaterThan(before[tabA.id] ?? 0);
 
-  expect(Object.keys(after).length, "__renderCounts must have fired for at least one pane").toBeGreaterThan(0);
+  expect(Object.keys(after).length, "__renderCounts must have fired for at least one tab").toBeGreaterThan(0);
 });
 
-test("@perf hidden panes longtask budget during agent_state churn", async ({ ui, api, paneCleanup }) => {
+test("@perf hidden tabs longtask budget during agent_state churn", async ({ ui, api, tabCleanup }) => {
   const { page } = ui;
   const suffix = Date.now();
 
-  const paneA = await paneCleanup.createPane<{ id: string; tab_id?: string }>({
+  const tabA = await tabCleanup.createTab<{ id: string; tab_id?: string }>({
     title: `pw-perf-lt-a-${suffix}`,
   });
-  await api.post(`/panes/${paneA.id}/agent-type`, { agent_type: "claude" });
-  await api.post(`/panes/${paneA.id}/chat-view`, { enabled: true });
+  await api.post(`/tabs/${tabA.id}/agent-type`, { agent_type: "claude" });
+  await api.post(`/tabs/${tabA.id}/chat-view`, { enabled: true });
 
-  const paneB = await paneCleanup.createPane<{ id: string; tab_id?: string }>({
+  const tabB = await tabCleanup.createTab<{ id: string; tab_id?: string }>({
     title: `pw-perf-lt-b-${suffix}`,
   });
-  await api.post(`/panes/${paneB.id}/agent-type`, { agent_type: "claude" });
-  await api.post(`/panes/${paneB.id}/chat-view`, { enabled: true });
+  await api.post(`/tabs/${tabB.id}/agent-type`, { agent_type: "claude" });
+  await api.post(`/tabs/${tabB.id}/chat-view`, { enabled: true });
 
-  await api.focusPane(paneB.id);
+  await api.focusTab(tabB.id);
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.waitForSelector("#root > *", { state: "attached", timeout: WEB_MOUNT_CAP_MS });
   await waitForRenderCounter(page);
 
-  if (paneB.tab_id) {
-    await page.locator(`[data-testid="tab-item"][data-tab-id="${paneB.tab_id}"]`).first().click();
+  if (tabB.tab_id) {
+    await page.locator(`[data-testid="tab-item"][data-tab-id="${tabB.tab_id}"]`).first().click();
   }
 
   await page.evaluate(() => {
@@ -160,20 +160,20 @@ test("@perf hidden panes longtask budget during agent_state churn", async ({ ui,
   });
 
   await page.evaluate(
-    async ({ churnPaneId }) => {
-      const churn = window.__muxPerfChurnPane;
-      if (!churn) throw new Error("__muxPerfChurnPane test hook missing");
+    async ({ churnTabId }) => {
+      const churn = window.__muxPerfChurnTab;
+      if (!churn) throw new Error("__muxPerfChurnTab test hook missing");
       const end = Date.now() + 3_000;
       while (Date.now() < end) {
-        churn(churnPaneId);
+        churn(churnTabId);
         await new Promise((r) => setTimeout(r, 50)); // churn pacing: fixed-rate load generation
       }
     },
-    { churnPaneId: paneA.id },
+    { churnTabId: tabA.id },
   );
 
   const longtaskMs = await page.evaluate(() => (window as unknown as { __longtaskMs?: number }).__longtaskMs ?? 0);
   // Pre-fix baseline was well above this on a warm multi-tab session; post Stage-1 should stay low.
-  recordPerfMetric({ name: "hidden-pane-longtask", unit: "ms", value: longtaskMs, budget: 500 });
+  recordPerfMetric({ name: "hidden-tab-longtask", unit: "ms", value: longtaskMs, budget: 500 });
   expect(longtaskMs).toBeLessThan(500);
 });

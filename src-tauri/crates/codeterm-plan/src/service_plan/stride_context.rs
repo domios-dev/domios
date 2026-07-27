@@ -64,7 +64,7 @@ mod tests {
     fn stride(id: &str, kind: &str, text: &str, ts: u64) -> Milestone {
         Milestone {
             id: id.into(),
-            from: AgentRef::from_pane("p1"),
+            from: AgentRef::from_tab("p1"),
             kind: kind.into(),
             text: text.into(),
             ts,

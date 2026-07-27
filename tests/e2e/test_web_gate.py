@@ -26,16 +26,16 @@ PROTECTED_WEB_ROUTES = [
     RouteCase("GET", "/api/mux/state"),
     RouteCase("POST", "/api/workspaces/ws_missing/tabs/tab_missing/focus"),
     RouteCase("POST", "/api/workspaces/ws_missing/tabs/tab_missing/close"),
-    RouteCase("POST", "/api/panes/pane_missing/chat-view", json={"enabled": True}),
+    RouteCase("POST", "/api/tabs/tab_missing/chat-view", json={"enabled": True}),
     RouteCase("GET", "/api/mesh/peers/peer_missing/services"),
     RouteCase("GET", "/api/events/stream"),
     RouteCase("GET", "/api/mesh/web-token"),
     RouteCase("POST", "/api/transcribe-voice", json={"path": "C:/tmp/voice.webm"}),
-    RouteCase("POST", "/api/panes/pane_missing/chat-raw/start"),
-    RouteCase("POST", "/api/panes/pane_missing/chat-raw/stop"),
+    RouteCase("POST", "/api/tabs/tab_missing/chat-raw/start"),
+    RouteCase("POST", "/api/tabs/tab_missing/chat-raw/stop"),
     RouteCase(
         "POST",
-        "/api/panes/pane_missing/chat-raw/backfill",
+        "/api/tabs/tab_missing/chat-raw/backfill",
         json={"before_offset": 0, "max_bytes": 1024},
     ),
     RouteCase(
@@ -48,7 +48,7 @@ PROTECTED_WEB_ROUTES = [
     RouteCase("POST", "/api/pty/pty_missing/resize", json={"cols": 80, "rows": 24}),
     RouteCase(
         "POST",
-        "/api/panes/pane_missing/resize-owner",
+        "/api/tabs/tab_missing/resize-owner",
         json={"pty_id": "pty_missing", "client_id": "client", "cols": 80, "rows": 24},
     ),
     RouteCase("POST", "/web/manifest-bootstrap"),
@@ -138,12 +138,12 @@ def test_web_gate_valid_codeterm_web_link_token_serves_spa_and_api(api_only):
     payload = state.json()
     assert set(payload) == {
         "workspaces",
-        "panes",
+        "tabs",
         "active_workspace_id",
-        "focused_pane_id",
+        "focused_tab_id",
     }
     assert isinstance(payload["workspaces"], list)
-    assert isinstance(payload["panes"], dict)
+    assert isinstance(payload["tabs"], dict)
 
 
 @pytest.mark.parametrize("path", ALLOWED_ANONYMOUS_WEB_ROUTES)

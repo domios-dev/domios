@@ -9,7 +9,7 @@ mod worker_handoff;
 
 pub(crate) use first_plan::FirstPlanTeamError;
 pub(crate) use planner_binding::clear_planner_bindings_for_lifecycle_exit;
-pub use status::PaneStatusInfo;
+pub use status::TabStatusInfo;
 
 use planner_delivery::{
     epoch_ms, planner_rehydrate_payload, planner_request_payload, planner_specs_for_plan,
@@ -26,25 +26,25 @@ pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
 }
 
 impl ServiceContext {
-    pub(crate) fn schedule_planner_replay(&self, pane_id: &str) {
+    pub(crate) fn schedule_planner_replay(&self, tab_id: &str) {
         let svc = self.clone();
-        let pane_id = pane_id.to_string();
+        let tab_id = tab_id.to_string();
         std::thread::spawn(move || {
-            svc.replay_planner_requests_if_routable(&pane_id);
-            svc.replay_pending_reports_if_routable(&pane_id);
+            svc.replay_planner_requests_if_routable(&tab_id);
+            svc.replay_pending_reports_if_routable(&tab_id);
         });
     }
 
-    fn replay_pending_reports_if_routable(&self, pane_id: &str) {
-        let pending = self.report_store.lock().claim_pending_for(pane_id);
+    fn replay_pending_reports_if_routable(&self, tab_id: &str) {
+        let pending = self.report_store.lock().claim_pending_for(tab_id);
         for report in pending {
             let envelope = crate::service::messenger::MessageEnvelope::report(
                 &report.from_title,
-                &report.from_pane_id,
+                &report.from_tab_id,
             )
             .model(report.model.clone());
             match self.gateway_deliver(
-                pane_id,
+                tab_id,
                 envelope,
                 &report.inject_body(),
                 crate::service::message_gateway::DeliveryClass::AgentTraffic,
@@ -53,7 +53,7 @@ impl ServiceContext {
                     self.report_store.lock().mark_delivered(&report.id);
                     log::info!(
                         "[report/replay] target={} report={} delivered via {:?}",
-                        pane_id,
+                        tab_id,
                         report.id,
                         delivery
                     );
@@ -62,7 +62,7 @@ impl ServiceContext {
                     self.report_store.lock().release_delivery(&report.id);
                     log::warn!(
                         "[report/replay] target={} report={} deferred: {}",
-                        pane_id,
+                        tab_id,
                         report.id,
                         error
                     );
@@ -71,27 +71,27 @@ impl ServiceContext {
         }
     }
 
-    pub(crate) fn clear_dead_planner_binding(&self, pane_id: &str) {
-        clear_planner_bindings_for_lifecycle_exit(&self.plan_store, pane_id, epoch_ms());
+    pub(crate) fn clear_dead_planner_binding(&self, tab_id: &str) {
+        clear_planner_bindings_for_lifecycle_exit(&self.plan_store, tab_id, epoch_ms());
     }
 
-    pub(crate) fn replay_planner_requests_if_routable(&self, pane_id: &str) {
+    pub(crate) fn replay_planner_requests_if_routable(&self, tab_id: &str) {
         let now_ms = epoch_ms();
         for plan in self.plan_store.list_full() {
-            let Some(crate::plan::PlannerRef::Pane {
-                pane_id: bound,
+            let Some(crate::plan::PlannerRef::Tab {
+                tab_id: bound,
                 session_id: Some(session_id),
                 ..
             }) = &plan.planner
             else {
                 continue;
             };
-            if bound != pane_id {
+            if bound != tab_id {
                 continue;
             }
             let resolution =
                 crate::plan::peer::resolve_planner_ref(&plan.planner, &plan.owner, |id| {
-                    self.pane_probe(id)
+                    self.tab_probe(id)
                 });
             if !matches!(
                 resolution,
@@ -102,8 +102,8 @@ impl ServiceContext {
             let Some(binding_nonce) = self
                 .mux
                 .read()
-                .get_pane(pane_id)
-                .and_then(|pane| pane.reported_session_binding_nonce.clone())
+                .get_tab(tab_id)
+                .and_then(|tab| tab.reported_session_binding_nonce.clone())
             else {
                 continue;
             };
@@ -116,7 +116,7 @@ impl ServiceContext {
             }
             let Ok(requests) = self.plan_store.claim_planner_requests(
                 &plan.id,
-                pane_id,
+                tab_id,
                 session_id,
                 &binding_nonce,
                 now_ms,
@@ -126,11 +126,11 @@ impl ServiceContext {
             if requests.is_empty() {
                 continue;
             }
-            let binding = match self.prepare_planner_delivery_binding(pane_id) {
+            let binding = match self.prepare_planner_delivery_binding(tab_id) {
                 Ok(binding) => binding,
                 Err(_) => {
                     let (observed_session_id, observed_binding_nonce) =
-                        self.observed_planner_identity(pane_id);
+                        self.observed_planner_identity(tab_id);
                     for request in &requests {
                         let _ = self.plan_store.release_planner_request(
                             &plan.id,
@@ -151,7 +151,7 @@ impl ServiceContext {
                             );
                         }
                     }
-                    self.clear_dead_planner_binding(pane_id);
+                    self.clear_dead_planner_binding(tab_id);
                     continue;
                 }
             };
@@ -166,7 +166,7 @@ impl ServiceContext {
             if self
                 .deliver_to_routable_planner(
                     &plan.id,
-                    pane_id,
+                    tab_id,
                     &binding.session_id,
                     &binding.binding_nonce,
                     "planner-recovery",
@@ -176,7 +176,7 @@ impl ServiceContext {
                 .is_err()
             {
                 let (observed_session_id, observed_binding_nonce) =
-                    self.observed_planner_identity(pane_id);
+                    self.observed_planner_identity(tab_id);
                 for request in &requests {
                     let _ = self.plan_store.release_planner_request(
                         &plan.id,
@@ -197,7 +197,7 @@ impl ServiceContext {
                         );
                     }
                 }
-                self.clear_dead_planner_binding(pane_id);
+                self.clear_dead_planner_binding(tab_id);
                 continue;
             }
             for request in requests {
@@ -219,7 +219,7 @@ impl ServiceContext {
                 let message_id = format!("planner-request-{}", request.request_id);
                 match self.deliver_to_routable_planner(
                     &plan.id,
-                    pane_id,
+                    tab_id,
                     &binding.session_id,
                     &binding.binding_nonce,
                     "planner-request",
@@ -237,7 +237,7 @@ impl ServiceContext {
                     }
                     Err(error) => {
                         let (observed_session_id, observed_binding_nonce) =
-                            self.observed_planner_identity(pane_id);
+                            self.observed_planner_identity(tab_id);
                         let _ = self.plan_store.mark_planner_delivery_uncertain(
                             &plan.id,
                             &request.request_id,
@@ -246,7 +246,7 @@ impl ServiceContext {
                             observed_binding_nonce.as_deref(),
                             epoch_ms(),
                         );
-                        self.clear_dead_planner_binding(pane_id);
+                        self.clear_dead_planner_binding(tab_id);
                     }
                 }
             }
@@ -256,7 +256,7 @@ impl ServiceContext {
     fn deliver_to_routable_planner(
         &self,
         plan_id: &str,
-        pane_id: &str,
+        tab_id: &str,
         expected_session_id: &str,
         expected_binding_nonce: &str,
         context: &str,
@@ -266,12 +266,12 @@ impl ServiceContext {
         let plan = self.plan_store.get(plan_id).ok_or("plan not found")?;
         let matches_binding = matches!(
             &plan.planner,
-            Some(crate::plan::PlannerRef::Pane { pane_id: bound, session_id: Some(session), .. })
-                if bound == pane_id && session == expected_session_id
+            Some(crate::plan::PlannerRef::Tab { tab_id: bound, session_id: Some(session), .. })
+                if bound == tab_id && session == expected_session_id
         );
         if !matches_binding
             || !self
-                .pane_probe(pane_id)
+                .tab_probe(tab_id)
                 .planner_routable_for(Some(expected_session_id))
         {
             return Err("agent_unavailable".into());
@@ -279,7 +279,7 @@ impl ServiceContext {
         let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder(context);
         crate::service::messenger::Messenger::deliver_planner_session(
             self,
-            pane_id,
+            tab_id,
             expected_session_id,
             expected_binding_nonce,
             envelope,
@@ -293,7 +293,7 @@ impl ServiceContext {
         &self,
         plan_id: &str,
         request_id: &str,
-        pane_id: &str,
+        tab_id: &str,
     ) -> Result<crate::plan::PlannerRequest, String> {
         let plan = self.plan_store.get(plan_id).ok_or("plan not found")?;
         let request = plan
@@ -307,15 +307,15 @@ impl ServiceContext {
         }
         let (session_id, binding_nonce) = {
             let mux = self.mux.read();
-            let pane = mux.get_pane(pane_id).ok_or("agent_unavailable")?;
+            let tab = mux.get_tab(tab_id).ok_or("agent_unavailable")?;
             (
-                pane.agent_session_id.clone().ok_or("agent_unavailable")?,
-                pane.reported_session_binding_nonce
+                tab.agent_session_id.clone().ok_or("agent_unavailable")?,
+                tab.reported_session_binding_nonce
                     .clone()
                     .ok_or("agent_unavailable")?,
             )
         };
-        let delivered_here = request.delivered_to_pane_id.as_deref() == Some(pane_id)
+        let delivered_here = request.delivered_to_tab_id.as_deref() == Some(tab_id)
             && request.delivered_to_session_id.as_deref() == Some(session_id.as_str())
             && request.delivered_with_binding_nonce.as_deref() == Some(binding_nonce.as_str());
         if !matches!(
@@ -324,7 +324,7 @@ impl ServiceContext {
                 | crate::plan::PlannerRequestState::Accepted
         ) || !delivered_here
             || !self
-                .pane_probe(pane_id)
+                .tab_probe(tab_id)
                 .planner_routable_for(Some(&session_id))
         {
             return Err("agent_unavailable".into());
@@ -341,47 +341,47 @@ impl ServiceContext {
             })
             .ok_or_else(|| "planner request not found".into())
     }
-    pub fn set_can_spawn(&self, pane_id: &str, can_spawn: bool) -> Result<(), String> {
-        self.mux.write().set_can_spawn(pane_id, can_spawn)?;
+    pub fn set_can_spawn(&self, tab_id: &str, can_spawn: bool) -> Result<(), String> {
+        self.mux.write().set_can_spawn(tab_id, can_spawn)?;
         self.emit_state_changed();
         Ok(())
     }
 
-    /// Post-condition for spawn: `--parent` on a Worker must land on the pane.
+    /// Post-condition for spawn: `--parent` on a Worker must land on the tab.
     pub(crate) fn expect_spawn_parent_link(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         expected_parent: &str,
     ) -> Result<(), String> {
         let mux = self.mux.read();
-        let pane = mux
-            .get_pane(pane_id)
-            .ok_or_else(|| format!("Tab {} not found after spawn role apply", pane_id))?;
-        match pane.parent_pane_id.as_deref() {
+        let tab = mux
+            .get_tab(tab_id)
+            .ok_or_else(|| format!("Tab {} not found after spawn role apply", tab_id))?;
+        match tab.parent_tab_id.as_deref() {
             Some(p) if p == expected_parent => Ok(()),
             Some(p) => Err(format!(
-                "spawn parent link mismatch on {pane_id}: expected {expected_parent}, got {p}"
+                "spawn parent link mismatch on {tab_id}: expected {expected_parent}, got {p}"
             )),
             None => Err(format!(
-                "spawn dropped parent_pane_id on {pane_id}: expected parent {expected_parent}"
+                "spawn dropped parent_tab_id on {tab_id}: expected parent {expected_parent}"
             )),
         }
     }
 
     /// Send report to the resolved target. Routing priority:
-    /// remote mesh target (`report_target_mesh_peer` + pane/alias) →
-    /// `parent_pane_id` → `report_target_pane_id` → `spawned_by_pane_id`.
-    /// NEVER routes back to the reporter's own pane; errors when none resolve.
+    /// remote mesh target (`report_target_mesh_peer` + tab/alias) →
+    /// `parent_tab_id` → `report_target_tab_id` → `spawned_by_tab_id`.
+    /// NEVER routes back to the reporter's own tab; errors when none resolve.
     ///
     /// Plan/task resolution order:
     /// 1. Explicit `plan_id`/`task_id` from the caller — validated against live store.
-    /// 2. If provided ids are stale (plan not found) — falls back to pane assignment.
-    /// 3. Daemon-side pane assignment lookup (`task_bindings_with_name_for_pane`).
+    /// 2. If provided ids are stale (plan not found) — falls back to tab assignment.
+    /// 3. Daemon-side tab assignment lookup (`task_bindings_with_name_for_tab`).
     /// 4. Ambiguous (>1 assignment) — errors with candidate list.
     /// 5. No assignment — proceeds without a plan milestone.
     pub fn submit_report(
         &self,
-        pane_id: &str,
+        tab_id: &str,
         message: &str,
         details: ReportDetails,
         plan_id: Option<&str>,
@@ -392,17 +392,17 @@ impl ServiceContext {
 
         let mut notices: Vec<String> = Vec::new();
         let (eff_plan_id, eff_task_id) =
-            resolve_plan_ctx(&self.plan_store, pane_id, plan_id, task_id, &mut notices)?;
+            resolve_plan_ctx(&self.plan_store, tab_id, plan_id, task_id, &mut notices)?;
 
         let (from_title, default_target_opt, model_identity, from_ref, role) = {
             let mux = self.mux.read();
-            let (from_title, target_opt) = match resolve_report_target(&mux, pane_id) {
+            let (from_title, target_opt) = match resolve_report_target(&mux, tab_id) {
                 Ok(resolved) => resolved,
-                Err(_) if eff_plan_id.is_some() => (pane_id.to_string(), None),
+                Err(_) if eff_plan_id.is_some() => (tab_id.to_string(), None),
                 Err(e) => return Err(e),
             };
-            let pane = mux.get_pane(pane_id);
-            let model_identity = pane.map(|p| ReportModelIdentity {
+            let tab = mux.get_tab(tab_id);
+            let model_identity = tab.map(|p| ReportModelIdentity {
                 actual_model: p.agent_session_model.clone(),
                 planned_model: p.agent_planned_model.clone(),
                 requested_model: p.agent_requested_model.clone(),
@@ -410,15 +410,15 @@ impl ServiceContext {
                 fallback: p.model_fallback.clone(),
                 mismatch: p.model_identity_mismatch.clone(),
             });
-            let from_ref = pane.map_or_else(
-                || AgentRef::from_pane(pane_id),
+            let from_ref = tab.map_or_else(
+                || AgentRef::from_tab(tab_id),
                 |p| AgentRef {
-                    pane_id: Some(pane_id.to_string()),
+                    tab_id: Some(tab_id.to_string()),
                     session_id: p.agent_session_id.clone(),
                     title: Some(p.title.clone()),
                 },
             );
-            let role = pane.and_then(|p| p.role);
+            let role = tab.and_then(|p| p.role);
             (from_title, target_opt, model_identity, from_ref, role)
         };
         let model = model_identity
@@ -433,8 +433,8 @@ impl ServiceContext {
         let target_opt = eff_plan_id
             .as_deref()
             .and_then(|id| self.plan_store.owner_of(id))
-            .and_then(|owner| owner.pane_id)
-            .filter(|target| !target.is_empty() && target != pane_id)
+            .and_then(|owner| owner.tab_id)
+            .filter(|target| !target.is_empty() && target != tab_id)
             .map(ReportTarget::Local)
             .or(default_target_opt);
         let target = target_opt.ok_or_else(|| {
@@ -472,7 +472,7 @@ impl ServiceContext {
                     true
                 }
                 (Some(h_plan), Some(_), None) if foreign => {
-                    // Explicit foreign plan but no mesh peer on this pane.
+                    // Explicit foreign plan but no mesh peer on this tab.
                     notices.push(format!(
                         "plan '{}' is not active on this machine and no mesh homing peer is \
                          configured; milestone NOT recorded — spawn this worker via \
@@ -490,9 +490,9 @@ impl ServiceContext {
 
         if let Some(ref plan_id) = eff_plan_id {
             // A worker report is authoritative only for the task actually bound
-            // to its pane. Explicit ids are useful routing hints, never authority.
+            // to its tab. Explicit ids are useful routing hints, never authority.
             if !homed_to_remote && !foreign {
-                let bound_task = self.plan_store.task_binding_for_pane(pane_id);
+                let bound_task = self.plan_store.task_binding_for_tab(tab_id);
                 let task_id = eff_task_id.clone().or_else(|| {
                     bound_task.as_ref().and_then(|(bound_plan, bound_task)| {
                         (bound_plan == plan_id).then(|| bound_task.clone())
@@ -521,7 +521,7 @@ impl ServiceContext {
                             .map_err(|e| e.to_string())?;
                     }
                 }
-                self.plan_turn_counter.reset_activity(pane_id);
+                self.plan_turn_counter.reset_activity(tab_id);
                 crate::api::events::emit_everywhere(
                     &self.app_handle,
                     "plan-changed",
@@ -533,7 +533,7 @@ impl ServiceContext {
         let storage_key = target.storage_key();
         let report = self.report_store.lock().add_detailed_with_model_identity(
             &storage_key,
-            pane_id,
+            tab_id,
             &from_title,
             message,
             details,
@@ -544,7 +544,7 @@ impl ServiceContext {
         self.events.broadcast(
             "agent.report",
             serde_json::json!({
-                "target_pane_id": storage_key,
+                "target_tab_id": storage_key,
                 "report": report.clone(),
             }),
         );
@@ -552,8 +552,8 @@ impl ServiceContext {
             &self.app_handle,
             "agent-report",
             serde_json::json!({
-                "target_pane_id": storage_key,
-                "from_pane_id": pane_id,
+                "target_tab_id": storage_key,
+                "from_tab_id": tab_id,
                 "from_title": from_title,
                 "message": message,
                 "report": report.clone(),
@@ -561,20 +561,20 @@ impl ServiceContext {
         );
 
         match target {
-            ReportTarget::Mesh { peer, pane } => {
+            ReportTarget::Mesh { peer, tab } => {
                 self.report_store.lock().mark_delivered(&report.id);
                 self.relay_report_to_peer(
                     peer,
-                    pane,
+                    tab,
                     from_title,
-                    pane_id.to_string(),
+                    tab_id.to_string(),
                     model.clone(),
                     report.inject_body(),
                 );
             }
             ReportTarget::Local(target_id) => {
                 let envelope =
-                    crate::service::messenger::MessageEnvelope::report(&from_title, pane_id)
+                    crate::service::messenger::MessageEnvelope::report(&from_title, tab_id)
                         .model(model.clone());
                 // The target is a TUI that owns its screen: it reflows, collapses
                 // long input to a paste placeholder, and queues while busy. Echo
@@ -600,12 +600,12 @@ impl ServiceContext {
         }
 
         if eff_plan_id.is_none() {
-            self.maybe_send_plan_reminder(pane_id, role);
+            self.maybe_send_plan_reminder(tab_id, role);
         }
 
-        self.gateway.clear_worker_report_requirement(pane_id);
+        self.gateway.clear_worker_report_requirement(tab_id);
         self.record_kpi_report(
-            pane_id,
+            tab_id,
             eff_plan_id.as_deref(),
             eff_task_id.as_deref(),
             model.as_deref(),
@@ -615,7 +615,7 @@ impl ServiceContext {
 
         Ok(ReportResult {
             report_id: report.id,
-            orchestrator_pane_id: storage_key,
+            orchestrator_tab_id: storage_key,
             notices,
         })
     }
@@ -627,16 +627,16 @@ impl ServiceContext {
         &self,
         plan_id: &str,
         task_id: &str,
-        by_pane: Option<&str>,
+        by_tab: Option<&str>,
         intent: Option<&str>,
     ) {
         let Some(plan) = self.plan_store.get(plan_id) else {
             return;
         };
-        let Some(owner) = plan.owner.pane_id.as_deref() else {
+        let Some(owner) = plan.owner.tab_id.as_deref() else {
             return;
         };
-        if Some(owner) == by_pane {
+        if Some(owner) == by_tab {
             return; // no self-notify
         }
         let task_name = plan
@@ -645,7 +645,7 @@ impl ServiceContext {
             .find(|t| t.id == task_id)
             .map(|t| t.name.clone())
             .unwrap_or_else(|| task_id.to_string());
-        let who = by_pane.unwrap_or("a worker");
+        let who = by_tab.unwrap_or("a worker");
         let intent_part = intent
             .map(str::trim)
             .filter(|s| !s.is_empty())
@@ -669,25 +669,25 @@ impl ServiceContext {
         );
     }
 
-    /// Nudge the gate asker pane when a gate is answered.
+    /// Nudge the gate asker tab when a gate is answered.
     pub fn nudge_gate_asker(
         &self,
         plan_id: &str,
         gate_id: &str,
         answer_text: &str,
-        answered_by_pane: Option<&str>,
+        answered_by_tab: Option<&str>,
     ) {
         let Some(plan) = self.plan_store.get(plan_id) else {
             return;
         };
         let gate = plan.gates.iter().find(|g| g.id == gate_id);
-        let asker_pane = gate
-            .and_then(|g| g.asked_by_pane_id.as_deref())
-            .or(plan.owner.pane_id.as_deref());
-        let Some(asker) = asker_pane else {
+        let asker_tab = gate
+            .and_then(|g| g.asked_by_tab_id.as_deref())
+            .or(plan.owner.tab_id.as_deref());
+        let Some(asker) = asker_tab else {
             return;
         };
-        if Some(asker) == answered_by_pane {
+        if Some(asker) == answered_by_tab {
             return; // no self-notify
         }
         let preview = answer_text.chars().take(160).collect::<String>();
@@ -779,7 +779,7 @@ impl ServiceContext {
         Ok(())
     }
 
-    /// Fire-and-forget delivery of a report to a pane (id or `main`/`general`
+    /// Fire-and-forget delivery of a report to a tab (id or `main`/`general`
     /// alias) on a paired mesh peer. Resolves the peer by instance name or id,
     /// then rides the same signed relay the CLI `--mesh` send uses; the peer's
     /// relay ingress stamps the authenticated origin so the report renders as
@@ -788,9 +788,9 @@ impl ServiceContext {
     fn relay_report_to_peer(
         &self,
         peer: String,
-        target_pane: String,
+        target_tab: String,
         from_title: String,
-        from_pane: String,
+        from_tab: String,
         model: Option<String>,
         body: String,
     ) {
@@ -803,13 +803,13 @@ impl ServiceContext {
             log::warn!(
                 "[report/mesh] no paired peer named '{}' — report from {} stored only",
                 peer,
-                from_pane
+                from_tab
             );
             return;
         };
         let mut send_body = serde_json::json!({
             "text": body,
-            "source_pane": from_pane,
+            "source_tab": from_tab,
             "source_label": from_title,
             "kind": "report",
             "enter": true,
@@ -819,19 +819,19 @@ impl ServiceContext {
         }
         let cmd = crate::mesh::types::RelayCommand {
             method: "POST".into(),
-            path: format!("/api/panes/{}/send", target_pane),
+            path: format!("/api/tabs/{}/send", target_tab),
             body: send_body,
             // At-most-once: a report is one logical send; dedupe by this id so a
-            // relay retry can never double-post it into the target pane.
+            // relay retry can never double-post it into the target tab.
             delivery_id: Some(uuid::Uuid::new_v4().to_string()),
         };
         tauri::async_runtime::spawn(async move {
             match client.send_relay(&cmd).await {
-                Ok(r) if r.ok => log::info!("[report/mesh] delivered to {}/{}", peer, target_pane),
+                Ok(r) if r.ok => log::info!("[report/mesh] delivered to {}/{}", peer, target_tab),
                 Ok(r) => log::warn!(
                     "[report/mesh] {} rejected report to {}: {:?}",
                     peer,
-                    target_pane,
+                    target_tab,
                     r.error
                 ),
                 Err(e) => log::warn!("[report/mesh] relay to {} failed: {}", peer, e),
@@ -839,8 +839,8 @@ impl ServiceContext {
         });
     }
 
-    pub fn get_reports(&self, pane_id: &str) -> Vec<serde_json::Value> {
-        let reports = self.report_store.lock().get(pane_id, false);
+    pub fn get_reports(&self, tab_id: &str) -> Vec<serde_json::Value> {
+        let reports = self.report_store.lock().get(tab_id, false);
         serde_json::to_value(&reports)
             .unwrap_or_default()
             .as_array()
@@ -848,8 +848,8 @@ impl ServiceContext {
             .unwrap_or_default()
     }
 
-    pub fn get_and_clear_reports(&self, pane_id: &str) -> Vec<serde_json::Value> {
-        let reports = self.report_store.lock().get(pane_id, true);
+    pub fn get_and_clear_reports(&self, tab_id: &str) -> Vec<serde_json::Value> {
+        let reports = self.report_store.lock().get(tab_id, true);
         serde_json::to_value(&reports)
             .unwrap_or_default()
             .as_array()
@@ -859,10 +859,10 @@ impl ServiceContext {
 
     /// Durable per-orchestrator ledger rows (survive restart) from the sqlite ledger,
     /// unlike [`get_reports`](Self::get_reports) which reads the in-memory stream.
-    pub fn get_ledger(&self, orchestrator_pane_id: &str) -> Vec<LedgerRow> {
-        let rows = self.report_store.lock().ledger_rows(orchestrator_pane_id);
+    pub fn get_ledger(&self, orchestrator_tab_id: &str) -> Vec<LedgerRow> {
+        let rows = self.report_store.lock().ledger_rows(orchestrator_tab_id);
         let mux = self.mux.read();
-        ledger_with_live_children(&mux, orchestrator_pane_id, rows, epoch_seconds())
+        ledger_with_live_children(&mux, orchestrator_tab_id, rows, epoch_seconds())
     }
 }
 
@@ -898,16 +898,16 @@ fn epoch_seconds() -> u64 {
 
 fn ledger_with_live_children(
     mux: &crate::multiplexer::state::MultiplexerState,
-    orchestrator_pane_id: &str,
+    orchestrator_tab_id: &str,
     mut rows: Vec<LedgerRow>,
     now: u64,
 ) -> Vec<LedgerRow> {
-    for child_id in mux.get_children_ids(orchestrator_pane_id) {
-        let Some(child) = mux.get_pane(&child_id) else {
+    for child_id in mux.get_children_ids(orchestrator_tab_id) {
+        let Some(child) = mux.get_tab(&child_id) else {
             continue;
         };
-        let title = mux.display_label_for_pane(&child_id);
-        match rows.iter_mut().find(|r| r.worker_pane_id == child_id) {
+        let title = mux.display_label_for_tab(&child_id);
+        match rows.iter_mut().find(|r| r.worker_tab_id == child_id) {
             Some(row) => {
                 row.title = title;
                 row.model = child
@@ -917,8 +917,8 @@ fn ledger_with_live_children(
                 row.updated_at = row.updated_at.max(now);
             }
             None => rows.push(LedgerRow {
-                orchestrator_pane_id: orchestrator_pane_id.to_string(),
-                worker_pane_id: child_id,
+                orchestrator_tab_id: orchestrator_tab_id.to_string(),
+                worker_tab_id: child_id,
                 title,
                 model: child.agent_session_model.clone(),
                 updated_at: now,
@@ -930,28 +930,28 @@ fn ledger_with_live_children(
     rows
 }
 
-/// Where a report should be delivered. A target is either a pane on this same
-/// daemon, or a pane (id or `main`/`general` alias) on a paired mesh peer — the
+/// Where a report should be delivered. A target is either a tab on this same
+/// daemon, or a tab (id or `main`/`general` alias) on a paired mesh peer — the
 /// latter lets a worker spawned via `agent spawn --mesh PEER` report back to the
 /// real orchestrator / General target on another machine without the reporter
 /// ever naming the peer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReportTarget {
-    /// A pane on this daemon.
+    /// A tab on this daemon.
     Local(String),
-    /// A pane id or alias on a paired peer, addressed by its instance name/id.
-    Mesh { peer: String, pane: String },
+    /// A tab id or alias on a paired peer, addressed by its instance name/id.
+    Mesh { peer: String, tab: String },
 }
 
 impl ReportTarget {
     /// Stable key the report store and worker-death dedup index by. Local targets
     /// key on the tab id; mesh targets
-    /// key on a synthetic `mesh:<peer>/<pane>` so they neither collide with local
-    /// panes nor each other.
+    /// key on a synthetic `mesh:<peer>/<tab>` so they neither collide with local
+    /// tabs nor each other.
     pub fn storage_key(&self) -> String {
         match self {
             ReportTarget::Local(id) => id.clone(),
-            ReportTarget::Mesh { peer, pane } => format!("mesh:{}/{}", peer, pane),
+            ReportTarget::Mesh { peer, tab } => format!("mesh:{}/{}", peer, tab),
         }
     }
 }
@@ -972,29 +972,29 @@ pub(crate) fn is_explicit_plan_foreign(
         .unwrap_or(false)
 }
 
-/// Resolve where a report from `pane_id` should be delivered.
+/// Resolve where a report from `tab_id` should be delivered.
 ///
 /// Returns `(from_title, Some(target))` when a real target exists, or
 /// `(from_title, None)` when the report has no implicit recipient and must fail
 /// with an explicit `codeterm send` hint. The resolution order is:
 ///
-/// 1. `report_target_mesh_peer` (+ pane/alias) — explicit remote target set by
+/// 1. `report_target_mesh_peer` (+ tab/alias) — explicit remote target set by
 ///    `agent spawn --mesh PEER --report-to ...`; wins so a remote worker reports
 ///    across the mesh, not into a stale local field.
-/// 2. `parent_pane_id` — direct parent in the role hierarchy (cascades up)
-/// 3. `report_target_pane_id` — cron / mem worker non-hierarchy target
-/// 4. `spawned_by_pane_id` — agent that ran `agent spawn`, even when no
+/// 2. `parent_tab_id` — direct parent in the role hierarchy (cascades up)
+/// 3. `report_target_tab_id` — cron / mem worker non-hierarchy target
+/// 4. `spawned_by_tab_id` — agent that ran `agent spawn`, even when no
 ///    role parent (top-level Orchestrator spawned by another agent)
 ///
-/// The reporter's own pane id is filtered out at every local level: a pane must
+/// The reporter's own tab id is filtered out at every local level: a tab must
 /// never resolve to itself, otherwise reports get injected into the reporter's
 /// own buffer and never reach the spawning agent.
 pub fn resolve_report_target(
     mux: &crate::multiplexer::state::MultiplexerState,
-    pane_id: &str,
+    tab_id: &str,
 ) -> Result<(String, Option<ReportTarget>), String> {
-    let pane = mux.get_pane(pane_id).ok_or("Pane not found")?;
-    let title = mux.display_label_for_pane(pane_id);
+    let tab = mux.get_tab(tab_id).ok_or("Tab not found")?;
+    let title = mux.display_label_for_tab(tab_id);
 
     let nonempty = |s: &Option<String>| {
         s.as_deref()
@@ -1002,27 +1002,27 @@ pub fn resolve_report_target(
             .filter(|v| !v.is_empty())
             .map(str::to_string)
     };
-    if let (Some(peer), Some(target_pane)) = (
-        nonempty(&pane.report_target_mesh_peer),
-        nonempty(&pane.report_target_pane_id),
+    if let (Some(peer), Some(target_tab)) = (
+        nonempty(&tab.report_target_mesh_peer),
+        nonempty(&tab.report_target_tab_id),
     ) {
         return Ok((
             title,
             Some(ReportTarget::Mesh {
                 peer,
-                pane: target_pane,
+                tab: target_tab,
             }),
         ));
     }
 
     let local = [
-        pane.parent_pane_id.as_deref(),
-        pane.report_target_pane_id.as_deref(),
-        pane.spawned_by_pane_id.as_deref(),
+        tab.parent_tab_id.as_deref(),
+        tab.report_target_tab_id.as_deref(),
+        tab.spawned_by_tab_id.as_deref(),
     ]
     .into_iter()
     .flatten()
-    .find(|candidate| !candidate.is_empty() && *candidate != pane_id)
+    .find(|candidate| !candidate.is_empty() && *candidate != tab_id)
     .map(|id| ReportTarget::Local(id.to_string()));
     Ok((title, local))
 }
@@ -1047,13 +1047,13 @@ fn resolve_peer_client_by_name(
 
 /// Resolve the effective (plan_id, task_id) for a report, following the priority chain:
 /// 1. Provided `plan_id_hint` validated against live store.
-/// 2. If stale (plan not found), falls back to daemon-side pane assignment.
-/// 3. If no `plan_id_hint`, tries pane assignment directly.
+/// 2. If stale (plan not found), falls back to daemon-side tab assignment.
+/// 3. If no `plan_id_hint`, tries tab assignment directly.
 /// 4. Ambiguous (>1 assignment) — errors with candidate list.
 /// 5. No assignment — returns (None, None) so the report proceeds without a milestone.
 pub(crate) fn resolve_plan_ctx(
     plan_store: &crate::service::plan::PlanStore,
-    pane_id: &str,
+    tab_id: &str,
     plan_id_hint: Option<&str>,
     task_id_hint: Option<&str>,
     notices: &mut Vec<String>,
@@ -1065,7 +1065,7 @@ pub(crate) fn resolve_plan_ctx(
                 Some(id.to_string())
             } else {
                 notices.push(format!(
-                    "plan '{}' not found in active plans — ignoring, checking pane assignment",
+                    "plan '{}' not found in active plans — ignoring, checking tab assignment",
                     id
                 ));
                 None
@@ -1076,7 +1076,7 @@ pub(crate) fn resolve_plan_ctx(
         return Ok((valid_plan, task_id_hint.map(str::to_string)));
     }
 
-    let bindings = plan_store.task_bindings_with_name_for_pane(pane_id);
+    let bindings = plan_store.task_bindings_with_name_for_tab(tab_id);
     match bindings.len() {
         0 => Ok((None, None)),
         1 => {
@@ -1090,8 +1090,8 @@ pub(crate) fn resolve_plan_ctx(
                 .collect::<Vec<_>>()
                 .join("\n");
             Err(format!(
-                "ambiguous: pane {} is assigned to {} tasks — pass --plan and --task to disambiguate:\n{}",
-                pane_id,
+                "ambiguous: tab {} is assigned to {} tasks — pass --plan and --task to disambiguate:\n{}",
+                tab_id,
                 bindings.len(),
                 list
             ))
@@ -1099,27 +1099,27 @@ pub(crate) fn resolve_plan_ctx(
     }
 }
 
-/// Whether a dying leaf pane needs a synthetic death report, and to whom.
-/// Returns `(target, message)` when the pane has not reported to that target.
+/// Whether a dying leaf tab needs a synthetic death report, and to whom.
+/// Returns `(target, message)` when the tab has not reported to that target.
 pub fn worker_death_report(
     mux: &crate::multiplexer::state::MultiplexerState,
     report_store: &crate::agent::reports::ReportStore,
-    pane_id: &str,
+    tab_id: &str,
 ) -> Option<(String, String)> {
-    let role_label = match mux.get_pane(pane_id)?.role {
+    let role_label = match mux.get_tab(tab_id)?.role {
         Some(crate::multiplexer::types::AgentRole::Manager) => "MANAGER",
         Some(crate::multiplexer::types::AgentRole::Worker) => "WORKER",
         _ => "WORKER",
     };
-    let (_from_title, target) = resolve_report_target(mux, pane_id).ok()?;
+    let (_from_title, target) = resolve_report_target(mux, tab_id).ok()?;
     let target = target?;
     let storage_key = target.storage_key();
-    if report_store.has_report_from(&storage_key, pane_id) {
+    if report_store.has_report_from(&storage_key, tab_id) {
         return None;
     }
     Some((
         storage_key,
-        format!("{role_label} {} EXITED without reporting (dead)", pane_id),
+        format!("{role_label} {} EXITED without reporting (dead)", tab_id),
     ))
 }
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { listen } from "../../lib/bridge";
-import type { ApiConfig, Pane, Team, Workspace } from "../../lib/types";
+import type { ApiConfig, Tab, Team, Workspace } from "../../lib/types";
 import { useMultiplexer, useMuxState } from "../../store/multiplexer";
 import { resolveCanvasFocusNodeIds, type CanvasFocusPayload } from "./canvasFocusPayload";
 import { CanvasEmptyActions } from "./CanvasEmptyActions";
@@ -19,8 +19,8 @@ import {
 import { fetchSpecSections } from "./plansApi";
 import { DEFAULT_CANVAS_SETTINGS } from "./settings";
 import { nextWorld, worldThresholds, type World } from "./worlds";
-import { assignedTaskIdsForPane } from "./planOpenFocus";
-import { filterPlansForCanvas } from "./planPaneMatch";
+import { assignedTaskIdsForTab } from "./planOpenFocus";
+import { filterPlansForCanvas } from "./planTabMatch";
 import { useCanvasPlans } from "./PlansProvider";
 import { useCanvasWorkspaceTarget } from "./canvasFocusStore";
 import { isTagFilterActive, taskMatchesTagFilter, toggleTagFilter, type TagFilterSelection } from "./tagModel";
@@ -38,7 +38,7 @@ import { CanvasWorldCanvas, type CanvasRenderApi } from "./canvasRender/CanvasWo
 import type { GroupGlyph } from "./canvasRender/drawScene";
 import { CanvasSwarmCluster } from "./CanvasSwarmCluster";
 import { buildCanvasScene } from "./scene";
-import { perfFixtureCount, perfFixtureProfile, buildPerfFixturePlans, buildDoneHeavyPerfFixturePlans, buildCardMetadataFixturePlans, buildCardMetadataFixturePanes, buildPerfFixturePanes, realFixtureEnabled, realFixturePlans, fixtureSpecSectionsByPlan, buildPlanWithKnownTasksFixturePlans, buildPaneTreeWithStatusesFixturePlans, buildPaneTreeWithStatusesFixturePanes, buildMidStreamChatTranscriptFixturePlans, buildMidStreamChatTranscriptFixturePanes } from "./perfFixture";
+import { perfFixtureCount, perfFixtureProfile, buildPerfFixturePlans, buildDoneHeavyPerfFixturePlans, buildCardMetadataFixturePlans, buildCardMetadataFixtureTabs, buildPerfFixtureTabs, realFixtureEnabled, realFixturePlans, fixtureSpecSectionsByPlan, buildPlanWithKnownTasksFixturePlans, buildTabTreeWithStatusesFixturePlans, buildTabTreeWithStatusesFixtureTabs, buildMidStreamChatTranscriptFixturePlans, buildMidStreamChatTranscriptFixtureTabs } from "./perfFixture";
 import { flattenSections } from "./sectionRows";
 import { buildTaskPresenceFingerprint, useCanvasLookups } from "./canvasView/useCanvasLookups";
 import { useCanvasFlyTo } from "./canvasView/useCanvasFlyTo";
@@ -54,7 +54,7 @@ import { PlanViewShell } from "./PlanViewShell";
 import { selectCanvasPlans } from "./canvasPlanSelection";
 import { PlanFetchErrorState, PlanFetchReconnectingBanner } from "./planView/PlanFetchErrorState";
 import { planFetchShowsData } from "./planView/planViewFetchGate";
-import { revealAssignedAgentPane } from "./planRevealAgentPane";
+import { revealAssignedAgentTab } from "./planRevealAgentTab";
 import { FlyToActiveControl } from "./FlyToActiveControl";
 import { selectActiveWork } from "./planView/activeWork";
 
@@ -68,10 +68,10 @@ export interface CanvasViewInnerProps {
   error?: string | null;
   onRetry?: () => void;
   planId?: string;
-  orchestratorPaneId?: string;
-  /** The pane that opened Plan mode — its assigned tasks get the initial camera. */
-  focusPaneId?: string | null;
-  panes?: Record<string, Pane>;
+  orchestratorTabId?: string;
+  /** The tab that opened Plan mode — its assigned tasks get the initial camera. */
+  focusTabId?: string | null;
+  tabs?: Record<string, Tab>;
   workspaces?: Workspace[];
   /** Current workspace; workspace mode scopes plans to those bound here. */
   workspaceId?: string;
@@ -79,8 +79,8 @@ export interface CanvasViewInnerProps {
   projectPath?: string | null;
   workspaceTarget?: CanvasWorkspaceTarget | null;
   onClose?: () => void;
-  onOpenPane?: (paneId: string) => void;
-  /** Talk-to-area composer needs an API config to POST to the owner pane. */
+  onOpenTab?: (tabId: string) => void;
+  /** Talk-to-area composer needs an API config to POST to the owner tab. */
   api?: ApiConfig;
   /** Test hook: expand viewport culling margin. */
   viewportPadding?: number;
@@ -102,16 +102,16 @@ export function CanvasViewInner({
   error = null,
   onRetry,
   planId,
-  orchestratorPaneId,
-  focusPaneId = null,
-  panes = {},
+  orchestratorTabId,
+  focusTabId = null,
+  tabs = {},
   workspaces = EMPTY_WORKSPACES,
   workspaceId,
   teams,
   projectPath = null,
   workspaceTarget = null,
   onClose,
-  onOpenPane,
+  onOpenTab,
   api,
   viewportPadding,
 }: CanvasViewInnerProps) {
@@ -123,17 +123,17 @@ export function CanvasViewInner({
 
   const plansRevision = layoutInputRevision(plans);
   const planFilterRevision = plans
-    .map((p) => [p.id, p.status, p.owner.pane_id ?? "", p.owner.session_id ?? ""].join(":"))
+    .map((p) => [p.id, p.status, p.owner.tab_id ?? "", p.owner.session_id ?? ""].join(":"))
     .join("\0");
   const teamId = mode === "workspace" ? workspaceTarget?.teamId : undefined;
   const filteredPlans = useMemo(
-    () => filterPlansForCanvas(plans, mode, { planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams }),
-    [plans, plansRevision, planFilterRevision, mode, planId, teamId, orchestratorPaneId, panes, workspaceId, workspaces, teams],
+    () => filterPlansForCanvas(plans, mode, { planId, teamId, orchestratorTabId, tabs, workspaceId, workspaces, teams }),
+    [plans, plansRevision, planFilterRevision, mode, planId, teamId, orchestratorTabId, tabs, workspaceId, workspaces, teams],
   );
 
   const activeWork = useMemo(
-    () => selectActiveWork(filteredPlans, panes),
-    [filteredPlans, panes],
+    () => selectActiveWork(filteredPlans, tabs),
+    [filteredPlans, tabs],
   );
   const staleActiveTaskIds = useMemo(
     () => new Set(activeWork.entries.filter((e) => e.stale).map((e) => e.task.id)),
@@ -234,8 +234,8 @@ export function CanvasViewInner({
     return buildCanvasScene({ layout, plans: layoutSourcePlans });
   }, [layout, layoutSourcePlans]);
 
-  const panesContentKey = useMemo(() => buildTaskPresenceFingerprint(filteredPlans, panes), [filteredPlans, panes]);
-  const lookups = useCanvasLookups(layout, filteredPlans, driftByPlan, panes, panesContentKey);
+  const tabsContentKey = useMemo(() => buildTaskPresenceFingerprint(filteredPlans, tabs), [filteredPlans, tabs]);
+  const lookups = useCanvasLookups(layout, filteredPlans, driftByPlan, tabs, tabsContentKey);
 
   // deduped — a section shows who's on it RIGHT NOW. Camera-decoupled (presence + data).
   const sectionAgentsByPlan = useMemo(() => {
@@ -422,13 +422,13 @@ export function CanvasViewInner({
 
   // The active plan to land on at mount: an owned plan if any, else the first.
   const activePlanId = useMemo(
-    () => (filteredPlans.find((p) => p.owner.pane_id) ?? filteredPlans[0])?.id ?? null,
+    () => (filteredPlans.find((p) => p.owner.tab_id) ?? filteredPlans[0])?.id ?? null,
     [filteredPlans],
   );
 
-  const paneTaskIds = useMemo(
-    () => (focusPaneId ? assignedTaskIdsForPane(filteredPlans, focusPaneId) : []),
-    [focusPaneId, filteredPlans],
+  const tabTaskIds = useMemo(
+    () => (focusTabId ? assignedTaskIdsForTab(filteredPlans, focusTabId) : []),
+    [focusTabId, filteredPlans],
   );
 
   const workspaceFocusIds = useMemo(
@@ -437,20 +437,20 @@ export function CanvasViewInner({
   );
 
   const fittedRef = useRef<string | null>(null);
-  const fitContextKey = canvasFitContextKey(mode, focusPaneId, workspaceTarget);
+  const fitContextKey = canvasFitContextKey(mode, focusTabId, workspaceTarget);
   useEffect(() => {
     if (size.width <= 0 || size.height <= 0 || layout.bounds.width <= 0) return;
     if (fittedRef.current === fitContextKey) return;
     fittedRef.current = fitContextKey;
     // frames the active plan (§23.4), not fit-all (which lands at 5% on a big board).
     if (workspaceFocusIds.length) focusOnNodes(workspaceFocusIds);
-    else if (paneTaskIds.length) focusOnNodes(paneTaskIds);
+    else if (tabTaskIds.length) focusOnNodes(tabTaskIds);
     else if (activePlanId) {
       const frame = layout.frames.find((f) => f.planId === activePlanId);
       if (frame) fitToView(frame.box);
       else fitToView(layout.bounds);
     } else fitToView(layout.bounds);
-  }, [fitContextKey, fitToView, fitCameraToNodes, focusOnNodes, workspaceFocusIds, paneTaskIds, activePlanId, size.width, size.height]);
+  }, [fitContextKey, fitToView, fitCameraToNodes, focusOnNodes, workspaceFocusIds, tabTaskIds, activePlanId, size.width, size.height]);
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -529,7 +529,7 @@ export function CanvasViewInner({
         const pn = f.nodes.find((n) => n.kind === "plan");
         if (pn) planAnchors.push({ x: pn.box.x + pn.box.width / 2, y: pn.box.y });
       }
-      out.push({ ownerKey: group.ownerKey, label: group.title, live: !!group.ownerPaneId, anchor: { x: group.box.x + 24, y: group.box.y + 34 }, planAnchors });
+      out.push({ ownerKey: group.ownerKey, label: group.title, live: !!group.ownerTabId, anchor: { x: group.box.x + 24, y: group.box.y + 34 }, planAnchors });
     }
     return out;
   }, [layout]);
@@ -831,10 +831,10 @@ export function CanvasViewInner({
         nodeId={detailNodeId}
         nodeById={lookups.nodeById}
         resolveModel={resolveModel}
-        panes={panes}
+        tabs={tabs}
         api={api}
         onClose={() => setDetailNodeId(null)}
-        onOpenPane={onOpenPane}
+        onOpenTab={onOpenTab}
         onOpenTask={(taskId) => setDetailNodeId(taskId)}
         onCopyLink={onCopyLink}
         onFocusStride={onFocusStride}
@@ -849,23 +849,23 @@ export interface CanvasViewProps {
   mode: "workspace" | "focus";
   workspaceId?: string;
   planId?: string;
-  orchestratorPaneId?: string;
-  focusPaneId?: string | null;
+  orchestratorTabId?: string;
+  focusTabId?: string | null;
   api: ApiConfig;
   onClose?: () => void;
 }
 
-export function CanvasView({ mode, workspaceId, planId, orchestratorPaneId, focusPaneId, api, onClose }: CanvasViewProps) {
-  const { setFocusedPane, setActiveTab } = useMultiplexer();
+export function CanvasView({ mode, workspaceId, planId, orchestratorTabId, focusTabId, api, onClose }: CanvasViewProps) {
+  const { setFocusedTab, setActiveTab } = useMultiplexer();
   const state = useMuxState();
-  const onOpenPane = useCallback(
-    (paneId: string) => {
-      revealAssignedAgentPane(
-        { workspaces: state.workspaces, setActiveTab, setFocusedPane },
-        paneId,
+  const onOpenTab = useCallback(
+    (tabId: string) => {
+      revealAssignedAgentTab(
+        { workspaces: state.workspaces, setActiveTab, setFocusedTab },
+        tabId,
       );
     },
-    [state.workspaces, setActiveTab, setFocusedPane],
+    [state.workspaces, setActiveTab, setFocusedTab],
   );
   const activeWs = state.workspaces.find((ws) => ws.id === state.active_workspace_id);
   const projectPath = activeWs?.cwd ?? null;
@@ -887,8 +887,8 @@ export function CanvasView({ mode, workspaceId, planId, orchestratorPaneId, focu
           ? buildCardMetadataFixturePlans()
           : perfProfile === "plan-with-known-tasks"
             ? buildPlanWithKnownTasksFixturePlans()
-            : perfProfile === "pane-tree-with-statuses"
-              ? buildPaneTreeWithStatusesFixturePlans()
+            : perfProfile === "tab-tree-with-statuses"
+              ? buildTabTreeWithStatusesFixturePlans()
               : perfProfile === "mid-stream-chat-transcript"
                 ? buildMidStreamChatTranscriptFixturePlans()
           : perfProfile === "done-heavy"
@@ -898,19 +898,19 @@ export function CanvasView({ mode, workspaceId, planId, orchestratorPaneId, focu
               : livePlans;
     return selectCanvasPlans(livePlans, fixturePlans, requestedPlanId);
   }, [useReal, perfProfile, perfN, livePlans, requestedPlanId]);
-  // (the live-pane gate filters real plans correctly; this only feeds the demo plan).
-  const panes = useMemo(() => {
-    if (perfN <= 0 || useReal) return state.panes;
-    const fixturePanes =
+  // (the live-tab gate filters real plans correctly; this only feeds the demo plan).
+  const tabs = useMemo(() => {
+    if (perfN <= 0 || useReal) return state.tabs;
+    const fixtureTabs =
       perfProfile === "card-metadata"
-        ? buildCardMetadataFixturePanes()
-        : perfProfile === "pane-tree-with-statuses"
-          ? buildPaneTreeWithStatusesFixturePanes()
+        ? buildCardMetadataFixtureTabs()
+        : perfProfile === "tab-tree-with-statuses"
+          ? buildTabTreeWithStatusesFixtureTabs()
           : perfProfile === "mid-stream-chat-transcript"
-            ? buildMidStreamChatTranscriptFixturePanes()
-            : buildPerfFixturePanes(plans);
-    return { ...state.panes, ...fixturePanes };
-  }, [perfN, useReal, perfProfile, plans, state.panes]);
+            ? buildMidStreamChatTranscriptFixtureTabs()
+            : buildPerfFixtureTabs(plans);
+    return { ...state.tabs, ...fixtureTabs };
+  }, [perfN, useReal, perfProfile, plans, state.tabs]);
   return (
     <PlanViewShell
       mode={mode}
@@ -921,16 +921,16 @@ export function CanvasView({ mode, workspaceId, planId, orchestratorPaneId, focu
       onRetry={refetch}
       planId={requestedPlanId}
       teamId={teamId}
-      orchestratorPaneId={orchestratorPaneId}
-      focusPaneId={focusPaneId}
-      panes={panes}
+      orchestratorTabId={orchestratorTabId}
+      focusTabId={focusTabId}
+      tabs={tabs}
       workspaces={state.workspaces}
       workspaceId={mode === "workspace" ? workspaceId ?? state.active_workspace_id ?? undefined : undefined}
       teams={state.teams}
       projectPath={projectPath}
       workspaceTarget={mode === "workspace" ? workspaceTarget : null}
       onClose={onClose}
-      onOpenPane={onOpenPane}
+      onOpenTab={onOpenTab}
       api={api}
     />
   );

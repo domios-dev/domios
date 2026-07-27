@@ -46,5 +46,5 @@ pub trait PlanClock: Send + Sync {
 }
 
 pub trait PlanLaneStatePort {
-    fn repoint_parent(&mut self, pane_id: &str, new_parent_id: &str) -> bool;
+    fn repoint_parent(&mut self, tab_id: &str, new_parent_id: &str) -> bool;
 }

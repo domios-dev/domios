@@ -8,7 +8,7 @@
  * parser so they don't pollute the chat view.
  *
  * `detect()` is called by the plugin registry to fingerprint fresh
- * panes — it returns true when the sample looks like a Claude session.
+ * tabs — it returns true when the sample looks like a Claude session.
  */
 
 import type { DetectionSample } from "../../../src/lib/plugins/types";

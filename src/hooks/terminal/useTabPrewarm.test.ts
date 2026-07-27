@@ -85,7 +85,7 @@ test("prewarm waits for each backend result and cancellation stops the sequence"
 });
 
 test("already mounted tabs stay warm until the tab is closed", () => {
-  const mounted = new Set(["tab-a", "tab-b", "closed-pane"]);
+  const mounted = new Set(["tab-a", "tab-b", "closed-tab"]);
   assert.deepEqual([...retainLiveTabs(mounted, ["tab-a", "tab-b", "tab-c"])], ["tab-a", "tab-b"]);
 });
 

@@ -49,7 +49,7 @@ function setupDom() {
           title: FIXTURE_PLAN.title,
           status: FIXTURE_PLAN.status,
           updated_at: FIXTURE_PLAN.updated_at,
-          assigned_pane_ids: [],
+          assigned_tab_ids: [],
         };
         return new Response(JSON.stringify({ plans: [entry] }), { status: 200 });
       }
@@ -73,14 +73,14 @@ async function installListenMock() {
   });
 }
 
-async function renderButton(paneId: string): Promise<{ host: HTMLDivElement; root: Root }> {
+async function renderButton(tabId: string): Promise<{ host: HTMLDivElement; root: Root }> {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
   await act(async () => {
     root.render(
       <PlansProvider api={API}>
-        <PlanButton paneId={paneId} panes={{}} />
+        <PlanButton tabId={tabId} tabs={{}} />
       </PlansProvider>,
     );
   });
@@ -91,7 +91,7 @@ async function renderButton(paneId: string): Promise<{ host: HTMLDivElement; roo
 }
 
 test("PlanButton hidden when Tab has no matching plan", async () => {
-  const { host, root } = await renderButton("unknown-pane");
+  const { host, root } = await renderButton("unknown-tab");
   assert(!host.querySelector('[data-testid="plan-button"]'), "no button");
   await act(async () => root.unmount());
 });
@@ -110,7 +110,7 @@ test("PlanButton opens canvas focus store on click", async () => {
   await act(async () => btn.click());
   assert(canvasFocusStore.isOpen(), "focus overlay open");
   assert(canvasFocusStore.getTarget()?.planId === FIXTURE_PLAN.id, "focuses fixture plan");
-  assert(canvasFocusStore.getTarget()?.focusPaneId === "orch-1", "carries opening Tab for camera routing");
+  assert(canvasFocusStore.getTarget()?.focusTabId === "orch-1", "carries opening Tab for camera routing");
   canvasFocusStore.close();
   await act(async () => root.unmount());
 });

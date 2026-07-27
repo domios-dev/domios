@@ -36,7 +36,7 @@ export function GroupCloseConfirmDialog({
         <ul className="px-4 py-2 flex flex-col gap-1 text-[12px] text-[var(--ct-fg)]">
           {!isTeam && <li>{orchestratorTitle} (Orchestrator)</li>}
           {members.map((m) => (
-            <li key={m.paneId}>
+            <li key={m.tabId}>
               {m.title}
               {m.role ? ` (${m.role})` : ""}
             </li>

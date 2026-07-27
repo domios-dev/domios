@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type AnimationEvent as ReactAnimationEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { ChevronRight, ClipboardList, LogOut, UsersRound } from "lucide-react";
-import type { Pane, ProviderDescriptor, Team } from "../../lib/types";
+import type { Tab, ProviderDescriptor, Team } from "../../lib/types";
 import { ProviderGlyph } from "../ProviderGlyph";
 import type { Plan } from "../Canvas/types";
 import { groupTasksIntoColumns } from "../Canvas/planView/boardModel";
@@ -23,15 +23,15 @@ import { loadTeamDisclosureState, persistTeamDisclosureState } from "./teamDiscl
 export type TeamMemberRole = "planner" | "worker";
 
 export interface SidebarTeamActions {
-  onRenameTeam?: (teamId: string, name: string, managerPaneId: string) => void | Promise<void>;
+  onRenameTeam?: (teamId: string, name: string, managerTabId: string) => void | Promise<void>;
   onAddTeamMember?: (
     teamId: string,
     role: TeamMemberRole,
     providerId: string,
-    managerPaneId: string,
+    managerTabId: string,
     model?: string,
   ) => void | Promise<void>;
-  onCloseTeam?: (teamId: string, managerPaneId: string) => void | Promise<void>;
+  onCloseTeam?: (teamId: string, managerTabId: string) => void | Promise<void>;
 }
 
 export interface TeamTaskBucket {
@@ -50,10 +50,10 @@ const EMPTY_BUCKETS: TeamTaskBucket[] = [
 
 export function deriveTeamTaskBuckets(
   plan: Plan,
-  panes: Record<string, Pane>,
+  tabs: Record<string, Tab>,
 ): TeamTaskBucket[] {
   const counts = new Map(
-    groupTasksIntoColumns(plan, panes).columns.map((column) => [column.key, column.cards.length]),
+    groupTasksIntoColumns(plan, tabs).columns.map((column) => [column.key, column.cards.length]),
   );
   return EMPTY_BUCKETS.map((bucket) => ({
     ...bucket,
@@ -338,7 +338,7 @@ function TeamMenu({
 export interface TeamUnitProps {
   team: Team;
   plan: Plan | null;
-  panes: Record<string, Pane>;
+  tabs: Record<string, Tab>;
   managers: ReactNode;
   managerCount: number;
   workers: ReactNode;
@@ -354,14 +354,14 @@ export interface TeamUnitProps {
 
 export interface TeamEffortTarget {
   teamId: string;
-  managerPaneId: string | null;
+  managerTabId: string | null;
   planId?: string;
 }
 
 export function TeamUnit({
   team,
   plan,
-  panes,
+  tabs,
   managers,
   managerCount,
   workers,
@@ -385,8 +385,8 @@ export function TeamUnit({
   const teamTabCount = managerCount + workerCount;
   const displayTitle = plan?.title.trim() || team.name?.trim() || "Team";
   const buckets = useMemo(
-    () => (plan ? deriveTeamTaskBuckets(plan, panes) : EMPTY_BUCKETS),
-    [plan, panes],
+    () => (plan ? deriveTeamTaskBuckets(plan, tabs) : EMPTY_BUCKETS),
+    [plan, tabs],
   );
   const donutSegments = useMemo<SegmentedDonutSegment[]>(
     () => buckets.map((bucket) => ({
@@ -530,7 +530,7 @@ export function TeamUnit({
             data-testid="team-card-activation"
             className="sidebar-team-card-activation"
             aria-label={`Open ${displayTitle}`}
-            onClick={() => onOpenEffort({ teamId: team.id, managerPaneId: null, planId: plan.id })}
+            onClick={() => onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan.id })}
           >
             {cardContents}
           </button>
@@ -547,7 +547,7 @@ export function TeamUnit({
               providers={providers}
               providersLoading={providersLoading}
               contextMenuTargetRef={headerRef}
-              onOpenPlan={plan ? () => onOpenEffort({ teamId: team.id, managerPaneId: null, planId: plan.id }) : undefined}
+              onOpenPlan={plan ? () => onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan.id }) : undefined}
               onRename={!plan && onRenameTeam ? () => {
                 setRenameError(null);
                 setEditing(true);

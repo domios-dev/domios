@@ -1,4 +1,4 @@
-// Staggers xterm initialization across animation frames so N panes mounting at
+// Staggers xterm initialization across animation frames so N tabs mounting at
 // once (parallel agent spawns) don't stack their heavy init into one long frame.
 
 export type FrameScheduler = (cb: () => void) => void;

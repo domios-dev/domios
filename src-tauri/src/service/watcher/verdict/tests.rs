@@ -13,10 +13,10 @@ fn group(ids: &[&str]) -> HashSet<String> {
     ids.iter().map(|s| (*s).to_string()).collect()
 }
 
-fn nudge(pane: &str, msg: &str) -> WatcherAction {
+fn nudge(tab: &str, msg: &str) -> WatcherAction {
     WatcherAction {
         kind: "nudge".into(),
-        pane: Some(pane.into()),
+        tab: Some(tab.into()),
         message: msg.into(),
     }
 }
@@ -58,7 +58,7 @@ fn malformed_degrades_to_attention_without_actions() {
 
 #[test]
 fn unknown_status_degrades_to_attention() {
-    let raw = r#"{"status":"exploded","summary":"weird","actions":[{"kind":"nudge","pane":"p1","message":"hi"}]}"#;
+    let raw = r#"{"status":"exploded","summary":"weird","actions":[{"kind":"nudge","tab":"p1","message":"hi"}]}"#;
     let v = parse_verdict(raw);
     assert_eq!(v.status, WatcherVerdictStatus::Attention);
     assert_eq!(v.summary, "weird");
@@ -105,8 +105,8 @@ fn guardrail_overflow_truncates_excess_actions() {
     let group = group(&["p1", "p2", "p3", "p4"]);
     let out = apply_guardrails(&verdict, &policy, &group, &HashMap::new(), 0, &json!({}));
     assert_eq!(out.allowed_actions.len(), 2);
-    assert_eq!(out.allowed_actions[0].pane.as_deref(), Some("p1"));
-    assert_eq!(out.allowed_actions[1].pane.as_deref(), Some("p2"));
+    assert_eq!(out.allowed_actions[0].tab.as_deref(), Some("p1"));
+    assert_eq!(out.allowed_actions[1].tab.as_deref(), Some("p2"));
     assert!(out.dropped.iter().any(|(_, r)| *r == "overflow"));
 }
 
@@ -145,7 +145,7 @@ fn guardrail_dedupes_duplicate_nudge_targets_within_tick() {
 }
 
 #[test]
-fn guardrail_allows_nudges_to_distinct_panes() {
+fn guardrail_allows_nudges_to_distinct_tabs() {
     let verdict = WatcherVerdict {
         status: WatcherVerdictStatus::Ok,
         summary: "two".into(),
@@ -176,8 +176,8 @@ fn guardrail_dedupes_before_overflow_cap() {
     let group = group(&["p1", "p2", "p3"]);
     let out = apply_guardrails(&verdict, &policy, &group, &HashMap::new(), 0, &json!({}));
     assert_eq!(out.allowed_actions.len(), 2);
-    assert_eq!(out.allowed_actions[0].pane.as_deref(), Some("p1"));
-    assert_eq!(out.allowed_actions[1].pane.as_deref(), Some("p2"));
+    assert_eq!(out.allowed_actions[0].tab.as_deref(), Some("p1"));
+    assert_eq!(out.allowed_actions[1].tab.as_deref(), Some("p2"));
     assert!(out
         .dropped
         .iter()
@@ -185,7 +185,7 @@ fn guardrail_dedupes_before_overflow_cap() {
     assert!(out
         .dropped
         .iter()
-        .any(|(a, r)| a.pane.as_deref() == Some("p3") && *r == "overflow"));
+        .any(|(a, r)| a.tab.as_deref() == Some("p3") && *r == "overflow"));
 }
 
 #[test]
@@ -232,14 +232,14 @@ fn guardrail_accepts_state_within_cap() {
 }
 
 #[test]
-fn notify_action_allowed_without_pane() {
+fn notify_action_allowed_without_tab() {
     let verdict = WatcherVerdict {
         status: WatcherVerdictStatus::Attention,
         summary: "ping".into(),
         state: None,
         actions: vec![WatcherAction {
             kind: "notify".into(),
-            pane: None,
+            tab: None,
             message: "heads up".into(),
         }],
     };

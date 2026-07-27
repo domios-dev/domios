@@ -21,7 +21,7 @@ import {
 } from "../../lib/slashCommands";
 import type { ModelInfo, PendingPrompt, ProviderDescriptor } from "../../lib/types";
 import { ModelSuggestionPicker } from "./ModelSuggestionPicker";
-import { PaneTaskStrip } from "./PaneTaskStrip";
+import { TabTaskStrip } from "./TabTaskStrip";
 import { COMPOSER_MIN_HEIGHT, applyComposerAutosize } from "./composerAutosize";
 
 const AUDIO_ATTACHMENT_RE = /\.(webm|ogg|oga|opus|mp3|wav|m4a|aac|mp4|flac)$/i;
@@ -205,11 +205,11 @@ export function delayedPollIntervalMs(isActive: boolean): number | null {
   return isActive ? 10_000 : null;
 }
 
-function recordComposerRender(paneId: string): void {
+function recordComposerRender(tabId: string): void {
   if (typeof window === "undefined") return;
   const perf = window.__composerPerf;
   if (!perf) return;
-  perf.renderCounts[paneId] = (perf.renderCounts[paneId] ?? 0) + 1;
+  perf.renderCounts[tabId] = (perf.renderCounts[tabId] ?? 0) + 1;
 }
 
 let composerInputMarkId = 0;
@@ -241,8 +241,8 @@ function recordComposerIgnoredKey(key: string): void {
 }
 
 function ChatComposerImpl({
-  paneId,
-  paneProvider,
+  tabId,
+  tabProvider,
   currentPtyId,
   pendingPrompt,
   attachments,
@@ -259,14 +259,14 @@ function ChatComposerImpl({
   chatBackend = false,
   isActive = true,
 }: {
-  paneId: string;
-  paneProvider: string | null;
+  tabId: string;
+  tabProvider: string | null;
   currentPtyId: string | null;
   /** This tab is backed by a plugin chatBackend (no PTY) — send via the
    *  tab-level `chat_send_text` instead of writing to a PTY. */
   chatBackend?: boolean;
-  /** Whether this composer's pane is the currently active/focused tab.
-   *  When false, refocusComposer is a no-op — prevents background panes
+  /** Whether this composer's tab is the currently active/focused tab.
+   *  When false, refocusComposer is a no-op — prevents background tabs
    *  from stealing focus after an async send completes. */
   isActive?: boolean;
   pendingPrompt: PendingPrompt | null;
@@ -282,11 +282,11 @@ function ChatComposerImpl({
   onOpenTerminalFallback?: () => void;
   modelBubble?: ReactNode;
 }) {
-  recordComposerRender(paneId);
+  recordComposerRender(tabId);
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
 
-  const [input, setInput] = usePersistentDraft(`pane-session-chat:${paneId}`);
+  const [input, setInput] = usePersistentDraft(`tab-session-chat:${tabId}`);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerHighlight, setPickerHighlight] = useState(0);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -381,7 +381,7 @@ function ChatComposerImpl({
     invoke<ProviderDescriptor[]>("list_agent_providers")
       .then((providers) => {
         if (cancelled) return;
-        const provider = providers.find((candidate) => candidate.id === paneProvider) ?? null;
+        const provider = providers.find((candidate) => candidate.id === tabProvider) ?? null;
         setProviderDescriptor(provider);
         const models = provider?.available_models ?? [];
         setModelOptions(models);
@@ -398,7 +398,7 @@ function ChatComposerImpl({
     return () => {
       cancelled = true;
     };
-  }, [paneProvider]);
+  }, [tabProvider]);
 
   useEffect(() => {
     const id = setTimeout(() => {
@@ -409,17 +409,17 @@ function ChatComposerImpl({
 
   const refreshDelayedMessages = useCallback(async () => {
     try {
-      setDelayedMessages(await listDelayedMessages(paneId));
+      setDelayedMessages(await listDelayedMessages(tabId));
     } catch {
       setDelayedMessages([]);
     }
-  }, [paneId]);
+  }, [tabId]);
 
   useEffect(() => {
     let cancelled = false;
     const refresh = async () => {
       try {
-        const messages = await listDelayedMessages(paneId);
+        const messages = await listDelayedMessages(tabId);
         if (!cancelled) setDelayedMessages(messages);
       } catch {
         if (!cancelled) setDelayedMessages([]);
@@ -431,8 +431,8 @@ function ChatComposerImpl({
     const pollMs = delayedPollIntervalMs(isActive);
     const interval = pollMs !== null ? window.setInterval(refresh, pollMs) : null;
     let unlisten: (() => void) | null = null;
-    void listen<{ paneId?: string }>("delayed-send-changed", (e) => {
-      if (!e.payload?.paneId || e.payload.paneId === paneId) void refresh();
+    void listen<{ tabId?: string }>("delayed-send-changed", (e) => {
+      if (!e.payload?.tabId || e.payload.tabId === tabId) void refresh();
     }).then((fn) => {
       unlisten = fn;
     }).catch(() => {});
@@ -441,7 +441,7 @@ function ChatComposerImpl({
       if (interval !== null) window.clearInterval(interval);
       unlisten?.();
     };
-  }, [paneId, isActive]);
+  }, [tabId, isActive]);
 
   function pickSuggestion(cmd: SlashCommandSuggestion) {
     const lines = input.split("\n");
@@ -586,7 +586,7 @@ function ChatComposerImpl({
     try {
       if (chatBackend) {
         // plugin's sendMessage (chat_send_text → send_text_when_ready).
-        await invoke("chat_send_text", { paneId, text: composed });
+        await invoke("chat_send_text", { tabId, text: composed });
       } else {
         const fallbackCommand = allAttachments.length === 0 ? cliFallbackCommandPayload(composed) : null;
         if (fallbackCommand) {
@@ -595,7 +595,7 @@ function ChatComposerImpl({
           onOpenTerminalFallback?.();
           await invoke("write_pty_string", { ptyId: currentPtyId, data: fallbackCommand, raw: false });
         } else {
-          await invoke("chat_send_text", { paneId, text: composed });
+          await invoke("chat_send_text", { tabId, text: composed });
         }
       }
     } catch (e) {
@@ -619,7 +619,7 @@ function ChatComposerImpl({
         showComposerError("Model picker cannot be scheduled.");
         return;
       }
-      await createDelayedMessage(paneId, composed, scheduledAtMs);
+      await createDelayedMessage(tabId, composed, scheduledAtMs);
       setInput("");
       clearAttachments();
       setScheduleOpen(false);
@@ -758,7 +758,7 @@ function ChatComposerImpl({
           </div>
         </div>
       )}
-      <PaneTaskStrip paneId={paneId} />
+      <TabTaskStrip tabId={tabId} />
       <ComposerBubbleRow
         attachments={attachments}
         onRemove={removeAttachment}
@@ -797,7 +797,7 @@ function ChatComposerImpl({
           />
           <textarea
             data-testid="chat-composer"
-            data-pane-id={paneId}
+            data-tab-id={tabId}
             aria-label="Message composer"
             ref={textareaRef}
             value={input}
@@ -929,8 +929,8 @@ function ChatComposerImpl({
 }
 
 export const ChatComposer = memo(ChatComposerImpl, (a, b) =>
-  a.paneId === b.paneId
-  && a.paneProvider === b.paneProvider
+  a.tabId === b.tabId
+  && a.tabProvider === b.tabProvider
   && a.currentPtyId === b.currentPtyId
   && a.pendingPrompt === b.pendingPrompt
   && a.attachments === b.attachments

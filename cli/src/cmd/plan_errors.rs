@@ -101,7 +101,7 @@ Use spec/plan sections for plan rules or mem for durable preferences:\n\
                 "✗ loop budget {count}/{budget} reached for loop '{loop_id}'; extend with codeterm plan loop set {loop_id} --budget N, or close the plan."
             ))
         }
-        "in_progress_requires_pane" => Some(format!(
+        "in_progress_requires_tab" => Some(format!(
             "✗ in_progress requires an executor tab.\nfix: set status and tab in one command:\n  codeterm plan task update {plan_id} {} --status in_progress --tab <tab-id>\n(emergency override: CODETERM_STATE_INVARIANTS=off)",
             task_id.unwrap_or("<task_id>")
         )),
@@ -292,7 +292,7 @@ fn render_not_found(plan_id: &str, loop_id: &str, params: &Value) -> String {
     if params.get("loop_id").and_then(|v| v.as_str()).is_some() {
         return format!("✗ no loop '{loop_id}' was found.\nfix: codeterm plan state <plan_id>");
     }
-    if params.get("pane_id").is_some() || params.get("session_id").is_some() {
+    if params.get("tab_id").is_some() || params.get("session_id").is_some() {
         return format!(
             "✗ no heartbeat plan was found for this tab/session.\nfix: pass the plan explicitly:\n  codeterm orchestrator heartbeat show --plan {plan_id}"
         );

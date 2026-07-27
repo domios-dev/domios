@@ -80,10 +80,10 @@ function WatcherVerdictCardImpl({ content }: WatcherVerdictCardProps) {
                 style={{ borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 20%, transparent)" }}
               >
                 {verdict.actions.map((action, index) => (
-                  <li key={`${action.kind}-${action.pane ?? ""}-${index}`} className="font-mono">
+                  <li key={`${action.kind}-${action.tab ?? ""}-${index}`} className="font-mono">
                     <span style={{ color: chip.color }}>{action.kind}</span>
-                    {action.pane ? (
-                      <span style={{ color: "var(--ct-muted-fg)" }}>{` → ${action.pane}`}</span>
+                    {action.tab ? (
+                      <span style={{ color: "var(--ct-muted-fg)" }}>{` → ${action.tab}`}</span>
                     ) : null}
                     <span className="block whitespace-pre-wrap break-words" style={{ color: "var(--ct-fg)" }}>
                       {action.message}

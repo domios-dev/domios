@@ -156,7 +156,7 @@ pub fn handle_update(
             after_update,
         } => {
             if let Some(path) = from_file {
-                let tab = continue_tab.or_else(|| std::env::var("CODETERM_PANE_ID").ok());
+                let tab = continue_tab.or_else(|| std::env::var("CODETERM_TAB_ID").ok());
                 // Persist current tab ids so the continuation target survives restart.
                 let save_url = format!("{}/api/session/save", base_url);
                 if let Err(e) = http.post(&save_url).send() {

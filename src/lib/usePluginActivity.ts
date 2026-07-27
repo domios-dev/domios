@@ -168,7 +168,7 @@ function pluginActivityToast(
   return {
     id: pluginActivityToastId(activity.pluginId),
     key: pluginActivityToastId(activity.pluginId),
-    pane_id: null,
+    tab_id: null,
     workspace_id: null,
     title: display.displayName,
     body: activity.label,

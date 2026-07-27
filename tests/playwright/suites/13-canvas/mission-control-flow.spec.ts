@@ -33,7 +33,7 @@ test("@golden @mission-control-flow flow river + group milestone + all-plans tog
   const canvas = await seedWorldStateAndOpenInlineCanvas(
     webBrowser,
     api as unknown as ApiClient,
-    worldStates.paneTreeWithStatuses,
+    worldStates.tabTreeWithStatuses,
   );
   try {
     const { page } = canvas;
@@ -83,7 +83,7 @@ test("@golden @mission-control-flow 60fps pan probe — transform layer, no refl
   const canvas = await seedWorldStateAndOpenInlineCanvas(
     webBrowser,
     api as unknown as ApiClient,
-    worldStates.paneTreeWithStatuses,
+    worldStates.tabTreeWithStatuses,
   );
   try {
     const { page } = canvas;

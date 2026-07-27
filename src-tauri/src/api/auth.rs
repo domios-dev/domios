@@ -24,13 +24,13 @@ pub fn is_service_push_allowed(method: &str, path: &str) -> bool {
     if method != "POST" {
         return false;
     }
-    let Some(rest) = path.strip_prefix("/api/panes/") else {
+    let Some(rest) = path.strip_prefix("/api/tabs/") else {
         return false;
     };
-    let Some(pane_id) = rest.strip_suffix("/send") else {
+    let Some(tab_id) = rest.strip_suffix("/send") else {
         return false;
     };
-    !pane_id.is_empty() && !pane_id.contains('/')
+    !tab_id.is_empty() && !tab_id.contains('/')
 }
 
 const PUBLIC_PATHS: &[&str] = &[
@@ -148,7 +148,7 @@ fn check_access(access: &AccessLevel, method: &Method, path: &str) -> bool {
                 "/can-spawn",
                 "/agent-type",
             ];
-            if path.starts_with("/api/panes/") && write_allowed.iter().any(|s| path.ends_with(s)) {
+            if path.starts_with("/api/tabs/") && write_allowed.iter().any(|s| path.ends_with(s)) {
                 return true;
             }
             path == "/api/agents/spawn" || path == "/api/batch" || path == "/api/notifications"
@@ -159,13 +159,13 @@ fn check_access(access: &AccessLevel, method: &Method, path: &str) -> bool {
                 return true;
             }
             if *method == Method::GET {
-                let can_read = perms.contains(&Permission::ReadPanes)
+                let can_read = perms.contains(&Permission::ReadTabs)
                     || perms.contains(&Permission::ReadOutput);
                 if can_read {
                     return true;
                 }
             }
-            if path.starts_with("/api/panes/") {
+            if path.starts_with("/api/tabs/") {
                 if path.ends_with("/send") && perms.contains(&Permission::SendInput) {
                     return true;
                 }
@@ -174,7 +174,7 @@ fn check_access(access: &AccessLevel, method: &Method, path: &str) -> bool {
                 {
                     return true;
                 }
-                if perms.contains(&Permission::WritePanes) {
+                if perms.contains(&Permission::WriteTabs) {
                     return true;
                 }
             }
@@ -250,12 +250,12 @@ pub async fn auth_middleware(
                 next.run(req).await
             } else {
                 log::warn!(
-                    "[auth] Service push token {} denied on {} {} — push tokens are scoped to POST /api/panes/<id>/send only",
+                    "[auth] Service push token {} denied on {} {} — push tokens are scoped to POST /api/tabs/<id>/send only",
                     service_id, method, path
                 );
                 (
                     StatusCode::FORBIDDEN,
-                    "Service push tokens are scoped to POST /api/panes/<id>/send",
+                    "Service push tokens are scoped to POST /api/tabs/<id>/send",
                 )
                     .into_response()
             }
@@ -366,7 +366,7 @@ mod tests {
         assert!(check_access(
             &AccessLevel::Full,
             &Method::POST,
-            "/api/panes/abc/send"
+            "/api/tabs/abc/send"
         ));
         assert!(check_access(
             &AccessLevel::Full,
@@ -380,7 +380,7 @@ mod tests {
         assert!(check_access(
             &AccessLevel::ReadOnly,
             &Method::GET,
-            "/api/panes"
+            "/api/tabs"
         ));
         assert!(check_access(
             &AccessLevel::ReadOnly,
@@ -390,7 +390,7 @@ mod tests {
         assert!(!check_access(
             &AccessLevel::ReadOnly,
             &Method::POST,
-            "/api/panes/abc/send"
+            "/api/tabs/abc/send"
         ));
         assert!(!check_access(
             &AccessLevel::ReadOnly,
@@ -402,12 +402,12 @@ mod tests {
     #[test]
     fn agent_isolated_allows_agent_ops() {
         let level = AccessLevel::AgentIsolated;
-        assert!(check_access(&level, &Method::GET, "/api/panes"));
+        assert!(check_access(&level, &Method::GET, "/api/tabs"));
         assert!(check_access(&level, &Method::GET, "/api/config"));
-        assert!(check_access(&level, &Method::POST, "/api/panes/abc/send"));
-        assert!(check_access(&level, &Method::POST, "/api/panes/abc/exec"));
+        assert!(check_access(&level, &Method::POST, "/api/tabs/abc/send"));
+        assert!(check_access(&level, &Method::POST, "/api/tabs/abc/exec"));
         assert!(check_access(&level, &Method::POST, "/api/agents/spawn"));
-        assert!(check_access(&level, &Method::POST, "/api/panes/abc/report"));
+        assert!(check_access(&level, &Method::POST, "/api/tabs/abc/report"));
         assert!(!check_access(&level, &Method::POST, "/api/config"));
         assert!(!check_access(&level, &Method::DELETE, "/api/crons/123"));
         assert!(!check_access(
@@ -421,9 +421,9 @@ mod tests {
     fn custom_permissions() {
         use crate::mesh::types::Permission;
 
-        let level = AccessLevel::Custom(vec![Permission::ReadPanes, Permission::SendInput]);
-        assert!(check_access(&level, &Method::GET, "/api/panes"));
-        assert!(check_access(&level, &Method::POST, "/api/panes/abc/send"));
+        let level = AccessLevel::Custom(vec![Permission::ReadTabs, Permission::SendInput]);
+        assert!(check_access(&level, &Method::GET, "/api/tabs"));
+        assert!(check_access(&level, &Method::POST, "/api/tabs/abc/send"));
         assert!(!check_access(&level, &Method::POST, "/api/agents/spawn"));
         assert!(!check_access(&level, &Method::POST, "/api/config"));
 
@@ -452,16 +452,16 @@ mod tests {
         assert!(!is_custom_auth(&Method::GET, "/api/mesh/peers/some-id"));
         assert!(!is_custom_auth(&Method::GET, "/api/mesh/peers"));
         assert!(!is_custom_auth(&Method::GET, "/api/mesh/status"));
-        assert!(!is_custom_auth(&Method::POST, "/api/panes/abc/send"));
+        assert!(!is_custom_auth(&Method::POST, "/api/tabs/abc/send"));
     }
 
     #[test]
     fn service_push_allowed_on_send() {
-        assert!(is_service_push_allowed("POST", "/api/panes/abc123/send"));
-        assert!(is_service_push_allowed("POST", "/api/panes/general/send"));
+        assert!(is_service_push_allowed("POST", "/api/tabs/abc123/send"));
+        assert!(is_service_push_allowed("POST", "/api/tabs/general/send"));
         assert!(is_service_push_allowed(
             "POST",
-            "/api/panes/pane-with-dashes_and_underscores/send"
+            "/api/tabs/tab-with-dashes_and_underscores/send"
         ));
     }
 
@@ -477,21 +477,21 @@ mod tests {
 
     #[test]
     fn service_push_rejected_on_get() {
-        assert!(!is_service_push_allowed("GET", "/api/panes/abc123/send"));
-        assert!(!is_service_push_allowed("DELETE", "/api/panes/abc123/send"));
-        assert!(!is_service_push_allowed("PUT", "/api/panes/abc123/send"));
+        assert!(!is_service_push_allowed("GET", "/api/tabs/abc123/send"));
+        assert!(!is_service_push_allowed("DELETE", "/api/tabs/abc123/send"));
+        assert!(!is_service_push_allowed("PUT", "/api/tabs/abc123/send"));
     }
 
     #[test]
-    fn service_push_rejected_on_pane_root() {
-        assert!(!is_service_push_allowed("POST", "/api/panes/abc123"));
-        assert!(!is_service_push_allowed("POST", "/api/panes/abc123/exec"));
-        assert!(!is_service_push_allowed("POST", "/api/panes/abc123/clear"));
-        assert!(!is_service_push_allowed("POST", "/api/panes//send"));
+    fn service_push_rejected_on_tab_root() {
+        assert!(!is_service_push_allowed("POST", "/api/tabs/abc123"));
+        assert!(!is_service_push_allowed("POST", "/api/tabs/abc123/exec"));
+        assert!(!is_service_push_allowed("POST", "/api/tabs/abc123/clear"));
+        assert!(!is_service_push_allowed("POST", "/api/tabs//send"));
         assert!(!is_service_push_allowed(
             "POST",
-            "/api/panes/abc/extra/send"
+            "/api/tabs/abc/extra/send"
         ));
-        assert!(!is_service_push_allowed("POST", "/api/panes"));
+        assert!(!is_service_push_allowed("POST", "/api/tabs"));
     }
 }

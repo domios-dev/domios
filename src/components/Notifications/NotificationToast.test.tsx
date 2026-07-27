@@ -51,7 +51,7 @@ function notification(id: string, title: string, timestamp: number): Notificatio
     title,
     timestamp,
     key: id,
-    pane_id: null,
+    tab_id: null,
     workspace_id: null,
     body: null,
     level: "Info",

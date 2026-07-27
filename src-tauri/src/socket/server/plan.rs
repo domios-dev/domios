@@ -237,7 +237,7 @@ pub(super) fn dispatch(
                 });
             }
             if p.and_then(|x| x.get("unowned")).and_then(|v| v.as_bool()) == Some(true) {
-                entries.retain(|e| e.owner.pane_id.is_none() && e.owner.session_id.is_none());
+                entries.retain(|e| e.owner.tab_id.is_none() && e.owner.session_id.is_none());
             }
             if let Some(status) = p.and_then(|x| x.get("status")).and_then(|v| v.as_str()) {
                 entries.retain(|e| match status {
@@ -335,11 +335,11 @@ pub(super) fn dispatch(
             emit_plan_changed(app, &id);
             let mut response_hints = Vec::new();
             if matches!(
-                store.resolve_planner_pane(&id, |pid| svc.pane_probe(pid)),
+                store.resolve_planner_tab(&id, |pid| svc.tab_probe(pid)),
                 crate::plan::peer::PeerResolution::Unbound
             ) {
                 let spawn_cmd = crate::service::plan::peer_mandate::planner_spawn_cmd_hint(
-                    owner.pane_id.as_deref(),
+                    owner.tab_id.as_deref(),
                     &id,
                 );
                 response_hints.push(crate::prompts::peer_pairing_mandate_full(&spawn_cmd));
@@ -379,14 +379,14 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
-            let caller_pane = p
-                .and_then(|x| x.get("caller_pane_id"))
+            let caller_tab = p
+                .and_then(|x| x.get("caller_tab_id"))
                 .and_then(|v| v.as_str());
             let mut resp = json!({ "section_id": sid });
             if let Some(nudge) = store
                 .get(&id)
                 .as_ref()
-                .and_then(|plan| hints::planner_ownership_nudge(plan, caller_pane))
+                .and_then(|plan| hints::planner_ownership_nudge(plan, caller_tab))
             {
                 resp["_planner_nudge"] = json!(nudge);
             }
@@ -409,14 +409,14 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
-            let caller_pane = p
-                .and_then(|x| x.get("caller_pane_id"))
+            let caller_tab = p
+                .and_then(|x| x.get("caller_tab_id"))
                 .and_then(|v| v.as_str());
             let mut resp = json!({ "ok": true, "section_id": sid });
             if let Some(nudge) = store
                 .get(&id)
                 .as_ref()
-                .and_then(|plan| hints::planner_ownership_nudge(plan, caller_pane))
+                .and_then(|plan| hints::planner_ownership_nudge(plan, caller_tab))
             {
                 resp["_planner_nudge"] = json!(nudge);
             }
@@ -477,12 +477,12 @@ pub(super) fn dispatch(
             let id = plan_refs::resolve_plan(store, params)?;
             let snapshot = svc.build_plan_state(&id, now).map_err(plan_rpc_err)?;
             let mut value = serde_json::to_value(snapshot).unwrap_or_default();
-            let pane_id = store
+            let tab_id = store
                 .get(&id)
-                .and_then(|plan| plan.owner.pane_id)
+                .and_then(|plan| plan.owner.tab_id)
                 .unwrap_or_default();
             value["reminder"] =
-                serde_json::to_value(svc.plan_turn_counter.time_reminder_telemetry(&pane_id))
+                serde_json::to_value(svc.plan_turn_counter.time_reminder_telemetry(&tab_id))
                     .unwrap_or_default();
             Ok(value)
         }
@@ -497,7 +497,7 @@ pub(super) fn dispatch(
             let id = plan_refs::resolve_plan(store, params)?;
             let fix = p.and_then(|x| x.get("fix")).and_then(|v| v.as_bool()) == Some(true);
             let caller = p
-                .and_then(|x| x.get("caller_pane_id"))
+                .and_then(|x| x.get("caller_tab_id"))
                 .and_then(|v| v.as_str());
             let report = svc
                 .reconcile_plan(&id, fix, caller, now)
@@ -548,7 +548,7 @@ pub(super) fn dispatch(
             let from = p
                 .and_then(|x| x.get("from"))
                 .and_then(|v| serde_json::from_value(v.clone()).ok())
-                .unwrap_or_else(|| crate::plan::AgentRef::from_pane("unknown"));
+                .unwrap_or_else(|| crate::plan::AgentRef::from_tab("unknown"));
             let stride_id = store
                 .add_retrospective(&id, body, from, now)
                 .map_err(plan_rpc_err)?;
@@ -567,13 +567,13 @@ pub(super) fn dispatch(
 fn transfer_caller(params: &Option<Value>) -> Result<String, JsonRpcError> {
     params
         .as_ref()
-        .and_then(|value| value.get("caller_pane_id"))
+        .and_then(|value| value.get("caller_tab_id"))
         .and_then(|value| value.as_str())
-        .filter(|pane_id| !pane_id.trim().is_empty())
+        .filter(|tab_id| !tab_id.trim().is_empty())
         .map(str::to_string)
         .ok_or_else(|| JsonRpcError {
             code: -32602,
-            message: "caller_pane_id is required for plan transfer".into(),
+            message: "caller_tab_id is required for plan transfer".into(),
             data: None,
         })
 }

@@ -81,7 +81,7 @@ const PLUGIN_PREAMBLE: &str = r#"
   };
   host.workspace = {
     ensure: function (opts) { return parseJson(host.workspaceEnsure(JSON.stringify(opts))); },
-    panes: function (workspaceId) { return parseJson(host.workspacePanes(workspaceId)) || []; },
+    tabs: function (workspaceId) { return parseJson(host.workspaceTabs(workspaceId)) || []; },
   };
   host.worker = {
     start: function (opts) { return parseJson(host.workerStart(JSON.stringify(opts))); },
@@ -745,7 +745,7 @@ mod tests {
                     return {
                         memIsFn:       typeof host.mem.search === "function",
                         wsEnsureIsFn:  typeof host.workspace.ensure === "function",
-                        wsPanesIsFn:   typeof host.workspace.panes === "function",
+                        wsTabsIsFn:   typeof host.workspace.tabs === "function",
                         // every result is a plain object, NOT a thenable.
                         memSync:       mem !== null && typeof mem === "object" && mem.then === undefined,
                         memError:      typeof mem.error === "string",
@@ -759,7 +759,7 @@ mod tests {
         let v: serde_json::Value = call_json(&vm, "shape", &[]).unwrap();
         assert_eq!(v["memIsFn"], true);
         assert_eq!(v["wsEnsureIsFn"], true);
-        assert_eq!(v["wsPanesIsFn"], true);
+        assert_eq!(v["wsTabsIsFn"], true);
         assert_eq!(v["memSync"], true, "host.mem.search must be synchronous");
         assert_eq!(
             v["memError"], true,

@@ -23,14 +23,14 @@ pub fn decide_notification(
     name: &str,
     consecutive_failures: u32,
     enabled: bool,
-    pane_label: &str,
+    tab_label: &str,
 ) -> Option<FailureNotification> {
     if consecutive_failures == NOTIFY_AFTER_CONSECUTIVE_FAILURES {
         Some(FailureNotification::RepeatedFailure {
             title: format!("Cron \"{}\" failing repeatedly", name),
             body: format!(
-                "{} consecutive failed runs (pane={}). `codeterm cron history {}` for detail.",
-                consecutive_failures, pane_label, job_id
+                "{} consecutive failed runs (tab={}). `codeterm cron history {}` for detail.",
+                consecutive_failures, tab_label, job_id
             ),
         })
     } else if !enabled && consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
@@ -53,22 +53,22 @@ pub fn notify_on_consecutive_failure(
     cron_state: &CronState,
     job_id: &str,
 ) {
-    let Some((count, name, enabled, pane_id)) = ({
+    let Some((count, name, enabled, tab_id)) = ({
         let store = cron_state.lock();
         store.get(job_id).map(|job| {
             (
                 job.consecutive_failures,
                 job.name.clone(),
                 job.enabled,
-                job.last_run.as_ref().and_then(|r| r.pane_id.clone()),
+                job.last_run.as_ref().and_then(|r| r.tab_id.clone()),
             )
         })
     }) else {
         return;
     };
-    let pane_label = pane_id.unwrap_or_else(|| "-".to_string());
+    let tab_label = tab_id.unwrap_or_else(|| "-".to_string());
 
-    match decide_notification(job_id, &name, count, enabled, &pane_label) {
+    match decide_notification(job_id, &name, count, enabled, &tab_label) {
         Some(FailureNotification::RepeatedFailure { title, body }) => {
             service.create_notification(title, Some(body), Some("warning"));
         }
@@ -138,7 +138,7 @@ mod tests {
                 cwd: None,
                 role: None,
                 skill: None,
-                creator_pane_id: None,
+                creator_tab_id: None,
                 enabled: Some(true),
                 max_history: None,
                 oneshot: None,
@@ -159,7 +159,7 @@ mod tests {
                 started_at: 0,
                 finished_at: None,
                 status: CronRunStatus::Running,
-                pane_id: Some("-".to_string()),
+                tab_id: Some("-".to_string()),
                 tab_id: None,
                 session_id: None,
                 cwd: None,
@@ -194,7 +194,7 @@ mod tests {
     }
 
     /// Regression: two completion paths racing on the SAME run (e.g. a pty-dead
-    /// fallback and a watchdog both marking one dead pane Failed) must count once.
+    /// fallback and a watchdog both marking one dead tab Failed) must count once.
     #[test]
     fn duplicate_failed_update_on_same_run_counts_once() {
         let (cron_state, job_id) = store_with_job();

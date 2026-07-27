@@ -1,9 +1,9 @@
 use super::orchestrator::SpawnAgentParams;
-use super::spawn::{AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec};
+use super::spawn::{AgentSpawnSpec, TabCommand, TabVisibility, SpawnTabSpec};
 use super::ServiceContext;
 use crate::multiplexer::types::{WatcherPolicy, WatcherSpec};
 
-impl SpawnPaneSpec {
+impl SpawnTabSpec {
     pub fn from_agent_params(params: SpawnAgentParams) -> Self {
         Self::from_agent_params_command(params, None)
     }
@@ -13,7 +13,7 @@ impl SpawnPaneSpec {
         params: SpawnAgentParams,
     ) -> Self {
         let provider = params.agent.clone().unwrap_or_default();
-        // Route to the ChatBackend pane path only for a USER-SPAWNABLE shell.
+        // Route to the ChatBackend tab path only for a USER-SPAWNABLE shell.
         let spawnable = !provider.is_empty()
             && chatbackends
                 .get(&provider)
@@ -34,7 +34,7 @@ impl SpawnPaneSpec {
             );
             return Self::from_agent_params_command(
                 params,
-                Some(PaneCommand::ChatBackend {
+                Some(TabCommand::ChatBackend {
                     plugin_id: provider,
                     config,
                     role,
@@ -47,9 +47,9 @@ impl SpawnPaneSpec {
         Self::from_agent_params_command(params, None)
     }
 
-    fn from_agent_params_command(params: SpawnAgentParams, command: Option<PaneCommand>) -> Self {
+    fn from_agent_params_command(params: SpawnAgentParams, command: Option<TabCommand>) -> Self {
         let agent_command = command.unwrap_or_else(|| {
-            PaneCommand::Agent(AgentSpawnSpec {
+            TabCommand::Agent(AgentSpawnSpec {
                 provider: params.agent.clone().unwrap_or_default(),
                 planned_model: params.planned_model.clone(),
                 model: params.model.clone(),
@@ -62,23 +62,23 @@ impl SpawnPaneSpec {
                 role_profile: params.role_profile.clone(),
                 can_spawn: params.can_spawn,
                 auto_approve: params.skip_permissions.unwrap_or(true),
-                report_target_pane_id: params.report_target_pane_id.clone(),
+                report_target_tab_id: params.report_target_tab_id.clone(),
                 worker_id: None,
                 extra_env: Default::default(),
                 task_preamble: None,
                 spawned_by: None,
-                spawned_by_pane_id: params.spawned_by_pane_id.clone(),
+                spawned_by_tab_id: params.spawned_by_tab_id.clone(),
                 resume_session_id: params.resume_session_id.clone(),
                 activate: params.activate,
             })
         });
         Self {
             workspace_id: params.workspace_id.clone(),
-            parent_pane_id: params.parent_pane_id.clone(),
+            parent_tab_id: params.parent_tab_id.clone(),
             cwd: params.cwd.clone(),
             title: params.title.clone(),
             description: params.description.clone(),
-            visibility: PaneVisibility::Visible,
+            visibility: TabVisibility::Visible,
             eager: false,
             command: agent_command,
         }
@@ -86,11 +86,11 @@ impl SpawnPaneSpec {
 
     pub(crate) fn to_agent_params(&self) -> Result<SpawnAgentParams, String> {
         let agent = match &self.command {
-            PaneCommand::Agent(a) => a,
-            PaneCommand::Shell => {
+            TabCommand::Agent(a) => a,
+            TabCommand::Shell => {
                 return Err("to_agent_params called on Shell spec".into());
             }
-            PaneCommand::ChatBackend { .. } => {
+            TabCommand::ChatBackend { .. } => {
                 return Err("to_agent_params called on ChatBackend spec".into());
             }
         };
@@ -106,7 +106,7 @@ impl SpawnPaneSpec {
             description: self.description.clone(),
             role: agent.role.clone(),
             role_profile: agent.role_profile.clone(),
-            parent_pane_id: self.parent_pane_id.clone(),
+            parent_tab_id: self.parent_tab_id.clone(),
             plan_id: None,
             can_spawn: agent.can_spawn,
             task: agent.task.clone(),
@@ -117,12 +117,12 @@ impl SpawnPaneSpec {
             force_tab: None,
             existing_tab_id: None,
             skip_orchestrator_onboarding: None,
-            report_target_pane_id: agent.report_target_pane_id.clone(),
+            report_target_tab_id: agent.report_target_tab_id.clone(),
             // AgentSpawnSpec (sync/local spawn path) carries no remote target;
             // mesh workers spawn via the async HTTP path which sets it directly.
             report_target_mesh_peer: None,
             skip_permissions: Some(agent.auto_approve),
-            spawned_by_pane_id: agent.spawned_by_pane_id.clone(),
+            spawned_by_tab_id: agent.spawned_by_tab_id.clone(),
             model: agent.model.clone(),
             planned_model: agent.planned_model.clone(),
             reasoning_effort: agent.reasoning_effort.clone(),
@@ -225,7 +225,7 @@ impl ServiceContext {
 
     /// Validate a user-requested spawn target so the sync (socket-RPC) and async
     /// (HTTP) spawn entry points agree. Returns `Ok(true)` when the id routes to
-    /// the ChatBackend pane path (a spawnable shell), `Ok(false)` for an ordinary
+    /// the ChatBackend tab path (a spawnable shell), `Ok(false)` for an ordinary
     /// agent provider, and a clean `Err` for a registered-but-not-spawnable
     /// chatBackend (e.g. the NPC backend) or an unknown id.
     pub(crate) fn classify_spawn_target_for_params(
@@ -329,7 +329,7 @@ mod tests {
 
     #[test]
     fn worker_launch_has_no_manager_bootstrap() {
-        let spec = SpawnPaneSpec::from_agent_params(SpawnAgentParams {
+        let spec = SpawnTabSpec::from_agent_params(SpawnAgentParams {
             agent: Some("worker-provider".into()),
             role: Some("Worker".into()),
             task: Some("worker task fixture".into()),

@@ -3,9 +3,9 @@ import type {
   MultiplexerState,
   Workspace,
   Tab,
-  Pane,
+  Tab,
   Notification,
-  PaneStatus,
+  TabStatus,
   BootStage,
 } from "../../lib/types";
 import {
@@ -16,24 +16,24 @@ import {
 
 export type Action =
   | { type: "SET_STATE"; state: MultiplexerState }
-  | { type: "ADD_WORKSPACE"; workspace: Workspace; pane: Pane }
+  | { type: "ADD_WORKSPACE"; workspace: Workspace; tab: Tab }
   | { type: "SET_ACTIVE_WORKSPACE"; id: string }
   | { type: "CLOSE_WORKSPACE"; id: string }
   | { type: "RENAME_WORKSPACE"; id: string; name: string }
   | { type: "MOVE_TAB"; tabId: string; fromWorkspaceId: string; toWorkspaceId: string }
   | { type: "REORDER_TABS"; orderedTabIds: string[] }
   | { type: "REORDER_WORKSPACES"; orderedWorkspaceIds: string[] }
-  | { type: "ADD_TAB"; workspaceId: string; tab: Tab; pane: Pane }
-  | { type: "CLOSE_TAB"; workspaceId: string; tabId: string; removedPaneIds: string[] }
+  | { type: "ADD_TAB"; workspaceId: string; tab: Tab; tab: Tab }
+  | { type: "CLOSE_TAB"; workspaceId: string; tabId: string; removedTabIds: string[] }
   | { type: "SET_ACTIVE_TAB"; workspaceId: string; tabId: string }
   | {
-      type: "CLOSE_PANE";
+      type: "CLOSE_TAB";
       workspaceId: string;
       tabId: string;
-      paneId: string;
+      tabId: string;
     }
-  | { type: "SET_FOCUSED_PANE"; paneId: string }
-  | { type: "SET_PANE_PTY"; paneId: string; ptyId: string }
+  | { type: "SET_FOCUSED_TAB"; tabId: string }
+  | { type: "SET_TAB_PTY"; tabId: string; ptyId: string }
   | { type: "ADD_NOTIFICATION"; notification: Notification }
   | { type: "HYDRATE_NOTIFICATIONS"; notifications: Notification[] }
   | { type: "UPSERT_TOAST"; toast: Notification }
@@ -42,36 +42,36 @@ export type Action =
   | { type: "DELETE_NOTIFICATION"; id: string }
   | { type: "CLEAR_NOTIFICATIONS" }
   | { type: "DISMISS_TOAST"; id: string }
-  | { type: "SET_PANE_TITLE"; paneId: string; title: string; level?: TitleLevel }
-  | { type: "SET_AGENT_TYPE"; paneId: string; agentType: string | null }
-  | { type: "UPDATE_PANE_STATUS"; paneId: string; status: PaneStatus }
-  | { type: "UPDATE_BOOT_STAGE"; paneId: string; stage: BootStage; reason?: string | null }
-  | { type: "REMOVE_PENDING_CLOSE"; paneIds: string[] }
+  | { type: "SET_TAB_TITLE"; tabId: string; title: string; level?: TitleLevel }
+  | { type: "SET_AGENT_TYPE"; tabId: string; agentType: string | null }
+  | { type: "UPDATE_TAB_STATUS"; tabId: string; status: TabStatus }
+  | { type: "UPDATE_BOOT_STAGE"; tabId: string; stage: BootStage; reason?: string | null }
+  | { type: "REMOVE_PENDING_CLOSE"; tabIds: string[] }
   | { type: "RESET_PEER_CONTEXT" }
   | { type: "RESET_GENERATION" };
 
 /**
- * Merge a fresh `pane_statuses` snapshot into the known map, then drop the
- * synthetic "Waiting" the backend derives from a pane's `pending_prompt` once
+ * Merge a fresh `tab_statuses` snapshot into the known map, then drop the
+ * synthetic "Waiting" the backend derives from a tab's `pending_prompt` once
  * that prompt is gone and the fresh snapshot doesn't re-affirm any status for
- * the pane. Plain merging alone leaves "Waiting" stuck forever for a pane
+ * the tab. Plain merging alone leaves "Waiting" stuck forever for a tab
  * with no attached PTY (nothing for `snapshot_with_status` to report once
  * `pending_prompt` clears, so the key is simply absent from every future
- * snapshot) — e.g. a hook-driven attention prompt on a pane that hasn't
+ * snapshot) — e.g. a hook-driven attention prompt on a tab that hasn't
  * opened a real terminal yet. Any OTHER status (real Idle/Working/Dead, or a
  * re-affirmed "Waiting" from a genuine PTY-detected permission prompt) is
  * left untouched since the fresh snapshot explicitly carries it.
  */
-function reconcilePaneStatuses(
-  prev: Record<string, PaneStatus>,
-  incoming: Record<string, PaneStatus> | undefined,
-  panes: Record<string, Pane>,
-): Record<string, PaneStatus> {
+function reconcileTabStatuses(
+  prev: Record<string, TabStatus>,
+  incoming: Record<string, TabStatus> | undefined,
+  tabs: Record<string, Tab>,
+): Record<string, TabStatus> {
   const merged = incoming ? { ...prev, ...incoming } : { ...prev };
   for (const id of Object.keys(merged)) {
     if (
       merged[id] === "Waiting" &&
-      !panes[id]?.pending_prompt &&
+      !tabs[id]?.pending_prompt &&
       !incoming?.[id]
     ) {
       delete merged[id];
@@ -80,10 +80,10 @@ function reconcilePaneStatuses(
   return merged;
 }
 
-function addPendingCloses(current: string[], paneIds: string[]): string[] {
-  if (paneIds.length === 0) return current;
+function addPendingCloses(current: string[], tabIds: string[]): string[] {
+  if (tabIds.length === 0) return current;
   const next = new Set(current);
-  for (const id of paneIds) next.add(id);
+  for (const id of tabIds) next.add(id);
   return next.size === current.length ? current : [...next];
 }
 
@@ -93,11 +93,11 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       return {
         ...state,
         workspaces: [],
-        panes: {},
+        tabs: {},
         teams: [],
         active_workspace_id: null,
-        focused_pane_id: null,
-        paneStatuses: {},
+        focused_tab_id: null,
+        tabStatuses: {},
         activeTabIds: {},
         generation: -1,
         pendingCloses: [],
@@ -111,34 +111,34 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       // This snapshot is accepted. Apply optimistic-close tombstones now, so a
       // tombstone clears only against a snapshot the generation guard accepted.
       const stillPending: string[] = [];
-      const maskedPaneIds = new Set<string>();
-      for (const paneId of state.pendingCloses) {
+      const maskedTabIds = new Set<string>();
+      for (const tabId of state.pendingCloses) {
         const present =
-          Boolean(action.state.panes[paneId]) ||
-          action.state.workspaces.some((w) => w.tabs.some((t) => t.pane_id === paneId));
+          Boolean(action.state.tabs[tabId]) ||
+          action.state.workspaces.some((w) => w.tabs.some((t) => t.tab_id === tabId));
         if (present) {
-          stillPending.push(paneId);
-          maskedPaneIds.add(paneId);
+          stillPending.push(tabId);
+          maskedTabIds.add(tabId);
         }
       }
-      const sourcePanes = maskedPaneIds.size
+      const sourceTabs = maskedTabIds.size
         ? Object.fromEntries(
-            Object.entries(action.state.panes).filter(([id]) => !maskedPaneIds.has(id)),
+            Object.entries(action.state.tabs).filter(([id]) => !maskedTabIds.has(id)),
           )
-        : action.state.panes;
-      const sourceWorkspaces = maskedPaneIds.size
+        : action.state.tabs;
+      const sourceWorkspaces = maskedTabIds.size
         ? action.state.workspaces.map((w) => ({
             ...w,
-            tabs: w.tabs.filter((t) => !maskedPaneIds.has(t.pane_id)),
+            tabs: w.tabs.filter((t) => !maskedTabIds.has(t.tab_id)),
           }))
         : action.state.workspaces;
-      // Backend is authoritative; one pane per tab means no split ratio.
-      const mergedPanes = { ...sourcePanes };
-      const mergedWorkspaces = reconcileBackendWorkspaceTabs(sourceWorkspaces, mergedPanes);
-      for (const [id, backendPane] of Object.entries(mergedPanes)) {
-        const existing = state.panes[id];
-        const agentType = existing?.agent_type || backendPane.agent_type;
-        const backendLevel = backendPane.title_level || TitleLevel.Default;
+      // Backend is authoritative; one tab per tab means no split ratio.
+      const mergedTabs = { ...sourceTabs };
+      const mergedWorkspaces = reconcileBackendWorkspaceTabs(sourceWorkspaces, mergedTabs);
+      for (const [id, backendTab] of Object.entries(mergedTabs)) {
+        const existing = state.tabs[id];
+        const agentType = existing?.agent_type || backendTab.agent_type;
+        const backendLevel = backendTab.title_level || TitleLevel.Default;
         const frontendLevel = existing?.title_level || TitleLevel.Default;
         const highestLevel = highestTitleLevel(backendLevel, frontendLevel);
         const keepFrontendTitle =
@@ -146,12 +146,12 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
           existing.title_pending_local === true &&
           highestLevel === frontendLevel &&
           frontendLevel !== TitleLevel.Auto;
-        const title = keepFrontendTitle ? existing.title : backendPane.title;
+        const title = keepFrontendTitle ? existing.title : backendTab.title;
         // Backend has caught up once its title matches what we're keeping;
         // otherwise the local rename is still in flight.
-        const title_pending_local = keepFrontendTitle && backendPane.title !== existing.title;
-        mergedPanes[id] = {
-          ...backendPane,
+        const title_pending_local = keepFrontendTitle && backendTab.title !== existing.title;
+        mergedTabs[id] = {
+          ...backendTab,
           title_level: highestLevel as TitleLevel,
           title,
           title_pending_local,
@@ -159,14 +159,14 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         };
       }
       const newToasts: Notification[] = [];
-      for (const [id, pane] of Object.entries(mergedPanes)) {
-        const oldPane = state.panes[id];
-        if (pane.pending_prompt && !oldPane?.pending_prompt) {
+      for (const [id, tab] of Object.entries(mergedTabs)) {
+        const oldTab = state.tabs[id];
+        if (tab.pending_prompt && !oldTab?.pending_prompt) {
           newToasts.push({
             id: `prompt-${id}-${Date.now()}`,
-            pane_id: id,
+            tab_id: id,
             workspace_id: null,
-            title: pane.title || "Agent",
+            title: tab.title || "Agent",
             body: "Needs your attention",
             level: "Warning" as const,
             read: false,
@@ -179,30 +179,30 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       for (const w of mergedWorkspaces) {
         if (w.active_tab_id) activeTabIds[w.id] = w.active_tab_id;
       }
-      // Preserve prior focus only while its pane still exists.
-      const incomingFocus = action.state.focused_pane_id;
-      const focused_pane_id =
-        incomingFocus && mergedPanes[incomingFocus]
+      // Preserve prior focus only while its tab still exists.
+      const incomingFocus = action.state.focused_tab_id;
+      const focused_tab_id =
+        incomingFocus && mergedTabs[incomingFocus]
           ? incomingFocus
-          : state.focused_pane_id && mergedPanes[state.focused_pane_id]
-            ? state.focused_pane_id
+          : state.focused_tab_id && mergedTabs[state.focused_tab_id]
+            ? state.focused_tab_id
             : null;
       return {
         ...state,
         workspaces: mergedWorkspaces,
-        panes: mergedPanes,
+        tabs: mergedTabs,
         teams: action.state.teams ?? [],
-        focused_pane_id,
+        focused_tab_id,
         active_workspace_id: action.state.active_workspace_id,
         toasts: [...state.toasts, ...newToasts],
         activeTabIds,
         // Prefer the authoritative recently closed list when it is present.
         recently_closed: action.state.recently_closed ?? state.recently_closed,
         // Keep newer live status events when a snapshot omits them.
-        paneStatuses: reconcilePaneStatuses(
-          state.paneStatuses,
-          action.state.pane_statuses,
-          mergedPanes,
+        tabStatuses: reconcileTabStatuses(
+          state.tabStatuses,
+          action.state.tab_statuses,
+          mergedTabs,
         ),
         generation:
           typeof incomingGen === "number" ? incomingGen : state.generation,
@@ -214,7 +214,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       return {
         ...state,
         workspaces: [...state.workspaces, action.workspace],
-        panes: { ...state.panes, [action.pane.id]: action.pane },
+        tabs: { ...state.tabs, [action.tab.id]: action.tab },
         active_workspace_id: action.workspace.id,
       };
     }
@@ -224,24 +224,24 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
 
     case "CLOSE_WORKSPACE": {
       const ws = state.workspaces.find((w) => w.id === action.id);
-      const removedPaneIds = ws ? ws.tabs.map((t) => t.pane_id) : [];
-      const newPanes = { ...state.panes };
-      const newStatuses = { ...state.paneStatuses };
-      for (const pid of removedPaneIds) {
-        delete newPanes[pid];
+      const removedTabIds = ws ? ws.tabs.map((t) => t.tab_id) : [];
+      const newTabs = { ...state.tabs };
+      const newStatuses = { ...state.tabStatuses };
+      for (const pid of removedTabIds) {
+        delete newTabs[pid];
         delete newStatuses[pid];
       }
       const remaining = state.workspaces.filter((w) => w.id !== action.id);
       const newActiveTabIds = { ...state.activeTabIds };
       delete newActiveTabIds[action.id];
-      // keep focused_pane_id untouched; close_workspace emits fallback focus separately.
+      // keep focused_tab_id untouched; close_workspace emits fallback focus separately.
       return {
         ...state,
         workspaces: remaining,
-        panes: newPanes,
-        paneStatuses: newStatuses,
+        tabs: newTabs,
+        tabStatuses: newStatuses,
         activeTabIds: newActiveTabIds,
-        pendingCloses: addPendingCloses(state.pendingCloses, removedPaneIds),
+        pendingCloses: addPendingCloses(state.pendingCloses, removedTabIds),
         active_workspace_id:
           state.active_workspace_id === action.id
             ? (remaining[0]?.id ?? null)
@@ -338,27 +338,27 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
             ? { ...ws, tabs: [...ws.tabs, action.tab], active_tab_id: action.tab.id }
             : ws,
         ),
-        panes: { ...state.panes, [action.pane.id]: action.pane },
+        tabs: { ...state.tabs, [action.tab.id]: action.tab },
         activeTabIds: { ...state.activeTabIds, [action.workspaceId]: action.tab.id },
       };
     }
 
     case "CLOSE_TAB": {
-      const newPanes = { ...state.panes };
-      const newStatuses = { ...state.paneStatuses };
-      const removedPaneIds = new Set(action.removedPaneIds);
-      for (const pid of action.removedPaneIds) {
-        delete newPanes[pid];
+      const newTabs = { ...state.tabs };
+      const newStatuses = { ...state.tabStatuses };
+      const removedTabIds = new Set(action.removedTabIds);
+      for (const pid of action.removedTabIds) {
+        delete newTabs[pid];
         delete newStatuses[pid];
       }
       const newActiveTabIds = { ...state.activeTabIds };
-      // focused_pane_id intentionally untouched — see CLOSE_WORKSPACE comment.
+      // focused_tab_id intentionally untouched — see CLOSE_WORKSPACE comment.
       return {
         ...state,
         workspaces: state.workspaces.map((ws) => {
           if (ws.id !== action.workspaceId) return ws;
           const removedTabIds = new Set(
-            ws.tabs.filter((t) => t.id === action.tabId || removedPaneIds.has(t.pane_id)).map((t) => t.id),
+            ws.tabs.filter((t) => t.id === action.tabId || removedTabIds.has(t.tab_id)).map((t) => t.id),
           );
           const remaining = ws.tabs.filter((t) => !removedTabIds.has(t.id));
           const currentActive = newActiveTabIds[action.workspaceId];
@@ -379,10 +379,10 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
                 : ws.active_tab_id,
           };
         }),
-        panes: newPanes,
-        paneStatuses: newStatuses,
+        tabs: newTabs,
+        tabStatuses: newStatuses,
         activeTabIds: newActiveTabIds,
-        pendingCloses: addPendingCloses(state.pendingCloses, action.removedPaneIds),
+        pendingCloses: addPendingCloses(state.pendingCloses, action.removedTabIds),
       };
     }
 
@@ -392,12 +392,12 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         activeTabIds: { ...state.activeTabIds, [action.workspaceId]: action.tabId },
       };
 
-    case "CLOSE_PANE": {
-      const newPanes = { ...state.panes };
-      delete newPanes[action.paneId];
-      const newStatuses = { ...state.paneStatuses };
-      delete newStatuses[action.paneId];
-      // keep focused_pane_id untouched (see CLOSE_WORKSPACE). One pane per tab.
+    case "CLOSE_TAB": {
+      const newTabs = { ...state.tabs };
+      delete newTabs[action.tabId];
+      const newStatuses = { ...state.tabStatuses };
+      delete newStatuses[action.tabId];
+      // keep focused_tab_id untouched (see CLOSE_WORKSPACE). One tab per tab.
       return {
         ...state,
         workspaces: state.workspaces.map((ws) => {
@@ -407,51 +407,51 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
             tabs: ws.tabs.filter((tab) => tab.id !== action.tabId),
           };
         }),
-        panes: newPanes,
-        paneStatuses: newStatuses,
-        pendingCloses: addPendingCloses(state.pendingCloses, [action.paneId]),
+        tabs: newTabs,
+        tabStatuses: newStatuses,
+        pendingCloses: addPendingCloses(state.pendingCloses, [action.tabId]),
       };
     }
 
     case "REMOVE_PENDING_CLOSE": {
-      if (action.paneIds.length === 0) return state;
-      const remove = new Set(action.paneIds);
+      if (action.tabIds.length === 0) return state;
+      const remove = new Set(action.tabIds);
       const next = state.pendingCloses.filter((id) => !remove.has(id));
       return next.length === state.pendingCloses.length
         ? state
         : { ...state, pendingCloses: next };
     }
 
-    case "SET_FOCUSED_PANE":
-      // Ignore focus updates for unknown panes while state merge is in flight.
-      if (action.paneId && !state.panes[action.paneId]) return state;
-      return { ...state, focused_pane_id: action.paneId };
+    case "SET_FOCUSED_TAB":
+      // Ignore focus updates for unknown tabs while state merge is in flight.
+      if (action.tabId && !state.tabs[action.tabId]) return state;
+      return { ...state, focused_tab_id: action.tabId };
 
-    case "SET_PANE_PTY": {
-      const pane = state.panes[action.paneId];
-      if (!pane) return state;
+    case "SET_TAB_PTY": {
+      const tab = state.tabs[action.tabId];
+      if (!tab) return state;
       return {
         ...state,
-        panes: {
-          ...state.panes,
-          [action.paneId]: { ...pane, pty_id: action.ptyId },
+        tabs: {
+          ...state.tabs,
+          [action.tabId]: { ...tab, pty_id: action.ptyId },
         },
       };
     }
 
-    case "SET_PANE_TITLE": {
-      const pane = state.panes[action.paneId];
-      if (!pane) return state;
+    case "SET_TAB_TITLE": {
+      const tab = state.tabs[action.tabId];
+      if (!tab) return state;
       const levels = [TitleLevel.Default, TitleLevel.Auto, TitleLevel.Agent, TitleLevel.User];
       const newLevel = action.level || TitleLevel.Auto;
-      const curLevel = pane.title_level || TitleLevel.Default;
+      const curLevel = tab.title_level || TitleLevel.Default;
       if (levels.indexOf(newLevel) < levels.indexOf(curLevel)) return state;
       return {
         ...state,
-        panes: {
-          ...state.panes,
-          [action.paneId]: {
-            ...pane,
+        tabs: {
+          ...state.tabs,
+          [action.tabId]: {
+            ...tab,
             title: action.title,
             title_level: newLevel,
             title_pending_local: true,
@@ -519,35 +519,35 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       };
 
     case "SET_AGENT_TYPE": {
-      const agentPane = state.panes[action.paneId];
-      if (!agentPane) return state;
+      const agentTab = state.tabs[action.tabId];
+      if (!agentTab) return state;
       return {
         ...state,
-        panes: {
-          ...state.panes,
-          [action.paneId]: { ...agentPane, agent_type: action.agentType },
+        tabs: {
+          ...state.tabs,
+          [action.tabId]: { ...agentTab, agent_type: action.agentType },
         },
       };
     }
 
-    case "UPDATE_PANE_STATUS":
+    case "UPDATE_TAB_STATUS":
       return {
         ...state,
-        paneStatuses: {
-          ...state.paneStatuses,
-          [action.paneId]: action.status,
+        tabStatuses: {
+          ...state.tabStatuses,
+          [action.tabId]: action.status,
         },
       };
 
     case "UPDATE_BOOT_STAGE": {
-      const pane = state.panes[action.paneId];
-      if (!pane) return state;
+      const tab = state.tabs[action.tabId];
+      if (!tab) return state;
       return {
         ...state,
-        panes: {
-          ...state.panes,
-          [action.paneId]: {
-            ...pane,
+        tabs: {
+          ...state.tabs,
+          [action.tabId]: {
+            ...tab,
             boot_stage: action.stage,
             boot_failure_reason: action.stage === "spawn_failed" ? (action.reason ?? null) : null,
           },

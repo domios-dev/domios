@@ -21,7 +21,7 @@ export function mountInboundReportCardHarness(host: HTMLElement): Root {
             type: "user",
             content: CURIE_PARTIAL_REPORT,
             fromLabel: "Curie",
-            fromPane: "02d1339c",
+            fromTab: "02d1339c",
             inboundKind: "report",
           }}
         />
@@ -33,7 +33,7 @@ export function mountInboundReportCardHarness(host: HTMLElement): Root {
             type: "user",
             content: CURIE_PARTIAL_REPORT,
             fromLabel: "Curie",
-            fromPane: "02d1339c",
+            fromTab: "02d1339c",
             fromMesh: "blackstar",
             inboundKind: "report",
           }}

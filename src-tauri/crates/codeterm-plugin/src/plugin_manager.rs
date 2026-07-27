@@ -25,7 +25,7 @@ pub struct PluginCapabilities {
     #[serde(default)]
     pub tools: Vec<String>,
     #[serde(default)]
-    pub pane_types: Vec<String>,
+    pub tab_types: Vec<String>,
     #[serde(default)]
     pub agent_providers: Vec<String>,
     #[serde(default)]
@@ -445,7 +445,7 @@ mod tests {
         let mgr = PluginManager::new();
         let m_all = manifest("all", PluginTier::Native);
         let mut m_filtered = manifest("filtered", PluginTier::Native);
-        m_filtered.capabilities.hooks = vec!["pane-title-pinned".into()];
+        m_filtered.capabilities.hooks = vec!["tab-title-pinned".into()];
         mgr.register(m_all);
         mgr.register(m_filtered);
 
@@ -467,7 +467,7 @@ mod tests {
         mgr.activate("filtered").unwrap();
 
         mgr.dispatch_event_type("mux-state-changed");
-        mgr.dispatch_event_type("pane-title-pinned");
+        mgr.dispatch_event_type("tab-title-pinned");
 
         assert_eq!(all_events.load(Ordering::SeqCst), 2);
         assert_eq!(filtered_events.load(Ordering::SeqCst), 1);

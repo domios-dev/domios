@@ -47,7 +47,7 @@ async function seedRealPlanAndOpenBoard(
   const created = await api.post<CreatePlanResponse>("/plans", {
     title: "Reconnecting Banner Synthetic Plan",
     project_path: projectPath,
-    owner: { pane_id: "reconnecting-orchestrator", session_id: null, title: "Reconnecting Orchestrator" },
+    owner: { tab_id: "reconnecting-orchestrator", session_id: null, title: "Reconnecting Orchestrator" },
     kinds: "progress:#38bdf8",
   });
   const section = await api.post<{ section_id: string }>(`/plans/${created.plan_id}/sections`, {

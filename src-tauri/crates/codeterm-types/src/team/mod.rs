@@ -14,8 +14,8 @@ pub enum TeamLifecycle {
     Archived,
 }
 
-/// A Team groups the panes of one multi-agent effort. Membership is the data
-/// relation `pane.team_id` + role — there is no separate membership table. Bound
+/// A Team groups the tabs of one multi-agent effort. Membership is the data
+/// relation `tab.team_id` + role — there is no separate membership table. Bound
 /// 1:1 to a plan (Phase 3); minted at the spawn edge (Phase 2).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Team {

@@ -3,7 +3,7 @@
 
 // ── Shared context ──
 
-export interface PaneContext {
+export interface TabContext {
   cwd?: string | null;
 }
 
@@ -221,10 +221,10 @@ export interface NormalizedChatMessage {
   /** Monotonic source-order ordinal (host-stamped); stable transcript-sort tiebreaker. */
   seq?: number;
   fromLabel?: string;
-  fromPane?: string;
+  fromTab?: string;
   fromModel?: string;
   fromMesh?: string;
-  inboundKind?: "pane" | "report" | "reminder" | "mesh" | "telegram";
+  inboundKind?: "tab" | "report" | "reminder" | "mesh" | "telegram";
   /** Provider-neutral canonical tool metadata, available on any chat transport. */
   toolKind?: ToolEventKind;
   toolSummary?: string;
@@ -284,7 +284,7 @@ export type WatcherVerdictStatus = "ok" | "attention" | "stalled";
 
 export interface WatcherAction {
   kind: "nudge" | "notify" | "report";
-  pane?: string;
+  tab?: string;
   message: string;
 }
 
@@ -296,7 +296,7 @@ export interface WatcherVerdict {
 }
 
 export interface ChatBackendOpenSessionCtx {
-  paneId: string;
+  tabId: string;
   config: unknown;
   systemPrompt?: string;
   preset?: string;
@@ -338,7 +338,7 @@ export interface ChatBackend {
 export interface ChatPreprocessor {
   match: "text";
   chatPreprocess(ctx: {
-    paneId: string;
+    tabId: string;
     cwd: string | null;
     provider: string | null;
     text: string;
@@ -367,10 +367,10 @@ export interface PluginModule
     Partial<ChatBackend>,
     Partial<ChatPreprocessor>,
     Partial<AgentCommandHandler> {
-  statusBubble?(ctx: PaneContext): StatusBubble | null;
-  renderGlance?(ctx: PaneContext): GlanceView;
+  statusBubble?(ctx: TabContext): StatusBubble | null;
+  renderGlance?(ctx: TabContext): GlanceView;
   viewCall?: ViewCall;
-  glanceAction?(action: string, ctx: PaneContext): unknown;
+  glanceAction?(action: string, ctx: TabContext): unknown;
   // Test-only exports and other plugin-private members are allowed.
   [key: string]: unknown;
 }

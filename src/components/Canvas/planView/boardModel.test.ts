@@ -28,8 +28,8 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-const PANES = {
-  "pane-worker": { id: "pane-worker", title: "Puccini", agent_session_id: null } as never,
+const TABS = {
+  "tab-worker": { id: "tab-worker", title: "Puccini", agent_session_id: null } as never,
 };
 
 function task(overrides: Partial<Task>): Task {
@@ -86,7 +86,7 @@ test("deriveBoardPlanSummary tracks done/total and focus", () => {
       task({ id: "t3", status: TaskStatus.Cancelled }),
     ],
   };
-  const summary = deriveBoardPlanSummary(plan, PANES);
+  const summary = deriveBoardPlanSummary(plan, TABS);
   assert(summary.done === 1 && summary.total === 2, "progress excludes cancelled");
   assert(summary.focus?.includes("task:task-dante"), "focus");
   assert(summary.goalVector === "Ship auth safely", "goal");
@@ -105,17 +105,17 @@ test("resolveDisplayPlanningState omits chip on complete plans with drafting def
 test("deriveBoardPlanSummary labels remote planner when Tab is not local", () => {
   const plan: Plan = {
     ...FIXTURE_PLAN,
-    planner: { kind: "pane", pane_id: "planner-prod-99", title: null },
+    planner: { kind: "tab", tab_id: "planner-prod-99", title: null },
   };
-  const summary = deriveBoardPlanSummary(plan, PANES);
+  const summary = deriveBoardPlanSummary(plan, TABS);
   assert(summary.plannerLabel === "planner- (remote)", "remote short id label");
-  assert(summary.plannerPaneId === "planner-prod-99", "Tab id preserved");
+  assert(summary.plannerTabId === "planner-prod-99", "Tab id preserved");
 });
 
 test("deriveBoardPlanSummary prefers bound planner title over remote fallback", () => {
   const plan: Plan = {
     ...FIXTURE_PLAN,
-    planner: { kind: "pane", pane_id: "planner-prod-99", title: "Prod planner" },
+    planner: { kind: "tab", tab_id: "planner-prod-99", title: "Prod planner" },
   };
   const summary = deriveBoardPlanSummary(plan, {});
   assert(summary.plannerLabel === "Prod planner", "ref title when Tab absent");
@@ -130,7 +130,7 @@ test("groupTasksIntoColumns folds paused tasks into pending column", () => {
       task({ id: "pending", status: TaskStatus.Pending }),
     ],
   };
-  const { columns } = groupTasksIntoColumns(plan, PANES);
+  const { columns } = groupTasksIntoColumns(plan, TABS);
   assert(!columns.map((c) => String(c.key)).includes("paused"), "no separate paused column");
   const pending = columns.find((c) => c.key === "pending")!;
   assert(pending.cards.length === 3, `pending count=${pending.cards.length}`);
@@ -144,11 +144,11 @@ test("groupTasksIntoColumns places tasks by status in planned execution order", 
       task({ id: "later", status: TaskStatus.Pending, created_at: 20, status_changed_at: 1 }),
       task({ id: "first", status: TaskStatus.Pending, created_at: 10, status_changed_at: 99 }),
       task({ id: "unsequenced", status: TaskStatus.Pending, created_at: undefined }),
-      task({ id: "live", status: TaskStatus.InProgress, assigned_pane_id: "pane-worker" }),
+      task({ id: "live", status: TaskStatus.InProgress, assigned_tab_id: "tab-worker" }),
       task({ id: "gone", status: TaskStatus.Cancelled }),
     ],
   };
-  const { columns, cancelledCount } = groupTasksIntoColumns(plan, PANES);
+  const { columns, cancelledCount } = groupTasksIntoColumns(plan, TABS);
   assert(cancelledCount === 1, "cancelled tracked");
   const pending = columns.find((c) => c.key === "pending")!;
   assert(
@@ -173,7 +173,7 @@ test("groupTasksIntoColumns keeps canonical status separate from milestone note"
         milestones: [
           {
             id: "ms-qa",
-            from: { pane_id: "pane-worker", session_id: null, title: "Puccini" },
+            from: { tab_id: "tab-worker", session_id: null, title: "Puccini" },
             kind: "decision",
             text: "Queued behind auth lane",
             ts: 2_000,
@@ -186,7 +186,7 @@ test("groupTasksIntoColumns keeps canonical status separate from milestone note"
       }),
     ],
   };
-  const card = groupTasksIntoColumns(plan, PANES).columns.find((c) => c.key === "in_review")!.cards[0]!;
+  const card = groupTasksIntoColumns(plan, TABS).columns.find((c) => c.key === "in_review")!.cards[0]!;
   assert(card.task.status === TaskStatus.InReview, "status field unchanged");
   assert(card.latestNote === "Queued behind auth lane", "latest note from milestone text");
 });
@@ -198,14 +198,14 @@ test("done task shows historical executor without active presence label", () => 
       task({
         id: "done",
         status: TaskStatus.Done,
-        assigned_pane_id: "pane-worker",
+        assigned_tab_id: "tab-worker",
         taken_by_role: "backend-dev",
         model: "gpt-5.5",
-        lane: { pane_id: "pane-worker", branch: "feat/history" },
+        lane: { tab_id: "tab-worker", branch: "feat/history" },
       }),
     ],
   };
-  const card = groupTasksIntoColumns(plan, PANES).columns.find((c) => c.key === "done")!.cards[0]!;
+  const card = groupTasksIntoColumns(plan, TABS).columns.find((c) => c.key === "done")!.cards[0]!;
   assert(card.presenceLabel === null, "done task has no active presence");
   assert(card.historicalExecutorSummary?.includes("Puccini"), "historical summary uses Tab title");
   assert(card.historicalExecutorSummary?.includes("backend-dev"), "historical summary includes role");
@@ -217,7 +217,7 @@ test("buildBoardPlanModel wires spec + columns", () => {
     primary_spec_id: "spec-abc",
     tasks: [task({ id: "t-blocked", status: TaskStatus.Blocked, name: "Blocked lane" })],
   };
-  const model = buildBoardPlanModel(plan, PANES, [FIXTURE_SECTION]);
+  const model = buildBoardPlanModel(plan, TABS, [FIXTURE_SECTION]);
   assert(model.spec?.specId === "spec-abc", "spec summary");
   assert(model.columns.find((c) => c.key === "blocked")?.cards[0]?.task.name === "Blocked lane", "blocked card");
 });
@@ -249,12 +249,12 @@ test("task card carries branch-only lane and latest note, never lane worktree pa
       task({
         id: "t-lane",
         status: TaskStatus.InProgress,
-        assigned_pane_id: "pane-worker",
+        assigned_tab_id: "tab-worker",
         lane: { branch: "lane/board-v2", worktree_path: "/tmp/codeterm-board-v2", workspace_name: "board-v2" },
         milestones: [
           {
             id: "ms",
-            from: { pane_id: "pane-worker", session_id: null, title: "Puccini" },
+            from: { tab_id: "tab-worker", session_id: null, title: "Puccini" },
             kind: "status_update",
             text: "secret worktree /tmp/codeterm-board-v2 detail",
             ts: 1_000,
@@ -267,7 +267,7 @@ test("task card carries branch-only lane and latest note, never lane worktree pa
       }),
     ],
   };
-  const card = groupTasksIntoColumns(plan, PANES, 61_000).columns.find((c) => c.key === "in_progress")!.cards[0]!;
+  const card = groupTasksIntoColumns(plan, TABS, 61_000).columns.find((c) => c.key === "in_progress")!.cards[0]!;
   assert(card.branch === "lane/board-v2", "branch chip is branch-only");
   const { task: _t, ...derived } = card;
   const serialized = JSON.stringify(derived);
@@ -328,8 +328,8 @@ test("selectDefaultPlanId prefers a plan with real work over a fresh junk 0-task
 const WS_CURRENT = "ws-current";
 const WS_OTHER = "ws-other";
 const scopeWorkspaces: Workspace[] = [
-  { id: WS_CURRENT, name: WS_CURRENT, tabs: [{ id: "t-cur", pane_id: "orch-current" }], active_tab_id: null, cwd: null },
-  { id: WS_OTHER, name: WS_OTHER, tabs: [{ id: "t-oth", pane_id: "orch-other" }], active_tab_id: null, cwd: null },
+  { id: WS_CURRENT, name: WS_CURRENT, tabs: [{ id: "t-cur", tab_id: "orch-current" }], active_tab_id: null, cwd: null },
+  { id: WS_OTHER, name: WS_OTHER, tabs: [{ id: "t-oth", tab_id: "orch-other" }], active_tab_id: null, cwd: null },
 ];
 const scopeTeams: Team[] = [
   { id: "team-other", lifecycle: "active", created_at: 0, workspace_id: WS_OTHER },
@@ -340,7 +340,7 @@ test("selectDefaultPlanId returns null when no plan is bound to the workspace (n
     ...FIXTURE_PLAN,
     id: "p-foreign",
     team_id: "team-other",
-    owner: { pane_id: "orch-other", session_id: null, title: "Other" },
+    owner: { tab_id: "orch-other", session_id: null, title: "Other" },
     tasks: [{ ...FIXTURE_TASK, id: "t1", status: TaskStatus.InProgress }],
   };
   const ordered = orderPlansByActivity([foreign]);
@@ -357,7 +357,7 @@ test("selectDefaultPlanId still honors explicit planId under workspace scope", (
     ...FIXTURE_PLAN,
     id: "p-foreign",
     team_id: "team-other",
-    owner: { pane_id: "orch-other", session_id: null, title: "Other" },
+    owner: { tab_id: "orch-other", session_id: null, title: "Other" },
     tasks: [],
   };
   const ordered = orderPlansByActivity([foreign]);

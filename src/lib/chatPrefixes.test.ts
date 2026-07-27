@@ -30,7 +30,7 @@ console.log("detectChatPrefix");
   const r = detectChatPrefix("-=-codeterm:tab label=Main tab=12e450b4 model=Sonnet-=-Hey");
   eq(
     r?.origin,
-    { kind: "pane", title: "Main", paneIdShort: "12e450b4", model: "Sonnet" },
+    { kind: "tab", title: "Main", tabIdShort: "12e450b4", model: "Sonnet" },
     "ct Tab marker parses",
   );
   eq(r?.body, "Hey", "ct Tab marker body stripped");
@@ -47,17 +47,17 @@ console.log("detectChatPrefix");
   const r = detectChatPrefix("-=-codeterm:tab label=CURRENT%20TAB tab=915fae8e model=codex-=-Hey self");
   eq(
     r?.origin,
-    { kind: "pane", title: "CURRENT TAB", paneIdShort: "915fae8e", model: "codex" },
-    "ct current-pane marker keeps Tab id for render-time name resolution",
+    { kind: "tab", title: "CURRENT TAB", tabIdShort: "915fae8e", model: "codex" },
+    "ct current-tab marker keeps Tab id for render-time name resolution",
   );
-  eq(r?.body, "Hey self", "ct current-pane marker body stripped");
+  eq(r?.body, "Hey self", "ct current-tab marker body stripped");
 }
 
 {
   const r = detectChatPrefix("-=-codeterm:report from=Worker tab=abc12345 model=gpt-5.5-=-done");
   eq(
     r?.origin,
-    { kind: "pane", title: "Worker", paneIdShort: "abc12345", model: "gpt-5.5", report: true },
+    { kind: "tab", title: "Worker", tabIdShort: "abc12345", model: "gpt-5.5", report: true },
     "ct report marker parses",
   );
   eq(r?.body, "done", "ct report marker body stripped");
@@ -84,7 +84,7 @@ console.log("detectChatPrefix");
     {
       kind: "reminder",
       whoSet: "Main",
-      pane: "e8a0ac20",
+      tab: "e8a0ac20",
       model: "opus",
       setAt: "1000",
       fireAt: "2000",
@@ -108,23 +108,23 @@ console.log("detectChatPrefix");
   );
   assert(r?.length === 2, "splits adjacent ct Tab markers");
   eq(r?.[0].body, "Hey", "adjacent ct split first body");
-  eq(r?.[1].origin, { kind: "pane", title: "Claude", paneIdShort: "e8a0ac20" }, "adjacent ct split second origin");
+  eq(r?.[1].origin, { kind: "tab", title: "Claude", tabIdShort: "e8a0ac20" }, "adjacent ct split second origin");
 }
 
 {
   const r1 = detectChatPrefix("just a normal message");
   eq(r1, null, "returns null for plain user messages");
 
-  const r2 = detectChatPrefix("[codeterm from Edison pane=e8a0ac20 model opus] old");
+  const r2 = detectChatPrefix("[codeterm from Edison tab=e8a0ac20 model opus] old");
   eq(r2, null, "old square codeterm prefix is plain text");
 
-  const r3 = detectChatPrefix("from Main pane=12e450b4 model Sonnet old");
+  const r3 = detectChatPrefix("from Main tab=12e450b4 model Sonnet old");
   eq(r3, null, "old bare Tab prefix is plain text");
 
   const r4 = detectChatPrefix("[Telegram: 12345] old");
   eq(r4, null, "old bridge prefix is plain text");
 
-  const r5 = detectChatPrefix("[[ct:pane label=Main pane=12e450b4]]old");
+  const r5 = detectChatPrefix("[[ct:tab label=Main tab=12e450b4]]old");
   eq(r5, null, "old square ct marker is plain text");
 }
 

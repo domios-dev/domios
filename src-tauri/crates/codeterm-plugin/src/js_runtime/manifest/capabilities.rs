@@ -62,12 +62,12 @@ impl Serialize for ChatPreprocessorCap {
 
 /// `chatBackend` capability declaration. Authors write either a bare bool
 /// (`true` — the backend is registered but NOT user-spawnable, e.g. a
-/// host-/agent-driven NPC pane) or an object carrying capability flags. Both
+/// host-/agent-driven NPC tab) or an object carrying capability flags. Both
 /// forms mean "enabled"; the object also carries whether a user may spawn it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChatBackendCap {
     pub enabled: bool,
-    /// Whether a user may open this backend as a pane from the new-session
+    /// Whether a user may open this backend as a tab from the new-session
     /// picker. Bare `chatBackend: true` ⇒ false (backend-only); the object form
     /// `{ spawnable: true }` opts in.
     pub spawnable: bool,
@@ -178,7 +178,7 @@ pub struct Capabilities {
     /// Renders a read-only "glance" popover (ViewNode tree) when pinned.
     #[serde(default)]
     pub glance_view: bool,
-    /// Contributes a status pill into the pane-footer bubble row.
+    /// Contributes a status pill into the tab-footer bubble row.
     #[serde(default)]
     pub status_bubble: bool,
     /// Ships a full HTML/JS/CSS UI (`ui/index.html`), rendered in a sandboxed
@@ -187,8 +187,8 @@ pub struct Capabilities {
     /// exports. Behind a loud install grant.
     #[serde(default)]
     pub view: bool,
-    /// Drives a non-PTY pane as a full conversational backend (e.g. LM Studio).
-    /// The pane routes send/read through the plugin instead of a terminal.
+    /// Drives a non-PTY tab as a full conversational backend (e.g. LM Studio).
+    /// The tab routes send/read through the plugin instead of a terminal.
     /// Bool (registered, backend-only) or `{ spawnable }` object (user-openable).
     #[serde(default)]
     pub chat_backend: ChatBackendCap,

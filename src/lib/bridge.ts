@@ -19,7 +19,7 @@ import {
 import { IS_WEB, WebApiError, webFetch, webJson } from "./webApi";
 import { webListen } from "./webEvents";
 import { WEB_SPECIAL, WEB_UNSUPPORTED } from "./bridgeWebUnsupported";
-import { setClientPaneUiMode } from "./clientPaneUiMode";
+import { setClientTabUiMode } from "./clientTabUiMode";
 import { checkBuildMismatch } from "./buildMismatchGuard";
 import type { TabInfo } from "./types";
 
@@ -72,14 +72,14 @@ export function isPtyDeadError(err: unknown): boolean {
 const enc = encodeURIComponent;
 const s = (args: Args, key: string): string => String(args[key] ?? "");
 
-async function webJsonWithCallerPane<T>(
+async function webJsonWithCallerTab<T>(
   method: string,
   path: string,
   body: unknown,
   callerTabId: unknown,
 ): Promise<T> {
   const headers = new Headers();
-  if (callerTabId) headers.set("X-CodeTerm-Pane-Id", String(callerTabId));
+  if (callerTabId) headers.set("X-CodeTerm-Tab-Id", String(callerTabId));
   const response = await webFetch(path, {
     method,
     headers,
@@ -114,7 +114,7 @@ const HTTP_MAP: Record<string, Mapper> = {
       sessionId: s(a, "sessionId"),
       model: s(a, "model"),
     }),
-  open_chat_backend_pane: (a) =>
+  open_chat_backend_tab: (a) =>
     webJson("POST", "/api/plugins/chatbackend/open", {
       pluginId: s(a, "pluginId"),
       workspaceId: a.workspaceId,
@@ -130,12 +130,12 @@ const HTTP_MAP: Record<string, Mapper> = {
       title: a.title,
       body: a.body,
       level: a.level,
-      pane_id: a.paneId,
+      tab_id: a.tabId,
       workspace_id: a.workspaceId,
     }),
   notify_agent_input_request: (a) =>
     webJson("POST", "/api/notifications/input-request", {
-      pane_id: a.paneId,
+      tab_id: a.tabId,
       session_id: a.sessionId,
     }),
   mark_notification_read: (a) =>
@@ -168,21 +168,21 @@ const HTTP_MAP: Record<string, Mapper> = {
       name: a.name,
     }),
   mux_rename_team: (a) =>
-    webJsonWithCallerPane(
+    webJsonWithCallerTab(
       "POST",
       `/api/teams/${enc(s(a, "teamId"))}/rename`,
       { name: a.name },
       a.callerTabId,
     ),
   mux_close_team: (a) =>
-    webJsonWithCallerPane(
+    webJsonWithCallerTab(
       "POST",
       `/api/teams/${enc(s(a, "teamId"))}/close`,
       {},
       a.callerTabId,
     ),
   mux_add_team_member: (a) =>
-    webJsonWithCallerPane(
+    webJsonWithCallerTab(
       "POST",
       `/api/teams/${enc(s(a, "teamId"))}/members`,
       {
@@ -215,14 +215,14 @@ const HTTP_MAP: Record<string, Mapper> = {
       "POST",
       `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/${enc(s(a, "tabId"))}/close`,
     ),
-  mux_reopen_closed_pane: (a) =>
+  mux_reopen_closed_tab: (a) =>
     webJson("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/reopen-closed`, {
       index: a.index,
     }),
   mux_reopen_closed_group: (a) =>
     webJson("POST", `/api/closed-groups/${enc(s(a, "groupId"))}/reopen`),
-  mux_restore_orphaned_pane: (a) =>
-    webJson("POST", `/api/mux/restore-orphaned`, { pane_id: s(a, "paneId") }),
+  mux_restore_orphaned_tab: (a) =>
+    webJson("POST", `/api/mux/restore-orphaned`, { tab_id: s(a, "tabId") }),
   mux_rename_tab: (a) =>
     webJson(
       "POST",
@@ -240,63 +240,63 @@ const HTTP_MAP: Record<string, Mapper> = {
       ordered_tab_ids: a.orderedTabIds,
     }),
   mux_reorder_child: (a) =>
-    webJson("POST", `/api/panes/${enc(s(a, "parentPaneId"))}/children/reorder`, {
+    webJson("POST", `/api/tabs/${enc(s(a, "parentTabId"))}/children/reorder`, {
       ordered_tab_ids: a.orderedTabIds,
     }),
   mux_reorder_workspace: (a) =>
     webJson("POST", `/api/workspaces/reorder`, {
       ordered_workspace_ids: a.orderedWorkspaceIds,
     }),
-  mux_set_focused_pane: (a) =>
-    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/focus`),
-  mux_close_pane: (a) => webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/close`),
+  mux_set_focused_tab: (a) =>
+    webJson("POST", `/api/tabs/${enc(s(a, "tabId"))}/focus`),
+  mux_close_tab: (a) => webJson("POST", `/api/tabs/${enc(s(a, "tabId"))}/close`),
   mux_respond_prompt: (a) =>
-    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/prompt/respond`, a),
-  mux_set_pane_agent_type: (a) =>
-    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/agent-type`, {
+    webJson("POST", `/api/tabs/${enc(s(a, "tabId"))}/prompt/respond`, a),
+  mux_set_tab_agent_type: (a) =>
+    webJson("POST", `/api/tabs/${enc(s(a, "tabId"))}/agent-type`, {
       agent_type: a.agentType,
     }),
-  mux_clear_pane_role: (a) =>
-    webJson("DELETE", `/api/panes/${enc(s(a, "paneId"))}/role`),
+  mux_clear_tab_role: (a) =>
+    webJson("DELETE", `/api/tabs/${enc(s(a, "tabId"))}/role`),
   mux_make_orchestrator: (a) =>
-    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/make-orchestrator`),
+    webJson("POST", `/api/tabs/${enc(s(a, "tabId"))}/make-orchestrator`),
   mux_make_planner: (a) =>
-    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/make-planner`, {
+    webJson("POST", `/api/tabs/${enc(s(a, "tabId"))}/make-planner`, {
       plan_id: s(a, "planId"),
     }),
   mux_set_chat_view: async (a) => {
-    setClientPaneUiMode(s(a, "paneId"), a.chatView ?? a.enabled ? "chat" : "terminal");
+    setClientTabUiMode(s(a, "tabId"), a.chatView ?? a.enabled ? "chat" : "terminal");
     return { ok: true };
   },
 
-  // ── panes (read + input) ── REST returns JSON envelopes; Tauri commands return bare strings — unwrap.
-  get_pane_text: async (a) => {
+  // ── tabs (read + input) ── REST returns JSON envelopes; Tauri commands return bare strings — unwrap.
+  get_tab_text: async (a) => {
     const resp = await webJson<{ text?: string }>(
       "GET",
-      `/api/panes/${enc(s(a, "paneId"))}/text?formatted=${a.formatted ? "true" : "false"}`,
+      `/api/tabs/${enc(s(a, "tabId"))}/text?formatted=${a.formatted ? "true" : "false"}`,
     );
     return resp.text ?? "";
   },
-  get_pane_output: async (a) => {
+  get_tab_output: async (a) => {
     const resp = await webJson<{ output?: string }>(
       "GET",
-      `/api/panes/${enc(s(a, "paneId"))}/output`,
+      `/api/tabs/${enc(s(a, "tabId"))}/output`,
     );
     return resp.output ?? "";
   },
   shell_command_snapshot: (a) =>
-    webJson("GET", `/api/panes/${enc(s(a, "paneId"))}/shell-commands`),
+    webJson("GET", `/api/tabs/${enc(s(a, "tabId"))}/shell-commands`),
 
   chat_start: (a) =>
-    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/chat-raw/start`, {
+    webJson("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-raw/start`, {
       subscriptionId: s(a, "subscriptionId"),
     }),
   chat_stop: (a) =>
-    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/chat-raw/stop`, {
+    webJson("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-raw/stop`, {
       subscriptionId: s(a, "subscriptionId"),
     }),
   chat_backfill: (a) =>
-    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/chat-raw/backfill`, {
+    webJson("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-raw/backfill`, {
       before_offset: a.beforeOffset,
       max_bytes: a.maxBytes,
     }),
@@ -306,15 +306,15 @@ const HTTP_MAP: Record<string, Mapper> = {
       `/api/sessions/transcript?provider=${enc(s(a, "provider"))}&cwd=${enc(s(a, "cwd"))}&session_id=${enc(s(a, "sessionId"))}`,
     ),
   chat_send_text: (a) =>
-    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/chat-send`, {
+    webJson("POST", `/api/tabs/${enc(s(a, "tabId"))}/chat-send`, {
       text: a.text,
     }),
   chat_send_status: (a) =>
-    webJson("GET", `/api/panes/${enc(s(a, "paneId"))}/chat-send`),
+    webJson("GET", `/api/tabs/${enc(s(a, "tabId"))}/chat-send`),
   delayed_send_list: (a) =>
-    webJson("GET", `/api/panes/${enc(s(a, "paneId"))}/delayed-messages`),
+    webJson("GET", `/api/tabs/${enc(s(a, "tabId"))}/delayed-messages`),
   delayed_send_create: (a) =>
-    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/delayed-messages`, {
+    webJson("POST", `/api/tabs/${enc(s(a, "tabId"))}/delayed-messages`, {
       text: a.text,
       scheduledAtMs: a.scheduledAtMs,
     }),
@@ -400,7 +400,7 @@ const HTTP_MAP: Record<string, Mapper> = {
       cols: a.cols,
       rows: a.rows,
       predicted_id: a.predictedId,
-      pane_id: a.paneId,
+      tab_id: a.tabId,
     });
     return resp.pty_id;
   },
@@ -435,7 +435,7 @@ const HTTP_MAP: Record<string, Mapper> = {
     });
   },
   claim_resize_owner: (a) =>
-    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/resize-owner`, {
+    webJson("POST", `/api/tabs/${enc(s(a, "tabId"))}/resize-owner`, {
       pty_id: a.ptyId,
       client_id: a.clientId,
       cols: a.cols,
@@ -470,10 +470,10 @@ const HTTP_MAP: Record<string, Mapper> = {
   get_remote_workers: () => webJson("GET", "/api/remote-workers"),
   save_session: () => webJson("POST", "/api/session/save"),
   restart_general_agent: () => webJson("POST", "/api/agents/general/restart"),
-  restart_general_agent_pane: (a) =>
-    webJson("POST", `/api/agents/general/${enc(s(a, "paneId") ?? s(a, "pane_id"))}/restart`),
-  restart_agent_pane: (a) =>
-    webJson("POST", `/api/panes/${enc(s(a, "paneId") ?? s(a, "pane_id"))}/agent/restart`),
+  restart_general_agent_tab: (a) =>
+    webJson("POST", `/api/agents/general/${enc(s(a, "tabId") ?? s(a, "tab_id"))}/restart`),
+  restart_agent_tab: (a) =>
+    webJson("POST", `/api/tabs/${enc(s(a, "tabId") ?? s(a, "tab_id"))}/agent/restart`),
   complete_general_agent_first_run: (a) =>
     webJson("POST", "/api/agents/general/complete-first-run", {
       provider_id: s(a, "providerId") ?? s(a, "provider_id"),
@@ -504,14 +504,14 @@ const HTTP_MAP: Record<string, Mapper> = {
     );
     return resp.path ?? "";
   },
-  install_provider_in_pane: (a) =>
+  install_provider_in_tab: (a) =>
     webJson(
       "POST",
-      `/api/agents/providers/${enc(s(a, "providerId"))}/install-in-pane`,
+      `/api/agents/providers/${enc(s(a, "providerId"))}/install-in-tab`,
     ),
   restart_app: () => webJson("POST", "/api/app/restart"),
   mux_link_pty: (a) =>
-    webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/link-pty`, {
+    webJson("POST", `/api/tabs/${enc(s(a, "tabId"))}/link-pty`, {
       pty_id: a.ptyId,
     }),
   write_pty_launch_command: (a) =>
@@ -559,7 +559,7 @@ const CANNED: Record<string, unknown> = {
   get_shell_diagnostics: {},
   get_themes_dir: "",
   get_config_path: "",
-  mux_update_pane_cwd: null,
+  mux_update_tab_cwd: null,
   open_folder: null,
   // Closing a browser tab / unmounting a web terminal must never kill the shared server-side PTY other clients may be attached to.
   kill_pty: null,
@@ -683,23 +683,23 @@ function isCommandNotFoundError(err: unknown): boolean {
   return /command.*not found/i.test(msg);
 }
 
-/** Reopen a recently-closed pane in a workspace. `index` selects the ring
+/** Reopen a recently-closed tab in a workspace. `index` selects the ring
  *  entry (0 = most recent, the default). Works in both Tauri and web modes. */
-export function reopenClosedPane(workspaceId: string, index = 0): Promise<TabInfo> {
-  return invoke<TabInfo>("mux_reopen_closed_pane", { workspaceId, index });
+export function reopenClosedTab(workspaceId: string, index = 0): Promise<TabInfo> {
+  return invoke<TabInfo>("mux_reopen_closed_tab", { workspaceId, index });
 }
 
 /** Reopen a whole closed group (single / cascade subtree / workspace) by id.
- *  Recreates the workspace if needed and restores every pane, relinking the
+ *  Recreates the workspace if needed and restores every tab, relinking the
  *  orchestration hierarchy. Returns workspace + tab ids of the activated tab. */
-export function reopenClosedGroup(groupId: string): Promise<{ workspace_id: string; tab_id: string; pane_id: string }> {
+export function reopenClosedGroup(groupId: string): Promise<{ workspace_id: string; tab_id: string; tab_id: string }> {
   return invoke("mux_reopen_closed_group", { groupId });
 }
 
-/** Reopen a pane from the orphaned ring (its workspace was deleted). Recreates
+/** Reopen a tab from the orphaned ring (its workspace was deleted). Recreates
  *  the workspace automatically. Returns workspace + tab ids. */
-export function restoreOrphanedPane(paneId: string): Promise<{ workspace_id: string; tab_id: string; pane_id: string }> {
-  return invoke("mux_restore_orphaned_pane", { paneId });
+export function restoreOrphanedTab(tabId: string): Promise<{ workspace_id: string; tab_id: string; tab_id: string }> {
+  return invoke("mux_restore_orphaned_tab", { tabId });
 }
 
 export async function listen<T>(

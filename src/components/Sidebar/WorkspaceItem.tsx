@@ -8,7 +8,7 @@ import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { FolderIcon, ShieldCheckIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import { SidebarDisclosure } from "./SidebarDisclosure";
-import type { PaneStatus, Workspace } from "../../lib/types";
+import type { TabStatus, Workspace } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 
 interface WorkspaceItemProps {
@@ -23,7 +23,7 @@ interface WorkspaceItemProps {
   onNewSession: () => void;
   onNewAgent: (agentId: string) => void;
   canClose: boolean;
-  status: PaneStatus | null;
+  status: TabStatus | null;
   showDisclosure?: boolean;
   detailHeader?: boolean;
   touchMode?: boolean;

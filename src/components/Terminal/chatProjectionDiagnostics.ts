@@ -44,16 +44,16 @@ export interface ProjectionCounters {
    *  set verbatim — an observed-empty snapshot resets `snapshotTail` to null rather
    *  than retaining a stale tail. Not a projection stage: kept off
    *  `firstStalledEdge`; used to attribute what a reactivation recovered to versus
-   *  the pane's prior committed tail and coordinates. */
+   *  the tab's prior committed tail and coordinates. */
   snapshotTail: string | null;
   snapshotCursor: string | null;
   snapshotOffset: number | null;
 }
 
-/** Compact history retained when a pane is forgotten, so a later reactivation can
- *  be causally compared to where the torn-down pane actually left off. This is
- *  archival history, not live pane state: it is never returned by `snapshot`,
- *  never counted by `trackedPaneCount`, and never walked by `firstStalledEdge`. */
+/** Compact history retained when a tab is forgotten, so a later reactivation can
+ *  be causally compared to where the torn-down tab actually left off. This is
+ *  archival history, not live tab state: it is never returned by `snapshot`,
+ *  never counted by `trackedTabCount`, and never walked by `firstStalledEdge`. */
 export interface PriorActivation {
   committedTail: string | null;
   paintedTail: string | null;
@@ -62,8 +62,8 @@ export interface PriorActivation {
   snapshotOffset: number | null;
 }
 
-/** How a reactivated snapshot lines up with the forgotten pane's prior committed
- *  tail and backend coordinates. `no_prior`: pane was never torn down. `pending`:
+/** How a reactivated snapshot lines up with the forgotten tab's prior committed
+ *  tail and backend coordinates. `no_prior`: tab was never torn down. `pending`:
  *  torn down, no reactivation snapshot OBSERVED yet (distinct from observed-empty).
  *  `recovered`: tail id and length ≥ prior AND cursor/offset do not contradict it.
  *  `regressed`: observed-empty after a non-empty prior, OR same id but shorter, OR a
@@ -80,7 +80,7 @@ export interface StalledEdge {
   observedTail: string | null;
 }
 
-const DEFAULT_MAX_TRACKED_PANES = 64;
+const DEFAULT_MAX_TRACKED_TABS = 64;
 
 function freshCounters(): ProjectionCounters {
   return {
@@ -123,7 +123,7 @@ function classifyRecovery(recovered: string, target: string): ActivationRecovery
 
 /** Backend coordinates that contradict a signature that otherwise looks recovered.
  *  Offset is orderable: a re-attach reporting a strictly earlier offset than the
- *  pane's prior attach means the backend rewound. Cursor is opaque, so only its
+ *  tab's prior attach means the backend rewound. Cursor is opaque, so only its
  *  equality is meaningful: the SAME cursor as the prior attach paired with a
  *  DIFFERENT snapshot tail means the backend replays a different transcript under
  *  an identical position marker. Either is a recovery the tail signature can miss. */
@@ -147,25 +147,25 @@ interface StageTail {
   tail: string | null;
 }
 
-/** Bounded (LRU) collection of monotonic per-pane projection counters plus the
+/** Bounded (LRU) collection of monotonic per-tab projection counters plus the
  *  read seam that identifies the first stalled edge. Counts only ever increase;
  *  tails track the newest message id seen at each stage so a legitimately
  *  collapsed paint (many commits → one visible update) is not mistaken for a
  *  stall — only a tail divergence is. */
 export class ChatProjectionMonitor {
-  private readonly panes = new Map<string, ProjectionCounters>();
+  private readonly tabs = new Map<string, ProjectionCounters>();
   private readonly priors = new Map<string, PriorActivation>();
-  private readonly maxTrackedPanes: number;
+  private readonly maxTrackedTabs: number;
 
-  constructor(maxTrackedPanes = DEFAULT_MAX_TRACKED_PANES) {
-    this.maxTrackedPanes = Math.max(1, maxTrackedPanes);
+  constructor(maxTrackedTabs = DEFAULT_MAX_TRACKED_TABS) {
+    this.maxTrackedTabs = Math.max(1, maxTrackedTabs);
   }
 
   /** A `ChatSessionDiagnosticSink` — pass straight to `useChatSession`. */
   readonly sink: ChatSessionDiagnosticSink = (event) => this.ingest(event);
 
   ingest(event: ChatSessionDiagnosticEvent): void {
-    const counters = this.touch(event.paneId);
+    const counters = this.touch(event.tabId);
     switch (event.edge) {
       case "event_arrival":
         counters.arrived += 1;
@@ -200,59 +200,59 @@ export class ChatProjectionMonitor {
    *  message's signature (`<id>#<contentLength>`; null when the visible
    *  projection is empty). Passive observation only — records what was painted,
    *  never influences what renders. */
-  recordPaint(paneId: string, tailSignature: string | null): void {
-    const counters = this.touch(paneId);
+  recordPaint(tabId: string, tailSignature: string | null): void {
+    const counters = this.touch(tabId);
     counters.painted += 1;
     counters.paintedTail = tailSignature;
   }
 
-  /** Drop a pane's LIVE record on unmount so tracking follows component lifecycle
-   *  and torn-down panes do not linger until the LRU cap evicts them. Before
+  /** Drop a tab's LIVE record on unmount so tracking follows component lifecycle
+   *  and torn-down tabs do not linger until the LRU cap evicts them. Before
    *  dropping it, archive a compact prior-activation summary (tails + recovery
-   *  coordinates) so a later reactivation of the same pane can be causally
-   *  compared. The archive is not live state: `snapshot`, `trackedPaneCount`, and
+   *  coordinates) so a later reactivation of the same tab can be causally
+   *  compared. The archive is not live state: `snapshot`, `trackedTabCount`, and
    *  `firstStalledEdge` all ignore it. */
-  forget(paneId: string): void {
-    const counters = this.panes.get(paneId);
+  forget(tabId: string): void {
+    const counters = this.tabs.get(tabId);
     if (counters) {
-      this.priors.delete(paneId);
-      this.priors.set(paneId, {
+      this.priors.delete(tabId);
+      this.priors.set(tabId, {
         committedTail: counters.committedTail,
         paintedTail: counters.paintedTail,
         snapshotTail: counters.snapshotTail,
         snapshotCursor: counters.snapshotCursor,
         snapshotOffset: counters.snapshotOffset,
       });
-      while (this.priors.size > this.maxTrackedPanes) {
+      while (this.priors.size > this.maxTrackedTabs) {
         const oldest = this.priors.keys().next().value;
         if (oldest === undefined) break;
         this.priors.delete(oldest);
       }
     }
-    this.panes.delete(paneId);
+    this.tabs.delete(tabId);
   }
 
-  snapshot(paneId: string): ProjectionCounters | null {
-    const counters = this.panes.get(paneId);
+  snapshot(tabId: string): ProjectionCounters | null {
+    const counters = this.tabs.get(tabId);
     return counters ? { ...counters } : null;
   }
 
-  /** Archived history from the last time this pane was forgotten (deactivated /
+  /** Archived history from the last time this tab was forgotten (deactivated /
    *  switched to Terminal), or null if it was never torn down. Distinct from
    *  `snapshot`, which only sees the live record. */
-  priorActivation(paneId: string): PriorActivation | null {
-    const prior = this.priors.get(paneId);
+  priorActivation(tabId: string): PriorActivation | null {
+    const prior = this.priors.get(tabId);
     return prior ? { ...prior } : null;
   }
 
-  /** Attribute how the pane's current (reactivated) snapshot recovered relative to
+  /** Attribute how the tab's current (reactivated) snapshot recovered relative to
    *  the tail it had committed before it was forgotten. Compares the live
    *  `snapshot_arrival` signature against the archived prior committed tail so an
    *  away→back / Terminal→Chat reconcile is causally observable. */
-  activationRecovery(paneId: string): ActivationRecovery {
-    const prior = this.priors.get(paneId);
+  activationRecovery(tabId: string): ActivationRecovery {
+    const prior = this.priors.get(tabId);
     if (!prior) return "no_prior";
-    const live = this.panes.get(paneId);
+    const live = this.tabs.get(tabId);
     // snapshot NOT observed yet — distinct from an observed-but-empty snapshot.
     if (!live || live.snapshots === 0) return "pending";
     const target = prior.committedTail;
@@ -269,8 +269,8 @@ export class ChatProjectionMonitor {
    *  causal order. Returns null when the whole chain has caught up (or nothing
    *  has arrived yet). The frozen-tail signature surfaces here as a
    *  `committed_state → painted_tail` edge. */
-  firstStalledEdge(paneId: string): StalledEdge | null {
-    const counters = this.panes.get(paneId);
+  firstStalledEdge(tabId: string): StalledEdge | null {
+    const counters = this.tabs.get(tabId);
     if (!counters) return null;
     const stages: StageTail[] = [
       { stage: "backend_emit", tail: counters.arrivalTail },
@@ -294,24 +294,24 @@ export class ChatProjectionMonitor {
     return null;
   }
 
-  trackedPaneCount(): number {
-    return this.panes.size;
+  trackedTabCount(): number {
+    return this.tabs.size;
   }
 
-  private touch(paneId: string): ProjectionCounters {
-    const existing = this.panes.get(paneId);
+  private touch(tabId: string): ProjectionCounters {
+    const existing = this.tabs.get(tabId);
     if (existing) {
       // Move to most-recently-used end of the insertion-ordered map.
-      this.panes.delete(paneId);
-      this.panes.set(paneId, existing);
+      this.tabs.delete(tabId);
+      this.tabs.set(tabId, existing);
       return existing;
     }
     const counters = freshCounters();
-    this.panes.set(paneId, counters);
-    while (this.panes.size > this.maxTrackedPanes) {
-      const oldest = this.panes.keys().next().value;
+    this.tabs.set(tabId, counters);
+    while (this.tabs.size > this.maxTrackedTabs) {
+      const oldest = this.tabs.keys().next().value;
       if (oldest === undefined) break;
-      this.panes.delete(oldest);
+      this.tabs.delete(oldest);
     }
     return counters;
   }
@@ -340,7 +340,7 @@ export function scheduleAfterPaint(record: () => void): () => void {
   };
 }
 
-/** Process-wide monitor fed by production panes. Tests construct isolated
+/** Process-wide monitor fed by production tabs. Tests construct isolated
  *  `ChatProjectionMonitor` instances instead of sharing this one. */
 export const chatProjectionMonitor = new ChatProjectionMonitor();
 

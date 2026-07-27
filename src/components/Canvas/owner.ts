@@ -6,8 +6,8 @@ const UNOWNED_SENTINELS = new Set(["", "unknown", "unowned", "none", "null", "__
 export function ownerName(owner: OrchestratorRef | null | undefined): string | null {
   if (!owner) return null;
   const title = owner.title?.trim() ?? "";
-  const pane = owner.pane_id?.trim() ?? "";
+  const tab = owner.tab_id?.trim() ?? "";
   const v = (UNOWNED_SENTINELS.has(title.toLowerCase()) ? "" : title) ||
-    (UNOWNED_SENTINELS.has(pane.toLowerCase()) ? "" : pane);
+    (UNOWNED_SENTINELS.has(tab.toLowerCase()) ? "" : tab);
   return v.length > 0 ? v : null;
 }

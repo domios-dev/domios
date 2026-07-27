@@ -38,7 +38,7 @@ export function InboundActivityCard({ message, testId, title, summary, chips = [
       variant="codeterm"
       visualOverride={visual}
       metric={chips.length ? <span className="flex min-w-0 gap-1">{chips.map((chip) => <span key={chip} className="max-w-40 truncate rounded border px-1.5 py-0.5 text-[10px]" style={{ borderColor: "var(--ct-border)", color: "var(--ct-muted-fg)" }}>{chip}</span>)}</span> : undefined}
-      action={onFocusTab ? <ToolCardActionButton label="Show Tab" onClick={onFocusTab} testId="inbound-show-pane" /> : undefined}
+      action={onFocusTab ? <ToolCardActionButton label="Show Tab" onClick={onFocusTab} testId="inbound-show-tab" /> : undefined}
     >
       {children}
     </ToolCardFrame>

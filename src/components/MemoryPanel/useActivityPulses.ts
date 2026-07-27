@@ -15,7 +15,7 @@ export type MemOp =
 
 export interface MemActivitySource {
   kind: "cli" | "rest" | "dream" | "worker";
-  pane_id: string | null;
+  tab_id: string | null;
   worker_id: string | null;
   agent_provider: string | null;
 }
@@ -41,7 +41,7 @@ const POLL_INTERVAL_MS = 1000;
 const PALETTE_HUES = [0, 36, 72, 108, 144, 180, 216, 252, 288, 324];
 
 export function colorForSource(source: MemActivitySource): string {
-  const key = source.worker_id || source.pane_id || source.kind || "unknown";
+  const key = source.worker_id || source.tab_id || source.kind || "unknown";
   const hue = PALETTE_HUES[hashString(key) % PALETTE_HUES.length];
   return `hsl(${hue}, 70%, 55%)`;
 }

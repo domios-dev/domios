@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { Pane } from "../../../lib/types";
+import type { Tab } from "../../../lib/types";
 import { flattenSections } from "../sectionRows";
 import {
   useCanvasViewport,
@@ -25,10 +25,10 @@ import { MC_PAN_IGNORE } from "./missionControlViewport";
 export interface MissionControlLiveViewProps {
   plans: Plan[];
   activePlanId: string;
-  panes?: Record<string, Pane>;
+  tabs?: Record<string, Tab>;
   onTaskClick?: (taskId: string) => void;
   onOpenPlan?: (planId: string) => void;
-  onAgentClick?: (paneId: string) => void;
+  onAgentClick?: (tabId: string) => void;
 }
 
 interface RiverEntry {
@@ -40,7 +40,7 @@ interface RiverEntry {
 export function MissionControlLiveView({
   plans,
   activePlanId,
-  panes = {},
+  tabs = {},
   onTaskClick,
   onOpenPlan,
   onAgentClick,
@@ -49,16 +49,16 @@ export function MissionControlLiveView({
   const scaleLabelRef = useRef<HTMLSpanElement | null>(null);
   const lodRef = useRef<MissionControlLodLevel>("close");
   const plansRef = useRef(plans);
-  const panesRef = useRef(panes);
+  const tabsRef = useRef(tabs);
   plansRef.current = plans;
-  panesRef.current = panes;
+  tabsRef.current = tabs;
   const [size, setSize] = useState({ width: 800, height: 600 });
   const [lod, setLod] = useState<MissionControlLodLevel>("close");
   const reducedMotion = useReducedMotion();
 
   const inputRevision = useMemo(
-    () => plans.map((p) => missionControlInputRevision(p, panes)).join("|"),
-    [plans, panes],
+    () => plans.map((p) => missionControlInputRevision(p, tabs)).join("|"),
+    [plans, tabs],
   );
 
   const orderedPlans = useMemo(() => {
@@ -76,17 +76,17 @@ export function MissionControlLiveView({
         if (t) sectionTitle.set(s.id, t);
       }
       bumpMissionControlChurn("builds");
-      const model = buildMissionControl(plan, panesRef.current);
+      const model = buildMissionControl(plan, tabsRef.current);
       bumpMissionControlChurn("snapshots");
       const snapshot = modelToSnapshot({
         plan,
         model,
-        panes: panesRef.current,
+        tabs: tabsRef.current,
         sectionTitleOf: (id) => sectionTitle.get(id) ?? null,
       });
       return {
         planId: plan.id,
-        model: buildFlowRiver(plan, model, snapshot, panesRef.current),
+        model: buildFlowRiver(plan, model, snapshot, tabsRef.current),
         compact: i > 0,
       };
     });
@@ -94,7 +94,7 @@ export function MissionControlLiveView({
 
   const activeWork = useMemo(() => {
     bumpMissionControlChurn("activeWork");
-    return selectActiveWork(plansRef.current, panesRef.current);
+    return selectActiveWork(plansRef.current, tabsRef.current);
   }, [inputRevision]);
 
   const taskPlanId = useMemo(() => {

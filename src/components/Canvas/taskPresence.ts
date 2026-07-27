@@ -1,6 +1,6 @@
-import type { Pane } from "../../lib/types";
+import type { Tab } from "../../lib/types";
 import { presenceColor, type PresenceAgent } from "./presence/identity";
-import { isActiveTaskStatus } from "./paneCurrentTask";
+import { isActiveTaskStatus } from "./tabCurrentTask";
 import type { AgentRef, Milestone, Plan, Task } from "./types";
 
 export interface TaskPresenceLatest {
@@ -9,11 +9,11 @@ export interface TaskPresenceLatest {
 }
 
 export interface TaskPresence {
-  paneId: string;
+  tabId: string;
   label: string;
   focus: string | null;
   latest: TaskPresenceLatest | null;
-  /** WHO is executing: lead (the lane's pane) first, then peers. Color-keyed. */
+  /** WHO is executing: lead (the lane's tab) first, then peers. Color-keyed. */
   agents: PresenceAgent[];
   /** WHERE the work lives — surfaced glanceably, not buried in the W3 lane block. */
   branch: string | null;
@@ -26,17 +26,17 @@ function clean(value?: string | null): string | null {
   return text && !EMPTY_LABELS.has(text.toLowerCase()) ? text : null;
 }
 
-function shortPaneId(paneId: string): string {
-  return paneId.length > 12 ? paneId.slice(0, 8) : paneId;
+function shortTabId(tabId: string): string {
+  return tabId.length > 12 ? tabId.slice(0, 8) : tabId;
 }
 
-function paneLabel(paneId: string, panes: Record<string, Pane>): string {
-  return clean(panes[paneId]?.title) ?? shortPaneId(paneId);
+function tabLabel(tabId: string, tabs: Record<string, Tab>): string {
+  return clean(tabs[tabId]?.title) ?? shortTabId(tabId);
 }
 
-function agentLabel(agent: AgentRef, panes: Record<string, Pane>): string | null {
-  const paneId = clean(agent.pane_id);
-  return clean(agent.title) ?? (paneId ? paneLabel(paneId, panes) : null);
+function agentLabel(agent: AgentRef, tabs: Record<string, Tab>): string | null {
+  const tabId = clean(agent.tab_id);
+  return clean(agent.title) ?? (tabId ? tabLabel(tabId, tabs) : null);
 }
 
 function latestMilestone(task: Task): Milestone | null {
@@ -47,21 +47,21 @@ function kindLabel(kind: string): string {
   return kind.replace(/[_-]+/g, " ");
 }
 
-function focusLaneTokens(task: Task, paneId: string): string[] {
+function focusLaneTokens(task: Task, tabId: string): string[] {
   return [
     task.id,
     `task:${task.id}`,
     task.handle,
-    paneId,
-    `pane:${paneId}`,
+    tabId,
+    `tab:${tabId}`,
   ].flatMap((v) => {
     const text = clean(v);
     return text ? [text.toLowerCase()] : [];
   });
 }
 
-function focusApplies(plan: Plan, task: Task, paneId: string, focus: string): boolean {
-  const laneTokens = focusLaneTokens(task, paneId);
+function focusApplies(plan: Plan, task: Task, tabId: string, focus: string): boolean {
+  const laneTokens = focusLaneTokens(task, tabId);
   const laneSet = new Set(laneTokens);
   if ((plan.heartbeat?.active_lanes ?? []).some((lane) => {
     const text = clean(lane)?.toLowerCase();
@@ -77,13 +77,13 @@ function focusApplies(plan: Plan, task: Task, paneId: string, focus: string): bo
   return identityNeedles.some((needle) => haystack.includes(needle));
 }
 
-function buildAgents(task: Task, paneId: string, panes: Record<string, Pane>): PresenceAgent[] {
+function buildAgents(task: Task, tabId: string, tabs: Record<string, Tab>): PresenceAgent[] {
   const role = clean(task.taken_by_role);
   const lead: PresenceAgent = {
-    id: paneId,
-    label: clean(panes[paneId]?.title) ?? role ?? shortPaneId(paneId),
+    id: tabId,
+    label: clean(tabs[tabId]?.title) ?? role ?? shortTabId(tabId),
     role,
-    color: presenceColor(paneId),
+    color: presenceColor(tabId),
   };
   const peers = (clean(task.peer)?.split(",") ?? [])
     .map((p) => p.trim())
@@ -95,29 +95,29 @@ function buildAgents(task: Task, paneId: string, panes: Record<string, Pane>): P
 export function buildTaskPresence(
   plan: Plan,
   task: Task,
-  panes: Record<string, Pane>,
-  exclusivePaneTasks?: ReadonlyMap<string, string>,
+  tabs: Record<string, Tab>,
+  exclusiveTabTasks?: ReadonlyMap<string, string>,
 ): TaskPresence | null {
   if (!isActiveTaskStatus(task.status)) return null;
-  const paneId = clean(task.assigned_pane_id) ?? clean(task.lane?.pane_id);
-  if (!paneId) return null;
-  if (!panes[paneId]) return null;
-  const winnerId = exclusivePaneTasks?.get(paneId);
+  const tabId = clean(task.assigned_tab_id) ?? clean(task.lane?.tab_id);
+  if (!tabId) return null;
+  if (!tabs[tabId]) return null;
+  const winnerId = exclusiveTabTasks?.get(tabId);
   if (winnerId && winnerId !== task.id) return null;
 
   const focus = clean(plan.heartbeat?.current_focus);
   const latest = latestMilestone(task);
   return {
-    paneId,
-    label: paneLabel(paneId, panes),
-    focus: focus && focusApplies(plan, task, paneId, focus) ? focus : null,
+    tabId,
+    label: tabLabel(tabId, tabs),
+    focus: focus && focusApplies(plan, task, tabId, focus) ? focus : null,
     latest: latest
       ? {
-        authorLabel: agentLabel(latest.from, panes) ?? paneLabel(paneId, panes),
+        authorLabel: agentLabel(latest.from, tabs) ?? tabLabel(tabId, tabs),
         kindLabel: kindLabel(latest.kind),
       }
       : null,
-    agents: buildAgents(task, paneId, panes),
+    agents: buildAgents(task, tabId, tabs),
     branch: clean(task.lane?.branch),
   };
 }

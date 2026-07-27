@@ -19,23 +19,23 @@ impl ServiceContext {
         let drift = reconcile.drift;
         let cleanup_debt = reconcile.cleanup_debt;
 
-        let mut live_panes: HashSet<String> = HashSet::new();
+        let mut live_tabs: HashSet<String> = HashSet::new();
         let mut probed: HashSet<String> = HashSet::new();
         for task in &plan.tasks {
-            if let Some(pane) = task.assigned_pane_id.as_deref() {
-                if probed.insert(pane.to_string()) && self.pane_probe(pane).live_agent {
-                    live_panes.insert(pane.to_string());
+            if let Some(tab) = task.assigned_tab_id.as_deref() {
+                if probed.insert(tab.to_string()) && self.tab_probe(tab).live_agent {
+                    live_tabs.insert(tab.to_string());
                 }
             }
         }
-        if let Some(PlannerRef::Pane { pane_id, .. }) = &plan.planner {
-            if probed.insert(pane_id.clone()) && self.pane_probe(pane_id).live_agent {
-                live_panes.insert(pane_id.clone());
+        if let Some(PlannerRef::Tab { tab_id, .. }) = &plan.planner {
+            if probed.insert(tab_id.clone()) && self.tab_probe(tab_id).live_agent {
+                live_tabs.insert(tab_id.clone());
             }
         }
-        let lanes = lane_rows::build_lane_rows(&plan, |p| self.pane_probe(p), now_ms);
-        let planner_resolution = resolve_planner_ref(&plan.planner, &plan.owner, |pane_id| {
-            self.pane_probe(pane_id)
+        let lanes = lane_rows::build_lane_rows(&plan, |p| self.tab_probe(p), now_ms);
+        let planner_resolution = resolve_planner_ref(&plan.planner, &plan.owner, |tab_id| {
+            self.tab_probe(tab_id)
         });
         Ok(build_plan_state_snapshot(
             &plan,
@@ -43,7 +43,7 @@ impl ServiceContext {
             drift,
             cleanup_debt,
             lanes,
-            &live_panes,
+            &live_tabs,
             Some(planner_resolution),
             now_ms,
         ))

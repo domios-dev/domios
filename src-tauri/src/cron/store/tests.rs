@@ -20,7 +20,7 @@ fn make_params(name: &str, ws: &str, schedule: &str) -> CronCreateParams {
         cwd: None,
         role: None,
         skill: None,
-        creator_pane_id: None,
+        creator_tab_id: None,
         enabled: None,
         max_history: None,
         oneshot: None,
@@ -39,7 +39,7 @@ fn set_run_session_persists_on_history_and_last_run() {
         started_at: 1,
         finished_at: None,
         status: CronRunStatus::Running,
-        pane_id: Some("p1".into()),
+        tab_id: Some("p1".into()),
         tab_id: None,
         session_id: None,
         cwd: None,
@@ -79,7 +79,7 @@ fn record_failure_increments_counter_and_backs_off() {
                 started_at: 0,
                 finished_at: Some(0),
                 status: CronRunStatus::Failed,
-                pane_id: None,
+                tab_id: None,
                 tab_id: None,
                 session_id: None,
                 cwd: None,
@@ -107,7 +107,7 @@ fn record_5_failures_auto_disables_job() {
                     started_at: 0,
                     finished_at: Some(0),
                     status: CronRunStatus::Failed,
-                    pane_id: None,
+                    tab_id: None,
                     tab_id: None,
                     session_id: None,
                     cwd: None,
@@ -139,7 +139,7 @@ fn success_resets_failure_counter() {
                     started_at: 0,
                     finished_at: Some(0),
                     status: CronRunStatus::Failed,
-                    pane_id: None,
+                    tab_id: None,
                     tab_id: None,
                     session_id: None,
                     cwd: None,
@@ -155,7 +155,7 @@ fn success_resets_failure_counter() {
                 started_at: 0,
                 finished_at: Some(0),
                 status: CronRunStatus::Success,
-                pane_id: None,
+                tab_id: None,
                 tab_id: None,
                 session_id: None,
                 cwd: None,
@@ -210,23 +210,23 @@ fn test_cron_crud() {
 }
 
 #[test]
-fn is_job_running_tracks_registered_panes() {
+fn is_job_running_tracks_registered_tabs() {
     let mut store = temp_store();
     let job = store
         .create(make_params("Runner", "ws-1", "0 * * * *"))
         .unwrap();
     assert!(!store.is_job_running(&job.id));
 
-    store.register_pane("pane-A", &job.id, "run-1");
+    store.register_tab("tab-A", &job.id, "run-1");
     assert!(store.is_job_running(&job.id));
 
-    store.register_pane("pane-B", &job.id, "run-2");
+    store.register_tab("tab-B", &job.id, "run-2");
     assert!(store.is_job_running(&job.id));
 
-    store.unregister_pane("pane-A");
+    store.unregister_tab("tab-A");
     assert!(store.is_job_running(&job.id));
 
-    store.unregister_pane("pane-B");
+    store.unregister_tab("tab-B");
     assert!(!store.is_job_running(&job.id));
 }
 
@@ -267,7 +267,7 @@ fn test_record_run_history() {
                     started_at: 1000 + i,
                     finished_at: Some(2000 + i),
                     status: CronRunStatus::Success,
-                    pane_id: None,
+                    tab_id: None,
                     tab_id: None,
                     session_id: None,
                     cwd: None,
@@ -327,7 +327,7 @@ fn test_oneshot_create_and_record_run() {
                 started_at: 1000,
                 finished_at: Some(2000),
                 status: CronRunStatus::Success,
-                pane_id: None,
+                tab_id: None,
                 tab_id: None,
                 session_id: None,
                 cwd: None,
@@ -557,7 +557,7 @@ fn run(run_id: &str, started_at: u64, status: CronRunStatus) -> CronRunInfo {
         started_at,
         finished_at: None,
         status,
-        pane_id: None,
+        tab_id: None,
         tab_id: None,
         session_id: None,
         cwd: None,

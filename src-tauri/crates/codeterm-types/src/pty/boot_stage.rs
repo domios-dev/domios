@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
 
-/// One stage of a pane's agent-boot lifecycle.
+/// One stage of a tab's agent-boot lifecycle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BootStage {
-    /// Pane exists and is waiting for PTY materialization.
+    /// Tab exists and is waiting for PTY materialization.
     PtyStarting,
     /// PTY exists and its stream is claimed.
     PtySpawned,
@@ -24,7 +24,7 @@ pub enum BootStage {
     DeliveringInstructions,
     /// Agent booted and the initial task (if any) was delivered.
     AgentReady,
-    /// A restored pane proved its PTY is live and re-attached without a spawn.
+    /// A restored tab proved its PTY is live and re-attached without a spawn.
     PtyReattached,
     /// Boot aborted; carries a human-readable reason on the event payload.
     SpawnFailed,
@@ -62,5 +62,5 @@ impl BootStage {
 
 /// Where a boot-stage transition goes.
 pub trait BootStageSink {
-    fn record(&self, pane_id: &str, stage: BootStage, reason: Option<&str>);
+    fn record(&self, tab_id: &str, stage: BootStage, reason: Option<&str>);
 }

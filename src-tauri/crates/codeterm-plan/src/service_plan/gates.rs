@@ -17,8 +17,8 @@ fn create_gate(
     question: &str,
     context: &str,
     blocking_task_ids: &[String],
-    routed_to_pane_id: Option<String>,
-    asked_by_pane_id: Option<&str>,
+    routed_to_tab_id: Option<String>,
+    asked_by_tab_id: Option<&str>,
     now_ms: u64,
 ) -> Result<DecisionGate, PlanError> {
     if blocking_task_ids.iter().any(|task_id| {
@@ -51,7 +51,7 @@ fn create_gate(
                 task.updated_at = now_ms;
                 task.milestones.push(Milestone {
                     id: milestone_id,
-                    from: AgentRef::from_pane(asked_by_pane_id.unwrap_or("orchestrator")),
+                    from: AgentRef::from_tab(asked_by_tab_id.unwrap_or("orchestrator")),
                     kind: "decision".into(),
                     text: format!("paused: {pause_reason}"),
                     ts: now_ms,
@@ -70,8 +70,8 @@ fn create_gate(
         question: question.to_string(),
         context: context.trim().to_string(),
         blocking_task_ids: blocking_task_ids.to_vec(),
-        routed_to_pane_id,
-        asked_by_pane_id: asked_by_pane_id.map(str::to_string),
+        routed_to_tab_id,
+        asked_by_tab_id: asked_by_tab_id.map(str::to_string),
         asked_at: now_ms,
         status: GateStatus::Open,
         answer: None,
@@ -83,8 +83,8 @@ fn create_gate(
 }
 
 /// Create a decision gate, pause all `blocking_task_ids`, and return the gate.
-/// `routed_to_pane_id` is resolved by the caller via `resolve_planner_ref` before this call.
-/// Delivery to that pane is handled by `ServiceContext` after this returns.
+/// `routed_to_tab_id` is resolved by the caller via `resolve_planner_ref` before this call.
+/// Delivery to that tab is handled by `ServiceContext` after this returns.
 impl PlanStore {
     pub fn ask_gate(
         &self,
@@ -92,8 +92,8 @@ impl PlanStore {
         question: &str,
         context: &str,
         blocking_task_ids: &[String],
-        routed_to_pane_id: Option<String>,
-        asked_by_pane_id: Option<&str>,
+        routed_to_tab_id: Option<String>,
+        asked_by_tab_id: Option<&str>,
         now_ms: u64,
     ) -> Result<DecisionGate, PlanError> {
         let question = question.trim();
@@ -106,8 +106,8 @@ impl PlanStore {
                 question,
                 context,
                 blocking_task_ids,
-                routed_to_pane_id,
-                asked_by_pane_id,
+                routed_to_tab_id,
+                asked_by_tab_id,
                 now_ms,
             )
         })
@@ -119,8 +119,8 @@ impl PlanStore {
         question: &str,
         context: &str,
         blocking_task_ids: &[String],
-        routed_to_pane_id: Option<String>,
-        asked_by_pane_id: Option<&str>,
+        routed_to_tab_id: Option<String>,
+        asked_by_tab_id: Option<&str>,
         caller_session_id: Option<&str>,
         now_ms: u64,
     ) -> Result<(DecisionGate, PlannerRequest), PlanError> {
@@ -134,8 +134,8 @@ impl PlanStore {
                 question,
                 context,
                 blocking_task_ids,
-                routed_to_pane_id,
-                asked_by_pane_id,
+                routed_to_tab_id,
+                asked_by_tab_id,
                 now_ms,
             )?;
             let request = PlannerRequest {
@@ -145,7 +145,7 @@ impl PlanStore {
                     gate.id, gate.question, context, plan_id, gate.id
                 ),
                 payload_blob: None,
-                caller_pane_id: asked_by_pane_id.map(str::to_string),
+                caller_tab_id: asked_by_tab_id.map(str::to_string),
                 caller_session_id: caller_session_id.map(str::to_string),
                 state: PlannerRequestState::Queued,
                 created_at: now_ms,
@@ -154,7 +154,7 @@ impl PlanStore {
                 delivery_attempts: 0,
                 completed_at: None,
                 failed_at: None,
-                delivered_to_pane_id: None,
+                delivered_to_tab_id: None,
                 delivered_to_session_id: None,
                 delivered_with_binding_nonce: None,
             };
@@ -162,7 +162,7 @@ impl PlanStore {
             plan.planner_inbox.push(PlannerInboxEntry {
                 request_id: request.request_id.clone(),
                 phase: PlannerDeliveryPhase::PreSend,
-                pane_id: None,
+                tab_id: None,
                 session_id: None,
                 binding_nonce: None,
                 transport: None,
@@ -174,13 +174,13 @@ impl PlanStore {
     }
 
     /// Record an answer, resume blocking tasks, return the updated gate.
-    /// Nudging the asker pane is handled by `ServiceContext`.
+    /// Nudging the asker tab is handled by `ServiceContext`.
     pub fn answer_gate(
         &self,
         plan_id: &str,
         gate_id: &str,
         answer_text: &str,
-        answered_by_pane_id: Option<&str>,
+        answered_by_tab_id: Option<&str>,
         now_ms: u64,
     ) -> Result<DecisionGate, PlanError> {
         let answer_text = answer_text.trim();
@@ -198,7 +198,7 @@ impl PlanStore {
 
             gate.answer = Some(GateAnswer {
                 text: answer_text.to_string(),
-                by_pane_id: answered_by_pane_id.map(str::to_string),
+                by_tab_id: answered_by_tab_id.map(str::to_string),
                 at: now_ms,
             });
             gate.status = GateStatus::Answered;
@@ -223,7 +223,7 @@ impl PlanStore {
                         task.updated_at = now_ms;
                         task.milestones.push(Milestone {
                             id: mid,
-                            from: AgentRef::from_pane(answered_by_pane_id.unwrap_or("planner")),
+                            from: AgentRef::from_tab(answered_by_tab_id.unwrap_or("planner")),
                             kind: "decision".into(),
                             text: format!("resumed: gate {gid} answered"),
                             ts: now_ms,
@@ -374,7 +374,7 @@ mod tests {
         let mut plan = Plan::new(
             "Gate test".into(),
             dir.path().display().to_string(),
-            OrchestratorRef::from_pane("orch_pane"),
+            OrchestratorRef::from_tab("orch_tab"),
         );
         store.save(&mut plan, 1).unwrap();
         let task_ids = names
@@ -408,7 +408,7 @@ mod tests {
                 "",
                 &[t1.clone()],
                 None,
-                Some("orch_pane"),
+                Some("orch_tab"),
                 1000,
             )
             .unwrap();
@@ -447,7 +447,7 @@ mod tests {
                 "",
                 &task_ids,
                 None,
-                Some("orch_pane"),
+                Some("orch_tab"),
                 4,
             )
             .unwrap_err();
@@ -496,7 +496,7 @@ mod tests {
         let gid = gate.id.clone();
 
         let answered = store
-            .answer_gate(&pid, &gid, "Go left.", Some("planner_pane"), 2000)
+            .answer_gate(&pid, &gid, "Go left.", Some("planner_tab"), 2000)
             .unwrap();
         assert_eq!(answered.status, GateStatus::Answered);
         assert_eq!(answered.answer.as_ref().unwrap().text, "Go left.");
@@ -540,7 +540,7 @@ mod tests {
 
     #[test]
     fn gate_doctor_flags_paused_task_without_reason() {
-        let mut plan = Plan::new("T".into(), "/p".into(), OrchestratorRef::from_pane("p"));
+        let mut plan = Plan::new("T".into(), "/p".into(), OrchestratorRef::from_tab("p"));
         plan.tasks.push(crate::plan::Task {
             id: "task_x".into(),
             name: "x".into(),
@@ -576,7 +576,7 @@ mod tests {
             intent: None,
             parent_task_id: None,
             depends_on: vec![],
-            assigned_pane_id: None,
+            assigned_tab_id: None,
             lane: Default::default(),
             taken_by_role: None,
             peer: None,
@@ -600,8 +600,8 @@ mod tests {
             question: "Stale question?".into(),
             context: String::new(),
             blocking_task_ids: vec![],
-            routed_to_pane_id: None,
-            asked_by_pane_id: None,
+            routed_to_tab_id: None,
+            asked_by_tab_id: None,
             asked_at: 0,
             status: GateStatus::Open,
             answer: None,

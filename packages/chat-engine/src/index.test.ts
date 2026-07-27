@@ -131,7 +131,7 @@ function msg(role: EngineMessage["role"], content: string): EngineMessage {
     tick: 2,
     nowMs: 1_700_000_000_000,
     state,
-    observations: { panes: [] },
+    observations: { tabs: [] },
   };
   const out = assembleMachine(charter, state, input);
   eq(out.length, 2, "machine assembly returns exactly two messages");

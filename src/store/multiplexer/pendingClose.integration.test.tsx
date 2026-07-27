@@ -52,7 +52,7 @@ function assert(condition: unknown, message: string): asserts condition {
 // ── authoritative backend model ────────────────────────────────────────────
 interface BackendTab {
   id: string;
-  pane_id: string;
+  tab_id: string;
 }
 interface BackendWs {
   id: string;
@@ -60,27 +60,27 @@ interface BackendWs {
 }
 
 function makeSnapshot(workspaces: BackendWs[], gen: number) {
-  const panes: Record<string, unknown> = {};
+  const tabs: Record<string, unknown> = {};
   for (const w of workspaces) {
-    for (const t of w.tabs) panes[t.pane_id] = { id: t.pane_id, title: t.id };
+    for (const t of w.tabs) tabs[t.tab_id] = { id: t.tab_id, title: t.id };
   }
   return {
     workspaces: workspaces.map((w) => ({
       id: w.id,
       name: w.id,
-      tabs: w.tabs.map((t) => ({ id: t.id, pane_id: t.pane_id })),
+      tabs: w.tabs.map((t) => ({ id: t.id, tab_id: t.tab_id })),
       active_tab_id: w.tabs[0]?.id ?? null,
       cwd: null,
     })),
-    panes,
+    tabs,
     active_workspace_id: workspaces[0]?.id ?? null,
-    focused_pane_id: null,
+    focused_tab_id: null,
     generation: gen,
   };
 }
 
 interface MuxLike {
-  workspaces: Array<{ id: string; tabs: Array<{ id: string; pane_id: string }> }>;
+  workspaces: Array<{ id: string; tabs: Array<{ id: string; tab_id: string }> }>;
 }
 function hasTab(state: MuxLike, tabId: string): boolean {
   return state.workspaces.some((w) => w.tabs.some((t) => t.id === tabId));
@@ -189,16 +189,16 @@ async function renderHarness(
   };
 }
 
-test("failed closePane restores the tab from authoritative state", async () => {
+test("failed closeTab restores the tab from authoritative state", async () => {
   const backend: BackendWs[] = [
-    { id: "w1", tabs: [{ id: "A", pane_id: "pane-A" }, { id: "B", pane_id: "pane-B" }] },
+    { id: "w1", tabs: [{ id: "A", tab_id: "tab-A" }, { id: "B", tab_id: "tab-B" }] },
   ];
   let gen = 10;
   const invokeMock = async <T,>(cmd: string): Promise<T> => {
     if (cmd === "mux_get_state") return makeSnapshot(backend, ++gen) as T;
     if (cmd === "list_notifications") return [] as T;
-    // Backend rejects the close: the pane keeps living.
-    if (cmd === "mux_close_pane" || cmd === "mux_close_tab") throw new Error("close rejected");
+    // Backend rejects the close: the tab keeps living.
+    if (cmd === "mux_close_tab" || cmd === "mux_close_tab") throw new Error("close rejected");
     return {} as T;
   };
 
@@ -208,7 +208,7 @@ test("failed closePane restores the tab from authoritative state", async () => {
   // No mux events or timers fire in-test, so the ONLY way B returns after the
   // optimistic removal is the close-failure's own authoritative refresh.
   await h.act(async () => {
-    h.actions().closePane("pane-B");
+    h.actions().closeTab("tab-B");
     await drain(); // failed close -> restore -> authoritative refresh
   });
 
@@ -219,8 +219,8 @@ test("failed closePane restores the tab from authoritative state", async () => {
 
 test("failed closeWorkspace restores the workspace from authoritative state", async () => {
   const backend: BackendWs[] = [
-    { id: "w1", tabs: [{ id: "A", pane_id: "pane-A" }] },
-    { id: "w2", tabs: [{ id: "X", pane_id: "pane-X" }] },
+    { id: "w1", tabs: [{ id: "A", tab_id: "tab-A" }] },
+    { id: "w2", tabs: [{ id: "X", tab_id: "tab-X" }] },
   ];
   let gen = 10;
   const invokeMock = async <T,>(cmd: string): Promise<T> => {
@@ -245,8 +245,8 @@ test("failed closeWorkspace restores the workspace from authoritative state", as
 
 test("successful closeWorkspace stays removed (authoritative removal sticks)", async () => {
   let backend: BackendWs[] = [
-    { id: "w1", tabs: [{ id: "A", pane_id: "pane-A" }] },
-    { id: "w2", tabs: [{ id: "X", pane_id: "pane-X" }] },
+    { id: "w1", tabs: [{ id: "A", tab_id: "tab-A" }] },
+    { id: "w2", tabs: [{ id: "X", tab_id: "tab-X" }] },
   ];
   let gen = 10;
   const invokeMock = async <T,>(cmd: string): Promise<T> => {
@@ -274,9 +274,9 @@ test("successful closeWorkspace stays removed (authoritative removal sticks)", a
   h.clear();
 });
 
-test("redundant tab-close failure after pane-close success keeps a delayed pre-close snapshot masked", async () => {
+test("redundant tab-close failure after tab-close success keeps a delayed pre-close snapshot masked", async () => {
   const backend: BackendWs[] = [
-    { id: "w1", tabs: [{ id: "A", pane_id: "pane-A" }, { id: "B", pane_id: "pane-B" }] },
+    { id: "w1", tabs: [{ id: "A", tab_id: "tab-A" }, { id: "B", tab_id: "tab-B" }] },
   ];
   let gen = 10;
   let hold = false;
@@ -286,7 +286,7 @@ test("redundant tab-close failure after pane-close success keeps a delayed pre-c
       return makeSnapshot(backend, ++gen) as T;
     }
     if (cmd === "list_notifications") return [] as T;
-    if (cmd === "mux_close_pane") return {} as T; // pane close succeeds, backend removes B
+    if (cmd === "mux_close_tab") return {} as T; // tab close succeeds, backend removes B
     if (cmd === "mux_close_tab") throw new Error("tab already gone"); // redundant failure
     return {} as T;
   };
@@ -296,7 +296,7 @@ test("redundant tab-close failure after pane-close success keeps a delayed pre-c
   hold = true; // from here the authoritative omission never arrives
 
   await h.act(async () => {
-    h.actions().closePane("pane-B");
+    h.actions().closeTab("tab-B");
     await drain();
   });
 
