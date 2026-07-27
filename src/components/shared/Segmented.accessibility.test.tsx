@@ -1,6 +1,9 @@
 // Run: npx tsx src/components/shared/Segmented.accessibility.test.tsx
 
 import { act } from "react";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { Window } from "happy-dom";
 import { createRoot } from "react-dom/client";
 import { Segmented } from "./Segmented";
@@ -42,6 +45,18 @@ async function main() {
   const terminal = host.querySelector('[role="tab"][data-value="terminal"]');
   if (chat?.getAttribute("aria-selected") !== "true") throw new Error("active view is exposed");
   if (terminal?.getAttribute("aria-selected") !== "false") throw new Error("inactive view is exposed");
+  if (chat?.tagName !== "BUTTON" || terminal?.tagName !== "BUTTON") throw new Error("segments are keyboard-operable buttons");
+
+  const segmentedSource = readFileSync(resolve(import.meta.dirname, "Segmented.tsx"), "utf8");
+  assert.match(segmentedSource, /font-semibold text-\[var\(--ct-on-accent,#fff\)\]/);
+  assert.doesNotMatch(segmentedSource, /text-\[var\(--ct-bg\)\]/);
+  assert.match(segmentedSource, /transition: "left var\(--ct-duration-liquid-hover\) var\(--ct-ease-liquid-settle\)"/);
+  assert.doesNotMatch(segmentedSource, /duration-200|ease-out/);
+
+  const globals = readFileSync(resolve(import.meta.dirname, "../../styles/globals.css"), "utf8");
+  assert.match(globals, /\.ct-segmented-option:focus-visible/);
+  const reducedMotionBlocks = globals.match(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n\}/g) ?? [];
+  assert(reducedMotionBlocks.some((block) => /\.ct-segmented-thumb/.test(block) && /transition: none/.test(block)));
 
   await act(async () => root.unmount());
   console.log("ok - segmented accessibility contract");

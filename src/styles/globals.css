@@ -497,6 +497,7 @@ button,
 }
 
 .ct-liquid-interactive:focus-visible,
+.ct-segmented-option:focus-visible,
 .sidebar-tab-activation:focus-visible,
 .sidebar-team-card-activation:focus-visible {
   outline: 2px solid var(--ct-accent);
@@ -542,6 +543,7 @@ button,
   .ct-liquid-interactive,
   .ct-liquid-interactive:not(:disabled):hover,
   .ct-liquid-interactive:not(:disabled):active,
+  .ct-segmented-thumb,
   .sidebar-tab-activation,
   .sidebar-tab-activation:hover,
   .sidebar-tab-activation:active,
@@ -1178,10 +1180,11 @@ button,
 .sidebar-tab-close {
   opacity: 0;
   transform: scale(0.8);
-  transition: opacity 150ms ease, transform 150ms ease, background-color 150ms ease;
+  transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle), transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell), background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
 }
 
-.sidebar-tab:hover .sidebar-tab-close {
+.sidebar-tab:hover .sidebar-tab-close,
+.sidebar-tab:focus-within .sidebar-tab-close {
   opacity: 0.6;
   transform: scale(1);
 }
@@ -1224,7 +1227,8 @@ button,
   overflow: visible;
   text-overflow: clip;
 }
-.sidebar-tab:hover .sidebar-leadership-badge {
+.sidebar-tab:hover .sidebar-leadership-badge,
+.sidebar-tab:focus-within .sidebar-leadership-badge {
   opacity: 0;
 }
 

@@ -69,9 +69,10 @@ async function run() {
   const workspaceCardSource = readFileSync(new URL("../Sidebar/WorkspaceCardGrid.tsx", import.meta.url), "utf8");
   assert.match(
     workspaceCardSource,
-    /className="sidebar-workspace-card-working"[\s\S]*?<ActivityDots size="micro" tone="muted" \/>/,
-    "workspace-card badge selects shared micro geometry",
+    /className="sidebar-workspace-card-working"[\s\S]*?<ActivityDots size="micro" tone="on-accent" \/>/,
+    "workspace-card badge selects the shared on-accent tone",
   );
+  assert.match(css, /\.activity-dots--on-accent\s*\{\s*color:\s*var\(--ct-on-accent, #fff\);\s*\}/);
   assert.doesNotMatch(
     globalsCss,
     /\.sidebar-workspace-card-working\s+\.activity-dots\s*\{[^}]*--activity-dot-(?:size|gap|jump)\s*:/s,
