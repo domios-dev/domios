@@ -55,17 +55,17 @@ HYGIENE=$?
 
 echo "================ CODEX TRANSCRIPT ORDERING (data-layer proxy for P0 #2) ================"
 # DOM oracle is Windows/WebView2-only (tests/playwright/README.md). On macOS we
-# check the transcript the ChatUI renders: /api/panes/{id}/chat must be seq- and
+# check the transcript the ChatUI renders: /api/tabs/{id}/chat must be seq- and
 # timestamp-monotonic. Clean here + visible disorder == pure frontend render bug.
 source evals/_lib/lib.sh 2>/dev/null
-dev_get /api/panes 2>/dev/null | python3 -c '
+dev_get /api/tabs 2>/dev/null | python3 -c '
 import sys,json
 d=json.load(sys.stdin)
 codex=[p["id"] for p in d if p.get("agent_type")=="codex"]
-print("codex panes:", codex or "none")
+print("codex tabs:", codex or "none")
 ' 2>/dev/null
-for pid in $(dev_get /api/panes 2>/dev/null | python3 -c 'import sys,json;print(" ".join(p["id"] for p in json.load(sys.stdin) if p.get("agent_type")=="codex"))' 2>/dev/null); do
-  dev_get "/api/panes/$pid/chat" 2>/dev/null | python3 -c "
+for pid in $(dev_get /api/tabs 2>/dev/null | python3 -c 'import sys,json;print(" ".join(p["id"] for p in json.load(sys.stdin) if p.get("agent_type")=="codex"))' 2>/dev/null); do
+  dev_get "/api/tabs/$pid/chat" 2>/dev/null | python3 -c "
 import sys,json
 try: d=json.load(sys.stdin)
 except Exception: print('  $pid: no transcript'); raise SystemExit

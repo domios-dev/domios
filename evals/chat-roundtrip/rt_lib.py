@@ -3,7 +3,7 @@
 
 Kept out of run.sh because macOS bash 3.2 cannot parse here-docs nested inside
 command substitution. Each subcommand reads the chat snapshot JSON on stdin
-(GET /api/panes/{id}/chat) and prints a result run.sh can branch on.
+(GET /api/tabs/{id}/chat) and prints a result run.sh can branch on.
 """
 import json
 import re
@@ -117,7 +117,7 @@ def cmd_binding_state(want_raw: str):
     """Classify a chat-raw/start response (the UI seam) for the session-binding gate.
 
     Prints exactly one of:
-      pending  — pending=true: pane.agent_session_id still empty (session NOT bound).
+      pending  — pending=true: tab.agent_session_id still empty (session NOT bound).
       empty    — bound but the wanted user echo isn't in the transcript yet.
       bound    — bound AND the user echo is present (session bound + transcript delivered).
     """
@@ -136,19 +136,19 @@ def cmd_binding_state(want_raw: str):
     print("bound" if echoed else "empty")
 
 
-def cmd_pending_prompt(pane_id: str):
-    """Read GET /api/mux/state on stdin; print the pane's extracted interactive
+def cmd_pending_prompt(tab_id: str):
+    """Read GET /api/mux/state on stdin; print the tab's extracted interactive
     prompt as JSON {question, options:[label,...]} iff one is pending, else
     nothing. This is the facet9 P9.3 oracle: did the provider's prompt get
     extracted (question + ALL options) into the existing pending_prompt pipeline?"""
     doc = load_stdin()
     if not doc:
         return
-    panes = doc.get("panes") or {}
-    pane = panes.get(pane_id)
-    if not pane:
+    tabs = doc.get("tabs") or {}
+    tab = tabs.get(tab_id)
+    if not tab:
         return
-    pp = pane.get("pending_prompt")
+    pp = tab.get("pending_prompt")
     if not pp:
         return
     opts = [o.get("label", "") for o in (pp.get("options") or [])]

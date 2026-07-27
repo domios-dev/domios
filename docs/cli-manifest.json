@@ -61,7 +61,7 @@
               "positional": false,
               "value_name": "TAB",
               "default": null,
-              "help": "Tab ID (default: $CODETERM_PANE_ID or focused tab)",
+              "help": "Tab ID (default: $CODETERM_TAB_ID or focused tab)",
               "aliases": []
             }
           ],
@@ -125,7 +125,7 @@
               "positional": false,
               "value_name": "TAB",
               "default": null,
-              "help": "Tab ID (default: $CODETERM_PANE_ID or focused tab)",
+              "help": "Tab ID (default: $CODETERM_TAB_ID or focused tab)",
               "aliases": []
             }
           ],
@@ -260,7 +260,7 @@
               "positional": false,
               "value_name": "TAB",
               "default": null,
-              "help": "Tab ID (default: $CODETERM_PANE_ID or focused tab)",
+              "help": "Tab ID (default: $CODETERM_TAB_ID or focused tab)",
               "aliases": []
             },
             {
@@ -324,7 +324,7 @@
               "positional": false,
               "value_name": "TAB",
               "default": null,
-              "help": "Tab ID (default: $CODETERM_PANE_ID or focused tab)",
+              "help": "Tab ID (default: $CODETERM_TAB_ID or focused tab)",
               "aliases": []
             }
           ],
@@ -1026,7 +1026,7 @@
               "positional": false,
               "value_name": "TAB",
               "default": null,
-              "help": "Tab ID to receive reports from cron agent (default: $CODETERM_PANE_ID)",
+              "help": "Tab ID to receive reports from cron agent (default: $CODETERM_TAB_ID)",
               "aliases": []
             },
             {
@@ -1316,7 +1316,7 @@
               "positional": false,
               "value_name": "TAB",
               "default": null,
-              "help": "Target tab ID (default: $CODETERM_PANE_ID or focused tab)",
+              "help": "Target tab ID (default: $CODETERM_TAB_ID or focused tab)",
               "aliases": []
             },
             {
@@ -1414,7 +1414,7 @@
               "positional": false,
               "value_name": "TAB",
               "default": null,
-              "help": "Target tab ID (default: $CODETERM_PANE_ID or focused tab)",
+              "help": "Target tab ID (default: $CODETERM_TAB_ID or focused tab)",
               "aliases": []
             }
           ],
@@ -1819,7 +1819,7 @@
               "positional": false,
               "value_name": "TAB",
               "default": null,
-              "help": "Tab id (default: $CODETERM_PANE_ID)",
+              "help": "Tab id (default: $CODETERM_TAB_ID)",
               "aliases": []
             },
             {
@@ -3804,7 +3804,7 @@
         },
         {
           "name": "worker",
-          "about": "Graph-worker operations (hidden mem panel agents)",
+          "about": "Graph-worker operations (hidden mem tabl agents)",
           "aliases": [],
           "args": [],
           "subcommands": [
@@ -4750,7 +4750,7 @@
                 {
                   "name": "answered-by-tab",
                   "positional": false,
-                  "value_name": "ANSWERED_BY_PANE",
+                  "value_name": "ANSWERED_BY_TAB",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -4782,7 +4782,7 @@
                 {
                   "name": "asked-by-tab",
                   "positional": false,
-                  "value_name": "ASKED_BY_PANE",
+                  "value_name": "ASKED_BY_TAB",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -9219,7 +9219,7 @@
           "positional": false,
           "value_name": "TAB",
           "default": null,
-          "help": "Tab ID (default: $CODETERM_PANE_ID or focused tab)",
+          "help": "Tab ID (default: $CODETERM_TAB_ID or focused tab)",
           "aliases": []
         },
         {
@@ -9309,7 +9309,7 @@
           "positional": false,
           "value_name": "TAB",
           "default": null,
-          "help": "Target tab ID (default: $CODETERM_PANE_ID or focused tab)",
+          "help": "Target tab ID (default: $CODETERM_TAB_ID or focused tab)",
           "aliases": []
         },
         {
@@ -10231,7 +10231,7 @@
                   "positional": false,
                   "value_name": "TAB",
                   "default": null,
-                  "help": "Target tab ID (default: $CODETERM_PANE_ID or focused tab)",
+                  "help": "Target tab ID (default: $CODETERM_TAB_ID or focused tab)",
                   "aliases": []
                 }
               ],
@@ -10247,7 +10247,7 @@
                   "positional": false,
                   "value_name": "TAB",
                   "default": null,
-                  "help": "Target tab ID (default: $CODETERM_PANE_ID or focused tab)",
+                  "help": "Target tab ID (default: $CODETERM_TAB_ID or focused tab)",
                   "aliases": []
                 }
               ],
@@ -10273,7 +10273,7 @@
               "positional": false,
               "value_name": "TAB",
               "default": null,
-              "help": "Target tab ID (default: $CODETERM_PANE_ID or focused tab)",
+              "help": "Target tab ID (default: $CODETERM_TAB_ID or focused tab)",
               "aliases": []
             }
           ],
@@ -11095,7 +11095,7 @@
               "positional": false,
               "value_name": "ID",
               "default": null,
-              "help": "Tab to deliver `--continue-prompt` to. Defaults to `$CODETERM_PANE_ID`",
+              "help": "Tab to deliver `--continue-prompt` to. Defaults to `$CODETERM_TAB_ID`",
               "aliases": []
             },
             {

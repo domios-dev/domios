@@ -22,13 +22,13 @@
 - Modify: `src-tauri/src/service/role_profile.rs` — accept `watcher` profile
 - Modify: `cli/src/args/agent.rs` — `SpawnRole::Watcher`, `--charter`, `--charter-file`, `--interval`
 - Modify: `src-tauri/src/service/spawn_params.rs` — mode/engine into chatbackend spawn config + watcher-capability validation
-- Modify: `src-tauri/src/service/pane_transport_chat.rs` — ctx promotion (`mode`, `engine`), read-only send rejection
+- Modify: `src-tauri/src/service/tab_transport_chat.rs` — ctx promotion (`mode`, `engine`), read-only send rejection
 - Modify: `src-tauri/src/multiplexer/types.rs` — `WatcherSpec` on Tab (persisted)
 - Create: `src-tauri/src/service/watcher/mod.rs` — facade: spec types, scheduler hook, verdict apply
 - Create: `src-tauri/src/service/watcher/observe.rs` — observation snapshot builder
 - Create: `src-tauri/src/service/watcher/verdict.rs` — tolerant verdict parse + action guardrails/execution
 - Modify: `src-tauri/src/service/spawn_chatbackend.rs` — poll-loop tick arming + verdict interception via sink
-- Modify: `src/components/Terminal/PaneSessionChat.tsx` + `packages/chat-ui`/`chat-core` markers — composer hiding, context/verdict cards, status badge
+- Modify: `src/components/Terminal/TabSessionChat.tsx` + `packages/chat-ui`/`chat-core` markers — composer hiding, context/verdict cards, status badge
 - Modify: `docs/PLUGINS.md`, `docs/API.md` — document the surface (bump `<!-- revision: N -->`)
 
 **codeterm-canvas (published package)**
@@ -62,7 +62,7 @@ export interface ChatWindowConfig {
 }
 
 export interface ObservationConfig {
-  orchestration?: boolean;   // pane-group snapshot (watchers default true)
+  orchestration?: boolean;   // tab-group snapshot (watchers default true)
   chatTail?: number;         // last N parsed messages per watched tab (0 = off)
   reports?: boolean;         // recent agent reports to the orchestrator
 }
@@ -82,7 +82,7 @@ export type WatcherVerdictStatus = "ok" | "attention" | "stalled";
 
 export interface WatcherAction {
   kind: "nudge" | "notify" | "report";
-  pane?: string;
+  tab?: string;
   message: string;
 }
 
@@ -202,11 +202,11 @@ Worker+planner Tabs (repo rule: delete legacy aggressively).
 - Modify: `src-tauri/src/service/orchestrator/types.rs` (`SpawnAgentParams` — add `charter: Option<String>`, `tick_interval_secs: Option<u64>`, `nudge_cooldown_secs: Option<u64>`, `max_actions_per_tick: Option<u32>`)
 - Modify: `src-tauri/src/service/role_profile.rs` (`from_json` — parse the two new fields)
 - Modify: `src-tauri/src/service/spawn_params.rs:118-134` (`chatbackend_spawn_config`), `:163` (`classify_spawn_target`)
-- Modify: `src-tauri/src/service/pane_transport_chat.rs:58` (`build_chatbackend_open_session_ctx`)
-- Test: `src-tauri/src/api/pane_routes/tests_create_pane.rs` + spawn_params unit tests
+- Modify: `src-tauri/src/service/tab_transport_chat.rs:58` (`build_chatbackend_open_session_ctx`)
+- Test: `src-tauri/src/api/tab_routes/tests_create_tab.rs` + spawn_params unit tests
 
 - [ ] **Step 1: Failing tests** — (a) spawning with profile `watcher` + charter produces a chatbackend config `{ mode: "watcher", engine: { kind: "machine", charter, tickIntervalSecs } }`; (b) `build_chatbackend_open_session_ctx` promotes `mode`/`engine` from config to top-level ctx keys (like it does `systemPrompt`/`preset`/`model`); (c) `--role Watcher` against a non-watcher-capable provider (or a PTY provider) is rejected with a message naming the requirement.
-- [ ] **Step 2: Verify fail** — `./build.sh test -- spawn_params` then `-- pane_transport_chat` (one at a time). Expected: FAIL.
+- [ ] **Step 2: Verify fail** — `./build.sh test -- spawn_params` then `-- tab_transport_chat` (one at a time). Expected: FAIL.
 - [ ] **Step 3: Implement** — extend `chatbackend_spawn_config(system_prompt, preset, model, mode, engine)`; watcher validation in `classify_spawn_target` via `ChatBackendRegistry` `watcher_capable()` (capability question, never a provider-id match); charter required when profile is watcher (reject otherwise: "watcher spawn requires --charter or --charter-file").
 - [ ] **Step 4: Verify pass.** `_meta` persistence needs no work — openSession config is already written as the first JSONL line and reused on reopen.
 - [ ] **Step 5: Commit** — `git commit -m "feat(spawn): thread mode/engine into chatBackend openSession config, gate watcher spawns on capability"`
@@ -214,7 +214,7 @@ Worker+planner Tabs (repo rule: delete legacy aggressively).
 ### Task 6: `WatcherSpec` on the Tab
 
 **Files:**
-- Modify: `src-tauri/src/multiplexer/types.rs` (near `role_profile`, ~line 46; `PaneBacking` stays untouched)
+- Modify: `src-tauri/src/multiplexer/types.rs` (near `role_profile`, ~line 46; `TabBacking` stays untouched)
 - Test: `src-tauri/src/multiplexer/state/snapshot/tests.rs` (round-trip)
 
 - [ ] **Step 1: Failing round-trip test** — Tab with `watcher: Some(WatcherSpec {...})` serializes and restores identically.
@@ -259,7 +259,7 @@ pub struct WatcherSpec {
 - Create: `src-tauri/src/service/watcher/observe.rs`
 - Test: `src-tauri/src/service/watcher/observe/tests.rs` (or inline `mod tests` + body file per convention)
 
-- [ ] **Step 1: Failing tests** — given a fixture mux state (orchestrator O with children: planner P, watcher W (self), watcher W2, workers A/B), `build_observation(mux, w_pane_id, &config)` returns JSON containing O, P, A, B with `{pane_id, title, role, role_profile, status, last_activity_ms}` and NOT W or W2; `chatTail: 2` attaches last 2 parsed messages per included Tab; group resolution walks `parent_pane_id` up to the orchestrator.
+- [ ] **Step 1: Failing tests** — given a fixture mux state (orchestrator O with children: planner P, watcher W (self), watcher W2, workers A/B), `build_observation(mux, w_tab_id, &config)` returns JSON containing O, P, A, B with `{tab_id, title, role, role_profile, status, last_activity_ms}` and NOT W or W2; `chatTail: 2` attaches last 2 parsed messages per included Tab; group resolution walks `parent_tab_id` up to the orchestrator.
 - [ ] **Step 2: Verify fail** — `./build.sh test -- watcher::observe`. 
 - [ ] **Step 3: Implement** — group = orchestrator (via parent chain) + all its descendants; exclude self + any tab with `role_profile == Some("watcher")`; statuses from the tab status tracker; chat tails via the parsed-chat service (same source as `codeterm tab chat`); reports from the report store addressed to the orchestrator. **Lock discipline:** snapshot mux state under the lock into plain structs, drop the guard, then do chat-tail/report reads — mux is lock #1, never hold it across other subsystem calls.
 - [ ] **Step 4: Verify pass. Step 5: Commit** — `git commit -m "feat(watcher): observation snapshot builder (group minus self and other watchers)"`
@@ -308,11 +308,11 @@ pub fn apply_guardrails(
 ### Task 10: Read-only enforcement
 
 **Files:**
-- Modify: `src-tauri/src/service/pane_transport_chat.rs:91` (`ChatBackendTransport::send`)
-- Test: module tests + `src-tauri/src/api/pane_routes/tests_create_pane.rs` neighbor for the REST path
+- Modify: `src-tauri/src/service/tab_transport_chat.rs:91` (`ChatBackendTransport::send`)
+- Test: module tests + `src-tauri/src/api/tab_routes/tests_create_tab.rs` neighbor for the REST path
 
 - [ ] **Step 1: Failing test** — `send` to a Tab with `watcher: Some(_)` returns an error `"this tab is a watcher (read-only); its inputs come from the tick scheduler"`; the internal tick path is unaffected (it calls `watcher_tick`, never `send`).
-- [ ] **Step 2: Verify fail** — `./build.sh test -- pane_transport_chat`.
+- [ ] **Step 2: Verify fail** — `./build.sh test -- tab_transport_chat`.
 - [ ] **Step 3: Implement** — guard at the top of the transport `send` (single choke point: CLI `codeterm send`, REST, UI all funnel here).
 - [ ] **Step 4: Verify pass. Step 5: Commit** — `git commit -m "feat(watcher): reject sends into watcher tabs at the transport seam"`
 
@@ -321,7 +321,7 @@ pub fn apply_guardrails(
 ### Task 11: Watcher Tab UI (composer, cards, badge)
 
 **Files:**
-- Modify: `src/components/Terminal/PaneSessionChat.tsx` (~line 458 — model/preset bubbles row)
+- Modify: `src/components/Terminal/TabSessionChat.tsx` (~line 458 — model/preset bubbles row)
 - Modify: `packages/chat-core/src/markers.ts` (context/verdict marker twins), `packages/chat-ui/src/MessageBubble*.tsx` (card rendering)
 - Verify: `src/components/Sidebar/orchestrationSections.ts` — Task 4 Step 3 already moved sectioning to `role === "Manager"`; here only confirm a watcher Tab lands in Managers with a `WATCHER` badge
 - Test: Playwright web-mode spec `tests/playwright/specs/` + component tests next to the touched files

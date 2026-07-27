@@ -32,7 +32,7 @@ _add(kind="learning", title="Zustand persist middleware SSR",
     area="cobalt", importance=3, tags=["zustand", "ssr"])
 
 _add(kind="note", title="Riley proposed dashboard redesign",
-    body="Riley wants to split the main dashboard into panels that can be rearranged. Uses react-grid-layout. Mock in Figma approved by team.",
+    body="Riley wants to split the main dashboard into tabls that can be rearranged. Uses react-grid-layout. Mock in Figma approved by team.",
     area="cobalt", importance=2, tags=["design"])
 
 _add(kind="skill", title="Cobalt local dev",

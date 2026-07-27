@@ -149,7 +149,7 @@ persisted to the durable JSONL for free: a built-in audit trail).
   "summary": "one-line assessment",
   "state": { "...": "next state blob, echoed and updated each tick" },
   "actions": [
-    { "kind": "nudge", "pane": "<pane_id>", "message": "..." }
+    { "kind": "nudge", "tab": "<tab_id>", "message": "..." }
   ]
 }
 ```
@@ -241,7 +241,7 @@ silently stripped to generic Worker. That changes:
   (`role == Manager`); the profile only picks the badge (`PLANNER`,
   `WATCHER`). The frontend `MANAGER_ROLE_PROFILES` set is deleted in favor of
   the role.
-- Observation snapshot derives the watched group from `parent_pane_id`
+- Observation snapshot derives the watched group from `parent_tab_id`
   (the orchestrator) — consistent with how the hierarchy already works.
 
 ## Persistence & restart

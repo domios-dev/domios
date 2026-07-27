@@ -57,7 +57,7 @@ Integration branch: `feat/canvas`. Loop plan: `2026-06-24-canvas-iteration-loop.
   edges anchored to row right-edge + anchor dots, tasks bin-packed near covered row, owner
   chip hide-when-unowned, spec=document/plan=dashboard differentiation, bigger legible
   bubbles. Also delivered the Playwright canvas harness (tests/playwright/helpers/
-  canvas-inspect.ts) + panePlanMode. tsc clean, 13/13 canvas tests green.
+  canvas-inspect.ts) + tabPlanMode. tsc clean, 13/13 canvas tests green.
 - **Rex** fixed the rescan bug (20c28e72, merged b7be4c68): list-by-project now lazily scans
   <proj>/.codeterm/plans/, startup scans open-workspace CWDs, watchers retained for
   pre-existing dirs, regression test added. cargo test plan 45 green. **Plans now survive
@@ -322,5 +322,5 @@ Integration branch: `feat/canvas`. Loop plan: `2026-06-24-canvas-iteration-loop.
 - VISUAL: default mounts camera-focused @~250% on the plan node (readable!) — SectionedPlanNode Tile
   (title/owner/13-45/coverage) + right-edge rail OUTPUT dots → edges fanning to banded task field +
   minimap + Overview/Read/Doc/Card/Tile toolbar. The §22/§23 design realized; navigable at last.
-- NIT: Tile coverage block oversized (giant green panel) — should be compact bar; Tile should show
+- NIT: Tile coverage block oversized (giant green tabl) — should be compact bar; Tile should show
   section rows. Sent to FE. Deferred: SectionChunk>30, minimap drag-pan.

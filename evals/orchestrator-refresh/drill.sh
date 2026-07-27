@@ -25,44 +25,44 @@ dc config set orchestration.refresh.handoff_timeout_secs 60 >/dev/null 2>&1
 dc config set orchestration.refresh.settle_timeout_secs 40 >/dev/null 2>&1
 dc config set orchestration.refresh.verify_timeout_secs 90 >/dev/null 2>&1
 
-echo "== [1/6] spawn a $PROVIDER orchestrator pane + bind a plan"
+echo "== [1/6] spawn a $PROVIDER orchestrator tab + bind a plan"
 WS=$(new_workspace "REFRESH-DRILL" "$CWD")
 [ -n "$WS" ] || { echo "FAIL: workspace create" >&2; exit 1; }
 
 case "$PROVIDER" in
-  claude) PANE=$(new_claude_pane "$WS" "$CWD" "orch") ;;
-  codex)  PANE=$(new_codex_pane  "$WS" "$CWD" "orch") ;;
+  claude) TAB=$(new_claude_tab "$WS" "$CWD" "orch") ;;
+  codex)  TAB=$(new_codex_tab  "$WS" "$CWD" "orch") ;;
   *) echo "FAIL: unknown PROVIDER=$PROVIDER" >&2; exit 1 ;;
 esac
-[ -n "$PANE" ] || { echo "FAIL: pane spawn ($PROVIDER)" >&2; exit 1; }
-echo "   pane=$PANE"
+[ -n "$TAB" ] || { echo "FAIL: tab spawn ($PROVIDER)" >&2; exit 1; }
+echo "   tab=$TAB"
 
 PLAN=$(dc plan create --title "refresh drill" --json 2>/dev/null \
   | python -c "import json,sys; print(json.load(sys.stdin).get('plan_id',''))")
 [ -n "$PLAN" ] || { echo "FAIL: plan create" >&2; exit 1; }
 echo "   plan=$PLAN"
 
-echo "== [2/6] wait for the pane to reach READY, then prime its orchestrator contract"
+echo "== [2/6] wait for the tab to reach READY, then prime its orchestrator contract"
 # Real readiness signal (learned by manual walk): the daemon logs 'agent ready in
-# pane X' ~14s after spawn. A fixed sleep races the boot and the S1 injection lands
+# tab X' ~14s after spawn. A fixed sleep races the boot and the S1 injection lands
 # in a not-yet-ready agent that never submits it.
 for _ in $(seq 1 30); do
-  grep -qaE "agent ready in pane $PANE" "$DEV_LOG" 2>/dev/null && break
+  grep -qaE "agent ready in tab $TAB" "$DEV_LOG" 2>/dev/null && break
   sleep 2
 done
 sleep 3
 # A BARE agent strands the cycle — prime it to run the exact command each injection names.
-dc send --tab "$PANE" "You are a test orchestrator. Stay idle at your prompt. When you receive an injected message naming an exact shell command (e.g. codeterm orchestrator handoff --plan ..., or codeterm plan state ...), run THAT exact command verbatim, using the plan id written in the message. Do nothing else." >/dev/null 2>&1
+dc send --tab "$TAB" "You are a test orchestrator. Stay idle at your prompt. When you receive an injected message naming an exact shell command (e.g. codeterm orchestrator handoff --plan ..., or codeterm plan state ...), run THAT exact command verbatim, using the plan id written in the message. Do nothing else." >/dev/null 2>&1
 sleep 2
 
 OFF=$(log_offset)
 
 echo "== [3/6] trigger refresh"
-dc orchestrator refresh --plan "$PLAN" --tab "$PANE" || {
+dc orchestrator refresh --plan "$PLAN" --tab "$TAB" || {
   echo "FAIL: refresh trigger returned non-zero" >&2; exit 1; }
 
 echo "== [4/6] wait for the terminal marker (resumed or alert)"
-if ! wait_for_marker "$OFF" "[refresh] pane=" 30; then
+if ! wait_for_marker "$OFF" "[refresh] tab=" 30; then
   echo "FAIL: no refresh markers emitted at all" >&2; exit 1
 fi
 # Give the ordered cycle time to walk S1..S5 (bounded by settle+verify defaults).

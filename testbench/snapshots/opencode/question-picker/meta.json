@@ -2,7 +2,7 @@
   "provider": "opencode",
   "situation": "question-picker",
   "capturedAtMs": 1781983932023,
-  "paneId": "de9b8442",
+  "tabId": "de9b8442",
   "source": "dev-7686",
   "until": "(Choose the audit scope|Monolith|Microservices|Data pipeline).*(enter|esc|select|dismiss|submit|Type your own answer)",
   "prompt": "Ask me one native interactive question. Question: Choose the audit scope. Options: Monolith, Microservices, Edge services, Data pipeline. Do not answer it yourself; ask me.",

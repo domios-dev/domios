@@ -13,8 +13,8 @@ One row per coordination event, matching the spec's attribution contract:
 |---|---|---|
 | `plan_id` | `Option<String>` | resolved plan/effort context at the choke point |
 | `task_id` | `Option<String>` | `CODETERM_TASK_ID`, already exported per-tab at spawn/bind time (`src-tauri/src/service/pty_io/lifecycle.rs:195`) |
-| `tab` / `pane_id` | `String` | the Tab the event is attributed to |
-| `role` | `Option<AgentRole>` | orchestrator / planner / worker / general, from `pane.role` |
+| `tab` / `tab_id` | `String` | the Tab the event is attributed to |
+| `role` | `Option<AgentRole>` | orchestrator / planner / worker / general, from `tab.role` |
 | `provider` | `String` | `claude` / `codex` / `opencode` / other |
 | `model` | `Option<String>` | resolved model at event time |
 | `timestamp` | `u64` (unix secs) | event time |
@@ -61,7 +61,7 @@ accept rate" KPI.
 Two layers exist; pick the outer one for attribution completeness:
 
 - **Low-level single writer** (spec-visible bytes but no resolved role/model yet):
-  `src-tauri/src/service/spawn.rs:192` — `spawn_pane_with_ready_and_state_change`, which
+  `src-tauri/src/service/spawn.rs:192` — `spawn_tab_with_ready_and_state_change`, which
   every spawn path (sync and async, agent/shell/chatBackend) funnels through before
   dispatching to `spawn_visible_agent_impl` / `spawn_hidden_agent_impl` / etc.
 - **Attribution-complete success returns** (role + model + agent + task binding all
@@ -74,7 +74,7 @@ Two layers exist; pick the outer one for attribution completeness:
 
 Recommendation: instrument at the three `Ok(SpawnResult ..)` sites (role/model/brief-bytes
 all in scope there), not the shared low-level fn — resolving that would require threading
-role+model back down through `SpawnPaneSpec`, which the existing code doesn't do.
+role+model back down through `SpawnTabSpec`, which the existing code doesn't do.
 
 ### Nudge / heartbeat scheduler
 
@@ -267,7 +267,7 @@ is the live daemon counters at the choke points in §2.
   concept (OpenCode) yet — phase 3 needs to either find one or explicitly scope
   "compactions" as Claude-only in v1 of the catalog.
 - **Spawn instrumentation layer**: recommended the three `Ok(SpawnResult ..)` sites over
-  the shared low-level `spawn_pane_with_ready_and_state_change` (§2) — phase 3 implementer
+  the shared low-level `spawn_tab_with_ready_and_state_change` (§2) — phase 3 implementer
   should confirm no other success path exists (e.g. resumed-session spawns) that bypasses
   all three.
 - **Ledger location**: reuse `orchestration.db` (new table, same file) vs. a dedicated

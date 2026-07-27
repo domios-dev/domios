@@ -21,7 +21,7 @@ POLL_SECS="${WH_POLL_SECS:-45}"
 MAX_TOTAL_SECS=300
 WATCHER_TITLE="WH watcher"
 WATCHER_ORIGIN_LABEL="Watcher"
-WATCHER_CHARTER='You are a read-only orchestration health watcher for this bench. The observed group contains one orchestrator and one worker. Treat a worker as stalled when it has no visible progress for 45 seconds or more. On each tick respond only with watcher verdict JSON: {"status":"ok"|"attention"|"stalled","summary":"...","state":{},"actions":[...]}. When the worker is stalled, emit exactly one nudge action targeted at the orchestrator pane with a short message naming the stalled worker evidence. Do not emit more than one action per tick.'
+WATCHER_CHARTER='You are a read-only orchestration health watcher for this bench. The observed group contains one orchestrator and one worker. Treat a worker as stalled when it has no visible progress for 45 seconds or more. On each tick respond only with watcher verdict JSON: {"status":"ok"|"attention"|"stalled","summary":"...","state":{},"actions":[...]}. When the worker is stalled, emit exactly one nudge action targeted at the orchestrator tab with a short message naming the stalled worker evidence. Do not emit more than one action per tick.'
 
 if [ "$WAIT_SECS" -gt "$MAX_TOTAL_SECS" ]; then
   WAIT_SECS="$MAX_TOTAL_SECS"
@@ -34,7 +34,7 @@ fi
 
 FAILS=0
 SKIPS=0
-CREATED_PANES=()
+CREATED_TABS=()
 CREATED_WS=()
 
 summary() { printf '%s %s: %s\n' "$1" "$2" "$3"; }
@@ -45,11 +45,11 @@ skip() { summary SKIP "$1" "$2"; SKIPS=$((SKIPS + 1)); }
 cleanup() {
   [ -n "${WS_CWD:-}" ] && [[ "$WS_CWD" == /tmp/watcher-health.* ]] && rm -rf "$WS_CWD"
   local out rc
-  for pane in "${CREATED_PANES[@]:-}"; do
-    [ -n "$pane" ] || continue
-    out="$(dc tab close "$pane" 2>&1)"
+  for tab in "${CREATED_TABS[@]:-}"; do
+    [ -n "$tab" ] || continue
+    out="$(dc tab close "$tab" 2>&1)"
     rc=$?
-    [ "$rc" -eq 0 ] || printf 'cleanup: pane close %s failed: %s\n' "$pane" "$out" >&2
+    [ "$rc" -eq 0 ] || printf 'cleanup: tab close %s failed: %s\n' "$tab" "$out" >&2
   done
   for ws in "${CREATED_WS[@]:-}"; do
     [ -n "$ws" ] || continue
@@ -65,8 +65,8 @@ json_field() {
   $PY -c "import json,sys; d=json.load(sys.stdin); v=eval(sys.argv[1], {'d': d}); print('' if v is None else v)" "$expr" 2>/dev/null
 }
 
-extract_pane_id() {
-  grep -oE "pane [a-f0-9]+" | awk '{print $2}' | head -1
+extract_tab_id() {
+  grep -oE "tab [a-f0-9]+" | awk '{print $2}' | head -1
 }
 
 plugin_has_watcher() {
@@ -87,9 +87,9 @@ else:
 '
 }
 
-pane_chat_json() {
-  local pane="$1" out rc
-  out="$(dc --json tab chat --tab "$pane" 2>&1)"
+tab_chat_json() {
+  local tab="$1" out rc
+  out="$(dc --json tab chat --tab "$tab" 2>&1)"
   rc=$?
   if [ "$rc" -ne 0 ]; then
     printf '%s\n' "$out" >&2
@@ -99,10 +99,10 @@ pane_chat_json() {
 }
 
 chat_has_type() {
-  local pane="$1" want="$2" deadline=$((SECONDS + POLL_SECS))
+  local tab="$1" want="$2" deadline=$((SECONDS + POLL_SECS))
   while [ "$SECONDS" -lt "$deadline" ]; do
     local chat rc
-    chat="$(pane_chat_json "$pane")"
+    chat="$(tab_chat_json "$tab")"
     rc=$?
     [ "$rc" -eq 0 ] || return "$rc"
     if printf '%s\n' "$chat" | $PY -c '
@@ -129,8 +129,8 @@ raise SystemExit(0 if ok else 1)
 }
 
 watcher_nudge_count() {
-  local pane="$1" label="$2" chat rc
-  chat="$(pane_chat_json "$pane")"
+  local tab="$1" label="$2" chat rc
+  chat="$(tab_chat_json "$tab")"
   rc=$?
   [ "$rc" -eq 0 ] || return "$rc"
   printf '%s\n' "$chat" | $PY -c '
@@ -154,10 +154,10 @@ print(count)
 }
 
 
-wait_pane_idle() {
-  local pane="$1" deadline=$((SECONDS + 240))
+wait_tab_idle() {
+  local tab="$1" deadline=$((SECONDS + 240))
   while [ $SECONDS -lt $deadline ]; do
-    if dc tab status --tab "$pane" 2>/dev/null | grep -q "status:  *Idle"; then
+    if dc tab status --tab "$tab" 2>/dev/null | grep -q "status:  *Idle"; then
       return 0
     fi
     sleep 3
@@ -167,8 +167,8 @@ wait_pane_idle() {
 
 
 watcher_note_count() {
-  local pane="$1" chat rc
-  chat="$(pane_chat_json "$pane")"
+  local tab="$1" chat rc
+  chat="$(tab_chat_json "$tab")"
   rc=$?
   [ "$rc" -eq 0 ] || return "$rc"
   printf '%s\n' "$chat" | $PY -c '
@@ -221,21 +221,21 @@ fi
 CREATED_WS+=("$WS")
 pass workspace "created $WS"
 
-ORCH_TASK="Watcher-health fixture: stay idle. Do not spawn agents. This pane exists so a watcher can observe a quiet orchestration."
+ORCH_TASK="Watcher-health fixture: stay idle. Do not spawn agents. This tab exists so a watcher can observe a quiet orchestration."
 ORCH_OUT="$(dc agent spawn claude --role Orchestrator --workspace "$WS" --cwd "$WS_CWD" --title "WH orchestrator" --task "$ORCH_TASK" 2>&1)"
 ORCH_RC=$?
 if [ "$ORCH_RC" -ne 0 ]; then
   fail orchestrator "spawn failed: $(printf '%s' "$ORCH_OUT" | head -c 180)"
   exit 1
 fi
-ORCH="$(printf '%s\n' "$ORCH_OUT" | extract_pane_id)"
+ORCH="$(printf '%s\n' "$ORCH_OUT" | extract_tab_id)"
 if [ -z "$ORCH" ]; then
   fail orchestrator "spawn failed: $(printf '%s' "$ORCH_OUT" | head -c 180)"
   exit 1
 fi
-CREATED_PANES+=("$ORCH")
+CREATED_TABS+=("$ORCH")
 pass orchestrator "spawned $ORCH"
-if wait_pane_idle "$ORCH"; then
+if wait_tab_idle "$ORCH"; then
   pass orchestrator-idle "orchestrator finished onboarding and is Idle"
 else
   echo "WARN orchestrator-idle: not Idle after 240s; PTY delivery to a busy claude may be swallowed (pre-existing race), nudge oracle uses the watcher transcript"
@@ -248,12 +248,12 @@ if [ "$WORKER_RC" -ne 0 ]; then
   fail worker "spawn failed: $(printf '%s' "$WORKER_OUT" | head -c 180)"
   exit 1
 fi
-WORKER="$(printf '%s\n' "$WORKER_OUT" | extract_pane_id)"
+WORKER="$(printf '%s\n' "$WORKER_OUT" | extract_tab_id)"
 if [ -z "$WORKER" ]; then
   fail worker "spawn failed: $(printf '%s' "$WORKER_OUT" | head -c 180)"
   exit 1
 fi
-CREATED_PANES+=("$WORKER")
+CREATED_TABS+=("$WORKER")
 pass worker "spawned silent stalled fixture $WORKER"
 
 WATCHER_OUT="$(dc agent spawn lmstudio --role Watcher --parent "$ORCH" --workspace "$WS" --cwd "$WS_CWD" --title "$WATCHER_TITLE" --charter "$WATCHER_CHARTER" --interval "${INTERVAL_SECS}s" --nudge-cooldown 10m --max-actions 1 2>&1)"
@@ -262,12 +262,12 @@ if [ "$WATCHER_RC" -ne 0 ]; then
   fail watcher "spawn failed: $(printf '%s' "$WATCHER_OUT" | head -c 220)"
   exit 1
 fi
-WATCHER="$(printf '%s\n' "$WATCHER_OUT" | extract_pane_id)"
+WATCHER="$(printf '%s\n' "$WATCHER_OUT" | extract_tab_id)"
 if [ -z "$WATCHER" ]; then
   fail watcher "spawn failed: $(printf '%s' "$WATCHER_OUT" | head -c 220)"
   exit 1
 fi
-CREATED_PANES+=("$WATCHER")
+CREATED_TABS+=("$WATCHER")
 pass watcher "spawned $WATCHER"
 
 echo "=== observe two watcher intervals ==="

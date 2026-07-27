@@ -128,32 +128,32 @@ function assistantText(snapshot) {
     .join("\n");
 }
 
-function paneChanged(event, paneId) {
-  return event.event_type.includes(paneId) ||
-    event.data?.pane_id === paneId ||
-    JSON.stringify(event.data ?? {}).includes(paneId) ||
+function tabChanged(event, tabId) {
+  return event.event_type.includes(tabId) ||
+    event.data?.tab_id === tabId ||
+    JSON.stringify(event.data ?? {}).includes(tabId) ||
     event.event_type === "mux-state-changed";
 }
 
-async function waitForSession(events, paneId) {
+async function waitForSession(events, tabId) {
   for (;;) {
-    const pane = (await api("/api/panes")).find(({ id }) => id === paneId);
-    if (pane?.agent_session_id) return;
+    const tab = (await api("/api/tabs")).find(({ id }) => id === tabId);
+    if (tab?.agent_session_id) return;
     await events.next((event) => event.event_type === "mux-state-changed");
   }
 }
 
-async function waitForAssistant(events, paneId, assertion) {
+async function waitForAssistant(events, tabId, assertion) {
   for (;;) {
-    const snapshot = await api(`/api/panes/${paneId}/chat`);
+    const snapshot = await api(`/api/tabs/${tabId}/chat`);
     const text = assistantText(snapshot);
     if (assertion(text)) return text;
-    await events.next((event) => paneChanged(event, paneId));
+    await events.next((event) => tabChanged(event, tabId));
   }
 }
 
-async function closePane(paneId) {
-  await api(`/api/panes/${paneId}/close`, { method: "POST", body: "{}" }).catch(() => {});
+async function closeTab(tabId) {
+  await api(`/api/tabs/${tabId}/close`, { method: "POST", body: "{}" }).catch(() => {});
 }
 
 async function createWorkspace(label) {
@@ -179,7 +179,7 @@ function removeWorkspace(cwd) {
 async function verifySingle(events, provider) {
   console.log(`RUN single ${provider}`);
   const workspace = await createWorkspace(`provider-single-${provider}`);
-  let paneId;
+  let tabId;
   try {
     const expected = "UTC";
     const spawned = await api("/api/agents/spawn", {
@@ -194,13 +194,13 @@ async function verifySingle(events, provider) {
         task: "What is the standard three-letter abbreviation for Coordinated Universal Time? Reply with only that abbreviation.",
       }),
     });
-    paneId = spawned.pane_id;
-    await waitForSession(events, paneId);
-    await api(`/api/panes/${paneId}/chat/start`, { method: "POST", body: "{}" });
-    await waitForAssistant(events, paneId, (text) => text.trim() === expected);
+    tabId = spawned.tab_id;
+    await waitForSession(events, tabId);
+    await api(`/api/tabs/${tabId}/chat/start`, { method: "POST", body: "{}" });
+    await waitForAssistant(events, tabId, (text) => text.trim() === expected);
     console.log(`PASS single ${provider}: exact assistant-only oracle returned`);
   } finally {
-    if (paneId) await closePane(paneId);
+    if (tabId) await closeTab(tabId);
     await closeWorkspace(workspace.id);
     removeWorkspace(workspace.cwd);
   }
@@ -219,23 +219,23 @@ function assertBootstrap(snapshot, role, counterpartRole, counterpartId) {
   );
 }
 
-async function waitForBootstrap(events, paneId, role, counterpartRole, counterpartId) {
+async function waitForBootstrap(events, tabId, role, counterpartRole, counterpartId) {
   let snapshot;
   try {
     for (;;) {
-      snapshot = await api(`/api/panes/${paneId}/chat`);
+      snapshot = await api(`/api/tabs/${tabId}/chat`);
       if (assertBootstrap(snapshot, role, counterpartRole, counterpartId)) return;
-      await events.next((event) => paneChanged(event, paneId));
+      await events.next((event) => tabChanged(event, tabId));
     }
   } catch (error) {
-    snapshot ??= await api(`/api/panes/${paneId}/chat`).catch(() => ({ messages: [] }));
+    snapshot ??= await api(`/api/tabs/${tabId}/chat`).catch(() => ({ messages: [] }));
     const messages = messagesOf(snapshot);
     const starters = messages.filter(
       (message) => message.type === "user" && (message.content ?? "").includes(STARTER),
     );
     const assistant = assistantText(snapshot).replaceAll(/\s+/g, " ").slice(0, 240);
     throw new Error(
-      `${role} pane ${paneId}: ${error.message}; starter_turns=${starters.length}; assistant=${JSON.stringify(assistant)}`,
+      `${role} tab ${tabId}: ${error.message}; starter_turns=${starters.length}; assistant=${JSON.stringify(assistant)}`,
     );
   }
 }
@@ -254,33 +254,33 @@ async function verifyTeam(events, orchestratorProvider, plannerProvider) {
       }),
     });
     await Promise.all([
-      waitForSession(events, pair.orchestrator_pane_id),
-      waitForSession(events, pair.planner_pane_id),
+      waitForSession(events, pair.orchestrator_tab_id),
+      waitForSession(events, pair.planner_tab_id),
     ]);
     await Promise.all([
-      api(`/api/panes/${pair.orchestrator_pane_id}/chat/start`, { method: "POST", body: "{}" }),
-      api(`/api/panes/${pair.planner_pane_id}/chat/start`, { method: "POST", body: "{}" }),
+      api(`/api/tabs/${pair.orchestrator_tab_id}/chat/start`, { method: "POST", body: "{}" }),
+      api(`/api/tabs/${pair.planner_tab_id}/chat/start`, { method: "POST", body: "{}" }),
     ]);
     await Promise.all([
       waitForBootstrap(
         events,
-        pair.orchestrator_pane_id,
+        pair.orchestrator_tab_id,
         "Orchestrator",
         "Planner",
-        pair.planner_pane_id,
+        pair.planner_tab_id,
       ),
       waitForBootstrap(
         events,
-        pair.planner_pane_id,
+        pair.planner_tab_id,
         "Planner",
         "Orchestrator",
-        pair.orchestrator_pane_id,
+        pair.orchestrator_tab_id,
       ),
     ]);
     console.log(`PASS team ${orchestratorProvider}+${plannerProvider}: one starter and both roles acknowledged`);
   } finally {
-    if (pair?.planner_pane_id) await closePane(pair.planner_pane_id);
-    if (pair?.orchestrator_pane_id) await closePane(pair.orchestrator_pane_id);
+    if (pair?.planner_tab_id) await closeTab(pair.planner_tab_id);
+    if (pair?.orchestrator_tab_id) await closeTab(pair.orchestrator_tab_id);
     await closeWorkspace(workspace.id);
     removeWorkspace(workspace.cwd);
   }

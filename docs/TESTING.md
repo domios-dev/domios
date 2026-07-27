@@ -219,14 +219,14 @@ CODETERM_API_URL=http://HOST:PORT CODETERM_API_TOKEN=TOKEN pytest tests/e2e/ -v
 |------|-------|------|
 | `test_health.py` | 2 | API health, identify |
 | `test_workspaces.py` | 4 | Workspace CRUD |
-| `test_panes.py` | 6 | Tab create, split, close, rename |
+| `test_tabs.py` | 6 | Tab create, split, close, rename |
 | `test_pty_io.py` | 13 | PTY read/write, exec, streaming |
-| `test_env.py` | 4 | CODETERM_PANE_ID env injection |
+| `test_env.py` | 4 | CODETERM_TAB_ID env injection |
 | `test_notifications.py` | 3 | Notification create, list |
 | `test_cron.py` | 5 | Cron CRUD |
 | `test_agents.py` | 5 | Agent hierarchy |
 | `test_hooks.py` | 10 | Hook endpoints, prompt parsing accuracy, full approval flow |
-| `test_multi_pane.py` | 5 | Multi-tab prompt isolation |
+| `test_multi_tab.py` | 5 | Multi-tab prompt isolation |
 | `test_attachments.py` | 3 | File attachment via API |
 | `test_logging.py` | 4 | Log file, levels |
 | `test_claude_spawn.py` | 8 | Real Claude spawn (**slow**, 30-90s each) |
@@ -417,7 +417,7 @@ The status tracker (`agent_tracker`) determines whether an agent is Working, Wai
 | Path | Entry point | When used |
 |------|-------------|-----------|
 | **PTY auto-detect** | `process_pty_output()` -> `PromptDetector.evaluate_pty_output()` | Always runs for agent Tabs; reliable fallback |
-| **Hook (API)** | `POST /api/panes/{id}/hook/permission` -> `PromptDetector.hook_detected_explicit()` | Claude Code hooks call this; faster, bypasses cooldown |
+| **Hook (API)** | `POST /api/tabs/{id}/hook/permission` -> `PromptDetector.hook_detected_explicit()` | Claude Code hooks call this; faster, bypasses cooldown |
 
 Both paths converge on the same `PromptDetector` state machine and `apply_prompt_decision()`.
 

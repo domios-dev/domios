@@ -117,8 +117,8 @@ class ConvertLegacyParkedTaskTests(unittest.TestCase):
         value = yaml.safe_load(after)
         self.assertEqual(value["status"], "paused")
         self.assertEqual(value["pause_reason"], "Legacy operator hold")
-        self.assertIsNone(value["assigned_pane_id"])
-        self.assertIsNone(value["lane"]["pane_id"])
+        self.assertIsNone(value["assigned_tab_id"])
+        self.assertIsNone(value["lane"]["tab_id"])
         self.assertEqual(value["execution_attempts"][0]["closed_at"], 123456)
         self.assertEqual(value["execution_attempts"][1]["closed_at"], 75)
         self.assertEqual(

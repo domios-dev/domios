@@ -35,7 +35,7 @@
 <!-- TRANSLATION-TODO (2026-04-29 review): translation lags README.md — please mirror these sections from English:
      1. The two top-of-features GIF subsections (`### Agent Orchestration`, `### Cron Jobs`) shown right after the language nav.
      2. Per-OS install subsections instead of one combined "ダウンロード": `### macOS (Homebrew)`, `### Windows (Scoop)`, `### Windows (installer)`, `### Linux`.
-     3. Rename the "組み込みブラウザ" section to match English `### Canvas Panels` (the feature was renamed). -->
+     3. Rename the "組み込みブラウザ" section to match English `### Canvas Tabls` (the feature was renamed). -->
 
 ---
 
@@ -170,15 +170,15 @@ CodeTermは統合のために3つのAPIを公開しています：
 
 ```bash
 # ペイン一覧
-curl http://localhost:7685/api/panes
+curl http://localhost:7685/api/tabs
 
 # コマンドを実行して出力を取得
-curl -X POST http://localhost:7685/api/panes/{id}/exec \
+curl -X POST http://localhost:7685/api/tabs/{id}/exec \
   -H "Content-Type: application/json" \
   -d '{"command": "git status"}'
 
 # ターミナルにテキストを送信
-curl -X POST http://localhost:7685/api/panes/{id}/send \
+curl -X POST http://localhost:7685/api/tabs/{id}/send \
   -H "Content-Type: application/json" \
   -d '{"text": "npm test", "enter": true}'
 
@@ -190,10 +190,10 @@ curl -X POST http://localhost:7685/api/workspaces \
 # 親ペインの隣の新しいペインで agent を起動
 curl -X POST http://localhost:7685/api/agents/spawn \
   -H "Content-Type: application/json" \
-  -d '{"agent": "claude", "parent_pane_id": "PANE_ID"}'
+  -d '{"agent": "claude", "parent_tab_id": "TAB_ID"}'
 
 # リアルタイム出力ストリーミング（SSE）
-curl http://localhost:7685/api/panes/{id}/output/stream
+curl http://localhost:7685/api/tabs/{id}/output/stream
 ```
 
 ### CLIツール
@@ -206,7 +206,7 @@ codeterm workspace create "Project"
 # ターミナル制御
 codeterm tab list
 codeterm send --tab TAB_ID "npm run build"
-codeterm get-output PANE_ID --lines 50
+codeterm get-output TAB_ID --lines 50
 
 # 通知
 codeterm notify "Build complete" --level info
@@ -222,7 +222,7 @@ CodeTermはすべてのPTYセッションで以下の環境変数を設定しま
 | 変数 | 説明 |
 |----------|-------------|
 | `CODETERM` | 常に`1` — CodeTerm内で実行されているかを検出 |
-| `CODETERM_PANE_ID` | 現在のペインのUUID |
+| `CODETERM_TAB_ID` | 現在のペインのUUID |
 | `CODETERM_SOCKET_PATH` | JSON-RPC APIのソケットパス |
 | `TERM_PROGRAM` | `CodeTerm` |
 

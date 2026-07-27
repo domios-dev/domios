@@ -35,7 +35,7 @@
 <!-- TRANSLATION-TODO (2026-04-29 review): translation lags README.md — please mirror these sections from English:
      1. The two top-of-features GIF subsections (`### Agent Orchestration`, `### Cron Jobs`) shown right after the language nav.
      2. Per-OS install subsections instead of one combined "Téléchargement": `### macOS (Homebrew)`, `### Windows (Scoop)`, `### Windows (installer)`, `### Linux`.
-     3. Rename the "Navigateur intégré" section to match English `### Canvas Panels` (the feature was renamed). -->
+     3. Rename the "Navigateur intégré" section to match English `### Canvas Tabls` (the feature was renamed). -->
 
 ---
 
@@ -170,15 +170,15 @@ CodeTerm expose trois API pour l'intégration :
 
 ```bash
 # Lister les panneaux
-curl http://localhost:7685/api/panes
+curl http://localhost:7685/api/tabs
 
 # Exécuter une commande et obtenir la sortie
-curl -X POST http://localhost:7685/api/panes/{id}/exec \
+curl -X POST http://localhost:7685/api/tabs/{id}/exec \
   -H "Content-Type: application/json" \
   -d '{"command": "git status"}'
 
 # Envoyer du texte au terminal
-curl -X POST http://localhost:7685/api/panes/{id}/send \
+curl -X POST http://localhost:7685/api/tabs/{id}/send \
   -H "Content-Type: application/json" \
   -d '{"text": "npm test", "enter": true}'
 
@@ -190,10 +190,10 @@ curl -X POST http://localhost:7685/api/workspaces \
 # Lancer un agent dans un nouveau panneau à côté du panneau parent
 curl -X POST http://localhost:7685/api/agents/spawn \
   -H "Content-Type: application/json" \
-  -d '{"agent": "claude", "parent_pane_id": "PANE_ID"}'
+  -d '{"agent": "claude", "parent_tab_id": "TAB_ID"}'
 
 # Streamer la sortie en temps réel (SSE)
-curl http://localhost:7685/api/panes/{id}/output/stream
+curl http://localhost:7685/api/tabs/{id}/output/stream
 ```
 
 ### Outil CLI
@@ -206,7 +206,7 @@ codeterm workspace create "Project"
 # Contrôle du terminal
 codeterm tab list
 codeterm send --tab TAB_ID "npm run build"
-codeterm get-output PANE_ID --lines 50
+codeterm get-output TAB_ID --lines 50
 
 # Notifications
 codeterm notify "Build complete" --level info
@@ -222,7 +222,7 @@ CodeTerm définit ces variables dans chaque session PTY :
 | Variable | Description |
 |----------|-------------|
 | `CODETERM` | Toujours `1` — détecte si l'on s'exécute dans CodeTerm |
-| `CODETERM_PANE_ID` | UUID du panneau courant |
+| `CODETERM_TAB_ID` | UUID du panneau courant |
 | `CODETERM_SOCKET_PATH` | Chemin du socket pour l'API JSON-RPC |
 | `TERM_PROGRAM` | `CodeTerm` |
 

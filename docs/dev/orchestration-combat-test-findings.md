@@ -17,7 +17,7 @@ state (planner_ref, plan ownership) over incoming text; treat briefs as
 input material. — *open (prompt change, needs eval run)*
 
 ### F2. Dead parent edge on planner Tab
-`CODETERM_PARENT_PANE_ID` pointed at a Tab id that no longer exists
+`CODETERM_PARENT_TAB_ID` pointed at a Tab id that no longer exists
 (pre-restart id). Hierarchy env vars go stale across daemon restarts.
 **Fix direction:** covered by the runtime-relink work (their t11) +
 spawn-time parent resolution (F6). — *open*
@@ -44,8 +44,8 @@ fine). Doc guidance loses to momentum.
 mechanical pre-spawn hint when N Tabs spawn within M minutes. — *open*
 
 ### F6. Worker parentage attached to the wrong orchestrator
-Workers spawned by the orchestrator got `parent_pane_id` /
-`report_target_pane_id` pointing at ANOTHER orchestrator-role Tab in the
+Workers spawned by the orchestrator got `parent_tab_id` /
+`report_target_tab_id` pointing at ANOTHER orchestrator-role Tab in the
 workspace (spawn fallback picked the senior orchestrator, not the caller).
 Report ROUTING still reached the true spawner via the hierarchy service —
 so the UI tree lied while the loop worked: three disagreeing sources of

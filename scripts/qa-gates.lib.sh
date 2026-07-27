@@ -19,7 +19,7 @@ qa_sanitize_env() {
   if [ -n "${QA_GATE_INSTANCE:-}" ]; then
     export CODETERM_INSTANCE="$QA_GATE_INSTANCE"
   fi
-  unset CODETERM_PANE_ID CODETERM_PARENT_PANE_ID 2>/dev/null || true
+  unset CODETERM_TAB_ID CODETERM_PARENT_TAB_ID 2>/dev/null || true
   export CODETERM_API_URL="http://127.0.0.1:${CODETERM_API_PORT}"
   if [ -n "${QA_GATE_SOCKET_PATH:-}" ]; then
     export CODETERM_SOCKET_PATH="$QA_GATE_SOCKET_PATH"

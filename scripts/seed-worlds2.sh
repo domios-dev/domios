@@ -48,7 +48,7 @@ mktask(){
 stride(){ jpost /api/plans/$PID/tasks/$1/milestones "$(jq -n --arg k "$2" --arg t "$3" '{kind:$k,text:$t}')" >/dev/null; }
 setstatus(){ jpatch /api/plans/$PID/tasks/$1 "$(jq -n --arg s "$2" '{status:$s}')"; }
 
-T1=$(mktask "U1: auto-refresh on timer expiry" implement claude-opus-4-8 "deep change needs the strongest model" "Reset the usage panel proactively when a reset timer expires — no manual click. Hook the poller to fire a refresh at the boundary and re-render the cycle." "$S1,$S2" in_progress p0)
+T1=$(mktask "U1: auto-refresh on timer expiry" implement claude-opus-4-8 "deep change needs the strongest model" "Reset the usage tabl proactively when a reset timer expires — no manual click. Hook the poller to fire a refresh at the boundary and re-render the cycle." "$S1,$S2" in_progress p0)
 stride "$T1" status_update "wired the poller boundary trigger"
 stride "$T1" decision "reset at boundary, not on focus — avoids stale windows"
 stride "$T1" testing "added a fake-clock test crossing the boundary"
@@ -103,8 +103,8 @@ jpost /api/plans/$PID/handoffs "$(jq -n '{goal:"Polish to Figma-grade and dogfoo
 
 # Claim the plan to the active workspace's tab so the per-tab Plan mode surfaces
 # the board (PlanButton only shows for a tab that owns / works the plan).
-TAB=$(curl -s "${A[@]}" "$B/api/workspaces" | jq -r 'if type=="array" then . else .workspaces end | map(select(.is_active==true))[0].pane_ids[0] // empty')
-[ -n "$TAB" ] && jpost /api/plans/$PID/claim "$(jq -n --arg p "$TAB" '{owner:{pane_id:$p,session_id:null,title:"worlds2"}}')" >/dev/null && echo "claimed plan to tab $TAB"
+TAB=$(curl -s "${A[@]}" "$B/api/workspaces" | jq -r 'if type=="array" then . else .workspaces end | map(select(.is_active==true))[0].tab_ids[0] // empty')
+[ -n "$TAB" ] && jpost /api/plans/$PID/claim "$(jq -n --arg p "$TAB" '{owner:{tab_id:$p,session_id:null,title:"worlds2"}}')" >/dev/null && echo "claimed plan to tab $TAB"
 
 echo "done:"
 curl -s "${A[@]}" "$B/api/plans?project=$PROJ&full=1" | jq -r --arg p "$PID" '.plans[]|select(.id==$p)|"sections=\(.sections|length) tasks=\(.tasks|length) strides=\([.tasks[].milestones[]]|length) handoffs=\([.elements[]|select(.kind=="handoff")]|length)"'

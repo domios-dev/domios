@@ -15,7 +15,7 @@ Grounding (verified in code):
   open-kind fallback (`plan/types.rs:207`). New node kinds need NO new persistence.
 - `Milestone { from, kind, text, ts, links, loop_id, iteration }` is task-interior; `kind`
   must be declared in `plan.milestone_kinds` (validated, `cli/cmd/plan.rs:93`).
-- `agent.report` RPC already accepts `pane_id, message, kind, plan_id, task_id, status,
+- `agent.report` RPC already accepts `tab_id, message, kind, plan_id, task_id, status,
   branch, sha, changed_files, test_cmd, test_result, skipped` (`cli/cmd/agent.rs:299`).
 - `agent compact` sends `/compact\n` to a Tab via the send path (`cli/cmd/agent.rs:505`).
 - §17 externalized bodies: large text lives in sibling `.md`, hydrated by the single-writer
@@ -38,14 +38,14 @@ A handoff must let a zero-context agent resume the plan. Fields (structured part
 {
   "seq": 3,                       // handoff #N for this plan -> timeline ordering
   "mode": "new" | "compact",      // continuation mode used
-  "from": { "pane_id", "session_id", "title" },   // the context being retired
+  "from": { "tab_id", "session_id", "title" },   // the context being retired
   "ts": 0,
   "goal": "one-to-two lines: what we are building",
   "plan_id": "...", "plan_title": "...", "plan_handle": "...",
   "state": { "coverage_pct": 72, "done": 18, "total": 24, "focus_section": "sec_..", "phase": "v3 layout" },
   "in_flight": [                  // live agents + branch state at reset
     { "task_handle": "nav-pan-zoom", "status": "in_progress",
-      "assigned_pane_id": "..", "branch": "feat/canvas-nav", "sha": "abc1234", "dirty": true }
+      "assigned_tab_id": "..", "branch": "feat/canvas-nav", "sha": "abc1234", "dirty": true }
   ],
   "next_actions": ["...", "..."], // ordered resume queue (the sharp part)
   "foundational_rules": ["§22.1 zoom=camera, bounds fixed", "..."],  // non-negotiables for THIS plan
@@ -64,7 +64,7 @@ orchestrator): why we're here, what just happened, traps to avoid, nuance the st
 fields can't hold. `RichMarkdown`-rendered on the canvas (W3).
 
 **Generation = template + live plan state + orchestrator free-text.** A pure
-`compose_handoff(plan, from_pane, narrative)` in `service/plan/handoff.rs`:
+`compose_handoff(plan, from_tab, narrative)` in `service/plan/handoff.rs`:
 - AUTO from the in-memory plan index: `state` (coverage/done/total), `in_flight` (tasks
   not done/cancelled + their latest branch/sha pulled from `agent.report` milestone
   provenance), `open_decisions` (open `decision`-kind milestones), `branch_state` (git),

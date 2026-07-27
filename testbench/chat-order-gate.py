@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Codex (and any provider) ChatUI ordering — deterministic DATA-LAYER gate.
 
-The ChatUI renders the transcript from /api/panes/{id}/chat. This gate asserts
+The ChatUI renders the transcript from /api/tabs/{id}/chat. This gate asserts
 that transcript is correctly ordered at the data layer:
   * `seq` strictly increasing
   * `timestamp` non-decreasing (monotonic)
   * no duplicate ids
 A PASS here means any visible out-of-order rendering is a FRONTEND render bug
-(src/components/Terminal/PaneSessionChat.tsx), not the transcript/classifier.
+(src/components/Terminal/TabSessionChat.tsx), not the transcript/classifier.
 
 DOM order itself remains MANUAL / Windows-only: Playwright drives WebView2 via
 CDP (tests/playwright/README.md); macOS WKWebView has no CDP attach. This gate is
@@ -15,7 +15,7 @@ the deterministic macOS substitute, runnable in CI without a desktop.
 
 Usage:
   python3 testbench/chat-order-gate.py testbench/fixtures/codex-chat-order-2bace0d6.json
-  python3 testbench/chat-order-gate.py --live              # all live codex panes
+  python3 testbench/chat-order-gate.py --live              # all live codex tabs
   python3 testbench/chat-order-gate.py --live --agent opencode
 """
 import argparse
@@ -52,15 +52,15 @@ def check(messages, label):
     return ok
 
 
-def live_panes(agent):
+def live_tabs(agent):
     # use the bench lib's dev_get via a tiny shell shim to stay dev-locked
-    cmd = f'source "{ROOT}/evals/_lib/lib.sh" 2>/dev/null; dev_get /api/panes'
+    cmd = f'source "{ROOT}/evals/_lib/lib.sh" 2>/dev/null; dev_get /api/tabs'
     out = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True).stdout
-    panes = json.loads(out)
-    ids = [p["id"] for p in panes if p.get("agent_type") == agent]
+    tabs = json.loads(out)
+    ids = [p["id"] for p in tabs if p.get("agent_type") == agent]
     res = []
     for pid in ids:
-        cmd = f'source "{ROOT}/evals/_lib/lib.sh" 2>/dev/null; dev_get /api/panes/{pid}/chat'
+        cmd = f'source "{ROOT}/evals/_lib/lib.sh" 2>/dev/null; dev_get /api/tabs/{pid}/chat'
         out = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True).stdout
         try:
             res.append((pid, json.loads(out).get("messages", [])))
@@ -78,12 +78,12 @@ def main():
 
     all_ok = True
     if args.live:
-        panes = live_panes(args.agent)
-        if not panes:
-            print(f"no live {args.agent} panes")
+        tabs = live_tabs(args.agent)
+        if not tabs:
+            print(f"no live {args.agent} tabs")
             return 0
-        for pid, msgs in panes:
-            all_ok &= check(msgs, f"live {args.agent} pane {pid}")
+        for pid, msgs in tabs:
+            all_ok &= check(msgs, f"live {args.agent} tab {pid}")
     elif args.fixture:
         d = json.load(open(args.fixture))
         all_ok &= check(d["messages"], f"fixture {Path(args.fixture).name} ({d.get('agent')})")

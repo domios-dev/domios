@@ -14,11 +14,11 @@ It is not a new orchestration engine. The hierarchy (Orchestrator → Worker), r
 ### What already exists (discovery)
 
 - **Reports persist**: in-memory `ReportStore` + durable `~/.codeterm/orchestration.db` (one upsert row per orchestrator↔worker). `codeterm agent report` already carries `message, status, branch, sha, changed_files, test_cmd, test_result, skipped` and routes to the owning orchestrator (`src-tauri/src/service/hierarchy.rs`, `src-tauri/src/agent/reports.rs`).
-- **Role/hierarchy model**: `AgentRole = Orchestrator | Worker`, `parent_pane_id`, `depth`, `can_spawn`, `report_target_pane_id`, `spawned_by_pane_id` on `Pane` (`src-tauri/src/multiplexer/types.rs`). `CODETERM_ROLE` env set at spawn.
+- **Role/hierarchy model**: `AgentRole = Orchestrator | Worker`, `parent_tab_id`, `depth`, `can_spawn`, `report_target_tab_id`, `spawned_by_tab_id` on `Tab` (`src-tauri/src/multiplexer/types.rs`). `CODETERM_ROLE` env set at spawn.
 - **A proto-canvas exists**: `src/components/Swarm/` (SwarmOverlay, Canvas-2D orchestrator→worker tree with animated "report particles" along edges) — currently commented out (`App.tsx` TODO). Its report-particle metaphor matches the milestone chain and can be reused for chain animation later.
 - **Three canvases in code**: Mesh (`MeshCanvas.tsx` — absolutely-positioned divs + CSS-transform pan/zoom, custom), Memory (`MemorySnapshotCanvas.tsx` — Sigma WebGL graph), Swarm (Canvas2D). No shared pan/zoom hook.
 - **No plans anywhere**: no plan struct, table, file, or per-project `.codeterm/`. Everything lives in global `~/.codeterm` (`-dev` in dev).
-- **Mount points (precise)**: workspace empty-state → `App.tsx` `<main>` (~543–649); Plan button → `PaneTopBar.tsx` right of `PaneModeSwitch` (~52–54).
+- **Mount points (precise)**: workspace empty-state → `App.tsx` `<main>` (~543–649); Plan button → `TabTopBar.tsx` right of `TabModeSwitch` (~52–54).
 - **Prompt seam**: `src-tauri/prompts/codeterm_cli.md` (injected via `{codeterm_cli}`), `orchestrator_suffix.md` / `worker_suffix.md` (short imperatives); orchestration *principle* lives in mem skill `codeterm-orchestrator`.
 
 ## 2. Decisions (locked)
@@ -95,7 +95,7 @@ Task {
   group: string | null   // optional TaskGroup key (≈ phase); null = ungrouped (see 3.8)
   body: string          // markdown — the task card body
   intent: string | null  // orchestrator's extra free-text instruction for the worker, folded into the spawn prompt
-  assigned_pane_id: string | null
+  assigned_tab_id: string | null
   peer: string | null    // mesh peer where the assigned tab lives (null = local machine)
   canvas: ElementCanvas // this card's own position / display state (see 3.5)
   milestones: Milestone[] // the horizontal report chain
@@ -119,16 +119,16 @@ Milestone {
 ```
 Milestones are the persisted projection of `agent report`. A report tagged with `--plan/--task` appends a milestone. `links` carries the chain order and can point backward to form the self-improving loop.
 
-Authorship is **never hand-typed**. The daemon resolves `from` from the calling Tab's env identity (`CODETERM_PANE_ID` → session + title), exactly as `agent report` already does. An optional `--from` flag exists only as a rare manual override (e.g. backfilling on behalf of another agent).
+Authorship is **never hand-typed**. The daemon resolves `from` from the calling Tab's env identity (`CODETERM_TAB_ID` → session + title), exactly as `agent report` already does. An optional `--from` flag exists only as a rare manual override (e.g. backfilling on behalf of another agent).
 
 ### 3.4 Identity & ownership
 Tab ids are ephemeral (regenerated on restart); plans must survive restart and re-attach.
 
 ```
-OrchestratorRef { pane_id: string|null, session_id: string|null, title: string|null }
-AgentRef        { pane_id: string|null, session_id: string|null, title: string|null }
+OrchestratorRef { tab_id: string|null, session_id: string|null, title: string|null }
+AgentRef        { tab_id: string|null, session_id: string|null, title: string|null }
 ```
-- Ownership key = `session_id` when available (stable across restart), else `pane_id`.
+- Ownership key = `session_id` when available (stable across restart), else `tab_id`.
 - **Owner state (derived):** `owned` (owner Tab live) | `unowned` (no live owner). A plan also stores `owner_history: TransferRecord[]` (`{from, to, ts, reason}`) for audit.
 - **Canvas render filter** = `status == active`. An `owned` plan renders in its owner's cluster. When the owner dies, the plan becomes `unowned` — it **leaves the owner's cluster** (this is "disappears from the canvas") but is **not deleted**: it stays active and **claimable**, surfaced via `plan list --unowned` and an optional unowned tray. An orchestrator resuming the same `session_id` **auto-reattaches** (back to `owned`).
 - Archived plans are never rendered and not counted.
@@ -204,7 +204,7 @@ New Rust surfaces (each file < 1000 lines, split by responsibility):
 - `src-tauri/src/api/plan_routes.rs` — REST handlers; register in `src-tauri/src/api/routes.rs`.
 - Socket methods `plan.*` for the CLI (same pattern as `agent.report`).
 - **Report→milestone linkage:** extend `ReportBody` + `submit_report` (`agent_routes.rs` / `hierarchy.rs`) to accept optional `plan_id` + `task_id`; on report, append a `Milestone` to that task and persist. Reports without plan tags behave exactly as today (no regression).
-- **Real-time (mandatory):** every mutation emits `plan-changed` to **both** transports — the native Tauri event **and** the websocket feed — carrying the changed `plan_id` (+ minimal delta). Native app and WebUI both live-update with **no polling**; the canvas is purely subscription-driven, mirroring `pane-status-changed` / `mem-activity`. Any write through any path (CLI, REST, daemon) must fan out this event.
+- **Real-time (mandatory):** every mutation emits `plan-changed` to **both** transports — the native Tauri event **and** the websocket feed — carrying the changed `plan_id` (+ minimal delta). Native app and WebUI both live-update with **no polling**; the canvas is purely subscription-driven, mirroring `tab-status-changed` / `mem-activity`. Any write through any path (CLI, REST, daemon) must fan out this event.
 
 ### 4.1 Task binding via env
 When a task is assigned to a Tab (`plan task assign`, or a worker spawned for a task), the daemon exports `CODETERM_PLAN_ID` and `CODETERM_TASK_ID` into that Tab (alongside the existing `CODETERM_*` vars). Workers then report against their task without being told the ids: `codeterm agent report --plan $CODETERM_PLAN_ID --task $CODETERM_TASK_ID ...`. Creating a plan exports `CODETERM_PLAN_ID` into the orchestrator's own Tab too.
@@ -316,7 +316,7 @@ codeterm plan element add   <plan_id> --kind <k> [--content/--content-file ...] 
 ```
 Plus the report linkage: `codeterm agent report --plan <id> --task <tid> "<msg>"` auto-appends a milestone.
 
-Owner of a created plan = the caller's orchestrator identity, derived from `CODETERM_PANE_ID` / `CODETERM_ROLE` env (already exported at spawn).
+Owner of a created plan = the caller's orchestrator identity, derived from `CODETERM_TAB_ID` / `CODETERM_ROLE` env (already exported at spawn).
 
 ## 6. Frontend
 
@@ -337,7 +337,7 @@ New module `src/components/Canvas/`:
 
 Mounts:
 - **Workspace empty-state:** in `App.tsx` `<main>` when `mainView === "workspace"` and a workspace is active but no tab is focused → render `<CanvasView mode="workspace">`. This is the 2D playground; later phase adds spawn-orchestrator / hand-task affordances on empty canvas space.
-- **Plan button:** in `PaneTopBar.tsx` right of `PaneModeSwitch` → `<PlanButton>`. On an **orchestrator** Tab it shows when this Tab (self or ancestor via `parent_pane_id`) owns an active plan with open tasks → click opens `<CanvasView mode="focus">` on that plan. On a **worker** Tab bound to a task (`CODETERM_PLAN_ID`/`TASK_ID` set) it shows too → click opens the plan focused on this worker's task. **Change pulse:** on a `plan-changed` for the plan(s) it represents (new milestone, status, task…), the button itself **pulses** ("bam — change"), not a dot badge; the pulse clears once the user opens the canvas.
+- **Plan button:** in `TabTopBar.tsx` right of `TabModeSwitch` → `<PlanButton>`. On an **orchestrator** Tab it shows when this Tab (self or ancestor via `parent_tab_id`) owns an active plan with open tasks → click opens `<CanvasView mode="focus">` on that plan. On a **worker** Tab bound to a task (`CODETERM_PLAN_ID`/`TASK_ID` set) it shows too → click opens the plan focused on this worker's task. **Change pulse:** on a `plan-changed` for the plan(s) it represents (new milestone, status, task…), the button itself **pulses** ("bam — change"), not a dot badge; the pulse clears once the user opens the canvas.
 
 Reuse note: Swarm's report-particle animation can later animate milestone chains; not v1-critical.
 
@@ -394,9 +394,9 @@ CanvasLayoutSettings {
 ```
 - **The principle is swappable, not just the numbers.** `layoutStrategy` selects HOW elements populate (lane columns vs. clustered clouds vs. radial), so we can try different arrangements at runtime, not only nudge sizes. Each strategy reads the same numeric knobs.
 - **Single source:** the layout algorithm (§6.1) reads ALL constants from this object. Adding a knob = a field here, never a literal in code.
-- **Real-time tuning:** a **Canvas debug panel** renders a control per field. Editing a value updates the settings in memory and **re-runs the layout immediately** — no recompile, no rebuild. We tune sizes/gaps/thresholds together by dragging sliders and watching the canvas re-flow live.
-- **Lifecycle:** defaults ship in code; the debug panel overrides at runtime; a "save" persists to `config.toml [canvas]`. Tuned values can later be baked as defaults or left exposed as user-facing canvas settings.
-- Debug panel is dev/toggle-gated tooling (Phase 2/3), but the settings abstraction itself lands with the layout in Phase 2 so nothing is ever hardcoded.
+- **Real-time tuning:** a **Canvas debug tabl** renders a control per field. Editing a value updates the settings in memory and **re-runs the layout immediately** — no recompile, no rebuild. We tune sizes/gaps/thresholds together by dragging sliders and watching the canvas re-flow live.
+- **Lifecycle:** defaults ship in code; the debug tabl overrides at runtime; a "save" persists to `config.toml [canvas]`. Tuned values can later be baked as defaults or left exposed as user-facing canvas settings.
+- Debug tabl is dev/toggle-gated tooling (Phase 2/3), but the settings abstraction itself lands with the layout in Phase 2 so nothing is ever hardcoded.
 
 ### 6.3 Extensible canvas elements
 Every node on the canvas shares a common base — the canvas core positions/connects "physical" boxes and **dispatches rendering by kind through a registry**, so new content types plug in without touching the layout engine.

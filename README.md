@@ -74,8 +74,8 @@ Built with **Tauri v2** (Rust) + **React** + **xterm.js**.
 - **Webhook bridge** — register URLs for agent events (`agent.permission_request`, `agent.task_complete`, `agent.report`)
 
 ### Mesh tab & service registry (v1.2.0)
-- **Mesh canvas** — radial peer terminals with live connection lines (width / opacity by recent push volume, bidirectional pulse on every event), pan/zoom, fit-to-view. Replaces the old standalone Crons panel.
-- **Service registry** — register daemons (HTTP / TCP / process / script health probes) via `codeterm service add` or the Mesh tab's Smart-Add wizard. Cron jobs are projected as virtual `cron`-kind services. Per-service Bearer tokens let daemons write to panes via `POST /api/panes/<id>/send` without the global API token.
+- **Mesh canvas** — radial peer terminals with live connection lines (width / opacity by recent push volume, bidirectional pulse on every event), pan/zoom, fit-to-view. Replaces the old standalone Crons tabl.
+- **Service registry** — register daemons (HTTP / TCP / process / script health probes) via `codeterm service add` or the Mesh tab's Smart-Add wizard. Cron jobs are projected as virtual `cron`-kind services. Per-service Bearer tokens let daemons write to tabs via `POST /api/tabs/<id>/send` without the global API token.
 - **Activity log** — bounded (10 000 rows / 30 days) feed of every push, health transition, peer event, and cron lifecycle event. `GET /api/activity?source=push|health|peer|cron`.
 - **Auto online/offline** — backend ping scheduler (20 s interval) flips peer `online` flags and emits `mesh-state-changed` so the canvas updates without polling. Toggling `mesh.enabled = false` makes every `/api/mesh/*` route return `503` for both local and peer callers — kill-switch with no restart.
 
@@ -90,7 +90,7 @@ Built with **Tauri v2** (Rust) + **React** + **xterm.js**.
 - **Custom colors** — override individual colors in `config.toml`
 - **Light theme support** — automatic color derivation works for both light and dark themes
 
-### Canvas Panels
+### Canvas Tabls
 - **Canvas tabs** — open web content beside your terminal for dashboards, docs, or visualizations
 
 ### Developer Experience
@@ -215,15 +215,15 @@ CodeTerm exposes three APIs for integration:
 
 ```bash
 # List tabs
-curl http://localhost:7685/api/panes
+curl http://localhost:7685/api/tabs
 
 # Execute a command and get output
-curl -X POST http://localhost:7685/api/panes/{id}/exec \
+curl -X POST http://localhost:7685/api/tabs/{id}/exec \
   -H "Content-Type: application/json" \
   -d '{"command": "git status"}'
 
 # Send text to terminal
-curl -X POST http://localhost:7685/api/panes/{id}/send \
+curl -X POST http://localhost:7685/api/tabs/{id}/send \
   -H "Content-Type: application/json" \
   -d '{"text": "npm test", "enter": true}'
 
@@ -235,10 +235,10 @@ curl -X POST http://localhost:7685/api/workspaces \
 # Spawn an agent in a new tab next to a parent
 curl -X POST http://localhost:7685/api/agents/spawn \
   -H "Content-Type: application/json" \
-  -d '{"agent": "claude", "parent_pane_id": "PANE_ID"}'
+  -d '{"agent": "claude", "parent_tab_id": "TAB_ID"}'
 
 # Stream output in real-time (SSE)
-curl http://localhost:7685/api/panes/{id}/output/stream
+curl http://localhost:7685/api/tabs/{id}/output/stream
 ```
 
 ### CLI Tool
@@ -251,7 +251,7 @@ codeterm workspace create "Project"
 # Terminal control
 codeterm tab list
 codeterm send --tab TAB_ID "npm run build"
-codeterm get-output PANE_ID --lines 50
+codeterm get-output TAB_ID --lines 50
 
 # Notifications
 codeterm notify "Build complete" --level info
@@ -264,9 +264,9 @@ CodeTerm sets these in every PTY session:
 | Variable | Description |
 |----------|-------------|
 | `CODETERM` | Always `1` — detect if running inside CodeTerm |
-| `CODETERM_PANE_ID` | UUID of the current tab |
+| `CODETERM_TAB_ID` | UUID of the current tab |
 | `CODETERM_SOCKET_PATH` | Socket path for JSON-RPC API |
-| `CODETERM_API_PORT` / `CODETERM_API_TOKEN` | API port and bearer token, so CLI subcommands and Claude hooks (`/api/panes/*/hook/*`, `/api/mem/flush`) can authenticate without per-call wiring |
+| `CODETERM_API_PORT` / `CODETERM_API_TOKEN` | API port and bearer token, so CLI subcommands and Claude hooks (`/api/tabs/*/hook/*`, `/api/mem/flush`) can authenticate without per-call wiring |
 | `TERM_PROGRAM` | `CodeTerm` |
 
 See [API Reference](docs/API.md) for the complete endpoint documentation.

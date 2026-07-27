@@ -12,7 +12,7 @@
 #        yourself.
 #     2. Use `dc <subcommand>` instead of `codeterm <subcommand>`.
 #        `dc` re-exports the dev env-vars in its own subshell so a
-#        leaked CODETERM_API_PORT=7685 from the parent pane (which
+#        leaked CODETERM_API_PORT=7685 from the parent tab (which
 #        is what happens when a Claude session lives inside prod
 #        codeterm) cannot route the call to prod.
 #     3. The HTTP helpers (dev_get, dev_post) are hardcoded to
@@ -80,18 +80,18 @@ dev_post() {
     "http://127.0.0.1:7686$path"
 }
 
-dev_post_as_pane() {
-  local pane_id="$1" path="$2" body="${3:-{}}"
-  [ -n "$pane_id" ] || { echo "dev_post_as_pane requires pane id" >&2; return 7; }
+dev_post_as_tab() {
+  local tab_id="$1" path="$2" body="${3:-{}}"
+  [ -n "$tab_id" ] || { echo "dev_post_as_tab requires tab id" >&2; return 7; }
   curl -s --fail --max-time 30 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
-    -H "X-CodeTerm-Pane-Id: $pane_id" -H "Content-Type: application/json" \
+    -H "X-CodeTerm-Tab-Id: $tab_id" -H "Content-Type: application/json" \
     --data "$body" "http://127.0.0.1:7686$path"
 }
 
 # Run the codeterm CLI against the dev daemon, regardless of what
 # CODETERM_* vars the parent shell inherited. This is the ONLY way
 # bench scripts should invoke the CLI — `codeterm <cmd>` directly
-# follows the parent env, which in a prod-hosted Claude pane silently
+# follows the parent env, which in a prod-hosted Claude tab silently
 # routes to port 7685 + the prod socket.
 #
 # Assert dev is alive BEFORE every call. Otherwise the CLI's socket
@@ -105,12 +105,12 @@ dc() {
     echo "             (would have leaked to prod via socket-discovery fallback)" >&2
     return 7
   fi
-  # Strip parent CODETERM_PANE_ID — would force a [from <prod-pane>] prefix on every send-text.
+  # Strip parent CODETERM_TAB_ID — would force a [from <prod-tab>] prefix on every send-text.
   CODETERM_API_PORT=7686 \
   CODETERM_API_TOKEN="$CODETERM_API_TOKEN" \
   CODETERM_SOCKET_PATH="$CODETERM_SOCKET_PATH" \
-  CODETERM_PANE_ID= \
-  CODETERM_PARENT_PANE_ID= \
+  CODETERM_TAB_ID= \
+  CODETERM_PARENT_TAB_ID= \
   codeterm "$@"
 }
 
@@ -166,14 +166,14 @@ dev_start_bg() {
 
 # --- Snapshots -------------------------------------------------------
 
-# Capture workspaces + panes + last.json under target-check/evals/<label>/.
+# Capture workspaces + tabs + last.json under target-check/evals/<label>/.
 # Echoes the snapshot dir on stdout so callers can chain.
 snapshot() {
   local label="${1:?usage: snapshot <label>}"
   local dir="$EVAL_LIB_OUT_BASE/$label"
   mkdir -p "$dir"
   dev_get /api/workspaces > "$dir/ws.json"
-  dev_get /api/panes      > "$dir/panes.json"
+  dev_get /api/tabs      > "$dir/tabs.json"
   python - "$dir" <<'PYEOF'
 import os, sys, shutil
 src = os.path.join(os.path.expanduser('~'), '.codeterm-dev', 'sessions', 'last.json')
@@ -184,7 +184,7 @@ PYEOF
 }
 
 # Print PASS/FAIL diff of two snapshot dirs. Exit 0 if all match, 1 if any drift.
-# Compares: workspace ids/names/cwds/tab_counts AND pane ids/titles/agent_types/cwds.
+# Compares: workspace ids/names/cwds/tab_counts AND tab ids/titles/agent_types/cwds.
 diff_snapshots() {
   local pre="${1:?usage: diff_snapshots <pre_dir> <post_dir>}"
   local post="${2:?}"
@@ -193,11 +193,11 @@ import json, sys, os
 pre, post = sys.argv[1], sys.argv[2]
 pre_ws = json.load(open(os.path.join(pre, 'ws.json')))
 post_ws = json.load(open(os.path.join(post, 'ws.json')))
-pre_p = {p['id']: p for p in json.load(open(os.path.join(pre, 'panes.json')))}
-post_p = {p['id']: p for p in json.load(open(os.path.join(post, 'panes.json')))}
+pre_p = {p['id']: p for p in json.load(open(os.path.join(pre, 'tabs.json')))}
+post_p = {p['id']: p for p in json.load(open(os.path.join(post, 'tabs.json')))}
 
 print(f'  workspaces: pre={len(pre_ws)} post={len(post_ws)}')
-print(f'  panes:      pre={len(pre_p)} post={len(post_p)}')
+print(f'  tabs:      pre={len(pre_p)} post={len(post_p)}')
 
 fail = 0
 for a in pre_ws:
@@ -217,14 +217,14 @@ for a in pre_ws:
 for pid, a in pre_p.items():
     b = post_p.get(pid)
     if not b:
-        print(f'  FAIL pane LOST: {pid} title={a.get("title")!r} agent={a.get("agent_type")}')
+        print(f'  FAIL tab LOST: {pid} title={a.get("title")!r} agent={a.get("agent_type")}')
         fail += 1
         continue
     diffs = []
     for k in ('title','agent_type','cwd'):
         if a.get(k) != b.get(k): diffs.append(f'{k}: {a.get(k)!r}->{b.get(k)!r}')
     if diffs:
-        print(f'  FAIL pane {pid}: ' + '; '.join(diffs))
+        print(f'  FAIL tab {pid}: ' + '; '.join(diffs))
         fail += 1
 
 if fail == 0: print('  PASS metadata diff')
@@ -412,42 +412,42 @@ new_workspace() {
     | python -c "import json,sys; print(json.load(sys.stdin).get('id',''))"
 }
 
-# Spawn a plain shell pane in the given workspace. Echoes pane_id.
-new_shell_pane() {
+# Spawn a plain shell tab in the given workspace. Echoes tab_id.
+new_shell_tab() {
   local ws="$1" cwd="$2" title="${3:-shell}"
   dc tab new --workspace "$ws" --cwd "$cwd" --title "$title" --json 2>/dev/null \
-    | python -c "import json,sys; print(json.load(sys.stdin).get('pane_id',''))"
+    | python -c "import json,sys; print(json.load(sys.stdin).get('tab_id',''))"
 }
 
-# Spawn a claude pane in the given workspace. Echoes pane_id.
+# Spawn a claude tab in the given workspace. Echoes tab_id.
 # Optional 4th arg = initial --task prompt.
-new_claude_pane() {
+new_claude_tab() {
   local ws="$1" cwd="$2" title="${3:-claude}" task="${4:-}"
   local args=( agent spawn claude --workspace "$ws" --cwd "$cwd" --title "$title" )
   [ -n "$task" ] && args+=( --task "$task" )
-  dc "${args[@]}" 2>&1 | grep -oE "pane [a-f0-9]+" | awk '{print $2}' | head -1
+  dc "${args[@]}" 2>&1 | grep -oE "tab [a-f0-9]+" | awk '{print $2}' | head -1
 }
 
-# Spawn a codex pane. Echoes pane_id. Optional 4th arg = --task prompt.
-new_codex_pane() {
+# Spawn a codex tab. Echoes tab_id. Optional 4th arg = --task prompt.
+new_codex_tab() {
   local ws="$1" cwd="$2" title="${3:-codex}" task="${4:-}"
   local args=( agent spawn codex --workspace "$ws" --cwd "$cwd" --title "$title" )
   [ -n "$task" ] && args+=( --task "$task" )
-  dc "${args[@]}" 2>&1 | grep -oE "pane [a-f0-9]+" | awk '{print $2}' | head -1
+  dc "${args[@]}" 2>&1 | grep -oE "tab [a-f0-9]+" | awk '{print $2}' | head -1
 }
 
-# Spawn an opencode pane. Echoes pane_id. Optional 4th arg = --task prompt.
-new_opencode_pane() {
+# Spawn an opencode tab. Echoes tab_id. Optional 4th arg = --task prompt.
+new_opencode_tab() {
   local ws="$1" cwd="$2" title="${3:-opencode}" task="${4:-}"
   local args=( agent spawn opencode --workspace "$ws" --cwd "$cwd" --title "$title" )
   [ -n "$task" ] && args+=( --task "$task" )
-  dc "${args[@]}" 2>&1 | grep -oE "pane [a-f0-9]+" | awk '{print $2}' | head -1
+  dc "${args[@]}" 2>&1 | grep -oE "tab [a-f0-9]+" | awk '{print $2}' | head -1
 }
 
 # --- Auto-init: source-time dev_env so callers can't forget. ---------
 # Without this, a forgotten `dev_env` call early in a bench leaks the
 # parent shell's CODETERM_API_PORT/SOCKET into `codeterm` calls — and
-# when the parent is a Claude pane inside prod codeterm, every CLI
+# when the parent is a Claude tab inside prod codeterm, every CLI
 # call lands on prod (port 7685) instead of dev. Andrey's prod state
 # got minor cleanup damage from exactly this on 2026-05-07.
 dev_env > /dev/null 2>&1 || true

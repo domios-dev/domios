@@ -27,7 +27,7 @@ const bespokeWorkingKeyframes = [
   "sidebar-hierarchy-breathe",
   "sidebar-hierarchy-drift",
   "ct-plan-sidebar-pulse",
-  "pane-focus-pulse",
+  "tab-focus-pulse",
   "breathing-bar",
   "mem-pulse",
   "mem-pulse-card",

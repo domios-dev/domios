@@ -128,33 +128,33 @@ function assertBootstrap(messages, role, counterpartRole, counterpartName) {
   }
 }
 
-async function waitForBootstrap(events, paneId, role, counterpartRole, counterpartName) {
+async function waitForBootstrap(events, tabId, role, counterpartRole, counterpartName) {
   for (;;) {
-    const snapshot = await api(`/api/panes/${paneId}/chat`);
+    const snapshot = await api(`/api/tabs/${tabId}/chat`);
     try {
       assertBootstrap(snapshot.messages ?? snapshot, role, counterpartRole, counterpartName);
       return;
     } catch (error) {
-      await events.next((event) => event.event_type === `pane-chat-${paneId}`);
+      await events.next((event) => event.event_type === `tab-chat-${tabId}`);
       if (error.message.includes("expected one starter turn, found 2")) throw error;
     }
   }
 }
 
-async function waitForFreshExactReply(events, paneId, baseline, expected) {
+async function waitForFreshExactReply(events, tabId, baseline, expected) {
   for (;;) {
-    const snapshot = await api(`/api/panes/${paneId}/chat`);
+    const snapshot = await api(`/api/tabs/${tabId}/chat`);
     const fresh = assistantMessages(snapshot).slice(baseline);
     if (fresh.some((text) => text === expected)) return;
-    await events.next((event) => event.event_type.includes(paneId));
+    await events.next((event) => event.event_type.includes(tabId));
   }
 }
 
-async function waitForSession(events, paneId) {
+async function waitForSession(events, tabId) {
   for (;;) {
-    const panes = await api("/api/panes");
-    const pane = panes.find(({ id }) => id === paneId);
-    if (pane?.agent_session_id) return;
+    const tabs = await api("/api/tabs");
+    const tab = tabs.find(({ id }) => id === tabId);
+    if (tab?.agent_session_id) return;
     await events.next((event) => event.event_type === "mux-state-changed");
   }
 }
@@ -199,43 +199,43 @@ async function main() {
     });
 
     await Promise.all([
-      waitForSession(events, pair.orchestrator_pane_id),
-      waitForSession(events, pair.planner_pane_id),
+      waitForSession(events, pair.orchestrator_tab_id),
+      waitForSession(events, pair.planner_tab_id),
     ]);
     await Promise.all([
-      api(`/api/panes/${pair.orchestrator_pane_id}/chat/start`, { method: "POST", body: "{}" }),
-      api(`/api/panes/${pair.planner_pane_id}/chat/start`, { method: "POST", body: "{}" }),
+      api(`/api/tabs/${pair.orchestrator_tab_id}/chat/start`, { method: "POST", body: "{}" }),
+      api(`/api/tabs/${pair.planner_tab_id}/chat/start`, { method: "POST", body: "{}" }),
     ]);
 
     await Promise.all([
-      waitForBootstrap(events, pair.orchestrator_pane_id, "Orchestrator", "Planner", pair.planner_pane_id),
-      waitForBootstrap(events, pair.planner_pane_id, "Planner", "Orchestrator", pair.orchestrator_pane_id),
+      waitForBootstrap(events, pair.orchestrator_tab_id, "Orchestrator", "Planner", pair.planner_tab_id),
+      waitForBootstrap(events, pair.planner_tab_id, "Planner", "Orchestrator", pair.orchestrator_tab_id),
     ]);
     const [orchestratorBaseline, plannerBaseline] = await Promise.all([
-      api(`/api/panes/${pair.orchestrator_pane_id}/chat`).then((snapshot) => assistantMessages(snapshot).length),
-      api(`/api/panes/${pair.planner_pane_id}/chat`).then((snapshot) => assistantMessages(snapshot).length),
+      api(`/api/tabs/${pair.orchestrator_tab_id}/chat`).then((snapshot) => assistantMessages(snapshot).length),
+      api(`/api/tabs/${pair.planner_tab_id}/chat`).then((snapshot) => assistantMessages(snapshot).length),
     ]);
     const probe = "Reply with only your counterpart tab id.";
     await Promise.all([
-      api(`/api/panes/${pair.orchestrator_pane_id}/send`, {
+      api(`/api/tabs/${pair.orchestrator_tab_id}/send`, {
         method: "POST",
         body: JSON.stringify({ text: probe }),
       }),
-      api(`/api/panes/${pair.planner_pane_id}/send`, {
+      api(`/api/tabs/${pair.planner_tab_id}/send`, {
         method: "POST",
         body: JSON.stringify({ text: probe }),
       }),
     ]);
     await Promise.all([
-      waitForFreshExactReply(events, pair.orchestrator_pane_id, orchestratorBaseline, pair.planner_pane_id),
-      waitForFreshExactReply(events, pair.planner_pane_id, plannerBaseline, pair.orchestrator_pane_id),
+      waitForFreshExactReply(events, pair.orchestrator_tab_id, orchestratorBaseline, pair.planner_tab_id),
+      waitForFreshExactReply(events, pair.planner_tab_id, plannerBaseline, pair.orchestrator_tab_id),
     ]);
-    console.log(`PASS manager bootstrap: Codex ${pair.orchestrator_pane_id} + Claude ${pair.planner_pane_id}`);
+    console.log(`PASS manager bootstrap: Codex ${pair.orchestrator_tab_id} + Claude ${pair.planner_tab_id}`);
     console.log("  one starter turn each; fresh exact counterpart replies observed");
   } finally {
     events.close();
-    for (const paneId of [pair?.planner_pane_id, pair?.orchestrator_pane_id].filter(Boolean)) {
-      await api(`/api/panes/${paneId}/close`, { method: "POST", body: "{}" }).catch(() => {});
+    for (const tabId of [pair?.planner_tab_id, pair?.orchestrator_tab_id].filter(Boolean)) {
+      await api(`/api/tabs/${tabId}/close`, { method: "POST", body: "{}" }).catch(() => {});
     }
     if (workspaceId) {
       await api(`/api/workspaces/${workspaceId}/close`, { method: "POST", body: "{}" }).catch((error) => {

@@ -76,7 +76,7 @@ spatially — zoom IS the level-of-detail; never flatten everything always-visib
 **Why a depth/stack cue (not just a number):** a bare `[7]` badge reads as flat metadata;
 the stacked-card silhouette reads as *physical volume* pre-attentively, so the overview board
 communicates "where the big work is" before you read a single number — and the fan-out on
-zoom is the same object deepening, reinforcing "I fell INTO this stack," not "a panel opened."
+zoom is the same object deepening, reinforcing "I fell INTO this stack," not "a tabl opened."
 
 **Reserve-at-deepest (§0.2) still holds:** the super-cell room for fanned subtask cards is
 pre-allocated, so the L0 stacked silhouette sits in space that *will* hold the fanned cards —

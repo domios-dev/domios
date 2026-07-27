@@ -54,7 +54,7 @@ codeterm dev self-upgrade --intent "<what to do after restart>" [--dev]
 ### 3. Flow
 
 1. **Record the resume marker** — before touching the binary, persist a
-   durable `{pane_session_id, intent, requested_at, expected_build}` record
+   durable `{tab_session_id, intent, requested_at, expected_build}` record
    (a small json under the data dir, e.g. `~/.codeterm/pending-upgrade.json`).
    Durable so it survives the process death.
 2. **Build** — `./build.sh build` (or `dev`). On failure: abort, clear the
@@ -105,7 +105,7 @@ env -u CODETERM_API_PORT -u CODETERM_INSTANCE ./build.sh build
 # 2. install it in place and resume THIS tab afterwards
 codeterm update install \
   --from-file src-tauri/target/release/bundle/dmg/CodeTerm_<ver>_aarch64.dmg \
-  --continue-tab "$CODETERM_PANE_ID" \
+  --continue-tab "$CODETERM_TAB_ID" \
   --continue-prompt "you're back on the new build — continue <the task>"
 ```
 

@@ -102,7 +102,7 @@ proxy to `http://127.0.0.1:<api-port>`** — two distinct ports.
 | HTTPS URL returns **000** | macOS: no TLS cert in the sandboxed container. | Run `tailscale cert <fqdn>` once (see §3). |
 | HTTPS URL is a **502** | Serve points at a different port than this daemon. | Re-run serve targeting the correct `127.0.0.1:<api-port>`. |
 | Mesh peers went offline after setup | Serve bound to CodeTerm's own / sibling API port. | See §4 — use 443/8443, proxy to the API port. |
-| No HTTPS URL in Settings, only IP links | Serve not configured for this port yet. | Run the §2 command; the panel switches to HTTPS on refresh. |
+| No HTTPS URL in Settings, only IP links | Serve not configured for this port yet. | Run the §2 command; the tabl switches to HTTPS on refresh. |
 | Token rejected | Wrong machine's token, or no `api.token` in config. | Each peer's link needs *that peer's* token; set one in Settings → Network. |
 
 ## 6. Quickstart (3 steps)

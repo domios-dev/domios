@@ -147,7 +147,7 @@ When `config.mesh.enabled = false`, the auth middleware short-circuits every `/a
 
 ## Mesh tab and service registry
 
-The Mesh tab is the UI surface for the local service registry and peer services. It replaces the old standalone Cron Panel and absorbs the older `[Crons]` sidebar route.
+The Mesh tab is the UI surface for the local service registry and peer services. It replaces the old standalone Cron Tabl and absorbs the older `[Crons]` sidebar route.
 
 ### Sub-tabs
 
@@ -178,7 +178,7 @@ Peer services are **not gossiped** across the mesh. When a peer card is expanded
 
 ### Push tokens
 
-Each daemon service has a per-service push token stored at `<data_dir>/services/<service_id>/token` (mode `0600` on Unix). The token is 64-hex-char random and returned **once** (at create, or via `services.regenerate_token` / `service token --rotate`). Daemons send `Authorization: Bearer <token>` on `POST /api/panes/<pane_id>/send` to write to a Tab without the global access token. The auth middleware validates push tokens (`services::push::validate_push`) **before** falling through to the mesh signed-token check, so a daemon Bearer never accidentally lands in the peer code path. Token comparison is constant-time. Rotating a token also auto-flips `push_enabled = true` (you wouldn't rotate if you didn't intend to push).
+Each daemon service has a per-service push token stored at `<data_dir>/services/<service_id>/token` (mode `0600` on Unix). The token is 64-hex-char random and returned **once** (at create, or via `services.regenerate_token` / `service token --rotate`). Daemons send `Authorization: Bearer <token>` on `POST /api/tabs/<tab_id>/send` to write to a Tab without the global access token. The auth middleware validates push tokens (`services::push::validate_push`) **before** falling through to the mesh signed-token check, so a daemon Bearer never accidentally lands in the peer code path. Token comparison is constant-time. Rotating a token also auto-flips `push_enabled = true` (you wouldn't rotate if you didn't intend to push).
 
 ### Activity log
 
@@ -202,7 +202,7 @@ Probe interval is per-service (`health_interval`, default 30 s). The `services::
 The Mesh canvas renders peers as terminal-window-shaped nodes. Health and push events update the canvas in real time via Tauri events:
 
 - `service-health-changed` — `{service_id, status}`. Fired only on confirmed transitions (3-tick debounced).
-- `service-pushed` — `{service_id, pane_id, body_preview}`. Fired by `POST /api/panes/{id}/send` on token-authenticated writes **and** by the mesh-relay path when a paired peer relays a `/send` to us, so cross-peer push traffic surfaces in the canvas + activity log identically to local pushes.
+- `service-pushed` — `{service_id, tab_id, body_preview}`. Fired by `POST /api/tabs/{id}/send` on token-authenticated writes **and** by the mesh-relay path when a paired peer relays a `/send` to us, so cross-peer push traffic surfaces in the canvas + activity log identically to local pushes.
 
 The ServicesTable lists local services with health badges. ServiceDrawer shows full config + recent activity for a selected service, with cron-aware actions (trigger / enable-disable / edit-schedule / history) and daemon-aware actions (probe / rotate token / enable-disable). The drawer dismisses on ESC, backdrop click, or its visible close button. Self-peer drawers hide pair/access-level UI (pointless for the local node).
 
@@ -241,7 +241,7 @@ services/
   health/           — http / tcp / process / script probes + scheduler (30 s tick, 3-tick debounce)
   activity.rs       — bounded activity log writer/reader (10k rows / 30 days)
   tokens.rs         — per-service push tokens (file-backed, 0600, constant-time)
-  push.rs           — Bearer token middleware for /api/panes/*/send
+  push.rs           — Bearer token middleware for /api/tabs/*/send
   smart_add.rs      — heuristic field-mapping suggestions for AddServiceWizard
 ```
 

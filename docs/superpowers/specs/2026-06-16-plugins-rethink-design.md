@@ -42,7 +42,7 @@ capability  ──────────────────────�
 agent       AgentProvider (exists)        agent::registry          JsProvider          (exists)
 secret      SecretStore   (exists)        secrets::registry  ◄new   JsSecretBackend     ◄new
 transcribe  Transcriber   ◄new            transcribe::registry ◄new JsTranscriber       ◄new
-            (future: pane_type, tool_provider, hook, …)
+            (future: tab_type, tool_provider, hook, …)
 ```
 
 **Invariants (non-negotiable — these are the load-bearing rules):**
@@ -291,8 +291,8 @@ carries its own settings.
 ### 7.4 Capabilities granted at install
 
 `network` (its engine / mesh peer), `secrets` (watchdog state). It does **not** request
-pane access — CodeTerm records (mic is internal) and inserts the returned text. No
-`write_panes`.
+tab access — CodeTerm records (mic is internal) and inserts the returned text. No
+`write_tabs`.
 
 ## 8. Bitwarden plugin
 
@@ -330,7 +330,7 @@ list/search/delete/organizations/collections/sync` → `JsSecretBackend` maps th
 ### 8.3 SecretsTab → plugin settings
 
 The current `SecretsTab.tsx` (backend picker, server URL, unlock, org/collection pickers)
-is re-expressed as the Bitwarden plugin's schema-rendered settings panel + the generic
+is re-expressed as the Bitwarden plugin's schema-rendered settings tabl + the generic
 backend picker stays in core (it chooses among *registered* backends, which now includes
 plugin-contributed ones). No capability is lost; it moves surface.
 
@@ -354,7 +354,7 @@ across install dialog, card, and settings.
   description, permissions, changelog. Reachable from the tray.
 - **Pin** — `pinnable` plugins get a pin toggle; pinned ones appear as titlebar icons for
   quick access.
-- **Sidebar presence** — replaces the dead "Panes" label with the real `MeshPresenceTray`
+- **Sidebar presence** — replaces the dead "Tabs" label with the real `MeshPresenceTray`
   dot; on **web UI** a second dot beside it is the **machine picker** (which daemon you're
   driving), reusing the exact dropdown chrome.
 - **Web parity** — add `plugin_manager_*` (and the new capability/secret commands) to

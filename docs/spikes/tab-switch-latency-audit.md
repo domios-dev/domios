@@ -28,11 +28,11 @@ Tab switch itself is intentionally cheap:
 
 On **every** `mux-state-changed` apply-snapshot — which includes tab switches and
 coalesced PTY output (up to 20×/s) — the store broadcasts one global
-`codeterm-pane-resize` event (`src/store/multiplexer/index.tsx:219`).
+`codeterm-tab-resize` event (`src/store/multiplexer/index.tsx:219`).
 
 Every mounted terminal Tab listens for it (`src/hooks/terminal/useTerminalResize.ts`),
 and the listener is gated by `resizeEnabled: terminalVisible`, where
-`terminalVisible = uiMode === "terminal"` (`TerminalPane.tsx:129,160`) — i.e. **Tab mode,
+`terminalVisible = uiMode === "terminal"` (`TerminalTab.tsx:129,160`) — i.e. **Tab mode,
 not tab visibility**. Because Tabs never unmount, all `N` mounted terminal Tabs across
 all tabs respond. Each handler did, unconditionally:
 
@@ -51,7 +51,7 @@ excluded; the other invokes on the path are all cache clones or one-time guarded
 ## Fix
 
 Refit only when **this Tab's container geometry actually changed**
-(`src/hooks/terminal/paneResize.ts`, wired in `useTerminalResize.ts`). The handler now
+(`src/hooks/terminal/tabResize.ts`, wired in `useTerminalResize.ts`). The handler now
 reads `clientWidth/clientHeight`, compares to the last-fit dims, and bails early when
 unchanged — the common case for tab switch and PTY-output broadcasts.
 

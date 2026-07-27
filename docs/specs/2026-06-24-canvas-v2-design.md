@@ -88,7 +88,7 @@ element can override.)
 ### 2.4 Task nodes & milestone bubbles
 - **TaskCard** (satellite): marker(status color) · name · `type` · `model` chip ·
   `model_rationale` ("why this model?" expandable) · `status` + `status_label` ·
-  `intent` · `body` markdown. A link chip to `assigned_pane_id` (→ opens that Tab).
+  `intent` · `body` markdown. A link chip to `assigned_tab_id` (→ opens that Tab).
 - **Edges:** one curved bezier per `section_id` from that section row's anchor to the
   task's left edge. Many-to-many.
 - **MilestoneBubble:** a circle, colored by its `kind` (declared `milestone_kinds`
@@ -105,7 +105,7 @@ go to an "Unowned / claimable" group.
 
 ### 2.6 Edges (all the universal `links` primitive, dispatched by kind)
 `section-row→task`, `task→milestone-cluster`, `milestone→milestone`, `plan↔spec`,
-`plan↔plan` (`Plan.links`), `task→assigned-pane` (badge link, not a drawn line).
+`plan↔plan` (`Plan.links`), `task→assigned-tab` (badge link, not a drawn line).
 All curved, subtle, no arrowheads (direction implicit). Virtualized with the nodes.
 
 ## 2.7 No manual dragging — deterministic realtime auto-packing
@@ -163,7 +163,7 @@ id `inbox`, title "Tasks", no sections, coverage N/A), auto-created lazily on fi
 standalone task. This reuses ALL plan machinery (storage, index, rendering, CLI,
 `plan-changed`, archive) with zero new persistence path — the generalization the user
 asked for.
-- A task is **taken by any Tab** — worker *or* orchestrator — via `assigned_pane_id`
+- A task is **taken by any Tab** — worker *or* orchestrator — via `assigned_tab_id`
   (+ derived `taken_by_role`). The TaskCard shows a link chip → click opens that Tab.
 - On the board, Inbox tasks render as a task cluster under their taker's orchestrator
   group (or an "Unassigned" group if untaken). Same TaskCard, same edges (to the Tab
@@ -186,7 +186,7 @@ codeterm canvas focus [--task <id>|--tab <id>|--plan <id>]   # emit canvas-focus
 ```
 - `task list --active` = not done/cancelled across all plans in the workspace project
   → "what's still in flight". `--mine` = assigned to the caller's tab/ancestors.
-  `--unassigned` = no `assigned_pane_id` → "what can I pick up".
+  `--unassigned` = no `assigned_tab_id` → "what can I pick up".
 - `canvas focus` emits a `canvas-focus` event (Tauri + websocket) carrying target ids;
   the open canvas pans/zooms to fit those nodes and **blinks** them. Drives §7 Tasks
   button. Reuses the `plan-changed` fan-out plumbing (`emit_everywhere`).
@@ -194,7 +194,7 @@ codeterm canvas focus [--task <id>|--tab <id>|--plan <id>]   # emit canvas-focus
 
 ## 7. Buttons (next to Chat | Terminal) — one role-driven component
 
-`PaneActionButton` mounted right of `PaneModeSwitch`:
+`TabActionButton` mounted right of `TabModeSwitch`:
 - **Orchestrator Tab that owns ≥1 active plan → "Plan".** Click → focus canvas on
   its plans. **Pulses** on `plan-changed` for an owned plan; pulse clears on open.
 - **Worker Tab bound to a task (`CODETERM_PLAN_ID`/`TASK_ID`) → "Tasks".** Click →
@@ -211,7 +211,7 @@ Tab body renders `<CanvasView mode="focus">` in place of the chat/terminal view.
 Clicking **Chat** or **Terminal** returns. Mutually exclusive view state per Tab.
 - Orchestrator Tab → Plan mode shows its plans; Worker Tab → label "Tasks", shows
   its tasks focused+blinking. Same role-driven component (§7), now wired as a mode in
-  `PaneModeSwitch`, not a floating button.
+  `TabModeSwitch`, not a floating button.
 - The mode still **pulses** on `plan-changed` for the represented plan(s).
 
 ## 7.2 Canvas composer fixes & activity bubble
@@ -244,10 +244,10 @@ and `task list` exclude archived. Un-archive restores everything.
 - `settings.ts` — add row height, anchor inset, bubble radius, cluster spacing, group
   padding. No inline magic numbers.
 - `nodeRegistry.tsx` — register `spec`, `orchestrator`; keep open-kind fallback.
-- `PlanButton.tsx` → `PaneActionButton` (role-driven, §7).
+- `PlanButton.tsx` → `TabActionButton` (role-driven, §7).
 
 ## 10. Backend file map
-- `plan/types.rs` — Inbox plan constant; `Task.assigned_pane_id` already exists; add
+- `plan/types.rs` — Inbox plan constant; `Task.assigned_tab_id` already exists; add
   derived `taken_by_role`. `Task.plan_id` is implicit (file) — Inbox covers standalone.
 - `service/plan/` — lazy Inbox creation; `task list/show/take/drop` queries; `plan gaps`
   (wraps existing coverage); `canvas focus` emit.
@@ -591,7 +591,7 @@ Task.tags:    ["area:nav","pan-zoom"]                       // inherits section 
   header bar; full markdown body dominates. Extends §16.8's meta band; every band = designed payload.
 
 ### 19.5 Tag Map = HUD legend+filter (not a word cloud)
-A pinned panel (with §18.2 controls): each facet → colored values + counts (sections/tasks/
+A pinned tabl (with §18.2 controls): each facet → colored values + counts (sections/tasks/
 active/done/uncovered). Click a value = filter/highlight (dim others, optional convex-hull lasso —
 NOT n² edges; if edges wanted, route through a per-facet HUB star = n edges). Multi-select within
 facet = OR, across facets = AND; topic search box substring-filters. Optional small on-canvas
@@ -710,7 +710,7 @@ parts are exactly the ones we don't need). NOT a Canvas-v2 blocker; do it after.
   NEVER authoritative for task state/status/edges.
 - **Use cases (ranked):** HIGH = semantic+keyword search over plan history / cross-plan (killer
   feature, reuses RRF fusion); HIGH = authoring assist (similar past tasks, up-weight cancelled/
-  stalled); MED = cross-plan dedup; LOW = drawn "related" edges (n² clutter — use a panel); SKIP =
+  stalled); MED = cross-plan dedup; LOW = drawn "related" edges (n² clutter — use a tabl); SKIP =
   graph/dreaming over plan items.
 - **Smallest first step:** one-way mirror on plan write + a thin `codeterm plan search` reusing
   `/api/mem/search`. NO UI yet; validate recall with `evals/mem-recall`. Then add the authoring
@@ -924,7 +924,7 @@ Never flatten subtasks onto the board. The cue is ONE object that unfolds as you
   **0-subtask tasks stay flat** so heavy tasks pop.
 - **Mid (L1):** the stack peels into a one-line roster (≤2–5 handle chips + `+k`).
 - **Near (L2):** fans out to subtask mini-cards inside the reserved super-cell — the SAME object
-  unfolding ("fell INTO the stack", not "a panel opened").
+  unfolding ("fell INTO the stack", not "a tabl opened").
 - **Reading (L3):** full subtask bodies + each subtask's own step thread (fractal).
 
 ### 25.6 Status emphasis (§24.5) — orthogonal, multiplies at every band
@@ -1065,7 +1065,7 @@ native+JS parity is structural (`parity_test` asserts identical element + identi
 
 ### 27.3 Reseed flow — mode "new" (RECOMMENDED over compact)
 1. Daemon composes + attaches the handoff (marker pulses on the board), in ONE plan transaction.
-2. Daemon records a `handoff_reseed` pending row keyed `{pane_id, handoff_id, source_session_id}`.
+2. Daemon records a `handoff_reseed` pending row keyed `{tab_id, handoff_id, source_session_id}`.
 3. Daemon sends the provider fresh-context command to the SAME Tab — `/new` for Claude-like providers,
    via the provider CAPABILITY (same path `agent compact` uses), never a hardcoded string in core.
 4. On `SessionStart` with a new session id ≠ source, daemon sends EXACTLY ONE lean seed via
@@ -1102,7 +1102,7 @@ daemon transaction with a SINGLE `plan-changed` emit, returning all created/upda
 ```
 CLI sugar: `codeterm plan record <plan> --task <id|handle> [--upsert-task <handle> --name … --sections …]
 --status … --body-file f.md --step decision:"…" --step testing:@file.md --link <path> --json`. Idempotency
-via `--key <stable>` or implicit `{pane_id, command_hash, minute_bucket}`; task upsert by handle; milestone
+via `--key <stable>` or implicit `{tab_id, command_hash, minute_bucket}`; task upsert by handle; milestone
 de-dupe by `(task, kind, key)`. 6 calls → 1; structured provenance preserved.
 
 ### 28.2 Everything folds onto the batch path
@@ -1430,8 +1430,8 @@ world-space and pan/scroll away. So the GOAL is **screen-space HUD chrome**, pin
 breadcrumb (§20.5) and minimap (§23.4) — it never scrolls, never auto-packs, never participates in LOD.
 - **Collapsed (default):** a thin pinned bar at the top of the canvas (~40px), accent-tinted by the plan,
   showing the **vector** (1 line, prominent, ellipsis) + a `◆ postulates` pill + a `⌄` expander. Prominent,
-  not dominating — one bar, not a panel.
-- **Expanded (user click):** drops a panel with full `vision` markdown + `constraints` list + the active
+  not dominating — one bar, not a tabl.
+- **Expanded (user click):** drops a tabl with full `vision` markdown + `constraints` list + the active
   `postulates` (id · text · rationale on hover). Click again / Esc collapses. Pure user-initiated (§31).
 - **Multi-plan:** the HUD shows the **focused/dominant plan's** goal (breadcrumb-driven); workspace overview
   with many plans → the bar shows the workspace name + a `▾ N goals` switcher, no single vector forced.

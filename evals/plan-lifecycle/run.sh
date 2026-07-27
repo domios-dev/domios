@@ -105,7 +105,7 @@ PLAN_JSON="$(json_get "$PLAN_ID")"
 assert_jq "$PLAN_JSON" \
   "task assignment persisted" \
   --arg task "$TASK_ID" \
-  '.tasks[] | select(.id == $task) | .assigned_pane_id == "plan-lifecycle-worker"'
+  '.tasks[] | select(.id == $task) | .assigned_tab_id == "plan-lifecycle-worker"'
 
 dc agent report "Lifecycle milestone appended" --tab "plan-lifecycle-worker" --plan "$PLAN_ID" --task "$TASK_ID" --status done >/dev/null
 PLAN_JSON="$(json_get "$PLAN_ID")"

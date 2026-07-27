@@ -113,7 +113,7 @@ The build.sh bg task's own output stream also contains the Rust compile log and 
 - `~/.codeterm-dev/` — config, mem DB, sessions, logs, mesh identity
 - `~/.codeterm-dev/config.toml` — themes, keybindings, api section
 - `~/.codeterm-dev/mem/` — mem SQLite + FTS + vectors
-- `~/.codeterm-dev/sessions/` — persisted workspaces/tabs/panes
+- `~/.codeterm-dev/sessions/` — persisted workspaces/tabs/tabs
 
 **Important:** the dev CLI config is separate from prod. The `codeterm` binary in `~/.codeterm/bin/` reads prod's `~/.codeterm/` identity by default — it does NOT auto-target dev. To hit dev from CLI, you either need to run from inside a dev PTY (env vars are set there) or add the dev port explicitly:
 

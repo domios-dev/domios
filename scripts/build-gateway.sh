@@ -247,7 +247,7 @@ ct_gateway_acquire() {
     echo "Build gateway job id already exists: $CT_BUILD_JOB_ID" >&2
     return 2
   fi
-  owner="${CODETERM_BUILD_OWNER_ID:-${CODETERM_PANE_ID:-pid-$$}}"
+  owner="${CODETERM_BUILD_OWNER_ID:-${CODETERM_TAB_ID:-pid-$$}}"
   job="${command%% *}"
   queued_at="$(ct_gateway_now)"
   source_sha="$(git rev-parse HEAD 2>/dev/null || echo unknown)"

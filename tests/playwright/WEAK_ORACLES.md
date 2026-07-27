@@ -6,7 +6,7 @@ Scope: Phase 1 hygiene sweep for specs where `toBeVisible()` / `toBeTruthy()` wa
 | --- | ---: | --- |
 | Sole weak final assertion before sweep | 7 | Scanner listed tests with exactly one `expect()` and final matcher `toBeVisible` / `toBeTruthy`. |
 | Strengthened in-place | 6 | Added content, count, or identity assertions after the visibility check. |
-| Justified residue | 1 | `tests/playwright/suites/19-web-stability/web-stability.spec.ts` PAR-1/MEM keeps `memory-panel` visibility plus `expectNoRuntimeErrors(errors)`, which is the real behavioral oracle but is helper-wrapped rather than a direct `expect()`. |
+| Justified residue | 1 | `tests/playwright/suites/19-web-stability/web-stability.spec.ts` PAR-1/MEM keeps `memory-tabl` visibility plus `expectNoRuntimeErrors(errors)`, which is the real behavioral oracle but is helper-wrapped rather than a direct `expect()`. |
 
 Strengthened tests:
 

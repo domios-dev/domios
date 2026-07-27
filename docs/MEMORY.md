@@ -165,10 +165,10 @@ The mem flush API (`POST /api/mem/flush`) is the entry point providers call from
 
 | Hook | Endpoint | Purpose |
 |---|---|---|
-| `Notification` | `POST /api/panes/{id}/hook/permission` | Surface a permission prompt without waiting for PTY auto-detect |
-| `Stop` | `POST /api/panes/{id}/hook/stop` | Mark task complete, fire `agent.task_complete` webhook |
+| `Notification` | `POST /api/tabs/{id}/hook/permission` | Surface a permission prompt without waiting for PTY auto-detect |
+| `Stop` | `POST /api/tabs/{id}/hook/stop` | Mark task complete, fire `agent.task_complete` webhook |
 | `PreCompact` | `POST /api/mem/flush` | Persist conversation summary to mem before Claude compacts the context window |
-| `SessionStart` | `POST /api/panes/{id}/hook/session_start` | Track the live `session_id` so `/new` and `/clear` inside the TUI don't desync the persisted resume id |
+| `SessionStart` | `POST /api/tabs/{id}/hook/session_start` | Track the live `session_id` so `/new` and `/clear` inside the TUI don't desync the persisted resume id |
 
 Hooks are installed by `commands.rs::install_hooks_v2` into `~/.claude/hooks.json`. The installer is idempotent and version-tagged so old loopback-auth shapes get replaced.
 
@@ -206,7 +206,7 @@ Manual trigger: `codeterm mem sync` (or `POST /api/mem/sync`). Code lives in `sr
 
 ## Workers (`src-tauri/src/mem/workers.rs`)
 
-Hidden headless agents. Live in Memory Panel, invisible in tab bar.
+Hidden headless agents. Live in Memory Tabl, invisible in tab bar.
 
 **`spawn_headless()`** — generic function used by:
 - **Extraction workers** — auto-spawned on `mem save` for rich items (note, fact, learning, daily, conversation); extract entities, build graph
@@ -214,7 +214,7 @@ Hidden headless agents. Live in Memory Panel, invisible in tab bar.
 
 **How it works:**
 1. Create tab + Tab with `hidden=true`, `show_in_tabbar=false`
-2. Spawn PTY from backend with env vars (`CODETERM_API_URL`, `CODETERM_API_TOKEN`, `CODETERM_PANE_ID`)
+2. Spawn PTY from backend with env vars (`CODETERM_API_URL`, `CODETERM_API_TOKEN`, `CODETERM_TAB_ID`)
 3. Start backend reader (own tokio runtime)
 4. Launch agent via provider's `build_launch_command()` with `model_launch_args()` for the configured model
 5. Register in `GraphWorkerRegistry` with provider/model/intent metadata
@@ -223,7 +223,7 @@ Hidden headless agents. Live in Memory Panel, invisible in tab bar.
 
 **Limits:** max 200 workers in registry, oldest done + log files auto-evicted.
 
-**UI:** `MemoryWorkerPanel` shows live list. Click worker → `WorkerLogPopup` with live output (2s poll for running) or saved log (for done). Status color by state (green/yellow/red).
+**UI:** `MemoryWorkerTabl` shows live list. Click worker → `WorkerLogPopup` with live output (2s poll for running) or saved log (for done). Status color by state (green/yellow/red).
 
 ## Dreaming
 
@@ -349,9 +349,9 @@ codeterm mem dream                   # SQL phases + spawn REM worker
 - `DELETE /items/{id}`, `/forget/{area}`
 - `GET /workers`, `/workers/{id}/log`
 
-Memory Panel UI reads this directly.
+Memory Tabl UI reads this directly.
 
-## Memory Panel UI (`src/components/MemoryPanel/`)
+## Memory Tabl UI (`src/components/MemoryTabl/`)
 
 4 tabs:
 
@@ -360,7 +360,7 @@ Memory Panel UI reads this directly.
 - **Activity** — live mem-activity event stream (writes/updates/deletes, not searches — would loop)
 - **Dreams** — next dream countdown, worker run history (with click-to-log), dream diary entries. Live updates via `graph-worker-*` events.
 
-**Worker panel** — sidebar showing all hidden workers with status, model, click → `WorkerLogPopup`.
+**Worker tabl** — sidebar showing all hidden workers with status, model, click → `WorkerLogPopup`.
 
 **Item editor** — click any item → modal with title/body/area/tags editing. `Cmd+S` saves (re-vectorizes body automatically, `DELETE + INSERT` in mem_vectors — no duplicates).
 
@@ -369,7 +369,7 @@ Memory Panel UI reads this directly.
 1. **Single SQLite over specialized DBs** — operational simplicity beats peak performance for personal-scale memory
 2. **Blobs on disk for large bodies** — keeps the DB file small for fast opens
 3. **People+projects only as entities** — prevents star patterns; tech is searchable via FTS
-4. **Headless workers everywhere** — extraction and dreaming both live in Memory Panel, never pollute tab bar
+4. **Headless workers everywhere** — extraction and dreaming both live in Memory Tabl, never pollute tab bar
 5. **LLM only for REM phase** — SQL does deterministic work, LLM does pattern matching and narrative
 6. **Agent-agnostic via `AgentProvider` trait** — zero hardcoded `== "claude"` checks; providers declare their own CLI flags (`model_launch_args`, `build_launch_command`)
 7. **Protocol over format** — bridge_mem.md tells agents when/how to use memory, not just available commands
@@ -380,4 +380,4 @@ Memory Panel UI reads this directly.
 - `src-tauri/src/mem/` — all memory code
 - `src-tauri/src/api/mem_routes.rs` — REST API
 - `src-tauri/prompts/bridge_mem.md` — behavioral protocol
-- `src/components/MemoryPanel/` — UI
+- `src/components/MemoryTabl/` — UI
