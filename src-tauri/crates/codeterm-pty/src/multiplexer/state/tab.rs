@@ -59,7 +59,7 @@ impl MultiplexerState {
         let pane = self
             .panes
             .get(&pane_id)
-            .ok_or_else(|| format!("Pane not found: {}", pane_id))?;
+            .ok_or_else(|| format!("Tab not found: {}", pane_id))?;
         if pane.agent_type.is_some()
             || !matches!(pane.backing, crate::multiplexer::types::PaneBacking::Pty)
         {
@@ -136,7 +136,7 @@ impl MultiplexerState {
 
     /// Unwind a tab + its pane created by an atomic spawn whose `launch` then
     /// failed, leaving no blank focused tab behind. Unlike [`close_tab`] this does
-    /// NOT record the pane into the closed-tab history — a never-launched pane is
+    /// NOT record the pane into the closed-pane history — a never-launched pane is
     /// not a user "recently closed" tab and must not pollute that list.
     ///
     /// [`close_tab`]: Self::close_tab

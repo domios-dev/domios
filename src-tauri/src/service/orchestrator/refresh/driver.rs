@@ -373,7 +373,7 @@ fn send_compact(svc: &ServiceContext, _req: &RefreshRequest, ctx: &PaneCtx) {
 
 fn alert_stranded(svc: &ServiceContext, req: &RefreshRequest, ctx: &PaneCtx, reason: &str) {
     let title = format!(
-        "Refresh stranded the orchestrator on pane {}",
+        "Refresh stranded the orchestrator on Tab {}",
         short(&ctx.pane_id)
     );
     let body = format!(
@@ -389,7 +389,7 @@ fn alert_stranded(svc: &ServiceContext, req: &RefreshRequest, ctx: &PaneCtx, rea
         Some(&ctx.pane_id),
         None,
         &format!(
-            "refresh stranded orchestrator on pane {} ({reason}) — decide re-seed vs hand off",
+            "refresh stranded orchestrator on Tab {} ({reason}) — decide re-seed vs hand off",
             short(&ctx.pane_id)
         ),
         Some("refresh-stranded"),

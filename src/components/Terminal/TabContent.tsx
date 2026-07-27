@@ -123,7 +123,7 @@ function PaneWrapper({ paneId, children }: PaneWrapperProps) {
   return (
     <div
       data-pane-id={paneId}
-      className="w-full h-full relative group/pane"
+      className="w-full h-full relative group/Tab"
       style={{ outline: "none", boxShadow: "none", border: "none", background: "transparent" }}
     >
       {children}

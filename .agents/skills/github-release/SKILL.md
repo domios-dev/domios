@@ -221,7 +221,7 @@ codeterm tab new --cmd "cd $(pwd) && ./build.sh dev"
 curl -s http://127.0.0.1:7686/api/health
 ```
 
-Clean old orchestration state before the PR: close finished worker panes, remove merged lane
+Clean old orchestration state before the PR: close finished worker tabs, remove merged lane
 worktrees under `../codeterm-worktrees/`, and leave only documented stashes/lane directories.
 Run `scripts/merge-stack-audit.sh --target <release-head> <accepted-lane-ref>...`
 before final QA; stale patch-landed refs or unlanded accepted lanes must be
@@ -263,7 +263,7 @@ find ../codeterm-worktrees -mindepth 1 -maxdepth 1 -type d -print
 cargo sweep --time 2
 ```
 
-Remove merged lane worktrees and delete their merged `lane/*` branches. Close finished worker panes
+Remove merged lane worktrees and delete their merged `lane/*` branches. Close finished worker tabs
 and stop lane-specific dev daemons. Keep only documented stashes or explicitly preserved scratch
 checkouts. Do not leave `src-tauri/target` or lane `target/` directories to grow silently between
 releases; `cargo sweep --time 2` is the default cleanup because active build artifacts are touched
@@ -728,7 +728,7 @@ The script lives in this skill's folder at `<repo>/.agents/skills/github-release
 Gotchas:
 - Don't pass `-Verb RunAs` to the installer. `installMode=currentUser` doesn't need elevation; RunAs triggers UAC and hangs on headless.
 - Helper survives the daemon, not your terminal tab — if invoked from a CodeTerm-managed tab, the tab dies with the daemon. Tail progress from outside: `Get-Content -Wait "$env:LocalAppData\codeterm\self-install.log"`.
-- Auto-resume of agent panes is best-effort — `~/.codeterm/sessions/last.json` may be slightly behind if the daemon was killed abruptly.
+- Auto-resume of agent tabs is best-effort — `~/.codeterm/sessions/last.json` may be slightly behind if the daemon was killed abruptly.
 
 ### Path 3 — full release publish
 

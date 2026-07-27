@@ -53,7 +53,7 @@ async function asyncTests() {
   g.fetch = async () => ({ json: async () => ({ id: "pane-xyz" }) });
   await configureWithAI("lmstudio", "LM Studio", "help", { host: "127.0.0.1", port: 7686 });
   const focus = focusEvents.find((e) => e.type === "codeterm:focus-pane");
-  assert("dispatches codeterm:focus-pane with the spawned pane id", focus?.detail?.paneId === "pane-xyz");
+  assert("dispatches codeterm:focus-pane with the spawned Tab id", focus?.detail?.paneId === "pane-xyz");
 }
 
 asyncTests()

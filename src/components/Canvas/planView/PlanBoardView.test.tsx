@@ -116,7 +116,7 @@ test("renders board columns with context header and task cards", async () => {
   const card = inProgress?.querySelector('[data-testid="plan-board-task-card"]');
   assert(card, "in-progress card");
   assert(card?.getAttribute("data-task-id") === "task-dante", "task id");
-  assert(host.querySelector('[data-testid="working-on-chip-pane"]')?.textContent?.includes("Puccini"), "working-on pane chip");
+  assert(host.querySelector('[data-testid="working-on-chip-pane"]')?.textContent?.includes("Puccini"), "working-on Tab chip");
   const laneText = host.querySelector('[data-testid="working-on-chip-branch"]')?.textContent ?? "";
   assert(laneText.includes("lane/plan-board-view"), "working-on branch chip");
   assert(!host.querySelector('[data-testid="plan-board-task-milestone"]'), "no raw milestone card row");

@@ -116,7 +116,7 @@ impl PaneTransport for PtyTransport<'_> {
         let text = if formatted {
             let bytes = ss
                 .get_screen_formatted(&pty_id)
-                .ok_or_else(|| "No pane text".to_string())?;
+                .ok_or_else(|| "No Tab text".to_string())?;
             String::from_utf8_lossy(&bytes).into_owned()
         } else {
             ss.get_screen_text(&pty_id)
@@ -183,11 +183,11 @@ impl ServiceContext {
             let mux = self.mux.write();
             let resolved = mux
                 .resolve_pane_id(pane_id)
-                .ok_or_else(|| format!("Pane {} not found", pane_id))?;
+                .ok_or_else(|| format!("Tab {} not found", pane_id))?;
             let backing = mux
                 .get_pane(&resolved)
                 .map(|p| p.backing.clone())
-                .ok_or_else(|| format!("Pane {} not found", pane_id))?;
+                .ok_or_else(|| format!("Tab {} not found", pane_id))?;
             (resolved, backing)
         };
         match backing {
@@ -232,7 +232,7 @@ mod tests {
     #[test]
     fn pane_agent_input_accepts_spawned_and_reattached_ready_stages() {
         let (mut mux, pane_id) = MultiplexerState::new();
-        let pane = mux.get_pane_mut(&pane_id).expect("initial pane");
+        let pane = mux.get_pane_mut(&pane_id).expect("initial Tab");
         pane.agent_type = Some("codex".into());
         pane.boot_stage = Some(BootStage::ShellReady);
         assert!(!pane_accepts_agent_input(&pane));

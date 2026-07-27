@@ -68,7 +68,7 @@ test("BusyState label comes from the i18n constants module", async () => {
   assert(busyLabel("planLoad") === "Loading plan", "en value");
 });
 
-test("BusyState explicit label overrides the key (pane boot stage)", async () => {
+test("BusyState explicit label overrides the key (Tab boot stage)", async () => {
   const { host } = await render(<BusyState labelKey="paneBoot" label="Spawning PTY" />);
   const msg = host.querySelector(".ct-agent-msg");
   assert(msg?.textContent === "Spawning PTY", "explicit stage label wins");

@@ -124,18 +124,18 @@ assert(getPersistedChatScrollState(persistKey) === null, "clearing removes the p
 
 assert(
   chatActivationRestoreTarget(null).mode === "bottom",
-  "a fresh pane with no persisted state restores to the bottom",
+  "a fresh Tab with no persisted state restores to the bottom",
 );
 assert(
   chatActivationRestoreTarget({ mode: "pinned", anchor: null }).mode === "bottom",
-  "a pinned pane restores to the bottom on remount",
+  "a pinned Tab restores to the bottom on remount",
 );
 assert(
   chatActivationRestoreTarget({ mode: "detached", anchor: null }).mode === "bottom",
-  "a detached pane that never captured an anchor falls back to the bottom",
+  "a detached Tab that never captured an anchor falls back to the bottom",
 );
 const restoreTarget = chatActivationRestoreTarget({ mode: "detached", anchor: capturedAnchor });
-assert(restoreTarget.mode === "anchor", "a detached pane with a captured anchor restores by anchor");
+assert(restoreTarget.mode === "anchor", "a detached Tab with a captured anchor restores by anchor");
 assert(
   restoreTarget.mode === "anchor" && restoreTarget.anchor.elementId === "b",
   "the restore target carries the persisted anchor",

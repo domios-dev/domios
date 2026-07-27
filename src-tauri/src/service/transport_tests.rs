@@ -53,14 +53,14 @@ fn rollback_spawn_tab_removes_tab_pane_and_does_not_record_history() {
         .expect("default workspace");
     let (tab, pane) = state.create_tab(&ws).expect("create_tab");
     state.set_active_tab(&ws, &tab).expect("activate tab");
-    state.set_focused_pane(&pane).expect("focus pane");
+    state.set_focused_pane(&pane).expect("focus Tab");
 
     state.rollback_spawn_tab(&ws, &tab, &pane);
 
     let snap = state.snapshot();
     assert!(
         !snap.panes.contains_key(&pane),
-        "rolled-back pane is removed"
+        "rolled-back Tab is removed"
     );
     let ws_view = snap
         .workspaces
@@ -74,14 +74,14 @@ fn rollback_spawn_tab_removes_tab_pane_and_does_not_record_history() {
     assert_ne!(
         snap.focused_pane_id.as_deref(),
         Some(pane.as_str()),
-        "focus moved off the rolled-back pane"
+        "focus moved off the rolled-back Tab"
     );
     assert!(
         state
             .list_recently_closed(&ws)
             .iter()
             .all(|p| p.pane_id != pane),
-        "a never-launched pane must not enter recently-closed history"
+        "a never-launched Tab must not enter recently-closed history"
     );
 }
 
@@ -110,7 +110,7 @@ fn create_then_snapshot_contains_pane_and_advances_generation() {
     let fresh = state.snapshot();
     assert!(
         fresh.panes.contains_key(&pane),
-        "atomic snapshot must contain the just-created pane"
+        "atomic snapshot must contain the just-created Tab"
     );
     assert!(
         fresh.generation > stale.generation,

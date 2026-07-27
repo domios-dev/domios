@@ -114,7 +114,7 @@ fn send_due_plan_time_reminders_with(
         ) {
             Ok(()) => {
                 log::info!(
-                    "[plan-reminder] delivered {:?} nudge to pane {}",
+                    "[plan-reminder] delivered {:?} nudge to Tab {}",
                     timed.target.time_nudge_kind(),
                     timed.pane_id
                 );
@@ -123,7 +123,7 @@ fn send_due_plan_time_reminders_with(
             }
             Err(reason) => {
                 log::warn!(
-                    "[plan-reminder] FAILED to deliver nudge to pane {} (target {:?}): {}",
+                    "[plan-reminder] FAILED to deliver nudge to Tab {} (target {:?}): {}",
                     timed.pane_id,
                     timed.target,
                     reason
@@ -132,7 +132,7 @@ fn send_due_plan_time_reminders_with(
             }
         }
     }
-    log::info!("[plan-reminder] tick: {candidates} candidate pane(s), {due} due");
+    log::info!("[plan-reminder] tick: {candidates} candidate Tab(s), {due} due");
 }
 
 impl ServiceContext {

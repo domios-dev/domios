@@ -521,7 +521,7 @@ pub(super) fn run_task(
             }
             let pane = val.get("pane_id").and_then(|v| v.as_str()).unwrap_or("?");
             let agent = val.get("agent").and_then(|v| v.as_str()).unwrap_or("agent");
-            println!("Dispatched {agent} worker pane {pane}");
+            println!("Dispatched {agent} worker Tab {pane}");
             Ok(None)
         }
         PlanTaskAction::Attempts { plan_id, task_id } => {
@@ -607,7 +607,7 @@ pub(super) fn run_task(
                 .or_else(|| val.get("attempt").and_then(|v| v.get("id")))
                 .and_then(|v| v.as_str())
                 .unwrap_or("?");
-            println!("Respawned worker pane {pane} (attempt {attempt_id})");
+            println!("Respawned worker Tab {pane} (attempt {attempt_id})");
             Ok(None)
         }
         PlanTaskAction::Link {

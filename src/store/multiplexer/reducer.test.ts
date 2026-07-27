@@ -201,9 +201,9 @@ test("snapshots without a generation still apply (back-compat)", () => {
   assert(next.active_workspace_id === "w-x", "ungenerationed snapshot applied");
 });
 
-test("peer switch reset removes every old-peer pane and selection immediately", () => {
+test("peer switch reset removes every old-peer Tab and selection immediately", () => {
   const oldPane = { id: "blackstar-pane", title: "Planner" } as unknown as Pane;
-  const oldTab = { id: "blackstar-tab", pane_id: oldPane.id } as unknown as Tab;
+  const oldTab = { id: "blackstar-pane", pane_id: oldPane.id } as unknown as Tab;
   const oldWorkspace = {
     id: "blackstar-workspace",
     name: "BLACKSTAR",
@@ -224,9 +224,9 @@ test("peer switch reset removes every old-peer pane and selection immediately", 
 
   const reset = reducer(start, { type: "RESET_PEER_CONTEXT" });
   assert(reset.workspaces.length === 0, "old peer workspaces cleared");
-  assert(Object.keys(reset.panes).length === 0, "old peer panes cleared");
+  assert(Object.keys(reset.panes).length === 0, "old peer Tabs cleared");
   assert(reset.active_workspace_id === null, "old active workspace cleared");
-  assert(reset.focused_pane_id === null, "old focused pane cleared");
+  assert(reset.focused_pane_id === null, "old focused Tab cleared");
   assert(Object.keys(reset.activeTabIds).length === 0, "old active tabs cleared");
   assert(reset.generation === -1, "new peer snapshot cannot be rejected by old peer generation");
 });
@@ -399,7 +399,7 @@ function snapWithFocus(
   };
 }
 
-test("initial hydrate adopts focused_pane_id naming an existing pane", () => {
+test("initial hydrate adopts focused_pane_id naming an existing Tab", () => {
   const next = reducer(base(), {
     type: "SET_STATE",
     state: snapWithFocus(1, ["p1"], "p1"),
@@ -407,7 +407,7 @@ test("initial hydrate adopts focused_pane_id naming an existing pane", () => {
   assert(next.focused_pane_id === "p1", "focus adopted from snapshot");
 });
 
-test("snapshot naming a missing pane preserves prior focus", () => {
+test("snapshot naming a missing Tab preserves prior focus", () => {
   const hydrated = reducer(base(), {
     type: "SET_STATE",
     state: snapWithFocus(1, ["p1"], "p1"),
@@ -418,11 +418,11 @@ test("snapshot naming a missing pane preserves prior focus", () => {
   });
   assert(
     after.focused_pane_id === "p1",
-    "stale focus naming a missing pane does not clobber valid focus",
+    "stale focus naming a missing Tab does not clobber valid focus",
   );
 });
 
-test("prior focused pane removed from snapshot clears focused_pane_id to null", () => {
+test("prior focused Tab removed from snapshot clears focused_pane_id to null", () => {
   const hydrated = reducer(base(), {
     type: "SET_STATE",
     state: snapWithFocus(1, ["p1"], "p1"),
@@ -431,7 +431,7 @@ test("prior focused pane removed from snapshot clears focused_pane_id to null", 
     type: "SET_STATE",
     state: snapWithFocus(2, ["p2"], null),
   });
-  assert(after.focused_pane_id === null, "ghost focused_pane_id cleared when pane removed");
+  assert(after.focused_pane_id === null, "ghost focused_pane_id cleared when Tab removed");
 });
 
 test("snapshot with null focus preserves prior focus", () => {
@@ -663,7 +663,7 @@ test("SET_PANE_TITLE at User level pins title for tab rename round-trip", () => 
     title: "Renamed Tab",
     level: TitleLevel.User,
   });
-  assert(renamed.panes.p1.title === "Renamed Tab", "User rename applied on pane");
+  assert(renamed.panes.p1.title === "Renamed Tab", "User rename applied on Tab");
   assert(renamed.panes.p1.title_pending_local === true, "rename marked pending until backend sync");
 });
 
@@ -672,7 +672,7 @@ test("RESET_GENERATION lets a low post-restart snapshot apply over a high stale 
   assert(highGen.generation === 500, "client accumulated a high generation");
   const resetted = reducer(highGen, { type: "RESET_GENERATION" });
   assert(resetted.generation === 0, "generation dropped to 0 on boot-changed");
-  assert(resetted.active_workspace_id === "w-old", "workspace/pane structure untouched by the reset itself");
+  assert(resetted.active_workspace_id === "w-old", "workspace/Tab structure untouched by the reset itself");
   const after = reducer(resetted, { type: "SET_STATE", state: snap(1, "w-post-restart") });
   assert(after.generation === 1, "low post-restart generation now applies");
   assert(after.active_workspace_id === "w-post-restart", "post-restart structure replaces stale pre-restart structure");
@@ -684,7 +684,7 @@ test("without RESET_GENERATION a low post-restart snapshot would be rejected (sa
   assert(after === highGen, "monotonic guard still rejects a low generation outside the boot-changed path");
 });
 
-test("CLOSE_TAB removes every tab whose pane is in the removed cascade", () => {
+test("CLOSE_TAB removes every tab whose Tab is in the removed cascade", () => {
   const orch: Tab = { id: "tab-orch", pane_id: "pane-orch" } as unknown as Tab;
   const planner: Tab = { id: "tab-planner", pane_id: "pane-planner" } as unknown as Tab;
   const worker: Tab = { id: "tab-worker", pane_id: "pane-worker" } as unknown as Tab;
@@ -730,7 +730,7 @@ test("CLOSE_TAB removes every tab whose pane is in the removed cascade", () => {
   assert(ws.tabs.length === 0, `all cascade tabs removed, got ${ws.tabs.length}`);
   assert(ws.active_tab_id === null, "workspace active tab cleared");
   assert(after.activeTabIds.w1 === undefined, "activeTabIds cleared");
-  assert(Object.keys(after.panes).length === 0, "all cascade panes removed");
+  assert(Object.keys(after.panes).length === 0, "all cascade Tabs removed");
   assert(Object.keys(after.paneStatuses).length === 0, "all cascade statuses removed");
 });
 
@@ -781,8 +781,8 @@ test("CLOSE_TAB removes a manager-root subtree", () => {
   assert(ws.tabs.map((t) => t.id).join(",") === "tab-orch", "only orchestrator remains");
   assert(ws.active_tab_id === "tab-orch", "active tab falls back to orchestrator");
   assert(after.activeTabIds.w1 === "tab-orch", "activeTabIds falls back to orchestrator");
-  assert(after.panes["pane-orch"], "orchestrator pane remains");
-  assert(!after.panes["pane-manager"] && !after.panes["pane-worker"], "manager subtree panes removed");
+  assert(after.panes["pane-orch"], "orchestrator Tab remains");
+  assert(!after.panes["pane-manager"] && !after.panes["pane-worker"], "manager subtree Tabs removed");
   assert(Object.keys(after.paneStatuses).length === 0, "manager subtree statuses removed");
 });
 
@@ -813,28 +813,28 @@ function tabIds(state: ExtendedState): string {
   return state.workspaces[0]?.tabs.map((t) => t.id).join(",") ?? "";
 }
 
-test("SET_STATE masks a tombstoned pane from an accepted snapshot", () => {
+test("SET_STATE masks a tombstoned Tab from an accepted snapshot", () => {
   const start = { ...base(), generation: 5, pendingCloses: ["pane-B"] };
   const next = reducer(start, {
     type: "SET_STATE",
     state: snapWithTabs(6, [["A", "pane-A"], ["B", "pane-B"]]),
   });
   assert(tabIds(next) === "A", "closed tab B masked out of the accepted snapshot");
-  assert(!next.panes["pane-B"], "masked pane removed from panes map");
-  assert(next.pendingCloses.join(",") === "pane-B", "tombstone retained while the pane is reported");
+  assert(!next.panes["pane-B"], "masked Tab removed from Tabs map");
+  assert(next.pendingCloses.join(",") === "pane-B", "tombstone retained while the Tab is reported");
 });
 
-test("SET_STATE self-clears a tombstone when the accepted snapshot omits the pane", () => {
+test("SET_STATE self-clears a tombstone when the accepted snapshot omits the Tab", () => {
   const start = { ...base(), generation: 5, pendingCloses: ["pane-B"] };
   const next = reducer(start, {
     type: "SET_STATE",
     state: snapWithTabs(6, [["A", "pane-A"]]),
   });
   assert(tabIds(next) === "A", "only the live tab remains");
-  assert(next.pendingCloses.length === 0, "tombstone cleared once the accepted snapshot omits the pane");
+  assert(next.pendingCloses.length === 0, "tombstone cleared once the accepted snapshot omits the Tab");
 });
 
-test("SET_STATE does NOT clear a tombstone on a rejected stale snapshot that omits the pane", () => {
+test("SET_STATE does NOT clear a tombstone on a rejected stale snapshot that omits the Tab", () => {
   const start = { ...base(), generation: 10, pendingCloses: ["pane-B"] };
   const stale = reducer(start, {
     type: "SET_STATE",
@@ -849,7 +849,7 @@ test("SET_STATE does NOT clear a tombstone on a rejected stale snapshot that omi
   assert(tabIds(later) === "A", "surviving tombstone still masks B on a later accepted snapshot");
 });
 
-test("no time-based expiry: repeated accepted snapshots listing the pane keep masking", () => {
+test("no time-based expiry: repeated accepted snapshots listing the Tab keep masking", () => {
   let state: ExtendedState = { ...base(), generation: 0, pendingCloses: ["pane-B"] };
   for (let gen = 1; gen <= 50; gen++) {
     state = reducer(state, {
@@ -866,7 +866,7 @@ test("no time-based expiry: repeated accepted snapshots listing the pane keep ma
   assert(omitted.pendingCloses.length === 0, "only an accepted omitting snapshot clears the tombstone");
 });
 
-test("REMOVE_PENDING_CLOSE drops the tombstone so a later snapshot restores the pane", () => {
+test("REMOVE_PENDING_CLOSE drops the tombstone so a later snapshot restores the Tab", () => {
   const start = { ...base(), generation: 5, pendingCloses: ["pane-B"] };
   const removed = reducer(start, { type: "REMOVE_PENDING_CLOSE", paneIds: ["pane-B"] });
   assert(removed.pendingCloses.length === 0, "explicit remove drops the tombstone");
@@ -874,10 +874,10 @@ test("REMOVE_PENDING_CLOSE drops the tombstone so a later snapshot restores the 
     type: "SET_STATE",
     state: snapWithTabs(6, [["A", "pane-A"], ["B", "pane-B"]]),
   });
-  assert(tabIds(restored) === "A,B", "with no tombstone the authoritative pane reappears");
+  assert(tabIds(restored) === "A,B", "with no tombstone the authoritative Tab reappears");
 });
 
-test("CLOSE_TAB records a tombstone for the removed pane", () => {
+test("CLOSE_TAB records a tombstone for the removed Tab", () => {
   const start: ExtendedState = {
     ...base(),
     workspaces: [
@@ -892,7 +892,7 @@ test("CLOSE_TAB records a tombstone for the removed pane", () => {
     tabId: "A",
     removedPaneIds: ["pane-A"],
   });
-  assert(next.pendingCloses.join(",") === "pane-A", "closing a tab tombstones its pane");
+  assert(next.pendingCloses.join(",") === "pane-A", "closing a tab tombstones its Tab");
 });
 
 console.log(failures === 0 ? "✓ reducer tests green" : `✗ ${failures} failure(s)`);

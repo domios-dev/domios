@@ -34,7 +34,7 @@ pub async fn list_panes(
         },
         state.svc.as_ref(),
     )
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to list panes"))?;
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to list Tabs"))?;
     Ok(Json(result.into_json()))
 }
 
@@ -73,7 +73,7 @@ pub async fn inspect_panes(
         &crate::dispatch::Command::PaneInspect { pane_ids },
         state.svc.as_ref(),
     )
-    .map_err(|_| (StatusCode::NOT_FOUND, "Requested pane was not found"))?;
+    .map_err(|_| (StatusCode::NOT_FOUND, "Requested Tab was not found"))?;
     Ok(Json(result.into_json()))
 }
 
@@ -170,7 +170,7 @@ pub async fn create_shell_pane(
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!(
-                        "pane created (id={}) but --cmd failed: {}",
+                        "Tab created (id={}) but --cmd failed: {}",
                         handle.pane_id, e
                     ),
                 )
@@ -262,7 +262,7 @@ pub async fn stop_pane(
     state
         .svc
         .write_raw(&pane_id, key.as_bytes())
-        .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+        .map_err(|_| (StatusCode::NOT_FOUND, "Tab not found or has no PTY"))?;
     Ok(Json(serde_json::json!({"ok": true, "stopped": true})))
 }
 
@@ -277,7 +277,7 @@ pub async fn focus_pane(
         &crate::dispatch::Command::PaneFocus { pane_id },
         state.svc.as_ref(),
     )
-    .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
+    .map_err(|_| (StatusCode::NOT_FOUND, "Tab not found"))?;
     Ok(Json(result.into_json()))
 }
 
@@ -307,7 +307,7 @@ pub async fn get_pane_output(
     };
     let result = crate::dispatch::dispatch_blocking(cmd, state.svc.clone())
         .await
-        .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+        .map_err(|_| (StatusCode::NOT_FOUND, "Tab not found or has no PTY"))?;
     Ok(Json(result.into_json()))
 }
 
@@ -331,14 +331,14 @@ pub async fn exec_in_pane(
     state
         .svc
         .ensure_pane_pty_for_send(&pane_id)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+        .map_err(|_| (StatusCode::NOT_FOUND, "Tab not found or has no PTY"))?;
     if !await_pty_link(&state, &pane_id).await {
-        return Err((StatusCode::NOT_FOUND, "Pane not found or PTY did not start"));
+        return Err((StatusCode::NOT_FOUND, "Tab not found or PTY did not start"));
     }
     let pty_id = state
         .svc
         .resolve_pty_id(&pane_id)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+        .map_err(|_| (StatusCode::NOT_FOUND, "Tab not found or has no PTY"))?;
 
     let start_offset = state
         .svc
@@ -488,7 +488,7 @@ pub async fn rename_pane(
         },
         state.svc.as_ref(),
     )
-    .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
+    .map_err(|_| (StatusCode::NOT_FOUND, "Tab not found"))?;
     Ok(Json(result.into_json()))
 }
 
@@ -643,7 +643,7 @@ pub async fn agent_run_log(
         ));
     }
 
-    Err((StatusCode::NOT_FOUND, "Pane not found or has no PTY"))
+    Err((StatusCode::NOT_FOUND, "Tab not found or has no PTY"))
 }
 
 fn read_log_from_disk_by_pane(state: &AppState, raw_pane_id: &str) -> Option<String> {
@@ -688,7 +688,7 @@ fn resolve_pty_id_with_fallback(
     if let Some(pty_id) = state.svc.agent_run_pty_map.lock().get(raw_pane_id).cloned() {
         return Ok(pty_id);
     }
-    Err((StatusCode::NOT_FOUND, "Pane not found or has no PTY"))
+    Err((StatusCode::NOT_FOUND, "Tab not found or has no PTY"))
 }
 
 #[derive(Deserialize, Default)]
@@ -711,7 +711,7 @@ pub async fn get_pane_usage(
         let mux = state.svc.mux.write();
         let pane = mux
             .get_pane(&pane_id)
-            .ok_or((StatusCode::NOT_FOUND, "Pane not found"))?;
+            .ok_or((StatusCode::NOT_FOUND, "Tab not found"))?;
         (
             pane.agent_type.clone(),
             pane.agent_session_id.clone(),
@@ -758,7 +758,7 @@ pub async fn get_pane_text(
             }
             Ok(Json(v))
         }
-        Err(_) => Err((StatusCode::NOT_FOUND, "Pane not found or has no PTY")),
+        Err(_) => Err((StatusCode::NOT_FOUND, "Tab not found or has no PTY")),
     }
 }
 
@@ -850,7 +850,7 @@ pub async fn stop_capture(
                 "capture stop join failed",
             )
         })?
-        .ok_or((StatusCode::NOT_FOUND, "no active capture for this pane"))?;
+        .ok_or((StatusCode::NOT_FOUND, "no active capture for this Tab"))?;
     let screen_path = out.with_extension("screen.txt");
     if let Some(text) = screen {
         let _ = std::fs::write(&screen_path, text);

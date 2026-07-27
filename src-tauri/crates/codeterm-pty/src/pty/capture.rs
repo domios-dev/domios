@@ -192,7 +192,7 @@ impl CaptureRegistry {
         if map.contains_key(pty_id) {
             return Err(io::Error::new(
                 io::ErrorKind::AlreadyExists,
-                "capture already active for this pane",
+                "capture already active for this Tab",
             ));
         }
         let writer = CastWriter::create(&out, cols, rows, timestamp)?;

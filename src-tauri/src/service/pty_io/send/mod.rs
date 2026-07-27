@@ -217,10 +217,10 @@ impl ServiceContext {
             let mux = self.mux.read();
             let resolved = mux
                 .resolve_pane_id(pane_id)
-                .ok_or_else(|| "agent_unavailable: planner pane missing".to_string())?;
+                .ok_or_else(|| "agent_unavailable: planner Tab missing".to_string())?;
             let pane = mux
                 .get_pane(&resolved)
-                .ok_or_else(|| "agent_unavailable: planner pane missing".to_string())?;
+                .ok_or_else(|| "agent_unavailable: planner Tab missing".to_string())?;
             authenticated_pty_target(pane, expected_session_id, expected_binding_nonce)?
         };
         let permit = self.pty.lock().issue_guarded_input_permit(&pty_id)?;
@@ -254,7 +254,7 @@ impl ServiceContext {
             let result = pty_id.and_then(|pty_id| svc.send_text_to_pty_smart(&pty_id, &text, true));
             drop(pty_claim);
             if let Err(error) = result {
-                log::warn!("[send-async] agent delivery to pane {pane} failed: {error}");
+                log::warn!("[send-async] agent delivery to Tab {pane} failed: {error}");
                 crate::api::events::emit_everywhere(
                     &svc.app_handle,
                     "chat-send-failed",
@@ -601,7 +601,7 @@ impl ServiceContext {
             Ok(())
         } else {
             Err(format!(
-                "Agent in pane {} is still booting — input would be lost",
+                "Agent in Tab {} is still booting — input would be lost",
                 pane_id
             ))
         }
@@ -631,7 +631,7 @@ impl ServiceContext {
         )
         .ok_or_else(|| {
             format!(
-                "Pane {} not found or PTY did not start within {:?}",
+                "Tab {} not found or PTY did not start within {:?}",
                 pane_id, timeout
             )
         })
@@ -668,7 +668,7 @@ impl ServiceContext {
             Ok(())
         } else {
             Err(format!(
-                "Agent in pane {} did not become routable within {:?}",
+                "Agent in Tab {} did not become routable within {:?}",
                 pane_id, timeout
             ))
         }
@@ -730,7 +730,7 @@ impl ServiceContext {
         let text = text.to_string();
         std::thread::spawn(move || {
             if let Err(error) = svc.send_text(&pane, &text, enter) {
-                log::warn!("[send-async] delivery to pane {pane} failed: {error}");
+                log::warn!("[send-async] delivery to Tab {pane} failed: {error}");
                 crate::api::events::emit_everywhere(
                     &svc.app_handle,
                     "chat-send-failed",
@@ -767,7 +767,7 @@ impl ServiceContext {
         }
         if let Some(provider_id) = self.input_parser.process(&pane_id, &payload) {
             log::info!(
-                "[input-parser] detected '{}' send in pane {} — locking agent_type",
+                "[input-parser] detected '{}' send in Tab {} — locking agent_type",
                 provider_id,
                 pane_id,
             );

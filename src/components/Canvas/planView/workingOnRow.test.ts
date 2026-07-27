@@ -32,7 +32,7 @@ test("returns null for non-working statuses", () => {
   assert(deriveWorkingOnRow(task({ status: TaskStatus.Done }), {}) === null, "done");
 });
 
-test("resolves local pane title, model and branch as labeled info chips in order", () => {
+test("resolves local Tab title, model and branch as labeled info chips in order", () => {
   const t = task({
     status: TaskStatus.InProgress,
     model: "claude:opus",
@@ -53,7 +53,7 @@ test("resolves local pane title, model and branch as labeled info chips in order
   assert(kinds.indexOf("branch") < kinds.indexOf("age"), "branch before age");
 });
 
-test("missing branch yields amber warn when pane is recorded", () => {
+test("missing branch yields amber warn when Tab is recorded", () => {
   const t = task({ status: TaskStatus.InProgress, assigned_pane_id: "p1", lane: {} });
   const row = deriveWorkingOnRow(t, pane("p1", "P"), 0)!;
   const warns = row.chips.filter((c) => c.kind === "warn");
@@ -95,7 +95,7 @@ test("remote pane keeps peer chip and grey short-id, never pane-gone", () => {
   const row = deriveWorkingOnRow(t, {}, 0)!;
   assert(!row.chips.some((c) => c.label === "tab gone"), "no tab gone when peer present");
   assert(chip(row.chips, "peer")?.label === "eight", "peer chip");
-  assert(chip(row.chips, "pane")?.tone === "grey", "remote pane grey short id");
+  assert(chip(row.chips, "pane")?.tone === "grey", "remote Tab grey short id");
 });
 
 test("age chip is separate from branch", () => {

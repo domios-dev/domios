@@ -212,13 +212,13 @@ fn print_delayed_item(value: &serde_json::Value) {
         .and_then(|v| v.as_str())
         .map(shorten)
         .unwrap_or_default();
-    println!("{} [{}] pane={} at={} {}", id, state, pane, at, text);
+    println!("{} [{}] tab={} at={} {}", id, state, pane, at, text);
     if value
         .get("sessionChanged")
         .and_then(|v| v.as_bool())
         .unwrap_or(false)
     {
-        println!("  warning: pane session changed since scheduling");
+        println!("  warning: Tab session changed since scheduling");
     }
     if let Some(error) = value.get("error").and_then(|v| v.as_str()) {
         if !error.is_empty() {

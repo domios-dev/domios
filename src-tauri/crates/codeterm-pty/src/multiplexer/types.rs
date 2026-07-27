@@ -818,7 +818,7 @@ mod tests {
                 "session_id": "s7",
             })
         );
-        // "not a chat pane".
+        // "not a chat Tab".
         assert_eq!(
             serde_json::to_value(PaneBacking::Pty).unwrap(),
             serde_json::json!({ "kind": "pty" })

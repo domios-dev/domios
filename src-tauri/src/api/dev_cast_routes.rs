@@ -83,7 +83,7 @@ fn resolve_target_pty(state: &AppState, raw_pane_id: &str) -> Result<String, (St
     }
     Err((
         StatusCode::NOT_FOUND,
-        "pane not found or has no PTY — use a fixture pane with a linked PTY".into(),
+        "Tab not found or has no PTY — use a fixture Tab with a linked PTY".into(),
     ))
 }
 

@@ -334,7 +334,7 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str, generation: u64) {
                     crate::cron::notify::notify_on_consecutive_failure(svc, &cron_state, &job_id);
                 }
                 log::info!(
-                    "[backend-reader] cron pane exited: job={}, run={}",
+                    "[backend-reader] cron Tab exited: job={}, run={}",
                     job_id,
                     run_id
                 );

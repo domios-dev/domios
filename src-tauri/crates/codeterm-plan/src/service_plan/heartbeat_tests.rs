@@ -205,12 +205,12 @@ fn heartbeat_resolves_for_owner_pane_at_send_time() {
     assert!(before.contains("Worker reports are pushed into this tab automatically"));
     assert!(!before.contains("codeterm agent reports"));
     assert!(before.contains("codeterm orchestrator status --plan"));
-    assert!(before.contains("--tab orch-a"));
-    assert!(!before.contains("--tab orch-a --json"));
+    assert!(before.contains("--pane orch-a"));
+    assert!(!before.contains("--pane orch-a --json"));
     assert!(before.contains("codeterm orchestrator inspect --plan"));
     assert!(before.contains("codeterm plan reconcile"));
     assert!(before.contains("codeterm plan task close"));
-    assert!(before.contains("codeterm send \"<next concrete instruction>\" --tab"));
+    assert!(before.contains("codeterm send \"<next concrete instruction>\" --pane"));
     assert!(before.contains("Heartbeat is derived automatically"));
     assert!(before.contains("codeterm docs ORCHESTRATION"));
     assert!(!before.contains("Re-arm exactly one heartbeat"));
@@ -312,10 +312,10 @@ fn owner_plan_nudge_prepends_heartbeat_and_exact_recovery_commands() {
     assert!(text.contains("Worker reports are pushed into this tab automatically"));
     assert!(!text.contains("codeterm agent reports"));
     assert!(text.contains(&format!(
-        "codeterm orchestrator status --plan {plan_id} --tab orch-a"
+        "codeterm orchestrator status --plan {plan_id} --pane orch-a"
     )));
     assert!(text.contains(&format!("codeterm plan task close {plan_id} <task_id>")));
-    assert!(text.contains("codeterm send \"<next concrete instruction>\" --tab <worker_tab_id>"));
+    assert!(text.contains("codeterm send \"<next concrete instruction>\" --pane <worker_tab_id>"));
     assert!(text.contains("Heartbeat is derived automatically"));
     assert!(text.contains("codeterm docs ORCHESTRATION"));
     assert!(!text.contains("<codeterm-orchestrator-heartbeat"));

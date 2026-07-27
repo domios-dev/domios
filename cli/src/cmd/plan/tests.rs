@@ -240,11 +240,11 @@ fn renders_in_review_done_transition_fix() {
 fn plan_tagged_pane_not_found_gets_cross_daemon_hint() {
     let err = crate::client::SocketCallError::Rpc(crate::client::RpcError {
         code: -32603,
-        message: "Pane not found".into(),
+        message: "Tab not found".into(),
         data: None,
     });
     let msg = render_plan_call_error(err, &json!({ "plan_id": "pl_dev", "task_id": "task_dev" }));
-    assert!(msg.contains("RPC error -32603: Pane not found"));
+    assert!(msg.contains("RPC error -32603: Tab not found"));
     assert!(msg.contains("env -u CODETERM_API_TOKEN CODETERM_API_PORT=7686 codeterm"));
 }
 

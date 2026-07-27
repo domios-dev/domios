@@ -19,4 +19,4 @@ assert.deepEqual(
   { sessionId: null, canReconnect: false, canRestart: false },
 );
 
-console.log("pane session action tests: passed");
+console.log("Tab session action tests: passed");

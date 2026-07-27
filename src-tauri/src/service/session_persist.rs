@@ -115,7 +115,7 @@ mod tests {
         let (tab_id, _pane_id) = mux.write().create_tab(&ws.id).unwrap();
 
         mux.write()
-            .rename_tab(&ws.id, &tab_id, "renamed-tab")
+            .rename_tab(&ws.id, &tab_id, "renamed-pane")
             .unwrap();
         let snapshot = mux.read().to_session_snapshot();
         store.lock().save(&snapshot).unwrap();
@@ -123,6 +123,6 @@ mod tests {
         let loaded = store.lock().load_last().unwrap().expect("snapshot on disk");
         let ws_snap = loaded.workspaces.iter().find(|w| w.id == ws.id).unwrap();
         let tab = ws_snap.tabs.iter().find(|t| t.id == tab_id).unwrap();
-        assert_eq!(tab.title, "renamed-tab");
+        assert_eq!(tab.title, "renamed-pane");
     }
 }

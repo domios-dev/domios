@@ -222,7 +222,7 @@ async function main(): Promise<void> {
   await app.render(null, null, true);
   assert(
     app.attachmentState() === "awaiting_session",
-    `null pane authority must await a session (state=${app.attachmentState()})`,
+    `null Tab authority must await a session (state=${app.attachmentState()})`,
   );
   assert(app.messageIds().length === 0, "awaiting-session rendered false-success rows");
   await act(async () => {
@@ -230,7 +230,7 @@ async function main(): Promise<void> {
   });
   assert(
     app.messageIds().length === 0 && app.attachmentState() === "awaiting_session",
-    "unbound pane adopted a global transcript candidate",
+    "unbound Tab adopted a global transcript candidate",
   );
 
   await app.render(null, null, false);

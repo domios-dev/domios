@@ -63,7 +63,7 @@ test("summary counts BY SECTION — 1 manager, N workers", async () => {
   assert(summary, "summary line present");
   assert(summary!.textContent?.includes("1 manager"), `singular manager: ${summary!.textContent}`);
   assert(summary!.textContent?.includes("2 workers"), `plural workers: ${summary!.textContent}`);
-  assert(summary!.textContent?.includes("4 panes"), "total panes = orchestrator + 3 members");
+  assert(summary!.textContent?.includes("4 Tabs"), "total Tabs = orchestrator + 3 members");
   await act(async () => root.unmount());
 });
 

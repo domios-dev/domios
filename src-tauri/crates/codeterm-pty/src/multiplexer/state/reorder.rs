@@ -106,7 +106,7 @@ impl MultiplexerState {
                 .unwrap_or(false);
             if !is_child {
                 return Err(format!(
-                    "Tab {} is not a child of pane {}",
+                    "Tab {} is not a child of Tab {}",
                     id, parent_pane_id
                 ));
             }

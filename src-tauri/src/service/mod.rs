@@ -163,7 +163,7 @@ pub struct ServiceContext {
     // codeterm cron complete / mem worker report itself.
     pub run_watcher: Arc<crate::agent::run_watcher::RunWatcherRegistry>,
     /// Orchestrator-side view of remote (cross-mesh) workers, populated from
-    /// inbound mesh reports. Drives the "remote pane" ghost nodes in the UI.
+    /// inbound mesh reports. Drives the "remote Tab" ghost nodes in the UI.
     pub remote_workers: crate::service::remote_workers::RemoteWorkerRegistryHandle,
     /// Channel for outbound Telegram messages (CLI bridge.send command).
     pub bridge_outbound: crate::bridge::manager::OutboundSender,
@@ -366,7 +366,7 @@ impl ServiceContext {
         let pane = mux.get_pane_mut(pane_id).ok_or_else(|| {
             pending_delivery_payloads::PayloadStoreError::Io {
                 digest: digest.clone(),
-                message: "pane vanished while confirming pending delivery".into(),
+                message: "Tab vanished while confirming pending delivery".into(),
             }
         })?;
         if let Some(record) = pane.pending_delivery.as_mut() {

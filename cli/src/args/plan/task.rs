@@ -68,7 +68,7 @@ pub enum PlanTaskAction {
             help = "Task this one waits on; repeatable. Accepts a full task id (task_xxxxxx), a unique id prefix, or a task handle (see --handle)"
         )]
         depends_on: Vec<String>,
-        #[arg(long = "assign-tab", value_name = "TAB")]
+        #[arg(long = "assign-pane", value_name = "TAB")]
         assign_pane: Option<String>,
         #[arg(long)]
         workspace_id: Option<String>,
@@ -253,7 +253,7 @@ pub enum PlanTaskAction {
         )]
         reasoning_effort: Option<String>,
         #[arg(
-            long = "parent-tab",
+            long = "parent-pane",
             help = "Parent tab override (defaults to the caller tab)"
         )]
         parent: Option<String>,

@@ -4,7 +4,7 @@
 //! arrives over the mesh: the inbound `/send` (kind=report) carries the peer,
 //! the worker's foreign pane id, label, and model. We index those by the local
 //! orchestrator/General pane they reported to, so the UI can render a "remote
-//! pane" ghost node under its orchestrator — showing where it runs and its last
+//! Tab" ghost node under its orchestrator — showing where it runs and its last
 //! status — without owning a real PTY for it.
 
 use std::collections::HashMap;
@@ -444,7 +444,7 @@ mod tests {
         reg.record_report("orch", "eight", "w2", "Worker-2", None, "working", 15);
 
         let list = reg.for_orchestrator("orch");
-        assert_eq!(list.len(), 2, "two distinct remote panes");
+        assert_eq!(list.len(), 2, "two distinct remote Tabs");
         // Newest activity first.
         assert_eq!(list[0].remote_pane, "w1");
         assert_eq!(

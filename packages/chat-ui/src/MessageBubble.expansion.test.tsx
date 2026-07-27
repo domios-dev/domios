@@ -40,8 +40,8 @@ async function run() {
   document.body.appendChild(host);
   const root = createRoot(host);
   const messages = [
-    command("expanded-send", "codeterm send --tab worker-1 \"Please review the change\""),
-    command("collapsed-tab-list", "codeterm tab list --workspace codeterm"),
+    command("expanded-send", "codeterm send --pane worker-1 \"Please review the change\""),
+    command("collapsed-pane-list", "codeterm tab list --workspace codeterm"),
   ];
 
   await act(async () => {

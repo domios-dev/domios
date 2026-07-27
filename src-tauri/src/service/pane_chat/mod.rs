@@ -514,7 +514,7 @@ pub fn pane_chat_snapshot(
 ) -> Result<(Vec<ChatMsg>, usize), String> {
     let backing = {
         let m = svc.mux.write();
-        m.get_pane(pane_id).ok_or("pane not found")?.backing.clone()
+        m.get_pane(pane_id).ok_or("Tab not found")?.backing.clone()
     };
     match backing {
         crate::multiplexer::types::PaneBacking::ChatBackend {
@@ -530,13 +530,13 @@ pub fn pane_chat_snapshot(
         crate::multiplexer::types::PaneBacking::Pty => {
             let (provider_id, cwd, session_id) = {
                 let m = svc.mux.write();
-                let pane = m.get_pane(pane_id).ok_or("pane not found")?;
-                let provider = pane.agent_type.clone().ok_or("pane has no agent_type")?;
+                let pane = m.get_pane(pane_id).ok_or("Tab not found")?;
+                let provider = pane.agent_type.clone().ok_or("Tab has no agent_type")?;
                 let cwd = pane.cwd.clone().unwrap_or_default();
                 let sid = pane
                     .agent_session_id
                     .clone()
-                    .ok_or("pane has no session_id yet")?;
+                    .ok_or("Tab has no session_id yet")?;
                 (provider, cwd, sid)
             };
             session_chat_snapshot(svc, &provider_id, &cwd, &session_id, since)

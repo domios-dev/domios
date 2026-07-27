@@ -71,15 +71,15 @@ function muxActions(): MultiplexerActionsContextType {
     setActiveWorkspace: noop,
     closeWorkspace: noop,
     renameWorkspace: noop,
-    moveTab: noop,
+    movepane: noop,
     reorderTabs: noop,
     reorderWorkspaces: noop,
-    createTab: noopAsync,
-    closeTab: noop,
+    createpane: noopAsync,
+    closepane: noop,
     reopenClosed: noop,
     reopenGroup: noop,
     restoreOrphaned: noop,
-    setActiveTab: noop,
+    setActivepane: noop,
     selectTabByPane: noopAsync,
     closePane: noop,
     setFocusedPane: noop,
@@ -95,8 +95,8 @@ function muxActions(): MultiplexerActionsContextType {
     setTabTitle: noop,
     setAgentType: noop,
     updatePaneStatus: noop,
-    spawnClaudeTab: noop,
-    spawnAgentTab: async () => null,
+    spawnClaudepane: noop,
+    spawnAgentpane: async () => null,
     createOrchestrationPair: async () => {
       throw new Error("not implemented");
     },
@@ -181,7 +181,7 @@ async function renderPaneSessionChat(
 
 setupDom();
 
-test("watcher pane mounts read-only bar and no composer input", async () => {
+test("watcher Tab mounts read-only bar and no composer input", async () => {
   const paneId = "watcher-pane";
   const state = muxStateFor({
     [paneId]: paneBase(paneId, {
@@ -199,7 +199,7 @@ test("watcher pane mounts read-only bar and no composer input", async () => {
   await act(async () => root.unmount());
 });
 
-test("normal chat_backend pane keeps composer and hides read-only bar", async () => {
+test("normal chat_backend Tab keeps composer and hides read-only bar", async () => {
   const paneId = "chat-pane";
   const state = muxStateFor({
     [paneId]: paneBase(paneId),
@@ -213,7 +213,7 @@ test("normal chat_backend pane keeps composer and hides read-only bar", async ()
   assert(messages?.getAttribute("role") === "log", "conversation is an accessible log");
   assert(messages?.getAttribute("aria-label") === "Conversation", "conversation log is named");
   assert(composer?.getAttribute("aria-label") === "Message composer", "composer is named");
-  assert(composer?.getAttribute("data-pane-id") === paneId, "composer exposes stable pane scope");
+  assert(composer?.getAttribute("data-pane-id") === paneId, "composer exposes stable Tab scope");
   assert(!host.querySelector('[data-testid="watcher-readonly-bar"]'), "read-only bar absent");
   await act(async () => root.unmount());
 });
@@ -349,7 +349,7 @@ test("the durable session rejects stale launch nonces and attaches to current au
   await act(async () => root.unmount());
 });
 
-test("launch retry uses the generic pane restart command", async () => {
+test("launch retry uses the generic Tab restart command", async () => {
   const paneId = "generic-retry-pane";
   const state = muxStateFor({
     [paneId]: paneBase(paneId, {
@@ -367,8 +367,8 @@ test("launch retry uses the generic pane restart command", async () => {
   const retry = host.querySelector('[data-testid="chat-launch-retry"]') as HTMLButtonElement | null;
   assert(retry, "unattached failed launch exposes retry");
   await act(async () => retry.click());
-  assert(commands.includes("restart_agent_pane"), "retry targets the current pane through the generic restart seam");
-  assert(!commands.includes("restart_general_agent_pane"), "retry never assumes this pane is the General Agent");
+  assert(commands.includes("restart_agent_pane"), "retry targets the current Tab through the generic restart seam");
+  assert(!commands.includes("restart_general_agent_pane"), "retry never assumes this Tab is the General Agent");
   await act(async () => root.unmount());
 });
 
@@ -444,7 +444,7 @@ test("T6 manual reconnect resubscribes without releasing a shared tailer", async
   await act(async () => root.unmount());
 });
 
-test("pane header reconnect control requests a hook-owned reattach", async () => {
+test("Tab header reconnect control requests a hook-owned reattach", async () => {
   const { createRequire } = await import("node:module");
   const require = createRequire(__filename);
   require.extensions[".css"] = () => {};
@@ -497,7 +497,7 @@ test("pane header reconnect control requests a hook-owned reattach", async () =>
   host.remove();
 });
 
-test("pane actions restart the agent session and copy its ID", async () => {
+test("Tab actions restart the agent session and copy its ID", async () => {
   const { __setInvokeForTest } = await import("../../lib/bridge");
   const { PaneTopBar } = await import("./PaneTopBar");
   const commands: string[] = [];
@@ -549,7 +549,7 @@ test("pane actions restart the agent session and copy its ID", async () => {
   host.remove();
 });
 
-test("pane header does not repeat the mobile top safe area", async () => {
+test("Tab header does not repeat the mobile top safe area", async () => {
   const { PaneTopBar } = await import("./PaneTopBar");
   document.documentElement.style.setProperty("--ct-safe-top", "44px");
   const host = document.createElement("div");
@@ -565,7 +565,7 @@ test("pane header does not repeat the mobile top safe area", async () => {
     );
   });
   const header = host.querySelector('[data-testid="pane-top-bar"]') as HTMLDivElement | null;
-  assert(header?.style.paddingTop === "6px", "pane header keeps only its local 6px padding");
+  assert(header?.style.paddingTop === "6px", "Tab header keeps only its local 6px padding");
   assert(!header.style.paddingTop.includes("safe-top"), "titlebar remains the sole top safe-area owner");
   await act(async () => root.unmount());
   host.remove();

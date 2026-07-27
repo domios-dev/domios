@@ -110,7 +110,7 @@ test("closed worker is not rendered as a live child after the close", () => {
 
 // Poisoned fixture: a stale status entry for worker-gone (missed Dead event) must
 // not resurrect a row — rows derive from state.panes membership, not the status map.
-test("stale status entry for a gone pane does not resurrect a row", () => {
+test("stale status entry for a gone Tab does not resurrect a row", () => {
   assert(statuses["worker-gone"] === "Working", "fixture keeps the stale status entry");
   const nodes = buildHierarchySubtree("orch", afterClose.panes, statuses);
   const ids = nodes.flatMap((n) => [n.pane.id, ...n.children.map((c) => c.pane.id)]);

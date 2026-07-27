@@ -486,7 +486,7 @@ fn quality_warns_on_deferred_cleanup() {
             "correctness": "n/a",
             "lane": {
                 "cleanup_status": "deferred",
-                "cleanup_hints": ["waiting for shared dev pane shutdown"]
+                "cleanup_hints": ["waiting for shared dev Tab shutdown"]
             }
         }]
     });

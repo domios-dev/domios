@@ -17,7 +17,7 @@ export interface UseTabCompletionReturn {
   completionItems: CompletionItem[];
   completionAnchor: { x: number; y: number };
   /** Returns true if tab was handled by completion engine */
-  handleTab: () => boolean;
+  handlepane: () => boolean;
   dismissCompletions: () => void;
   feedInput: (data: string) => void;
   feedOutput: (text: string) => void;

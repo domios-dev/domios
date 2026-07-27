@@ -431,13 +431,13 @@ fn transfer_updates_owner_and_history() {
 **Files:**
 - Modify: `src-tauri/src/api/agent_routes.rs` (`ReportBody` gains `plan_id`, `task_id`)
 - Modify: `src-tauri/src/service/hierarchy.rs` (`submit_report`: if `plan_id` set → append milestone; resolve report target via plan→current-owner lookup)
-- Modify: `src-tauri/src/service/pty_io/lifecycle.rs` (export `CODETERM_PLAN_ID`/`CODETERM_TASK_ID` when a pane is task-bound)
+- Modify: `src-tauri/src/service/pty_io/lifecycle.rs` (export `CODETERM_PLAN_ID`/`CODETERM_TASK_ID` when a Tab is task-bound)
 - Modify: `cli/src/args/agent.rs` + `cli/src/cmd/agent.rs` (`--plan`, `--task` on `agent report`)
 - Test: service test + eval
 
-- [ ] **Step 1: Failing test** — `submit_report` with `plan_id`/`task_id` appends a `Milestone` to that task (kind defaults to `status_update`), `from` auto-resolved from the caller pane; and a transferred plan routes the report to the NEW owner.
+- [ ] **Step 1: Failing test** — `submit_report` with `plan_id`/`task_id` appends a `Milestone` to that task (kind defaults to `status_update`), `from` auto-resolved from the caller Tab; and a transferred plan routes the report to the NEW owner.
 - [ ] **Step 2: Run → FAIL.**
-- [ ] **Step 3: Implement (VERIFIED anchors).** Extend `ReportBody` (`agent_routes.rs:191`) with `plan_id: Option<String>, task_id: Option<String>`. In `submit_report` (`hierarchy.rs:45`), when `plan_id` is set, call `PlanStore::add_milestone` with `from` resolved from the reporting pane; map report status (done/partial/blocked) to a milestone text prefix. Override `resolve_report_target` (`hierarchy.rs:225`, the verified `parent → report_target → spawned_by → system_inbox` chain) with `PlanStore::owner_of(plan_id)` when `plan_id` is present. Export env in `pane_env` (`pty_io/lifecycle.rs:11–54`, right after the `worker_id` block) — only when the pane is task-bound. Reports WITHOUT `plan_id` keep today's exact behavior (regression-guard test).
+- [ ] **Step 3: Implement (VERIFIED anchors).** Extend `ReportBody` (`agent_routes.rs:191`) with `plan_id: Option<String>, task_id: Option<String>`. In `submit_report` (`hierarchy.rs:45`), when `plan_id` is set, call `PlanStore::add_milestone` with `from` resolved from the reporting Tab; map report status (done/partial/blocked) to a milestone text prefix. Override `resolve_report_target` (`hierarchy.rs:225`, the verified `parent → report_target → spawned_by → system_inbox` chain) with `PlanStore::owner_of(plan_id)` when `plan_id` is present. Export env in `pane_env` (`pty_io/lifecycle.rs:11–54`, right after the `worker_id` block) — only when the Tab is task-bound. Reports WITHOUT `plan_id` keep today's exact behavior (regression-guard test).
 - [ ] **Step 4: Run → PASS.** `cargo fmt && ./build.sh check`.
 - [ ] **Step 5: Commit** — `git commit -am "feat(plan): report→milestone linkage + owner routing + env binding"`.
 
@@ -445,12 +445,12 @@ fn transfer_updates_owner_and_history() {
 
 ### Task 11: Plan-adherence reminders
 
-**VERIFIED GAP:** there is NO per-pane turn counter in the codebase today (`agent_tracker` tracks status, not turns). This task **creates** the counter, not just the decision logic.
+**VERIFIED GAP:** there is NO per-tab turn counter in the codebase today (`agent_tracker` tracks status, not turns). This task **creates** the counter, not just the decision logic.
 
 **Files:**
 - Create: `src-tauri/src/service/plan/reminders.rs` (pure decision + the counter state struct)
 - Modify: `src-tauri/src/service/hierarchy.rs` — increment the counter where agent activity is observed; reset on plan-touch
-- Modify: `src-tauri/src/service/plan/mod.rs` — every `PlanStore` mutation + `submit_report --plan` resets that pane's counter
+- Modify: `src-tauri/src/service/plan/mod.rs` — every `PlanStore` mutation + `submit_report --plan` resets that Tab's counter
 - Modify: `src-tauri/src/config/schema/mod.rs` (or wherever the config schema structs live — verify with `grep -rn "pub struct .*Config" src-tauri/src/config`) — add `OrchestrationConfig { plan_reminders: bool, nudge_after_turns: u32 }` with serde defaults `true`/`12`, wired into the root config like the existing `memory`/`mesh` sections
 - Modify: reuse `crate::service::messenger::Messenger::deliver` with `MessageKind::Reminder` (VERIFIED reusable — `messenger.rs:198`, already supports the Reminder kind) to inject the nudge
 - Test: `reminders.rs` inline
@@ -491,7 +491,7 @@ Dependency: Phase 1 shipped. Frontend-only (no Rust build).
 | 2.7 Cards | `Canvas/cards/*` | `SectionCard`/`TaskCard`(marker+name+model chip+`why`+status badge+coverage)/`MilestoneNode`/`PlanFrame`; markdown via `RichMarkdown` from `@codeterm/chat-ui` (VERIFIED export); LOD by zoom (name-only < 0.5, full ≥ 0.5); virtualized mount via `getVisibleNodeIds(cards, viewport, size)` from `MemoryPanel/lib/viewport.ts` (VERIFIED reusable). | Playwright web-mode render. |
 | 2.8 CanvasView | `Canvas/CanvasView.tsx` | `mode="workspace"`/`"focus"`; compose hook+layout+cards; edges as plain lines. | Playwright. |
 | 2.9 Workspace mount | `App.tsx` (~641–646) | Replace the current "Loading..." div in the `mainView === "workspace"` empty-state branch with `<CanvasView mode="workspace">` (VERIFIED: that div at 641–646 is the exact empty-state slot). | Playwright: select workspace → canvas shows. |
-| 2.10 Plan button | `Terminal/PaneTopBar.tsx` (~52–54) | `<PlanButton>` (orchestrator + worker panes), opens focus view, **pulses** on `plan-changed`. | Playwright: button shows + pulses + opens. |
+| 2.10 Plan button | `Terminal/PaneTopBar.tsx` (~52–54) | `<PlanButton>` (orchestrator + worker Tabs), opens focus view, **pulses** on `plan-changed`. | Playwright: button shows + pulses + opens. |
 
 Models: `cursor:composer-2.5` for cards/CSS (2.7) and mounts (2.9/2.10); `opus`/`sonnet` for hook (2.1), layout engine (2.5), focus (2.6). Each lane = own worktree; orchestrator integrates into warm checkout, runs `npm run typecheck` + Playwright web-mode.
 

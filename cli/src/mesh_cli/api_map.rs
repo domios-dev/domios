@@ -328,7 +328,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             }
             crate::PaneAction::Search { .. } => {
                 // pane search runs local CLI-side; peer only supplies raw list.
-                // Local ranking keeps `pane list` output stable.
+                // Local ranking keeps `Tab list` output stable.
                 ("GET".into(), "/api/panes".into(), None)
             }
             crate::PaneAction::Stop { pane } => {
@@ -673,7 +673,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     after_update,
                 } => {
                     if from_file.is_some() || continue_prompt.is_some() || continue_tab.is_some() {
-                        return unsupported("update install --from-file/--continue-prompt/--continue-tab are local-only; run on the target machine");
+                        return unsupported("update install --from-file/--continue-prompt/--continue-pane are local-only; run on the target machine");
                     }
                     let mut qs = String::new();
                     if auto {

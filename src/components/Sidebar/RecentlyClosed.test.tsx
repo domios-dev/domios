@@ -79,7 +79,7 @@ test("groupClosedViews collapses by group_id preserving first-seen order", () =>
   ]);
   assert(groups.length === 3, `expected 3 groups, got ${groups.length}`);
   assert(groups[0].kind === "single" && groups[0].id === "s1", "first group is single s1");
-  assert(groups[1].kind === "cascade" && groups[1].panes.length === 2, "cascade collapses its two panes");
+  assert(groups[1].kind === "cascade" && groups[1].panes.length === 2, "cascade collapses its two Tabs");
   assert(groups[2].id === "s2", "order preserved by first appearance");
 });
 
@@ -221,7 +221,7 @@ test("clicking the group header reopens the whole group via mux_reopen_closed_gr
   __setInvokeForTest(null);
 });
 
-test("expanding a group reveals individual panes, each reopenable on its own", async () => {
+test("expanding a group reveals individual Tabs, each reopenable on its own", async () => {
   const calls: Array<{ cmd: string; args?: Record<string, unknown> }> = [];
   __setInvokeForTest(async <T,>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
     calls.push({ cmd, args });
@@ -242,8 +242,8 @@ test("expanding a group reveals individual panes, each reopenable on its own", a
 
   await click(host.querySelector('[data-testid="recently-closed-group-toggle"]'));
   const children = Array.from(host.querySelectorAll('[data-testid="recently-closed-item"]')) as HTMLElement[];
-  assert(children.length === 2, `expected 2 child panes after expand, got ${children.length}`);
-  assert(children[1].textContent?.includes("worker one"), "child shows the individual pane title");
+  assert(children.length === 2, `expected 2 child Tabs after expand, got ${children.length}`);
+  assert(children[1].textContent?.includes("worker one"), "child shows the individual Tab title");
 
   await click(children[1]);
   const reopen = calls.find((c) => c.cmd === "mux_reopen_closed_pane");

@@ -148,7 +148,7 @@ export function CodetermActionCard({
       visualOverride={inv ? actionVisual(inv) : undefined}
       command={<div data-testid="toolcard-command" className="border-t px-3 py-2 whitespace-pre-wrap break-words font-mono text-xs" style={{ borderColor: "var(--ct-border)", color: "var(--ct-fg)", background: "var(--ct-bg)" }}>{sent && <div className="mb-1 text-[10px] uppercase" style={{ color: "var(--ct-muted-fg)" }}>Source as typed</div>}{event.detail || event.summary}</div>}
       metric={collapsedChips.length ? <span className="flex flex-wrap gap-1">{collapsedChips.map((chip) => <span key={chip} className="rounded border px-1.5 py-0.5 text-[10px]" style={{ borderColor: "var(--ct-border)", color: "var(--ct-muted-fg)" }}>{chip}</span>)}</span> : undefined}
-      action={canNavigate && target?.kind === "tab" ? <ToolCardActionButton label="Show Tab" onClick={() => onFocusPane!(target.id)} testId="codeterm-focus-tab" /> : undefined}
+      action={canNavigate && target?.kind === "tab" ? <ToolCardActionButton label="Show Tab" onClick={() => onFocusPane!(target.id)} testId="codeterm-focus-pane" /> : undefined}
     >
       {sent ? (
         <div>

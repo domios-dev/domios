@@ -280,7 +280,7 @@ impl ServiceContext {
     ) -> Result<(), String> {
         if !self.pair_agent_live_now(orchestrator_pane_id, orchestrator_provider) {
             return Err(format!(
-                "orchestrator pane {orchestrator_pane_id} is not a confirmed live agent"
+                "orchestrator Tab {orchestrator_pane_id} is not a confirmed live agent"
             ));
         }
         self.gateway_deliver(
@@ -373,7 +373,7 @@ impl ServiceContext {
                 };
                 if is_leaf {
                     return Err(
-                        "Manager and Worker panes cannot create orchestration pairs; \
+                        "Manager and Worker Tabs cannot create orchestration pairs; \
                          leaf roles cannot spawn orchestrators"
                             .into(),
                     );
@@ -630,7 +630,7 @@ impl ServiceContext {
                     );
                 }
                 Err(format!(
-                    "Orchestrator spawned (pane {orch_pane_id}) but Planner spawn failed: {e}. No plan was created. Complete the pair after first goal with: {fix_command}"
+                    "Orchestrator spawned (Tab {orch_pane_id}) but Planner spawn failed: {e}. No plan was created. Complete the pair after first goal with: {fix_command}"
                 ))
             }
         }
@@ -806,11 +806,11 @@ mod tests {
         assert!(mux.get_pane(&reserved.planner_pane_id).is_some());
         for pane_id in [&reserved.orchestrator_pane_id, &reserved.planner_pane_id] {
             let pane = mux.get_pane(pane_id).unwrap();
-            assert!(pane.agent_booting, "reserved pane must announce booting");
+            assert!(pane.agent_booting, "reserved Tab must announce booting");
             assert_eq!(
                 pane.boot_stage,
                 Some(codeterm_types::pty::BootStage::PtyStarting),
-                "reserved pane must never expose a blank chat before launch"
+                "reserved Tab must never expose a blank chat before launch"
             );
         }
         assert_eq!(

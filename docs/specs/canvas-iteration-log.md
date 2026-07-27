@@ -8,8 +8,8 @@ Integration branch: `feat/canvas`. Loop plan: `2026-06-24-canvas-iteration-loop.
 ---
 
 ## Iteration 0 — structural v2 base (in progress)
-- **Builder:** FE lane, pane `3c68143d` (claude opus, frontend-design skill).
-- **BE lane:** pane `b1583905` (codex) — standalone tasks/Inbox, task CLI, canvas focus,
+- **Builder:** FE lane, Tab `3c68143d` (claude opus, frontend-design skill).
+- **BE lane:** Tab `b1583905` (codex) — standalone tasks/Inbox, task CLI, canvas focus,
   isolation fix, plan gaps.
 - **Goal:** land the v2 structural rewrite — compact sectioned plan node, spec node,
   satellite tasks + curved section-row edges, step bubble clusters, orchestrator groups,
@@ -44,7 +44,7 @@ Integration branch: `feat/canvas`. Loop plan: `2026-06-24-canvas-iteration-loop.
   → spawned Rex (codex) to fix: list-by-project must lazily scan `<proj>/.codeterm/plans/`,
   and startup must rescan known projects. Likely files: service/plan/mod.rs (index build),
   paths.rs, api/plan_routes list handler. (Possible regression from BE strict-filtering.)
-- **Polish defect backlog → Mira (FE pane 3c68143d):**
+- **Polish defect backlog → Mira (FE Tab 3c68143d):**
   1. Coverage tint not visually distinct on covered section rows (want fill accent vs uncovered).
   2. Edges faint / anchor unclear — verify task edges hit the exact section ROW right-edge.
   3. Board packs loosely — big empty space; tighten satellite/bubble packing toward the plan.
@@ -297,7 +297,7 @@ Integration branch: `feat/canvas`. Loop plan: `2026-06-24-canvas-iteration-loop.
 - Visual review: toolbar works, but the dogfood (24 sec + 38 tasks) is a tall портянka → fit=13%,
   modes unreadable. → directed Mira to §20.3 Banded Multi-Column FIRST (tames the stack), then
   §20.4 spec pagination+rail, mermaid/code, bubbles.
-- NOTE: owner pane dies on every dev restart (panes ephemeral) → plan goes unowned → reach it via
+- NOTE: owner Tab dies on every dev restart (Tabs ephemeral) → plan goes unowned → reach it via
   workspace-overview (click workspace; 'Canvas' nav item was removed). Plan-button path needs a
   live owner. Consider re-binding owner or a 'claim on focus'.
 
@@ -310,7 +310,7 @@ Integration branch: `feat/canvas`. Loop plan: `2026-06-24-canvas-iteration-loop.
   Tile overview) — board still 41 tasks tall at 11% fit-all. FE proceeding to STEP 2+3.
 - DOGFOOD FRICTION (the protocol working): (1) installed CLI lacked --kind/--text/--doc (BE added
   them but binary not rebuilt) → FIXED by ./build.sh cli; LESSON: rebuild CLI after any BE CLI
-  change. (2) cross-daemon report (prod pane → dev plan) 'Pane not found' → tasked.
+  change. (2) cross-daemon report (prod Tab → dev plan) 'Tab not found' → tasked.
 - BE tag-model fully integrated: priority/timestamps/tags/facets/handles/.md-by-handle/--doc/
   canvas-filter + create-parent & PATCH-merge fixes (7 tasks done).
 

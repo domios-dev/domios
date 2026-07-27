@@ -79,7 +79,7 @@ assert(snapshot.entries.some((e) => e.task.id === "t-review" && e.stale), "stale
 assert(snapshot.entries.some((e) => e.task.id === "t-stale" && e.stale), "stale in_progress flagged");
 assert(snapshot.countByPlanId.get(p.id) === 3, "per-plan count");
 assert(activeWorkForPlan(snapshot, p.id).length === 3, "plan bucket");
-assert(activeWorkForPane(snapshot, "pane-1")?.task.id === "t-wip", "pane resolves freshest bound task");
+assert(activeWorkForPane(snapshot, "pane-1")?.task.id === "t-wip", "Tab resolves freshest bound task");
 assert(displayTaskTitle(task({ name: "  Dante  " })) === "Dante", "display task title");
 assert(taskActivityFreshnessTs(freshWip) === NOW - 30_000, "freshness uses latest milestone");
 assert(!isActiveWorkStale(freshWip, NOW), "fresh wip not stale");
@@ -92,7 +92,7 @@ assert(enriched.inflightTooltip?.includes("Fresh WIP"), "switcher tooltip lists 
 assert(inflightTooltip(snapshot.entries).includes("Puccini"), "tooltip includes executor");
 
 const noPane = selectActiveWork([plan({ tasks: [task({ id: "x", status: TaskStatus.InReview, assigned_pane_id: "gone" })] })], panes, NOW);
-assert(noPane.entries[0]?.executorPresent === false, "missing pane → no presence");
+assert(noPane.entries[0]?.executorPresent === false, "missing Tab → no presence");
 
 const paused = selectActiveWork([plan({ mode: "paused", tasks: [freshWip] })], panes, NOW);
 assert(paused.entries.length === 0, "paused plans do not contribute active work");

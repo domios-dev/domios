@@ -24,7 +24,7 @@ test("pane-boot-stage event maps to reducer action with reason", () => {
     reason: "provider missing",
   });
   assert(action.type === "UPDATE_BOOT_STAGE", "action type");
-  assert(action.paneId === "p-1", "pane id mapped");
+  assert(action.paneId === "p-1", "Tab id mapped");
   assert(action.stage === "spawn_failed", "stage mapped");
   assert(action.reason === "provider missing", "reason mapped");
 });

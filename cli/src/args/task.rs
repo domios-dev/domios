@@ -64,7 +64,7 @@ pub enum TaskAction {
         intent: Option<String>,
         #[arg(long, value_name = "PATH")]
         intent_file: Option<String>,
-        #[arg(long = "assign-tab", value_name = "TAB")]
+        #[arg(long = "assign-pane", value_name = "TAB")]
         assign_pane: Option<String>,
     },
 }

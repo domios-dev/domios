@@ -148,7 +148,7 @@ mod tests {
 
         assert!(
             rendered.contains("CodeTerm docs output truncated"),
-            "large docs must not stream in full by default inside agent panes"
+            "large docs must not stream in full by default inside agent Tabs"
         );
         assert!(
             rendered.lines().count()

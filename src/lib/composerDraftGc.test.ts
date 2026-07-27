@@ -32,13 +32,13 @@ const viewKey = (id: string) => `${COMPOSER_DRAFT_PREFIX}chat-view:${id}`;
 
 // draftKeyPaneId
 assert(draftKeyPaneId(chatKey("abcd1234")) === "abcd1234", "pane-session-chat pane id parsed");
-assert(draftKeyPaneId(viewKey("deadbeef")) === "deadbeef", "chat-view pane id parsed");
+assert(draftKeyPaneId(viewKey("deadbeef")) === "deadbeef", "chat-view Tab id parsed");
 assert(draftKeyPaneId("codeterm:other:x:y") === null, "non-draft key rejected");
 assert(
   draftKeyPaneId(`${COMPOSER_DRAFT_PREFIX}unknown-channel:abcd1234`) === null,
   "unknown channel not treated as pane-scoped",
 );
-assert(draftKeyPaneId(`${COMPOSER_DRAFT_PREFIX}pane-session-chat:`) === null, "empty pane id rejected");
+assert(draftKeyPaneId(`${COMPOSER_DRAFT_PREFIX}pane-session-chat:`) === null, "empty Tab id rejected");
 
 // prune: removes orphans, keeps live, ignores foreign keys
 {

@@ -327,7 +327,7 @@ function AppInner() {
         })
         .map((tab) => tab.id) ?? [],
     liveTabIds: state.workspaces.flatMap((ws) => ws.tabs.map((tab) => tab.id)),
-    prewarmTab: prewarmBackendTab,
+    prewarmpane: prewarmBackendTab,
   });
   const showWorkspaceCanvas =
     mainView === "workspace" && !pluginViewId && activeWs != null && !activeTab;
@@ -375,8 +375,8 @@ function AppInner() {
   const paletteCommands = useMemo(
     () =>
       buildDefaultCommands({
-        newTab: handleNewTab,
-        closeTab: handleCloseCurrentTab,
+        newpane: handleNewTab,
+        closepane: handleCloseCurrentTab,
         newWorkspace: () => {
           openDialog({ directory: true, multiple: false, title: "Choose workspace folder" })
             .then((folder) => {
@@ -419,7 +419,7 @@ function AppInner() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Config-driven bindings (language-independent via e.code)
-      // Browser-standard reopen-closed-tab. Most recent = ring index 0.
+      // Browser-standard reopen-closed-pane. Most recent = ring index 0.
       if (matchesBinding(e, kb.reopen_tab ?? "Ctrl+Shift+T")) {
         e.preventDefault();
         if (activeWs) reopenClosed(activeWs.id, 0);
@@ -493,7 +493,7 @@ function AppInner() {
       <Titlebar
         onToggleSidebar={toggleSidebar}
         showSidebarToggle={!sidebarOpen}
-        onNewTab={handleNewTab}
+        onNewpane={handleNewTab}
         theme={stableTheme}
         onOpenSettingsAbout={() => { setSettingsSection("about"); setSettingsOpen(true); }}
         onOpenSettings={(section) => { setSettingsSection(section); setSettingsOpen(true); }}
@@ -530,7 +530,7 @@ function AppInner() {
                 onOpenMemory={() => { setMemoryOpen(true); closeSidebarOnMobile(); }}
                 onOpenMesh={() => { setMeshOpen(true); closeSidebarOnMobile(); }}
                 onOpenExtensions={() => { setExtensionsOpen(true); closeSidebarOnMobile(); }}
-                onNavigateToTab={handleNavigateToTab}
+                onNavigateTopane={handleNavigateToTab}
                 mainView={mainView}
                 config={config}
                 uiFontScale={uiFontScale}

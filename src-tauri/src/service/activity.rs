@@ -50,7 +50,7 @@ impl ActivityEvent {
             source_peer: None,
             level: ActivityLevel::Info,
             message: format!(
-                "{} → pane {}: {}",
+                "{} → Tab {}: {}",
                 service_id,
                 pane_id,
                 body_preview.chars().take(80).collect::<String>()
@@ -92,7 +92,7 @@ impl ActivityEvent {
             target: Some(target_pane.into()),
             source_peer: Some(peer_name.into()),
             level: ActivityLevel::Info,
-            message: format!("{} → pane {}: {}", peer_name, target_pane, body_preview),
+            message: format!("{} → Tab {}: {}", peer_name, target_pane, body_preview),
             meta: serde_json::json!({"kind": "mesh_relay", "body_preview": body_preview}),
         }
     }

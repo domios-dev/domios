@@ -382,7 +382,7 @@ mod tests {
         assert!(err.contains("review"), "got: {err}");
         assert!(
             pane_closed,
-            "the just-created pane must be closed on any post-provision failure"
+            "the just-created Tab must be closed on any post-provision failure"
         );
 
         let plan = store.get(&plan_id).unwrap();

@@ -107,7 +107,7 @@ pub enum DeliveryError {
 impl std::fmt::Display for DeliveryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::PaneNotFound { target } => write!(f, "pane not found: {target}"),
+            Self::PaneNotFound { target } => write!(f, "Tab not found: {target}"),
             Self::DeliveredUnverified { detail } => write!(f, "delivered unverified: {detail}"),
             Self::Transport { detail } => write!(f, "transport error: {detail}"),
         }
@@ -235,7 +235,7 @@ impl super::ServiceContext {
 fn classify(target: &str, err: String) -> DeliveryError {
     let low = err.to_lowercase();
     if low.contains("not found")
-        || low.contains("pane missing")
+        || low.contains("Tab missing")
         || low.contains("has no pty")
         || low.contains("did not start")
         || low.contains("closed before pty")

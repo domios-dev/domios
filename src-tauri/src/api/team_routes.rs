@@ -172,7 +172,7 @@ mod tests {
             StatusCode::NOT_FOUND
         );
         assert_eq!(
-            map_rename_error("Caller pane worker is not authorized to manage Team team_x".into()).0,
+            map_rename_error("Caller Tab worker is not authorized to manage Team team_x".into()).0,
             StatusCode::FORBIDDEN
         );
         assert_eq!(validate_name("   ").unwrap_err().0, StatusCode::BAD_REQUEST);

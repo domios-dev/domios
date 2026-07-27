@@ -125,8 +125,8 @@ impl ServiceContext {
             .unwrap_or(true);
         if is_self && self.is_self_close_protected(&canon_target) {
             return Err(format!(
-                "{SELF_CLOSE_REFUSAL_PREFIX}: a coordinator cannot close its own pane \
-                 ({canon_target}) — have your parent or another pane close it, or move first. \
+                "{SELF_CLOSE_REFUSAL_PREFIX}: a coordinator cannot close its own Tab \
+                 ({canon_target}) — have your parent or another Tab close it, or move first. \
                  Workers self-close on report+exit."
             ));
         }
@@ -239,7 +239,7 @@ impl ServiceContext {
             },
             |orphan| {
                 log::warn!(
-                    "[link_pty] pane {} rejected orphan pty {}",
+                    "[link_pty] Tab {} rejected orphan pty {}",
                     pane_id,
                     &orphan[..orphan.len().min(8)]
                 );
@@ -357,7 +357,7 @@ impl ServiceContext {
         }
         self.invalidate_guarded_agent_input(pane_id);
         log::info!(
-            "[agent-lifecycle] cleared pane identity after explicit exit: {}",
+            "[agent-lifecycle] cleared Tab identity after explicit exit: {}",
             pane_id
         );
         self.clear_dead_planner_binding(pane_id);
@@ -504,7 +504,7 @@ impl ServiceContext {
                 };
                 if claimed {
                     log::info!(
-                        "[session-detect] rolled pane {} from {} → {} ({})",
+                        "[session-detect] rolled Tab {} from {} → {} ({})",
                         pane_id,
                         current,
                         new_sid,
@@ -734,7 +734,7 @@ impl ServiceContext {
                 .any(|other| other != pane_id);
             if conflict {
                 log::info!(
-                    "[set_agent_session_id] rejecting duplicate sid {} for pane {} (claimed elsewhere)",
+                    "[set_agent_session_id] rejecting duplicate sid {} for Tab {} (claimed elsewhere)",
                     new_sid, pane_id,
                 );
                 return;
@@ -845,7 +845,7 @@ impl ServiceContext {
             let mut mux = self.mux.write();
             let pane = mux
                 .get_pane_mut(pane_id)
-                .ok_or_else(|| format!("Pane not found: {}", pane_id))?;
+                .ok_or_else(|| format!("Tab not found: {}", pane_id))?;
             let had = pane.pending_prompt.is_some();
             pane.pending_prompt = None;
             had
@@ -901,7 +901,7 @@ impl ServiceContext {
                 });
             } else {
                 log::debug!(
-                    "[respond_prompt] Prompt not on screen — skipping PTY input for pane {}",
+                    "[respond_prompt] Prompt not on screen — skipping PTY input for Tab {}",
                     pane_id
                 );
             }

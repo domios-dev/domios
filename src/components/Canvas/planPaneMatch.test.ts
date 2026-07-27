@@ -77,7 +77,7 @@ function workspace(id: string, paneIds: string[]): Workspace {
   return {
     id,
     name: id,
-    tabs: paneIds.map((pane_id, i) => ({ id: `${id}-tab-${i}`, pane_id })),
+    tabs: paneIds.map((pane_id, i) => ({ id: `${id}-pane-${i}`, pane_id })),
     active_tab_id: null,
     cwd: null,
   };
@@ -95,7 +95,7 @@ const scopeTeams: Team[] = [
   { id: "team-current", lifecycle: "active", created_at: 0, workspace_id: WS_CURRENT },
 ];
 
-test("workspace mode excludes an unbound active plan (no team, owner pane not in workspace)", () => {
+test("workspace mode excludes an unbound active plan (no team, owner Tab not in workspace)", () => {
   const unbound: Plan = {
     ...FIXTURE_PLAN,
     id: "plan-unbound",
@@ -136,7 +136,7 @@ test("workspace mode with a missing workspaceId returns [] (never every plan)", 
   assert(out.length === 0, `unscoped workspace mode must not leak plans (got ${out.length})`);
 });
 
-test("workspace mode keeps plans bound via owner pane or team", () => {
+test("workspace mode keeps plans bound via owner Tab or team", () => {
   const ownerBound = { ...FIXTURE_PLAN, id: "plan-owner" }; // owner orch-1 ∈ current ws
   const teamBound: Plan = {
     ...FIXTURE_PLAN,

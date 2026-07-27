@@ -120,7 +120,7 @@ impl ServiceContext {
         if refuse {
             return Err(format!(
                 "{}: a coordinator cannot close the workspace it runs in ({workspace_id}) — \
-                 have your parent or another pane close it, or move first.",
+                 have your parent or another Tab close it, or move first.",
                 crate::service::pane::SELF_CLOSE_REFUSAL_PREFIX
             ));
         }

@@ -18,7 +18,7 @@ assert(!picker.includes("New {provider.display_name} Session"), "picker does not
 assert(pickerParts.includes('label="Team"'), "pair mode uses the concise Team label");
 assert(picker.includes('"Start team"'), "pair mode action uses the Team label");
 assert(picker.includes("fixed inset-0"), "picker is a modal overlay instead of tab content");
-assert(picker.includes("return createPortal("), "picker escapes sidebar and pane stacking contexts through a body portal");
+assert(picker.includes("return createPortal("), "picker escapes sidebar and Tab stacking contexts through a body portal");
 assert(picker.includes("document.body"), "picker portal covers the entire application viewport");
 assert(picker.includes('aria-modal="true"'), "picker exposes modal accessibility semantics");
 assert(picker.includes('aria-label="Close new session dialog"'), "picker has an accessible close action");

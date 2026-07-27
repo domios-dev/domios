@@ -30,7 +30,7 @@ fn has_first_run_tab(mux: &crate::multiplexer::state::MultiplexerState) -> bool 
     })
 }
 
-/// Create the in-tab first-run picker when GA is enabled but not yet configured.
+/// Create the in-pane first-run picker when GA is enabled but not yet configured.
 pub fn ensure_first_run_tab(mux: &mut crate::multiplexer::state::MultiplexerState) {
     if mux.resolve_pane_id(GENERAL_ALIAS).is_some() || has_first_run_tab(mux) {
         return;
@@ -93,7 +93,7 @@ pub fn purge_snapshot_ghosts(mux: &mut crate::multiplexer::state::MultiplexerSta
     let count = to_drop.len();
     for (ws_id, tab_id) in to_drop {
         log::info!(
-            "[restore] dropping ghost tab {} in workspace {} — ephemeral picker pane leaked into session snapshot; moved to Recently Closed",
+            "[restore] dropping ghost tab {} in workspace {} — ephemeral picker Tab leaked into session snapshot; moved to Recently Closed",
             tab_id, ws_id
         );
         // Sole-content pickers are close-protected; a genuine ghost purge must
@@ -227,7 +227,7 @@ mod tests {
                 mux.get_pane(pid).and_then(|p| p.description.as_deref())
                     == Some(FIRST_RUN_PANE_MARKER)
             })
-            .expect("first-run picker pane exists")
+            .expect("first-run picker Tab exists")
     }
 
     #[test]
@@ -242,7 +242,7 @@ mod tests {
         let pane_id = first_run_picker_pane_id(&mux);
         assert!(
             mux.get_pane(&pane_id).unwrap().protected,
-            "sole first-run picker pane must be protected"
+            "sole first-run picker Tab must be protected"
         );
         assert!(
             mux.close_workspace(&ws.id).is_err(),
@@ -250,7 +250,7 @@ mod tests {
         );
         assert!(
             mux.close_pane(&pane_id).is_err(),
-            "closing the sole first-run picker pane must be refused"
+            "closing the sole first-run picker Tab must be refused"
         );
         // Invariant holds: still a workspace with a valid pane.
         assert_eq!(mux.list_workspaces().len(), 1);
@@ -278,10 +278,7 @@ mod tests {
         ensure_first_run_tab(&mut mux);
         assert!(has_first_run_tab(&mux));
         close_first_run_tabs(&mut mux).expect("retire first-run tabs");
-        assert!(
-            !has_first_run_tab(&mux),
-            "picker pane removed on completion"
-        );
+        assert!(!has_first_run_tab(&mux), "picker Tab removed on completion");
     }
 
     #[test]
@@ -290,10 +287,10 @@ mod tests {
         let mut mux = MultiplexerState::empty();
         ensure_first_run_tab(&mut mux);
         let pane_id = mux.list_workspaces()[0].pane_ids[0].clone();
-        let pane = mux.get_pane(&pane_id).expect("picker pane exists");
+        let pane = mux.get_pane(&pane_id).expect("picker Tab exists");
         assert!(
             pane.skip_snapshot,
-            "first-run picker pane must have skip_snapshot=true to be excluded from the session snapshot"
+            "first-run picker Tab must have skip_snapshot=true to be excluded from the session snapshot"
         );
     }
 
@@ -334,7 +331,7 @@ mod tests {
         assert_eq!(dropped, 0);
         assert!(
             mux.get_pane(&pane_id).is_some(),
-            "real pane must survive purge"
+            "real Tab must survive purge"
         );
     }
 
@@ -402,7 +399,7 @@ mod tests {
         let mut restored = MultiplexerState::from_session_snapshot(&old_snapshot);
         assert!(
             restored.get_pane("pane-picker").is_some(),
-            "pre-purge: picker pane must be present in restored state"
+            "pre-purge: picker Tab must be present in restored state"
         );
         assert_eq!(
             restored.get_workspace("ws").map(|w| w.tabs.len()),
@@ -415,7 +412,7 @@ mod tests {
 
         assert!(
             restored.get_pane("pane-picker").is_none(),
-            "post-purge: picker pane must be absent"
+            "post-purge: picker Tab must be absent"
         );
         assert_eq!(
             restored.get_workspace("ws").map(|w| w.tabs.len()),
@@ -441,7 +438,7 @@ mod tests {
         assert_eq!(
             snap.workspaces[0].tabs.len(),
             0,
-            "first-run picker pane must be excluded from the session snapshot"
+            "first-run picker Tab must be excluded from the session snapshot"
         );
     }
 }

@@ -142,7 +142,7 @@ pub fn mesh_relay_cmd(
 }
 
 /// Fetch a relayed API response as a JSON value without printing — used by
-/// callers that need to post-process the peer's response (e.g. `pane find`
+/// callers that need to post-process the peer's response (e.g. `Tab find`
 /// runs the fuzzy ranker on the peer's pane list before printing).
 pub fn mesh_relay_fetch_json(
     http: &reqwest::blocking::Client,
@@ -594,7 +594,7 @@ pub fn mesh_spawn_and_register(
         println!("{}", serde_json::to_string_pretty(&data).unwrap());
     } else if let Some(pid) = data.get("pane_id").and_then(|v| v.as_str()) {
         let title = data.get("title").and_then(|v| v.as_str()).unwrap_or("?");
-        println!("Spawned: {} (pane {}) on {}", title, pid, target);
+        println!("Spawned: {} (Tab {}) on {}", title, pid, target);
     } else {
         crate::cmd::print::print_human(&data);
     }
@@ -832,7 +832,7 @@ mod mesh_spawn_failure_tests {
         );
         assert!(
             !registered.load(Ordering::SeqCst),
-            "a mesh spawn that never produced a live remote pane must leave \
+            "a mesh spawn that never produced a live remote Tab must leave \
              zero residual task/lane bindings on the origin"
         );
     }

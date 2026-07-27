@@ -1,5 +1,5 @@
 // Run: npx tsx src/lib/keybindings.reopen.test.ts
-// The reopen-closed-tab shortcut is Cmd/Ctrl+Shift+T. It must be unambiguous
+// The reopen-closed-pane shortcut is Cmd/Ctrl+Shift+T. It must be unambiguous
 
 import { matchesBinding } from "./keybindings";
 

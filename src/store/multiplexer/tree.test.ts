@@ -21,7 +21,7 @@ const tab: Tab = { id: "tab-1", pane_id: "abcdefgh1234" };
 
 test("displayTitleForTab uses pane.title when present", () => {
   const pane = { id: "abcdefgh1234", title: "  Puccini  " } as Pane;
-  assert(displayTitleForTab(tab, pane) === "Puccini", "trimmed pane title");
+  assert(displayTitleForTab(tab, pane) === "Puccini", "trimmed Tab title");
 });
 
 test("displayTitleForTab falls back to pane_id prefix when pane title is empty", () => {

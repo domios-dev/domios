@@ -178,14 +178,14 @@ fn inject_keys(svc: &ServiceState, pane_id: &str, writes: Vec<Vec<u8>>) {
     if svc.inject_raw_keys_async(pane_id, writes).is_err() {
         return;
     }
-    log::info!("[state-reactor] injected keys into pane {}", pane_id);
+    log::info!("[state-reactor] injected keys into Tab {}", pane_id);
 }
 
 /// Schedule a resume via delayed-send at the parsed ISO time; an unparseable time is dropped, never fired at a guessed moment.
 fn schedule_resume(svc: &ServiceState, pane_id: &str, resume: &super::pane_state::DelayedResume) {
     let Some(at_ms) = parse_iso_to_ms(&resume.at) else {
         log::warn!(
-            "[state-reactor] unparseable resume time {:?} for pane {} — skipping",
+            "[state-reactor] unparseable resume time {:?} for Tab {} — skipping",
             resume.at,
             pane_id
         );
@@ -199,7 +199,7 @@ fn schedule_resume(svc: &ServiceState, pane_id: &str, resume: &super::pane_state
         None,
     ) {
         Ok(_) => log::info!(
-            "[state-reactor] scheduled resume for pane {} at {}",
+            "[state-reactor] scheduled resume for Tab {} at {}",
             pane_id,
             resume.at
         ),
@@ -223,7 +223,7 @@ fn surface_to_user(svc: &ServiceState, pane_id: &str, surface: Option<Surface>) 
         "pane-state-surface",
         serde_json::json!({ "pane_id": pane_id, "kind": kind, "payload": payload }),
     );
-    log::info!("[state-reactor] surfaced {} for pane {}", kind, pane_id);
+    log::info!("[state-reactor] surfaced {} for Tab {}", kind, pane_id);
 }
 
 fn parse_iso_to_ms(iso: &str) -> Option<u64> {

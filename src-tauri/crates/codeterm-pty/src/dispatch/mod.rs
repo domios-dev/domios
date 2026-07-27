@@ -326,7 +326,7 @@ fn cmd_pane_summary(
 
 fn cmd_pane_inspect(ctx: &dyn CommandPort, pane_ids: &[String]) -> Result<CommandResult, String> {
     if pane_ids.is_empty() {
-        return Err("pane.inspect requires at least one pane id".into());
+        return Err("pane.inspect requires at least one Tab id".into());
     }
     let snapshot = ctx.mux_snapshot();
     let requested: std::collections::HashSet<&str> = pane_ids.iter().map(String::as_str).collect();
@@ -339,7 +339,7 @@ fn cmd_pane_inspect(ctx: &dyn CommandPort, pane_ids: &[String]) -> Result<Comman
         })
         .collect::<Vec<_>>();
     if panes.len() != requested.len() {
-        return Err("one or more requested panes were not found".into());
+        return Err("one or more requested Tabs were not found".into());
     }
     Ok(CommandResult::Json(serde_json::json!(panes)))
 }
@@ -739,7 +739,7 @@ mod tests {
         match cmd {
             Command::PaneRename { pane_id, title } => {
                 assert_eq!(pane_id, "abc");
-                assert_eq!(title, "My Pane");
+                assert_eq!(title, "My Tab");
             }
             _ => panic!("wrong variant"),
         }
@@ -938,7 +938,7 @@ mod tests {
     }
 
     // `cmd_pane_list` and `build_pane_list_json` enrich panes with sidebar labels.
-    // Tests stay on the pure helper so both `pane list` and `pane find` keep full workspace context.
+    // Tests stay on the pure helper so both `Tab list` and `Tab find` keep full workspace context.
 
     #[test]
     fn pane_list_attaches_tab_title_and_workspace_name() {
@@ -953,7 +953,7 @@ mod tests {
         let pane = panes
             .iter()
             .find(|p| p.get("id").and_then(|v| v.as_str()) == Some(initial_pane.as_str()))
-            .expect("default pane present in list");
+            .expect("default Tab present in list");
         assert_eq!(
             pane.get("tab_title").and_then(|v| v.as_str()),
             Some("Dalton"),
@@ -981,7 +981,7 @@ mod tests {
         let workspace = snapshot.workspaces.first().expect("default workspace");
         let summaries = build_pane_summary_json(&snapshot, Some(&workspace.id), false, false);
         assert_eq!(summaries.len(), 1);
-        let pane = summaries.first().expect("summary pane");
+        let pane = summaries.first().expect("summary Tab");
         assert_eq!(pane["id"].as_str(), Some(initial_pane.as_str()));
         assert_eq!(pane["workspace_id"].as_str(), Some(workspace.id.as_str()));
         assert!(pane.get("cwd").is_none());
@@ -995,7 +995,7 @@ mod tests {
         let command: Command = serde_json::from_str(
             r#"{"cmd":"pane_summary","workspace_id":"ws_1","focused_workspace":false,"agents_only":true}"#,
         )
-        .expect("pane summary command");
+        .expect("Tab summary command");
         assert!(matches!(
             command,
             Command::PaneSummary {
@@ -1025,11 +1025,11 @@ mod tests {
         };
         assert!(
             get_focused(&panes, &pane_a),
-            "focused pane must have focused=true"
+            "focused Tab must have focused=true"
         );
         assert!(
             !get_focused(&panes, &pane_b),
-            "non-focused pane must have focused=false"
+            "non-focused Tab must have focused=false"
         );
         // Switch focus.
         state.set_focused_pane(&pane_b).unwrap();
@@ -1062,7 +1062,7 @@ mod tests {
             assert_eq!(
                 focused_ids,
                 vec![focused.as_str()],
-                "pane list must derive focused=true from the snapshot being projected"
+                "Tab list must derive focused=true from the snapshot being projected"
             );
         }
     }

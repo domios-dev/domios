@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn deferred_cleanup_still_surfaces_exact_commands() {
-        let cleanup_hints = vec!["active dev pane still needed".to_string()];
+        let cleanup_hints = vec!["active dev Tab still needed".to_string()];
         let item = detect_cleanup_debt(&CleanupDebtInput {
             plan_id: "pl_1",
             task_id: "task_1",
@@ -271,7 +271,7 @@ mod tests {
         })
         .unwrap();
         assert!(item.deferred);
-        assert!(render_cleanup_debt_hint(&item).contains("active dev pane still needed"));
+        assert!(render_cleanup_debt_hint(&item).contains("active dev Tab still needed"));
         assert_eq!(item.commands.len(), 1);
         assert_eq!(
             item.commands[0],

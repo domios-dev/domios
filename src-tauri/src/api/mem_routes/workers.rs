@@ -174,7 +174,7 @@ pub async fn workers_report(
     tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
         if let Err(e) = svc.close_pane(&pane_id) {
-            log::warn!("[graph-workers] auto-close pane {}: {}", pane_id, e);
+            log::warn!("[graph-workers] auto-close Tab {}: {}", pane_id, e);
         }
     });
 
@@ -193,7 +193,7 @@ pub async fn workers_kill(
         .kill(&id)
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
     if let Err(e) = state.svc.close_pane(&info.pane_id) {
-        log::warn!("[graph-workers] kill pane {}: {}", info.pane_id, e);
+        log::warn!("[graph-workers] kill Tab {}: {}", info.pane_id, e);
     }
     crate::api::events::emit_everywhere(&state.svc.app_handle, "graph-worker-done", &info);
     Ok(Json(serde_json::json!({ "ok": true })))

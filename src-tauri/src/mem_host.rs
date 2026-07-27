@@ -307,7 +307,7 @@ pub fn spawn_headless_worker(
             }
             if tokio::time::Instant::now() > deadline {
                 log::warn!(
-                    "[worker] {}/{} exceeded 30min watchdog, forcing Orphaned + closing pane",
+                    "[worker] {}/{} exceeded 30min watchdog, forcing Orphaned + closing Tab",
                     intent_for_spawn,
                     worker_id_task
                 );

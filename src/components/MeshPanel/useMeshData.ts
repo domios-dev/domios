@@ -46,7 +46,7 @@ const DEFAULT_DATA: MeshData = {
   error: null,
 };
 
-const CACHE_KEY = "mesh-tab-cache-v1";
+const CACHE_KEY = "mesh-pane-cache-v1";
 const CACHE_MAX_AGE_MS = 24 * 3600 * 1000;
 
 interface CachePayload {

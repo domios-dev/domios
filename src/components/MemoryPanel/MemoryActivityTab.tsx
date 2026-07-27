@@ -152,7 +152,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
   let lastDay = "";
 
   return (
-    <div className="absolute inset-0 flex flex-col" data-testid="memory-activity-tab">
+    <div className="absolute inset-0 flex flex-col" data-testid="memory-activity-pane">
       {/* Header / global filters */}
       <div className="flex items-center gap-3 px-4 py-2 border-b border-[var(--ct-border)]">
         <ActivityIcon size={14} className="text-[var(--ct-muted-fg)]" />

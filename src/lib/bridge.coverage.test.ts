@@ -80,13 +80,13 @@ assert(
   /mux_rename_team:\s*\(a\)\s*=>[\s\S]*?\/api\/teams\/\$\{enc\(s\(a, "teamId"\)\)\}\/rename[\s\S]*?\{ name: a\.name \}[\s\S]*?a\.callerTabId/.test(httpBlock),
 );
 assert(
-  "Team rename bridge writes callerTabId to the authenticated pane header",
+  "Team rename bridge writes callerTabId to the authenticated Tab header",
   /if \(callerTabId\) headers\.set\("X-CodeTerm-Pane-Id", String\(callerTabId\)\)/.test(
     bridgeSource,
   ),
 );
 assert(
-  "restart_agent_pane maps to the generic pane restart route",
+  "restart_agent_pane maps to the generic Tab restart route",
   /restart_agent_pane:\s*\(a\)\s*=>[\s\S]*?\/api\/panes\/\$\{enc\(s\(a, "paneId"\) \?\? s\(a, "pane_id"\)\)\}\/agent\/restart/.test(httpBlock),
 );
 assert(

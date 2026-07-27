@@ -111,7 +111,7 @@ pub fn collect_watch_group(
     snapshot
         .panes
         .get(watcher_pane_id)
-        .ok_or_else(|| format!("pane not found: {watcher_pane_id}"))?;
+        .ok_or_else(|| format!("Tab not found: {watcher_pane_id}"))?;
     let orchestrator_id = resolve_orchestrator_id(snapshot, watcher_pane_id)
         .ok_or_else(|| "could not resolve orchestrator from parent chain".to_string())?;
     let mut pane_ids: Vec<String> = descendant_ids(snapshot, &orchestrator_id)

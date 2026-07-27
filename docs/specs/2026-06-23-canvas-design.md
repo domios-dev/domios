@@ -9,7 +9,7 @@
 
 Canvas is a Figma-like 2D board, scoped to a workspace, that visualizes live orchestration: the orchestrators working in a workspace, the **plans** they own, and for each plan the cascade **Spec → Tasks → chain of report-milestones**, where chains loop into a self-improving process. It is the spatial, persistent counterpart to the orchestration that today exists only as ephemeral chat + the report ledger.
 
-It is not a new orchestration engine. The hierarchy (Orchestrator → Worker), reports, and pane model already exist. Canvas adds a **persistent plan object**, **CLI handles to edit it**, and a **2D rendering** of plans and their report chains, plus two entry points into that view.
+It is not a new orchestration engine. The hierarchy (Orchestrator → Worker), reports, and Tab model already exist. Canvas adds a **persistent plan object**, **CLI handles to edit it**, and a **2D rendering** of plans and their report chains, plus two entry points into that view.
 
 ### What already exists (discovery)
 
@@ -96,7 +96,7 @@ Task {
   body: string          // markdown — the task card body
   intent: string | null  // orchestrator's extra free-text instruction for the worker, folded into the spawn prompt
   assigned_pane_id: string | null
-  peer: string | null    // mesh peer where the assigned pane lives (null = local machine)
+  peer: string | null    // mesh peer where the assigned tab lives (null = local machine)
   canvas: ElementCanvas // this card's own position / display state (see 3.5)
   milestones: Milestone[] // the horizontal report chain
 }
@@ -107,7 +107,7 @@ Task {
 ```
 Milestone {
   id: string
-  from: AgentRef        // who reported — AUTO-resolved by the daemon from the caller's pane identity, not hand-typed
+  from: AgentRef        // who reported — AUTO-resolved by the daemon from the caller's tab identity, not hand-typed
   kind: string          // status_update | testing | review | decision | ... (open string)
   text: string          // markdown
   ts: u64
@@ -119,17 +119,17 @@ Milestone {
 ```
 Milestones are the persisted projection of `agent report`. A report tagged with `--plan/--task` appends a milestone. `links` carries the chain order and can point backward to form the self-improving loop.
 
-Authorship is **never hand-typed**. The daemon resolves `from` from the calling pane's env identity (`CODETERM_PANE_ID` → session + title), exactly as `agent report` already does. An optional `--from` flag exists only as a rare manual override (e.g. backfilling on behalf of another agent).
+Authorship is **never hand-typed**. The daemon resolves `from` from the calling Tab's env identity (`CODETERM_PANE_ID` → session + title), exactly as `agent report` already does. An optional `--from` flag exists only as a rare manual override (e.g. backfilling on behalf of another agent).
 
 ### 3.4 Identity & ownership
-Pane ids are ephemeral (regenerated on restart); plans must survive restart and re-attach.
+Tab ids are ephemeral (regenerated on restart); plans must survive restart and re-attach.
 
 ```
 OrchestratorRef { pane_id: string|null, session_id: string|null, title: string|null }
 AgentRef        { pane_id: string|null, session_id: string|null, title: string|null }
 ```
 - Ownership key = `session_id` when available (stable across restart), else `pane_id`.
-- **Owner state (derived):** `owned` (owner pane live) | `unowned` (no live owner). A plan also stores `owner_history: TransferRecord[]` (`{from, to, ts, reason}`) for audit.
+- **Owner state (derived):** `owned` (owner Tab live) | `unowned` (no live owner). A plan also stores `owner_history: TransferRecord[]` (`{from, to, ts, reason}`) for audit.
 - **Canvas render filter** = `status == active`. An `owned` plan renders in its owner's cluster. When the owner dies, the plan becomes `unowned` — it **leaves the owner's cluster** (this is "disappears from the canvas") but is **not deleted**: it stays active and **claimable**, surfaced via `plan list --unowned` and an optional unowned tray. An orchestrator resuming the same `session_id` **auto-reattaches** (back to `owned`).
 - Archived plans are never rendered and not counted.
 - **Transfer is first-class** (see §4.6): explicit handoff, voluntary disown, claim. Same-machine orchestrators in v1; cross-machine ownership is deferred with plan replication, though a remote worker still reports home to whoever owns the plan now.
@@ -207,14 +207,14 @@ New Rust surfaces (each file < 1000 lines, split by responsibility):
 - **Real-time (mandatory):** every mutation emits `plan-changed` to **both** transports — the native Tauri event **and** the websocket feed — carrying the changed `plan_id` (+ minimal delta). Native app and WebUI both live-update with **no polling**; the canvas is purely subscription-driven, mirroring `pane-status-changed` / `mem-activity`. Any write through any path (CLI, REST, daemon) must fan out this event.
 
 ### 4.1 Task binding via env
-When a task is assigned to a pane (`plan task assign`, or a worker spawned for a task), the daemon exports `CODETERM_PLAN_ID` and `CODETERM_TASK_ID` into that pane (alongside the existing `CODETERM_*` vars). Workers then report against their task without being told the ids: `codeterm agent report --plan $CODETERM_PLAN_ID --task $CODETERM_TASK_ID ...`. Creating a plan exports `CODETERM_PLAN_ID` into the orchestrator's own pane too.
+When a task is assigned to a Tab (`plan task assign`, or a worker spawned for a task), the daemon exports `CODETERM_PLAN_ID` and `CODETERM_TASK_ID` into that Tab (alongside the existing `CODETERM_*` vars). Workers then report against their task without being told the ids: `codeterm agent report --plan $CODETERM_PLAN_ID --task $CODETERM_TASK_ID ...`. Creating a plan exports `CODETERM_PLAN_ID` into the orchestrator's own Tab too.
 
 ### 4.2 Plan-adherence reminders
 Agents forget they are inside a plan and stop reporting. The daemon nudges them — smartly, not on a dumb timer.
 
-- Per pane bound to an **active** task/plan, track `turns_since_plan_touch`, incremented on each agent turn.
-- **Reset to 0** whenever that pane runs any `codeterm plan ...` or `codeterm agent report --plan ...`. A diligent agent is therefore never nagged; only a silent one is.
-- When the counter crosses `nudge_after_turns` (default 12), inject a system reminder into the pane via the existing report/reminder injection path. After each nudge the interval grows ×1.5 (capped) to avoid spam.
+- Per Tab bound to an **active** task/plan, track `turns_since_plan_touch`, incremented on each agent turn.
+- **Reset to 0** whenever that Tab runs any `codeterm plan ...` or `codeterm agent report --plan ...`. A diligent agent is therefore never nagged; only a silent one is.
+- When the counter crosses `nudge_after_turns` (default 12), inject a system reminder into the Tab via the existing report/reminder injection path. After each nudge the interval grows ×1.5 (capped) to avoid spam.
 - Differentiated copy for Worker vs Orchestrator (see §7). Escalation: after several ignored nudges the final one is blunt ("UNREPORTED task; your parent is blind until you report").
 - **Two trigger modes, both config-driven:** (a) **message-count** — the `turns_since_plan_touch` threshold above; (b) **time interval** — an active plan also pings its **owner orchestrator** every `nudge_interval_secs` of wall-clock (default 1800 = 30 min), independent of message activity. Either trigger fires a nudge; both reset on a plan-touch.
 - **This replaces the orchestrator's manual `--delay` self-heartbeats:** once a plan exists, the daemon's plan-adherence pinger IS the heartbeat — the orchestrator no longer hand-schedules delayed self-messages; the active plan periodically pings it (time + count) with the self-recovery pointer baked in.
@@ -244,9 +244,9 @@ The worker thus gets exactly its slice, with the full plan readable but bounded,
 
 ### 4.6 Ownership transfer
 Plans change hands; ownership is first-class, not frozen at creation. All cases:
-- **Explicit handoff** — `plan transfer <plan_id> --to <orchestrator>` (target = pane id, session id, or "current focused orchestrator"). Owner ref + `owner_history` updated; the plan re-clusters under the new owner on the canvas (live via `plan-changed`).
+- **Explicit handoff** — `plan transfer <plan_id> --to <orchestrator>` (target = Tab id, session id, or "current focused orchestrator"). Owner ref + `owner_history` updated; the plan re-clusters under the new owner on the canvas (live via `plan-changed`).
 - **Voluntary disown** — `plan disown <plan_id>` → `unowned`, leaves the cluster, stays active and claimable.
-- **Owner death** — the owner pane dies → derived `unowned`; not deleted, claimable (per §3.4).
+- **Owner death** — the owner Tab dies → derived `unowned`; not deleted, claimable (per §3.4).
 - **Same-session resume** — owner restarts with the same `session_id` → auto-reattach to `owned`.
 - **Claim** — `plan claim <plan_id>` → the caller's orchestrator takes an `unowned`/stale plan.
 - **Report re-routing (the load-bearing rule):** a task-tagged report/close resolves to the plan's **current owner at delivery time** (lookup, never a frozen target). So transferring a plan mid-flight re-points every in-flight worker — local or remote-over-mesh — to the new owner with no worker change. The existing report target priority (`parent` → `report_target` → `spawned_by`) is overridden by the plan→current-owner lookup when a report carries `--plan`.
@@ -254,9 +254,9 @@ Plans change hands; ownership is first-class, not frozen at creation. All cases:
 
 ### 4.7 Mesh task operations (plan stays local)
 The plan is **not** replicated across the mesh — one orchestrator owns it locally (the §2 decision holds). Mesh is used only as a **transport at the task level**, reusing the existing mesh report routing:
-- **Remote assignment/spawn:** `--mesh <peer>` (alias `--peer`) on task commands targets a pane on another machine. For a spawn, the local daemon **forms the spawn command and sends it over mesh** to create the tab on the remote peer, binding `CODETERM_PLAN_ID`/`TASK_ID` there. The task records `peer`.
+- **Remote assignment/spawn:** `--mesh <peer>` (alias `--peer`) on task commands targets a Tab on another machine. For a spawn, the local daemon **forms the spawn command and sends it over mesh** to create the tab on the remote peer, binding `CODETERM_PLAN_ID`/`TASK_ID` there. The task records `peer`.
 - **Remote report/close:** a worker on another machine runs `codeterm agent report --plan --task ...` / `plan task close ...`; the report is addressed to the owning orchestrator's identity and **mesh delivers it back** to the local orchestrator, which applies the milestone/close to the local plan file. So others can advance and close tasks remotely without the plan ever syncing.
-- This emergently extends the **local** canvas across the whole network: remote panes appear as tasks with a `peer` badge; their milestones flow home via mesh. No plan CRDT, no replication — just task-scoped messages over the existing mesh.
+- This emergently extends the **local** canvas across the whole network: remote Tabs appear as tasks with a `peer` badge; their milestones flow home via mesh. No plan CRDT, no replication — just task-scoped messages over the existing mesh.
 
 ### REST routes
 Representative set — every CLI handle in §5 has a matching route (section/loop/transfer/milestone-update/note/element/layout mirror their `plan ...` subcommand). Core:
@@ -270,7 +270,7 @@ POST   /api/plans/{id}/archive            archive
 POST   /api/plans/{id}/tasks              task add
 PATCH  /api/plans/{id}/tasks/{tid}        task update
 POST   /api/plans/{id}/tasks/{tid}/close  worker closes section (status=done + optional result milestone)
-POST   /api/plans/{id}/tasks/{tid}/assign assign pane
+POST   /api/plans/{id}/tasks/{tid}/assign assign tab
 POST   /api/plans/{id}/tasks/{tid}/milestones  milestone add
 PATCH  /api/plans/{id}/layout             set element position(s)
 ```
@@ -296,7 +296,7 @@ codeterm plan get     <plan_id> [--json]            # markdown render by default
 codeterm plan update  <plan_id> [--title <t>] [--spec/--spec-file ...] [--status active|archived]
 codeterm plan archive <plan_id>
 codeterm plan delete  <plan_id>
-codeterm plan transfer <plan_id> --to <orchestrator>   # pane id | session id | "focused" — hand ownership over
+codeterm plan transfer <plan_id> --to <orchestrator>   # tab id | session id | "focused" — hand ownership over
 codeterm plan disown   <plan_id>                       # release ownership → unowned/claimable
 codeterm plan claim    <plan_id>                       # caller's orchestrator takes an unowned/stale plan
 codeterm plan list --unowned                           # plans with no live owner, claimable
@@ -336,8 +336,8 @@ New module `src/components/Canvas/`:
   - Always present whenever a region is in view → the canvas is conversational, not read-only.
 
 Mounts:
-- **Workspace empty-state:** in `App.tsx` `<main>` when `mainView === "workspace"` and a workspace is active but no tab/pane is focused → render `<CanvasView mode="workspace">`. This is the 2D playground; later phase adds spawn-orchestrator / hand-task affordances on empty canvas space.
-- **Plan button:** in `PaneTopBar.tsx` right of `PaneModeSwitch` → `<PlanButton>`. On an **orchestrator** pane it shows when this pane (self or ancestor via `parent_pane_id`) owns an active plan with open tasks → click opens `<CanvasView mode="focus">` on that plan. On a **worker** pane bound to a task (`CODETERM_PLAN_ID`/`TASK_ID` set) it shows too → click opens the plan focused on this worker's task. **Change pulse:** on a `plan-changed` for the plan(s) it represents (new milestone, status, task…), the button itself **pulses** ("bam — change"), not a dot badge; the pulse clears once the user opens the canvas.
+- **Workspace empty-state:** in `App.tsx` `<main>` when `mainView === "workspace"` and a workspace is active but no tab is focused → render `<CanvasView mode="workspace">`. This is the 2D playground; later phase adds spawn-orchestrator / hand-task affordances on empty canvas space.
+- **Plan button:** in `PaneTopBar.tsx` right of `PaneModeSwitch` → `<PlanButton>`. On an **orchestrator** Tab it shows when this Tab (self or ancestor via `parent_pane_id`) owns an active plan with open tasks → click opens `<CanvasView mode="focus">` on that plan. On a **worker** Tab bound to a task (`CODETERM_PLAN_ID`/`TASK_ID` set) it shows too → click opens the plan focused on this worker's task. **Change pulse:** on a `plan-changed` for the plan(s) it represents (new milestone, status, task…), the button itself **pulses** ("bam — change"), not a dot badge; the pulse clears once the user opens the canvas.
 
 Reuse note: Swarm's report-particle animation can later animate milestone chains; not v1-critical.
 

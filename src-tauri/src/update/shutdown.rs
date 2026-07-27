@@ -43,7 +43,7 @@ pub async fn graceful_shutdown(app: &tauri::AppHandle) -> Result<(), String> {
 
     let agent_panes = collect_agent_panes(&svc);
     log::info!(
-        "[updater] graceful_shutdown: {} agent pane(s) need /exit",
+        "[updater] graceful_shutdown: {} agent Tab(s) need /exit",
         agent_panes.len()
     );
 
@@ -102,7 +102,7 @@ fn send_exit_to_agents(svc: &ServiceState, agents: &[AgentPaneInfo]) {
     for agent in agents {
         let Some(cmd) = agent.exit_command.as_deref() else {
             log::warn!(
-                "[updater] no exit command for provider '{}' on pane {}; will skip /exit and rely on signal",
+                "[updater] no exit command for provider '{}' on Tab {}; will skip /exit and rely on signal",
                 agent.provider_id, agent.pane_id
             );
             continue;
@@ -111,13 +111,13 @@ fn send_exit_to_agents(svc: &ServiceState, agents: &[AgentPaneInfo]) {
         let pty = svc.pty.lock();
         match pty.write(&agent.pty_id, payload.as_bytes()) {
             Ok(()) => log::info!(
-                "[updater] sent {:?} to pane {} (provider={})",
+                "[updater] sent {:?} to Tab {} (provider={})",
                 cmd,
                 agent.pane_id,
                 agent.provider_id
             ),
             Err(e) => log::warn!(
-                "[updater] failed to send exit to pane {}: {}",
+                "[updater] failed to send exit to Tab {}: {}",
                 agent.pane_id,
                 e
             ),
@@ -173,7 +173,7 @@ async fn wait_or_kill_one(pty: crate::PtyState, agent: AgentPaneInfo) -> Result<
     let mut killer = session
         .child
         .lock()
-        .map_err(|error| format!("pane {} child lock poisoned: {error}", agent.pane_id))?
+        .map_err(|error| format!("Tab {} child lock poisoned: {error}", agent.pane_id))?
         .clone_killer();
     let waiting_session = session.clone();
     let mut waiter = tokio::task::spawn_blocking(move || {
@@ -187,7 +187,7 @@ async fn wait_or_kill_one(pty: crate::PtyState, agent: AgentPaneInfo) -> Result<
 
     if wait_for_child(&mut waiter, PER_PANE_GRACE).await? {
         log::info!(
-            "[updater] pane {} exited gracefully (provider={})",
+            "[updater] Tab {} exited gracefully (provider={})",
             agent.pane_id,
             agent.provider_id
         );
@@ -195,13 +195,13 @@ async fn wait_or_kill_one(pty: crate::PtyState, agent: AgentPaneInfo) -> Result<
     }
 
     log::warn!(
-        "[updater] pane {} did not exit within {:?}; terminating its owned process tree",
+        "[updater] Tab {} did not exit within {:?}; terminating its owned process tree",
         agent.pane_id,
         PER_PANE_GRACE
     );
     if let Err(error) = killer.kill() {
         log::warn!(
-            "[updater] process-tree termination failed for pane {}: {}",
+            "[updater] process-tree termination failed for Tab {}: {}",
             agent.pane_id,
             error
         );
@@ -209,14 +209,14 @@ async fn wait_or_kill_one(pty: crate::PtyState, agent: AgentPaneInfo) -> Result<
 
     if wait_for_child(&mut waiter, FORCED_EXIT_GRACE).await? {
         log::info!(
-            "[updater] pane {} exited after forced termination",
+            "[updater] Tab {} exited after forced termination",
             agent.pane_id
         );
         return Ok(());
     }
 
     Err(format!(
-        "pane {} process tree did not exit before shutdown deadline",
+        "Tab {} process tree did not exit before shutdown deadline",
         agent.pane_id
     ))
 }

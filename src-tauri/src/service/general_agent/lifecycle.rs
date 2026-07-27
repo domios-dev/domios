@@ -100,7 +100,7 @@ pub fn start_general_agent(
                             log::info!("[general-agent] Already running (pane={}, pty={}, provider={}) — skipping", pid, pty_id, current_agent);
                             return;
                         }
-                        log::info!("[general-agent] Pane has live PTY {} but no agent output before deadline — terminating before relaunch", pty_id);
+                        log::info!("[general-agent] Tab has live PTY {} but no agent output before deadline — terminating before relaunch", pty_id);
                         if let Err(reason) =
                             terminate_pty_before_relaunch(pty, screen_state, &pty_id)
                         {
@@ -151,7 +151,7 @@ pub fn start_general_agent(
             }
             None => {
                 log::error!(
-                    "[general-agent] No General pane found — ensure_general_workspace failed?"
+                    "[general-agent] No General Tab found — ensure_general_workspace failed?"
                 );
                 return;
             }
@@ -256,7 +256,7 @@ pub fn start_general_agent(
     svc.set_and_lock_pane_agent_type(&pane_id, provider_name.to_string());
     // writes go to the wrong one.
     svc.emit_state_changed();
-    log::info!("[general-agent] PTY {} linked to pane {}", pty_id, pane_id);
+    log::info!("[general-agent] PTY {} linked to Tab {}", pty_id, pane_id);
 
     // Start backend reader on a tokio runtime (start_backend_reader uses tokio::spawn, but we're on a plain std::thread — no tokio runtime here)
     log::info!("[general-agent] Starting backend reader for PTY {}", pty_id);
@@ -427,7 +427,7 @@ pub fn start_general_agent(
     );
     if !pane_still_owns_pty(mux, &pane_id, &pty_id) {
         log::info!(
-            "[general-agent] Launch on stale PTY {} for pane {} ignored; pane moved on",
+            "[general-agent] Launch on stale PTY {} for Tab {} ignored; Tab moved on",
             pty_id,
             pane_id
         );
@@ -584,29 +584,29 @@ fn validate_general_agent_pane_retry_inner(
     let mut m = mux.write();
     let general_pane_id = m
         .resolve_pane_id(GENERAL_ALIAS)
-        .ok_or_else(|| "General Agent pane is not registered".to_string())?;
+        .ok_or_else(|| "General Agent Tab is not registered".to_string())?;
     let requested_pane_id = m
         .resolve_pane_id(pane_id)
         .unwrap_or_else(|| pane_id.to_string());
     if requested_pane_id != general_pane_id {
         return Err(format!(
-            "Retry rejected: pane {} is not the General Agent pane {}",
+            "Retry rejected: Tab {} is not the General Agent Tab {}",
             requested_pane_id, general_pane_id
         ));
     }
     let pane = m
         .get_pane(&general_pane_id)
-        .ok_or_else(|| format!("General Agent pane {} is missing", general_pane_id))?;
+        .ok_or_else(|| format!("General Agent Tab {} is missing", general_pane_id))?;
     if !pane.protected {
         return Err(format!(
-            "Retry rejected: General Agent pane {} is not protected",
+            "Retry rejected: General Agent Tab {} is not protected",
             general_pane_id
         ));
     }
     // `agent_booting` is the claim marker — one owner, always.
     if pane.agent_booting {
         log::info!(
-            "[general-agent] Retry for pane {} ignored; launch already claimed",
+            "[general-agent] Retry for Tab {} ignored; launch already claimed",
             general_pane_id
         );
         return Ok(false);
@@ -617,13 +617,13 @@ fn validate_general_agent_pane_retry_inner(
     if pane.boot_stage.is_some_and(is_launch_stage) {
         if launch_lock::launch_in_progress() {
             log::info!(
-                "[general-agent] Retry for pane {} ignored; launch already in progress",
+                "[general-agent] Retry for Tab {} ignored; launch already in progress",
                 general_pane_id
             );
             return Ok(false);
         }
         log::info!(
-            "[general-agent] Pane {} latched at {:?} with no live launch; treating as stale",
+            "[general-agent] Tab {} latched at {:?} with no live launch; treating as stale",
             general_pane_id,
             pane.boot_stage
         );
@@ -833,7 +833,7 @@ mod tests {
         super::super::workspace::ensure_general_workspace(&mut mux, true);
         let pane_id = mux
             .resolve_pane_id(super::GENERAL_ALIAS)
-            .expect("general pane");
+            .expect("general Tab");
         if let Some(pane) = mux.get_pane_mut(&pane_id) {
             pane.boot_stage = stage;
         }
@@ -936,7 +936,7 @@ mod tests {
         assert!(first);
         assert!(!second);
         let mux = mux.read();
-        let pane = mux.get_pane(&general_id).expect("general pane");
+        let pane = mux.get_pane(&general_id).expect("general Tab");
         assert!(pane.agent_booting);
         assert_eq!(pane.boot_stage, Some(BootStage::PtyStarting));
         assert!(pane.boot_failure_reason.is_none());

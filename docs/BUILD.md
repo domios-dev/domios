@@ -85,7 +85,7 @@ does not publish a release or alter GitHub assets.
    persistent release target with sccache, rebuilds only changed Cargo units,
    recreates the NSIS bundle, verifies source provenance, and installs that
    exact artifact. When invoked inside CodeTerm, it saves the session and sends
-   a continuation intent to the calling pane after the new daemon is healthy.
+   a continuation intent to the calling Tab after the new daemon is healthy.
    The default intent verifies the installed SHA and resumes the interrupted
    work. Override or disable it when needed:
 
@@ -119,7 +119,7 @@ does not publish a release or alter GitHub assets.
 | `release source is not clean` | A source or lockfile change has not been reviewed/committed | Inspect `git status --short`; commit the intentional change or stop. Never bypass provenance. |
 | `source SHA/status mismatch` after a bundle was created | A build step changed tracked source inputs after the provenance snapshot | Do not install that artifact. Identify the mutating step, fix it, and rerun from a clean tree. |
 | Self-install returns but the window does not return | The detached helper owns restart | Inspect `%LOCALAPPDATA%\codeterm\self-install.log`, then query port 7685 health. |
-| CodeTerm restarts but the initiating tab does not resume | The continuation send failed or the pane id changed before session persistence | Inspect `%LOCALAPPDATA%\codeterm\self-install.log`; the retained `%TEMP%\codeterm-continuation-*.txt` contains the undelivered intent. |
+| CodeTerm restarts but the initiating tab does not resume | The continuation send failed or the Tab id changed before session persistence | Inspect `%LOCALAPPDATA%\codeterm\self-install.log`; the retained `%TEMP%\codeterm-continuation-*.txt` contains the undelivered intent. |
 | Repeated local install recompiles the full release graph | The clean-room `build` route was used instead of the persistent local cache | Use `build.ps1 install-local`; reserve `build` for public-release-equivalent verification. |
 | A focused Rust test spends its deadline linking app binaries | The test omitted `--lib`, so Cargo built unrelated binary test targets | Run the focused filter through `scripts/test-capped.sh ... --lib <filter>`; never raise the deadline. |
 | A fresh lane's focused Rust test reports missing `../dist` or `bundled-cli/*` | Ignored Tauri resource directories have not been staged in that worktree | Run `node scripts/dev-resource-preflight.mjs` and `node scripts/prepare-cli-stub.js`, then rerun the same capped focused test. Do not substitute a frontend build or raise the cap. |
@@ -140,7 +140,7 @@ automation that needs a detached health gate and does not prove a visible window
 ### Visible Windows dev session
 
 For interactive verification, do not use `dev --wait`. It is the detached
-readiness path for scripts and CI. Use one visible CodeTerm pane as the sole
+readiness path for scripts and CI. Use one visible CodeTerm Tab as the sole
 foreground owner:
 
 ```powershell
@@ -148,14 +148,14 @@ foreground owner:
 codeterm tab new --cmd "Set-Location '<checkout>'; .\build.ps1 dev"
 ```
 
-Keep that pane open and require all of the following before reporting ready:
+Keep that Tab open and require all of the following before reporting ready:
 
 - port 7686 is owned by the checkout's `target\debug\codeterm.exe`;
 - `/api/health` reports `status=ok`, the exact checkout `build_sha`, API 7686,
   Vite 1420, CDP 9223, and identifier `com.codeterm.dev`;
 - the CodeTerm process has a responsive, nonzero `MainWindowHandle`;
 - exactly one Cargo process remains, the foreground `tauri dev` watcher owned
-  by the visible pane. Any second Cargo/build owner must be stopped and traced.
+  by the visible Tab. Any second Cargo/build owner must be stopped and traced.
 
 The canonical checkout owns shared dev, broad gates, and release checks. This is
 a team operating rule, not a branch-name restriction in the build script; the
@@ -355,4 +355,4 @@ means either the completed server future still owns its listener or the socket
 cannot reclaim its own address. Drop the owned future before rebinding and keep
 the listener's reuse-address policy consistent across generations.
 
-<!-- revision: 26 -->
+<!-- revision: 27 -->

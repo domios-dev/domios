@@ -150,7 +150,7 @@ pub async fn reopen_closed_pane(
         index,
     };
     let result = crate::dispatch::dispatch(&cmd, state.svc.as_ref())
-        .map_err(|_| (StatusCode::NOT_FOUND, "No recently closed pane"))?;
+        .map_err(|_| (StatusCode::NOT_FOUND, "No recently closed Tab"))?;
     Ok(Json(result.into_json()))
 }
 

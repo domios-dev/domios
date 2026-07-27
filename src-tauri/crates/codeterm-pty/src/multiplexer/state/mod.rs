@@ -69,7 +69,7 @@ pub struct MultiplexerState {
     /// (older generation) that resolves after a newer one — kills the
     /// spawn-then-blink race where a pre-pane `mux_get_state` clobbers the tab.
     generation: AtomicU64,
-    /// Durable browser-style closed-tab history. Leaf lock (its own
+    /// Durable browser-style closed-pane history. Leaf lock (its own
     /// `Mutex<Connection>`); only ever touched while the mux lock is held, never
     /// across an await. Defaults to in-memory; production swaps in a file-backed
     /// store at startup via [`MultiplexerState::attach_closed_store`].
@@ -121,7 +121,7 @@ pub struct MultiplexerSnapshot {
     /// Monotonic generation; the reducer drops any snapshot whose value is
     /// `<=` the one already applied.
     pub generation: u64,
-    /// Bounded newest-first view of the closed-tab history (across all
+    /// Bounded newest-first view of the closed-pane history (across all
     /// workspaces) for the sidebar. Sourced live from the sqlite store, NOT the
     /// persisted session snapshot — keeps both lean.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -204,7 +204,7 @@ impl MultiplexerState {
     }
 
     /// Swap the in-memory closed-history store for a durable file-backed one.
-    /// Called once at startup so closed-tab history survives daemon restarts.
+    /// Called once at startup so closed-pane history survives daemon restarts.
     pub fn attach_closed_store(&mut self, store: ClosedPanesStore) {
         self.closed_store = store;
     }

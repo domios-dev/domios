@@ -356,7 +356,7 @@ impl ServiceContext {
         let mux = self.mux.read();
         let pane = mux
             .get_pane(pane_id)
-            .ok_or_else(|| format!("Pane {} not found after spawn role apply", pane_id))?;
+            .ok_or_else(|| format!("Tab {} not found after spawn role apply", pane_id))?;
         match pane.parent_pane_id.as_deref() {
             Some(p) if p == expected_parent => Ok(()),
             Some(p) => Err(format!(

@@ -34,7 +34,7 @@ Implementation is a **generalized refactor** (no band-aids). Use the
 7. **No standalone tasks.** v1 assumes every task nests under a plan; intent is tasks
    can exist plan-less, taken by a worker *or* an orchestrator. → §5.
 8. **No graph/task query surface.** No CLI to "list active tasks", "what's left",
-   "take this task", "focus the canvas on a pane's tasks". → §6.
+   "take this task", "focus the canvas on a Tab's tasks". → §6.
 9. **Button behavior incomplete.** Plan/Tasks button next to Chat|Terminal, pulse on
    change, worker-focus-and-blink — specced loosely, never delivered. → §7.
 
@@ -60,7 +60,7 @@ Per workspace (one `.codeterm/` project root), the board shows:
   cover (`section_ids`, many-to-many).
 - **Milestones are bubble clusters** per task, grouped/colored by kind, iterations
   stacking, `links` drawn inside the cluster.
-- **Orchestrator** is a labeled group wrapping all its plans; clickable → its pane.
+- **Orchestrator** is a labeled group wrapping all its plans; clickable → its Tab.
 - **Uncovered section rows pop** (⚠ dashed/tinted) — the whole point of coverage.
 
 ## 2. Nodes & rendering (replaces v1 §6.1)
@@ -88,7 +88,7 @@ element can override.)
 ### 2.4 Task nodes & milestone bubbles
 - **TaskCard** (satellite): marker(status color) · name · `type` · `model` chip ·
   `model_rationale` ("why this model?" expandable) · `status` + `status_label` ·
-  `intent` · `body` markdown. A link chip to `assigned_pane_id` (→ opens that pane).
+  `intent` · `body` markdown. A link chip to `assigned_pane_id` (→ opens that Tab).
 - **Edges:** one curved bezier per `section_id` from that section row's anchor to the
   task's left edge. Many-to-many.
 - **MilestoneBubble:** a circle, colored by its `kind` (declared `milestone_kinds`
@@ -100,7 +100,7 @@ element can override.)
 ### 2.5 Orchestrator group
 Plans owned by the same orchestrator are wrapped in a soft labeled group (owner
 title + live/▰ status). One orchestrator → many plan nodes side by side in its group.
-The group label is clickable → focuses/opens that orchestrator's pane. Unowned plans
+The group label is clickable → focuses/opens that orchestrator's Tab. Unowned plans
 go to an "Unowned / claimable" group.
 
 ### 2.6 Edges (all the universal `links` primitive, dispatched by kind)
@@ -146,10 +146,10 @@ One workspace ↔ one project root (`git toplevel` of the workspace cwd) ↔ one
 `.codeterm/plans/`. The canvas in a workspace shows **only** plans whose
 `project_path` canonicalizes to *this workspace's* root. Two modes, both scoped to
 the workspace project:
-- **Workspace overview** (click workspace, no pane focused): every active plan +
+- **Workspace overview** (click workspace, no Tab focused): every active plan +
   every orchestrator that owns one, **no orchestrator filter** — the whole board for
   this project.
-- **Focus** (Plan button on a pane): only the focused orchestrator's (or worker's)
+- **Focus** (Plan button on a Tab): only the focused orchestrator's (or worker's)
   plans/tasks.
 Bug fix: the list query and the `filterPlansForCanvas` path must both key off the
 resolved project root, and the mount must pass the active workspace's cwd. Add a test
@@ -163,10 +163,10 @@ id `inbox`, title "Tasks", no sections, coverage N/A), auto-created lazily on fi
 standalone task. This reuses ALL plan machinery (storage, index, rendering, CLI,
 `plan-changed`, archive) with zero new persistence path — the generalization the user
 asked for.
-- A task is **taken by any pane** — worker *or* orchestrator — via `assigned_pane_id`
-  (+ derived `taken_by_role`). The TaskCard shows a link chip → click opens that pane.
+- A task is **taken by any Tab** — worker *or* orchestrator — via `assigned_pane_id`
+  (+ derived `taken_by_role`). The TaskCard shows a link chip → click opens that Tab.
 - On the board, Inbox tasks render as a task cluster under their taker's orchestrator
-  group (or an "Unassigned" group if untaken). Same TaskCard, same edges (to the pane
+  group (or an "Unassigned" group if untaken). Same TaskCard, same edges (to the Tab
   link). No sections ⇒ no section edges; that's fine.
 - Archive of the Inbox plan is not offered; individual standalone tasks are
   `done/cancelled` like any task.
@@ -178,14 +178,14 @@ Query+mutate the plan store (NOT mem-graph; per §2 decision #1 plans stay JSON)
 ```
 codeterm task list [--active|--all] [--mine] [--unassigned] [--workspace] [--plan <id>] [--json]
 codeterm task show <task_id> [--json]              # detail incl plan, sections, owner/worker links
-codeterm task take  <task_id>                      # caller's pane (worker OR orch) takes it
+codeterm task take  <task_id>                      # caller's tab (worker OR orch) takes it
 codeterm task drop  <task_id>                      # release assignment
 codeterm task add   --name <n> --type <k> [...]    # standalone (lands in Inbox) — alias of plan task add w/o plan
 codeterm plan gaps  <plan_id>                      # sections with 0 tasks (what's left) — wraps coverage
 codeterm canvas focus [--task <id>|--tab <id>|--plan <id>]   # emit canvas-focus -> camera + blink
 ```
 - `task list --active` = not done/cancelled across all plans in the workspace project
-  → "what's still in flight". `--mine` = assigned to the caller's pane/ancestors.
+  → "what's still in flight". `--mine` = assigned to the caller's tab/ancestors.
   `--unassigned` = no `assigned_pane_id` → "what can I pick up".
 - `canvas focus` emits a `canvas-focus` event (Tauri + websocket) carrying target ids;
   the open canvas pans/zooms to fit those nodes and **blinks** them. Drives §7 Tasks
@@ -195,21 +195,21 @@ codeterm canvas focus [--task <id>|--tab <id>|--plan <id>]   # emit canvas-focus
 ## 7. Buttons (next to Chat | Terminal) — one role-driven component
 
 `PaneActionButton` mounted right of `PaneModeSwitch`:
-- **Orchestrator pane that owns ≥1 active plan → "Plan".** Click → focus canvas on
+- **Orchestrator Tab that owns ≥1 active plan → "Plan".** Click → focus canvas on
   its plans. **Pulses** on `plan-changed` for an owned plan; pulse clears on open.
-- **Worker pane bound to a task (`CODETERM_PLAN_ID`/`TASK_ID`) → "Tasks".** Click →
+- **Worker Tab bound to a task (`CODETERM_PLAN_ID`/`TASK_ID`) → "Tasks".** Click →
   open canvas and `canvas focus --tab <self>`: camera fits + **blinks** this worker's
   task(s). Pulses on `plan-changed` touching its task.
 - **Neither → button hidden.** Workspace overview is reached by clicking the workspace
-  (no pane focused), independent of these buttons.
+  (no Tab focused), independent of these buttons.
 - One component, role-driven label/target — no duplicated logic.
 
-## 7.1 Plan is a THIRD pane mode (Chat | Terminal | Plan)
-Plan is not a separate overlay — it is a third mode in the pane mode switch, peer to
+## 7.1 Plan is a THIRD Tab mode (Chat | Terminal | Plan)
+Plan is not a separate overlay — it is a third mode in the Tab mode switch, peer to
 Chat and Terminal. Selecting **Plan** highlights it (like the screenshot) and the
-pane body renders `<CanvasView mode="focus">` in place of the chat/terminal view.
-Clicking **Chat** or **Terminal** returns. Mutually exclusive view state per pane.
-- Orchestrator pane → Plan mode shows its plans; Worker pane → label "Tasks", shows
+Tab body renders `<CanvasView mode="focus">` in place of the chat/terminal view.
+Clicking **Chat** or **Terminal** returns. Mutually exclusive view state per Tab.
+- Orchestrator Tab → Plan mode shows its plans; Worker Tab → label "Tasks", shows
   its tasks focused+blinking. Same role-driven component (§7), now wired as a mode in
   `PaneModeSwitch`, not a floating button.
 - The mode still **pulses** on `plan-changed` for the represented plan(s).
@@ -220,7 +220,7 @@ Clicking **Chat** or **Terminal** returns. Mutually exclusive view state per pan
 - **Activity bubble:** a small, non-modal bubble on the canvas shows live status of
   the addressed orchestrator — partial streamed message text or a compact "working on
   it…" indicator — so the user sees *something is happening* on the question they
-  asked. Source it from the owner pane's status/last-output (reuse pane-status /
+  asked. Source it from the owner Tab's status/last-output (reuse tab-status /
   chat-tail plumbing); render near the composer / focused plan. Read-only, truncated.
 
 ## 8. Archive cascade
@@ -240,7 +240,7 @@ and `task list` exclude archived. Un-archive restores everything.
 - `cards/PlanFrame.tsx` → `PlanNode` (compact sectioned). `cards/SectionCard.tsx` →
   row sub-component. New `cards/SpecNode.tsx`, `cards/OrchestratorGroup.tsx`.
 - `cards/MilestoneNode.tsx` → circular `MilestoneBubble`; clustering in layout.
-- `cards/TaskCard.tsx` — add pane link chip; tighten visuals (frontend-design).
+- `cards/TaskCard.tsx` — add Tab link chip; tighten visuals (frontend-design).
 - `settings.ts` — add row height, anchor inset, bubble radius, cluster spacing, group
   padding. No inline magic numbers.
 - `nodeRegistry.tsx` — register `spec`, `orchestrator`; keep open-kind fallback.
@@ -266,7 +266,7 @@ report chain. The board must end up rendering its own construction.
 Visual quality cannot be achieved blind. Building this canvas REQUIRES a Playwright
 screenshot feedback loop, not just unit tests.
 - **Harness:** a Playwright helper (under `tests/playwright/`) that, on macOS web-mode
-  (`/` against dev on 7686), opens the workspace canvas / a pane's Plan mode,
+  (`/` against dev on 7686), opens the workspace canvas / a Tab's Plan mode,
   **navigates the canvas** (programmatic wheel-pan, cmd-wheel-zoom, fit-to-view, focus a
   node), and captures **screenshots** (full board + per-region). It must be able to
   assert no-overflow / no-overlap structurally (bounding-box checks) AND produce images
@@ -681,7 +681,7 @@ Replaces the single tall task column with a bounded-width grid anchored to secti
   rail + pager·interactive mermaid/code·tags in header; extreme→chunk-worlds.
 - **TASK** — Tile: handle·primary left border·status·model·folded step-constellation (tags
   substitute). Card: handle·status+label·model+collapsed rationale·digest·topics·step thread·
-  subtask count. Document: full body·rationale·intent·step cards·subtask cluster (right)·pane link.
+  subtask count. Document: full body·rationale·intent·step cards·subtask cluster (right)·Tab link.
 - **STEP-CLUSTER** (interior, LOD=its task's): far constellation / mid thread+coil / near step cards
   (§16.9).
 - **PLAN-REGION** (§2.5): always a soft labeled band; orchestrator title = the "territory name",
@@ -914,7 +914,7 @@ overlap is structurally impossible, not policed after the fact.
 - **L2 CARDS** `320–560`: step mini-cards (~160×72) on the spine; subtasks **fan out** to mini-cards
   in the super-cell; task body fades in CLAMPED; node-only scroll if overflow (§24.2).
 - **L3 READING** `> 560`: unclamped task body + full step cards (milestone text/iteration) + all
-  subtask bodies + model_rationale + pane link chip. Dominance focus-assist fires here.
+  subtask bodies + model_rationale + Tab link chip. Dominance focus-assist fires here.
 - Crossfade between bands = opacity + a 4px surface-rise only; **NO geometry reflow** ever.
 
 ### 25.5 Subtask volume cue — "card-deck thickness" that unfolds
@@ -982,7 +982,7 @@ appW px (normal node / SPEC):
   mini-cards (title + body excerpt). model_rationale is zoom-revealed here, not click-only.
 - **W3 DEEP** `>620 / >760`, or dominance (node fills ~60% viewport): full readable content. SPEC full
   section bodies w/ pager+rail; PLAN full section bodies/digests + coverage rationale (node-internal
-  scroll); TASK unclamped body + rationale + pane link + full milestone/step text + subtask bodies +
+  scroll); TASK unclamped body + rationale + Tab link + full milestone/step text + subtask bodies +
   subtask step threads. Dominance may elevate/dim but NEVER changes footprint (§25.3).
 
 Per-node: SUBTASKS = deck(W0) → roster chips(W1) → mini-cards(W2) → full cards + own step threads(W3),
@@ -1049,7 +1049,7 @@ NOT trigger a real handoff in the building session (separate testing).
 
 ### 27.1 Storage — reuse infra, NO new entity
 Handoff = `CanvasElement{kind:"handoff"}` whose `content` holds structured fields (goal bullets,
-plan_snapshot, in_flight agents+panes+branches+sessions, next_actions [first 3 executable w/o chat
+plan_snapshot, in_flight agents+Tabs+branches+sessions, next_actions [first 3 executable w/o chat
 context], foundational_rules, open_decisions, links, resume_prompt, reseed_state, integrity = git
 HEAD/dirty + plan updated_at). The large narrative body externalizes to a sidecar `.codeterm/plans/
 <plan>/handoffs/<id>.md` (§17 pattern). A linked `Milestone{kind:"handoff"}` puts it in the task/plan
@@ -1060,19 +1060,19 @@ free-text via `--from-file`/stdin. Add `handoff` to `milestone_kinds`.
 ### 27.2 CLI
 `codeterm plan handoff create|show|list <plan_id>` (+ `--latest`, `--markdown`, `--json`, `--from-file|-`,
 `--mode record|new|compact`, `--dry-run`); `codeterm orchestrator handoff [--reseed]` = convenience that
-resolves caller pane / owned active plan / active task / session. Capability-shaped daemon RPC →
+resolves caller Tab / owned active plan / active task / session. Capability-shaped daemon RPC →
 native+JS parity is structural (`parity_test` asserts identical element + identical reseed send-sequence).
 
 ### 27.3 Reseed flow — mode "new" (RECOMMENDED over compact)
 1. Daemon composes + attaches the handoff (marker pulses on the board), in ONE plan transaction.
 2. Daemon records a `handoff_reseed` pending row keyed `{pane_id, handoff_id, source_session_id}`.
-3. Daemon sends the provider fresh-context command to the SAME pane — `/new` for Claude-like providers,
+3. Daemon sends the provider fresh-context command to the SAME Tab — `/new` for Claude-like providers,
    via the provider CAPABILITY (same path `agent compact` uses), never a hardcoded string in core.
 4. On `SessionStart` with a new session id ≠ source, daemon sends EXACTLY ONE lean seed via
    `codeterm send --tab <self>`: "run `plan handoff show --latest` FIRST, load the orchestrator role
    (docs/contributing/agents.md + AGENTS.md), `plan get`, resume from next_actions. Do not re-handoff."
 5. Guaranteed-read = it's the first and only instruction; the fresh agent's handoff-ack report flips
-   `reseed_state`. Monotonic states created→new_sent→session_seen→resume_sent→acked; per-pane lock +
+   `reseed_state`. Monotonic states created→new_sent→session_seen→resume_sent→acked; per-tab lock +
    cooldown + `handoff_resume_of` loop-guard; never auto-triggered; `--force` overrides. `--mode compact`
    (seed handoff then /compact) kept as a lossy fallback (spends tokens on stale context).
 
@@ -1080,7 +1080,7 @@ native+JS parity is structural (`parity_test` asserts identical element + identi
 Handoff "coins" on an orchestrator-region TIMELINE LANE, chronologically linked `[n-1]→[n]` (work →
 reset → resumed → reset). Content-LOD W0–W3 (§26): coin → goal → next_actions+agents → full .md body.
 Latest-pending pulses; acked dims to ~0.7. Unmissable at overview, reads on zoom, never dominates the
-SPEC/PLAN columns. Provenance chips: old pane/session → new pane/session, mode, timestamp. (Rejected:
+SPEC/PLAN columns. Provenance chips: old tab/session → new tab/session, mode, timestamp. (Rejected:
 milestone-on-synthetic-task = buries it; full doc column = too dominant.)
 
 ## 28. Dogfood-recording ergonomics — batch write path (opus+codex converged)
@@ -1179,13 +1179,13 @@ for both task-groups and stride-groups. `milestone_kinds` → `stride_kinds`.
 
 <!-- revision: 9 -->
 
-A hard rule, on the level of §22. The board is live (workers add tasks/strides, plans mutate, other panes
+A hard rule, on the level of §22. The board is live (workers add tasks/strides, plans mutate, other Tabs
 act). **None of that may EVER move the user's camera, zoom, or focus.** The user's viewport changes ONLY
 in response to THIS user's own direct interaction.
 
 ### 31.1 The rule
 - **Programmatic / remote change → zero camera movement.** A `plan-changed` event, a new task/stride/handoff,
-  an agent action, another pane's activity — the node updates IN PLACE; the camera does NOT pan, zoom, recenter,
+  an agent action, another Tab's activity — the node updates IN PLACE; the camera does NOT pan, zoom, recenter,
   refit, or steal focus. No surprise motion, ever.
 - **User-initiated motion is fine** (it's expected): the user clicking a minimap dot, pressing the Plan/"show me"
   button, a `canvas focus` they triggered, double-click drill, zoom/fit controls. The test: did THIS user, in
@@ -1258,7 +1258,7 @@ head (pulses); done strides coil to the tail. Per band: W0 = 7px dots (cap ~10 +
 beads + kind ring + 1-line labels alternating above/below; W2 = 18px beads, near bead sprouts a callout on the
 line; W3 = beads bloom into full stride cards, path stays visible as provenance spine. **Each stride is a leaf
 MICRO-WORLD** with its own appW bands (s0 bead → s1 title → s2 body excerpt+links → s3 structured body +
-links + related task/spec chips + author/pane/session/timestamp). Zoom reveals structure; click only for
+links + related task/spec chips + author/tab/session/timestamp). Zoom reveals structure; click only for
 explicit actions (copy-link, focus, open source). Bloom space is reserved in the task bbox (no reflow).
 
 ### 32.6 Selectable text (fixes #7) — CSS pointer/select split, no overlay
@@ -1272,7 +1272,7 @@ stays pan. Overlay approach rejected (only a fallback if global/xterm listeners 
 Plan/spec section rows are interactive: single-click a PLAN section → highlight its outgoing task edges +
 connected task nodes; double-click / row action → frame those tasks (fly+blink). SPEC section click → highlight
 spec→plan mapping (via spec_links) then tasks. Empty section click → frame + open composer with that section
-context. At W2/W3, rows + task cards show icon buttons: go-to-tasks, go-to-spec, open-pane, copy-id/copy-link,
+context. At W2/W3, rows + task cards show icon buttons: go-to-tasks, go-to-spec, open-tab, copy-id/copy-link,
 focus-stride. ALL camera motion is user-click / toolbar / minimap only; agent/CLI `canvas focus` = off-screen
 signal (§31), never auto-fit.
 
@@ -1332,7 +1332,7 @@ data becomes git-mergeable with ZERO custom machinery.
 - `.codeterm/plans/<id>/sections/<handle>/section.md` — YAML frontmatter (id, title, handle, tags, order,
   canvas) + Markdown body. (extends §17)
 - `.codeterm/plans/<id>/tasks/<handle>/task.md` — frontmatter (id, status, priority, model, section_ids,
-  parent, group, assigned pane) + body.
+  parent, group, assigned Tab) + body.
 - `.codeterm/plans/<id>/tasks/<handle>/strides.jsonl` — **APPEND-ONLY**, one ULID-keyed event per line
   (stride / status-change / assignment / edit). (codex variant: `events/<ulid>-<actor>.json` one-file-per-event.)
 - `specs/<id>/…` same pattern; `links/` + `canvas/` one-file-per-entity; `INDEX.md` generated.
@@ -1455,7 +1455,7 @@ The orchestrator must never lose the north-star. Three channels, the heartbeat b
 - **Explicit pull:** `codeterm plan goal show <plan>` prints vector · constraints · postulates · vision.
 - **Fork — push vs pull:** Alt A orchestrator re-reads manually (weak — it IS the forgetting problem we are
   fixing). **Alt B heartbeat-carried + always-on-plan-get (PICK)** — reinjection rides infra that already
-  fires periodically; no new timer, no context-grabbing daemon push. Alt C daemon timer-push into the pane
+  fires periodically; no new timer, no context-grabbing daemon push. Alt C daemon timer-push into the Tab
   (rejected: interrupts mid-turn, the §31 "never grab" spirit applied to context, not just camera).
 
 ### 34.4 ORCHESTRATION POSTULATES — declared in the skill, pinned per-plan in the goal
@@ -1495,7 +1495,7 @@ Layers on §27 handoff. The destructive context reset (§27.3 reseed) is GATED b
    ("nothing forgotten"):
    - **GOAL** present — vector + active postulates carried into the handoff.
    - **STATE** complete — coverage, what's done, plan snapshot, integrity (git HEAD/dirty + plan `updated_at`).
-   - **IN-FLIGHT** complete — every active agent/pane/branch/session listed; cross-checked vs
+   - **IN-FLIGHT** complete — every active agent/tab/branch/session listed; cross-checked vs
      `task list --active` + `agent reports` (a worker present there but absent from the handoff = FAIL).
    - **NEXT-ACTIONS** executable — first 3 runnable with zero chat context.
    - **RULES** present — foundational rules (§22/§31) + the active postulates (§34.4).
@@ -1510,7 +1510,7 @@ Layers on §27 handoff. The destructive context reset (§27.3 reseed) is GATED b
 
 **Safety — scratch verifier, not the live orchestrator (the load-bearing decision):**
 - **Fork — who runs the 3× verify?** Alt A live orchestrator self-verifies (cheap but biased, and burns the
-  very context it is trying to preserve). **Alt B scratch verifier sub-agent in a SEPARATE pane (PICK)** —
+  very context it is trying to preserve). **Alt B scratch verifier sub-agent in a SEPARATE Tab (PICK)** —
   spawned worker reads the handoff `.md` + spec + `plan get`, returns a structured gap report; independent
   (skill Review Discipline: "evidence, not proof") and leaves the live orchestrator's context untouched.
   Alt C daemon structural-only check (fast, but can't judge semantic "nothing forgotten").
@@ -1518,7 +1518,7 @@ Layers on §27 handoff. The destructive context reset (§27.3 reseed) is GATED b
   `--verify` does the cheap structural gate (required fields present; in-flight set == `task list --active`;
   integrity stamp matches) FIRST; then the scratch verifier does the 3× semantic completeness pass. Compact
   only after BOTH are green. The live orchestrator composes and decides; it does not grade its own handoff.
-- **CLI:** `codeterm plan handoff verify <plan> [--passes 3] [--against <spec_id>] [--scratch-pane] [--gate]`
+- **CLI:** `codeterm plan handoff verify <plan> [--passes 3] [--against <spec_id>] [--SCRATCH-tab] [--gate]`
   → composes-or-takes-latest, runs structural precheck, drives the scratch verifier, returns the gap report;
   `--gate` blocks reseed until 3 clean passes.
 
@@ -1542,7 +1542,7 @@ Layers on §27 handoff. The destructive context reset (§27.3 reseed) is GATED b
 GOAL = inline `Plan.goal` field + externalized `goal.md` (§34.1 Alt A). Always-visible = pinned screen-space
 HUD banner, not a world node (§34.2 Alt B). Reinjection = goal-anchored heartbeat + GOAL block on every
 `plan get` + reseed seed (§34.3 Alt B). Postulates = enumerated in the skill (canonical) + pinned per-plan in
-`Goal.postulates` (§34.4). Verify-loop = daemon structural precheck + independent SCRATCH-pane 3× semantic
+`Goal.postulates` (§34.4). Verify-loop = daemon structural precheck + independent SCRATCH-tab 3× semantic
 verify, gating reseed; fold into the skill only after a live pass (§34.5 Alt B+C). All §31-compliant; all new
 capability native+JS parity-tested.
 
@@ -1592,7 +1592,7 @@ current task + current work-point, and reminders enforce it so nobody silently d
   transferable ("you take it from whoever held it").
 - **Work-point authorship = the activity record.** Each work-point (stride) stamps WHO + WHAT. The
   task's current worker = author of the **latest** work-point. "Who is on this task now" is *derived*,
-  not separately tracked. Verify every `plan record` stamps the author (pane/agent id).
+  not separately tracked. Verify every `plan record` stamps the author (tab/agent id).
 - **Ownership history = the work-point author chain.** The ordered authors over time ARE the task's
   hand-off / transition history, viewable later. Reuse §27 `owner_history` + strides.
 - **Current-focus.** Each agent publishes a one-line "current focus" (task id + what); the orchestrator
@@ -1690,4 +1690,4 @@ body → strides → into a stride. Deep zoom (to 1000%) is the granularity dial
 just gets bigger with no new detail (or that reflows/garbles) fails the vector. This is the loop's
 north-star: zoom in and in and keep finding more, with the frame fixed and content adapting.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

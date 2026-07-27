@@ -31,7 +31,7 @@ test("first real size after mount refits", () => {
   assert(paneResizeChanged({ w: 0, h: 0 }, 800, 600) === true, "initial size must refit");
 });
 
-test("collapsed/hidden pane does not refit", () => {
+test("collapsed/hidden Tab does not refit", () => {
   assert(paneResizeChanged({ w: 800, h: 600 }, 0, 0) === false, "sub-20 dims must skip");
   assert(paneResizeChanged({ w: 0, h: 0 }, 10, 600) === false, "sub-20 width must skip");
 });

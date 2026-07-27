@@ -93,12 +93,12 @@ fn team_snapshot_roundtrip() {
     assert_eq!(
         restored.panes.get(&m1).unwrap().team_id.as_deref(),
         Some("team_abc123"),
-        "member pane team_id must survive the round-trip"
+        "member Tab team_id must survive the round-trip"
     );
     assert_eq!(
         restored.panes.get(&m2).unwrap().team_id.as_deref(),
         Some("team_abc123"),
-        "second member pane team_id must survive too"
+        "second member Tab team_id must survive too"
     );
 }
 
@@ -242,12 +242,12 @@ fn legacy_snapshot_no_team_fields_restores() {
     assert_eq!(restored.team_count(), 0, "legacy snapshot mints no teams");
     assert!(
         restored.panes.contains_key(&pane_id),
-        "legacy pane must restore"
+        "legacy Tab must restore"
     );
     assert_eq!(
         restored.panes.get(&pane_id).unwrap().team_id,
         None,
-        "legacy pane restores teamless"
+        "legacy Tab restores teamless"
     );
 }
 
@@ -272,7 +272,7 @@ fn watcher_spec_round_trips_through_snapshot() {
 
     let snap = state.to_session_snapshot();
     let restored = MultiplexerState::from_session_snapshot(&snap);
-    let pane = restored.panes.get(&pane_id).expect("pane restored");
+    let pane = restored.panes.get(&pane_id).expect("Tab restored");
     assert_eq!(
         pane.watcher,
         Some(spec.clone()),
@@ -292,7 +292,7 @@ fn watcher_spec_round_trips_through_snapshot() {
 fn chatbackend_backing_restores_from_snapshot() {
     let snap = snapshot_with(chatbackend_leaf("p1", "lmstudio", "sess-7"));
     let state = MultiplexerState::from_session_snapshot(&snap);
-    let pane = state.panes.get("p1").expect("pane restored");
+    let pane = state.panes.get("p1").expect("Tab restored");
     assert_eq!(
         pane.backing,
         PaneBacking::ChatBackend {
@@ -363,7 +363,7 @@ fn pty_pane_round_trips_without_chatbackend_fields() {
         pending_delivery: None,
     };
     let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
-    let pane = state.panes.get("p2").expect("pane restored");
+    let pane = state.panes.get("p2").expect("Tab restored");
     assert_eq!(pane.backing, PaneBacking::Pty);
 }
 
@@ -402,7 +402,7 @@ fn pane_description_round_trips_through_snapshot() {
         pending_delivery: None,
     };
     let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
-    let pane = state.panes.get("p-desc").expect("pane restored");
+    let pane = state.panes.get("p-desc").expect("Tab restored");
     assert_eq!(pane.description.as_deref(), Some("running focused tests"));
     assert_eq!(pane.role_profile.as_deref(), Some("planner"));
     assert_eq!(
@@ -458,7 +458,7 @@ fn spawned_by_and_report_target_restore_intact_not_none() {
         pending_delivery: None,
     };
     let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
-    let pane = state.panes.get("worker-1").expect("pane restored");
+    let pane = state.panes.get("worker-1").expect("Tab restored");
     assert_eq!(
         pane.spawned_by_pane_id.as_deref(),
         Some("spawner-1"),
@@ -510,7 +510,7 @@ fn legacy_tab_title_seeds_default_provider_pane_title() {
     snap.workspaces[0].tabs[0].title = "Euler".into();
 
     let state = MultiplexerState::from_session_snapshot(&snap);
-    let pane = state.panes.get("legacy-worker").expect("pane restored");
+    let pane = state.panes.get("legacy-worker").expect("Tab restored");
     assert_eq!(pane.title, "Euler");
     assert_eq!(pane.title_level, TitleLevel::Default);
 }
@@ -527,7 +527,7 @@ fn remote_report_target_round_trips_through_snapshot() {
     }
     let snap = state.to_session_snapshot();
     let restored = MultiplexerState::from_session_snapshot(&snap);
-    let pane = restored.panes.get(&pane_id).expect("pane restored");
+    let pane = restored.panes.get(&pane_id).expect("Tab restored");
     assert_eq!(pane.report_target_pane_id.as_deref(), Some("main"));
     assert_eq!(
         pane.report_target_mesh_peer.as_deref(),
@@ -579,7 +579,7 @@ fn chatbackend_pane_stays_chat_backend_after_snapshot_resave() {
     // Save → restore (what happens after /new triggers the 30s save + restart).
     let snap = state.to_session_snapshot();
     let restored = MultiplexerState::from_session_snapshot(&snap);
-    let pane = restored.panes.get(&pane_id).expect("pane survived restore");
+    let pane = restored.panes.get(&pane_id).expect("Tab survived restore");
 
     // Backing must still be ChatBackend — not Pty — after the round-trip.
     assert!(
@@ -736,7 +736,7 @@ fn snapshot_with_status_derives_waiting_from_pending_prompt_when_untracked() {
     assert_eq!(
         snap.pane_statuses.get(&pane_id),
         Some(&PaneStatus::Waiting),
-        "untracked/no-pty pane with a pending_prompt must still hydrate as Waiting"
+        "untracked/no-pty Tab with a pending_prompt must still hydrate as Waiting"
     );
 }
 
@@ -848,7 +848,7 @@ fn requested_and_actual_model_identity_round_trips_through_snapshot() {
 
     let snap = state.to_session_snapshot();
     let restored = MultiplexerState::from_session_snapshot(&snap);
-    let pane = restored.panes.get(&pane_id).expect("pane restored");
+    let pane = restored.panes.get(&pane_id).expect("Tab restored");
 
     assert_eq!(pane.agent_session_model.as_deref(), Some("gpt-5.6-terra"));
     assert_eq!(
@@ -864,7 +864,7 @@ fn requested_and_actual_model_identity_round_trips_through_snapshot() {
     assert_eq!(pane.model_identity_mismatch, Some(mismatch));
 }
 
-// ── Ghost-tab repro harness ───────────────────────────────────────────────
+// ── Ghost-pane repro harness ───────────────────────────────────────────────
 
 /// Repro: a pane marked skip_snapshot (first-run picker or any ephemeral
 /// onboarding pane) must be absent from the serialised session snapshot.
@@ -881,13 +881,13 @@ fn ghost_repro_skip_snapshot_pane_excluded_from_snapshot() {
     assert_eq!(
         snap.workspaces[0].tabs.len(),
         0,
-        "skip_snapshot pane must be excluded from the session snapshot — \
+        "skip_snapshot Tab must be excluded from the session snapshot — \
          if it weren't, a daemon restart would restore it as a ghost tab"
     );
 }
 
 /// Happy path: a regular (non-ephemeral) pane must survive the round-trip
-/// and not be accidentally dropped by the ghost-tab fix.
+/// and not be accidentally dropped by the ghost-pane fix.
 #[test]
 fn ghost_repro_normal_pane_survives_snapshot_round_trip() {
     let mut state = MultiplexerState::empty();
@@ -900,13 +900,13 @@ fn ghost_repro_normal_pane_survives_snapshot_round_trip() {
     assert_eq!(
         snap.workspaces[0].tabs.len(),
         1,
-        "regular pane must survive the session snapshot round-trip"
+        "regular Tab must survive the session snapshot round-trip"
     );
 
     let restored = MultiplexerState::from_session_snapshot(&snap);
     assert!(
         restored.panes.contains_key(&pane_id),
-        "restored state must include the regular pane"
+        "restored state must include the regular Tab"
     );
 }
 
@@ -926,12 +926,12 @@ fn ghost_repro_mixed_workspace_drops_only_ephemeral() {
     assert_eq!(
         snap.workspaces[0].tabs.len(),
         1,
-        "only the real pane must survive; the ephemeral picker must be excluded"
+        "only the real Tab must survive; the ephemeral picker must be excluded"
     );
     let surviving_leaf = &snap.workspaces[0].tabs[0].split_tree;
     match surviving_leaf {
         crate::session::store::SplitNodeSnapshot::Leaf { pane_id, .. } => {
-            assert_eq!(pane_id, &pane_real, "surviving tab must be the real pane");
+            assert_eq!(pane_id, &pane_real, "surviving tab must be the real Tab");
         }
         _ => panic!("expected a leaf"),
     }
@@ -948,18 +948,18 @@ fn snapshots_exclude_orphaned_and_duplicate_live_tabs() {
         .find(|workspace| workspace.id == workspace_id)
         .unwrap();
     workspace.tabs.push(crate::multiplexer::types::Tab {
-        id: "duplicate-tab".to_string(),
+        id: "duplicate-pane".to_string(),
         description: None,
         pane_id: pane_id.clone(),
         sort_order: 1,
     });
     workspace.tabs.push(crate::multiplexer::types::Tab {
-        id: "orphaned-tab".to_string(),
+        id: "orphaned-pane".to_string(),
         description: None,
         pane_id: "closed-pane".to_string(),
         sort_order: 2,
     });
-    workspace.active_tab_id = Some("orphaned-tab".to_string());
+    workspace.active_tab_id = Some("orphaned-pane".to_string());
 
     let live = state.snapshot();
     assert_eq!(live.workspaces[0].tabs.len(), 1);

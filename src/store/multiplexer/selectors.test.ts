@@ -52,7 +52,7 @@ function sampleState(panes: Record<string, Pane>, teams: Team[] = []): ExtendedS
 assert.equal(
   paneFieldsEqual(samplePane("a", 100), samplePane("a", 100)),
   true,
-  "same pane fields compare equal",
+  "same Tab fields compare equal",
 );
 assert.equal(
   paneFieldsEqual(samplePane("a", 100), samplePane("a", 200)),
@@ -67,11 +67,11 @@ assert.equal(
 
 const panesA = { a: samplePane("a", 1), b: samplePane("b", 5) };
 const panesB = { a: samplePane("a", 2), b: samplePane("b", 5) };
-assert.equal(panesRecordEqual(panesA, panesB), false, "record differs when one pane ticks");
+assert.equal(panesRecordEqual(panesA, panesB), false, "record differs when one Tab ticks");
 assert.equal(
   panesRecordEqual({ b: samplePane("b", 5) }, { b: samplePane("b", 5) }),
   true,
-  "unchanged pane in record compares equal",
+  "unchanged Tab in record compares equal",
 );
 
 const titleMap1 = selectPaneTitleMap(sampleState({ x: { ...samplePane("x"), title: "✻ Worker" } }));

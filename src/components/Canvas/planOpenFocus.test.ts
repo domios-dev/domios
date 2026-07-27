@@ -21,15 +21,15 @@ const plan = {
   ],
 };
 
-test("assignedTaskIdsForPane returns tasks bound to the pane", () => {
+test("assignedTaskIdsForPane returns tasks bound to the Tab", () => {
   assert(
     assignedTaskIdsForPane([plan], "worker-1").join() === "task-a",
     "worker task",
   );
-  assert(assignedTaskIdsForPane([plan], "unknown").length === 0, "none for unknown pane");
+  assert(assignedTaskIdsForPane([plan], "unknown").length === 0, "none for unknown Tab");
 });
 
-test("assignedTaskIdsForPane ignores terminal and empty pane bindings", () => {
+test("assignedTaskIdsForPane ignores terminal and empty Tab bindings", () => {
   const mixed = {
     ...FIXTURE_PLAN,
     tasks: [
@@ -40,7 +40,7 @@ test("assignedTaskIdsForPane ignores terminal and empty pane bindings", () => {
     ],
   };
   assert(assignedTaskIdsForPane([mixed], "worker-1").join() === "active", "only active trimmed binding remains");
-  assert(assignedTaskIdsForPane([mixed], " ").length === 0, "empty target pane ignored");
+  assert(assignedTaskIdsForPane([mixed], " ").length === 0, "empty target Tab ignored");
 });
 
 test("resolvePlanOpenCameraTarget prefers task focus in task context", () => {
@@ -49,13 +49,13 @@ test("resolvePlanOpenCameraTarget prefers task focus in task context", () => {
   if (target.kind === "task") assert(target.nodeIds.join() === "task-a", "worker task id");
 });
 
-test("resolvePlanOpenCameraTarget frames active plan when pane has no assigned tasks", () => {
+test("resolvePlanOpenCameraTarget frames active plan when Tab has no assigned tasks", () => {
   const target = resolvePlanOpenCameraTarget([plan], "orch-no-tasks", plan.id);
   assert(target.kind === "plan", "normal open");
   if (target.kind === "plan") assert(target.nodeIds[0] === plan.id, "active plan id");
 });
 
-test("resolvePlanOpenCameraTarget falls back to bounds without focus pane or plan", () => {
+test("resolvePlanOpenCameraTarget falls back to bounds without focus Tab or plan", () => {
   assert(resolvePlanOpenCameraTarget([], null, null).kind === "bounds", "empty board");
 });
 

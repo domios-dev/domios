@@ -232,7 +232,7 @@ cargo sweep --time 2
 ```
 
 Remove merged lane worktrees and delete their merged `lane/*` branches, close finished worker
-panes, stop lane-specific dev daemons. Then fast-forward `develop`:
+Tabs, stop lane-specific dev daemons. Then fast-forward `develop`:
 
 ```bash
 git checkout develop
@@ -268,4 +268,4 @@ The minisign updater key (`~/.tauri/codeterm.key`, empty password; its public ha
 the `github-release` skill lists the exact ids and restore paths. A builder without the minisign
 key produces artifacts the updater can't verify.
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->

@@ -46,7 +46,7 @@ function reset() {
   assert(order[0] === "visible", "priority task runs first");
   tick();
   tick();
-  assert(order.join(",") === "visible,hidden-a,hidden-b", "hidden panes follow in order");
+  assert(order.join(",") === "visible,hidden-a,hidden-b", "hidden Tabs follow in order");
 })();
 
 // Cancel before run: an unmounted pane's init is skipped, others still run.

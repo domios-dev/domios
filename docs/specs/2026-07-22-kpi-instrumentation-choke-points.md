@@ -12,8 +12,8 @@ One row per coordination event, matching the spec's attribution contract:
 | field | type | source |
 |---|---|---|
 | `plan_id` | `Option<String>` | resolved plan/effort context at the choke point |
-| `task_id` | `Option<String>` | `CODETERM_TASK_ID`, already exported per-pane at spawn/bind time (`src-tauri/src/service/pty_io/lifecycle.rs:195`) |
-| `tab` / `pane_id` | `String` | the pane the event is attributed to |
+| `task_id` | `Option<String>` | `CODETERM_TASK_ID`, already exported per-tab at spawn/bind time (`src-tauri/src/service/pty_io/lifecycle.rs:195`) |
+| `tab` / `pane_id` | `String` | the Tab the event is attributed to |
 | `role` | `Option<AgentRole>` | orchestrator / planner / worker / general, from `pane.role` |
 | `provider` | `String` | `claude` / `codex` / `opencode` / other |
 | `model` | `Option<String>` | resolved model at event time |
@@ -42,7 +42,7 @@ correct single choke point — every reminder/report/plain-send path funnels thr
 ### hierarchy::submit_report (reports, bounce/accept)
 
 `src-tauri/src/service/hierarchy.rs:406` — `Hierarchy::submit_report`. Full attribution
-(plan_id, task_id, pane, role, model) is resolved by `hierarchy.rs:447` (role) and
+(plan_id, task_id, Tab, role, model) is resolved by `hierarchy.rs:447` (role) and
 `hierarchy.rs:448` (model). The delivery itself happens at `hierarchy.rs:606`
 (`self.gateway_deliver(...)`), but the durable single-writer persistence point is one layer
 down: `ReportStore::add_detailed_with_model_identity` at `src-tauri/src/agent/reports.rs:213`,
@@ -289,4 +289,4 @@ codeterm kpi events --plan pl_dwojf1 --json
 Phase 5's own gate is the automated within-10% comparison script described in
 `task_cmu92w`'s test plan — not re-specified here since it belongs to that task.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

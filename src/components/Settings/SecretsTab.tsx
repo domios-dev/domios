@@ -376,7 +376,7 @@ export function SecretsTab({
   const sectionLabelClass = UI_TEXT.sectionTitle;
 
   return (
-    <div className="flex flex-col gap-5" data-testid="settings-secrets-tab">
+    <div className="flex flex-col gap-5" data-testid="settings-secrets-pane">
       <SettingsCard
         icon={<KeyRound size={16} />}
         title="Secret store"
@@ -544,7 +544,7 @@ export function SecretsTab({
         <SettingsCard icon={<LogIn size={16} />} title="Sign in to Bitwarden">
           <div className="flex gap-1 text-[11px]">
             <button
-              data-testid="settings-secrets-login-password-tab"
+              data-testid="settings-secrets-login-password-pane"
               onClick={() => setActiveTab("password")}
               className={`${UI_BUTTON.compact} border ${
                 activeTab === "password" ? UI_BUTTON.primary : UI_BUTTON.ghost
@@ -553,7 +553,7 @@ export function SecretsTab({
               Password
             </button>
             <button
-              data-testid="settings-secrets-login-apikey-tab"
+              data-testid="settings-secrets-login-apikey-pane"
               onClick={() => setActiveTab("apikey")}
               className={`${UI_BUTTON.compact} border ${
                 activeTab === "apikey" ? UI_BUTTON.primary : UI_BUTTON.ghost

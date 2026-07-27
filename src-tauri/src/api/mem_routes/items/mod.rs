@@ -500,7 +500,7 @@ pub async fn mem_flush(
     let pty_id = {
         let mux = state.svc.mux.write();
         mux.resolve_pane_id(&b.pane)
-            .ok_or((StatusCode::NOT_FOUND, format!("pane not found: {}", b.pane)))?
+            .ok_or((StatusCode::NOT_FOUND, format!("Tab not found: {}", b.pane)))?
     };
     let pty_id_for_buffer = state
         .svc

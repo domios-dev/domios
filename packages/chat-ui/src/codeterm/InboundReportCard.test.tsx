@@ -100,7 +100,7 @@ if (!dispatchHost.textContent?.includes("Added provider matrix")) throw new Erro
 await act(async () => dispatchRoot.unmount());
 dispatchHost.remove();
 
-const sendMessage = { id: "send-1", type: "tool_call" as const, content: "", toolKind: "codeterm" as const, toolSummary: 'codeterm send --tab e3fa0754 "hello\\nHugo"', toolDetail: 'codeterm send --tab e3fa0754 "hello\\nHugo"' };
+const sendMessage = { id: "send-1", type: "tool_call" as const, content: "", toolKind: "codeterm" as const, toolSummary: 'codeterm send --pane e3fa0754 "hello\\nHugo"', toolDetail: 'codeterm send --pane e3fa0754 "hello\\nHugo"' };
 const sendHost = document.createElement("div");
 document.body.append(sendHost);
 const sendRoot = createRoot(sendHost);

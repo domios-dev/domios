@@ -72,7 +72,7 @@ pub fn ensure_general_workspace(
                     Ok((tab_id, pane_id)) => {
                         let _ = mux.rename_tab(&ws_id, &tab_id, GENERAL_PANE_TITLE);
                         log::info!(
-                            "[general-agent] Repaired empty General workspace {} with pane {}",
+                            "[general-agent] Repaired empty General workspace {} with Tab {}",
                             ws_id,
                             pane_id
                         );
@@ -101,7 +101,7 @@ pub fn ensure_general_workspace(
             mux.register_alias(GENERAL_ALIAS, &pid);
             mux.register_alias(MAIN_ALIAS, &pid);
             log::info!(
-                "[general-agent] Existing General workspace, alias for pane {}",
+                "[general-agent] Existing General workspace, alias for Tab {}",
                 pid
             );
         }
@@ -132,7 +132,7 @@ pub fn ensure_general_workspace(
             let _ = mux.set_active_workspace(&ws_info.id);
             let _ = mux.set_focused_pane(&pane_id);
             log::info!(
-                "[general-agent] Created General workspace {} with pane {}",
+                "[general-agent] Created General workspace {} with Tab {}",
                 ws_info.id,
                 pane_id
             );
@@ -155,7 +155,7 @@ mod tests {
             .find(|ws| ws.name == GENERAL_WORKSPACE_NAME)
             .expect("general workspace")
             .clone();
-        let pane_id = ws.pane_ids.first().expect("general pane");
+        let pane_id = ws.pane_ids.first().expect("general Tab");
         mux.get_pane(pane_id).expect("pane").chat_view
     }
 
@@ -191,7 +191,7 @@ mod tests {
             .find(|ws| ws.name == GENERAL_WORKSPACE_NAME)
             .expect("general workspace")
             .clone();
-        let pane_id = ws.pane_ids.first().expect("general pane");
+        let pane_id = ws.pane_ids.first().expect("general Tab");
         let pane = mux.get_pane(pane_id).expect("pane");
         assert_eq!(pane.title, GENERAL_PANE_TITLE);
         assert!(pane.chat_view);

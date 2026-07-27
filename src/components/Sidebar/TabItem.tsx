@@ -244,25 +244,25 @@ function TabItemInner({
 
   const animClass = isClosing
     ? closePhase === 2
-      ? "sidebar-tab-closing-2"
-      : "sidebar-tab-closing-1"
+      ? "sidebar-pane-closing-2"
+      : "sidebar-pane-closing-1"
     : isAppearing
-      ? "sidebar-tab-appear"
+      ? "sidebar-pane-appear"
       : "";
 
   return (
     <div
       ref={tabRef}
       data-testid="tab-item"
-      data-tab-id={tab.id}
-      data-tab-no-task-bubble="true"
+      data-pane-id={tab.id}
+      data-pane-no-task-bubble="true"
       title={description ? `${displayTitle}\n${description}` : displayTitle}
       className={`
-        sidebar-tab group flex items-center justify-between cursor-pointer transition-colors relative
-        ${touchMode ? "sidebar-tab-touch" : ""}
+        sidebar-pane group flex items-center justify-between cursor-pointer transition-colors relative
+        ${touchMode ? "sidebar-pane-touch" : ""}
         ${touchMode ? "min-h-11 pl-5 pr-2 py-2" : "pl-4 pr-2 py-1.5"}
         ${animClass}
-        ${isActive ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
+        ${isActive ? "text-[var(--ct-fg)]" : "sidebar-pane-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
       `}
     >
       {isActive && <ActiveTabPill />}
@@ -303,7 +303,7 @@ function TabItemInner({
         aria-label={`Open tab ${displayTitle}`}
         aria-current={isActive ? "page" : undefined}
         onClick={onClick}
-        className={`sidebar-tab-activation flex flex-1 items-center min-w-0 relative z-[1] border-0 bg-transparent p-0 text-left text-inherit font-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
+        className={`sidebar-pane-activation flex flex-1 items-center min-w-0 relative z-[1] border-0 bg-transparent p-0 text-left text-inherit font-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
       >
       <div className={`flex flex-1 items-center min-w-0 ${touchMode ? "gap-2.5" : "gap-2"}`}>
         <span data-testid="tab-pane-icon" className="shrink-0 leading-none">
@@ -361,7 +361,7 @@ function TabItemInner({
           />
         )}
         {paneCount > 1 && (
-          <span className="flex items-center gap-0.5 text-[var(--ct-muted)]" title={`${paneCount} panes`}>
+          <span className="flex items-center gap-0.5 text-[var(--ct-muted)]" title={`${paneCount} Tabs`}>
             <svg width="12" height="10" viewBox="0 0 14 10" fill="none" stroke="currentColor" strokeWidth="1">
               {paneCount === 2 ? (
                 /* Two panes side by side */
@@ -405,7 +405,7 @@ function TabItemInner({
             className={
               touchMode
                 ? "flex h-11 w-11 items-center justify-center"
-                : "sidebar-tab-close absolute inset-y-0 right-0 flex items-center"
+                : "sidebar-pane-close absolute inset-y-0 right-0 flex items-center"
             }
             trigger={
               <button

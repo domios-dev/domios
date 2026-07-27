@@ -198,7 +198,7 @@ fn send_to_agent_pane_with_source_keeps_marker() {
     let out = render_send(true, true, PaneInputTransport::Pty, "ship it");
     assert!(
         out.contains("-=-codeterm:tab"),
-        "an agent pane still gets the return-address marker"
+        "an agent Tab still gets the return-address marker"
     );
     assert!(out.ends_with("ship it"));
 }
@@ -240,6 +240,6 @@ fn create_pane_body_parses_chat_backend_and_config() {
 fn create_pane_body_defaults_to_shell() {
     let json = r#"{"title": "scratch"}"#;
     let body: CreateShellPaneBody = serde_json::from_str(json).unwrap();
-    assert!(body.chat_backend.is_none(), "no chat_backend → shell pane");
+    assert!(body.chat_backend.is_none(), "no chat_backend → shell Tab");
     assert!(body.config.is_none());
 }

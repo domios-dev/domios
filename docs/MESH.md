@@ -74,7 +74,7 @@ Every paired peer has an Ed25519 keypair. Requests between peers are signed with
 
 `plan`, `spec`, `task`, `effort`, and `team` accept `--mesh PEER`. The CLI resolves
 files and stdin locally, then sends the resulting content through the signed mesh
-RPC endpoint to the peer's in-process plan dispatcher. Implicit local pane identity
+RPC endpoint to the peer's in-process plan dispatcher. Implicit local Tab identity
 and working-directory defaults are not forwarded; explicit project paths refer to
 the target machine. Mutations require `Full` peer access and carry an idempotency ID.
 
@@ -178,7 +178,7 @@ Peer services are **not gossiped** across the mesh. When a peer card is expanded
 
 ### Push tokens
 
-Each daemon service has a per-service push token stored at `<data_dir>/services/<service_id>/token` (mode `0600` on Unix). The token is 64-hex-char random and returned **once** (at create, or via `services.regenerate_token` / `service token --rotate`). Daemons send `Authorization: Bearer <token>` on `POST /api/panes/<pane_id>/send` to write to a pane without the global access token. The auth middleware validates push tokens (`services::push::validate_push`) **before** falling through to the mesh signed-token check, so a daemon Bearer never accidentally lands in the peer code path. Token comparison is constant-time. Rotating a token also auto-flips `push_enabled = true` (you wouldn't rotate if you didn't intend to push).
+Each daemon service has a per-service push token stored at `<data_dir>/services/<service_id>/token` (mode `0600` on Unix). The token is 64-hex-char random and returned **once** (at create, or via `services.regenerate_token` / `service token --rotate`). Daemons send `Authorization: Bearer <token>` on `POST /api/panes/<pane_id>/send` to write to a Tab without the global access token. The auth middleware validates push tokens (`services::push::validate_push`) **before** falling through to the mesh signed-token check, so a daemon Bearer never accidentally lands in the peer code path. Token comparison is constant-time. Rotating a token also auto-flips `push_enabled = true` (you wouldn't rotate if you didn't intend to push).
 
 ### Activity log
 
@@ -245,4 +245,4 @@ services/
   smart_add.rs      — heuristic field-mapping suggestions for AddServiceWizard
 ```
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->

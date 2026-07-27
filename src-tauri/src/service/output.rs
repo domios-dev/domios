@@ -179,7 +179,7 @@ impl ServiceContext {
                 AgentOutputLifecycleDecision::PreserveIdentityAndLogShellLikeFrame
             ) {
                 log::debug!(
-                    "[output] shell-looking marker-less frame in pane {}; lifecycle unchanged",
+                    "[output] shell-looking marker-less frame in Tab {}; lifecycle unchanged",
                     pane_id.as_deref().unwrap_or("unknown"),
                 );
             }
@@ -503,7 +503,7 @@ impl ServiceContext {
             .flatten();
         if let Some(sid) = found {
             log::info!(
-                "[output] post-launch detected {} session {} for pane {}",
+                "[output] post-launch detected {} session {} for Tab {}",
                 agent_type,
                 sid,
                 pane_id
@@ -607,7 +607,7 @@ impl ServiceContext {
                             screen_text.unwrap_or(""),
                         ) {
                             log::info!(
-                                "[general-agent/auto-ack] Auto-acknowledging {} for pane {}",
+                                "[general-agent/auto-ack] Auto-acknowledging {} for Tab {}",
                                 ack.kind.label(),
                                 pane_id
                             );
@@ -640,7 +640,7 @@ impl ServiceContext {
 
                     if let Some(response) = legacy_auto_approve_response(prompt) {
                         log::info!(
-                            "[auto-approve] Auto-approving {} prompt for pane {}",
+                            "[auto-approve] Auto-approving {} prompt for Tab {}",
                             response.kind,
                             pane_id
                         );
@@ -652,7 +652,7 @@ impl ServiceContext {
                     }
 
                     log::debug!(
-                        "[auto-approve] Skipping non-approvable prompt for pane {}",
+                        "[auto-approve] Skipping non-approvable prompt for Tab {}",
                         pane_id
                     );
                 }

@@ -447,7 +447,7 @@ impl ServiceContext {
             svc.emit_state_changed();
 
             log::info!(
-                "[spawn.chatbackend] pane {} backed by plugin '{}' session '{}'",
+                "[spawn.chatbackend] Tab {} backed by plugin '{}' session '{}'",
                 pane_id,
                 plugin_id,
                 session_id
@@ -581,7 +581,7 @@ impl ServiceContext {
                         }
                     }
                     Ok(Err(e)) => {
-                        log::warn!("[chatbackend] poll pane {} failed: {}", pane_id, e)
+                        log::warn!("[chatbackend] poll Tab {} failed: {}", pane_id, e)
                     }
                     Err(e) => {
                         log::warn!("[chatbackend] poll task join error: {}", e);
@@ -589,7 +589,7 @@ impl ServiceContext {
                     }
                 }
             }
-            log::info!("[chatbackend] poll loop ended for pane {}", pane_id);
+            log::info!("[chatbackend] poll loop ended for Tab {}", pane_id);
         });
     }
 
@@ -614,7 +614,7 @@ impl ServiceContext {
                 self.mark_watcher_tick_inflight(pane_id, tick, now_ms);
             }
             Err(e) => {
-                log::warn!("[watcher] tick enqueue failed for pane {}: {}", pane_id, e);
+                log::warn!("[watcher] tick enqueue failed for Tab {}: {}", pane_id, e);
                 self.backoff_watcher_tick(pane_id, now_ms);
                 self.emit_watcher_note(pane_id, format!("Watcher tick failed to enqueue: {e}"));
             }
@@ -649,7 +649,7 @@ impl ServiceContext {
             }
         }
         if cleared {
-            log::warn!("[watcher] stale inflight tick cleared for pane {}", pane_id);
+            log::warn!("[watcher] stale inflight tick cleared for Tab {}", pane_id);
             self.emit_watcher_note(pane_id, "Watcher tick timed out; scheduling will resume.");
             self.emit_state_changed();
         }
@@ -736,7 +736,7 @@ impl ServiceContext {
     ) {
         let Some((policy, previous_state, group)) = self.watcher_guardrail_context(pane_id) else {
             log::warn!(
-                "[watcher] dropping late verdict {} for pane {} with no inflight tick",
+                "[watcher] dropping late verdict {} for Tab {} with no inflight tick",
                 verdict_id,
                 pane_id
             );
@@ -757,7 +757,7 @@ impl ServiceContext {
         );
         for (dropped, reason) in &outcome.dropped {
             log::warn!(
-                "[watcher] pane {} dropped {} action to {:?}: {}",
+                "[watcher] Tab {} dropped {} action to {:?}: {}",
                 pane_id,
                 dropped.kind,
                 dropped.pane,
@@ -789,7 +789,7 @@ impl ServiceContext {
             self.emit_state_changed();
         } else {
             log::warn!(
-                "[watcher] dropping late verdict {} for pane {} with no inflight tick",
+                "[watcher] dropping late verdict {} for Tab {} with no inflight tick",
                 verdict_id,
                 pane_id
             );

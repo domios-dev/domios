@@ -43,7 +43,7 @@ pub fn acquire_with_wait_hook(pane_id: &str, waiting: impl FnMut()) -> PaneActiv
 pub async fn acquire_async(pane_id: String) -> Result<PaneActivationPermit, String> {
     tokio::task::spawn_blocking(move || acquire(&pane_id))
         .await
-        .map_err(|error| format!("pane activation waiter failed: {error}"))
+        .map_err(|error| format!("Tab activation waiter failed: {error}"))
 }
 
 impl Drop for PaneActivationPermit {

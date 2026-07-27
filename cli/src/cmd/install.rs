@@ -21,7 +21,7 @@ fn windows_continue_block(
         goto cleanup\r\n\
         :api_ready\r\n\
         echo [self-install] daemon API ready, awaiting acknowledged continuation submit >> \"%LOG%\"\r\n\
-        \"{cli}\" send --tab {pane} --from-file \"{file}\" >> \"%LOG%\" 2>&1\r\n\
+        \"{cli}\" send --pane {pane} --from-file \"{file}\" >> \"%LOG%\" 2>&1\r\n\
         if errorlevel 1 goto continue_failed\r\n\
         echo [self-install] continue prompt submission confirmed >> \"%LOG%\"\r\n\
         del \"{file}\" 2>nul\r\n\
@@ -132,7 +132,7 @@ pub fn run_install_from_file(
             continue_pane.unwrap_or("?")
         );
     } else if continue_prompt.is_some() {
-        eprintln!("[install --from-file] WARN: --continue-prompt set but no --continue-tab / $CODETERM_PANE_ID — prompt will be DROPPED");
+        eprintln!("[install --from-file] WARN: --continue-prompt set but no --continue-pane / $CODETERM_PANE_ID — prompt will be DROPPED");
     }
     eprintln!("[install --from-file] Detaching. Daemon will go down in ~2s.");
 
@@ -199,7 +199,7 @@ pub fn run_install_from_file(
              \x20 sleep 1\n\
              done\n\
              echo '[self-install] daemon healthy; awaiting acknowledged continuation submit'\n\
-             if \"{cli}\" send --tab {pane} --from-file \"{file}\"; then\n\
+             if \"{cli}\" send --pane {pane} --from-file \"{file}\"; then\n\
              \x20 echo '[self-install] continue prompt submission confirmed'\n\
              \x20 rm -f \"{file}\"\n\
              else\n\
@@ -278,7 +278,7 @@ pub fn run_install_from_file(
             pane.as_deref().unwrap_or("?")
         ),
         (true, false) => {
-            eprintln!("[install --from-file] WARN: --continue-prompt set but no --continue-tab / $CODETERM_PANE_ID — it will be DROPPED")
+            eprintln!("[install --from-file] WARN: --continue-prompt set but no --continue-pane / $CODETERM_PANE_ID — it will be DROPPED")
         }
         _ => {}
     }

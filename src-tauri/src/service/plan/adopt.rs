@@ -214,7 +214,7 @@ fn adoption_warnings(
         warnings.push("source owner binding will be replaced by the caller".into());
     }
     if matches!(plan.planner, Some(PlannerRef::Pane { .. })) {
-        warnings.push("source planner pane binding will be cleared".into());
+        warnings.push("source planner Tab binding will be cleared".into());
     }
     if task_count != plan.tasks.len() {
         warnings.push(format!(
@@ -234,7 +234,7 @@ fn adoption_warnings(
         .count();
     if stale_tasks > 0 {
         warnings.push(format!(
-            "{stale_tasks} task pane/lane bindings will be cleared as stale"
+            "{stale_tasks} task Tab/lane bindings will be cleared as stale"
         ));
     }
     if plan.heartbeat.current_focus.is_some() || !plan.heartbeat.active_lanes.is_empty() {

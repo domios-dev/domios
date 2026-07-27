@@ -95,7 +95,7 @@ async function run() {
   ].join("\n");
   assert.doesNotMatch(sources, /transition-all|transition:\s*all|setTimeout/);
   assert.match(styles, /\.sidebar-team-card-activation[^}]*transform-origin:\s*center/s);
-  assert.match(styles, /\.sidebar-tab-activation[^}]*transform-origin:\s*center/s);
+  assert.match(styles, /\.sidebar-pane-activation[^}]*transform-origin:\s*center/s);
   assert.match(styles, /\.sidebar-workspace-card-select[^}]*transform-origin:\s*center/s);
   assert.match(styles, /\.sidebar-workspace-card-create[^}]*transform-origin:\s*center/s);
   assert.match(styles, /scale\(1\.02\)/);

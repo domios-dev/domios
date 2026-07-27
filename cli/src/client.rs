@@ -333,7 +333,7 @@ fn is_dev_socket(name: &str) -> bool {
 /// True when the socket name matches the requested port preference.
 ///
 /// A mismatch means the inherited SOCKET_PATH points at the wrong daemon —
-/// typical when the CLI runs inside a prod pane and the user has overridden
+/// typical when the CLI runs inside a prod Tab and the user has overridden
 /// CODETERM_API_PORT to 7686 to target the dev daemon.
 #[cfg(test)]
 fn socket_path_matches_port_pref(name: &str, prefer_dev: bool) -> bool {

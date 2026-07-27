@@ -40,7 +40,7 @@ async fn run(svc: &ServiceState) -> Result<(), String> {
         _ => return Ok(()),
     };
     log::info!(
-        "[post-update] message queued ({} chars) — waiting for general pane",
+        "[post-update] message queued ({} chars) — waiting for general Tab",
         text.len()
     );
 
@@ -68,7 +68,7 @@ async fn run(svc: &ServiceState) -> Result<(), String> {
     }
 
     let Some(pane_id) = pane_id else {
-        log::warn!("[post-update] general pane never became ready — leaving message file in place");
+        log::warn!("[post-update] general Tab never became ready — leaving message file in place");
         return Ok(());
     };
 
@@ -78,7 +78,7 @@ async fn run(svc: &ServiceState) -> Result<(), String> {
     match svc.send_text(&pane_id, &text, true) {
         Ok(_) => {
             log::info!(
-                "[post-update] injected message into general pane {}",
+                "[post-update] injected message into general Tab {}",
                 pane_id
             );
             if let Err(e) = std::fs::remove_file(&p) {

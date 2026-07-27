@@ -755,13 +755,13 @@ mod tests {
 
     #[test]
     fn gemma_premature_close_with_dangling_pane_repairs() {
-        let raw = "{\"tool\":\"codeterm\",\"args\":{\"args\":\"send \\\"hi\\\"\" --tab 70d3bacd}}";
+        let raw = "{\"tool\":\"codeterm\",\"args\":{\"args\":\"send \\\"hi\\\"\" --pane 70d3bacd}}";
         let out = out_value(raw);
         // silent null and never a guessed/wrong command.
         assert_ne!(out["status"], "none", "must not silently drop: {raw:?}");
         if out["status"] == "ok" {
             assert_eq!(out["tool"], "codeterm");
-            assert_eq!(out["args"]["args"], "send \"hi\" --tab 70d3bacd");
+            assert_eq!(out["args"]["args"], "send \"hi\" --pane 70d3bacd");
         } else {
             assert_eq!(out["status"], "malformed");
         }
@@ -784,7 +784,7 @@ mod tests {
 
     #[test]
     fn ambiguous_repair_never_fabricates_a_command() {
-        let raw = "{\"tool\":\"codeterm\",\"args\":{\"args\":\"send \\\"hi\\\"\" \"--tab\" 70d3}}";
+        let raw = "{\"tool\":\"codeterm\",\"args\":{\"args\":\"send \\\"hi\\\"\" \"--pane\" 70d3}}";
         let out = out_value(raw);
         assert_ne!(out["status"], "ok", "must not guess a command: {raw:?}");
     }

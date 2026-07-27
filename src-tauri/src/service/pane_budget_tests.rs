@@ -14,7 +14,7 @@ fn just_over_soft_budget_yields_soft_notice_without_the_strong_sentence() {
     assert_eq!(notice.level, PaneBudgetLevel::Soft);
     assert_eq!(notice.workspace_pane_count, 16);
     assert!(
-        notice.message.contains("16 panes"),
+        notice.message.contains("16 Tabs"),
         "names the count: {}",
         notice.message
     );
@@ -39,14 +39,14 @@ fn over_strong_budget_yields_strong_notice_with_exact_count() {
     assert_eq!(notice.level, PaneBudgetLevel::Strong);
     assert_eq!(notice.workspace_pane_count, 21);
     assert!(
-        notice.message.contains("21 panes"),
+        notice.message.contains("21 Tabs"),
         "strong nudge names the exact count: {}",
         notice.message
     );
     assert!(
         notice
             .message
-            .contains("Are you sure you did not forget to close finished panes"),
+            .contains("Are you sure you did not forget to close finished Tabs"),
         "strong nudge uses the explicit wording: {}",
         notice.message
     );

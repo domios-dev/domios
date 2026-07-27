@@ -531,7 +531,7 @@ mod delivery_classification_tests {
     fn booting_pane_refusal_is_a_zero_byte_busy_error() {
         let err = classify_delivery_failure(
             "53854ac8",
-            "Agent in pane 53854ac8 is still booting — input would be lost",
+            "Agent in Tab 53854ac8 is still booting — input would be lost",
         );
         assert_eq!(err.code(), "pane_busy_refused");
         assert!(!err.bytes_written());

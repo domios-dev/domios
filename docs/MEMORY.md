@@ -213,7 +213,7 @@ Hidden headless agents. Live in Memory Panel, invisible in tab bar.
 - **Dreaming REM worker** — spawned after SQL phases for dedup/classify/insights/diary
 
 **How it works:**
-1. Create tab + pane with `hidden=true`, `show_in_tabbar=false`
+1. Create tab + Tab with `hidden=true`, `show_in_tabbar=false`
 2. Spawn PTY from backend with env vars (`CODETERM_API_URL`, `CODETERM_API_TOKEN`, `CODETERM_PANE_ID`)
 3. Start backend reader (own tokio runtime)
 4. Launch agent via provider's `build_launch_command()` with `model_launch_args()` for the configured model

@@ -59,4 +59,4 @@ const statuses: Record<string, PaneStatus> = {
   assert(!treeIds.includes("worker-gone"), "buildHierarchyTree must not render gone worker");
 }
 
-console.log("✓ hierarchy: closed worker pane is not rendered as a live child");
+console.log("✓ hierarchy: closed worker Tab is not rendered as a live child");

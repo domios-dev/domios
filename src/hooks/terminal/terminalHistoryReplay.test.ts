@@ -13,7 +13,7 @@ const secondPane = `pane-history-${Date.now()}-second`;
 const firstTerminal = {};
 
 const abandoned = claimInitialTerminalHistory(firstPane, firstTerminal);
-assert(abandoned != null, "first PTY for a pane owns the initial history claim");
+assert(abandoned != null, "first PTY for a Tab owns the initial history claim");
 assert(claimInitialTerminalHistory(firstPane, firstTerminal) == null, "one terminal cannot duplicate history work");
 const replacement = claimInitialTerminalHistory(firstPane, {});
 assert(replacement != null, "a replacement terminal can hydrate while the old renderer disposes");
@@ -27,6 +27,6 @@ assert(claimInitialTerminalHistory(firstPane, firstTerminal) == null, "one termi
 assert(claimInitialTerminalHistory(firstPane, {}) != null, "a remounted terminal receives its own history replay");
 
 const second = claimInitialTerminalHistory(secondPane, {});
-assert(second != null, "another pane owns an independent history claim");
+assert(second != null, "another Tab owns an independent history claim");
 
 console.log("terminal history replay ownership checks passed");

@@ -10,7 +10,7 @@ import { aggregateTabStatus } from "./sidebarTabStatus";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 
 export interface PlannerPeerTabContext {
-  plannerTab: Tab | null;
+  plannerpane: Tab | null;
   /** Planner pane id to keep out of the Workers subtree — it renders under
    *  Managers instead. Undefined when no planner is bound. */
   peerExclude: Set<string> | undefined;
@@ -54,9 +54,9 @@ export interface SidebarTabItemRowProps {
   collapsed?: boolean;
   onToggleCollapse?: () => void;
   collapsedSummary?: string | null;
-  onActivateTab: (tabId: string) => void;
-  onCloseTab: (tabId: string) => void;
-  onRenameTab: (tabId: string, title: string) => void;
+  onActivatepane: (tabId: string) => void;
+  onClosepane: (tabId: string) => void;
+  onRenamepane: (tabId: string, title: string) => void;
 }
 
 function SidebarTabItemRow({

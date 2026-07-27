@@ -36,7 +36,7 @@ export function RemoteWorkerRow({
         data-peer={worker.peer}
         onClick={() => setOpen((o) => !o)}
         title={`Remote worker on ${worker.peer} — ${worker.status}\n${worker.last_message}`}
-        className="sidebar-tab sidebar-tab-dimmed group flex items-center gap-2 cursor-pointer pl-4 pr-2 py-1.5 hover:bg-[rgba(255,255,255,0.04)] transition-colors"
+        className="sidebar-pane sidebar-pane-dimmed group flex items-center gap-2 cursor-pointer pl-4 pr-2 py-1.5 hover:bg-[rgba(255,255,255,0.04)] transition-colors"
         style={{ borderLeft: "1px dashed var(--ct-border, #30363d)" }}
       >
         <Server size={12} strokeWidth={1.5} className="shrink-0 opacity-70" />

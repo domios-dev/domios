@@ -622,7 +622,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
           {TABS.map((tab) => (
             <button
               key={tab}
-              data-testid={`mesh-tab-${tab}`}
+              data-testid={`mesh-pane-${tab}`}
               onClick={() => setActiveTab(tab)}
               className={tabClass(activeTab === tab, touchUi)}
             >

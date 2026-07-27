@@ -248,7 +248,7 @@ Same appW contract, indexed `s0–s3` (§32.5), progressive reveal tags → text
 | **s0** | dot | colored dot, no text (mass only) |
 | **s1** | small | kind word, 1 line, centered in circle |
 | **s2** | medium | title + 2-line excerpt, inscribed; near bead sprouts a callout |
-| **s3** | **fills screen** | bead **blooms** into a full reading panel anchored at the bead's world position: heading / body / links / author·pane·session·timestamp, internal scroll if needed |
+| **s3** | **fills screen** | bead **blooms** into a full reading panel anchored at the bead's world position: heading / body / links / author·Tab·session·timestamp, internal scroll if needed |
 
 **The deepest-band stop (limit the infinite-deepen).** When the work-point's appW ≥ ~0.8 ×
 viewport width, clamp the micro-LOD at s3 — the panel IS the terminal. No reveal deeper than a

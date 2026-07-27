@@ -6,10 +6,10 @@
 
 ## Problem
 
-chatBackend panes (LM Studio today) support exactly one shape: an interactive
+chatBackend Tabs (LM Studio today) support exactly one shape: an interactive
 chat with unbounded rolling history. Two things are missing:
 
-1. **Context discipline.** A long-lived chat pane accumulates context forever
+1. **Context discipline.** A long-lived chat Tab accumulates context forever
    (LM Studio `previous_response_id` chaining / assembled-context fallback).
    There is no notion of a bounded context window or a summarization policy,
    and no way to define a custom context-assembly pipeline.
@@ -45,11 +45,11 @@ message". Modeling both under one contract is what makes the rest composable.
 
 ### Axis 2 — Interaction mode
 
-- **`interactive`** — the user (and routed pane messages) can send inputs.
+- **`interactive`** — the user (and routed Tab messages) can send inputs.
   Today's behavior.
-- **`watcher`** — read-only. Nobody can type into the pane; inputs are produced
+- **`watcher`** — read-only. Nobody can type into the Tab; inputs are produced
   exclusively by the host (the tick scheduler, or a routed system source). The
-  pane is a window into the machine: the transcript shows **what was sent into
+  Tab is a window into the machine: the transcript shows **what was sent into
   the context** for each request and **what the model answered** — full
   transparency, zero influence. A message *is* part of the state machine, so
   injecting one from outside is forbidden by construction.
@@ -58,7 +58,7 @@ The matrix:
 
 | | `interactive` | `watcher` |
 |---|---|---|
-| **`chat`** | today's LM Studio pane | read-only chat fed by host ticks |
+| **`chat`** | today's LM Studio Tab | read-only chat fed by host ticks |
 | **`machine`** | user queries the state machine | **orchestration health watcher** (canonical case) |
 
 ## Canonical use case: orchestration health watcher
@@ -69,10 +69,10 @@ this profile; the backend currently strips it).
 
 - **Charter** (creation-time, immutable): "Observe this orchestration group.
   Decide whether the system is progressing or needs a kick. Nudge stalled
-  panes." Plus observation config and tick interval.
+  Tabs." Plus observation config and tick interval.
 - **Tick loop:** the host fires a tick every `interval` (only when the previous
   tick finished). Each tick the host assembles an **observation snapshot** —
-  the orchestrator pane + its children (role, profile, title, agent status,
+  the orchestrator Tab + its children (role, profile, title, agent status,
   last-activity timestamp), recent parsed chat tails, recent agent reports —
   **excluding the watcher itself and any other watchers**. Snapshot + charter +
   current state go into a single LLM request.
@@ -103,8 +103,8 @@ export type ContextEngineConfig =
     };
 
 export interface ObservationConfig {
-  orchestration?: boolean;   // pane group snapshot (default true for watchers)
-  chatTail?: number;         // last N parsed messages per watched pane (0 = off)
+  orchestration?: boolean;   // tab group snapshot (default true for watchers)
+  chatTail?: number;         // last N parsed messages per watched tab (0 = off)
   reports?: boolean;         // recent agent reports to the orchestrator
 }
 ```
@@ -134,7 +134,7 @@ export interface WatcherTickInput {
 
 **Never a synchronous LLM call.** The QuickJS VM is shared across all of a
 plugin's sessions; holding it for a full completion would starve every other
-pane. `watcherTick` enqueues; `pump()` streams; `poll()` delivers.
+Tab. `watcherTick` enqueues; `pump()` streams; `poll()` delivers.
 
 ### Verdict contract (plugin → host, via the transcript stream)
 
@@ -161,7 +161,7 @@ model can never act, only be seen.
 
 ### Action allowlist + guardrails (host-side)
 
-v1 kinds: `nudge` (Messenger send to a pane **within the watched group**),
+v1 kinds: `nudge` (Messenger send to a Tab **within the watched group**),
 `notify` (OS notification), `report` (agent report to the parent
 orchestrator).
 
@@ -180,7 +180,7 @@ WatcherPolicy {
 
 Non-negotiable guardrails, all host-enforced regardless of policy:
 
-- target must be inside the watcher's observed group (no arbitrary panes);
+- target must be inside the watcher's observed group (no arbitrary Tabs);
 - the action-kind allowlist is not extensible by config;
 - state blob size cap (16 KB) — oversized state is rejected keeping the
   previous state, with a logged warning;
@@ -189,13 +189,13 @@ Non-negotiable guardrails, all host-enforced regardless of policy:
 
 ### Transparency (the watcher UI contract)
 
-Each tick the pane transcript shows, in order:
+Each tick the Tab transcript shows, in order:
 
 1. a collapsible **context card** — exactly what was assembled and sent
    (`type: "context_request"`, rendered like the existing system-prompt card);
 2. the streaming assistant reply (thinking + content, as today);
 3. a **verdict card** — parsed status/summary/actions, with a status badge on
-   the pane.
+   the Tab.
 
 "You can watch everything, you can change nothing."
 
@@ -211,7 +211,7 @@ Each tick the pane transcript shows, in order:
 This split is the variability the feature exists for: a future `groq` /
 `openai-compat` plugin (own auth, own endpoint) implements a transport,
 imports the shared engine, declares `chatBackend: { spawnable: true, watcher:
-true }` — and immediately works as a chat pane *or* a watcher inside an
+true }` — and immediately works as a chat Tab *or* a watcher inside an
 orchestration. LM Studio stays its own plugin because its native API is its
 own; nothing becomes a combine.
 
@@ -234,7 +234,7 @@ silently stripped to generic Worker. That changes:
   a missing or unknown profile is a **spawn error**, never a silent
   downgrade. Existing planner spawn paths (`orchestration new`, planner spawn
   sugar, pairing nudges) migrate to `Manager`. No compat shims for old
-  persisted panes (repo rule: no external users, delete legacy aggressively).
+  persisted Tabs (repo rule: no external users, delete legacy aggressively).
 - Spawn validation: `--role Watcher` additionally requires a watcher-capable
   chatBackend provider (manifest `chatBackend: { watcher: true }`).
 - The sidebar **Managers** section keys off the structural role
@@ -247,7 +247,7 @@ silently stripped to generic Worker. That changes:
 ## Persistence & restart
 
 - `WatcherSpec` (charter ref, engine config, interval, state blob, last tick,
-  last status) lives on the pane and round-trips with pane state, like
+  last status) lives on the Tab and round-trips with Tab state, like
   `role_profile` does.
 - The openSession config already persists as the `_meta` JSONL line; the
   existing lazy-reopen path (`chatbackend_reopen_if_restored`) re-opens the
@@ -268,16 +268,16 @@ silently stripped to generic Worker. That changes:
 ## Acceptance criteria
 
 1. `codeterm agent spawn lmstudio --role Watcher --parent <orch> --charter-file c.md --interval 90s`
-   creates a read-only chatBackend pane under the orchestrator's Managers
+   creates a read-only chatBackend Tab under the orchestrator's Managers
    section; `codeterm send` into it is rejected with a clear error; the
    composer is hidden.
-2. Every `interval`, the pane shows a context card → model reply → verdict
-   card; the verdict updates the pane's status badge; state persists across
+2. Every `interval`, the Tab shows a context card → model reply → verdict
+   card; the verdict updates the Tab's status badge; state persists across
    ticks and across a daemon restart.
 3. With a deliberately stalled fixture orchestration, the watcher emits a
-   `stalled` verdict and the orchestrator pane receives exactly one
+   `stalled` verdict and the orchestrator Tab receives exactly one
    watcher-marked nudge (cooldown proven by a second tick not re-nudging).
-4. A chat pane opened with `engine: { kind: "chat", window: { maxMessages: N } }`
+4. A chat Tab opened with `engine: { kind: "chat", window: { maxMessages: N } }`
    never sends more than N messages of history to the LLM (assert via plugin
    test on the assembled request).
 5. All existing LM Studio chat behavior is unchanged when no mode/engine is

@@ -24,7 +24,7 @@ impl ServiceContext {
         let mux = self.mux.write();
         let pane = mux
             .get_pane(pane_id)
-            .ok_or(format!("Pane not found: {}", pane_id))?;
+            .ok_or(format!("Tab not found: {}", pane_id))?;
         let status = if let Some(ref pty_id) = pane.pty_id {
             let tracker = self.agent_tracker.lock();
             format!("{:?}", tracker.get_status(pty_id))

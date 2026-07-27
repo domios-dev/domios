@@ -62,7 +62,7 @@ export const FIXTURE_DRIFT: DriftItem = {
   task_id: "task-dante",
   plan_id: "plan-alpha",
   kind: "in_progress_pane_gone",
-  detail: "Task is in progress but the worker pane is gone.",
+  detail: "Task is in progress but the worker Tab is gone.",
   suggested_fix: "Move it back to pending or spawn a replacement worker.",
   not_mine: false,
 };
@@ -70,7 +70,7 @@ export const FIXTURE_DRIFT: DriftItem = {
 export const FIXTURE_NOT_MINE_DRIFT: DriftItem = {
   ...FIXTURE_DRIFT,
   kind: "bound_to_closed_pane",
-  detail: "Task is bound to a closed pane owned by another orchestrator.",
+  detail: "Task is bound to a closed Tab owned by another orchestrator.",
   suggested_fix: "Ask that orchestrator to reconcile the task.",
   not_mine: true,
 };

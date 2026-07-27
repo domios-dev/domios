@@ -9,7 +9,7 @@ export function IntegrationsTab({ config, onUpdate }: { config: AppConfig; onUpd
   );
 
   return (
-    <div className="flex flex-col gap-5" data-testid="settings-integrations-tab">
+    <div className="flex flex-col gap-5" data-testid="settings-integrations-pane">
       <SettingsCard
         icon={<Send size={16} />}
         title="Telegram"

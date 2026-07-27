@@ -25,7 +25,7 @@ fn epoch_ms() -> u64 {
 /// Hooks are authoritative — if a hook calls us, an agent IS running.
 /// This fixes detection on restored panes, Windows (PowerShell doesn't reset title), etc.
 fn ensure_agent_state(state: &AppState, pane_id: &str) {
-    log::info!("[ensure_agent_state] called for pane {}", pane_id);
+    log::info!("[ensure_agent_state] called for Tab {}", pane_id);
     let agent_type = {
         let mux = state.svc.mux.write();
         let pane = match mux.get_pane(pane_id) {
@@ -41,7 +41,7 @@ fn ensure_agent_state(state: &AppState, pane_id: &str) {
         state
             .svc
             .set_and_lock_pane_agent_type(pane_id, "claude".to_string());
-        log::info!("[hook] set agent_type=claude for pane {}", pane_id);
+        log::info!("[hook] set agent_type=claude for Tab {}", pane_id);
     }
 
     if agent_changed {
@@ -208,7 +208,7 @@ pub async fn hook_stop(
     Path(raw_pane_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let pane_id = resolve_pane(&state, &raw_pane_id).map_err(|(s, m)| (s, m.to_string()))?;
-    log::debug!("[hook_stop] fired for pane {}", pane_id);
+    log::debug!("[hook_stop] fired for Tab {}", pane_id);
     let title = state
         .svc
         .mux
@@ -517,7 +517,7 @@ fn bind_reported_session(
         let (probe_cwd, probe_prev) = {
             let mux = mux.read();
             let Some(pane) = mux.get_pane(pane_id) else {
-                return Err((StatusCode::NOT_FOUND, "pane not found".to_string()));
+                return Err((StatusCode::NOT_FOUND, "Tab not found".to_string()));
             };
             (
                 pane.cwd.clone().unwrap_or_default(),
@@ -572,7 +572,7 @@ fn commit_reported_session(
     probe: &MaterializationProbe,
 ) -> Result<Option<SessionStartClaim>, (StatusCode, String)> {
     let Some(pane) = mux.get_pane(pane_id) else {
-        return Err((StatusCode::NOT_FOUND, "pane not found".to_string()));
+        return Err((StatusCode::NOT_FOUND, "Tab not found".to_string()));
     };
     // The probe keyed on these; if either moved, the probe is stale — reprobe.
     // This is what stops a stale snapshot from overwriting a changed binding.
@@ -588,7 +588,7 @@ fn commit_reported_session(
         match report_nonce {
             Some(got) if got != expected => {
                 log::warn!(
-                    "[hook_session_start] rejecting sid {} for pane {} provider={}: binding nonce mismatch",
+                    "[hook_session_start] rejecting sid {} for Tab {} provider={}: binding nonce mismatch",
                     sid, pane_id, provider_id,
                 );
                 return Err((StatusCode::CONFLICT, "binding nonce mismatch".to_string()));
@@ -605,7 +605,7 @@ fn commit_reported_session(
             return Err((
                 StatusCode::CONFLICT,
                 format!(
-                    "pane provider '{}' does not match report provider '{}'",
+                    "Tab provider '{}' does not match report provider '{}'",
                     existing_provider, provider_id
                 ),
             ));
@@ -615,7 +615,7 @@ fn commit_reported_session(
     let exists = nonce_verified || probe.new_materialized;
     if !exists {
         log::warn!(
-            "[hook_session_start] rejecting sid {} for pane {} provider={}: session does not belong to provider",
+            "[hook_session_start] rejecting sid {} for Tab {} provider={}: session does not belong to provider",
             sid,
             pane_id,
             provider_id,
@@ -635,7 +635,7 @@ fn commit_reported_session(
         .find(|other| other != pane_id);
     if let Some(other) = conflict {
         log::warn!(
-            "[hook_session_start] rejecting sid {} for pane {} provider={} already claimed by {}",
+            "[hook_session_start] rejecting sid {} for Tab {} provider={} already claimed by {}",
             sid,
             pane_id,
             provider_id,
@@ -643,7 +643,7 @@ fn commit_reported_session(
         );
         return Err((
             StatusCode::CONFLICT,
-            format!("session_id already claimed by pane {}", other),
+            format!("session_id already claimed by Tab {}", other),
         ));
     }
 
@@ -655,7 +655,7 @@ fn commit_reported_session(
         let fresh_authenticated_launch = nonce_verified && !nonce_already_acknowledged;
         if !fresh_authenticated_launch {
             log::warn!(
-                "[hook_session_start] rejecting fileless sid {} for pane {} provider={}: would evict materialized session {:?}",
+                "[hook_session_start] rejecting fileless sid {} for Tab {} provider={}: would evict materialized session {:?}",
                 sid, pane_id, provider_id, probe.prev_sid,
             );
             return Err((
@@ -669,7 +669,7 @@ fn commit_reported_session(
     }
 
     let Some(pane) = mux.get_pane_mut(pane_id) else {
-        return Err((StatusCode::NOT_FOUND, "pane not found".to_string()));
+        return Err((StatusCode::NOT_FOUND, "Tab not found".to_string()));
     };
     if pane.agent_type.is_none() {
         pane.agent_type = Some(provider_id.to_string());

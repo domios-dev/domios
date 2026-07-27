@@ -74,7 +74,7 @@ function GroupBlock({ orchId, members }: { orchId: string; members: Member[] }) 
             showHeader={shouldShowSectionHeader("manager", counts)}
           >
             {managers.map((m) => (
-              <div key={m.id} data-row={m.id} className="sidebar-tab">
+              <div key={m.id} data-row={m.id} className="sidebar-pane">
                 {m.id}
                 <RoleBadge label="PLANNER" title="fable" />
               </div>
@@ -86,7 +86,7 @@ function GroupBlock({ orchId, members }: { orchId: string; members: Member[] }) 
             showHeader={shouldShowSectionHeader("worker", counts)}
           >
             {workers.map((w) => (
-              <div key={w.id} data-row={w.id} className="sidebar-tab">{w.id}</div>
+              <div key={w.id} data-row={w.id} className="sidebar-pane">{w.id}</div>
             ))}
           </OrchestrationGroupSection>
         </div>

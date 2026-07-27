@@ -206,7 +206,7 @@ export interface MultiplexerState {
   /** Monotonic snapshot generation stamped by the backend. The reducer ignores
    *  any incoming snapshot whose generation is `<=` the one already applied. */
   generation?: number;
-  /** Bounded newest-first view of the closed-tab history across all
+  /** Bounded newest-first view of the closed-pane history across all
    *  workspaces (sourced from the sqlite store, not the session snapshot).
    *  Each entry carries its per-workspace reopen `index`, an `orphaned` flag,
    *  and group metadata. */
@@ -289,7 +289,7 @@ export interface Notification {
 export type PaneStatus = "Working" | "Waiting" | "Idle" | "Dead";
 
 /** A worker running on another mesh peer that reports to a local orchestrator.
- *  It has no local PTY — the UI renders it as a read-only "remote pane" ghost
+ *  It has no local PTY — the UI renders it as a read-only "remote Tab" ghost
  *  node under its orchestrator. Mirrors the Rust `RemoteWorker`. */
 export interface RemoteWorker {
   /** Paired peer (instance name) the worker runs on. */

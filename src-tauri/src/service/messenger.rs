@@ -1,4 +1,4 @@
-//! Gateway for cross-tab / report / mesh deliveries. PTY-backed recipients get
+//! Gateway for cross-pane / report / mesh deliveries. PTY-backed recipients get
 //! the legacy text prefix read by the receiving agent and UI parser
 //! (`src/lib/chatPrefixes.ts`). chatBackend recipients get structured host-side
 //! transcript metadata instead.
@@ -249,7 +249,7 @@ impl Messenger {
             svc.chatbackend_reopen_if_restored(to_pane)?;
             let (plugin_id, session_id) = svc
                 .pane_chat_backing(to_pane)
-                .ok_or_else(|| "chatBackend pane lost its backing".to_string())?;
+                .ok_or_else(|| "chatBackend Tab lost its backing".to_string())?;
             return dispatch_delivery(
                 DeliveryTransport::ChatBackend,
                 || {
@@ -325,7 +325,7 @@ impl Messenger {
             let mux = svc.mux.read();
             let resolved = mux
                 .resolve_pane_id(to_pane)
-                .ok_or_else(|| "agent_unavailable: planner pane missing".to_string())?;
+                .ok_or_else(|| "agent_unavailable: planner Tab missing".to_string())?;
             matches!(
                 mux.get_pane(&resolved).map(|pane| &pane.backing),
                 Some(crate::multiplexer::types::PaneBacking::ChatBackend { .. })
@@ -338,10 +338,10 @@ impl Messenger {
             let mux = svc.mux.read();
             let resolved = mux
                 .resolve_pane_id(to_pane)
-                .ok_or_else(|| "agent_unavailable: planner pane missing".to_string())?;
+                .ok_or_else(|| "agent_unavailable: planner Tab missing".to_string())?;
             let pane = mux
                 .get_pane(&resolved)
-                .ok_or_else(|| "agent_unavailable: planner pane missing".to_string())?;
+                .ok_or_else(|| "agent_unavailable: planner Tab missing".to_string())?;
             if pane.agent_session_id.as_deref() != Some(expected_session_id)
                 || pane.session_binding_nonce.as_deref() != Some(expected_binding_nonce)
                 || pane.reported_session_binding_nonce.as_deref() != Some(expected_binding_nonce)

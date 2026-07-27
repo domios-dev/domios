@@ -29,14 +29,14 @@ pub(crate) fn handle_mem_worker(
                 "mem.worker.progress",
                 Some(serde_json::json!({ "id": id, "text": text, "status": status })),
             ),
-            Err(_) => Err("not in a worker pane: $CODETERM_WORKER_ID is not set".into()),
+            Err(_) => Err("not in a worker tab: $CODETERM_WORKER_ID is not set".into()),
         },
         MemWorkerAction::Report { summary } => match std::env::var("CODETERM_WORKER_ID") {
             Ok(id) => client.call(
                 "mem.worker.report",
                 Some(serde_json::json!({ "id": id, "summary": summary })),
             ),
-            Err(_) => Err("not in a worker pane: $CODETERM_WORKER_ID is not set".into()),
+            Err(_) => Err("not in a worker tab: $CODETERM_WORKER_ID is not set".into()),
         },
         MemWorkerAction::Kill { id } => {
             client.call("mem.worker.kill", Some(serde_json::json!({ "id": id })))

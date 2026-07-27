@@ -172,7 +172,7 @@ test("F5: open decision gates surface in verify with question + waits-on", () =>
   const r = river(plan, { "pane-plan": pane });
   assert(r.verify.gates.length === 1, `only open gates, got ${r.verify.gates.length}`);
   assert(r.verify.gates[0].question === "Pick layout variant?", "gate question");
-  assert(r.verify.gates[0].waitsOn === "Planner", `waits on routed pane, got ${r.verify.gates[0].waitsOn}`);
+  assert(r.verify.gates[0].waitsOn === "Planner", `waits on routed Tab, got ${r.verify.gates[0].waitsOn}`);
   assert(r.verify.count >= 1, "gate counts toward verify content");
 });
 

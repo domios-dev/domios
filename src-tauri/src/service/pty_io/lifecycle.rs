@@ -289,7 +289,7 @@ impl ServiceContext {
             .mux
             .read()
             .resolve_pane_id(pane_id)
-            .ok_or_else(|| format!("Pane {} not found or has no PTY", pane_id))?;
+            .ok_or_else(|| format!("Tab {} not found or has no PTY", pane_id))?;
         if self.pane_chat_backing(&resolved).is_some() {
             return Ok(());
         }
@@ -312,12 +312,12 @@ impl ServiceContext {
             let mux = self.mux.read();
             let pane = mux
                 .get_pane(pane_id)
-                .ok_or_else(|| format!("Pane {} not found or has no PTY", pane_id))?;
+                .ok_or_else(|| format!("Tab {} not found or has no PTY", pane_id))?;
             (pane.cwd.clone(), pane.protected, pane.agent_type.clone())
         };
         if protected {
             return Err(format!(
-                "Pane {} is protected and its backend PTY is not live yet",
+                "Tab {} is protected and its backend PTY is not live yet",
                 pane_id
             ));
         }
@@ -335,14 +335,14 @@ impl ServiceContext {
         let (pty_id, _) = self.pty.lock().register_session(None, built);
         self.screen_state.lock().resize(&pty_id, cols, 40);
         log::info!(
-            "[ensure-pty] pane {} activated backend pty {} (build={}ms)",
+            "[ensure-pty] Tab {} activated backend pty {} (build={}ms)",
             pane_id,
             &pty_id[..pty_id.len().min(8)],
             t0.elapsed().as_millis()
         );
         let selection = self.link_pty_with_claim(pty_claim, pane_id, pty_id, false);
         if !selection.linked {
-            return Err(format!("Pane {} closed before PTY link", pane_id));
+            return Err(format!("Tab {} closed before PTY link", pane_id));
         }
         if let Some(reader_pty_id) = selection.reader_pty_id() {
             self.start_backend_reader_for(reader_pty_id.to_string());
@@ -364,7 +364,7 @@ impl ServiceContext {
             let mux = self.mux.read();
             let pane = mux
                 .get_pane(pane_id)
-                .ok_or_else(|| format!("Pane {} not found or has no PTY", pane_id))?;
+                .ok_or_else(|| format!("Tab {} not found or has no PTY", pane_id))?;
             (
                 pane.agent_type.clone(),
                 pane.agent_session_id.clone(),
@@ -385,7 +385,7 @@ impl ServiceContext {
             .unwrap_or(false);
         let (ws_id, tab_id) = self.restored_tab_context(pane_id).ok_or_else(|| {
             format!(
-                "Pane {} is a restored agent pane but has no tab context for materialization",
+                "Tab {} is a restored agent Tab but has no tab context for materialization",
                 pane_id
             )
         })?;
@@ -475,14 +475,14 @@ impl ServiceContext {
         let mux = self.mux.read();
         let resolved = mux
             .resolve_pane_id(pane_id)
-            .ok_or_else(|| format!("Pane {} not found or has no PTY", pane_id))?;
+            .ok_or_else(|| format!("Tab {} not found or has no PTY", pane_id))?;
         let pty_id = mux
             .get_pane(&resolved)
             .and_then(|p| p.pty_id.clone())
-            .ok_or_else(|| format!("Pane {} not found or has no PTY", pane_id))?;
+            .ok_or_else(|| format!("Tab {} not found or has no PTY", pane_id))?;
         drop(mux);
         if self.pty.lock().get_session(&pty_id).is_none() {
-            return Err(format!("Pane {} PTY is not live: {}", pane_id, pty_id));
+            return Err(format!("Tab {} PTY is not live: {}", pane_id, pty_id));
         }
         Ok(pty_id)
     }
@@ -662,7 +662,7 @@ mod restore_boot_stage_tests {
         assert_eq!(
             pane.boot_failure_reason.as_deref(),
             Some("RestorePayloadMissing: deadbeef"),
-            "precondition: the pane starts with a latched failure"
+            "precondition: the Tab starts with a latched failure"
         );
 
         let reattached = reattach_boot_stage(pane.boot_stage).expect("reattach clears the latch");

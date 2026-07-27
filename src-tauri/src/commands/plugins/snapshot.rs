@@ -408,7 +408,7 @@ mod tests {
         // Description-only plugins are not AI-configurable.
         let no_help = serde_json::json!({
             "id": "git",
-            "description": "Shows git status in the pane bubble.",
+            "description": "Shows git status in the Tab bubble.",
         });
         let mut entry2 = serde_json::json!({ "id": "git" });
         enrich_from_manifest(&mut entry2, &dir, &no_help);

@@ -99,7 +99,7 @@ fn adopt_plan_preserves_task_files_and_clears_stale_runtime_bindings() {
     assert!(report
         .warnings
         .iter()
-        .any(|warning| warning.contains("task pane/lane bindings")));
+        .any(|warning| warning.contains("task Tab/lane bindings")));
     let target_root = target.path().canonicalize().unwrap();
     let adopted = target_store.get(&plan_id).unwrap();
     assert_eq!(adopted.project_path, target_root.display().to_string());

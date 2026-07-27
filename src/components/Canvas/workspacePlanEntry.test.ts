@@ -89,10 +89,10 @@ function indexEntry(overrides: Partial<PlanIndexEntry> = {}): PlanIndexEntry {
   };
 }
 
-test("workspacePaneIds collects visible tab panes and child panes", () => {
+test("workspacePaneIds collects visible tabs and child Tabs", () => {
   const ids = workspacePaneIds(workspace, panes);
-  assert(ids.has("orch-1"), "orchestrator tab pane");
-  assert(ids.has("worker-1"), "worker child pane");
+  assert(ids.has("orch-1"), "orchestrator tab");
+  assert(ids.has("worker-1"), "worker child Tab");
 });
 
 test("deriveWorkspacePlanEntries matches project-local plans", () => {
@@ -165,7 +165,7 @@ test("deriveWorkspacePlanEntries ignores assigned plans from another project", (
   assert(entries.length === 0, "foreign worker assignment stays off workspace action");
 });
 
-test("deriveWorkspacePlanEntries does not leak foreign project plans through owner panes", () => {
+test("deriveWorkspacePlanEntries does not leak foreign project plans through owner Tabs", () => {
   const foreign = indexEntry({
     plan_id: "plan-foreign",
     file_path: "/repo/other/.codeterm/plans/active/plan-foreign/plan.json",
@@ -176,17 +176,17 @@ test("deriveWorkspacePlanEntries does not leak foreign project plans through own
   assert(entries.length === 0, "foreign project owner does not surface plan");
 });
 
-test("deriveWorkspacePlanEntries matches project plans even when workspace has no panes", () => {
+test("deriveWorkspacePlanEntries matches project plans even when workspace has no Tabs", () => {
   const emptyWorkspace = { ...workspace, tabs: [] };
   const entries = deriveWorkspacePlanEntries(
     [indexEntry({ file_path: `${workspace.cwd}/.codeterm/plans/active/${FIXTURE_PLAN.id}/plan.json` })],
     emptyWorkspace,
     {},
   );
-  assert(entries.length === 1, "project-local plan surfaces without live panes");
+  assert(entries.length === 1, "project-local plan surfaces without live Tabs");
 });
 
-test("deriveWorkspacePlanEntries hides empty project plans without pane assignment", () => {
+test("deriveWorkspacePlanEntries hides empty project plans without Tab assignment", () => {
   const emptyWorkspace = { ...workspace, tabs: [] };
   const entries = deriveWorkspacePlanEntries(
     [
@@ -216,11 +216,11 @@ test("deriveWorkspacePlanEntries hides plans outside workspace project path", ()
   assert(entries.length === 0, "foreign project path hidden");
 });
 
-test("deriveWorkspacePlanEntries hides plans when workspace has no cwd and no pane match", () => {
+test("deriveWorkspacePlanEntries hides plans when workspace has no cwd and no Tab match", () => {
   const noCwd = { ...workspace, cwd: null, tabs: [] };
   const orphan = indexEntry({ assigned_pane_ids: [] });
   const entries = deriveWorkspacePlanEntries([orphan], noCwd, {});
-  assert(entries.length === 0, "no cwd and no pane ownership");
+  assert(entries.length === 0, "no cwd and no Tab ownership");
 });
 
 test("workspacePlanEntryKind and label singular and plural", () => {
@@ -295,15 +295,15 @@ test("workspacePlanEntryExtraCount counts plans beyond the lead", () => {
   );
 });
 
-test("resolvePanePlanFocusTarget carries pane and optional plan id", () => {
+test("resolvePanePlanFocusTarget carries Tab and optional plan id", () => {
   const one = resolvePanePlanFocusTarget([indexEntry()], "worker-1");
-  assert(one?.focusPaneId === "worker-1", "focus pane");
+  assert(one?.focusPaneId === "worker-1", "focus Tab");
   assert(one?.planId === FIXTURE_PLAN.id, "single plan id");
   const many = resolvePanePlanFocusTarget(
     [indexEntry(), indexEntry({ plan_id: "plan-b", title: "Beta" })],
     "worker-1",
   );
-  assert(many?.focusPaneId === "worker-1", "focus pane with many plans");
+  assert(many?.focusPaneId === "worker-1", "focus Tab with many plans");
   assert(many?.planId === undefined, "no single plan id when ambiguous");
 });
 
@@ -381,14 +381,14 @@ test("openPlanDeepLink leaves a missing reference inert without a missing callba
   assert(!switched, "missing plan does not switch workspace");
 });
 
-test("openPanePlanFocus routes pane focus through workspace canvas", () => {
+test("openPanePlanFocus routes Tab focus through workspace canvas", () => {
   canvasFocusStore.closeWorkspace();
   openPanePlanFocus([indexEntry({ assigned_pane_ids: ["worker-1"] })], "worker-1", [
     FIXTURE_TASK.id,
   ]);
-  assert(canvasFocusStore.isWorkspaceOpen(), "workspace canvas open from pane chip");
+  assert(canvasFocusStore.isWorkspaceOpen(), "workspace canvas open from Tab chip");
   const target = canvasFocusStore.getWorkspaceTarget();
-  assert(target?.focusPaneId === "worker-1", "pane focus preserved");
+  assert(target?.focusPaneId === "worker-1", "Tab focus preserved");
   assert(target?.nodeIds?.[0] === FIXTURE_TASK.id, "explicit node ids forwarded");
   canvasFocusStore.closeWorkspace();
 });
@@ -399,13 +399,13 @@ test("resolveWorkspaceFocusNodeIds prefers explicit node ids", () => {
   assert(ids.join() === "n1,n2", "node ids pass through");
 });
 
-test("resolveWorkspaceFocusNodeIds resolves pane assignments in workspace mode", () => {
+test("resolveWorkspaceFocusNodeIds resolves Tab assignments in workspace mode", () => {
   const plans = [{ ...FIXTURE_PLAN, tasks: [{ ...FIXTURE_TASK, assigned_pane_id: "worker-1" }] }] as Plan[];
   const ids = resolveWorkspaceFocusNodeIds("workspace", { focusPaneId: "worker-1" }, plans);
-  assert(ids[0] === FIXTURE_TASK.id, "pane maps to assigned task");
+  assert(ids[0] === FIXTURE_TASK.id, "Tab maps to assigned task");
 });
 
-test("resolveWorkspaceFocusNodeIds ignores terminal and empty pane assignments", () => {
+test("resolveWorkspaceFocusNodeIds ignores terminal and empty Tab assignments", () => {
   const plans = [
     {
       ...FIXTURE_PLAN,
