@@ -3,21 +3,26 @@
 use super::{binding_wait, general_dir, instructions, launch_lock, state, GENERAL_ALIAS};
 use codeterm_types::pty::BootStage;
 
+fn deliver_then_confirm(
+    deliver: impl FnOnce() -> Result<(), String>,
+    confirm: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    deliver()?;
+    confirm()
+}
+
 fn deliver_confirmed_general_message(
     svc: &crate::ServiceState,
     tab_id: &str,
     text: &str,
 ) -> Result<(), String> {
-    crate::service::pty_io::submit_transaction::submit_entry(
-        crate::service::pty_io::submit_transaction::PtySubmitEntry::Direct,
-        text,
-        |payload| {
-            svc.send_text_detached(tab_id, payload, true);
-            Ok::<(), String>(())
+    deliver_then_confirm(
+        || svc.send_text(tab_id, text, true),
+        || {
+            svc.confirm_pending_delivery(tab_id)
+                .map_err(|error| error.to_string())
         },
-    )?;
-    svc.confirm_pending_delivery(tab_id)
-        .map_err(|error| error.to_string())
+    )
 }
 
 /// Start the General Agent — called from start_servers on a background thread.
@@ -827,6 +832,21 @@ mod tests {
     use parking_lot::Mutex;
     use std::sync::Arc;
     use std::time::Duration;
+
+    #[test]
+    fn general_delivery_confirms_only_after_submit_succeeds() {
+        let confirmed = std::cell::Cell::new(false);
+        let result = super::deliver_then_confirm(
+            || Err("submit was not confirmed".to_string()),
+            || {
+                confirmed.set(true);
+                Ok(())
+            },
+        );
+
+        assert_eq!(result.unwrap_err(), "submit was not confirmed");
+        assert!(!confirmed.get());
+    }
 
     fn mux_with_general_tab(stage: Option<BootStage>) -> (MuxState, String) {
         let mut mux = MultiplexerState::empty();

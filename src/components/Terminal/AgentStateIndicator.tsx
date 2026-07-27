@@ -13,6 +13,7 @@ import {
   Timer,
   X,
 } from "lucide-react";
+import { ActivityDots } from "../shared/ActivityDots";
 
 export type AgentStateKind = "working" | "idle" | "question";
 
@@ -294,11 +295,12 @@ export function AgentStateIndicator({
       aria-live="polite"
       aria-label={`Agent ${text}`}
     >
-      <span aria-hidden className="ct-phase-dots">
-        <i />
-        <i />
-        <i />
-      </span>
+      <ActivityDots
+        size="small"
+        tone={phase === "thinking" ? "thinking" : "accent"}
+        rhythm={phase}
+        idle={!isWorking}
+      />
       {/* keyed by state (not text) so it fades in on working↔idle, never on a status tick */}
       <span
         key={isWorking ? "working" : "idle"}

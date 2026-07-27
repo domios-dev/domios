@@ -120,6 +120,10 @@ test("working line enriches status with provider and model", async () => {
   );
   const row = host.querySelector('[data-testid="agent-state"]');
   assert(row?.getAttribute("data-agent-state") === "working", "working state");
+  const dots = host.querySelector(".activity-dots");
+  assert(dots?.classList.contains("activity-dots--small"), "status row uses shared small dots");
+  assert(dots?.classList.contains("activity-dots--accent"), "working dots use the accent tone");
+  assert(dots?.querySelectorAll("i").length === 3, "working status keeps all three dots");
   const msg = host.querySelector(".ct-agent-msg");
   assert(
     msg?.textContent === "cursor · gpt-5.5 · Channeling… (1s · ↓21 tokens)",
@@ -152,6 +156,9 @@ test("summary line is prefixed with provider and model", async () => {
     />,
   );
   const msg = host.querySelector(".ct-agent-msg");
+  const dots = host.querySelector(".activity-dots");
+  assert(dots?.classList.contains("activity-dots--idle"), "summary settles the shared dots");
+  assert(dots?.querySelectorAll("i").length === 3, "idle status retains the fixed three-dot slot");
   assert(
     msg?.textContent === "Claude Code · opus · Done — 3 files changed",
     `summary carries who and what: got "${msg?.textContent}"`,
