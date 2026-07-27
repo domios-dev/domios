@@ -206,6 +206,7 @@ mod tests {
     fn mk_tab(id: &str) -> Tab {
         Tab {
             id: id.to_string(),
+            sort_order: 0,
             pty_id: None,
             backing: TabBacking::default(),
             tab_type: TabType::Terminal,

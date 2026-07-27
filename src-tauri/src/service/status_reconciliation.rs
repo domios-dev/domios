@@ -73,7 +73,7 @@ mod tests {
     fn snapshot_and_live_projection_agree_for_ready_prompt_repaint() {
         let (mut state, _root) = MultiplexerState::new();
         let workspace_id = state.list_workspaces()[0].id.clone();
-        let (_tab_id, tab_id) = state.create_tab(&workspace_id).unwrap();
+        let tab_id = state.create_tab(&workspace_id).unwrap();
         {
             let tab = state.get_tab_mut(&tab_id).unwrap();
             tab.pty_id = Some("pty-repaint".into());

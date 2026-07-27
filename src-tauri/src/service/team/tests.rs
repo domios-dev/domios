@@ -16,11 +16,11 @@ fn team_members() -> (MultiplexerState, String, String, String, String) {
         .unwrap()
         .team_id;
     let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
-    let planner = mux.create_tab(&workspace_id).unwrap().1;
+    let planner = mux.create_tab(&workspace_id).unwrap();
     mux.set_tab_role(&planner, AgentRole::Manager, Some(&orchestrator))
         .unwrap();
     mux.get_tab_mut(&planner).unwrap().role_profile = Some("planner".into());
-    let worker = mux.create_tab(&workspace_id).unwrap().1;
+    let worker = mux.create_tab(&workspace_id).unwrap();
     mux.set_tab_role(&worker, AgentRole::Worker, Some(&orchestrator))
         .unwrap();
     (mux, team_id, orchestrator, planner, worker)
@@ -44,7 +44,8 @@ fn team_manager_permission_allows_orchestrator_and_planner() {
 fn mux_rename_team_rejects_worker_and_foreign_tab() {
     let (mut mux, team_id, _, _, worker) = team_members();
     assert!(authorize_team_manager(&mux, &team_id, Some(&worker)).is_err());
-    let foreign = mux.create_tab();
+    let workspace_id = mux.find_workspace_for_tab(&worker).unwrap();
+    let foreign = mux.create_tab(&workspace_id).unwrap();
     assert!(authorize_team_manager(&mux, &team_id, Some(&foreign)).is_err());
 }
 
@@ -163,7 +164,7 @@ fn close_team_staging_failure_leaves_mux_and_plan_unchanged_without_events() {
     let plan_store = crate::service::plan::PlanStore::new_for_test(dir.path());
     let (mut mux, team_id, orchestrator, planner, worker) = team_members();
     let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
-    let independent = mux.create_tab(&workspace_id).unwrap().1;
+    let independent = mux.create_tab(&workspace_id).unwrap();
     mux.get_tab_mut(&independent).unwrap().team_id = Some(team_id.clone());
     let plan = plan_store
         .create_plan_for_team(
@@ -298,10 +299,10 @@ fn team_adopt_plan_is_bounded_atomic_and_visible_as_active() {
     let store = std::sync::Arc::new(crate::service::plan::PlanStore::new_for_test(dir.path()));
     let (mut mux, team_id, orchestrator, planner, _) = team_members();
     let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
-    let retired_owner = mux.create_tab(&workspace_id).unwrap().1;
+    let retired_owner = mux.create_tab(&workspace_id).unwrap();
     mux.set_tab_role(&retired_owner, AgentRole::Orchestrator, None)
         .unwrap();
-    let inherited_worker = mux.create_tab(&workspace_id).unwrap().1;
+    let inherited_worker = mux.create_tab(&workspace_id).unwrap();
     mux.set_tab_role(&inherited_worker, AgentRole::Worker, Some(&retired_owner))
         .unwrap();
     let mut plan = crate::plan::Plan::new(
@@ -384,9 +385,9 @@ fn transfer_requires_source_team_manager_before_atomic_owner_change() {
     let dir = tempfile::tempdir().unwrap();
     let store = crate::service::plan::PlanStore::new_for_test(dir.path());
     let (mut mux, source_team, source_owner, source_planner, worker) = team_members();
-    let foreign = mux.create_tab();
     let workspace_id = mux.find_workspace_for_tab(&source_owner).unwrap();
-    let destination_owner = mux.create_tab(&workspace_id).unwrap().1;
+    let foreign = mux.create_tab(&workspace_id).unwrap();
+    let destination_owner = mux.create_tab(&workspace_id).unwrap();
     mux.set_tab_role(&destination_owner, AgentRole::Orchestrator, None)
         .unwrap();
     let destination_team = mux
@@ -479,7 +480,7 @@ fn rebind_from_foreign_orchestrator_is_not_circularly_blocked() {
     let store = crate::service::plan::PlanStore::new_for_test(dir.path());
     let (mut mux, source_team, source_owner, _, _) = team_members();
     let workspace_id = mux.find_workspace_for_tab(&source_owner).unwrap();
-    let destination_owner = mux.create_tab(&workspace_id).unwrap().1;
+    let destination_owner = mux.create_tab(&workspace_id).unwrap();
     mux.set_tab_role(&destination_owner, AgentRole::Orchestrator, None)
         .unwrap();
     let destination_team = mux
@@ -521,7 +522,7 @@ fn adopt_plan_destination_owner_avoids_both_team_gate() {
     let store = crate::service::plan::PlanStore::new_for_test(dir.path());
     let (mut mux, source_team, source_owner, _, _) = team_members();
     let workspace_id = mux.find_workspace_for_tab(&source_owner).unwrap();
-    let destination_owner = mux.create_tab(&workspace_id).unwrap().1;
+    let destination_owner = mux.create_tab(&workspace_id).unwrap();
     mux.set_tab_role(&destination_owner, AgentRole::Orchestrator, None)
         .unwrap();
     let destination_team = mux
@@ -659,7 +660,7 @@ fn spawn_fixture_member(
     role: AgentRole,
     profile: Option<&str>,
 ) -> String {
-    let tab_id = mux.create_tab(workspace_id).unwrap().1;
+    let tab_id = mux.create_tab(workspace_id).unwrap();
     mux.set_tab_role(&tab_id, role, Some(parent)).unwrap();
     mux.get_tab_mut(&tab_id).unwrap().role_profile = profile.map(str::to_string);
     tab_id
@@ -769,7 +770,7 @@ fn add_team_member_rejects_worker_foreign_and_unspawnable_without_mutation() {
     let (mut mux, team_id, manager, _, worker) = team_members();
     let workspace_id = mux.find_workspace_for_tab(&manager).unwrap();
     let (worker, foreign) = {
-        let foreign = mux.create_tab(&workspace_id).unwrap().1;
+        let foreign = mux.create_tab(&workspace_id).unwrap();
         (worker, foreign)
     };
     let before_tabs = mux.tab_count_in_workspace(&workspace_id);

@@ -69,8 +69,8 @@ pub fn ensure_general_workspace(
                 .first()
                 .cloned()
                 .or_else(|| match mux.create_tab(&ws_id) {
-                    Ok((tab_id, tab_id)) => {
-                        let _ = mux.rename_tab(&ws_id, &tab_id, GENERAL_TAB_TITLE);
+                    Ok(tab_id) => {
+                        let _ = mux.rename_tab(&tab_id, GENERAL_TAB_TITLE);
                         log::info!(
                             "[general-agent] Repaired empty General workspace {} with Tab {}",
                             ws_id,
@@ -86,9 +86,6 @@ pub fn ensure_general_workspace(
         if let Some(pid) = tab_id {
             let pid = pid.clone();
             let _ = mux.rename_tab(&pid, GENERAL_TAB_TITLE);
-            if let Some(tab_id) = mux.find_tab_for_tab(&pid) {
-                let _ = mux.rename_tab(&ws_id, &tab_id, GENERAL_TAB_TITLE);
-            }
             if let Some(tab) = mux.get_tab_mut(&pid) {
                 tab.protected = true;
                 tab.role = Some(crate::multiplexer::types::AgentRole::Orchestrator);
@@ -116,10 +113,8 @@ pub fn ensure_general_workspace(
     mux.move_workspace_to_front(&ws_info.id);
 
     match mux.create_tab(&ws_info.id) {
-        Ok((tab_id, tab_id)) => {
+        Ok(tab_id) => {
             let _ = mux.rename_tab(&tab_id, GENERAL_TAB_TITLE);
-            // Pin the tab label too — create_tab seeded it with a random name.
-            let _ = mux.rename_tab(&ws_info.id, &tab_id, GENERAL_TAB_TITLE);
             if let Some(tab) = mux.get_tab_mut(&tab_id) {
                 tab.protected = true;
                 tab.role = Some(crate::multiplexer::types::AgentRole::Orchestrator);

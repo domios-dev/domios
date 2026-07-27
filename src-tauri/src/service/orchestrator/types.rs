@@ -49,7 +49,6 @@ impl ReasoningEffortProvenance {
 #[derive(Debug, Clone, Serialize)]
 pub struct SpawnResult {
     pub tab_id: String,
-    pub tab_id: String,
     pub pty_id: String,
     pub agent: String,
     /// Legacy launch-model field. Never runtime proof; `actual_model` is set

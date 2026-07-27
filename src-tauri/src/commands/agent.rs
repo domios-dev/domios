@@ -2,11 +2,10 @@ use tauri::State;
 
 use crate::service::ServiceState;
 
-/// Result of `install_provider_in_tab` — the new tab/tab the install
-/// command was queued in. Frontend uses these to switch focus.
+/// Result of `install_provider_in_tab` — the new tab where the install
+/// command was queued. Frontend uses this to switch focus.
 #[derive(serde::Serialize)]
 pub struct InstallTabResult {
-    pub tab_id: String,
     pub tab_id: String,
 }
 
@@ -39,7 +38,7 @@ pub fn install_provider_in_tab_core(
             .ok_or("No workspace found")?
     };
 
-    let (tab_id, tab_id) = svc.create_tab(&ws_id)?;
+    let tab_id = svc.create_tab(&ws_id)?;
     let _ = svc.rename_tab(&tab_id, &format!("Install {}", provider_id));
 
     let svc_clone = svc.clone();
@@ -73,7 +72,7 @@ pub fn install_provider_in_tab_core(
         }
     });
 
-    Ok(InstallTabResult { tab_id, tab_id })
+    Ok(InstallTabResult { tab_id })
 }
 
 #[tauri::command]

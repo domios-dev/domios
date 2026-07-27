@@ -51,8 +51,7 @@ pub fn ensure_first_run_tab(mux: &mut crate::multiplexer::state::MultiplexerStat
     let ws_protected = mux.get_workspace(&ws_id).is_some_and(|w| w.protected);
 
     match mux.create_tab(&ws_id) {
-        Ok((tab_id, tab_id)) => {
-            let _ = mux.rename_tab(&ws_id, &tab_id, FIRST_RUN_TAB_TITLE);
+        Ok(tab_id) => {
             let _ = mux.rename_tab(&tab_id, FIRST_RUN_TAB_TITLE);
             let _ = mux.set_tab_description(&tab_id, Some(FIRST_RUN_TAB_MARKER.to_string()));
             if let Some(tab) = mux.get_tab_mut(&tab_id) {
@@ -81,13 +80,13 @@ pub fn purge_snapshot_ghosts(mux: &mut crate::multiplexer::state::MultiplexerSta
     let mut to_drop: Vec<(String, String)> = Vec::new();
     for ws_info in mux.list_workspaces() {
         if let Some(ws) = mux.get_workspace(&ws_info.id) {
-            for tab in &ws.tabs {
+            for tab_id in &ws.tabs {
                 if mux
-                    .get_tab(&tab.tab_id)
+                    .get_tab(tab_id)
                     .and_then(|p| p.description.as_deref())
                     == Some(FIRST_RUN_TAB_MARKER)
                 {
-                    to_drop.push((ws_info.id.clone(), tab.id.clone()));
+                    to_drop.push((ws_info.id.clone(), tab_id.clone()));
                 }
             }
         }
@@ -100,17 +99,15 @@ pub fn purge_snapshot_ghosts(mux: &mut crate::multiplexer::state::MultiplexerSta
         );
         // Sole-content pickers are close-protected; a genuine ghost purge must
         // still drop them, so lift the guard first.
-        if let Some(tab_id) = mux.get_workspace(&ws_id).and_then(|ws| {
-            ws.tabs
-                .iter()
-                .find(|t| t.id == tab_id)
-                .map(|t| t.tab_id.clone())
-        }) {
+        if mux
+            .get_workspace(&ws_id)
+            .is_some_and(|ws| ws.tabs.contains(&tab_id))
+        {
             if let Some(tab) = mux.get_tab_mut(&tab_id) {
                 tab.protected = false;
             }
         }
-        let _ = mux.close_tab(&ws_id, &tab_id);
+        let _ = mux.close_tab(&tab_id);
     }
     count
 }
@@ -326,7 +323,7 @@ mod tests {
         // A real tab (no ephemeral marker) must survive purge_snapshot_ghosts.
         let (mut mux, _) = MultiplexerState::new();
         let ws_id = mux.list_workspaces()[0].id.clone();
-        let (_tab, tab_id) = mux.create_tab(&ws_id).unwrap();
+        let tab_id = mux.create_tab(&ws_id).unwrap();
         mux.get_tab_mut(&tab_id).unwrap().title = "claude".to_string();
 
         let dropped = purge_snapshot_ghosts(&mut mux);

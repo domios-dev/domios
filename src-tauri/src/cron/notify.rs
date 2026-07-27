@@ -160,7 +160,6 @@ mod tests {
                 finished_at: None,
                 status: CronRunStatus::Running,
                 tab_id: Some("-".to_string()),
-                tab_id: None,
                 session_id: None,
                 cwd: None,
             },

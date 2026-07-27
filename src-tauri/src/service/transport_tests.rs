@@ -45,17 +45,17 @@ fn pty_launch_is_dispatched_by_backend_without_terminal_mount() {
 }
 
 #[test]
-fn rollback_spawn_tab_removes_tab_tab_and_does_not_record_history() {
+fn rollback_spawn_tab_removes_tab_and_does_not_record_history() {
     let (mut state, _) = MultiplexerState::new();
     let ws = state
         .snapshot()
         .active_workspace_id
         .expect("default workspace");
-    let (tab, tab) = state.create_tab(&ws).expect("create_tab");
+    let tab = state.create_tab(&ws).expect("create_tab");
     state.set_active_tab(&ws, &tab).expect("activate tab");
     state.set_focused_tab(&tab).expect("focus Tab");
 
-    state.rollback_spawn_tab(&ws, &tab, &tab);
+    state.rollback_spawn_tab(&ws, &tab);
 
     let snap = state.snapshot();
     assert!(
@@ -68,7 +68,7 @@ fn rollback_spawn_tab_removes_tab_tab_and_does_not_record_history() {
         .find(|w| w.id == ws)
         .expect("workspace still present");
     assert!(
-        !ws_view.tabs.iter().any(|t| t.id == tab),
+        !ws_view.tabs.contains(&tab),
         "rolled-back tab is removed"
     );
     assert_ne!(
@@ -106,7 +106,7 @@ fn create_then_snapshot_contains_tab_and_advances_generation() {
         .expect("default workspace");
     // A stale read captured before the new tab existed.
     let stale = state.snapshot();
-    let (_tab, tab) = state.create_tab(&ws).expect("create_tab");
+    let tab = state.create_tab(&ws).expect("create_tab");
     let fresh = state.snapshot();
     assert!(
         fresh.tabs.contains_key(&tab),

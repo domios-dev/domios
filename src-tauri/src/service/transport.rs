@@ -41,7 +41,6 @@ fn default_true() -> bool {
 pub struct AtomicSpawn {
     pub snapshot: MultiplexerSnapshot,
     pub tab_id: String,
-    pub tab_id: String,
     pub workspace_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub launch_command: Option<String>,
@@ -53,8 +52,6 @@ pub struct AtomicSpawn {
 pub struct TransportLaunchCtx<'a> {
     pub provider_id: &'a str,
     pub tab_id: &'a str,
-    pub tab_id: &'a str,
-    pub workspace_id: &'a str,
     pub skip_permissions: bool,
     pub config: serde_json::Value,
     pub model: Option<&'a str>,
@@ -144,8 +141,6 @@ impl AgentTransport for PtyTransport {
             crate::service::orchestrator::launch_agent_in_background(
                 svc.clone(),
                 ctx.tab_id.to_string(),
-                ctx.tab_id.to_string(),
-                ctx.workspace_id.to_string(),
                 launch_command,
                 ctx.provider_id.to_string(),
                 None,
@@ -186,8 +181,6 @@ impl AgentTransport for ChatTransport {
         svc.chatbackend_launch_async(
             ctx.provider_id.to_string(),
             ctx.tab_id.to_string(),
-            ctx.tab_id.to_string(),
-            ctx.workspace_id.to_string(),
             config,
             history_meta,
         );
@@ -262,9 +255,9 @@ impl ServiceContext {
         let (ws_id, ws_cwd) = self.resolve_spawn_workspace(params.workspace_id.clone())?;
         let (resolved_cwd, warning) = Self::resolve_agent_cwd(&params.cwd, &ws_cwd);
 
-        let (tab_id, tab_id) = {
+        let tab_id = {
             let mut mux = self.mux.write();
-            let (tab_id, tab_id) = mux.create_tab(&ws_id)?;
+            let tab_id = mux.create_tab(&ws_id)?;
             if let Some(tab) = mux.get_tab_mut(&tab_id) {
                 if let Some(ref dir) = resolved_cwd {
                     tab.cwd = Some(dir.clone());
@@ -281,7 +274,7 @@ impl ServiceContext {
             }
             let _ = mux.set_active_workspace(&ws_id);
             let _ = mux.set_active_tab(&ws_id, &tab_id);
-            (tab_id, tab_id)
+            tab_id
         };
 
         if let Some(at) = agent_type {
@@ -296,8 +289,6 @@ impl ServiceContext {
                 &TransportLaunchCtx {
                     provider_id: provider,
                     tab_id: &tab_id,
-                    tab_id: &tab_id,
-                    workspace_id: &ws_id,
                     skip_permissions: params.skip_permissions,
                     config: params.config.clone().unwrap_or(serde_json::Value::Null),
                     model: params.model.as_deref(),
@@ -306,7 +297,7 @@ impl ServiceContext {
             || {
                 self.mux
                     .write()
-                    .rollback_spawn_tab(&ws_id, &tab_id, &tab_id);
+                    .rollback_spawn_tab(&ws_id, &tab_id);
                 self.emit_state_changed();
             },
         )?;
@@ -316,7 +307,6 @@ impl ServiceContext {
 
         Ok(AtomicSpawn {
             snapshot,
-            tab_id,
             tab_id,
             workspace_id: ws_id,
             launch_command,

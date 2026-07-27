@@ -137,7 +137,6 @@ impl ServiceContext {
         );
         Ok(SpawnResult {
             tab_id: handle.tab_id,
-            tab_id: handle.tab_id,
             pty_id: handle.pty_id.unwrap_or_default(),
             agent,
             model: model_identity.2.clone(),
@@ -234,7 +233,6 @@ impl ServiceContext {
             );
             return Ok(SpawnResult {
                 tab_id: handle.tab_id,
-                tab_id: handle.tab_id,
                 pty_id: handle.pty_id.unwrap_or_default(),
                 agent: agent_cmd,
                 model: None,
@@ -310,7 +308,7 @@ impl ServiceContext {
                 .unwrap_or(false),
         );
 
-        let (tab_id, tab_id) = {
+        let tab_id = {
             let mut mux = self.mux.write();
             let result = match params.existing_tab_id.as_deref() {
                 Some(existing) => mux.claim_existing_tab(&ws_id, existing)?,
@@ -319,18 +317,18 @@ impl ServiceContext {
             if let Some(ref t) = params.title {
                 if !t.trim().is_empty() {
                     let _ = mux.rename_tab_at_level(
-                        &result.1,
+                        &result,
                         t,
                         crate::multiplexer::types::TitleLevel::User,
                     );
                 }
             }
             if let Some(ref dir) = params.cwd {
-                if let Some(tab) = mux.get_tab_mut(&result.1) {
+                if let Some(tab) = mux.get_tab_mut(&result) {
                     tab.cwd = Some(dir.clone());
                 }
             }
-            if let Some(tab) = mux.get_tab_mut(&result.1) {
+            if let Some(tab) = mux.get_tab_mut(&result) {
                 tab.role_profile = params.role_profile.clone();
                 tab.agent_booting = true;
                 crate::service::boot_stage::apply_boot_stage(
@@ -340,21 +338,21 @@ impl ServiceContext {
                 );
             }
             if params.activate.unwrap_or(false) {
-                let _ = mux.set_active_tab(&ws_id, &result.0);
+                let _ = mux.set_active_tab(&ws_id, &result);
             }
             if default_chat_view {
-                if let Some(tab) = mux.get_tab_mut(&result.1) {
+                if let Some(tab) = mux.get_tab_mut(&result) {
                     tab.chat_view = true;
                 }
             }
             if let Some(ref rtid) = params.report_target_tab_id {
-                if let Some(tab) = mux.get_tab_mut(&result.1) {
+                if let Some(tab) = mux.get_tab_mut(&result) {
                     tab.report_target_tab_id = Some(rtid.clone());
                 }
             }
             if let Some(ref peer) = params.report_target_mesh_peer {
                 if !peer.is_empty() {
-                    if let Some(tab) = mux.get_tab_mut(&result.1) {
+                    if let Some(tab) = mux.get_tab_mut(&result) {
                         tab.report_target_mesh_peer = Some(peer.clone());
                     }
                 }
@@ -362,7 +360,7 @@ impl ServiceContext {
             // Record the spawning agent for report routing fallback, independent of explicit --parent / role hierarchy.
             if let Some(ref sb) = params.spawned_by_tab_id {
                 if !sb.is_empty() {
-                    if let Some(tab) = mux.get_tab_mut(&result.1) {
+                    if let Some(tab) = mux.get_tab_mut(&result) {
                         tab.spawned_by_tab_id = Some(sb.clone());
                     }
                 }
@@ -567,8 +565,6 @@ impl ServiceContext {
         launch_agent_in_background(
             self.clone(),
             tab_id.clone(),
-            tab_id.clone(),
-            ws_id.clone(),
             launch_cmd,
             agent_cmd.clone(),
             bg_task,
@@ -593,7 +589,6 @@ impl ServiceContext {
             params.task.as_deref().unwrap_or_default().len(),
         );
         Ok(SpawnResult {
-            tab_id,
             tab_id,
             pty_id: String::new(), // PTY not yet assigned — happens async
             agent: agent_cmd,

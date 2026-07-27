@@ -47,7 +47,6 @@ impl ServiceContext {
         let result = self.spawn_agent(p, None).await?;
         Ok(serde_json::json!({
             "tab_id": result.tab_id,
-            "tab_id": result.tab_id,
             "pty_id": result.pty_id,
             "agent": result.agent,
             "title": result.title,

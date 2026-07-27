@@ -27,7 +27,7 @@ impl FirstPlanHarness {
 fn teamless_orchestrator(mux: &MuxState) -> String {
     let mut mux = mux.write();
     let workspace_id = mux.list_workspaces()[0].id.clone();
-    let owner_tab_id = mux.create_tab(&workspace_id).unwrap().1;
+    let owner_tab_id = mux.create_tab(&workspace_id).unwrap();
     mux.set_tab_role(&owner_tab_id, AgentRole::Orchestrator, None)
         .unwrap();
     owner_tab_id

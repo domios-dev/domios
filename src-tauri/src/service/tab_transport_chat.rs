@@ -342,8 +342,7 @@ impl ServiceContext {
         snapshot.workspaces.iter().find_map(|workspace| {
             workspace
                 .tabs
-                .iter()
-                .any(|tab| tab.tab_id == tab_id)
+                .contains(&tab_id.to_string())
                 .then(|| workspace.id.clone())
         })
     }
@@ -625,7 +624,7 @@ mod tests {
             .resolve_or_mint_team_for_parent(&parent_id)
             .unwrap()
             .team_id;
-        let tab_id = state.create_tab(&workspace_id).unwrap().1;
+        let tab_id = state.create_tab(&workspace_id).unwrap();
         state
             .set_tab_role(&tab_id, AgentRole::Worker, Some(&parent_id))
             .unwrap();

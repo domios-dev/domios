@@ -159,7 +159,7 @@ mod tests {
             .unwrap()
             .team_id;
         let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
-        let worker = mux.create_tab(&workspace_id).unwrap().1;
+        let worker = mux.create_tab(&workspace_id).unwrap();
         mux.set_tab_role(&worker, AgentRole::Worker, Some(&orchestrator))
             .unwrap();
         (mux, team_id, orchestrator, worker)
@@ -216,7 +216,8 @@ mod tests {
     #[test]
     fn http_team_rename_enforces_caller_permission() {
         let (mut mux, team_id, _orchestrator, worker) = team_members();
-        let foreign = mux.create_tab();
+        let workspace_id = mux.find_workspace_for_tab(&worker).unwrap();
+        let foreign = mux.create_tab(&workspace_id).unwrap();
         let events = crate::api::events::EventBroadcaster::new();
 
         let mut worker_headers = HeaderMap::new();
@@ -342,7 +343,8 @@ mod tests {
             .0,
             StatusCode::FORBIDDEN
         );
-        let foreign = mux.create_tab();
+        let workspace_id = mux.find_workspace_for_tab(&worker).unwrap();
+        let foreign = mux.create_tab(&workspace_id).unwrap();
         let mut foreign_headers = HeaderMap::new();
         foreign_headers.insert("X-CodeTerm-Tab-Id", foreign.parse().unwrap());
         assert_eq!(

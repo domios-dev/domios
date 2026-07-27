@@ -182,11 +182,12 @@ mod tests {
             .resolve_or_mint_team_for_parent(&orchestrator)
             .unwrap()
             .team_id;
-        let planner = mux.create_tab();
+        let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
+        let planner = mux.create_tab(&workspace_id).unwrap();
         mux.set_tab_role(&planner, AgentRole::Manager, Some(&orchestrator))
             .unwrap();
         mux.get_tab_mut(&planner).unwrap().role_profile = Some("planner".into());
-        let worker = mux.create_tab();
+        let worker = mux.create_tab(&workspace_id).unwrap();
         mux.set_tab_role(&worker, AgentRole::Worker, Some(&orchestrator))
             .unwrap();
         (mux, team_id, orchestrator, planner, worker)
@@ -226,7 +227,8 @@ mod tests {
     #[test]
     fn mux_rename_team_core_rejects_worker_and_foreign_tab() {
         let (mut mux, team_id, _, _, worker) = team_members();
-        let foreign = mux.create_tab();
+        let workspace_id = mux.find_workspace_for_tab(&worker).unwrap();
+        let foreign = mux.create_tab(&workspace_id).unwrap();
 
         assert!(mux_rename_team_core(
             &mut mux,
@@ -322,26 +324,15 @@ pub fn mux_create_tab(
     workspace_id: String,
     eager: Option<bool>,
 ) -> Result<TabInfo, String> {
-    let (tab_id, tab_id) = svc.create_tab(&workspace_id)?;
+    let tab_id = svc.create_tab(&workspace_id)?;
     if eager.unwrap_or(false) {
         svc.ensure_tab_pty_for_send(&tab_id)?;
     }
     let title = svc.mux.read().display_label_for_tab(&tab_id);
     Ok(TabInfo {
-        id: tab_id,
+        id: tab_id.clone(),
         title,
-        tab_id,
     })
-}
-
-/// Close a tab and kill its PTYs.
-#[tauri::command]
-pub fn mux_close_tab(
-    svc: State<'_, ServiceState>,
-    workspace_id: String,
-    tab_id: String,
-) -> Result<(), String> {
-    svc.close_tab(&workspace_id, &tab_id)
 }
 
 /// Switch the active tab in a workspace.
@@ -364,17 +355,6 @@ pub fn mux_set_active_tab_and_workspace(
     svc.set_active_tab_and_workspace(&workspace_id, &tab_id)
 }
 
-/// Rename the tab owned by a tab.
-#[tauri::command]
-pub fn mux_rename_tab(
-    svc: State<'_, ServiceState>,
-    workspace_id: String,
-    tab_id: String,
-    title: String,
-) -> Result<(), String> {
-    svc.rename_tab(&workspace_id, &tab_id, &title)
-}
-
 /// Close a tab and kill its PTY (cascade-closes children).
 #[tauri::command]
 pub fn mux_close_tab(svc: State<'_, ServiceState>, tab_id: String) -> Result<(), String> {
@@ -388,7 +368,7 @@ pub fn mux_reopen_closed_tab(
     workspace_id: String,
     index: Option<usize>,
 ) -> Result<TabInfo, String> {
-    let (tab_id, _) = svc.reopen_closed_tab(&workspace_id, index)?;
+    let tab_id = svc.reopen_closed_tab(&workspace_id, index)?;
     let title = svc.mux.read().display_label_for_tab(&tab_id);
     Ok(TabInfo { id: tab_id, title })
 }
@@ -399,8 +379,11 @@ pub fn mux_reopen_closed_group(
     svc: State<'_, ServiceState>,
     group_id: String,
 ) -> Result<OrphanedRestoreInfo, String> {
-    let (workspace_id, tab_id, _) = svc.reopen_closed_group(&group_id)?;
-    Ok(OrphanedRestoreInfo { workspace_id, tab_id })
+    let (workspace_id, tab_id) = svc.reopen_closed_group(&group_id)?;
+    Ok(OrphanedRestoreInfo {
+        workspace_id,
+        tab_id,
+    })
 }
 
 /// Reopen a tab from the orphaned ring.
@@ -409,8 +392,11 @@ pub fn mux_restore_orphaned_tab(
     svc: State<'_, ServiceState>,
     tab_id: String,
 ) -> Result<OrphanedRestoreInfo, String> {
-    let (workspace_id, tab_id, _) = svc.reopen_orphaned_tab(tab_id.as_str())?;
-    Ok(OrphanedRestoreInfo { workspace_id, tab_id })
+    let (workspace_id, tab_id) = svc.reopen_orphaned_tab(tab_id.as_str())?;
+    Ok(OrphanedRestoreInfo {
+        workspace_id,
+        tab_id,
+    })
 }
 
 /// Set the focused tab.

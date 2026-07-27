@@ -7,7 +7,7 @@ use crate::multiplexer::types::AgentRole;
 fn user_created_tab_starts_without_role() {
     let (mut mux, _) = MultiplexerState::new();
     let ws = mux.list_workspaces()[0].id.clone();
-    let (_tab, tab_id) = mux.create_tab(&ws).unwrap();
+    let tab_id = mux.create_tab(&ws).unwrap();
     let tab = mux.get_tab(&tab_id).unwrap();
     assert_eq!(tab.role, None);
     assert!(!tab.can_spawn);
@@ -17,7 +17,7 @@ fn user_created_tab_starts_without_role() {
 fn explicit_orchestrator_promotion_sets_role_and_can_spawn() {
     let (mut mux, _) = MultiplexerState::new();
     let ws = mux.list_workspaces()[0].id.clone();
-    let (_tab, tab_id) = mux.create_tab(&ws).unwrap();
+    let tab_id = mux.create_tab(&ws).unwrap();
     mux.set_tab_role(&tab_id, AgentRole::Orchestrator, None)
         .expect("explicit promotion");
     let tab = mux.get_tab(&tab_id).unwrap();
@@ -29,10 +29,10 @@ fn explicit_orchestrator_promotion_sets_role_and_can_spawn() {
 fn explicit_worker_spawn_role_still_applies() {
     let (mut mux, _) = MultiplexerState::new();
     let ws = mux.list_workspaces()[0].id.clone();
-    let (_orch_tab, orch) = mux.create_tab(&ws).unwrap();
+    let orch = mux.create_tab(&ws).unwrap();
     mux.set_tab_role(&orch, AgentRole::Orchestrator, None)
         .expect("parent orchestrator");
-    let (_worker_tab, worker) = mux.create_tab(&ws).unwrap();
+    let worker = mux.create_tab(&ws).unwrap();
     mux.set_tab_role(&worker, AgentRole::Worker, Some(&orch))
         .expect("explicit worker role");
     let worker_tab = mux.get_tab(&worker).unwrap();

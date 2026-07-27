@@ -139,7 +139,6 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
         finished_at: None,
         status: CronRunStatus::Running,
         tab_id: None,
-        tab_id: None,
         session_id: None,
         cwd: None,
     };

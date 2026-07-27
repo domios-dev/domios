@@ -90,9 +90,8 @@ fn provenance() -> WorkerLaneProvenance {
     }
 }
 
-fn spawn_result(tab_id: &str, tab_id: &str) -> SpawnResult {
+fn spawn_result(tab_id: &str) -> SpawnResult {
     SpawnResult {
-        tab_id: tab_id.into(),
         tab_id: tab_id.into(),
         pty_id: String::new(),
         agent: "codex".into(),
@@ -113,9 +112,9 @@ fn spawn_result(tab_id: &str, tab_id: &str) -> SpawnResult {
     }
 }
 
-fn starting_response(tab_id: &str, spawn_tab_id: &str) -> serde_json::Value {
+fn starting_response(tab_id: &str) -> serde_json::Value {
     let mut response = json!({"ok": true});
-    apply_dispatch_starting_contract(&mut response, tab_id, &spawn_result(tab_id, spawn_tab_id));
+    apply_dispatch_starting_contract(&mut response, tab_id, &spawn_result(tab_id));
     response
 }
 
@@ -123,7 +122,7 @@ fn collect_tab_and_tab_ids(value: &serde_json::Value, ids: &mut HashSet<String>)
     match value {
         serde_json::Value::Object(fields) => {
             for (key, value) in fields {
-                if matches!(key.as_str(), "tab_id" | "tab_id") {
+                if key == "tab_id" {
                     if let Some(id) = value.as_str() {
                         ids.insert(id.to_string());
                     }
@@ -164,8 +163,8 @@ impl DispatchRuntime {
         }
     }
 
-    fn create_worker(&mut self) -> (String, String, String) {
-        let (tab_id, tab_id) = self.mux.create_tab(&self.workspace_id).unwrap();
+    fn create_worker(&mut self) -> (String, String) {
+        let tab_id = self.mux.create_tab(&self.workspace_id).unwrap();
         self.mux
             .set_tab_role(&tab_id, AgentRole::Worker, Some(&self.parent_tab_id))
             .unwrap();
@@ -181,11 +180,11 @@ impl DispatchRuntime {
             .unwrap();
         self.mux.link_pty(&tab_id, pty_id.clone());
         self.mux.get_tab_mut(&tab_id).unwrap().agent_session_id = Some("session-worker".into());
-        (tab_id, tab_id, pty_id)
+        (tab_id, pty_id)
     }
 
     fn close_worker(&mut self, tab_id: &str) -> Result<(), String> {
-        for pty_id in self.mux.close_tab(&self.workspace_id, tab_id)? {
+        for pty_id in self.mux.close_tab(tab_id)? {
             self.pty.kill(&pty_id)?;
         }
         Ok(())
@@ -203,25 +202,21 @@ impl DispatchRuntime {
 
 #[test]
 fn dispatch_response_has_single_authoritative_tab_id() {
-    for (spawn_tab_id, authoritative_tab_id) in [
-        ("0256a845", "d3d39cd2"),
-        ("7064c401", "b46ee19a"),
-        ("e1a0d44d", "5f3decc7"),
-    ] {
-        let response = starting_response(authoritative_tab_id, spawn_tab_id);
+    for authoritative_tab_id in ["d3d39cd2", "b46ee19a", "5f3decc7"] {
+        let response = starting_response(authoritative_tab_id);
         let mut ids = HashSet::new();
         collect_tab_and_tab_ids(&response, &mut ids);
         assert_eq!(
             ids,
             HashSet::from([authoritative_tab_id.to_string()]),
-            "spawn identity {spawn_tab_id} conflicted with {authoritative_tab_id}"
+            "response contained an identity other than {authoritative_tab_id}"
         );
     }
 }
 
 #[test]
 fn dispatch_response_never_claims_ready_before_event() {
-    let response = starting_response("tab-worker", "phantom-tab");
+    let response = starting_response("tab-worker");
     assert_eq!(response["accepted"], true);
     assert_eq!(response["state"], "awaiting_dispatch_ready");
     assert_eq!(response["readiness"]["ready"], false);
@@ -246,7 +241,7 @@ fn dispatch_response_never_claims_ready_before_event() {
 #[test]
 fn one_dispatch_creates_exactly_one_tab() {
     let runtime = RefCell::new(DispatchRuntime::new());
-    let (tab_id, tab_id, pty_id) = runtime.borrow_mut().create_worker();
+    let (tab_id, pty_id) = runtime.borrow_mut().create_worker();
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     ready_tx.send(Ok(())).unwrap();
 
@@ -285,17 +280,14 @@ fn one_dispatch_creates_exactly_one_tab() {
         Some(runtime_ref.workspace_id.clone())
     );
     let worker = runtime_ref.mux.get_tab(&tab_id).unwrap();
-    let parent = runtime_ref
-        .mux
-        .get_tab(&runtime_ref.parent_tab_id)
-        .unwrap();
+    let parent = runtime_ref.mux.get_tab(&runtime_ref.parent_tab_id).unwrap();
     assert!(parent.team_id.is_some());
     assert_eq!(worker.team_id, parent.team_id);
     assert_eq!(worker.pty_id.as_deref(), Some(pty_id.as_str()));
     assert_eq!(worker.agent_session_id.as_deref(), Some("session-worker"));
     assert!(runtime_ref.pty.get_session(&pty_id).is_some());
     let mut response_ids = HashSet::new();
-    collect_tab_and_tab_ids(&starting_response(&tab_id, &tab_id), &mut response_ids);
+    collect_tab_and_tab_ids(&starting_response(&tab_id), &mut response_ids);
     assert_eq!(response_ids, HashSet::from([tab_id.clone()]));
     drop(runtime_ref);
     runtime.borrow_mut().close_worker(&tab_id).unwrap();
@@ -304,7 +296,7 @@ fn one_dispatch_creates_exactly_one_tab() {
 #[test]
 fn dispatch_failure_leaves_no_orphan() {
     let runtime = RefCell::new(DispatchRuntime::new());
-    let (tab_id, tab_id, pty_id) = runtime.borrow_mut().create_worker();
+    let (tab_id, pty_id) = runtime.borrow_mut().create_worker();
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     ready_tx
         .send(Err("injected startup failure".into()))

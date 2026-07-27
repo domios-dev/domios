@@ -14,31 +14,32 @@ use super::{
 fn fixture_mux() -> (MultiplexerState, WatchFixtureIds) {
     let (mut mux, orch) = MultiplexerState::new();
     mux.rename_tab(&orch, "Orchestrator").unwrap();
+    let workspace_id = mux.find_workspace_for_tab(&orch).unwrap();
 
-    let planner = mux.create_tab();
+    let planner = mux.create_tab(&workspace_id).unwrap();
     mux.set_tab_role(&planner, AgentRole::Manager, Some(&orch))
         .unwrap();
     mux.rename_tab(&planner, "Planner").unwrap();
     mux.get_tab_mut(&planner).unwrap().role_profile = Some("planner".into());
 
-    let watcher = mux.create_tab();
+    let watcher = mux.create_tab(&workspace_id).unwrap();
     mux.set_tab_role(&watcher, AgentRole::Manager, Some(&orch))
         .unwrap();
     mux.rename_tab(&watcher, "Watcher-1").unwrap();
     mux.get_tab_mut(&watcher).unwrap().role_profile = Some("watcher".into());
 
-    let watcher2 = mux.create_tab();
+    let watcher2 = mux.create_tab(&workspace_id).unwrap();
     mux.set_tab_role(&watcher2, AgentRole::Manager, Some(&orch))
         .unwrap();
     mux.rename_tab(&watcher2, "Watcher-2").unwrap();
     mux.get_tab_mut(&watcher2).unwrap().role_profile = Some("watcher".into());
 
-    let worker_a = mux.create_tab();
+    let worker_a = mux.create_tab(&workspace_id).unwrap();
     mux.set_tab_role(&worker_a, AgentRole::Worker, Some(&orch))
         .unwrap();
     mux.rename_tab(&worker_a, "Worker-A").unwrap();
 
-    let worker_b = mux.create_tab();
+    let worker_b = mux.create_tab(&workspace_id).unwrap();
     mux.set_tab_role(&worker_b, AgentRole::Worker, Some(&orch))
         .unwrap();
     mux.rename_tab(&worker_b, "Worker-B").unwrap();

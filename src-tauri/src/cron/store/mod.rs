@@ -45,7 +45,6 @@ pub struct CronRunInfo {
     pub finished_at: Option<u64>,
     pub status: CronRunStatus,
     pub tab_id: Option<String>,
-    pub tab_id: Option<String>,
     // session_id + cwd captured before the hidden tab closes so the read-only chat-ui can resolve and render this past run's jsonl.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,

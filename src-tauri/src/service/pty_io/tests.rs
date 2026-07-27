@@ -92,7 +92,7 @@ fn concurrent_restore_single_winner_cas() {
         .resolve_or_mint_team_for_parent(&parent_id)
         .unwrap()
         .team_id;
-    let tab_id = state.create_tab(&workspace_id).unwrap().1;
+    let tab_id = state.create_tab(&workspace_id).unwrap();
     state
         .set_tab_role(&tab_id, AgentRole::Worker, Some(&parent_id))
         .unwrap();

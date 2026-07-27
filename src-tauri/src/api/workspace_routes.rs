@@ -244,13 +244,13 @@ pub(crate) struct RenameTabBody {
 pub async fn rename_tab(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path((workspace_id, tab_id)): Path<(String, String)>,
+    Path((_workspace_id, tab_id)): Path<(String, String)>,
     Json(body): Json<RenameTabBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     state
         .svc
-        .rename_tab(&workspace_id, &tab_id, &body.title)
+        .rename_tab(&tab_id, &body.title)
         .map_err(map_rename_error)?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -262,7 +262,7 @@ pub async fn create_tab(
     body: Option<Json<CreateTabBody>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let (tab_id, tab_id) = state
+    let tab_id = state
         .svc
         .create_tab_with_activate(&workspace_id, false)
         .map_err(|_| (StatusCode::NOT_FOUND, "Workspace not found"))?;
@@ -285,7 +285,6 @@ pub async fn create_tab(
     Ok(Json(serde_json::json!({
         "id": tab_id.clone(),
         "title": title,
-        "tab_id": tab_id,
         "tab_id": tab_id,
         "pty_id": pty_id
     })))

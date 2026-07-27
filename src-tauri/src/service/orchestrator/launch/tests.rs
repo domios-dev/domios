@@ -196,7 +196,7 @@ fn plain_orchestrator_no_task_attaches_nothing() {
 fn plain_orchestrator_role_metadata_uses_the_non_task_channel() {
     let (mut mux, _) = MultiplexerState::new();
     let workspace_id = mux.list_workspaces()[0].id.clone();
-    let tab_id = mux.create_tab(&workspace_id).unwrap().1;
+    let tab_id = mux.create_tab(&workspace_id).unwrap();
     mux.set_tab_role(&tab_id, AgentRole::Orchestrator, None)
         .unwrap();
     let tab = mux.get_tab(&tab_id).unwrap();

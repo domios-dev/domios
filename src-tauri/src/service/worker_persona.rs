@@ -431,10 +431,10 @@ mod tests {
         mux.rename_tab(&orch_tab, "Orchestrator-Prime")
             .expect("rename orchestrator Tab");
 
-        let (_tab_id, plain_tab) = mux.create_tab(&ws_id).expect("create plain tab");
+        let plain_tab = mux.create_tab(&ws_id).expect("create plain tab");
         mux.rename_tab(&plain_tab, "Kai").expect("rename Tab");
 
-        let (_tab_id, worker_tab) = mux.create_tab(&ws_id).expect("create worker tab");
+        let worker_tab = mux.create_tab(&ws_id).expect("create worker tab");
         mux.set_tab_role(&worker_tab, AgentRole::Worker, Some(&orch_tab))
             .expect("attach worker");
         mux.rename_tab(&worker_tab, "Esme")
@@ -460,7 +460,7 @@ mod tests {
         let (mut mux, orch_tab) = MultiplexerState::new();
         let ws_id = mux.find_workspace_for_tab(&orch_tab).unwrap();
 
-        let (_tab_id, other_session_worker) = mux.create_tab(&ws_id).unwrap();
+        let other_session_worker = mux.create_tab(&ws_id).unwrap();
         mux.set_tab_role(&other_session_worker, AgentRole::Worker, Some(&orch_tab))
             .unwrap();
         mux.rename_tab(&other_session_worker, "Nora").unwrap();

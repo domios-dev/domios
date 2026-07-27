@@ -530,8 +530,6 @@ fn await_replacement_pty(
 pub(crate) fn launch_agent_in_background(
     svc: ServiceContext,
     tab_id: String,
-    tab_id: String,
-    ws_id: String,
     launch_cmd: String,
     agent_cmd: String,
     task: Option<String>,
@@ -581,7 +579,7 @@ pub(crate) fn launch_agent_in_background(
                         error
                     );
                     launch.fail(&svc, failure);
-                    let _ = svc.close_tab(&ws_id, &tab_id);
+                    let _ = svc.close_tab(&tab_id);
                     set_booting(false);
                     if let Some(tx) = ready_tx {
                         let _ = tx.send(Err(format!("backend PTY spawn failed: {}", error)));
@@ -600,7 +598,7 @@ pub(crate) fn launch_agent_in_background(
             let error = LaunchFailure::TabClosed.reason();
             launch.fail(&svc, LaunchFailure::TabClosed);
             set_booting(false);
-            let _ = svc.close_tab(&ws_id, &tab_id);
+            let _ = svc.close_tab(&tab_id);
             if let Some(tx) = ready_tx {
                 let _ = tx.send(Err(error));
             }
