@@ -63,7 +63,9 @@ function paneBase(id: string, overrides: Partial<Pane> = {}): Pane {
   } as Pane;
 }
 
-function muxActions(): MultiplexerActionsContextType {
+function muxActions(
+  overrides: Partial<MultiplexerActionsContextType> = {},
+): MultiplexerActionsContextType {
   const noop = () => {};
   const noopAsync = async () => undefined;
   return {
@@ -71,15 +73,15 @@ function muxActions(): MultiplexerActionsContextType {
     setActiveWorkspace: noop,
     closeWorkspace: noop,
     renameWorkspace: noop,
-    movepane: noop,
+    moveTab: noop,
     reorderTabs: noop,
     reorderWorkspaces: noop,
-    createpane: noopAsync,
-    closepane: noop,
+    createTab: noopAsync,
+    closeTab: noop,
     reopenClosed: noop,
     reopenGroup: noop,
     restoreOrphaned: noop,
-    setActivepane: noop,
+    setActiveTab: noop,
     selectTabByPane: noopAsync,
     closePane: noop,
     setFocusedPane: noop,
@@ -95,11 +97,12 @@ function muxActions(): MultiplexerActionsContextType {
     setTabTitle: noop,
     setAgentType: noop,
     updatePaneStatus: noop,
-    spawnClaudepane: noop,
-    spawnAgentpane: async () => null,
+    spawnClaudeTab: noop,
+    spawnAgentTab: async () => null,
     createOrchestrationPair: async () => {
       throw new Error("not implemented");
     },
+    ...overrides,
   };
 }
 
@@ -180,6 +183,87 @@ async function renderPaneSessionChat(
 }
 
 setupDom();
+
+test("store Tab action doubles preserve invocation contracts", async () => {
+  const activations: Array<[string, string]> = [];
+  const moves: Array<[string, string, string]> = [];
+  const creates: Array<[string, string | undefined]> = [];
+  const closes: Array<[string, string]> = [];
+  const claudeSpawns: Array<[string, boolean, string | undefined]> = [];
+  const agentSpawns: Array<[string, string, boolean, string | undefined, string | undefined]> = [];
+  const createdTabResult = { id: "created-tab" } as Awaited<
+    ReturnType<MultiplexerActionsContextType["createTab"]>
+  >;
+  const actions = muxActions({
+    moveTab: (tabId, fromWorkspaceId, toWorkspaceId) => {
+      moves.push([tabId, fromWorkspaceId, toWorkspaceId]);
+    },
+    createTab: async (workspaceId, cwd) => {
+      creates.push([workspaceId, cwd]);
+      return createdTabResult;
+    },
+    closeTab: (workspaceId, tabId) => {
+      closes.push([workspaceId, tabId]);
+    },
+    setActiveTab: (workspaceId, tabId) => {
+      activations.push([workspaceId, tabId]);
+    },
+    spawnClaudeTab: (workspaceId, skipPermissions, cwd) => {
+      claudeSpawns.push([workspaceId, skipPermissions, cwd]);
+    },
+    spawnAgentTab: async (workspaceId, agentId, skipPermissions, cwd, model) => {
+      agentSpawns.push([workspaceId, agentId, skipPermissions, cwd, model]);
+      return null;
+    },
+  });
+
+  actions.moveTab("tab-2", "workspace-1", "workspace-2");
+  const created = await actions.createTab("workspace-1", "/repo/new");
+  actions.closeTab("workspace-1", "tab-2");
+  actions.setActiveTab("workspace-1", "tab-2");
+  actions.spawnClaudeTab("workspace-1", true, "/repo/claude");
+  await actions.spawnAgentTab("workspace-1", "codex", false, "/repo/codex", "gpt-5");
+
+  assert(moves.length === 1, `move called ${moves.length} times`);
+  assert(
+    moves[0]?.[0] === "tab-2"
+      && moves[0]?.[1] === "workspace-1"
+      && moves[0]?.[2] === "workspace-2",
+    "move receives tabId, fromWorkspaceId, and toWorkspaceId",
+  );
+  assert(creates.length === 1, `create called ${creates.length} times`);
+  assert(
+    creates[0]?.[0] === "workspace-1" && creates[0]?.[1] === "/repo/new",
+    "create receives workspaceId and cwd",
+  );
+  assert(created === createdTabResult, "create promise result is honoured");
+  assert(closes.length === 1, `close called ${closes.length} times`);
+  assert(
+    closes[0]?.[0] === "workspace-1" && closes[0]?.[1] === "tab-2",
+    "close receives workspaceId and tabId",
+  );
+  assert(activations.length === 1, `activation called ${activations.length} times`);
+  assert(
+    activations[0]?.[0] === "workspace-1" && activations[0]?.[1] === "tab-2",
+    "activation receives workspaceId and tabId",
+  );
+  assert(claudeSpawns.length === 1, `Claude spawn called ${claudeSpawns.length} times`);
+  assert(
+    claudeSpawns[0]?.[0] === "workspace-1"
+      && claudeSpawns[0]?.[1] === true
+      && claudeSpawns[0]?.[2] === "/repo/claude",
+    "Claude spawn receives expected arguments",
+  );
+  assert(agentSpawns.length === 1, `agent spawn called ${agentSpawns.length} times`);
+  assert(
+    agentSpawns[0]?.[0] === "workspace-1"
+      && agentSpawns[0]?.[1] === "codex"
+      && agentSpawns[0]?.[2] === false
+      && agentSpawns[0]?.[3] === "/repo/codex"
+      && agentSpawns[0]?.[4] === "gpt-5",
+    "agent spawn receives expected arguments",
+  );
+});
 
 test("watcher Tab mounts read-only bar and no composer input", async () => {
   const paneId = "watcher-pane";

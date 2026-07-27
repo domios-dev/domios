@@ -434,8 +434,8 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
 // Default command definitions (factory)
 
 interface CommandActions {
-  newpane: () => void;
-  closepane: () => void;
+  newTab: () => void;
+  closeTab: () => void;
   newWorkspace: () => void;
   openSettings: () => void;
   toggleSidebar: () => void;
