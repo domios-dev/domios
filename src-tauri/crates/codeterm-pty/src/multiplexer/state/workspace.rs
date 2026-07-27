@@ -58,7 +58,7 @@ impl MultiplexerState {
     /// so callers can drop the mux lock before acting on the result.
     pub fn find_workspace_info_by_cwd(&self, query: &str) -> Option<WorkspaceInfo> {
         let ws = self.find_workspace_by_cwd(query)?;
-        let tab_ids: Vec<String> = ws.tabs.iter().map(|t| t.tab_id.clone()).collect();
+        let tab_ids = ws.tabs.clone();
         Some(WorkspaceInfo {
             id: ws.id.clone(),
             name: ws.name.clone(),
@@ -102,11 +102,7 @@ impl MultiplexerState {
 
         let workspace = self.workspaces.remove(idx);
 
-        let tab_ids: Vec<String> = workspace
-            .tabs
-            .iter()
-            .map(|tab| tab.tab_id.clone())
-            .collect();
+        let tab_ids = workspace.tabs;
 
         let pty_ids: Vec<String> = tab_ids
             .iter()
@@ -193,17 +189,17 @@ impl MultiplexerState {
         let tab_idx = from_ws
             .tabs
             .iter()
-            .position(|t| t.id == tab_id)
+            .position(|candidate| candidate == tab_id)
             .ok_or_else(|| format!("Tab not found: {}", tab_id))?;
 
         if from_ws.tabs.len() <= 1 {
             return Err("Cannot move the last tab from a workspace".to_string());
         }
 
-        let mut tab = from_ws.tabs.remove(tab_idx);
+        let moved_tab_id = from_ws.tabs.remove(tab_idx);
 
         if from_ws.active_tab_id.as_deref() == Some(tab_id) {
-            from_ws.active_tab_id = from_ws.tabs.last().map(|t| t.id.clone());
+            from_ws.active_tab_id = from_ws.tabs.last().cloned();
         }
 
         let to_ws = self
@@ -212,8 +208,17 @@ impl MultiplexerState {
             .find(|w| w.id == to_workspace_id)
             .ok_or_else(|| format!("Destination workspace not found: {}", to_workspace_id))?;
 
-        tab.sort_order = to_ws.tabs.iter().map(|t| t.sort_order).max().unwrap_or(-1) + 1;
-        to_ws.tabs.push(tab);
+        let next_sort_order = to_ws
+            .tabs
+            .iter()
+            .filter_map(|candidate| self.tabs.get(candidate).map(|tab| tab.sort_order))
+            .max()
+            .unwrap_or(-1)
+            + 1;
+        if let Some(tab) = self.tabs.get_mut(&moved_tab_id) {
+            tab.sort_order = next_sort_order;
+        }
+        to_ws.tabs.push(moved_tab_id);
         to_ws.active_tab_id = Some(tab_id.to_string());
 
         Ok(())
@@ -223,7 +228,7 @@ impl MultiplexerState {
         self.workspaces
             .iter()
             .map(|w| {
-                let tab_ids: Vec<String> = w.tabs.iter().map(|t| t.tab_id.clone()).collect();
+                let tab_ids = w.tabs.clone();
                 WorkspaceInfo {
                     id: w.id.clone(),
                     name: w.name.clone(),

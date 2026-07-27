@@ -59,11 +59,6 @@ impl MultiplexerState {
         {
             record.workspace_id = ws.id.clone();
             record.workspace_name = ws.name.clone();
-            if let Some(tab) = ws.tabs.iter().find(|t| t.tab_id == tab_id) {
-                if tab.description.is_some() {
-                    record.description = tab.description.clone();
-                }
-            }
         }
         Some(record)
     }
@@ -121,7 +116,7 @@ impl MultiplexerState {
         };
         let ws_name = ws.name.clone();
         let ws_cwd = ws.cwd.clone();
-        let tab_ids: Vec<String> = ws.tabs.iter().map(|t| t.tab_id.clone()).collect();
+        let tab_ids = ws.tabs.clone();
         let records: Vec<ClosedTab> = tab_ids
             .iter()
             .filter_map(|pid| self.build_closed_tab(pid))
@@ -206,8 +201,8 @@ impl MultiplexerState {
         &mut self,
         workspace_id: &str,
         record: &ClosedTab,
-    ) -> Result<(String, String), String> {
-        let (tab_id, tab_id) = self.create_tab(workspace_id)?;
+    ) -> Result<String, String> {
+        let tab_id = self.create_tab(workspace_id)?;
         if let Some(tab) = self.tabs.get_mut(&tab_id) {
             tab.backing = record.backing.clone();
             tab.cwd = record.cwd.clone();
@@ -224,12 +219,7 @@ impl MultiplexerState {
             tab.chat_view =
                 matches!(record.backing, TabBacking::ChatBackend { .. }) || record.chat_view;
         }
-        if let Some(ws) = self.workspaces.iter_mut().find(|w| w.id == workspace_id) {
-            if let Some(tab) = ws.tabs.iter_mut().find(|t| t.id == tab_id) {
-                tab.description = record.description.clone();
-            }
-        }
-        Ok((tab_id, tab_id))
+        Ok(tab_id)
     }
 
     /// Reopen a recently-closed tab in `workspace_id`. `index` selects the
@@ -238,7 +228,7 @@ impl MultiplexerState {
         &mut self,
         workspace_id: &str,
         index: Option<usize>,
-    ) -> Result<(String, String), String> {
+    ) -> Result<String, String> {
         if !self.workspaces.iter().any(|w| w.id == workspace_id) {
             return Err(format!("Workspace not found: {}", workspace_id));
         }
@@ -263,7 +253,7 @@ impl MultiplexerState {
             // History delete failed after materialize: a retry would duplicate. Surface it.
             log::warn!(
                 "reopen_closed_tab: reopened Tab {} but failed to delete closed entry (row {row_id}): {e}",
-                res.1
+                res
             );
         }
         Ok(res)
@@ -281,32 +271,32 @@ impl MultiplexerState {
     }
 
     /// Reopen a tab whose original workspace was deleted, into a live or recreated
-    /// workspace at the same path. Returns `(workspace_id, tab_id, tab_id)`.
+    /// workspace at the same path.
     pub fn reopen_orphaned_tab(
         &mut self,
         tab_id: &str,
-    ) -> Result<(String, String, String), String> {
+    ) -> Result<(String, String), String> {
         let (row_id, record) = self
             .closed_store
             .peek_by_tab_id(tab_id)
             .ok_or_else(|| format!("No orphaned entry for tab_id: {}", tab_id))?;
         let workspace_id =
             self.restore_target_workspace(record.workspace_name.clone(), record.cwd.clone());
-        let (tab_id, new_tab_id) = self.materialize_closed_tab(&workspace_id, &record)?;
+        let new_tab_id = self.materialize_closed_tab(&workspace_id, &record)?;
         if let Err(e) = self.closed_store.delete_tab_row(row_id) {
             log::warn!(
                 "reopen_orphaned_tab: reopened Tab {new_tab_id} but failed to delete closed entry (row {row_id}): {e}"
             );
         }
-        Ok((workspace_id, tab_id, new_tab_id))
+        Ok((workspace_id, new_tab_id))
     }
 
     /// Reopen a whole closed group, recreating its workspace if gone and relinking
-    /// `parent_tab_id` across the new ids. Returns `(workspace_id, tab_id, tab_id)`.
+    /// `parent_tab_id` across the new ids.
     pub fn reopen_closed_group(
         &mut self,
         group_id: &str,
-    ) -> Result<(String, String, String), String> {
+    ) -> Result<(String, String), String> {
         // Materialize every tab first; delete the group only once they all succeed, so a mid-loop failure leaves it for retry.
         let (group, tabs) = self
             .closed_store
@@ -336,17 +326,14 @@ impl MultiplexerState {
         };
 
         let mut id_map: HashMap<String, String> = HashMap::new();
-        let mut tabs_by_tab: HashMap<String, (String, String)> = HashMap::new();
-        let mut first: Option<(String, String)> = None;
+        let mut tabs_by_tab: HashMap<String, String> = HashMap::new();
+        let mut first: Option<String> = None;
         for record in &tabs {
-            let (tab_id, new_tab_id) = self.materialize_closed_tab(&workspace_id, record)?;
+            let new_tab_id = self.materialize_closed_tab(&workspace_id, record)?;
             id_map.insert(record.tab_id.clone(), new_tab_id.clone());
-            tabs_by_tab.insert(
-                record.tab_id.clone(),
-                (tab_id.clone(), new_tab_id.clone()),
-            );
+            tabs_by_tab.insert(record.tab_id.clone(), new_tab_id.clone());
             if first.is_none() {
-                first = Some((tab_id, new_tab_id));
+                first = Some(new_tab_id);
             }
         }
 
@@ -373,12 +360,12 @@ impl MultiplexerState {
         }
 
         // Activate the cascade root (parent_tab_id == None), not whichever leaf the ordering surfaces first.
-        let (tab_id, tab_id) = tabs
+        let tab_id = tabs
             .iter()
             .find(|r| r.parent_tab_id.is_none())
             .and_then(|r| tabs_by_tab.get(&r.tab_id).cloned())
             .or(first)
             .ok_or("Closed group has no Tabs")?;
-        Ok((workspace_id, tab_id, tab_id))
+        Ok((workspace_id, tab_id))
     }
 }

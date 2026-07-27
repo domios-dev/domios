@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde::Serialize;
 use uuid::Uuid;
 
-use super::types::{AgentRole, Tab, TabBacking, TabType, Tab, TitleLevel, Workspace};
+use super::types::{AgentRole, Tab, TabBacking, TabType, TitleLevel, Workspace};
 use codeterm_types::team::Team;
 
 mod alias;
@@ -14,7 +14,7 @@ mod tab;
 mod reorder;
 mod role;
 mod snapshot;
-mod tab;
+mod tab_runtime;
 mod workspace;
 
 pub use closed::{
@@ -209,15 +209,15 @@ impl MultiplexerState {
         self.closed_store = store;
     }
 
-    /// Create a new state with a default "Main" workspace, one tab, and one tab.
+    /// Create a new state with a default "Main" workspace and one tab.
     /// Returns (state, initial_tab_id).
     pub fn new() -> (Self, String) {
-        let tab_id = short_id();
         let tab_id = short_id();
         let workspace_id = short_id();
 
         let tab = Tab {
             id: tab_id.clone(),
+            sort_order: 0,
             pty_id: None,
             backing: TabBacking::default(),
             tab_type: TabType::Terminal,
@@ -271,18 +271,11 @@ impl MultiplexerState {
             boot_failure_reason: None,
         };
 
-        let tab = Tab {
-            id: tab_id.clone(),
-            description: None,
-            tab_id: tab_id.clone(),
-            sort_order: 0,
-        };
-
         let workspace = Workspace {
             id: workspace_id.clone(),
             name: "Main".to_string(),
-            tabs: vec![tab],
-            active_tab_id: Some(tab_id),
+            tabs: vec![tab_id.clone()],
+            active_tab_id: Some(tab_id.clone()),
             cwd: None,
             protected: false,
             sort_order: 0,

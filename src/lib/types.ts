@@ -9,7 +9,7 @@ export enum TitleLevel {
 export interface Workspace {
   id: string;
   name: string;
-  tabs: Tab[];
+  tabs: string[];
   active_tab_id: string | null;
   cwd: string | null;
   protected?: boolean;
@@ -46,15 +46,6 @@ export interface ClosedTabView extends ClosedTab {
   orphaned: boolean;
   group_id: string;
   group_kind: "single" | "cascade" | "workspace";
-}
-
-export interface Tab {
-  id: string;
-  description?: string | null;
-  /** One tab per tab. Split layouts were removed. */
-  tab_id: string;
-  /** Per-group sibling ordinal (top-level tabs, or children of one parent). */
-  sort_order?: number;
 }
 
 export type AgentRole = "Orchestrator" | "Manager" | "Worker";
@@ -154,6 +145,8 @@ export interface TabBootStageEvent {
 
 export interface Tab {
   id: string;
+  /** Per-group sibling ordinal within the owning workspace or hierarchy. */
+  sort_order?: number;
   pty_id: string | null;
   /** Defaults to `{ kind: "pty" }` when absent (pre-field snapshots). */
   backing?: TabBacking;

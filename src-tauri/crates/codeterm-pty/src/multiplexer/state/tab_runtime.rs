@@ -3,17 +3,18 @@ use crate::multiplexer::types::{Tab, TabBacking, TabType, PendingDeliveryRecord,
 
 impl MultiplexerState {
     /// Create a new terminal tab and register it. Returns the tab ID.
-    pub fn create_tab(&mut self) -> String {
-        self.create_tab_with_pending_delivery(None)
+    pub fn create_tab_record(&mut self) -> String {
+        self.create_tab_record_with_pending_delivery(None)
     }
 
-    pub fn create_tab_with_pending_delivery(
+    pub fn create_tab_record_with_pending_delivery(
         &mut self,
         pending_delivery: Option<PendingDeliveryRecord>,
     ) -> String {
         let tab_id = short_id();
         let tab = Tab {
             id: tab_id.clone(),
+            sort_order: 0,
             pty_id: None,
             backing: TabBacking::default(),
             tab_type: TabType::Terminal,
@@ -170,13 +171,7 @@ impl MultiplexerState {
             .tabs
             .get_mut(tab_id)
             .ok_or_else(|| format!("Tab not found: {}", tab_id))?;
-        tab.description = description.clone();
-        for ws in &mut self.workspaces {
-            if let Some(tab) = ws.tabs.iter_mut().find(|t| t.tab_id == tab_id) {
-                tab.description = description;
-                break;
-            }
-        }
+        tab.description = description;
         Ok(())
     }
 
@@ -198,21 +193,17 @@ impl MultiplexerState {
     /// Find which workspace contains a given tab.
     pub fn find_workspace_for_tab(&self, tab_id: &str) -> Option<String> {
         for ws in &self.workspaces {
-            if ws.tabs.iter().any(|t| t.tab_id == tab_id) {
+            if ws.tabs.iter().any(|candidate| candidate == tab_id) {
                 return Some(ws.id.clone());
             }
         }
         None
     }
 
-    /// Find which tab contains a given tab.
+    /// Resolve a workspace membership to its authoritative tab id.
     pub fn find_tab_for_tab(&self, tab_id: &str) -> Option<String> {
-        for ws in &self.workspaces {
-            if let Some(tab) = ws.tabs.iter().find(|t| t.tab_id == tab_id) {
-                return Some(tab.id.clone());
-            }
-        }
-        None
+        self.find_workspace_for_tab(tab_id)
+            .map(|_| tab_id.to_string())
     }
 
     /// Sidebar label for a tab — tab.title, falling back to short id.
@@ -298,11 +289,11 @@ impl MultiplexerState {
     /// a direct delete with no tree walking.
     fn remove_tab_from_tree(&mut self, tab_id: &str) -> Result<(), String> {
         for ws in &mut self.workspaces {
-            if let Some(idx) = ws.tabs.iter().position(|tab| tab.tab_id == tab_id) {
-                let closed_tab_id = ws.tabs[idx].id.clone();
+            if let Some(idx) = ws.tabs.iter().position(|candidate| candidate == tab_id) {
+                let closed_tab_id = ws.tabs[idx].clone();
                 ws.tabs.remove(idx);
                 if ws.active_tab_id.as_deref() == Some(&closed_tab_id) {
-                    ws.active_tab_id = ws.tabs.last().map(|t| t.id.clone());
+                    ws.active_tab_id = ws.tabs.last().cloned();
                 }
                 return Ok(());
             }
@@ -321,8 +312,8 @@ mod tests {
         let mut state = MultiplexerState::empty();
         let pending =
             PendingDeliveryRecord::new("digest".into(), PendingDeliveryChannel::InteractiveInput);
-        let with_pending = state.create_tab_with_pending_delivery(Some(pending.clone()));
-        let without_pending = state.create_tab_with_pending_delivery(None);
+        let with_pending = state.create_tab_record_with_pending_delivery(Some(pending.clone()));
+        let without_pending = state.create_tab_record_with_pending_delivery(None);
 
         assert_eq!(
             state.get_tab(&with_pending).unwrap().pending_delivery,

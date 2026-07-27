@@ -44,12 +44,12 @@ impl MultiplexerState {
         if self.tabs.contains_key(id_or_alias) {
             return Some(id_or_alias.to_string());
         }
-        for workspace in &self.workspaces {
-            if let Some(tab) = workspace.tabs.iter().find(|tab| tab.id == id_or_alias) {
-                if self.tabs.contains_key(&tab.tab_id) {
-                    return Some(tab.tab_id.clone());
-                }
-            }
+        if self
+            .workspaces
+            .iter()
+            .any(|workspace| workspace.tabs.iter().any(|tab_id| tab_id == id_or_alias))
+        {
+            return Some(id_or_alias.to_string());
         }
         None
     }

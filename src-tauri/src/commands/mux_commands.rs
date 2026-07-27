@@ -9,13 +9,11 @@ use codeterm_types::team::Team;
 pub struct TabInfo {
     pub id: String,
     pub title: String,
-    pub tab_id: String,
 }
 
 #[derive(serde::Serialize)]
 pub struct OrphanedRestoreInfo {
     pub workspace_id: String,
-    pub tab_id: String,
     pub tab_id: String,
 }
 
@@ -390,13 +388,9 @@ pub fn mux_reopen_closed_tab(
     workspace_id: String,
     index: Option<usize>,
 ) -> Result<TabInfo, String> {
-    let (tab_id, tab_id) = svc.reopen_closed_tab(&workspace_id, index)?;
+    let (tab_id, _) = svc.reopen_closed_tab(&workspace_id, index)?;
     let title = svc.mux.read().display_label_for_tab(&tab_id);
-    Ok(TabInfo {
-        id: tab_id,
-        title,
-        tab_id,
-    })
+    Ok(TabInfo { id: tab_id, title })
 }
 
 /// Reopen a whole closed group by id.
@@ -405,12 +399,8 @@ pub fn mux_reopen_closed_group(
     svc: State<'_, ServiceState>,
     group_id: String,
 ) -> Result<OrphanedRestoreInfo, String> {
-    let (workspace_id, tab_id, tab_id) = svc.reopen_closed_group(&group_id)?;
-    Ok(OrphanedRestoreInfo {
-        workspace_id,
-        tab_id,
-        tab_id,
-    })
+    let (workspace_id, tab_id, _) = svc.reopen_closed_group(&group_id)?;
+    Ok(OrphanedRestoreInfo { workspace_id, tab_id })
 }
 
 /// Reopen a tab from the orphaned ring.
@@ -419,12 +409,8 @@ pub fn mux_restore_orphaned_tab(
     svc: State<'_, ServiceState>,
     tab_id: String,
 ) -> Result<OrphanedRestoreInfo, String> {
-    let (workspace_id, tab_id, new_tab_id) = svc.reopen_orphaned_tab(tab_id.as_str())?;
-    Ok(OrphanedRestoreInfo {
-        workspace_id,
-        tab_id,
-        tab_id: new_tab_id,
-    })
+    let (workspace_id, tab_id, _) = svc.reopen_orphaned_tab(tab_id.as_str())?;
+    Ok(OrphanedRestoreInfo { workspace_id, tab_id })
 }
 
 /// Set the focused tab.
