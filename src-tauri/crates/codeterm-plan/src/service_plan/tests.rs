@@ -1059,3 +1059,30 @@ fn index_projection_keeps_canonical_ownership_separate_from_central_storage() {
     assert!(!entry.file_path.starts_with(project.path()));
     assert!(!project.path().join(".codeterm").join("plans").exists());
 }
+
+#[test]
+fn index_projection_derives_legacy_ownership_from_the_record_project_path() {
+    let storage = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let database_path = storage.path().join("plans.db");
+    let project_path = std::fs::canonicalize(project.path())
+        .unwrap()
+        .display()
+        .to_string();
+    let mut plan = Plan::new(
+        "Legacy central ownership projection".into(),
+        project_path.clone(),
+        OrchestratorRef::from_pane("owner-pane"),
+    );
+    plan.canonical_project_path.clear();
+    let database = store_db::PlanDatabase::open(database_path.clone()).unwrap();
+    let stored_path = database.persist_plan(&plan, None).unwrap();
+    let stored = database.load_plan(&plan.id).unwrap().unwrap();
+
+    assert!(stored.canonical_project_path.is_empty());
+    let entry = PlanStore::index_entry(&stored, stored_path);
+    assert_eq!(entry.canonical_project_path, project_path);
+    assert_eq!(entry.file_path, database_path);
+    assert!(!entry.file_path.starts_with(project.path()));
+    assert!(!project.path().join(".codeterm").join("plans").exists());
+}
