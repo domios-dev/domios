@@ -131,6 +131,26 @@ test("RichMarkdown renders markdown code blocks and mocked Mermaid output", asyn
   await act(async () => root.unmount());
 });
 
+test("RichMarkdown preserves line structure in unlabelled fenced blocks", async () => {
+  const markdown = [
+    "```",
+    "building.......... ███████████████████░  97%",
+    "finding bug....... ████░░░░░░░░░░░░░░░░  19%",
+    "your motivation... ██░░░░░░░░░░░░░░░░░░   8%",
+    "```",
+  ].join("\n");
+
+  const { host, root } = await render(<RichMarkdown text={markdown} />);
+  const code = host.querySelector<HTMLElement>('[data-testid="chat-plain-code-block"]');
+
+  assert(code, "unlabelled fence renders as a compact block instead of inline code");
+  assert(!host.querySelector('[data-testid="chat-code-block"]'), "plain text does not get heavy code chrome");
+  assert(code?.textContent?.trimEnd().split("\n").length === 3, "all fenced lines remain separate");
+  assert(code?.classList.contains("whitespace-pre"), "ASCII spacing and line breaks are preserved");
+
+  await act(async () => root.unmount());
+});
+
 const started = performance.now();
 let failed = 0;
 for (const [name, fn] of tests) {

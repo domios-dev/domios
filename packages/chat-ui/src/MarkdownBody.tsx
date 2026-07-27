@@ -40,6 +40,12 @@ function resolveCodeLanguage(className: string | undefined, children: unknown): 
   return looksLikeMermaidSource(source) ? "mermaid" : null;
 }
 
+function isBlockCodeNode(node: unknown): boolean {
+  if (!node || typeof node !== "object" || !("position" in node)) return false;
+  const position = (node as { position?: { start?: { line?: number }; end?: { line?: number } } }).position;
+  return position?.start?.line !== position?.end?.line;
+}
+
 export function RichMarkdown({ text, fontScale }: { text: string; fontScale?: number }) {
   const h1Text = pickUiFontScaleValue(fontScale, ["text-sm", "text-base", "text-lg", "text-xl"]);
   const h2Text = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
@@ -90,10 +96,11 @@ export function RichMarkdown({ text, fontScale }: { text: string; fontScale?: nu
           />
         ),
         // Block code: SyntaxHighlighter/CodeBlock. Inline code: styled span.
-        code: ({ node: _node, className, children, ...props }: React.ComponentProps<"code"> & { node?: unknown }) => {
+        code: ({ node, className, children, ...props }: React.ComponentProps<"code"> & { node?: unknown }) => {
           const language = resolveCodeLanguage(className, children);
           const plainCode = extractCodeText(children);
-          if (!language) {
+          const blockCode = isBlockCodeNode(node);
+          if (!language && !blockCode) {
             return (
               <code
                 className="px-1 py-0.5 rounded text-xs font-mono"
@@ -102,6 +109,22 @@ export function RichMarkdown({ text, fontScale }: { text: string; fontScale?: nu
                   color: "var(--ct-fg, #c9d1d9)",
                   overflowWrap: "anywhere",
                   wordBreak: "break-word",
+                }}
+                {...props}
+              >
+                {plainCode}
+              </code>
+            );
+          }
+          if (!language) {
+            return (
+              <code
+                data-testid="chat-plain-code-block"
+                className="my-2 block max-w-full overflow-x-auto whitespace-pre rounded-md border p-3 font-mono text-xs leading-[1.4]"
+                style={{
+                  background: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 7%, transparent)",
+                  borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
+                  color: "var(--ct-fg, #c9d1d9)",
                 }}
                 {...props}
               >
