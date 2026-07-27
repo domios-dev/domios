@@ -2,14 +2,22 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { createPortal } from "react-dom";
 import { ChevronRight, ClipboardList, LogOut, UsersRound } from "lucide-react";
 import type { Pane, ProviderDescriptor, Team } from "../../lib/types";
-import { TASK_STATUS_COLORS } from "../Canvas/settings";
 import { ProviderGlyph } from "../ProviderGlyph";
 import type { Plan } from "../Canvas/types";
-import { BOARD_COLUMN_DEFS, groupTasksIntoColumns } from "../Canvas/planView/boardModel";
+import { groupTasksIntoColumns } from "../Canvas/planView/boardModel";
 import { summarizeWorkers } from "./orchestrationSections";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { clampFloatingPosition } from "../shared/floatingPosition";
 import { ActivityDots } from "../shared/ActivityDots";
+import {
+  PLAN_STATUS_COLORS,
+  SegmentedDonut,
+  type SegmentedDonutSegment,
+} from "../shared/SegmentedDonut";
+import {
+  PlanStatusBreakdown,
+  type PlanStatusCounts,
+} from "../shared/PlanStatusBreakdown";
 import { loadTeamDisclosureState, persistTeamDisclosureState } from "./teamDisclosureState";
 
 export type TeamMemberRole = "planner" | "worker";
@@ -33,16 +41,11 @@ export interface TeamTaskBucket {
   color: string;
 }
 
-const statusColorForColumn = (key: (typeof BOARD_COLUMN_DEFS)[number]["key"]): string => {
-  const column = BOARD_COLUMN_DEFS.find((definition) => definition.key === key);
-  return TASK_STATUS_COLORS[column!.statuses[0]];
-};
-
 const EMPTY_BUCKETS: TeamTaskBucket[] = [
-  { key: "todo", label: "todo", count: 0, color: statusColorForColumn("in_progress") },
-  { key: "review", label: "review", count: 0, color: statusColorForColumn("in_review") },
-  { key: "blocked", label: "blocked", count: 0, color: statusColorForColumn("blocked") },
-  { key: "done", label: "done", count: 0, color: statusColorForColumn("done") },
+  { key: "todo", label: "todo", count: 0, color: PLAN_STATUS_COLORS.todo },
+  { key: "review", label: "review", count: 0, color: PLAN_STATUS_COLORS.review },
+  { key: "blocked", label: "blocked", count: 0, color: PLAN_STATUS_COLORS.blocked },
+  { key: "done", label: "done", count: 0, color: PLAN_STATUS_COLORS.done },
 ];
 
 export function deriveTeamTaskBuckets(
@@ -59,19 +62,6 @@ export function deriveTeamTaskBuckets(
         ? (counts.get("pending") ?? 0) + (counts.get("in_progress") ?? 0)
         : counts.get(bucket.key === "review" ? "in_review" : bucket.key) ?? 0,
   }));
-}
-
-export function teamDonutBackground(buckets: TeamTaskBucket[]): string {
-  const total = buckets.reduce((sum, bucket) => sum + bucket.count, 0);
-  if (total === 0) return "color-mix(in srgb, var(--ct-fg) 14%, transparent)";
-  let offset = 0;
-  const stops = buckets.flatMap((bucket) => {
-    if (bucket.count === 0) return [];
-    const start = (offset / total) * 100;
-    offset += bucket.count;
-    return [`${bucket.color} ${start}% ${(offset / total) * 100}%`];
-  });
-  return `conic-gradient(${stops.join(", ")})`;
 }
 
 export function useTeamPlanMotion(buckets: TeamTaskBucket[]) {
@@ -93,10 +83,13 @@ export function useTeamPlanMotion(buckets: TeamTaskBucket[]) {
   }, [complete, signature, total]);
 
   const onAnimationEnd = useCallback((event: ReactAnimationEvent<HTMLElement>) => {
-    if (event.animationName === "sidebar-team-donut-grow" || event.animationName === "sidebar-team-count-pop") {
+    if (
+      event.animationName === "ct-segmented-donut-grow"
+      || event.animationName === "sidebar-plan-entry-count-pop"
+    ) {
       setReacting(false);
     }
-    if (event.animationName === "sidebar-team-completion-sweep") setCompletionSweep(false);
+    if (event.animationName === "sidebar-plan-entry-completion-sweep") setCompletionSweep(false);
   }, []);
 
   return { revision, reacting, completionSweep, onAnimationEnd };
@@ -395,6 +388,23 @@ export function TeamUnit({
     () => (plan ? deriveTeamTaskBuckets(plan, panes) : EMPTY_BUCKETS),
     [plan, panes],
   );
+  const donutSegments = useMemo<SegmentedDonutSegment[]>(
+    () => buckets.map((bucket) => ({
+      status: bucket.key,
+      count: bucket.count,
+      color: bucket.color,
+    })),
+    [buckets],
+  );
+  const statusCounts = useMemo<PlanStatusCounts>(
+    () => ({
+      todo: buckets.find((bucket) => bucket.key === "todo")?.count ?? 0,
+      review: buckets.find((bucket) => bucket.key === "review")?.count ?? 0,
+      blocked: buckets.find((bucket) => bucket.key === "blocked")?.count ?? 0,
+      done: buckets.find((bucket) => bucket.key === "done")?.count ?? 0,
+    }),
+    [buckets],
+  );
   const planMotion = useTeamPlanMotion(buckets);
 
   useEffect(() => setName(team.name?.trim() || "Team"), [team.name]);
@@ -454,13 +464,13 @@ export function TeamUnit({
 
   const cardContents = <>
     {plan ? (
-      <span
+      <SegmentedDonut
         key={`donut-${planMotion.revision}`}
         data-testid="team-donut"
-        className={`sidebar-team-donut${planMotion.reacting ? " sidebar-team-donut-reaction" : ""}`}
-        aria-label="Task status composition"
-        style={{ background: teamDonutBackground(buckets) }}
-      ><span data-testid="team-donut-hole" className="sidebar-team-donut-hole" /></span>
+        segments={donutSegments}
+        size={22}
+        aria-label={`Task status composition: ${statusCounts.todo} todo, ${statusCounts.review} review, ${statusCounts.blocked} blocked, ${statusCounts.done} done`}
+      />
     ) : (
       <span data-testid="team-icon" className="sidebar-team-icon" aria-hidden><UsersRound size={14} /></span>
     )}
@@ -511,7 +521,7 @@ export function TeamUnit({
     >
       <div
         ref={headerRef}
-        className={`sidebar-team-header${plan && !editing ? " sidebar-team-header-active" : ""}${planMotion.completionSweep ? " sidebar-team-header-completion" : ""}`}
+        className={`sidebar-team-header${plan && !editing ? " sidebar-team-header-active" : ""}${planMotion.completionSweep ? " sidebar-plan-entry-completion" : ""}`}
         data-menu-dismissed={menuDismissed ? "true" : undefined}
       >
         {plan && !editing ? (
@@ -548,22 +558,13 @@ export function TeamUnit({
         </span>
       </div>
       {plan && (
-        <span
+        <PlanStatusBreakdown
           key={`tally-${planMotion.revision}`}
           data-testid="team-status-tally"
-          className={`sidebar-team-readout${planMotion.reacting ? " sidebar-team-count-reaction" : ""}`}
-        >
-          {buckets.map((bucket, index) => (
-            <span key={bucket.key} className="sidebar-team-readout-segment">
-              {index > 0 && <span className="sidebar-team-readout-separator" aria-hidden> · </span>}
-              <span data-testid={`team-status-${bucket.key}`} className="sidebar-team-readout-item" style={{ color: bucket.color }}>
-                <span className="sidebar-team-readout-compact-dot" aria-hidden />
-                <span className="sidebar-team-readout-count">{bucket.count}</span>
-                <span className="sidebar-team-readout-label"> {bucket.label}</span>
-              </span>
-            </span>
-          ))}
-        </span>
+          className={`sidebar-team-readout${planMotion.completionSweep ? " sidebar-plan-entry-count-completion" : ""}`}
+          counts={statusCounts}
+          itemTestIdPrefix="team-status"
+        />
       )}
       {expanded && (
         <div className="sidebar-team-body">

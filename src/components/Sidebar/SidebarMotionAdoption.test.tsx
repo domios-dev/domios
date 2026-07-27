@@ -79,11 +79,11 @@ async function run() {
     { revision: "2", sweep: "true" },
   ], "bucket changes arm once and only an incomplete-to-complete change arms the sweep");
   const reactionEvent = new Event("animationend", { bubbles: true });
-  Object.defineProperty(reactionEvent, "animationName", { value: "sidebar-team-donut-grow" });
+  Object.defineProperty(reactionEvent, "animationName", { value: "ct-segmented-donut-grow" });
   await act(async () => changed.host.firstElementChild!.dispatchEvent(reactionEvent));
   assert.equal(changed.host.firstElementChild!.getAttribute("data-reacting"), "false", "reaction class clears from its animation event");
   const sweepEvent = new Event("animationend", { bubbles: true });
-  Object.defineProperty(sweepEvent, "animationName", { value: "sidebar-team-completion-sweep" });
+  Object.defineProperty(sweepEvent, "animationName", { value: "sidebar-plan-entry-completion-sweep" });
   await act(async () => changed.host.firstElementChild!.dispatchEvent(sweepEvent));
   assert.equal(changed.host.firstElementChild!.getAttribute("data-sweep"), "false", "sweep clears from its animation event");
   await act(async () => changed.root.unmount());
@@ -100,12 +100,12 @@ async function run() {
   assert.match(styles, /\.sidebar-workspace-card-create[^}]*transform-origin:\s*center/s);
   assert.match(styles, /scale\(1\.02\)/);
   assert.match(styles, /scale\(\.955\)/);
-  assert.match(styles, /@keyframes sidebar-team-donut-grow\{0%\{transform:scale\(\.955\)\}58%\{transform:scale\(1\.02\)\}100%\{transform:scale\(1\)\}\}/);
-  assert.match(styles, /@keyframes sidebar-team-count-pop\{0%\{transform:scale\(\.955\)\}55%\{transform:scale\(1\.02\)\}100%\{transform:scale\(1\)\}\}/);
-  assert.match(styles, /@keyframes sidebar-team-completion-sweep\{to\{transform:translateX\(120%\)\}\}/);
-  assert.match(styles, /@container \(max-width: 159px\)[\s\S]*?\.sidebar-team-readout-separator\s*\{\s*display:\s*none;/);
+  assert.match(styles, /@keyframes ct-segmented-donut-grow\{0%\{transform:scale\(\.955\)\}58%\{transform:scale\(1\.02\)\}100%\{transform:scale\(1\)\}\}/);
+  assert.match(styles, /@keyframes sidebar-plan-entry-count-pop\{0%\{transform:scale\(\.955\)\}55%\{transform:scale\(1\.02\)\}100%\{transform:scale\(1\)\}\}/);
+  assert.match(styles, /@keyframes sidebar-plan-entry-completion-sweep\{to\{transform:translateX\(120%\)\}\}/);
+  assert.match(styles, /\.ct-plan-status-breakdown\s*\{[^}]*flex-wrap:\s*nowrap;[^}]*white-space:\s*nowrap;/s);
   assert.match(styles, /\.sidebar-team-card-activation:focus-visible[\s\S]*?outline:\s*1px solid var\(--ct-accent\)/);
-  assert.match(styles, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.sidebar-team-donut-reaction[\s\S]*?animation:\s*none/);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.ct-segmented-donut[\s\S]*?animation:\s*none/);
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.sidebar-team-card-activation[\s\S]*?transform:\s*none/);
   assert.match(styles, /\.sidebar-team-header-active:hover[\s\S]*?background:\s*var\(--ct-hover\)/);
   assert.match(styles, /\.sidebar-workspace-card\[data-selected="true"\][\s\S]*?background:\s*var\(--ct-accent\)/);
