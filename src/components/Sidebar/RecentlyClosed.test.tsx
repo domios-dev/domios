@@ -196,7 +196,7 @@ test("clicking the group header reopens the whole group via mux_reopen_closed_gr
   const calls: Array<{ cmd: string; args?: Record<string, unknown> }> = [];
   __setInvokeForTest(async <T,>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
     calls.push({ cmd, args });
-    return { workspace_id: "ws1", tab_id: "t1", tab_id: "orch" } as T;
+    return { workspace_id: "ws1", tab_id: "orch" } as T;
   });
   const { host, root } = await render(
     <RecentlyClosed

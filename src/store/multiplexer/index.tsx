@@ -342,20 +342,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     };
   }, [applyBackendState]);
 
-  const findContext = useCallback(
-    (tabId: string) => {
-      for (const ws of stateRef.current.workspaces) {
-        for (const tab of ws.tabs) {
-          if (tab.tab_id === tabId) {
-            return { workspaceId: ws.id, tabId: tab.id };
-          }
-        }
-      }
-      return null;
-    },
-    [],
-  );
-
   const refreshFromBackend = useCallback(async (): Promise<boolean> => {
     try {
       const s = await invoke<MultiplexerState>("mux_get_state");
@@ -373,12 +359,12 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     try {
       guardedInvoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
       dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
-      const tabInfo = await guardedInvoke<{ id: string; title: string; tab_id: string }>("mux_create_tab", { workspaceId, activate: true });
+      const tabInfo = await guardedInvoke<{ id: string; title: string }>("mux_create_tab", { workspaceId, activate: true });
       const ws = stateRef.current.workspaces.find((w) => w.id === workspaceId);
       const effectiveCwd = cwd || ws?.cwd || undefined;
       if (effectiveCwd) {
-        setPendingCwd(tabInfo.tab_id, effectiveCwd);
-        await guardedInvoke("mux_update_tab_cwd", { tabId: tabInfo.tab_id, cwd: effectiveCwd });
+        setPendingCwd(tabInfo.id, effectiveCwd);
+        await guardedInvoke("mux_update_tab_cwd", { tabId: tabInfo.id, cwd: effectiveCwd });
       }
       await guardedInvoke("mux_set_active_tab", { workspaceId, tabId: tabInfo.id });
       dispatch({
@@ -387,9 +373,9 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         tabId: tabInfo.id,
       });
       // Explicit New Tab click focuses the new tab; background spawns don't.
-      guardedInvoke("mux_set_focused_tab", { tabId: tabInfo.tab_id }).catch(() => {});
+      guardedInvoke("mux_set_focused_tab", { tabId: tabInfo.id }).catch(() => {});
       refreshFromBackend();
-      return { id: tabInfo.id, tab_id: tabInfo.tab_id };
+      return { id: tabInfo.id };
     } catch (e) {
       console.error("Failed to create tab:", e);
     }
@@ -459,7 +445,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const closeWorkspace = useCallback(
     (id: string) => {
       const ws = stateRef.current.workspaces.find((w) => w.id === id);
-      const tabIds = ws ? ws.tabs.map((t) => t.tab_id) : [];
+      const tabIds = ws ? [...ws.tabs] : [];
       dispatch({ type: "CLOSE_WORKSPACE", id });
       // On rejection the workspace still lives — drop its tombstones and restore.
       guardedInvoke("mux_close_workspace", { workspaceId: id })
@@ -570,7 +556,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       dispatch({ type: "SET_ACTIVE_TAB", workspaceId: res.workspace_id, tabId: res.tab_id });
       // Snappy local focus; backend also emits the authoritative tab-focused.
       dispatch({ type: "SET_FOCUSED_TAB", tabId: res.tab_id });
-      return { workspaceId: res.workspace_id, tabId: res.tab_id, tabId: res.tab_id };
+      return { workspaceId: res.workspace_id, tabId: res.tab_id };
     } catch (e) {
       notifySpawnFailure(workspaceId, agentId, e);
       return null;
@@ -608,9 +594,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     (workspaceId: string, tabId: string) => {
       const { workspaces } = stateRef.current;
       const ws = workspaces.find((w) => w.id === workspaceId);
-      const tab = ws?.tabs.find((t) => t.id === tabId);
-      if (!tab) return;
-      const tabId = tab.tab_id;
+      if (!ws?.tabs.includes(tabId)) return;
       dispatch({ type: "CLOSE_TAB", workspaceId, tabId, removedTabIds: [tabId] });
       // Refresh only after the close is acknowledged; on rejection the tab
       // still lives, so drop its tombstone and restore from authoritative state.
@@ -636,9 +620,9 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   // Select + focus a just-spawned tab by resolving its owning tab; a fresh
   // tab may lag local state, so fall back to an authoritative snapshot.
-  const selectTabByTab = useCallback(async (workspaceId: string, tabId: string) => {
+  const selectTabByTab = useCallback(async (workspaceId: string, requestedTabId: string) => {
     const findTab = (s: MultiplexerState) =>
-      s.workspaces.find((w) => w.id === workspaceId)?.tabs.find((t) => t.tab_id === tabId)?.id ?? null;
+      s.workspaces.find((w) => w.id === workspaceId)?.tabs.find((id) => id === requestedTabId) ?? null;
     let tabId = findTab(stateRef.current);
     if (!tabId) {
       try {
@@ -658,50 +642,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     guardedInvoke("mux_set_focused_tab", { tabId }).catch(() => {});
     dispatch({ type: "SET_FOCUSED_TAB", tabId });
   }, [guardedInvoke, applyBackendState]);
-
-  const closeTab = useCallback(
-    (tabId: string) => {
-      const ctx = findContext(tabId);
-      if (!ctx) return;
-      const { workspaces } = stateRef.current;
-      const ws = workspaces.find((w) => w.id === ctx.workspaceId);
-      const tab = ws?.tabs.find((t) => t.id === ctx.tabId);
-      const closesTab = Boolean(tab) && [tab!.tab_id].length <= 1;
-      // Both ops fire; the tab-close fails redundantly once the tab-close
-      // removed it — only a total failure (no op succeeded) drops the tombstone.
-      const ops = closesTab
-        ? [
-            guardedInvoke("mux_close_tab", { tabId }),
-            guardedInvoke("mux_close_tab", { workspaceId: ctx.workspaceId, tabId: ctx.tabId }),
-          ]
-        : [guardedInvoke("mux_close_tab", { tabId })];
-      Promise.allSettled(ops).then((results) => {
-        if (!results.some((r) => r.status === "fulfilled")) {
-          dispatch({ type: "REMOVE_PENDING_CLOSE", tabIds: [tabId] });
-        }
-        refreshFromBackend();
-      });
-      if (closesTab) {
-        dispatch({
-          type: "CLOSE_TAB",
-          workspaceId: ctx.workspaceId,
-          tabId: ctx.tabId,
-          removedTabIds: [tabId],
-        });
-        return;
-      }
-      dispatch({
-        type: "CLOSE_TAB",
-        workspaceId: ctx.workspaceId,
-        tabId: ctx.tabId,
-        tabId,
-      });
-      requestAnimationFrame(() => {
-        window.dispatchEvent(new CustomEvent("codeterm-tab-resize"));
-      });
-    },
-    [findContext, guardedInvoke, refreshFromBackend],
-  );
 
   const setFocusedTab = useCallback((tabId: string) => {
     // Optimistic local update for snappy click feedback.
@@ -778,15 +718,9 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "DISMISS_TOAST", id });
   }, []);
 
-  const setTabTitle = useCallback((tabId: string, title: string, level?: TitleLevel) => {
-    dispatch({ type: "SET_TAB_TITLE", tabId, title, level });
-  }, []);
-
   const setTabTitle = useCallback((workspaceId: string, tabId: string, title: string) => {
     const workspace = stateRef.current.workspaces.find((ws) => ws.id === workspaceId);
-    const tab = workspace?.tabs.find((candidate) => candidate.id === tabId);
-    const tabId = tab?.tab_id;
-    if (!tabId) return;
+    if (!workspace?.tabs.includes(tabId)) return;
     dispatch({ type: "SET_TAB_TITLE", tabId, title, level: TitleLevel.User });
   }, []);
 
@@ -823,7 +757,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       restoreOrphaned,
       setActiveTab,
       selectTabByTab,
-      closeTab,
       setFocusedTab,
       setTabPty,
       addNotification,
@@ -833,7 +766,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       deleteNotification,
       clearNotifications,
       dismissToast,
-      setTabTitle,
       setTabTitle,
       setAgentType,
       updateTabStatus,
@@ -856,7 +788,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       restoreOrphaned,
       setActiveTab,
       selectTabByTab,
-      closeTab,
       setFocusedTab,
       setTabPty,
       addNotification,
@@ -866,7 +797,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       deleteNotification,
       clearNotifications,
       dismissToast,
-      setTabTitle,
       setTabTitle,
       setAgentType,
       updateTabStatus,

@@ -62,7 +62,7 @@ test("revealAssignedAgentTab closes canvas overlays and activates tab", () => {
   assert(!canvasFocusStore.isWorkspaceOpen(), "workspace canvas closed");
   const activeTab = activeTabs[0];
   assert(activeTabs.length === 1, `tab activated ${activeTabs.length} times`);
-  assert(activeTab?.workspaceId === "ws-1" && activeTab?.tabId === "tab-2", "tab activated");
+  assert(activeTab?.workspaceId === "ws-1" && activeTab?.tabId === "worker-1", "tab activated");
   assert(focusedTabs.length === 1, `Tab focused ${focusedTabs.length} times`);
   assert(focusedTabs[0] === "worker-1", "target Tab focused");
 });

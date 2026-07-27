@@ -76,8 +76,8 @@ fn team_snapshot_roundtrip() {
     };
     state.upsert_team(team.clone());
 
-    let (_t1, m1) = state.create_tab(&wsid).unwrap();
-    let (_t2, m2) = state.create_tab(&wsid).unwrap();
+    let m1 = state.create_tab(&wsid).unwrap();
+    let m2 = state.create_tab(&wsid).unwrap();
     state.get_tab_mut(&m1).unwrap().team_id = Some(team.id.clone());
     state.get_tab_mut(&m2).unwrap().team_id = Some(team.id.clone());
 
@@ -176,11 +176,11 @@ fn manager_close_survives_snapshot_restore_without_resurrection() {
         .resolve_or_mint_team_for_parent(&root_id)
         .unwrap()
         .team_id;
-    let (_tab, manager_id) = state.create_tab(&workspace_id).unwrap();
+    let manager_id = state.create_tab(&workspace_id).unwrap();
     state
         .set_tab_role(&manager_id, AgentRole::Manager, Some(&root_id))
         .unwrap();
-    let (_tab, worker_id) = state.create_tab(&workspace_id).unwrap();
+    let worker_id = state.create_tab(&workspace_id).unwrap();
     state
         .set_tab_role(&worker_id, AgentRole::Worker, Some(&root_id))
         .unwrap();
@@ -205,7 +205,7 @@ fn snapshot_includes_teams() {
     let team = Team::new(&workspace_id, 1);
     let team_id = team.id.clone();
     state.upsert_team(team);
-    let (_tab_id, tab_id) = state.create_tab(&workspace_id).unwrap();
+    let tab_id = state.create_tab(&workspace_id).unwrap();
     state.get_tab_mut(&tab_id).unwrap().team_id = Some(team_id.clone());
 
     let snapshot = serde_json::to_value(state.snapshot()).unwrap();
@@ -220,7 +220,7 @@ fn legacy_snapshot_no_team_fields_restores() {
     // snapshot, then prove it still restores cleanly and teamless.
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
-    let (_t, tab_id) = state.create_tab(&wsid).unwrap();
+    let tab_id = state.create_tab(&wsid).unwrap();
 
     let snap = state.to_session_snapshot();
     let mut json = serde_json::to_value(&snap).unwrap();
@@ -257,7 +257,7 @@ fn watcher_spec_round_trips_through_snapshot() {
 
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
-    let (_, tab_id) = state.create_tab(&wsid).unwrap();
+    let tab_id = state.create_tab(&wsid).unwrap();
     let spec = WatcherSpec {
         charter: "Observe this orchestration.".into(),
         policy: WatcherPolicy::clamped(Some(90), Some(120), Some(2)),
@@ -406,7 +406,11 @@ fn tab_description_round_trips_through_snapshot() {
     assert_eq!(tab.description.as_deref(), Some("running focused tests"));
     assert_eq!(tab.role_profile.as_deref(), Some("planner"));
     assert_eq!(
-        state.workspaces[0].tabs[0].description.as_deref(),
+        state
+            .get_tab(&state.workspaces[0].tabs[0])
+            .unwrap()
+            .description
+            .as_deref(),
         Some("running focused tests")
     );
 
@@ -520,7 +524,7 @@ fn remote_report_target_round_trips_through_snapshot() {
     // restarted worker still relays its reports back across the mesh.
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
-    let (_tab, tab_id) = state.create_tab(&wsid).unwrap();
+    let tab_id = state.create_tab(&wsid).unwrap();
     if let Some(p) = state.get_tab_mut(&tab_id) {
         p.report_target_tab_id = Some("main".into());
         p.report_target_mesh_peer = Some("Mac-Air".into());
@@ -541,8 +545,8 @@ fn session_snapshot_no_longer_carries_closed_history() {
     // session snapshot must stay lean and not round-trip it.
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
-    let (tab_a, _tab_a) = state.create_tab(&wsid).unwrap();
-    state.close_tab(&wsid, &tab_a).unwrap();
+    let tab_a = state.create_tab(&wsid).unwrap();
+    state.close_tab(&tab_a).unwrap();
     assert_eq!(
         state.list_recently_closed(&wsid).len(),
         1,
@@ -566,7 +570,7 @@ fn chatbackend_tab_stays_chat_backend_after_snapshot_resave() {
     // Start with a live chatBackend tab (simulates post-spawn state).
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
-    let (_, tab_id) = state.create_tab(&wsid).unwrap();
+    let tab_id = state.create_tab(&wsid).unwrap();
     {
         let tab = state.get_tab_mut(&tab_id).unwrap();
         tab.backing = TabBacking::ChatBackend {
@@ -607,9 +611,9 @@ fn snapshot_with_status_mirrors_tracked_pty_status_only() {
 
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
-    let (_tab, waiting_tab) = state.create_tab(&wsid).unwrap();
-    let (_tab2, working_tab) = state.create_tab(&wsid).unwrap();
-    let (_tab3, untracked_tab) = state.create_tab(&wsid).unwrap();
+    let waiting_tab = state.create_tab(&wsid).unwrap();
+    let working_tab = state.create_tab(&wsid).unwrap();
+    let untracked_tab = state.create_tab(&wsid).unwrap();
     state.get_tab_mut(&waiting_tab).unwrap().pty_id = Some("pty-waiting".into());
     state.get_tab_mut(&working_tab).unwrap().pty_id = Some("pty-working".into());
     state.get_tab_mut(&untracked_tab).unwrap().pty_id = Some("pty-untracked".into());
@@ -644,8 +648,8 @@ fn snapshot_status_resolver_distinguishes_repaint_from_long_turn() {
 
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
-    let (_tab, idle_tab) = state.create_tab(&wsid).unwrap();
-    let (_tab2, working_tab) = state.create_tab(&wsid).unwrap();
+    let idle_tab = state.create_tab(&wsid).unwrap();
+    let working_tab = state.create_tab(&wsid).unwrap();
     for (tab_id, pty_id, agent_state) in [
         (&idle_tab, "pty-idle", TimelineState::Idle),
         (&working_tab, "pty-working", TimelineState::Working),
@@ -703,7 +707,7 @@ fn snapshot_with_status_derives_waiting_from_pending_prompt_over_working() {
 
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
-    let (_tab, tab_id) = state.create_tab(&wsid).unwrap();
+    let tab_id = state.create_tab(&wsid).unwrap();
     {
         let tab = state.get_tab_mut(&tab_id).unwrap();
         tab.pty_id = Some("pty-prompted".into());
@@ -728,7 +732,7 @@ fn snapshot_with_status_derives_waiting_from_pending_prompt_when_untracked() {
 
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
-    let (_tab, tab_id) = state.create_tab(&wsid).unwrap();
+    let tab_id = state.create_tab(&wsid).unwrap();
     state.get_tab_mut(&tab_id).unwrap().pending_prompt = Some(test_pending_prompt());
 
     let tracker = TabStatusTracker::new();
@@ -747,7 +751,7 @@ fn snapshot_with_status_keeps_dead_over_stale_pending_prompt() {
 
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
-    let (_tab, tab_id) = state.create_tab(&wsid).unwrap();
+    let tab_id = state.create_tab(&wsid).unwrap();
     {
         let tab = state.get_tab_mut(&tab_id).unwrap();
         tab.pty_id = Some("pty-dead".into());
@@ -820,7 +824,7 @@ fn spawned_by_round_trips_through_snapshot() {
 fn requested_and_actual_model_identity_round_trips_through_snapshot() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = state.list_workspaces()[0].id.clone();
-    let (_, tab_id) = state.create_tab(&wsid).unwrap();
+    let tab_id = state.create_tab(&wsid).unwrap();
     let mismatch = crate::multiplexer::types::ModelIdentityMismatch {
         planned_model: Some("codex/gpt-5.6-luna".into()),
         requested_model: "gpt-5.6-luna".into(),
@@ -874,7 +878,7 @@ fn requested_and_actual_model_identity_round_trips_through_snapshot() {
 fn ghost_repro_skip_snapshot_tab_excluded_from_snapshot() {
     let mut state = MultiplexerState::empty();
     let wsid = state.create_workspace("Test".to_string(), None).id;
-    let (_tab, tab_id) = state.create_tab(&wsid).unwrap();
+    let tab_id = state.create_tab(&wsid).unwrap();
     state.get_tab_mut(&tab_id).unwrap().skip_snapshot = true;
 
     let snap = state.to_session_snapshot();
@@ -892,7 +896,7 @@ fn ghost_repro_skip_snapshot_tab_excluded_from_snapshot() {
 fn ghost_repro_normal_tab_survives_snapshot_round_trip() {
     let mut state = MultiplexerState::empty();
     let wsid = state.create_workspace("Test".to_string(), None).id;
-    let (_tab, tab_id) = state.create_tab(&wsid).unwrap();
+    let tab_id = state.create_tab(&wsid).unwrap();
     state.get_tab_mut(&tab_id).unwrap().title = "My session".to_string();
     // skip_snapshot defaults to false
 
@@ -916,10 +920,10 @@ fn ghost_repro_mixed_workspace_drops_only_ephemeral() {
     let mut state = MultiplexerState::empty();
     let wsid = state.create_workspace("Test".to_string(), None).id;
 
-    let (_tab_real, tab_real) = state.create_tab(&wsid).unwrap();
+    let tab_real = state.create_tab(&wsid).unwrap();
     state.get_tab_mut(&tab_real).unwrap().title = "Real session".to_string();
 
-    let (_tab_picker, tab_picker) = state.create_tab(&wsid).unwrap();
+    let tab_picker = state.create_tab(&wsid).unwrap();
     state.get_tab_mut(&tab_picker).unwrap().skip_snapshot = true;
 
     let snap = state.to_session_snapshot();
@@ -941,29 +945,19 @@ fn ghost_repro_mixed_workspace_drops_only_ephemeral() {
 fn snapshots_exclude_orphaned_and_duplicate_live_tabs() {
     let mut state = MultiplexerState::empty();
     let workspace_id = state.create_workspace("Clean".to_string(), None).id;
-    let (tab_id, tab_id) = state.create_tab(&workspace_id).unwrap();
+    let tab_id = state.create_tab(&workspace_id).unwrap();
     let workspace = state
         .workspaces
         .iter_mut()
         .find(|workspace| workspace.id == workspace_id)
         .unwrap();
-    workspace.tabs.push(crate::multiplexer::types::Tab {
-        id: "duplicate-tab".to_string(),
-        description: None,
-        tab_id: tab_id.clone(),
-        sort_order: 1,
-    });
-    workspace.tabs.push(crate::multiplexer::types::Tab {
-        id: "orphaned-tab".to_string(),
-        description: None,
-        tab_id: "closed-tab".to_string(),
-        sort_order: 2,
-    });
-    workspace.active_tab_id = Some("orphaned-tab".to_string());
+    workspace.tabs.push(tab_id.clone());
+    workspace.tabs.push("closed-tab".to_string());
+    workspace.active_tab_id = Some("closed-tab".to_string());
 
     let live = state.snapshot();
     assert_eq!(live.workspaces[0].tabs.len(), 1);
-    assert_eq!(live.workspaces[0].tabs[0].id, tab_id);
+    assert_eq!(live.workspaces[0].tabs[0], tab_id);
     assert_eq!(
         live.workspaces[0].active_tab_id.as_deref(),
         Some(tab_id.as_str())

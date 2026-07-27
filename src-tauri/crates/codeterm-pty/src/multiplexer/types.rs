@@ -564,6 +564,7 @@ mod tests {
     fn tab_with(id: &str, backing: TabBacking) -> Tab {
         Tab {
             id: id.to_string(),
+            sort_order: 0,
             pty_id: None,
             backing,
             tab_type: TabType::Terminal,

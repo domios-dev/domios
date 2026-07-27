@@ -3,7 +3,7 @@
 import { act, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
-import type { Tab, MultiplexerState, Tab, Team, Workspace } from "../../lib/types";
+import type { Tab, MultiplexerState, Team, Workspace } from "../../lib/types";
 import { __setListenForTest } from "../../lib/bridge";
 import { fireResync } from "../../lib/resync";
 import { PlansProvider, useFullPlans, usePlanIndex } from "../Canvas/PlansProvider";
@@ -118,8 +118,8 @@ function snapshot(teamName: string): MultiplexerState {
     workspaces: [{
       id: WORKSPACE_ID,
       name: "Workspace",
-      tabs: [{ id: "tab-orchestrator", tab_id: TAB_ID, sort_order: 0 }],
-      active_tab_id: "tab-orchestrator",
+      tabs: [TAB_ID],
+      active_tab_id: TAB_ID,
       cwd: "/workspace",
     }],
     tabs: { [TAB_ID]: tab },
@@ -215,7 +215,7 @@ function Projection() {
   }, []);
 
   const workspace = mux.workspaces[0] as Workspace;
-  const tabs = workspace.tabs as Tab[];
+  const tabs = workspace.tabs.map((tabId) => mux.tabs[tabId]).filter(Boolean);
   const teams = (mux.teams ?? []) as Team[];
   return (
     <SidebarDnd handlers={{ reorderTabs: () => {}, reorderWorkspaces: () => {} }}>

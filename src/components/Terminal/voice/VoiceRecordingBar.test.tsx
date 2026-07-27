@@ -163,7 +163,9 @@ async function testRecordingAndLockedSemantics() {
   assert.equal(holdCancel.getAttribute("role"), "button");
   assert.equal(holdCancel.tabIndex, 0);
   await act(async () => {
-    holdCancel.dispatchEvent(new window.PointerEvent("pointerdown", { bubbles: true }));
+    holdCancel.dispatchEvent(
+      new window.Event("pointerdown", { bubbles: true }) as unknown as Event,
+    );
   });
   assert.equal(cancels, 1);
 
@@ -180,7 +182,9 @@ async function testRecordingAndLockedSemantics() {
   const lockedCancel = host.querySelector("button") as HTMLButtonElement;
   assert.equal(lockedCancel.textContent, "Cancel");
   await act(async () => {
-    lockedCancel.dispatchEvent(new window.PointerEvent("pointerdown", { bubbles: true }));
+    lockedCancel.dispatchEvent(
+      new window.Event("pointerdown", { bubbles: true }) as unknown as Event,
+    );
   });
   assert.equal(cancels, 2);
   await act(async () => root.unmount());

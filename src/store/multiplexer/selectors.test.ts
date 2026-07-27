@@ -32,8 +32,8 @@ function sampleState(tabs: Record<string, Tab>, teams: Team[] = []): ExtendedSta
     workspaces: [{
       id: "ws",
       name: "ws",
-      tabs: tabIds.map((tab_id) => ({ id: `tab-${tab_id}`, tab_id })),
-      active_tab_id: tabIds[0] ? `tab-${tabIds[0]}` : null,
+      tabs: tabIds,
+      active_tab_id: tabIds[0] ?? null,
       cwd: null,
     }],
     tabs,

@@ -1,22 +1,19 @@
 // Run: npx tsx src/components/Sidebar/workspaceTabs.test.ts
 
 import assert from "node:assert/strict";
-import type { Tab, Tab } from "../../lib/types";
+import type { Tab } from "../../lib/types";
 import {
   childTabIdsInWorkspace,
   childTabsForParent,
   topLevelTabsInWorkspace,
 } from "./workspaceTabs";
 
-function tab(id: string, tabId: string, sortOrder = 0): Tab {
-  return { id, tab_id: tabId, sort_order: sortOrder };
-}
-
 function tab(
   id: string,
   parentTabId?: string,
   cwd?: string | null,
   hidden?: boolean,
+  sortOrder = 0,
 ): Tab {
   return {
     id,
@@ -27,98 +24,83 @@ function tab(
     depth: parentTabId ? 1 : 0,
     cwd: cwd ?? null,
     hidden: hidden ?? false,
+    sort_order: sortOrder,
   } as unknown as Tab;
 }
 
-const parentTab = tab("tab-parent", "parent-tab", 0);
-const childTab = tab("tab-child", "child-tab", 1);
-const movedChildTab = tab("tab-moved", "moved-tab", 2);
+function records(...items: Tab[]): Record<string, Tab> {
+  return Object.fromEntries(items.map((item) => [item.id, item]));
+}
 
 assert.deepEqual(
-  topLevelTabsInWorkspace([parentTab, childTab], {
-    "parent-tab": tab("parent-tab"),
-    "child-tab": tab("child-tab", "parent-tab"),
-  }).map((t) => t.id),
-  ["tab-parent"],
+  topLevelTabsInWorkspace(
+    ["parent-tab", "child-tab"],
+    records(tab("parent-tab"), tab("child-tab", "parent-tab")),
+  ).map((item) => item.id),
+  ["parent-tab"],
   "in-workspace child nests under parent",
 );
 
 assert.deepEqual(
-  childTabsForParent([parentTab, childTab], {
-    "parent-tab": tab("parent-tab", undefined, "/workspace"),
-    "child-tab": tab("child-tab", "parent-tab", "/other/project"),
-  }, "parent-tab").map((t) => t.id),
-  ["tab-child"],
+  childTabsForParent(
+    ["parent-tab", "child-tab"],
+    records(tab("parent-tab", undefined, "/workspace"), tab("child-tab", "parent-tab", "/other/project")),
+    "parent-tab",
+  ).map((item) => item.id),
+  ["child-tab"],
   "child nests under parent when cwd differs from workspace",
 );
 
 assert.deepEqual(
-  topLevelTabsInWorkspace([movedChildTab], {
-    "moved-tab": tab("moved-tab", "parent-tab"),
-  }).map((t) => t.id),
-  ["tab-moved"],
-  "cross-workspace child surfaces at top level after move-tab",
+  topLevelTabsInWorkspace(["moved-tab"], records(tab("moved-tab", "parent-tab"))).map((item) => item.id),
+  ["moved-tab"],
+  "cross-workspace child surfaces at top level after move",
 );
 
 assert.equal(
-  childTabIdsInWorkspace([movedChildTab], {
-    "moved-tab": tab("moved-tab", "parent-tab"),
-  }).size,
+  childTabIdsInWorkspace(["moved-tab"], records(tab("moved-tab", "parent-tab"))).size,
   0,
   "cross-workspace child is not treated as nested",
 );
 
-const grandparentTab = tab("tab-gp", "gp-tab", 0);
-const midTab = tab("tab-mid", "mid-tab", 1);
-const leafTab = tab("tab-leaf", "leaf-tab", 2);
-
+const hierarchy = records(
+  tab("gp-tab"),
+  tab("mid-tab", "gp-tab", null, false, 1),
+  tab("leaf-tab", "mid-tab", null, false, 2),
+);
 assert.deepEqual(
-  topLevelTabsInWorkspace([grandparentTab, midTab, leafTab], {
-    "gp-tab": tab("gp-tab"),
-    "mid-tab": tab("mid-tab", "gp-tab"),
-    "leaf-tab": tab("leaf-tab", "mid-tab"),
-  }).map((t) => t.id),
-  ["tab-gp"],
+  topLevelTabsInWorkspace(["gp-tab", "mid-tab", "leaf-tab"], hierarchy).map((item) => item.id),
+  ["gp-tab"],
   "only the hierarchy root is top-level",
 );
-
 assert.deepEqual(
-  childTabsForParent([grandparentTab, midTab, leafTab], {
-    "gp-tab": tab("gp-tab"),
-    "mid-tab": tab("mid-tab", "gp-tab"),
-    "leaf-tab": tab("leaf-tab", "mid-tab"),
-  }, "mid-tab").map((t) => t.id),
-  ["tab-leaf"],
+  childTabsForParent(["gp-tab", "mid-tab", "leaf-tab"], hierarchy, "mid-tab").map((item) => item.id),
+  ["leaf-tab"],
   "grandchild renders under its direct parent",
 );
 
-const hiddenParentTab = tab("tab-hidden-parent", "hidden-parent", 0);
-const visibleChildTab = tab("tab-visible-child", "visible-child", 1);
-
 assert.deepEqual(
-  topLevelTabsInWorkspace([hiddenParentTab, visibleChildTab], {
-    "hidden-parent": tab("hidden-parent", undefined, null, true),
-    "visible-child": tab("visible-child", "hidden-parent"),
-  }).map((t) => t.id),
-  ["tab-visible-child"],
+  topLevelTabsInWorkspace(
+    ["hidden-parent", "visible-child"],
+    records(tab("hidden-parent", undefined, null, true), tab("visible-child", "hidden-parent")),
+  ).map((item) => item.id),
+  ["visible-child"],
   "child of hidden parent surfaces at top level",
 );
 
 assert.deepEqual(
-  topLevelTabsInWorkspace([parentTab, tab("tab-orphan", "missing-tab", 1)], {
-    "parent-tab": tab("parent-tab"),
-  }).map((t) => t.id),
-  ["tab-parent"],
-  "tab without a Tab record does not surface at top level",
+  topLevelTabsInWorkspace(["parent-tab", "missing-tab"], records(tab("parent-tab"))).map((item) => item.id),
+  ["parent-tab"],
+  "missing Tab record does not surface",
 );
 
 assert.deepEqual(
-  topLevelTabsInWorkspace([parentTab, tab("tab-hidden", "hidden-tab", 1)], {
-    "parent-tab": tab("parent-tab"),
-    "hidden-tab": tab("hidden-tab", undefined, null, true),
-  }).map((t) => t.id),
-  ["tab-parent"],
-  "hidden tab does not surface at top level",
+  topLevelTabsInWorkspace(
+    ["parent-tab", "hidden-tab"],
+    records(tab("parent-tab"), tab("hidden-tab", undefined, null, true)),
+  ).map((item) => item.id),
+  ["parent-tab"],
+  "hidden tab does not surface",
 );
 
 console.log("workspaceTabs.test.ts: ok");

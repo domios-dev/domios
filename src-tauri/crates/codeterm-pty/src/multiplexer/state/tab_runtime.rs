@@ -335,7 +335,7 @@ mod display_label_tests {
         let (mut state, tab_id) = MultiplexerState::new();
         let ws_id = state.workspaces.first().map(|w| w.id.clone()).unwrap();
         let tab_id = state.find_tab_for_tab(&tab_id).unwrap();
-        state.rename_tab(&ws_id, &tab_id, "Fibonacci").unwrap();
+        state.rename_tab(&tab_id, "Fibonacci").unwrap();
         assert_eq!(state.display_label_for_tab(&tab_id), "Fibonacci");
     }
 
@@ -353,7 +353,7 @@ mod display_label_tests {
     fn auto_generated_tab_name_is_canonical() {
         let (mut state, _root) = MultiplexerState::new();
         let ws_id = state.workspaces.first().map(|w| w.id.clone()).unwrap();
-        let (_tab_id, tab_id) = state.create_tab(&ws_id).unwrap();
+        let tab_id = state.create_tab(&ws_id).unwrap();
         let generated = state.get_tab(&tab_id).unwrap().title.clone();
         assert_ne!(generated, "claude");
         assert_eq!(state.display_label_for_tab(&tab_id), generated);
@@ -368,7 +368,7 @@ mod display_label_tests {
     fn agent_spawn_with_no_explicit_title_keeps_generated_name() {
         let (mut state, _root) = MultiplexerState::new();
         let ws_id = state.workspaces.first().map(|w| w.id.clone()).unwrap();
-        let (_tab_id, tab_id) = state.create_tab(&ws_id).unwrap();
+        let tab_id = state.create_tab(&ws_id).unwrap();
         let generated = state.get_tab(&tab_id).unwrap().title.clone();
 
         let provider_id = "cursor";
@@ -397,7 +397,7 @@ mod display_label_tests {
     fn agent_spawn_with_agent_name_overrides_generated_name_at_user_level() {
         let (mut state, _root) = MultiplexerState::new();
         let ws_id = state.workspaces.first().map(|w| w.id.clone()).unwrap();
-        let (_tab_id, tab_id) = state.create_tab(&ws_id).unwrap();
+        let tab_id = state.create_tab(&ws_id).unwrap();
 
         let (title, level) =
             crate::multiplexer::spawn_title::creation_title_override(None, Some("Watson")).unwrap();

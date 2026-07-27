@@ -945,7 +945,7 @@ mod tests {
         let snapshot = state.snapshot();
         let ws = snapshot.workspaces.first().expect("default ws").clone();
         let tab_id = state.find_tab_for_tab(&initial_tab).expect("default tab");
-        state.rename_tab(&ws.id, &tab_id, "Dalton").unwrap();
+        state.rename_tab(&tab_id, "Dalton").unwrap();
         let snapshot = state.snapshot();
         let tabs = build_tab_list_json(&snapshot);
         let tab = tabs
@@ -1009,7 +1009,7 @@ mod tests {
         use crate::multiplexer::state::MultiplexerState;
         let (mut state, tab_a) = MultiplexerState::new();
         // Create a second tab.
-        let tab_b = state.create_tab();
+        let tab_b = state.create_tab(&state.list_workspaces()[0].id.clone()).unwrap();
         // Focus tab_a explicitly.
         state.set_focused_tab(&tab_a).unwrap();
         let tabs = build_tab_list_json(&state.snapshot());
@@ -1046,7 +1046,7 @@ mod tests {
     fn tab_list_marks_exactly_one_focused_tab_from_each_snapshot() {
         use crate::multiplexer::state::MultiplexerState;
         let (mut state, tab_a) = MultiplexerState::new();
-        let tab_b = state.create_tab();
+        let tab_b = state.create_tab(&state.list_workspaces()[0].id.clone()).unwrap();
 
         for focused in [&tab_a, &tab_b] {
             state.set_focused_tab(focused).unwrap();
@@ -1077,7 +1077,7 @@ mod tests {
             .id
             .clone();
         let tab_id = state.find_tab_for_tab(&visible).unwrap();
-        state.rename_tab(&ws_id, &tab_id, "Fibonacci").unwrap();
+        state.rename_tab(&tab_id, "Fibonacci").unwrap();
         let snapshot = state.snapshot();
         let tabs = build_tab_list_json(&snapshot);
         assert_eq!(tabs.len(), 1);

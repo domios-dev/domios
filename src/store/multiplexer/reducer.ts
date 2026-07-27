@@ -3,7 +3,6 @@ import type {
   MultiplexerState,
   Workspace,
   Tab,
-  Tab,
   Notification,
   TabStatus,
   BootStage,
@@ -23,15 +22,9 @@ export type Action =
   | { type: "MOVE_TAB"; tabId: string; fromWorkspaceId: string; toWorkspaceId: string }
   | { type: "REORDER_TABS"; orderedTabIds: string[] }
   | { type: "REORDER_WORKSPACES"; orderedWorkspaceIds: string[] }
-  | { type: "ADD_TAB"; workspaceId: string; tab: Tab; tab: Tab }
+  | { type: "ADD_TAB"; workspaceId: string; tab: Tab }
   | { type: "CLOSE_TAB"; workspaceId: string; tabId: string; removedTabIds: string[] }
   | { type: "SET_ACTIVE_TAB"; workspaceId: string; tabId: string }
-  | {
-      type: "CLOSE_TAB";
-      workspaceId: string;
-      tabId: string;
-      tabId: string;
-    }
   | { type: "SET_FOCUSED_TAB"; tabId: string }
   | { type: "SET_TAB_PTY"; tabId: string; ptyId: string }
   | { type: "ADD_NOTIFICATION"; notification: Notification }
@@ -115,7 +108,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       for (const tabId of state.pendingCloses) {
         const present =
           Boolean(action.state.tabs[tabId]) ||
-          action.state.workspaces.some((w) => w.tabs.some((t) => t.tab_id === tabId));
+          action.state.workspaces.some((workspace) => workspace.tabs.includes(tabId));
         if (present) {
           stillPending.push(tabId);
           maskedTabIds.add(tabId);
@@ -129,7 +122,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       const sourceWorkspaces = maskedTabIds.size
         ? action.state.workspaces.map((w) => ({
             ...w,
-            tabs: w.tabs.filter((t) => !maskedTabIds.has(t.tab_id)),
+            tabs: w.tabs.filter((tabId) => !maskedTabIds.has(tabId)),
           }))
         : action.state.workspaces;
       // Backend is authoritative; one tab per tab means no split ratio.
@@ -224,7 +217,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
 
     case "CLOSE_WORKSPACE": {
       const ws = state.workspaces.find((w) => w.id === action.id);
-      const removedTabIds = ws ? ws.tabs.map((t) => t.tab_id) : [];
+      const removedTabIds = ws ? [...ws.tabs] : [];
       const newTabs = { ...state.tabs };
       const newStatuses = { ...state.tabStatuses };
       for (const pid of removedTabIds) {
@@ -260,14 +253,14 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
 
     case "MOVE_TAB": {
       const fromWs = state.workspaces.find((w) => w.id === action.fromWorkspaceId);
-      const tab = fromWs?.tabs.find((t) => t.id === action.tabId);
-      if (!fromWs || !tab || fromWs.tabs.length <= 1) return state;
+      const tabId = fromWs?.tabs.find((id) => id === action.tabId);
+      if (!fromWs || !tabId || fromWs.tabs.length <= 1) return state;
 
       const newActiveTabIds = { ...state.activeTabIds };
       const fromActiveTabId = newActiveTabIds[action.fromWorkspaceId];
       if (fromActiveTabId === action.tabId) {
-        const remaining = fromWs.tabs.filter((t) => t.id !== action.tabId);
-        const fallback = remaining[remaining.length - 1]?.id;
+        const remaining = fromWs.tabs.filter((id) => id !== action.tabId);
+        const fallback = remaining[remaining.length - 1];
         if (fallback) {
           newActiveTabIds[action.fromWorkspaceId] = fallback;
         } else {
@@ -280,19 +273,19 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         ...state,
         workspaces: state.workspaces.map((ws) => {
           if (ws.id === action.fromWorkspaceId) {
-            const newTabs = ws.tabs.filter((t) => t.id !== action.tabId);
+            const newTabs = ws.tabs.filter((id) => id !== action.tabId);
             return {
               ...ws,
               tabs: newTabs,
               active_tab_id: ws.active_tab_id === action.tabId
-                ? newTabs[newTabs.length - 1]?.id ?? null
+                ? newTabs[newTabs.length - 1] ?? null
                 : ws.active_tab_id,
             };
           }
           if (ws.id === action.toWorkspaceId) {
             return {
               ...ws,
-              tabs: [...ws.tabs, tab],
+              tabs: [...ws.tabs, tabId],
               active_tab_id: action.tabId,
             };
           }
@@ -308,11 +301,12 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       return {
         ...state,
         workspaces: state.workspaces.map((ws) => {
-          if (!ws.tabs.some((t) => orderById.has(t.id))) return ws;
+          if (!ws.tabs.some((tabId) => orderById.has(tabId))) return ws;
           return {
             ...ws,
-            tabs: ws.tabs.map((t) =>
-              orderById.has(t.id) ? { ...t, sort_order: orderById.get(t.id)! } : t,
+            tabs: [...ws.tabs].sort(
+              (a, b) => (orderById.get(a) ?? Number.MAX_SAFE_INTEGER)
+                - (orderById.get(b) ?? Number.MAX_SAFE_INTEGER),
             ),
           };
         }),
@@ -335,7 +329,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         ...state,
         workspaces: state.workspaces.map((ws) =>
           ws.id === action.workspaceId
-            ? { ...ws, tabs: [...ws.tabs, action.tab], active_tab_id: action.tab.id }
+            ? { ...ws, tabs: [...ws.tabs, action.tab.id], active_tab_id: action.tab.id }
             : ws,
         ),
         tabs: { ...state.tabs, [action.tab.id]: action.tab },
@@ -346,7 +340,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
     case "CLOSE_TAB": {
       const newTabs = { ...state.tabs };
       const newStatuses = { ...state.tabStatuses };
-      const removedTabIds = new Set(action.removedTabIds);
+      const removedSet = new Set(action.removedTabIds);
       for (const pid of action.removedTabIds) {
         delete newTabs[pid];
         delete newStatuses[pid];
@@ -358,12 +352,12 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         workspaces: state.workspaces.map((ws) => {
           if (ws.id !== action.workspaceId) return ws;
           const removedTabIds = new Set(
-            ws.tabs.filter((t) => t.id === action.tabId || removedTabIds.has(t.tab_id)).map((t) => t.id),
+            ws.tabs.filter((id) => id === action.tabId || removedSet.has(id)),
           );
-          const remaining = ws.tabs.filter((t) => !removedTabIds.has(t.id));
+          const remaining = ws.tabs.filter((id) => !removedTabIds.has(id));
           const currentActive = newActiveTabIds[action.workspaceId];
           if (currentActive && removedTabIds.has(currentActive)) {
-            const fallback = remaining[remaining.length - 1]?.id;
+            const fallback = remaining[remaining.length - 1];
             if (fallback) {
               newActiveTabIds[action.workspaceId] = fallback;
             } else {
@@ -375,7 +369,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
             tabs: remaining,
             active_tab_id:
               ws.active_tab_id && removedTabIds.has(ws.active_tab_id)
-                ? (remaining[remaining.length - 1]?.id ?? null)
+                ? (remaining[remaining.length - 1] ?? null)
                 : ws.active_tab_id,
           };
         }),
@@ -391,27 +385,6 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         ...state,
         activeTabIds: { ...state.activeTabIds, [action.workspaceId]: action.tabId },
       };
-
-    case "CLOSE_TAB": {
-      const newTabs = { ...state.tabs };
-      delete newTabs[action.tabId];
-      const newStatuses = { ...state.tabStatuses };
-      delete newStatuses[action.tabId];
-      // keep focused_tab_id untouched (see CLOSE_WORKSPACE). One tab per tab.
-      return {
-        ...state,
-        workspaces: state.workspaces.map((ws) => {
-          if (ws.id !== action.workspaceId) return ws;
-          return {
-            ...ws,
-            tabs: ws.tabs.filter((tab) => tab.id !== action.tabId),
-          };
-        }),
-        tabs: newTabs,
-        tabStatuses: newStatuses,
-        pendingCloses: addPendingCloses(state.pendingCloses, [action.tabId]),
-      };
-    }
 
     case "REMOVE_PENDING_CLOSE": {
       if (action.tabIds.length === 0) return state;

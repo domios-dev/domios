@@ -178,22 +178,15 @@ mod tests {
     use super::*;
 
     fn order_of(state: &MultiplexerState, ws_id: &str, tab_id: &str) -> i32 {
-        state
-            .get_workspace(ws_id)
-            .unwrap()
-            .tabs
-            .iter()
-            .find(|t| t.id == tab_id)
-            .unwrap()
-            .sort_order
+        state.get_tab(tab_id).unwrap().sort_order
     }
 
     #[test]
     fn new_tabs_get_increasing_ordinals() {
         let (mut state, _root) = MultiplexerState::new();
         let ws = state.list_workspaces()[0].id.clone();
-        let (t1, _) = state.create_tab(&ws).unwrap();
-        let (t2, _) = state.create_tab(&ws).unwrap();
+        let t1 = state.create_tab(&ws).unwrap();
+        let t2 = state.create_tab(&ws).unwrap();
         assert!(order_of(&state, &ws, &t1) < order_of(&state, &ws, &t2));
     }
 
@@ -201,9 +194,9 @@ mod tests {
     fn reorder_tabs_assigns_index_order() {
         let (mut state, _root) = MultiplexerState::new();
         let ws = state.list_workspaces()[0].id.clone();
-        let (t1, _) = state.create_tab(&ws).unwrap();
-        let (t2, _) = state.create_tab(&ws).unwrap();
-        let (t3, _) = state.create_tab(&ws).unwrap();
+        let t1 = state.create_tab(&ws).unwrap();
+        let t2 = state.create_tab(&ws).unwrap();
+        let t3 = state.create_tab(&ws).unwrap();
         state
             .reorder_tabs(&ws, &[t3.clone(), t1.clone(), t2.clone()])
             .unwrap();
@@ -216,8 +209,8 @@ mod tests {
     fn reorder_tabs_rejects_a_child_tab() {
         let (mut state, _root) = MultiplexerState::new();
         let ws = state.list_workspaces()[0].id.clone();
-        let (parent_tab, parent_tab) = state.create_tab(&ws).unwrap();
-        let (child_tab, child_tab) = state.create_tab(&ws).unwrap();
+        let parent_tab = state.create_tab(&ws).unwrap();
+        let child_tab = state.create_tab(&ws).unwrap();
         state.get_tab_mut(&child_tab).unwrap().parent_tab_id = Some(parent_tab.clone());
         // The child tab is not a top-level tab → rejected, no reorder applied.
         let err = state.reorder_tabs(&ws, &[child_tab.clone(), parent_tab.clone()]);
@@ -228,11 +221,11 @@ mod tests {
     fn reorder_children_orders_only_same_parent_siblings() {
         let (mut state, _root) = MultiplexerState::new();
         let ws = state.list_workspaces()[0].id.clone();
-        let (_pt, parent_tab) = state.create_tab(&ws).unwrap();
-        let (c1, c1_tab) = state.create_tab(&ws).unwrap();
-        let (c2, c2_tab) = state.create_tab(&ws).unwrap();
-        state.get_tab_mut(&c1_tab).unwrap().parent_tab_id = Some(parent_tab.clone());
-        state.get_tab_mut(&c2_tab).unwrap().parent_tab_id = Some(parent_tab.clone());
+        let parent_tab = state.create_tab(&ws).unwrap();
+        let c1 = state.create_tab(&ws).unwrap();
+        let c2 = state.create_tab(&ws).unwrap();
+        state.get_tab_mut(&c1).unwrap().parent_tab_id = Some(parent_tab.clone());
+        state.get_tab_mut(&c2).unwrap().parent_tab_id = Some(parent_tab.clone());
         state
             .reorder_children(&parent_tab, &[c2.clone(), c1.clone()])
             .unwrap();
@@ -244,8 +237,8 @@ mod tests {
     fn reorder_children_rejects_foreign_parent() {
         let (mut state, _root) = MultiplexerState::new();
         let ws = state.list_workspaces()[0].id.clone();
-        let (_pt, parent_tab) = state.create_tab(&ws).unwrap();
-        let (top, _top_tab) = state.create_tab(&ws).unwrap();
+        let parent_tab = state.create_tab(&ws).unwrap();
+        let top = state.create_tab(&ws).unwrap();
         // `top` is top-level, not a child of parent_tab → must be rejected.
         assert!(state.reorder_children(&parent_tab, &[top]).is_err());
     }
@@ -308,11 +301,11 @@ mod tests {
         let (mut state, _root) = MultiplexerState::new();
         let ws = state.list_workspaces()[0].id.clone();
         // The first tab's tab is the General (protected) tab.
-        let general_tab = state.get_workspace(&ws).unwrap().tabs[0].id.clone();
-        let general_tab = state.get_workspace(&ws).unwrap().tabs[0].tab_id.clone();
+        let general_tab = state.get_workspace(&ws).unwrap().tabs[0].clone();
+        let general_tab = state.get_workspace(&ws).unwrap().tabs[0].clone();
         state.get_tab_mut(&general_tab).unwrap().protected = true;
-        let (t1, _) = state.create_tab(&ws).unwrap();
-        let (t2, _) = state.create_tab(&ws).unwrap();
+        let t1 = state.create_tab(&ws).unwrap();
+        let t2 = state.create_tab(&ws).unwrap();
         // Try to drag t1 and t2 above the General tab.
         state
             .reorder_tabs(&ws, &[t1.clone(), t2.clone(), general_tab.clone()])
@@ -357,8 +350,8 @@ mod tests {
     fn sort_order_round_trips_through_session_snapshot() {
         let (mut state, _root) = MultiplexerState::new();
         let ws = state.list_workspaces()[0].id.clone();
-        let (t1, _) = state.create_tab(&ws).unwrap();
-        let (t2, _) = state.create_tab(&ws).unwrap();
+        let t1 = state.create_tab(&ws).unwrap();
+        let t2 = state.create_tab(&ws).unwrap();
         let b = state.create_workspace("B".into(), None).id;
         state.reorder_tabs(&ws, &[t2.clone(), t1.clone()]).unwrap();
         state.reorder_workspaces(&[b.clone(), ws.clone()]).unwrap();

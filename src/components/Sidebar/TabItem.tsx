@@ -138,7 +138,7 @@ function TabItemInner({
   const tabModelBadge = tabModel ? formatModelBadge(tabModel) : null;
   const roleShield = roleShieldLabel(tab);
   const description = tab.description ?? null;
-  const canonicalTitle = displayTitleForTab(tab, tab);
+  const canonicalTitle = displayTitleForTab(tab);
   const displayTitle = hasAgent ? canonicalTitle.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : canonicalTitle;
   const isSubTab =
     tab.role !== "Orchestrator" && (Boolean(tab.parent_tab_id) || (tab.depth ?? 0) > 0);

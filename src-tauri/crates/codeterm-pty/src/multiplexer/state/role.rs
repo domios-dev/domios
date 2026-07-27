@@ -263,14 +263,14 @@ mod tests {
 
     fn fresh() -> (MultiplexerState, String) {
         let (mut mux, _root) = MultiplexerState::new();
-        let tab = mux.create_tab();
+        let tab = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap();
         (mux, tab)
     }
 
     #[test]
     fn orchestrator_defaults_can_spawn_true() {
         let (mut mux, _root) = MultiplexerState::new();
-        let tab = mux.create_tab();
+        let tab = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap();
         mux.set_tab_role(&tab, AgentRole::Orchestrator, None)
             .expect("Orchestrator with no parent");
         let p = mux.get_tab(&tab).unwrap();
@@ -282,8 +282,8 @@ mod tests {
     #[test]
     fn orchestrator_rejects_parent() {
         let (mut mux, _root) = MultiplexerState::new();
-        let parent = mux.create_tab();
-        let child = mux.create_tab();
+        let parent = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap();
+        let child = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap();
         let err = mux
             .set_tab_role(&child, AgentRole::Orchestrator, Some(&parent))
             .unwrap_err();
@@ -293,8 +293,8 @@ mod tests {
     #[test]
     fn worker_under_free_tab_auto_promotes_and_links() {
         let (mut mux, _root) = MultiplexerState::new();
-        let parent = mux.create_tab(); // free: role=None, can_spawn=false by default
-        let worker = mux.create_tab();
+        let parent = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap(); // free: role=None, can_spawn=false by default
+        let worker = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap();
         mux.set_tab_role(&worker, AgentRole::Worker, Some(&parent))
             .expect("worker attaches to a free parent (auto-promote)");
         let p = mux.get_tab(&parent).unwrap();
@@ -316,9 +316,9 @@ mod tests {
     #[test]
     fn early_workers_under_uncommitted_orchestrator_all_link() {
         let (mut mux, _root) = MultiplexerState::new();
-        let parent = mux.create_tab();
-        let w1 = mux.create_tab();
-        let w2 = mux.create_tab();
+        let parent = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap();
+        let w1 = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap();
+        let w2 = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap();
         mux.set_tab_role(&w1, AgentRole::Worker, Some(&parent))
             .expect("first early child");
         mux.set_tab_role(&w2, AgentRole::Worker, Some(&parent))
@@ -342,7 +342,7 @@ mod tests {
         let (mut mux, root) = fresh();
         mux.set_tab_role(&root, AgentRole::Orchestrator, None)
             .unwrap();
-        let worker = mux.create_tab();
+        let worker = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap();
         mux.set_tab_role(&worker, AgentRole::Worker, Some(&root))
             .expect("Worker under Orchestrator");
         let p = mux.get_tab(&worker).unwrap();
@@ -361,10 +361,10 @@ mod tests {
     #[test]
     fn manager_requires_orchestrator_parent() {
         let (mut mux, root) = fresh();
-        let worker = mux.create_tab();
+        let worker = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap();
         mux.set_tab_role(&worker, AgentRole::Worker, Some(&root))
             .unwrap();
-        let manager = mux.create_tab();
+        let manager = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap();
         let err = mux
             .set_tab_role(&manager, AgentRole::Manager, Some(&worker))
             .unwrap_err();
@@ -376,7 +376,7 @@ mod tests {
         let (mut mux, root) = fresh();
         mux.set_tab_role(&root, AgentRole::Orchestrator, None)
             .unwrap();
-        let manager = mux.create_tab();
+        let manager = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap();
         mux.set_tab_role(&manager, AgentRole::Manager, Some(&root))
             .unwrap();
         let p = mux.get_tab(&manager).unwrap();
@@ -390,7 +390,7 @@ mod tests {
         let (mut mux, root) = fresh();
         mux.set_tab_role(&root, AgentRole::Orchestrator, None)
             .unwrap();
-        let manager = mux.create_tab();
+        let manager = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap();
         mux.set_tab_role(&manager, AgentRole::Manager, Some(&root))
             .unwrap();
         let err = mux.set_can_spawn(&manager, true).unwrap_err();
@@ -402,10 +402,10 @@ mod tests {
         let (mut mux, root) = fresh();
         mux.set_tab_role(&root, AgentRole::Orchestrator, None)
             .unwrap();
-        let manager = mux.create_tab();
+        let manager = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap();
         mux.set_tab_role(&manager, AgentRole::Manager, Some(&root))
             .unwrap();
-        let child = mux.create_tab();
+        let child = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap();
         let err = mux
             .set_tab_role(&child, AgentRole::Worker, Some(&manager))
             .unwrap_err();
@@ -416,7 +416,7 @@ mod tests {
     fn explicit_set_can_spawn_after_role_does_not_clobber_role() {
         // Preserve old permissive role behavior: only override fields explicitly provided via --can-spawn.
         let (mut mux, _root) = MultiplexerState::new();
-        let tab = mux.create_tab();
+        let tab = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap();
         mux.set_tab_role(&tab, AgentRole::Orchestrator, None)
             .unwrap();
         mux.set_can_spawn(&tab, false).unwrap();
@@ -430,7 +430,7 @@ mod tests {
         let (mut mux, root) = fresh();
         mux.set_tab_role(&root, AgentRole::Orchestrator, None)
             .unwrap();
-        let worker = mux.create_tab();
+        let worker = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap();
         mux.set_tab_role(&worker, AgentRole::Worker, Some(&root))
             .unwrap();
         let err = mux.set_can_spawn(&worker, true).unwrap_err();
@@ -440,7 +440,7 @@ mod tests {
     #[test]
     fn no_team_before_first_spawn() {
         let (mut mux, _root) = MultiplexerState::new();
-        let tab = mux.create_tab();
+        let tab = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap();
         assert_eq!(mux.team_count(), 0, "a roleless Tab mints no team");
         assert_eq!(
             mux.get_tab(&tab).unwrap().team_id,
@@ -452,7 +452,7 @@ mod tests {
     #[test]
     fn make_orchestrator_without_child_mints_nothing() {
         let (mut mux, _root) = MultiplexerState::new();
-        let tab = mux.create_tab();
+        let tab = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap();
         mux.set_tab_role(&tab, AgentRole::Orchestrator, None)
             .expect("explicit Orchestrator promotion");
         assert_eq!(
@@ -466,8 +466,8 @@ mod tests {
     #[test]
     fn first_worker_spawn_mints_exactly_one_team() {
         let (mut mux, _root) = MultiplexerState::new();
-        let parent = mux.create_tab();
-        let worker = mux.create_tab();
+        let parent = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap();
+        let worker = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap();
         mux.set_tab_role(&worker, AgentRole::Worker, Some(&parent))
             .expect("worker under free parent auto-promotes and mints");
         assert_eq!(
@@ -496,11 +496,11 @@ mod tests {
     #[test]
     fn explicit_orchestrator_then_first_spawn_mints_once() {
         let (mut mux, _root) = MultiplexerState::new();
-        let parent = mux.create_tab();
+        let parent = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap();
         mux.set_tab_role(&parent, AgentRole::Orchestrator, None)
             .expect("explicit Orchestrator");
         assert_eq!(mux.team_count(), 0, "promotion alone does not mint");
-        let worker = mux.create_tab();
+        let worker = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap();
         mux.set_tab_role(&worker, AgentRole::Worker, Some(&parent))
             .expect("first worker child link");
         assert_eq!(
@@ -518,9 +518,9 @@ mod tests {
     #[test]
     fn second_worker_inherits_single_team() {
         let (mut mux, _root) = MultiplexerState::new();
-        let parent = mux.create_tab();
-        let w1 = mux.create_tab();
-        let w2 = mux.create_tab();
+        let parent = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap();
+        let w1 = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap();
+        let w2 = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap();
         mux.set_tab_role(&w1, AgentRole::Worker, Some(&parent))
             .expect("first worker mints");
         mux.set_tab_role(&w2, AgentRole::Worker, Some(&parent))
@@ -544,10 +544,10 @@ mod tests {
     #[test]
     fn manager_child_link_mints_team() {
         let (mut mux, _root) = MultiplexerState::new();
-        let parent = mux.create_tab();
+        let parent = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap();
         mux.set_tab_role(&parent, AgentRole::Orchestrator, None)
             .unwrap();
-        let planner = mux.create_tab();
+        let planner = mux.create_tab(&mux.list_workspaces()[0].id.clone()).unwrap();
         mux.set_tab_role(&planner, AgentRole::Manager, Some(&parent))
             .expect("planner (Manager) child link");
         assert_eq!(
@@ -570,9 +570,9 @@ mod tests {
 
         for _ in 0..100 {
             let (mut m, _root) = MultiplexerState::new();
-            let parent = m.create_tab();
-            let c1 = m.create_tab();
-            let c2 = m.create_tab();
+            let parent = m.create_tab(&m.list_workspaces()[0].id.clone()).unwrap();
+            let c1 = m.create_tab(&m.list_workspaces()[0].id.clone()).unwrap();
+            let c2 = m.create_tab(&m.list_workspaces()[0].id.clone()).unwrap();
             let state = Arc::new(Mutex::new(m));
 
             let (s1, s2) = (Arc::clone(&state), Arc::clone(&state));

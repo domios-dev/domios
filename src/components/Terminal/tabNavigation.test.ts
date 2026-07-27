@@ -7,14 +7,14 @@ const workspaces: Workspace[] = [
   {
     id: "workspace-a",
     name: "A",
-    tabs: [{ id: "tab-a", tab_id: "58ffb596-full" }],
+    tabs: ["58ffb596-full"],
     active_tab_id: null,
     cwd: null,
   },
   {
     id: "workspace-b",
     name: "B",
-    tabs: [{ id: "tab-b", tab_id: "other-tab" }],
+    tabs: ["other-tab"],
     active_tab_id: null,
     cwd: null,
   },
