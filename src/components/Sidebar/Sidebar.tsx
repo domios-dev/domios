@@ -23,6 +23,7 @@ import {
   WS_PREFIX,
 } from "./sortable";
 import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
+import { Segmented } from "../shared/Segmented";
 import type { MeshPresence } from "./meshPresenceHeader";
 import { flattenSidebarTabs, isSidebarTabVisible, tabsInWorkspace } from "./workspaceTabs";
 import { aggregateTabStatuses } from "./tabStatuses";
@@ -845,39 +846,15 @@ export function Sidebar({
                   {!isCompact && <span className={touchMode ? sidebarNavTouchText : sidebarNavText}>Mesh</span>}
                 </button>
                 {!isCompact && (
-                  <div
+                  <Segmented
                     data-testid="mesh-presence-toggle"
-                    role="group"
                     aria-label="Mesh on/off"
-                    className="flex shrink-0 items-center overflow-hidden rounded border border-[var(--ct-border)] text-[10px] font-medium"
-                  >
-                    <button
-                      type="button"
-                      data-testid="mesh-switch-off"
-                      onClick={() => setMeshEnabled(false)}
-                      aria-pressed={meshPresence !== "online"}
-                      className={`px-2 py-0.5 transition-colors ${
-                        meshPresence !== "online"
-                          ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
-                          : "text-[var(--ct-muted)] hover:text-[var(--ct-fg)]"
-                      }`}
-                    >
-                      off
-                    </button>
-                    <button
-                      type="button"
-                      data-testid="mesh-switch-on"
-                      onClick={() => setMeshEnabled(true)}
-                      aria-pressed={meshPresence === "online"}
-                      className={`px-2 py-0.5 transition-colors border-l border-[var(--ct-border)] ${
-                        meshPresence === "online"
-                          ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
-                          : "text-[var(--ct-muted)] hover:text-[var(--ct-fg)]"
-                      }`}
-                    >
-                      on
-                    </button>
-                  </div>
+                    className="shrink-0 text-[10px]"
+                    height={24}
+                    value={meshPresence === "online" ? "on" : "off"}
+                    options={[{ value: "off", label: "off" }, { value: "on", label: "on" }]}
+                    onChange={(next) => setMeshEnabled(next === "on")}
+                  />
                 )}
               </div>
             </div>

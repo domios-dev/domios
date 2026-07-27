@@ -53,7 +53,7 @@ export function Segmented<T extends string>({
     >
       <span
         aria-hidden
-        className="absolute rounded-full transition-[left] duration-200 ease-out"
+        className="ct-segmented-thumb absolute rounded-full"
         style={{
           top: 2,
           bottom: 2,
@@ -61,6 +61,7 @@ export function Segmented<T extends string>({
           left: `calc(2px + ${activeIndex} * (100% - 4px) / ${count})`,
           width: `calc((100% - 4px) / ${count})`,
           background: "var(--ct-accent)",
+          transition: "left var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle)",
         }}
       />
       {options.map((o) => {
@@ -75,9 +76,9 @@ export function Segmented<T extends string>({
             title={o.title ?? o.label}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => onChange(o.value)}
-            className={`relative z-[1] flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-[11px] transition-colors ${
+            className={`ct-segmented-option relative z-[1] flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3 text-[11px] transition-colors ${
               active
-                ? "font-semibold text-[var(--ct-bg)]"
+                ? "font-semibold text-[var(--ct-on-accent,#fff)]"
                 : "font-medium text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
             }`}
             style={{ lineHeight: 1 }}
