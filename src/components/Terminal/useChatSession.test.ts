@@ -159,6 +159,8 @@ class FakeTimers {
 }
 
 type SessionView = {
+  attachmentState: string;
+  error: string | null;
   loading: boolean;
   recovering: boolean;
   messages: NormalizedChatMessage[];
@@ -211,10 +213,22 @@ async function mountSession(
   sessionBindingNonce: string | null = null,
   diagnosticSink?: ChatSessionDiagnosticSink,
 ): Promise<{ root: Root; render: (nextSessionId: string | null, nextActive?: boolean, nextSessionBindingNonce?: string | null) => Promise<void>; latest: () => SessionView }> {
-  let view: SessionView = { loading: true, recovering: false, messages: [] };
+  let view: SessionView = {
+    attachmentState: "idle",
+    error: null,
+    loading: true,
+    recovering: false,
+    messages: [],
+  };
   function Harness({ currentSessionId, currentActive, currentSessionBindingNonce }: { currentSessionId: string | null; currentActive: boolean; currentSessionBindingNonce: string | null }) {
     const session = useChatSession({ tabId: "tab", agentSessionId: currentSessionId, sessionBindingNonce: currentSessionBindingNonce, active: currentActive, diagnosticSink });
-    view = { loading: session.loading, recovering: session.recovering, messages: session.allMessages };
+    view = {
+      attachmentState: session.attachmentState,
+      error: session.error,
+      loading: session.loading,
+      recovering: session.recovering,
+      messages: session.allMessages,
+    };
     return null;
   }
   const host = document.createElement("div");
@@ -322,10 +336,16 @@ async function runChatSessionHookTests(): Promise<void> {
     assert(listens === 1, "T1 owns one persistent listener while pending");
     assert(unlistens === 0 && stops === 0, "T1 pending does not tear down the listener or chat");
     assert(starts === 1, "T1 pending never polls chat_start after the initial attach");
-    assert(session.latest().recovering && !session.latest().loading, "T1 pending settles as recovering without loading");
+    assert(
+      session.latest().attachmentState === "failed"
+        && !session.latest().recovering
+        && !session.latest().loading
+        && session.latest().error?.includes("timed out"),
+      "T1 pending fails with a retryable error after the bounded deadline",
+    );
     await act(async () => session.root.unmount());
     restoreTimers();
-    console.log("PASS T1 pending waits with one listener and one attach");
+    console.log("PASS T1 pending has one listener and fails on its bounded deadline");
   }
 
   {
