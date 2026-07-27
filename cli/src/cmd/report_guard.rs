@@ -1,5 +1,5 @@
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::args::agent::ReportStatusArg;
@@ -25,7 +25,9 @@ impl ReportRefusal {
             "  git status --short".to_string(),
             "  git add <files>".to_string(),
             "  git commit -m \"<message>\"".to_string(),
-            "  codeterm agent report --status in_review --sha $(git rev-parse HEAD) \"...\""
+            "  codeterm agent report --status in_review --sha YOUR_OWN_COMMIT_SHA \"...\""
+                .to_string(),
+            "Replace YOUR_OWN_COMMIT_SHA with your own owned commit SHA as a hexadecimal literal, never a shell expression, variable, or HEAD. Never use another Worker's newer HEAD."
                 .to_string(),
             "Or report WIP with:".to_string(),
             "  codeterm agent report --status partial \"...\"".to_string(),
@@ -71,11 +73,18 @@ fn enrich_ready_report_in(
     if !is_readiness_status(status) {
         return Ok((branch, sha, changed_files));
     }
-    let Some(metadata) = inspect_git_worktree(cwd, base.as_deref())? else {
+    let Some(inspection) = inspect_git_worktree_with_base(cwd, base.as_deref())? else {
         return Ok((branch, sha, changed_files));
     };
+    let metadata = inspection.metadata;
     if let (Some(given), Some(head)) = (sha.as_deref(), metadata.sha.as_deref()) {
-        if !sha_matches_head(given, head) {
+        if !sha_matches_readiness(
+            cwd,
+            given,
+            head,
+            inspection.base.as_deref(),
+            inspection.checkout,
+        ) {
             return Err(ReportRefusal {
                 reason: format!(
                     "readiness report refused: provided --sha {given} does not match HEAD {head}."
@@ -123,31 +132,70 @@ fn is_readiness_status(status: Option<ReportStatusArg>) -> bool {
     )
 }
 
-fn sha_matches_head(given: &str, head: &str) -> bool {
-    let given = given.trim();
-    let head = head.trim();
-    !given.is_empty() && (given == head || head.starts_with(given))
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CheckoutKind {
+    SharedCanonical,
+    IsolatedWorktree,
 }
 
+struct GitWorktreeInspection {
+    metadata: ReportGitMetadata,
+    base: Option<String>,
+    checkout: CheckoutKind,
+}
+
+fn sha_matches_readiness(
+    cwd: &Path,
+    given: &str,
+    head: &str,
+    base: Option<&str>,
+    checkout: CheckoutKind,
+) -> bool {
+    let Some(given) = resolve_commit(cwd, given) else {
+        return false;
+    };
+    if checkout == CheckoutKind::IsolatedWorktree || base.is_none() {
+        return given == head;
+    }
+    let base = base.unwrap_or_default();
+    given != base
+        && git_success(cwd, &["merge-base", "--is-ancestor", base, &given])
+        && git_success(cwd, &["merge-base", "--is-ancestor", &given, head])
+}
+
+#[cfg(test)]
 fn inspect_git_worktree(
     cwd: &Path,
     base: Option<&str>,
 ) -> Result<Option<ReportGitMetadata>, ReportRefusal> {
+    Ok(inspect_git_worktree_with_base(cwd, base)?.map(|inspection| inspection.metadata))
+}
+
+fn inspect_git_worktree_with_base(
+    cwd: &Path,
+    base: Option<&str>,
+) -> Result<Option<GitWorktreeInspection>, ReportRefusal> {
     if !git_success(cwd, &["rev-parse", "--is-inside-work-tree"]) {
         return Ok(None);
     }
+    let base = resolve_base_commit(cwd, base).map_err(git_refusal)?;
     let sha = git_one(cwd, &["rev-parse", "HEAD"]).map_err(git_refusal)?;
     let branch = git_one(cwd, &["branch", "--show-current"]).ok();
-    let changed = load_changed_files(cwd, base).map_err(git_refusal)?;
-    Ok(Some(ReportGitMetadata {
-        branch,
-        sha: Some(sha),
-        changed_files: Some(changed),
+    let changed = load_changed_files(cwd, base.as_deref()).map_err(git_refusal)?;
+    let checkout = checkout_kind(cwd).map_err(git_refusal)?;
+    Ok(Some(GitWorktreeInspection {
+        metadata: ReportGitMetadata {
+            branch,
+            sha: Some(sha),
+            changed_files: Some(changed),
+        },
+        base,
+        checkout,
     }))
 }
 
 fn load_changed_files(cwd: &Path, base: Option<&str>) -> Result<Vec<String>, String> {
-    let committed = match resolve_base_commit(cwd, base)? {
+    let committed = match base {
         Some(base) => git_lines(cwd, &["diff", "--name-only", &base, "HEAD"])?,
         None => Vec::new(),
     };
@@ -174,6 +222,48 @@ fn resolve_base_commit(cwd: &Path, base: Option<&str>) -> Result<Option<String>,
     )
     .map(Some)
     .map_err(|_| format!("invalid report base: '{base}' is not a commit in this worktree"))
+}
+
+fn resolve_commit(cwd: &Path, value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() || value.starts_with('-') {
+        return None;
+    }
+    git_one(
+        cwd,
+        &[
+            "rev-parse",
+            "--verify",
+            "--end-of-options",
+            &format!("{value}^{{commit}}"),
+        ],
+    )
+    .ok()
+}
+
+fn checkout_kind(cwd: &Path) -> Result<CheckoutKind, String> {
+    let git_dir = git_recorded_path(cwd, &git_one(cwd, &["rev-parse", "--git-dir"])?)?;
+    let common_dir = git_recorded_path(cwd, &git_one(cwd, &["rev-parse", "--git-common-dir"])?)?;
+    Ok(if git_dir == common_dir {
+        CheckoutKind::SharedCanonical
+    } else {
+        CheckoutKind::IsolatedWorktree
+    })
+}
+
+fn git_recorded_path(cwd: &Path, value: &str) -> Result<PathBuf, String> {
+    let path = Path::new(value);
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        cwd.join(path)
+    };
+    std::fs::canonicalize(&absolute).map_err(|error| {
+        format!(
+            "cannot resolve git-recorded path '{}': {error}",
+            absolute.display()
+        )
+    })
 }
 
 fn git_refusal(reason: String) -> ReportRefusal {
@@ -257,7 +347,6 @@ fn git_lines(cwd: &Path, args: &[&str]) -> Result<Vec<String>, String> {
 mod tests {
     use super::*;
     use std::fs;
-    use std::path::PathBuf;
     use tempfile::TempDir;
 
     fn run(dir: &Path, args: &[&str]) {
@@ -580,5 +669,164 @@ mod tests {
         .unwrap();
 
         assert_eq!(out.2, Some(vec!["manual.rs".into()]));
+    }
+
+    #[test]
+    fn concurrent_foreign_head_advance_accepts_owned_sha() {
+        let dir = repo();
+        let base = branch_head(dir.path());
+        fs::write(dir.path().join("owned.txt"), "owned\n").unwrap();
+        run(dir.path(), &["add", "owned.txt"]);
+        run(dir.path(), &["commit", "-m", "owned"]);
+        let owned = branch_head(dir.path());
+        fs::write(dir.path().join("foreign.txt"), "foreign\n").unwrap();
+        run(dir.path(), &["add", "foreign.txt"]);
+        run(dir.path(), &["commit", "-m", "foreign"]);
+
+        let (_, reported, _) = enrich_ready_report_in(
+            dir.path(),
+            Some(ReportStatusArg::InReview),
+            None,
+            Some(owned.clone()),
+            Some(base),
+            None,
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(reported.as_deref(), Some(owned.as_str()));
+    }
+
+    #[test]
+    fn stale_sha_before_attempt_base_is_refused() {
+        let dir = repo();
+        let stale = branch_head(dir.path());
+        fs::write(dir.path().join("base.txt"), "base\n").unwrap();
+        run(dir.path(), &["add", "base.txt"]);
+        run(dir.path(), &["commit", "-m", "attempt base"]);
+        let base = branch_head(dir.path());
+        fs::write(dir.path().join("owned.txt"), "owned\n").unwrap();
+        run(dir.path(), &["add", "owned.txt"]);
+        run(dir.path(), &["commit", "-m", "owned"]);
+
+        for stale_or_base in [stale, base.clone()] {
+            let err = enrich_ready_report_in(
+                dir.path(),
+                Some(ReportStatusArg::InReview),
+                None,
+                Some(stale_or_base),
+                Some(base.clone()),
+                None,
+                false,
+            )
+            .unwrap_err();
+
+            assert!(err.reason.contains("does not match HEAD"));
+        }
+    }
+
+    #[test]
+    fn unrelated_branch_sha_is_refused() {
+        let dir = repo();
+        let base = branch_head(dir.path());
+        run(dir.path(), &["checkout", "-b", "unrelated"]);
+        fs::write(dir.path().join("unrelated.txt"), "unrelated\n").unwrap();
+        run(dir.path(), &["add", "unrelated.txt"]);
+        run(dir.path(), &["commit", "-m", "unrelated"]);
+        let unrelated = branch_head(dir.path());
+        run(dir.path(), &["checkout", "main"]);
+        fs::write(dir.path().join("owned.txt"), "owned\n").unwrap();
+        run(dir.path(), &["add", "owned.txt"]);
+        run(dir.path(), &["commit", "-m", "owned"]);
+
+        let err = enrich_ready_report_in(
+            dir.path(),
+            Some(ReportStatusArg::InReview),
+            None,
+            Some(unrelated),
+            Some(base),
+            None,
+            false,
+        )
+        .unwrap_err();
+
+        assert!(err.reason.contains("does not match HEAD"));
+    }
+
+    #[test]
+    fn dirty_owned_worktree_is_refused() {
+        let dir = repo();
+        let base = branch_head(dir.path());
+        fs::write(dir.path().join("owned.txt"), "owned\n").unwrap();
+        run(dir.path(), &["add", "owned.txt"]);
+        run(dir.path(), &["commit", "-m", "owned"]);
+        let owned = branch_head(dir.path());
+        fs::write(dir.path().join("foreign.txt"), "foreign\n").unwrap();
+        run(dir.path(), &["add", "foreign.txt"]);
+        run(dir.path(), &["commit", "-m", "foreign"]);
+        fs::write(dir.path().join("owned.txt"), "dirty owned\n").unwrap();
+
+        let err = enrich_ready_report_in(
+            dir.path(),
+            Some(ReportStatusArg::InReview),
+            None,
+            Some(owned),
+            Some(base),
+            None,
+            false,
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            err.reason,
+            "readiness report refused: this git worktree has uncommitted lane changes."
+        );
+        assert_eq!(err.dirty_files, vec!["owned.txt"]);
+    }
+
+    #[test]
+    fn isolated_lane_still_requires_exact_head() {
+        let (_dir, _main, linked) = repo_with_linked_worktree();
+        let base = branch_head(&linked);
+        fs::write(linked.join("owned.txt"), "owned\n").unwrap();
+        run(&linked, &["add", "owned.txt"]);
+        run(&linked, &["commit", "-m", "owned"]);
+        let owned = branch_head(&linked);
+        fs::write(linked.join("later.txt"), "later\n").unwrap();
+        run(&linked, &["add", "later.txt"]);
+        run(&linked, &["commit", "-m", "later"]);
+
+        let err = enrich_ready_report_in(
+            &linked,
+            Some(ReportStatusArg::InReview),
+            None,
+            Some(owned),
+            Some(base),
+            None,
+            false,
+        )
+        .unwrap_err();
+
+        assert!(err.reason.contains("does not match HEAD"));
+    }
+
+    #[test]
+    fn hint_does_not_advise_foreign_head() {
+        let refusal = ReportRefusal {
+            reason: "readiness report refused".into(),
+            dirty_files: Vec::new(),
+        };
+        let message = refusal.message();
+        let prompt = include_str!("../../../src-tauri/prompts/worker_suffix.md");
+
+        for text in [message.as_str(), prompt] {
+            assert!(!text.contains("$(git rev-parse HEAD)"));
+            assert!(text.contains("own owned commit SHA"));
+        }
+        assert!(prompt.contains("commit only this task's owned changes"));
+        assert!(prompt.contains("Never use `git add -A` or `git add .`"));
+        assert!(prompt.contains("Read-only tasks need no commit"));
+        assert!(prompt.contains("report `partial` with the exact blocker"));
+        assert!(prompt.contains("hexadecimal literal"));
     }
 }
