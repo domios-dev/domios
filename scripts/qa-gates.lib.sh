@@ -4,7 +4,7 @@ set -u
 
 QA_ROOT="${QA_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 
-# Strip prod CodeTerm env leaked from orchestrator panes (7685 + prod socket).
+# Strip prod CodeTerm env leaked from orchestrator tabs (7685 + prod socket).
 # QA_GATE_ENV_LOCKED=1 skips; non-prod CODETERM_API_PORT values are preserved.
 qa_sanitize_env() {
   if [ "${QA_GATE_ENV_LOCKED:-0}" = "1" ]; then
