@@ -326,7 +326,7 @@ fn fresh_launch_with_matching_nonce_accepts_unpersisted_session() {
 
 #[test]
 fn reconnect_full_sequence_hook_accepted_with_chat_metadata() {
-    use crate::service::boot_stage::{allows_shell_prompt_exit, BootStage};
+    use crate::service::boot_stage::BootStage;
 
     let (mux, tab_id) = shared_mux();
     {
@@ -346,16 +346,13 @@ fn reconnect_full_sequence_hook_accepted_with_chat_metadata() {
         BootStage::AgentLaunching,
     ] {
         mux.write().get_tab_mut(&tab_id).unwrap().boot_stage = Some(stage);
-        assert!(!allows_shell_prompt_exit(Some(stage)));
         assert_eq!(
             mux.read().get_tab(&tab_id).unwrap().agent_type.as_deref(),
             Some("claude")
         );
     }
 
-    let observed_stage = mux.read().get_tab(&tab_id).unwrap().boot_stage;
     mux.write().get_tab_mut(&tab_id).unwrap().boot_stage = Some(BootStage::AgentReady);
-    assert!(!allows_shell_prompt_exit(observed_stage));
 
     let registry = registry_with_sessions(vec![("claude", vec![])]);
     bind_reported_session(

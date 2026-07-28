@@ -333,7 +333,6 @@ mod display_label_tests {
     #[test]
     fn display_label_uses_canonical_tab_title() {
         let (mut state, tab_id) = MultiplexerState::new();
-        let ws_id = state.workspaces.first().map(|w| w.id.clone()).unwrap();
         let tab_id = state.find_tab_for_tab(&tab_id).unwrap();
         state.rename_tab(&tab_id, "Fibonacci").unwrap();
         assert_eq!(state.display_label_for_tab(&tab_id), "Fibonacci");

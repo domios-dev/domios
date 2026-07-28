@@ -7,10 +7,6 @@ use crate::multiplexer::types::Tab;
 
 pub use codeterm_types::pty::{BootStage, BootStageSink};
 
-pub(crate) fn allows_shell_prompt_exit(stage: Option<BootStage>) -> bool {
-    matches!(stage, Some(BootStage::AgentReady))
-}
-
 /// Record a stage on the tab. Only SpawnFailed carries a reason, so any other
 /// stage clears a previously latched failure.
 pub(crate) fn apply_boot_stage(tab: &mut Tab, stage: BootStage, reason: Option<&str>) {

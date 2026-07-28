@@ -15,8 +15,6 @@ pub(crate) use super::spawn_params::{
 
 #[path = "spawn_model.rs"]
 mod spawn_model;
-#[cfg(test)]
-pub(crate) use spawn_model::compatible_background_model;
 pub use spawn_model::ModelFallbackNotice;
 pub(crate) use spawn_model::{
     attach_planned_model, model_fallback_notice_title, persist_model_launch_identity,

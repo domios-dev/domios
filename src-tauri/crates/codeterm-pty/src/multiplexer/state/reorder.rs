@@ -179,7 +179,7 @@ fn pin_protected_tabs_first(
 mod tests {
     use super::*;
 
-    fn order_of(state: &MultiplexerState, ws_id: &str, tab_id: &str) -> i32 {
+    fn order_of(state: &MultiplexerState, tab_id: &str) -> i32 {
         state.get_tab(tab_id).unwrap().sort_order
     }
 
@@ -189,7 +189,7 @@ mod tests {
         let ws = state.list_workspaces()[0].id.clone();
         let t1 = state.create_tab(&ws).unwrap();
         let t2 = state.create_tab(&ws).unwrap();
-        assert!(order_of(&state, &ws, &t1) < order_of(&state, &ws, &t2));
+        assert!(order_of(&state, &t1) < order_of(&state, &t2));
     }
 
     #[test]
@@ -202,9 +202,9 @@ mod tests {
         state
             .reorder_tabs(&ws, &[t3.clone(), t1.clone(), t2.clone()])
             .unwrap();
-        assert_eq!(order_of(&state, &ws, &t3), 0);
-        assert_eq!(order_of(&state, &ws, &t1), 1);
-        assert_eq!(order_of(&state, &ws, &t2), 2);
+        assert_eq!(order_of(&state, &t3), 0);
+        assert_eq!(order_of(&state, &t1), 1);
+        assert_eq!(order_of(&state, &t2), 2);
     }
 
     #[test]
@@ -231,8 +231,8 @@ mod tests {
         state
             .reorder_children(&parent_tab, &[c2.clone(), c1.clone()])
             .unwrap();
-        assert_eq!(order_of(&state, &ws, &c2), 0);
-        assert_eq!(order_of(&state, &ws, &c1), 1);
+        assert_eq!(order_of(&state, &c2), 0);
+        assert_eq!(order_of(&state, &c1), 1);
     }
 
     #[test]
@@ -304,7 +304,6 @@ mod tests {
         let ws = state.list_workspaces()[0].id.clone();
         // The first tab's tab is the General (protected) tab.
         let general_tab = state.get_workspace(&ws).unwrap().tabs[0].clone();
-        let general_tab = state.get_workspace(&ws).unwrap().tabs[0].clone();
         state.get_tab_mut(&general_tab).unwrap().protected = true;
         let t1 = state.create_tab(&ws).unwrap();
         let t2 = state.create_tab(&ws).unwrap();
@@ -313,12 +312,12 @@ mod tests {
             .reorder_tabs(&ws, &[t1.clone(), t2.clone(), general_tab.clone()])
             .unwrap();
         assert_eq!(
-            order_of(&state, &ws, &general_tab),
+            order_of(&state, &general_tab),
             0,
             "General tab is clamped to index 0"
         );
-        assert_eq!(order_of(&state, &ws, &t1), 1);
-        assert_eq!(order_of(&state, &ws, &t2), 2);
+        assert_eq!(order_of(&state, &t1), 1);
+        assert_eq!(order_of(&state, &t2), 2);
     }
 
     #[test]
@@ -359,8 +358,8 @@ mod tests {
         state.reorder_workspaces(&[b.clone(), ws.clone()]).unwrap();
 
         let restored = MultiplexerState::from_session_snapshot(&state.to_session_snapshot());
-        assert_eq!(order_of(&restored, &ws, &t2), 0);
-        assert_eq!(order_of(&restored, &ws, &t1), 1);
+        assert_eq!(order_of(&restored, &t2), 0);
+        assert_eq!(order_of(&restored, &t1), 1);
         assert_eq!(restored.get_workspace(&b).unwrap().sort_order, 0);
         assert_eq!(restored.get_workspace(&ws).unwrap().sort_order, 1);
     }
