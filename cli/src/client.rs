@@ -128,6 +128,50 @@ impl SocketClient {
         method: &str,
         params: Option<serde_json::Value>,
     ) -> Result<serde_json::Value, SocketCallError> {
+        if is_version_sensitive_method(method) {
+            if let Some(daemon_version) = self.daemon_version() {
+                let cli_version = env!("CARGO_PKG_VERSION");
+                if daemon_version != cli_version {
+                    return Err(SocketCallError::Transport(render_protocol_mismatch(
+                        method,
+                        None,
+                        cli_version,
+                        &daemon_version,
+                    )));
+                }
+            }
+        }
+        match self.call_raw(method, params) {
+            Err(SocketCallError::Rpc(error)) if error.code == -32601 => {
+                let Some(daemon_version) = self.daemon_version() else {
+                    return Err(SocketCallError::Rpc(error));
+                };
+                let cli_version = env!("CARGO_PKG_VERSION");
+                if daemon_version == cli_version {
+                    return Err(SocketCallError::Rpc(error));
+                }
+                Err(SocketCallError::Transport(render_protocol_mismatch(
+                    method,
+                    Some(&error),
+                    cli_version,
+                    &daemon_version,
+                )))
+            }
+            result => result,
+        }
+    }
+
+    fn daemon_version(&mut self) -> Option<String> {
+        self.call_raw("system.identify", None)
+            .ok()
+            .and_then(|value| value.get("version")?.as_str().map(str::to_string))
+    }
+
+    fn call_raw(
+        &mut self,
+        method: &str,
+        params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, SocketCallError> {
         let req = JsonRpcRequest {
             jsonrpc: "2.0",
             id: self.next_id,
@@ -179,6 +223,44 @@ impl SocketClient {
 
         Ok(resp.result.unwrap_or(serde_json::Value::Null))
     }
+}
+
+fn is_version_sensitive_method(method: &str) -> bool {
+    method.starts_with("tab.") || method == "agent.spawn"
+}
+
+fn render_protocol_mismatch(
+    method: &str,
+    error: Option<&RpcError>,
+    cli_version: &str,
+    daemon_version: &str,
+) -> String {
+    let ordering = compare_versions(cli_version, daemon_version);
+    let direction = match ordering {
+        Some(std::cmp::Ordering::Greater) => "CLI is newer than daemon",
+        Some(std::cmp::Ordering::Less) => "daemon is newer than CLI",
+        _ => "CLI and daemon versions differ",
+    };
+    let incompatible = if error.is_some_and(|error| error.code == -32601) {
+        format!("method '{method}' is unavailable")
+    } else {
+        format!("method '{method}' cannot be used across this version boundary")
+    };
+    format!(
+        "CodeTerm CLI/daemon protocol mismatch: {direction} \
+         (CLI {cli_version}, daemon {daemon_version}); {incompatible}. \
+         Restart or update CodeTerm so the running daemon and installed CLI versions match."
+    )
+}
+
+fn compare_versions(left: &str, right: &str) -> Option<std::cmp::Ordering> {
+    fn parse(version: &str) -> Option<Vec<u64>> {
+        version
+            .split('.')
+            .map(|part| part.split('-').next()?.parse().ok())
+            .collect()
+    }
+    Some(parse(left)?.cmp(&parse(right)?))
 }
 
 impl RpcClient for SocketClient {
@@ -601,6 +683,30 @@ mod tests {
         assert!(!is_dev_socket("codeterm-developerlaptop.sock"));
         assert!(is_dev_socket("codeterm-dev"));
         assert!(is_dev_socket("codeterm-dev.sock"));
+    }
+
+    #[test]
+    fn unknown_tab_method_names_version_skew_and_recovery() {
+        let error = RpcError {
+            code: -32601,
+            message: "Method not found".into(),
+            data: None,
+        };
+
+        let rendered = render_protocol_mismatch("tab.list", Some(&error), "1.7.8", "1.7.7");
+
+        assert!(rendered.contains("CLI is newer than daemon"));
+        assert!(rendered.contains("CLI 1.7.8, daemon 1.7.7"));
+        assert!(rendered.contains("method 'tab.list' is unavailable"));
+        assert!(rendered.contains("Restart or update CodeTerm"));
+    }
+
+    #[test]
+    fn bound_spawn_is_refused_before_cross_version_dispatch() {
+        let rendered = render_protocol_mismatch("agent.spawn", None, "1.7.8", "1.7.7");
+
+        assert!(rendered.contains("cannot be used across this version boundary"));
+        assert!(rendered.contains("Restart or update CodeTerm"));
     }
 
     fn restore_env(key: &str, value: Option<String>) {
