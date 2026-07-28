@@ -48,7 +48,6 @@ toast_duration = 5  # seconds
 new_tab = "Ctrl+T"
 reopen_tab = "Ctrl+Shift+T"
 close_tab = "Ctrl+Shift+W"
-close_tab = "Ctrl+Shift+Q"
 
 [socket]
 # Socket path is auto-generated, override if needed:

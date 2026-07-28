@@ -16,6 +16,8 @@
       "!dist/**",
       "!evals/**",
       "!node_modules/**",
+      "!plugins/git/ui/**",
+      "!tests/playwright/**",
       "!src-tauri/**"
     ]
   },
