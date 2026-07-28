@@ -3,7 +3,6 @@
 use super::ServiceContext;
 use crate::notification::{store::NotificationLevel, NotifState};
 use codeterm_types::pty::{QuestionSubtype, TimelineState};
-use tauri::AppHandle;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum NotificationAdmission {
@@ -22,7 +21,7 @@ fn notification_level(level: Option<&str>) -> NotificationLevel {
 fn create_notification_with_delivery(
     admission: NotificationAdmission,
     store: &NotifState,
-    app: &AppHandle,
+    deliver_native: impl FnOnce(&str, Option<&str>),
     title: String,
     body: Option<String>,
     level: Option<&str>,
@@ -63,8 +62,7 @@ fn create_notification_with_delivery(
     if let Some(s) = sticky {
         payload["sticky"] = serde_json::json!(s);
     }
-    crate::api::os_notify::_send_os_notification(
-        app,
+    deliver_native(
         payload["title"].as_str().unwrap_or_default(),
         payload["body"].as_str(),
     );
@@ -96,7 +94,9 @@ impl ServiceContext {
         create_notification_with_delivery(
             NotificationAdmission::Diagnostic,
             &self.notif,
-            &self.app_handle,
+            |title, body| {
+                crate::api::os_notify::_send_os_notification(&self.app_handle, title, body)
+            },
             title,
             body,
             level,
@@ -160,7 +160,9 @@ impl ServiceContext {
         Ok(create_notification_with_delivery(
             NotificationAdmission::AgentInputRequest,
             &self.notif,
-            &self.app_handle,
+            |title, body| {
+                crate::api::os_notify::_send_os_notification(&self.app_handle, title, body)
+            },
             title,
             Some(body),
             Some("warning"),
@@ -182,20 +184,18 @@ mod tests {
 
     #[test]
     fn create_notification_delivers_bell_route_event_and_native_os_notification() {
-        let builder = tauri::Builder::default();
-        #[cfg(windows)]
-        let builder = builder.any_thread();
-        let app = builder
-            .build(tauri::test::mock_context(tauri::test::noop_assets()))
-            .unwrap();
         let store = Arc::new(Mutex::new(NotificationStore::new(10)));
         let emitted = Mutex::new(Vec::new());
-        let native_before = crate::api::os_notify::os_notification_test_count();
+        let native = Mutex::new(Vec::new());
 
         let id = create_notification_with_delivery(
             NotificationAdmission::AgentInputRequest,
             &store,
-            app.handle(),
+            |title, body| {
+                native
+                    .lock()
+                    .push((title.to_string(), body.map(str::to_string)))
+            },
             "Input needed in Tab Review".into(),
             Some("Which deployment region should I use?\nInclude the failover region.".into()),
             Some("warning"),
@@ -217,10 +217,7 @@ mod tests {
         );
         drop(notifications);
 
-        assert_eq!(
-            crate::api::os_notify::os_notification_test_count(),
-            native_before + 1
-        );
+        assert_eq!(native.lock().len(), 1);
         let events = emitted.lock();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0]["id"], id);
@@ -238,15 +235,9 @@ mod tests {
 
     #[test]
     fn diagnostic_callers_never_enter_the_agent_input_inbox() {
-        let builder = tauri::Builder::default();
-        #[cfg(windows)]
-        let builder = builder.any_thread();
-        let app = builder
-            .build(tauri::test::mock_context(tauri::test::noop_assets()))
-            .unwrap();
         let store = Arc::new(Mutex::new(NotificationStore::new(20)));
         let emitted = Mutex::new(Vec::new());
-        let native_before = crate::api::os_notify::os_notification_test_count();
+        let native = Mutex::new(Vec::new());
         let sources = [
             "service/spawn.rs:289",
             "service/spawn.rs:703",
@@ -265,7 +256,11 @@ mod tests {
             create_notification_with_delivery(
                 NotificationAdmission::Diagnostic,
                 &store,
-                app.handle(),
+                |title, body| {
+                    native
+                        .lock()
+                        .push((title.to_string(), body.map(str::to_string)))
+                },
                 format!("Diagnostic from {source}"),
                 Some("warning or error detail".into()),
                 Some("warning"),
@@ -279,9 +274,6 @@ mod tests {
 
         assert_eq!(store.lock().list(false).len(), 0);
         assert_eq!(emitted.lock().len(), 0);
-        assert_eq!(
-            crate::api::os_notify::os_notification_test_count(),
-            native_before
-        );
+        assert_eq!(native.lock().len(), 0);
     }
 }
