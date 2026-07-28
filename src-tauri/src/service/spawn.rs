@@ -430,10 +430,22 @@ impl ServiceContext {
                 t.clone()
             }
         });
-        let role_suffixed_task = super::orchestrator::role_onboarding_task(
+        let system_prompt_capable = self
+            .agent_registry
+            .with_provider(&agent_cmd, |provider| {
+                matches!(
+                    crate::service::launch_delivery::mode_for_descriptor(
+                        &provider.system_prompt_delivery(),
+                    ),
+                    crate::service::launch_delivery::LaunchDeliveryMode::SystemPrompt
+                )
+            })
+            .unwrap_or(false);
+        let role_suffixed_task = super::orchestrator::role_launch_task(
             preamble_wrapped_task.as_deref(),
             agent.role.as_deref(),
             agent.role_profile.as_deref(),
+            system_prompt_capable,
         );
         // Tag with the spawner's origin prefix uniformly for every provider; delivery handles the marker per provider (TUI-typed for PtyInput, positional after `--` for inline-flag).
         let role_suffixed_task =
@@ -451,23 +463,33 @@ impl ServiceContext {
                 &tab_id,
                 &resolved_cwd.clone().unwrap_or_default(),
             );
-        if let Some(task) = role_suffixed_task.as_deref().filter(|_| {
-            self.agent_registry
-                .with_provider(&agent_cmd, |provider| {
-                    matches!(
-                        crate::service::launch_delivery::mode_for_descriptor(
-                            &provider.system_prompt_delivery(),
-                        ),
-                        crate::service::launch_delivery::LaunchDeliveryMode::ConfirmedFallback
-                    )
-                })
-                .unwrap_or(true)
-        }) {
-            if let Err(error) = self.create_pending_delivery(
-                &tab_id,
-                crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
-                task,
-            ) {
+        let fallback_delivery = self
+            .agent_registry
+            .with_provider(&agent_cmd, |provider| {
+                matches!(
+                    provider.task_delivery(),
+                    crate::agent::provider::TaskDelivery::PtyInput
+                ) && !system_prompt_capable
+            })
+            .unwrap_or(true);
+        let fallback_spec = fallback_delivery
+            .then(|| {
+                crate::service::launch_delivery::fallback_delivery_spec(
+                    None,
+                    role_suffixed_task.as_deref(),
+                    self.agent_registry
+                        .with_provider(&agent_cmd, |provider| {
+                            provider.starter_prompt_text(legacy_params.starter_prompt)
+                        })
+                        .flatten()
+                        .as_deref(),
+                )
+            })
+            .flatten();
+        if let Some(spec) = fallback_spec.as_ref() {
+            if let Err(error) =
+                self.create_pending_delivery(&tab_id, spec.channel.clone(), &spec.payload)
+            {
                 let _ = self.mux.write().close_tab(&tab_id);
                 self.emit_state_changed();
                 return Err(error.to_string());
@@ -486,7 +508,7 @@ impl ServiceContext {
             launch_cmd,
             agent_cmd.clone(),
             role_suffixed_task,
-            None,
+            fallback_spec,
             ready_tx,
         );
 

@@ -109,6 +109,9 @@ var plugin = {
         parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
       }
     }
+    if (p.task) {
+      parts.push(host.shell.quoteFor(String(p.task), host.platform()));
+    }
     return disableClaudeHookImportPrefix() + (p.skipPermissions ? trustPrefix() : "") + parts.join(" ");
   },
   buildResumeCommand(sessionId, skipPermissions) {

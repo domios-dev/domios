@@ -12,12 +12,12 @@ pub(crate) fn skip_local_worker_role(
         && report_target_mesh_peer.map_or(false, |p| !p.is_empty())
 }
 
-pub(crate) fn role_onboarding_task(
+fn role_assignment_task(
     task: Option<&str>,
     role: Option<&str>,
     role_profile: Option<&str>,
 ) -> Option<String> {
-    let role_task = match (role, role_profile) {
+    match (role, role_profile) {
         (Some("Manager"), Some("planner")) => {
             task.map(|t| format!("{}{}", t, crate::prompts::planner_suffix()))
         }
@@ -31,8 +31,29 @@ pub(crate) fn role_onboarding_task(
             })
         }
         _ => task.map(str::to_string),
-    };
-    Some(agent_system_prompt(role_task.as_deref()))
+    }
+}
+
+pub(crate) fn role_onboarding_task(
+    task: Option<&str>,
+    role: Option<&str>,
+    role_profile: Option<&str>,
+) -> Option<String> {
+    let assignment = role_assignment_task(task, role, role_profile);
+    Some(agent_system_prompt(assignment.as_deref()))
+}
+
+pub(crate) fn role_launch_task(
+    task: Option<&str>,
+    role: Option<&str>,
+    role_profile: Option<&str>,
+    system_prompt_capable: bool,
+) -> Option<String> {
+    if system_prompt_capable || role.is_some() {
+        role_onboarding_task(task, role, role_profile)
+    } else {
+        role_assignment_task(task, role, role_profile)
+    }
 }
 
 pub(crate) fn agent_system_prompt(assignment: Option<&str>) -> String {
@@ -46,11 +67,24 @@ pub(crate) fn agent_system_prompt(assignment: Option<&str>) -> String {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn spawn_onboarding_task(params: &SpawnAgentParams) -> Option<String> {
     role_onboarding_task(
         params.task.as_deref(),
         params.role.as_deref(),
         params.role_profile.as_deref(),
+    )
+}
+
+pub(crate) fn spawn_launch_task(
+    params: &SpawnAgentParams,
+    system_prompt_capable: bool,
+) -> Option<String> {
+    role_launch_task(
+        params.task.as_deref(),
+        params.role.as_deref(),
+        params.role_profile.as_deref(),
+        system_prompt_capable,
     )
 }
 
@@ -965,11 +999,19 @@ pub(crate) fn build_agent_command(
 
     let launch_task = registry
         .with_provider(agent_cmd, |provider| {
-            crate::service::launch_delivery::content_for_descriptor(
+            let system_prompt = crate::service::launch_delivery::content_for_descriptor(
                 &provider.system_prompt_delivery(),
                 task,
             )
-            .system_prompt
+            .system_prompt;
+            system_prompt.or_else(|| {
+                matches!(
+                    provider.task_delivery(),
+                    crate::agent::provider::TaskDelivery::InlineFlag
+                )
+                .then(|| task.map(str::to_string))
+                .flatten()
+            })
         })
         .unwrap_or_default();
     let launch_params = AgentLaunchParams {
