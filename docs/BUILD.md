@@ -164,7 +164,9 @@ machine-wide gateway only serializes heavy app work.
 `./build.sh cli` is intentionally independent from the app/dev build gateway:
 Cargo serializes its separate `cli/target` itself. The command also regenerates
 `docs/cli-manifest.json` and the generated block in `docs/CLI.md`, then installs
-the same release binary into the production and development data directories.
+the release binary only into the active development data directory. Dev builds
+never overwrite `~/.codeterm/bin`: production CLI updates come from the bundled
+production app during startup, in-app update, or `install-local`.
 
 ## Dev/Prod Isolation
 
@@ -224,7 +226,7 @@ After `./build.sh build`:
 | **NSIS installer** | printed build-gateway release target; see Local production build and self-install |
 | **MSI installer** | `src-tauri/target/release/bundle/msi/CodeTerm_X.Y.Z_x64_en-US.msi` |
 | **Portable exe** | `src-tauri/target/release/codeterm.exe` |
-| **CLI binary** | bundled automatically by `build.sh` into `~/.codeterm/bin/` |
+| **CLI binary** | bundled in the production app; installed to `~/.codeterm/bin/` by production startup/update |
 
 ## Running Tests
 
@@ -354,5 +356,8 @@ On Windows, an intermittent `os error 10048` during repeated manual restart
 means either the completed server future still owns its listener or the socket
 cannot reclaim its own address. Drop the owned future before rebinding and keep
 the listener's reuse-address policy consistent across generations.
+If `build.ps1 check` reports E0603 for a helper under `commands::<module>`,
+call its `commands` facade re-export instead of making the implementation module
+public. The command modules are intentionally private ownership boundaries.
 
-<!-- revision: 27 -->
+<!-- revision: 29 -->
