@@ -201,11 +201,28 @@ console.log("\n--- discoverModels ---\n");
     "pre-nonce opencode plugin reads as not-current",
   );
   const cur = loadOpencodeWithHost(
-    withBody("// codeterm-opencode-session-binding-v2\nprocess.env.CODETERM_SESSION_BINDING_NONCE;"),
+    withBody(
+      "// codeterm-opencode-session-binding-v2\n" +
+      "process.env.CODETERM_SESSION_BINDING_NONCE;\n" +
+      "process.env.CODETERM_TAB_ID;\n" +
+      'const endpoint = "/api/tabs/";',
+    ),
   );
   assert(
     cur.checkIntegration().plugin_file_current === true,
     "opencode plugin carrying the nonce reads as current",
+  );
+  const stalePane = loadOpencodeWithHost(
+    withBody(
+      "// codeterm-opencode-session-binding-v2\n" +
+      "process.env.CODETERM_SESSION_BINDING_NONCE;\n" +
+      "process.env.CODETERM_PANE_ID;\n" +
+      'const endpoint = "/api/panes/";',
+    ),
+  );
+  assert(
+    stalePane.checkIntegration().plugin_file_current === false,
+    "nonce-bearing Pane-era opencode plugin reads as not-current",
   );
 }
 

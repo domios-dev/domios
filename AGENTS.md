@@ -45,7 +45,7 @@ Choose the operation before running a command: shared development is `docs/BUILD
 ./build.sh test             # Rust unit tests
 ./build.sh build            # production build
 ./build.sh install-local    # incremental production build + self-install (Windows canonical)
-./build.sh cli              # rebuild CLI only → ~/.codeterm/bin/ (no dev restart)
+./build.sh cli              # rebuild CLI only → active ~/.codeterm-dev*/bin/
 ./build.sh kill             # safe kill of dev only
 ./build.sh e2e              # API E2E tests against running dev
 source build.sh env         # load MSVC env into shell (Windows, manual cargo)
@@ -167,6 +167,12 @@ as a bounded failure deadline around such an event wait; elapsed time must never
 be treated as successful readiness. If an API exposes no readiness signal, add
 one at the ownership boundary instead of adding a delay or retry loop.
 
+## Agent launch delivery
+
+Launch/bootstrap input is delivered optimistically to the exact PTY already
+owned by the lifecycle. Never route pre-ready input through public `send_text`,
+which is a post-ready Tab API and may wait on the lifecycle that called it.
+
 ## Process safety
 
 **NEVER kill prod CodeTerm.** Identify by port:
@@ -248,4 +254,4 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
 
-<!-- revision: 8 -->
+<!-- revision: 10 -->

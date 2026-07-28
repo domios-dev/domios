@@ -27,6 +27,17 @@ fn default_api_port() -> u16 {
     }
 }
 
+pub(crate) fn install_provider_integration_for_launch(
+    registry: &crate::agent::registry::AgentRegistry,
+    provider_id: &str,
+) -> Result<(), String> {
+    registry
+        .with_provider(provider_id, |provider| {
+            provider.install_integration(default_api_port())
+        })
+        .ok_or_else(|| format!("Unknown provider: {provider_id}"))?
+}
+
 #[tauri::command]
 pub fn check_provider_integration(
     svc: State<'_, ServiceState>,

@@ -2,6 +2,7 @@
 
 import type { ProviderDescriptor } from "../../lib/types";
 import {
+  generalAgentProviders,
   hasAnyInstalledProvider,
   isProviderInstalled,
   preselectProviderId,
@@ -35,6 +36,20 @@ function mkProvider(id: string, cli?: string | null): ProviderDescriptor {
 }
 
 const providers = [mkProvider("claude", "claude"), mkProvider("codex", "codex")];
+
+test("General agent eligibility excludes chat backends before rendering or preselection", () => {
+  const chatBackend = {
+    ...mkProvider("lmstudio"),
+    transport: "chat_backend" as const,
+  };
+  const eligible = generalAgentProviders([chatBackend, ...providers]);
+  assert(eligible.length === 2, "only PTY providers remain eligible");
+  assert(eligible.every((provider) => provider.transport === "pty"), "all eligible providers use PTY");
+  assert(
+    preselectProviderId(eligible, { claude: false, codex: true }) === "codex",
+    "a no-CLI chat backend cannot be treated as installed or preselected",
+  );
+});
 
 test("providerRequiresCli respects descriptor", () => {
   assert(providerRequiresCli(providers[0]), "claude has cli");

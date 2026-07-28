@@ -815,6 +815,37 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
   );
 }
 
+{
+  const stalePaneScript = [
+    "# codeterm-codex-session-binding-v1",
+    "# codeterm-profile-cleanup-v1",
+    "$tab = $env:CODETERM_PANE_ID",
+    "$nonce = $env:CODETERM_SESSION_BINDING_NONCE",
+    'Invoke-RestMethod -Uri "$base/api/panes/$tab/hook/session_start"',
+  ].join("\n");
+  const p = loadCodexWithHost(baseHost({
+    platform: () => "windows",
+    fs: {
+      fileExists: (path: string) => path.endsWith("hooks.json") || path.endsWith("codeterm-session-start.ps1"),
+      readJson: () => ({
+        hooks: {
+          SessionStart: [{ hooks: [{
+            _source: "codeterm-codex-session-binding-v1",
+            commandWindows: 'powershell -File "codeterm-session-start.ps1"',
+          }] }],
+        },
+      }),
+      readFile: (path: string) => path.endsWith("codeterm-session-start.ps1") ? stalePaneScript : "",
+      writeJson: () => true,
+      writeFile: () => true,
+    },
+  }));
+  assert(
+    p.checkIntegration().session_start_hook === false,
+    "Windows integration rejects a nonce-bearing Pane-era hook",
+  );
+}
+
 // startup reinstalls it; a hook carrying it is current.
 {
   const sessionStartHook = (cmd: string) =>

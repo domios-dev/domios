@@ -1,7 +1,12 @@
 //! Start / restart / readiness-poll for the General Agent PTY+launch flow.
 
+mod readiness;
+
 use super::{binding_wait, general_dir, instructions, launch_lock, state, GENERAL_ALIAS};
 use codeterm_types::pty::BootStage;
+use readiness::{await_agent_launch_evidence, await_agent_output};
+#[cfg(test)]
+use readiness::{await_agent_output_with_signal, ScreenChangeSubscription};
 
 fn deliver_then_confirm(
     deliver: impl FnOnce() -> Result<(), String>,
@@ -11,18 +16,40 @@ fn deliver_then_confirm(
     confirm()
 }
 
+fn deliver_before_binding<T>(
+    deliver: impl FnOnce() -> Result<(), String>,
+    wait_for_binding: impl FnOnce() -> T,
+) -> Result<T, String> {
+    deliver()?;
+    Ok(wait_for_binding())
+}
+
 fn deliver_confirmed_general_message(
     svc: &crate::ServiceState,
     tab_id: &str,
+    pty_id: &str,
     text: &str,
 ) -> Result<(), String> {
     deliver_then_confirm(
-        || svc.send_text(tab_id, text, true),
+        || svc.send_launch_text_optimistic(pty_id, text, true),
         || {
             svc.confirm_pending_delivery(tab_id)
                 .map_err(|error| error.to_string())
         },
     )
+}
+
+fn compose_startup_message(
+    fallback_system_prompt: bool,
+    system_prompt: String,
+    bootstrap: Option<String>,
+) -> Option<String> {
+    match (fallback_system_prompt, bootstrap) {
+        (true, Some(bootstrap)) => Some(format!("{system_prompt}\n\n{bootstrap}")),
+        (true, None) => Some(system_prompt),
+        (false, Some(bootstrap)) => Some(bootstrap),
+        (false, None) => None,
+    }
 }
 
 /// Start the General Agent — called from start_servers on a background thread.
@@ -48,6 +75,16 @@ pub fn start_general_agent(
     let provider_name = &general_config.agent_provider;
 
     log::info!("[general-agent] Starting (provider={})", provider_name);
+    if let Err(error) =
+        crate::commands::install_provider_integration_for_launch(&svc.agent_registry, provider_name)
+    {
+        log::error!(
+            "[general-agent] Provider integration is not ready for {}: {}",
+            provider_name,
+            error
+        );
+        return;
+    }
 
     // Regenerate AGENT.md in a background thread.
     // If mem.lock is busy, delay the snapshot pass rather than blocking PTY resume.
@@ -232,7 +269,7 @@ pub fn start_general_agent(
     let cols = 120u16;
     let rows = 40u16;
     let env_vars =
-        general_agent_env_vars(&tab_id, svc.ensure_session_binding_nonce(&tab_id), config);
+        general_agent_env_vars(&tab_id, svc.rotate_session_binding_nonce(&tab_id), config);
 
     let pty_id = {
         let mut manager = pty.lock();
@@ -316,7 +353,7 @@ pub fn start_general_agent(
     log::info!("[general-agent] Shell ready, building launch command...");
 
     let use_resume = session_id.is_some();
-    let mut fallback_system_prompt = None;
+    let mut startup_message = None;
     let cmd = if use_resume {
         let sid = session_id.as_ref().unwrap();
         match svc
@@ -371,12 +408,13 @@ pub fn start_general_agent(
                 )
             })
             .unwrap_or(true);
-        fallback_system_prompt = fallback.then_some(system_prompt);
-        if let Some(prompt) = fallback_system_prompt.as_deref() {
+        let bootstrap = std::fs::read_to_string(general_dir().join("bootstrap.md")).ok();
+        startup_message = compose_startup_message(fallback, system_prompt, bootstrap);
+        if let Some(message) = startup_message.as_deref() {
             if let Err(error) = svc.create_pending_delivery(
                 &tab_id,
                 crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
-                prompt,
+                message,
             ) {
                 fail_general_agent_start(svc, mux, &tab_id, &error.to_string());
                 return;
@@ -424,9 +462,11 @@ pub fn start_general_agent(
         return;
     }
 
-    let launched = await_agent_output(
+    let launched = await_agent_launch_evidence(
         screen_state,
         &svc.agent_registry,
+        mux,
+        &tab_id,
         &pty_id,
         std::time::Duration::from_secs(15),
     );
@@ -442,50 +482,55 @@ pub fn start_general_agent(
         fail_general_agent_start(svc, mux, &tab_id, "agent output deadline elapsed");
         return;
     }
-
-    // no longer inject --session-id), so the next restart can resume this exact session.
-    if !use_resume {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        if let Some(sid) = binding_wait::wait_for_session_binding(deadline, || {
-            mux.read()
-                .get_tab(&tab_id)
-                .and_then(|tab| tab.agent_session_id.clone())
-        }) {
-            state::persist_session_id(provider_name, &sid);
-            log::info!("[general-agent] Persisted hook-bound session {}", sid);
-        } else {
-            log::warn!("[general-agent] Session binding was not reported before deadline");
-        }
-    }
-
     svc.emit_boot_stage(&tab_id, BootStage::ProviderReady, None);
-    if let Some(prompt) = fallback_system_prompt {
-        if let Err(error) = deliver_confirmed_general_message(svc, &tab_id, &prompt) {
+    let bound_session = match deliver_before_binding(
+        || {
+            if let Some(message) = startup_message {
+                deliver_confirmed_general_message(svc, &tab_id, &pty_id, &message)?;
+            }
+            Ok(())
+        },
+        || {
+            if use_resume {
+                return mux
+                    .read()
+                    .get_tab(&tab_id)
+                    .and_then(|tab| tab.agent_session_id.clone());
+            }
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            binding_wait::wait_for_session_binding(deadline, || {
+                mux.read()
+                    .get_tab(&tab_id)
+                    .and_then(|tab| tab.agent_session_id.clone())
+            })
+        },
+    ) {
+        Ok(bound_session) => bound_session,
+        Err(error) => {
             fail_general_agent_start(svc, mux, &tab_id, &error);
             return;
         }
-    }
+    };
+    let Some(bound_session) = bound_session else {
+        fail_general_agent_start(
+            svc,
+            mux,
+            &tab_id,
+            "authoritative provider session binding was not reported",
+        );
+        return;
+    };
     if !use_resume {
-        let bootstrap_path = general_dir().join("bootstrap.md");
-        if let Ok(bootstrap) = std::fs::read_to_string(bootstrap_path) {
-            if let Err(error) = svc
-                .create_pending_delivery(
-                    &tab_id,
-                    crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
-                    &bootstrap,
-                )
-                .map_err(|error| error.to_string())
-                .and_then(|_| deliver_confirmed_general_message(svc, &tab_id, &bootstrap))
-            {
-                fail_general_agent_start(svc, mux, &tab_id, &error);
-                return;
-            }
-        }
+        state::persist_session_id(provider_name, &bound_session);
+        log::info!(
+            "[general-agent] Persisted hook-bound session {}",
+            bound_session
+        );
     }
-    svc.emit_boot_stage(&tab_id, BootStage::AgentReady, None);
     if let Some(tab) = mux.write().get_tab_mut(&tab_id) {
         tab.agent_booting = false;
     }
+    svc.emit_boot_stage(&tab_id, BootStage::AgentReady, None);
     svc.emit_state_changed();
     log::info!(
         "[general-agent] Started successfully (tab={}, pty={})",
@@ -663,82 +708,6 @@ fn tab_still_owns_pty(mux: &crate::MuxState, tab_id: &str, pty_id: &str) -> bool
         == Some(pty_id)
 }
 
-/// Wait for agent output on the screen-change boundary until the failure deadline.
-fn await_agent_output(
-    screen_state: &crate::ScreenStateHandle,
-    registry: &crate::agent::registry::AgentRegistry,
-    pty_id: &str,
-    timeout: std::time::Duration,
-) -> bool {
-    let subscription = ScreenChangeSubscription::arm(screen_state, pty_id);
-    await_agent_output_with_signal(
-        screen_state,
-        registry,
-        pty_id,
-        &subscription.signal,
-        timeout,
-        || {},
-    )
-}
-
-fn await_agent_output_with_signal(
-    screen_state: &crate::ScreenStateHandle,
-    registry: &crate::agent::registry::AgentRegistry,
-    pty_id: &str,
-    signal: &codeterm_pty::pty::screen_state::ScreenChangeSignal,
-    timeout: std::time::Duration,
-    on_wait_armed: impl FnOnce(),
-) -> bool {
-    let deadline = std::time::Instant::now() + timeout;
-    let mut generation = signal.generation();
-    let mut on_wait_armed = Some(on_wait_armed);
-    loop {
-        let detected = screen_state
-            .lock()
-            .get_screen_text(pty_id)
-            .map(|screen| registry.detect_from_output(&screen).is_some())
-            .unwrap_or(false);
-        if detected {
-            return true;
-        }
-        let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
-            return false;
-        };
-        if let Some(on_wait_armed) = on_wait_armed.take() {
-            on_wait_armed();
-        }
-        if !signal.wait_after(generation, remaining) {
-            return false;
-        }
-        generation = signal.generation();
-    }
-}
-
-struct ScreenChangeSubscription {
-    screen_state: crate::ScreenStateHandle,
-    pty_id: String,
-    signal: std::sync::Arc<codeterm_pty::pty::screen_state::ScreenChangeSignal>,
-}
-
-impl ScreenChangeSubscription {
-    fn arm(screen_state: &crate::ScreenStateHandle, pty_id: &str) -> Self {
-        let signal = screen_state.lock().subscribe_screen_changes(pty_id);
-        Self {
-            screen_state: screen_state.clone(),
-            pty_id: pty_id.to_string(),
-            signal,
-        }
-    }
-}
-
-impl Drop for ScreenChangeSubscription {
-    fn drop(&mut self) {
-        self.screen_state
-            .lock()
-            .unsubscribe_screen_changes(&self.pty_id, &self.signal);
-    }
-}
-
 fn terminate_pty_before_relaunch(
     pty: &crate::PtyState,
     screen_state: &crate::ScreenStateHandle,
@@ -777,10 +746,10 @@ fn fail_general_agent_start(
     tab_id: &str,
     reason: &str,
 ) {
-    svc.emit_boot_stage(tab_id, BootStage::SpawnFailed, Some(reason));
     if let Some(tab) = mux.write().get_tab_mut(tab_id) {
         tab.agent_booting = false;
     }
+    svc.emit_boot_stage(tab_id, BootStage::SpawnFailed, Some(reason));
     svc.emit_state_changed();
 }
 
@@ -843,6 +812,49 @@ mod tests {
 
         assert_eq!(result.unwrap_err(), "submit was not confirmed");
         assert!(!confirmed.get());
+    }
+
+    #[test]
+    fn startup_turn_is_delivered_before_session_binding_wait() {
+        let steps = std::cell::RefCell::new(Vec::new());
+        let binding = super::deliver_before_binding(
+            || {
+                steps.borrow_mut().push("delivered");
+                Ok(())
+            },
+            || {
+                steps.borrow_mut().push("binding");
+                "session-id"
+            },
+        )
+        .unwrap();
+
+        assert_eq!(binding, "session-id");
+        assert_eq!(*steps.borrow(), ["delivered", "binding"]);
+    }
+
+    #[test]
+    fn fallback_provider_receives_one_composed_startup_turn() {
+        let message = super::compose_startup_message(
+            true,
+            "system contract".into(),
+            Some("bootstrap task".into()),
+        )
+        .unwrap();
+
+        assert_eq!(message, "system contract\n\nbootstrap task");
+    }
+
+    #[test]
+    fn provider_with_native_system_prompt_receives_only_bootstrap_turn() {
+        let message = super::compose_startup_message(
+            false,
+            "system contract".into(),
+            Some("bootstrap task".into()),
+        )
+        .unwrap();
+
+        assert_eq!(message, "bootstrap task");
     }
 
     fn mux_with_general_tab(stage: Option<BootStage>) -> (MuxState, String) {
@@ -977,6 +989,7 @@ mod tests {
                 "pty-1",
                 &signal,
                 Duration::from_secs(1),
+                || false,
                 || armed_tx.send(()).unwrap(),
             );
             done_tx.send(ready).unwrap();
@@ -989,6 +1002,23 @@ mod tests {
         waiter.join().unwrap();
         drop(subscription);
         assert_eq!(screen_state.lock().screen_change_subscriber_count(), 0);
+    }
+
+    #[test]
+    fn authoritative_binding_is_launch_readiness_evidence() {
+        let screen_state = Arc::new(TimedMutex::new("screen_state", ScreenState::new()));
+        let registry = AgentRegistry::new();
+        let subscription = super::ScreenChangeSubscription::arm(&screen_state, "pty-1");
+
+        assert!(super::await_agent_output_with_signal(
+            &screen_state,
+            &registry,
+            "pty-1",
+            &subscription.signal,
+            Duration::ZERO,
+            || true,
+            || panic!("authoritative binding should resolve before waiting"),
+        ));
     }
 
     #[test]
@@ -1069,6 +1099,7 @@ mod tests {
                 "pty-1",
                 &signal,
                 Duration::from_secs(1),
+                || false,
                 || armed_tx.send(()).unwrap(),
             );
             done_tx.send(ready).unwrap();

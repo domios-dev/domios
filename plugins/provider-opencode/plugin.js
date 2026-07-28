@@ -216,7 +216,7 @@ var plugin = {
     const pluginPath = opencodeBindingPluginPath();
     const pluginExists = !!pluginPath && host.fs.fileExists(pluginPath);
     const pluginBody = pluginExists ? String(host.fs.readFile(pluginPath) || "") : "";
-    const pluginCurrent = pluginExists && pluginBody.indexOf(CODETERM_OPENCODE_PLUGIN_MARKER) !== -1 && pluginBody.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1;
+    const pluginCurrent = pluginExists && pluginBody.indexOf(CODETERM_OPENCODE_PLUGIN_MARKER) !== -1 && pluginBody.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 && pluginBody.indexOf("CODETERM_TAB_ID") !== -1 && pluginBody.indexOf("/api/tabs/") !== -1;
     if (!cfg || !host.fs.fileExists(cfg)) {
       return {
         config_file_exists: false,

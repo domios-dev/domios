@@ -383,16 +383,20 @@ const plugin: PluginModule = {
       Array.isArray(arr) &&
       arr.some(hasCodetermCodexWindowsCommand)
     );
-    // A hook lacking the binding-nonce header is pre-nonce → not current, so startup reinstalls it.
-    const nonceOk = host.platform() === "windows"
-      ? winScriptText.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1
+    const contractOk = host.platform() === "windows"
+      ? winScriptText.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 &&
+        winScriptText.indexOf("CODETERM_TAB_ID") !== -1 &&
+        winScriptText.indexOf("/api/tabs/") !== -1
       : (Array.isArray(arr) && arr.some((entry) => {
           const hk = entry && entry.hooks;
           return Array.isArray(hk) && hk.some((h) => {
-            return !!h && String(h.command || "").indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1;
+            const command = String(h?.command || "");
+            return command.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 &&
+              command.indexOf("CODETERM_TAB_ID") !== -1 &&
+              command.indexOf("/api/tabs/") !== -1;
           });
         }));
-    const current = installed && windowsReady && nonceOk;
+    const current = installed && windowsReady && contractOk;
     const trustState = codexHookTrustState(path);
     const trustOk = trustState !== "disabled";
     return {

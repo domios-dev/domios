@@ -234,14 +234,23 @@ fn wait_submission_acknowledged<T: SubmitTransport>(
     transport: &T,
     text: &str,
     baseline_evidence: usize,
+    echo_observed: bool,
     turn_was_started: bool,
     armed: u64,
     deadline: Instant,
+    strategy: &VerifySubmitStrategy,
 ) -> bool {
     let mut generation = armed;
     loop {
-        if submission_acknowledged_now(transport, text, baseline_evidence, turn_was_started, armed)
-        {
+        if submission_acknowledged_now(
+            transport,
+            text,
+            baseline_evidence,
+            echo_observed,
+            turn_was_started,
+            armed,
+            strategy,
+        ) {
             return true;
         }
         if !transport.wait_change(generation, deadline) {
@@ -255,12 +264,18 @@ fn submission_acknowledged_now<T: SubmitTransport>(
     transport: &T,
     text: &str,
     baseline_evidence: usize,
+    echo_observed: bool,
     turn_was_started: bool,
     armed: u64,
+    strategy: &VerifySubmitStrategy,
 ) -> bool {
     let changed = transport.generation() != armed;
-    let draft_left_composer = changed && transport.draft_evidence_count(text) <= baseline_evidence;
     let fresh_turn = changed && !turn_was_started && transport.turn_started();
+    if matches!(strategy, VerifySubmitStrategy::TuiInputDrained) {
+        return fresh_turn;
+    }
+    let draft_left_composer =
+        echo_observed && changed && transport.draft_evidence_count(text) <= baseline_evidence;
     draft_left_composer || fresh_turn
 }
 
@@ -301,7 +316,7 @@ fn run_with_submit_key<T: SubmitTransport>(
     text: &str,
     enter: bool,
     submit_key: &[u8],
-    _strategy: VerifySubmitStrategy,
+    strategy: VerifySubmitStrategy,
     opts: VerifyOpts,
 ) -> Result<InjectionResult, InjectionError> {
     let started = Instant::now();
@@ -335,6 +350,17 @@ fn run_with_submit_key<T: SubmitTransport>(
         });
     }
 
+    if opts.verify_echo && !echo_observed {
+        let screen_tail = transport
+            .observe()
+            .map(|state| state.tail)
+            .unwrap_or_default();
+        return Err(InjectionError::EchoMismatch {
+            expected_substr: text.chars().take(120).collect(),
+            screen_tail,
+        });
+    }
+
     let turn_was_started = transport.turn_started();
     let enter_armed = transport.generation();
     for _ in 0..OPTIMISTIC_SUBMIT_WRITES {
@@ -345,9 +371,11 @@ fn run_with_submit_key<T: SubmitTransport>(
             transport,
             text,
             baseline_evidence,
+            echo_observed,
             turn_was_started,
             enter_armed,
             turn_deadline,
+            &strategy,
         );
 
     Ok(InjectionResult {
@@ -657,6 +685,60 @@ mod tests {
         }
     }
 
+    struct ComposerRedrawWithoutTurn {
+        generation: Cell<u64>,
+        draft_visible: Cell<bool>,
+        writes: RefCell<Vec<String>>,
+    }
+
+    impl ComposerRedrawWithoutTurn {
+        fn new() -> Self {
+            Self {
+                generation: Cell::new(0),
+                draft_visible: Cell::new(false),
+                writes: RefCell::new(Vec::new()),
+            }
+        }
+    }
+
+    impl SubmitTransport for ComposerRedrawWithoutTurn {
+        fn observe(&self) -> Option<Observation> {
+            Some(Observation {
+                tail: "> [Pasted text #1 +45 lines]".into(),
+            })
+        }
+
+        fn draft_evidence_count(&self, _text: &str) -> usize {
+            usize::from(self.draft_visible.get())
+        }
+
+        fn generation(&self) -> u64 {
+            self.generation.get()
+        }
+
+        fn wait_change(&self, _generation: u64, _deadline: Instant) -> bool {
+            false
+        }
+
+        fn turn_started(&self) -> bool {
+            false
+        }
+
+        fn write_paste(&self, text: &str, _deadline: Instant) -> Result<usize, InjectionError> {
+            self.draft_visible.set(true);
+            self.generation.set(self.generation.get() + 1);
+            self.writes.borrow_mut().push(format!("paste:{text}"));
+            Ok(text.len())
+        }
+
+        fn write_submit_key(&self, _key: &[u8], _deadline: Instant) -> Result<(), InjectionError> {
+            self.draft_visible.set(false);
+            self.generation.set(self.generation.get() + 1);
+            self.writes.borrow_mut().push("enter".into());
+            Ok(())
+        }
+    }
+
     struct RevokedAfterPaste {
         generation: Cell<u64>,
         writes: RefCell<Vec<String>>,
@@ -741,6 +823,44 @@ mod tests {
         assert!(region.contains("first draft line"));
         assert!(region.contains("third draft line"));
         assert!(!region.contains("prior output"));
+    }
+
+    #[test]
+    fn tui_composer_redraw_without_turn_is_not_submission() {
+        let io = ComposerRedrawWithoutTurn::new();
+        let result = run(&io, "general bootstrap", true, tui(), opts()).unwrap();
+        let result = result.require_submission(true, Duration::ZERO, "> general bootstrap".into());
+
+        assert!(
+            matches!(&result, Err(InjectionError::SubmitNeverConfirmed { .. })),
+            "{result:?}"
+        );
+        assert_eq!(
+            io.writes
+                .borrow()
+                .iter()
+                .filter(|write| write.starts_with("paste:"))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn tui_turn_transition_confirms_submission() {
+        let io = ControlledTransport::new("> [Pasted text #1 +45 lines]");
+        let result = run(&io, "general bootstrap", true, tui(), opts()).unwrap();
+
+        assert!(result.submit_observed);
+        assert!(io.turn_started());
+    }
+
+    #[test]
+    fn missing_paste_evidence_never_writes_submit_key() {
+        let io = TuiModel::never_ingests();
+        let result = run(&io, "general bootstrap", true, tui(), opts());
+
+        assert!(matches!(result, Err(InjectionError::EchoMismatch { .. })));
+        assert_eq!(&*io.writes.borrow(), &["paste:general bootstrap"]);
     }
 
     #[test]
