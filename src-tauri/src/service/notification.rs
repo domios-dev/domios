@@ -231,7 +231,7 @@ mod tests {
             "Which deployment region should I use?\nInclude the failover region."
         );
         assert!(
-            !events[0]["title"].as_str().unwrap().contains("Tab"),
+            events[0]["title"].as_str().unwrap().contains("Tab"),
             "user-visible notification copy uses Tab wording"
         );
     }

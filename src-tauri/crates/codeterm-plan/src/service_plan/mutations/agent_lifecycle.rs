@@ -64,9 +64,8 @@ impl PlanStore {
         }
 
         let changed_plan_ids = staged.iter().map(|plan| plan.id.clone()).collect();
-        let mut persisted = 0;
         let mut paths = Vec::new();
-        for candidate in &staged {
+        for (persisted, candidate) in staged.iter().enumerate() {
             match self.persist_plan_and_spec(candidate) {
                 Ok(path) => paths.push(path),
                 Err(error) => {
@@ -76,7 +75,6 @@ impl PlanStore {
                     return Err(PlanError::Io(error.to_string()));
                 }
             }
-            persisted += 1;
         }
         for (candidate, path) in staged.iter().zip(paths) {
             self.commit_agent_lifecycle_plan(candidate, path)?;
