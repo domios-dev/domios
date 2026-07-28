@@ -7,7 +7,7 @@ pub mod kpi;
 pub mod kpi_ledger;
 pub mod ledger;
 pub mod live_state;
-pub mod model_catalog;
+pub use codeterm_plugin::model_catalog;
 pub mod models;
 pub mod native_prompt;
 pub mod offline_state_classifier;
