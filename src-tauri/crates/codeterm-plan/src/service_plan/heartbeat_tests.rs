@@ -57,6 +57,44 @@ fn heartbeat_learning_persists_reloads_and_dedups() {
 }
 
 #[test]
+fn heartbeat_lists_plan_skill_with_persisted_purpose() {
+    let (_dir, store, plan_id) = store_with_plan("orch-a");
+    let created = super::plan_skills::create_plan_skill(
+        &store,
+        &plan_id,
+        super::plan_skills::NewPlanSkill {
+            slug: "recovery-check".into(),
+            title: Some("Recovery Check".into()),
+            area: Some("testing".into()),
+            check: None,
+            rationale: Some("captured".into()),
+        },
+    )
+    .unwrap();
+    std::fs::write(
+        created.skill_md,
+        "---\ntitle: Recovery Check\ndescription: Restore the fixture and verify recovery.\n---\n",
+    )
+    .unwrap();
+    store
+        .add_heartbeat_learning(
+            Some(&plan_id),
+            None,
+            None,
+            "Keep the heartbeat visible.",
+            None,
+            20,
+        )
+        .unwrap();
+
+    let shown = store.show_heartbeat(Some(&plan_id), None, None).unwrap();
+
+    assert!(shown
+        .reinjection
+        .contains("Plan skills (1): recovery-check: Restore the fixture and verify recovery."));
+}
+
+#[test]
 fn heartbeat_renders_live_competitive_attempt_summary() {
     let (_dir, store, plan_id) = store_with_plan("orch-a");
     let task_id = store

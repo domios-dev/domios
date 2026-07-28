@@ -295,10 +295,10 @@ fn render_heartbeat(
             out.push('\n');
         }
     }
-    let skill_slugs = super::skill_registry::list_plan_skill_slugs(plan);
+    let skill_summaries = super::skill_registry::list_plan_skill_summaries(plan);
     out.push_str(&super::skill_registry::render_plan_skills_registry_line(
-        skill_slugs.len(),
-        &skill_slugs,
+        skill_summaries.len(),
+        &skill_summaries,
     ));
     out.push('\n');
     out.push_str("</codeterm-orchestrator-heartbeat>");
