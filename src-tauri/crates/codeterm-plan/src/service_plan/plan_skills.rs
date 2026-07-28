@@ -2,7 +2,6 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use super::paths::plan_state_dir;
 use crate::service_plan::PlanError;
 use crate::service_plan::PlanStore;
 
@@ -191,7 +190,12 @@ fn scaffold(slug: &str, title: &str, area: &str, check: Option<&str>) -> String 
 
 fn plan_dir_for(store: &PlanStore, plan_id: &str) -> Result<std::path::PathBuf, PlanError> {
     let plan = store.get(plan_id).ok_or(PlanError::NotFound)?;
-    plan_state_dir(&plan.status, &plan.id).map_err(|e| PlanError::Io(e.to_string()))
+    super::paths::plan_state_dir(
+        super::paths::plan_sidecar_root(&plan),
+        &plan.status,
+        &plan.id,
+    )
+    .map_err(|e| PlanError::Io(e.to_string()))
 }
 
 fn io_error(context: &str, error: impl std::fmt::Display) -> PlanError {
@@ -463,7 +467,12 @@ mod tests {
             )
             .unwrap();
         let _cleanup = ExternalPlanCleanup(external_plan_dir(&plan));
-        let dir = plan_state_dir(&plan.status, &plan.id).unwrap();
+        let dir = crate::service_plan::paths::plan_state_dir(
+            crate::service_plan::paths::plan_sidecar_root(&plan),
+            &plan.status,
+            &plan.id,
+        )
+        .unwrap();
         write_skill(
             &dir,
             "deploy",
@@ -567,7 +576,12 @@ mod tests {
             )
             .unwrap();
         let _cleanup = ExternalPlanCleanup(external_plan_dir(&plan));
-        let dir = plan_state_dir(&plan.status, &plan.id).unwrap();
+        let dir = crate::service_plan::paths::plan_state_dir(
+            crate::service_plan::paths::plan_sidecar_root(&plan),
+            &plan.status,
+            &plan.id,
+        )
+        .unwrap();
         std::fs::write(dir.join("skills"), "blocked").unwrap();
 
         let error = create_plan_skill(

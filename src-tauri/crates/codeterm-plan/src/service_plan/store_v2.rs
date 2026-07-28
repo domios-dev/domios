@@ -18,7 +18,11 @@ pub const STORE_VERSION: u32 = 2;
 
 /// The plan's yaml store lives beside the global plan database.
 pub fn plan_state_dir(plan: &Plan) -> io::Result<PathBuf> {
-    super::paths::plan_state_dir(&plan.status, &plan.id)
+    super::paths::plan_state_dir(
+        super::paths::plan_sidecar_root(plan),
+        &plan.status,
+        &plan.id,
+    )
 }
 
 fn task_stem(task: &Task) -> String {

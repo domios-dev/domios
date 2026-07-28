@@ -318,7 +318,8 @@ mod tests {
     fn http_close_team_enforces_permission() {
         let (mut mux, team_id, orchestrator, worker) = team_members();
         let events = crate::api::events::EventBroadcaster::new();
-        let plan_store = crate::service::plan::PlanStore::new();
+        let plan_root = tempfile::tempdir().unwrap();
+        let plan_store = crate::service::plan::PlanStore::new_for_test(plan_root.path());
         assert_eq!(
             close_team_adapter(&HeaderMap::new(), team_id.clone(), |_, _| unreachable!())
                 .unwrap_err()
