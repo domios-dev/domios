@@ -699,6 +699,17 @@ impl ServiceContext {
         )
     }
 
+    /// Launch-time delivery targets the PTY already owned by the lifecycle.
+    /// It must not enter the public post-ready Tab send gate.
+    pub(crate) fn send_launch_text_optimistic(
+        &self,
+        pty_id: &str,
+        text: &str,
+        enter: bool,
+    ) -> Result<(), String> {
+        self.write_paste_optimistic(pty_id, text, enter)
+    }
+
     /// Write raw bytes (no bracket paste) — for keystrokes the TUI must interpret (vim j/k, arrows).
     pub fn write_raw(&self, tab_id: &str, data: &[u8]) -> Result<(), String> {
         let pty_id = self.resolve_pty_id(tab_id)?;

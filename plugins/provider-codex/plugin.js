@@ -944,13 +944,14 @@ var plugin = {
     const winScript = codexWindowsHookScriptPath();
     const winScriptText = winScript && host.fs.fileExists(winScript) ? String(host.fs.readFile(winScript) || "") : "";
     const windowsReady = host.platform() !== "windows" || !!winScript && winScriptText.indexOf(CODETERM_CODEX_PROFILE_CLEANUP_MARKER) !== -1 && Array.isArray(arr) && arr.some(hasCodetermCodexWindowsCommand);
-    const nonceOk = host.platform() === "windows" ? winScriptText.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 : Array.isArray(arr) && arr.some((entry) => {
+    const contractOk = host.platform() === "windows" ? winScriptText.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 && winScriptText.indexOf("CODETERM_TAB_ID") !== -1 && winScriptText.indexOf("/api/tabs/") !== -1 : Array.isArray(arr) && arr.some((entry) => {
       const hk = entry && entry.hooks;
       return Array.isArray(hk) && hk.some((h) => {
-        return !!h && String(h.command || "").indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1;
+        const command = String(h?.command || "");
+        return command.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 && command.indexOf("CODETERM_TAB_ID") !== -1 && command.indexOf("/api/tabs/") !== -1;
       });
     });
-    const current = installed && windowsReady && nonceOk;
+    const current = installed && windowsReady && contractOk;
     const trustState = codexHookTrustState(path);
     const trustOk = trustState !== "disabled";
     return {
