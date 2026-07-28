@@ -65,7 +65,11 @@ impl MultiplexerState {
             if !ws.tabs.contains(id) {
                 return Err(format!("Tab not in workspace: {}", id));
             }
-            if parent_of.get(id).and_then(|parent| parent.clone()).is_some() {
+            if parent_of
+                .get(id)
+                .and_then(|parent| parent.clone())
+                .is_some()
+            {
                 return Err(format!("Tab {} is a child, not a top-level tab", id));
             }
         }
@@ -165,9 +169,7 @@ fn pin_protected_tabs_first(
     ordered_tab_ids: &[String],
     protected_tabs: &std::collections::HashSet<String>,
 ) -> Vec<String> {
-    let is_pinned = |id: &String| {
-        ws.tabs.contains(id) && protected_tabs.contains(id)
-    };
+    let is_pinned = |id: &String| ws.tabs.contains(id) && protected_tabs.contains(id);
     let pinned = ordered_tab_ids.iter().filter(|id| is_pinned(id)).cloned();
     let rest = ordered_tab_ids.iter().filter(|id| !is_pinned(id)).cloned();
     pinned.chain(rest).collect()

@@ -266,7 +266,9 @@ fn test_fallback_focus_to_general_sets_focus() {
     state.register_alias("general", &general_tab_id);
 
     // Clear focus first to make the assignment observable.
-    let other = state.create_tab(&state.list_workspaces()[0].id.clone()).unwrap();
+    let other = state
+        .create_tab(&state.list_workspaces()[0].id.clone())
+        .unwrap();
     state.set_focused_tab(&other).unwrap();
 
     let result = state.fallback_focus_to_general();
@@ -325,7 +327,9 @@ fn test_close_tab() {
 #[test]
 fn test_set_focused_tab() {
     let (mut state, _initial_tab_id) = MultiplexerState::new();
-    let new_tab_id = state.create_tab(&state.list_workspaces()[0].id.clone()).unwrap();
+    let new_tab_id = state
+        .create_tab(&state.list_workspaces()[0].id.clone())
+        .unwrap();
 
     assert!(state.set_focused_tab(&new_tab_id).is_ok());
     assert_eq!(state.get_focused_tab_id(), Some(new_tab_id.as_str()));
@@ -394,7 +398,9 @@ fn test_worker_requires_orchestrator_parent() {
     state
         .set_tab_role(&orch_id, AgentRole::Orchestrator, None)
         .unwrap();
-    let worker_id = state.create_tab(&state.list_workspaces()[0].id.clone()).unwrap();
+    let worker_id = state
+        .create_tab(&state.list_workspaces()[0].id.clone())
+        .unwrap();
     state
         .set_tab_role(&worker_id, AgentRole::Worker, Some(&orch_id))
         .unwrap();
@@ -412,11 +418,15 @@ fn test_worker_parent_must_not_be_worker() {
     state
         .set_tab_role(&orch_id, AgentRole::Orchestrator, None)
         .unwrap();
-    let worker_parent = state.create_tab(&state.list_workspaces()[0].id.clone()).unwrap();
+    let worker_parent = state
+        .create_tab(&state.list_workspaces()[0].id.clone())
+        .unwrap();
     state
         .set_tab_role(&worker_parent, AgentRole::Worker, Some(&orch_id))
         .unwrap();
-    let other_id = state.create_tab(&state.list_workspaces()[0].id.clone()).unwrap();
+    let other_id = state
+        .create_tab(&state.list_workspaces()[0].id.clone())
+        .unwrap();
     let result = state.set_tab_role(&other_id, AgentRole::Worker, Some(&worker_parent));
     assert!(result.is_err());
 }
@@ -429,7 +439,9 @@ fn test_worker_parent_must_allow_spawn() {
         .unwrap();
     state.set_can_spawn(&orch_id, false).unwrap();
 
-    let worker_id = state.create_tab(&state.list_workspaces()[0].id.clone()).unwrap();
+    let worker_id = state
+        .create_tab(&state.list_workspaces()[0].id.clone())
+        .unwrap();
     let result = state.set_tab_role(&worker_id, AgentRole::Worker, Some(&orch_id));
     assert!(result.is_err());
 }
@@ -442,7 +454,9 @@ fn worker_under_orchestrator_is_depth_2_and_cannot_parent() {
         .set_tab_role(&orch_id, AgentRole::Orchestrator, None)
         .unwrap();
 
-    let worker_id = state.create_tab(&state.list_workspaces()[0].id.clone()).unwrap();
+    let worker_id = state
+        .create_tab(&state.list_workspaces()[0].id.clone())
+        .unwrap();
     state
         .set_tab_role(&worker_id, AgentRole::Worker, Some(&orch_id))
         .unwrap();
@@ -452,7 +466,9 @@ fn worker_under_orchestrator_is_depth_2_and_cannot_parent() {
     assert_eq!(worker.depth, 2);
     assert!(!worker.can_spawn);
 
-    let sub_id = state.create_tab(&state.list_workspaces()[0].id.clone()).unwrap();
+    let sub_id = state
+        .create_tab(&state.list_workspaces()[0].id.clone())
+        .unwrap();
     let result = state.set_tab_role(&sub_id, AgentRole::Worker, Some(&worker_id));
     assert!(
         result.is_err(),
@@ -466,11 +482,15 @@ fn test_get_children_ids() {
     state
         .set_tab_role(&orch_id, AgentRole::Orchestrator, None)
         .unwrap();
-    let w1 = state.create_tab(&state.list_workspaces()[0].id.clone()).unwrap();
+    let w1 = state
+        .create_tab(&state.list_workspaces()[0].id.clone())
+        .unwrap();
     state
         .set_tab_role(&w1, AgentRole::Worker, Some(&orch_id))
         .unwrap();
-    let w2 = state.create_tab(&state.list_workspaces()[0].id.clone()).unwrap();
+    let w2 = state
+        .create_tab(&state.list_workspaces()[0].id.clone())
+        .unwrap();
     state
         .set_tab_role(&w2, AgentRole::Worker, Some(&orch_id))
         .unwrap();
@@ -487,7 +507,9 @@ fn test_clear_role_orphans_children() {
     state
         .set_tab_role(&orch_id, AgentRole::Orchestrator, None)
         .unwrap();
-    let worker_id = state.create_tab(&state.list_workspaces()[0].id.clone()).unwrap();
+    let worker_id = state
+        .create_tab(&state.list_workspaces()[0].id.clone())
+        .unwrap();
     state
         .set_tab_role(&worker_id, AgentRole::Worker, Some(&orch_id))
         .unwrap();
@@ -648,7 +670,9 @@ fn explicit_close_team_still_cascades() {
 #[test]
 fn test_set_can_spawn_requires_role() {
     let (mut state, _) = MultiplexerState::new();
-    let tab_id = state.create_tab(&state.list_workspaces()[0].id.clone()).unwrap();
+    let tab_id = state
+        .create_tab(&state.list_workspaces()[0].id.clone())
+        .unwrap();
     let result = state.set_can_spawn(&tab_id, true);
     assert!(result.is_err());
 }
@@ -1080,7 +1104,9 @@ fn test_protected_workspace_cannot_close() {
 #[test]
 fn test_protected_tab_cannot_close() {
     let (mut state, _initial_tab_id) = MultiplexerState::new();
-    let new_tab_id = state.create_tab(&state.list_workspaces()[0].id.clone()).unwrap();
+    let new_tab_id = state
+        .create_tab(&state.list_workspaces()[0].id.clone())
+        .unwrap();
     state.get_tab_mut(&new_tab_id).unwrap().protected = true;
 
     let result = state.close_tab(&new_tab_id);

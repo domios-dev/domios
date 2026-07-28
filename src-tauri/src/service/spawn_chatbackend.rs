@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::spawn::{TabCommand, TabHandle, SpawnTabSpec};
+use super::spawn::{SpawnTabSpec, TabCommand, TabHandle};
 use super::ServiceContext;
 use crate::agent::chat_types::{ChatMsg, StructuredChat};
 use crate::agent::reports::ReportDetails;
@@ -352,12 +352,7 @@ impl ServiceContext {
             self.emit_state_changed();
         }
 
-        self.chatbackend_launch_async(
-            plugin_id,
-            tab_id.clone(),
-            config,
-            history_meta,
-        );
+        self.chatbackend_launch_async(plugin_id, tab_id.clone(), config, history_meta);
 
         let budget_notice = self.workspace_tab_budget_notice(&ws_id);
         Ok(TabHandle {

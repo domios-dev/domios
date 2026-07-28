@@ -1025,10 +1025,7 @@ mod tests {
 
     #[test]
     fn unrelated_paths_are_open() {
-        assert!(!path_requires_full_access(
-            "POST",
-            "/api/tabs/general/send"
-        ));
+        assert!(!path_requires_full_access("POST", "/api/tabs/general/send"));
         assert!(!path_requires_full_access("GET", "/api/mesh/peers"));
     }
 

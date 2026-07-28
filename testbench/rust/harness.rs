@@ -3,10 +3,10 @@ use std::path::{Path, PathBuf};
 
 use codeterm_lib::agent::command_detection::CommandDetection;
 use codeterm_lib::agent::detector;
-use codeterm_lib::agent::tab_state::{TabState, TabStateClassification, TabStateSnapshot};
 use codeterm_lib::agent::provider::AgentProvider;
 use codeterm_lib::agent::semantic_marker::{SemanticEvent, SemanticMarkerParser};
 use codeterm_lib::agent::signal_extractor::{SignalExtractor, StreamSignals, VolatileHint};
+use codeterm_lib::agent::tab_state::{TabState, TabStateClassification, TabStateSnapshot};
 use codeterm_lib::agent::{attributed_screen, attributed_screen::AttributedScreen};
 use codeterm_lib::plugin::js_runtime::{load_one, JsProvider};
 use serde::Deserialize;

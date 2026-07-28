@@ -41,11 +41,7 @@ impl ServiceContext {
         reconcile_tab_status(&self.agent_registry, tab, raw)
     }
 
-    pub(crate) fn reconciled_tab_status_for_id(
-        &self,
-        tab_id: &str,
-        raw: TabStatus,
-    ) -> TabStatus {
+    pub(crate) fn reconciled_tab_status_for_id(&self, tab_id: &str, raw: TabStatus) -> TabStatus {
         self.mux
             .read()
             .get_tab(tab_id)
@@ -98,11 +94,7 @@ mod tests {
 
         let live_status = {
             let mux = mux.read();
-            reconcile_tab_status(
-                &registry,
-                mux.get_tab(&tab_id).unwrap(),
-                TabStatus::Working,
-            )
+            reconcile_tab_status(&registry, mux.get_tab(&tab_id).unwrap(), TabStatus::Working)
         };
         let snapshot = snapshot_with_reconciled_status(&mux, &tracker, &registry);
 

@@ -488,10 +488,7 @@ mod tests {
         assert!(!is_service_push_allowed("POST", "/api/tabs/abc123/exec"));
         assert!(!is_service_push_allowed("POST", "/api/tabs/abc123/clear"));
         assert!(!is_service_push_allowed("POST", "/api/tabs//send"));
-        assert!(!is_service_push_allowed(
-            "POST",
-            "/api/tabs/abc/extra/send"
-        ));
+        assert!(!is_service_push_allowed("POST", "/api/tabs/abc/extra/send"));
         assert!(!is_service_push_allowed("POST", "/api/tabs"));
     }
 }

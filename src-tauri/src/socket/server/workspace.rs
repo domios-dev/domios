@@ -66,12 +66,13 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("eager"))
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
-            let tab_id = svc.create_tab_with_activate(&workspace_id, false)
-                    .map_err(|e| JsonRpcError {
-                        code: -32602,
-                        message: e,
-                        data: None,
-                    })?;
+            let tab_id = svc
+                .create_tab_with_activate(&workspace_id, false)
+                .map_err(|e| JsonRpcError {
+                    code: -32602,
+                    message: e,
+                    data: None,
+                })?;
             let pty_id = if eager {
                 svc.ensure_tab_pty_for_send(&tab_id)
                     .map_err(|e| JsonRpcError {

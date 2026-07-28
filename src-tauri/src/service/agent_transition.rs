@@ -96,9 +96,7 @@ impl ServiceContext {
         match self.transition_agent(AgentTransitionRequest::roleless(tab_id)) {
             Ok(_) => Ok(()),
             Err(error) if error.contains("not found") => {
-                let touched = self
-                    .remote_workers
-                    .forget_by_remote_tab(tab_id, None, None);
+                let touched = self.remote_workers.forget_by_remote_tab(tab_id, None, None);
                 if touched.is_empty() {
                     return Err(error);
                 }

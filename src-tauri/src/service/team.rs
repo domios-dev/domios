@@ -741,9 +741,7 @@ fn authorize_team_mutation(
 ) -> Result<(), String> {
     match caller {
         TeamMutationCaller::TrustedDirectUser => authorize_team_manager(mux, team_id, None),
-        TeamMutationCaller::AgentTab(tab_id) => {
-            authorize_team_manager(mux, team_id, Some(&tab_id))
-        }
+        TeamMutationCaller::AgentTab(tab_id) => authorize_team_manager(mux, team_id, Some(&tab_id)),
     }
 }
 

@@ -772,9 +772,7 @@ mod tests {
         let (row_id, _) = store.peek_in_workspace("w", 0).expect("peeked");
 
         // First delete removes the row and reports success.
-        store
-            .delete_tab_row(row_id)
-            .expect("first delete succeeds");
+        store.delete_tab_row(row_id).expect("first delete succeeds");
         // Second delete of the same id removes nothing → Err (entry already gone).
         assert!(
             store.delete_tab_row(row_id).is_err(),

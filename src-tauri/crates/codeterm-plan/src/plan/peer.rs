@@ -38,9 +38,7 @@ where
         None => PeerResolution::Unbound,
         Some(PlannerRef::Waived { note }) => PeerResolution::Waived { note: note.clone() },
         Some(PlannerRef::Tab {
-            tab_id,
-            session_id,
-            ..
+            tab_id, session_id, ..
         }) => {
             let probe = tab_probe(tab_id);
             if probe.planner_routable_for(session_id.as_deref()) {
@@ -49,7 +47,9 @@ where
                 }
             } else {
                 let reason = if probe.exists {
-                    format!("planner_dead: tab {tab_id} has no nonce-verified live agent chat session")
+                    format!(
+                        "planner_dead: tab {tab_id} has no nonce-verified live agent chat session"
+                    )
                 } else {
                     format!("planner tab {tab_id} gone")
                 };

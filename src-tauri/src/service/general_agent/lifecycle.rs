@@ -574,10 +574,7 @@ pub fn validate_general_agent_tab_retry(
     validate_general_agent_tab_retry_inner(tab_id, mux, false)
 }
 
-pub fn claim_general_agent_tab_retry(
-    tab_id: &str,
-    mux: &crate::MuxState,
-) -> Result<bool, String> {
+pub fn claim_general_agent_tab_retry(tab_id: &str, mux: &crate::MuxState) -> Result<bool, String> {
     validate_general_agent_tab_retry_inner(tab_id, mux, true)
 }
 

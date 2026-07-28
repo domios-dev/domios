@@ -77,10 +77,7 @@ async fn run(svc: &ServiceState) -> Result<(), String> {
 
     match svc.send_text(&tab_id, &text, true) {
         Ok(_) => {
-            log::info!(
-                "[post-update] injected message into general Tab {}",
-                tab_id
-            );
+            log::info!("[post-update] injected message into general Tab {}", tab_id);
             if let Err(e) = std::fs::remove_file(&p) {
                 log::warn!("[post-update] failed to delete {}: {}", p.display(), e);
             }

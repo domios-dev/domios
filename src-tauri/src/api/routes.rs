@@ -9,8 +9,8 @@ use tower_http::{catch_panic::CatchPanicLayer, compression::CompressionLayer, co
 use super::{
     agent_routes, bridge_routes, clipboard_routes, config_routes, cron_routes, debug_routes,
     fs_routes, health_routes, logs_routes, mem_routes, mesh_routes, network_routes,
-    notification_routes, output_stream, tab_agent_routes, tab_routes, pasteboard_routes,
-    plan_routes, pty_routes, services_routes, session_routes, task_routes, team_routes,
+    notification_routes, output_stream, pasteboard_routes, plan_routes, pty_routes,
+    services_routes, session_routes, tab_agent_routes, tab_routes, task_routes, team_routes,
     theme_routes, updater_routes, usage_routes, web_routes, webhook_routes, workspace_routes,
 };
 
@@ -384,10 +384,7 @@ pub fn create_router(state: AppState) -> Router {
             "/api/workspaces/{id}/tabs/{tab_id}/close",
             post(web_routes::tab_close),
         )
-        .route(
-            "/api/tabs/{id}/chat-view",
-            post(web_routes::tab_chat_view),
-        )
+        .route("/api/tabs/{id}/chat-view", post(web_routes::tab_chat_view))
         .route(
             "/api/mesh/peers/{id}/services",
             get(web_routes::peer_services),

@@ -271,12 +271,13 @@ pub async fn send_text(
 
     let requires_immediate_pty = body.raw || body.actions.is_some() || body.batch.is_some();
     if transport == TabInputTransport::Pty && requires_immediate_pty {
-        state.svc.ensure_tab_pty_for_send(&tab_id).map_err(|e| {
-            DeliveryError::PtyUnavailable {
+        state
+            .svc
+            .ensure_tab_pty_for_send(&tab_id)
+            .map_err(|e| DeliveryError::PtyUnavailable {
                 tab: tab_id.clone(),
                 detail: e.to_string(),
-            }
-        })?;
+            })?;
 
         if !await_pty_link(&state, &tab_id).await {
             return Err(DeliveryError::PtyUnavailable {

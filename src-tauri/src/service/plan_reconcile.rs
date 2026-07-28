@@ -30,8 +30,8 @@ use crate::multiplexer::types::AgentRole;
 use crate::plan::cleanup_debt::CleanupDebtTask;
 use crate::plan::lane_liveness::LaneThresholds;
 use crate::plan::reconcile::{
-    detect_lane_demotions, detect_tab_gone, detect_plan_drift, DriftItem, DriftKind, TabProbe,
-    TabRole, ReconcileConfig, DEFAULT_STALE_REVIEW_MS,
+    detect_lane_demotions, detect_plan_drift, detect_tab_gone, DriftItem, DriftKind,
+    ReconcileConfig, TabProbe, TabRole, DEFAULT_STALE_REVIEW_MS,
 };
 use crate::plan::{PlanStatus, Task, TaskStatus};
 use crate::service::plan::{cleanup_debt, PlanError, ReconcileFixResult};
@@ -61,9 +61,8 @@ impl ServiceContext {
             .map(str::to_string)
             .or_else(|| plan.owner.tab_id.clone());
         let drift = detect_plan_drift(&plan, &config, |tab_id| self.tab_probe(tab_id));
-        let cleanup_debt = cleanup_debt::detect_plan_cleanup_debt(&plan, |tab_id| {
-            self.tab_probe(tab_id).exists
-        });
+        let cleanup_debt =
+            cleanup_debt::detect_plan_cleanup_debt(&plan, |tab_id| self.tab_probe(tab_id).exists);
         let counts = drift_counts(&drift);
         let fixed = if fix {
             self.plan_store

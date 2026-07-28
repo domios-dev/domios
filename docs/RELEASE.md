@@ -173,6 +173,8 @@ yet.
 
 | Symptom | Cause | Fix |
 |---|---|---|
+| PR CI fails during `pnpm install` with `ERR_PNPM_OUTDATED_LOCKFILE` | A workspace manifest changed without regenerating the root lockfile, so CI's implicit frozen-lockfile check rejects it before tests run | Run `pnpm install --no-frozen-lockfile`, commit `pnpm-lock.yaml`, then verify locally with `pnpm install --frozen-lockfile` before rerunning CI |
+| Linux Rust PR job fails at `fmt` before compilation | A broad Rust rename/refactor was committed without applying the workspace formatter | Run `cargo fmt --manifest-path src-tauri/Cargo.toml --all`, commit the mechanical formatting, then require the same command with `-- --check` before rerunning CI |
 | macOS x86_64 leg queues far longer than the arm64/Docker legs, or `release-macos-x86_64.sh` exits with `FATAL: set CODETERM_MONTEREY_LIBCXX_DIR` | The Mac runner's environment lost `CODETERM_MONTEREY_LIBCXX_DIR` (must point at x86_64/universal LLVM `libc++.1.dylib` + `libc++abi.1.dylib`; the arm64 Homebrew LLVM libc++ cannot be used for the x86_64 updater — it's bundled so ONNX Runtime doesn't depend on newer system libc++ symbols missing on macOS 12 Monterey) | Restore the env var **in the runner service's persistent environment** (not just an interactive shell — a `launchd`/`svc.sh` restart drops shell-only exports), then rerun per §5. In the 1.7.2 run this cost ~85 minutes of queued-but-not-started time before the build itself ran normally. |
 | Linux arm64 leg fails to start, or the Docker build errors on missing tools | `codeterm-build-linux-arm64` Docker image is missing or stale on the Mac runner | `cd .codeterm/build-machine/docker && docker build -t codeterm-build-linux-arm64 -f Dockerfile.linux-arm64 .`. Also confirm Docker Desktop memory is ~20 GiB — the `codeterm` crate needs ≳8 GiB to compile and an under-provisioned Docker OOM-kills `rustc`. |
 | `release-windows.yml` jobs show `cancelled` for both `x86_64-pc-windows-msvc` and `aarch64-pc-windows-msvc` shortly after the tag push, no `.exe` uploaded by CI | The `windows-build` (ROG) self-hosted runner was offline/unreachable when the tag fired | Dispatch a worker on the ROG mesh peer to run `bash .agents/skills/github-release/scripts/win-release.sh $VER` directly (checkout → build → sign → upload, machine-parseable report). This produces the **x64** installer only — see next row. Once the runner is confirmed back online, `gh run rerun` (§5) can still be used for future tags; it does not retroactively fill in the missed run for this version. |
@@ -268,4 +270,4 @@ The minisign updater key (`~/.tauri/codeterm.key`, empty password; its public ha
 the `github-release` skill lists the exact ids and restore paths. A builder without the minisign
 key produces artifacts the updater can't verify.
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->

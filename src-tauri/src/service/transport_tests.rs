@@ -58,19 +58,13 @@ fn rollback_spawn_tab_removes_tab_and_does_not_record_history() {
     state.rollback_spawn_tab(&ws, &tab);
 
     let snap = state.snapshot();
-    assert!(
-        !snap.tabs.contains_key(&tab),
-        "rolled-back Tab is removed"
-    );
+    assert!(!snap.tabs.contains_key(&tab), "rolled-back Tab is removed");
     let ws_view = snap
         .workspaces
         .iter()
         .find(|w| w.id == ws)
         .expect("workspace still present");
-    assert!(
-        !ws_view.tabs.contains(&tab),
-        "rolled-back tab is removed"
-    );
+    assert!(!ws_view.tabs.contains(&tab), "rolled-back tab is removed");
     assert_ne!(
         snap.focused_tab_id.as_deref(),
         Some(tab.as_str()),

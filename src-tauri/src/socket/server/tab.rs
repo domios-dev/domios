@@ -124,16 +124,13 @@ pub(super) fn dispatch(
 
         "tab.focus" => {
             let tab_id = get_string_param(params, "tab_id")?;
-            crate::dispatch::dispatch(
-                &crate::dispatch::Command::TabFocus { tab_id },
-                svc.as_ref(),
-            )
-            .map(|r| r.into_json())
-            .map_err(|e| JsonRpcError {
-                code: -32602,
-                message: e,
-                data: None,
-            })
+            crate::dispatch::dispatch(&crate::dispatch::Command::TabFocus { tab_id }, svc.as_ref())
+                .map(|r| r.into_json())
+                .map_err(|e| JsonRpcError {
+                    code: -32602,
+                    message: e,
+                    data: None,
+                })
         }
 
         "tab.close" => {
@@ -234,8 +231,7 @@ pub(super) fn dispatch(
                     let m = mux.write();
                     (
                         m.resolve_tab_id(src).unwrap_or_else(|| src.to_string()),
-                        m.resolve_tab_id(&tab_id)
-                            .unwrap_or_else(|| tab_id.clone()),
+                        m.resolve_tab_id(&tab_id).unwrap_or_else(|| tab_id.clone()),
                     )
                 };
                 svc.as_ref().maybe_send_polling_nudge(&caller, &target);
@@ -323,11 +319,7 @@ pub(super) fn dispatch(
                     data: None,
                 })? as u16;
             crate::dispatch::dispatch(
-                &crate::dispatch::Command::PtyResize {
-                    tab_id,
-                    cols,
-                    rows,
-                },
+                &crate::dispatch::Command::PtyResize { tab_id, cols, rows },
                 svc.as_ref(),
             )
             .map(|r| r.into_json())

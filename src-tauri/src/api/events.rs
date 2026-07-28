@@ -400,9 +400,7 @@ mod tests {
         let bc = EventBroadcaster::new();
         let mut rx1 = bc.subscribe();
         let mut rx2 = bc.subscribe();
-        bc.publish(SystemEvent::TabFocused {
-            tab_id: "p".into(),
-        });
+        bc.publish(SystemEvent::TabFocused { tab_id: "p".into() });
         assert!(matches!(
             rx1.recv().await.unwrap().event,
             SystemEvent::TabFocused { .. }

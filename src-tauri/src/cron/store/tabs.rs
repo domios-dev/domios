@@ -7,10 +7,8 @@ use super::CronStore;
 
 impl CronStore {
     pub fn register_tab(&mut self, tab_id: &str, job_id: &str, run_id: &str) {
-        self.tab_owners.insert(
-            tab_id.to_string(),
-            (job_id.to_string(), run_id.to_string()),
-        );
+        self.tab_owners
+            .insert(tab_id.to_string(), (job_id.to_string(), run_id.to_string()));
     }
 
     pub fn get_tab_owner(&self, tab_id: &str) -> Option<&(String, String)> {

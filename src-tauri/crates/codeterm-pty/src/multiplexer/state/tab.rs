@@ -28,16 +28,14 @@ impl MultiplexerState {
         Ok(tab_id)
     }
 
-    pub fn claim_existing_tab(
-        &self,
-        workspace_id: &str,
-        tab_id: &str,
-    ) -> Result<String, String> {
+    pub fn claim_existing_tab(&self, workspace_id: &str, tab_id: &str) -> Result<String, String> {
         let workspace = self
             .get_workspace(workspace_id)
             .ok_or_else(|| format!("Workspace not found: {workspace_id}"))?;
         if !workspace.tabs.iter().any(|candidate| candidate == tab_id) {
-            return Err(format!("Tab not found in workspace {workspace_id}: {tab_id}"));
+            return Err(format!(
+                "Tab not found in workspace {workspace_id}: {tab_id}"
+            ));
         }
         let tab = self
             .tabs

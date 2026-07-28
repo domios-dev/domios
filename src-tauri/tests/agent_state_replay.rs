@@ -10,9 +10,9 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use codeterm_lib::agent::tab_state::{TabState, TabStateClassification, TabStateSnapshot};
 use codeterm_lib::agent::provider::AgentProvider;
 use codeterm_lib::agent::signal_extractor::{SignalExtractor, StreamSignals, VolatileHint};
+use codeterm_lib::agent::tab_state::{TabState, TabStateClassification, TabStateSnapshot};
 use codeterm_lib::plugin::js_runtime::{load_one, JsProvider};
 use serde::Deserialize;
 use serde_json::Value;

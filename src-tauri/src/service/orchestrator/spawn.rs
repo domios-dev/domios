@@ -421,9 +421,7 @@ impl ServiceContext {
             params.agent_name.as_deref(),
         ) {
             match level {
-                crate::multiplexer::types::TitleLevel::User => {
-                    self.rename_tab(&tab_id, &title)?
-                }
+                crate::multiplexer::types::TitleLevel::User => self.rename_tab(&tab_id, &title)?,
                 _ => self.set_tab_title(&tab_id, &title)?,
             }
         }
@@ -732,10 +730,7 @@ fn apply_worker_hierarchy_defaults(params: &mut SpawnAgentParams) {
         return;
     }
     if params.parent_tab_id.is_none() {
-        params.parent_tab_id = params
-            .spawned_by_tab_id
-            .clone()
-            .filter(|sb| !sb.is_empty());
+        params.parent_tab_id = params.spawned_by_tab_id.clone().filter(|sb| !sb.is_empty());
     }
     if params.report_target_tab_id.is_none() {
         params.report_target_tab_id = params.parent_tab_id.clone();

@@ -15,13 +15,13 @@ pub(crate) use super::spawn_params::{
 
 #[path = "spawn_model.rs"]
 mod spawn_model;
+#[cfg(test)]
+pub(crate) use spawn_model::compatible_background_model;
 pub use spawn_model::ModelFallbackNotice;
 pub(crate) use spawn_model::{
     attach_planned_model, model_fallback_notice_title, persist_model_launch_identity,
     resolve_fresh_agent_model, resolve_fresh_agent_model_with_notice, CatalogBackgroundModelPort,
 };
-#[cfg(test)]
-pub(crate) use spawn_model::compatible_background_model;
 
 #[path = "spawn_hidden_delivery.rs"]
 mod spawn_hidden_delivery;
@@ -505,10 +505,7 @@ impl ServiceContext {
         })
     }
 
-    pub(crate) fn spawn_visible_shell_impl(
-        &self,
-        spec: SpawnTabSpec,
-    ) -> Result<TabHandle, String> {
+    pub(crate) fn spawn_visible_shell_impl(&self, spec: SpawnTabSpec) -> Result<TabHandle, String> {
         let (ws_id, ws_cwd) = {
             let mux = self.mux.write();
             let id = resolve_spawn_workspace_id(
@@ -566,10 +563,7 @@ impl ServiceContext {
         })
     }
 
-    pub(crate) fn spawn_hidden_shell_impl(
-        &self,
-        spec: SpawnTabSpec,
-    ) -> Result<TabHandle, String> {
+    pub(crate) fn spawn_hidden_shell_impl(&self, spec: SpawnTabSpec) -> Result<TabHandle, String> {
         use std::collections::HashMap;
 
         let ws_id = {
@@ -662,10 +656,7 @@ impl ServiceContext {
         })
     }
 
-    pub(crate) fn spawn_hidden_agent_impl(
-        &self,
-        spec: SpawnTabSpec,
-    ) -> Result<TabHandle, String> {
+    pub(crate) fn spawn_hidden_agent_impl(&self, spec: SpawnTabSpec) -> Result<TabHandle, String> {
         use std::collections::HashMap;
 
         let agent = match &spec.command {

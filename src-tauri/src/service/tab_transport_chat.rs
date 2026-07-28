@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
-use super::tab_transport::TabTransport;
 use super::pty_io::SendBatchItem;
+use super::tab_transport::TabTransport;
 use super::ServiceContext;
 use crate::agent::chat_types::StructuredChat;
 use crate::agent::provider::ModelInfo;

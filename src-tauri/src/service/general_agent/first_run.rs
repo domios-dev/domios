@@ -1,7 +1,7 @@
 //! First-run General Agent provider picker — tab marker + completion flow.
 
-use tauri::AppHandle;
 use crate::multiplexer::types::TabType;
+use tauri::AppHandle;
 
 use super::workspace::{default_chat_view_for_provider, ensure_general_workspace};
 use super::{generate_instructions, start_general_agent, GENERAL_ALIAS};
@@ -81,9 +81,7 @@ pub fn purge_snapshot_ghosts(mux: &mut crate::multiplexer::state::MultiplexerSta
     for ws_info in mux.list_workspaces() {
         if let Some(ws) = mux.get_workspace(&ws_info.id) {
             for tab_id in &ws.tabs {
-                if mux
-                    .get_tab(tab_id)
-                    .and_then(|p| p.description.as_deref())
+                if mux.get_tab(tab_id).and_then(|p| p.description.as_deref())
                     == Some(FIRST_RUN_TAB_MARKER)
                 {
                     to_drop.push((ws_info.id.clone(), tab_id.clone()));

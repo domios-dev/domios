@@ -1,5 +1,5 @@
 use super::{short_id, MultiplexerState};
-use crate::multiplexer::types::{Tab, TabBacking, TabType, PendingDeliveryRecord, TitleLevel};
+use crate::multiplexer::types::{PendingDeliveryRecord, Tab, TabBacking, TabType, TitleLevel};
 
 impl MultiplexerState {
     /// Create a new terminal tab and register it. Returns the tab ID.

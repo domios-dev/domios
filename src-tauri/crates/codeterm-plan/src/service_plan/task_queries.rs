@@ -265,8 +265,7 @@ impl PlanStore {
                 .iter()
                 .position(|task| task.id == canonical_task_id)
                 .ok_or(PlanError::TaskNotFound)?;
-            if let Some(tab) =
-                tab_id.filter(|_| p.tasks[task_index].status == TaskStatus::Pending)
+            if let Some(tab) = tab_id.filter(|_| p.tasks[task_index].status == TaskStatus::Pending)
             {
                 let lane = super::TaskLaneUpdate {
                     tab_id: Some(Some(tab.to_string())),

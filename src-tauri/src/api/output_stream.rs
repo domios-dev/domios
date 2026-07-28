@@ -176,8 +176,7 @@ fn sweep(svc: &ServiceState, tracked: &mut HashMap<String, Tracked>) -> Vec<serd
             let (chunk, total) = buf.read_since(pty, t.offset);
             let read = plan_emit(t.offset, &chunk, total, PER_TAB_TICK_CAP);
             if let Some(from) = read.truncated_from {
-                frames
-                    .push(serde_json::json!({ "tab_id": tab, "truncated": true, "from": from }));
+                frames.push(serde_json::json!({ "tab_id": tab, "truncated": true, "from": from }));
             }
             if read.output.is_empty() {
                 t.offset = read.new_offset;

@@ -10,8 +10,8 @@
 //! (and friends) unchanged.
 
 mod crud;
-mod tabs;
 mod schedule;
+mod tabs;
 #[cfg(test)]
 mod tests;
 

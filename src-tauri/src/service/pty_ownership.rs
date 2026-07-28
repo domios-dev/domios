@@ -153,7 +153,7 @@ impl TabPtyClaim {
 
 #[cfg(test)]
 mod tests {
-    use super::{LinkOutcome, TabPtyClaim, PtyOwnership};
+    use super::{LinkOutcome, PtyOwnership, TabPtyClaim};
     use std::collections::{HashMap, HashSet};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Barrier, Mutex};

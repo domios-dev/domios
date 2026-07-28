@@ -5,7 +5,7 @@ use parking_lot::Mutex;
 use crate::mem::{workers, SearchQuery};
 use crate::plugin::activity::{emit_plugin_activity, PluginActivity, PluginActivityRegistry};
 use crate::secrets::secret_file::SecretFile;
-use crate::service::spawn::{AgentSpawnSpec, TabCommand, TabVisibility, SpawnTabSpec};
+use crate::service::spawn::{AgentSpawnSpec, SpawnTabSpec, TabCommand, TabVisibility};
 use crate::service::ServiceContext;
 
 // ── Progress activity id map (mirrors host_compute) ─────────────────────────

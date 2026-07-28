@@ -1,5 +1,5 @@
 use super::orchestrator::SpawnAgentParams;
-use super::spawn::{AgentSpawnSpec, TabCommand, TabVisibility, SpawnTabSpec};
+use super::spawn::{AgentSpawnSpec, SpawnTabSpec, TabCommand, TabVisibility};
 use super::ServiceContext;
 use crate::multiplexer::types::{WatcherPolicy, WatcherSpec};
 

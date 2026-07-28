@@ -817,7 +817,7 @@ pub async fn open_chat_backend_tab(
     preset: Option<String>,
     model: Option<String>,
 ) -> Result<String, String> {
-    use crate::service::spawn::{TabCommand, TabVisibility, SpawnTabSpec};
+    use crate::service::spawn::{SpawnTabSpec, TabCommand, TabVisibility};
     let mut config = config.unwrap_or(serde_json::Value::Null);
     let overrides = crate::service::spawn::chatbackend_spawn_config(
         system_prompt.as_deref(),

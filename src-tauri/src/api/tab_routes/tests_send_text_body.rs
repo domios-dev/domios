@@ -221,10 +221,7 @@ fn send_to_chatbackend_with_source_skips_pty_marker() {
 #[test]
 fn send_without_source_never_marks() {
     assert!(!should_prepend_source(false, true, TabInputTransport::Pty));
-    assert_eq!(
-        render_send(false, true, TabInputTransport::Pty, "ls"),
-        "ls"
-    );
+    assert_eq!(render_send(false, true, TabInputTransport::Pty, "ls"), "ls");
 }
 
 #[test]

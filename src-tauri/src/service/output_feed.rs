@@ -65,12 +65,7 @@ impl ServiceContext {
         statuses
     }
 
-    pub(crate) fn emit_tab_status_if_changed(
-        &self,
-        pty_id: &str,
-        prev: TabStatus,
-        now: TabStatus,
-    ) {
+    pub(crate) fn emit_tab_status_if_changed(&self, pty_id: &str, prev: TabStatus, now: TabStatus) {
         if now == prev {
             return;
         }

@@ -287,12 +287,7 @@ fn stale_session_validity_cannot_claim_changed_tab() {
     )
     .unwrap()
     .is_none());
-    assert!(
-        mux.read()
-            .get_tab(&tab_id)
-            .unwrap()
-            .restored_from_snapshot
-    );
+    assert!(mux.read().get_tab(&tab_id).unwrap().restored_from_snapshot);
 }
 
 #[test]

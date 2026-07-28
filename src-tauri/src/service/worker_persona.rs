@@ -437,8 +437,7 @@ mod tests {
         let worker_tab = mux.create_tab(&ws_id).expect("create worker tab");
         mux.set_tab_role(&worker_tab, AgentRole::Worker, Some(&orch_tab))
             .expect("attach worker");
-        mux.rename_tab(&worker_tab, "Esme")
-            .expect("rename worker");
+        mux.rename_tab(&worker_tab, "Esme").expect("rename worker");
 
         let titles = workspace_live_titles(&mux, &ws_id);
         assert!(

@@ -134,14 +134,7 @@ mod tests {
             48,
             false,
         );
-        let owner = registry.claim(
-            "tab".into(),
-            "pty".into(),
-            "web:phone".into(),
-            80,
-            24,
-            true,
-        );
+        let owner = registry.claim("tab".into(), "pty".into(), "web:phone".into(), 80, 24, true);
 
         assert_eq!(owner.client_id, "web:phone");
         assert_eq!(owner.cols, 80);

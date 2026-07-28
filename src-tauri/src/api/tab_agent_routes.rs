@@ -4,7 +4,7 @@ use axum::{
 };
 
 use super::{
-    agent_routes, delayed_send_routes, hook_routes, tab_routes, pty_routes, routes::AppState,
+    agent_routes, delayed_send_routes, hook_routes, pty_routes, routes::AppState, tab_routes,
 };
 
 pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {

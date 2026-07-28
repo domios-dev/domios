@@ -70,8 +70,7 @@ pub fn validate_make_orchestrator(tab: &Tab) -> Result<(), String> {
     }
     if !tab_is_agent_capable(tab) {
         return Err(
-            "Only agent or chatBackend tabs can use Make Orchestrator (plain shells cannot)"
-                .into(),
+            "Only agent or chatBackend tabs can use Make Orchestrator (plain shells cannot)".into(),
         );
     }
     Ok(())
@@ -151,9 +150,7 @@ impl ServiceContext {
         let should_deliver = {
             let mux = self.mux.read();
             mux.get_tab(tab_id)
-                .map(|tab| {
-                    tab.role == Some(AgentRole::Orchestrator) && tab_is_agent_capable(tab)
-                })
+                .map(|tab| tab.role == Some(AgentRole::Orchestrator) && tab_is_agent_capable(tab))
                 .unwrap_or(false)
         };
         if should_deliver {
