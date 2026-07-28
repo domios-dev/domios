@@ -15,7 +15,6 @@ mod mem;
 mod notification;
 mod orchestration;
 mod orchestrator;
-mod tab;
 mod plan;
 mod plan_archive;
 mod plan_attachments;
@@ -42,6 +41,7 @@ mod plan_task_rpc;
 mod plan_time;
 mod services;
 mod spec;
+mod tab;
 mod team;
 mod workspace;
 

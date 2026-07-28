@@ -113,12 +113,7 @@ impl ChatRegistry {
 
     /// Replace this tab/session's pending watcher with its materialized tailer.
     /// The watcher owns the call, so dropping its handle signals without joining it.
-    pub fn replace_if_current(
-        &self,
-        tab_id: &str,
-        session_id: &str,
-        handle: TailerHandle,
-    ) -> bool {
+    pub fn replace_if_current(&self, tab_id: &str, session_id: &str, handle: TailerHandle) -> bool {
         let old = {
             let mut g = self.inner.lock();
             let Some(entry) = g.get(tab_id) else {

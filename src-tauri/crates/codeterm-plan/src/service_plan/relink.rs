@@ -31,11 +31,7 @@ fn relink_targets(plan: &Plan) -> Vec<String> {
 /// Repoint planner + in_progress workers to `new_owner_tab`. Returns the number
 /// of tabs whose parent edge was moved. Absent tabs and a target equal to the
 /// new owner are graceful no-ops; idempotent.
-pub fn relink_to_owner(
-    mux: &mut dyn PlanLaneStatePort,
-    plan: &Plan,
-    new_owner_tab: &str,
-) -> usize {
+pub fn relink_to_owner(mux: &mut dyn PlanLaneStatePort, plan: &Plan, new_owner_tab: &str) -> usize {
     let new_owner_tab = new_owner_tab.trim();
     if new_owner_tab.is_empty() {
         return 0;

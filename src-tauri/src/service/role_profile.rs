@@ -29,8 +29,7 @@ impl SpawnAgentParams {
                 .flatten(),
             role: json_str(params, "role"),
             role_profile: json_str(params, "role_profile"),
-            parent_tab_id: json_str(params, "parent_tab_id")
-                .or_else(|| json_str(params, "parent")),
+            parent_tab_id: json_str(params, "parent_tab_id").or_else(|| json_str(params, "parent")),
             plan_id: json_str(params, "plan_id").or_else(|| json_str(params, "plan")),
             can_spawn: params.get("can_spawn").and_then(|v| v.as_bool()),
             task: json_str(params, "task"),

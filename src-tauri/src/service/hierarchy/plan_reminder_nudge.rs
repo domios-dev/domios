@@ -86,17 +86,15 @@ fn send_due_plan_time_reminders_with(
     ) -> Result<(), String>,
 ) {
     let targets = timed_plan_reminder_targets(plans);
-    let eligible_tabs: HashSet<String> = targets
-        .iter()
-        .map(|target| target.tab_id.clone())
-        .collect();
+    let eligible_tabs: HashSet<String> =
+        targets.iter().map(|target| target.tab_id.clone()).collect();
     counter.retain_time_reminders(&eligible_tabs);
     let candidates = targets.len();
     let mut due = 0usize;
     for timed in targets {
         counter.record_time_tick(&timed.tab_id, now);
-        let is_idle_owner = matches!(&timed.target, PlanReminderTarget::Owner { .. })
-            && tab_is_idle(&timed.tab_id);
+        let is_idle_owner =
+            matches!(&timed.target, PlanReminderTarget::Owner { .. }) && tab_is_idle(&timed.tab_id);
         let is_due = if is_idle_owner {
             counter.idle_owner_time_nudge_due(&timed.tab_id, now, interval_secs)
         } else {
@@ -107,11 +105,7 @@ fn send_due_plan_time_reminders_with(
         }
         due += 1;
         counter.record_time_due(&timed.tab_id, now);
-        match deliver(
-            &timed.tab_id,
-            &timed.target,
-            timed.target.time_nudge_kind(),
-        ) {
+        match deliver(&timed.tab_id, &timed.target, timed.target.time_nudge_kind()) {
             Ok(()) => {
                 log::info!(
                     "[plan-reminder] delivered {:?} nudge to Tab {}",
@@ -240,9 +234,7 @@ impl ServiceContext {
         role: Option<AgentRole>,
         scope: PlanReminderScope,
     ) {
-        let task_binding = self
-            .plan_store
-            .report_pending_task_binding_for_tab(tab_id);
+        let task_binding = self.plan_store.report_pending_task_binding_for_tab(tab_id);
         let owner_plan_id = match scope {
             PlanReminderScope::OwnerOnly => self
                 .plan_store
@@ -322,12 +314,8 @@ impl ServiceContext {
     }
 
     fn retain_time_reminder_eligibility(&self, targets: &[TimedPlanReminderTarget]) {
-        let eligible_tabs = targets
-            .iter()
-            .map(|target| target.tab_id.clone())
-            .collect();
-        self.plan_turn_counter
-            .retain_time_reminders(&eligible_tabs);
+        let eligible_tabs = targets.iter().map(|target| target.tab_id.clone()).collect();
+        self.plan_turn_counter.retain_time_reminders(&eligible_tabs);
     }
 
     fn send_due_complete_wrapup_reminders(&self, now: u64, interval_secs: u64) {
@@ -346,10 +334,7 @@ impl ServiceContext {
                 continue;
             }
             let text = crate::service::plan::complete_wrapup::complete_wrapup_message(&plan_id);
-            if self
-                .deliver_automated_plan_reminder(&tab_id, &text)
-                .is_ok()
-            {
+            if self.deliver_automated_plan_reminder(&tab_id, &text).is_ok() {
                 self.plan_turn_counter.mark_complete_wrapup_sent(&plan_id);
                 self.plan_turn_counter.mark_time_nudged(&tab_id, now);
             }

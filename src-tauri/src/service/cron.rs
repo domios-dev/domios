@@ -126,7 +126,7 @@ impl ServiceContext {
     }
 
     pub fn cron_trigger(&self, cron: &CronState, id: &str) -> Result<CronRunInfo, String> {
-        use crate::service::spawn::{AgentSpawnSpec, TabCommand, TabVisibility, SpawnTabSpec};
+        use crate::service::spawn::{AgentSpawnSpec, SpawnTabSpec, TabCommand, TabVisibility};
 
         let (
             agent,

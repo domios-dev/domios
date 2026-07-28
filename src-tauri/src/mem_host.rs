@@ -229,9 +229,7 @@ pub fn spawn_headless_worker(
         let intent_for_spawn = intent.clone();
         let intent_title = intent_for_spawn.clone();
         let spawn_result = tokio::task::spawn_blocking(move || {
-            use crate::service::spawn::{
-                AgentSpawnSpec, TabCommand, TabVisibility, SpawnTabSpec,
-            };
+            use crate::service::spawn::{AgentSpawnSpec, SpawnTabSpec, TabCommand, TabVisibility};
             let spec = SpawnTabSpec {
                 visibility: TabVisibility::Hidden,
                 title: Some(format!("mem:{}", intent_title)),

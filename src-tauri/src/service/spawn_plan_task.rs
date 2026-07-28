@@ -130,14 +130,14 @@ pub(crate) fn bind_worker_plan_task_transaction(
     now_ms: u64,
     close_tab: impl FnOnce(),
 ) -> Result<String, String> {
-    let (plan_id, task_id) =
-        match bind_worker_task_to_tab(store, plan_id, task_ref, tab_id, now_ms) {
-            Ok(ids) => ids,
-            Err(e) => {
-                close_tab();
-                return Err(e);
-            }
-        };
+    let (plan_id, task_id) = match bind_worker_task_to_tab(store, plan_id, task_ref, tab_id, now_ms)
+    {
+        Ok(ids) => ids,
+        Err(e) => {
+            close_tab();
+            return Err(e);
+        }
+    };
     if let Err(e) = record_executor_identity_or_revert(
         store, &plan_id, &task_id, task_ref, tab_id, title, session_id, now_ms,
     ) {

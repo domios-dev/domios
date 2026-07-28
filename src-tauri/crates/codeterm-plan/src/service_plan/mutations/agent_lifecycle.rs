@@ -137,9 +137,7 @@ fn apply_change(plan: &mut Plan, change: &AgentLifecyclePlanChange, now_ms: u64)
         .plan_rebind
         .as_ref()
         .is_some_and(|rebind| rebind.plan_id == plan.id);
-    if !change.preserve_owned_plans
-        && !rebound_here
-        && plan.owner.tab_id.as_deref() == Some(tab_id)
+    if !change.preserve_owned_plans && !rebound_here && plan.owner.tab_id.as_deref() == Some(tab_id)
     {
         plan.owner = OrchestratorRef::default();
         plan.team_id = None;

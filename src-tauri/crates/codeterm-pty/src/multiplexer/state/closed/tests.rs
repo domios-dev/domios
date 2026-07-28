@@ -51,10 +51,7 @@ fn close_tab_detaches_children_without_closing_them() {
     state
         .set_tab_role(&worker_id, AgentRole::Worker, Some(&orchestrator_id))
         .unwrap();
-    state
-        .get_tab_mut(&worker_id)
-        .unwrap()
-        .report_target_tab_id = Some(orchestrator_id.clone());
+    state.get_tab_mut(&worker_id).unwrap().report_target_tab_id = Some(orchestrator_id.clone());
 
     state.close_tab(&orchestrator_tab).unwrap();
 
@@ -415,10 +412,7 @@ fn cascade_close_records_one_group_with_hierarchy() {
         .iter()
         .find(|e| e.title == "Worker 1")
         .expect("worker recorded");
-    assert_eq!(
-        worker_row.parent_tab_id.as_deref(),
-        Some(orch_tab.as_str())
-    );
+    assert_eq!(worker_row.parent_tab_id.as_deref(), Some(orch_tab.as_str()));
 }
 
 #[test]

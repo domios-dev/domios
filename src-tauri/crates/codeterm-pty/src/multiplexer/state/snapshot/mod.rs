@@ -38,8 +38,7 @@ impl MultiplexerState {
                     .tabs
                     .iter()
                     .filter(|tab_id| {
-                        self.tabs.contains_key(*tab_id)
-                            && claimed_tab_ids.insert((*tab_id).clone())
+                        self.tabs.contains_key(*tab_id) && claimed_tab_ids.insert((*tab_id).clone())
                     })
                     .cloned()
                     .collect();
@@ -115,13 +114,12 @@ impl MultiplexerState {
                     .pty_id
                     .as_deref()
                     .and_then(|pty_id| agent_tracker.get_status_if_tracked(pty_id));
-                let raw = if tab.pending_prompt.is_some()
-                    && !matches!(tracked, Some(TabStatus::Dead))
-                {
-                    Some(TabStatus::Waiting)
-                } else {
-                    tracked
-                }?;
+                let raw =
+                    if tab.pending_prompt.is_some() && !matches!(tracked, Some(TabStatus::Dead)) {
+                        Some(TabStatus::Waiting)
+                    } else {
+                        tracked
+                    }?;
                 Some((tab_id.clone(), resolve(tab, raw)))
             })
             .collect();
@@ -133,10 +131,7 @@ impl MultiplexerState {
         use crate::session::store::*;
         use std::time::{SystemTime, UNIX_EPOCH};
 
-        fn tab_to_leaf_snapshot(
-            tab_id: &str,
-            tabs: &HashMap<String, Tab>,
-        ) -> SplitNodeSnapshot {
+        fn tab_to_leaf_snapshot(tab_id: &str, tabs: &HashMap<String, Tab>) -> SplitNodeSnapshot {
             let tab = tabs.get(tab_id);
             let (chatbackend_plugin_id, chatbackend_session_id) = match tab.map(|p| &p.backing) {
                 Some(TabBacking::ChatBackend {
@@ -212,7 +207,11 @@ impl MultiplexerState {
                                 .get(tab_id)
                                 .and_then(|tab| tab.description.clone()),
                             split_tree: tab_to_leaf_snapshot(tab_id, &self.tabs),
-                            sort_order: self.tabs.get(tab_id).map(|tab| tab.sort_order).unwrap_or(0),
+                            sort_order: self
+                                .tabs
+                                .get(tab_id)
+                                .map(|tab| tab.sort_order)
+                                .unwrap_or(0),
                         })
                         .collect(),
                 }

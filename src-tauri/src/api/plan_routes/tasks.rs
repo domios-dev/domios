@@ -70,9 +70,7 @@ fn record_respawn_attempt_and_persist_identity_for(
         executor_role,
         now_ms,
     )?;
-    persist_attempt_executor_identity_for_mux(
-        store, mux, plan_id, task_id, tab_id, title, now_ms,
-    )?;
+    persist_attempt_executor_identity_for_mux(store, mux, plan_id, task_id, tab_id, title, now_ms)?;
     Ok(created)
 }
 

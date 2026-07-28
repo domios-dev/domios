@@ -10,16 +10,16 @@ use codeterm_types::team::Team;
 mod alias;
 mod closed;
 pub mod names;
-mod tab;
 mod reorder;
 mod role;
 mod snapshot;
+mod tab;
 mod tab_runtime;
 mod workspace;
 
 pub use closed::{
-    ClosedGroup, ClosedTabView, ClosedTabsStore, GroupKind, CLOSED_GROUP_CAP,
-    RECENTLY_CLOSED_CAP, RECENTLY_CLOSED_VIEW_LIMIT,
+    ClosedGroup, ClosedTabView, ClosedTabsStore, GroupKind, CLOSED_GROUP_CAP, RECENTLY_CLOSED_CAP,
+    RECENTLY_CLOSED_VIEW_LIMIT,
 };
 
 #[cfg(test)]

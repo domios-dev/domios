@@ -75,9 +75,7 @@ pub(super) fn tab_and_ancestors(
         if !out.insert(id.clone()) {
             break;
         }
-        current = mux
-            .get_tab(&id)
-            .and_then(|tab| tab.parent_tab_id.clone());
+        current = mux.get_tab(&id).and_then(|tab| tab.parent_tab_id.clone());
     }
     out
 }

@@ -576,8 +576,7 @@ fn commit_reported_session(
     };
     // The probe keyed on these; if either moved, the probe is stale — reprobe.
     // This is what stops a stale snapshot from overwriting a changed binding.
-    if tab.cwd.clone().unwrap_or_default() != probe.cwd || tab.agent_session_id != probe.prev_sid
-    {
+    if tab.cwd.clone().unwrap_or_default() != probe.cwd || tab.agent_session_id != probe.prev_sid {
         return Ok(None);
     }
 

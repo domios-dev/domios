@@ -2,9 +2,9 @@
 
 mod batch;
 mod launch;
-pub mod tab_relink_signal;
 pub mod refresh;
 mod spawn;
+pub mod tab_relink_signal;
 mod types;
 
 #[cfg(test)]

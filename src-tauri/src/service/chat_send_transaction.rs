@@ -95,9 +95,7 @@ impl ChatSendLedger {
                 .remove(position)
                 .expect("the selected terminal result exists");
             state.by_id.remove(&expired);
-            state
-                .latest_by_tab
-                .retain(|_, send_id| send_id != &expired);
+            state.latest_by_tab.retain(|_, send_id| send_id != &expired);
             state
                 .latest_failure_by_tab
                 .retain(|_, send_id| send_id != &expired);

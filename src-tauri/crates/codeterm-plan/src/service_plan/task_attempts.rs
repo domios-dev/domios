@@ -559,10 +559,7 @@ impl PlanStore {
                 provider,
                 planned_model: task.model.clone(),
                 model,
-                parent_tab_id: request
-                    .parent_tab_id
-                    .clone()
-                    .or(plan.owner.tab_id.clone()),
+                parent_tab_id: request.parent_tab_id.clone().or(plan.owner.tab_id.clone()),
                 workspace_id: request
                     .workspace_id
                     .clone()

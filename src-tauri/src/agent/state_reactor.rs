@@ -7,10 +7,10 @@
 use std::collections::HashSet;
 use std::time::Duration;
 
-use super::tab_state::{
-    TabState, TabStateAction, TabStateClassification, TabStateSnapshot, Surface,
-};
 use super::status::TabStatus;
+use super::tab_state::{
+    Surface, TabState, TabStateAction, TabStateClassification, TabStateSnapshot,
+};
 use crate::service::ServiceState;
 
 /// Minimum confidence an actionable verdict must clear — the no-false-positive gate.

@@ -185,13 +185,7 @@ fn verdict_requires_running_qa() {
         )
         .unwrap_err();
     let fail_err = store
-        .fail_qa(
-            &plan_id,
-            &first,
-            "failed",
-            AgentRef::from_tab("tester"),
-            12,
-        )
+        .fail_qa(&plan_id, &first, "failed", AgentRef::from_tab("tester"), 12)
         .unwrap_err();
 
     assert!(matches!(pass_err, PlanError::QaNotRunning));

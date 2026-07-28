@@ -135,10 +135,7 @@ async fn quiesce_pty_spawns(svc: &ServiceState) -> Result<(), String> {
     .map_err(|error| format!("PTY spawn quiesce task failed: {error}"))?
 }
 
-async fn wait_or_kill_tabs(
-    pty: crate::PtyState,
-    agents: Vec<AgentTabInfo>,
-) -> Result<(), String> {
+async fn wait_or_kill_tabs(pty: crate::PtyState, agents: Vec<AgentTabInfo>) -> Result<(), String> {
     if agents.is_empty() {
         return Ok(());
     }

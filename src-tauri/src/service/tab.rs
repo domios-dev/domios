@@ -193,9 +193,7 @@ impl ServiceContext {
 
     pub fn set_tab_description(&self, tab_id: &str, description: &str) -> Result<(), String> {
         let description = normalize_tab_description(description)?;
-        self.mux
-            .write()
-            .set_tab_description(tab_id, description)?;
+        self.mux.write().set_tab_description(tab_id, description)?;
         self.emit_state_changed();
         Ok(())
     }
@@ -517,8 +515,7 @@ impl ServiceContext {
         // Model badge needs a bound session. Binding is provider-reported only — we never guess one from the filesystem here; an unbound tab just has no model badge yet.
         let sid = {
             let mux = self.mux.read();
-            mux.get_tab(tab_id)
-                .and_then(|p| p.agent_session_id.clone())
+            mux.get_tab(tab_id).and_then(|p| p.agent_session_id.clone())
         };
         let Some(sid) = sid else { return };
         let (

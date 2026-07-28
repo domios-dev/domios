@@ -36,9 +36,7 @@ impl TabActivity {
     }
 
     pub fn mark(&self, tab_id: &str) {
-        self.inner
-            .lock()
-            .insert(tab_id.to_string(), Instant::now());
+        self.inner.lock().insert(tab_id.to_string(), Instant::now());
     }
 
     pub fn forget(&self, tab_id: &str) {

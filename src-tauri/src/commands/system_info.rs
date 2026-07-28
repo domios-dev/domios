@@ -196,7 +196,7 @@ pub async fn get_shell_diagnostics() -> serde_json::Value {
 pub fn suggest_install_pwsh(
     svc: tauri::State<'_, crate::service::ServiceState>,
 ) -> Result<String, String> {
-    use crate::service::spawn::{TabCommand, TabVisibility, SpawnTabSpec};
+    use crate::service::spawn::{SpawnTabSpec, TabCommand, TabVisibility};
     let handle = svc.spawn_tab(SpawnTabSpec {
         title: Some("Install pwsh 7".to_string()),
         visibility: TabVisibility::Visible,

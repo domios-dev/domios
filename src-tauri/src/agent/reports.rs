@@ -321,10 +321,7 @@ impl ReportStore {
     /// Get all reports for an orchestrator, optionally clearing them.
     pub fn get(&mut self, orchestrator_tab_id: &str, clear: bool) -> Vec<AgentReport> {
         if clear {
-            let removed = self
-                .reports
-                .remove(orchestrator_tab_id)
-                .unwrap_or_default();
+            let removed = self.reports.remove(orchestrator_tab_id).unwrap_or_default();
             for report in &removed {
                 self.delivered.remove(&report.id);
                 self.in_flight.remove(&report.id);

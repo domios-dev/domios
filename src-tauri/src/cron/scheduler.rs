@@ -150,7 +150,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
     }
 
     // Spawn agent via the unified spawn_tab surface.
-    use crate::service::spawn::{AgentSpawnSpec, TabCommand, TabVisibility, SpawnTabSpec};
+    use crate::service::spawn::{AgentSpawnSpec, SpawnTabSpec, TabCommand, TabVisibility};
 
     let skill_block = spec.skill.as_deref().map(crate::commands::cron_skill_block);
     let task_text = crate::cron::task_text::build_cron_task_text(

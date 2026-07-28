@@ -8,7 +8,7 @@ use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
 use crate::service::orchestrator::types::SpawnAgentParams;
 use crate::service::pty_io::tab_identity_env;
-use crate::service::spawn::{TabCommand, SpawnTabSpec};
+use crate::service::spawn::{SpawnTabSpec, TabCommand};
 use std::sync::Arc;
 use std::sync::Barrier;
 

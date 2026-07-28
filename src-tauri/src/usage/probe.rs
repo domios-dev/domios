@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use crate::service::spawn::{AgentSpawnSpec, TabCommand, TabVisibility, SpawnTabSpec};
+use crate::service::spawn::{AgentSpawnSpec, SpawnTabSpec, TabCommand, TabVisibility};
 use crate::service::ServiceContext;
 
 #[derive(Debug, Clone)]

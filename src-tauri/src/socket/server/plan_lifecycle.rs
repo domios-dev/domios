@@ -75,10 +75,10 @@ pub(super) fn dispatch(
             }
             // Re-read so hints reflect any cleanup that just ran.
             if let Some(plan) = store.get(&id) {
-                let cleanup = crate::service::plan::cleanup_debt::detect_plan_cleanup_debt(
-                    &plan,
-                    |tab_id| svc.tab_probe(tab_id).exists,
-                );
+                let cleanup =
+                    crate::service::plan::cleanup_debt::detect_plan_cleanup_debt(&plan, |tab_id| {
+                        svc.tab_probe(tab_id).exists
+                    });
                 let hints = crate::service::plan::cleanup_debt::cleanup_debt_hints(
                     &cleanup
                         .into_iter()

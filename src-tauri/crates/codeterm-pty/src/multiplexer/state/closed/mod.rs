@@ -15,7 +15,7 @@ use super::MultiplexerState;
 use crate::multiplexer::types::{ClosedTab, TabBacking, TitleLevel};
 
 pub use store::{
-    ClosedGroup, ClosedTabsStore, ClosedRow, GroupKind, CLOSED_GROUP_CAP, RECENTLY_CLOSED_CAP,
+    ClosedGroup, ClosedRow, ClosedTabsStore, GroupKind, CLOSED_GROUP_CAP, RECENTLY_CLOSED_CAP,
 };
 
 /// Cap on newest closed tabs carried in the hot snapshot; sqlite keeps far more.
@@ -272,10 +272,7 @@ impl MultiplexerState {
 
     /// Reopen a tab whose original workspace was deleted, into a live or recreated
     /// workspace at the same path.
-    pub fn reopen_orphaned_tab(
-        &mut self,
-        tab_id: &str,
-    ) -> Result<(String, String), String> {
+    pub fn reopen_orphaned_tab(&mut self, tab_id: &str) -> Result<(String, String), String> {
         let (row_id, record) = self
             .closed_store
             .peek_by_tab_id(tab_id)
@@ -293,10 +290,7 @@ impl MultiplexerState {
 
     /// Reopen a whole closed group, recreating its workspace if gone and relinking
     /// `parent_tab_id` across the new ids.
-    pub fn reopen_closed_group(
-        &mut self,
-        group_id: &str,
-    ) -> Result<(String, String), String> {
+    pub fn reopen_closed_group(&mut self, group_id: &str) -> Result<(String, String), String> {
         // Materialize every tab first; delete the group only once they all succeed, so a mid-loop failure leaves it for retry.
         let (group, tabs) = self
             .closed_store

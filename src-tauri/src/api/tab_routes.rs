@@ -14,8 +14,8 @@ pub use send::{chat_send_status, chat_send_text, send_text};
 
 #[cfg(test)]
 pub(crate) use send::{
-    default_true, send_action_bytes, should_prepend_source, BatchCommand, TabInputTransport,
-    SendAction, SendTextBody,
+    default_true, send_action_bytes, should_prepend_source, BatchCommand, SendAction, SendTextBody,
+    TabInputTransport,
 };
 
 pub async fn list_tabs(
@@ -109,7 +109,7 @@ pub async fn create_shell_tab(
     Json(body): Json<CreateShellTabBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    use crate::service::spawn::{TabCommand, TabVisibility, SpawnTabSpec};
+    use crate::service::spawn::{SpawnTabSpec, TabCommand, TabVisibility};
     let command = match body.chat_backend {
         Some(plugin_id) => {
             validate_chat_backend_spawn(&state.svc.provider_registry, &plugin_id)
@@ -169,10 +169,7 @@ pub async fn create_shell_tab(
             .map_err(|e| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    format!(
-                        "Tab created (id={}) but --cmd failed: {}",
-                        handle.tab_id, e
-                    ),
+                    format!("Tab created (id={}) but --cmd failed: {}", handle.tab_id, e),
                 )
             })?;
     }

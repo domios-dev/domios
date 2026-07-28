@@ -80,10 +80,7 @@ impl PromptDetector {
         F: FnOnce(&str) -> ParsedPrompt,
     {
         // If tab has active prompt, always check screen (user may have answered in terminal)
-        let is_active = matches!(
-            self.states.get(tab_id),
-            Some(TabPromptState::Active { .. })
-        );
+        let is_active = matches!(self.states.get(tab_id), Some(TabPromptState::Active { .. }));
 
         if !has_markers && !is_active {
             return PromptDecision::None;
@@ -105,10 +102,7 @@ impl PromptDetector {
         clean_ring_text_present: bool,
         parsed: ParsedPrompt,
     ) -> PromptDecision {
-        let is_active = matches!(
-            self.states.get(tab_id),
-            Some(TabPromptState::Active { .. })
-        );
+        let is_active = matches!(self.states.get(tab_id), Some(TabPromptState::Active { .. }));
 
         if !has_markers && !is_active {
             return PromptDecision::None;
@@ -274,8 +268,7 @@ impl PromptDetector {
                     }
                     None if explicit => PromptDecision::None,
                     None => {
-                        self.states
-                            .insert(tab_id.to_string(), TabPromptState::Idle);
+                        self.states.insert(tab_id.to_string(), TabPromptState::Idle);
                         PromptDecision::PromptCleared {
                             tab_id: tab_id.to_string(),
                         }
@@ -287,8 +280,7 @@ impl PromptDetector {
                 if responded_at.elapsed().as_millis() < self.cooldown_ms as u128 {
                     return PromptDecision::None;
                 }
-                self.states
-                    .insert(tab_id.to_string(), TabPromptState::Idle);
+                self.states.insert(tab_id.to_string(), TabPromptState::Idle);
                 self.try_apply_parsed(tab_id, parsed)
             }
 
@@ -532,8 +524,7 @@ mod tests {
         let mut det = PromptDetector::new();
         det.evaluate_pty_output("tab-1", true, Some("proceed"), parse_yes_no);
         // Prompt disappears from screen (user answered in terminal)
-        let decision =
-            det.evaluate_pty_output("tab-1", true, Some("no prompt here"), parse_yes_no);
+        let decision = det.evaluate_pty_output("tab-1", true, Some("no prompt here"), parse_yes_no);
         assert!(matches!(decision, PromptDecision::PromptCleared { .. }));
         assert!(det.active_prompt("tab-1").is_none());
     }
@@ -570,8 +561,7 @@ mod tests {
     fn test_structured_prompt_still_clears_when_gone() {
         let mut det = PromptDetector::new();
         det.evaluate_pty_output("tab-1", true, Some("proceed"), parse_yes_no);
-        let decision =
-            det.evaluate_pty_output("tab-1", true, Some("no prompt here"), parse_yes_no);
+        let decision = det.evaluate_pty_output("tab-1", true, Some("no prompt here"), parse_yes_no);
         assert!(matches!(decision, PromptDecision::PromptCleared { .. }));
         assert!(det.active_prompt("tab-1").is_none());
     }
@@ -638,12 +628,10 @@ mod tests {
         assert!(matches!(decision, PromptDecision::None));
 
         let parsed = parse_prompt_safely(|| parse_yes_no("proceed"));
-        let decision = detector.lock().hook_detected_parsed(
-            "tab-1",
-            "proceed".len(),
-            Some("proceed"),
-            parsed,
-        );
+        let decision =
+            detector
+                .lock()
+                .hook_detected_parsed("tab-1", "proceed".len(), Some("proceed"), parsed);
         assert!(matches!(decision, PromptDecision::NewPrompt { .. }));
     }
 

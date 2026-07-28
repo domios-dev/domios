@@ -18,8 +18,7 @@ pub trait CommandPort: Send + Sync {
         strip_ansi: bool,
         full: bool,
     ) -> Result<serde_json::Value, String>;
-    fn read_tab_screen(&self, tab_id: &str, formatted: bool)
-        -> Result<serde_json::Value, String>;
+    fn read_tab_screen(&self, tab_id: &str, formatted: bool) -> Result<serde_json::Value, String>;
     fn close_tab_guarded(&self, caller: Option<&str>, tab_id: &str) -> Result<(), String>;
     fn focus_tab(&self, tab_id: &str) -> Result<(), String>;
     fn rename_tab(&self, tab_id: &str, title: &str) -> Result<(), String>;
@@ -34,11 +33,7 @@ pub trait CommandPort: Send + Sync {
     fn close_workspace_guarded(&self, caller: Option<&str>, ws_id: &str) -> Result<(), String>;
     fn list_workspaces(&self) -> Vec<crate::multiplexer::state::WorkspaceInfo>;
     fn list_recently_closed(&self, ws_id: &str) -> Vec<crate::multiplexer::types::ClosedTab>;
-    fn reopen_closed_tab(
-        &self,
-        ws_id: &str,
-        index: Option<usize>,
-    ) -> Result<String, String>;
+    fn reopen_closed_tab(&self, ws_id: &str, index: Option<usize>) -> Result<String, String>;
     fn reopen_closed_group(&self, group_id: &str) -> Result<(String, String), String>;
     fn resize_tab(&self, tab_id: &str, cols: u16, rows: u16) -> Result<(), String>;
     fn kill_tab_pty(&self, tab_id: &str) -> Result<(), String>;
@@ -115,10 +110,7 @@ pub enum Command {
     TabRename { tab_id: String, title: String },
 
     /// Set or clear a tab's short description.
-    TabDescribe {
-        tab_id: String,
-        description: String,
-    },
+    TabDescribe { tab_id: String, description: String },
 
     /// List all registered agent providers as `ProviderDescriptor`s.
     /// First dispatch command for the plugin self-presentation system (Chunk B.3).
@@ -267,11 +259,7 @@ pub fn dispatch(cmd: &Command, ctx: &dyn CommandPort) -> Result<CommandResult, S
         Command::WorkspaceReopenClosedGroup { group_id } => {
             cmd_workspace_reopen_closed_group(ctx, group_id)
         }
-        Command::PtyResize {
-            tab_id,
-            cols,
-            rows,
-        } => cmd_pty_resize(ctx, tab_id, *cols, *rows),
+        Command::PtyResize { tab_id, cols, rows } => cmd_pty_resize(ctx, tab_id, *cols, *rows),
         Command::PtyKill { tab_id } => cmd_pty_kill(ctx, tab_id),
     }
 }
@@ -791,9 +779,7 @@ mod tests {
                 tab_id: "p".into(),
                 caller_tab_id: None,
             },
-            Command::TabFocus {
-                tab_id: "p".into(),
-            },
+            Command::TabFocus { tab_id: "p".into() },
             Command::TabRename {
                 tab_id: "p".into(),
                 title: "t".into(),
@@ -818,9 +804,7 @@ mod tests {
                 cols: 80,
                 rows: 24,
             },
-            Command::PtyKill {
-                tab_id: "p".into(),
-            },
+            Command::PtyKill { tab_id: "p".into() },
         ];
         for cmd in commands {
             let json = serde_json::to_value(&cmd).unwrap();
@@ -910,11 +894,7 @@ mod tests {
         let json = r#"{"cmd":"pty_resize","tab_id":"p","cols":120,"rows":40}"#;
         let cmd: Command = serde_json::from_str(json).unwrap();
         match cmd {
-            Command::PtyResize {
-                tab_id,
-                cols,
-                rows,
-            } => {
+            Command::PtyResize { tab_id, cols, rows } => {
                 assert_eq!(tab_id, "p");
                 assert_eq!(cols, 120);
                 assert_eq!(rows, 40);
@@ -1009,13 +989,14 @@ mod tests {
         use crate::multiplexer::state::MultiplexerState;
         let (mut state, tab_a) = MultiplexerState::new();
         // Create a second tab.
-        let tab_b = state.create_tab(&state.list_workspaces()[0].id.clone()).unwrap();
+        let tab_b = state
+            .create_tab(&state.list_workspaces()[0].id.clone())
+            .unwrap();
         // Focus tab_a explicitly.
         state.set_focused_tab(&tab_a).unwrap();
         let tabs = build_tab_list_json(&state.snapshot());
         let get_focused = |tabs: &[serde_json::Value], id: &str| {
-            tabs
-                .iter()
+            tabs.iter()
                 .find(|p| p.get("id").and_then(|v| v.as_str()) == Some(id))
                 .and_then(|p| p.get("focused"))
                 .and_then(|v| v.as_bool())
@@ -1046,7 +1027,9 @@ mod tests {
     fn tab_list_marks_exactly_one_focused_tab_from_each_snapshot() {
         use crate::multiplexer::state::MultiplexerState;
         let (mut state, tab_a) = MultiplexerState::new();
-        let tab_b = state.create_tab(&state.list_workspaces()[0].id.clone()).unwrap();
+        let tab_b = state
+            .create_tab(&state.list_workspaces()[0].id.clone())
+            .unwrap();
 
         for focused in [&tab_a, &tab_b] {
             state.set_focused_tab(focused).unwrap();

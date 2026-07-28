@@ -1,7 +1,5 @@
 use super::plan::{emit_plan_changed, plan_rpc_err};
-use super::plan_fields::{
-    optional_string_field, tab_and_ancestors, tab_role, string_array_field,
-};
+use super::plan_fields::{optional_string_field, string_array_field, tab_and_ancestors, tab_role};
 use super::plan_lane_fields::{lane_metadata_field, lane_update_field};
 use super::plan_linking::{csv_string_field, owner_from_params, tags_field};
 use super::plan_refs;

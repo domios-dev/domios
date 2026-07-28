@@ -1,8 +1,8 @@
 use super::*;
-use crate::agent::tab_state::{
-    DelayedResume, TabState, TabStateAction, TabStateClassification, Surface,
-};
 use crate::agent::status::TabStatus;
+use crate::agent::tab_state::{
+    DelayedResume, Surface, TabState, TabStateAction, TabStateClassification,
+};
 
 fn classification(
     state: TabState,

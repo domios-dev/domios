@@ -421,8 +421,7 @@ pub async fn spawn_pty_core(
                     .await
                     .unwrap_or(false);
                     if !shell_ready {
-                        if let Some(tab) =
-                            svc_for_launch.mux.write().get_tab_mut(&tab_id_for_boot)
+                        if let Some(tab) = svc_for_launch.mux.write().get_tab_mut(&tab_id_for_boot)
                         {
                             tab.agent_booting = false;
                         }

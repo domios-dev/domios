@@ -30,11 +30,7 @@ impl CommandPort for ServiceContext {
             .read_output(offset, max_bytes, strip_ansi, full)
     }
 
-    fn read_tab_screen(
-        &self,
-        tab_id: &str,
-        formatted: bool,
-    ) -> Result<serde_json::Value, String> {
+    fn read_tab_screen(&self, tab_id: &str, formatted: bool) -> Result<serde_json::Value, String> {
         self.tab_transport(tab_id)?.read_screen(formatted)
     }
 
@@ -74,11 +70,7 @@ impl CommandPort for ServiceContext {
         ServiceContext::list_recently_closed(self, ws_id)
     }
 
-    fn reopen_closed_tab(
-        &self,
-        ws_id: &str,
-        index: Option<usize>,
-    ) -> Result<String, String> {
+    fn reopen_closed_tab(&self, ws_id: &str, index: Option<usize>) -> Result<String, String> {
         ServiceContext::reopen_closed_tab(self, ws_id, index)
     }
 

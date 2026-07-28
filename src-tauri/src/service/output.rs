@@ -459,10 +459,7 @@ impl ServiceContext {
                 return;
             };
             let cwd = tab.cwd.clone().unwrap_or_default();
-            let elapsed = tab
-                .agent_set_at
-                .map(|t| t.elapsed().as_secs())
-                .unwrap_or(0);
+            let elapsed = tab.agent_set_at.map(|t| t.elapsed().as_secs()).unwrap_or(0);
             let sid = tab.agent_session_id.clone();
             (cwd, elapsed, sid)
         };
@@ -869,9 +866,7 @@ mod exit_detection_tests {
     #[test]
     fn session_detection_never_replaces_a_bound_session() {
         assert!(should_detect_unbound_session(None));
-        assert!(!should_detect_unbound_session(Some(
-            "session-owned-by-tab"
-        )));
+        assert!(!should_detect_unbound_session(Some("session-owned-by-tab")));
     }
 }
 

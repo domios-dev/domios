@@ -386,15 +386,13 @@ impl Messenger {
         let observed = {
             let mux = svc.mux.read();
             let resolved = mux.resolve_tab_id(to_tab);
-            resolved
-                .and_then(|tab_id| mux.get_tab(&tab_id))
-                .map(|tab| {
-                    (
-                        tab.agent_session_id.clone(),
-                        tab.reported_session_binding_nonce.clone(),
-                        tab.backing.clone(),
-                    )
-                })
+            resolved.and_then(|tab_id| mux.get_tab(&tab_id)).map(|tab| {
+                (
+                    tab.agent_session_id.clone(),
+                    tab.reported_session_binding_nonce.clone(),
+                    tab.backing.clone(),
+                )
+            })
         };
         let still_bound = observed.as_ref().is_some_and(|(session, nonce, backing)| {
             planner_chatbackend_binding_matches(

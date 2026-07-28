@@ -11,7 +11,6 @@ pub mod model_catalog;
 pub mod models;
 pub mod native_prompt;
 pub mod offline_state_classifier;
-pub mod tab_state;
 pub mod plugin_registrar;
 pub mod prompt;
 pub mod provider;
@@ -25,6 +24,7 @@ pub mod state_reactor;
 pub mod status;
 pub mod structured_prompt;
 pub mod stub_launch;
+pub mod tab_state;
 #[cfg(test)]
 pub mod test_provider;
 pub mod usage_parser;

@@ -459,17 +459,10 @@ impl ServiceContext {
                     codeterm_types::pty::BootStage::SpawnFailed,
                     Some(&error),
                 );
-                if let Some(tab) = self
-                    .mux
-                    .write()
-                    .get_tab_mut(&reserved.orchestrator_tab_id)
-                {
+                if let Some(tab) = self.mux.write().get_tab_mut(&reserved.orchestrator_tab_id) {
                     tab.agent_booting = false;
                 }
-                let _ = self
-                    .mux
-                    .write()
-                    .close_tab(&reserved.planner_tab_id);
+                let _ = self.mux.write().close_tab(&reserved.planner_tab_id);
                 self.emit_state_changed();
                 return Err(format!(
                     "Failed to spawn Orchestrator ({error}); no plan was created. Retry with: {pair_fix_command}"

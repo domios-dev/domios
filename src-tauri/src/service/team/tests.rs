@@ -373,10 +373,7 @@ fn team_adopt_plan_is_bounded_atomic_and_visible_as_active() {
         transfer.from.tab_id.as_deref(),
         Some(retired_owner.as_str())
     );
-    assert_eq!(
-        transfer.to.tab_id.as_deref(),
-        Some(expected_owner.as_str())
-    );
+    assert_eq!(transfer.to.tab_id.as_deref(), Some(expected_owner.as_str()));
     assert_eq!(inherited_parent.as_deref(), Some(expected_owner.as_str()));
 }
 

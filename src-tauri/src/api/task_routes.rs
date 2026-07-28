@@ -101,9 +101,7 @@ fn tab_and_ancestors(state: &AppState, tab_id: &str) -> std::collections::HashSe
         if !out.insert(id.clone()) {
             break;
         }
-        current = mux
-            .get_tab(&id)
-            .and_then(|tab| tab.parent_tab_id.clone());
+        current = mux.get_tab(&id).and_then(|tab| tab.parent_tab_id.clone());
     }
     out
 }

@@ -1,7 +1,7 @@
 use crate::plan::ids::mint_id;
 use crate::plan::reconcile::{
-    DriftItem, DriftKind, LaneDemotion, NEEDS_REASSIGN_LABEL, TAB_GONE_LABEL, STALE_REVIEW_LABEL,
-    STALE_UNSTAFFED_LABEL,
+    DriftItem, DriftKind, LaneDemotion, NEEDS_REASSIGN_LABEL, STALE_REVIEW_LABEL,
+    STALE_UNSTAFFED_LABEL, TAB_GONE_LABEL,
 };
 use crate::plan::{AgentRef, Milestone, TaskStatus};
 

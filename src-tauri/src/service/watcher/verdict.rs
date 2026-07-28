@@ -116,11 +116,7 @@ fn parse_actions(v: Option<&Value>) -> Vec<WatcherAction> {
             let kind = item.get("kind")?.as_str()?.to_string();
             let message = item.get("message")?.as_str()?.to_string();
             let tab = item.get("tab").and_then(Value::as_str).map(str::to_string);
-            Some(WatcherAction {
-                kind,
-                tab,
-                message,
-            })
+            Some(WatcherAction { kind, tab, message })
         })
         .collect()
 }

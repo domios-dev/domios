@@ -195,10 +195,7 @@ impl RunWatcherRegistry {
         {
             return;
         }
-        log::info!(
-            "[run-watcher] semantic-idle complete: tab={}",
-            state.tab_id
-        );
+        log::info!("[run-watcher] semantic-idle complete: tab={}", state.tab_id);
         finish_run(svc, &state, true, "(agent returned to idle)".to_string());
         self.runs.lock().remove(pty_id);
     }

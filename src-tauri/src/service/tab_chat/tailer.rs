@@ -155,11 +155,7 @@ pub fn spawn_tailer(
                 }
             };
             if cached_path.as_ref() != Some(&path) {
-                log::info!(
-                    "[tab_chat] tab={} tailing {}",
-                    cfg.tab_id,
-                    path.display()
-                );
+                log::info!("[tab_chat] tab={} tailing {}", cfg.tab_id, path.display());
                 cached_path = Some(path.clone());
                 // tailer. Today the session_id is fixed at spawn.
             }

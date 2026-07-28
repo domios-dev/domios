@@ -34,9 +34,8 @@ impl ServiceContext {
             }
         }
         let lanes = lane_rows::build_lane_rows(&plan, |p| self.tab_probe(p), now_ms);
-        let planner_resolution = resolve_planner_ref(&plan.planner, &plan.owner, |tab_id| {
-            self.tab_probe(tab_id)
-        });
+        let planner_resolution =
+            resolve_planner_ref(&plan.planner, &plan.owner, |tab_id| self.tab_probe(tab_id));
         Ok(build_plan_state_snapshot(
             &plan,
             coverage,

@@ -9,7 +9,7 @@ pub use status::{
     extract_completion_summary, extract_status_line, has_active_turn_footer, StatusLine,
 };
 
-pub use codeterm_types::pty::{AgentLiveState, TabVerdict, QuestionSubtype, TimelineState};
+pub use codeterm_types::pty::{AgentLiveState, QuestionSubtype, TabVerdict, TimelineState};
 
 pub const TICK_MS: u64 = 250;
 pub const WAIT_MS: u64 = 800;

@@ -295,9 +295,7 @@ impl ServiceContext {
                 },
             ),
             || {
-                self.mux
-                    .write()
-                    .rollback_spawn_tab(&ws_id, &tab_id);
+                self.mux.write().rollback_spawn_tab(&ws_id, &tab_id);
                 self.emit_state_changed();
             },
         )?;
