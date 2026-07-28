@@ -723,10 +723,7 @@ fn send_actions_allows_empty_payload_on_mesh() {
 
 #[test]
 fn only_post_sends_are_delivery_id_bearing() {
-    assert!(super::relay::is_send_relay(
-        "POST",
-        "/api/tabs/abc123/send"
-    ));
+    assert!(super::relay::is_send_relay("POST", "/api/tabs/abc123/send"));
     assert!(super::relay::is_send_relay(
         "post",
         "/api/tabs/general/send"

@@ -215,11 +215,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 } else if !all_workspaces {
                     query.push("focused_workspace=true".into());
                 }
-                (
-                    "GET".into(),
-                    format!("/api/tabs?{}", query.join("&")),
-                    None,
-                )
+                ("GET".into(), format!("/api/tabs?{}", query.join("&")), None)
             }
             crate::TabAction::Inspect { tabs } => (
                 "GET".into(),
@@ -358,11 +354,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 crate::args::misc::TabCaptureAction::Stop { tab } => {
                     let p = tab.as_deref().unwrap_or("general");
-                    (
-                        "POST".into(),
-                        format!("/api/tabs/{}/capture/stop", p),
-                        None,
-                    )
+                    ("POST".into(), format!("/api/tabs/{}/capture/stop", p), None)
                 }
             },
         },

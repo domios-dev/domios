@@ -39,10 +39,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             }
         }
         TabAction::Inspect { tabs } => {
-            let result = client.call(
-                "tab.inspect",
-                Some(serde_json::json!({ "tab_ids": tabs })),
-            );
+            let result = client.call("tab.inspect", Some(serde_json::json!({ "tab_ids": tabs })));
             handle_result(json, result);
         }
         TabAction::New {
