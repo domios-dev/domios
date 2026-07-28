@@ -50,6 +50,73 @@ fn roleless_spawn_task_stays_plain() {
 }
 
 #[test]
+fn ordinary_tab_receives_primer_only_through_a_system_prompt_channel() {
+    let capable = role_launch_task(None, None, None, true).expect("system primer");
+    assert_eq!(capable, crate::prompts::AGENT_CODETERM_PRIMER.trim());
+    assert_eq!(role_launch_task(None, None, None, false), None);
+
+    let fallback = role_launch_task(Some("inspect"), None, None, false).expect("task");
+    assert_eq!(fallback, "inspect");
+    assert!(!fallback.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
+}
+
+#[test]
+fn team_assignment_keeps_codeterm_context_on_fallback_providers() {
+    let worker = role_launch_task(Some("repair delivery"), Some("Worker"), None, false).unwrap();
+    assert!(worker.starts_with(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
+    assert!(worker.contains(crate::prompts::WORKER_SUFFIX.trim()));
+    assert_eq!(
+        worker
+            .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+            .count(),
+        1
+    );
+
+    let capable = role_launch_task(Some("repair delivery"), Some("Worker"), None, true).unwrap();
+    assert_eq!(
+        capable
+            .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+            .count(),
+        1
+    );
+    assert_eq!(
+        capable
+            .matches(crate::prompts::WORKER_SUFFIX.trim())
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn every_team_role_receives_the_shared_primer_exactly_once() {
+    let cases = [
+        (Some("Orchestrator"), None),
+        (Some("Worker"), None),
+        (Some("Manager"), None),
+        (Some("Manager"), Some("planner")),
+    ];
+    for (role, profile) in cases {
+        for system_prompt_capable in [false, true] {
+            let prompt = role_launch_task(
+                Some("team assignment"),
+                role,
+                profile,
+                system_prompt_capable,
+            )
+            .unwrap();
+            assert_eq!(
+                prompt
+                    .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+                    .count(),
+                1,
+                "{role:?}/{profile:?}/{system_prompt_capable}"
+            );
+            assert_eq!(prompt.matches("team assignment").count(), 1);
+        }
+    }
+}
+
+#[test]
 fn worker_without_assignment_still_receives_the_codeterm_primer() {
     assert!(role_onboarding_task(Some("fix it"), Some("Worker"), None)
         .unwrap()

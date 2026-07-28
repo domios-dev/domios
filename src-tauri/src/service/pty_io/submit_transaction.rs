@@ -13,7 +13,7 @@ use crate::service::inject_verify::{
 use crate::service::ServiceContext;
 
 const TAIL_ROWS: usize = 8;
-const OPTIMISTIC_SUBMIT_WRITES: usize = 6;
+const MAX_SUBMIT_KEY_WRITES: usize = 3;
 
 fn composer_marker(line: &str) -> bool {
     let trimmed = line.trim_start();
@@ -97,6 +97,9 @@ trait SubmitTransport {
     fn wait_change(&self, generation: u64, deadline: Instant) -> bool;
     /// The provider's own turn state left Idle — a real turn is running.
     fn turn_started(&self) -> bool;
+    fn turn_generation(&self) -> u64 {
+        0
+    }
     fn write_paste(&self, text: &str, deadline: Instant) -> Result<usize, InjectionError>;
     fn write_submit_key(&self, key: &[u8], deadline: Instant) -> Result<(), InjectionError>;
 }
@@ -105,6 +108,7 @@ struct PtySubmitTransport<'a> {
     svc: &'a ServiceContext,
     pty_id: &'a str,
     signal: Arc<ScreenChangeSignal>,
+    status_signal: Arc<codeterm_types::pty::TabStatusSignal>,
     permit: Option<crate::pty::write_queue::GuardedInputPermit>,
 }
 
@@ -155,6 +159,10 @@ impl SubmitTransport for PtySubmitTransport<'_> {
                 .get_status_if_tracked(self.pty_id),
             Some(TabStatus::Working | TabStatus::Waiting)
         )
+    }
+
+    fn turn_generation(&self) -> u64 {
+        self.status_signal.generation()
     }
 
     fn write_paste(&self, text: &str, deadline: Instant) -> Result<usize, InjectionError> {
@@ -237,6 +245,7 @@ fn wait_submission_acknowledged<T: SubmitTransport>(
     echo_observed: bool,
     turn_was_started: bool,
     armed: u64,
+    turn_armed: u64,
     deadline: Instant,
     strategy: &VerifySubmitStrategy,
 ) -> bool {
@@ -249,6 +258,7 @@ fn wait_submission_acknowledged<T: SubmitTransport>(
             echo_observed,
             turn_was_started,
             armed,
+            turn_armed,
             strategy,
         ) {
             return true;
@@ -267,15 +277,17 @@ fn submission_acknowledged_now<T: SubmitTransport>(
     echo_observed: bool,
     turn_was_started: bool,
     armed: u64,
+    turn_armed: u64,
     strategy: &VerifySubmitStrategy,
 ) -> bool {
     let changed = transport.generation() != armed;
     let fresh_turn = changed && !turn_was_started && transport.turn_started();
-    if matches!(strategy, VerifySubmitStrategy::TuiInputDrained) {
-        return fresh_turn;
-    }
     let draft_left_composer =
         echo_observed && changed && transport.draft_evidence_count(text) <= baseline_evidence;
+    if matches!(strategy, VerifySubmitStrategy::TuiInputDrained) {
+        let completed_turn = draft_left_composer && transport.turn_generation() != turn_armed;
+        return fresh_turn || completed_turn;
+    }
     draft_left_composer || fresh_turn
 }
 
@@ -362,21 +374,29 @@ fn run_with_submit_key<T: SubmitTransport>(
     }
 
     let turn_was_started = transport.turn_started();
-    let enter_armed = transport.generation();
-    for _ in 0..OPTIMISTIC_SUBMIT_WRITES {
+    let mut submit_observed = !two_phase;
+    for _ in 0..MAX_SUBMIT_KEY_WRITES {
+        let enter_armed = transport.generation();
+        let turn_armed = transport.turn_generation();
         transport.write_submit_key(submit_key, turn_deadline)?;
-    }
-    let submit_observed = !two_phase
-        || wait_submission_acknowledged(
+        if !two_phase {
+            break;
+        }
+        submit_observed = wait_submission_acknowledged(
             transport,
             text,
             baseline_evidence,
             echo_observed,
             turn_was_started,
             enter_armed,
+            turn_armed,
             turn_deadline,
             &strategy,
         );
+        if submit_observed {
+            break;
+        }
+    }
 
     Ok(InjectionResult {
         bytes_written,
@@ -411,11 +431,13 @@ pub(crate) fn submit_text_with_key(
     let lock = transaction_lock(pty_id);
     let transaction = lock.lock();
     let signal = svc.screen_state.lock().arm_screen_change_signal(pty_id);
+    let status_signal = svc.agent_tracker.lock().arm_status_change_signal(pty_id);
     svc.feed_input_parser(pty_id, text, enter);
     let transport = PtySubmitTransport {
         svc,
         pty_id,
         signal,
+        status_signal,
         permit,
     };
     let required = enter && opts.verify_submit;
@@ -457,8 +479,6 @@ mod tests {
     use super::*;
     use std::cell::{Cell, RefCell};
     use std::time::Duration;
-
-    const MAX_SUBMIT_KEY_WRITES: usize = 3;
 
     /// Deterministic model of a live TUI (codex/opencode/claude) at the PTY seam.
     ///
@@ -701,6 +721,61 @@ mod tests {
         }
     }
 
+    struct CompletedTurnBetweenObservations {
+        generation: Cell<u64>,
+        turn_generation: Cell<u64>,
+        draft_visible: Cell<bool>,
+    }
+
+    impl CompletedTurnBetweenObservations {
+        fn new() -> Self {
+            Self {
+                generation: Cell::new(0),
+                turn_generation: Cell::new(0),
+                draft_visible: Cell::new(false),
+            }
+        }
+    }
+
+    impl SubmitTransport for CompletedTurnBetweenObservations {
+        fn observe(&self) -> Option<Observation> {
+            Some(Observation { tail: "> ".into() })
+        }
+
+        fn draft_evidence_count(&self, _text: &str) -> usize {
+            usize::from(self.draft_visible.get())
+        }
+
+        fn generation(&self) -> u64 {
+            self.generation.get()
+        }
+
+        fn wait_change(&self, _generation: u64, _deadline: Instant) -> bool {
+            false
+        }
+
+        fn turn_started(&self) -> bool {
+            false
+        }
+
+        fn turn_generation(&self) -> u64 {
+            self.turn_generation.get()
+        }
+
+        fn write_paste(&self, text: &str, _deadline: Instant) -> Result<usize, InjectionError> {
+            self.draft_visible.set(true);
+            self.generation.set(self.generation.get() + 1);
+            Ok(text.len())
+        }
+
+        fn write_submit_key(&self, _key: &[u8], _deadline: Instant) -> Result<(), InjectionError> {
+            self.draft_visible.set(false);
+            self.turn_generation.set(self.turn_generation.get() + 2);
+            self.generation.set(self.generation.get() + 1);
+            Ok(())
+        }
+    }
+
     impl SubmitTransport for ComposerRedrawWithoutTurn {
         fn observe(&self) -> Option<Observation> {
             Some(Observation {
@@ -794,6 +869,21 @@ mod tests {
     }
 
     #[test]
+    fn completed_tui_turn_between_observations_confirms_submission() {
+        let result = run(
+            &CompletedTurnBetweenObservations::new(),
+            "fast opencode turn",
+            true,
+            tui(),
+            opts(),
+        )
+        .unwrap();
+
+        assert!(result.submit_observed);
+        assert!(!result.submit_anomaly);
+    }
+
+    #[test]
     fn composer_region_excludes_matching_history_after_submission() {
         let lines = vec![
             "› routed payload".to_string(),
@@ -852,6 +942,14 @@ mod tests {
 
         assert!(result.submit_observed);
         assert!(io.turn_started());
+        assert_eq!(
+            &*io.writes.borrow(),
+            &[
+                "paste:general bootstrap",
+                "enter:> [Pasted text #1 +45 lines]"
+            ],
+            "a confirmed turn must stop the optimistic submit recovery"
+        );
     }
 
     #[test]
@@ -877,10 +975,7 @@ mod tests {
             "submit_observed must reflect the provider turn, not a ConPTY flush"
         );
         assert!(!result.submit_anomaly);
-        assert_eq!(
-            &*io.writes.borrow(),
-            &["paste:unique-marker-42", "enter", "enter", "enter"]
-        );
+        assert_eq!(&*io.writes.borrow(), &["paste:unique-marker-42", "enter"]);
     }
 
     #[test]
@@ -891,10 +986,7 @@ mod tests {
 
         assert!(result.submit_observed);
         assert!(!result.submit_anomaly);
-        assert_eq!(
-            &*io.writes.borrow(),
-            &["paste:pairing intro", "enter", "enter", "enter"]
-        );
+        assert_eq!(&*io.writes.borrow(), &["paste:pairing intro", "enter"]);
     }
 
     #[test]
@@ -905,10 +997,7 @@ mod tests {
 
         assert!(!result.submit_anomaly);
         assert!(result.submit_observed);
-        assert_eq!(
-            &*io.writes.borrow(),
-            &["paste:unique-marker-42", "enter", "enter", "enter"]
-        );
+        assert_eq!(&*io.writes.borrow(), &["paste:unique-marker-42", "enter"]);
     }
 
     #[test]
@@ -944,7 +1033,7 @@ mod tests {
         assert!(io.turn_started());
         assert_eq!(
             &*io.writes.borrow(),
-            &["paste:team bootstrap", "enter", "enter", "enter"]
+            &["paste:team bootstrap", "enter", "enter"]
         );
         result
             .require_submission(true, Duration::ZERO, "> team bootstrap".into())
@@ -962,7 +1051,7 @@ mod tests {
         assert!(io.turn_started());
         assert_eq!(
             &*io.writes.borrow(),
-            &["paste:multiline payload", "enter", "enter", "enter"]
+            &["paste:multiline payload", "enter", "enter"]
         );
     }
 
@@ -1005,7 +1094,7 @@ mod tests {
         assert!(result.submit_observed);
         assert_eq!(
             &*io.writes.borrow(),
-            &["paste:team bootstrap", "enter", "enter", "enter"]
+            &["paste:team bootstrap", "enter", "enter"]
         );
     }
 

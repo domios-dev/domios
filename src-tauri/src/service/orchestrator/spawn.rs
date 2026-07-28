@@ -1,6 +1,6 @@
 use super::launch::{
-    agent_system_prompt, build_agent_command, launch_agent_in_background, skip_local_worker_role,
-    spawn_onboarding_task,
+    agent_system_prompt, build_agent_command, launch_agent_in_background, role_onboarding_task,
+    skip_local_worker_role, spawn_launch_task,
 };
 use super::types::{ReasoningEffortProvenance, SpawnAgentParams, SpawnResult};
 use crate::service::{spawn_title, ServiceContext};
@@ -34,6 +34,27 @@ fn prepare_manager_bootstrap(params: &mut SpawnAgentParams) -> Option<String> {
         crate::agent::provider::StarterPrompt::TeamBootstrap
     };
     Some(bootstrap)
+}
+
+fn compose_chatbackend_system_prompt(params: &mut SpawnAgentParams) -> Option<String> {
+    let assignment = params.system_prompt.take().or_else(|| params.task.take());
+    let assignment = match params.manager_bootstrap.as_ref() {
+        Some(manager) => {
+            let bootstrap = manager.compose();
+            Some(match assignment {
+                Some(assignment) if !assignment.trim().is_empty() => {
+                    format!("{bootstrap}\n\n{assignment}")
+                }
+                _ => bootstrap,
+            })
+        }
+        None => assignment,
+    };
+    role_onboarding_task(
+        assignment.as_deref(),
+        params.role.as_deref(),
+        params.role_profile.as_deref(),
+    )
 }
 
 impl ServiceContext {
@@ -470,10 +491,25 @@ impl ServiceContext {
             None
         };
 
+        let system_prompt_capable = self
+            .agent_registry
+            .with_provider(&agent_cmd, |provider| {
+                matches!(
+                    crate::service::launch_delivery::mode_for_descriptor(
+                        &provider.system_prompt_delivery(),
+                    ),
+                    crate::service::launch_delivery::LaunchDeliveryMode::SystemPrompt
+                )
+            })
+            .unwrap_or(false);
         let bg_task = if params.manager_bootstrap.is_some() {
-            params.task.clone()
+            if system_prompt_capable {
+                Some(agent_system_prompt(params.task.as_deref()))
+            } else {
+                params.task.clone()
+            }
         } else {
-            spawn_onboarding_task(&params)
+            spawn_launch_task(&params, system_prompt_capable)
         };
         // Planner gets a short display hint (pending_greeting, user-facing only)
         // plus its FULL onboarding as real launch input attributed to CodeTerm —
@@ -497,10 +533,12 @@ impl ServiceContext {
                     let orch_tab = orch_tab.as_deref().unwrap_or("unknown");
                     let onboard =
                         crate::prompts::planner_onboarding_task(&orch_label, orch_tab, plan_id);
-                    Some(format!(
-                        "{codeterm_pfx}{}",
+                    let onboarding = if system_prompt_capable {
                         agent_system_prompt(Some(&onboard))
-                    ))
+                    } else {
+                        onboard
+                    };
+                    Some(format!("{codeterm_pfx}{onboarding}"))
                 }
                 None => bg_task,
             }
@@ -523,12 +561,17 @@ impl ServiceContext {
         let fallback_delivery = self
             .agent_registry
             .with_provider(&agent_cmd, |provider| {
-                matches!(
+                let external = matches!(
                     crate::service::launch_delivery::mode_for_descriptor(
                         &provider.system_prompt_delivery(),
                     ),
                     crate::service::launch_delivery::LaunchDeliveryMode::ConfirmedFallback
-                )
+                );
+                external
+                    && matches!(
+                        provider.task_delivery(),
+                        crate::agent::provider::TaskDelivery::PtyInput
+                    )
             })
             .unwrap_or(true);
         let fallback_spec = fallback_delivery
@@ -716,8 +759,7 @@ impl ServiceContext {
         if !self.provider_registry.is_spawnable_chat_backend(agent) {
             return Ok(());
         }
-        let assignment = params.system_prompt.take().or_else(|| params.task.take());
-        params.system_prompt = Some(agent_system_prompt(assignment.as_deref()));
+        params.system_prompt = compose_chatbackend_system_prompt(params);
         Ok(())
     }
 }
@@ -781,6 +823,30 @@ mod hierarchy_defaults_tests {
         };
         apply_worker_hierarchy_defaults(&mut orch);
         assert_eq!(orch.parent_tab_id, None);
+    }
+
+    #[test]
+    fn chatbackend_worker_receives_primer_role_contract_and_assignment_once() {
+        let mut params = SpawnAgentParams {
+            role: Some("Worker".into()),
+            task: Some("repair transport".into()),
+            ..Default::default()
+        };
+
+        let prompt = compose_chatbackend_system_prompt(&mut params).unwrap();
+
+        assert_eq!(
+            prompt
+                .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
+                .count(),
+            1
+        );
+        assert_eq!(
+            prompt.matches(crate::prompts::WORKER_SUFFIX.trim()).count(),
+            1
+        );
+        assert_eq!(prompt.matches("repair transport").count(), 1);
+        assert_eq!(params.task, None);
     }
 
     #[test]
