@@ -186,6 +186,8 @@ pub(crate) struct TaskAddBody {
     #[serde(default)]
     test_plan: Option<String>,
     #[serde(default)]
+    qa_plan: Option<String>,
+    #[serde(default)]
     correctness: Option<String>,
     #[serde(default)]
     body: Option<String>,
@@ -282,6 +284,7 @@ pub async fn task_add(
                 model_rationale: body.why,
                 acceptance_criteria: body.acceptance_criteria,
                 test_plan: body.test_plan,
+                qa_plan: body.qa_plan,
                 correctness: body.correctness,
                 body: body.body.unwrap_or_default(),
                 role_guidance: body.role_guidance,
@@ -355,6 +358,14 @@ pub async fn task_update(
         .map_err(|message| text_err(axum::http::StatusCode::BAD_REQUEST, message))?;
     let depends_on = optional_string_vec_field(&body, "depends_on", "dependency_task_ids")
         .map_err(|message| text_err(axum::http::StatusCode::BAD_REQUEST, message))?;
+    let acceptance_criteria = body.get("acceptance_criteria").map(|_| {
+        body.get("acceptance_criteria")
+            .and_then(|value| serde_json::from_value(value.clone()).ok())
+            .unwrap_or_default()
+    });
+    let test_plan = optional_string_field(&body, "test_plan");
+    let qa_plan = optional_string_field(&body, "qa_plan");
+    let correctness = optional_string_field(&body, "correctness");
     state
         .svc
         .plan_store
@@ -386,6 +397,25 @@ pub async fn task_update(
             .svc
             .plan_store
             .update_task_dependencies(&id, &tid, depends_on, epoch_ms())
+            .map_err(plan_err)?;
+    }
+    if acceptance_criteria.is_some()
+        || test_plan.is_some()
+        || qa_plan.is_some()
+        || correctness.is_some()
+    {
+        state
+            .svc
+            .plan_store
+            .update_task_quality(
+                &id,
+                &tid,
+                acceptance_criteria,
+                test_plan,
+                qa_plan,
+                correctness,
+                epoch_ms(),
+            )
             .map_err(plan_err)?;
     }
     if body.get("role_guidance").is_some() {

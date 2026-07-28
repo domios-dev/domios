@@ -36,6 +36,8 @@ pub struct QaTransitionResult {
     pub task_name: String,
     pub test_plan: Option<String>,
     pub nudged_tab_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strategy_warning: Option<super::review_gate::StrategyWarning>,
 }
 
 fn max_running_qa_per_plan() -> usize {
@@ -90,6 +92,10 @@ fn running_count(tasks: &[Task]) -> usize {
         .count()
 }
 
+fn effective_qa_plan(task: &Task) -> Option<String> {
+    task.qa_plan.clone().or_else(|| task.test_plan.clone())
+}
+
 fn qa_entry(task: &Task, position: Option<usize>, now_ms: u64) -> QaQueueEntry {
     let started_at = (task.qa_state == Some(QaState::Running)).then_some(task.status_changed_at);
     QaQueueEntry {
@@ -100,7 +106,7 @@ fn qa_entry(task: &Task, position: Option<usize>, now_ms: u64) -> QaQueueEntry {
         started_at,
         age_ms: started_at.map(|ts| now_ms.saturating_sub(ts)),
         assigned_tab_id: task.assigned_tab_id.clone(),
-        test_plan: task.test_plan.clone(),
+        test_plan: effective_qa_plan(task),
     }
 }
 
@@ -177,8 +183,9 @@ impl PlanStore {
                 task_id: task.id.clone(),
                 milestone_id: mid,
                 task_name: task.name.clone(),
-                test_plan: task.test_plan.clone(),
+                test_plan: effective_qa_plan(task),
                 nudged_tab_id: None,
+                strategy_warning: None,
             });
             Ok(())
         })?;
@@ -223,8 +230,9 @@ impl PlanStore {
                 task_id: task.id.clone(),
                 milestone_id: mid,
                 task_name: task.name.clone(),
-                test_plan: task.test_plan.clone(),
+                test_plan: effective_qa_plan(task),
                 nudged_tab_id: None,
+                strategy_warning: None,
             });
             Ok(())
         })?;
@@ -280,8 +288,9 @@ impl PlanStore {
                 task_id: task.id.clone(),
                 milestone_id: mid,
                 task_name: task.name.clone(),
-                test_plan: task.test_plan.clone(),
+                test_plan: effective_qa_plan(task),
                 nudged_tab_id: None,
+                strategy_warning: None,
             });
             Ok(())
         })?;
@@ -293,6 +302,8 @@ impl PlanStore {
         plan_id: &str,
         task_id: &str,
         note: &str,
+        changed_executable_surfaces: bool,
+        distinct_oracle: bool,
         from: AgentRef,
         now_ms: u64,
     ) -> Result<QaTransitionResult, PlanError> {
@@ -332,8 +343,8 @@ impl PlanStore {
                 verdict: ReviewVerdict::Bounce,
                 note: note.into(),
                 at: now_ms,
-                changed_executable_surfaces: false,
-                distinct_oracle: false,
+                changed_executable_surfaces,
+                distinct_oracle,
             });
             task.milestones.push(qa_milestone(
                 mid.clone(),
@@ -347,8 +358,9 @@ impl PlanStore {
                 task_id: task.id.clone(),
                 milestone_id: mid,
                 task_name: task.name.clone(),
-                test_plan: task.test_plan.clone(),
+                test_plan: effective_qa_plan(task),
                 nudged_tab_id: implementer,
+                strategy_warning: super::review_gate::strategy_warning(task),
             });
             Ok(())
         })?;

@@ -342,6 +342,7 @@ mod tests {
             model_rationale: None,
             acceptance_criteria: vec![],
             test_plan: None,
+            qa_plan: None,
             correctness: None,
             status: crate::plan::TaskStatus::Pending,
             review_stage: Default::default(),

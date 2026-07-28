@@ -12,6 +12,7 @@ pub const REVIEW_MILESTONE_KIND: &str = "review";
 pub const REVIEW_ESCALATION_MILESTONE_KIND: &str = "review_escalation";
 pub const REVIEW_CREDIT_RECONCILE_MILESTONE_KIND: &str = "review_credit_reconcile";
 pub const REVIEW_CAPACITY_GRANT_MILESTONE_KIND: &str = "review_capacity_grant";
+const REPEATED_STRATEGY_MESSAGE: &str = "Stop iterating this strategy. Re-diagnose per `codeterm docs BOUNCE`. Consider a fresh independent reviewer with a distinct oracle, a decision gate, or model escalation; then continue autonomously.";
 
 fn max_review_rounds() -> u32 {
     std::env::var("CODETERM_PLAN_REVIEW_MAX_ROUNDS")
@@ -220,6 +221,31 @@ fn review_milestone(
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct StrategyWarning {
+    pub consecutive_bounces: usize,
+    pub review_round: u32,
+    pub message: String,
+}
+
+pub fn strategy_warning(task: &Task) -> Option<StrategyWarning> {
+    let consecutive_bounces = task
+        .review_evidence
+        .iter()
+        .rev()
+        .take_while(|evidence| {
+            evidence.verdict == ReviewVerdict::Bounce
+                && !evidence.changed_executable_surfaces
+                && !evidence.distinct_oracle
+        })
+        .count();
+    (consecutive_bounces >= 3).then(|| StrategyWarning {
+        consecutive_bounces,
+        review_round: task.review_round,
+        message: REPEATED_STRATEGY_MESSAGE.into(),
+    })
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct ReviewTransitionResult {
     pub plan_id: String,
     pub task_id: String,
@@ -228,6 +254,8 @@ pub struct ReviewTransitionResult {
     pub verdict: ReviewVerdict,
     pub review_round: u32,
     pub follow_up_task_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strategy_warning: Option<StrategyWarning>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -536,6 +564,7 @@ impl PlanStore {
                 verdict: ReviewVerdict::Bounce,
                 review_round: p.tasks[idx].review_round,
                 follow_up_task_id: None,
+                strategy_warning: strategy_warning(&p.tasks[idx]),
             });
             Ok(())
         })?;
@@ -608,6 +637,7 @@ impl PlanStore {
                         personality_provenance: None,
                         acceptance_criteria: vec![],
                         test_plan: None,
+                        qa_plan: None,
                         correctness: None,
                         status: TaskStatus::Pending,
                         review_stage: ReviewStage::Review,
@@ -657,6 +687,7 @@ impl PlanStore {
                 verdict: ReviewVerdict::Accept,
                 review_round: p.tasks[idx].review_round,
                 follow_up_task_id,
+                strategy_warning: None,
             });
             Ok(())
         })?;

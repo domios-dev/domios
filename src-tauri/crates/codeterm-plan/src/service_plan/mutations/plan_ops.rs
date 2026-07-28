@@ -305,6 +305,7 @@ impl PlanStore {
             model_rationale: new.model_rationale,
             acceptance_criteria: new.acceptance_criteria,
             test_plan: new.test_plan,
+            qa_plan: new.qa_plan,
             correctness: new.correctness,
             status: TaskStatus::Pending,
             review_stage: Default::default(),

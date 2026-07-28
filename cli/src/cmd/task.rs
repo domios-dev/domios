@@ -162,6 +162,8 @@ fn run_task(
             why_file,
             criterion,
             test_plan,
+            qa_plan,
+            qa_plan_file,
             correctness,
             body,
             body_file,
@@ -172,6 +174,7 @@ fn run_task(
             let has_model = model.as_deref().is_some_and(|s| !s.trim().is_empty());
             let why_text = resolve_text(why, why_file)?;
             let body_text = resolve_text(body, body_file)?;
+            let qa_plan_text = resolve_text(qa_plan, qa_plan_file)?;
             let has_why = why_text.as_deref().is_some_and(|s| !s.trim().is_empty());
             let has_body = body_text.as_deref().is_some_and(|s| !s.trim().is_empty());
             let has_criteria = criterion.iter().any(|s| !s.trim().is_empty());
@@ -199,6 +202,9 @@ fn run_task(
             }
             if let Some(test_plan) = test_plan {
                 params["test_plan"] = json!(test_plan);
+            }
+            if let Some(qa_plan) = qa_plan_text {
+                params["qa_plan"] = json!(qa_plan);
             }
             if let Some(correctness) = correctness {
                 params["correctness"] = json!(correctness);
@@ -528,6 +534,11 @@ fn print_task_quality(task: &Value) {
     if let Some(test_plan) = task.get("test_plan").and_then(|v| v.as_str()) {
         if !test_plan.is_empty() {
             println!("test_plan: {test_plan}");
+        }
+    }
+    if let Some(qa_plan) = task.get("qa_plan").and_then(|v| v.as_str()) {
+        if !qa_plan.is_empty() {
+            println!("qa_plan: {qa_plan}");
         }
     }
     if let Some(correctness) = task.get("correctness").and_then(|v| v.as_str()) {

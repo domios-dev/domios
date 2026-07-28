@@ -96,6 +96,7 @@ mod tests {
             personality_provenance: None,
             acceptance_criteria: vec![],
             test_plan: None,
+            qa_plan: None,
             correctness: None,
             status,
             review_stage: ReviewStage::Review,

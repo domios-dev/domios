@@ -18,6 +18,7 @@ fn lane_task(id: &str, status: TaskStatus, lane: TaskLaneMetadata, changed: u64)
         model_rationale: None,
         acceptance_criteria: vec![],
         test_plan: None,
+        qa_plan: None,
         correctness: None,
         status,
         review_stage: Default::default(),

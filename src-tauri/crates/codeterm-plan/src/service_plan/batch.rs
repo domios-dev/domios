@@ -399,6 +399,7 @@ impl PlanStore {
                                     model_rationale: why,
                                     acceptance_criteria: vec![],
                                     test_plan: None,
+                                    qa_plan: None,
                                     correctness: None,
                                     status: status
                                         .as_deref()

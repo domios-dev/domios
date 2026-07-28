@@ -171,6 +171,8 @@ fn plan_task_update_parses_quality_fields() {
         "no separate task button",
         "--test-plan",
         "focused CLI update smoke",
+        "--qa-plan-file",
+        "qa-plan.md",
         "--correctness",
         "one Plan action focuses optional task target",
     ])
@@ -183,6 +185,7 @@ fn plan_task_update_parses_quality_fields() {
                         crate::args::plan::PlanTaskAction::Update {
                             criterion,
                             test_plan,
+                            qa_plan_file,
                             correctness,
                             ..
                         },
@@ -190,6 +193,7 @@ fn plan_task_update_parses_quality_fields() {
         } => {
             assert_eq!(criterion, vec!["no separate task button"]);
             assert_eq!(test_plan.as_deref(), Some("focused CLI update smoke"));
+            assert_eq!(qa_plan_file.as_deref(), Some("qa-plan.md"));
             assert_eq!(
                 correctness.as_deref(),
                 Some("one Plan action focuses optional task target")
@@ -386,6 +390,8 @@ fn plan_task_add_parses_quality_fields() {
         "task show surfaces them",
         "--test-plan",
         "cargo test service::plan::tests::task_quality_fields_persist_and_reload",
+        "--qa-plan",
+        "cargo test independent_qa_oracle",
         "--correctness",
         "round-trip unchanged",
     ])
@@ -398,6 +404,7 @@ fn plan_task_add_parses_quality_fields() {
                         crate::args::plan::PlanTaskAction::Add {
                             criterion,
                             test_plan,
+                            qa_plan,
                             correctness,
                             ..
                         },
@@ -411,6 +418,7 @@ fn plan_task_add_parses_quality_fields() {
                 test_plan.as_deref(),
                 Some("cargo test service::plan::tests::task_quality_fields_persist_and_reload")
             );
+            assert_eq!(qa_plan.as_deref(), Some("cargo test independent_qa_oracle"));
             assert_eq!(correctness.as_deref(), Some("round-trip unchanged"));
         }
         _ => panic!("expected plan task add"),
