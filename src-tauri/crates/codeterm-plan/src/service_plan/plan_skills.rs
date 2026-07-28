@@ -89,43 +89,78 @@ fn read_ledger(plan_dir: &Path) -> Vec<PlanSkillLedgerEntry> {
         .collect()
 }
 
-fn parse_frontmatter(md: &str) -> (Option<String>, Option<String>, Option<String>) {
+const SCAFFOLD_SUMMARY_PLACEHOLDER: &str = "One-paragraph summary that becomes the search snippet.";
+
+struct ParsedSkillDocument {
+    metadata: Option<serde_yaml::Value>,
+    raw_metadata: String,
+    body: String,
+}
+
+fn parse_skill_document(md: &str) -> Option<ParsedSkillDocument> {
     let trimmed = md.trim_start();
     let Some(rest) = trimmed.strip_prefix("---") else {
-        return (None, None, None);
+        return Some(ParsedSkillDocument {
+            metadata: None,
+            raw_metadata: String::new(),
+            body: trimmed.to_string(),
+        });
     };
     let rest = rest.trim_start_matches(['\r', '\n']);
     let mut lines = rest.lines();
     let mut frontmatter = Vec::new();
-    let mut body = String::new();
+    let mut body = None;
     for line in lines.by_ref() {
         if line.trim() == "---" {
-            body = lines.collect::<Vec<_>>().join("\n");
+            body = Some(lines.collect::<Vec<_>>().join("\n"));
             break;
         }
         frontmatter.push(line);
     }
-    if body.is_empty() && !rest.lines().any(|line| line.trim() == "---") {
-        return (None, None, None);
-    }
-    let mut title = None;
-    let mut check = None;
-    for line in frontmatter {
-        let Some((key, value)) = line.split_once(':') else {
-            continue;
-        };
-        let value = value.trim();
-        match key.trim() {
-            "title" => title = Some(value.to_string()),
-            "check" => check = Some(value.to_string()),
-            _ => {}
-        }
-    }
-    let purpose = first_summary_paragraph(&body);
-    (title, Some(purpose), check.filter(|c| !c.is_empty()))
+    let body = body?;
+    let raw_metadata = frontmatter.join("\n");
+    let metadata = serde_yaml::from_str(&raw_metadata).ok();
+    Some(ParsedSkillDocument {
+        metadata,
+        raw_metadata,
+        body,
+    })
 }
 
-fn first_summary_paragraph(body: &str) -> String {
+fn metadata_string(document: &ParsedSkillDocument, key: &str) -> Option<String> {
+    document
+        .metadata
+        .as_ref()
+        .and_then(|metadata| {
+            metadata
+                .as_mapping()?
+                .get(serde_yaml::Value::String(key.to_string()))?
+                .as_str()
+                .map(str::to_string)
+        })
+        .or_else(|| {
+            document.raw_metadata.lines().find_map(|line| {
+                let (candidate, value) = line.split_once(':')?;
+                (candidate.trim() == key)
+                    .then(|| value.trim().to_string())
+                    .filter(|value| !value.is_empty())
+            })
+        })
+}
+
+fn normalize_purpose(value: &str) -> Option<String> {
+    let compact = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    let compact = compact
+        .trim_matches(|ch| matches!(ch, '_' | '*' | '`'))
+        .trim();
+    if compact.is_empty() || compact == SCAFFOLD_SUMMARY_PLACEHOLDER {
+        None
+    } else {
+        Some(compact.to_string())
+    }
+}
+
+fn first_summary_paragraph(body: &str) -> Option<String> {
     for block in body.split("\n\n") {
         let line = block
             .lines()
@@ -134,12 +169,31 @@ fn first_summary_paragraph(body: &str) -> String {
                 !t.is_empty() && !t.starts_with('#')
             })
             .unwrap_or("");
-        let t = line.trim();
-        if !t.is_empty() {
-            return t.trim_matches('_').to_string();
+        if let Some(purpose) = normalize_purpose(line) {
+            return Some(purpose);
         }
     }
-    String::new()
+    None
+}
+
+fn parse_frontmatter(md: &str) -> (Option<String>, Option<String>, Option<String>) {
+    let Some(document) = parse_skill_document(md) else {
+        return (None, None, None);
+    };
+    let title = metadata_string(&document, "title");
+    let check = metadata_string(&document, "check")
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let purpose = ["description", "purpose", "summary"]
+        .into_iter()
+        .find_map(|key| metadata_string(&document, key))
+        .and_then(|value| normalize_purpose(&value))
+        .or_else(|| first_summary_paragraph(&document.body));
+    (title, purpose, check)
+}
+
+pub(super) fn persisted_skill_purpose(md: &str) -> Option<String> {
+    parse_frontmatter(md).1
 }
 
 fn titleize(slug: &str) -> String {
@@ -453,6 +507,30 @@ mod tests {
     }
 
     #[test]
+    fn parse_frontmatter_prefers_persisted_description_metadata() {
+        let md = "---\ntitle: Deploy\ndescription: >-\n  Deploy staging safely without replacing production.\n---\n\nFallback body.\n";
+        let (_, purpose, _) = parse_frontmatter(md);
+        assert_eq!(
+            purpose.as_deref(),
+            Some("Deploy staging safely without replacing production.")
+        );
+    }
+
+    #[test]
+    fn malformed_or_placeholder_skill_has_no_invented_purpose() {
+        assert_eq!(
+            persisted_skill_purpose("---\ntitle: Broken\nNo closing boundary"),
+            None
+        );
+        assert_eq!(
+            persisted_skill_purpose(
+                "---\ntitle: Scaffold\n---\n\n_One-paragraph summary that becomes the search snippet._\n"
+            ),
+            None
+        );
+    }
+
+    #[test]
     fn list_and_show_skills_from_sidecar() {
         let tmp = tempfile::tempdir().unwrap();
         crate::service_plan::paths::mark_test_project_root(tmp.path());
@@ -489,6 +567,17 @@ mod tests {
         assert_eq!(listed[0].title, "Deploy");
         assert!(listed[0].purpose.contains("Deploy staging"));
         assert_eq!(listed[0].check.as_deref(), Some("echo ok"));
+        let heartbeat_skills =
+            crate::service_plan::skill_registry::list_plan_skill_summaries(&plan);
+        assert_eq!(
+            heartbeat_skills,
+            [
+                crate::service_plan::skill_registry::PlanSkillRegistrySummary {
+                    slug: "deploy".to_string(),
+                    purpose: Some("Deploy staging safely.".to_string()),
+                }
+            ]
+        );
 
         let detail = show_plan_skill(&store, &plan.id, "deploy").unwrap();
         assert!(detail.body.contains("Deploy staging"));
@@ -717,7 +806,11 @@ mod tests {
     #[test]
     fn no_legacy_repo_local_fallback_remains() {
         let project = tempfile::tempdir().unwrap();
-        let store = PlanStore::new_for_test(project.path());
+        let database = tempfile::tempdir().unwrap();
+        crate::service_plan::search_index::init_search_port(std::sync::Arc::new(
+            crate::service_plan::test_support::TestSearchPort,
+        ));
+        let store = PlanStore::open(database.path().join("plans.db")).unwrap();
         let plan = store
             .create_plan(
                 "Ignore legacy state".into(),
@@ -744,6 +837,7 @@ mod tests {
         .unwrap();
 
         assert!(list_plan_skills(&store, &plan.id).unwrap().is_empty());
+        assert!(crate::service_plan::skill_registry::list_plan_skill_summaries(&plan).is_empty());
         assert!(matches!(
             show_plan_skill(&store, &plan.id, "legacy"),
             Err(PlanError::NotFound)
