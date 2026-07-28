@@ -16,7 +16,7 @@ use super::delayed::DelayedAction;
 use super::effort::EffortAction;
 use super::mem::MemAction;
 use super::misc::{
-    BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, TabAction, PasteAction,
+    BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PasteAction, TabAction,
     ThemeAction, WorkspaceAction,
 };
 use super::orchestration::OrchestrationAction;

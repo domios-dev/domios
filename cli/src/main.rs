@@ -201,7 +201,7 @@ pub use args::mem::{
     MemSkillAction, MemWorkerAction,
 };
 pub use args::misc::{
-    BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, TabAction, PasteAction,
+    BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PasteAction, TabAction,
     ThemeAction, WebAction, WorkspaceAction,
 };
 pub use args::plan::PlanAction;
