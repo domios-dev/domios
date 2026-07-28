@@ -28,7 +28,6 @@ pub(crate) enum TeamPlanError {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TeamMutationCaller {
-    TrustedDirectUser,
     AgentTab(String),
 }
 
@@ -455,7 +454,6 @@ fn authorize_plan_transfer(
         return Ok(());
     }
     match caller {
-        TeamMutationCaller::TrustedDirectUser => Ok(()),
         TeamMutationCaller::AgentTab(tab_id) if tab_id == destination_owner_tab_id => {
             authorize_team_manager(mux, destination_team_id, Some(&tab_id))
         }
@@ -739,10 +737,8 @@ fn authorize_team_mutation(
     team_id: &str,
     caller: TeamMutationCaller,
 ) -> Result<(), String> {
-    match caller {
-        TeamMutationCaller::TrustedDirectUser => authorize_team_manager(mux, team_id, None),
-        TeamMutationCaller::AgentTab(tab_id) => authorize_team_manager(mux, team_id, Some(&tab_id)),
-    }
+    let TeamMutationCaller::AgentTab(tab_id) = caller;
+    authorize_team_manager(mux, team_id, Some(&tab_id))
 }
 
 #[cfg(test)]

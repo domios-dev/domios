@@ -103,7 +103,7 @@ fn barrier_commit_cannot_be_overwritten_by_concurrent_begin() {
     release.wait();
     let replacement = LaunchGeneration::begin("binding-race-emit", "binding-emit-new".into());
     assert!(worker.join().unwrap());
-    assert!(replacement.owns());
+    assert_eq!(replacement.write_if_current(|| ()), Some(()));
 }
 
 #[test]
@@ -111,8 +111,8 @@ fn barrier_reader_eof_for_old_pty_cannot_take_replacement() {
     let old = LaunchGeneration::begin("binding-race-eof", "binding-eof-old".into());
     let replacement = LaunchGeneration::begin("binding-race-eof", "binding-eof-new".into());
     assert!(!take_reader_termination("binding-eof-old", |_| {}));
-    assert!(replacement.owns());
-    assert!(!old.owns());
+    assert_eq!(replacement.write_if_current(|| ()), Some(()));
+    assert_eq!(old.write_if_current(|| ()), None);
 }
 
 #[test]

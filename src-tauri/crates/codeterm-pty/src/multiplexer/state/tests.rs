@@ -129,7 +129,7 @@ fn test_claim_existing_tab_rejects_tab_with_agent_already_attached() {
 
 #[test]
 fn test_claim_existing_tab_rejects_unknown_tab() {
-    let (mut state, _) = MultiplexerState::new();
+    let (state, _) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
     let result = state.claim_existing_tab(&ws_id, "nonexistent-tab");
     assert!(result.is_err());
@@ -717,7 +717,7 @@ fn test_rename_tab_changes_canonical_title() {
 
 #[test]
 fn test_rename_tab_changes_canonical_tab_title() {
-    let (mut state, tab_id) = MultiplexerState::new();
+    let (mut state, _) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
     let tab_id = state.get_workspace(&ws_id).unwrap().tabs[0].clone();
 

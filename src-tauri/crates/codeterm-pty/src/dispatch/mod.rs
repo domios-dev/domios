@@ -1052,13 +1052,6 @@ mod tests {
     fn tab_list_keeps_tab_info_after_rename_to_fibonacci() {
         use crate::multiplexer::state::MultiplexerState;
         let (mut state, visible) = MultiplexerState::new();
-        let ws_id = state
-            .snapshot()
-            .workspaces
-            .first()
-            .expect("default ws")
-            .id
-            .clone();
         let tab_id = state.find_tab_for_tab(&visible).unwrap();
         state.rename_tab(&tab_id, "Fibonacci").unwrap();
         let snapshot = state.snapshot();

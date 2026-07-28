@@ -404,6 +404,8 @@ fn fresh_agent_model_reports_fallback_notice() {
 
 #[test]
 fn background_model_ignores_a_model_from_another_provider() {
+    use codeterm_mem::worker_agent::BackgroundModelPort;
+
     let provider_id = "background-model-test";
     crate::agent::model_catalog::register(
         provider_id,
@@ -417,10 +419,13 @@ fn background_model_ignores_a_model_from_another_provider() {
             default: Some("model-a".into()),
         },
     );
-    assert_eq!(compatible_background_model(provider_id, "haiku"), None);
     assert_eq!(
-        compatible_background_model(provider_id, "model-a").as_deref(),
-        Some("model-a")
+        CatalogBackgroundModelPort.resolve(provider_id, "haiku"),
+        (String::new(), true)
+    );
+    assert_eq!(
+        CatalogBackgroundModelPort.resolve(provider_id, "model-a"),
+        ("model-a".into(), false)
     );
 }
 
@@ -492,11 +497,6 @@ fn background_model_resolves_correctly_for_every_installed_provider() {
         ),
     ];
     for (provider_id, requested, expected) in cases {
-        assert_eq!(
-            compatible_background_model(provider_id, requested).as_deref(),
-            Some(*expected),
-            "provider {provider_id} should accept its own model {requested}"
-        );
         let (resolved, fell_back) = CatalogBackgroundModelPort.resolve(provider_id, requested);
         assert_eq!(resolved, *expected);
         assert!(!fell_back);
@@ -505,10 +505,6 @@ fn background_model_resolves_correctly_for_every_installed_provider() {
     // Cross-provider: codex's model id must not resolve against cursor's
     // catalog (and vice versa) — proves no provider-id branching papers over
     // an actual catalog mismatch.
-    assert_eq!(
-        compatible_background_model("cursor-provider-test", "gpt-5.5"),
-        None
-    );
     let (resolved, fell_back) =
         CatalogBackgroundModelPort.resolve("cursor-provider-test", "gpt-5.5");
     assert_eq!(resolved, "");

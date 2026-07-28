@@ -1,7 +1,5 @@
 import type { NormalizedChatMessage, ToolEdit, ToolEventKind } from "./types";
 
-export type { ToolEdit, ToolEventKind };
-
 export interface ToolEvent {
   id: string;
   toolId?: string;

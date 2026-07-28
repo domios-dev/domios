@@ -33,9 +33,6 @@ fn team_manager_permission_allows_orchestrator_and_planner() {
     assert!(authorize_team_manager(&mux, &team_id, Some(&orchestrator)).is_ok());
     assert!(authorize_team_manager(&mux, &team_id, Some(&planner)).is_ok());
     assert!(
-        authorize_team_mutation(&mux, &team_id, TeamMutationCaller::TrustedDirectUser,).is_ok()
-    );
-    assert!(
         authorize_team_mutation(&mux, &team_id, TeamMutationCaller::AgentTab(planner),).is_ok()
     );
 }

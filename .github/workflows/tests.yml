@@ -213,6 +213,9 @@ jobs:
       - name: TS strict typecheck (prod build gate)
         run: pnpm exec tsc --noEmit
 
+      - name: TypeScript unused exports
+        run: pnpm check:unused-exports
+
       - name: Run TS unit tests
         run: pnpm test:unit
 

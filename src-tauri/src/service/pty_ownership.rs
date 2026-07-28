@@ -58,10 +58,6 @@ impl PtyOwnership {
         }
     }
 
-    pub fn launch_claim(&self, tab_id: &str) -> Option<String> {
-        self.launch_claims.lock().get(tab_id).cloned()
-    }
-
     pub fn release_pty(&self, pty_id: &str) {
         self.launch_claims
             .lock()
@@ -347,7 +343,7 @@ mod tests {
         let ownership = PtyOwnership::default();
         let callbacks = RecordingCallbacks::default();
         callbacks.run(&ownership, "claimed", true, "agent");
-        let claimed = ownership.launch_claim("claimed").unwrap();
+        let claimed = callbacks.0.lock().unwrap().links["claimed"].clone();
         let orphan = callbacks.spawn();
         let permit = ownership.acquire("claimed");
         let live = callbacks.clone();
@@ -433,7 +429,6 @@ mod tests {
 
         assert!(!selection.linked);
         assert!(!ready.load(Ordering::Acquire));
-        assert!(ownership.launch_claim("missing-tab").is_none());
         assert_eq!(callbacks.0.lock().unwrap().killed, vec![candidate]);
     }
 
@@ -465,10 +460,10 @@ mod tests {
         let ownership = PtyOwnership::default();
         let callbacks = RecordingCallbacks::default();
         callbacks.run(&ownership, "retry", true, "first");
-        let first = ownership.launch_claim("retry").unwrap();
+        let first = callbacks.0.lock().unwrap().links["retry"].clone();
         callbacks.close(&ownership, "retry");
         callbacks.run(&ownership, "retry", true, "second");
-        let second = ownership.launch_claim("retry").unwrap();
+        let second = callbacks.0.lock().unwrap().links["retry"].clone();
         let state = callbacks.0.lock().unwrap();
         assert_ne!(first, second);
         assert_eq!(state.live, HashSet::from([second]));
@@ -480,11 +475,11 @@ mod tests {
         let ownership = PtyOwnership::default();
         let callbacks = RecordingCallbacks::default();
         callbacks.run(&ownership, "stale", true, "first");
-        let stale = ownership.launch_claim("stale").unwrap();
+        let stale = callbacks.0.lock().unwrap().links["stale"].clone();
         callbacks.0.lock().unwrap().live.remove(&stale);
         callbacks.run(&ownership, "stale", true, "retry");
 
-        let fresh = ownership.launch_claim("stale").unwrap();
+        let fresh = callbacks.0.lock().unwrap().links["stale"].clone();
         assert_ne!(stale, fresh);
         assert!(callbacks.0.lock().unwrap().live.contains(&fresh));
     }

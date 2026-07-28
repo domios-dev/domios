@@ -133,19 +133,6 @@ impl ChatSendLedger {
         Some(Self::with_retention_window(&state, status))
     }
 
-    pub(crate) fn latest(&self, tab_id: &str) -> Option<ChatSendStatus> {
-        let state = self.state.lock();
-        let send_id = state
-            .latest_failure_by_tab
-            .get(tab_id)
-            .or_else(|| state.latest_by_tab.get(tab_id))?;
-        state
-            .by_id
-            .get(send_id)
-            .cloned()
-            .map(|status| Self::with_retention_window(&state, status))
-    }
-
     pub(crate) fn reconcile(&self, tab_id: &str) -> Vec<ChatSendStatus> {
         let state = self.state.lock();
         let failures = state
@@ -239,7 +226,7 @@ mod tests {
         assert_eq!(writes, ["one payload"]);
         assert_eq!(result.send_id, pending.send_id);
         assert_eq!(result.state, ChatSendState::Failed);
-        assert_eq!(ledger.latest("tab-1"), Some(result));
+        assert_eq!(ledger.reconcile("tab-1"), vec![result]);
     }
 
     #[test]
@@ -247,12 +234,12 @@ mod tests {
         let ledger = ChatSendLedger::default();
         let pending = ledger.try_start("tab-1").unwrap();
 
-        assert_eq!(ledger.latest("tab-1"), Some(pending.clone()));
+        assert_eq!(ledger.reconcile("tab-1"), vec![pending.clone()]);
 
         let result = run_chat_send(&ledger, pending, "hello", |_| Ok(()));
 
         assert_eq!(result.state, ChatSendState::Sent);
-        assert_eq!(ledger.latest("tab-1"), Some(result));
+        assert_eq!(ledger.reconcile("tab-1"), vec![result]);
     }
 
     #[test]
@@ -262,7 +249,7 @@ mod tests {
         let second = ledger.try_start("tab-1").unwrap();
         let failed = run_chat_send(&ledger, first, "first", |_| Err("Enter swallowed".into()));
 
-        assert_eq!(ledger.latest("tab-1"), Some(failed));
+        assert_eq!(ledger.reconcile("tab-1"), vec![failed]);
         assert_eq!(second.state, ChatSendState::Pending);
     }
 

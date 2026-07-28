@@ -249,10 +249,6 @@ impl LaunchGeneration {
         LAUNCH_REGISTRY.lock().begin(tab_id, pty_id)
     }
 
-    fn owns(&self) -> bool {
-        LAUNCH_REGISTRY.lock().owns(self)
-    }
-
     fn capture_binding_nonce(&mut self, svc: &ServiceContext) {
         let nonce = svc.rotate_session_binding_nonce(&self.tab_id);
         self.binding_nonce = Some(nonce.clone());

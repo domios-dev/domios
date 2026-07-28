@@ -5,10 +5,7 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 CLIPPY_ALLOW=(
-    -A unused-imports
-    -A unused-mut
-    -A unused-variables
-    -A dead-code
+    # Visibility debt is separate from reachability; keep it explicit until that API audit lands.
     -A private-interfaces
     -A clippy::empty_line_after_doc_comments
     -A clippy::duplicated_attributes
@@ -78,5 +75,12 @@ CLIPPY_ALLOW=(
     -A unused_unsafe
 )
 
-cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets -- -D warnings "${CLIPPY_ALLOW[@]}"
-cargo clippy --manifest-path cli/Cargo.toml --workspace --all-targets -- -D warnings "${CLIPPY_ALLOW[@]}"
+run_clippy_gate() {
+    local manifest="$1"
+    shift
+    cargo clippy --manifest-path "$manifest" --workspace "$@" -- -D warnings "${CLIPPY_ALLOW[@]}" || return $?
+    cargo clippy --manifest-path "$manifest" --workspace --all-targets -- -D warnings "${CLIPPY_ALLOW[@]}" || return $?
+}
+
+run_clippy_gate src-tauri/Cargo.toml --lib --bins --examples || exit $?
+run_clippy_gate cli/Cargo.toml --bins --examples || exit $?
